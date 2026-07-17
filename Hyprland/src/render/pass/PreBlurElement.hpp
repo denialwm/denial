@@ -1,0 +1,21 @@
+#pragma once
+#include "PassElement.hpp"
+
+class CPreBlurElement : public IPassElement {
+  public:
+    CPreBlurElement();
+    virtual ~CPreBlurElement() = default;
+
+    virtual bool        needsLiveBlur();
+    virtual bool        needsPrecomputeBlur();
+    virtual bool        disableSimplification();
+    virtual bool        undiscardable();
+
+    virtual const char* passName() {
+        return "CPreBlurElement";
+    }
+
+    virtual ePassElementType type() {
+        return EK_PRE_BLUR;
+    };
+};

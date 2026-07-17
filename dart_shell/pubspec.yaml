@@ -1,0 +1,44 @@
+name: denial_dart_shell
+description: Dart shell embedded by deniald.
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  dbus: ^0.7.12
+  flat_buffers: 25.9.23
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.6.1
+  flutter_svg: ^2.0.17
+  denial_wire_protocol:
+    path: ../protocol/generated/dart
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/cursors/yangyang_xuanling/alternate/
+    - assets/cursors/yangyang_xuanling/busy/
+    - assets/cursors/yangyang_xuanling/diagonal_nesw/
+    - assets/cursors/yangyang_xuanling/diagonal_nwse/
+    - assets/cursors/yangyang_xuanling/handwriting/
+    - assets/cursors/yangyang_xuanling/help/
+    - assets/cursors/yangyang_xuanling/horizontal_resize/
+    - assets/cursors/yangyang_xuanling/link/
+    - assets/cursors/yangyang_xuanling/move/
+    - assets/cursors/yangyang_xuanling/normal/
+    - assets/cursors/yangyang_xuanling/person/
+    - assets/cursors/yangyang_xuanling/pin/
+    - assets/cursors/yangyang_xuanling/precision/
+    - assets/cursors/yangyang_xuanling/text/
+    - assets/cursors/yangyang_xuanling/unavailable/
+    - assets/cursors/yangyang_xuanling/vertical_resize/
+    - assets/cursors/yangyang_xuanling/working/
+    - assets/icons/application-default-icon.svg
+    - assets/wallpapers/wallhaven-28ylpg.jpg

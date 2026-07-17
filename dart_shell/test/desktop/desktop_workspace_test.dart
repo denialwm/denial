@@ -1,0 +1,558 @@
+import 'package:flutter/widgets.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:denial_dart_shell/src/desktop/desktop_overview_layout.dart';
+import 'package:denial_dart_shell/src/desktop/desktop_overview_target.dart';
+import 'package:denial_dart_shell/src/desktop/desktop_workspace.dart';
+import 'package:denial_dart_shell/src/models/display_layout.dart';
+import 'package:denial_dart_shell/src/models/hypr_window.dart';
+import 'package:denial_dart_shell/src/models/hypr_window_event.dart';
+
+void main() {
+  const viewSize = Size(5120, 1440);
+  const secondOutput = Rect.fromLTWH(2560, 0, 2560, 1440);
+
+  test('new windows preserve the geometry assigned by Hyprland', () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    const nativeGeometry = Rect.fromLTWH(3000, 220, 420, 260);
+
+    controller.syncWindows(
+      <HyprWindow>[
+        _window(
+          objectId: 1,
+          windowId: 11,
+          monitorId: 2,
+          geometry: nativeGeometry,
+        ),
+      ],
+      viewSize,
+      1,
+    );
+
+    final placement = controller.state.placements[1]!;
+    expect(placement.contentRect, nativeGeometry);
+  });
+
+  test('undecorated windows use native content geometry as their frame', () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    const nativeGeometry = Rect.fromLTWH(3000, 220, 420, 260);
+
+    controller.syncWindows(
+      <HyprWindow>[
+        _window(
+          objectId: 1,
+          windowId: 11,
+          monitorId: 2,
+          geometry: nativeGeometry,
+          serverSideDecorated: false,
+        ),
+      ],
+      viewSize,
+      1,
+      snapshotSequence: 1,
+    );
+
+    final placement = controller.state.placements[1]!;
+    expect(placement.serverSideDecorated, isFalse);
+    expect(placement.frame, nativeGeometry);
+    expect(placement.contentRect, nativeGeometry);
+  });
+
+  test('decoration changes preserve the client content rectangle', () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    const nativeGeometry = Rect.fromLTWH(3000, 220, 420, 260);
+
+    controller.syncWindows(
+      <HyprWindow>[
+        _window(
+          objectId: 1,
+          windowId: 11,
+          monitorId: 2,
+          geometry: nativeGeometry,
+        ),
+      ],
+      viewSize,
+      1,
+      snapshotSequence: 1,
+    );
+    controller.syncWindows(
+      <HyprWindow>[
+        _window(
+          objectId: 1,
+          windowId: 11,
+          monitorId: 2,
+          geometry: Rect.zero,
+          serverSideDecorated: false,
+        ),
+      ],
+      viewSize,
+      1,
+      snapshotSequence: 2,
+    );
+
+    final placement = controller.state.placements[1]!;
+    expect(placement.serverSideDecorated, isFalse);
+    expect(placement.frame, nativeGeometry);
+    expect(placement.contentRect, nativeGeometry);
+  });
+
+  test('window snapshots do not rewrite native initial geometry', () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    final windows = <HyprWindow>[
+      _window(
+        objectId: 1,
+        windowId: 11,
+        monitorId: 2,
+        geometry: secondOutput,
+      ),
+    ];
+
+    controller.syncWindows(windows, viewSize, 1);
+    controller.syncWindows(windows, viewSize, 1);
+
+    expect(controller.state.placements[1]!.contentRect, secondOutput);
+  });
+
+  test('windows wait for native geometry instead of using a shell fallback',
+      () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+
+    controller.syncWindows(
+      <HyprWindow>[
+        _window(
+          objectId: 1,
+          windowId: 11,
+          monitorId: 1,
+          geometry: Rect.zero,
+        ),
+      ],
+      viewSize,
+      1,
+    );
+
+    expect(controller.state.placements, isEmpty);
+  });
+
+  test('native geometry updates are mirrored without Flutter clamping', () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    final window = _window(objectId: 1, windowId: 11, monitorId: 1);
+    controller.syncWindows(<HyprWindow>[window], viewSize, 1);
+
+    const animatedPopupGeometry = Rect.fromLTWH(2277, 1500, 283, 70);
+    controller.applyNativePlacement(
+      1,
+      _placementEvent(
+        sequence: 1,
+        contentRect: animatedPopupGeometry,
+        monitorId: 1,
+        workspaceId: 1,
+      ),
+    );
+
+    final placement = controller.state.placements[1]!;
+    expect(placement.contentRect, animatedPopupGeometry);
+    expect(placement.dragging, isFalse);
+  });
+
+  test('fullscreen keeps normal stacking and locks geometry', () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    final windows = <HyprWindow>[
+      _window(objectId: 1, windowId: 11, monitorId: 1),
+      _window(objectId: 2, windowId: 22, monitorId: 1),
+    ];
+    controller.syncWindows(windows, viewSize, 1);
+    final restoreFrame = controller.state.placements[1]!.frame;
+
+    const fullscreenBounds = Rect.fromLTWH(0, 0, 2560, 1440);
+    controller.toggleFullscreen(1, bounds: fullscreenBounds);
+
+    final fullscreen = controller.state.placements[1]!;
+    expect(fullscreen.fullscreen, isTrue);
+    expect(fullscreen.frame, fullscreenBounds);
+    expect(fullscreen.contentRect, fullscreenBounds);
+    expect(fullscreen.z, lessThan(controller.state.placements[2]!.z));
+
+    controller.beginMove(1);
+    controller.moveBy(1, const Offset(120, 80));
+    controller.applyNativePlacement(
+      1,
+      _placementEvent(
+        sequence: 1,
+        contentRect: const Rect.fromLTWH(50, 60, 800, 600),
+        monitorId: 1,
+        workspaceId: 1,
+        phase: HyprWindowPlacementPhase.update,
+      ),
+    );
+    expect(controller.state.placements[1]!.frame, fullscreenBounds);
+    expect(controller.state.placements[1]!.dragging, isFalse);
+
+    controller.activate(1);
+    expect(
+      controller.state.placements[1]!.z,
+      greaterThan(controller.state.placements[2]!.z),
+    );
+    controller.activate(2);
+    expect(
+      controller.state.placements[2]!.z,
+      greaterThan(controller.state.placements[1]!.z),
+    );
+
+    controller.toggleFullscreen(1, bounds: fullscreenBounds);
+    expect(controller.state.placements[1]!.fullscreen, isFalse);
+    expect(controller.state.placements[1]!.frame, restoreFrame);
+  });
+
+  test('pinned windows stack above ordinary windows without changing focus z',
+      () {
+    final windows = <HyprWindow>[
+      _window(objectId: 1, windowId: 11, monitorId: 1),
+      _window(objectId: 2, windowId: 22, monitorId: 1, pinned: true),
+      _window(objectId: 3, windowId: 33, monitorId: 1, pinned: true),
+    ];
+    final windowsById = <int, HyprWindow>{
+      for (final window in windows) window.objectId: window,
+    };
+    final placements = <DesktopWindowPlacement>[
+      const DesktopWindowPlacement(
+        objectId: 2,
+        frame: Rect.fromLTWH(0, 0, 100, 100),
+        z: 1,
+        monitorId: 1,
+      ),
+      const DesktopWindowPlacement(
+        objectId: 3,
+        frame: Rect.fromLTWH(0, 0, 100, 100),
+        z: 2,
+        monitorId: 1,
+      ),
+      const DesktopWindowPlacement(
+        objectId: 1,
+        frame: Rect.fromLTWH(0, 0, 100, 100),
+        z: 99,
+        monitorId: 1,
+      ),
+    ]..sort((a, b) => compareDesktopWindowStack(a, b, windowsById));
+
+    expect(placements.map((placement) => placement.objectId), <int>[1, 2, 3]);
+    expect(placements.last.z, 2, reason: 'pinning must not rewrite focus z');
+  });
+
+  test('monitor transfer moves fullscreen frame and restore geometry', () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    final window = _window(objectId: 1, windowId: 11, monitorId: 1);
+    controller.syncWindows(<HyprWindow>[window], viewSize, 1);
+    final restoreFrame = controller.state.placements[1]!.frame;
+
+    const sourceBounds = Rect.fromLTWH(0, 0, 2560, 1440);
+    const targetBounds = Rect.fromLTWH(2560, 0, 2560, 1440);
+    controller.toggleFullscreen(1, bounds: sourceBounds);
+
+    controller.applyNativePlacement(
+      1,
+      _placementEvent(
+        sequence: 1,
+        contentRect: targetBounds,
+        monitorId: 2,
+        workspaceId: 2,
+      ),
+    );
+
+    final transferred = controller.state.placements[1]!;
+    expect(transferred.fullscreen, isTrue);
+    expect(transferred.frame, targetBounds);
+    expect(transferred.monitorId, 2);
+    expect(transferred.workspaceId, 2);
+    expect(transferred.dragging, isFalse);
+
+    controller.toggleFullscreen(1, bounds: targetBounds);
+    expect(controller.state.placements[1]!.fullscreen, isFalse);
+    expect(
+      controller.state.placements[1]!.frame,
+      restoreFrame.shift(const Offset(2560, 0)),
+    );
+  });
+
+  test(
+      'newer snapshots reconcile placement but older snapshots cannot roll it back',
+      () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    final source = _window(objectId: 1, windowId: 11, monitorId: 1);
+    controller.syncWindows(
+      <HyprWindow>[source],
+      viewSize,
+      1,
+      snapshotSequence: 10,
+    );
+
+    const targetGeometry = Rect.fromLTWH(3520, 520, 640, 400);
+    controller.applyNativePlacement(
+      1,
+      _placementEvent(
+        sequence: 12,
+        contentRect: targetGeometry,
+        monitorId: 2,
+        workspaceId: 2,
+      ),
+    );
+
+    controller.syncWindows(
+      <HyprWindow>[source],
+      viewSize,
+      1,
+      snapshotSequence: 11,
+    );
+    expect(controller.state.placements[1]!.monitorId, 2);
+    expect(controller.state.placements[1]!.contentRect, targetGeometry);
+
+    controller.syncWindows(
+      <HyprWindow>[
+        _window(
+          objectId: 1,
+          windowId: 11,
+          monitorId: 1,
+          geometry: const Rect.fromLTWH(800, 300, 700, 500),
+        ),
+      ],
+      viewSize,
+      1,
+      snapshotSequence: 13,
+    );
+    expect(controller.state.placements[1]!.monitorId, 1);
+    expect(
+      controller.state.placements[1]!.contentRect,
+      const Rect.fromLTWH(800, 300, 700, 500),
+    );
+  });
+
+  test('overview membership follows authoritative placement ownership', () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    final windows = <HyprWindow>[
+      _window(objectId: 1, windowId: 11, monitorId: 1),
+      _window(objectId: 2, windowId: 22, monitorId: 1),
+    ];
+    controller.syncWindows(windows, viewSize, 1);
+
+    controller.applyNativePlacement(
+      1,
+      _placementEvent(
+        sequence: 1,
+        contentRect: const Rect.fromLTWH(3520, 520, 640, 400),
+        monitorId: 2,
+        workspaceId: 2,
+      ),
+    );
+
+    final left = DesktopOverviewTarget.resolve(
+      viewSize: viewSize,
+      displayLayout: _displayLayout,
+      windows: windows,
+      workspace: controller.state,
+      foregroundObjectId: 1,
+      preferredMonitorId: 1,
+      systemBarRect: Rect.zero,
+      systemBarSide: SystemBarSide.hidden,
+    );
+    final right = DesktopOverviewTarget.resolve(
+      viewSize: viewSize,
+      displayLayout: _displayLayout,
+      windows: windows,
+      workspace: controller.state,
+      foregroundObjectId: 1,
+      preferredMonitorId: 2,
+      systemBarRect: Rect.zero,
+      systemBarSide: SystemBarSide.hidden,
+    );
+
+    expect(left?.objectIds, <int>{2});
+    expect(right?.objectIds, <int>{1});
+  });
+
+  test('overview never enlarges a window frame', () {
+    const items = <DesktopOverviewItem>[
+      DesktopOverviewItem(
+        objectId: 1,
+        frame: Rect.fromLTWH(80, 100, 320, 240),
+        z: 1,
+      ),
+      DesktopOverviewItem(
+        objectId: 2,
+        frame: Rect.fromLTWH(520, 280, 480, 270),
+        z: 2,
+      ),
+    ];
+
+    final frames = DesktopOverviewLayout.arrange(
+      items: items,
+      bounds: const Rect.fromLTWH(0, 0, 1920, 1080),
+    );
+
+    expect(frames, hasLength(items.length));
+    for (final item in items) {
+      final frame = frames[item.objectId]!;
+      expect(frame.width, lessThanOrEqualTo(item.frame.width));
+      expect(frame.height, lessThanOrEqualTo(item.frame.height));
+    }
+  });
+
+  test('a tiny window keeps its size without collapsing overview cells', () {
+    const items = <DesktopOverviewItem>[
+      DesktopOverviewItem(
+        objectId: 1,
+        frame: Rect.fromLTWH(80, 100, 900, 500),
+        z: 1,
+      ),
+      DesktopOverviewItem(
+        objectId: 2,
+        frame: Rect.fromLTWH(1100, 320, 80, 50),
+        z: 2,
+      ),
+    ];
+
+    final frames = DesktopOverviewLayout.arrange(
+      items: items,
+      bounds: const Rect.fromLTWH(0, 0, 1400, 800),
+    );
+    final regular = frames[1]!;
+    final tiny = frames[2]!;
+
+    expect(tiny.size, items[1].frame.size);
+    expect(regular.width, greaterThan(DesktopOverviewLayout.minimumCellWidth));
+    expect(regular.height,
+        greaterThanOrEqualTo(DesktopOverviewLayout.minimumCellHeight));
+    expect(tiny.center.dy, closeTo(regular.center.dy, 0.001));
+    expect(
+      tiny.left - regular.right,
+      greaterThan(
+        DesktopOverviewLayout.gap +
+            (DesktopOverviewLayout.minimumCellWidth - tiny.width) / 2.0,
+      ),
+    );
+  });
+
+  test('desktop panels and hover triggers use the left screen corners', () {
+    final launcher = DesktopMetrics.launcherRect(
+      viewSize,
+      outputRect: secondOutput,
+    );
+    final dashboard = DesktopMetrics.dashboardRect(
+      viewSize,
+      outputRect: secondOutput,
+    );
+    final launcherTrigger = DesktopMetrics.launcherTriggerRect(
+      viewSize,
+      outputRect: secondOutput,
+    );
+    final dashboardTrigger = DesktopMetrics.dashboardTriggerRect(
+      viewSize,
+      outputRect: secondOutput,
+    );
+
+    expect(launcher, const Rect.fromLTWH(2574, 14, 680, 620));
+    expect(dashboard, const Rect.fromLTWH(2574, 806, 470, 620));
+    expect(launcherTrigger, const Rect.fromLTWH(2560, 0, 8, 96));
+    expect(dashboardTrigger, const Rect.fromLTWH(2560, 1344, 8, 96));
+  });
+}
+
+HyprWindow _window({
+  required int objectId,
+  required int windowId,
+  required int monitorId,
+  Rect? geometry,
+  bool pinned = false,
+  bool serverSideDecorated = true,
+}) {
+  final nativeGeometry = geometry ??
+      Rect.fromLTWH(
+        monitorId == 2 ? 3520 : 960,
+        520,
+        640,
+        400,
+      );
+  return HyprWindow(
+    objectId: objectId,
+    objectKind: 'root_surface',
+    surfaceId: objectId,
+    windowId: windowId,
+    textureId: objectId,
+    title: 'Window $objectId',
+    appId: 'test-$objectId',
+    width: 2560,
+    height: 1440,
+    surfaceX: 0,
+    surfaceY: 0,
+    surfaceWidth: 2560,
+    surfaceHeight: 1440,
+    textureSourceX: 0,
+    textureSourceY: 0,
+    textureSourceWidth: 2560,
+    textureSourceHeight: 1440,
+    geometryX: nativeGeometry.left,
+    geometryY: nativeGeometry.top,
+    geometryWidth: nativeGeometry.width,
+    geometryHeight: nativeGeometry.height,
+    monitorId: monitorId,
+    transform: 0,
+    scale120: 120,
+    pinned: pinned,
+    serverSideDecorated: serverSideDecorated,
+  );
+}
+
+HyprWindowPlacementEvent _placementEvent({
+  required int sequence,
+  required Rect contentRect,
+  required int monitorId,
+  required int workspaceId,
+  HyprWindowPlacementPhase phase = HyprWindowPlacementPhase.end,
+  HyprWindowPlacementChange change = HyprWindowPlacementChange.move,
+}) {
+  return HyprWindowPlacementEvent(
+    sequence: sequence,
+    windowId: 11,
+    contentRect: contentRect,
+    monitorId: monitorId,
+    workspaceId: workspaceId,
+    phase: phase,
+    change: change,
+  );
+}
+
+const _displayLayout = DisplayLayout(
+  epoch: 1,
+  globalOrigin: Offset.zero,
+  logicalSize: Size(5120, 1440),
+  pixelSize: Size(5120, 1440),
+  engineScale: 1,
+  tickerMonitorId: 1,
+  systemBarMonitorId: 1,
+  systemBarSide: SystemBarSide.hidden,
+  outputs: <DisplayOutput>[
+    DisplayOutput(
+      monitorId: 1,
+      name: 'left',
+      logicalRect: Rect.fromLTWH(0, 0, 2560, 1440),
+      pixelSize: Size(2560, 1440),
+      scale: 1,
+      refreshRate: 60,
+    ),
+    DisplayOutput(
+      monitorId: 2,
+      name: 'right',
+      logicalRect: Rect.fromLTWH(2560, 0, 2560, 1440),
+      pixelSize: Size(2560, 1440),
+      scale: 1,
+      refreshRate: 60,
+    ),
+  ],
+);

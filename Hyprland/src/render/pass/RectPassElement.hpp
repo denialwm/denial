@@ -1,0 +1,40 @@
+#pragma once
+#include "PassElement.hpp"
+#include <hyprutils/math/Region.hpp>
+
+class CRectPassElement : public IPassElement {
+  public:
+    struct SRectData {
+        CBox       box;
+        CHyprColor color;
+        int        round         = 0;
+        float      roundingPower = 2.0f;
+        bool       blur = false, xray = false;
+        float      blurA = 1.F;
+        CBox       clipBox;
+
+        // internal
+        CBox    modifiedBox;
+        float   TOPLEFT[2];
+        float   FULLSIZE[2];
+        CRegion drawRegion;
+    };
+
+    CRectPassElement(const SRectData& data);
+    virtual ~CRectPassElement() = default;
+
+    virtual bool                needsLiveBlur();
+    virtual bool                needsPrecomputeBlur();
+    virtual std::optional<CBox> boundingBox();
+    virtual CRegion             opaqueRegion();
+
+    virtual const char*         passName() {
+        return "CRectPassElement";
+    }
+
+    virtual ePassElementType type() {
+        return EK_RECT;
+    };
+
+    SRectData m_data;
+};

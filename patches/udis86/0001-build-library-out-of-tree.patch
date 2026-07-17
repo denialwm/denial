@@ -1,0 +1,69 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 87786e4..be42f36 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,11 +1,5 @@
+ cmake_minimum_required(VERSION 3.12)
+ project(udis86 LANGUAGES C)
+ 
+-include_directories("${PROJECT_SOURCE_DIR}")
+-
++include_directories("${PROJECT_SOURCE_DIR}/libudis86")
+ add_subdirectory(libudis86)
+-add_subdirectory(udcli)
+-
+-add_library(udis86 INTERFACE)
+-target_include_directories(udis86 INTERFACE ${CMAKE_SOURCE_DIR})
+-target_link_libraries(udis86 INTERFACE libudis86)
+diff --git a/libudis86/CMakeLists.txt b/libudis86/CMakeLists.txt
+index b576608..9acb67f 100644
+--- a/libudis86/CMakeLists.txt
++++ b/libudis86/CMakeLists.txt
+@@ -3,22 +3,26 @@ project(libudis86 LANGUAGES C)
+ 
+ set(CMAKE_C_STANDARD 99)
+ 
+-if(NOT EXISTS ${PROJECT_SOURCE_DIR}/itab.c OR NOT EXISTS ${PROJECT_SOURCE_DIR}/itab.h)
+-	find_package(Python3 COMPONENTS Interpreter)
+-	set(OPTABLE ${PROJECT_SOURCE_DIR}/../docs/x86/optable.xml)
+-	message("Building itab.c/itab.h...")
+-	execute_process(
+-		COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/../scripts/ud_itab.py ${OPTABLE} .
+-		WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+-	)
+-endif()
++find_package(Python3 REQUIRED COMPONENTS Interpreter)
++set(OPTABLE ${PROJECT_SOURCE_DIR}/../docs/x86/optable.xml)
++set(GENERATED_ROOT ${PROJECT_BINARY_DIR}/generated)
++set(GENERATED_DIR ${GENERATED_ROOT}/libudis86)
++file(MAKE_DIRECTORY ${GENERATED_DIR})
++add_custom_command(
++	OUTPUT ${GENERATED_DIR}/itab.c ${GENERATED_DIR}/itab.h
++	COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/../scripts/ud_itab.py
++		${OPTABLE} ${GENERATED_DIR}
++	DEPENDS ${OPTABLE}
++		${PROJECT_SOURCE_DIR}/../scripts/ud_itab.py
++		${PROJECT_SOURCE_DIR}/../scripts/ud_opcode.py
++	VERBATIM)
+ 
+ set(FILES
+ 	decode.c
+ 	decode.h
+ 	extern.h
+-	itab.c
+-	itab.h
++	${GENERATED_DIR}/itab.c
++	${GENERATED_DIR}/itab.h
+ 	syn-att.c
+ 	syn-intel.c
+ 	syn.c
+@@ -29,4 +33,7 @@ set(FILES
+ 
+ add_library(libudis86 STATIC ${FILES})
+ 
+-target_include_directories(libudis86 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+\ No newline at end of file
++target_include_directories(libudis86 PUBLIC
++	${CMAKE_CURRENT_SOURCE_DIR}
++	${GENERATED_ROOT}
++	${GENERATED_DIR})

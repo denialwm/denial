@@ -1,0 +1,5 @@
+.dart_tool/
+.packages
+build/
+elinux/flutter/ephemeral/
+elinux/flutter/generated_*
