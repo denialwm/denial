@@ -20,6 +20,10 @@ MANIFEST="$ROOT/compositor/Cargo.toml"
 EMBEDDER_HEADER="$ROOT/third_party/flutter_embedder/embedder.h"
 BUNDLE="${DENIAL_PC_BUNDLE:-$ROOT/dart_shell/build/elinux/x64/release/bundle}"
 ENGINE="${DENIAL_PC_ENGINE:-$BUNDLE/lib/libflutter_engine.so}"
+EPHEMERAL_ENGINE="$ROOT/dart_shell/elinux/flutter/ephemeral/libflutter_engine.so"
+PREBUILT_ENGINE_DIR="$ROOT/prebuilt/flutter-engine/elinux-x64-release"
+PREBUILT_ENGINE="$PREBUILT_ENGINE_DIR/libflutter_engine.so"
+PREBUILT_ENGINE_SHA256="$PREBUILT_ENGINE.sha256"
 BINARY="${DENIAL_PC_BINARY:-$RUST_TARGET/release/deniald}"
 OUTPUT_CONFIG="${DENIAL_PC_OUTPUT_CONFIG:-$ROOT/dev/denial-outputs.conf}"
 DRM_DEVICE="${DENIAL_PC_DRM_DEVICE:-/dev/dri/by-path/pci-0000:0a:00.0-card}"
@@ -104,6 +108,38 @@ apply_dependency_patch() {
     die "$label patch does not apply cleanly: $patch"
 }
 
+file_sha256() {
+    sha256sum -- "$1" | cut -d' ' -f1
+}
+
+prebuilt_engine_sha256() {
+    require_file "$PREBUILT_ENGINE_SHA256"
+    cut -d' ' -f1 < "$PREBUILT_ENGINE_SHA256"
+}
+
+verify_prebuilt_engine() {
+    require_file "$PREBUILT_ENGINE"
+    [[ "$(file_sha256 "$PREBUILT_ENGINE")" == "$(prebuilt_engine_sha256)" ]] \
+        || die "prebuilt Flutter engine does not match $PREBUILT_ENGINE_SHA256; restore it from Git (see $PREBUILT_ENGINE_DIR/BUILD_INFO.md)"
+}
+
+# flutter-elinux build always copies the stock Sony engine into the bundle,
+# silently reverting the patched engine (patches/flutter-engine/README.md).
+# Every bundle build must therefore end by reinstalling the prebuilt engine.
+install_patched_engine() {
+    verify_prebuilt_engine
+    install -m644 -- "$PREBUILT_ENGINE" "$ENGINE"
+    [[ ! -e "$EPHEMERAL_ENGINE" ]] || install -m644 -- "$PREBUILT_ENGINE" "$EPHEMERAL_ENGINE"
+    printf 'Installed patched Flutter engine into bundle (sha256 %.12s...)\n' \
+        "$(prebuilt_engine_sha256)"
+}
+
+require_patched_engine() {
+    require_file "$ENGINE"
+    [[ "$(file_sha256 "$ENGINE")" == "$(prebuilt_engine_sha256)" ]] \
+        || die "bundle engine is not the patched build (a bundle build reverted it to stock); run '$0 bundle'"
+}
+
 require_revision() {
     local label="$1"
     local source="$2"
@@ -176,6 +212,7 @@ build_bundle() {
     require_file "$ENGINE"
     require_file "$BUNDLE/data/icudtl.dat"
     require_file "$BUNDLE/lib/libapp.so"
+    install_patched_engine
 }
 
 build_compositor() {
@@ -223,7 +260,7 @@ resolve_drm_device() {
 
 run_compositor() {
     require_file "$BINARY"
-    require_file "$ENGINE"
+    require_patched_engine
     require_file "$BUNDLE/data/icudtl.dat"
     require_file "$BUNDLE/lib/libapp.so"
     require_file "$OUTPUT_CONFIG"
@@ -263,6 +300,26 @@ show_path_state() {
     fi
 }
 
+show_engine_state() {
+    if [[ ! -e "$PREBUILT_ENGINE" || ! -e "$PREBUILT_ENGINE_SHA256" ]]; then
+        printf 'missing  %-18s %s\n' "patched engine" "$PREBUILT_ENGINE"
+    elif [[ "$(file_sha256 "$PREBUILT_ENGINE")" != "$(prebuilt_engine_sha256)" ]]; then
+        printf 'corrupt  %-18s %s (checksum mismatch; restore from Git)\n' \
+            "patched engine" "$PREBUILT_ENGINE"
+    else
+        printf 'ok       %-18s %s\n' "patched engine" "$PREBUILT_ENGINE"
+    fi
+
+    if [[ ! -e "$ENGINE" ]]; then
+        printf 'missing  %-18s %s\n' "bundle engine" "$ENGINE"
+    elif [[ -e "$PREBUILT_ENGINE_SHA256" \
+        && "$(file_sha256 "$ENGINE")" == "$(prebuilt_engine_sha256)" ]]; then
+        printf 'ok       %-18s %s (patched)\n' "bundle engine" "$ENGINE"
+    else
+        printf 'stale    %-18s %s (stock engine; run bundle)\n' "bundle engine" "$ENGINE"
+    fi
+}
+
 show_session_state() {
     if [[ ! -e "$SESSION_FILE" ]]; then
         printf 'missing  %-18s %s\n' "SDDM entry" "$SESSION_FILE"
@@ -287,7 +344,7 @@ doctor() {
     show_path_state "Rust manifest" "$MANIFEST"
     show_path_state "embedder header" "$EMBEDDER_HEADER"
     show_path_state "Dart bundle" "$BUNDLE/lib/libapp.so"
-    show_path_state "Flutter engine" "$ENGINE"
+    show_engine_state
     show_path_state "deniald" "$BINARY"
     show_path_state "output config" "$OUTPUT_CONFIG"
     show_path_state "DRM device" "$DRM_DEVICE"

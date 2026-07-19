@@ -10,6 +10,36 @@ license bundle versioned as one release unit. Do not silently apply the patch
 to a different engine revision: rebase it and repeat the rendering and CPU
 profile checks below.
 
+The release unit lives in `prebuilt/flutter-engine/elinux-x64-release/`:
+the patched binary, its SHA-256, the pinned revision, the GN `args.gn`, and
+both license files are committed to Git so the compiled engine can never be
+lost again. `prebuilt/.../BUILD_INFO.md` records where the engine build tree
+lives and how to rebuild.
+
+## How the patched engine reaches the bundle
+
+`flutter-elinux build` unconditionally copies the STOCK Sony engine from the
+SDK artifact cache into `dart_shell/build/.../bundle/lib/` and
+`dart_shell/elinux/flutter/ephemeral/`. On 2026-07-19 this silently reverted
+the bundle to the stock engine and brought the software A8 mask uploads back
+(~956 window-sized `glTexSubImage2D` calls/s, ~20% of a core, measured live).
+
+`tools/denial-pc` therefore enforces the patched engine at both ends:
+
+- `bundle` (and `build`) finish by verifying
+  `prebuilt/flutter-engine/elinux-x64-release/libflutter_engine.so` against
+  its committed SHA-256 and installing it over the bundle and ephemeral
+  copies (`install_patched_engine`).
+- `session` refuses to start when the bundle engine's SHA-256 does not match
+  the prebuilt stamp (`require_patched_engine`), so a stock engine can no
+  longer run unnoticed.
+- `doctor` reports whether both the prebuilt and the bundle engine are the
+  patched build.
+
+Building the bundle through anything other than `tools/denial-pc bundle`
+leaves the stock engine in place by design of the upstream tool; the session
+guard will catch it.
+
 ## Why Denial rebuilds Flutter Engine
 
 Denial supplies Flutter with an embedder-owned OpenGL framebuffer. Upstream

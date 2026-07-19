@@ -1,13 +1,16 @@
 diff --git a/shell/gpu/gpu_surface_gl_skia.cc b/shell/gpu/gpu_surface_gl_skia.cc
+index a5b5b9f..18e8d96 100644
 --- a/shell/gpu/gpu_surface_gl_skia.cc
 +++ b/shell/gpu/gpu_surface_gl_skia.cc
-@@ -31,6 +31,7 @@
+@@ -29,6 +29,7 @@
+ // define these upfront. It is unlikely we will need more. But, if we do, we can
+ // add the same here.
  #define GPU_GL_RGBA8 0x8058
 +#define GPU_GL_RGB8 0x8051
  #define GPU_GL_RGBA4 0x8056
  #define GPU_GL_RGB565 0x8D62
  #define GPU_GL_FRAMEBUFFER 0x8D40
-@@ -39,6 +40,8 @@
+@@ -40,6 +41,8 @@
  #define GPU_GL_STENCIL_BITS 0x0D57
  #define GPU_GL_TEXTURE 0x1702
  #define GPU_GL_TEXTURE_2D 0x0DE1
@@ -16,7 +19,7 @@ diff --git a/shell/gpu/gpu_surface_gl_skia.cc b/shell/gpu/gpu_surface_gl_skia.cc
  
  namespace flutter {
  
-@@ -163,6 +166,7 @@ static sk_sp<SkSurface> WrapOnscreenSurface(GrDirectContext* context,
+@@ -155,6 +158,7 @@ static sk_sp<SkSurface> WrapOnscreenSurface(GrDirectContext* context,
    GrGLint color_attachment_type = 0;
    GrGLint color_attachment_name = 0;
    GrGLint color_attachment_level = -1;
@@ -24,7 +27,7 @@ diff --git a/shell/gpu/gpu_surface_gl_skia.cc b/shell/gpu/gpu_surface_gl_skia.cc
    GrGLint stencil_bits = 0;
    gl->fFunctions.fBindFramebuffer(GPU_GL_FRAMEBUFFER,
                                    static_cast<GrGLuint>(fbo));
-@@ -186,11 +190,32 @@ static sk_sp<SkSurface> WrapOnscreenSurface(GrDirectContext* context,
+@@ -177,11 +181,36 @@ static sk_sp<SkSurface> WrapOnscreenSurface(GrDirectContext* context,
        gl->fFunctions.fGetFramebufferAttachmentParameteriv(
            GPU_GL_FRAMEBUFFER, GPU_GL_COLOR_ATTACHMENT0,
            GPU_GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL, &color_attachment_level);
