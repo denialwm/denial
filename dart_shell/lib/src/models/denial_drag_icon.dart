@@ -1,7 +1,6 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
-import 'hypr_window.dart';
+import 'denial_window.dart';
 
 @immutable
 class DenialDragIcon {
@@ -17,7 +16,7 @@ class DenialDragIcon {
   final int surfaceId;
   final Offset offset;
   final Size size;
-  final HyprSurfaceLayer layer;
+  final DenialSurfaceLayer layer;
 }
 
 @immutable

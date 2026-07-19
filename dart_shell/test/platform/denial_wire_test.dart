@@ -4,8 +4,8 @@ import 'dart:typed_data';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:denial_dart_shell/src/input/input_layout.dart';
-import 'package:denial_dart_shell/src/models/hypr_window.dart';
-import 'package:denial_dart_shell/src/models/hypr_window_event.dart';
+import 'package:denial_dart_shell/src/models/denial_window.dart';
+import 'package:denial_dart_shell/src/models/denial_window_event.dart';
 import 'package:denial_dart_shell/src/platform/denial_wire.dart'
     hide InputWindowRegion;
 
@@ -168,7 +168,7 @@ void main() {
     expect(bytes, isNull);
   });
 
-  test('C++ window goldens decode to Dart models', () {
+  test('native window goldens decode to Dart models', () {
     for (final count in <int>[0, 1, 8, 32]) {
       final label = switch (count) {
         0 => 'empty',
@@ -177,7 +177,7 @@ void main() {
         _ => 'many',
       };
       final bytes =
-          File('../protocol/golden/cpp_windows_$label.denw').readAsBytesSync();
+          File('../protocol/golden/native_windows_$label.denw').readAsBytesSync();
       final codec = DenialWireCodec();
       final decoded = codec.decodeStructured(ByteData.sublistView(bytes));
       expect(decoded, isNotNull);
@@ -298,7 +298,7 @@ void main() {
     expect(codec.decodeStructured(ByteData.sublistView(outbound)), isNull);
 
     final wrongIdentifier = Uint8List.fromList(
-      File('../protocol/golden/cpp_windows_one.denw').readAsBytesSync(),
+      File('../protocol/golden/native_windows_one.denw').readAsBytesSync(),
     )..[4] = 0;
     expect(
       codec.decodeStructured(ByteData.sublistView(wrongIdentifier)),
@@ -359,16 +359,16 @@ void main() {
     final codec = DenialWireCodec();
     final packet = _placementPacket(
       sequence: 9,
-      phase: HyprWindowPlacementPhase.end,
-      change: HyprWindowPlacementChange.move,
+      phase: DenialWindowPlacementPhase.end,
+      change: DenialWindowPlacementChange.move,
     );
     final decoded = codec.decodePlacement(packet);
     expect(decoded, isNotNull);
     expect(decoded!.windowId, 0x100000002);
     expect(decoded.monitorId, 4);
     expect(decoded.workspaceId, 7);
-    expect(decoded.phase, HyprWindowPlacementPhase.end);
-    expect(decoded.change, HyprWindowPlacementChange.move);
+    expect(decoded.phase, DenialWindowPlacementPhase.end);
+    expect(decoded.change, DenialWindowPlacementChange.move);
     expect(
         decoded.contentRect, const Rect.fromLTWH(-12.5, 4.75, 640.5, 480.25));
 
@@ -480,8 +480,8 @@ InputLayoutSnapshot _inputLayout(int count, {int? epoch}) {
   );
 }
 
-HyprWindow _window(int index, {int? surfaceId}) {
-  return HyprWindow(
+DenialWindow _window(int index, {int? surfaceId}) {
+  return DenialWindow(
     objectId: 0x100000000 + index,
     objectKind: index.isEven ? 'root_surface' : 'surface',
     surfaceId: surfaceId ?? 0x200000000 + index,
@@ -511,8 +511,8 @@ HyprWindow _window(int index, {int? surfaceId}) {
 
 ByteData _placementPacket({
   required int sequence,
-  required HyprWindowPlacementPhase phase,
-  required HyprWindowPlacementChange change,
+  required DenialWindowPlacementPhase phase,
+  required DenialWindowPlacementChange change,
 }) {
   return ByteData(80)
     ..setUint8(0, 0x44)

@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/hypr_window_event.dart';
+import '../models/denial_window_event.dart';
 import '../state/display_layout.dart';
 import '../state/shell_controller.dart';
 import 'desktop_workspace.dart';
@@ -20,7 +20,7 @@ final desktopWindowCoordinatorProvider = Provider<void>((ref) {
   ref.onDispose(() => unawaited(subscription.cancel()));
 });
 
-void _reduceWindowEvent(Ref ref, HyprWindowEvent event) {
+void _reduceWindowEvent(Ref ref, DenialWindowEvent event) {
   final shell = ref.read(shellControllerProvider);
   final target = shell.windowByWindowId(event.windowId);
   if (target == null || !target.isUserApp) {
@@ -29,31 +29,37 @@ void _reduceWindowEvent(Ref ref, HyprWindowEvent event) {
 
   final workspace = ref.read(desktopWorkspaceProvider.notifier);
   switch (event) {
-    case HyprWindowPlacementEvent():
-      if (event.phase == HyprWindowPlacementPhase.begin) {
+    case DenialWindowPlacementEvent():
+      if (event.phase == DenialWindowPlacementPhase.begin) {
         ref.read(shellControllerProvider.notifier).focusWindow(target);
       }
       workspace.applyNativePlacement(target.objectId, event);
-    case HyprWindowActionEvent():
+    case DenialWindowActionEvent():
       switch (event.action) {
-        case HyprWindowAction.minimize:
+        case DenialWindowAction.minimize:
           workspace.minimize(target.objectId);
-        case HyprWindowAction.maximize:
-          workspace.maximize(target.objectId);
-        case HyprWindowAction.restore:
+        case DenialWindowAction.maximize:
+          workspace.maximize(
+            target.objectId,
+            bounds: _outputBounds(ref, target.objectId),
+          );
+        case DenialWindowAction.restore:
           workspace.restore(target.objectId);
-        case HyprWindowAction.toggleMaximize:
-          workspace.toggleMaximized(target.objectId);
-        case HyprWindowAction.toggleFullscreen:
+        case DenialWindowAction.toggleMaximize:
+          workspace.toggleMaximized(
+            target.objectId,
+            bounds: _outputBounds(ref, target.objectId),
+          );
+        case DenialWindowAction.toggleFullscreen:
           workspace.toggleFullscreen(
             target.objectId,
-            bounds: _fullscreenBounds(ref, target.objectId),
+            bounds: _outputBounds(ref, target.objectId),
           );
       }
   }
 }
 
-Rect _fullscreenBounds(Ref ref, int objectId) {
+Rect _outputBounds(Ref ref, int objectId) {
   final workspace = ref.read(desktopWorkspaceProvider);
   final displayLayout = ref.read(displayLayoutProvider);
   final viewSize = workspace.viewSize.isEmpty

@@ -8,7 +8,7 @@ import 'desktop/desktop_input_layout_publisher.dart';
 import 'desktop/desktop_shell.dart';
 import 'input/input_layout.dart';
 import 'launcher/home_surface.dart';
-import 'models/hypr_window.dart';
+import 'models/denial_window.dart';
 import 'state/cursor_theme.dart';
 import 'state/bluetooth.dart';
 import 'state/desktop_notifications.dart';
@@ -50,11 +50,11 @@ class _ShellScrollBehavior extends ScrollBehavior {
   Set<PointerDeviceKind> get dragDevices => _shellDragDevices;
 }
 
-final _userAppWindowsProvider = Provider<List<HyprWindow>>((ref) {
+final _userAppWindowsProvider = Provider<List<DenialWindow>>((ref) {
   final windows = ref.watch(
     shellControllerProvider.select((state) => state.windows),
   );
-  return List<HyprWindow>.unmodifiable(
+  return List<DenialWindow>.unmodifiable(
     windows.where((window) => window.isUserApp),
   );
 });
@@ -702,8 +702,8 @@ class _PrimaryWindowStage extends StatelessWidget {
     required this.opacity,
   });
 
-  final HyprWindow currentWindow;
-  final HyprWindow? switchTargetWindow;
+  final DenialWindow currentWindow;
+  final DenialWindow? switchTargetWindow;
   final double switchDragX;
   final double opacity;
   static const double _switchGap = ShellMetrics.appSwitchGap;

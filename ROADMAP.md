@@ -6,10 +6,10 @@ instead of retained as historical task documents.
 
 ## One product install
 
-The native build is now one graph: the retained Flutter embedder sources are an
-internal object target linked directly into `deniald`, with no project-owned
-embedder library. The remaining runtime artifacts are the upstream
-`libflutter_engine.so`, the Dart AOT bundle and assets, and `deniald`.
+The native build is one Rust workspace containing `deniald` and the private
+Flutter Engine host crate. The remaining runtime artifacts are the patched
+`libflutter_engine.so`, the Dart AOT bundle and assets, ICU data, and
+`deniald`.
 
 The target is one versioned install unit, not a single self-extracting ELF. The
 shell bundle should become a declared build dependency, while Flutter support
@@ -20,7 +20,22 @@ Completion requires:
 - a clean build producing the complete install tree from pinned inputs;
 - no valid `deniald` configuration without the Flutter shell;
 - atomic install and rollback of executable, engine, AOT, ICU, and assets;
-- unchanged rendering, input, reload, and platform-channel behavior.
+- unchanged rendering, input and platform-channel behavior.
+
+## Rust parity audit
+
+The Hyprland implementation is frozen at `hyprland-last-known-good` only as a
+regression reference. Native features claimed by historical documents must be
+ported and revalidated instead of being assumed complete. The secure
+PAM-backed lock boundary is the most important known gap; its contract remains
+in `SECURE_LOCK.md`.
+
+Completion requires:
+
+- explicit parity tests for every native platform channel used by Dart;
+- secure lock and authentication ownership restored in Rust;
+- suspend/resume, VT switching, hotplug and teardown soak tests;
+- regressions converted into Rust tests before the legacy checkout is closed.
 
 ## Adaptive mixed displays
 
@@ -39,15 +54,15 @@ The first acceptance setup is an internal touch panel plus one external desktop
 monitor, with a window movable between them while touch remains mapped to the
 internal panel.
 
-## Presentation simplification
+## General presentation fallback
 
-The correctness fallback copies damaged scene regions into output swapchain
-buffers. Direct atlas scanout is used only where buffer layout and KMS
-constraints permit it. Future simplification must be driven by measurements,
-not by removing Aquamarine or weakening the fallback.
+The Rust compositor currently validates and uses direct shared-atlas scanout.
+Layouts or driver constraints incompatible with that path are rejected. A
+general correctness fallback should copy only damaged output regions into
+per-output scanout buffers without changing Flutter's ownership of the scene.
 
 Open validation includes blur/readback effects, mixed refresh rates, hotplug,
-suspend/resume, long interaction runs, and explicit synchronization on every
-target GPU. A busy output may still render a frame that is later discarded;
-eliminating that wasted work requires explicit output-slot admission, not a
-recovery timer.
+suspend/resume, long interaction runs, incompatible modifiers and explicit
+synchronization on every target GPU. A busy output may still render a frame
+that is later discarded; eliminating that wasted work requires explicit
+output-slot admission, not a recovery timer.

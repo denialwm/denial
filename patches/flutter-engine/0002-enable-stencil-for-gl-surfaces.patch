@@ -1,0 +1,18 @@
+diff --git a/shell/gpu/gpu_surface_gl_skia.cc b/shell/gpu/gpu_surface_gl_skia.cc
+--- a/shell/gpu/gpu_surface_gl_skia.cc
++++ b/shell/gpu/gpu_surface_gl_skia.cc
+@@ -52,8 +52,13 @@ sk_sp<GrDirectContext> GPUSurfaceGLSkia::MakeGLContext(
+     return nullptr;
+   }
+ 
+-  const auto options =
++  auto options =
+       MakeDefaultContextOptions(ContextType::kRender, GrBackendApi::kOpenGL);
++  // Flutter's generic OpenGL defaults avoid stencil buffers. Embedder-owned
++  // targets that expose real stencil bits need stencil enabled so Ganesh can
++  // use GPU stencil and dynamic MSAA for antialiased clips instead of
++  // rasterizing and uploading software A8 masks.
++  options.fAvoidStencilBuffers = false;
+ 
+   auto context = GrDirectContexts::MakeGL(delegate->GetGLInterface(), options);
+ 

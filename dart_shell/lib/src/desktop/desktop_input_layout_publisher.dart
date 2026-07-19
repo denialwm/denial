@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../input/input_layout.dart';
 import '../input/shell_interaction_registry.dart';
-import '../models/hypr_window.dart';
+import '../models/denial_window.dart';
 import '../state/desktop_window_switcher.dart';
 import '../state/shell_controller.dart';
 import 'desktop_workspace.dart';
@@ -78,7 +78,7 @@ class _DesktopInputLayoutPublisherState
 
   void _publish(
     Size viewSize,
-    List<HyprWindow> windows,
+    List<DenialWindow> windows,
     DesktopWorkspaceState desktop,
     ShellInteractionSnapshot interactions,
   ) {
@@ -86,7 +86,7 @@ class _DesktopInputLayoutPublisherState
       return;
     }
 
-    final windowsById = <int, HyprWindow>{
+    final windowsById = <int, DenialWindow>{
       for (final window in windows)
         if (window.isUserApp) window.objectId: window,
     };
@@ -219,7 +219,7 @@ class _DesktopInputLayoutPublisherState
   }
 
   void _configureWindowSize(
-    HyprWindow window,
+    DenialWindow window,
     Rect contentRect, {
     required bool nativeDragActive,
   }) {

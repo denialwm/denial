@@ -1,9 +1,0 @@
-[Desktop Entry]
-Name=Denial (development)
-Comment=Denial compositor from the local development checkout
-Exec=uwsm start -e -D Hyprland @LAUNCHER@ session
-TryExec=uwsm
-Type=Application
-DesktopNames=Hyprland
-Keywords=tiling;wayland;compositor;flutter;
-X-Denial-Launcher=@LAUNCHER@

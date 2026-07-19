@@ -1,0 +1,6 @@
+/compositor/target/
+/compositor/flutter-engine/target/
+/dart_shell/.dart_tool/
+/dart_shell/build/
+/dart_shell/.flutter-plugins
+/dart_shell/.flutter-plugins-dependencies

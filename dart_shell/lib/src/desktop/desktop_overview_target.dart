@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../models/display_layout.dart';
-import '../models/hypr_window.dart';
+import '../models/denial_window.dart';
 import 'desktop_workspace.dart';
 
 class DesktopOverviewTarget {
@@ -20,7 +20,7 @@ class DesktopOverviewTarget {
   static DesktopOverviewTarget? resolve({
     required Size viewSize,
     required DisplayLayout? displayLayout,
-    required List<HyprWindow> windows,
+    required List<DenialWindow> windows,
     required DesktopWorkspaceState workspace,
     required int? foregroundObjectId,
     required int? preferredMonitorId,
@@ -32,7 +32,7 @@ class DesktopOverviewTarget {
       return null;
     }
 
-    final windowsById = <int, HyprWindow>{
+    final windowsById = <int, DenialWindow>{
       for (final window in windows) window.objectId: window,
     };
     final foreground = windowsById[foregroundObjectId];

@@ -4,20 +4,20 @@ import 'package:denial_dart_shell/src/desktop/desktop_overview_layout.dart';
 import 'package:denial_dart_shell/src/desktop/desktop_overview_target.dart';
 import 'package:denial_dart_shell/src/desktop/desktop_workspace.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
-import 'package:denial_dart_shell/src/models/hypr_window.dart';
-import 'package:denial_dart_shell/src/models/hypr_window_event.dart';
+import 'package:denial_dart_shell/src/models/denial_window.dart';
+import 'package:denial_dart_shell/src/models/denial_window_event.dart';
 
 void main() {
   const viewSize = Size(5120, 1440);
   const secondOutput = Rect.fromLTWH(2560, 0, 2560, 1440);
 
-  test('new windows preserve the geometry assigned by Hyprland', () {
+  test('new windows preserve compositor-assigned geometry', () {
     final controller = DesktopWorkspaceController();
     addTearDown(controller.dispose);
     const nativeGeometry = Rect.fromLTWH(3000, 220, 420, 260);
 
     controller.syncWindows(
-      <HyprWindow>[
+      <DenialWindow>[
         _window(
           objectId: 1,
           windowId: 11,
@@ -39,7 +39,7 @@ void main() {
     const nativeGeometry = Rect.fromLTWH(3000, 220, 420, 260);
 
     controller.syncWindows(
-      <HyprWindow>[
+      <DenialWindow>[
         _window(
           objectId: 1,
           windowId: 11,
@@ -65,7 +65,7 @@ void main() {
     const nativeGeometry = Rect.fromLTWH(3000, 220, 420, 260);
 
     controller.syncWindows(
-      <HyprWindow>[
+      <DenialWindow>[
         _window(
           objectId: 1,
           windowId: 11,
@@ -78,7 +78,7 @@ void main() {
       snapshotSequence: 1,
     );
     controller.syncWindows(
-      <HyprWindow>[
+      <DenialWindow>[
         _window(
           objectId: 1,
           windowId: 11,
@@ -101,7 +101,7 @@ void main() {
   test('window snapshots do not rewrite native initial geometry', () {
     final controller = DesktopWorkspaceController();
     addTearDown(controller.dispose);
-    final windows = <HyprWindow>[
+    final windows = <DenialWindow>[
       _window(
         objectId: 1,
         windowId: 11,
@@ -122,7 +122,7 @@ void main() {
     addTearDown(controller.dispose);
 
     controller.syncWindows(
-      <HyprWindow>[
+      <DenialWindow>[
         _window(
           objectId: 1,
           windowId: 11,
@@ -141,7 +141,7 @@ void main() {
     final controller = DesktopWorkspaceController();
     addTearDown(controller.dispose);
     final window = _window(objectId: 1, windowId: 11, monitorId: 1);
-    controller.syncWindows(<HyprWindow>[window], viewSize, 1);
+    controller.syncWindows(<DenialWindow>[window], viewSize, 1);
 
     const animatedPopupGeometry = Rect.fromLTWH(2277, 1500, 283, 70);
     controller.applyNativePlacement(
@@ -162,7 +162,7 @@ void main() {
   test('fullscreen keeps normal stacking and locks geometry', () {
     final controller = DesktopWorkspaceController();
     addTearDown(controller.dispose);
-    final windows = <HyprWindow>[
+    final windows = <DenialWindow>[
       _window(objectId: 1, windowId: 11, monitorId: 1),
       _window(objectId: 2, windowId: 22, monitorId: 1),
     ];
@@ -187,7 +187,7 @@ void main() {
         contentRect: const Rect.fromLTWH(50, 60, 800, 600),
         monitorId: 1,
         workspaceId: 1,
-        phase: HyprWindowPlacementPhase.update,
+        phase: DenialWindowPlacementPhase.update,
       ),
     );
     expect(controller.state.placements[1]!.frame, fullscreenBounds);
@@ -211,12 +211,12 @@ void main() {
 
   test('pinned windows stack above ordinary windows without changing focus z',
       () {
-    final windows = <HyprWindow>[
+    final windows = <DenialWindow>[
       _window(objectId: 1, windowId: 11, monitorId: 1),
       _window(objectId: 2, windowId: 22, monitorId: 1, pinned: true),
       _window(objectId: 3, windowId: 33, monitorId: 1, pinned: true),
     ];
-    final windowsById = <int, HyprWindow>{
+    final windowsById = <int, DenialWindow>{
       for (final window in windows) window.objectId: window,
     };
     final placements = <DesktopWindowPlacement>[
@@ -248,7 +248,7 @@ void main() {
     final controller = DesktopWorkspaceController();
     addTearDown(controller.dispose);
     final window = _window(objectId: 1, windowId: 11, monitorId: 1);
-    controller.syncWindows(<HyprWindow>[window], viewSize, 1);
+    controller.syncWindows(<DenialWindow>[window], viewSize, 1);
     final restoreFrame = controller.state.placements[1]!.frame;
 
     const sourceBounds = Rect.fromLTWH(0, 0, 2560, 1440);
@@ -287,7 +287,7 @@ void main() {
     addTearDown(controller.dispose);
     final source = _window(objectId: 1, windowId: 11, monitorId: 1);
     controller.syncWindows(
-      <HyprWindow>[source],
+      <DenialWindow>[source],
       viewSize,
       1,
       snapshotSequence: 10,
@@ -305,7 +305,7 @@ void main() {
     );
 
     controller.syncWindows(
-      <HyprWindow>[source],
+      <DenialWindow>[source],
       viewSize,
       1,
       snapshotSequence: 11,
@@ -314,7 +314,7 @@ void main() {
     expect(controller.state.placements[1]!.contentRect, targetGeometry);
 
     controller.syncWindows(
-      <HyprWindow>[
+      <DenialWindow>[
         _window(
           objectId: 1,
           windowId: 11,
@@ -336,7 +336,7 @@ void main() {
   test('overview membership follows authoritative placement ownership', () {
     final controller = DesktopWorkspaceController();
     addTearDown(controller.dispose);
-    final windows = <HyprWindow>[
+    final windows = <DenialWindow>[
       _window(objectId: 1, windowId: 11, monitorId: 1),
       _window(objectId: 2, windowId: 22, monitorId: 1),
     ];
@@ -464,7 +464,7 @@ void main() {
   });
 }
 
-HyprWindow _window({
+DenialWindow _window({
   required int objectId,
   required int windowId,
   required int monitorId,
@@ -479,7 +479,7 @@ HyprWindow _window({
         640,
         400,
       );
-  return HyprWindow(
+  return DenialWindow(
     objectId: objectId,
     objectKind: 'root_surface',
     surfaceId: objectId,
@@ -509,15 +509,15 @@ HyprWindow _window({
   );
 }
 
-HyprWindowPlacementEvent _placementEvent({
+DenialWindowPlacementEvent _placementEvent({
   required int sequence,
   required Rect contentRect,
   required int monitorId,
   required int workspaceId,
-  HyprWindowPlacementPhase phase = HyprWindowPlacementPhase.end,
-  HyprWindowPlacementChange change = HyprWindowPlacementChange.move,
+  DenialWindowPlacementPhase phase = DenialWindowPlacementPhase.end,
+  DenialWindowPlacementChange change = DenialWindowPlacementChange.move,
 }) {
-  return HyprWindowPlacementEvent(
+  return DenialWindowPlacementEvent(
     sequence: sequence,
     windowId: 11,
     contentRect: contentRect,

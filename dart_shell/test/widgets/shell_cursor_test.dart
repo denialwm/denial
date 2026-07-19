@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:denial_dart_shell/src/models/denial_drag_icon.dart';
-import 'package:denial_dart_shell/src/models/hypr_window.dart';
+import 'package:denial_dart_shell/src/models/denial_window.dart';
 import 'package:denial_dart_shell/src/theme/cursor_themes.dart';
 import 'package:denial_dart_shell/src/widgets/shell_cursor.dart';
 import 'package:denial_dart_shell/src/widgets/window_surface_tree.dart';
@@ -307,11 +307,11 @@ DenialDragIcon _dragIcon() {
     surfaceId: 0x200000004,
     offset: Offset(-12.5, 8.25),
     size: Size(160, 120),
-    layer: HyprSurfaceLayer(
+    layer: DenialSurfaceLayer(
       surfaceId: 0x200000004,
       parentSurfaceId: 0,
       popupRootSurfaceId: 0,
-      role: HyprSurfaceRole.root,
+      role: DenialSurfaceRole.root,
       textureId: 7,
       width: 320,
       height: 240,

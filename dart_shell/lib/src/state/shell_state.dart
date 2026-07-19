@@ -2,7 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../input/input_layout.dart';
 import '../models/app_launch_request.dart';
-import '../models/hypr_window.dart';
+import '../models/denial_window.dart';
 
 class ShellState {
   const ShellState({
@@ -27,7 +27,7 @@ class ShellState {
 
   factory ShellState.initial() {
     return const ShellState(
-      windows: <HyprWindow>[],
+      windows: <DenialWindow>[],
       windowSnapshotSequence: 0,
       overviewVisible: false,
       gestureDrag: Offset.zero,
@@ -47,7 +47,7 @@ class ShellState {
     );
   }
 
-  final List<HyprWindow> windows;
+  final List<DenialWindow> windows;
   final int windowSnapshotSequence;
   final bool overviewVisible;
   final Offset gestureDrag;
@@ -97,7 +97,7 @@ class ShellState {
   }
 
   ShellState copyWith({
-    List<HyprWindow>? windows,
+    List<DenialWindow>? windows,
     int? windowSnapshotSequence,
     bool? overviewVisible,
     Offset? gestureDrag,
@@ -147,19 +147,19 @@ class ShellState {
     );
   }
 
-  HyprWindow? get foregroundWindow {
+  DenialWindow? get foregroundWindow {
     final window = windowByObjectId(foregroundObjectId);
     return window != null && window.isUserApp ? window : null;
   }
 
-  HyprWindow? get launchingWindow {
+  DenialWindow? get launchingWindow {
     final window = windowByObjectId(launchingObjectId);
     return window != null && window.isUserApp ? window : null;
   }
 
   bool get launchTransitionActive => launchRequest != null;
 
-  HyprWindow? get primaryWindow {
+  DenialWindow? get primaryWindow {
     if (launchTransitionActive) {
       return null;
     }
@@ -167,7 +167,7 @@ class ShellState {
     return foregroundWindow;
   }
 
-  HyprWindow? get inputWindow {
+  DenialWindow? get inputWindow {
     if (lockLayerVisible || launchTransitionActive || overviewVisible) {
       return null;
     }
@@ -175,7 +175,7 @@ class ShellState {
     return primaryWindow;
   }
 
-  List<HyprWindow> get openAppWindows {
+  List<DenialWindow> get openAppWindows {
     return windows.where((window) => window.isUserApp).toList(growable: false);
   }
 
@@ -189,7 +189,7 @@ class ShellState {
     return count;
   }
 
-  HyprWindow? get appSwitchTargetWindow {
+  DenialWindow? get appSwitchTargetWindow {
     if (lockLayerVisible ||
         overviewVisible ||
         quickSettingsDragProgress > 0.0 ||
@@ -205,7 +205,7 @@ class ShellState {
     return adjacentOpenAppWindow(dx > 0.0 ? -1 : 1);
   }
 
-  HyprWindow? adjacentOpenAppWindow(int direction) {
+  DenialWindow? adjacentOpenAppWindow(int direction) {
     if (direction == 0) {
       return null;
     }
@@ -243,7 +243,7 @@ class ShellState {
     return null;
   }
 
-  HyprWindow? windowByObjectId(int? objectId) {
+  DenialWindow? windowByObjectId(int? objectId) {
     if (objectId == null) {
       return null;
     }
@@ -257,7 +257,7 @@ class ShellState {
     return null;
   }
 
-  HyprWindow? windowByWindowId(int windowId) {
+  DenialWindow? windowByWindowId(int windowId) {
     for (final window in windows) {
       if (window.windowId == windowId) {
         return window;

@@ -46,14 +46,12 @@ inspiration; the other is an independent project with its own identity.
 
 Denial treats Flutter as the owner of one coherent desktop scene. Wayland
 client buffers enter that scene as external textures alongside native shell
-UI. On favorable hardware, Flutter renders a shared display atlas and KMS
-scans each monitor directly from its own region of that buffer. There is no
-separate compositor pass that redraws or blits the completed scene once per
-output.
-
-The fast path is an optimization, not a requirement for correctness. If the
-buffer layout, monitor arrangement, driver, or scanout constraints are not
-compatible, Denial falls back to a safe presentation path.
+UI. Flutter renders a shared display atlas and KMS scans each monitor directly
+from its own region of that buffer. There is no separate compositor pass that
+redraws or blits the completed scene once per output. The Rust compositor
+validates atlas dimensions and scanout constraints before allocation and
+rejects unsupported layouts rather than entering an undefined presentation
+path.
 
 The result is not Flutter running *inside* a desktop. It is Flutter helping to
 define what the desktop is.
@@ -66,9 +64,9 @@ Further technical notes:
 
 - [PC development build](BUILDING.md)
 - [Architecture notes](architecture.md)
-- [Secure lock architecture and operation](SECURE_LOCK.md)
+- [Secure lock contract and migration status](SECURE_LOCK.md)
 - [Open roadmap](ROADMAP.md)
-- [Hyprland history and upstream policy](HYPRLAND_HISTORY.md)
+- [Legacy Hyprland reference](LEGACY_HYPRLAND.md)
 
 ## Made through dialogue
 

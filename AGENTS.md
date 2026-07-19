@@ -14,5 +14,5 @@
 
 - Tutti i comandi `tools/denial-pc` devono essere eseguiti fuori dal
   sandbox (`require_escalated`). La toolchain Flutter eLinux e le relative
-  cache sono vendorizzate nella radice `denial`; inoltre i comandi di reload
-  interagiscono con la sessione grafica Hyprland in esecuzione.
+  cache sono vendorizzate nella radice `denial`; i comandi di sessione
+  interagiscono inoltre con DRM, libseat e la sessione grafica in esecuzione.

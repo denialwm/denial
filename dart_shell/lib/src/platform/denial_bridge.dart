@@ -8,9 +8,9 @@ import '../input/input_layout.dart';
 import '../models/denial_drag_icon.dart';
 import '../models/desktop_notification.dart';
 import '../models/display_layout.dart';
-import '../models/hypr_window.dart';
-import '../models/hypr_window_event.dart';
-import '../models/hypr_window_snapshot.dart';
+import '../models/denial_window.dart';
+import '../models/denial_window_event.dart';
+import '../models/denial_window_snapshot.dart';
 import 'denial_wire.dart' as wire;
 
 enum DenialShellAction {
@@ -112,11 +112,11 @@ class DenialBridge {
     );
   }
 
-  final Map<int, Completer<HyprWindowSnapshot>> _pendingWindowRequests = {};
+  final Map<int, Completer<DenialWindowSnapshot>> _pendingWindowRequests = {};
   final Map<int, Completer<DisplayLayout?>> _pendingDisplayRequests = {};
   final Set<Completer<double?>> _pendingAudioReads = {};
-  final StreamController<HyprWindowEvent> _windowEvents =
-      StreamController<HyprWindowEvent>.broadcast(sync: true);
+  final StreamController<DenialWindowEvent> _windowEvents =
+      StreamController<DenialWindowEvent>.broadcast(sync: true);
   final StreamController<DenialShellActionEvent> _shellActions =
       StreamController<DenialShellActionEvent>.broadcast(sync: true);
   final StreamController<String> _cursorShapes =
@@ -136,10 +136,10 @@ class DenialBridge {
   final wire.DenialWireCodec _wireCodec = wire.DenialWireCodec();
   int _nextRequestId = 1;
   VoidCallback? _onWindowsChanged;
-  ValueChanged<HyprWindowSnapshot>? _onWindowSnapshot;
+  ValueChanged<DenialWindowSnapshot>? _onWindowSnapshot;
   ValueChanged<int>? _onWindowActivated;
 
-  Stream<HyprWindowEvent> get windowEvents => _windowEvents.stream;
+  Stream<DenialWindowEvent> get windowEvents => _windowEvents.stream;
   Stream<DenialShellActionEvent> get shellActions => _shellActions.stream;
   Stream<String> get cursorShapes => _cursorShapes.stream;
   Stream<Offset> get cursorPositions => _cursorPositions.stream;
@@ -154,7 +154,7 @@ class DenialBridge {
 
   void start({
     required VoidCallback onWindowsChanged,
-    ValueChanged<HyprWindowSnapshot>? onWindowSnapshot,
+    ValueChanged<DenialWindowSnapshot>? onWindowSnapshot,
     required ValueChanged<int> onWindowActivated,
   }) {
     _onWindowsChanged = onWindowsChanged;
@@ -215,9 +215,9 @@ class DenialBridge {
     unawaited(_notificationEvents.close());
   }
 
-  Future<HyprWindowSnapshot> listWindows(List<HyprWindow> fallback) {
+  Future<DenialWindowSnapshot> listWindows(List<DenialWindow> fallback) {
     final requestId = _nextRequestId++;
-    final completer = Completer<HyprWindowSnapshot>();
+    final completer = Completer<DenialWindowSnapshot>();
     _pendingWindowRequests[requestId] = completer;
 
     final bytes = _wireCodec.encodeWindowRequest(
@@ -240,7 +240,7 @@ class DenialBridge {
       const Duration(seconds: 2),
       onTimeout: () {
         _pendingWindowRequests.remove(requestId);
-        return HyprWindowSnapshot(sequence: 0, windows: fallback);
+        return DenialWindowSnapshot(sequence: 0, windows: fallback);
       },
     );
   }
@@ -271,7 +271,7 @@ class DenialBridge {
     return true;
   }
 
-  void closeWindow(HyprWindow window) {
+  void closeWindow(DenialWindow window) {
     if (window.windowId <= 0) {
       return;
     }
@@ -297,7 +297,7 @@ class DenialBridge {
     return true;
   }
 
-  void focusWindow(HyprWindow window) {
+  void focusWindow(DenialWindow window) {
     if (window.windowId <= 0) {
       return;
     }
@@ -307,7 +307,7 @@ class DenialBridge {
     ));
   }
 
-  void configureWindow(HyprWindow window, Rect contentRect) {
+  void configureWindow(DenialWindow window, Rect contentRect) {
     if (window.windowId <= 0 ||
         contentRect.width < 1.0 ||
         contentRect.height < 1.0) {
@@ -722,14 +722,14 @@ class DenialBridge {
     }
     if (event.kind == wire.WindowEventKind.Action && !_windowEvents.isClosed) {
       final action = switch (event.action) {
-        wire.WindowActionKind.Minimize => HyprWindowAction.minimize,
-        wire.WindowActionKind.Maximize => HyprWindowAction.maximize,
-        wire.WindowActionKind.Restore => HyprWindowAction.restore,
-        wire.WindowActionKind.ToggleMaximize => HyprWindowAction.toggleMaximize,
+        wire.WindowActionKind.Minimize => DenialWindowAction.minimize,
+        wire.WindowActionKind.Maximize => DenialWindowAction.maximize,
+        wire.WindowActionKind.Restore => DenialWindowAction.restore,
+        wire.WindowActionKind.ToggleMaximize => DenialWindowAction.toggleMaximize,
         wire.WindowActionKind.ToggleFullscreen =>
-          HyprWindowAction.toggleFullscreen,
+          DenialWindowAction.toggleFullscreen,
       };
-      _windowEvents.add(HyprWindowActionEvent(
+      _windowEvents.add(DenialWindowActionEvent(
         windowId: event.windowId,
         action: action,
       ));
@@ -746,7 +746,7 @@ class DenialBridge {
       return;
     }
     final completer = _pendingWindowRequests.remove(requestId);
-    final update = HyprWindowSnapshot(
+    final update = DenialWindowSnapshot(
       sequence: sequence,
       windows: windows,
     );

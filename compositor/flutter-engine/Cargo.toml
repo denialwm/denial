@@ -1,0 +1,12 @@
+[package]
+name = "denial-flutter-engine"
+version = "0.1.0"
+edition = "2024"
+license = "BSD-3-Clause"
+publish = false
+
+[dependencies]
+libloading = "0.8.9"
+
+[build-dependencies]
+bindgen = "0.72.1"

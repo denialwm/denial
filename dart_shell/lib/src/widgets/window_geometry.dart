@@ -1,5 +1,5 @@
 import '../input/input_layout.dart';
-import '../models/hypr_window.dart';
+import '../models/denial_window.dart';
 
 /// Default tablet aspect (width / height) used when neither a window nor the
 /// current view has reported a usable size.
@@ -11,7 +11,7 @@ const double kMaxPreviewAspect = 3.20;
 /// guards against transient bogus geometry; real portrait and landscape device
 /// ratios pass through unchanged.
 double windowAspect(
-  HyprWindow window, {
+  DenialWindow window, {
   double fallback = kPreviewAspect,
   double min = kMinPreviewAspect,
   double max = kMaxPreviewAspect,

@@ -81,7 +81,10 @@ class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
       shellRegions,
     );
     final windowsOffset = _writeAlignedStructVector(builder, windows);
-    final visibleSurfaceIdsOffset = builder.writeListUint64(visibleSurfaceIds);
+    final visibleSurfaceIdsOffset = _writeAlignedUint64Vector(
+      builder,
+      visibleSurfaceIds,
+    );
     builder.startTable(5);
     builder.addUint64(0, epoch);
     builder.addUint32(1, flags);
@@ -105,6 +108,14 @@ int _writeAlignedStructVector(
 ) {
   builder.pad((-builder.offset) & 7);
   return builder.writeListOfStructs(values);
+}
+
+int _writeAlignedUint64Vector(fb.Builder builder, List<int> values) {
+  builder.pad((-builder.offset) & 7);
+  for (var index = values.length - 1; index >= 0; index -= 1) {
+    builder.putUint64(values[index]);
+  }
+  return builder.endStructVector(values.length);
 }
 
 wire.InputWindowRegionObjectBuilder _inputWindow(int index) {

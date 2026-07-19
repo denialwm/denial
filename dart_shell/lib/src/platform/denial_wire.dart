@@ -10,8 +10,8 @@ import '../input/input_layout.dart';
 import '../models/display_layout.dart';
 import '../models/denial_drag_icon.dart';
 import '../models/desktop_notification.dart' as model;
-import '../models/hypr_window.dart';
-import '../models/hypr_window_event.dart';
+import '../models/denial_window.dart';
+import '../models/denial_window_event.dart';
 
 export 'package:denial_wire_protocol/denial_denial.wire_generated.dart';
 
@@ -262,7 +262,7 @@ class DenialWireCodec {
     }
   }
 
-  HyprWindowPlacementEvent? decodePlacement(ByteData? data) {
+  DenialWindowPlacementEvent? decodePlacement(ByteData? data) {
     if (data == null || data.lengthInBytes != _placementPacketBytes) {
       rejectedPlacementPackets += 1;
       return null;
@@ -307,14 +307,14 @@ class DenialWireCodec {
         return null;
       }
       _lastPlacementSequence = sequence;
-      return HyprWindowPlacementEvent(
+      return DenialWindowPlacementEvent(
         sequence: sequence,
         windowId: windowId,
         contentRect: Rect.fromLTWH(x, y, width, height),
         monitorId: monitorId,
         workspaceId: workspaceId,
-        phase: HyprWindowPlacementPhase.values[rawPhase],
-        change: HyprWindowPlacementChange.values[rawChange],
+        phase: DenialWindowPlacementPhase.values[rawPhase],
+        change: DenialWindowPlacementChange.values[rawChange],
       );
     } on Object {
       rejectedPlacementPackets += 1;
@@ -396,11 +396,11 @@ class DenialWireCodec {
       }
 
       _lastDragIconSequence = sequence;
-      final layer = HyprSurfaceLayer(
+      final layer = DenialSurfaceLayer(
         surfaceId: surfaceId,
         parentSurfaceId: 0,
         popupRootSurfaceId: 0,
-        role: HyprSurfaceRole.root,
+        role: DenialSurfaceRole.root,
         textureId: textureId,
         width: width,
         height: height,
@@ -567,14 +567,14 @@ class DenialWireCodec {
     );
   }
 
-  List<HyprWindow>? decodeWindows(generated.WindowSnapshot snapshot) {
+  List<DenialWindow>? decodeWindows(generated.WindowSnapshot snapshot) {
     final source = snapshot.windows ?? const <generated.Window>[];
     if (source.length > denialWireMaxWindows) {
       rejectedStructuredMessages += 1;
       return null;
     }
 
-    final windows = <HyprWindow>[];
+    final windows = <DenialWindow>[];
     var surfaceCount = 0;
     for (final window in source) {
       final title = window.title ?? '';
@@ -597,7 +597,7 @@ class DenialWireCodec {
         return null;
       }
       final surfaceIds = <int>{};
-      final layers = <HyprSurfaceLayer>[];
+      final layers = <DenialSurfaceLayer>[];
       var lastCompositionOrder = -1;
       for (final layer in sourceLayers) {
         if (!_validSurfaceLayer(layer) ||
@@ -607,14 +607,14 @@ class DenialWireCodec {
           return null;
         }
         lastCompositionOrder = layer.compositionOrder;
-        layers.add(HyprSurfaceLayer(
+        layers.add(DenialSurfaceLayer(
           surfaceId: layer.surfaceId,
           parentSurfaceId: layer.parentSurfaceId,
           popupRootSurfaceId: layer.popupRootSurfaceId,
           role: switch (layer.role) {
-            generated.SurfaceRole.Subsurface => HyprSurfaceRole.subsurface,
-            generated.SurfaceRole.Popup => HyprSurfaceRole.popup,
-            generated.SurfaceRole.Root => HyprSurfaceRole.root,
+            generated.SurfaceRole.Subsurface => DenialSurfaceRole.subsurface,
+            generated.SurfaceRole.Popup => DenialSurfaceRole.popup,
+            generated.SurfaceRole.Root => DenialSurfaceRole.root,
           },
           textureId: layer.textureId,
           width: layer.width,
@@ -633,7 +633,7 @@ class DenialWireCodec {
           opacity: layer.opacity,
         ));
       }
-      windows.add(HyprWindow(
+      windows.add(DenialWindow(
         objectId: window.objectId,
         objectKind: window.objectKind == generated.ObjectKind.Surface
             ? 'surface'
@@ -669,10 +669,10 @@ class DenialWireCodec {
         contentY: window.contentY,
         contentWidth: window.contentWidth,
         contentHeight: window.contentHeight,
-        surfaceLayers: List<HyprSurfaceLayer>.unmodifiable(layers),
+        surfaceLayers: List<DenialSurfaceLayer>.unmodifiable(layers),
       ));
     }
-    return List<HyprWindow>.unmodifiable(windows);
+    return List<DenialWindow>.unmodifiable(windows);
   }
 
   DisplayLayout? decodeDisplayLayout(generated.DisplayLayout layout) {
@@ -810,7 +810,10 @@ class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
       shellRegions,
     );
     final windowsOffset = _writeAlignedStructVector(builder, windows);
-    final visibleSurfaceIdsOffset = builder.writeListUint64(visibleSurfaceIds);
+    final visibleSurfaceIdsOffset = _writeAlignedUint64Vector(
+      builder,
+      visibleSurfaceIds,
+    );
     builder.startTable(5);
     builder.addUint64(0, epoch);
     builder.addUint32(1, flags);
@@ -834,6 +837,17 @@ int _writeAlignedStructVector(
 ) {
   builder.pad((-builder.offset) & 7);
   return builder.writeListOfStructs(values);
+}
+
+// flat_buffers 25.9.23 aligns writeListUint64()'s 32-bit length prefix rather
+// than its first 64-bit element. Build the vector backwards with the public
+// scalar API so native verifiers see a specification-compliant alignment.
+int _writeAlignedUint64Vector(fb.Builder builder, List<int> values) {
+  builder.pad((-builder.offset) & 7);
+  for (var index = values.length - 1; index >= 0; index -= 1) {
+    builder.putUint64(values[index]);
+  }
+  return builder.endStructVector(values.length);
 }
 
 generated.WireRectObjectBuilder _rectBuilder(Rect rect) {

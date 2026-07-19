@@ -9,7 +9,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/startup_environment.dart';
-import '../models/hypr_window.dart';
+import '../models/denial_window.dart';
 import '../theme/tokens.dart';
 
 /// Diagnostics are opt-in: even a rate-limited frame overlay participates in
@@ -50,7 +50,7 @@ class ShellFrameTimingOverlayStack extends StatefulWidget {
     super.key,
   });
 
-  final List<HyprWindow> windows;
+  final List<DenialWindow> windows;
   final bool showImportedTextureCharts;
 
   @override

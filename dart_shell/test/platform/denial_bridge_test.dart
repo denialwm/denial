@@ -8,8 +8,8 @@ import 'package:denial_dart_shell/src/input/input_layout.dart';
 import 'package:denial_dart_shell/src/models/denial_drag_icon.dart';
 import 'package:denial_dart_shell/src/models/desktop_notification.dart'
     as notification_model;
-import 'package:denial_dart_shell/src/models/hypr_window.dart';
-import 'package:denial_dart_shell/src/models/hypr_window_event.dart';
+import 'package:denial_dart_shell/src/models/denial_window.dart';
+import 'package:denial_dart_shell/src/models/denial_window_event.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/platform/denial_wire.dart' as wire;
 
@@ -130,7 +130,7 @@ void main() {
 
     final bridge = _startedBridge();
     try {
-      final windowsFuture = bridge.listWindows(const <HyprWindow>[]);
+      final windowsFuture = bridge.listWindows(const <DenialWindow>[]);
       final displayFuture = bridge.getDisplayLayout();
 
       expect(requests, hasLength(2));
@@ -182,10 +182,10 @@ void main() {
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     final bridge = _startedBridge();
-    final events = <HyprWindowPlacementEvent>[];
+    final events = <DenialWindowPlacementEvent>[];
     final subscription = bridge.windowEvents
-        .where((event) => event is HyprWindowPlacementEvent)
-        .cast<HyprWindowPlacementEvent>()
+        .where((event) => event is DenialWindowPlacementEvent)
+        .cast<DenialWindowPlacementEvent>()
         .listen(events.add);
     try {
       for (var index = 0; index < 3; index += 1) {
@@ -193,7 +193,7 @@ void main() {
           wire.denialWireToFlutterChannel,
           _placementPacket(
             sequence: index + 1,
-            phase: HyprWindowPlacementPhase.values[index],
+            phase: DenialWindowPlacementPhase.values[index],
           ),
           null,
         );
@@ -201,10 +201,10 @@ void main() {
 
       expect(
         events.map((event) => event.phase),
-        orderedEquals(const <HyprWindowPlacementPhase>[
-          HyprWindowPlacementPhase.begin,
-          HyprWindowPlacementPhase.update,
-          HyprWindowPlacementPhase.end,
+        orderedEquals(const <DenialWindowPlacementPhase>[
+          DenialWindowPlacementPhase.begin,
+          DenialWindowPlacementPhase.update,
+          DenialWindowPlacementPhase.end,
         ]),
       );
       expect(events.map((event) => event.monitorId), everyElement(4));
@@ -266,7 +266,7 @@ void main() {
         onWindowActivated: (windowId) => order.add('active:$windowId'),
       );
     final subscription = bridge.windowEvents
-        .where((event) => event is HyprWindowPlacementEvent)
+        .where((event) => event is DenialWindowPlacementEvent)
         .listen((_) => order.add('placement'));
     try {
       await _sendToFlutter(
@@ -283,7 +283,7 @@ void main() {
         wire.denialWireToFlutterChannel,
         _placementPacket(
           sequence: 42,
-          phase: HyprWindowPlacementPhase.begin,
+          phase: DenialWindowPlacementPhase.begin,
         ),
         null,
       );
@@ -731,7 +731,7 @@ void main() {
       (_) async => null,
     );
     final bridge = _startedBridge();
-    final windows = bridge.listWindows(const <HyprWindow>[]);
+    final windows = bridge.listWindows(const <DenialWindow>[]);
     final display = bridge.getDisplayLayout();
     final windowsExpectation = expectLater(
       windows,
@@ -900,7 +900,7 @@ Uint8List _envelope(
 
 ByteData _placementPacket({
   required int sequence,
-  required HyprWindowPlacementPhase phase,
+  required DenialWindowPlacementPhase phase,
 }) {
   return ByteData(80)
     ..setUint8(0, 0x44)
@@ -915,7 +915,7 @@ ByteData _placementPacket({
     ..setInt64(28, 4, Endian.little)
     ..setInt64(36, 7, Endian.little)
     ..setUint8(44, phase.index)
-    ..setUint8(45, HyprWindowPlacementChange.move.index)
+    ..setUint8(45, DenialWindowPlacementChange.move.index)
     ..setFloat64(48, sequence.toDouble(), Endian.little)
     ..setFloat64(56, 4.75, Endian.little)
     ..setFloat64(64, 640.5, Endian.little)

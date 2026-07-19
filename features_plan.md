@@ -1,11 +1,17 @@
 # Denial feature completion plan
 
-Status: active — F1–F4 complete; F5 next
+Status: retained product plan and legacy implementation evidence
 
-This file is the source of truth for the next Denial product goal. The goal is
-complete only when every feature and acceptance criterion below is implemented,
-tested, documented, and validated without regressing Denial's event-driven idle
-behavior.
+The F1–F4 checkpoint notes describe the Hyprland-based implementation frozen
+at `hyprland-last-known-good`. They remain useful as acceptance criteria and
+regression reference, but do not imply that every native boundary has already
+been ported to the Rust compositor on `main`. Rust parity must be revalidated
+feature by feature.
+
+This file records the product goals, acceptance criteria and evidence gathered
+during the legacy implementation. A goal is complete on Rust only when its
+criteria are implemented, tested, documented and revalidated without
+regressing Denial's event-driven idle behavior.
 
 ## Product outcome
 

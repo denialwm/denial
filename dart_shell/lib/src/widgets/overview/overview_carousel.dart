@@ -2,7 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/widgets.dart';
 
-import '../../models/hypr_window.dart';
+import '../../models/denial_window.dart';
 import '../../theme/motion.dart';
 import 'overview_geometry.dart';
 import 'overview_window_card.dart';
@@ -19,12 +19,12 @@ class OverviewCarousel extends StatelessWidget {
     required this.onFocusWindow,
   });
 
-  final List<HyprWindow> windows;
+  final List<DenialWindow> windows;
   final double progress;
   final PageController pageController;
   final int? foregroundObjectId;
-  final ValueChanged<HyprWindow> onDismissWindow;
-  final void Function(HyprWindow window, Rect startRect) onFocusWindow;
+  final ValueChanged<DenialWindow> onDismissWindow;
+  final void Function(DenialWindow window, Rect startRect) onFocusWindow;
 
   @override
   Widget build(BuildContext context) {

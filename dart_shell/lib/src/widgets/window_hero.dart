@@ -2,7 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/widgets.dart';
 
-import '../models/hypr_window.dart';
+import '../models/denial_window.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import 'window_texture_rect.dart';
@@ -20,7 +20,7 @@ class WindowSurface extends StatelessWidget {
     this.addRepaintBoundary = true,
   });
 
-  final HyprWindow window;
+  final DenialWindow window;
   final double radius;
 
   /// When non-null, a 1px hairline is drawn over the texture in this colour.
@@ -75,7 +75,7 @@ class WindowHero extends StatelessWidget {
     this.curve = Motion.standard,
   });
 
-  final HyprWindow window;
+  final DenialWindow window;
   final Rect beginRect;
   final Rect endRect;
   final double progress;

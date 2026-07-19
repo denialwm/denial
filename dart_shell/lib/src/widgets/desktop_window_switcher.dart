@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../desktop/desktop_workspace.dart';
 import '../input/shell_interaction_registry.dart';
-import '../models/hypr_window.dart';
+import '../models/denial_window.dart';
 import '../state/desktop_window_switcher.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -92,7 +92,7 @@ abstract final class DesktopWindowSwitcherLayout {
   static int compare(
     DesktopWindowPlacement left,
     DesktopWindowPlacement right,
-    Map<int, HyprWindow> windowsById,
+    Map<int, DenialWindow> windowsById,
     DesktopWindowSwitcherState? switcher,
   ) {
     final desktopOrder = compareDesktopWindowStack(left, right, windowsById);
@@ -363,7 +363,7 @@ class DesktopWindowSwitcherLayer extends StatelessWidget {
   });
 
   final DesktopWindowSwitcherState switcher;
-  final HyprWindow? selectedWindow;
+  final DenialWindow? selectedWindow;
   final Rect stageBounds;
 
   @override

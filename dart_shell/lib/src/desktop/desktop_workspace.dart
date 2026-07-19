@@ -4,8 +4,8 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/display_layout.dart';
-import '../models/hypr_window.dart';
-import '../models/hypr_window_event.dart';
+import '../models/denial_window.dart';
+import '../models/denial_window_event.dart';
 import 'desktop_overview_layout.dart';
 
 abstract final class DesktopFeatures {
@@ -274,7 +274,7 @@ class DesktopWindowPlacement {
 int compareDesktopWindowStack(
   DesktopWindowPlacement a,
   DesktopWindowPlacement b,
-  Map<int, HyprWindow> windowsById,
+  Map<int, DenialWindow> windowsById,
 ) {
   final aPinned = windowsById[a.objectId]?.pinned ?? false;
   final bPinned = windowsById[b.objectId]?.pinned ?? false;
@@ -347,12 +347,12 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
   DesktopWorkspaceController() : super(DesktopWorkspaceState.initial());
 
   final Map<int, Offset> _moveRemainders = <int, Offset>{};
-  List<HyprWindow>? _lastSyncedWindows;
+  List<DenialWindow>? _lastSyncedWindows;
   int _lastSyncedSnapshotSequence = -1;
   double _devicePixelRatio = 1.0;
 
   void syncWindows(
-      List<HyprWindow> windows, Size viewSize, double devicePixelRatio,
+      List<DenialWindow> windows, Size viewSize, double devicePixelRatio,
       {int snapshotSequence = 0}) {
     if (viewSize.width <= 0.0 || viewSize.height <= 0.0) {
       return;
@@ -672,12 +672,12 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
 
   void applyNativePlacement(
     int objectId,
-    HyprWindowPlacementEvent event,
+    DenialWindowPlacementEvent event,
   ) {
     if (state.overviewActive) {
       return;
     }
-    if (event.phase == HyprWindowPlacementPhase.begin) {
+    if (event.phase == DenialWindowPlacementPhase.begin) {
       activate(objectId);
     }
     final placement = state.placements[objectId];
@@ -711,7 +711,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
         monitorId: event.monitorId,
         workspaceId: event.workspaceId,
         nativeSequence: event.sequence,
-        dragging: event.phase != HyprWindowPlacementPhase.end,
+        dragging: event.phase != DenialWindowPlacementPhase.end,
         fullscreenRestoreFrame: monitorChanged
             ? placement.fullscreenRestoreFrame?.shift(delta)
             : placement.fullscreenRestoreFrame,
@@ -736,7 +736,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
       minimized: false,
       maximized: false,
       fullscreen: false,
-      dragging: event.phase != HyprWindowPlacementPhase.end,
+      dragging: event.phase != DenialWindowPlacementPhase.end,
       clearRestoreFrame: true,
       clearFullscreenRestoreFrame: true,
     );
@@ -759,7 +759,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     );
   }
 
-  void maximize(int objectId) {
+  void maximize(int objectId, {Rect? bounds}) {
     if (state.overviewActive) {
       return;
     }
@@ -767,7 +767,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     if (placement == null || placement.maximized || placement.fullscreen) {
       return;
     }
-    toggleMaximized(objectId);
+    toggleMaximized(objectId, bounds: bounds);
   }
 
   void restore(int objectId) {
@@ -803,7 +803,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     );
   }
 
-  void toggleMaximized(int objectId) {
+  void toggleMaximized(int objectId, {Rect? bounds}) {
     if (state.overviewActive) {
       return;
     }
@@ -824,8 +824,13 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
         clearRestoreFrame: true,
       );
     } else {
+      final canvas = Offset.zero & state.viewSize;
+      final requestedBounds = bounds?.intersect(canvas);
+      final maximizedFrame = requestedBounds == null || requestedBounds.isEmpty
+          ? DesktopMetrics.windowWorkArea(state.viewSize)
+          : requestedBounds;
       next[objectId] = placement.copyWith(
-        frame: DesktopMetrics.windowWorkArea(state.viewSize),
+        frame: maximizedFrame,
         maximized: true,
         minimized: false,
         dragging: false,

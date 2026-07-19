@@ -1,0 +1,37 @@
+diff --git a/src/gpu/ganesh/gl/GrGLGpu.cpp b/src/gpu/ganesh/gl/GrGLGpu.cpp
+--- a/src/gpu/ganesh/gl/GrGLGpu.cpp
++++ b/src/gpu/ganesh/gl/GrGLGpu.cpp
+@@ -3311,12 +3311,17 @@ bool GrGLGpu::createCopyProgram(GrTexture* srcTex) {
+         return false;
+     }
+ 
+-    GrShaderVar aVertex("a_vertex", SkSLType::kHalf2, GrShaderVar::TypeModifier::In);
+-    GrShaderVar uTexCoordXform("u_texCoordXform", SkSLType::kHalf4,
++    // Partial dynamic-MSAA loads copy an arbitrary native-device rectangle.
++    // Mediump coordinates cannot address individual pixels on wide targets:
++    // around 1.0, binary16 steps are five pixels apart on a 5120px atlas.
++    // Keep color math at its normal precision, but use highp for the geometry,
++    // texture coordinates and transforms that define this exact 1:1 copy.
++    GrShaderVar aVertex("a_vertex", SkSLType::kFloat2, GrShaderVar::TypeModifier::In);
++    GrShaderVar uTexCoordXform("u_texCoordXform", SkSLType::kFloat4,
+                                GrShaderVar::TypeModifier::Uniform);
+-    GrShaderVar uPosXform("u_posXform", SkSLType::kHalf4, GrShaderVar::TypeModifier::Uniform);
++    GrShaderVar uPosXform("u_posXform", SkSLType::kFloat4, GrShaderVar::TypeModifier::Uniform);
+     GrShaderVar uTexture("u_texture", samplerType);
+-    GrShaderVar vTexCoord("v_texCoord", SkSLType::kHalf2, GrShaderVar::TypeModifier::Out);
++    GrShaderVar vTexCoord("v_texCoord", SkSLType::kFloat2, GrShaderVar::TypeModifier::Out);
+     GrShaderVar oFragColor("o_FragColor", SkSLType::kHalf4, GrShaderVar::TypeModifier::Out);
+ 
+     SkString vshaderTxt;
+@@ -3339,9 +3344,9 @@ bool GrGLGpu::createCopyProgram(GrTexture* srcTex) {
+     vshaderTxt.append(
+         // Copy Program VS
+         "void main() {"
+-          "v_texCoord = half2(a_vertex.xy * u_texCoordXform.xy + u_texCoordXform.zw);"
++          "v_texCoord = float2(a_vertex.xy * u_texCoordXform.xy + u_texCoordXform.zw);"
+           "sk_Position.xy = a_vertex * u_posXform.xy + u_posXform.zw;"
+-          "sk_Position.zw = half2(0, 1);"
++          "sk_Position.zw = float2(0, 1);"
+         "}"
+     );
+ 

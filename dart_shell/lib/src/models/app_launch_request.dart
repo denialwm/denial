@@ -1,4 +1,4 @@
-import 'hypr_window.dart';
+import 'denial_window.dart';
 
 /// A launcher-owned request waiting for one specific app to create a window.
 ///
@@ -24,7 +24,7 @@ class AppLaunchRequest {
   final Set<String> expectedAppIds;
   final Set<int> existingObjectIds;
 
-  bool matchesNewWindow(HyprWindow window) {
+  bool matchesNewWindow(DenialWindow window) {
     if (!window.isUserApp || existingObjectIds.contains(window.objectId)) {
       return false;
     }

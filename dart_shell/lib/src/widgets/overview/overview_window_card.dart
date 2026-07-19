@@ -3,7 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/widgets.dart';
 
-import '../../models/hypr_window.dart';
+import '../../models/denial_window.dart';
 import '../../theme/motion.dart';
 import '../../theme/tokens.dart';
 import '../window_hero.dart';
@@ -27,14 +27,14 @@ class OverviewWindowCard extends StatefulWidget {
     required this.onFocus,
   });
 
-  final HyprWindow window;
+  final DenialWindow window;
   final int index;
   final double progress;
   final double pageOffset;
   final Size cardSize;
   final bool hidden;
-  final ValueChanged<HyprWindow> onDismiss;
-  final void Function(HyprWindow window, Rect startRect) onFocus;
+  final ValueChanged<DenialWindow> onDismiss;
+  final void Function(DenialWindow window, Rect startRect) onFocus;
 
   @override
   State<OverviewWindowCard> createState() => _OverviewWindowCardState();

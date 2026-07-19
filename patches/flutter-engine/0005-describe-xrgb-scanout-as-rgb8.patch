@@ -1,0 +1,64 @@
+diff --git a/shell/gpu/gpu_surface_gl_skia.cc b/shell/gpu/gpu_surface_gl_skia.cc
+--- a/shell/gpu/gpu_surface_gl_skia.cc
++++ b/shell/gpu/gpu_surface_gl_skia.cc
+@@ -31,6 +31,7 @@
+ #define GPU_GL_RGBA8 0x8058
++#define GPU_GL_RGB8 0x8051
+ #define GPU_GL_RGBA4 0x8056
+ #define GPU_GL_RGB565 0x8D62
+ #define GPU_GL_FRAMEBUFFER 0x8D40
+@@ -39,6 +40,8 @@
+ #define GPU_GL_STENCIL_BITS 0x0D57
+ #define GPU_GL_TEXTURE 0x1702
+ #define GPU_GL_TEXTURE_2D 0x0DE1
++#define GPU_GL_TEXTURE_BINDING_2D 0x8069
++#define GPU_GL_TEXTURE_INTERNAL_FORMAT 0x1003
+ 
+ namespace flutter {
+ 
+@@ -163,6 +166,7 @@ static sk_sp<SkSurface> WrapOnscreenSurface(GrDirectContext* context,
+   GrGLint color_attachment_type = 0;
+   GrGLint color_attachment_name = 0;
+   GrGLint color_attachment_level = -1;
++  GrGLint color_attachment_format = 0;
+   GrGLint stencil_bits = 0;
+   gl->fFunctions.fBindFramebuffer(GPU_GL_FRAMEBUFFER,
+                                   static_cast<GrGLuint>(fbo));
+@@ -186,11 +190,32 @@ static sk_sp<SkSurface> WrapOnscreenSurface(GrDirectContext* context,
+       gl->fFunctions.fGetFramebufferAttachmentParameteriv(
+           GPU_GL_FRAMEBUFFER, GPU_GL_COLOR_ATTACHMENT0,
+           GPU_GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL, &color_attachment_level);
++      if (color_attachment_level >= 0 &&
++          gl->fFunctions.fGetTexLevelParameteriv) {
++        GrGLint previous_texture = 0;
++        gl->fFunctions.fGetIntegerv(GPU_GL_TEXTURE_BINDING_2D,
++                                    &previous_texture);
++        gl->fFunctions.fBindTexture(
++            GPU_GL_TEXTURE_2D,
++            static_cast<GrGLuint>(color_attachment_name));
++        gl->fFunctions.fGetTexLevelParameteriv(
++            GPU_GL_TEXTURE_2D, color_attachment_level,
++            GPU_GL_TEXTURE_INTERNAL_FORMAT, &color_attachment_format);
++        gl->fFunctions.fBindTexture(
++            GPU_GL_TEXTURE_2D, static_cast<GrGLuint>(previous_texture));
++      }
+     }
+   }
+ 
+   GrGLenum format = kUnknown_SkColorType;
+-  const SkColorType color_type = FirstSupportedColorType(context, &format);
++  SkColorType color_type = kUnknown_SkColorType;
++  if (color_attachment_format == GPU_GL_RGB8 &&
++      context->colorTypeSupportedAsSurface(kRGB_888x_SkColorType)) {
++    // EGL exposes DRM_FORMAT_XRGB8888 scanout images as RGB8: alpha is
++    // logically one and is not part of the framebuffer format. Describing
++    // the borrowed texture as RGBA8 makes Ganesh allocate an RGBA8 dynamic
++    // MSAA renderbuffer, whose resolve into RGB8 is illegal on GLES.
++    format = GPU_GL_RGB8;
++    color_type = kRGB_888x_SkColorType;
++  } else {
++    color_type = FirstSupportedColorType(context, &format);
++  }
+   sk_sp<SkColorSpace> colorspace = SkColorSpace::MakeSRGB();
+   SkSurfaceProps dynamic_msaa_props(SkSurfaceProps::kDynamicMSAA_Flag,
+                                     kUnknown_SkPixelGeometry);

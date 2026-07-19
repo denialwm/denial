@@ -29,7 +29,7 @@ source of truth itself.
 2. Widgets do not write compositor configuration files or issue raw commands.
 3. `deniald` exposes a typed, versioned, bounded settings API.
 4. The public API uses stable Denial product setting identifiers rather than
-   Hyprland parser keys.
+   backend-specific configuration keys.
 5. Every setting has one authoritative owner.
 6. The settings application and quick settings may share domain code, but they
    do not share presentation widgets.
@@ -146,7 +146,7 @@ dart_shell/
   quick-settings presentation
   sole shell-owned Bluetooth pairing-agent host
 
-Hyprland/deniald/
+compositor/src/bin/deniald/
   SettingsService
   SettingsRegistry
   SettingsStore
@@ -277,7 +277,7 @@ The service:
 The service does not accept:
 
 - arbitrary compositor configuration keys;
-- raw Hyprland commands;
+- raw compositor commands;
 - shell command lines or executable arguments;
 - unbounded strings or collections;
 - network or Bluetooth credentials.
@@ -306,7 +306,7 @@ display.scale
 display.transform
 ~~~
 
-An internal runtime adapter may map a setting to a Hyprland value, a Denial
+An internal runtime adapter may map a setting to Rust compositor state, a
 native controller, an embedded Flutter preference, or several of them. That
 mapping is private and may change without breaking the application API.
 

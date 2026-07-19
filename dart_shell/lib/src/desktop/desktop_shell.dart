@@ -11,7 +11,7 @@ import '../launcher/models/home_grid_item.dart';
 import '../launcher/widgets/home_tiles.dart';
 import '../input/shell_interaction_registry.dart';
 import '../models/display_layout.dart';
-import '../models/hypr_window.dart';
+import '../models/denial_window.dart';
 import '../platform/denial_bridge.dart';
 import '../services/bluetooth_service.dart';
 import '../services/desktop_power_modes_service.dart';
@@ -111,7 +111,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
 
     final shell = ref.read(shellControllerProvider);
     final workspace = ref.read(desktopWorkspaceProvider);
-    final windowsById = <int, HyprWindow>{
+    final windowsById = <int, DenialWindow>{
       for (final window in shell.openAppWindows) window.objectId: window,
     };
     final controller = ref.read(desktopWindowSwitcherProvider.notifier);
@@ -220,7 +220,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       return;
     }
 
-    HyprWindow? target;
+    DenialWindow? target;
     for (final window in ref.read(shellControllerProvider).openAppWindows) {
       if (window.objectId == switcher.selectedObjectId) {
         target = window;
@@ -414,7 +414,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     await ref.read(appLauncherProvider).launch(app);
   }
 
-  void _activateWindow(HyprWindow window) {
+  void _activateWindow(DenialWindow window) {
     ref.read(desktopWorkspaceProvider.notifier).activate(window.objectId);
     ref.read(shellControllerProvider.notifier).focusWindow(window);
   }
@@ -515,13 +515,13 @@ Rect _windowSwitcherStageBounds({
 
 List<Widget> _buildDesktopWindowLayers({
   required List<DesktopWindowPlacement> placements,
-  required Map<int, HyprWindow> windowsById,
+  required Map<int, DenialWindow> windowsById,
   required DesktopWorkspaceState desktop,
   required DesktopWindowSwitcherState? switcher,
   required Rect switcherStageBounds,
   required int topZ,
   required bool reduceMotion,
-  required ValueChanged<HyprWindow> onActivateWindow,
+  required ValueChanged<DenialWindow> onActivateWindow,
 }) {
   final layers = <Widget>[];
   for (final placement in placements) {
@@ -618,7 +618,7 @@ class _DesktopScene extends StatefulWidget {
   });
 
   final Size viewSize;
-  final List<HyprWindow> windows;
+  final List<DenialWindow> windows;
   final DesktopWorkspaceState desktop;
   final DesktopWindowCloseEffect closeEffect;
   final DesktopWindowSwitcherState? windowSwitcher;
@@ -638,7 +638,7 @@ class _DesktopScene extends StatefulWidget {
   final VoidCallback onCancelPanelClose;
   final VoidCallback onSchedulePanelClose;
   final ValueChanged<DesktopApp> onLaunchApp;
-  final ValueChanged<HyprWindow> onActivateWindow;
+  final ValueChanged<DenialWindow> onActivateWindow;
   final ValueChanged<int> onCloseLeaseComplete;
 
   @override
@@ -731,7 +731,7 @@ class _DesktopSceneState extends State<_DesktopScene> {
     final onSchedulePanelClose = widget.onSchedulePanelClose;
     final onLaunchApp = widget.onLaunchApp;
     final onActivateWindow = widget.onActivateWindow;
-    final windowsById = <int, HyprWindow>{
+    final windowsById = <int, DenialWindow>{
       for (final window in windows) window.objectId: window,
     };
     final placements = desktop.placements.values
@@ -1628,7 +1628,7 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
     required this.motionDuration,
   });
 
-  final HyprWindow window;
+  final DenialWindow window;
   final DesktopWindowPlacement placement;
   final Rect frame;
   final bool minimized;
@@ -1695,7 +1695,7 @@ class _ClosingDesktopWindow {
   });
 
   final int id;
-  final HyprWindow window;
+  final DenialWindow window;
   final Rect frame;
   final bool fullscreen;
   final DesktopWindowCloseEffect effect;
@@ -1754,7 +1754,7 @@ class _DesktopWindowFrame extends StatelessWidget {
     required this.onOverviewTap,
   });
 
-  final HyprWindow window;
+  final DenialWindow window;
   final DesktopWindowPlacement placement;
   final Rect frame;
   final bool minimized;
@@ -1868,7 +1868,7 @@ class _DesktopSurfaceTexture extends StatefulWidget {
     required this.smooth,
   });
 
-  final HyprWindow window;
+  final DenialWindow window;
   final bool smooth;
 
   @override
@@ -1974,13 +1974,13 @@ class _DesktopTaskbar extends ConsumerWidget {
     required this.onActivateWindow,
   });
 
-  final List<HyprWindow> windows;
+  final List<DenialWindow> windows;
   final DesktopWorkspaceState desktop;
   final SystemBarSide side;
   final VoidCallback onLauncherEnter;
   final VoidCallback onDashboardEnter;
   final VoidCallback onPanelExit;
-  final ValueChanged<HyprWindow> onActivateWindow;
+  final ValueChanged<DenialWindow> onActivateWindow;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -2138,7 +2138,7 @@ class _RunningWindowButton extends StatefulWidget {
     required this.onTap,
   });
 
-  final HyprWindow window;
+  final DenialWindow window;
   final bool minimized;
   final bool active;
   final VoidCallback onTap;
@@ -3575,7 +3575,7 @@ class _DesktopAppTileState extends State<_DesktopAppTile> {
   }
 }
 
-IconData _windowIcon(HyprWindow window) {
+IconData _windowIcon(DenialWindow window) {
   final identity = '${window.appId} ${window.title}'.toLowerCase();
   if (identity.contains('kitty') ||
       identity.contains('terminal') ||

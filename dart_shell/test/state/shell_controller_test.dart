@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:denial_dart_shell/src/models/hypr_window.dart';
-import 'package:denial_dart_shell/src/models/hypr_window_snapshot.dart';
+import 'package:denial_dart_shell/src/models/denial_window.dart';
+import 'package:denial_dart_shell/src/models/denial_window_snapshot.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/platform/authentication_protocol.dart';
 import 'package:denial_dart_shell/src/services/authentication_service.dart';
@@ -31,10 +31,10 @@ void main() {
     });
 
     await Future<void>.delayed(Duration.zero);
-    bridge.publish(const <HyprWindow>[_mainWindow]);
+    bridge.publish(const <DenialWindow>[_mainWindow]);
     bridge.focusedWindowIds.clear();
 
-    bridge.publish(const <HyprWindow>[_mainWindow, _notificationWindow]);
+    bridge.publish(const <DenialWindow>[_mainWindow, _notificationWindow]);
 
     expect(bridge.focusedWindowIds, isEmpty);
     expect(controller.state.windows, hasLength(2));
@@ -75,31 +75,31 @@ void main() {
 }
 
 class _TestBridge extends DenialBridge {
-  ValueChanged<HyprWindowSnapshot>? _onWindowSnapshot;
+  ValueChanged<DenialWindowSnapshot>? _onWindowSnapshot;
   final List<int> focusedWindowIds = <int>[];
   int _sequence = 0;
 
   @override
   void start({
     required VoidCallback onWindowsChanged,
-    ValueChanged<HyprWindowSnapshot>? onWindowSnapshot,
+    ValueChanged<DenialWindowSnapshot>? onWindowSnapshot,
     required ValueChanged<int> onWindowActivated,
   }) {
     _onWindowSnapshot = onWindowSnapshot;
   }
 
   @override
-  Future<HyprWindowSnapshot> listWindows(List<HyprWindow> fallback) async {
-    return const HyprWindowSnapshot(sequence: 0, windows: <HyprWindow>[]);
+  Future<DenialWindowSnapshot> listWindows(List<DenialWindow> fallback) async {
+    return const DenialWindowSnapshot(sequence: 0, windows: <DenialWindow>[]);
   }
 
   @override
-  void focusWindow(HyprWindow window) {
+  void focusWindow(DenialWindow window) {
     focusedWindowIds.add(window.windowId);
   }
 
-  void publish(List<HyprWindow> windows) {
-    _onWindowSnapshot?.call(HyprWindowSnapshot(
+  void publish(List<DenialWindow> windows) {
+    _onWindowSnapshot?.call(DenialWindowSnapshot(
       sequence: ++_sequence,
       windows: windows,
     ));
@@ -174,7 +174,7 @@ AuthenticationPacket _authenticationState({required bool locked}) {
   );
 }
 
-const _mainWindow = HyprWindow(
+const _mainWindow = DenialWindow(
   objectId: 1,
   objectKind: 'root_surface',
   surfaceId: 1,
@@ -201,7 +201,7 @@ const _mainWindow = HyprWindow(
   scale120: 120,
 );
 
-const _notificationWindow = HyprWindow(
+const _notificationWindow = DenialWindow(
   objectId: 2,
   objectKind: 'root_surface',
   surfaceId: 2,

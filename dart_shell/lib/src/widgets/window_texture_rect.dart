@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../input/input_layout.dart';
-import '../models/hypr_window.dart';
+import '../models/denial_window.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import 'window_surface_tree.dart';
@@ -13,7 +13,7 @@ class WindowTextureRect extends StatelessWidget {
     this.borderRadius = BorderRadius.zero,
   });
 
-  final HyprWindow window;
+  final DenialWindow window;
   final BorderRadius borderRadius;
 
   @override

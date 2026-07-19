@@ -131,13 +131,12 @@ class DesktopAppsRepository {
 
   bool _matchesCurrentDesktop(Map<String, String> fields) {
     final current =
-        (_paths.environment['XDG_CURRENT_DESKTOP'] ?? 'Denial:Hyprland')
+        (_paths.environment['XDG_CURRENT_DESKTOP'] ?? 'Denial')
             .split(':')
             .where((item) => item.isNotEmpty)
             .toSet();
     if (current.isEmpty) {
       current.add('Denial');
-      current.add('Hyprland');
     }
 
     final onlyShowIn = _desktopList(fields['OnlyShowIn']);

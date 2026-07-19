@@ -1,4 +1,4 @@
-import 'package:denial_dart_shell/src/models/hypr_window.dart';
+import 'package:denial_dart_shell/src/models/denial_window.dart';
 import 'package:denial_dart_shell/src/widgets/window_hero.dart';
 import 'package:denial_dart_shell/src/widgets/window_surface_tree.dart';
 import 'package:denial_dart_shell/src/widgets/window_texture_rect.dart';
@@ -8,11 +8,11 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   testWidgets('surface opacity is applied to the complete texture layer',
       (tester) async {
-    const layer = HyprSurfaceLayer(
+    const layer = DenialSurfaceLayer(
       surfaceId: 1,
       parentSurfaceId: 0,
       popupRootSurfaceId: 0,
-      role: HyprSurfaceRole.root,
+      role: DenialSurfaceRole.root,
       textureId: 7,
       width: 100,
       height: 80,
@@ -72,8 +72,8 @@ void main() {
   });
 }
 
-HyprWindow _window({required bool serverSideDecorated}) {
-  return HyprWindow(
+DenialWindow _window({required bool serverSideDecorated}) {
+  return DenialWindow(
     objectId: 1,
     objectKind: 'root_surface',
     surfaceId: 1,

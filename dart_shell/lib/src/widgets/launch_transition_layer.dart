@@ -4,7 +4,7 @@ import 'dart:ui';
 import 'package:flutter/widgets.dart';
 
 import '../models/app_launch_request.dart';
-import '../models/hypr_window.dart';
+import '../models/denial_window.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import 'app_icon.dart';
@@ -30,7 +30,7 @@ class LaunchTransitionLayer extends StatefulWidget {
   });
 
   final AppLaunchRequest? request;
-  final HyprWindow? window;
+  final DenialWindow? window;
   final LaunchTransitionCompleted onCompleted;
 
   @override
@@ -122,7 +122,7 @@ class _LaunchTransitionLayerState extends State<LaunchTransitionLayer>
   Widget _buildTransition(
     BuildContext context,
     BoxConstraints constraints,
-    HyprWindow? window,
+    DenialWindow? window,
     Widget appIcon,
   ) {
     final zoom = Motion.md3EmphasizedDecelerate.transform(
@@ -184,7 +184,7 @@ class _LaunchTransitionLayerState extends State<LaunchTransitionLayer>
     );
   }
 
-  void _startRequest(AppLaunchRequest? request, HyprWindow? window) {
+  void _startRequest(AppLaunchRequest? request, DenialWindow? window) {
     _activeRequestId = request?.requestId;
     _completedRequestId = null;
     _zoomController.stop();
@@ -206,7 +206,7 @@ class _LaunchTransitionLayerState extends State<LaunchTransitionLayer>
     }
   }
 
-  void _syncWindow(HyprWindow? window) {
+  void _syncWindow(DenialWindow? window) {
     _revealController.stop();
     _revealController.value = 0.0;
     if (window != null && widget.request != null) {

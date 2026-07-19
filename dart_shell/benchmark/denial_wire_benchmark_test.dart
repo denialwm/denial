@@ -5,8 +5,8 @@ import 'dart:typed_data';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:denial_dart_shell/src/input/input_layout.dart';
-import 'package:denial_dart_shell/src/models/hypr_window.dart';
-import 'package:denial_dart_shell/src/models/hypr_window_event.dart';
+import 'package:denial_dart_shell/src/models/denial_window.dart';
+import 'package:denial_dart_shell/src/models/denial_window_event.dart';
 import 'package:denial_dart_shell/src/platform/denial_wire.dart' as wire;
 
 int _sink = 0;
@@ -21,7 +21,7 @@ void main() {
       final jsonWindows = _encodeJsonWindows(count);
       final label = switch (count) { 1 => 'one', 8 => 'eight', _ => 'many' };
       final flatWindows =
-          File('../protocol/golden/cpp_windows_$label.denw').readAsBytesSync();
+          File('../protocol/golden/native_windows_$label.denw').readAsBytesSync();
       final iterations = switch (count) { 1 => 10000, 8 => 4000, _ => 1000 };
 
       final jsonEncodeUs = _measure(iterations, () {
@@ -202,18 +202,18 @@ Map<String, Object?> _jsonWindow(int index) {
   };
 }
 
-List<HyprWindow> _decodeJsonWindows(Uint8List bytes) {
+List<DenialWindow> _decodeJsonWindows(Uint8List bytes) {
   final root = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
   final source = root['windows'] as List<dynamic>;
-  return <HyprWindow>[
+  return <DenialWindow>[
     for (final value in source) _windowFromJson(value as Map<String, dynamic>),
   ];
 }
 
-HyprWindow _windowFromJson(Map<String, dynamic> json) {
+DenialWindow _windowFromJson(Map<String, dynamic> json) {
   final width = (json['width'] as num).toInt();
   final height = (json['height'] as num).toInt();
-  return HyprWindow(
+  return DenialWindow(
     objectId: (json['objectId'] as num).toInt(),
     objectKind: json['objectKind'] as String? ?? 'root_surface',
     surfaceId: (json['surfaceId'] as num).toInt(),
@@ -246,9 +246,9 @@ HyprWindow _windowFromJson(Map<String, dynamic> json) {
   );
 }
 
-HyprWindowPlacementEvent _decodeJsonPlacement(Uint8List bytes) {
+DenialWindowPlacementEvent _decodeJsonPlacement(Uint8List bytes) {
   final json = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
-  return HyprWindowPlacementEvent(
+  return DenialWindowPlacementEvent(
     sequence: 1,
     windowId: (json['windowId'] as num).toInt(),
     contentRect: Rect.fromLTWH(
@@ -258,15 +258,15 @@ HyprWindowPlacementEvent _decodeJsonPlacement(Uint8List bytes) {
       (json['height'] as num).toDouble(),
     ),
     phase: switch (json['phase']) {
-      'begin' => HyprWindowPlacementPhase.begin,
-      'end' => HyprWindowPlacementPhase.end,
-      _ => HyprWindowPlacementPhase.update,
+      'begin' => DenialWindowPlacementPhase.begin,
+      'end' => DenialWindowPlacementPhase.end,
+      _ => DenialWindowPlacementPhase.update,
     },
     monitorId: (json['monitorId'] as num).toInt(),
     workspaceId: (json['workspaceId'] as num).toInt(),
     change: json['change'] == 'resize'
-        ? HyprWindowPlacementChange.resize
-        : HyprWindowPlacementChange.move,
+        ? DenialWindowPlacementChange.resize
+        : DenialWindowPlacementChange.move,
   );
 }
 
@@ -298,7 +298,7 @@ InputLayoutSnapshot _inputLayout(int count) {
   );
 }
 
-HyprWindow _window(int index) {
+DenialWindow _window(int index) {
   return _windowFromJson(_jsonWindow(index));
 }
 
@@ -315,8 +315,8 @@ ByteData _placementPacket(int sequence) {
     ..setUint64(20, 0x300000000, Endian.little)
     ..setInt64(28, 4, Endian.little)
     ..setInt64(36, 7, Endian.little)
-    ..setUint8(44, HyprWindowPlacementPhase.update.index)
-    ..setUint8(45, HyprWindowPlacementChange.resize.index)
+    ..setUint8(44, DenialWindowPlacementPhase.update.index)
+    ..setUint8(45, DenialWindowPlacementChange.resize.index)
     ..setFloat64(48, -12.5, Endian.little)
     ..setFloat64(56, 4.75, Endian.little)
     ..setFloat64(64, 640.5, Endian.little)

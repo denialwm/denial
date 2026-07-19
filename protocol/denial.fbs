@@ -155,7 +155,7 @@ table SurfaceLayer {
   scale_120:uint = 120;
   composition_order:uint;
   // Appended for wire compatibility. This combines the committed
-  // alpha-modifier and Hyprland-surface opacity for this wl_surface.
+  // alpha-modifier and compositor-surface opacity for this wl_surface.
   opacity:float = 1.0;
 }
 

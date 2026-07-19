@@ -321,11 +321,6 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
       }
     });
     if (wasHidden) {
-      debugPrint(
-        'Denial CURSOR_TRACE software_cursor=visible gate=position '
-        'reason=pointer_event event=${event.runtimeType} device=${event.device} '
-        'position=${event.localPosition}',
-      );
       _syncFrameTimer();
     }
   }
@@ -334,11 +329,6 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
     if (event.kind != PointerDeviceKind.mouse || _position == null) {
       return;
     }
-    debugPrint(
-      'Denial CURSOR_TRACE software_cursor=hidden gate=position '
-      'reason=pointer_exit device=${event.device} '
-      'position=${event.localPosition}',
-    );
     setState(() => _position = null);
     _syncFrameTimer();
   }
@@ -447,13 +437,6 @@ class _ShellCursorController extends ChangeNotifier {
     if (_kind == kind && _visible) {
       return;
     }
-    if (!_visible) {
-      debugPrint(
-        'Denial CURSOR_TRACE software_cursor=visible '
-        'gate=platform_shape reason=flutter_cursor_activation '
-        'device=$device kind=${kind.name}',
-      );
-    }
     _kind = kind;
     _visible = true;
     notifyListeners();
@@ -465,12 +448,6 @@ class _ShellCursorController extends ChangeNotifier {
     final kind = shellCursorKindForPlatformShape(normalized);
     if (_kind == kind && _visible == visible) {
       return;
-    }
-    if (_visible != visible) {
-      debugPrint(
-        'Denial CURSOR_TRACE software_cursor=${visible ? 'visible' : 'hidden'} '
-        'gate=platform_shape reason=native_cursor_shape shape=$normalized',
-      );
     }
     _kind = kind;
     _visible = visible;

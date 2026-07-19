@@ -5,8 +5,8 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 VERSION="$(tr -d '[:space:]' < "$ROOT/protocol/FLATBUFFERS_VERSION")"
 SCHEMA="$ROOT/protocol/denial.fbs"
-CPP_OUT="$ROOT/protocol/generated/cpp"
 DART_OUT="$ROOT/protocol/generated/dart"
+RUST_OUT="$ROOT/protocol/generated/rust"
 MODE="${1:-generate}"
 
 if [[ "$MODE" != "generate" && "$MODE" != "--check" ]]; then
@@ -32,22 +32,22 @@ fi
 
 TMP="$(mktemp -d)"
 trap 'rm -rf -- "$TMP"' EXIT
-mkdir -p "$TMP/cpp" "$TMP/dart"
+mkdir -p "$TMP/dart" "$TMP/rust"
 
-"$FLATC_BIN" --cpp --warnings-as-errors -o "$TMP/cpp" "$SCHEMA"
 "$FLATC_BIN" --dart --warnings-as-errors -o "$TMP/dart" "$SCHEMA"
+"$FLATC_BIN" --rust --warnings-as-errors -o "$TMP/rust" "$SCHEMA"
 
 if [[ "$MODE" == "--check" ]]; then
-    cmp "$CPP_OUT/denial_generated.h" \
-        "$TMP/cpp/denial_generated.h"
     cmp "$DART_OUT/lib/denial_denial.wire_generated.dart" \
         "$TMP/dart/denial_denial.wire_generated.dart"
+    cmp "$RUST_OUT/denial_generated.rs" \
+        "$TMP/rust/denial_generated.rs"
     printf 'Denial generated wire code is current (FlatBuffers %s)\n' "$VERSION"
     exit 0
 fi
 
-mkdir -p "$CPP_OUT" "$DART_OUT/lib"
-cp "$TMP/cpp/denial_generated.h" "$CPP_OUT/denial_generated.h"
+mkdir -p "$DART_OUT/lib" "$RUST_OUT"
 cp "$TMP/dart/denial_denial.wire_generated.dart" \
     "$DART_OUT/lib/denial_denial.wire_generated.dart"
+cp "$TMP/rust/denial_generated.rs" "$RUST_OUT/denial_generated.rs"
 printf 'generated Denial wire code with FlatBuffers %s\n' "$VERSION"

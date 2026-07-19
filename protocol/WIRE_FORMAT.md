@@ -1,9 +1,8 @@
 # Denial wire format
 
 Protocol version 1 uses FlatBuffers 25.9.23 for structured messages. The root
-is `Denial.Wire.Envelope` with file identifier `DENW`. Generated code and
-the C++ runtime headers are committed, so normal builds need neither network
-access nor `flatc`.
+is `Denial.Wire.Envelope` with file identifier `DENW`. Generated Dart and Rust
+code is committed, so normal builds need neither network access nor `flatc`.
 
 Every structured envelope has a nonzero sequence number. Native verifies the
 FlatBuffer, direction, version, size/count limits, enums, flags, identities,

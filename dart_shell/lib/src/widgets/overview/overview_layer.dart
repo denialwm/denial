@@ -3,7 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/widgets.dart';
 
-import '../../models/hypr_window.dart';
+import '../../models/denial_window.dart';
 import '../../theme/motion.dart';
 import '../../theme/tokens.dart';
 import '../window_hero.dart';
@@ -37,8 +37,8 @@ class OverviewLayer extends StatefulWidget {
     required this.onHomeSettled,
   });
 
-  final List<HyprWindow> windows;
-  final HyprWindow? foregroundWindow;
+  final List<DenialWindow> windows;
+  final DenialWindow? foregroundWindow;
   final int? foregroundObjectId;
   final bool visible;
 
@@ -46,8 +46,8 @@ class OverviewLayer extends StatefulWidget {
   final double swipeDy;
   final bool homeTransitionActive;
   final VoidCallback onDismissOverview;
-  final ValueChanged<HyprWindow> onDismissWindow;
-  final ValueChanged<HyprWindow> onFocusWindow;
+  final ValueChanged<DenialWindow> onDismissWindow;
+  final ValueChanged<DenialWindow> onFocusWindow;
   final VoidCallback onHomeSettled;
 
   @override
@@ -62,10 +62,10 @@ class _OverviewLayerState extends State<OverviewLayer>
   late final AnimationController _focusController;
   late final AnimationController _homeController;
   late final PageController _pageController;
-  HyprWindow? _focusWindow;
+  DenialWindow? _focusWindow;
   Rect? _focusStartRect;
   Rect? _lastHeroRect;
-  HyprWindow? _lastHeroWindow;
+  DenialWindow? _lastHeroWindow;
   bool? _wasLandscape;
 
   @override
@@ -249,7 +249,7 @@ class _OverviewLayerState extends State<OverviewLayer>
   /// keeps the bottom edge locked to the finger (progress is fed as travel /
   /// reference distance, so `bottom = screenHeight - travel`).
   Widget _buildForegroundHero(
-    HyprWindow window,
+    DenialWindow window,
     double progress,
     Size viewSize,
   ) {
@@ -274,7 +274,7 @@ class _OverviewLayerState extends State<OverviewLayer>
   }
 
   /// The app flying up and fading away as home is revealed beneath it.
-  Widget _buildHomeFlyAway(HyprWindow window, Size viewSize) {
+  Widget _buildHomeFlyAway(DenialWindow window, Size viewSize) {
     final start = _lastHeroRect ?? (Offset.zero & viewSize);
     final t = Motion.standard.transform(unit(_homeController.value));
     final exit = Rect.fromCenter(
@@ -340,7 +340,7 @@ class _OverviewLayerState extends State<OverviewLayer>
     return math.max(1.0, size.height - _cardRectFor(size).bottom);
   }
 
-  HyprWindow? _foregroundHeroWindow(double progress) {
+  DenialWindow? _foregroundHeroWindow(double progress) {
     final window = widget.foregroundWindow;
     if ((!widget.visible && widget.swipeDy >= 0.0) ||
         window == null ||
@@ -383,7 +383,7 @@ class _OverviewLayerState extends State<OverviewLayer>
     }
   }
 
-  void _startFocusTransition(HyprWindow window, Rect startRect) {
+  void _startFocusTransition(DenialWindow window, Rect startRect) {
     if (_focusWindow != null) {
       return;
     }
@@ -479,7 +479,7 @@ class _FocusZoomOverlay extends StatelessWidget {
   });
 
   final AnimationController controller;
-  final HyprWindow window;
+  final DenialWindow window;
   final Rect startRect;
 
   @override

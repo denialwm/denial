@@ -7,8 +7,8 @@ import '../config/startup_environment.dart';
 import '../input/input_layout.dart';
 import '../input/shell_interaction_registry.dart';
 import '../models/app_launch_request.dart';
-import '../models/hypr_window.dart';
-import '../models/hypr_window_snapshot.dart';
+import '../models/denial_window.dart';
+import '../models/denial_window_snapshot.dart';
 import '../platform/denial_bridge.dart';
 import '../services/lock_state_repository.dart';
 import 'authentication.dart';
@@ -183,7 +183,7 @@ class ShellController extends StateNotifier<ShellState> {
     }
   }
 
-  void _applyWindowSnapshot(HyprWindowSnapshot snapshot) {
+  void _applyWindowSnapshot(DenialWindowSnapshot snapshot) {
     if (_hasLoadedWindowSnapshot &&
         snapshot.sequence < state.windowSnapshotSequence) {
       return;
@@ -199,7 +199,7 @@ class ShellController extends StateNotifier<ShellState> {
     }
 
     _hasLoadedWindowSnapshot = true;
-    final stableWindows = List<HyprWindow>.unmodifiable(windows);
+    final stableWindows = List<DenialWindow>.unmodifiable(windows);
     final request = state.launchRequest;
     final launchWindow =
         request == null ? null : _matchingLaunchWindow(stableWindows, request);
@@ -244,8 +244,8 @@ class ShellController extends StateNotifier<ShellState> {
     );
   }
 
-  HyprWindow? _matchingLaunchWindow(
-    List<HyprWindow> windows,
+  DenialWindow? _matchingLaunchWindow(
+    List<DenialWindow> windows,
     AppLaunchRequest request,
   ) {
     final boundObjectId = state.launchingObjectId;
@@ -266,7 +266,7 @@ class ShellController extends StateNotifier<ShellState> {
     return null;
   }
 
-  bool _hasWindow(List<HyprWindow> windows, int? objectId) {
+  bool _hasWindow(List<DenialWindow> windows, int? objectId) {
     if (objectId == null) {
       return false;
     }
@@ -405,14 +405,14 @@ class ShellController extends StateNotifier<ShellState> {
     }
   }
 
-  void closeWindow(HyprWindow window) {
+  void closeWindow(DenialWindow window) {
     if (state.overviewVisible && state.openAppWindowCount <= 1) {
       closeOverview();
     }
     _bridge.closeWindow(window);
   }
 
-  void focusWindow(HyprWindow window) {
+  void focusWindow(DenialWindow window) {
     if (!window.isUserApp) {
       return;
     }
@@ -421,7 +421,7 @@ class ShellController extends StateNotifier<ShellState> {
     _bridge.focusWindow(window);
   }
 
-  void _activateWindowInShell(HyprWindow window) {
+  void _activateWindowInShell(DenialWindow window) {
     _rawGestureDrag = Offset.zero;
     _gestureLockOrigin = Offset.zero;
     _gestureAxis = _GestureAxis.undecided;
@@ -862,7 +862,7 @@ class ShellController extends StateNotifier<ShellState> {
   }
 
   List<InputWindowRegion> _inputRegionsForWindow({
-    required HyprWindow window,
+    required DenialWindow window,
     required Size viewSize,
     required double contentOffset,
     required double inputBottom,
@@ -961,7 +961,7 @@ class ShellController extends StateNotifier<ShellState> {
   }
 }
 
-bool _sameWindowSnapshots(List<HyprWindow> a, List<HyprWindow> b) {
+bool _sameWindowSnapshots(List<DenialWindow> a, List<DenialWindow> b) {
   if (identical(a, b)) {
     return true;
   }

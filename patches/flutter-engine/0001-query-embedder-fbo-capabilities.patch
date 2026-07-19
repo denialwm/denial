@@ -1,0 +1,130 @@
+diff --git a/shell/gpu/gpu_surface_gl_skia.cc b/shell/gpu/gpu_surface_gl_skia.cc
+index eff40d2..f507279 100644
+--- a/shell/gpu/gpu_surface_gl_skia.cc
++++ b/shell/gpu/gpu_surface_gl_skia.cc
+@@ -20,6 +20,7 @@
+ #include "third_party/skia/include/gpu/ganesh/SkSurfaceGanesh.h"
+ #include "third_party/skia/include/gpu/ganesh/gl/GrGLBackendSurface.h"
+ #include "third_party/skia/include/gpu/ganesh/gl/GrGLDirectContext.h"
++#include "third_party/skia/include/gpu/ganesh/gl/GrGLInterface.h"
+ #include "third_party/skia/include/gpu/ganesh/gl/GrGLTypes.h"
+ 
+ // These are common defines present on all OpenGL headers. However, we don't
+@@ -29,6 +30,9 @@
+ #define GPU_GL_RGBA8 0x8058
+ #define GPU_GL_RGBA4 0x8056
+ #define GPU_GL_RGB565 0x8D62
++#define GPU_GL_FRAMEBUFFER 0x8D40
++#define GPU_GL_SAMPLES 0x80A9
++#define GPU_GL_STENCIL_BITS 0x0D57
+ 
+ namespace flutter {
+ 
+@@ -76,6 +80,7 @@ GPUSurfaceGLSkia::GPUSurfaceGLSkia(const sk_sp<GrDirectContext>& gr_context,
+                                    bool render_to_surface)
+     : delegate_(delegate),
+       context_(gr_context),
++      gl_interface_(delegate->GetGLInterface()),
+ 
+       render_to_surface_(render_to_surface),
+       weak_factory_(this) {
+@@ -88,7 +93,7 @@ GPUSurfaceGLSkia::GPUSurfaceGLSkia(const sk_sp<GrDirectContext>& gr_context,
+ 
+   delegate_->GLContextClearCurrent();
+ 
+-  valid_ = gr_context != nullptr;
++  valid_ = gr_context != nullptr && gl_interface_ != nullptr;
+ }
+ 
+ GPUSurfaceGLSkia::~GPUSurfaceGLSkia() {
+@@ -132,7 +137,21 @@ static SkColorType FirstSupportedColorType(GrDirectContext* context,
+ 
+ static sk_sp<SkSurface> WrapOnscreenSurface(GrDirectContext* context,
+                                             const SkISize& size,
+-                                            intptr_t fbo) {
++                                            intptr_t fbo,
++                                            const GrGLInterface* gl) {
++  GrGLint sample_count = 0;
++  GrGLint stencil_bits = 0;
++  gl->fFunctions.fBindFramebuffer(GPU_GL_FRAMEBUFFER,
++                                  static_cast<GrGLuint>(fbo));
++  gl->fFunctions.fGetIntegerv(GPU_GL_SAMPLES, &sample_count);
++  gl->fFunctions.fGetIntegerv(GPU_GL_STENCIL_BITS, &stencil_bits);
++  if (sample_count < 0) {
++    sample_count = 0;
++  }
++  if (stencil_bits != 8 && stencil_bits != 16) {
++    stencil_bits = 0;
++  }
++
+   GrGLenum format = kUnknown_SkColorType;
+   const SkColorType color_type = FirstSupportedColorType(context, &format);
+ 
+@@ -143,13 +162,14 @@ static sk_sp<SkSurface> WrapOnscreenSurface(GrDirectContext* context,
+   auto render_target =
+       GrBackendRenderTargets::MakeGL(size.width(),     // width
+                                      size.height(),    // height
+-                                     0,                // sample count
+-                                     0,                // stencil bits
++                                     sample_count,     // sample count
++                                     stencil_bits,     // stencil bits
+                                      framebuffer_info  // framebuffer info
+       );
+ 
+   sk_sp<SkColorSpace> colorspace = SkColorSpace::MakeSRGB();
+-  SkSurfaceProps surface_props(0, kUnknown_SkPixelGeometry);
++  SkSurfaceProps surface_props(SkSurfaceProps::kDynamicMSAA_Flag,
++                               kUnknown_SkPixelGeometry);
+ 
+   return SkSurfaces::WrapBackendRenderTarget(
+       context,                                       // Gr context
+@@ -186,10 +206,10 @@ bool GPUSurfaceGLSkia::CreateOrUpdateSurfaces(const SkISize& size) {
+   GLFrameInfo frame_info = {static_cast<uint32_t>(size.width()),
+                             static_cast<uint32_t>(size.height())};
+   const GLFBOInfo fbo_info = delegate_->GLContextFBO(frame_info);
+-  onscreen_surface = WrapOnscreenSurface(context_.get(),  // GL context
+-                                         size,            // root surface size
+-                                         fbo_info.fbo_id  // window FBO ID
+-  );
++  onscreen_surface = WrapOnscreenSurface(context_.get(),   // GL context
++                                         size,             // root surface size
++                                         fbo_info.fbo_id,  // window FBO ID
++                                         gl_interface_.get());
+ 
+   if (onscreen_surface == nullptr) {
+     // If the onscreen surface could not be wrapped. There is absolutely no
+@@ -300,10 +320,10 @@ bool GPUSurfaceGLSkia::PresentSurface(const SurfaceFrame& frame) {
+     // re-wrap.
+     const GLFBOInfo fbo_info = delegate_->GLContextFBO(frame_info);
+     auto new_onscreen_surface =
+-        WrapOnscreenSurface(context_.get(),  // GL context
+-                            current_size,    // root surface size
+-                            fbo_info.fbo_id  // window FBO ID
+-        );
++        WrapOnscreenSurface(context_.get(),   // GL context
++                            current_size,     // root surface size
++                            fbo_info.fbo_id,  // window FBO ID
++                            gl_interface_.get());
+ 
+     if (!new_onscreen_surface) {
+       return false;
+diff --git a/shell/gpu/gpu_surface_gl_skia.h b/shell/gpu/gpu_surface_gl_skia.h
+index 91d2278..cc0c103 100644
+--- a/shell/gpu/gpu_surface_gl_skia.h
++++ b/shell/gpu/gpu_surface_gl_skia.h
+@@ -17,6 +17,7 @@
+ 
+ #include "third_party/skia/include/core/SkSurface.h"
+ #include "third_party/skia/include/gpu/ganesh/GrDirectContext.h"
++#include "third_party/skia/include/gpu/ganesh/gl/GrGLInterface.h"
+ 
+ namespace flutter {
+ 
+@@ -66,6 +67,7 @@ class GPUSurfaceGLSkia : public Surface {
+ 
+   GPUSurfaceGLDelegate* delegate_;
+   sk_sp<GrDirectContext> context_;
++  sk_sp<const GrGLInterface> gl_interface_;
+   sk_sp<SkSurface> onscreen_surface_;
+   /// FBO backing the current `onscreen_surface_`.
+   uint32_t fbo_id_ = 0;

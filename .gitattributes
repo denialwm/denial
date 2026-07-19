@@ -1,0 +1,3 @@
+*.denw binary
+*.patch -whitespace
+protocol/generated/** -whitespace

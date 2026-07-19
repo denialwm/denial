@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 
-import '../models/hypr_window.dart';
+import '../models/denial_window.dart';
 
 class ShellMetrics {
   const ShellMetrics._();
@@ -27,7 +27,7 @@ class ShellMetrics {
   static const double quickSettingsDragDistance = quickSettingsPanelHeight;
 
   static double appStatusBarTextureHeight(
-    HyprWindow window, {
+    DenialWindow window, {
     Size? targetSize,
     double visualHeight = appStatusBarHeight,
   }) {
@@ -58,7 +58,7 @@ class ShellMetrics {
     return visualHeight * scale;
   }
 
-  static double windowFrameTextureHeight(HyprWindow window) {
+  static double windowFrameTextureHeight(DenialWindow window) {
     return window.height.toDouble() + appStatusBarTextureHeight(window);
   }
 
@@ -177,7 +177,7 @@ class InputWindowRegion {
     this.geometryLocked = false,
   });
 
-  final HyprWindow window;
+  final DenialWindow window;
   final Rect rect;
   final Rect sourceRect;
   final int z;

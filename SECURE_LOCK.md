@@ -1,5 +1,14 @@
 # Denial secure lock
 
+## Implementation status
+
+This document is retained as the security contract and as reference for the
+last Hyprland-based implementation. That implementation is frozen at the
+`hyprland-last-known-good` tag. The Rust compositor on `main` does not yet
+implement the native PAM/authentication channel, so the behavior below must
+not be treated as a current runtime guarantee until it is ported and
+revalidated.
+
 Denial's lock is compositor state, not Flutter UI state. The process-lifetime
 native authentication controller owns the locked bit and is the only component
 that may clear it. Reconstructing the Flutter engine therefore reconstructs a
@@ -7,7 +16,7 @@ view of an already-locked session; it does not create a fresh unlocked session.
 
 ## Operation
 
-The primary command path is Denial's native Hyprland IPC command:
+The legacy implementation used Denial's native Hyprland IPC command:
 
 ```sh
 hyprctl denial-lock lock
@@ -15,7 +24,7 @@ hyprctl denial-lock status
 hyprctl -j denial-lock status
 ```
 
-In the Denial session, `Super+L` invokes the same process-lifetime native
+In that implementation, `Super+L` invokes the same process-lifetime native
 authentication controller directly. It does not spawn `hyprctl`, a shell, or
 any other helper process, and remains available through client shortcut
 inhibitors and compositor-owned shell surfaces.

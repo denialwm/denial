@@ -6,28 +6,8 @@ ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 
 CACHE_HOME="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
 BUILD_ROOT="${DENIAL_PC_BUILD_ROOT:-$CACHE_HOME/denial/pc-build}"
-HYPRLAND_BUILD="$BUILD_ROOT/hyprland"
-
+RUST_TARGET="${DENIAL_PC_RUST_TARGET:-$BUILD_ROOT/rust}"
 DEPENDENCY_ROOT="${DENIAL_PC_DEPENDENCY_ROOT:-$CACHE_HOME/denial/pc-dependencies}"
-
-HYPRLAND_PROTOCOLS_REPOSITORY="https://github.com/hyprwm/hyprland-protocols.git"
-HYPRLAND_PROTOCOLS_REVISION="3a5c2bda1c1a4e55cc1330c782547695a93f05b2"
-HYPRLAND_PROTOCOLS_SOURCE="${DENIAL_HYPRLAND_PROTOCOLS_SOURCE:-$DEPENDENCY_ROOT/hyprland-protocols}"
-UDIS86_REPOSITORY="https://github.com/canihavesomecoffee/udis86.git"
-UDIS86_REVISION="5336633af70f3917760a6d441ff02d93477b0c86"
-UDIS86_SOURCE="${DENIAL_UDIS86_SOURCE:-$DEPENDENCY_ROOT/udis86}"
-UDIS86_PATCH="$ROOT/patches/udis86/0001-build-library-out-of-tree.patch"
-
-AQUAMARINE_REPOSITORY="https://github.com/hyprwm/aquamarine.git"
-AQUAMARINE_REVISION="06669631175b4db2383b94e7f8c13f45a9d28757"
-AQUAMARINE_SOURCE="${DENIAL_AQUAMARINE_SOURCE:-$DEPENDENCY_ROOT/aquamarine}"
-AQUAMARINE_BUILD="$BUILD_ROOT/aquamarine"
-AQUAMARINE_PREFIX="$BUILD_ROOT/aquamarine-prefix"
-AQUAMARINE_PATCHES=(
-    "$ROOT/patches/aquamarine/0001-drm-buffer-scanout-source.patch"
-    "$ROOT/patches/aquamarine/0002-prioritize-session-poll-fds.patch"
-)
-AQUAMARINE_LIB="$AQUAMARINE_PREFIX/lib/libaquamarine.so.11"
 
 FLUTTER_ELINUX_REPOSITORY="https://github.com/sony/flutter-elinux.git"
 FLUTTER_ELINUX_REVISION="d13ebc3c7b4dca316073b5755823c0252b4895cc"
@@ -35,39 +15,35 @@ FLUTTER_SDK_REPOSITORY="https://github.com/flutter/flutter.git"
 FLUTTER_SDK_REVISION="17025dd88227cd9532c33fa78f5250d548d87e9a"
 FLUTTER_ELINUX="${DENIAL_FLUTTER_ELINUX:-$DEPENDENCY_ROOT/flutter-elinux/bin/flutter-elinux}"
 FLUTTER_PATCH="$ROOT/patches/flutter/0001-enable-120hz-touch-resampling.patch"
+
+MANIFEST="$ROOT/compositor/Cargo.toml"
+EMBEDDER_HEADER="$ROOT/third_party/flutter_embedder/embedder.h"
 BUNDLE="${DENIAL_PC_BUNDLE:-$ROOT/dart_shell/build/elinux/x64/release/bundle}"
 ENGINE="${DENIAL_PC_ENGINE:-$BUNDLE/lib/libflutter_engine.so}"
-BINARY="${DENIAL_PC_BINARY:-$HYPRLAND_BUILD/deniald}"
-CONFIG="${DENIAL_PC_CONFIG:-$ROOT/dev/denial-pc.conf}"
-MONITOR="${DENIAL_PC_MONITOR:-DP-5}"
-SESSION_TEMPLATE="$ROOT/dev/denial-pc.desktop.in"
+BINARY="${DENIAL_PC_BINARY:-$RUST_TARGET/release/deniald}"
+OUTPUT_CONFIG="${DENIAL_PC_OUTPUT_CONFIG:-$ROOT/dev/denial-outputs.conf}"
+DRM_DEVICE="${DENIAL_PC_DRM_DEVICE:-/dev/dri/by-path/pci-0000:0a:00.0-card}"
+SESSION_TEMPLATE="$ROOT/dev/denial.desktop.in"
 SESSION_FILE="${DENIAL_SESSION_FILE:-/usr/share/wayland-sessions/denial-development.desktop}"
 BUILD_JOBS="${DENIAL_BUILD_JOBS:-$(nproc)}"
-AMD_DRM_DEVICE="${DENIAL_PC_AMD_DRM_DEVICE:-/dev/dri/by-path/pci-0000:0a:00.0-card}"
-MESA_EGL_VENDOR="${DENIAL_PC_MESA_EGL_VENDOR:-/usr/share/glvnd/egl_vendor.d/50_mesa.json}"
 
 usage() {
     cat <<'EOF'
 Usage: tools/denial-pc COMMAND
 
 Commands:
-  bootstrap         Fetch and patch pinned build dependencies into the user cache
-  bundle            Build only the x64 Dart bundle
-  build             Build the x64 Dart bundle and integrated compositor
-  reload            Recreate the Flutter engine with the current Dart bundle
-  refresh           Build the Dart bundle, then recreate the Flutter engine
+  bootstrap         Fetch and patch the pinned Flutter toolchain and Rust crates
+  bundle            Build only the x64 Dart/Flutter bundle
+  compositor        Build only the release Rust compositor
+  build             Build the bundle and release compositor
+  test              Run the Rust compositor test suite
   session           Run the real DRM session (normally invoked by SDDM/UWSM)
   doctor            Show prerequisites and built artifact state
   install-session   Add "Denial (development)" to SDDM
   remove-session    Remove that SDDM entry
 
-Inside Denial: Super+L locks through the native PAM boundary, Super+A releases
-an application cursor grab and opens Overview, Super+F toggles the focused
-window fullscreen, Super+P pins it above other windows, Super+Left/Right moves
-it between monitors, Super+Return opens foot, and Super+Shift+E exits.
-
-Both reload and refresh restart the shell UI and recreate all Dart/Riverpod
-state. The native compositor process and its native services remain running.
+The production compositor is deniald. The denial-nested binary is a separate
+visual topology harness and never acquires DRM or input devices.
 EOF
 }
 
@@ -104,7 +80,6 @@ checkout_revision() {
     if [[ "$current" == "$revision" ]]; then
         return
     fi
-
     if [[ -n "$(git -C "$destination" status --porcelain --untracked-files=no)" ]]; then
         die "$label has tracked changes and cannot switch to $revision: $destination"
     fi
@@ -147,52 +122,11 @@ require_only_changes() {
     local actual
     actual="$(git -C "$source" diff --name-only | LC_ALL=C sort)"
     [[ "$actual" == "$expected" ]] || {
-        printf 'denial-pc: unexpected tracked changes in %s:\n%s\n' "$label" "${actual:-<none>}" >&2
+        printf 'denial-pc: unexpected tracked changes in %s:\n%s\n' \
+            "$label" "${actual:-<none>}" >&2
         die "restore the pinned checkout and re-run '$0 bootstrap'"
     }
     git -C "$source" diff --check
-}
-
-bootstrap_dependencies() {
-    local flutter_root flutter_source
-    flutter_root="$(cd -- "$(dirname -- "$FLUTTER_ELINUX")/.." 2>/dev/null && pwd -P || dirname -- "$(dirname -- "$FLUTTER_ELINUX")")"
-    flutter_source="$flutter_root/flutter"
-
-    checkout_revision "Aquamarine" "$AQUAMARINE_REPOSITORY" "$AQUAMARINE_REVISION" "$AQUAMARINE_SOURCE"
-    checkout_revision "hyprland-protocols" "$HYPRLAND_PROTOCOLS_REPOSITORY" "$HYPRLAND_PROTOCOLS_REVISION" "$HYPRLAND_PROTOCOLS_SOURCE"
-    checkout_revision "udis86" "$UDIS86_REPOSITORY" "$UDIS86_REVISION" "$UDIS86_SOURCE"
-    checkout_revision "flutter-elinux" "$FLUTTER_ELINUX_REPOSITORY" "$FLUTTER_ELINUX_REVISION" "$flutter_root"
-    checkout_revision "Flutter SDK" "$FLUTTER_SDK_REPOSITORY" "$FLUTTER_SDK_REVISION" "$flutter_source"
-
-    prepare_aquamarine_source
-    prepare_hyprland_dependencies
-    prepare_flutter_toolchain
-    printf '\nDependencies are ready below %s\n' "$DEPENDENCY_ROOT"
-}
-
-prepare_hyprland_dependencies() {
-    require_revision "hyprland-protocols" "$HYPRLAND_PROTOCOLS_SOURCE" "$HYPRLAND_PROTOCOLS_REVISION"
-    require_revision "udis86" "$UDIS86_SOURCE" "$UDIS86_REVISION"
-    require_file "$HYPRLAND_PROTOCOLS_SOURCE/protocols/hyprland-global-shortcuts-v1.xml"
-    require_file "$UDIS86_SOURCE/CMakeLists.txt"
-    apply_dependency_patch "udis86" "$UDIS86_SOURCE" "$UDIS86_PATCH"
-    require_only_changes "hyprland-protocols" "$HYPRLAND_PROTOCOLS_SOURCE" ""
-    require_only_changes "udis86" "$UDIS86_SOURCE" $'CMakeLists.txt\nlibudis86/CMakeLists.txt'
-}
-
-resolve_amd_drm_device() {
-    [[ -e "$AMD_DRM_DEVICE" ]] || die "AMD DRM device not found: $AMD_DRM_DEVICE"
-
-    local resolved driver_path driver
-    resolved="$(readlink -f -- "$AMD_DRM_DEVICE")"
-    [[ -c "$resolved" ]] || die "AMD DRM device is not a character device: $resolved"
-
-    driver_path="/sys/class/drm/$(basename -- "$resolved")/device/driver"
-    [[ -L "$driver_path" ]] || die "cannot identify DRM driver for $resolved"
-    driver="$(basename -- "$(readlink -f -- "$driver_path")")"
-    [[ "$driver" == "amdgpu" ]] || die "refusing non-AMD DRM device $resolved (driver: $driver)"
-
-    printf '%s\n' "$resolved"
 }
 
 prepare_flutter_toolchain() {
@@ -210,159 +144,111 @@ prepare_flutter_toolchain() {
         "packages/flutter/lib/src/gestures/binding.dart"
 }
 
+bootstrap_dependencies() {
+    local flutter_root flutter_source
+    flutter_root="$(cd -- "$(dirname -- "$FLUTTER_ELINUX")/.." 2>/dev/null && pwd -P \
+        || dirname -- "$(dirname -- "$FLUTTER_ELINUX")")"
+    flutter_source="$flutter_root/flutter"
+
+    checkout_revision \
+        "flutter-elinux" \
+        "$FLUTTER_ELINUX_REPOSITORY" \
+        "$FLUTTER_ELINUX_REVISION" \
+        "$flutter_root"
+    checkout_revision \
+        "Flutter SDK" \
+        "$FLUTTER_SDK_REPOSITORY" \
+        "$FLUTTER_SDK_REVISION" \
+        "$flutter_source"
+    prepare_flutter_toolchain
+    CARGO_TARGET_DIR="$RUST_TARGET" cargo fetch --locked --manifest-path "$MANIFEST"
+    printf '\nDependencies are ready below %s\n' "$DEPENDENCY_ROOT"
+}
+
 build_bundle() {
     prepare_flutter_toolchain
-
     (
         cd "$ROOT/dart_shell"
         "$FLUTTER_ELINUX" pub get
         "$FLUTTER_ELINUX" build elinux --release --target-arch=x64
     )
-
     require_file "$ENGINE"
+    require_file "$BUNDLE/data/icudtl.dat"
+    require_file "$BUNDLE/lib/libapp.so"
 }
 
-prepare_aquamarine_source() {
-    require_revision "Aquamarine" "$AQUAMARINE_SOURCE" "$AQUAMARINE_REVISION"
-    require_file "$AQUAMARINE_SOURCE/CMakeLists.txt"
-    require_file "$AQUAMARINE_SOURCE/VERSION"
-    local patch
-    for patch in "${AQUAMARINE_PATCHES[@]}"; do
-        apply_dependency_patch "Aquamarine" "$AQUAMARINE_SOURCE" "$patch"
-    done
-    require_only_changes \
-        "Aquamarine" \
-        "$AQUAMARINE_SOURCE" \
-        $'include/aquamarine/backend/DRM.hpp\nsrc/backend/Backend.cpp\nsrc/backend/drm/impl/Atomic.cpp'
-}
-
-build_aquamarine() {
-    prepare_aquamarine_source
-
-    local fresh=()
-    if [[ -f "$AQUAMARINE_BUILD/CMakeCache.txt" ]] \
-        && { ! grep -Fqx "CMAKE_HOME_DIRECTORY:INTERNAL=$AQUAMARINE_SOURCE" "$AQUAMARINE_BUILD/CMakeCache.txt" \
-            || ! grep -Fqx "CMAKE_CACHEFILE_DIR:INTERNAL=$AQUAMARINE_BUILD" "$AQUAMARINE_BUILD/CMakeCache.txt"; }; then
-        fresh=(--fresh)
-        printf 'Refreshing relocated Aquamarine CMake cache\n'
-    fi
-
-    cmake "${fresh[@]}" -S "$AQUAMARINE_SOURCE" -B "$AQUAMARINE_BUILD" -G Ninja \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX="$AQUAMARINE_PREFIX"
-    cmake --build "$AQUAMARINE_BUILD" \
-        --target aquamarine \
-        --parallel "$BUILD_JOBS"
-    cmake --install "$AQUAMARINE_BUILD"
-
-    require_file "$AQUAMARINE_LIB"
-}
-
-build_all() {
-    build_aquamarine
-    build_bundle
-    prepare_hyprland_dependencies
-
-    local hyprland_fresh=()
-    if [[ -f "$HYPRLAND_BUILD/CMakeCache.txt" ]] \
-        && { ! grep -Fqx "CMAKE_HOME_DIRECTORY:INTERNAL=$ROOT/Hyprland" "$HYPRLAND_BUILD/CMakeCache.txt" \
-            || ! grep -Fqx "CMAKE_CACHEFILE_DIR:INTERNAL=$HYPRLAND_BUILD" "$HYPRLAND_BUILD/CMakeCache.txt"; }; then
-        hyprland_fresh=(--fresh)
-        printf 'Refreshing relocated deniald CMake cache\n'
-    fi
-    PKG_CONFIG_PATH="$AQUAMARINE_PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" \
-    cmake "${hyprland_fresh[@]}" -S "$ROOT/Hyprland" -B "$HYPRLAND_BUILD" -G Ninja \
-        -U'aquamarine_dep_*' \
-        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-        -DCMAKE_BUILD_RPATH="$AQUAMARINE_PREFIX/lib" \
-        -DDENIAL_HYPRLAND_PROTOCOLS_SOURCE="$HYPRLAND_PROTOCOLS_SOURCE" \
-        -DDENIAL_UDIS86_SOURCE="$UDIS86_SOURCE" \
-        -DDENIAL_BUILD_TESTS=OFF \
-        -DDENIAL_ENGINE_LIBRARY="$ENGINE"
-    cmake --build "$HYPRLAND_BUILD" \
-        --target deniald \
-        --parallel "$BUILD_JOBS"
-
+build_compositor() {
+    require_file "$EMBEDDER_HEADER"
+    CARGO_TARGET_DIR="$RUST_TARGET" cargo build \
+        --locked \
+        --release \
+        --jobs "$BUILD_JOBS" \
+        --features flutter \
+        --manifest-path "$MANIFEST" \
+        --bin deniald
+    require_file "$BINARY"
     printf '\nBuilt %s\n' "$BINARY"
 }
 
-find_denial_instance() {
-    local expected candidate pid executable runtime lock
-    expected="$(readlink -f -- "$BINARY")"
-
-    candidate="${HYPRLAND_INSTANCE_SIGNATURE:-}"
-    if [[ -n "$candidate" ]]; then
-        runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-        lock="$runtime/hypr/$candidate/hyprland.lock"
-        if [[ -r "$lock" ]]; then
-            pid="$(sed -n '1p' "$lock")"
-            executable="$(readlink -f -- "/proc/$pid/exe" 2>/dev/null || true)"
-            if [[ "$executable" == "$expected" ]]; then
-                printf '%s\n' "$candidate"
-                return 0
-            fi
-        fi
-    fi
-
-    while IFS=$'\t' read -r candidate pid; do
-        [[ -n "$candidate" && -n "$pid" ]] || continue
-        executable="$(readlink -f -- "/proc/$pid/exe" 2>/dev/null || true)"
-        if [[ "$executable" == "$expected" ]]; then
-            printf '%s\n' "$candidate"
-            return 0
-        fi
-    done < <(hyprctl instances -j 2>/dev/null \
-        | jq -r '.[] | [.instance, (.pid | tostring)] | @tsv' 2>/dev/null)
-
-    return 1
+build_all() {
+    build_bundle
+    build_compositor
 }
 
-reload_bundle() {
-    require_file "$BUNDLE/lib/libapp.so"
-    local instance
-    instance="$(find_denial_instance)" \
-        || die "no current Denial development instance found; restart the graphical session once if the native binary was rebuilt"
-    if [[ "$instance" == "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-        hyprctl denial-reload
-    else
-        hyprctl -i "$instance" denial-reload
-    fi
+test_compositor() {
+    require_file "$EMBEDDER_HEADER"
+    CARGO_TARGET_DIR="$RUST_TARGET" cargo test \
+        --locked \
+        --jobs "$BUILD_JOBS" \
+        --lib \
+        --bins \
+        --tests \
+        --features flutter \
+        --manifest-path "$MANIFEST"
+    CARGO_TARGET_DIR="$RUST_TARGET" cargo test \
+        --locked \
+        --jobs "$BUILD_JOBS" \
+        --manifest-path "$MANIFEST" \
+        -p denial-flutter-engine
 }
 
-require_reloadable_instance() {
-    find_denial_instance >/dev/null \
-        || die "the running Denial instance is stale; restart the graphical session once before rebuilding its live bundle"
+resolve_drm_device() {
+    [[ -e "$DRM_DEVICE" ]] || die "DRM device not found: $DRM_DEVICE"
+    local resolved
+    resolved="$(readlink -f -- "$DRM_DEVICE")"
+    [[ -c "$resolved" ]] || die "DRM device is not a character device: $resolved"
+    printf '%s\n' "$resolved"
 }
 
 run_compositor() {
     require_file "$BINARY"
-    require_file "$AQUAMARINE_LIB"
     require_file "$ENGINE"
     require_file "$BUNDLE/data/icudtl.dat"
     require_file "$BUNDLE/lib/libapp.so"
-    require_file "$CONFIG"
-    require_file "$MESA_EGL_VENDOR"
-    grep -Fq 'libEGL_mesa.so' "$MESA_EGL_VENDOR" \
-        || die "refusing non-Mesa EGL vendor manifest: $MESA_EGL_VENDOR"
+    require_file "$OUTPUT_CONFIG"
+    command -v Xwayland >/dev/null 2>&1 \
+        || die "Xwayland is required for X11 applications such as Steam"
 
-    local amd_card
-    amd_card="$(resolve_amd_drm_device)"
+    local drm_device
+    drm_device="$(resolve_drm_device)"
 
-    # Keep the compositor, its Flutter engine and Xwayland on AMD. deniald
-    # clears these bootstrap-only variables before accepting app launches, so
-    # clients remain free to select the discrete NVIDIA GPU.
-    export AQ_DRM_DEVICES="$amd_card"
-    export __EGL_VENDOR_LIBRARY_FILENAMES="$MESA_EGL_VENDOR"
-    export LD_LIBRARY_PATH="$AQUAMARINE_PREFIX/lib:$(dirname -- "$ENGINE")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    unset DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE SWAYSOCK I3SOCK
+    unset NO_COLOR WLR_DRM_DEVICES AQ_DRM_DEVICES
+    export LIBSEAT_BACKEND=logind
+    export DENIA_UWSM_FINALIZE=1
+    export RUST_BACKTRACE=1
+    export RUST_LOG="${DENIA_RUST_LOG:-deniald=info,smithay=warn}"
+
     exec "$BINARY" \
-        --config "$CONFIG" \
-        --flutter-monitor "$MONITOR" \
+        --device "$drm_device" \
+        --output-config "$OUTPUT_CONFIG" \
+        --wayland \
         --flutter-bundle "$BUNDLE"
 }
 
 run_session() {
-    [[ -z "${WAYLAND_DISPLAY:-}" ]] || die "a Wayland compositor is already active; log out and select Denial from SDDM"
-    unset HYPRLAND_NO_SD_NOTIFY HYPRLAND_NO_SD_VARS
+    [[ -z "${WAYLAND_DISPLAY:-}" ]] \
+        || die "a Wayland compositor is already active; log out and select Denial from SDDM"
     run_compositor
 }
 
@@ -377,10 +263,11 @@ show_path_state() {
 }
 
 show_session_state() {
-    local expected="$SCRIPT_DIR/denial-pc"
     if [[ ! -e "$SESSION_FILE" ]]; then
         printf 'missing  %-18s %s\n' "SDDM entry" "$SESSION_FILE"
-    elif grep -Fqx "X-Denial-Launcher=$expected" "$SESSION_FILE"; then
+    elif grep -Fqx "X-Denial-Launcher=$SCRIPT_DIR/denial-pc" "$SESSION_FILE" \
+        && grep -Fqx "DesktopNames=Denial" "$SESSION_FILE" \
+        && grep -Fq " -D Denial " "$SESSION_FILE"; then
         printf 'ok       %-18s %s\n' "SDDM entry" "$SESSION_FILE"
     else
         printf 'stale    %-18s %s (run install-session)\n' "SDDM entry" "$SESSION_FILE"
@@ -391,28 +278,14 @@ doctor() {
     show_path_state "dependency cache" "$DEPENDENCY_ROOT"
     show_path_state "flutter-elinux" "$FLUTTER_ELINUX"
     show_path_state "Flutter patch" "$FLUTTER_PATCH"
-    show_path_state "Aquamarine source" "$AQUAMARINE_SOURCE"
-    show_path_state "Hyprland protocols" "$HYPRLAND_PROTOCOLS_SOURCE"
-    show_path_state "udis86 source" "$UDIS86_SOURCE"
-    show_path_state "udis86 patch" "$UDIS86_PATCH"
-    local patch
-    for patch in "${AQUAMARINE_PATCHES[@]}"; do
-        show_path_state "Aquamarine patch" "$patch"
-    done
+    show_path_state "Rust manifest" "$MANIFEST"
+    show_path_state "embedder header" "$EMBEDDER_HEADER"
     show_path_state "Dart bundle" "$BUNDLE/lib/libapp.so"
     show_path_state "Flutter engine" "$ENGINE"
-    show_path_state "patched Aquamarine" "$AQUAMARINE_LIB"
     show_path_state "deniald" "$BINARY"
-    show_path_state "PC config" "$CONFIG"
-    show_path_state "AMD DRM device" "$AMD_DRM_DEVICE"
-    show_path_state "Mesa EGL vendor" "$MESA_EGL_VENDOR"
+    show_path_state "output config" "$OUTPUT_CONFIG"
+    show_path_state "DRM device" "$DRM_DEVICE"
     show_session_state
-
-    if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-        printf 'current  compositor         Denial (%s)\n' "$HYPRLAND_INSTANCE_SIGNATURE"
-    else
-        printf 'current  compositor         none in this shell\n'
-    fi
 }
 
 as_root() {
@@ -438,7 +311,8 @@ install_session() {
         return "$status"
     fi
     rm -f -- "$rendered"
-    printf 'Installed %s\nLog out, then choose "Denial (development)" in SDDM.\n' "$SESSION_FILE"
+    printf 'Installed %s\nLog out, then choose "Denial (development)" in SDDM.\n' \
+        "$SESSION_FILE"
 }
 
 remove_session() {
@@ -446,7 +320,6 @@ remove_session() {
         printf 'Already absent: %s\n' "$SESSION_FILE"
         return
     fi
-
     grep -Fq "X-Denial-Launcher=$SCRIPT_DIR/denial-pc" "$SESSION_FILE" \
         || die "refusing to remove a session entry not installed by this checkout: $SESSION_FILE"
     as_root rm -f -- "$SESSION_FILE"
@@ -456,9 +329,9 @@ remove_session() {
 case "${1:-}" in
     bootstrap) bootstrap_dependencies ;;
     bundle) build_bundle ;;
+    compositor) build_compositor ;;
     build) build_all ;;
-    reload) reload_bundle ;;
-    refresh) require_reloadable_instance; build_bundle; reload_bundle ;;
+    test) test_compositor ;;
     session) run_session ;;
     doctor) doctor ;;
     install-session) install_session ;;

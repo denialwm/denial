@@ -1,0 +1,81 @@
+From 3f5e2d7c4a6b8f90123456789abcdef012345678 Mon Sep 17 00:00:00 2001
+From: Denial Project <denial@localhost>
+Date: Sat, 18 Jul 2026 23:20:00 +0200
+Subject: [PATCH] Fix DMSAA lifetime and stencil continuity on wrapped GL FBOs
+
+Dynamic MSAA creates a private multisample FBO even when the single-sample
+render target was supplied by an embedder.  GrGLRenderTarget::onRelease()
+previously keyed all FBO cleanup off the ownership of the supplied target,
+which leaked the internally-created FBO for a borrowed render target.  This
+is especially costly for embedders that wrap a different scanout FBO every
+frame: deleted color/stencil renderbuffers can remain referenced by the
+leaked FBOs.
+
+Also clear the generated FBO ID when allocation of its color attachment
+fails.  Otherwise a later ensureDynamicMSAAAttachment() call mistakes the
+incomplete FBO for a completed attachment.
+
+Finally, keep draws that consume a stencil clip on the dynamic-MSAA surface.
+After an OpsTask split the stencil contents being preserved belong to the
+multisample attachment; allowing the consumer to use the single-sample FBO
+selects a different stencil attachment.
+---
+ src/gpu/ganesh/SurfaceDrawContext.cpp      |  9 ++++++---
+ src/gpu/ganesh/gl/GrGLRenderTarget.cpp     | 14 +++++++++++++-
+ 2 files changed, 19 insertions(+), 4 deletions(-)
+
+diff --git a/src/gpu/ganesh/SurfaceDrawContext.cpp b/src/gpu/ganesh/SurfaceDrawContext.cpp
+index 4b89c9f..2a1fc77 100644
+--- a/src/gpu/ganesh/SurfaceDrawContext.cpp
++++ b/src/gpu/ganesh/SurfaceDrawContext.cpp
+@@ -1990,9 +1990,12 @@ void SurfaceDrawContext::addDrawOp(const GrClip* clip,
+ 
+     const bool opUsesStencil = drawOp->usesStencil();
+ 
+-    // Always trigger DMSAA when there is stencil. This ensures stencil contents get properly
+-    // preserved between render passes, if needed.
+-    const bool drawNeedsMSAA = opUsesMSAA || (fCanUseDynamicMSAA && opUsesStencil);
++    // Always trigger DMSAA when an op writes stencil or consumes a stencil clip. This keeps
++    // preserved stencil contents on the same attachment when the SurfaceDrawContext splits its
++    // OpsTask; the single-sample attachment is a different stencil domain.
++    const bool drawNeedsMSAA =
++            opUsesMSAA ||
++            (fCanUseDynamicMSAA && (opUsesStencil || appliedClip.hasStencilClip()));
+ 
+     // Must be called before setDstProxyView so that it sees the final bounds of the op.
+     op->setClippedBounds(bounds);
+diff --git a/src/gpu/ganesh/gl/GrGLRenderTarget.cpp b/src/gpu/ganesh/gl/GrGLRenderTarget.cpp
+index c91d537..8732cd5 100644
+--- a/src/gpu/ganesh/gl/GrGLRenderTarget.cpp
++++ b/src/gpu/ganesh/gl/GrGLRenderTarget.cpp
+@@ -184,6 +184,8 @@ bool GrGLRenderTarget::ensureDynamicMSAAAttachment() {
+                     this->dimensions(), this->backendFormat(), internalSampleCount,
+                     GrProtected(this->isProtected()), GrMemoryless::kNo).release()));
+     if (!fDynamicMSAAAttachment) {
++        this->getGLGpu()->deleteFramebuffer(fMultisampleFBOID);
++        fMultisampleFBOID = 0;
+         return false;
+     }
+ 
+@@ -310,8 +312,18 @@ void GrGLRenderTarget::bindForResolve(GrGLGpu::ResolveDirection resolveDirection
+ }
+ 
+ void GrGLRenderTarget::onRelease() {
++    GrGLGpu* gpu = this->getGLGpu();
++
++    // fRTFBOOwnership describes the FBO IDs supplied when this render target was wrapped. A
++    // manual dynamic-MSAA FBO is created internally afterwards and is always ours, even when the
++    // single-sample FBO is borrowed from an embedder.
++    if (fDynamicMSAAAttachment && fMultisampleFBOID &&
++        fMultisampleFBOID != fSingleSampleFBOID) {
++        gpu->deleteFramebuffer(fMultisampleFBOID);
++        fMultisampleFBOID = 0;
++    }
++
+     if (GrBackendObjectOwnership::kBorrowed != fRTFBOOwnership) {
+-        GrGLGpu* gpu = this->getGLGpu();
+         if (fSingleSampleFBOID) {
+             gpu->deleteFramebuffer(fSingleSampleFBOID);
+         }
+-- 
+2.50.1

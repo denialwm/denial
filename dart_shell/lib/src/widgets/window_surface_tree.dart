@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 
-import '../models/hypr_window.dart';
+import '../models/denial_window.dart';
 
 /// Composites the non-popup portion of a Wayland surface tree in protocol
 /// order. Popup layers are scene-level siblings because they are allowed to
@@ -13,7 +13,7 @@ class WindowSurfaceTree extends StatelessWidget {
     this.includePopups = false,
   });
 
-  final HyprWindow window;
+  final DenialWindow window;
   final FilterQuality filterQuality;
   final bool includePopups;
 
@@ -64,7 +64,7 @@ class SurfaceLayerTexture extends StatelessWidget {
     this.filterQuality = FilterQuality.none,
   });
 
-  final HyprSurfaceLayer layer;
+  final DenialSurfaceLayer layer;
   final FilterQuality filterQuality;
 
   @override
@@ -137,7 +137,7 @@ class _LegacyWindowTexture extends StatelessWidget {
     required this.filterQuality,
   });
 
-  final HyprWindow window;
+  final DenialWindow window;
   final FilterQuality filterQuality;
 
   @override
