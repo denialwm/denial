@@ -482,6 +482,13 @@ fn process_input_event(state: &mut RuntimeState, event: InputEvent<LibinputInput
         return process_flutter_input_event(state, event);
     }
 
+    #[cfg(feature = "flutter")]
+    if state.secure_session_locked() {
+        // Native lock state remains authoritative if Flutter is restarting or
+        // unavailable. No physical input may fall through to a client.
+        return true;
+    }
+
     process_wayland_input_event(state, event);
     true
 }
@@ -637,10 +644,32 @@ fn intercept_native_escape(
     let Some(evdev_keycode) = xkb_keycode.checked_sub(8) else {
         return false;
     };
-    match state
+    let disposition = state
         .native_escape_shortcut
-        .observe(evdev_keycode, key_state == KeyState::Pressed)
-    {
+        .observe(evdev_keycode, key_state == KeyState::Pressed);
+    #[cfg(feature = "flutter")]
+    if state.secure_session_locked() {
+        return match disposition {
+            ShortcutDisposition::Forward => false,
+            ShortcutDisposition::RequestLock => {
+                if let Some(authentication) = state.authentication.as_ref() {
+                    authentication.lock();
+                }
+                true
+            }
+            ShortcutDisposition::RequestShutdown => {
+                state
+                    .lifecycle
+                    .request_shutdown(ShutdownReason::NativeEscapeShortcut);
+                true
+            }
+            // Shortcut state still observes every transition so releases stay
+            // balanced, but locked sessions cannot trigger client/window or
+            // system-control actions.
+            _ => true,
+        };
+    }
+    match disposition {
         ShortcutDisposition::Forward => false,
         ShortcutDisposition::Consume => true,
         ShortcutDisposition::RequestShutdown => {
@@ -695,6 +724,13 @@ fn intercept_native_escape(
         ShortcutDisposition::RequestToggleFullscreen => {
             #[cfg(feature = "flutter")]
             super::window_management::toggle_shell_fullscreen_focused_toplevel(state);
+            true
+        }
+        ShortcutDisposition::RequestLock => {
+            #[cfg(feature = "flutter")]
+            if let Some(authentication) = state.authentication.as_ref() {
+                authentication.lock();
+            }
             true
         }
         ShortcutDisposition::RequestVolumeUp => {
@@ -786,6 +822,7 @@ fn process_flutter_input_event(
     state: &mut RuntimeState,
     event: InputEvent<LibinputInputBackend>,
 ) -> bool {
+    let secure_locked = state.secure_session_locked();
     if let InputEvent::Keyboard {
         event: key_event, ..
     } = &event
@@ -804,11 +841,10 @@ fn process_flutter_input_event(
         let disposition = {
             let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
             let capture_new_press = matches!(key_state, KeyState::Pressed)
-                && frontend
-                    .input_layout
-                    .as_ref()
-                    .is_some_and(|layout| layout.keyboard_capture() || layout.exclusive_shell())
-                && !keyboard_grabbed;
+                && (secure_locked
+                    || (frontend.input_layout.as_ref().is_some_and(|layout| {
+                        layout.keyboard_capture() || layout.exclusive_shell()
+                    }) && !keyboard_grabbed));
             route_flutter_key_transition(
                 &mut frontend.flutter_keyboard_keys,
                 &mut frontend.retired_keyboard_keys,
@@ -847,7 +883,7 @@ fn process_flutter_input_event(
                 let scale = frontend.atlas_scale.max(f64::EPSILON);
                 let delta = Point::from((delta.x / scale, delta.y / scale));
                 let position = frontend.clamp_pointer(frontend.pointer_location + delta);
-                let target = if flutter_captured {
+                let target = if secure_locked || flutter_captured {
                     PointerMotionTarget::FLUTTER
                 } else if let Some(route) = frontend.client_pointer_capture.as_ref() {
                     PointerMotionTarget::client(route, position)
@@ -872,7 +908,7 @@ fn process_flutter_input_event(
                 let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
                 let local = motion.position_transformed(frontend.desktop_bounds.size);
                 let position = frontend.clamp_pointer(local + frontend.desktop_bounds.loc.to_f64());
-                let target = if flutter_captured {
+                let target = if secure_locked || flutter_captured {
                     PointerMotionTarget::FLUTTER
                 } else if let Some(route) = frontend.client_pointer_capture.as_ref() {
                     PointerMotionTarget::client(route, position)
@@ -903,7 +939,7 @@ fn process_flutter_input_event(
             let flutter_captured = state.flutter_input.pointer_captured();
             let target = {
                 let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
-                if flutter_captured {
+                if secure_locked || flutter_captured {
                     InputTarget::Flutter
                 } else if let Some(route) = frontend.client_pointer_capture.clone() {
                     InputTarget::Client(route)
@@ -958,7 +994,7 @@ fn process_flutter_input_event(
             }
             let mut scene_changed = false;
             match target {
-                InputTarget::Flutter if !pointer_grabbed => {
+                InputTarget::Flutter if secure_locked || !pointer_grabbed => {
                     state.synchronize_flutter_pointer_position();
                     state.flutter_input.handle(&event);
                     false
@@ -1020,7 +1056,7 @@ fn process_flutter_input_event(
             let flutter_captured = state.flutter_input.pointer_captured();
             let flutter_target = {
                 let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
-                if flutter_captured {
+                if secure_locked || flutter_captured {
                     true
                 } else if frontend.client_pointer_capture.is_some() {
                     false
@@ -1029,7 +1065,7 @@ fn process_flutter_input_event(
                     frontend.input_route(position).is_none()
                 }
             };
-            if flutter_target && !pointer_grabbed {
+            if flutter_target && (secure_locked || !pointer_grabbed) {
                 state.synchronize_flutter_pointer_position();
                 state.flutter_input.handle(&event);
                 false
@@ -1047,7 +1083,14 @@ fn process_flutter_input_event(
                 let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
                 let local = touch_event.position_transformed(frontend.touch_bounds.size);
                 let position = local + frontend.touch_bounds.loc.to_f64();
-                (position, frontend.input_target(position))
+                (
+                    position,
+                    if secure_locked {
+                        InputTarget::Flutter
+                    } else {
+                        frontend.input_target(position)
+                    },
+                )
             };
             match target {
                 InputTarget::Flutter => {

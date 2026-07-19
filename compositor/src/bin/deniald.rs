@@ -1,6 +1,9 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![deny(clippy::undocumented_unsafe_blocks)]
 
+#[cfg(feature = "flutter")]
+#[path = "deniald/authentication.rs"]
+mod authentication;
 #[path = "deniald/egl_context.rs"]
 mod egl_context;
 #[cfg(feature = "flutter")]
@@ -46,6 +49,8 @@ use std::os::unix::fs::MetadataExt;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::path::Path;
 use std::process::Command;
+#[cfg(feature = "flutter")]
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use calloop::signals::{Signal, Signals};
@@ -735,6 +740,10 @@ struct RuntimeState {
     #[cfg(feature = "flutter")]
     flutter_active: bool,
     #[cfg(feature = "flutter")]
+    authentication: Option<Arc<authentication::AuthenticationController>>,
+    #[cfg(feature = "flutter")]
+    session_lock_applied: bool,
+    #[cfg(feature = "flutter")]
     frame_callback_demand: bool,
     #[cfg(feature = "flutter")]
     flutter_input: flutter_runtime::InputQueue,
@@ -750,6 +759,14 @@ struct RuntimeState {
 
 #[cfg(feature = "flutter")]
 impl RuntimeState {
+    fn secure_session_locked(&self) -> bool {
+        self.session_lock_applied
+            || self
+                .authentication
+                .as_ref()
+                .is_some_and(|authentication| authentication.locked())
+    }
+
     fn queue_shell_action(&mut self, action: wire::ShellAction, monitor_id: Option<i64>) {
         const MAX_PENDING_SHELL_ACTIONS: usize = 64;
         if self.pending_shell_actions.len() < MAX_PENDING_SHELL_ACTIONS {
@@ -941,9 +958,15 @@ fn run_frame_loop(
         .as_ref()
         .map(|_| SystemControls::new())
         .transpose()?;
+    #[cfg(feature = "flutter")]
+    let authentication = flutter
+        .as_ref()
+        .map(flutter_runtime::FlutterRuntime::authentication);
     let mut events = RuntimeState {
         wayland,
         system_controls,
+        #[cfg(feature = "flutter")]
+        authentication,
         #[cfg(feature = "flutter")]
         flutter_active: flutter.is_some(),
         #[cfg(feature = "flutter")]
@@ -1382,9 +1405,11 @@ fn run_flutter_event_loop(
         .as_ref()
         .map(|_| SystemControls::new())
         .transpose()?;
+    let authentication = Some(flutter.authentication());
     let mut events = RuntimeState {
         wayland,
         system_controls,
+        authentication,
         flutter_active: true,
         flutter_input: flutter_runtime::InputQueue::new(swapchain.size),
         ..RuntimeState::default()
@@ -1537,7 +1562,8 @@ fn run_flutter_event_loop(
         // frame/engine dispatches. AwaitVSync and platform-task traffic is a
         // steady-state hot path and must not rebuild this Vec every time.
         runtime.process_events(events.flutter_events.drain(..))?;
-        synchronize_system_control_events(runtime, &events)?;
+        synchronize_authentication_boundary(&mut events);
+        synchronize_system_control_events(runtime, &mut events)?;
         synchronize_flutter_window_management(runtime, &mut events)?;
         synchronize_flutter_scene(runtime, &mut events)?;
         synchronize_flutter_input_layout(runtime, &mut events);
@@ -1778,6 +1804,7 @@ fn wait_for_flutter_frame(
         }
         runtime.process_input(&mut events.flutter_input)?;
         runtime.process_events(events.flutter_events.drain(..))?;
+        synchronize_authentication_boundary(events);
         synchronize_system_control_events(runtime, events)?;
         synchronize_flutter_window_management(runtime, events)?;
         synchronize_flutter_scene(runtime, events)?;
@@ -1911,13 +1938,44 @@ fn synchronize_wayland_cursor(
 }
 
 #[cfg(feature = "flutter")]
+fn synchronize_authentication_boundary(events: &mut RuntimeState) {
+    let locked = events
+        .authentication
+        .as_ref()
+        .is_some_and(|authentication| authentication.locked());
+    if locked == events.session_lock_applied {
+        return;
+    }
+
+    // Balance every client-visible press and cancel every active pointer,
+    // touch or keyboard grab before changing the routing boundary. On unlock,
+    // this also prevents the Enter used for PAM submission from leaking into
+    // the previously focused application.
+    wayland_frontend::reset_all_input_devices(events);
+    events.session_lock_applied = locked;
+    if locked {
+        events.pending_shell_actions.clear();
+    } else if let Some(authentication) = events.authentication.as_ref() {
+        authentication.acknowledge_unlocked_boundary();
+    }
+    events.scene_sync.mark_dirty();
+    info!(locked, "Denial native session security state changed");
+}
+
+#[cfg(feature = "flutter")]
 fn synchronize_system_control_events(
     runtime: &mut flutter_runtime::FlutterRuntime,
-    events: &RuntimeState,
+    events: &mut RuntimeState,
 ) -> Result<(), Box<dyn Error>> {
+    let requests = runtime.drain_audio_requests().collect::<Vec<_>>();
     let Some(controls) = events.system_controls.as_ref() else {
         return Ok(());
     };
+    if !events.secure_session_locked() {
+        for request in requests {
+            controls.handle_audio_request(request);
+        }
+    }
     while let Some(event) = controls.try_event() {
         runtime.send_system_control_event(&event)?;
     }
@@ -1929,10 +1987,15 @@ fn synchronize_flutter_window_management(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &mut RuntimeState,
 ) -> Result<(), Box<dyn Error>> {
-    while let Some((action, monitor_id)) = events.pending_shell_actions.pop_front() {
-        runtime.send_shell_action(action, monitor_id)?;
+    if events.secure_session_locked() {
+        events.pending_shell_actions.clear();
+        runtime.drain_window_commands().for_each(drop);
+    } else {
+        while let Some((action, monitor_id)) = events.pending_shell_actions.pop_front() {
+            runtime.send_shell_action(action, monitor_id)?;
+        }
+        wayland_frontend::apply_window_commands(events, runtime.drain_window_commands());
     }
-    wayland_frontend::apply_window_commands(events, runtime.drain_window_commands());
     if events.pending_window_events.is_empty() {
         return Ok(());
     }
@@ -2103,6 +2166,7 @@ fn apply_hotplug_topology(
         };
         let prepare_restart = (|| -> Result<(), Box<dyn Error>> {
             old_runtime.process_events(events.flutter_events.drain(..))?;
+            synchronize_authentication_boundary(events);
             synchronize_system_control_events(&mut old_runtime, events)?;
             synchronize_flutter_window_management(&mut old_runtime, events)?;
             synchronize_flutter_input_layout(&mut old_runtime, events);

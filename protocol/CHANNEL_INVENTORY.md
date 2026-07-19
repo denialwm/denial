@@ -11,6 +11,8 @@ outside this inventory.
 | `denial/audio` | Dart → native | bounded fixed packet | Read/set default output and enumerate/control application streams |
 | `denial/audio_state` | Native → Dart | 5 bytes | Level and request serial |
 | `denial/audio_streams_state` | Native → Dart | bounded length-prefixed packet | Application stream identities, names, level, and mute state |
+| `denial/authentication` | Dart → native | bounded `DAUT` packet | Synchronize, lock, begin, respond to, or cancel a native PAM attempt |
+| `denial/authentication_state` | Native → Dart | bounded `DAUT` packet | Authoritative lock state, PAM prompts, results, and retry cooldown |
 | `denial/brightness` | Dart → native | little-endian `float64` | Absolute level for the output under the cursor |
 | `denial/brightness_state` | Native → Dart | monitor ID + level | Authoritative native brightness update |
 | `denial/system_command` | Dart → native | bounded length-prefixed packet | Launch application, toggle OSK, take screenshot, or log out |

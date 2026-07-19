@@ -618,6 +618,10 @@ impl TabletSeatHandler for RuntimeState {}
 
 impl PointerConstraintsHandler for RuntimeState {
     fn new_constraint(&mut self, surface: &WlSurface, pointer: &PointerHandle<Self>) {
+        #[cfg(feature = "flutter")]
+        if self.secure_session_locked() {
+            return;
+        }
         if pointer.current_focus().as_ref() == Some(surface) {
             smithay::wayland::pointer_constraints::with_pointer_constraint(
                 surface,
@@ -651,6 +655,10 @@ impl SelectionHandler for RuntimeState {
         source: Option<SelectionSource>,
         _seat: Seat<Self>,
     ) {
+        #[cfg(feature = "flutter")]
+        if self.secure_session_locked() {
+            return;
+        }
         if selection != SelectionTarget::Clipboard {
             return;
         }
@@ -675,6 +683,10 @@ impl SelectionHandler for RuntimeState {
         _seat: Seat<Self>,
         _user_data: &(),
     ) {
+        #[cfg(feature = "flutter")]
+        if self.secure_session_locked() {
+            return;
+        }
         if selection != SelectionTarget::Clipboard {
             return;
         }
@@ -712,6 +724,11 @@ impl WaylandDndGrabHandler for RuntimeState {
         serial: Serial,
         type_: GrabType,
     ) {
+        #[cfg(feature = "flutter")]
+        if self.secure_session_locked() {
+            source.cancel();
+            return;
+        }
         match type_ {
             GrabType::Pointer => {
                 let Some(pointer) = seat.get_pointer() else {

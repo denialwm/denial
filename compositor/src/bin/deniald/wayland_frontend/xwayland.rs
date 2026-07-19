@@ -753,6 +753,10 @@ impl XwmHandler for RuntimeState {
     }
 
     fn allow_selection_access(&mut self, xwm: XwmId, selection: SelectionTarget) -> bool {
+        #[cfg(feature = "flutter")]
+        if self.secure_session_locked() {
+            return false;
+        }
         if selection != SelectionTarget::Clipboard {
             return false;
         }
@@ -778,6 +782,10 @@ impl XwmHandler for RuntimeState {
         mime_type: String,
         fd: OwnedFd,
     ) {
+        #[cfg(feature = "flutter")]
+        if self.secure_session_locked() {
+            return;
+        }
         if selection == SelectionTarget::Clipboard
             && let Err(error) = request_data_device_client_selection(
                 &self
@@ -794,6 +802,10 @@ impl XwmHandler for RuntimeState {
     }
 
     fn new_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_types: Vec<String>) {
+        #[cfg(feature = "flutter")]
+        if self.secure_session_locked() {
+            return;
+        }
         if selection != SelectionTarget::Clipboard {
             return;
         }
@@ -802,6 +814,10 @@ impl XwmHandler for RuntimeState {
     }
 
     fn cleared_selection(&mut self, _xwm: XwmId, selection: SelectionTarget) {
+        #[cfg(feature = "flutter")]
+        if self.secure_session_locked() {
+            return;
+        }
         if selection != SelectionTarget::Clipboard {
             return;
         }

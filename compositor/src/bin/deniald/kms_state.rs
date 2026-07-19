@@ -293,6 +293,7 @@ pub(super) struct LayoutTransition {
 pub(super) struct FlutterLauncher {
     factory: flutter_runtime::FlutterRuntimeFactory,
     events: Sender<flutter_runtime::RuntimeEvent>,
+    authentication: Arc<authentication::AuthenticationController>,
     wayland_display: Option<OsString>,
     x11_display: Option<OsString>,
     pub(super) generation: u64,
@@ -309,6 +310,7 @@ impl FlutterLauncher {
         Ok(Self {
             factory: flutter_runtime::FlutterRuntimeFactory::new(bundle)?,
             events,
+            authentication: Arc::new(authentication::AuthenticationController::new()?),
             wayland_display,
             x11_display,
             generation: 0,
@@ -339,6 +341,7 @@ impl FlutterLauncher {
             u32::try_from(refresh_millihz)?,
             &self.factory,
             self.events.clone(),
+            Arc::clone(&self.authentication),
             self.generation,
             scanouts
                 .iter()

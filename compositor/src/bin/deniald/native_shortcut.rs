@@ -5,6 +5,7 @@ const KEY_TAB: u32 = 15;
 const KEY_A: u32 = 30;
 const KEY_F: u32 = 33;
 const KEY_K: u32 = 37;
+const KEY_L: u32 = 38;
 const KEY_M: u32 = 50;
 const KEY_MUTE: u32 = 113;
 const KEY_VOLUME_DOWN: u32 = 114;
@@ -23,6 +24,7 @@ const CAPTURED_FULLSCREEN: u8 = 1 << 1;
 const CAPTURED_CLOSE: u8 = 1 << 2;
 const CAPTURED_OVERVIEW: u8 = 1 << 3;
 const CAPTURED_WINDOW_SWITCHER: u8 = 1 << 4;
+const CAPTURED_LOCK: u8 = 1 << 5;
 const CAPTURED_MUTE: u8 = 1 << 0;
 const CAPTURED_VOLUME_DOWN: u8 = 1 << 1;
 const CAPTURED_VOLUME_UP: u8 = 1 << 2;
@@ -39,6 +41,7 @@ pub(super) enum ShortcutDisposition {
     RequestClose,
     RequestMinimize,
     RequestToggleFullscreen,
+    RequestLock,
     RequestVolumeUp,
     RequestVolumeDown,
     RequestMute,
@@ -143,6 +146,7 @@ impl NativeEscapeShortcut {
                 ShortcutDisposition::RequestToggleFullscreen,
             )),
             KEY_K => Some((CAPTURED_CLOSE, ShortcutDisposition::RequestClose)),
+            KEY_L => Some((CAPTURED_LOCK, ShortcutDisposition::RequestLock)),
             _ => None,
         };
         if let Some((capture, disposition)) = logo_action {
@@ -363,6 +367,7 @@ mod tests {
             (KEY_M, ShortcutDisposition::RequestMinimize),
             (KEY_F, ShortcutDisposition::RequestToggleFullscreen),
             (KEY_K, ShortcutDisposition::RequestClose),
+            (KEY_L, ShortcutDisposition::RequestLock),
         ] {
             let mut shortcut = NativeEscapeShortcut::default();
             assert_eq!(
@@ -448,7 +453,7 @@ mod tests {
 
     #[test]
     fn window_action_keys_without_super_remain_client_keys() {
-        for key in [KEY_A, KEY_TAB, KEY_M, KEY_F, KEY_K] {
+        for key in [KEY_A, KEY_TAB, KEY_M, KEY_F, KEY_K, KEY_L] {
             let mut shortcut = NativeEscapeShortcut::default();
             assert_eq!(press(&mut shortcut, key), ShortcutDisposition::Forward);
             assert_eq!(release(&mut shortcut, key), ShortcutDisposition::Forward);

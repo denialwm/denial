@@ -55,7 +55,9 @@ mod damage;
 use damage::DamageRegion;
 
 const FLUTTER_KEY_EVENT_CHANNEL: &CStr = c"flutter/keyevent";
+const AUDIO_CHANNEL: &CStr = c"denial/audio";
 const AUDIO_STATE_CHANNEL: &CStr = c"denial/audio_state";
+const AUDIO_STREAMS_STATE_CHANNEL: &CStr = c"denial/audio_streams_state";
 const BRIGHTNESS_STATE_CHANNEL: &CStr = c"denial/brightness_state";
 const GLFW_MOD_CONTROL: u32 = 0x0002;
 const GLFW_MOD_ALT: u32 = 0x0004;
@@ -72,6 +74,7 @@ const MAX_PLATFORM_TASKS_PER_DISPATCH: usize = 256;
 const INITIAL_PLATFORM_TASK_BATCH_CAPACITY: usize = 64;
 const MAX_LIVE_EXTERNAL_TEXTURE_RESOURCES: usize = 1024;
 const PLATFORM_TASK_MAX_DISPATCH_TIMEOUT: Duration = Duration::from_millis(100);
+const MAX_PENDING_AUDIO_REQUESTS: usize = 128;
 
 #[derive(Debug, Default)]
 struct PlatformTaskBudget {
@@ -3036,6 +3039,8 @@ pub struct FlutterRuntime {
     wire: WireBridge,
     text_input: text_input::TextInputPlugin,
     system_commands: system_command::SystemCommandHandler,
+    authentication: Arc<super::authentication::AuthenticationController>,
+    pending_audio_requests: VecDeque<super::system_controls::AudioRequest>,
     generation: u64,
     scheduled_tasks: BinaryHeap<QueuedPlatformTask>,
     platform_task_scratch: Vec<PendingPlatformTask>,
@@ -3066,6 +3071,7 @@ impl FlutterRuntime {
         refresh_millihz: u32,
         factory: &FlutterRuntimeFactory,
         events: Sender<RuntimeEvent>,
+        authentication: Arc<super::authentication::AuthenticationController>,
         generation: u64,
         use_native_fence: bool,
         wayland_display: Option<OsString>,
@@ -3131,6 +3137,8 @@ impl FlutterRuntime {
                 wayland_display,
                 x11_display,
             ),
+            authentication,
+            pending_audio_requests: VecDeque::with_capacity(16),
             generation,
             scheduled_tasks: BinaryHeap::with_capacity(INITIAL_PLATFORM_TASK_BATCH_CAPACITY),
             platform_task_scratch: Vec::with_capacity(INITIAL_PLATFORM_TASK_BATCH_CAPACITY),
@@ -3291,7 +3299,17 @@ impl FlutterRuntime {
                 | RuntimeEvent::SampledBuffersReady { .. } => {}
             }
         }
-        self.run_due_tasks()
+        self.run_due_tasks()?;
+        self.publish_authentication_events()
+    }
+
+    fn publish_authentication_events(&mut self) -> Result<(), Box<dyn Error>> {
+        while let Some(event) = self.authentication.try_event() {
+            self.host()
+                .engine()
+                .send_platform_message(super::authentication::STATE_CHANNEL, &event.encode())?;
+        }
+        Ok(())
     }
 
     fn receive_platform_tasks(&mut self) -> Result<(), Box<dyn Error>> {
@@ -3615,12 +3633,43 @@ impl FlutterRuntime {
         event: &super::system_controls::SystemControlEvent,
     ) -> Result<(), Box<dyn Error>> {
         match event {
-            super::system_controls::SystemControlEvent::AudioLevel(level) => {
+            super::system_controls::SystemControlEvent::AudioLevel {
+                level,
+                request_serial,
+            } => {
                 let mut packet = [0u8; 5];
                 packet[0] = (level.clamp(0.0, 1.0) * 100.0).round() as u8;
+                packet[1..].copy_from_slice(&request_serial.to_le_bytes());
                 self.host()
                     .engine()
                     .send_platform_message(AUDIO_STATE_CHANNEL, &packet)?;
+            }
+            super::system_controls::SystemControlEvent::AudioStreams(streams) => {
+                let payload_size = streams.iter().try_fold(size_of::<u32>(), |size, stream| {
+                    size.checked_add(8)?.checked_add(stream.name.len())
+                });
+                let Some(payload_size) = payload_size else {
+                    return Err("audio stream-state packet size overflow".into());
+                };
+                let mut packet = Vec::with_capacity(payload_size);
+                packet.extend_from_slice(
+                    &u32::try_from(streams.len())
+                        .map_err(|_| "too many audio streams for the platform packet")?
+                        .to_le_bytes(),
+                );
+                for stream in streams {
+                    let name = stream.name.as_bytes();
+                    let name_length = u16::try_from(name.len())
+                        .map_err(|_| "audio stream name exceeds the platform packet limit")?;
+                    packet.extend_from_slice(&stream.id.to_le_bytes());
+                    packet.push(stream.level_percent.min(100));
+                    packet.push(u8::from(stream.muted));
+                    packet.extend_from_slice(&name_length.to_le_bytes());
+                    packet.extend_from_slice(name);
+                }
+                self.host()
+                    .engine()
+                    .send_platform_message(AUDIO_STREAMS_STATE_CHANNEL, &packet)?;
             }
             super::system_controls::SystemControlEvent::BrightnessLevel { monitor_id, level } => {
                 let mut packet = [0u8; 9];
@@ -3632,6 +3681,16 @@ impl FlutterRuntime {
             }
         }
         Ok(())
+    }
+
+    pub fn drain_audio_requests(
+        &mut self,
+    ) -> impl Iterator<Item = super::system_controls::AudioRequest> + '_ {
+        self.pending_audio_requests.drain(..)
+    }
+
+    pub fn authentication(&self) -> Arc<super::authentication::AuthenticationController> {
+        Arc::clone(&self.authentication)
     }
 
     fn run_due_tasks(&mut self) -> Result<(), Box<dyn Error>> {
@@ -3676,7 +3735,16 @@ impl FlutterRuntime {
             // data on its dedicated ordered native-to-Flutter channel.
             self.host().respond(&mut message, &[])?;
         }
-        if message.channel == wire::TO_NATIVE_CHANNEL {
+        if message.channel.as_bytes() == super::authentication::CHANNEL.to_bytes() {
+            let result = self.authentication.handle_packet(&message.data);
+            // Authentication responses can contain credentials. The
+            // controller has moved them into its scrub-on-drop buffer, so
+            // erase the engine-owned copy before releasing this message.
+            message.data.fill(0);
+            if let Err(error) = result {
+                warn!(%error, "rejected Denial authentication request from Flutter");
+            }
+        } else if message.channel == wire::TO_NATIVE_CHANNEL {
             let host = self
                 .host
                 .as_ref()
@@ -3689,10 +3757,23 @@ impl FlutterRuntime {
                 Ok(None) => {}
                 Err(error) => warn!(%error, "rejected Denial wire message from Flutter"),
             }
-        } else if message.channel.as_bytes() == system_command::CHANNEL.to_bytes()
-            && let Err(error) = self.system_commands.handle(&message.data)
-        {
-            warn!(%error, "rejected Denial system command from Flutter");
+        } else if message.channel.as_bytes() == system_command::CHANNEL.to_bytes() {
+            if self.authentication.security_gate_locked() {
+                warn!("rejected Denial system command while the session is locked");
+            } else if let Err(error) = self.system_commands.handle(&message.data) {
+                warn!(%error, "rejected Denial system command from Flutter");
+            }
+        } else if message.channel.as_bytes() == AUDIO_CHANNEL.to_bytes() {
+            match super::system_controls::decode_audio_request(&message.data) {
+                Ok(request) if self.pending_audio_requests.len() < MAX_PENDING_AUDIO_REQUESTS => {
+                    self.pending_audio_requests.push_back(request);
+                }
+                Ok(_) => warn!(
+                    limit = MAX_PENDING_AUDIO_REQUESTS,
+                    "dropped excess Denial audio request from Flutter"
+                ),
+                Err(error) => warn!(%error, "rejected Denial audio request from Flutter"),
+            }
         }
         Ok(())
     }
