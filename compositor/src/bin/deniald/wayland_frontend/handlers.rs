@@ -622,6 +622,14 @@ impl PointerConstraintsHandler for RuntimeState {
         if self.secure_session_locked() {
             return;
         }
+        #[cfg(feature = "flutter")]
+        if self
+            .wayland
+            .as_ref()
+            .is_some_and(|frontend| frontend.pointer_constraint_released_for_surface(surface))
+        {
+            return;
+        }
         if pointer.current_focus().as_ref() == Some(surface) {
             smithay::wayland::pointer_constraints::with_pointer_constraint(
                 surface,

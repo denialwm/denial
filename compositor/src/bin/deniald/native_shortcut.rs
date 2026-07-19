@@ -1,5 +1,6 @@
 //! Native compositor shortcuts evaluated before any shell or client routing.
 
+const KEY_ESCAPE: u32 = 1;
 const KEY_BACKSPACE: u32 = 14;
 const KEY_TAB: u32 = 15;
 const KEY_A: u32 = 30;
@@ -25,6 +26,7 @@ const CAPTURED_CLOSE: u8 = 1 << 2;
 const CAPTURED_OVERVIEW: u8 = 1 << 3;
 const CAPTURED_WINDOW_SWITCHER: u8 = 1 << 4;
 const CAPTURED_LOCK: u8 = 1 << 5;
+const CAPTURED_POINTER_RELEASE: u8 = 1 << 6;
 const CAPTURED_MUTE: u8 = 1 << 0;
 const CAPTURED_VOLUME_DOWN: u8 = 1 << 1;
 const CAPTURED_VOLUME_UP: u8 = 1 << 2;
@@ -41,6 +43,7 @@ pub(super) enum ShortcutDisposition {
     RequestClose,
     RequestMinimize,
     RequestToggleFullscreen,
+    RequestReleasePointer,
     RequestLock,
     RequestVolumeUp,
     RequestVolumeDown,
@@ -135,6 +138,10 @@ impl NativeEscapeShortcut {
         }
 
         let logo_action = match evdev_keycode {
+            KEY_ESCAPE => Some((
+                CAPTURED_POINTER_RELEASE,
+                ShortcutDisposition::RequestReleasePointer,
+            )),
             KEY_A => Some((CAPTURED_OVERVIEW, ShortcutDisposition::RequestOverview)),
             KEY_TAB => Some((
                 CAPTURED_WINDOW_SWITCHER,
@@ -385,6 +392,32 @@ mod tests {
     }
 
     #[test]
+    fn super_escape_releases_pointer_without_leaking_escape() {
+        let mut shortcut = NativeEscapeShortcut::default();
+
+        assert_eq!(
+            press(&mut shortcut, KEY_LEFT_META),
+            ShortcutDisposition::Forward
+        );
+        assert_eq!(
+            press(&mut shortcut, KEY_ESCAPE),
+            ShortcutDisposition::RequestReleasePointer
+        );
+        assert_eq!(
+            press(&mut shortcut, KEY_ESCAPE),
+            ShortcutDisposition::Consume
+        );
+        assert_eq!(
+            release(&mut shortcut, KEY_LEFT_META),
+            ShortcutDisposition::Forward
+        );
+        assert_eq!(
+            release(&mut shortcut, KEY_ESCAPE),
+            ShortcutDisposition::Consume
+        );
+    }
+
+    #[test]
     fn super_a_requests_overview_once_and_owns_the_key_lifecycle() {
         let mut shortcut = NativeEscapeShortcut::default();
 
@@ -453,7 +486,7 @@ mod tests {
 
     #[test]
     fn window_action_keys_without_super_remain_client_keys() {
-        for key in [KEY_A, KEY_TAB, KEY_M, KEY_F, KEY_K, KEY_L] {
+        for key in [KEY_ESCAPE, KEY_A, KEY_TAB, KEY_M, KEY_F, KEY_K, KEY_L] {
             let mut shortcut = NativeEscapeShortcut::default();
             assert_eq!(press(&mut shortcut, key), ShortcutDisposition::Forward);
             assert_eq!(release(&mut shortcut, key), ShortcutDisposition::Forward);

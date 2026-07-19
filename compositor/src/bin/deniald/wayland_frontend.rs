@@ -224,7 +224,11 @@ pub(super) struct WaylandFrontend {
     #[cfg(feature = "flutter")]
     client_pointer_capture: Option<ClientInputRoute>,
     #[cfg(feature = "flutter")]
+    pointer_constraint_escape: input::PointerConstraintEscape,
+    #[cfg(feature = "flutter")]
     client_pointer_buttons: HashSet<u32>,
+    #[cfg(feature = "flutter")]
+    retired_pointer_buttons: HashSet<u32>,
     #[cfg(feature = "flutter")]
     client_pointer_presses: Vec<input::ClientPointerPress>,
     wayland_pointer_buttons: HashSet<u32>,
@@ -594,7 +598,11 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             client_pointer_capture: None,
             #[cfg(feature = "flutter")]
+            pointer_constraint_escape: input::PointerConstraintEscape::default(),
+            #[cfg(feature = "flutter")]
             client_pointer_buttons: HashSet::new(),
+            #[cfg(feature = "flutter")]
+            retired_pointer_buttons: HashSet::new(),
             #[cfg(feature = "flutter")]
             client_pointer_presses: Vec::new(),
             wayland_pointer_buttons: HashSet::new(),
@@ -1030,6 +1038,9 @@ impl WaylandFrontend {
             self.surface_buffer_revisions.remove(&object_id);
             self.minimized_windows.remove(&object_id);
             self.shell_fullscreen_locks.remove(&object_id);
+            if let Some(stable_id) = stable_id {
+                self.pointer_constraint_escape.forget_window(stable_id);
+            }
 
             if cached_route_is_stale {
                 self.client_input_route_cache = None;

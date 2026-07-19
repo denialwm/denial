@@ -29,6 +29,8 @@ use smithay::utils::{Logical, Point, SERIAL_COUNTER};
 #[cfg(feature = "flutter")]
 use smithay::utils::{Rectangle, Serial};
 use smithay::wayland::pointer_constraints::{PointerConstraint, with_pointer_constraint};
+#[cfg(feature = "flutter")]
+use tracing::info;
 use tracing::warn;
 
 #[cfg(feature = "flutter")]
@@ -80,6 +82,45 @@ pub(super) struct ClientPointerPress {
     location: Point<f64, Logical>,
 }
 
+/// A compositor-forced pointer release remains authoritative until the user
+/// deliberately clicks the same toplevel again. Clients may destroy and
+/// recreate their protocol constraint after receiving `unlocked`; keying this
+/// policy to the window keeps those replacement constraints inactive too.
+#[cfg(feature = "flutter")]
+#[derive(Debug, Default)]
+pub(super) struct PointerConstraintEscape {
+    released_window_id: Option<u64>,
+}
+
+#[cfg(feature = "flutter")]
+impl PointerConstraintEscape {
+    fn release_window(&mut self, window_id: u64) {
+        self.released_window_id = Some(window_id);
+    }
+
+    fn suppresses_window(&self, window_id: u64) -> bool {
+        self.released_window_id == Some(window_id)
+    }
+
+    fn resume_window(&mut self, window_id: u64) -> bool {
+        if !self.suppresses_window(window_id) {
+            return false;
+        }
+        self.released_window_id = None;
+        true
+    }
+
+    pub(super) fn forget_window(&mut self, window_id: u64) {
+        if self.suppresses_window(window_id) {
+            self.released_window_id = None;
+        }
+    }
+
+    fn reset(&mut self) {
+        self.released_window_id = None;
+    }
+}
+
 #[cfg(feature = "flutter")]
 impl ClientInputRoute {
     fn focus_at(&self, position: Point<f64, Logical>) -> (WlSurface, Point<f64, Logical>) {
@@ -126,6 +167,21 @@ impl WaylandFrontend {
         }
         self.client_touch_routes
             .retain(|_, route| &route.window != window);
+    }
+
+    fn window_id_for_input_surface(&self, surface: &WlSurface) -> Option<u64> {
+        let root = self.owning_toplevel_surface(surface)?;
+        self.surface_id(&root)
+    }
+
+    pub(super) fn pointer_constraint_released_for_surface(&self, surface: &WlSurface) -> bool {
+        self.window_id_for_input_surface(surface)
+            .is_some_and(|window_id| self.pointer_constraint_escape.suppresses_window(window_id))
+    }
+
+    fn resume_pointer_constraint_for_route(&mut self, route: &ClientInputRoute) -> bool {
+        self.pointer_constraint_escape
+            .resume_window(route.region.window_id)
     }
 
     fn remember_client_pointer_press(
@@ -272,6 +328,18 @@ fn retired_key_consumes_transition(
     match state {
         KeyState::Pressed => retired.contains(&keycode),
         KeyState::Released => retired.remove(&keycode),
+    }
+}
+
+#[cfg(feature = "flutter")]
+fn retired_pointer_button_consumes_transition(
+    retired: &mut HashSet<u32>,
+    button: u32,
+    state: ButtonState,
+) -> bool {
+    match state {
+        ButtonState::Pressed => retired.contains(&button),
+        ButtonState::Released => retired.remove(&button),
     }
 }
 
@@ -529,8 +597,10 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
         #[cfg(feature = "flutter")]
         {
             frontend.client_pointer_capture = None;
+            frontend.pointer_constraint_escape.reset();
             frontend.client_pointer_buttons.clear();
             frontend.client_pointer_presses.clear();
+            frontend.retired_pointer_buttons.clear();
             frontend.set_routed_pointer_target(RoutedPointerTarget::Flutter);
         }
         buttons
@@ -726,6 +796,11 @@ fn intercept_native_escape(
             super::window_management::toggle_shell_fullscreen_focused_toplevel(state);
             true
         }
+        ShortcutDisposition::RequestReleasePointer => {
+            #[cfg(feature = "flutter")]
+            release_pointer_to_shell(state);
+            true
+        }
         ShortcutDisposition::RequestLock => {
             #[cfg(feature = "flutter")]
             if let Some(authentication) = state.authentication.as_ref() {
@@ -760,6 +835,88 @@ fn intercept_native_escape(
             true
         }
     }
+}
+
+#[cfg(feature = "flutter")]
+fn release_pointer_to_shell(state: &mut RuntimeState) {
+    let Some(pointer) = state
+        .wayland
+        .as_ref()
+        .and_then(|frontend| frontend.seat.get_pointer())
+    else {
+        return;
+    };
+    let focused_surface = pointer.current_focus();
+    let released_window_id = focused_surface.as_ref().and_then(|surface| {
+        state
+            .wayland
+            .as_ref()
+            .and_then(|frontend| frontend.window_id_for_input_surface(surface))
+    });
+    let had_constraint = focused_surface.as_ref().is_some_and(|surface| {
+        with_pointer_constraint(surface, &pointer, |constraint| {
+            let Some(constraint) = constraint else {
+                return false;
+            };
+            constraint.deactivate();
+            true
+        })
+    });
+
+    let (mut pressed_buttons, time) = {
+        let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+        if let Some(window_id) = released_window_id {
+            frontend.pointer_constraint_escape.release_window(window_id);
+        }
+        frontend.client_pointer_capture = None;
+        frontend.client_pointer_buttons.clear();
+        frontend.client_pointer_presses.clear();
+        let mut pressed_buttons = std::mem::take(&mut frontend.wayland_pointer_buttons)
+            .into_iter()
+            .collect::<Vec<_>>();
+        pressed_buttons.sort_unstable();
+        frontend
+            .retired_pointer_buttons
+            .extend(pressed_buttons.iter().copied());
+        frontend.update_cursor_image(CursorImageStatus::default_named());
+        (
+            pressed_buttons,
+            frontend.start_time.elapsed().as_millis() as u32,
+        )
+    };
+
+    let had_grab = pointer.is_grabbed();
+    for button in pressed_buttons.drain(..) {
+        pointer.button(
+            state,
+            &ButtonEvent {
+                button,
+                state: ButtonState::Released,
+                serial: SERIAL_COUNTER.next_serial(),
+                time,
+            },
+        );
+    }
+    if pointer.is_grabbed() {
+        pointer.unset_grab(state, SERIAL_COUNTER.next_serial(), time);
+    }
+    if had_grab
+        || !state
+            .wayland
+            .as_ref()
+            .expect("missing Wayland frontend")
+            .retired_pointer_buttons
+            .is_empty()
+    {
+        pointer.frame(state);
+    }
+    state.scene_sync.mark_dirty();
+    info!(
+        window_id = ?released_window_id,
+        had_constraint,
+        had_grab,
+        "released pointer capture until the client is clicked again"
+    );
 }
 
 #[cfg(feature = "flutter")]
@@ -928,6 +1085,17 @@ fn process_flutter_input_event(
             state
                 .native_escape_shortcut
                 .note_pointer_button(button.state() == ButtonState::Pressed);
+            if retired_pointer_button_consumes_transition(
+                &mut state
+                    .wayland
+                    .as_mut()
+                    .expect("missing Wayland frontend")
+                    .retired_pointer_buttons,
+                button_code,
+                button.state(),
+            ) {
+                return true;
+            }
             let pointer = state
                 .wayland
                 .as_ref()
@@ -991,6 +1159,17 @@ fn process_flutter_input_event(
                 pointer.frame(state);
                 state.scene_sync.mark_dirty();
                 return true;
+            }
+            if !logo
+                && button.state() == ButtonState::Pressed
+                && let InputTarget::Client(route) = &target
+                && state
+                    .wayland
+                    .as_mut()
+                    .expect("missing Wayland frontend")
+                    .resume_pointer_constraint_for_route(route)
+            {
+                state.scene_sync.mark_dirty();
             }
             let mut scene_changed = false;
             match target {
@@ -1316,7 +1495,12 @@ fn route_pointer_motion(
         }
         return false;
     }
-    let blocked = pointer_constraint_blocks_motion(&pointer, &under, position);
+    let blocked = pointer_constraint_blocks_motion(
+        &pointer,
+        &under,
+        position,
+        pointer_constraint_reactivation_suppressed(state, &pointer),
+    );
     if let Some(relative) = relative {
         let relative_focus = if blocked {
             pointer
@@ -1355,6 +1539,7 @@ fn pointer_constraint_blocks_motion(
     pointer: &PointerHandle<RuntimeState>,
     proposed_focus: &Option<(WlSurface, Point<f64, Logical>)>,
     proposed_location: Point<f64, Logical>,
+    reactivation_suppressed: bool,
 ) -> bool {
     let Some(current_focus) = pointer.current_focus() else {
         return false;
@@ -1363,6 +1548,13 @@ fn pointer_constraint_blocks_motion(
         let Some(constraint) = constraint else {
             return false;
         };
+        if reactivation_suppressed {
+            // SUPER+Escape is an explicit user override. Even if Xwayland
+            // replaces its constraint before the pointer leaves the game,
+            // keep it inactive until a plain click acknowledges re-entry.
+            constraint.deactivate();
+            return false;
+        }
         if !constraint.is_active() {
             // SUPER+A/TAB deliberately deactivates the client's constraint
             // before the shell overlay takes the pointer. Do not immediately
@@ -1390,6 +1582,27 @@ fn pointer_constraint_blocks_motion(
             }
         }
     })
+}
+
+fn pointer_constraint_reactivation_suppressed(
+    state: &RuntimeState,
+    pointer: &PointerHandle<RuntimeState>,
+) -> bool {
+    #[cfg(feature = "flutter")]
+    {
+        let Some(surface) = pointer.current_focus() else {
+            return false;
+        };
+        state
+            .wayland
+            .as_ref()
+            .is_some_and(|frontend| frontend.pointer_constraint_released_for_surface(&surface))
+    }
+    #[cfg(not(feature = "flutter"))]
+    {
+        let _ = (state, pointer);
+        false
+    }
 }
 
 fn route_pointer_axis<E: PointerAxisEvent<LibinputInputBackend>>(
@@ -1656,7 +1869,12 @@ fn process_wayland_input_event(state: &mut RuntimeState, event: InputEvent<Libin
                 .seat
                 .get_pointer()
                 .expect("seat has no pointer");
-            let blocked = pointer_constraint_blocks_motion(&pointer, &under, position);
+            let blocked = pointer_constraint_blocks_motion(
+                &pointer,
+                &under,
+                position,
+                pointer_constraint_reactivation_suppressed(state, &pointer),
+            );
             pointer.relative_motion(
                 state,
                 if blocked {
@@ -1706,7 +1924,12 @@ fn process_wayland_input_event(state: &mut RuntimeState, event: InputEvent<Libin
                 .seat
                 .get_pointer()
                 .expect("seat has no pointer");
-            if pointer_constraint_blocks_motion(&pointer, &under, position) {
+            if pointer_constraint_blocks_motion(
+                &pointer,
+                &under,
+                position,
+                pointer_constraint_reactivation_suppressed(state, &pointer),
+            ) {
                 pointer.frame(state);
                 return;
             }
@@ -1728,6 +1951,18 @@ fn process_wayland_input_event(state: &mut RuntimeState, event: InputEvent<Libin
         }
         InputEvent::PointerButton { event, .. } => {
             let serial = SERIAL_COUNTER.next_serial();
+            #[cfg(feature = "flutter")]
+            if retired_pointer_button_consumes_transition(
+                &mut state
+                    .wayland
+                    .as_mut()
+                    .expect("missing Wayland frontend")
+                    .retired_pointer_buttons,
+                event.button_code(),
+                event.state(),
+            ) {
+                return;
+            }
             let pointer = state
                 .wayland
                 .as_ref()
@@ -1752,6 +1987,29 @@ fn process_wayland_input_event(state: &mut RuntimeState, event: InputEvent<Libin
                     .element_under(pointer.current_location())
                     .map(|(window, _)| window.clone());
                 if let Some(window) = window {
+                    #[cfg(feature = "flutter")]
+                    {
+                        let window_id = state
+                            .wayland
+                            .as_ref()
+                            .expect("missing Wayland frontend")
+                            .window_root_surface(&window)
+                            .and_then(|surface| {
+                                state
+                                    .wayland
+                                    .as_ref()
+                                    .expect("missing Wayland frontend")
+                                    .surface_id(&surface)
+                            });
+                        if let Some(window_id) = window_id {
+                            state
+                                .wayland
+                                .as_mut()
+                                .expect("missing Wayland frontend")
+                                .pointer_constraint_escape
+                                .resume_window(window_id);
+                        }
+                    }
                     let focus = state
                         .wayland
                         .as_ref()
@@ -1918,6 +2176,8 @@ fn process_wayland_input_event(state: &mut RuntimeState, event: InputEvent<Libin
 mod native_escape_tests {
     use super::*;
 
+    #[cfg(feature = "flutter")]
+    const XKB_ESCAPE: u32 = 1 + 8;
     const XKB_LEFT_CTRL: u32 = 29 + 8;
     const XKB_LEFT_ALT: u32 = 56 + 8;
     const XKB_BACKSPACE: u32 = 14 + 8;
@@ -1963,6 +2223,18 @@ mod native_escape_tests {
 
     #[cfg(feature = "flutter")]
     #[test]
+    fn super_escape_is_consumed_even_without_an_active_client() {
+        let mut runtime = RuntimeState::default();
+
+        assert!(!input(&mut runtime, XKB_LEFT_META, KeyState::Pressed));
+        assert!(input(&mut runtime, XKB_ESCAPE, KeyState::Pressed));
+        assert!(input(&mut runtime, XKB_ESCAPE, KeyState::Pressed));
+        assert!(!input(&mut runtime, XKB_LEFT_META, KeyState::Released));
+        assert!(input(&mut runtime, XKB_ESCAPE, KeyState::Released));
+    }
+
+    #[cfg(feature = "flutter")]
+    #[test]
     fn native_shell_chords_queue_the_cpp_equivalent_actions() {
         let mut runtime = RuntimeState::default();
 
@@ -2004,6 +2276,44 @@ mod native_escape_tests {
             ))
         );
         assert!(runtime.pending_shell_actions.is_empty());
+    }
+}
+
+#[cfg(all(test, feature = "flutter"))]
+mod pointer_constraint_escape_tests {
+    use super::*;
+
+    #[test]
+    fn only_a_click_on_the_released_window_allows_recapture() {
+        let mut escape = PointerConstraintEscape::default();
+        escape.release_window(41);
+
+        assert!(escape.suppresses_window(41));
+        assert!(!escape.resume_window(99));
+        assert!(escape.suppresses_window(41));
+        assert!(escape.resume_window(41));
+        assert!(!escape.suppresses_window(41));
+    }
+
+    #[test]
+    fn cancelled_pointer_button_release_is_consumed_once() {
+        let mut retired = HashSet::from([BTN_LEFT]);
+
+        assert!(retired_pointer_button_consumes_transition(
+            &mut retired,
+            BTN_LEFT,
+            ButtonState::Pressed,
+        ));
+        assert!(retired_pointer_button_consumes_transition(
+            &mut retired,
+            BTN_LEFT,
+            ButtonState::Released,
+        ));
+        assert!(!retired_pointer_button_consumes_transition(
+            &mut retired,
+            BTN_LEFT,
+            ButtonState::Released,
+        ));
     }
 }
 

@@ -73,6 +73,17 @@ fn constrain_x11_size_to_output(
     geometry
 }
 
+fn x11_monitor_geometry(
+    geometry: Rectangle<i32, Logical>,
+    physical_outputs: impl IntoIterator<Item = Rectangle<i32, Logical>>,
+) -> Option<Rectangle<i32, Logical>> {
+    let center = Point::from((
+        geometry.loc.x.saturating_add(geometry.size.w / 2),
+        geometry.loc.y.saturating_add(geometry.size.h / 2),
+    ));
+    super::choose_popup_output(physical_outputs, center, geometry)
+}
+
 fn initial_managed_x11_geometry(
     mut requested: Rectangle<i32, Logical>,
     output: Rectangle<i32, Logical>,
@@ -295,12 +306,14 @@ fn configure_x11_for_output(state: &mut RuntimeState, surface: &X11Surface, enab
     };
     let target = if enabled {
         let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
-        frontend
-            .space
-            .outputs_for_element(&window)
-            .first()
-            .or_else(|| frontend.space.outputs().next())
-            .and_then(|output| frontend.space.output_geometry(output))
+        let geometry = frontend.window_geometry_target(&window);
+        // `Space` also contains `denial-atlas`, the rendering-only Flutter
+        // canvas. X11 clients must only ever receive a physical monitor's
+        // logical geometry for maximized and fullscreen windows.
+        x11_monitor_geometry(
+            geometry,
+            frontend.outputs.iter().map(|entry| entry.logical_geometry),
+        )
     } else {
         root_surface_for_x11(surface).and_then(|root| {
             state
@@ -485,9 +498,10 @@ impl XwmHandler for RuntimeState {
         if let Some(element) = element {
             let output_geometry = {
                 let frontend = self.wayland.as_ref().expect("missing Wayland frontend");
-                frontend
-                    .output_for_geometry(frontend.window_geometry_target(&element))
-                    .map(|entry| entry.logical_geometry)
+                x11_monitor_geometry(
+                    frontend.window_geometry_target(&element),
+                    frontend.outputs.iter().map(|entry| entry.logical_geometry),
+                )
             };
             if let Some(output_geometry) = output_geometry {
                 if window.is_fullscreen() || window.is_maximized() {
@@ -890,5 +904,18 @@ mod tests {
             constrain_x11_size_to_output(requested, output),
             Rectangle::new((32, 64).into(), (1920, 1080).into())
         );
+    }
+
+    #[test]
+    fn x11_fullscreen_target_is_a_physical_monitor_not_the_flutter_atlas() {
+        let left = Rectangle::new((0, 0).into(), (1920, 1080).into());
+        let right = Rectangle::new((1920, 0).into(), (2560, 1440).into());
+        let flutter_atlas = Rectangle::new((0, 0).into(), (4480, 1440).into());
+        let window = Rectangle::new((2300, 200).into(), (1280, 720).into());
+
+        let target = x11_monitor_geometry(window, [left, right]);
+
+        assert_eq!(target, Some(right));
+        assert_ne!(target, Some(flutter_atlas));
     }
 }

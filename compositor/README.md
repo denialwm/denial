@@ -97,6 +97,11 @@ The process restores the captured KMS state when the limit expires. It also
 reserves `Ctrl+Alt+Backspace` as a compositor-level graceful escape before
 input is routed to Flutter or Wayland clients.
 
+`Super+Escape` is the compositor-owned pointer escape. It releases a client
+pointer lock or grab without forwarding Escape, keeps replacement constraints
+disabled, and lets that client capture the pointer again only after a plain
+click on its window.
+
 `--frames` and `--commit-seconds` remain available for bounded diagnostics.
 
 Physical placement is configuration, not connector-order policy. An output
