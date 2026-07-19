@@ -9,7 +9,7 @@ use denial_core::topology::{AtlasPlan, OutputId, TopologySnapshot};
 #[cfg(feature = "flutter")]
 use smithay::backend::allocator::Buffer as AllocatorBuffer;
 use smithay::backend::allocator::dmabuf::Dmabuf;
-use smithay::backend::drm::DrmNode;
+use smithay::backend::drm::{DrmDeviceFd, DrmNode};
 use smithay::backend::egl::EGLDevice;
 use smithay::backend::renderer::Bind;
 use smithay::backend::renderer::damage::OutputDamageTracker;
@@ -31,7 +31,7 @@ use smithay::input::pointer::{CursorImageStatus, Focus, PointerHandle};
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
 use smithay::reexports::calloop::{
-    EventLoop, Interest, Mode as PollMode, PostAction, generic::Generic,
+    EventLoop, Interest, LoopHandle, Mode as PollMode, PostAction, generic::Generic,
 };
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as XdgDecorationMode;
@@ -47,16 +47,19 @@ use smithay::utils::{
 };
 use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{
-    BufferAssignment, CompositorClientState, CompositorHandler, CompositorState, SurfaceAttributes,
-    get_parent, is_sync_subsurface, with_states,
+    Blocker, BlockerState, BufferAssignment, CompositorClientState, CompositorHandler,
+    CompositorState, SurfaceAttributes, add_blocker, add_pre_commit_hook, get_parent,
+    is_sync_subsurface, with_states,
 };
 use smithay::wayland::cursor_shape::CursorShapeManagerState;
 #[cfg(feature = "flutter")]
 use smithay::wayland::compositor::{TraversalAction, with_surface_tree_upward};
-#[cfg(feature = "flutter")]
 use smithay::wayland::dmabuf::get_dmabuf;
 use smithay::wayland::dmabuf::{
     DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier,
+};
+use smithay::wayland::drm_syncobj::{
+    DrmSyncobjCachedState, DrmSyncobjHandler, DrmSyncobjState, supports_syncobj_eventfd,
 };
 use smithay::wayland::output::{OutputHandler, OutputManagerState};
 use smithay::wayland::pointer_constraints::{PointerConstraintsHandler, PointerConstraintsState};
@@ -154,6 +157,7 @@ fn software_cursor_shape(status: &CursorImageStatus) -> &'static str {
 pub(super) struct WaylandFrontend {
     pub start_time: Instant,
     socket_name: OsString,
+    loop_handle: LoopHandle<'static, RuntimeState>,
     pub display_handle: DisplayHandle,
     pub space: Space<Window>,
     pub compositor_state: CompositorState,
@@ -168,6 +172,7 @@ pub(super) struct WaylandFrontend {
     _cursor_shape_state: CursorShapeManagerState,
     pub shm_state: ShmState,
     pub dmabuf_state: DmabufState,
+    drm_syncobj_state: Option<DrmSyncobjState>,
     dmabuf_global: Option<DmabufGlobal>,
     dmabuf_render_node: Option<DrmNode>,
     pending_dmabuf_imports: Vec<(Dmabuf, ImportNotifier)>,
@@ -298,9 +303,11 @@ impl WaylandFrontend {
         snapshot: &TopologySnapshot,
         session: LibSeatSession,
         seat_name: &str,
+        drm_device: DrmDeviceFd,
     ) -> Result<Self, Box<dyn Error>> {
         let display = Display::<RuntimeState>::new()?;
         let display_handle = display.handle();
+        let loop_handle = event_loop.handle();
         let compositor_state = CompositorState::new::<RuntimeState>(&display_handle);
         let xdg_shell_state = XdgShellState::new::<RuntimeState>(&display_handle);
         let xwayland_shell_state = XWaylandShellState::new::<RuntimeState>(&display_handle);
@@ -315,6 +322,16 @@ impl WaylandFrontend {
         let presentation = presentation::PresentationTracker::new(&display_handle);
         let shm_state = ShmState::new::<RuntimeState>(&display_handle, vec![]);
         let dmabuf_state = DmabufState::new();
+        let drm_syncobj_state = if supports_syncobj_eventfd(&drm_device) {
+            info!("advertising linux-drm-syncobj-v1 explicit synchronization");
+            Some(DrmSyncobjState::new::<RuntimeState>(
+                &display_handle,
+                drm_device,
+            ))
+        } else {
+            warn!("DRM syncobj eventfd is unavailable; retaining implicit DMA-BUF synchronization");
+            None
+        };
         let output_manager_state =
             OutputManagerState::new_with_xdg_output::<RuntimeState>(&display_handle);
         let data_device_state = DataDeviceState::new::<RuntimeState>(&display_handle);
@@ -510,6 +527,7 @@ impl WaylandFrontend {
         Ok(Self {
             start_time: Instant::now(),
             socket_name,
+            loop_handle,
             display_handle,
             space,
             compositor_state,
@@ -524,6 +542,7 @@ impl WaylandFrontend {
             _cursor_shape_state: cursor_shape_state,
             shm_state,
             dmabuf_state,
+            drm_syncobj_state,
             dmabuf_global: None,
             dmabuf_render_node: None,
             pending_dmabuf_imports: Vec::new(),
@@ -680,6 +699,34 @@ impl WaylandFrontend {
         }
         self.window_root_surface(window)
             .map(KeyboardFocusTarget::Wayland)
+    }
+
+    /// Raises a desktop window in both compositor and X11 stacking state.
+    ///
+    /// `Space` owns Denial's visual and Wayland hit-test order, but rootless
+    /// Xwayland keeps an independent X stack. Leaving the latter unchanged can
+    /// make an X client below the visible window continue receiving pointer
+    /// events in their overlap.
+    pub(super) fn raise_window(&mut self, window: &Window, activate: bool) {
+        self.space.raise_element(window, activate);
+        let Some(surface) = window.x11_surface().cloned() else {
+            return;
+        };
+        // Override-redirect popups are deliberately absent from XWM's EWMH
+        // client stack and are already placed by Xwayland at map time.
+        if surface.is_override_redirect() {
+            return;
+        }
+        let Some(xwm) = self.xwm.as_mut() else {
+            return;
+        };
+        if let Err(error) = xwm.raise_window(&surface) {
+            warn!(
+                %error,
+                window = surface.window_id(),
+                "could not synchronize raised X11 window"
+            );
+        }
     }
 
     #[cfg(feature = "flutter")]

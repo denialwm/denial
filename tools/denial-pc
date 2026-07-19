@@ -25,6 +25,7 @@ OUTPUT_CONFIG="${DENIAL_PC_OUTPUT_CONFIG:-$ROOT/dev/denial-outputs.conf}"
 DRM_DEVICE="${DENIAL_PC_DRM_DEVICE:-/dev/dri/by-path/pci-0000:0a:00.0-card}"
 SESSION_TEMPLATE="$ROOT/dev/denial.desktop.in"
 SESSION_FILE="${DENIAL_SESSION_FILE:-/usr/share/wayland-sessions/denial-development.desktop}"
+LEGACY_SESSION_FILE="${DENIAL_LEGACY_SESSION_FILE:-/usr/share/wayland-sessions/denial-rs.desktop}"
 BUILD_JOBS="${DENIAL_BUILD_JOBS:-$(nproc)}"
 
 usage() {
@@ -272,6 +273,11 @@ show_session_state() {
     else
         printf 'stale    %-18s %s (run install-session)\n' "SDDM entry" "$SESSION_FILE"
     fi
+
+    if [[ -e "$LEGACY_SESSION_FILE" ]]; then
+        printf 'stale    %-18s %s (removed by install-session)\n' \
+            "legacy SDDM entry" "$LEGACY_SESSION_FILE"
+    fi
 }
 
 doctor() {
@@ -296,6 +302,20 @@ as_root() {
     fi
 }
 
+remove_legacy_session_entry() {
+    [[ -e "$LEGACY_SESSION_FILE" ]] || return
+    if ! grep -Fqx "Name=Denial (Rust)" "$LEGACY_SESSION_FILE" \
+        || ! grep -Fqx \
+            "Exec=uwsm start -e -D Denial $ROOT/dev/denial-rs-session session" \
+            "$LEGACY_SESSION_FILE"; then
+        printf 'warning  refusing to remove unrecognized legacy entry %s\n' \
+            "$LEGACY_SESSION_FILE" >&2
+        return
+    fi
+    as_root rm -f -- "$LEGACY_SESSION_FILE"
+    printf 'Removed obsolete %s\n' "$LEGACY_SESSION_FILE"
+}
+
 install_session() {
     require_file "$SESSION_TEMPLATE"
     require_file "$BINARY"
@@ -311,6 +331,7 @@ install_session() {
         return "$status"
     fi
     rm -f -- "$rendered"
+    remove_legacy_session_entry
     printf 'Installed %s\nLog out, then choose "Denial (development)" in SDDM.\n' \
         "$SESSION_FILE"
 }

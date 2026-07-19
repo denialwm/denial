@@ -757,6 +757,34 @@ impl PlanarBuffer for AliasedPlanarBuffer {
 }
 
 impl RestoreState {
+    /// Build teardown metadata for a display-manager session handoff.
+    ///
+    /// A long-running login session never restores the greeter framebuffer:
+    /// it releases DRM master and lets SDDM perform its own modeset. Recording
+    /// the scanouts still gives hotplug transactions stable output identities
+    /// and original modes without depending on a racy foreign framebuffer.
+    pub(super) fn for_session_handoff(scanouts: &[Scanout]) -> Result<Self, Box<dyn Error>> {
+        validate_scanout_identities(scanouts.iter().map(|scanout| ScanoutIdentity {
+            output: scanout.output.id.0,
+            connector: u32::from(scanout.output.connector),
+            crtc: u32::from(scanout.output.crtc),
+            plane: u32::from(scanout.surface.plane()),
+        }))?;
+
+        Ok(Self {
+            outputs: scanouts
+                .iter()
+                .map(|scanout| SavedOutputState {
+                    id: scanout.output.id,
+                    name: scanout.output.name.clone(),
+                    original_mode: scanout.original_mode,
+                    framebuffer: None,
+                    properties: Vec::new(),
+                })
+                .collect(),
+        })
+    }
+
     pub(super) fn capture(drm: &DrmDevice, scanouts: &[Scanout]) -> Result<Self, Box<dyn Error>> {
         const CONNECTOR_PROPERTIES: &[&str] = &["CRTC_ID"];
         const CRTC_PROPERTIES: &[&str] = &["ACTIVE", "VRR_ENABLED"];

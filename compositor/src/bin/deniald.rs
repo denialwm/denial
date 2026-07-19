@@ -131,6 +131,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     run(options)
 }
 
+fn preserves_predecessor_kms_state(runtime_limit: RuntimeLimit) -> bool {
+    runtime_limit != RuntimeLimit::UntilLogout
+}
+
 fn run(options: Options) -> Result<(), Box<dyn Error>> {
     #[cfg(not(feature = "flutter"))]
     if options.flutter_bundle.is_some() {
@@ -249,6 +253,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
             &snapshot,
             session.clone(),
             &seat_name,
+            drm_fd.clone(),
         )?;
         info!(
             wayland_display = ?frontend.socket_name(),
@@ -280,11 +285,18 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     kms.scanouts.reserve(outputs.len());
 
     for output in outputs {
-        let original_mode = kms
-            .drm
-            .get_crtc(output.crtc)?
-            .mode()
-            .ok_or_else(|| format!("{:?} has no active mode", output.crtc))?;
+        let original_mode = match kms.drm.get_crtc(output.crtc)?.mode() {
+            Some(mode) => mode,
+            None if !preserves_predecessor_kms_state(runtime_limit) => {
+                info!(
+                    output = output.name,
+                    crtc = ?output.crtc,
+                    "display-manager handoff supplied an inactive CRTC"
+                );
+                output.mode
+            }
+            None => return Err(format!("{:?} has no active mode", output.crtc).into()),
+        };
         let surface = kms
             .drm
             .create_surface(output.crtc, output.mode, &[output.connector])?;
@@ -366,13 +378,24 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         "testing shared-atlas atomic state"
     );
 
-    let mut restore_state = RestoreState::capture(&kms.drm, &kms.scanouts)?;
-    restore_state.test(&kms.drm)?;
-    info!(
-        properties = restore_state.property_count(),
-        framebuffer_aliases = restore_state.owned_framebuffer_count(),
-        "pre-Denial KMS state is atomically restorable"
-    );
+    let mut restore_state = if !preserves_predecessor_kms_state(runtime_limit) {
+        // SDDM/logind may disable its CRTC between libseat activation and this
+        // point. A real login session hands KMS back by releasing DRM master;
+        // it must not depend on cloning a greeter framebuffer that may already
+        // have disappeared.
+        let state = RestoreState::for_session_handoff(&kms.scanouts)?;
+        info!("using display-manager KMS handoff without predecessor restore");
+        state
+    } else {
+        let state = RestoreState::capture(&kms.drm, &kms.scanouts)?;
+        state.test(&kms.drm)?;
+        info!(
+            properties = state.property_count(),
+            framebuffer_aliases = state.owned_framebuffer_count(),
+            "pre-Denial KMS state is atomically restorable"
+        );
+        state
+    };
 
     for scanout in &kms.scanouts {
         let state = plane_state(scanout, fb);
@@ -630,6 +653,16 @@ fn uwsm_finalize_command(wayland_display: &OsStr, x11_display: &OsStr) -> Comman
 mod uwsm_tests {
     use super::*;
     use std::ffi::OsString;
+
+    #[test]
+    fn login_session_handoff_does_not_capture_the_greeter_framebuffer() {
+        assert!(!preserves_predecessor_kms_state(RuntimeLimit::UntilLogout));
+        assert!(preserves_predecessor_kms_state(RuntimeLimit::TestOnly));
+        assert!(preserves_predecessor_kms_state(RuntimeLimit::Frames(1)));
+        assert!(preserves_predecessor_kms_state(RuntimeLimit::Duration(
+            Duration::from_secs(1)
+        )));
+    }
 
     #[test]
     fn finalize_command_exports_the_real_smithay_socket_and_desktop_identity() {

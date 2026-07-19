@@ -127,7 +127,7 @@ pub(in super::super) fn apply_window_commands(
                     {
                         warn!(%error, window_id, "could not restore focused X11 window");
                     }
-                    frontend.space.raise_element(&window, true);
+                    frontend.raise_window(&window, true);
                     for candidate in frontend.space.elements() {
                         let changed = candidate.set_activated(candidate == &window);
                         if let Some(candidate) = candidate.toplevel()

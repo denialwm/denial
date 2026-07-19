@@ -177,6 +177,134 @@ impl ClientData for DenialClientState {
 #[derive(Clone)]
 struct DenialSurfaceOwner(ClientId);
 
+#[derive(Debug)]
+struct CancelledSurfaceReadiness;
+
+impl Blocker for CancelledSurfaceReadiness {
+    fn state(&self) -> BlockerState {
+        BlockerState::Cancelled
+    }
+}
+
+fn cancel_unsynchronized_surface_commit(surface: &WlSurface) {
+    // Applying a commit after its readiness source failed would let Flutter
+    // sample producer-owned storage without any acquire guarantee. Discard the
+    // transaction instead; the client can submit a later buffer once the
+    // compositor event loop is healthy again.
+    add_blocker(surface, CancelledSurfaceReadiness);
+}
+
+fn install_surface_readiness_hook(surface: &WlSurface) {
+    add_pre_commit_hook::<RuntimeState, _>(surface, |state, _display, surface| {
+        // LoopHandle is deliberately fetched at invocation time: Smithay's
+        // surface hooks are Send + Sync, while calloop handles are confined to
+        // the compositor thread that executes this hook.
+        let loop_handle = state
+            .wayland
+            .as_ref()
+            .expect("missing Wayland frontend")
+            .loop_handle
+            .clone();
+        let (acquire_point, dmabuf) = with_states(surface, |states| {
+            let mut syncobj = states.cached_state.get::<DrmSyncobjCachedState>();
+            let acquire_point = syncobj.pending().acquire_point.clone();
+            let mut attributes = states.cached_state.get::<SurfaceAttributes>();
+            let dmabuf =
+                attributes
+                    .pending()
+                    .buffer
+                    .as_ref()
+                    .and_then(|assignment| match assignment {
+                        BufferAssignment::NewBuffer(buffer) => get_dmabuf(buffer).cloned().ok(),
+                        _ => None,
+                    });
+            (acquire_point, dmabuf)
+        });
+        let Some(dmabuf) = dmabuf else {
+            return;
+        };
+        let Some(client) = surface.client() else {
+            warn!(surface_id = ?surface.id(), "DMA-BUF commit has no owning Wayland client");
+            cancel_unsynchronized_surface_commit(surface);
+            return;
+        };
+
+        if let Some(acquire_point) = acquire_point {
+            match acquire_point.generate_blocker() {
+                Ok((blocker, source)) => {
+                    let source_client = client.clone();
+                    match loop_handle.insert_source(source, move |_, _, state| {
+                        let display_handle = state
+                            .wayland
+                            .as_ref()
+                            .expect("missing Wayland frontend")
+                            .display_handle
+                            .clone();
+                        state
+                            .client_compositor_state(&source_client)
+                            .blocker_cleared(state, &display_handle);
+                        Ok(())
+                    }) {
+                        Ok(_) => {
+                            add_blocker(surface, blocker);
+                            return;
+                        }
+                        Err(error) => {
+                            error!(
+                                ?error,
+                                surface_id = ?surface.id(),
+                                "could not monitor explicit DMA-BUF acquire point"
+                            );
+                            cancel_unsynchronized_surface_commit(surface);
+                            return;
+                        }
+                    }
+                }
+                Err(error) => {
+                    error!(
+                        %error,
+                        surface_id = ?surface.id(),
+                        "could not create explicit DMA-BUF acquire blocker"
+                    );
+                    cancel_unsynchronized_surface_commit(surface);
+                    return;
+                }
+            }
+        }
+
+        // Clients without wp_linux_drm_syncobj_v1 still publish their producer
+        // write fence through the DMA-BUF reservation object. Delay the surface
+        // transaction until the exclusive fence is readable, matching the old
+        // C++ compositor's implicit-sync fallback.
+        let Ok((blocker, source)) = dmabuf.generate_blocker(Interest::READ) else {
+            return;
+        };
+        let source_client = client.clone();
+        match loop_handle.insert_source(source, move |_, _, state| {
+            let display_handle = state
+                .wayland
+                .as_ref()
+                .expect("missing Wayland frontend")
+                .display_handle
+                .clone();
+            state
+                .client_compositor_state(&source_client)
+                .blocker_cleared(state, &display_handle);
+            Ok(())
+        }) {
+            Ok(_) => add_blocker(surface, blocker),
+            Err(error) => {
+                error!(
+                    ?error,
+                    surface_id = ?surface.id(),
+                    "could not monitor implicit DMA-BUF acquire fence"
+                );
+                cancel_unsynchronized_surface_commit(surface);
+            }
+        }
+    });
+}
+
 impl CompositorHandler for RuntimeState {
     fn compositor_state(&mut self) -> &mut CompositorState {
         &mut self
@@ -240,6 +368,7 @@ impl CompositorHandler for RuntimeState {
             );
             return;
         }
+        install_surface_readiness_hook(surface);
         with_states(surface, |states| {
             states
                 .data_map
@@ -398,6 +527,16 @@ impl BufferHandler for RuntimeState {
             .surface_buffers
             .retain(|_, current| current != buffer);
         self.scene_sync.mark_dirty();
+    }
+}
+
+impl DrmSyncobjHandler for RuntimeState {
+    fn drm_syncobj_state(&mut self) -> Option<&mut DrmSyncobjState> {
+        self.wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .drm_syncobj_state
+            .as_mut()
     }
 }
 

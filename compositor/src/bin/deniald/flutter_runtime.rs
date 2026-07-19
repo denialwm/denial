@@ -1637,9 +1637,10 @@ impl Drop for SampledBufferHoldBatch {
         let Some(mut holds) = self.holds.take() else {
             return;
         };
-        // RendererBufferGuard destruction may emit wl_buffer.release. Batches
-        // are deliberately dropped by the compositor event loop after the
-        // render fence signals, never by Flutter's raster thread.
+        // RendererBufferGuard destruction may emit wl_buffer.release and, for
+        // wp_linux_drm_syncobj_v1 clients, signal the matching release point.
+        // Batches are deliberately dropped by the compositor event loop only
+        // after the Flutter render fence signals, never by the raster thread.
         holds.clear();
         let Some(pool) = self.pool.upgrade() else {
             return;

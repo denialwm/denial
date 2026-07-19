@@ -1409,9 +1409,9 @@ fn activate_client_route(
     let scene_changed = {
         let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
         let mut changed = frontend.space.elements().next_back() != Some(&route.window);
-        if changed {
-            frontend.space.raise_element(&route.window, true);
-        }
+        // Always offer the raise to XWM too: Space may already be correct
+        // while Xwayland's independent X stack is stale.
+        frontend.raise_window(&route.window, true);
         for window in frontend.space.elements() {
             let activation_changed = window.set_activated(window == &route.window);
             changed |= activation_changed;
@@ -1715,7 +1715,7 @@ fn process_wayland_input_event(state: &mut RuntimeState, event: InputEvent<Libin
                         .expect("missing Wayland frontend")
                         .keyboard_focus_for_window(&window);
                     let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
-                    frontend.space.raise_element(&window, true);
+                    frontend.raise_window(&window, true);
                     for candidate in frontend.space.elements() {
                         let changed = candidate.set_activated(candidate == &window);
                         if changed && let Some(toplevel) = candidate.toplevel() {
@@ -1777,7 +1777,7 @@ fn process_wayland_input_event(state: &mut RuntimeState, event: InputEvent<Libin
                     .expect("missing Wayland frontend")
                     .keyboard_focus_for_window(&window);
                 let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
-                frontend.space.raise_element(&window, true);
+                frontend.raise_window(&window, true);
                 for candidate in frontend.space.elements() {
                     let changed = candidate.set_activated(candidate == &window);
                     if changed && let Some(toplevel) = candidate.toplevel() {

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Compatibility for the old Denial (Rust) SDDM entry. `install-session`
+# removes that entry; until then it must still reach the canonical launcher
+# instead of leaving SDDM after a nonexistent executable.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "$#" -eq 0 ]]; then
+    set -- session
+fi
+exec "$SCRIPT_DIR/../tools/denial-pc" "$@"
