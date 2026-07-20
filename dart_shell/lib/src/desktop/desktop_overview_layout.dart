@@ -32,12 +32,22 @@ abstract final class DesktopOverviewLayout {
   static const double outerPadding = 30.0;
   static const double minimumCellWidth = 504.0;
   static const double minimumCellHeight = 324.0;
+  static const double minimumPreviewWidth = 160.0;
+  static const double minimumPreviewHeight = 90.0;
+
+  static bool isUsefulPreview(Rect frame) {
+    return frame.width >= minimumPreviewWidth &&
+        frame.height >= minimumPreviewHeight;
+  }
 
   static Map<int, Rect> arrange({
     required List<DesktopOverviewItem> items,
     required Rect bounds,
   }) {
-    if (items.isEmpty || bounds.width <= 0.0 || bounds.height <= 0.0) {
+    final usefulItems = items
+        .where((item) => isUsefulPreview(item.frame))
+        .toList(growable: false);
+    if (usefulItems.isEmpty || bounds.width <= 0.0 || bounds.height <= 0.0) {
       return const <int, Rect>{};
     }
 
@@ -50,7 +60,7 @@ abstract final class DesktopOverviewLayout {
       return const <int, Rect>{};
     }
 
-    final ordered = List<DesktopOverviewItem>.of(items);
+    final ordered = List<DesktopOverviewItem>.of(usefulItems);
     _sortSpatially(ordered, available);
 
     _OverviewCandidate? best;
