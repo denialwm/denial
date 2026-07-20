@@ -247,6 +247,35 @@ int compareDesktopWindowStack(
   return zOrder != 0 ? zOrder : a.objectId.compareTo(b.objectId);
 }
 
+/// Returns the visually topmost window at [position] using the same pinned and
+/// focus ordering as painting and native input publication.
+DenialWindow? desktopWindowAtPosition({
+  required Offset position,
+  required DesktopWorkspaceState workspace,
+  required Map<int, DenialWindow> windowsById,
+}) {
+  final placements = workspace.placements.values
+      .where(
+        (placement) =>
+            !placement.minimized && windowsById.containsKey(placement.objectId),
+      )
+      .toList(growable: false)
+    ..sort((a, b) => compareDesktopWindowStack(a, b, windowsById));
+  for (final placement in placements.reversed) {
+    final window = windowsById[placement.objectId]!;
+    for (final popup in window.popupRoots.toList(growable: false).reversed) {
+      final popupRect = window.mapSurfaceRect(popup, placement.contentRect);
+      if (popupRect.contains(position)) {
+        return window;
+      }
+    }
+    if (placement.frame.contains(position)) {
+      return window;
+    }
+  }
+  return null;
+}
+
 @immutable
 class DesktopWorkspaceState {
   DesktopWorkspaceState({
