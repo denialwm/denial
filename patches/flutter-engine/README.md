@@ -179,9 +179,34 @@ their existing precision. The partial DMSAA load remains a one-to-one GPU copy
 of the exact damage bounds, but a 5120-pixel target can now address every pixel
 without coordinate quantization. It adds no pass, allocation, or CPU work.
 
-None of the six patches changes Dart, widgets, themes, shadows, clipping
-geometry, or Flutter layout. They describe the native target accurately and
-repair the lifetime/state invariants needed by the GPU implementation.
+`0007-add-release-render-cache-audit.patch` adds environment-gated release
+telemetry for DisplayList cache admission, identity stability, image creation,
+draw hits/misses, eviction, and memory use. Flutter's normal cache timeline
+counters are absent from release builds. This patch activates only with
+`DENIA_RENDER_AUDIT=1` and deliberately leaves the admission threshold and
+eviction policy unchanged. See `RENDER_AUDIT.md` for the matching Dart and
+embedder counters and for interpretation.
+
+`0008-preserve-partial-damage-for-reused-layer-trees.patch` fixes partial
+repaint for autonomous external-texture frames. Upstream
+`DrawLastLayerTrees()` moves the last successful task out of the view record
+before `DrawToSurfaceUnsafe()` asks that record for the previous layer tree.
+The lookup therefore returns null, and `FrameDamage` conservatively marks the
+whole Flutter view dirty. The patch identifies a task taken from that cache and
+uses the in-flight tree itself as the previous tree. Retained-layer diffing then
+marks only each live `TextureLayer`'s bounds. Retry tasks preserve the marker.
+
+`0009-emit-release-render-cache-audit.patch` sends the opt-in cache records
+directly to the embedder's standard error stream. Informational FML logging is
+suppressed by this release engine configuration, which made patch 0007's
+counters invisible even though they were collected. Direct output remains
+strictly gated by `DENIA_RENDER_AUDIT` and is flushed only at startup and once
+per 120 raster frames.
+
+None of the first six correctness patches changes Dart, widgets, themes,
+shadows, clipping geometry, or Flutter layout. They describe the native target
+accurately and repair the lifetime/state invariants needed by the GPU
+implementation.
 
 ## What Denial supplies
 
@@ -198,10 +223,12 @@ resolves it into the direct target. Ordinary draws remain on the direct target.
 Imported game textures continue to use EGLImage/DMA-BUF without a CPU staging
 copy.
 
-The six engine patches and the Denial half are intentionally paired.
+The first six engine patches and the Denial half are intentionally paired.
 Shipping only the engine patches leaves the old Denial FBO without stencil;
 shipping only the Denial FBO leaves upstream Flutter reporting `0/0`,
 dynamic MSAA disabled, and its OpenGL stencil-avoidance policy enabled.
+Patch 0007 is diagnostic and may be rebased independently, but the distributed
+release engine includes it so production-mode rendering can be measured.
 
 ## Validation required for every rebase
 
@@ -233,6 +260,9 @@ dynamic MSAA disabled, and its OpenGL stencil-avoidance policy enabled.
   A8 `glTexSubImage2D` uploads have disappeared or become negligible.
 - Check frame damage, output transforms, native fence ordering, resizing, and
   teardown on all supported GPUs.
+- Drive a stable window texture at the output refresh rate without rebuilding
+  the Dart scene. Autonomous `DrawLastLayerTrees()` frames must report the
+  texture/window bounds, not the entire shared atlas.
 - Record the before/after CPU figures with the same game, scene, resolution,
   and frame-rate cap.
 

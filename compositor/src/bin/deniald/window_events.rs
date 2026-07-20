@@ -29,7 +29,7 @@ const MAX_PENDING_WINDOW_EVENTS: usize = 4096;
 /// Most events are intentionally left in strict order. Only transitions whose
 /// final meaning is unambiguous are compacted: focus is last-writer-wins,
 /// adjacent placement updates replace one another, idempotent state actions are
-/// deduplicated, and adjacent fullscreen toggles cancel in pairs.
+/// deduplicated, and adjacent geometry toggles cancel in pairs.
 #[derive(Default)]
 pub(super) struct PendingWindowEventQueue {
     events: Vec<PendingWindowEvent>,
@@ -47,7 +47,10 @@ impl PendingWindowEventQueue {
                     && *previous_id == window_id
                     && *previous_action == action
                 {
-                    if action == wire::WindowAction::ToggleFullscreen {
+                    if matches!(
+                        action,
+                        wire::WindowAction::ToggleMaximize | wire::WindowAction::ToggleFullscreen
+                    ) {
                         self.events.pop();
                     }
                     return;
@@ -168,6 +171,14 @@ mod tests {
         queue.push(placement(20.0));
         queue.push(PendingWindowEvent::Action(7, wire::WindowAction::Maximize));
         queue.push(PendingWindowEvent::Action(7, wire::WindowAction::Maximize));
+        queue.push(PendingWindowEvent::Action(
+            7,
+            wire::WindowAction::ToggleMaximize,
+        ));
+        queue.push(PendingWindowEvent::Action(
+            7,
+            wire::WindowAction::ToggleMaximize,
+        ));
         queue.push(PendingWindowEvent::Action(
             7,
             wire::WindowAction::ToggleFullscreen,

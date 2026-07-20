@@ -210,6 +210,8 @@ pub(super) struct WaylandFrontend {
     configured_window_geometries: HashMap<ObjectId, Rectangle<i32, Logical>>,
     restore_window_geometries: HashMap<ObjectId, Rectangle<i32, Logical>>,
     #[cfg(feature = "flutter")]
+    shell_maximize_restore_geometries: HashMap<ObjectId, Rectangle<i32, Logical>>,
+    #[cfg(feature = "flutter")]
     input_layout: Option<InputLayoutSnapshot>,
     #[cfg(feature = "flutter")]
     shell_fullscreen_locks: HashSet<ObjectId>,
@@ -604,6 +606,8 @@ impl WaylandFrontend {
             configured_window_geometries: HashMap::new(),
             restore_window_geometries: HashMap::new(),
             #[cfg(feature = "flutter")]
+            shell_maximize_restore_geometries: HashMap::new(),
+            #[cfg(feature = "flutter")]
             input_layout: None,
             #[cfg(feature = "flutter")]
             shell_fullscreen_locks: HashSet::new(),
@@ -914,7 +918,7 @@ impl WaylandFrontend {
             let Some(window_id) = self.surface_id(&root_surface) else {
                 continue;
             };
-            let (fullscreen, maximized) = if let Some(toplevel) = window.toplevel() {
+            let (fullscreen, client_maximized) = if let Some(toplevel) = window.toplevel() {
                 (
                     toplevel_has_state(toplevel, xdg_toplevel::State::Fullscreen),
                     toplevel_has_state(toplevel, xdg_toplevel::State::Maximized),
@@ -924,11 +928,18 @@ impl WaylandFrontend {
             } else {
                 (false, false)
             };
+            let shell_maximized = self
+                .shell_maximize_restore_geometries
+                .contains_key(&root_surface.id());
+            let maximized = client_maximized || shell_maximized;
             if fullscreen || maximized {
-                if let Some(restore) = self
-                    .restore_window_geometries
-                    .get(&root_surface.id())
-                    .copied()
+                if let Some(restore) = (if shell_maximized && !fullscreen {
+                    &self.shell_maximize_restore_geometries
+                } else {
+                    &self.restore_window_geometries
+                })
+                .get(&root_surface.id())
+                .copied()
                     && let Some(placement) = self.window_placement(
                         window,
                         restore,
@@ -1014,6 +1025,8 @@ impl WaylandFrontend {
         self.surface_buffers.remove(&object_id);
         self.configured_window_geometries.remove(&object_id);
         self.restore_window_geometries.remove(&object_id);
+        #[cfg(feature = "flutter")]
+        self.shell_maximize_restore_geometries.remove(&object_id);
         if matches!(
             &self.cursor_status,
             CursorImageStatus::Surface(cursor_surface) if cursor_surface == surface
@@ -1229,6 +1242,19 @@ impl WaylandFrontend {
                 self.pending_shm_snapshots.remove(&surface.id());
                 self.remove_surface_shm_frame(&surface.id());
             }
+
+            // SurfaceAttributes aggregates damage across commits until the
+            // compositor consumes it. The renderer helper drains damage when
+            // a new buffer is attached, but deliberately leaves damage-only
+            // commits untouched. Consume that remainder only after this
+            // surface's transaction is published: clearing it in the commit
+            // handler would discard synchronized-subsurface damage before the
+            // parent transaction can process it, while leaving it here makes
+            // later callback-only commits look like fresh visual updates.
+            with_states(&surface, |states| {
+                let mut attributes = states.cached_state.get::<SurfaceAttributes>();
+                attributes.current().damage.clear();
+            });
         }
         self.committed_surfaces_scratch = committed_surfaces;
         published

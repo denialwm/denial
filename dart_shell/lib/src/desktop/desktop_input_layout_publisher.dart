@@ -25,8 +25,8 @@ class DesktopInputLayoutPublisher extends ConsumerStatefulWidget {
 
 class _DesktopInputLayoutPublisherState
     extends ConsumerState<DesktopInputLayoutPublisher> {
-  final Map<int, ({int width, int height})> _configuredSizes =
-      <int, ({int width, int height})>{};
+  final DesktopWindowConfigureTracker _configureTracker =
+      DesktopWindowConfigureTracker();
   bool _scheduled = false;
   int _epoch = 0;
   InputLayoutSnapshot? _lastSnapshot;
@@ -147,7 +147,7 @@ class _DesktopInputLayoutPublisherState
       if (interactions.capturesFullScene) {
         final window = windowsById[placement.objectId]!;
         visibleSurfaceIds.addAll(window.visibleSurfaceIds);
-        _configureWindowSize(
+        _configureWindowGeometry(
           window,
           placement.contentRect,
           nativeDragActive: placement.dragging,
@@ -189,16 +189,14 @@ class _DesktopInputLayoutPublisherState
           geometryLocked: placement.fullscreen,
         ),
       );
-      _configureWindowSize(
+      _configureWindowGeometry(
         window,
         placement.contentRect,
         nativeDragActive: placement.dragging,
       );
     }
 
-    _configuredSizes.removeWhere(
-      (objectId, _) => !windowsById.containsKey(objectId),
-    );
+    _configureTracker.retainWindowIds(windowsById.keys.toSet());
     final snapshot = InputLayoutSnapshot(
       epoch: _epoch + 1,
       shellRegions: shellRegions,
@@ -218,40 +216,70 @@ class _DesktopInputLayoutPublisherState
     _lastSnapshot = snapshot;
   }
 
-  void _configureWindowSize(
+  void _configureWindowGeometry(
     DenialWindow window,
     Rect contentRect, {
     required bool nativeDragActive,
   }) {
-    final width = contentRect.width.round().clamp(64, 16384);
-    final height = contentRect.height.round().clamp(64, 16384);
-    final configuredSize = (width: width, height: height);
-    if (!_configuredSizes.containsKey(window.objectId)) {
-      // The native compositor owns initial placement and sizing. Seed the
-      // cache from the geometry Flutter received instead of configuring a
-      // newly discovered window back to the shell's copy of that geometry.
-      _configuredSizes[window.objectId] = configuredSize;
+    final configuredGeometry = _configureTracker.update(
+      window.objectId,
+      contentRect,
+      nativeDragActive: nativeDragActive,
+    );
+    if (configuredGeometry == null) {
       return;
     }
-    if (nativeDragActive) {
-      // Hypr is the sole geometry writer during a native move/resize grab.
-      // Remember its latest size without echoing the same configure back.
-      _configuredSizes[window.objectId] = configuredSize;
-      return;
-    }
-    if (_configuredSizes[window.objectId] == configuredSize) {
-      return;
-    }
-    _configuredSizes[window.objectId] = configuredSize;
     ref.read(denialBridgeProvider).configureWindow(
           window,
-          Rect.fromLTWH(
-            contentRect.left,
-            contentRect.top,
-            width.toDouble(),
-            height.toDouble(),
-          ),
+          configuredGeometry,
         );
+  }
+}
+
+/// Tracks complete shell-authored window rectangles crossing the native
+/// bridge. Location is part of the identity: dropping a position-only update
+/// leaves Rust hit testing and Flutter composition on different coordinates.
+class DesktopWindowConfigureTracker {
+  final Map<int, ({int left, int top, int width, int height})> _configured =
+      <int, ({int left, int top, int width, int height})>{};
+
+  Rect? update(
+    int objectId,
+    Rect contentRect, {
+    required bool nativeDragActive,
+  }) {
+    final geometry = (
+      left: contentRect.left.round().clamp(0, 16384),
+      top: contentRect.top.round().clamp(0, 16384),
+      width: contentRect.width.round().clamp(64, 16384),
+      height: contentRect.height.round().clamp(64, 16384),
+    );
+    final previous = _configured[objectId];
+    _configured[objectId] = geometry;
+    if (previous == null) {
+      // The native compositor owns initial placement and sizing. Seed from
+      // the received geometry instead of echoing a newly discovered window.
+      return null;
+    }
+    if (nativeDragActive) {
+      // Rust is the sole writer during a native move/resize grab.
+      return null;
+    }
+    if (previous == geometry) {
+      return null;
+    }
+    return Rect.fromLTWH(
+      geometry.left.toDouble(),
+      geometry.top.toDouble(),
+      geometry.width.toDouble(),
+      geometry.height.toDouble(),
+    );
+  }
+
+  void retainWindowIds(Set<int> activeObjectIds) {
+    _configured.removeWhere(
+      (objectId, _) => !activeObjectIds.contains(objectId),
+    );
   }
 }
 

@@ -33,6 +33,37 @@ fn bound_geometry_size(mut geometry: Rectangle<i32, Logical>) -> Rectangle<i32, 
     geometry
 }
 
+#[cfg(feature = "flutter")]
+// Must match DesktopMetrics.frameBorder in the embedded shell.
+const SHELL_FRAME_BORDER: i32 = 1;
+
+#[cfg(feature = "flutter")]
+fn shell_draws_server_frame(window: &Window) -> bool {
+    if window.toplevel().is_some() {
+        return true;
+    }
+    window
+        .x11_surface()
+        .is_some_and(|x11| !x11.is_override_redirect() && !x11.is_decorated())
+}
+
+#[cfg(feature = "flutter")]
+fn shell_content_geometry(
+    mut frame: Rectangle<i32, Logical>,
+    server_side_decorated: bool,
+) -> Rectangle<i32, Logical> {
+    if server_side_decorated
+        && frame.size.w > SHELL_FRAME_BORDER * 2
+        && frame.size.h > SHELL_FRAME_BORDER * 2
+    {
+        frame.loc.x += SHELL_FRAME_BORDER;
+        frame.loc.y += SHELL_FRAME_BORDER;
+        frame.size.w -= SHELL_FRAME_BORDER * 2;
+        frame.size.h -= SHELL_FRAME_BORDER * 2;
+    }
+    frame
+}
+
 /// Drop client-protocol fullscreen/maximize state before a shell-owned
 /// configure or SUPER pointer interaction.
 ///
@@ -353,13 +384,80 @@ pub(super) fn close_focused_toplevel(state: &RuntimeState) -> bool {
 }
 
 #[cfg(feature = "flutter")]
-/// SUPER+Up mirrors the SUPER+F pattern: a shell-owned geometry toggle. The
-/// XDG maximized state stays untouched; Flutter tracks the restore frame and
-/// answers with a work-area-sized (or restored) ConfigureWindow command.
+/// Atomically applies the shell-owned SUPER+Up geometry before notifying
+/// Flutter. The XDG/EWMH maximized state stays untouched, but Rust remains the
+/// placement authority throughout the transition instead of waiting for a
+/// later Flutter frame to return the requested coordinates.
 pub(super) fn toggle_shell_maximize_focused_toplevel(state: &mut RuntimeState) -> bool {
     let Some(window) = focused_window(state) else {
         return false;
     };
+    let (client_fullscreen, client_maximized) = if let Some(toplevel) = window.toplevel() {
+        (
+            toplevel_has_state(toplevel, xdg_toplevel::State::Fullscreen),
+            toplevel_has_state(toplevel, xdg_toplevel::State::Maximized),
+        )
+    } else if let Some(x11) = window.x11_surface() {
+        (x11.is_fullscreen(), x11.is_maximized())
+    } else {
+        (false, false)
+    };
+
+    let target = {
+        let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+        if client_fullscreen || frontend.window_geometry_locked(&window) {
+            // SUPER+Up is a no-op while true fullscreen is active.
+            return true;
+        }
+        let Some(root_surface) = frontend.window_root_surface(&window) else {
+            return false;
+        };
+        let surface_id = root_surface.id();
+        if let Some(restore) = frontend
+            .shell_maximize_restore_geometries
+            .remove(&surface_id)
+        {
+            frontend.restore_window_geometries.remove(&surface_id);
+            bound_geometry_size(restore)
+        } else if client_maximized {
+            let restore = frontend
+                .restore_window_geometries
+                .remove(&surface_id)
+                .unwrap_or_else(|| frontend.window_geometry_target(&window));
+            bound_geometry_size(restore)
+        } else {
+            let restore = bound_geometry_size(frontend.window_geometry_target(&window));
+            let Some(output) = frontend
+                .output_for_geometry(restore)
+                .map(|entry| entry.output.clone())
+            else {
+                return false;
+            };
+            let Some(output_geometry) = frontend.space.output_geometry(&output) else {
+                return false;
+            };
+            let frame = frontend.maximize_work_area(Some(&output), output_geometry);
+            let target = shell_content_geometry(frame, shell_draws_server_frame(&window));
+            frontend
+                .shell_maximize_restore_geometries
+                .insert(surface_id, restore);
+            target
+        }
+    };
+
+    clear_client_geometry_constraints(&window);
+    if let Some(toplevel) = window.toplevel() {
+        toplevel.with_pending_state(|pending| {
+            pending.states.unset(xdg_toplevel::State::Resizing);
+            pending.size = Some(target.size);
+        });
+        toplevel.send_pending_configure();
+    }
+    state
+        .wayland
+        .as_mut()
+        .expect("missing Wayland frontend")
+        .set_window_geometry_target(&window, target);
     queue_window_action_for_window(state, &window, WindowAction::ToggleMaximize);
     state.scene_sync.mark_dirty();
     true
@@ -596,5 +694,15 @@ mod tests {
         ));
         assert_eq!(bounded.loc, Point::from((i32::MIN, i32::MAX)));
         assert_eq!(bounded.size, Size::from((16_384, 1)));
+    }
+
+    #[test]
+    fn shell_frame_inset_keeps_native_content_inside_the_flutter_frame() {
+        let frame = Rectangle::new(Point::from((10, 32)), Size::from((1900, 1038)));
+        assert_eq!(
+            shell_content_geometry(frame, true),
+            Rectangle::new(Point::from((11, 33)), Size::from((1898, 1036)))
+        );
+        assert_eq!(shell_content_geometry(frame, false), frame);
     }
 }

@@ -309,6 +309,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
   DesktopWorkspaceController() : super(DesktopWorkspaceState.initial());
 
   final Map<int, Offset> _moveRemainders = <int, Offset>{};
+  final Map<int, Rect> _pendingNativeFrames = <int, Rect>{};
   List<DenialWindow>? _lastSyncedWindows;
   int _lastSyncedSnapshotSequence = -1;
   double _devicePixelRatio = 1.0;
@@ -333,6 +334,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
       }
       final frame = _maximizedFrame(placement.monitorId, state.viewSize);
       if (frame != placement.frame) {
+        _pendingNativeFrames[placement.objectId] = frame;
         next[placement.objectId] = placement.copyWith(frame: frame);
         changed = true;
       }
@@ -343,8 +345,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
   }
 
   Rect _maximizedFrame(int monitorId, Size viewSize) {
-    final workArea =
-        _workAreas[monitorId]?.intersect(Offset.zero & viewSize);
+    final workArea = _workAreas[monitorId]?.intersect(Offset.zero & viewSize);
     if (workArea == null || workArea.isEmpty) {
       return DesktopMetrics.windowWorkArea(viewSize);
     }
@@ -379,6 +380,9 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     final userWindows = windows.where((window) => window.isUserApp).toList();
     final activeIds = {for (final window in userWindows) window.objectId};
     _moveRemainders.removeWhere((objectId, _) => !activeIds.contains(objectId));
+    _pendingNativeFrames.removeWhere(
+      (objectId, _) => !activeIds.contains(objectId),
+    );
     final next = <int, DesktopWindowPlacement>{
       for (final entry in state.placements.entries)
         if (activeIds.contains(entry.key)) entry.key: entry.value,
@@ -413,34 +417,50 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
       if (snapshotSequence > existing.nativeSequence) {
         var frame = existing.frame;
         var fullscreenRestoreFrame = existing.fullscreenRestoreFrame;
+        var monitorId = existing.monitorId;
         final decorationChanged =
             existing.serverSideDecorated != window.serverSideDecorated;
         if (nativeGeometry != null) {
-          if (existing.fullscreen) {
-            final fullscreenFrame =
-                nativeGeometry.intersect(Offset.zero & viewSize);
-            if (!fullscreenFrame.isEmpty) {
-              if (window.monitorId != existing.monitorId) {
-                final delta = fullscreenFrame.topLeft - existing.frame.topLeft;
+          final nativeFrame = existing.fullscreen
+              ? nativeGeometry.intersect(Offset.zero & viewSize)
+              : _initialFrame(
+                  nativeGeometry,
+                  serverSideDecorated: window.serverSideDecorated,
+                );
+          final pendingFrame = _pendingNativeFrames[window.objectId];
+          final nativeAcknowledgedPending = pendingFrame != null &&
+              _framesApproximatelyEqual(nativeFrame, pendingFrame);
+          if (nativeAcknowledgedPending) {
+            _pendingNativeFrames.remove(window.objectId);
+          }
+
+          // Shell-authored maximize/restore geometry crosses the native bridge
+          // asynchronously. A newer texture or metadata snapshot can still
+          // describe the preceding native frame; keep the requested frame and
+          // its monitor ownership until Rust echoes the complete rectangle.
+          if (pendingFrame == null || nativeAcknowledgedPending) {
+            if (!nativeFrame.isEmpty) {
+              if (existing.fullscreen &&
+                  window.monitorId != existing.monitorId) {
+                final delta = nativeFrame.topLeft - existing.frame.topLeft;
                 fullscreenRestoreFrame = fullscreenRestoreFrame?.shift(delta);
               }
-              frame = fullscreenFrame;
+              frame = nativeFrame;
+              monitorId = window.monitorId;
             }
-          } else {
-            frame = _initialFrame(
-              nativeGeometry,
-              serverSideDecorated: window.serverSideDecorated,
-            );
           }
         } else if (decorationChanged && !existing.fullscreen) {
           frame = _initialFrame(
             existing.contentRect,
             serverSideDecorated: window.serverSideDecorated,
           );
+          monitorId = window.monitorId;
+        } else if (_pendingNativeFrames[window.objectId] == null) {
+          monitorId = window.monitorId;
         }
         current = existing.copyWith(
           frame: frame,
-          monitorId: window.monitorId,
+          monitorId: monitorId,
           nativeSequence: snapshotSequence,
           serverSideDecorated: window.serverSideDecorated,
           fullscreenRestoreFrame: fullscreenRestoreFrame,
@@ -465,6 +485,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
               ? _maximizedFrame(current.monitorId, viewSize)
               : _clampFrame(current.frame, viewSize);
       if (frame != current.frame) {
+        _pendingNativeFrames[window.objectId] = frame;
         next[window.objectId] = current.copyWith(frame: frame);
         changed = true;
       }
@@ -636,6 +657,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     next[objectId] = placement.copyWith(
       frame: frame,
     );
+    _pendingNativeFrames[objectId] = frame;
     state = state.copyWith(placements: next);
   }
 
@@ -684,6 +706,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     if (placement == null || event.sequence <= placement.nativeSequence) {
       return;
     }
+    _pendingNativeFrames.remove(objectId);
 
     final monitorChanged = event.monitorId != placement.monitorId;
 
@@ -814,7 +837,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     _moveRemainders.remove(objectId);
     final next = Map<int, DesktopWindowPlacement>.of(state.placements);
     if (placement.maximized) {
-      next[objectId] = placement.copyWith(
+      final restored = placement.copyWith(
         frame: _clampFrame(
           placement.restoreFrame ?? placement.frame,
           state.viewSize,
@@ -823,19 +846,23 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
         dragging: false,
         clearRestoreFrame: true,
       );
+      next[objectId] = restored;
+      _pendingNativeFrames[objectId] = restored.frame;
     } else {
       final canvas = Offset.zero & state.viewSize;
       final requestedBounds = bounds?.intersect(canvas);
       final maximizedFrame = requestedBounds == null || requestedBounds.isEmpty
           ? _maximizedFrame(placement.monitorId, state.viewSize)
           : requestedBounds;
-      next[objectId] = placement.copyWith(
+      final maximized = placement.copyWith(
         frame: maximizedFrame,
         maximized: true,
         minimized: false,
         dragging: false,
         restoreFrame: placement.frame,
       );
+      next[objectId] = maximized;
+      _pendingNativeFrames[objectId] = maximized.frame;
     }
     state = state.copyWith(
       placements: next,
@@ -863,13 +890,15 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
 
     _moveRemainders.remove(objectId);
     final next = Map<int, DesktopWindowPlacement>.of(state.placements);
-    next[objectId] = placement.copyWith(
+    final fullscreen = placement.copyWith(
       frame: fullscreenFrame,
       minimized: false,
       fullscreen: true,
       dragging: false,
       fullscreenRestoreFrame: placement.frame,
     );
+    next[objectId] = fullscreen;
+    _pendingNativeFrames[objectId] = fullscreen.frame;
     state = state.copyWith(
       placements: next,
       clearOverview: state.overviewActive,
@@ -882,7 +911,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
   ) {
     _moveRemainders.remove(objectId);
     final next = Map<int, DesktopWindowPlacement>.of(state.placements);
-    next[objectId] = placement.copyWith(
+    final restored = placement.copyWith(
       frame: _clampFrame(
         placement.fullscreenRestoreFrame ?? placement.frame,
         state.viewSize,
@@ -891,6 +920,8 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
       dragging: false,
       clearFullscreenRestoreFrame: true,
     );
+    next[objectId] = restored;
+    _pendingNativeFrames[objectId] = restored.frame;
     state = state.copyWith(placements: next);
   }
 
@@ -951,4 +982,12 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
   double _snapToPixel(double value) {
     return (value * _devicePixelRatio).roundToDouble() / _devicePixelRatio;
   }
+}
+
+bool _framesApproximatelyEqual(Rect first, Rect second) {
+  const tolerance = 1.0;
+  return (first.left - second.left).abs() <= tolerance &&
+      (first.top - second.top).abs() <= tolerance &&
+      (first.width - second.width).abs() <= tolerance &&
+      (first.height - second.height).abs() <= tolerance;
 }

@@ -75,6 +75,195 @@ const INITIAL_PLATFORM_TASK_BATCH_CAPACITY: usize = 64;
 const MAX_LIVE_EXTERNAL_TEXTURE_RESOURCES: usize = 1024;
 const PLATFORM_TASK_MAX_DISPATCH_TIMEOUT: Duration = Duration::from_millis(100);
 const MAX_PENDING_AUDIO_REQUESTS: usize = 128;
+const RENDER_AUDIT_INTERVAL: Duration = Duration::from_secs(1);
+
+fn render_audit_enabled() -> bool {
+    matches!(
+        std::env::var("DENIA_RENDER_AUDIT")
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    )
+}
+
+#[derive(Debug)]
+struct RenderDamageAudit {
+    atlas_pixels: f64,
+    interval_started: Instant,
+    frame_region: DamageRegion,
+    buffer_region: DamageRegion,
+    presented_frames: u64,
+    skipped_frames: u64,
+    frame_rects: u64,
+    buffer_rects: u64,
+    frame_area: f64,
+    buffer_area: f64,
+    max_frame_area: f64,
+    max_buffer_area: f64,
+    full_frame_damage: u64,
+    full_buffer_damage: u64,
+    empty_frame_damage: u64,
+    empty_buffer_damage: u64,
+    sampled_textures: u64,
+    max_sampled_textures: usize,
+    sampled_texture_counts: HashMap<i64, u64>,
+}
+
+impl RenderDamageAudit {
+    fn new(size: PixelSize) -> Self {
+        Self {
+            atlas_pixels: f64::from(size.width) * f64::from(size.height),
+            interval_started: Instant::now(),
+            frame_region: DamageRegion::empty(size.width, size.height),
+            buffer_region: DamageRegion::empty(size.width, size.height),
+            presented_frames: 0,
+            skipped_frames: 0,
+            frame_rects: 0,
+            buffer_rects: 0,
+            frame_area: 0.0,
+            buffer_area: 0.0,
+            max_frame_area: 0.0,
+            max_buffer_area: 0.0,
+            full_frame_damage: 0,
+            full_buffer_damage: 0,
+            empty_frame_damage: 0,
+            empty_buffer_damage: 0,
+            sampled_textures: 0,
+            max_sampled_textures: 0,
+            sampled_texture_counts: HashMap::new(),
+        }
+    }
+
+    fn record_present(
+        &mut self,
+        frame_damage: &[sys::FlutterRect],
+        buffer_damage: &[sys::FlutterRect],
+        sampled: Option<&SampledBufferHoldBatch>,
+    ) {
+        self.frame_region.replace_from_flutter(frame_damage);
+        self.buffer_region.replace_from_flutter(buffer_damage);
+
+        let frame_area = self.frame_region.damaged_area();
+        let buffer_area = self.buffer_region.damaged_area();
+        self.presented_frames = self.presented_frames.saturating_add(1);
+        self.frame_rects = self
+            .frame_rects
+            .saturating_add(self.frame_region.rect_count() as u64);
+        self.buffer_rects = self
+            .buffer_rects
+            .saturating_add(self.buffer_region.rect_count() as u64);
+        self.frame_area += frame_area;
+        self.buffer_area += buffer_area;
+        self.max_frame_area = self.max_frame_area.max(frame_area);
+        self.max_buffer_area = self.max_buffer_area.max(buffer_area);
+        self.full_frame_damage = self
+            .full_frame_damage
+            .saturating_add(u64::from(self.frame_region.is_full()));
+        self.full_buffer_damage = self
+            .full_buffer_damage
+            .saturating_add(u64::from(self.buffer_region.is_full()));
+        self.empty_frame_damage = self
+            .empty_frame_damage
+            .saturating_add(u64::from(self.frame_region.is_empty()));
+        self.empty_buffer_damage = self
+            .empty_buffer_damage
+            .saturating_add(u64::from(self.buffer_region.is_empty()));
+        self.record_sampled_textures(sampled);
+        self.maybe_report();
+    }
+
+    fn record_skipped(&mut self, sampled: Option<&SampledBufferHoldBatch>) {
+        self.skipped_frames = self.skipped_frames.saturating_add(1);
+        self.record_sampled_textures(sampled);
+        self.maybe_report();
+    }
+
+    fn record_sampled_textures(&mut self, sampled: Option<&SampledBufferHoldBatch>) {
+        let sampled_textures = sampled.map_or(0, SampledBufferHoldBatch::len);
+        self.sampled_textures = self
+            .sampled_textures
+            .saturating_add(sampled_textures as u64);
+        self.max_sampled_textures = self.max_sampled_textures.max(sampled_textures);
+        if let Some(sampled) = sampled {
+            for texture_id in sampled.texture_ids() {
+                let count = self.sampled_texture_counts.entry(texture_id).or_default();
+                *count = count.saturating_add(1);
+            }
+        }
+    }
+
+    fn sampled_texture_counts_description(&self) -> String {
+        if self.sampled_texture_counts.is_empty() {
+            return "-".to_owned();
+        }
+        let mut counts = self.sampled_texture_counts.iter().collect::<Vec<_>>();
+        counts.sort_unstable_by_key(|(texture_id, _)| **texture_id);
+        counts
+            .into_iter()
+            .map(|(texture_id, count)| format!("{texture_id}:{count}"))
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    fn maybe_report(&mut self) {
+        let elapsed = self.interval_started.elapsed();
+        if elapsed < RENDER_AUDIT_INTERVAL {
+            return;
+        }
+
+        let frame_denominator = self.presented_frames.max(1) as f64;
+        let transaction_denominator = self
+            .presented_frames
+            .saturating_add(self.skipped_frames)
+            .max(1) as f64;
+        let atlas_pixels = self.atlas_pixels.max(1.0);
+        info!(
+            target: "deniald::render_audit",
+            source = "embedder",
+            interval_ms = elapsed.as_secs_f64() * 1_000.0,
+            presented_frames = self.presented_frames,
+            skipped_frames = self.skipped_frames,
+            frame_damage_avg_pct = self.frame_area / frame_denominator / atlas_pixels * 100.0,
+            frame_damage_max_pct = self.max_frame_area / atlas_pixels * 100.0,
+            frame_damage_avg_rects = self.frame_rects as f64 / frame_denominator,
+            frame_damage_full = self.full_frame_damage,
+            frame_damage_empty = self.empty_frame_damage,
+            buffer_damage_avg_pct = self.buffer_area / frame_denominator / atlas_pixels * 100.0,
+            buffer_damage_max_pct = self.max_buffer_area / atlas_pixels * 100.0,
+            buffer_damage_avg_rects = self.buffer_rects as f64 / frame_denominator,
+            buffer_damage_full = self.full_buffer_damage,
+            buffer_damage_empty = self.empty_buffer_damage,
+            sampled_textures_avg = self.sampled_textures as f64 / transaction_denominator,
+            sampled_textures_max = self.max_sampled_textures,
+            sampled_texture_counts = %self.sampled_texture_counts_description(),
+            last_frame_damage = %self.frame_region.compact_description(),
+            last_buffer_damage = %self.buffer_region.compact_description(),
+            "Flutter atlas render audit"
+        );
+
+        self.interval_started = Instant::now();
+        self.presented_frames = 0;
+        self.skipped_frames = 0;
+        self.frame_rects = 0;
+        self.buffer_rects = 0;
+        self.frame_area = 0.0;
+        self.buffer_area = 0.0;
+        self.max_frame_area = 0.0;
+        self.max_buffer_area = 0.0;
+        self.full_frame_damage = 0;
+        self.full_buffer_damage = 0;
+        self.empty_frame_damage = 0;
+        self.empty_buffer_damage = 0;
+        self.sampled_textures = 0;
+        self.max_sampled_textures = 0;
+        self.sampled_texture_counts.clear();
+        self.frame_region.clear();
+        self.buffer_region.clear();
+    }
+}
 
 #[derive(Debug, Default)]
 struct PlatformTaskBudget {
@@ -1626,6 +1815,16 @@ pub struct SampledBufferHoldBatch {
     pool: Weak<SampledBufferBatchPool>,
 }
 
+impl SampledBufferHoldBatch {
+    fn len(&self) -> usize {
+        self.holds.as_ref().map_or(0, Vec::len)
+    }
+
+    fn texture_ids(&self) -> impl Iterator<Item = i64> + '_ {
+        self.holds.iter().flatten().map(|hold| hold.texture_id)
+    }
+}
+
 impl std::fmt::Debug for SampledBufferHoldBatch {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -1774,6 +1973,7 @@ struct FlutterGlHandler {
     platform_tasks: CoalescedInbox<PendingPlatformTask>,
     frame_ready_wakeup: CoalescedWakeup,
     queue_overflow_wakeup: CoalescedWakeup,
+    render_audit: Option<Mutex<RenderDamageAudit>>,
     events: Sender<RuntimeEvent>,
     generation: u64,
     size: PixelSize,
@@ -1919,6 +2119,15 @@ impl FlutterGlHandler {
             height = size.height,
             "imported GBM atlas pool into Flutter EGL context"
         );
+        let render_audit = render_audit_enabled().then(|| {
+            info!(
+                target: "deniald::render_audit",
+                width = size.width,
+                height = size.height,
+                "Flutter atlas render audit enabled"
+            );
+            Mutex::new(RenderDamageAudit::new(size))
+        });
 
         Ok(Arc::new(Self {
             render_context: Mutex::new(ContextBinding::new(render_context)),
@@ -1945,6 +2154,7 @@ impl FlutterGlHandler {
             platform_tasks: CoalescedInbox::with_capacity(INITIAL_PLATFORM_TASK_BATCH_CAPACITY),
             frame_ready_wakeup: CoalescedWakeup::default(),
             queue_overflow_wakeup: CoalescedWakeup::default(),
+            render_audit,
             events,
             generation,
             size,
@@ -2450,6 +2660,9 @@ impl OpenGlHandler for FlutterGlHandler {
         let presented = (|| {
             if frame.framebuffer == 0 {
                 let batch = self.seal_sampled_buffers();
+                if let Some(audit) = &self.render_audit {
+                    lock(audit).record_skipped(batch.as_ref());
+                }
                 if batch.is_some() {
                     // A skipped target has no native render fence, but any
                     // external textures resolved before the skip still need
@@ -2496,6 +2709,13 @@ impl OpenGlHandler for FlutterGlHandler {
                 None
             };
             let sampled = self.seal_sampled_buffers();
+            if let Some(audit) = &self.render_audit {
+                lock(audit).record_present(
+                    frame.frame_damage,
+                    frame.buffer_damage,
+                    sampled.as_ref(),
+                );
+            }
             let release_fence = if sampled.is_some() {
                 match fence.as_ref() {
                     Some(fence) => match fence.as_fd().try_clone_to_owned() {

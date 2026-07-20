@@ -135,6 +135,36 @@ impl DamageRegion {
         output.extend(self.as_slice().iter().copied().map(DamageRect::as_flutter));
     }
 
+    pub(super) fn rect_count(&self) -> usize {
+        self.len
+    }
+
+    /// Returns the conservative number of damaged pixels represented by this
+    /// normalized region. Coalescing can include undamaged pixels, but never
+    /// excludes pixels Flutter asked the embedder to repair.
+    pub(super) fn damaged_area(&self) -> f64 {
+        self.as_slice()
+            .iter()
+            .map(|rect| (rect.right - rect.left) * (rect.bottom - rect.top))
+            .sum()
+    }
+
+    pub(super) fn compact_description(&self) -> String {
+        if self.is_empty() {
+            return "-".to_owned();
+        }
+        self.as_slice()
+            .iter()
+            .map(|rect| {
+                format!(
+                    "{:.0},{:.0}-{:.0},{:.0}",
+                    rect.left, rect.top, rect.right, rect.bottom
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(";")
+    }
+
     pub(crate) fn intersects_pixel_rect(&self, x: u32, y: u32, width: u32, height: u32) -> bool {
         let left = f64::from(x);
         let top = f64::from(y);
@@ -208,7 +238,7 @@ impl DamageRegion {
         }
     }
 
-    fn is_full(&self) -> bool {
+    pub(super) fn is_full(&self) -> bool {
         self.as_slice() == [self.bounds]
     }
 
@@ -220,7 +250,7 @@ impl DamageRegion {
         }
     }
 
-    fn is_empty(&self) -> bool {
+    pub(super) fn is_empty(&self) -> bool {
         self.len == 0
     }
 
@@ -331,6 +361,43 @@ mod tests {
         assert_eq!(invalid_rects.len(), 1);
         assert_eq!(invalid_rects[0].right, WIDTH as f64);
         assert_eq!(invalid_rects[0].bottom, HEIGHT as f64);
+    }
+
+    #[test]
+    fn audit_summary_uses_the_normalized_damage_region() {
+        let region = DamageRegion::from_flutter(
+            100,
+            80,
+            &[
+                sys::FlutterRect {
+                    left: 10.0,
+                    top: 12.0,
+                    right: 30.0,
+                    bottom: 32.0,
+                },
+                sys::FlutterRect {
+                    left: 30.0,
+                    top: 12.0,
+                    right: 50.0,
+                    bottom: 32.0,
+                },
+            ],
+        );
+
+        expect_damage_summary(&region, 1, 800.0, "10,12-50,32");
+        assert!(!region.is_full());
+        assert!(!region.is_empty());
+    }
+
+    fn expect_damage_summary(
+        region: &DamageRegion,
+        rect_count: usize,
+        area: f64,
+        description: &str,
+    ) {
+        assert_eq!(region.rect_count(), rect_count);
+        assert_eq!(region.damaged_area(), area);
+        assert_eq!(region.compact_description(), description);
     }
 
     #[test]

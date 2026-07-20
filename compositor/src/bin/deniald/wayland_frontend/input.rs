@@ -1704,22 +1704,29 @@ fn release_client_geometry_for_shell_grab(
     state: &mut RuntimeState,
     window: &smithay::desktop::Window,
 ) {
-    if !super::window_management::clear_client_geometry_constraints(window) {
-        return;
-    }
+    let client_constraints_cleared =
+        super::window_management::clear_client_geometry_constraints(window);
 
     let target = {
         let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
         let root = frontend.window_root_surface(window);
-        let restore = root
-            .as_ref()
-            .and_then(|surface| frontend.restore_window_geometries.remove(&surface.id()));
+        let restore = root.as_ref().and_then(|surface| {
+            frontend
+                .shell_maximize_restore_geometries
+                .remove(&surface.id())
+                .or_else(|| frontend.restore_window_geometries.remove(&surface.id()))
+        });
         if let Some(restore) = restore {
             frontend.set_window_geometry_target(window, restore);
-            restore
+            Some(restore)
+        } else if client_constraints_cleared {
+            Some(frontend.window_geometry_target(window))
         } else {
-            frontend.window_geometry_target(window)
+            None
         }
+    };
+    let Some(target) = target else {
+        return;
     };
     if let Some(toplevel) = window.toplevel() {
         toplevel.with_pending_state(|pending| pending.size = Some(target.size));

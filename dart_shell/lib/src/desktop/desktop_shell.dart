@@ -50,6 +50,7 @@ import 'desktop_system_bar.dart';
 import 'desktop_texture_resize.dart';
 import 'desktop_window_coordinator.dart';
 import 'desktop_window_frame_painter.dart';
+import 'desktop_window_render_telemetry.dart';
 import 'desktop_workspace.dart';
 
 class DesktopShell extends ConsumerStatefulWidget {
@@ -1723,7 +1724,11 @@ class _DesktopClosingWindowFrame extends StatelessWidget {
       seed: Object.hash(closing.window.objectId, closing.id),
       onCompleted: onCompleted,
       child: CustomPaint(
-        painter: drawsServerFrame ? const DesktopWindowFramePainter() : null,
+        painter: drawsServerFrame
+            ? DesktopWindowFramePainter(
+                windowId: closing.window.objectId,
+              )
+            : null,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(math.max(0.0, radius - 1.0)),
           child: Padding(
@@ -1769,6 +1774,11 @@ class _DesktopWindowFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    DesktopWindowRenderTelemetry.recordWindowBuild(
+      windowId: window.objectId,
+      textureId: window.textureId,
+      label: window.appId.isEmpty ? window.displayTitle : window.appId,
+    );
     final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
     final transformed = overview || switching;
     final duration = motionDuration;
@@ -1817,40 +1827,45 @@ class _DesktopWindowFrame extends StatelessWidget {
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTap: overview ? onOverviewTap : null,
-                        child: CustomPaint(
-                          painter: drawsServerFrame
-                              ? const DesktopWindowFramePainter()
-                              : null,
-                          foregroundPainter: drawsServerFrame
-                              ? _DesktopWindowBorderPainter(
-                                  color: window.pinned
-                                      ? ShellColors.pinnedWindowBorder
-                                      : active
-                                          ? ShellColors.focusedWindowBorder
-                                          : ShellColors.hairlineWindow,
-                                  devicePixelRatio: devicePixelRatio,
-                                )
-                              : null,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(
-                              math.max(0.0, windowRadius - 1.0),
-                            ),
-                            child: Padding(
-                              // The native client keeps its real geometry
-                              // during overview; only its live texture scales.
-                              padding: drawsServerFrame
-                                  ? const EdgeInsets.all(
-                                      DesktopMetrics.frameBorder,
-                                    )
-                                  : EdgeInsets.zero,
-                              child: SizedBox.expand(
-                                child: _DesktopSurfaceTexture(
-                                  window: window,
-                                  smooth: transformed || resizing,
+                        child: Builder(
+                          builder: (context) {
+                            final client = ClipRRect(
+                              borderRadius: BorderRadius.circular(
+                                math.max(0.0, windowRadius - 1.0),
+                              ),
+                              child: Padding(
+                                // The native client keeps its real geometry
+                                // during overview; only its live texture scales.
+                                padding: drawsServerFrame
+                                    ? const EdgeInsets.all(
+                                        DesktopMetrics.frameBorder,
+                                      )
+                                    : EdgeInsets.zero,
+                                child: SizedBox.expand(
+                                  child: _DesktopSurfaceTexture(
+                                    window: window,
+                                    smooth: transformed || resizing,
+                                  ),
                                 ),
                               ),
-                            ),
-                          ),
+                            );
+                            if (!drawsServerFrame) {
+                              return client;
+                            }
+                            return DesktopWindowFrameLayers(
+                              windowId: window.objectId,
+                              borderPainter: _DesktopWindowBorderPainter(
+                                windowId: window.objectId,
+                                color: window.pinned
+                                    ? ShellColors.pinnedWindowBorder
+                                    : active
+                                        ? ShellColors.focusedWindowBorder
+                                        : ShellColors.hairlineWindow,
+                                devicePixelRatio: devicePixelRatio,
+                              ),
+                              child: client,
+                            );
+                          },
                         ),
                       ),
                     ),
@@ -1923,15 +1938,18 @@ class _DesktopSurfaceTextureState extends State<_DesktopSurfaceTexture> {
 
 class _DesktopWindowBorderPainter extends CustomPainter {
   const _DesktopWindowBorderPainter({
+    required this.windowId,
     required this.color,
     required this.devicePixelRatio,
   });
 
+  final int windowId;
   final Color color;
   final double devicePixelRatio;
 
   @override
   void paint(Canvas canvas, Size size) {
+    DesktopWindowRenderTelemetry.recordBorderPaint(windowId, size);
     if (size.isEmpty) {
       return;
     }
@@ -1961,7 +1979,8 @@ class _DesktopWindowBorderPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _DesktopWindowBorderPainter oldDelegate) {
-    return color != oldDelegate.color ||
+    return windowId != oldDelegate.windowId ||
+        color != oldDelegate.color ||
         devicePixelRatio != oldDelegate.devicePixelRatio;
   }
 }

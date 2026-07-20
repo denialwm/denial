@@ -1,0 +1,380 @@
+diff --git a/flutter/flow/layers/display_list_raster_cache_item.cc b/flutter/flow/layers/display_list_raster_cache_item.cc
+index 303c5117a3f9e26e303ce90af6f6bb1a2a3d123d..6a3f5b08cf8f57fac94758a45165e0f5d40edb75 100644
+--- a/flutter/flow/layers/display_list_raster_cache_item.cc
++++ b/flutter/flow/layers/display_list_raster_cache_item.cc
+@@ -20,7 +20,12 @@
+ 
+ namespace flutter {
+ 
+-static bool IsDisplayListWorthRasterizing(
++struct DisplayListCacheDecision {
++  bool accepted;
++  unsigned int complexity_score;
++};
++
++static DisplayListCacheDecision GetDisplayListCacheDecision(
+     const DisplayList* display_list,
+     bool will_change,
+     bool is_complex,
+@@ -28,24 +33,27 @@ static bool IsDisplayListWorthRasterizing(
+   if (will_change) {
+     // If the display list is going to change in the future, there is no point
+     // in doing to extra work to rasterize.
+-    return false;
++    return {.accepted = false, .complexity_score = 0};
+   }
+ 
+   if (display_list == nullptr ||
+       !RasterCacheUtil::CanRasterizeRect(display_list->bounds())) {
+     // No point in deciding whether the display list is worth rasterizing if it
+     // cannot be rasterized at all.
+-    return false;
++    return {.accepted = false, .complexity_score = 0};
+   }
+ 
+   if (is_complex) {
+     // The caller seems to have extra information about the display list and
+     // thinks the display list is always worth rasterizing.
+-    return true;
++    return {.accepted = true, .complexity_score = 0};
+   }
+ 
+   unsigned int complexity_score = complexity_calculator->Compute(display_list);
+-  return complexity_calculator->ShouldBeCached(complexity_score);
++  return {
++      .accepted = complexity_calculator->ShouldBeCached(complexity_score),
++      .complexity_score = complexity_score,
++  };
+ }
+ 
+ DisplayListRasterCacheItem::DisplayListRasterCacheItem(
+@@ -78,8 +86,14 @@ void DisplayListRasterCacheItem::PrerollSetup(PrerollContext* context,
+                                 context->gr_context->backend())
+                           : DisplayListComplexityCalculator::GetForSoftware();
+ 
+-  if (!IsDisplayListWorthRasterizing(display_list(), will_change_, is_complex_,
+-                                     complexity_calculator)) {
++  const auto decision = GetDisplayListCacheDecision(
++      display_list(), will_change_, is_complex_, complexity_calculator);
++  if (context->raster_cache) {
++    context->raster_cache->RecordDisplayListAudit(
++        key_id_.unique_id(), is_complex_, will_change_, decision.accepted,
++        decision.complexity_score);
++  }
++  if (!decision.accepted) {
+     // We only deal with display lists that are worthy of rasterization.
+     return;
+   }
+diff --git a/flutter/flow/raster_cache.cc b/flutter/flow/raster_cache.cc
+index ec457621e5ccd496864cd3fe7b9c56661441b486..d00abe75b5cf815e9dab0b86f7445eea49a6e7b1 100644
+--- a/flutter/flow/raster_cache.cc
++++ b/flutter/flow/raster_cache.cc
+@@ -7,6 +7,8 @@
+ #include "flutter/flow/raster_cache.h"
+ 
+ #include <cstddef>
++#include <cstdlib>
++#include <string_view>
+ #include <vector>
+ 
+ #include "flutter/common/constants.h"
+@@ -26,6 +28,15 @@
+ 
+ namespace flutter {
+ 
++static bool RasterCacheAuditEnabled() {
++  const char* value = std::getenv("DENIA_RENDER_AUDIT");
++  if (value == nullptr) {
++    return false;
++  }
++  const std::string_view flag(value);
++  return flag == "1" || flag == "true" || flag == "yes" || flag == "on";
++}
++
+ RasterCacheResult::RasterCacheResult(sk_sp<DlImage> image,
+                                      const SkRect& logical_rect,
+                                      const char* type,
+@@ -73,7 +84,15 @@ void RasterCacheResult::draw(DlCanvas& canvas,
+ RasterCache::RasterCache(size_t access_threshold,
+                          size_t display_list_cache_limit_per_frame)
+     : access_threshold_(access_threshold),
+-      display_list_cache_limit_per_frame_(display_list_cache_limit_per_frame) {}
++      display_list_cache_limit_per_frame_(display_list_cache_limit_per_frame),
++      audit_enabled_(RasterCacheAuditEnabled()) {
++  if (audit_enabled_) {
++    FML_LOG(INFO) << "Denial render_audit source=engine event=raster_cache_start"
++                  << " access_threshold=" << access_threshold_
++                  << " create_limit_per_frame="
++                  << display_list_cache_limit_per_frame_;
++  }
++}
+ 
+ /// @note Procedure doesn't copy all closures.
+ std::unique_ptr<RasterCacheResult> RasterCache::Rasterize(
+@@ -121,7 +140,11 @@ bool RasterCache::UpdateCacheEntry(
+     const std::function<void(DlCanvas*)>& render_function,
+     sk_sp<const DlRTree> rtree) const {
+   RasterCacheKey key = RasterCacheKey(id, raster_cache_context.matrix);
+-  Entry& entry = cache_[key];
++  auto [iterator, inserted] = cache_.try_emplace(key);
++  Entry& entry = iterator->second;
++  if (audit_enabled_ && inserted) {
++    audit_new_entries_++;
++  }
+   if (!entry.image) {
+     void (*func)(DlCanvas*, const SkRect& rect) = DrawCheckerboard;
+     entry.image = Rasterize(raster_cache_context, std::move(rtree),
+@@ -130,9 +153,20 @@ bool RasterCache::UpdateCacheEntry(
+       switch (id.type()) {
+         case RasterCacheKeyType::kDisplayList: {
+           display_list_cached_this_frame_++;
++          if (audit_enabled_) {
++            audit_picture_creations_++;
++            if (audit_forced_display_lists_.find(id.unique_id()) !=
++                audit_forced_display_lists_.end()) {
++              audit_forced_picture_creations_++;
++            }
++          }
+           break;
+         }
+-        default:
++        case RasterCacheKeyType::kLayer:
++        case RasterCacheKeyType::kLayerChildren:
++          if (audit_enabled_) {
++            audit_layer_creations_++;
++          }
+           break;
+       }
+       return true;
+@@ -145,7 +179,14 @@ RasterCache::CacheInfo RasterCache::MarkSeen(const RasterCacheKeyID& id,
+                                              const SkMatrix& matrix,
+                                              bool visible) const {
+   RasterCacheKey key = RasterCacheKey(id, matrix);
+-  Entry& entry = cache_[key];
++  auto [iterator, inserted] = cache_.try_emplace(key);
++  Entry& entry = iterator->second;
++  if (audit_enabled_) {
++    audit_mark_seen_++;
++    if (inserted) {
++      audit_new_entries_++;
++    }
++  }
+   entry.encountered_this_frame = true;
+   entry.visible_this_frame = visible;
+   if (visible || entry.accesses_since_visible > 0) {
+@@ -179,16 +220,37 @@ bool RasterCache::Draw(const RasterCacheKeyID& id,
+                        bool preserve_rtree) const {
+   auto it = cache_.find(RasterCacheKey(id, canvas.GetTransform()));
+   if (it == cache_.end()) {
++    if (audit_enabled_) {
++      audit_draw_misses_++;
++      if (audit_forced_display_lists_.find(id.unique_id()) !=
++          audit_forced_display_lists_.end()) {
++        audit_forced_draw_misses_++;
++      }
++    }
+     return false;
+   }
+ 
+   Entry& entry = it->second;
+ 
+   if (entry.image) {
++    if (audit_enabled_) {
++      audit_draw_hits_++;
++      if (audit_forced_display_lists_.find(id.unique_id()) !=
++          audit_forced_display_lists_.end()) {
++        audit_forced_draw_hits_++;
++      }
++    }
+     entry.image->draw(canvas, paint, preserve_rtree);
+     return true;
+   }
+ 
++  if (audit_enabled_) {
++    audit_draw_misses_++;
++    if (audit_forced_display_lists_.find(id.unique_id()) !=
++        audit_forced_display_lists_.end()) {
++      audit_forced_draw_misses_++;
++    }
++  }
+   return false;
+ }
+ 
+@@ -222,7 +284,13 @@ void RasterCache::EvictUnusedCacheEntries() {
+   }
+ 
+   for (auto it : dead) {
++    if (audit_enabled_) {
++      audit_evictions_++;
++    }
+     if (it->second.image) {
++      if (audit_enabled_) {
++        audit_image_evictions_++;
++      }
+       RasterCacheMetrics& metrics = GetMetricsForKind(it->first.kind());
+       metrics.eviction_count++;
+       metrics.eviction_bytes += it->second.image->image_bytes();
+@@ -234,12 +302,98 @@ void RasterCache::EvictUnusedCacheEntries() {
+ void RasterCache::EndFrame() {
+   UpdateMetrics();
+   TraceStatsToTimeline();
++  if (audit_enabled_) {
++    audit_frames_++;
++    if (audit_frames_ >= 120) {
++      ReportAuditAndReset();
++    }
++  }
+ }
+ 
+ void RasterCache::Clear() {
+   cache_.clear();
+   picture_metrics_ = {};
+   layer_metrics_ = {};
++  audit_unique_display_lists_.clear();
++  audit_forced_display_lists_.clear();
++}
++
++void RasterCache::RecordDisplayListAudit(uint64_t unique_id,
++                                         bool is_complex,
++                                         bool will_change,
++                                         bool accepted,
++                                         unsigned int complexity_score) const {
++  if (!audit_enabled_) {
++    return;
++  }
++  audit_display_list_observations_++;
++  audit_unique_display_lists_.insert(unique_id);
++  if (is_complex) {
++    audit_forced_observations_++;
++    audit_forced_display_lists_.insert(unique_id);
++  }
++  if (accepted) {
++    audit_display_list_accepted_++;
++  } else if (will_change) {
++    audit_display_list_rejected_will_change_++;
++  } else if (complexity_score > 0) {
++    audit_display_list_rejected_cost_++;
++  } else {
++    audit_display_list_rejected_other_++;
++  }
++}
++
++void RasterCache::ReportAuditAndReset() const {
++  FML_LOG(INFO) << "Denial render_audit source=engine event=raster_cache"
++                << " frames=" << audit_frames_
++                << " dl_observations=" << audit_display_list_observations_
++                << " dl_unique_ids=" << audit_unique_display_lists_.size()
++                << " dl_forced_observations=" << audit_forced_observations_
++                << " dl_forced_unique_ids="
++                << audit_forced_display_lists_.size()
++                << " dl_accepted=" << audit_display_list_accepted_
++                << " dl_rejected_cost=" << audit_display_list_rejected_cost_
++                << " dl_rejected_will_change="
++                << audit_display_list_rejected_will_change_
++                << " dl_rejected_other=" << audit_display_list_rejected_other_
++                << " mark_seen=" << audit_mark_seen_
++                << " new_entries=" << audit_new_entries_
++                << " picture_creations=" << audit_picture_creations_
++                << " forced_picture_creations="
++                << audit_forced_picture_creations_
++                << " layer_creations=" << audit_layer_creations_
++                << " draw_hits=" << audit_draw_hits_
++                << " draw_misses=" << audit_draw_misses_
++                << " forced_draw_hits=" << audit_forced_draw_hits_
++                << " forced_draw_misses=" << audit_forced_draw_misses_
++                << " evictions=" << audit_evictions_
++                << " image_evictions=" << audit_image_evictions_
++                << " live_entries=" << cache_.size()
++                << " picture_images=" << picture_metrics_.total_count()
++                << " picture_bytes=" << picture_metrics_.total_bytes()
++                << " layer_images=" << layer_metrics_.total_count()
++                << " layer_bytes=" << layer_metrics_.total_bytes();
++
++  audit_frames_ = 0;
++  audit_display_list_observations_ = 0;
++  audit_forced_observations_ = 0;
++  audit_display_list_accepted_ = 0;
++  audit_display_list_rejected_cost_ = 0;
++  audit_display_list_rejected_will_change_ = 0;
++  audit_display_list_rejected_other_ = 0;
++  audit_mark_seen_ = 0;
++  audit_new_entries_ = 0;
++  audit_picture_creations_ = 0;
++  audit_forced_picture_creations_ = 0;
++  audit_layer_creations_ = 0;
++  audit_draw_hits_ = 0;
++  audit_draw_misses_ = 0;
++  audit_forced_draw_hits_ = 0;
++  audit_forced_draw_misses_ = 0;
++  audit_evictions_ = 0;
++  audit_image_evictions_ = 0;
++  audit_unique_display_lists_.clear();
++  audit_forced_display_lists_.clear();
+ }
+ 
+ size_t RasterCache::GetCachedEntriesCount() const {
+diff --git a/flutter/flow/raster_cache.h b/flutter/flow/raster_cache.h
+index e638f296758f6db61aefabb486c80e732f2c3ca3..066eef60b459bd76038217b743c5b43b6a293835 100644
+--- a/flutter/flow/raster_cache.h
++++ b/flutter/flow/raster_cache.h
+@@ -9,6 +9,7 @@
+ 
+ #include <memory>
+ #include <unordered_map>
++#include <unordered_set>
+ 
+ #include "flutter/display_list/dl_canvas.h"
+ #include "flutter/flow/raster_cache_key.h"
+@@ -246,6 +247,15 @@ class RasterCache {
+                         const std::function<void(DlCanvas*)>& render_function,
+                         sk_sp<const DlRTree> rtree = nullptr) const;
+ 
++  // Denial's release build has no VM service or non-release timeline cache
++  // counters. This opt-in observation records whether DisplayList identities
++  // remain stable long enough to be cached without changing normal policy.
++  void RecordDisplayListAudit(uint64_t unique_id,
++                              bool is_complex,
++                              bool will_change,
++                              bool accepted,
++                              unsigned int complexity_score) const;
++
+  private:
+   struct Entry {
+     bool encountered_this_frame = false;
+@@ -260,13 +270,36 @@ class RasterCache {
+ 
+   const size_t access_threshold_;
+   const size_t display_list_cache_limit_per_frame_;
++  const bool audit_enabled_;
+   mutable size_t display_list_cached_this_frame_ = 0;
+   RasterCacheMetrics layer_metrics_;
+   RasterCacheMetrics picture_metrics_;
+   mutable RasterCacheKey::Map<Entry> cache_;
+   bool checkerboard_images_ = false;
+ 
++  mutable size_t audit_frames_ = 0;
++  mutable size_t audit_display_list_observations_ = 0;
++  mutable size_t audit_forced_observations_ = 0;
++  mutable size_t audit_display_list_accepted_ = 0;
++  mutable size_t audit_display_list_rejected_cost_ = 0;
++  mutable size_t audit_display_list_rejected_will_change_ = 0;
++  mutable size_t audit_display_list_rejected_other_ = 0;
++  mutable size_t audit_mark_seen_ = 0;
++  mutable size_t audit_new_entries_ = 0;
++  mutable size_t audit_picture_creations_ = 0;
++  mutable size_t audit_forced_picture_creations_ = 0;
++  mutable size_t audit_layer_creations_ = 0;
++  mutable size_t audit_draw_hits_ = 0;
++  mutable size_t audit_draw_misses_ = 0;
++  mutable size_t audit_forced_draw_hits_ = 0;
++  mutable size_t audit_forced_draw_misses_ = 0;
++  mutable size_t audit_evictions_ = 0;
++  mutable size_t audit_image_evictions_ = 0;
++  mutable std::unordered_set<uint64_t> audit_unique_display_lists_;
++  mutable std::unordered_set<uint64_t> audit_forced_display_lists_;
++
+   void TraceStatsToTimeline() const;
++  void ReportAuditAndReset() const;
+ 
+   friend class RasterCacheItem;
+   friend class LayerRasterCacheItem;

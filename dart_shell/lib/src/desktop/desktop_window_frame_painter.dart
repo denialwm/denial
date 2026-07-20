@@ -3,17 +3,63 @@ import 'dart:math' as math;
 import 'package:flutter/widgets.dart';
 
 import '../theme/tokens.dart';
+import 'desktop_window_render_telemetry.dart';
 import 'desktop_workspace.dart';
+
+/// Keeps the static server-side decoration isolated from the live client
+/// texture and from the stateful focus border.
+///
+/// Only the shadow/frame picture is marked complex. Applying the hint to a
+/// single [CustomPaint] with both a background and foreground painter would
+/// also force a full-window cache for the inexpensive focus border.
+class DesktopWindowFrameLayers extends StatelessWidget {
+  const DesktopWindowFrameLayers({
+    required this.windowId,
+    required this.borderPainter,
+    required this.child,
+    super.key,
+  });
+
+  final int windowId;
+  final CustomPainter borderPainter;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      clipBehavior: Clip.none,
+      children: [
+        RepaintBoundary(
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: DesktopWindowFramePainter(windowId: windowId),
+              isComplex: true,
+              willChange: false,
+            ),
+          ),
+        ),
+        child,
+        IgnorePointer(
+          child: CustomPaint(painter: borderPainter),
+        ),
+      ],
+    );
+  }
+}
 
 /// Paints the shadow and opaque frame ring around a decorated client surface.
 ///
 /// The center is deliberately left clear so client-provided per-pixel alpha is
 /// preserved instead of being composited over a shell-owned window backdrop.
 class DesktopWindowFramePainter extends CustomPainter {
-  const DesktopWindowFramePainter();
+  const DesktopWindowFramePainter({this.windowId = 0});
+
+  final int windowId;
 
   @override
   void paint(Canvas canvas, Size size) {
+    DesktopWindowRenderTelemetry.recordShadowPaint(windowId, size);
     if (size.isEmpty) {
       return;
     }
@@ -69,5 +115,7 @@ class DesktopWindowFramePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant DesktopWindowFramePainter oldDelegate) => false;
+  bool shouldRepaint(covariant DesktopWindowFramePainter oldDelegate) {
+    return windowId != oldDelegate.windowId;
+  }
 }

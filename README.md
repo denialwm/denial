@@ -64,6 +64,7 @@ Further technical notes:
 
 - [PC development build](BUILDING.md)
 - [Architecture notes](architecture.md)
+- [Window rendering and raster-cache audit](RENDER_AUDIT.md)
 - [Secure lock contract and migration status](SECURE_LOCK.md)
 - [Open roadmap](ROADMAP.md)
 - [Legacy Hyprland reference](LEGACY_HYPRLAND.md)

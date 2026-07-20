@@ -483,6 +483,192 @@ void main() {
     expect(controller.state.placements[1]!.frame, workArea);
   });
 
+  test('maximize and restore targets survive stale native snapshots', () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    const workArea = Rect.fromLTRB(10, 32, 2550, 1430);
+    final original = _window(objectId: 1, windowId: 11, monitorId: 1);
+
+    controller.syncWindows(
+      <DenialWindow>[original],
+      viewSize,
+      1,
+      snapshotSequence: 10,
+    );
+    final restoreFrame = controller.state.placements[1]!.frame;
+    controller.syncWorkAreas(const <int, Rect>{1: workArea});
+    controller.toggleMaximized(1);
+
+    controller.syncWindows(
+      <DenialWindow>[original],
+      viewSize,
+      1,
+      snapshotSequence: 11,
+    );
+    var placement = controller.state.placements[1]!;
+    expect(placement.maximized, isTrue);
+    expect(placement.frame, workArea);
+    expect(placement.restoreFrame, restoreFrame);
+
+    final maximizedNative = _window(
+      objectId: 1,
+      windowId: 11,
+      monitorId: 1,
+      geometry: workArea.deflate(DesktopMetrics.frameBorder),
+    );
+    controller.syncWindows(
+      <DenialWindow>[maximizedNative],
+      viewSize,
+      1,
+      snapshotSequence: 12,
+    );
+    expect(controller.state.placements[1]!.frame, workArea);
+
+    controller.toggleMaximized(1);
+    controller.syncWindows(
+      <DenialWindow>[maximizedNative],
+      viewSize,
+      1,
+      snapshotSequence: 13,
+    );
+    placement = controller.state.placements[1]!;
+    expect(placement.maximized, isFalse);
+    expect(placement.frame, restoreFrame);
+    expect(placement.restoreFrame, isNull);
+
+    controller.syncWindows(
+      <DenialWindow>[original],
+      viewSize,
+      1,
+      snapshotSequence: 14,
+    );
+    expect(controller.state.placements[1]!.frame, restoreFrame);
+  });
+
+  test('fullscreen snapshots cannot roll back another pending maximize', () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    const workArea = Rect.fromLTRB(0, 32, 2560, 1440);
+    const fullscreenBounds = Rect.fromLTWH(0, 0, 2560, 1440);
+    final maximizedOriginal = _window(
+      objectId: 1,
+      windowId: 11,
+      monitorId: 1,
+      geometry: const Rect.fromLTWH(160, 120, 900, 640),
+    );
+    final fullscreenOriginal = _window(
+      objectId: 2,
+      windowId: 22,
+      monitorId: 1,
+      geometry: const Rect.fromLTWH(420, 260, 800, 560),
+    );
+
+    controller.syncWindows(
+      <DenialWindow>[maximizedOriginal, fullscreenOriginal],
+      viewSize,
+      1,
+      snapshotSequence: 20,
+    );
+    controller.syncWorkAreas(const <int, Rect>{1: workArea});
+    controller.toggleMaximized(1);
+    controller.toggleFullscreen(2, bounds: fullscreenBounds);
+
+    // SUPER+F dirties the complete native scene. Both rectangles can still
+    // be from the preceding scene while each shell-authored target is in
+    // flight; neither window may adopt the other's publication timing.
+    controller.syncWindows(
+      <DenialWindow>[maximizedOriginal, fullscreenOriginal],
+      viewSize,
+      1,
+      snapshotSequence: 21,
+    );
+    expect(controller.state.placements[1]!.maximized, isTrue);
+    expect(controller.state.placements[1]!.frame, workArea);
+    expect(controller.state.placements[2]!.fullscreen, isTrue);
+    expect(controller.state.placements[2]!.frame, fullscreenBounds);
+
+    final fullscreenNative = _window(
+      objectId: 2,
+      windowId: 22,
+      monitorId: 1,
+      geometry: fullscreenBounds,
+    );
+    controller.syncWindows(
+      <DenialWindow>[maximizedOriginal, fullscreenNative],
+      viewSize,
+      1,
+      snapshotSequence: 22,
+    );
+    expect(controller.state.placements[1]!.maximized, isTrue);
+    expect(controller.state.placements[1]!.frame, workArea);
+  });
+
+  test('fullscreen round trip returns a maximized window to maximize', () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    const workArea = Rect.fromLTRB(0, 32, 2560, 1440);
+    const fullscreenBounds = Rect.fromLTWH(0, 0, 2560, 1440);
+    final original = _window(objectId: 1, windowId: 11, monitorId: 1);
+
+    controller.syncWindows(
+      <DenialWindow>[original],
+      viewSize,
+      1,
+      snapshotSequence: 30,
+    );
+    final restoreFrame = controller.state.placements[1]!.frame;
+    controller.syncWorkAreas(const <int, Rect>{1: workArea});
+    controller.toggleMaximized(1);
+    final maximizedNative = _window(
+      objectId: 1,
+      windowId: 11,
+      monitorId: 1,
+      geometry: workArea.deflate(DesktopMetrics.frameBorder),
+    );
+    controller.syncWindows(
+      <DenialWindow>[maximizedNative],
+      viewSize,
+      1,
+      snapshotSequence: 31,
+    );
+
+    controller.toggleFullscreen(1, bounds: fullscreenBounds);
+    controller.syncWindows(
+      <DenialWindow>[maximizedNative],
+      viewSize,
+      1,
+      snapshotSequence: 32,
+    );
+    expect(controller.state.placements[1]!.fullscreen, isTrue);
+    expect(controller.state.placements[1]!.frame, fullscreenBounds);
+
+    final fullscreenNative = _window(
+      objectId: 1,
+      windowId: 11,
+      monitorId: 1,
+      geometry: fullscreenBounds,
+    );
+    controller.syncWindows(
+      <DenialWindow>[fullscreenNative],
+      viewSize,
+      1,
+      snapshotSequence: 33,
+    );
+    controller.toggleFullscreen(1, bounds: fullscreenBounds);
+    controller.syncWindows(
+      <DenialWindow>[fullscreenNative],
+      viewSize,
+      1,
+      snapshotSequence: 34,
+    );
+
+    final placement = controller.state.placements[1]!;
+    expect(placement.fullscreen, isFalse);
+    expect(placement.maximized, isTrue);
+    expect(placement.frame, workArea);
+    expect(placement.restoreFrame, restoreFrame);
+  });
+
   test('work area changes re-anchor maximized windows but not fullscreen', () {
     final controller = DesktopWorkspaceController();
     addTearDown(controller.dispose);

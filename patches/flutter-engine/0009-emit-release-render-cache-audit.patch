@@ -1,0 +1,98 @@
+diff --git a/flutter/flow/raster_cache.cc b/flutter/flow/raster_cache.cc
+index d00abe7..85e5657 100644
+--- a/flutter/flow/raster_cache.cc
++++ b/flutter/flow/raster_cache.cc
+@@ -7,7 +7,10 @@
+ #include "flutter/flow/raster_cache.h"
+ 
+ #include <cstddef>
++#include <cstdio>
+ #include <cstdlib>
++#include <sstream>
++#include <string>
+ #include <string_view>
+ #include <vector>
+ 
+@@ -87,10 +90,11 @@ RasterCache::RasterCache(size_t access_threshold,
+       display_list_cache_limit_per_frame_(display_list_cache_limit_per_frame),
+       audit_enabled_(RasterCacheAuditEnabled()) {
+   if (audit_enabled_) {
+-    FML_LOG(INFO) << "Denial render_audit source=engine event=raster_cache_start"
+-                  << " access_threshold=" << access_threshold_
+-                  << " create_limit_per_frame="
+-                  << display_list_cache_limit_per_frame_;
++    std::fprintf(stderr,
++                 "Denial render_audit source=engine event=raster_cache_start "
++                 "access_threshold=%zu create_limit_per_frame=%zu\n",
++                 access_threshold_, display_list_cache_limit_per_frame_);
++    std::fflush(stderr);
+   }
+ }
+ 
+@@ -344,35 +348,37 @@ void RasterCache::RecordDisplayListAudit(uint64_t unique_id,
+ }
+ 
+ void RasterCache::ReportAuditAndReset() const {
+-  FML_LOG(INFO) << "Denial render_audit source=engine event=raster_cache"
+-                << " frames=" << audit_frames_
+-                << " dl_observations=" << audit_display_list_observations_
+-                << " dl_unique_ids=" << audit_unique_display_lists_.size()
+-                << " dl_forced_observations=" << audit_forced_observations_
+-                << " dl_forced_unique_ids="
+-                << audit_forced_display_lists_.size()
+-                << " dl_accepted=" << audit_display_list_accepted_
+-                << " dl_rejected_cost=" << audit_display_list_rejected_cost_
+-                << " dl_rejected_will_change="
+-                << audit_display_list_rejected_will_change_
+-                << " dl_rejected_other=" << audit_display_list_rejected_other_
+-                << " mark_seen=" << audit_mark_seen_
+-                << " new_entries=" << audit_new_entries_
+-                << " picture_creations=" << audit_picture_creations_
+-                << " forced_picture_creations="
+-                << audit_forced_picture_creations_
+-                << " layer_creations=" << audit_layer_creations_
+-                << " draw_hits=" << audit_draw_hits_
+-                << " draw_misses=" << audit_draw_misses_
+-                << " forced_draw_hits=" << audit_forced_draw_hits_
+-                << " forced_draw_misses=" << audit_forced_draw_misses_
+-                << " evictions=" << audit_evictions_
+-                << " image_evictions=" << audit_image_evictions_
+-                << " live_entries=" << cache_.size()
+-                << " picture_images=" << picture_metrics_.total_count()
+-                << " picture_bytes=" << picture_metrics_.total_bytes()
+-                << " layer_images=" << layer_metrics_.total_count()
+-                << " layer_bytes=" << layer_metrics_.total_bytes();
++  std::ostringstream report;
++  report << "Denial render_audit source=engine event=raster_cache"
++         << " frames=" << audit_frames_
++         << " dl_observations=" << audit_display_list_observations_
++         << " dl_unique_ids=" << audit_unique_display_lists_.size()
++         << " dl_forced_observations=" << audit_forced_observations_
++         << " dl_forced_unique_ids=" << audit_forced_display_lists_.size()
++         << " dl_accepted=" << audit_display_list_accepted_
++         << " dl_rejected_cost=" << audit_display_list_rejected_cost_
++         << " dl_rejected_will_change="
++         << audit_display_list_rejected_will_change_
++         << " dl_rejected_other=" << audit_display_list_rejected_other_
++         << " mark_seen=" << audit_mark_seen_
++         << " new_entries=" << audit_new_entries_
++         << " picture_creations=" << audit_picture_creations_
++         << " forced_picture_creations=" << audit_forced_picture_creations_
++         << " layer_creations=" << audit_layer_creations_
++         << " draw_hits=" << audit_draw_hits_
++         << " draw_misses=" << audit_draw_misses_
++         << " forced_draw_hits=" << audit_forced_draw_hits_
++         << " forced_draw_misses=" << audit_forced_draw_misses_
++         << " evictions=" << audit_evictions_
++         << " image_evictions=" << audit_image_evictions_
++         << " live_entries=" << cache_.size()
++         << " picture_images=" << picture_metrics_.total_count()
++         << " picture_bytes=" << picture_metrics_.total_bytes()
++         << " layer_images=" << layer_metrics_.total_count()
++         << " layer_bytes=" << layer_metrics_.total_bytes();
++  const std::string report_line = report.str();
++  std::fprintf(stderr, "%s\n", report_line.c_str());
++  std::fflush(stderr);
+ 
+   audit_frames_ = 0;
+   audit_display_list_observations_ = 0;
