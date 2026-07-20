@@ -244,6 +244,35 @@ void main() {
     expect(placements.last.z, 2, reason: 'pinning must not rewrite focus z');
   });
 
+  test('desktop hit testing returns the visually topmost window', () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    final windows = <DenialWindow>[
+      _window(objectId: 1, windowId: 11, monitorId: 1),
+      _window(objectId: 2, windowId: 22, monitorId: 1, pinned: true),
+    ];
+    controller.syncWindows(windows, viewSize, 1);
+
+    final windowsById = <int, DenialWindow>{
+      for (final window in windows) window.objectId: window,
+    };
+    final hit = desktopWindowAtPosition(
+      position: controller.state.placements[1]!.frame.center,
+      workspace: controller.state,
+      windowsById: windowsById,
+    );
+
+    expect(hit?.objectId, 2);
+    expect(
+      desktopWindowAtPosition(
+        position: const Offset(10, 10),
+        workspace: controller.state,
+        windowsById: windowsById,
+      ),
+      isNull,
+    );
+  });
+
   test('monitor transfer moves fullscreen frame and restore geometry', () {
     final controller = DesktopWorkspaceController();
     addTearDown(controller.dispose);
