@@ -339,6 +339,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
 
   final Map<int, Offset> _moveRemainders = <int, Offset>{};
   final Map<int, Rect> _pendingNativeFrames = <int, Rect>{};
+  final Map<int, Rect> _overviewDragOrigins = <int, Rect>{};
   List<DenialWindow>? _lastSyncedWindows;
   int _lastSyncedSnapshotSequence = -1;
   double _devicePixelRatio = 1.0;
@@ -534,10 +535,18 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
                 z: placement.z,
               ),
         ];
-        final frames = DesktopOverviewLayout.arrange(
+        final frames = Map<int, Rect>.of(DesktopOverviewLayout.arrange(
           items: overviewItems,
           bounds: nextOverview.bounds,
-        );
+        ));
+        for (final placement in next.values) {
+          if (placement.dragging &&
+              frames.containsKey(placement.objectId) &&
+              nextOverview.frames.containsKey(placement.objectId)) {
+            frames[placement.objectId] =
+                nextOverview.frames[placement.objectId]!;
+          }
+        }
         if (frames.isEmpty) {
           nextOverview = null;
         } else {
@@ -553,6 +562,14 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
 
     if (!changed) {
       return;
+    }
+    if (state.overview != null && nextOverview == null) {
+      _overviewDragOrigins.clear();
+      for (final entry in next.entries.toList(growable: false)) {
+        if (entry.value.dragging) {
+          next[entry.key] = entry.value.copyWith(dragging: false);
+        }
+      }
     }
     state = state.copyWith(
       placements: next,
@@ -603,6 +620,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     }
 
     _moveRemainders.clear();
+    _overviewDragOrigins.clear();
     final settledPlacements = <int, DesktopWindowPlacement>{
       for (final placement in state.placements.values)
         placement.objectId: placement.dragging
@@ -643,7 +661,173 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     if (!state.overviewActive) {
       return;
     }
-    state = state.copyWith(clearOverview: true);
+    final next = <int, DesktopWindowPlacement>{
+      for (final placement in state.placements.values)
+        placement.objectId: placement.dragging
+            ? placement.copyWith(dragging: false)
+            : placement,
+    };
+    _overviewDragOrigins.clear();
+    state = state.copyWith(
+      placements: next,
+      clearOverview: true,
+    );
+  }
+
+  void beginOverviewDrag(int objectId) {
+    final overview = state.overview;
+    final placement = state.placements[objectId];
+    final previewFrame = overview?.frames[objectId];
+    if (overview == null || placement == null || previewFrame == null) {
+      return;
+    }
+    _overviewDragOrigins[objectId] = previewFrame;
+    final next = Map<int, DesktopWindowPlacement>.of(state.placements);
+    next[objectId] = placement.copyWith(dragging: true);
+    state = state.copyWith(placements: next);
+  }
+
+  void moveOverviewBy(int objectId, Offset delta) {
+    final overview = state.overview;
+    final placement = state.placements[objectId];
+    final previewFrame = overview?.frames[objectId];
+    if (overview == null ||
+        placement == null ||
+        !placement.dragging ||
+        previewFrame == null ||
+        delta == Offset.zero) {
+      return;
+    }
+    final frames = Map<int, Rect>.of(overview.frames);
+    frames[objectId] = _clampFrame(
+      previewFrame.shift(delta),
+      state.viewSize,
+    );
+    state = state.copyWith(
+      overview: DesktopOverviewState(
+        monitorId: overview.monitorId,
+        bounds: overview.bounds,
+        backgroundBounds: overview.backgroundBounds,
+        frames: frames,
+      ),
+    );
+  }
+
+  bool endOverviewDrag(
+    int objectId, {
+    required Map<int, Rect> outputBounds,
+    required Map<int, Rect> workAreas,
+  }) {
+    final overview = state.overview;
+    final placement = state.placements[objectId];
+    final previewFrame = overview?.frames[objectId];
+    if (overview == null ||
+        placement == null ||
+        !placement.dragging ||
+        previewFrame == null) {
+      _overviewDragOrigins.remove(objectId);
+      return false;
+    }
+
+    int? targetMonitorId;
+    for (final entry in outputBounds.entries) {
+      if (entry.value.contains(previewFrame.center)) {
+        targetMonitorId = entry.key;
+        break;
+      }
+    }
+    final targetOutput = outputBounds[targetMonitorId];
+    if (targetMonitorId == null ||
+        targetMonitorId == placement.monitorId ||
+        targetOutput == null ||
+        targetOutput.isEmpty) {
+      _restoreOverviewDrag(objectId, placement, overview);
+      return false;
+    }
+
+    final targetWorkArea = workAreas[targetMonitorId] ?? targetOutput;
+    final sourceOutput =
+        outputBounds[placement.monitorId] ?? overview.backgroundBounds;
+    final outputDelta = targetOutput.topLeft - sourceOutput.topLeft;
+    Rect? shiftedRestoreFrame(Rect? frame) {
+      if (frame == null) {
+        return null;
+      }
+      return _clampFrame(
+        frame.shift(outputDelta),
+        state.viewSize,
+        bounds: targetWorkArea,
+      );
+    }
+
+    final destinationFrame = placement.fullscreen
+        ? targetOutput
+        : placement.maximized
+            ? targetWorkArea
+            : _clampFrame(
+                Rect.fromCenter(
+                  center: previewFrame.center,
+                  width: placement.frame.width,
+                  height: placement.frame.height,
+                ),
+                state.viewSize,
+                bounds: targetWorkArea,
+              );
+    final fullscreenRestoreFrame = placement.fullscreen && placement.maximized
+        ? targetWorkArea
+        : shiftedRestoreFrame(placement.fullscreenRestoreFrame);
+    final next = Map<int, DesktopWindowPlacement>.of(state.placements);
+    final transferred = placement.copyWith(
+      frame: destinationFrame,
+      monitorId: targetMonitorId,
+      z: state.nextZ,
+      minimized: false,
+      dragging: false,
+      restoreFrame: shiftedRestoreFrame(placement.restoreFrame),
+      fullscreenRestoreFrame: fullscreenRestoreFrame,
+    );
+    next[objectId] = transferred;
+    _pendingNativeFrames[objectId] = destinationFrame;
+    _overviewDragOrigins.clear();
+    state = state.copyWith(
+      placements: next,
+      nextZ: state.nextZ + 1,
+      clearOverview: true,
+    );
+    return true;
+  }
+
+  void cancelOverviewDrag(int objectId) {
+    final overview = state.overview;
+    final placement = state.placements[objectId];
+    if (overview == null || placement == null || !placement.dragging) {
+      _overviewDragOrigins.remove(objectId);
+      return;
+    }
+    _restoreOverviewDrag(objectId, placement, overview);
+  }
+
+  void _restoreOverviewDrag(
+    int objectId,
+    DesktopWindowPlacement placement,
+    DesktopOverviewState overview,
+  ) {
+    final frames = Map<int, Rect>.of(overview.frames);
+    final origin = _overviewDragOrigins.remove(objectId);
+    if (origin != null) {
+      frames[objectId] = origin;
+    }
+    final next = Map<int, DesktopWindowPlacement>.of(state.placements);
+    next[objectId] = placement.copyWith(dragging: false);
+    state = state.copyWith(
+      placements: next,
+      overview: DesktopOverviewState(
+        monitorId: overview.monitorId,
+        bounds: overview.bounds,
+        backgroundBounds: overview.backgroundBounds,
+        frames: frames,
+      ),
+    );
   }
 
   void moveBy(int objectId, Offset delta) {
