@@ -433,7 +433,7 @@ void main() {
     }
   });
 
-  test('a tiny window keeps its size without collapsing overview cells', () {
+  test('overview excludes windows too small to make useful previews', () {
     const items = <DesktopOverviewItem>[
       DesktopOverviewItem(
         objectId: 1,
@@ -451,20 +451,14 @@ void main() {
       items: items,
       bounds: const Rect.fromLTWH(0, 0, 1400, 800),
     );
-    final regular = frames[1]!;
-    final tiny = frames[2]!;
-
-    expect(tiny.size, items[1].frame.size);
-    expect(regular.width, greaterThan(DesktopOverviewLayout.minimumCellWidth));
-    expect(regular.height,
-        greaterThanOrEqualTo(DesktopOverviewLayout.minimumCellHeight));
-    expect(tiny.center.dy, closeTo(regular.center.dy, 0.001));
+    expect(frames.keys.toSet(), <int>{1});
+    expect(frames[1], isNotNull);
+    expect(frames[2], isNull);
     expect(
-      tiny.left - regular.right,
-      greaterThan(
-        DesktopOverviewLayout.gap +
-            (DesktopOverviewLayout.minimumCellWidth - tiny.width) / 2.0,
+      DesktopOverviewLayout.isUsefulPreview(
+        const Rect.fromLTWH(0, 0, 160, 20),
       ),
+      isFalse,
     );
   });
 
