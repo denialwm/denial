@@ -426,6 +426,42 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     }
   }
 
+  void _beginOverviewDrag(DenialWindow window) {
+    ref
+        .read(desktopWorkspaceProvider.notifier)
+        .beginOverviewDrag(window.objectId);
+  }
+
+  void _updateOverviewDrag(DenialWindow window, Offset delta) {
+    ref
+        .read(desktopWorkspaceProvider.notifier)
+        .moveOverviewBy(window.objectId, delta);
+  }
+
+  void _endOverviewDrag(DenialWindow window) {
+    final layout = ref.read(displayLayoutProvider);
+    final outputBounds = <int, Rect>{
+      for (final output in layout?.outputs ?? const <DisplayOutput>[])
+        output.monitorId: output.logicalRect,
+    };
+    final transferred = ref
+        .read(desktopWorkspaceProvider.notifier)
+        .endOverviewDrag(
+          window.objectId,
+          outputBounds: outputBounds,
+          workAreas: layout?.workAreasByMonitor() ?? const <int, Rect>{},
+        );
+    if (transferred) {
+      ref.read(shellControllerProvider.notifier).focusWindow(window);
+    }
+  }
+
+  void _cancelOverviewDrag(DenialWindow window) {
+    ref
+        .read(desktopWorkspaceProvider.notifier)
+        .cancelOverviewDrag(window.objectId);
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.watch(desktopWindowCoordinatorProvider);
@@ -490,6 +526,10 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
             onLaunchApp: _launchApp,
             onActivateWindow: _activateWindow,
             onOverviewBarrierTap: _handleOverviewBarrierTap,
+            onBeginOverviewDrag: _beginOverviewDrag,
+            onUpdateOverviewDrag: _updateOverviewDrag,
+            onEndOverviewDrag: _endOverviewDrag,
+            onCancelOverviewDrag: _cancelOverviewDrag,
             onCloseLeaseComplete:
                 ref.read(denialBridgeProvider).completeWindowClose,
           ),
@@ -556,6 +596,11 @@ List<Widget> _buildDesktopWindowLayers({
   required int topZ,
   required bool reduceMotion,
   required ValueChanged<DenialWindow> onActivateWindow,
+  required ValueChanged<DenialWindow> onBeginOverviewDrag,
+  required void Function(DenialWindow window, Offset delta)
+      onUpdateOverviewDrag,
+  required ValueChanged<DenialWindow> onEndOverviewDrag,
+  required ValueChanged<DenialWindow> onCancelOverviewDrag,
 }) {
   final layers = <Widget>[];
   for (final placement in placements) {
@@ -604,6 +649,11 @@ List<Widget> _buildDesktopWindowLayers({
           motionDuration: motionDuration,
           active: active,
           onOverviewTap: () => onActivateWindow(window),
+          onOverviewDragStart: () => onBeginOverviewDrag(window),
+          onOverviewDragUpdate: (delta) =>
+              onUpdateOverviewDrag(window, delta),
+          onOverviewDragEnd: () => onEndOverviewDrag(window),
+          onOverviewDragCancel: () => onCancelOverviewDrag(window),
         ),
       )
       ..add(
@@ -648,6 +698,10 @@ class _DesktopScene extends StatefulWidget {
     required this.onLaunchApp,
     required this.onActivateWindow,
     required this.onOverviewBarrierTap,
+    required this.onBeginOverviewDrag,
+    required this.onUpdateOverviewDrag,
+    required this.onEndOverviewDrag,
+    required this.onCancelOverviewDrag,
     required this.onCloseLeaseComplete,
   });
 
@@ -673,6 +727,11 @@ class _DesktopScene extends StatefulWidget {
   final ValueChanged<DesktopApp> onLaunchApp;
   final ValueChanged<DenialWindow> onActivateWindow;
   final ValueChanged<Offset> onOverviewBarrierTap;
+  final ValueChanged<DenialWindow> onBeginOverviewDrag;
+  final void Function(DenialWindow window, Offset delta)
+      onUpdateOverviewDrag;
+  final ValueChanged<DenialWindow> onEndOverviewDrag;
+  final ValueChanged<DenialWindow> onCancelOverviewDrag;
   final ValueChanged<int> onCloseLeaseComplete;
 
   @override
@@ -765,6 +824,10 @@ class _DesktopSceneState extends State<_DesktopScene> {
     final onLaunchApp = widget.onLaunchApp;
     final onActivateWindow = widget.onActivateWindow;
     final onOverviewBarrierTap = widget.onOverviewBarrierTap;
+    final onBeginOverviewDrag = widget.onBeginOverviewDrag;
+    final onUpdateOverviewDrag = widget.onUpdateOverviewDrag;
+    final onEndOverviewDrag = widget.onEndOverviewDrag;
+    final onCancelOverviewDrag = widget.onCancelOverviewDrag;
     final windowsById = <int, DenialWindow>{
       for (final window in windows) window.objectId: window,
     };
@@ -884,6 +947,10 @@ class _DesktopSceneState extends State<_DesktopScene> {
                     topZ: topZ,
                     reduceMotion: reduceMotion,
                     onActivateWindow: onActivateWindow,
+                    onBeginOverviewDrag: onBeginOverviewDrag,
+                    onUpdateOverviewDrag: onUpdateOverviewDrag,
+                    onEndOverviewDrag: onEndOverviewDrag,
+                    onCancelOverviewDrag: onCancelOverviewDrag,
                   ),
                   for (final closing in _closingWindows.values)
                     Positioned.fromRect(
@@ -1637,8 +1704,7 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
     final drawsServerFrame = !fullscreenVisual && placement.serverSideDecorated;
     final contentRect =
         drawsServerFrame ? frame.deflate(DesktopMetrics.frameBorder) : frame;
-    final duration =
-        placement.dragging && !transformed ? Duration.zero : motionDuration;
+    final duration = placement.dragging ? Duration.zero : motionDuration;
     final resizing = desktopTextureNeedsResizeSmoothing(
       targetSize: contentRect.size,
       sourceSize: window.contentCoordinateRect.size,
@@ -1746,6 +1812,10 @@ class _DesktopWindowFrame extends StatelessWidget {
     required this.motionDuration,
     required this.active,
     required this.onOverviewTap,
+    required this.onOverviewDragStart,
+    required this.onOverviewDragUpdate,
+    required this.onOverviewDragEnd,
+    required this.onOverviewDragCancel,
   });
 
   final DenialWindow window;
@@ -1757,6 +1827,10 @@ class _DesktopWindowFrame extends StatelessWidget {
   final Duration motionDuration;
   final bool active;
   final VoidCallback onOverviewTap;
+  final VoidCallback onOverviewDragStart;
+  final ValueChanged<Offset> onOverviewDragUpdate;
+  final VoidCallback onOverviewDragEnd;
+  final VoidCallback onOverviewDragCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -1779,7 +1853,7 @@ class _DesktopWindowFrame extends StatelessWidget {
       sourceSize: window.contentCoordinateRect.size,
     );
     return AnimatedPositioned(
-      duration: placement.dragging && !transformed ? Duration.zero : duration,
+      duration: placement.dragging ? Duration.zero : duration,
       curve: Motion.md3Emphasized,
       left: frame.left,
       top: frame.top,
@@ -1805,8 +1879,13 @@ class _DesktopWindowFrame extends StatelessWidget {
                 child: RepaintBoundary(
                   child: _DesktopOverviewPreviewInteraction(
                     overview: overview,
+                    dragging: placement.dragging,
                     label: 'Activate ${window.displayTitle}',
                     onTap: onOverviewTap,
+                    onDragStart: onOverviewDragStart,
+                    onDragUpdate: onOverviewDragUpdate,
+                    onDragEnd: onOverviewDragEnd,
+                    onDragCancel: onOverviewDragCancel,
                     child: Builder(
                       builder: (context) {
                         final client = ClipRRect(
@@ -1861,14 +1940,24 @@ class _DesktopWindowFrame extends StatelessWidget {
 class _DesktopOverviewPreviewInteraction extends StatefulWidget {
   const _DesktopOverviewPreviewInteraction({
     required this.overview,
+    required this.dragging,
     required this.label,
     required this.onTap,
+    required this.onDragStart,
+    required this.onDragUpdate,
+    required this.onDragEnd,
+    required this.onDragCancel,
     required this.child,
   });
 
   final bool overview;
+  final bool dragging;
   final String label;
   final VoidCallback onTap;
+  final VoidCallback onDragStart;
+  final ValueChanged<Offset> onDragUpdate;
+  final VoidCallback onDragEnd;
+  final VoidCallback onDragCancel;
   final Widget child;
 
   @override
@@ -1885,7 +1974,7 @@ class _DesktopOverviewPreviewInteractionState
   @override
   void didUpdateWidget(covariant _DesktopOverviewPreviewInteraction oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!widget.overview) {
+    if (!widget.overview || widget.dragging) {
       _hovered = false;
     }
   }
@@ -1899,7 +1988,7 @@ class _DesktopOverviewPreviewInteractionState
 
   @override
   Widget build(BuildContext context) {
-    final hovered = widget.overview && _hovered;
+    final hovered = widget.overview && !widget.dragging && _hovered;
     return Semantics(
       button: widget.overview,
       label: widget.overview ? widget.label : null,
@@ -1912,6 +2001,13 @@ class _DesktopOverviewPreviewInteractionState
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: widget.overview ? widget.onTap : null,
+          onPanStart:
+              widget.overview ? (_) => widget.onDragStart() : null,
+          onPanUpdate: widget.overview
+              ? (details) => widget.onDragUpdate(details.delta)
+              : null,
+          onPanEnd: widget.overview ? (_) => widget.onDragEnd() : null,
+          onPanCancel: widget.overview ? widget.onDragCancel : null,
           child: AnimatedScale(
             duration: Motion.tile,
             curve: hovered
