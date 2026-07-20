@@ -405,6 +405,27 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     ref.read(shellControllerProvider.notifier).focusWindow(window);
   }
 
+  void _handleOverviewBarrierTap(Offset position) {
+    final workspace = ref.read(desktopWorkspaceProvider);
+    final overview = workspace.overview;
+    if (overview == null || overview.backgroundBounds.contains(position)) {
+      return;
+    }
+    final windowsById = <int, DenialWindow>{
+      for (final window in ref.read(shellControllerProvider).openAppWindows)
+        window.objectId: window,
+    };
+    final target = desktopWindowAtPosition(
+      position: position,
+      workspace: workspace,
+      windowsById: windowsById,
+    );
+    ref.read(desktopWorkspaceProvider.notifier).closeOverview();
+    if (target != null) {
+      _activateWindow(target);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.watch(desktopWindowCoordinatorProvider);
@@ -468,6 +489,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
             onSchedulePanelClose: _schedulePanelClose,
             onLaunchApp: _launchApp,
             onActivateWindow: _activateWindow,
+            onOverviewBarrierTap: _handleOverviewBarrierTap,
             onCloseLeaseComplete:
                 ref.read(denialBridgeProvider).completeWindowClose,
           ),
@@ -625,6 +647,7 @@ class _DesktopScene extends StatefulWidget {
     required this.onSchedulePanelClose,
     required this.onLaunchApp,
     required this.onActivateWindow,
+    required this.onOverviewBarrierTap,
     required this.onCloseLeaseComplete,
   });
 
@@ -649,6 +672,7 @@ class _DesktopScene extends StatefulWidget {
   final VoidCallback onSchedulePanelClose;
   final ValueChanged<DesktopApp> onLaunchApp;
   final ValueChanged<DenialWindow> onActivateWindow;
+  final ValueChanged<Offset> onOverviewBarrierTap;
   final ValueChanged<int> onCloseLeaseComplete;
 
   @override
@@ -740,6 +764,7 @@ class _DesktopSceneState extends State<_DesktopScene> {
     final onSchedulePanelClose = widget.onSchedulePanelClose;
     final onLaunchApp = widget.onLaunchApp;
     final onActivateWindow = widget.onActivateWindow;
+    final onOverviewBarrierTap = widget.onOverviewBarrierTap;
     final windowsById = <int, DenialWindow>{
       for (final window in windows) window.objectId: window,
     };
@@ -842,6 +867,7 @@ class _DesktopSceneState extends State<_DesktopScene> {
                   Positioned.fill(
                     child: _DesktopOverviewBarrier(
                       active: desktop.overviewActive,
+                      onTap: onOverviewBarrierTap,
                     ),
                   ),
                   if (windowSwitcher != null)
@@ -1476,9 +1502,11 @@ class _DesktopPanelEdgeTrigger extends StatelessWidget {
 class _DesktopOverviewBarrier extends StatelessWidget {
   const _DesktopOverviewBarrier({
     required this.active,
+    required this.onTap,
   });
 
   final bool active;
+  final ValueChanged<Offset> onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1486,7 +1514,7 @@ class _DesktopOverviewBarrier extends StatelessWidget {
       ignoring: !active,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () {},
+        onTapUp: (details) => onTap(details.localPosition),
       ),
     );
   }
