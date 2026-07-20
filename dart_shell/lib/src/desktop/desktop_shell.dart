@@ -840,8 +840,7 @@ class _DesktopSceneState extends State<_DesktopScene> {
                     ),
                   ),
                   Positioned.fill(
-                    child: _DesktopOverviewScrim(
-                      bounds: desktop.overview?.backgroundBounds,
+                    child: _DesktopOverviewBarrier(
                       active: desktop.overviewActive,
                     ),
                   ),
@@ -1474,61 +1473,20 @@ class _DesktopPanelEdgeTrigger extends StatelessWidget {
   }
 }
 
-class _DesktopOverviewScrim extends StatefulWidget {
-  const _DesktopOverviewScrim({
-    required this.bounds,
+class _DesktopOverviewBarrier extends StatelessWidget {
+  const _DesktopOverviewBarrier({
     required this.active,
   });
 
-  final Rect? bounds;
   final bool active;
 
   @override
-  State<_DesktopOverviewScrim> createState() => _DesktopOverviewScrimState();
-}
-
-class _DesktopOverviewScrimState extends State<_DesktopOverviewScrim> {
-  Rect? _lastBounds;
-
-  @override
-  void initState() {
-    super.initState();
-    _lastBounds = widget.bounds;
-  }
-
-  @override
-  void didUpdateWidget(covariant _DesktopOverviewScrim oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.bounds != null) {
-      _lastBounds = widget.bounds;
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final bounds = _lastBounds ?? Rect.zero;
-    final duration = widget.active ? Motion.overviewOpen : Motion.overviewClose;
     return IgnorePointer(
-      ignoring: !widget.active,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () {},
-          ),
-          Positioned.fromRect(
-            rect: bounds,
-            child: AnimatedOpacity(
-              duration: duration,
-              curve: Motion.md3Emphasized,
-              opacity: widget.active ? 1.0 : 0.0,
-              child: const RepaintBoundary(
-                child: ColoredBox(color: ShellColors.overviewScrim),
-              ),
-            ),
-          ),
-        ],
+      ignoring: !active,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {},
       ),
     );
   }
