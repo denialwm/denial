@@ -644,6 +644,7 @@ List<Widget> _buildDesktopWindowLayers({
           placement: placement,
           frame: frame,
           minimized: !visible,
+          overviewActive: desktop.overviewActive,
           overview: overview,
           switching: switching,
           motionDuration: motionDuration,
@@ -1680,6 +1681,7 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
     required this.placement,
     required this.frame,
     required this.minimized,
+    required this.overviewActive,
     required this.overview,
     required this.switching,
     required this.motionDuration,
@@ -1689,6 +1691,7 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
   final DesktopWindowPlacement placement;
   final Rect frame;
   final bool minimized;
+  final bool overviewActive;
   final bool overview;
   final bool switching;
   final Duration motionDuration;
@@ -1878,6 +1881,7 @@ class _DesktopWindowFrame extends StatelessWidget {
                 opacity: minimized ? 0.0 : 1.0,
                 child: RepaintBoundary(
                   child: _DesktopOverviewPreviewInteraction(
+                    overviewActive: overviewActive,
                     overview: overview,
                     dragging: placement.dragging,
                     label: 'Activate ${window.displayTitle}',
@@ -1939,6 +1943,7 @@ class _DesktopWindowFrame extends StatelessWidget {
 
 class _DesktopOverviewPreviewInteraction extends StatefulWidget {
   const _DesktopOverviewPreviewInteraction({
+    required this.overviewActive,
     required this.overview,
     required this.dragging,
     required this.label,
@@ -1950,6 +1955,7 @@ class _DesktopOverviewPreviewInteraction extends StatefulWidget {
     required this.child,
   });
 
+  final bool overviewActive;
   final bool overview;
   final bool dragging;
   final String label;
@@ -1990,17 +1996,17 @@ class _DesktopOverviewPreviewInteractionState
   Widget build(BuildContext context) {
     final hovered = widget.overview && !widget.dragging && _hovered;
     return Semantics(
-      button: widget.overview,
-      label: widget.overview ? widget.label : null,
+      button: widget.overviewActive,
+      label: widget.overviewActive ? widget.label : null,
       child: MouseRegion(
-        cursor: widget.overview
+        cursor: widget.overviewActive
             ? ShellMouseCursors.link
             : ShellMouseCursors.normal,
         onEnter: widget.overview ? (_) => _setHovered(true) : null,
         onExit: widget.overview ? (_) => _setHovered(false) : null,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: widget.overview ? widget.onTap : null,
+          onTap: widget.overviewActive ? widget.onTap : null,
           onPanStart:
               widget.overview ? (_) => widget.onDragStart() : null,
           onPanUpdate: widget.overview
