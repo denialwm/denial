@@ -101,6 +101,9 @@ pub enum WindowAction {
     Minimize,
     Maximize,
     Restore,
+    // Retained for wire compatibility and explicit UI toggles. Native
+    // shortcuts use idempotent Maximize/Restore transitions.
+    #[allow(dead_code)]
     ToggleMaximize,
     ToggleFullscreen,
 }

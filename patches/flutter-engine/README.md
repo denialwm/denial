@@ -203,6 +203,17 @@ counters invisible even though they were collected. Direct output remains
 strictly gated by `DENIA_RENDER_AUDIT` and is flushed only at startup and once
 per 120 raster frames.
 
+`0010-decouple-autonomous-damage-from-raster-clip.patch` keeps autonomous
+external-texture damage useful to the embedder without forcing the same region
+to be Flutter's raster clip. On Denial's shared atlas, a fullscreen game on one
+monitor is a large partial repaint of the whole desktop. Using that rectangle
+as a Ganesh clip requires a four-sample dynamic-MSAA preservation load and
+resolve on every game frame, which backpressures the entire Flutter scene. The
+patch still computes and submits the precise `frame_damage`, allowing Denial to
+skip unaffected CRTCs, but resets `buffer_damage` and rasterizes the reused
+layer tree through the normal full-repaint path. Ordinary Dart-produced frames
+retain Flutter's normal partial-repaint policy.
+
 None of the first six correctness patches changes Dart, widgets, themes,
 shadows, clipping geometry, or Flutter layout. They describe the native target
 accurately and repair the lifetime/state invariants needed by the GPU

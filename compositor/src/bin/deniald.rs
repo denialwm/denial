@@ -33,11 +33,13 @@ mod wayland_frontend;
 mod window_events;
 #[path = "deniald/window_grab.rs"]
 mod window_grab;
+#[path = "deniald/window_placement_store.rs"]
+mod window_placement_store;
 #[cfg(feature = "flutter")]
 #[path = "deniald/wire.rs"]
 mod wire;
 
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::error::Error;
 use std::ffi::OsStr;
 #[cfg(feature = "flutter")]
@@ -64,7 +66,7 @@ use smithay::backend::allocator::gbm::{GbmAllocator, GbmBuffer, GbmBufferFlags, 
 use smithay::backend::allocator::{Allocator, Format, Fourcc, Modifier};
 use smithay::backend::drm::gbm::{GbmFramebuffer, framebuffer_from_bo};
 use smithay::backend::drm::{
-    DrmDevice, DrmDeviceFd, DrmEvent, DrmEventTime, DrmSurface, PlaneConfig, PlaneState,
+    DrmDevice, DrmDeviceFd, DrmEvent, DrmEventTime, DrmSurface, PlaneConfig, PlaneState, VrrSupport,
 };
 use smithay::backend::egl::EGLDisplay;
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -241,6 +243,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         &kms.drm,
         options.max_outputs,
         &options.refresh_millihz,
+        &options.vrr_outputs,
     )?;
     if outputs.is_empty() {
         return Err(format!("no connected outputs found on {}", options.device.display()).into());
@@ -306,6 +309,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         let surface = kms
             .drm
             .create_surface(output.crtc, output.mode, &[output.connector])?;
+        stage_output_vrr(&surface, &output)?;
         let plane_properties = AtlasPlaneProperties::load(&kms.drm, surface.plane())?;
         let source_rect = atlas
             .outputs
@@ -499,6 +503,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
                 frame_count,
                 options.max_outputs,
                 &options.refresh_millihz,
+                &options.vrr_outputs,
                 options.rescan_at_frame,
                 options.simulate_hotplug_at_frame,
                 &options.positions,
@@ -533,6 +538,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
                     &mut topology,
                     options.max_outputs,
                     &options.refresh_millihz,
+                    &options.vrr_outputs,
                     &options.positions,
                     wayland,
                     flutter.ok_or("Flutter runtime was not initialized")?,
@@ -737,6 +743,8 @@ struct RuntimeState {
     flutter_events: Vec<flutter_runtime::RuntimeEvent>,
     #[cfg(feature = "flutter")]
     sampled_buffer_releases: Vec<(Option<OwnedFd>, flutter_runtime::SampledBufferHoldBatch)>,
+    #[cfg(feature = "flutter")]
+    ready_fence_signals: Vec<output_scheduler::ReadyFenceSignal>,
     #[cfg(feature = "flutter")]
     flutter_channel_closed: bool,
     #[cfg(feature = "flutter")]
@@ -944,6 +952,7 @@ fn run_frame_loop(
     frame_count: u64,
     max_outputs: usize,
     refresh_millihz: &BTreeMap<String, u32>,
+    vrr_outputs: &BTreeSet<String>,
     rescan_at_frame: Option<u64>,
     simulate_hotplug_at_frame: Option<u64>,
     initial_positions: &BTreeMap<String, LogicalPoint>,
@@ -1241,7 +1250,8 @@ fn run_frame_loop(
             .and_then(|frame| frame.checked_add(SIMULATED_HOTPLUG_GAP_FRAMES))
             == Some(frame_number);
         if simulated_disconnect || simulated_reconnect {
-            let mut outputs = connected_outputs(drm_scanner, drm, max_outputs, refresh_millihz)?;
+            let mut outputs =
+                connected_outputs(drm_scanner, drm, max_outputs, refresh_millihz, vrr_outputs)?;
             if simulated_disconnect {
                 if outputs.len() < 2 {
                     return Err("simulated hotplug needs at least two connected outputs".into());
@@ -1287,7 +1297,8 @@ fn run_frame_loop(
         }
         if events.topology_dirty {
             events.topology_dirty = false;
-            let outputs = connected_outputs(drm_scanner, drm, max_outputs, refresh_millihz)?;
+            let outputs =
+                connected_outputs(drm_scanner, drm, max_outputs, refresh_millihz, vrr_outputs)?;
             let changed = outputs.len() != scanouts.len()
                 || outputs.iter().any(|output| {
                     scanouts
@@ -1297,6 +1308,7 @@ fn run_frame_loop(
                             scanout.output.crtc != output.crtc
                                 || scanout.output.mode != output.mode
                                 || scanout.output.connector != output.connector
+                                || scanout.output.vrr_enabled != output.vrr_enabled
                         })
                 });
             info!(
@@ -1375,6 +1387,25 @@ fn install_sampled_buffer_releases(
 }
 
 #[cfg(feature = "flutter")]
+fn install_ready_fence_watch(
+    event_loop: &mut EventLoop<'_, RuntimeState>,
+    watch: output_scheduler::ReadyFenceWatch,
+) -> Result<(), Box<dyn Error>> {
+    let (fence, signal) = watch.into_parts();
+    event_loop.handle().insert_source(
+        Generic::new(fence, Interest::READ, PollMode::Level),
+        move |_, _, state: &mut RuntimeState| {
+            // sync_file readability means the atlas is complete. Wake the
+            // compositor and let the scheduler target the following vblank;
+            // never occupy KMS's pending slot with unfinished GPU work.
+            state.ready_fence_signals.push(signal);
+            Ok(PostAction::Remove)
+        },
+    )?;
+    Ok(())
+}
+
+#[cfg(feature = "flutter")]
 #[allow(clippy::too_many_arguments)]
 fn run_flutter_event_loop(
     renderer: &mut GlesRenderer,
@@ -1388,6 +1419,7 @@ fn run_flutter_event_loop(
     topology: &mut TopologyManager,
     max_outputs: usize,
     refresh_millihz: &BTreeMap<String, u32>,
+    vrr_outputs: &BTreeSet<String>,
     positions: &BTreeMap<String, LogicalPoint>,
     wayland: Option<wayland_frontend::WaylandFrontend>,
     flutter: flutter_runtime::FlutterRuntime,
@@ -1443,6 +1475,7 @@ fn run_flutter_event_loop(
             deadline,
         )?;
         install_sampled_buffer_releases(event_loop, &mut events)?;
+        scheduler.acknowledge_ready_fences(events.ready_fence_signals.drain(..));
         if let Some(reason) = events.lifecycle.shutdown_reason() {
             log_shutdown(reason);
             break;
@@ -1474,7 +1507,8 @@ fn run_flutter_event_loop(
 
         if events.topology_dirty || scanout_rebased {
             events.topology_dirty = false;
-            let outputs = connected_outputs(drm_scanner, drm, max_outputs, refresh_millihz)?;
+            let outputs =
+                connected_outputs(drm_scanner, drm, max_outputs, refresh_millihz, vrr_outputs)?;
             let changed = outputs.len() != scanouts.len()
                 || outputs.iter().any(|output| {
                     scanouts
@@ -1484,6 +1518,7 @@ fn run_flutter_event_loop(
                             scanout.output.crtc != output.crtc
                                 || scanout.output.mode != output.mode
                                 || scanout.output.connector != output.connector
+                                || scanout.output.vrr_enabled != output.vrr_enabled
                         })
                 });
             info!(
@@ -1493,10 +1528,12 @@ fn run_flutter_event_loop(
                 "completed event-driven DRM topology rescan"
             );
             if changed || scanout_rebased {
-                if !scanout_rebased && scheduler.has_submitted() {
-                    // An old-topology edge is already queued. Let that single
-                    // physical event retire before creating the common rollback
-                    // point used by the hotplug transaction.
+                if !scanout_rebased && scheduler.has_pending_scanout_work() {
+                    // Finish any ready old-topology atlas before creating the
+                    // common rollback point used by the hotplug transaction.
+                    // A signalled userspace fence can be submitted now; an
+                    // unfinished one will wake this loop through calloop.
+                    scheduler.submit_ready(drm, swapchain, scanouts, &mut events)?;
                     events.topology_dirty = true;
                     let now = Instant::now();
                     let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
@@ -1582,7 +1619,9 @@ fn run_flutter_event_loop(
         }
 
         if let Some(ready) = runtime.take_ready() {
-            scheduler.publish_ready(runtime, ready, scanouts)?;
+            if let Some(watch) = scheduler.publish_ready(runtime, ready, scanouts)? {
+                install_ready_fence_watch(event_loop, watch)?;
+            }
             raster_frames = raster_frames.saturating_add(1);
         }
         scheduler.submit_ready(drm, swapchain, scanouts, &mut events)?;
@@ -2355,6 +2394,7 @@ fn reconcile_scanouts<'a>(
                 .original_mode(output.id)
                 .unwrap_or(output.mode);
             let surface = drm.create_surface(output.crtc, output.mode, &[output.connector])?;
+            stage_output_vrr(&surface, output)?;
             let plane_properties = AtlasPlaneProperties::load(drm, surface.plane())?;
             created.insert(
                 desired_index,
@@ -2375,20 +2415,36 @@ fn reconcile_scanouts<'a>(
         restore_state.register_inactive_scanout(scanout);
     }
 
-    // Pending modes are reversible and do not touch hardware. Roll them back
-    // before returning if any subsequent reusable surface rejects its mode.
-    let mut changed_modes: Vec<(usize, Mode)> = Vec::new();
+    // Pending modes and VRR state are reversible and do not touch hardware.
+    // Roll them back before returning if any reusable surface rejects either.
+    let mut changed_states: Vec<(usize, Mode, bool)> = Vec::new();
     for (output, origin) in outputs.iter().zip(&plan) {
         let ScanoutOrigin::Reuse(index) = *origin else {
             continue;
         };
-        let previous = scanouts[index].surface.pending_mode();
-        if previous == output.mode {
+        let previous_mode = scanouts[index].surface.pending_mode();
+        let previous_vrr = scanouts[index].surface.vrr_enabled();
+        if previous_mode == output.mode && previous_vrr == output.vrr_enabled {
             continue;
         }
-        if let Err(error) = scanouts[index].surface.use_mode(output.mode) {
+        changed_states.push((index, previous_mode, previous_vrr));
+        let staged = scanouts[index]
+            .surface
+            .use_mode(output.mode)
+            .map_err(|error| format!("mode staging failed: {error}"))
+            .and_then(|()| {
+                stage_output_vrr(&scanouts[index].surface, output)
+                    .map_err(|error| error.to_string())
+            });
+        if let Err(error) = staged {
             let mut rollback_failures = Vec::new();
-            for (changed_index, mode) in changed_modes.into_iter().rev() {
+            for (changed_index, mode, vrr) in changed_states.into_iter().rev() {
+                if let Err(rollback_error) = scanouts[changed_index].surface.use_vrr(vrr) {
+                    rollback_failures.push(format!(
+                        "{} pending-VRR rollback failed: {rollback_error}",
+                        scanouts[changed_index].output.name
+                    ));
+                }
                 if let Err(rollback_error) = scanouts[changed_index].surface.use_mode(mode) {
                     rollback_failures.push(format!(
                         "{} pending-mode rollback failed: {rollback_error}",
@@ -2397,16 +2453,15 @@ fn reconcile_scanouts<'a>(
                 }
             }
             if rollback_failures.is_empty() {
-                return Err(format!("{} mode staging failed: {error}", output.name).into());
+                return Err(format!("{} state staging failed: {error}", output.name).into());
             }
             return Err(format!(
-                "{} mode staging failed: {error}; rollback failures: {}",
+                "{} state staging failed: {error}; rollback failures: {}",
                 output.name,
                 rollback_failures.join("; ")
             )
             .into());
         }
-        changed_modes.push((index, previous));
     }
 
     // Every fallible operation is complete. Transfer ownership into the
@@ -2429,12 +2484,18 @@ fn reconcile_scanouts<'a>(
                     index,
                     output: scanout.output,
                     source_rect: scanout.source_rect,
-                    pending_mode: changed_modes
+                    pending_mode: changed_states
                         .iter()
-                        .find_map(|(changed_index, mode)| {
+                        .find_map(|(changed_index, mode, _)| {
                             (*changed_index == index).then_some(*mode)
                         })
                         .unwrap_or_else(|| scanout.surface.pending_mode()),
+                    pending_vrr: changed_states
+                        .iter()
+                        .find_map(|(changed_index, _, vrr)| {
+                            (*changed_index == index).then_some(*vrr)
+                        })
+                        .unwrap_or_else(|| scanout.surface.vrr_enabled()),
                 };
                 scanout.output = output;
                 scanout.source_rect = source_rect;
@@ -2642,6 +2703,7 @@ fn connected_outputs(
     drm: &DrmDevice,
     max_outputs: usize,
     refresh_millihz: &BTreeMap<String, u32>,
+    vrr_outputs: &BTreeSet<String>,
 ) -> Result<Vec<ConnectedOutput>, Box<dyn Error>> {
     let scan = scanner.scan_connectors(drm)?;
     for event in scan.iter() {
@@ -2685,6 +2747,7 @@ fn connected_outputs(
                 connector.interface().as_str(),
                 connector.interface_id()
             );
+            let vrr_enabled = vrr_outputs.contains(&name);
             let configured_refresh_millihz = refresh_millihz.get(&name).copied();
             let mode =
                 select_native_mode(&connector, configured_refresh_millihz).ok_or_else(|| {
@@ -2706,6 +2769,7 @@ fn connected_outputs(
                 height = output_mode.size.h,
                 refresh_millihz = output_mode.refresh,
                 configured_refresh_millihz,
+                vrr_enabled,
                 "connected KMS output"
             );
             Ok(ConnectedOutput {
@@ -2714,9 +2778,35 @@ fn connected_outputs(
                 connector: connector.handle(),
                 crtc,
                 mode,
+                vrr_enabled,
             })
         })
         .collect()
+}
+
+fn stage_output_vrr(surface: &DrmSurface, output: &ConnectedOutput) -> Result<(), Box<dyn Error>> {
+    if output.vrr_enabled {
+        let support = surface.vrr_supported(output.connector)?;
+        if support == VrrSupport::NotSupported {
+            return Err(format!("{} does not advertise VRR support", output.name).into());
+        }
+        if surface.vrr_enabled() {
+            return Ok(());
+        }
+        info!(
+            output = output.name,
+            ?support,
+            "enabling variable refresh rate"
+        );
+    } else {
+        if !surface.vrr_enabled() {
+            return Ok(());
+        }
+        info!(output = output.name, "disabling variable refresh rate");
+    }
+    surface
+        .use_vrr(output.vrr_enabled)
+        .map_err(|error| format!("{} VRR staging failed: {error}", output.name).into())
 }
 
 const CONFIGURED_REFRESH_TOLERANCE_MILLIHZ: u32 = 1_000;

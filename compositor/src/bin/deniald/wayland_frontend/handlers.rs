@@ -3,7 +3,8 @@ use super::window_management::{
 };
 #[cfg(feature = "flutter")]
 use super::window_management::{
-    queue_window_action, queue_window_placement, toplevel_shell_geometry_locked,
+    queue_restored_window_state, queue_window_action, queue_window_placement,
+    toplevel_shell_geometry_locked,
 };
 use super::*;
 use smithay::wayland::selection::{SelectionSource, SelectionTarget};
@@ -433,6 +434,8 @@ impl CompositorHandler for RuntimeState {
             }
         }
         on_commit_buffer_handler::<Self>(surface);
+        #[cfg(feature = "flutter")]
+        let mut restored_window_state = None;
         let frontend = self.wayland.as_mut().expect("missing Wayland frontend");
         #[cfg(feature = "flutter")]
         let sampling_changed = previous_sampling
@@ -467,6 +470,17 @@ impl CompositorHandler for RuntimeState {
             }
             let window = frontend.window_for_root_surface(&root);
             if let Some(window) = window {
+                // app_id, parent and size hints are all final for the XDG
+                // initial commit. Restore here, immediately before the first
+                // configure, so transient windows never inherit the main
+                // application's saved rectangle and no restored frame flashes.
+                let restored = frontend.restore_xdg_window_placement(&window);
+                #[cfg(feature = "flutter")]
+                if let Some((restored, target)) = restored {
+                    restored_window_state = Some((window.clone(), restored, target));
+                }
+                #[cfg(not(feature = "flutter"))]
+                let _ = restored;
                 window.on_commit();
                 frontend.reconcile_committed_window_geometry(&window);
             }
@@ -478,6 +492,10 @@ impl CompositorHandler for RuntimeState {
             published_visual_update,
         );
         handle_xdg_commit(&mut frontend.popups, &frontend.space, surface);
+        #[cfg(feature = "flutter")]
+        if let Some((window, restored, target)) = restored_window_state {
+            queue_restored_window_state(self, &window, restored, target);
+        }
         #[cfg(feature = "flutter")]
         if affects_published_scene {
             self.scene_sync.mark_dirty();
@@ -1182,6 +1200,9 @@ impl XdgShellHandler for RuntimeState {
         // toplevel is still discoverable in Space. Role destruction can also
         // arrive after Space already lost the window, so cleanup is
         // unconditional and preserves only the wl_surface stable identity.
+        if let Some(window) = window.as_ref() {
+            frontend.remember_window_placement(window);
+        }
         frontend.remove_surface_state(surface.wl_surface(), false);
         if let Some(window) = window {
             frontend.space.unmap_elem(&window);

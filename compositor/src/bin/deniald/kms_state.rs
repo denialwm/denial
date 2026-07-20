@@ -16,6 +16,7 @@ pub(super) struct ConnectedOutput {
     pub(super) connector: connector::Handle,
     pub(super) crtc: crtc::Handle,
     pub(super) mode: Mode,
+    pub(super) vrr_enabled: bool,
 }
 
 pub(super) struct Scanout {
@@ -31,6 +32,7 @@ pub(super) struct PreviousScanoutState {
     pub(super) output: ConnectedOutput,
     pub(super) source_rect: PixelRect,
     pub(super) pending_mode: Mode,
+    pub(super) pending_vrr: bool,
 }
 
 pub(super) enum ReconciledScanoutOrigin {
@@ -111,6 +113,12 @@ impl ScanoutReconciliation<'_> {
                     if let Err(error) = scanout.surface.use_mode(previous.pending_mode) {
                         failures.push(format!(
                             "{} pending-mode rollback failed: {error}",
+                            previous.output.name
+                        ));
+                    }
+                    if let Err(error) = scanout.surface.use_vrr(previous.pending_vrr) {
+                        failures.push(format!(
+                            "{} pending-VRR rollback failed: {error}",
                             previous.output.name
                         ));
                     }

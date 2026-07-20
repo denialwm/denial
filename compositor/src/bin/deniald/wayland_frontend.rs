@@ -70,8 +70,8 @@ use smithay::wayland::selection::data_device::{
     DataDeviceHandler, DataDeviceState, WaylandDndGrabHandler, set_data_device_focus,
 };
 use smithay::wayland::shell::xdg::{
-    PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
-    XdgToplevelSurfaceData,
+    PopupSurface, PositionerState, SurfaceCachedState, ToplevelSurface, XdgShellHandler,
+    XdgShellState, XdgToplevelSurfaceData,
 };
 use smithay::wayland::shell::xdg::decoration::{XdgDecorationHandler, XdgDecorationState};
 use smithay::wayland::shm::{ShmHandler, ShmState};
@@ -91,6 +91,11 @@ use super::RuntimeState;
 use super::flutter_runtime::{ExternalTextureFrame, ShmSnapshotPool, ShmTextureFrame};
 use super::window_grab::{
     MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, X11ResizeSurfaceGrab, checked_pointer_grab,
+    constrain_dimension,
+};
+use super::window_placement_store::{
+    RestoredWindowPlacement, WindowIdentity, WindowPlacementState, WindowPlacementStore,
+    default_state_path,
 };
 #[cfg(feature = "flutter")]
 use super::wire::{
@@ -128,12 +133,14 @@ pub(super) use input::{init_libinput, reset_all_input_devices};
 use surface_snapshot::{rgba_payload_len, shm_cache_budget_for_atlas, snapshot_shm_buffer};
 pub(super) use topology::saturating_point_add;
 use topology::{
-    choose_popup_output, configure_output, output_logical_bounds, saturating_point_sub,
+    choose_popup_output, clamp_window_geometry, configure_output, output_logical_bounds,
+    saturating_point_sub,
 };
-#[cfg(feature = "flutter")]
 use window_management::toplevel_has_state;
 #[cfg(feature = "flutter")]
 pub(super) use window_management::{apply_window_commands, queue_window_placement};
+#[cfg(feature = "flutter")]
+use window_management::{shell_content_geometry, shell_draws_server_frame};
 
 const MAX_PENDING_DMABUF_IMPORTS: usize = 128;
 
@@ -212,6 +219,8 @@ pub(super) struct WaylandFrontend {
     #[cfg(feature = "flutter")]
     shell_maximize_restore_geometries: HashMap<ObjectId, Rectangle<i32, Logical>>,
     #[cfg(feature = "flutter")]
+    shell_fullscreen_restore_geometries: HashMap<ObjectId, Rectangle<i32, Logical>>,
+    #[cfg(feature = "flutter")]
     input_layout: Option<InputLayoutSnapshot>,
     #[cfg(feature = "flutter")]
     shell_fullscreen_locks: HashSet<ObjectId>,
@@ -253,6 +262,8 @@ pub(super) struct WaylandFrontend {
     retired_keyboard_keys: HashSet<u32>,
     #[cfg(feature = "flutter")]
     minimized_windows: HashSet<ObjectId>,
+    window_placements: WindowPlacementStore,
+    restored_window_positions: HashSet<ObjectId>,
     pub _output_manager_state: OutputManagerState,
     pub seat_state: SeatState<RuntimeState>,
     pub data_device_state: DataDeviceState,
@@ -505,6 +516,24 @@ impl WaylandFrontend {
             |_| {},
         )?;
         let xdisplay = xwayland.display_number();
+        let window_placement_path = default_state_path();
+        let window_placements = match WindowPlacementStore::load(window_placement_path.clone()) {
+            Ok(store) => store,
+            Err(error) => {
+                warn!(
+                    %error,
+                    path = ?window_placement_path,
+                    "could not load saved window placements; starting with an empty store"
+                );
+                WindowPlacementStore::empty(window_placement_path)
+            }
+        };
+        if window_placements.len() > 0 {
+            info!(
+                placements = window_placements.len(),
+                "loaded saved window placements"
+            );
+        }
         let xwm_loop_handle = event_loop.handle();
         let xwm_display_handle = display_handle.clone();
         event_loop
@@ -608,6 +637,8 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             shell_maximize_restore_geometries: HashMap::new(),
             #[cfg(feature = "flutter")]
+            shell_fullscreen_restore_geometries: HashMap::new(),
+            #[cfg(feature = "flutter")]
             input_layout: None,
             #[cfg(feature = "flutter")]
             shell_fullscreen_locks: HashSet::new(),
@@ -645,6 +676,8 @@ impl WaylandFrontend {
             retired_keyboard_keys: HashSet::new(),
             #[cfg(feature = "flutter")]
             minimized_windows: HashSet::new(),
+            window_placements,
+            restored_window_positions: HashSet::new(),
             _output_manager_state: output_manager_state,
             seat_state,
             data_device_state,
@@ -796,15 +829,31 @@ impl WaylandFrontend {
     }
 
     #[cfg(feature = "flutter")]
-    pub(super) fn toggle_shell_fullscreen_lock(&mut self, window: &Window) {
-        let Some(root_surface) = self.window_root_surface(window) else {
-            return;
-        };
-        if !self.shell_fullscreen_locks.remove(&root_surface.id())
-            && !self.window_geometry_locked(window)
-        {
-            self.shell_fullscreen_locks.insert(root_surface.id());
+    pub(super) fn toggle_shell_fullscreen_lock(&mut self, window: &Window) -> Option<bool> {
+        let root_surface = self.window_root_surface(window)?;
+        let object_id = root_surface.id();
+        if self.shell_fullscreen_locks.remove(&object_id) {
+            return Some(false);
         }
+        if self.window_geometry_locked(window) {
+            return None;
+        }
+        let preserve_maximized = self.window_placement_state(window).maximized;
+        let restore = self
+            .shell_maximize_restore_geometries
+            .get(&object_id)
+            .copied()
+            .or_else(|| self.restore_window_geometries.get(&object_id).copied())
+            .unwrap_or_else(|| self.window_geometry_target(window));
+        if preserve_maximized {
+            self.shell_maximize_restore_geometries
+                .entry(object_id.clone())
+                .or_insert(restore);
+        }
+        self.shell_fullscreen_restore_geometries
+            .insert(object_id.clone(), restore);
+        self.shell_fullscreen_locks.insert(object_id);
+        Some(true)
     }
 
     pub(super) fn window_for_root_surface(&self, surface: &WlSurface) -> Option<Window> {
@@ -812,6 +861,258 @@ impl WaylandFrontend {
             .elements()
             .find(|window| self.window_root_surface(window).as_ref() == Some(surface))
             .cloned()
+    }
+
+    fn window_identity(&self, window: &Window) -> Option<WindowIdentity> {
+        if let Some(toplevel) = window.toplevel() {
+            return with_states(toplevel.wl_surface(), |states| {
+                let attributes = states
+                    .data_map
+                    .get::<XdgToplevelSurfaceData>()?
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                WindowIdentity::wayland(attributes.app_id.as_deref()?)
+            });
+        }
+        let x11 = window.x11_surface()?;
+        (!x11.is_override_redirect())
+            .then(|| x11.class())
+            .and_then(|class| WindowIdentity::x11(&class))
+    }
+
+    fn window_has_transient_parent(&self, window: &Window) -> bool {
+        if let Some(toplevel) = window.toplevel() {
+            return with_states(toplevel.wl_surface(), |states| {
+                states
+                    .data_map
+                    .get::<XdgToplevelSurfaceData>()
+                    .and_then(|attributes| {
+                        attributes
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .parent
+                            .clone()
+                    })
+                    .is_some()
+            });
+        }
+        window
+            .x11_surface()
+            .is_some_and(|surface| surface.is_transient_for().is_some())
+    }
+
+    fn fallback_output_geometry(&self) -> Option<Rectangle<i32, Logical>> {
+        let pointer = Point::<i32, Logical>::from((
+            self.pointer_location.x.floor() as i32,
+            self.pointer_location.y.floor() as i32,
+        ));
+        self.outputs
+            .iter()
+            .find(|entry| entry.logical_geometry.contains(pointer))
+            .or_else(|| self.outputs.first())
+            .map(|entry| entry.logical_geometry)
+    }
+
+    fn restored_placement_for_identity(
+        &self,
+        identity: &WindowIdentity,
+        fallback_output: Rectangle<i32, Logical>,
+    ) -> Option<RestoredWindowPlacement> {
+        self.window_placements.restored_placement(
+            identity,
+            self.outputs
+                .iter()
+                .map(|entry| (entry.connector.clone(), entry.logical_geometry)),
+            fallback_output,
+        )
+    }
+
+    fn window_placement_state(&self, window: &Window) -> WindowPlacementState {
+        let state = if let Some(toplevel) = window.toplevel() {
+            WindowPlacementState {
+                maximized: toplevel_has_state(toplevel, xdg_toplevel::State::Maximized),
+                fullscreen: toplevel_has_state(toplevel, xdg_toplevel::State::Fullscreen),
+            }
+        } else if let Some(x11) = window.x11_surface() {
+            WindowPlacementState {
+                maximized: x11.is_maximized(),
+                fullscreen: x11.is_fullscreen(),
+            }
+        } else {
+            WindowPlacementState::default()
+        };
+        #[cfg(feature = "flutter")]
+        let state = self
+            .window_root_surface(window)
+            .map_or(state, |root| WindowPlacementState {
+                maximized: state.maximized
+                    || self
+                        .shell_maximize_restore_geometries
+                        .contains_key(&root.id()),
+                fullscreen: state.fullscreen || self.shell_fullscreen_locks.contains(&root.id()),
+            });
+        state
+    }
+
+    #[cfg(feature = "flutter")]
+    fn apply_restored_window_state(
+        &mut self,
+        window: &Window,
+        normal_geometry: Rectangle<i32, Logical>,
+        state: WindowPlacementState,
+    ) -> Rectangle<i32, Logical> {
+        if !state.maximized && !state.fullscreen {
+            return normal_geometry;
+        }
+        let Some(root) = self.window_root_surface(window) else {
+            return normal_geometry;
+        };
+        let Some((output, output_geometry)) = self
+            .output_for_geometry(normal_geometry)
+            .map(|entry| (entry.output.clone(), entry.logical_geometry))
+        else {
+            return normal_geometry;
+        };
+        let object_id = root.id();
+        let server_frame = shell_draws_server_frame(window);
+        let mut target = normal_geometry;
+        if state.maximized {
+            let frame = self.maximize_work_area(Some(&output), output_geometry);
+            target = shell_content_geometry(frame, server_frame);
+            self.shell_maximize_restore_geometries
+                .insert(object_id.clone(), normal_geometry);
+        }
+        if state.fullscreen {
+            target = shell_content_geometry(output_geometry, server_frame);
+            self.shell_fullscreen_restore_geometries
+                .insert(object_id.clone(), normal_geometry);
+            self.shell_fullscreen_locks.insert(object_id);
+        }
+        target
+    }
+
+    fn restore_xdg_window_placement(
+        &mut self,
+        window: &Window,
+    ) -> Option<(RestoredWindowPlacement, Rectangle<i32, Logical>)> {
+        let toplevel = window.toplevel()?;
+        let root = toplevel.wl_surface();
+        let object_id = root.id();
+        if self.restored_window_positions.contains(&object_id) {
+            return None;
+        }
+        let (identity, has_parent, initial_configure_sent) = with_states(root, |states| {
+            let Some(attributes) = states.data_map.get::<XdgToplevelSurfaceData>() else {
+                return (None, false, false);
+            };
+            let attributes = attributes
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            (
+                attributes
+                    .app_id
+                    .as_deref()
+                    .and_then(WindowIdentity::wayland),
+                attributes.parent.is_some(),
+                attributes.initial_configure_sent,
+            )
+        });
+        let identity = identity?;
+        if has_parent || initial_configure_sent {
+            return None;
+        }
+        let fallback_output = self.fallback_output_geometry()?;
+        let mut restored = self.restored_placement_for_identity(&identity, fallback_output)?;
+        let (minimum, maximum) = with_states(root, |states| {
+            let mut cached = states.cached_state.get::<SurfaceCachedState>();
+            let current = cached.current();
+            (current.min_size, current.max_size)
+        });
+        restored.geometry.size = Size::from((
+            constrain_dimension(restored.geometry.size.w, minimum.w, maximum.w),
+            constrain_dimension(restored.geometry.size.h, minimum.h, maximum.h),
+        ));
+        if let Some(output) = self.output_for_geometry(restored.geometry) {
+            restored.geometry = clamp_window_geometry(restored.geometry, output.logical_geometry);
+        }
+        #[cfg(feature = "flutter")]
+        let target = self.apply_restored_window_state(window, restored.geometry, restored.state);
+        #[cfg(not(feature = "flutter"))]
+        let target = restored.geometry;
+        toplevel.with_pending_state(|pending| pending.size = Some(target.size));
+        self.set_window_geometry_target(window, target);
+        self.restored_window_positions.insert(object_id);
+        info!(
+            backend = ?identity.backend(),
+            app_id = identity.app_id(),
+            x = target.loc.x,
+            y = target.loc.y,
+            width = target.size.w,
+            height = target.size.h,
+            maximized = restored.state.maximized,
+            fullscreen = restored.state.fullscreen,
+            "restored saved window placement"
+        );
+        Some((restored, target))
+    }
+
+    pub(super) fn remember_window_geometry(
+        &mut self,
+        window: &Window,
+        geometry: Rectangle<i32, Logical>,
+    ) {
+        if self.window_has_transient_parent(window) {
+            return;
+        }
+        let Some(identity) = self.window_identity(window) else {
+            return;
+        };
+        let state = self.window_placement_state(window);
+        let Some(output) = self.output_for_geometry(geometry) else {
+            return;
+        };
+        let connector = output.connector.clone();
+        let output_geometry = output.logical_geometry;
+        if let Err(error) = self.window_placements.remember(
+            identity.clone(),
+            &connector,
+            output_geometry,
+            geometry,
+            state,
+        ) {
+            warn!(
+                %error,
+                backend = ?identity.backend(),
+                app_id = identity.app_id(),
+                "could not persist window placement"
+            );
+        }
+    }
+
+    pub(super) fn remember_window_placement(&mut self, window: &Window) {
+        let geometry = self
+            .window_root_surface(window)
+            .and_then(|root| {
+                #[cfg(feature = "flutter")]
+                if let Some(geometry) = self
+                    .shell_maximize_restore_geometries
+                    .get(&root.id())
+                    .copied()
+                {
+                    return Some(geometry);
+                }
+                #[cfg(feature = "flutter")]
+                if let Some(geometry) = self
+                    .shell_fullscreen_restore_geometries
+                    .get(&root.id())
+                    .copied()
+                {
+                    return Some(geometry);
+                }
+                self.restore_window_geometries.get(&root.id()).copied()
+            })
+            .unwrap_or_else(|| self.window_geometry_target(window));
+        self.remember_window_geometry(window, geometry);
     }
 
     pub(super) fn window_geometry_target(&self, window: &Window) -> Rectangle<i32, Logical> {
@@ -931,15 +1232,19 @@ impl WaylandFrontend {
             let shell_maximized = self
                 .shell_maximize_restore_geometries
                 .contains_key(&root_surface.id());
+            let shell_fullscreen = self.shell_fullscreen_locks.contains(&root_surface.id());
             let maximized = client_maximized || shell_maximized;
+            let fullscreen = fullscreen || shell_fullscreen;
             if fullscreen || maximized {
-                if let Some(restore) = (if shell_maximized && !fullscreen {
-                    &self.shell_maximize_restore_geometries
-                } else {
-                    &self.restore_window_geometries
-                })
-                .get(&root_surface.id())
-                .copied()
+                if let Some(restore) = self
+                    .shell_maximize_restore_geometries
+                    .get(&root_surface.id())
+                    .or_else(|| {
+                        self.shell_fullscreen_restore_geometries
+                            .get(&root_surface.id())
+                    })
+                    .or_else(|| self.restore_window_geometries.get(&root_surface.id()))
+                    .copied()
                     && let Some(placement) = self.window_placement(
                         window,
                         restore,
@@ -950,14 +1255,18 @@ impl WaylandFrontend {
                 {
                     events.push(PendingWindowEvent::Placement(placement));
                 }
-                events.push(PendingWindowEvent::Action(
-                    window_id,
-                    if fullscreen {
-                        WindowAction::ToggleFullscreen
-                    } else {
-                        WindowAction::Maximize
-                    },
-                ));
+                if maximized {
+                    events.push(PendingWindowEvent::Action(
+                        window_id,
+                        WindowAction::Maximize,
+                    ));
+                }
+                if fullscreen {
+                    events.push(PendingWindowEvent::Action(
+                        window_id,
+                        WindowAction::ToggleFullscreen,
+                    ));
+                }
             }
             if self.minimized_windows.contains(&root_surface.id()) {
                 events.push(PendingWindowEvent::Action(
@@ -1025,8 +1334,11 @@ impl WaylandFrontend {
         self.surface_buffers.remove(&object_id);
         self.configured_window_geometries.remove(&object_id);
         self.restore_window_geometries.remove(&object_id);
+        self.restored_window_positions.remove(&object_id);
         #[cfg(feature = "flutter")]
         self.shell_maximize_restore_geometries.remove(&object_id);
+        #[cfg(feature = "flutter")]
+        self.shell_fullscreen_restore_geometries.remove(&object_id);
         if matches!(
             &self.cursor_status,
             CursorImageStatus::Surface(cursor_surface) if cursor_surface == surface

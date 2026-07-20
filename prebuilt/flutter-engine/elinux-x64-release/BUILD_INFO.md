@@ -8,7 +8,7 @@ described in `patches/flutter-engine/README.md`. It is the binary that
 - Engine revision: `cb4b5fff73850b2e42bd4de7cb9a4310a78ac40d` (see
   `ENGINE_REVISION`; Skia revision `6062afaa505bf7e6c727a20cafe4c7bee0f02df8`
   via DEPS)
-- Patches applied: `patches/flutter-engine/0001`–`0009`, verified to
+- Patches applied: `patches/flutter-engine/0001`–`0010`, verified to
   reproduce the build tree byte-for-byte
 - GN configuration: `args.gn` in this directory (copied verbatim from the
   build output directory)
@@ -20,7 +20,7 @@ described in `patches/flutter-engine/README.md`. It is the binary that
 Build tree (kept, not disposable): `/mnt/exty/denial-flutter-engine/`
 
 - `src/` — engine checkout at the pinned revision with the patch series
-  applied to `src/flutter` (0001, 0002, 0004, 0005, 0007, 0008, 0009) and
+  applied to `src/flutter` (0001, 0002, 0004, 0005, 0007, 0008, 0009, 0010) and
   `src/flutter/third_party/skia` (0003, 0006)
 - `depot_tools/` — must be on `PATH` for ninja actions (`vpython3`) and the
   repo's git hooks

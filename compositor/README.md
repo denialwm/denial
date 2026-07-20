@@ -83,6 +83,20 @@ The KMS compositor starts a rootless Xwayland server and exports its dynamic
 to run X11-only applications such as Steam; the development session fails
 early with a clear error when it is absent.
 
+Denial remembers the last normal rectangle and maximized/fullscreen state of
+each application and restores them before that application's first frame is
+configured. Native Wayland windows use `xdg_toplevel.app_id`; managed X11
+windows use `WM_CLASS`. Records are kept output-relative by connector, so
+rearranging monitors preserves the intended screen while disconnected or
+smaller outputs fall back safely and clamp the window on-screen. Transient
+windows retain normal compositor placement; every non-transient toplevel is
+eligible for restoration, including new windows opened by single-instance
+applications.
+
+The bounded state file is written atomically at
+`${XDG_STATE_HOME:-$HOME/.local/state}/denial/window-placements.json`. Removing
+that file resets remembered placements.
+
 For the first full-session attempt on the current development workstation,
 keep teardown bounded while exercising the real Flutter/Wayland path:
 
@@ -107,14 +121,17 @@ click on its window.
 Physical placement is configuration, not connector-order policy. An output
 file contains one `NAME=X,Y[,REFRESH_HZ]` assignment per line. When refresh is
 configured, Denial selects the matching mode at the connector's native
-resolution; otherwise it selects the fastest native mode. Unlisted outputs use
-the deterministic left-to-right fallback. Command-line position assignments
+resolution; otherwise it selects the fastest native mode. Add `vrr=NAME` for
+each output that should use variable refresh rate; Denial validates support on
+that connector before committing the KMS state. Unlisted outputs use the
+deterministic left-to-right fallback. Command-line position assignments
 override the file:
 
 ```text
 # ~/.config/denial/outputs.conf
 DP-5=0,0,200
 DP-4=2560,0,180
+vrr=DP-4
 ```
 
 ```sh

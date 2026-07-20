@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -95,6 +95,7 @@ pub(super) struct Options {
     pub(super) max_outputs: usize,
     pub(super) positions: BTreeMap<String, LogicalPoint>,
     pub(super) refresh_millihz: BTreeMap<String, u32>,
+    pub(super) vrr_outputs: BTreeSet<String>,
     pub(super) next_positions: BTreeMap<String, LogicalPoint>,
     pub(super) reconfigure_at_frame: Option<u64>,
     pub(super) rescan_at_frame: Option<u64>,
@@ -125,6 +126,7 @@ impl Options {
         let mut output_config = None;
         let mut positions = BTreeMap::new();
         let mut refresh_millihz = BTreeMap::new();
+        let mut vrr_outputs = BTreeSet::new();
         let mut next_positions = BTreeMap::new();
         let mut reconfigure_at_frame = None;
         let mut rescan_at_frame = None;
@@ -247,6 +249,7 @@ impl Options {
                         max_outputs: 0,
                         positions,
                         refresh_millihz,
+                        vrr_outputs,
                         next_positions,
                         reconfigure_at_frame,
                         rescan_at_frame,
@@ -281,6 +284,7 @@ impl Options {
             }
             positions = configured.positions;
             refresh_millihz = configured.refresh_millihz;
+            vrr_outputs = configured.vrr_outputs;
             system_bar = configured.system_bar;
             maximize_padding = configured.maximize_padding;
         }
@@ -343,6 +347,7 @@ impl Options {
             max_outputs,
             positions,
             refresh_millihz,
+            vrr_outputs,
             next_positions,
             reconfigure_at_frame,
             rescan_at_frame,
@@ -442,6 +447,7 @@ fn parse_system_bar_spec(value: &str) -> Result<SystemBarOptions, Box<dyn Error>
 struct OutputConfig {
     positions: BTreeMap<String, LogicalPoint>,
     refresh_millihz: BTreeMap<String, u32>,
+    vrr_outputs: BTreeSet<String>,
     system_bar: Option<SystemBarOptions>,
     maximize_padding: Option<f64>,
 }
@@ -545,6 +551,24 @@ fn parse_output_config(contents: &str) -> Result<OutputConfig, String> {
             );
             continue;
         }
+        if let Some((key, output)) = line.split_once('=')
+            && key.trim() == "vrr"
+        {
+            let output = output.trim();
+            if output.is_empty() {
+                return Err(format!("line {}: VRR output name is empty", index + 1));
+            }
+            if config.vrr_outputs.len() == MAX_CONFIGURED_OUTPUTS {
+                return Err(format!(
+                    "line {}: output config exceeds the {MAX_CONFIGURED_OUTPUTS}-output VRR limit",
+                    index + 1
+                ));
+            }
+            if !config.vrr_outputs.insert(output.to_owned()) {
+                return Err(format!("line {}: duplicate VRR output {output}", index + 1));
+            }
+            continue;
+        }
         let (name, position, refresh_millihz) = parse_output_config_entry(line)
             .map_err(|error| format!("line {}: {error}", index + 1))?;
         if config.positions.contains_key(&name) {
@@ -623,7 +647,7 @@ mod tests {
     #[test]
     fn output_config_accepts_positions_and_optional_refresh_rates() {
         let config = parse_output_config(
-            "# physical desk profile\nDP-5 = 0, 0, 200\nDP-4=2560,-120 # raised display\n",
+            "# physical desk profile\nDP-5 = 0, 0, 200\nDP-4=2560,-120 # raised display\nvrr=DP-4\n",
         )
         .expect("valid output config");
 
@@ -632,6 +656,17 @@ mod tests {
         assert_eq!(config.positions["DP-4"], LogicalPoint::new(2560, -120));
         assert_eq!(config.refresh_millihz["DP-5"], 200_000);
         assert!(!config.refresh_millihz.contains_key("DP-4"));
+        assert_eq!(config.vrr_outputs, BTreeSet::from(["DP-4".to_owned()]));
+    }
+
+    #[test]
+    fn output_config_rejects_invalid_vrr_outputs() {
+        let empty = parse_output_config("vrr=\n").expect_err("empty VRR output must fail");
+        assert!(empty.contains("VRR output name is empty"));
+
+        let duplicate = parse_output_config("vrr=DP-4\nvrr=DP-4\n")
+            .expect_err("duplicate VRR output must fail");
+        assert!(duplicate.contains("duplicate VRR output DP-4"));
     }
 
     #[test]

@@ -507,7 +507,7 @@ pub(super) fn choose_output_geometry(
     best.map(|candidate| (candidate.id, candidate.geometry))
 }
 
-fn clamp_window_geometry(
+pub(super) fn clamp_window_geometry(
     geometry: Rectangle<i32, Logical>,
     output: Rectangle<i32, Logical>,
 ) -> Rectangle<i32, Logical> {

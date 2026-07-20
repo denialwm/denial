@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use denial_core::topology::OutputId;
@@ -13,6 +14,16 @@ use super::kms_state::{AtlasSwapchain, Scanout};
 use super::{PresentedOutput, RuntimeState};
 
 const MAX_ATOMIC_PLANE_PROPERTIES: usize = 6;
+static NEXT_READY_FENCE_TOKEN: AtomicU64 = AtomicU64::new(1);
+
+fn next_ready_fence_token() -> u64 {
+    loop {
+        let token = NEXT_READY_FENCE_TOKEN.fetch_add(1, Ordering::Relaxed);
+        if token != 0 {
+            return token;
+        }
+    }
+}
 
 #[derive(Debug)]
 struct OutputFrame {
@@ -31,20 +42,41 @@ pub(super) struct PhysicalVsync {
 struct ReadyFenceSlot {
     fence: Option<OwnedFd>,
     users: usize,
+    token: u64,
+    signaled: bool,
 }
 
 impl ReadyFenceSlot {
     fn is_available(&self) -> bool {
-        self.users == 0 && self.fence.is_none()
+        self.users == 0 && self.fence.is_none() && self.token == 0 && !self.signaled
     }
 
-    fn claim(&mut self, fence: Option<OwnedFd>, users: usize) -> Result<(), &'static str> {
-        if users == 0 || !self.is_available() {
+    fn claim(
+        &mut self,
+        fence: Option<OwnedFd>,
+        users: usize,
+        token: u64,
+    ) -> Result<(), &'static str> {
+        if users == 0 || token == 0 || !self.is_available() {
             return Err("Flutter fence slot is already claimed or has no users");
         }
+        self.signaled = fence.is_none();
         self.fence = fence;
         self.users = users;
+        self.token = token;
         Ok(())
+    }
+
+    fn mark_signaled(&mut self, token: u64) -> bool {
+        if token == 0 || token != self.token || self.users == 0 {
+            return false;
+        }
+        self.signaled = true;
+        true
+    }
+
+    fn can_submit(&self) -> bool {
+        self.users > 0 && self.signaled
     }
 
     fn release_user(&mut self) -> Result<(), &'static str> {
@@ -54,8 +86,28 @@ impl ReadyFenceSlot {
             .ok_or("Flutter frame has no pending fence user")?;
         if self.users == 0 {
             self.fence = None;
+            self.token = 0;
+            self.signaled = false;
         }
         Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct ReadyFenceSignal {
+    index: usize,
+    token: u64,
+}
+
+#[derive(Debug)]
+pub(super) struct ReadyFenceWatch {
+    fence: OwnedFd,
+    signal: ReadyFenceSignal,
+}
+
+impl ReadyFenceWatch {
+    pub(super) fn into_parts(self) -> (OwnedFd, ReadyFenceSignal) {
+        (self.fence, self.signal)
     }
 }
 
@@ -241,7 +293,7 @@ impl OutputScheduler {
         runtime: &FlutterRuntime,
         ready: ReadyFrame,
         scanouts: &[Scanout],
-    ) -> Result<usize, Box<dyn Error>> {
+    ) -> Result<Option<ReadyFenceWatch>, Box<dyn Error>> {
         let ReadyFrame {
             index,
             fence,
@@ -270,10 +322,15 @@ impl OutputScheduler {
         runtime.publish_to_outputs(index, self.affected_pipelines.len())?;
         self.latest_index = index;
         if self.affected_pipelines.is_empty() {
-            return Ok(0);
+            return Ok(None);
         }
 
-        self.ready_fences[index].claim(fence, self.affected_pipelines.len())?;
+        let watch_fence = fence
+            .as_ref()
+            .map(|fence| fence.as_fd().try_clone_to_owned())
+            .transpose()?;
+        let token = next_ready_fence_token();
+        self.ready_fences[index].claim(fence, self.affected_pipelines.len(), token)?;
         for pipeline_index in self.affected_pipelines.iter().copied() {
             let pipeline = &mut self.pipelines[pipeline_index];
             if let Some(superseded) = pipeline.ready.take() {
@@ -296,7 +353,21 @@ impl OutputScheduler {
                 repeated: false,
             });
         }
-        Ok(self.affected_pipelines.len())
+        Ok(watch_fence.map(|fence| ReadyFenceWatch {
+            fence,
+            signal: ReadyFenceSignal { index, token },
+        }))
+    }
+
+    pub(super) fn acknowledge_ready_fences(
+        &mut self,
+        signals: impl IntoIterator<Item = ReadyFenceSignal>,
+    ) {
+        for signal in signals {
+            if let Some(slot) = self.ready_fences.get_mut(signal.index) {
+                slot.mark_signaled(signal.token);
+            }
+        }
     }
 
     pub(super) fn submit_ready(
@@ -316,6 +387,15 @@ impl OutputScheduler {
             let scanout = &scanouts[pipeline.scanout_index];
             let frame = pipeline.ready.as_ref().expect("checked ready output frame");
             let frame_index = frame.index;
+            if !ready_fences[frame_index].can_submit() {
+                // Keep unfinished GPU work out of KMS. An IN_FENCE_FD queued
+                // here would occupy the CRTC's sole pending commit until the
+                // fence signaled, suppressing physical edges and allowing the
+                // producer mailbox to build a burst behind it. The calloop
+                // fence watch wakes the scheduler as soon as this frame is
+                // genuinely eligible for the next vblank.
+                continue;
+            }
             let framebuffer = swapchain.buffers[frame_index].framebuffer();
             if let Err(error) = pipeline.request.queue(
                 drm,
@@ -492,6 +572,12 @@ impl OutputScheduler {
             .any(|pipeline| pipeline.submitted.is_some())
     }
 
+    pub(super) fn has_pending_scanout_work(&self) -> bool {
+        self.pipelines
+            .iter()
+            .any(|pipeline| pipeline.ready.is_some() || pipeline.submitted.is_some())
+    }
+
     /// Brings every CRTC onto one complete atlas generation before a topology
     /// transaction. The steady-state path is deliberately per-output; the
     /// temporary convergence gives the existing rollback journal one truthful
@@ -504,8 +590,8 @@ impl OutputScheduler {
         scanouts: &[Scanout],
         events: &mut RuntimeState,
     ) -> Result<usize, Box<dyn Error>> {
-        if self.has_submitted() {
-            return Err("cannot converge outputs while a page flip is submitted".into());
+        if self.has_pending_scanout_work() {
+            return Err("cannot converge outputs while a frame is ready or submitted".into());
         }
         if self.pipelines.len() != scanouts.len() {
             return Err("output scheduler topology no longer matches KMS scanouts".into());
@@ -566,22 +652,42 @@ const fn output_pulse_required(
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::net::UnixStream;
+
     use super::{ReadyFenceSlot, output_pulse_required};
 
     #[test]
     fn ready_fence_slot_closes_only_after_its_last_pipeline_user() {
         let mut slot = ReadyFenceSlot::default();
         assert!(slot.is_available());
-        slot.claim(None, 2).unwrap();
+        slot.claim(None, 2, 11).unwrap();
         assert!(!slot.is_available());
-        assert!(slot.claim(None, 1).is_err());
+        assert!(slot.can_submit());
+        assert!(slot.claim(None, 1, 12).is_err());
 
         slot.release_user().unwrap();
         assert_eq!(slot.users, 1);
         slot.release_user().unwrap();
         assert!(slot.is_available());
         assert!(slot.release_user().is_err());
-        assert!(slot.claim(None, 0).is_err());
+        assert!(slot.claim(None, 0, 13).is_err());
+        assert!(slot.claim(None, 1, 0).is_err());
+    }
+
+    #[test]
+    fn ready_fence_slot_ignores_stale_signals() {
+        let mut slot = ReadyFenceSlot::default();
+        let (fence, _peer) = UnixStream::pair().unwrap();
+        slot.claim(Some(fence.into()), 1, 21).unwrap();
+        assert!(!slot.can_submit());
+        assert!(!slot.mark_signaled(20));
+        assert!(!slot.can_submit());
+        assert!(slot.mark_signaled(21));
+        assert!(slot.can_submit());
+
+        slot.release_user().unwrap();
+        assert!(!slot.mark_signaled(21));
+        assert!(slot.is_available());
     }
 
     #[test]

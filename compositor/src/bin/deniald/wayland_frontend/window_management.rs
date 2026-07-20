@@ -21,6 +21,8 @@ use super::super::PendingWindowEvent;
 use super::super::RuntimeState;
 use super::super::window_grab::constrain_dimension;
 #[cfg(feature = "flutter")]
+use super::super::window_placement_store::RestoredWindowPlacement;
+#[cfg(feature = "flutter")]
 use super::super::wire::{
     WindowAction, WindowCommand, WindowPlacementChange, WindowPlacementPhase,
 };
@@ -38,7 +40,7 @@ fn bound_geometry_size(mut geometry: Rectangle<i32, Logical>) -> Rectangle<i32, 
 const SHELL_FRAME_BORDER: i32 = 1;
 
 #[cfg(feature = "flutter")]
-fn shell_draws_server_frame(window: &Window) -> bool {
+pub(super) fn shell_draws_server_frame(window: &Window) -> bool {
     if window.toplevel().is_some() {
         return true;
     }
@@ -48,7 +50,7 @@ fn shell_draws_server_frame(window: &Window) -> bool {
 }
 
 #[cfg(feature = "flutter")]
-fn shell_content_geometry(
+pub(super) fn shell_content_geometry(
     mut frame: Rectangle<i32, Logical>,
     server_side_decorated: bool,
 ) -> Rectangle<i32, Logical> {
@@ -277,9 +279,39 @@ pub(super) fn queue_window_placement_for_monitor(
         };
         placement
     };
+    if phase == WindowPlacementPhase::End {
+        state
+            .wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .remember_window_geometry(window, geometry);
+    }
     state
         .pending_window_events
         .push(PendingWindowEvent::Placement(placement));
+}
+
+#[cfg(feature = "flutter")]
+pub(super) fn queue_restored_window_state(
+    state: &mut RuntimeState,
+    window: &Window,
+    restored: RestoredWindowPlacement,
+    target: Rectangle<i32, Logical>,
+) {
+    queue_window_placement_for_monitor(
+        state,
+        window,
+        restored.geometry,
+        target,
+        WindowPlacementPhase::End,
+        WindowPlacementChange::Resize,
+    );
+    if restored.state.maximized {
+        queue_window_action_for_window(state, window, WindowAction::Maximize);
+    }
+    if restored.state.fullscreen {
+        queue_window_action_for_window(state, window, WindowAction::ToggleFullscreen);
+    }
 }
 
 #[cfg(feature = "flutter")]
@@ -403,7 +435,7 @@ pub(super) fn toggle_shell_maximize_focused_toplevel(state: &mut RuntimeState) -
         (false, false)
     };
 
-    let target = {
+    let (target, action) = {
         let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
         if client_fullscreen || frontend.window_geometry_locked(&window) {
             // SUPER+Up is a no-op while true fullscreen is active.
@@ -418,13 +450,13 @@ pub(super) fn toggle_shell_maximize_focused_toplevel(state: &mut RuntimeState) -
             .remove(&surface_id)
         {
             frontend.restore_window_geometries.remove(&surface_id);
-            bound_geometry_size(restore)
+            (bound_geometry_size(restore), WindowAction::Restore)
         } else if client_maximized {
             let restore = frontend
                 .restore_window_geometries
                 .remove(&surface_id)
                 .unwrap_or_else(|| frontend.window_geometry_target(&window));
-            bound_geometry_size(restore)
+            (bound_geometry_size(restore), WindowAction::Restore)
         } else {
             let restore = bound_geometry_size(frontend.window_geometry_target(&window));
             let Some(output) = frontend
@@ -441,7 +473,7 @@ pub(super) fn toggle_shell_maximize_focused_toplevel(state: &mut RuntimeState) -
             frontend
                 .shell_maximize_restore_geometries
                 .insert(surface_id, restore);
-            target
+            (target, WindowAction::Maximize)
         }
     };
 
@@ -458,7 +490,15 @@ pub(super) fn toggle_shell_maximize_focused_toplevel(state: &mut RuntimeState) -
         .as_mut()
         .expect("missing Wayland frontend")
         .set_window_geometry_target(&window, target);
-    queue_window_action_for_window(state, &window, WindowAction::ToggleMaximize);
+    state
+        .wayland
+        .as_mut()
+        .expect("missing Wayland frontend")
+        .remember_window_placement(&window);
+    // State-setting actions are deliberate here. If Flutter is still
+    // reconciling a fresh window snapshot, an idempotent Restore/Maximize
+    // cannot invert the shell state the compositor just applied.
+    queue_window_action_for_window(state, &window, action);
     state.scene_sync.mark_dirty();
     true
 }
@@ -472,11 +512,18 @@ pub(super) fn toggle_shell_fullscreen_focused_toplevel(state: &mut RuntimeState)
     // state here: doing so asks the client to enter its own fullscreen mode.
     // Flutter tracks the restore frame and sends back a plain ConfigureWindow
     // command with the output-sized (or restored) geometry.
-    state
-        .wayland
-        .as_mut()
-        .expect("missing Wayland frontend")
-        .toggle_shell_fullscreen_lock(&window);
+    {
+        let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+        let Some(enabled) = frontend.toggle_shell_fullscreen_lock(&window) else {
+            return true;
+        };
+        frontend.remember_window_placement(&window);
+        if !enabled && let Some(root) = frontend.window_root_surface(&window) {
+            frontend
+                .shell_fullscreen_restore_geometries
+                .remove(&root.id());
+        }
+    }
     queue_window_action_for_window(state, &window, WindowAction::ToggleFullscreen);
     state.scene_sync.mark_dirty();
     true
@@ -583,6 +630,13 @@ pub(super) fn configure_toplevel_for_output(
     }
     #[cfg(not(feature = "flutter"))]
     let _ = restore_to_publish;
+    if changed {
+        state
+            .wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .remember_window_placement(&window);
+    }
     if surface.is_initial_configure_sent() {
         surface.send_configure();
     }
@@ -633,14 +687,14 @@ pub(super) fn clear_toplevel_state(
             .restore_window_geometries
             .remove(&surface_id)
             .map(bound_geometry_size);
-        match (window, restore) {
+        match (window.as_ref(), restore) {
             (Some(window), Some(restore)) => {
                 surface.with_pending_state(|pending| pending.size = Some(restore.size));
                 state
                     .wayland
                     .as_mut()
                     .expect("missing Wayland frontend")
-                    .set_window_geometry_target(&window, restore);
+                    .set_window_geometry_target(window, restore);
             }
             _ => {
                 state
@@ -651,6 +705,13 @@ pub(super) fn clear_toplevel_state(
                     .remove(&surface_id);
             }
         }
+    }
+    if changed && let Some(window) = window.as_ref() {
+        state
+            .wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .remember_window_placement(window);
     }
     if surface.is_initial_configure_sent() {
         surface.send_configure();

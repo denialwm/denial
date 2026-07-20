@@ -1,0 +1,86 @@
+diff --git a/flutter/flow/compositor_context.h b/flutter/flow/compositor_context.h
+--- a/flutter/flow/compositor_context.h
++++ b/flutter/flow/compositor_context.h
+@@ -137,7 +137,8 @@ class CompositorContext {
+ 
+     virtual RasterStatus Raster(LayerTree& layer_tree,
+                                 bool ignore_raster_cache,
+-                                FrameDamage* frame_damage);
++                                FrameDamage* frame_damage,
++                                bool force_full_repaint = false);
+ 
+    private:
+     void PaintLayerTreeSkia(flutter::LayerTree& layer_tree,
+diff --git a/flutter/flow/compositor_context.cc b/flutter/flow/compositor_context.cc
+--- a/flutter/flow/compositor_context.cc
++++ b/flutter/flow/compositor_context.cc
+@@ -117,7 +117,8 @@ CompositorContext::ScopedFrame::~ScopedFrame() {
+ RasterStatus CompositorContext::ScopedFrame::Raster(
+     flutter::LayerTree& layer_tree,
+     bool ignore_raster_cache,
+-    FrameDamage* frame_damage) {
++    FrameDamage* frame_damage,
++    bool force_full_repaint) {
+   TRACE_EVENT0("flutter", "CompositorContext::ScopedFrame::Raster");
+ 
+   std::optional<SkRect> clip_rect;
+@@ -125,7 +126,10 @@ RasterStatus CompositorContext::ScopedFrame::Raster(
+     clip_rect = frame_damage->ComputeClipRect(layer_tree, !ignore_raster_cache,
+                                               !gr_context_);
+ 
+-    if (aiks_context_ &&
+-        !ShouldPerformPartialRepaint(clip_rect, layer_tree.frame_size())) {
++    if (force_full_repaint) {
++      clip_rect = std::nullopt;
++      frame_damage->Reset();
++    } else if (aiks_context_ && !ShouldPerformPartialRepaint(
++                                    clip_rect, layer_tree.frame_size())) {
+       clip_rect = std::nullopt;
+       frame_damage->Reset();
+diff --git a/flutter/shell/common/rasterizer.h b/flutter/shell/common/rasterizer.h
+--- a/flutter/shell/common/rasterizer.h
++++ b/flutter/shell/common/rasterizer.h
+@@ -736,6 +736,7 @@ class Rasterizer final : public SnapshotDelegate {
+       int64_t view_id,
+       flutter::LayerTree& layer_tree,
+       const flutter::LayerTree* previous_layer_tree,
++      bool force_full_repaint,
+       float device_pixel_ratio,
+       std::optional<fml::TimePoint> presentation_time);
+ 
+diff --git a/flutter/shell/common/rasterizer.cc b/flutter/shell/common/rasterizer.cc
+--- a/flutter/shell/common/rasterizer.cc
++++ b/flutter/shell/common/rasterizer.cc
+@@ -660,7 +660,7 @@ std::unique_ptr<FrameItem> Rasterizer::DrawToSurfacesUnsafe(
+ 
+-    DrawSurfaceStatus status =
+-        DrawToSurfaceUnsafe(view_id, *layer_tree, previous_layer_tree,
+-                            device_pixel_ratio, presentation_time);
++    DrawSurfaceStatus status = DrawToSurfaceUnsafe(
++        view_id, *layer_tree, previous_layer_tree, is_reused_layer_tree,
++        device_pixel_ratio, presentation_time);
+     FML_DCHECK(status != DrawSurfaceStatus::kDiscarded);
+ 
+     auto& view_record = EnsureViewRecord(task->view_id);
+@@ -704,6 +704,7 @@ DrawSurfaceStatus Rasterizer::DrawToSurfaceUnsafe(
+     int64_t view_id,
+     flutter::LayerTree& layer_tree,
+     const flutter::LayerTree* previous_layer_tree,
++    bool force_full_repaint,
+     float device_pixel_ratio,
+     std::optional<fml::TimePoint> presentation_time) {
+   FML_DCHECK(surface_);
+@@ -777,9 +778,10 @@ DrawSurfaceStatus Rasterizer::DrawToSurfaceUnsafe(
+     }
+ 
+     RasterStatus frame_status =
+-        compositor_frame->Raster(layer_tree,           // layer tree
+-                                 ignore_raster_cache,  // ignore raster cache
+-                                 damage.get()          // frame damage
++        compositor_frame->Raster(layer_tree,           // layer tree
++                                 ignore_raster_cache,  // ignore raster cache
++                                 damage.get(),         // frame damage
++                                 force_full_repaint    // raster policy
+         );
+     if (frame_status == RasterStatus::kSkipAndRetry) {
+       return DrawSurfaceStatus::kRetry;

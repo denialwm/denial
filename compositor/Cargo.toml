@@ -34,6 +34,8 @@ kms = [
     "dep:calloop",
     "dep:drm-ffi",
     "dep:libloading",
+    "dep:serde",
+    "dep:serde_json",
     "dep:smithay",
     "dep:smithay-drm-extras",
     "dep:tracing",

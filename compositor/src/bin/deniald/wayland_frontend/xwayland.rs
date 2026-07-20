@@ -26,9 +26,12 @@ use super::super::wire::WindowAction;
 use super::super::wire::{WindowPlacementChange, WindowPlacementPhase};
 #[cfg(feature = "flutter")]
 use super::window_management::{
-    queue_window_action_for_window, queue_window_placement_for_monitor,
+    queue_restored_window_state, queue_window_action_for_window, queue_window_placement_for_monitor,
 };
-use super::{KeyboardFocusTarget, MoveSurfaceGrab, ResizeEdges, X11ResizeSurfaceGrab};
+use super::{
+    KeyboardFocusTarget, MoveSurfaceGrab, ResizeEdges, WindowIdentity, X11ResizeSurfaceGrab,
+    clamp_window_geometry, constrain_dimension,
+};
 
 #[cfg(feature = "flutter")]
 fn queue_x11_action(state: &mut RuntimeState, surface: &X11Surface, action: WindowAction) {
@@ -137,10 +140,10 @@ fn map_x11_window(state: &mut RuntimeState, surface: X11Surface, override_redire
 
     let geometry = surface.last_configure();
     let window = Window::new_x11_window(surface.clone());
-    let configured = {
+    let (configured, restored_record) = {
         let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
-        let configured = if override_redirect {
-            geometry
+        let (configured, restored_record) = if override_redirect {
+            (geometry, None)
         } else {
             let transient_parent = surface.is_transient_for().and_then(|parent_id| {
                 frontend.space.elements().find_map(|candidate| {
@@ -169,7 +172,40 @@ fn map_x11_window(state: &mut RuntimeState, surface: X11Surface, override_redire
                 })
                 .or_else(|| frontend.outputs.first().map(|entry| entry.logical_geometry))
                 .unwrap_or(frontend.desktop_bounds);
-            initial_managed_x11_geometry(geometry, output, transient_parent.unwrap_or(output))
+            let initial =
+                initial_managed_x11_geometry(geometry, output, transient_parent.unwrap_or(output));
+            let identity = WindowIdentity::x11(&surface.class());
+            let restored = identity.and_then(|identity| {
+                transient_parent
+                    .is_none()
+                    .then(|| frontend.restored_placement_for_identity(&identity, output))
+                    .flatten()
+                    .map(|restored| (identity, restored))
+            });
+            match restored {
+                Some((identity, mut restored)) => {
+                    let minimum = surface.min_size().unwrap_or_else(|| Size::from((1, 1)));
+                    let maximum = surface.max_size().unwrap_or_else(|| Size::from((0, 0)));
+                    restored.geometry.size = Size::from((
+                        constrain_dimension(restored.geometry.size.w, minimum.w, maximum.w),
+                        constrain_dimension(restored.geometry.size.h, minimum.h, maximum.h),
+                    ));
+                    if let Some(output) = frontend.output_for_geometry(restored.geometry) {
+                        restored.geometry =
+                            clamp_window_geometry(restored.geometry, output.logical_geometry);
+                    }
+                    #[cfg(feature = "flutter")]
+                    let target = frontend.apply_restored_window_state(
+                        &window,
+                        restored.geometry,
+                        restored.state,
+                    );
+                    #[cfg(not(feature = "flutter"))]
+                    let target = restored.geometry;
+                    (target, Some((identity, restored)))
+                }
+                None => (initial, None),
+            }
         };
         frontend
             .space
@@ -182,8 +218,22 @@ fn map_x11_window(state: &mut RuntimeState, surface: X11Surface, override_redire
                 }
             }
         }
-        configured
+        (configured, restored_record)
     };
+
+    if let Some((identity, restored)) = restored_record.as_ref() {
+        info!(
+            backend = ?identity.backend(),
+            app_id = identity.app_id(),
+            x = configured.loc.x,
+            y = configured.loc.y,
+            width = configured.size.w,
+            height = configured.size.h,
+            maximized = restored.state.maximized,
+            fullscreen = restored.state.fullscreen,
+            "restored saved window placement"
+        );
+    }
 
     if !override_redirect && let Err(error) = surface.configure(configured) {
         warn!(%error, window = surface.window_id(), "could not configure a new X11 window");
@@ -198,6 +248,10 @@ fn map_x11_window(state: &mut RuntimeState, surface: X11Surface, override_redire
             .as_mut()
             .expect("missing Wayland frontend")
             .set_window_geometry_target(&window, configured);
+        #[cfg(feature = "flutter")]
+        if let Some((_, restored)) = restored_record {
+            queue_restored_window_state(state, &window, restored, configured);
+        }
     }
 
     if !override_redirect {
@@ -253,6 +307,7 @@ fn unmap_x11_window(state: &mut RuntimeState, surface: &X11Surface) {
         let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
         #[cfg(feature = "flutter")]
         frontend.invalidate_window_input_routes(&window);
+        frontend.remember_window_placement(&window);
         frontend.space.unmap_elem(&window);
         if was_focused {
             let next = frontend
@@ -376,6 +431,11 @@ fn configure_x11_for_output(
     }
     #[cfg(not(feature = "flutter"))]
     let _ = restore_to_publish;
+    state
+        .wayland
+        .as_mut()
+        .expect("missing Wayland frontend")
+        .remember_window_placement(&window);
     state.scene_sync.mark_dirty();
 }
 
