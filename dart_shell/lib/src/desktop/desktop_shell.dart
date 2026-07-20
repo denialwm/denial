@@ -1803,62 +1803,122 @@ class _DesktopWindowFrame extends StatelessWidget {
                 curve: Motion.md3EmphasizedAccelerate,
                 opacity: minimized ? 0.0 : 1.0,
                 child: RepaintBoundary(
-                  child: Semantics(
-                    button: overview,
-                    label: overview ? 'Activate ${window.displayTitle}' : null,
-                    child: MouseRegion(
-                      cursor: overview
-                          ? ShellMouseCursors.link
-                          : ShellMouseCursors.normal,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: overview ? onOverviewTap : null,
-                        child: Builder(
-                          builder: (context) {
-                            final client = ClipRRect(
-                              borderRadius: BorderRadius.circular(
-                                math.max(0.0, windowRadius - 1.0),
+                  child: _DesktopOverviewPreviewInteraction(
+                    overview: overview,
+                    label: 'Activate ${window.displayTitle}',
+                    onTap: onOverviewTap,
+                    child: Builder(
+                      builder: (context) {
+                        final client = ClipRRect(
+                          borderRadius: BorderRadius.circular(
+                            math.max(0.0, windowRadius - 1.0),
+                          ),
+                          child: Padding(
+                            // The native client keeps its real geometry
+                            // during overview; only its live texture scales.
+                            padding: drawsServerFrame
+                                ? const EdgeInsets.all(
+                                    DesktopMetrics.frameBorder,
+                                  )
+                                : EdgeInsets.zero,
+                            child: SizedBox.expand(
+                              child: _DesktopSurfaceTexture(
+                                window: window,
+                                smooth: transformed || resizing,
                               ),
-                              child: Padding(
-                                // The native client keeps its real geometry
-                                // during overview; only its live texture scales.
-                                padding: drawsServerFrame
-                                    ? const EdgeInsets.all(
-                                        DesktopMetrics.frameBorder,
-                                      )
-                                    : EdgeInsets.zero,
-                                child: SizedBox.expand(
-                                  child: _DesktopSurfaceTexture(
-                                    window: window,
-                                    smooth: transformed || resizing,
-                                  ),
-                                ),
-                              ),
-                            );
-                            if (!drawsServerFrame) {
-                              return client;
-                            }
-                            return DesktopWindowFrameLayers(
-                              windowId: window.objectId,
-                              borderPainter: _DesktopWindowBorderPainter(
-                                windowId: window.objectId,
-                                color: window.pinned
-                                    ? ShellColors.pinnedWindowBorder
-                                    : active
-                                        ? ShellColors.focusedWindowBorder
-                                        : ShellColors.hairlineWindow,
-                                devicePixelRatio: devicePixelRatio,
-                              ),
-                              child: client,
-                            );
-                          },
-                        ),
-                      ),
+                            ),
+                          ),
+                        );
+                        if (!drawsServerFrame) {
+                          return client;
+                        }
+                        return DesktopWindowFrameLayers(
+                          windowId: window.objectId,
+                          borderPainter: _DesktopWindowBorderPainter(
+                            windowId: window.objectId,
+                            color: window.pinned
+                                ? ShellColors.pinnedWindowBorder
+                                : active
+                                    ? ShellColors.focusedWindowBorder
+                                    : ShellColors.hairlineWindow,
+                            devicePixelRatio: devicePixelRatio,
+                          ),
+                          child: client,
+                        );
+                      },
                     ),
                   ),
                 ),
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopOverviewPreviewInteraction extends StatefulWidget {
+  const _DesktopOverviewPreviewInteraction({
+    required this.overview,
+    required this.label,
+    required this.onTap,
+    required this.child,
+  });
+
+  final bool overview;
+  final String label;
+  final VoidCallback onTap;
+  final Widget child;
+
+  @override
+  State<_DesktopOverviewPreviewInteraction> createState() =>
+      _DesktopOverviewPreviewInteractionState();
+}
+
+class _DesktopOverviewPreviewInteractionState
+    extends State<_DesktopOverviewPreviewInteraction> {
+  static const double _hoverScale = 1.025;
+
+  bool _hovered = false;
+
+  @override
+  void didUpdateWidget(covariant _DesktopOverviewPreviewInteraction oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.overview) {
+      _hovered = false;
+    }
+  }
+
+  void _setHovered(bool hovered) {
+    if (!widget.overview || _hovered == hovered) {
+      return;
+    }
+    setState(() => _hovered = hovered);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hovered = widget.overview && _hovered;
+    return Semantics(
+      button: widget.overview,
+      label: widget.overview ? widget.label : null,
+      child: MouseRegion(
+        cursor: widget.overview
+            ? ShellMouseCursors.link
+            : ShellMouseCursors.normal,
+        onEnter: widget.overview ? (_) => _setHovered(true) : null,
+        onExit: widget.overview ? (_) => _setHovered(false) : null,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.overview ? widget.onTap : null,
+          child: AnimatedScale(
+            duration: Motion.tile,
+            curve: hovered
+                ? Motion.md3EmphasizedDecelerate
+                : Motion.md3EmphasizedAccelerate,
+            scale: hovered ? _hoverScale : 1.0,
+            child: widget.child,
           ),
         ),
       ),
