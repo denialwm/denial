@@ -309,6 +309,111 @@ void main() {
     );
   });
 
+  test('overview drag transfers a normal window to another monitor', () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    final window = _window(objectId: 1, windowId: 11, monitorId: 1);
+    controller.syncWindows(<DenialWindow>[window], viewSize, 1);
+    controller.toggleOverview(
+      monitorId: 1,
+      bounds: const Rect.fromLTWH(0, 0, 2560, 1440),
+      backgroundBounds: const Rect.fromLTWH(0, 0, 2560, 1440),
+      objectIds: const <int>{1},
+    );
+
+    controller.beginOverviewDrag(1);
+    controller.moveOverviewBy(1, const Offset(2560, 0));
+    final previewCenter = controller.state.overview!.frames[1]!.center;
+    final transferred = controller.endOverviewDrag(
+      1,
+      outputBounds: const <int, Rect>{
+        1: Rect.fromLTWH(0, 0, 2560, 1440),
+        2: secondOutput,
+      },
+      workAreas: const <int, Rect>{
+        1: Rect.fromLTWH(0, 0, 2560, 1440),
+        2: secondOutput,
+      },
+    );
+
+    final placement = controller.state.placements[1]!;
+    expect(transferred, isTrue);
+    expect(controller.state.overview, isNull);
+    expect(placement.monitorId, 2);
+    expect(placement.dragging, isFalse);
+    expect(placement.frame.center, previewCenter);
+    expect(secondOutput.contains(placement.frame.topLeft), isTrue);
+    expect(
+      secondOutput.contains(placement.frame.bottomRight - const Offset(1, 1)),
+      isTrue,
+    );
+  });
+
+  test('cancelled overview drag restores its arranged preview', () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    final window = _window(objectId: 1, windowId: 11, monitorId: 1);
+    controller.syncWindows(<DenialWindow>[window], viewSize, 1);
+    controller.toggleOverview(
+      monitorId: 1,
+      bounds: const Rect.fromLTWH(0, 0, 2560, 1440),
+      backgroundBounds: const Rect.fromLTWH(0, 0, 2560, 1440),
+      objectIds: const <int>{1},
+    );
+    final origin = controller.state.overview!.frames[1];
+
+    controller.beginOverviewDrag(1);
+    controller.moveOverviewBy(1, const Offset(240, 120));
+    expect(controller.state.overview!.frames[1], isNot(origin));
+    controller.cancelOverviewDrag(1);
+
+    expect(controller.state.overview!.frames[1], origin);
+    expect(controller.state.placements[1]!.dragging, isFalse);
+  });
+
+  test('overview transfer preserves maximized restore geometry', () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    final window = _window(objectId: 1, windowId: 11, monitorId: 1);
+    controller.syncWindows(<DenialWindow>[window], viewSize, 1);
+    final originalFrame = controller.state.placements[1]!.frame;
+    controller.toggleMaximized(
+      1,
+      bounds: const Rect.fromLTWH(0, 0, 2560, 1440),
+    );
+    controller.toggleOverview(
+      monitorId: 1,
+      bounds: const Rect.fromLTWH(0, 0, 2560, 1440),
+      backgroundBounds: const Rect.fromLTWH(0, 0, 2560, 1440),
+      objectIds: const <int>{1},
+    );
+
+    controller.beginOverviewDrag(1);
+    controller.moveOverviewBy(1, const Offset(2560, 0));
+    expect(
+      controller.endOverviewDrag(
+        1,
+        outputBounds: const <int, Rect>{
+          1: Rect.fromLTWH(0, 0, 2560, 1440),
+          2: secondOutput,
+        },
+        workAreas: const <int, Rect>{
+          1: Rect.fromLTWH(0, 0, 2560, 1440),
+          2: secondOutput,
+        },
+      ),
+      isTrue,
+    );
+
+    final placement = controller.state.placements[1]!;
+    expect(placement.maximized, isTrue);
+    expect(placement.frame, secondOutput);
+    expect(
+      placement.restoreFrame,
+      originalFrame.shift(const Offset(2560, 0)),
+    );
+  });
+
   test(
       'newer snapshots reconcile placement but older snapshots cannot roll it back',
       () {
