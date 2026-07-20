@@ -259,6 +259,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
             session.clone(),
             &seat_name,
             drm_fd.clone(),
+            options.work_area.clone(),
         )?;
         info!(
             wayland_display = ?frontend.socket_name(),
@@ -442,6 +443,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
                 .as_ref()
                 .map(|frontend| frontend.socket_name().to_os_string()),
             wayland.as_ref().map(|frontend| frontend.xdisplay_name()),
+            options.work_area.clone(),
         )?)
     } else {
         None
@@ -1915,10 +1917,19 @@ fn synchronize_flutter_input_layout(
     let Some(layout) = runtime.take_input_layout_update() else {
         return;
     };
-    if let Some(frontend) = events.wayland.as_mut()
-        && let Some(previous) = frontend.install_input_layout(layout)
-    {
+    let Some(frontend) = events.wayland.as_mut() else {
+        return;
+    };
+    let (previous, sampling_changed) = frontend.install_input_layout(layout);
+    if let Some(previous) = previous {
         runtime.recycle_input_layout(previous);
+    }
+    if sampling_changed {
+        // `expects_sample` is part of the external-texture mailbox contract,
+        // not the Dart window metadata. Republish the scene when a window
+        // enters or leaves Flutter's sampled set even if no client committed
+        // another buffer during the visibility transition.
+        events.scene_sync.mark_dirty();
     }
 }
 

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/widgets.dart';
 
 enum SystemBarSide {
@@ -41,6 +43,8 @@ class DisplayLayout {
     required this.systemBarMonitorId,
     required this.systemBarSide,
     required this.outputs,
+    this.systemBarThickness = 0.0,
+    this.maximizePadding = 0.0,
   });
 
   factory DisplayLayout.fallback(Size logicalSize, double scale) {
@@ -53,7 +57,9 @@ class DisplayLayout {
       engineScale: safeScale,
       tickerMonitorId: 0,
       systemBarMonitorId: 0,
-      systemBarSide: SystemBarSide.left,
+      systemBarSide: SystemBarSide.top,
+      systemBarThickness: 32.0,
+      maximizePadding: 10.0,
       outputs: <DisplayOutput>[
         DisplayOutput(
           monitorId: 0,
@@ -75,6 +81,12 @@ class DisplayLayout {
   final int tickerMonitorId;
   final int systemBarMonitorId;
   final SystemBarSide systemBarSide;
+  final double systemBarThickness;
+
+  /// Logical pixels of breathing room between a maximized window and every
+  /// output edge the system bar does not occupy. Zero keeps maximized
+  /// windows flush with the output edges.
+  final double maximizePadding;
   final List<DisplayOutput> outputs;
 
   DisplayOutput? get systemBarOutput {
@@ -84,6 +96,108 @@ class DisplayLayout {
       }
     }
     return outputs.isEmpty ? null : outputs.first;
+  }
+
+  /// Whether a system bar strip is configured and can land on an output.
+  bool get systemBarActive =>
+      systemBarSide != SystemBarSide.hidden &&
+      systemBarThickness > 0.0 &&
+      systemBarOutput != null;
+
+  /// The flush strip the system bar occupies inside [outputRect], or
+  /// [Rect.zero] when the bar is hidden. The strip is clamped so a
+  /// misconfigured thickness can never swallow the whole output.
+  Rect systemBarRectWithin(Rect outputRect) {
+    if (systemBarSide == SystemBarSide.hidden ||
+        systemBarThickness <= 0.0 ||
+        outputRect.isEmpty) {
+      return Rect.zero;
+    }
+    if (systemBarSide.isHorizontal) {
+      final thickness = math.min(systemBarThickness, outputRect.height / 2.0);
+      return systemBarSide == SystemBarSide.top
+          ? Rect.fromLTWH(
+              outputRect.left,
+              outputRect.top,
+              outputRect.width,
+              thickness,
+            )
+          : Rect.fromLTWH(
+              outputRect.left,
+              outputRect.bottom - thickness,
+              outputRect.width,
+              thickness,
+            );
+    }
+    final thickness = math.min(systemBarThickness, outputRect.width / 2.0);
+    return systemBarSide == SystemBarSide.left
+        ? Rect.fromLTWH(
+            outputRect.left,
+            outputRect.top,
+            thickness,
+            outputRect.height,
+          )
+        : Rect.fromLTWH(
+            outputRect.right - thickness,
+            outputRect.top,
+            thickness,
+            outputRect.height,
+          );
+  }
+
+  /// The system bar strip in desktop scene coordinates, or [Rect.zero] when
+  /// the bar is hidden.
+  Rect get systemBarRect {
+    final output = systemBarOutput;
+    if (!systemBarActive || output == null) {
+      return Rect.zero;
+    }
+    return systemBarRectWithin(output.logicalRect);
+  }
+
+  /// [outputRect] minus the system bar strip [bar] on [barSide], and minus
+  /// [maximizePadding] on every bar-free edge. The padding is clamped so a
+  /// misconfigured value can never swallow the output.
+  Rect _workAreaInset(Rect outputRect, Rect bar, SystemBarSide barSide) {
+    final padding = maximizePadding.isFinite && maximizePadding > 0.0
+        ? math.min(
+            maximizePadding,
+            math.min(outputRect.width, outputRect.height) / 4.0,
+          )
+        : 0.0;
+    return Rect.fromLTRB(
+      barSide == SystemBarSide.left ? bar.right : outputRect.left + padding,
+      barSide == SystemBarSide.top ? bar.bottom : outputRect.top + padding,
+      barSide == SystemBarSide.right ? bar.left : outputRect.right - padding,
+      barSide == SystemBarSide.bottom ? bar.top : outputRect.bottom - padding,
+    );
+  }
+
+  /// [outputRect] minus the system bar strip when the bar lives on that
+  /// output, and minus [maximizePadding] on every bar-free edge; windows
+  /// maximize into this area while true fullscreen keeps the complete output
+  /// rect.
+  Rect workAreaWithin(Rect outputRect) {
+    final bar = systemBarRectWithin(outputRect);
+    final barSide = bar.isEmpty ? SystemBarSide.hidden : systemBarSide;
+    return _workAreaInset(outputRect, bar, barSide);
+  }
+
+  Rect workAreaOf(DisplayOutput output) {
+    if (!systemBarActive || output.monitorId != systemBarOutput?.monitorId) {
+      return _workAreaInset(
+        output.logicalRect,
+        Rect.zero,
+        SystemBarSide.hidden,
+      );
+    }
+    return workAreaWithin(output.logicalRect);
+  }
+
+  Map<int, Rect> workAreasByMonitor() {
+    return <int, Rect>{
+      for (final output in outputs) output.monitorId: workAreaOf(output),
+    };
   }
 
   /// The output that owns shell experiences intended for the user's main

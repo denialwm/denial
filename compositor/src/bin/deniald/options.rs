@@ -10,6 +10,83 @@ const DEFAULT_DEVICE: &str = "/dev/dri/by-path/pci-0000:0a:00.0-card";
 const MAX_OUTPUT_CONFIG_BYTES: usize = 64 * 1024;
 const MAX_CONFIGURED_OUTPUTS: usize = 128;
 pub(super) const SIMULATED_HOTPLUG_GAP_FRAMES: u64 = 30;
+const DEFAULT_SYSTEM_BAR_THICKNESS: f64 = 32.0;
+const MAX_SYSTEM_BAR_THICKNESS: f64 = 512.0;
+const DEFAULT_MAXIMIZE_PADDING: f64 = 10.0;
+const MAX_MAXIMIZE_PADDING: f64 = 256.0;
+const SYSTEM_BAR_SPEC_HELP: &str = "system bar must use SIDE,THICKNESS[,OUTPUT] or hidden";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SystemBarSide {
+    Left,
+    Right,
+    Top,
+    Bottom,
+    Hidden,
+}
+
+/// Shell system bar placement. The bar itself is Flutter UI; deniald owns the
+/// configuration because monitor identity and hotplug are native concerns, and
+/// forwards the resolved placement through the display-layout snapshot.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct SystemBarOptions {
+    /// Connector name; `None` follows the render ticker output.
+    pub(super) output: Option<String>,
+    pub(super) side: SystemBarSide,
+    /// Logical pixels reserved across the configured side.
+    pub(super) thickness: f64,
+}
+
+impl Default for SystemBarOptions {
+    fn default() -> Self {
+        Self {
+            output: None,
+            side: SystemBarSide::Top,
+            thickness: DEFAULT_SYSTEM_BAR_THICKNESS,
+        }
+    }
+}
+
+impl SystemBarOptions {
+    pub(super) fn hidden() -> Self {
+        Self {
+            output: None,
+            side: SystemBarSide::Hidden,
+            thickness: 0.0,
+        }
+    }
+}
+
+/// Work-area shaping around client windows. The system bar strip is always
+/// reserved; `maximize_padding` additionally keeps maximized windows away
+/// from every output edge the bar does not occupy. True fullscreen ignores
+/// both and covers the complete output.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct WorkAreaOptions {
+    pub(super) system_bar: SystemBarOptions,
+    /// Logical pixels between a maximized window and bar-free output edges.
+    pub(super) maximize_padding: f64,
+}
+
+impl Default for WorkAreaOptions {
+    fn default() -> Self {
+        Self {
+            system_bar: SystemBarOptions::default(),
+            maximize_padding: DEFAULT_MAXIMIZE_PADDING,
+        }
+    }
+}
+
+fn parse_maximize_padding(value: &str) -> Result<f64, Box<dyn Error>> {
+    let padding: f64 = value.trim().parse()?;
+    if !padding.is_finite() || padding < 0.0 || padding > MAX_MAXIMIZE_PADDING {
+        return Err(format!(
+            "maximize padding must be within [0, {MAX_MAXIMIZE_PADDING}] logical pixels"
+        )
+        .into());
+    }
+    Ok(padding)
+}
 
 #[derive(Debug)]
 pub(super) struct Options {
@@ -24,6 +101,7 @@ pub(super) struct Options {
     pub(super) simulate_hotplug_at_frame: Option<u64>,
     pub(super) wayland: bool,
     pub(super) flutter_bundle: Option<PathBuf>,
+    pub(super) work_area: WorkAreaOptions,
     frames: u64,
 }
 
@@ -53,6 +131,8 @@ impl Options {
         let mut simulate_hotplug_at_frame = None;
         let mut wayland = false;
         let mut flutter_bundle = None;
+        let mut system_bar_argument = None;
+        let mut maximize_padding_argument = None;
         let mut frames = 0;
         let mut args = args.into_iter();
 
@@ -127,6 +207,18 @@ impl Options {
                         args.next().ok_or("--flutter-bundle needs a path")?,
                     ));
                 }
+                "--system-bar" => {
+                    let value = args
+                        .next()
+                        .ok_or("--system-bar needs SIDE,THICKNESS[,OUTPUT] or hidden")?;
+                    system_bar_argument = Some(parse_system_bar_spec(&value)?);
+                }
+                "--maximize-padding" => {
+                    let value = args
+                        .next()
+                        .ok_or("--maximize-padding needs logical pixels")?;
+                    maximize_padding_argument = Some(parse_maximize_padding(&value)?);
+                }
                 "--frames" => {
                     frames = args.next().ok_or("--frames needs a value")?.parse()?;
                     if frames == 0 {
@@ -143,6 +235,8 @@ impl Options {
                          [--simulate-hotplug-at-frame N] \
                          [--wayland] \
                          [--flutter-bundle PATH] \
+                         [--system-bar SIDE,THICKNESS[,OUTPUT] | --system-bar hidden] \
+                         [--maximize-padding PIXELS] \
                          [--commit-seconds N | --frames N]\n\
                          With --flutter-bundle, omitting both limits runs until logout.\n\
                          Without Flutter, N=0 performs atomic TEST_ONLY without changing scanout."
@@ -159,6 +253,11 @@ impl Options {
                         simulate_hotplug_at_frame,
                         wayland,
                         flutter_bundle,
+                        work_area: WorkAreaOptions {
+                            system_bar: system_bar_argument.unwrap_or_default(),
+                            maximize_padding: maximize_padding_argument
+                                .unwrap_or(DEFAULT_MAXIMIZE_PADDING),
+                        },
                         frames,
                     });
                 }
@@ -166,6 +265,8 @@ impl Options {
             }
         }
 
+        let mut system_bar = None;
+        let mut maximize_padding = None;
         if let Some(path) = output_config.as_deref() {
             let mut configured = load_output_config(path)?;
             // Command-line positions are useful for one-shot experiments and
@@ -180,7 +281,15 @@ impl Options {
             }
             positions = configured.positions;
             refresh_millihz = configured.refresh_millihz;
+            system_bar = configured.system_bar;
+            maximize_padding = configured.maximize_padding;
         }
+        let work_area = WorkAreaOptions {
+            system_bar: system_bar_argument.or(system_bar).unwrap_or_default(),
+            maximize_padding: maximize_padding_argument
+                .or(maximize_padding)
+                .unwrap_or(DEFAULT_MAXIMIZE_PADDING),
+        };
 
         if frames != 0 && commit_seconds != 0 {
             return Err("--frames and --commit-seconds are mutually exclusive".into());
@@ -240,6 +349,7 @@ impl Options {
             simulate_hotplug_at_frame,
             wayland,
             flutter_bundle,
+            work_area,
             frames,
         })
     }
@@ -287,10 +397,53 @@ fn insert_output_position(
     Ok(())
 }
 
-#[derive(Debug, Default, Eq, PartialEq)]
+fn parse_system_bar_spec(value: &str) -> Result<SystemBarOptions, Box<dyn Error>> {
+    let mut fields = value.split(',').map(str::trim);
+    let side = match fields.next().filter(|side| !side.is_empty()) {
+        Some(side) => side,
+        None => return Err(SYSTEM_BAR_SPEC_HELP.into()),
+    };
+    let side = match side {
+        "top" => SystemBarSide::Top,
+        "bottom" => SystemBarSide::Bottom,
+        "left" => SystemBarSide::Left,
+        "right" => SystemBarSide::Right,
+        "hidden" => {
+            if fields.next().is_some() {
+                return Err("hidden system bar takes no other fields".into());
+            }
+            return Ok(SystemBarOptions::hidden());
+        }
+        other => return Err(format!("unknown system bar side: {other}").into()),
+    };
+    let thickness: f64 = fields.next().ok_or(SYSTEM_BAR_SPEC_HELP)?.parse()?;
+    if !thickness.is_finite() || thickness <= 0.0 || thickness > MAX_SYSTEM_BAR_THICKNESS {
+        return Err(format!(
+            "system bar thickness must be within (0, {MAX_SYSTEM_BAR_THICKNESS}] logical pixels"
+        )
+        .into());
+    }
+    let output = match fields.next() {
+        None | Some("auto") => None,
+        Some("") => return Err("system bar output name is empty".into()),
+        Some(name) => Some(name.to_owned()),
+    };
+    if fields.next().is_some() {
+        return Err(SYSTEM_BAR_SPEC_HELP.into());
+    }
+    Ok(SystemBarOptions {
+        output,
+        side,
+        thickness,
+    })
+}
+
+#[derive(Debug, Default, PartialEq)]
 struct OutputConfig {
     positions: BTreeMap<String, LogicalPoint>,
     refresh_millihz: BTreeMap<String, u32>,
+    system_bar: Option<SystemBarOptions>,
+    maximize_padding: Option<f64>,
 }
 
 fn load_output_config(path: &Path) -> Result<OutputConfig, Box<dyn Error>> {
@@ -363,6 +516,33 @@ fn parse_output_config(contents: &str) -> Result<OutputConfig, String> {
             .map_or(raw_line, |(value, _)| value)
             .trim();
         if line.is_empty() {
+            continue;
+        }
+        if let Some((key, spec)) = line.split_once('=')
+            && key.trim() == "system_bar"
+        {
+            if config.system_bar.is_some() {
+                return Err(format!("line {}: duplicate system_bar entry", index + 1));
+            }
+            config.system_bar = Some(
+                parse_system_bar_spec(spec)
+                    .map_err(|error| format!("line {}: {error}", index + 1))?,
+            );
+            continue;
+        }
+        if let Some((key, spec)) = line.split_once('=')
+            && key.trim() == "maximize_padding"
+        {
+            if config.maximize_padding.is_some() {
+                return Err(format!(
+                    "line {}: duplicate maximize_padding entry",
+                    index + 1
+                ));
+            }
+            config.maximize_padding = Some(
+                parse_maximize_padding(spec)
+                    .map_err(|error| format!("line {}: {error}", index + 1))?,
+            );
             continue;
         }
         let (name, position, refresh_millihz) = parse_output_config_entry(line)
@@ -452,6 +632,100 @@ mod tests {
         assert_eq!(config.positions["DP-4"], LogicalPoint::new(2560, -120));
         assert_eq!(config.refresh_millihz["DP-5"], 200_000);
         assert!(!config.refresh_millihz.contains_key("DP-4"));
+    }
+
+    #[test]
+    fn system_bar_defaults_to_a_top_bar_on_the_ticker_output() {
+        assert_eq!(options(&[]).work_area, WorkAreaOptions::default());
+        assert_eq!(SystemBarOptions::default().side, SystemBarSide::Top);
+        assert!(SystemBarOptions::default().thickness > 0.0);
+        assert_eq!(SystemBarOptions::default().output, None);
+    }
+
+    #[test]
+    fn system_bar_accepts_side_thickness_and_optional_output() {
+        let bar = options(&["--system-bar", "bottom,48,DP-3"])
+            .work_area
+            .system_bar;
+        assert_eq!(
+            bar,
+            SystemBarOptions {
+                output: Some("DP-3".to_owned()),
+                side: SystemBarSide::Bottom,
+                thickness: 48.0,
+            }
+        );
+
+        let auto = options(&["--system-bar", "top,24,auto"])
+            .work_area
+            .system_bar;
+        assert_eq!(auto.output, None);
+
+        let hidden = options(&["--system-bar", "hidden"]).work_area.system_bar;
+        assert_eq!(hidden, SystemBarOptions::hidden());
+    }
+
+    #[test]
+    fn system_bar_rejects_invalid_specs() {
+        for spec in [
+            "",
+            "top",
+            "top,0",
+            "top,nan",
+            "top,513",
+            "middle,32",
+            "top,32,DP-1,extra",
+        ] {
+            assert!(
+                parse_system_bar_spec(spec).is_err(),
+                "spec {spec:?} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn output_config_carries_the_system_bar_and_command_line_wins() {
+        let config =
+            parse_output_config("DP-5=0,0\nsystem_bar = top, 36, DP-5 # reserve the strip\n")
+                .expect("valid output config");
+        assert_eq!(
+            config.system_bar,
+            Some(SystemBarOptions {
+                output: Some("DP-5".to_owned()),
+                side: SystemBarSide::Top,
+                thickness: 36.0,
+            })
+        );
+
+        let duplicate = parse_output_config("system_bar=top,36\nsystem_bar=hidden\n")
+            .expect_err("duplicate system_bar must fail");
+        assert!(duplicate.contains("line 2: duplicate system_bar entry"));
+    }
+
+    #[test]
+    fn maximize_padding_defaults_and_parses_from_config_and_command_line() {
+        assert_eq!(options(&[]).work_area.maximize_padding, 10.0);
+        assert_eq!(
+            options(&["--maximize-padding", "24"])
+                .work_area
+                .maximize_padding,
+            24.0
+        );
+
+        let config = parse_output_config("maximize_padding = 16 # breathing room\n")
+            .expect("valid output config");
+        assert_eq!(config.maximize_padding, Some(16.0));
+
+        let duplicate = parse_output_config("maximize_padding=8\nmaximize_padding=8\n")
+            .expect_err("duplicate maximize_padding must fail");
+        assert!(duplicate.contains("line 2: duplicate maximize_padding entry"));
+
+        for value in ["", "-1", "257", "nan"] {
+            assert!(
+                parse_maximize_padding(value).is_err(),
+                "padding {value:?} must be rejected"
+            );
+        }
     }
 
     #[test]

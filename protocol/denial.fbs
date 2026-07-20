@@ -230,6 +230,13 @@ table DisplayLayout {
   system_bar_monitor_id:long = -1;
   system_bar_side:SystemBarSide = Left;
   outputs:[DisplayOutput];
+  // Appended for wire compatibility: older senders/receivers keep a zero
+  // thickness, which hides the shell system bar and reserves no work area.
+  system_bar_thickness:double = 0.0;
+  // Appended for wire compatibility: logical pixels of breathing room between
+  // a maximized window and every output edge that does not carry the system
+  // bar. Zero keeps maximized windows flush with the output edges.
+  maximize_padding:double = 0.0;
 }
 
 table WindowRequest {

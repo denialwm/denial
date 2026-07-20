@@ -8,6 +8,7 @@ const KEY_F: u32 = 33;
 const KEY_K: u32 = 37;
 const KEY_L: u32 = 38;
 const KEY_M: u32 = 50;
+const KEY_UP: u32 = 103;
 const KEY_MUTE: u32 = 113;
 const KEY_VOLUME_DOWN: u32 = 114;
 const KEY_VOLUME_UP: u32 = 115;
@@ -27,6 +28,7 @@ const CAPTURED_OVERVIEW: u8 = 1 << 3;
 const CAPTURED_WINDOW_SWITCHER: u8 = 1 << 4;
 const CAPTURED_LOCK: u8 = 1 << 5;
 const CAPTURED_POINTER_RELEASE: u8 = 1 << 6;
+const CAPTURED_MAXIMIZE: u8 = 1 << 7;
 const CAPTURED_MUTE: u8 = 1 << 0;
 const CAPTURED_VOLUME_DOWN: u8 = 1 << 1;
 const CAPTURED_VOLUME_UP: u8 = 1 << 2;
@@ -42,6 +44,7 @@ pub(super) enum ShortcutDisposition {
     RequestWindowSwitcherEnd,
     RequestClose,
     RequestMinimize,
+    RequestToggleMaximize,
     RequestToggleFullscreen,
     RequestReleasePointer,
     RequestLock,
@@ -148,6 +151,10 @@ impl NativeEscapeShortcut {
                 ShortcutDisposition::RequestWindowSwitcherNext,
             )),
             KEY_M => Some((CAPTURED_MINIMIZE, ShortcutDisposition::RequestMinimize)),
+            KEY_UP => Some((
+                CAPTURED_MAXIMIZE,
+                ShortcutDisposition::RequestToggleMaximize,
+            )),
             KEY_F => Some((
                 CAPTURED_FULLSCREEN,
                 ShortcutDisposition::RequestToggleFullscreen,
@@ -372,6 +379,7 @@ mod tests {
     fn super_window_chords_request_native_actions_once() {
         for (key, request) in [
             (KEY_M, ShortcutDisposition::RequestMinimize),
+            (KEY_UP, ShortcutDisposition::RequestToggleMaximize),
             (KEY_F, ShortcutDisposition::RequestToggleFullscreen),
             (KEY_K, ShortcutDisposition::RequestClose),
             (KEY_L, ShortcutDisposition::RequestLock),

@@ -3507,6 +3507,8 @@ impl<'a> DisplayLayout<'a> {
   pub const VT_SYSTEM_BAR_MONITOR_ID: flatbuffers::VOffsetT = 16;
   pub const VT_SYSTEM_BAR_SIDE: flatbuffers::VOffsetT = 18;
   pub const VT_OUTPUTS: flatbuffers::VOffsetT = 20;
+  pub const VT_SYSTEM_BAR_THICKNESS: flatbuffers::VOffsetT = 22;
+  pub const VT_MAXIMIZE_PADDING: flatbuffers::VOffsetT = 24;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -3518,6 +3520,8 @@ impl<'a> DisplayLayout<'a> {
     args: &'args DisplayLayoutArgs<'args>
   ) -> flatbuffers::WIPOffset<DisplayLayout<'bldr>> {
     let mut builder = DisplayLayoutBuilder::new(_fbb);
+    builder.add_maximize_padding(args.maximize_padding);
+    builder.add_system_bar_thickness(args.system_bar_thickness);
     builder.add_system_bar_monitor_id(args.system_bar_monitor_id);
     builder.add_ticker_monitor_id(args.ticker_monitor_id);
     builder.add_engine_scale(args.engine_scale);
@@ -3594,6 +3598,20 @@ impl<'a> DisplayLayout<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<DisplayOutput>>>>(DisplayLayout::VT_OUTPUTS, None)}
   }
+  #[inline]
+  pub fn system_bar_thickness(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(DisplayLayout::VT_SYSTEM_BAR_THICKNESS, Some(0.0)).unwrap()}
+  }
+  #[inline]
+  pub fn maximize_padding(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(DisplayLayout::VT_MAXIMIZE_PADDING, Some(0.0)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for DisplayLayout<'_> {
@@ -3612,6 +3630,8 @@ impl flatbuffers::Verifiable for DisplayLayout<'_> {
      .visit_field::<i64>("system_bar_monitor_id", Self::VT_SYSTEM_BAR_MONITOR_ID, false)?
      .visit_field::<SystemBarSide>("system_bar_side", Self::VT_SYSTEM_BAR_SIDE, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<DisplayOutput>>>>("outputs", Self::VT_OUTPUTS, false)?
+     .visit_field::<f64>("system_bar_thickness", Self::VT_SYSTEM_BAR_THICKNESS, false)?
+     .visit_field::<f64>("maximize_padding", Self::VT_MAXIMIZE_PADDING, false)?
      .finish();
     Ok(())
   }
@@ -3626,6 +3646,8 @@ pub struct DisplayLayoutArgs<'a> {
     pub system_bar_monitor_id: i64,
     pub system_bar_side: SystemBarSide,
     pub outputs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<DisplayOutput<'a>>>>>,
+    pub system_bar_thickness: f64,
+    pub maximize_padding: f64,
 }
 impl<'a> Default for DisplayLayoutArgs<'a> {
   #[inline]
@@ -3640,6 +3662,8 @@ impl<'a> Default for DisplayLayoutArgs<'a> {
       system_bar_monitor_id: -1,
       system_bar_side: SystemBarSide::Left,
       outputs: None,
+      system_bar_thickness: 0.0,
+      maximize_padding: 0.0,
     }
   }
 }
@@ -3686,6 +3710,14 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> DisplayLayoutBuilder<'a, 'b, A>
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(DisplayLayout::VT_OUTPUTS, outputs);
   }
   #[inline]
+  pub fn add_system_bar_thickness(&mut self, system_bar_thickness: f64) {
+    self.fbb_.push_slot::<f64>(DisplayLayout::VT_SYSTEM_BAR_THICKNESS, system_bar_thickness, 0.0);
+  }
+  #[inline]
+  pub fn add_maximize_padding(&mut self, maximize_padding: f64) {
+    self.fbb_.push_slot::<f64>(DisplayLayout::VT_MAXIMIZE_PADDING, maximize_padding, 0.0);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> DisplayLayoutBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     DisplayLayoutBuilder {
@@ -3712,6 +3744,8 @@ impl core::fmt::Debug for DisplayLayout<'_> {
       ds.field("system_bar_monitor_id", &self.system_bar_monitor_id());
       ds.field("system_bar_side", &self.system_bar_side());
       ds.field("outputs", &self.outputs());
+      ds.field("system_bar_thickness", &self.system_bar_thickness());
+      ds.field("maximize_padding", &self.maximize_padding());
       ds.finish()
   }
 }

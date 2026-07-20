@@ -258,6 +258,8 @@ pub(super) struct WaylandFrontend {
     pub seat: Seat<RuntimeState>,
     presentation: presentation::PresentationTracker,
     outputs: Vec<WaylandOutput>,
+    work_area: crate::options::WorkAreaOptions,
+    ticker_output: Option<OutputId>,
     pub atlas_output: Output,
     damage_tracker: OutputDamageTracker,
     next_window_offset: i32,
@@ -301,6 +303,23 @@ fn input_routing_changed(
     })
 }
 
+#[cfg(feature = "flutter")]
+fn input_visibility_changed(
+    current: Option<&InputLayoutSnapshot>,
+    next: &InputLayoutSnapshot,
+) -> bool {
+    current.is_none_or(|current| current.visible_surface_ids != next.visible_surface_ids)
+}
+
+#[cfg(feature = "flutter")]
+fn window_expects_sample(
+    input_visibility_known: bool,
+    visible_window_ids: &HashSet<u64>,
+    window_id: u64,
+) -> bool {
+    !input_visibility_known || visible_window_ids.contains(&window_id)
+}
+
 impl WaylandFrontend {
     pub fn new(
         event_loop: &mut EventLoop<'static, RuntimeState>,
@@ -308,6 +327,7 @@ impl WaylandFrontend {
         session: LibSeatSession,
         seat_name: &str,
         drm_device: DrmDeviceFd,
+        work_area: crate::options::WorkAreaOptions,
     ) -> Result<Self, Box<dyn Error>> {
         let display = Display::<RuntimeState>::new()?;
         let display_handle = display.handle();
@@ -628,6 +648,8 @@ impl WaylandFrontend {
             seat,
             presentation,
             outputs,
+            work_area,
+            ticker_output: snapshot.ticker,
             atlas_output,
             damage_tracker,
             next_window_offset: 48,
@@ -1492,10 +1514,17 @@ impl WaylandFrontend {
                 app_id = x11.class();
             }
             let mut composition_order = 0;
-            // Every mapped client remains a live texture producer. In
-            // particular, a minimized window must continue sampling new
-            // buffers so restoring it never exposes an abandoned/black frame.
-            let expects_sample = true;
+            // Flutter does not sample a texture after its window leaves the
+            // visible scene (for example, once a minimize animation reaches
+            // zero opacity). Mailbox those buffers without waiting for a
+            // sample so restore begins with the client's latest generation.
+            // Until Dart publishes its first visibility snapshot, preserve
+            // the conservative sampled-texture lifetime contract.
+            let expects_sample = window_expects_sample(
+                self.input_visibility_known,
+                &self.visible_window_ids,
+                stable_id,
+            );
             self.append_surface_tree(
                 &surface,
                 (0, 0).into(),
@@ -1670,12 +1699,9 @@ impl WaylandFrontend {
     pub fn install_input_layout(
         &mut self,
         layout: InputLayoutSnapshot,
-    ) -> Option<InputLayoutSnapshot> {
+    ) -> (Option<InputLayoutSnapshot>, bool) {
         let routing_changed = input_routing_changed(self.input_layout.as_ref(), &layout);
-        let visibility_changed = self
-            .input_layout
-            .as_ref()
-            .is_none_or(|current| current.visible_surface_ids != layout.visible_surface_ids);
+        let visibility_changed = input_visibility_changed(self.input_layout.as_ref(), &layout);
         if visibility_changed {
             let mut root_ids = std::mem::take(&mut self.input_root_ids_scratch);
             root_ids.clear();
@@ -1707,7 +1733,7 @@ impl WaylandFrontend {
         if routing_changed {
             self.client_input_route_cache = None;
         }
-        previous
+        (previous, visibility_changed)
     }
 
     #[cfg(feature = "flutter")]
@@ -2086,12 +2112,17 @@ smithay::delegate_dispatch2!(RuntimeState);
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "flutter")]
-    use super::{CursorImageStatus, input_routing_changed, software_cursor_shape};
+    use super::{
+        CursorImageStatus, input_routing_changed, input_visibility_changed, software_cursor_shape,
+        window_expects_sample,
+    };
     use super::{MAX_PENDING_DMABUF_IMPORTS, dmabuf_import_queue_has_capacity};
     #[cfg(feature = "flutter")]
     use crate::wire::{InputLayoutSnapshot, InputRect};
     #[cfg(feature = "flutter")]
     use smithay::input::pointer::CursorIcon;
+    #[cfg(feature = "flutter")]
+    use std::collections::HashSet;
 
     #[test]
     fn dmabuf_import_queue_enforces_its_exact_boundary() {
@@ -2126,6 +2157,7 @@ mod tests {
         next.epoch = 9;
         next.visible_surface_ids.push(42);
         assert!(!input_routing_changed(Some(&current), &next));
+        assert!(input_visibility_changed(Some(&current), &next));
 
         next.shell_regions.push(InputRect {
             x: 0.0,
@@ -2135,5 +2167,15 @@ mod tests {
         });
         assert!(input_routing_changed(Some(&current), &next));
         assert!(input_routing_changed(None, &next));
+    }
+
+    #[cfg(feature = "flutter")]
+    #[test]
+    fn only_visible_windows_wait_for_flutter_texture_samples() {
+        let visible = HashSet::from([42]);
+
+        assert!(window_expects_sample(false, &visible, 7));
+        assert!(window_expects_sample(true, &visible, 42));
+        assert!(!window_expects_sample(true, &visible, 7));
     }
 }

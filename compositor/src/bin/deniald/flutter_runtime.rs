@@ -3072,12 +3072,13 @@ impl FlutterRuntime {
         factory: &FlutterRuntimeFactory,
         events: Sender<RuntimeEvent>,
         authentication: Arc<super::authentication::AuthenticationController>,
+        work_area: super::options::WorkAreaOptions,
         generation: u64,
         use_native_fence: bool,
         wayland_display: Option<OsString>,
         x11_display: Option<OsString>,
     ) -> Result<Self, Box<dyn Error>> {
-        let wire = WireBridge::new(snapshot, atlas)?;
+        let wire = WireBridge::new(snapshot, atlas, work_area)?;
         let render_context = egl_context::create_shared_context("Flutter raster", shared_context)?;
         let resource_context =
             egl_context::create_shared_context("Flutter resource", shared_context)?;

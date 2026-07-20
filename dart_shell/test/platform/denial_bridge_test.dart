@@ -10,6 +10,8 @@ import 'package:denial_dart_shell/src/models/desktop_notification.dart'
     as notification_model;
 import 'package:denial_dart_shell/src/models/denial_window.dart';
 import 'package:denial_dart_shell/src/models/denial_window_event.dart';
+import 'package:denial_dart_shell/src/models/display_layout.dart'
+    show SystemBarSide;
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/platform/denial_wire.dart' as wire;
 
@@ -158,6 +160,8 @@ void main() {
       expect(display, isNotNull);
       expect(display!.epoch, 0x100000001);
       expect(display.logicalSize, const Size(1920, 1080));
+      expect(display.systemBarSide, SystemBarSide.top);
+      expect(display.systemBarThickness, 32.0);
 
       await _sendToFlutter(
         messenger,
@@ -814,7 +818,8 @@ Uint8List _displayResponse({required int requestId}) {
         engineScale: 2,
         tickerMonitorId: 4,
         systemBarMonitorId: 4,
-        systemBarSide: wire.SystemBarSide.Left,
+        systemBarSide: wire.SystemBarSide.Top,
+        systemBarThickness: 32,
         outputs: <wire.DisplayOutputObjectBuilder>[
           wire.DisplayOutputObjectBuilder(
             monitorId: 4,

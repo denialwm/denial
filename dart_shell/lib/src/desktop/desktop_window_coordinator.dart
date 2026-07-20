@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/denial_window_event.dart';
+import '../models/display_layout.dart';
 import '../state/display_layout.dart';
 import '../state/shell_controller.dart';
 import 'desktop_workspace.dart';
@@ -13,6 +14,13 @@ import 'desktop_workspace.dart';
 // UI consumers such as overview resolve monitor membership.
 final desktopWindowCoordinatorProvider = Provider<void>((ref) {
   ref.read(shellControllerProvider);
+  ref.listen<DisplayLayout?>(
+    displayLayoutProvider,
+    (previous, next) => ref
+        .read(desktopWorkspaceProvider.notifier)
+        .syncWorkAreas(next?.workAreasByMonitor() ?? const <int, Rect>{}),
+    fireImmediately: true,
+  );
   final subscription = ref
       .read(denialBridgeProvider)
       .windowEvents
@@ -41,25 +49,27 @@ void _reduceWindowEvent(Ref ref, DenialWindowEvent event) {
         case DenialWindowAction.maximize:
           workspace.maximize(
             target.objectId,
-            bounds: _outputBounds(ref, target.objectId),
+            bounds: _outputBounds(ref, target.objectId, workArea: true),
           );
         case DenialWindowAction.restore:
           workspace.restore(target.objectId);
         case DenialWindowAction.toggleMaximize:
           workspace.toggleMaximized(
             target.objectId,
-            bounds: _outputBounds(ref, target.objectId),
+            bounds: _outputBounds(ref, target.objectId, workArea: true),
           );
         case DenialWindowAction.toggleFullscreen:
+          // True fullscreen deliberately ignores the system-bar work area and
+          // covers the complete output.
           workspace.toggleFullscreen(
             target.objectId,
-            bounds: _outputBounds(ref, target.objectId),
+            bounds: _outputBounds(ref, target.objectId, workArea: false),
           );
       }
   }
 }
 
-Rect _outputBounds(Ref ref, int objectId) {
+Rect _outputBounds(Ref ref, int objectId, {required bool workArea}) {
   final workspace = ref.read(desktopWorkspaceProvider);
   final displayLayout = ref.read(displayLayoutProvider);
   final viewSize = workspace.viewSize.isEmpty
@@ -72,9 +82,15 @@ Rect _outputBounds(Ref ref, int objectId) {
     return canvas;
   }
 
+  Rect resolve(DisplayOutput output) {
+    final rect =
+        workArea ? displayLayout!.workAreaOf(output) : output.logicalRect;
+    return rect.intersect(canvas);
+  }
+
   for (final output in outputs) {
     if (output.monitorId == placement.monitorId) {
-      final bounds = output.logicalRect.intersect(canvas);
+      final bounds = resolve(output);
       if (!bounds.isEmpty) {
         return bounds;
       }
@@ -83,7 +99,7 @@ Rect _outputBounds(Ref ref, int objectId) {
 
   for (final output in outputs) {
     if (output.logicalRect.contains(placement.frame.center)) {
-      final bounds = output.logicalRect.intersect(canvas);
+      final bounds = resolve(output);
       if (!bounds.isEmpty) {
         return bounds;
       }

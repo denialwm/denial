@@ -1773,10 +1773,12 @@ class DisplayLayout {
   int get systemBarMonitorId => const fb.Int64Reader().vTableGet(_bc, _bcOffset, 16, -1);
   SystemBarSide get systemBarSide => SystemBarSide.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 18, 0));
   List<DisplayOutput>? get outputs => const fb.ListReader<DisplayOutput>(DisplayOutput.reader).vTableGetNullable(_bc, _bcOffset, 20);
+  double get systemBarThickness => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 22, 0.0);
+  double get maximizePadding => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 24, 0.0);
 
   @override
   String toString() {
-    return 'DisplayLayout{epoch: ${epoch}, globalOrigin: ${globalOrigin}, logicalSize: ${logicalSize}, pixelSize: ${pixelSize}, engineScale: ${engineScale}, tickerMonitorId: ${tickerMonitorId}, systemBarMonitorId: ${systemBarMonitorId}, systemBarSide: ${systemBarSide}, outputs: ${outputs}}';
+    return 'DisplayLayout{epoch: ${epoch}, globalOrigin: ${globalOrigin}, logicalSize: ${logicalSize}, pixelSize: ${pixelSize}, engineScale: ${engineScale}, tickerMonitorId: ${tickerMonitorId}, systemBarMonitorId: ${systemBarMonitorId}, systemBarSide: ${systemBarSide}, outputs: ${outputs}, systemBarThickness: ${systemBarThickness}, maximizePadding: ${maximizePadding}}';
   }
 }
 
@@ -1794,7 +1796,7 @@ class DisplayLayoutBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(9);
+    fbBuilder.startTable(11);
   }
 
   int addEpoch(int? epoch) {
@@ -1833,6 +1835,14 @@ class DisplayLayoutBuilder {
     fbBuilder.addOffset(8, offset);
     return fbBuilder.offset;
   }
+  int addSystemBarThickness(double? systemBarThickness) {
+    fbBuilder.addFloat64(9, systemBarThickness);
+    return fbBuilder.offset;
+  }
+  int addMaximizePadding(double? maximizePadding) {
+    fbBuilder.addFloat64(10, maximizePadding);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -1849,6 +1859,8 @@ class DisplayLayoutObjectBuilder extends fb.ObjectBuilder {
   final int? _systemBarMonitorId;
   final SystemBarSide? _systemBarSide;
   final List<DisplayOutputObjectBuilder>? _outputs;
+  final double? _systemBarThickness;
+  final double? _maximizePadding;
 
   DisplayLayoutObjectBuilder({
     int? epoch,
@@ -1860,6 +1872,8 @@ class DisplayLayoutObjectBuilder extends fb.ObjectBuilder {
     int? systemBarMonitorId,
     SystemBarSide? systemBarSide,
     List<DisplayOutputObjectBuilder>? outputs,
+    double? systemBarThickness,
+    double? maximizePadding,
   })
       : _epoch = epoch,
         _globalOrigin = globalOrigin,
@@ -1869,14 +1883,16 @@ class DisplayLayoutObjectBuilder extends fb.ObjectBuilder {
         _tickerMonitorId = tickerMonitorId,
         _systemBarMonitorId = systemBarMonitorId,
         _systemBarSide = systemBarSide,
-        _outputs = outputs;
+        _outputs = outputs,
+        _systemBarThickness = systemBarThickness,
+        _maximizePadding = maximizePadding;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
     final int? outputsOffset = _outputs == null ? null
         : fbBuilder.writeList(_outputs!.map((b) => b.getOrCreateOffset(fbBuilder)).toList());
-    fbBuilder.startTable(9);
+    fbBuilder.startTable(11);
     fbBuilder.addUint64(0, _epoch);
     if (_globalOrigin != null) {
       fbBuilder.addStruct(1, _globalOrigin!.finish(fbBuilder));
@@ -1892,6 +1908,8 @@ class DisplayLayoutObjectBuilder extends fb.ObjectBuilder {
     fbBuilder.addInt64(6, _systemBarMonitorId);
     fbBuilder.addUint8(7, _systemBarSide?.value);
     fbBuilder.addOffset(8, outputsOffset);
+    fbBuilder.addFloat64(9, _systemBarThickness);
+    fbBuilder.addFloat64(10, _maximizePadding);
     return fbBuilder.endTable();
   }
 

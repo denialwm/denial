@@ -695,7 +695,11 @@ class DenialWireCodec {
         logicalSize.height <= 0.0 ||
         pixelSize.width <= 0.0 ||
         pixelSize.height <= 0.0 ||
-        layout.engineScale <= 0.0) {
+        layout.engineScale <= 0.0 ||
+        !layout.systemBarThickness.isFinite ||
+        layout.systemBarThickness < 0.0 ||
+        !layout.maximizePadding.isFinite ||
+        layout.maximizePadding < 0.0) {
       rejectedStructuredMessages += 1;
       return null;
     }
@@ -755,6 +759,8 @@ class DenialWireCodec {
         generated.SystemBarSide.Hidden => SystemBarSide.hidden,
         generated.SystemBarSide.Left => SystemBarSide.left,
       },
+      systemBarThickness: layout.systemBarThickness,
+      maximizePadding: layout.maximizePadding,
       outputs: List<DisplayOutput>.unmodifiable(outputs),
     );
   }

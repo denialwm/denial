@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../config/startup_environment.dart';
 import '../launcher/controllers/home_grid_controller.dart';
 import '../launcher/models/desktop_app.dart';
 import '../launcher/models/home_grid_item.dart';
@@ -27,7 +28,6 @@ import '../state/desktop_window_switcher.dart';
 import '../state/display_layout.dart';
 import '../state/quick_settings.dart';
 import '../state/shell_controller.dart';
-import '../state/system_status.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../widgets/app_icon.dart';
@@ -46,6 +46,7 @@ import '../widgets/shade/range_bar.dart';
 import '../wallpaper/state/wallpaper_controller.dart';
 import '../wallpaper/widgets/wallpaper_selector_surface.dart';
 import 'desktop_overview_target.dart';
+import 'desktop_system_bar.dart';
 import 'desktop_texture_resize.dart';
 import 'desktop_window_coordinator.dart';
 import 'desktop_window_frame_painter.dart';
@@ -140,16 +141,8 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         ? MediaQuery.sizeOf(context)
         : workspace.viewSize;
     final displayLayout = ref.read(displayLayoutProvider);
-    final configuredSystemBarSide =
-        displayLayout?.systemBarSide ?? SystemBarSide.left;
-    final systemBarSide = DesktopFeatures.taskbarEnabled
-        ? configuredSystemBarSide
-        : SystemBarSide.hidden;
-    final systemBarRect = DesktopMetrics.taskbarRect(
-      viewSize,
-      outputRect: displayLayout?.systemBarOutput?.logicalRect,
-      side: systemBarSide,
-    );
+    final (:systemBarRect, :systemBarSide) =
+        _systemBarGeometry(viewSize, displayLayout);
     final monitorTarget = DesktopOverviewTarget.resolve(
       viewSize: viewSize,
       displayLayout: displayLayout,
@@ -282,16 +275,8 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         ? MediaQuery.sizeOf(context)
         : workspaceState.viewSize;
     final displayLayout = ref.read(displayLayoutProvider);
-    final configuredSystemBarSide =
-        displayLayout?.systemBarSide ?? SystemBarSide.left;
-    final systemBarSide = DesktopFeatures.taskbarEnabled
-        ? configuredSystemBarSide
-        : SystemBarSide.hidden;
-    final systemBarRect = DesktopMetrics.taskbarRect(
-      viewSize,
-      outputRect: displayLayout?.systemBarOutput?.logicalRect,
-      side: systemBarSide,
-    );
+    final (:systemBarRect, :systemBarSide) =
+        _systemBarGeometry(viewSize, displayLayout);
     final shellState = ref.read(shellControllerProvider);
     final target = DesktopOverviewTarget.resolve(
       viewSize: viewSize,
@@ -438,7 +423,17 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     final desktop = ref.watch(desktopWorkspaceProvider);
     final closeEffect = ref.watch(desktopWindowCloseEffectProvider);
     final windowSwitcher = ref.watch(desktopWindowSwitcherProvider);
-    final displayLayout = ref.watch(displayLayoutProvider);
+    final nativeDisplayLayout = ref.watch(displayLayoutProvider);
+    // DENIA_SHELL_DEV_LAYOUT lets the shell run as an ordinary Wayland client
+    // (no native bridge) while still rendering layout-dependent chrome such
+    // as the system bar, for styling work without restarting deniald.
+    final displayLayout = nativeDisplayLayout ??
+        (ref.watch(startupEnvironmentProvider).flag('DENIA_SHELL_DEV_LAYOUT')
+            ? DisplayLayout.fallback(
+                MediaQuery.sizeOf(context),
+                MediaQuery.devicePixelRatioOf(context),
+              )
+            : null);
     final shellOutput = displayLayout?.systemBarOutput;
     final mainOutput = displayLayout?.mainOutput;
     final wallpaperSelectorVisible = ref.watch(
@@ -461,7 +456,6 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
             wallpaperSelectorVisible: wallpaperSelectorVisible,
             shellOutputRect: shellOutput?.logicalRect,
             mainOutputRect: mainOutput?.logicalRect,
-            systemBarSide: displayLayout?.systemBarSide ?? SystemBarSide.left,
             applicationSearchFocusNode: _applicationSearchFocusNode,
             onOpenLauncher: _openLauncher,
             onDismissLauncher: _closePanels,
@@ -480,6 +474,23 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       ),
     );
   }
+}
+
+/// The clipped system bar strip and its effective side. A bar whose strip
+/// cannot land on the visible canvas behaves as hidden everywhere.
+({Rect systemBarRect, SystemBarSide systemBarSide}) _systemBarGeometry(
+  Size viewSize,
+  DisplayLayout? displayLayout,
+) {
+  final rect = DesktopMetrics.systemBarRect(
+    viewSize,
+    displayLayout?.systemBarRect ?? Rect.zero,
+  );
+  return (
+    systemBarRect: rect,
+    systemBarSide:
+        rect.isEmpty ? SystemBarSide.hidden : displayLayout!.systemBarSide,
+  );
 }
 
 Rect _windowSwitcherStageBounds({
@@ -602,7 +613,6 @@ class _DesktopScene extends StatefulWidget {
     required this.wallpaperSelectorVisible,
     required this.shellOutputRect,
     required this.mainOutputRect,
-    required this.systemBarSide,
     required this.applicationSearchFocusNode,
     required this.onOpenLauncher,
     required this.onDismissLauncher,
@@ -627,7 +637,6 @@ class _DesktopScene extends StatefulWidget {
   final bool wallpaperSelectorVisible;
   final Rect? shellOutputRect;
   final Rect? mainOutputRect;
-  final SystemBarSide systemBarSide;
   final FocusNode applicationSearchFocusNode;
   final VoidCallback onOpenLauncher;
   final VoidCallback onDismissLauncher;
@@ -719,7 +728,6 @@ class _DesktopSceneState extends State<_DesktopScene> {
     final wallpaperSelectorVisible = widget.wallpaperSelectorVisible;
     final shellOutputRect = widget.shellOutputRect;
     final mainOutputRect = widget.mainOutputRect;
-    final systemBarSide = widget.systemBarSide;
     final applicationSearchFocusNode = widget.applicationSearchFocusNode;
     final onOpenLauncher = widget.onOpenLauncher;
     final onDismissLauncher = widget.onDismissLauncher;
@@ -748,11 +756,8 @@ class _DesktopSceneState extends State<_DesktopScene> {
     final topZ = placements
         .where((placement) => !placement.minimized)
         .fold<int>(0, (value, placement) => math.max(value, placement.z));
-    final taskbarRect = DesktopMetrics.taskbarRect(
-      viewSize,
-      outputRect: shellOutputRect,
-      side: systemBarSide,
-    );
+    final (:systemBarRect, :systemBarSide) =
+        _systemBarGeometry(viewSize, displayLayout);
     final launcherRect = DesktopMetrics.launcherRect(
       viewSize,
       outputRect: shellOutputRect,
@@ -769,9 +774,18 @@ class _DesktopSceneState extends State<_DesktopScene> {
       viewSize,
       outputRect: shellOutputRect,
     );
-    final taskbarVisible = DesktopFeatures.taskbarEnabled &&
-        systemBarSide != SystemBarSide.hidden &&
-        !taskbarRect.isEmpty;
+    // True fullscreen owns the complete output, so the bar yields instead of
+    // floating above the fullscreen surface.
+    final systemBarMonitorId = displayLayout?.systemBarOutput?.monitorId;
+    final fullscreenCoversSystemBar = !desktop.overviewActive &&
+        placements.any(
+          (placement) =>
+              placement.fullscreen &&
+              !placement.minimized &&
+              placement.monitorId == systemBarMonitorId,
+        );
+    final systemBarVisible =
+        !systemBarRect.isEmpty && !fullscreenCoversSystemBar;
     final canvas = Offset.zero & viewSize;
     final requestedDisplayRect = mainOutputRect?.intersect(canvas);
     final mainDisplayRect =
@@ -805,6 +819,15 @@ class _DesktopSceneState extends State<_DesktopScene> {
                 fit: StackFit.expand,
                 children: [
                   const _DesktopWidgetCanvas(),
+                  // The bar belongs to the wallpaper plane. Any window moved
+                  // into its reserved strip paints and receives input above it.
+                  if (systemBarVisible)
+                    Positioned.fromRect(
+                      rect: systemBarRect,
+                      child: IgnorePointer(
+                        child: DesktopSystemBar(side: systemBarSide),
+                      ),
+                    ),
                   Positioned.fill(
                     child: ShellInputRegion(
                       debugLabel: 'Desktop overview',
@@ -893,26 +916,6 @@ class _DesktopSceneState extends State<_DesktopScene> {
                           onExit: onSchedulePanelClose,
                           onOpenWallpaper: onOpenWallpaperSelector,
                           onOpenAppVolumeManager: onOpenAppVolumeManager,
-                        ),
-                      ),
-                    ),
-                  if (taskbarVisible)
-                    Positioned.fromRect(
-                      rect: taskbarRect,
-                      child: ShellInputRegion(
-                        debugLabel: 'Desktop taskbar',
-                        active: !desktop.overviewActive,
-                        child: IgnorePointer(
-                          ignoring: desktop.overviewActive,
-                          child: _DesktopTaskbar(
-                            windows: windows,
-                            desktop: desktop,
-                            side: systemBarSide,
-                            onLauncherEnter: onOpenLauncher,
-                            onDashboardEnter: onOpenDashboard,
-                            onPanelExit: onSchedulePanelClose,
-                            onActivateWindow: onActivateWindow,
-                          ),
                         ),
                       ),
                     ),
@@ -1960,253 +1963,6 @@ class _DesktopWindowBorderPainter extends CustomPainter {
   bool shouldRepaint(covariant _DesktopWindowBorderPainter oldDelegate) {
     return color != oldDelegate.color ||
         devicePixelRatio != oldDelegate.devicePixelRatio;
-  }
-}
-
-class _DesktopTaskbar extends ConsumerWidget {
-  const _DesktopTaskbar({
-    required this.windows,
-    required this.desktop,
-    required this.side,
-    required this.onLauncherEnter,
-    required this.onDashboardEnter,
-    required this.onPanelExit,
-    required this.onActivateWindow,
-  });
-
-  final List<DenialWindow> windows;
-  final DesktopWorkspaceState desktop;
-  final SystemBarSide side;
-  final VoidCallback onLauncherEnter;
-  final VoidCallback onDashboardEnter;
-  final VoidCallback onPanelExit;
-  final ValueChanged<DenialWindow> onActivateWindow;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final now = ref.watch(clockProvider).value ?? DateTime.now();
-    final placements = desktop.placements;
-    final horizontal = side.isHorizontal;
-    final direction = horizontal ? Axis.horizontal : Axis.vertical;
-    Widget gap(double value) => SizedBox(
-          width: horizontal ? value : 0.0,
-          height: horizontal ? 0.0 : value,
-        );
-    Widget divider() => Container(
-          width: horizontal ? 1.0 : 28.0,
-          height: horizontal ? 28.0 : 1.0,
-          color: ShellColors.hairlineSoft,
-        );
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: ShellColors.panelBackgroundBottom,
-        borderRadius: BorderRadius.circular(ShellRadii.panel),
-        border: Border.all(color: ShellColors.hairline),
-        boxShadow: const [
-          BoxShadow(
-            color: ShellColors.shadowSoft,
-            blurRadius: 20,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: horizontal
-            ? const EdgeInsets.symmetric(horizontal: 8, vertical: 6)
-            : const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-        child: Flex(
-          direction: direction,
-          children: [
-            _DockButton(
-              semanticLabel: 'Open applications',
-              icon: Icons.apps_rounded,
-              active: desktop.launcherOpen,
-              onEnter: onLauncherEnter,
-              onExit: onPanelExit,
-            ),
-            gap(6),
-            _DockButton(
-              semanticLabel: 'Open dashboard',
-              icon: Icons.tune_rounded,
-              active: desktop.dashboardOpen,
-              onEnter: onDashboardEnter,
-              onExit: onPanelExit,
-            ),
-            gap(9),
-            divider(),
-            gap(9),
-            Expanded(
-              child: ListView.separated(
-                scrollDirection: direction,
-                itemCount: windows.length,
-                separatorBuilder: (_, __) => gap(6),
-                itemBuilder: (context, index) {
-                  final window = windows[index];
-                  final placement = placements[window.objectId];
-                  return _RunningWindowButton(
-                    window: window,
-                    minimized: placement?.minimized ?? false,
-                    active: placement != null &&
-                        placement.z == _topVisibleZ(desktop),
-                    onTap: () => onActivateWindow(window),
-                  );
-                },
-              ),
-            ),
-            gap(8),
-            divider(),
-            gap(9),
-            Text(
-              _formatHm(now),
-              style: ShellText.statusClock.copyWith(fontSize: 11),
-            ),
-            gap(5),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DockButton extends StatefulWidget {
-  const _DockButton({
-    required this.semanticLabel,
-    required this.icon,
-    required this.active,
-    required this.onEnter,
-    required this.onExit,
-  });
-
-  final String semanticLabel;
-  final IconData icon;
-  final bool active;
-  final VoidCallback onEnter;
-  final VoidCallback onExit;
-
-  @override
-  State<_DockButton> createState() => _DockButtonState();
-}
-
-class _DockButtonState extends State<_DockButton> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: widget.semanticLabel,
-      child: MouseRegion(
-        cursor: ShellMouseCursors.link,
-        onEnter: (_) {
-          setState(() => _hovered = true);
-          widget.onEnter();
-        },
-        onExit: (_) {
-          setState(() => _hovered = false);
-          widget.onExit();
-        },
-        child: GestureDetector(
-          onTap: widget.onEnter,
-          child: AnimatedContainer(
-            duration: Motion.tile,
-            curve: Motion.standard,
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: widget.active || _hovered
-                  ? ShellColors.primaryContainer
-                  : ShellColors.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Icon(
-              widget.icon,
-              color: ShellColors.onPrimaryContainer,
-              size: 23,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RunningWindowButton extends StatefulWidget {
-  const _RunningWindowButton({
-    required this.window,
-    required this.minimized,
-    required this.active,
-    required this.onTap,
-  });
-
-  final DenialWindow window;
-  final bool minimized;
-  final bool active;
-  final VoidCallback onTap;
-
-  @override
-  State<_RunningWindowButton> createState() => _RunningWindowButtonState();
-}
-
-class _RunningWindowButtonState extends State<_RunningWindowButton> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: 'Activate ${widget.window.displayTitle}',
-      child: MouseRegion(
-        cursor: ShellMouseCursors.link,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: Motion.tile,
-            curve: Motion.standard,
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: widget.active
-                  ? ShellColors.secondaryContainer
-                  : _hovered
-                      ? ShellColors.surfaceContainerHighest
-                      : ShellColors.surfaceContainer,
-              borderRadius: BorderRadius.circular(15),
-              border: widget.minimized
-                  ? Border.all(color: ShellColors.hairline)
-                  : null,
-            ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Icon(
-                  _windowIcon(widget.window),
-                  size: 20,
-                  color: widget.minimized
-                      ? ShellColors.textTertiary
-                      : ShellColors.textPrimary,
-                ),
-                Positioned(
-                  left: 3,
-                  top: 12,
-                  bottom: 12,
-                  child: Container(
-                    width: 3,
-                    decoration: BoxDecoration(
-                      color: widget.minimized
-                          ? ShellColors.textTertiary
-                          : ShellColors.gestureArmed,
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }
 
@@ -3575,29 +3331,6 @@ class _DesktopAppTileState extends State<_DesktopAppTile> {
   }
 }
 
-IconData _windowIcon(DenialWindow window) {
-  final identity = '${window.appId} ${window.title}'.toLowerCase();
-  if (identity.contains('kitty') ||
-      identity.contains('terminal') ||
-      identity.contains('console')) {
-    return Icons.terminal_rounded;
-  }
-  if (identity.contains('dolphin') ||
-      identity.contains('file') ||
-      identity.contains('nautilus')) {
-    return Icons.folder_rounded;
-  }
-  if (identity.contains('firefox') ||
-      identity.contains('chrome') ||
-      identity.contains('browser')) {
-    return Icons.public_rounded;
-  }
-  if (identity.contains('settings')) {
-    return Icons.settings_rounded;
-  }
-  return Icons.crop_square_rounded;
-}
-
 IconData _bluetoothIcon(String icon) {
   final normalized = icon.toLowerCase();
   if (normalized.contains('head') || normalized.contains('audio')) {
@@ -3651,16 +3384,4 @@ List<DesktopApp> _filterInstalledApps(
     ].join(' ').toLowerCase();
     return searchable.contains(normalizedQuery);
   }).toList(growable: false);
-}
-
-int _topVisibleZ(DesktopWorkspaceState state) {
-  return state.placements.values
-      .where((placement) => !placement.minimized)
-      .fold<int>(0, (value, placement) => math.max(value, placement.z));
-}
-
-String _formatHm(DateTime time) {
-  final hour = time.hour.toString().padLeft(2, '0');
-  final minute = time.minute.toString().padLeft(2, '0');
-  return '$hour:$minute';
 }

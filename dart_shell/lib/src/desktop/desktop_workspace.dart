@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -8,61 +9,22 @@ import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
 import 'desktop_overview_layout.dart';
 
-abstract final class DesktopFeatures {
-  // Maybe someone likes this
-  static bool get taskbarEnabled => false;
-}
-
 abstract final class DesktopMetrics {
   static const double frameBorder = 1.0;
-  static const double dockWidth = 58.0;
-  static const double dockMargin = 14.0;
   static const double panelGap = 12.0;
   static const double panelMargin = 14.0;
   static const double edgeTriggerWidth = 8.0;
   static const double edgeTriggerExtent = 96.0;
 
-  static Rect taskbarRect(
-    Size viewSize, {
-    Rect? outputRect,
-    SystemBarSide side = SystemBarSide.left,
-  }) {
-    if (side == SystemBarSide.hidden) {
+  /// Clamps the configured system bar strip to the visible canvas. The strip
+  /// itself comes from [DisplayLayout.systemBarRect]; hidden bars stay
+  /// [Rect.zero].
+  static Rect systemBarRect(Size viewSize, Rect configuredRect) {
+    if (configuredRect.isEmpty) {
       return Rect.zero;
     }
-    final canvas = Offset.zero & viewSize;
-    final bounds = (outputRect ?? canvas).intersect(canvas);
-    if (bounds.isEmpty) {
-      return Rect.zero;
-    }
-    if (side.isHorizontal) {
-      final width = math.max(0.0, bounds.width - dockMargin * 2.0);
-      final height = math.min(
-        dockWidth,
-        math.max(0.0, bounds.height - dockMargin * 2.0),
-      );
-      return Rect.fromLTWH(
-        bounds.left + dockMargin,
-        side == SystemBarSide.top
-            ? bounds.top + dockMargin
-            : bounds.bottom - dockMargin - height,
-        width,
-        height,
-      );
-    }
-    final width = math.min(
-      dockWidth,
-      math.max(0.0, bounds.width - dockMargin * 2.0),
-    );
-    final height = math.max(0.0, bounds.height - dockMargin * 2.0);
-    return Rect.fromLTWH(
-      side == SystemBarSide.left
-          ? bounds.left + dockMargin
-          : bounds.right - dockMargin - width,
-      bounds.top + dockMargin,
-      width,
-      height,
-    );
+    final clipped = configuredRect.intersect(Offset.zero & viewSize);
+    return clipped.isEmpty ? Rect.zero : clipped;
   }
 
   static Rect launcherRect(
@@ -350,6 +312,44 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
   List<DenialWindow>? _lastSyncedWindows;
   int _lastSyncedSnapshotSequence = -1;
   double _devicePixelRatio = 1.0;
+  Map<int, Rect> _workAreas = const <int, Rect>{};
+
+  /// Publishes per-monitor work areas (output rect minus the system bar).
+  /// Maximized windows are reconciled immediately so a late display-layout
+  /// load or a bar change never leaves a window under the bar.
+  void syncWorkAreas(Map<int, Rect> workAreas) {
+    if (mapEquals(_workAreas, workAreas)) {
+      return;
+    }
+    _workAreas = Map<int, Rect>.unmodifiable(workAreas);
+    if (state.viewSize.isEmpty) {
+      return;
+    }
+    var changed = false;
+    final next = Map<int, DesktopWindowPlacement>.of(state.placements);
+    for (final placement in state.placements.values) {
+      if (!placement.maximized || placement.fullscreen) {
+        continue;
+      }
+      final frame = _maximizedFrame(placement.monitorId, state.viewSize);
+      if (frame != placement.frame) {
+        next[placement.objectId] = placement.copyWith(frame: frame);
+        changed = true;
+      }
+    }
+    if (changed) {
+      state = state.copyWith(placements: next);
+    }
+  }
+
+  Rect _maximizedFrame(int monitorId, Size viewSize) {
+    final workArea =
+        _workAreas[monitorId]?.intersect(Offset.zero & viewSize);
+    if (workArea == null || workArea.isEmpty) {
+      return DesktopMetrics.windowWorkArea(viewSize);
+    }
+    return workArea;
+  }
 
   void syncWindows(
       List<DenialWindow> windows, Size viewSize, double devicePixelRatio,
@@ -462,7 +462,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
       final frame = current.fullscreen
           ? _clampFrame(current.frame, viewSize)
           : current.maximized
-              ? DesktopMetrics.windowWorkArea(viewSize)
+              ? _maximizedFrame(current.monitorId, viewSize)
               : _clampFrame(current.frame, viewSize);
       if (frame != current.frame) {
         next[window.objectId] = current.copyWith(frame: frame);
@@ -827,7 +827,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
       final canvas = Offset.zero & state.viewSize;
       final requestedBounds = bounds?.intersect(canvas);
       final maximizedFrame = requestedBounds == null || requestedBounds.isEmpty
-          ? DesktopMetrics.windowWorkArea(state.viewSize)
+          ? _maximizedFrame(placement.monitorId, state.viewSize)
           : requestedBounds;
       next[objectId] = placement.copyWith(
         frame: maximizedFrame,

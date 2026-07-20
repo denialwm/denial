@@ -91,6 +91,10 @@ abstract final class ShellRadii {
 /// Shared text styles. All disable the default underline decoration so callers
 /// never have to repeat `decoration: TextDecoration.none`.
 abstract final class ShellText {
+  /// Monospace family bundled for the system bar so ticking values keep a
+  /// fixed advance; the rest of the shell stays on the default family.
+  static const String systemBarFontFamily = 'JetBrainsMono';
+
   static const TextStyle base = TextStyle(
     color: ShellColors.textPrimary,
     fontSize: 14,
@@ -102,6 +106,30 @@ abstract final class ShellText {
     fontSize: 18,
     height: 1,
     fontWeight: FontWeight.w800,
+    decoration: TextDecoration.none,
+  );
+
+  /// System bar card text, sized for the thin pill cards floating inside the
+  /// reserved bar strip.
+  static const TextStyle systemBarValue = TextStyle(
+    color: ShellColors.textPrimary,
+    fontFamily: systemBarFontFamily,
+    fontSize: 13,
+    height: 1,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 0.3,
+    decoration: TextDecoration.none,
+  );
+
+  /// Secondary system bar text (the date caption beside the clock). Callers
+  /// tint the color toward the wallpaper accent.
+  static const TextStyle systemBarCaption = TextStyle(
+    color: ShellColors.textSecondary,
+    fontFamily: systemBarFontFamily,
+    fontSize: 11,
+    height: 1,
+    fontWeight: FontWeight.w500,
+    letterSpacing: 0.2,
     decoration: TextDecoration.none,
   );
 

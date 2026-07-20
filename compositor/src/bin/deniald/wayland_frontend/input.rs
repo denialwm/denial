@@ -791,6 +791,11 @@ fn intercept_native_escape(
             super::window_management::close_focused_toplevel(state);
             true
         }
+        ShortcutDisposition::RequestToggleMaximize => {
+            #[cfg(feature = "flutter")]
+            super::window_management::toggle_shell_maximize_focused_toplevel(state);
+            true
+        }
         ShortcutDisposition::RequestToggleFullscreen => {
             #[cfg(feature = "flutter")]
             super::window_management::toggle_shell_fullscreen_focused_toplevel(state);

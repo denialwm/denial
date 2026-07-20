@@ -1,0 +1,82 @@
+import 'dart:typed_data';
+
+import 'package:flutter/painting.dart' show Color, HSVColor;
+import 'package:flutter_test/flutter_test.dart';
+import 'package:denial_dart_shell/src/wallpaper/state/wallpaper_accent.dart';
+import 'package:denial_dart_shell/src/wallpaper/wallpaper.dart';
+
+void main() {
+  test('dominant vibrant color follows the strongest saturated hue', () {
+    // Two thirds saturated blue, one third saturated red: blue must win, and
+    // the result is lifted into the legible tone band for dark surfaces.
+    final pixels = _rgbaPixels(<Color>[
+      for (var i = 0; i < 200; i += 1) const Color(0xff1040e0),
+      for (var i = 0; i < 100; i += 1) const Color(0xffd02020),
+    ]);
+
+    final color = dominantVibrantColor(pixels);
+
+    expect(color, isNotNull);
+    final hsv = HSVColor.fromColor(color!);
+    expect(hsv.hue, closeTo(225, 20));
+    expect(hsv.value, greaterThanOrEqualTo(0.70));
+    expect(hsv.saturation, inInclusiveRange(0.35, 0.75));
+  });
+
+  test('monochrome images produce no accent', () {
+    final gray = _rgbaPixels(<Color>[
+      for (var i = 0; i < 300; i += 1) const Color(0xff5a5a5a),
+    ]);
+    final black = _rgbaPixels(<Color>[
+      for (var i = 0; i < 300; i += 1) const Color(0xff000000),
+    ]);
+
+    expect(dominantVibrantColor(gray), isNull);
+    expect(dominantVibrantColor(black), isNull);
+    expect(dominantVibrantColor(ByteData(0)), isNull);
+  });
+
+  test('a handful of stray colored pixels cannot theme a gray image', () {
+    final pixels = _rgbaPixels(<Color>[
+      for (var i = 0; i < 5000; i += 1) const Color(0xff404040),
+      for (var i = 0; i < 4; i += 1) const Color(0xff00ff00),
+    ]);
+
+    expect(dominantVibrantColor(pixels), isNull);
+  });
+
+  test('controller keeps the previous accent while a resource is unreadable',
+      () async {
+    final controller = WallpaperAccentController(
+      extract: (resource) async => switch (resource.path) {
+        'vivid' => const Color(0xff3366ff),
+        _ => throw StateError('unreadable'),
+      },
+    );
+    addTearDown(controller.dispose);
+
+    await controller.load(const WallpaperResource.file('vivid'));
+    expect(controller.state.color, const Color(0xff3366ff));
+
+    // An unreadable wallpaper falls back to the brand accent rather than
+    // failing silently with a stale wallpaper-specific color.
+    await controller.load(const WallpaperResource.file('broken'));
+    expect(controller.state, WallpaperAccent.fallback);
+
+    // Re-selecting the earlier wallpaper is served from the cache.
+    await controller.load(const WallpaperResource.file('vivid'));
+    expect(controller.state.color, const Color(0xff3366ff));
+  });
+}
+
+ByteData _rgbaPixels(List<Color> colors) {
+  final data = ByteData(colors.length * 4);
+  for (var i = 0; i < colors.length; i += 1) {
+    final color = colors[i];
+    data.setUint8(i * 4, (color.r * 255).round());
+    data.setUint8(i * 4 + 1, (color.g * 255).round());
+    data.setUint8(i * 4 + 2, (color.b * 255).round());
+    data.setUint8(i * 4 + 3, 255);
+  }
+  return data;
+}

@@ -8,6 +8,7 @@ environment:
 
 dependencies:
   dbus: ^0.7.12
+  ffi: ^2.1.0
   flat_buffers: 25.9.23
   flutter:
     sdk: flutter
@@ -42,3 +43,12 @@ flutter:
     - assets/cursors/yangyang_xuanling/working/
     - assets/icons/application-default-icon.svg
     - assets/wallpapers/wallhaven-28ylpg.jpg
+  fonts:
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/JetBrainsMono-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/JetBrainsMono-Bold.ttf
+          weight: 700

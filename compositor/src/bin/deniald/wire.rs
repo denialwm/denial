@@ -12,6 +12,8 @@ use std::fmt;
 use denial_core::topology::{AtlasPlan, OutputId, SCALE_BASE, TopologySnapshot};
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 
+use super::options::{SystemBarOptions, SystemBarSide, WorkAreaOptions};
+
 #[allow(
     clippy::all,
     clippy::undocumented_unsafe_blocks,
@@ -99,6 +101,7 @@ pub enum WindowAction {
     Minimize,
     Maximize,
     Restore,
+    ToggleMaximize,
     ToggleFullscreen,
 }
 
@@ -155,6 +158,7 @@ impl WindowAction {
             Self::Minimize => fb::WindowActionKind::Minimize,
             Self::Maximize => fb::WindowActionKind::Maximize,
             Self::Restore => fb::WindowActionKind::Restore,
+            Self::ToggleMaximize => fb::WindowActionKind::ToggleMaximize,
             Self::ToggleFullscreen => fb::WindowActionKind::ToggleFullscreen,
         }
     }
@@ -363,6 +367,7 @@ impl Error for WireError {
 pub struct WireBridge {
     snapshot: TopologySnapshot,
     atlas: AtlasPlan,
+    work_area: WorkAreaOptions,
     windows: Vec<WindowDescription>,
     // Flutter copies platform-channel payloads during the synchronous engine
     // call. Keep one builder alive here and lend its finished tail until the
@@ -377,11 +382,16 @@ pub struct WireBridge {
 }
 
 impl WireBridge {
-    pub fn new(snapshot: &TopologySnapshot, atlas: &AtlasPlan) -> Result<Self, WireError> {
+    pub fn new(
+        snapshot: &TopologySnapshot,
+        atlas: &AtlasPlan,
+        work_area: WorkAreaOptions,
+    ) -> Result<Self, WireError> {
         validate_topology(snapshot, atlas)?;
         Ok(Self {
             snapshot: snapshot.clone(),
             atlas: atlas.clone(),
+            work_area,
             windows: Vec::new(),
             outbound_builder: FlatBufferBuilder::with_capacity(1024),
             pending_input_layout: None,
@@ -608,6 +618,7 @@ impl WireBridge {
                     request_id,
                     &self.snapshot,
                     &self.atlas,
+                    &self.work_area,
                 )?;
                 Ok(Some(self.outbound_builder.finished_data()))
             }
@@ -1231,6 +1242,7 @@ fn encode_display_layout(
     request_id: u64,
     snapshot: &TopologySnapshot,
     atlas: &AtlasPlan,
+    work_area: &WorkAreaOptions,
 ) -> Result<(), WireError> {
     let mut ordered = snapshot.outputs.iter().collect::<Vec<_>>();
     ordered.sort_by(|left, right| {
@@ -1288,6 +1300,13 @@ fn encode_display_layout(
         f64::from(atlas.pixel_size.height),
     );
     let ticker = snapshot.ticker.and_then(monitor_id).unwrap_or(-1);
+    let (system_bar_monitor_id, system_bar_side, system_bar_thickness) =
+        resolve_system_bar(snapshot, &work_area.system_bar, ticker);
+    let maximize_padding = if work_area.maximize_padding.is_finite() {
+        work_area.maximize_padding.max(0.0)
+    } else {
+        0.0
+    };
     let layout = fb::DisplayLayout::create(
         builder,
         &fb::DisplayLayoutArgs {
@@ -1297,8 +1316,10 @@ fn encode_display_layout(
             pixel_size: Some(&pixel_size),
             engine_scale: f64::from(atlas.engine_scale_120) / f64::from(SCALE_BASE),
             ticker_monitor_id: ticker,
-            system_bar_monitor_id: ticker,
-            system_bar_side: fb::SystemBarSide::Left,
+            system_bar_monitor_id,
+            system_bar_side,
+            system_bar_thickness,
+            maximize_padding,
             outputs: Some(outputs),
         },
     );
@@ -1345,6 +1366,34 @@ fn monitor_id(id: OutputId) -> Option<i64> {
     i64::try_from(id.0).ok()
 }
 
+/// Resolves the configured system bar against the live topology. A configured
+/// connector that is currently absent falls back to the ticker output so the
+/// bar survives hotplug instead of disappearing with its monitor.
+fn resolve_system_bar(
+    snapshot: &TopologySnapshot,
+    system_bar: &SystemBarOptions,
+    ticker: i64,
+) -> (i64, fb::SystemBarSide, f64) {
+    if system_bar.side == SystemBarSide::Hidden || system_bar.thickness <= 0.0 {
+        return (-1, fb::SystemBarSide::Hidden, 0.0);
+    }
+    let configured = system_bar.output.as_deref().and_then(|name| {
+        snapshot
+            .outputs
+            .iter()
+            .find(|output| output.name == name)
+            .and_then(|output| monitor_id(output.id))
+    });
+    let side = match system_bar.side {
+        SystemBarSide::Left => fb::SystemBarSide::Left,
+        SystemBarSide::Right => fb::SystemBarSide::Right,
+        SystemBarSide::Top => fb::SystemBarSide::Top,
+        SystemBarSide::Bottom => fb::SystemBarSide::Bottom,
+        SystemBarSide::Hidden => unreachable!("hidden side returned above"),
+    };
+    (configured.unwrap_or(ticker), side, system_bar.thickness)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1376,7 +1425,7 @@ mod tests {
         .unwrap();
         let snapshot = topology.snapshot();
         let atlas = AtlasPlan::for_snapshot(&snapshot).unwrap();
-        WireBridge::new(&snapshot, &atlas).unwrap()
+        WireBridge::new(&snapshot, &atlas, WorkAreaOptions::default()).unwrap()
     }
 
     fn request(kind: fb::WindowRequestKind, request_id: u64) -> Vec<u8> {
@@ -1705,10 +1754,83 @@ mod tests {
         assert_eq!(layout.pixel_size().unwrap().width(), 4480.0);
         assert_eq!(layout.ticker_monitor_id(), 9);
         assert_eq!(layout.system_bar_monitor_id(), 9);
+        assert_eq!(layout.system_bar_side(), fb::SystemBarSide::Top);
+        assert_eq!(layout.system_bar_thickness(), 32.0);
         assert_eq!(outputs.len(), 2);
         assert_eq!(outputs.get(0).logical_rect().unwrap().x(), 0.0);
         assert_eq!(outputs.get(1).logical_rect().unwrap().x(), 1920.0);
         assert_eq!(outputs.get(1).source_rect().unwrap().x(), 1920.0);
+    }
+
+    #[test]
+    fn system_bar_resolves_named_outputs_and_hides_cleanly() {
+        fn layout_fields(system_bar: SystemBarOptions) -> (i64, fb::SystemBarSide, f64, f64) {
+            let topology = TopologyManager::new([
+                OutputSpec {
+                    id: OutputId(7),
+                    name: "left".into(),
+                    position: LogicalPoint::new(-1920, 0),
+                    mode: PixelSize::new(1920, 1080),
+                    scale_120: 120,
+                    refresh_millihz: 60_000,
+                    transform: OutputTransform::Normal,
+                },
+                OutputSpec {
+                    id: OutputId(9),
+                    name: "main".into(),
+                    position: LogicalPoint::new(0, 0),
+                    mode: PixelSize::new(2560, 1440),
+                    scale_120: 120,
+                    refresh_millihz: 180_000,
+                    transform: OutputTransform::Normal,
+                },
+            ])
+            .unwrap();
+            let snapshot = topology.snapshot();
+            let atlas = AtlasPlan::for_snapshot(&snapshot).unwrap();
+            let mut bridge = WireBridge::new(
+                &snapshot,
+                &atlas,
+                WorkAreaOptions {
+                    system_bar,
+                    maximize_padding: 10.0,
+                },
+            )
+            .unwrap();
+            let bytes = bridge
+                .handle(&request(fb::WindowRequestKind::GetDisplayLayout, 61))
+                .unwrap()
+                .unwrap();
+            let envelope = fb::root_as_envelope(bytes).unwrap();
+            let layout = envelope
+                .payload_as_window_response()
+                .unwrap()
+                .display_layout()
+                .unwrap();
+            (
+                layout.system_bar_monitor_id(),
+                layout.system_bar_side(),
+                layout.system_bar_thickness(),
+                layout.maximize_padding(),
+            )
+        }
+
+        let named = layout_fields(SystemBarOptions {
+            output: Some("left".to_owned()),
+            side: super::SystemBarSide::Bottom,
+            thickness: 40.0,
+        });
+        assert_eq!(named, (7, fb::SystemBarSide::Bottom, 40.0, 10.0));
+
+        let absent = layout_fields(SystemBarOptions {
+            output: Some("unplugged".to_owned()),
+            side: super::SystemBarSide::Top,
+            thickness: 32.0,
+        });
+        assert_eq!(absent, (9, fb::SystemBarSide::Top, 32.0, 10.0));
+
+        let hidden = layout_fields(SystemBarOptions::hidden());
+        assert_eq!(hidden, (-1, fb::SystemBarSide::Hidden, 0.0, 10.0));
     }
 
     #[test]

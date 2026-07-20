@@ -71,7 +71,78 @@ impl WaylandFrontend {
             .map(|index| &self.outputs[index])
     }
 
+    /// `geometry` minus the shell system-bar strip when the given output (or,
+    /// with `output` unknown, the output whose logical rect equals `geometry`)
+    /// hosts the bar, and minus the configured maximize padding on every
+    /// bar-free edge. Mirrors the Dart shell's `DisplayLayout.workAreaOf`
+    /// so a client-requested maximize configure lands on the same rect the
+    /// shell places maximized windows into. True fullscreen keeps the full
+    /// output geometry and must not call this.
+    pub(super) fn maximize_work_area(
+        &self,
+        output: Option<&Output>,
+        geometry: Rectangle<i32, Logical>,
+    ) -> Rectangle<i32, Logical> {
+        use crate::options::SystemBarSide;
+        let bar = &self.work_area.system_bar;
+        // A configured connector name wins when that output is present;
+        // otherwise the bar follows the render ticker output, exactly like
+        // resolve_system_bar in wire.rs.
+        let host = bar
+            .output
+            .as_deref()
+            .and_then(|name| {
+                self.outputs
+                    .iter()
+                    .find(|entry| entry.connector == name)
+                    .map(|entry| entry.id)
+            })
+            .or(self.ticker_output);
+        let hosts_bar = bar.side != SystemBarSide::Hidden
+            && bar.thickness > 0.0
+            && self.outputs.iter().any(|entry| {
+                Some(entry.id) == host
+                    && match output {
+                        Some(output) => entry.output == *output,
+                        None => entry.logical_geometry == geometry,
+                    }
+            });
+        let bar_side = hosts_bar.then_some(bar.side);
+        let padding = self.work_area.maximize_padding;
+        let padding = if padding.is_finite() {
+            (padding.ceil() as i32).max(0)
+        } else {
+            0
+        };
+        let bar_thickness = (bar.thickness.ceil() as i32).max(0);
+        let inset = |side: SystemBarSide| {
+            if bar_side == Some(side) {
+                bar_thickness
+            } else {
+                padding
+            }
+        };
+        let mut top = inset(SystemBarSide::Top);
+        let mut bottom = inset(SystemBarSide::Bottom);
+        let mut left = inset(SystemBarSide::Left);
+        let mut right = inset(SystemBarSide::Right);
+        // Misconfigured insets must never consume the whole output.
+        let height_budget = (geometry.size.h - 1).max(0);
+        top = top.min(height_budget);
+        bottom = bottom.min(height_budget - top);
+        let width_budget = (geometry.size.w - 1).max(0);
+        left = left.min(width_budget);
+        right = right.min(width_budget - left);
+        let mut area = geometry;
+        area.loc.x += left;
+        area.loc.y += top;
+        area.size.w -= left + right;
+        area.size.h -= top + bottom;
+        area
+    }
+
     pub fn update_topology(&mut self, snapshot: &TopologySnapshot) -> Result<(), Box<dyn Error>> {
+        self.ticker_output = snapshot.ticker;
         let desktop_bounds = logical_bounds(snapshot)?;
         let atlas = AtlasPlan::for_snapshot(snapshot).ok_or("Wayland topology has no atlas")?;
         let old_output_geometries = self

@@ -300,7 +300,12 @@ fn unmap_x11_window(state: &mut RuntimeState, surface: &X11Surface) {
     state.scene_sync.mark_dirty();
 }
 
-fn configure_x11_for_output(state: &mut RuntimeState, surface: &X11Surface, enabled: bool) {
+fn configure_x11_for_output(
+    state: &mut RuntimeState,
+    surface: &X11Surface,
+    enabled: bool,
+    work_area: bool,
+) {
     let Some(window) = window_for_x11(state, surface) else {
         return;
     };
@@ -309,11 +314,19 @@ fn configure_x11_for_output(state: &mut RuntimeState, surface: &X11Surface, enab
         let geometry = frontend.window_geometry_target(&window);
         // `Space` also contains `denial-atlas`, the rendering-only Flutter
         // canvas. X11 clients must only ever receive a physical monitor's
-        // logical geometry for maximized and fullscreen windows.
+        // logical geometry for maximized and fullscreen windows. Maximize
+        // additionally stays out of the shell system-bar strip.
         x11_monitor_geometry(
             geometry,
             frontend.outputs.iter().map(|entry| entry.logical_geometry),
         )
+        .map(|monitor| {
+            if work_area {
+                frontend.maximize_work_area(None, monitor)
+            } else {
+                monitor
+            }
+        })
     } else {
         root_surface_for_x11(surface).and_then(|root| {
             state
@@ -570,7 +583,7 @@ impl XwmHandler for RuntimeState {
         if was_maximized && !was_fullscreen {
             return;
         }
-        configure_x11_for_output(self, &window, true);
+        configure_x11_for_output(self, &window, true, true);
         #[cfg(feature = "flutter")]
         if !shell_geometry_locked {
             if was_fullscreen {
@@ -594,7 +607,7 @@ impl XwmHandler for RuntimeState {
             self.scene_sync.mark_dirty();
             return;
         }
-        configure_x11_for_output(self, &window, false);
+        configure_x11_for_output(self, &window, false, false);
         #[cfg(feature = "flutter")]
         if !shell_geometry_locked {
             queue_x11_action(self, &window, WindowAction::Restore);
@@ -620,7 +633,7 @@ impl XwmHandler for RuntimeState {
         if was_fullscreen && !was_maximized {
             return;
         }
-        configure_x11_for_output(self, &window, true);
+        configure_x11_for_output(self, &window, true, false);
         #[cfg(feature = "flutter")]
         if !shell_geometry_locked {
             if was_maximized {
@@ -644,7 +657,7 @@ impl XwmHandler for RuntimeState {
             self.scene_sync.mark_dirty();
             return;
         }
-        configure_x11_for_output(self, &window, false);
+        configure_x11_for_output(self, &window, false, false);
         #[cfg(feature = "flutter")]
         if !shell_geometry_locked {
             queue_x11_action(self, &window, WindowAction::ToggleFullscreen);

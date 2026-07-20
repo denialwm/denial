@@ -296,6 +296,7 @@ pub(super) struct FlutterLauncher {
     authentication: Arc<authentication::AuthenticationController>,
     wayland_display: Option<OsString>,
     x11_display: Option<OsString>,
+    work_area: options::WorkAreaOptions,
     pub(super) generation: u64,
 }
 
@@ -306,6 +307,7 @@ impl FlutterLauncher {
         events: Sender<flutter_runtime::RuntimeEvent>,
         wayland_display: Option<OsString>,
         x11_display: Option<OsString>,
+        work_area: options::WorkAreaOptions,
     ) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
             factory: flutter_runtime::FlutterRuntimeFactory::new(bundle)?,
@@ -313,6 +315,7 @@ impl FlutterLauncher {
             authentication: Arc::new(authentication::AuthenticationController::new()?),
             wayland_display,
             x11_display,
+            work_area,
             generation: 0,
         })
     }
@@ -342,6 +345,7 @@ impl FlutterLauncher {
             &self.factory,
             self.events.clone(),
             Arc::clone(&self.authentication),
+            self.work_area.clone(),
             self.generation,
             scanouts
                 .iter()

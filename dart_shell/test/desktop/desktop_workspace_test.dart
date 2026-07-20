@@ -462,6 +462,49 @@ void main() {
     expect(launcherTrigger, const Rect.fromLTWH(2560, 0, 8, 96));
     expect(dashboardTrigger, const Rect.fromLTWH(2560, 1344, 8, 96));
   });
+
+  test('maximize without explicit bounds uses the monitor work area', () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    const workArea = Rect.fromLTRB(0, 32, 2560, 1440);
+
+    controller.syncWindows(
+      <DenialWindow>[_window(objectId: 1, windowId: 11, monitorId: 1)],
+      viewSize,
+      1,
+      snapshotSequence: 1,
+    );
+    controller.syncWorkAreas(const <int, Rect>{
+      1: workArea,
+      2: secondOutput,
+    });
+    controller.toggleMaximized(1);
+
+    expect(controller.state.placements[1]!.frame, workArea);
+  });
+
+  test('work area changes re-anchor maximized windows but not fullscreen', () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    const monitorRect = Rect.fromLTWH(0, 0, 2560, 1440);
+    const workArea = Rect.fromLTRB(0, 32, 2560, 1440);
+
+    controller.syncWindows(
+      <DenialWindow>[
+        _window(objectId: 1, windowId: 11, monitorId: 1),
+        _window(objectId: 2, windowId: 22, monitorId: 1),
+      ],
+      viewSize,
+      1,
+      snapshotSequence: 1,
+    );
+    controller.toggleMaximized(1, bounds: monitorRect);
+    controller.toggleFullscreen(2, bounds: monitorRect);
+    controller.syncWorkAreas(const <int, Rect>{1: workArea});
+
+    expect(controller.state.placements[1]!.frame, workArea);
+    expect(controller.state.placements[2]!.frame, monitorRect);
+  });
 }
 
 DenialWindow _window({

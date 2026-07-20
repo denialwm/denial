@@ -27,6 +27,15 @@ class ShellClockInfo {
 
   List<ShellThermalReading> get thermalReadings => power.thermalReadings;
 
+  /// Compact `Dom 20 Lug` form for tight surfaces like the system bar. The
+  /// three-letter prefixes stay unambiguous in every bundled locale.
+  static String shortDate(DateTime now, String locale) {
+    final names = _DateNames.forLocale(locale);
+    final weekday = names.weekdays[now.weekday - 1].substring(0, 3);
+    final month = names.months[now.month - 1].substring(0, 3);
+    return '$weekday ${now.day} $month';
+  }
+
   static String localeFromEnvironment(Map<String, String> environment) {
     final lcTime = _nonEmpty(environment['LC_TIME']);
     if (lcTime != null) {

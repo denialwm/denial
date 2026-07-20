@@ -353,6 +353,18 @@ pub(super) fn close_focused_toplevel(state: &RuntimeState) -> bool {
 }
 
 #[cfg(feature = "flutter")]
+/// SUPER+Up mirrors the SUPER+F pattern: a shell-owned geometry toggle. The
+/// XDG maximized state stays untouched; Flutter tracks the restore frame and
+/// answers with a work-area-sized (or restored) ConfigureWindow command.
+pub(super) fn toggle_shell_maximize_focused_toplevel(state: &mut RuntimeState) -> bool {
+    let Some(window) = focused_window(state) else {
+        return false;
+    };
+    queue_window_action_for_window(state, &window, WindowAction::ToggleMaximize);
+    state.scene_sync.mark_dirty();
+    true
+}
+
 pub(super) fn toggle_shell_fullscreen_focused_toplevel(state: &mut RuntimeState) -> bool {
     let Some(window) = focused_window(state) else {
         return false;
@@ -422,6 +434,13 @@ pub(super) fn configure_toplevel_for_output(
         };
         let Some(geometry) = frontend.space.output_geometry(&output) else {
             return false;
+        };
+        // Maximized clients get the shell work area; only true fullscreen
+        // covers the system bar.
+        let geometry = if xdg_state == xdg_toplevel::State::Maximized {
+            frontend.maximize_work_area(Some(&output), geometry)
+        } else {
+            geometry
         };
         (geometry, fullscreen_output)
     };
