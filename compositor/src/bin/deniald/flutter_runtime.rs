@@ -3784,6 +3784,12 @@ impl FlutterRuntime {
         self.wire.drain_window_commands()
     }
 
+    pub fn drain_notification_commands(
+        &mut self,
+    ) -> impl Iterator<Item = wire::NotificationCommand> + '_ {
+        self.wire.drain_notification_commands()
+    }
+
     pub fn take_work_area_update(&mut self) -> Option<super::options::WorkAreaOptions> {
         self.wire.take_work_area_update()
     }
@@ -3851,6 +3857,20 @@ impl FlutterRuntime {
             .expect("Flutter runtime is shutting down")
             .engine();
         let update = self.wire.encode_cursor_shape(shape)?;
+        engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, update)?;
+        Ok(())
+    }
+
+    pub fn send_notification_event(
+        &mut self,
+        event: &super::notification_server::NotificationEvent,
+    ) -> Result<(), Box<dyn Error>> {
+        let engine = self
+            .host
+            .as_ref()
+            .expect("Flutter runtime is shutting down")
+            .engine();
+        let update = self.wire.encode_notification_event(event)?;
         engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, update)?;
         Ok(())
     }

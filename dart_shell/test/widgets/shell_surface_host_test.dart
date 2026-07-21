@@ -24,7 +24,7 @@ void main() {
         .show(
           debugLabel: 'Test modal',
           transitionDuration: const Duration(milliseconds: 200),
-          builder: (_, __) => const Center(
+          builder: (_, _) => const Center(
             child: SizedBox(key: ValueKey<String>('modal'), width: 120),
           ),
         );
@@ -71,7 +71,7 @@ void main() {
         .show(
           debugLabel: 'Dismissible modal',
           transitionDuration: Duration.zero,
-          builder: (_, __) =>
+          builder: (_, _) =>
               const Center(child: SizedBox(width: 100, height: 100)),
         );
     await tester.pump();

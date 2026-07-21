@@ -1,10 +1,12 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import '../runtime_paths.dart';
 import '../models/desktop_app.dart';
 
 class DesktopAppsRepository {
-  const DesktopAppsRepository({required RuntimePaths paths}) : _paths = paths;
+  const DesktopAppsRepository({required this._paths});
 
   final RuntimePaths _paths;
 
@@ -20,7 +22,7 @@ class DesktopAppsRepository {
           continue;
         }
 
-        filesById.putIfAbsent(_basename(entity.path), () => entity);
+        filesById.putIfAbsent(p.basename(entity.path), () => entity);
       }
     }
 
@@ -130,11 +132,10 @@ class DesktopAppsRepository {
   }
 
   bool _matchesCurrentDesktop(Map<String, String> fields) {
-    final current =
-        (_paths.environment['XDG_CURRENT_DESKTOP'] ?? 'Denial')
-            .split(':')
-            .where((item) => item.isNotEmpty)
-            .toSet();
+    final current = (_paths.environment['XDG_CURRENT_DESKTOP'] ?? 'Denial')
+        .split(':')
+        .where((item) => item.isNotEmpty)
+        .toSet();
     if (current.isEmpty) {
       current.add('Denial');
     }
@@ -157,17 +158,18 @@ class DesktopAppsRepository {
     if (trimmed.isEmpty) {
       return false;
     }
-    if (trimmed.startsWith('/')) {
+    if (p.isAbsolute(trimmed)) {
       return File(trimmed).existsSync();
     }
 
-    final path = _paths.environment['PATH'] ??
+    final path =
+        _paths.environment['PATH'] ??
         '/usr/local/sbin:/usr/local/bin:/usr/bin:/bin';
     for (final dir in path.split(':')) {
       if (dir.isEmpty) {
         continue;
       }
-      if (File('$dir/$trimmed').existsSync()) {
+      if (File(p.join(dir, trimmed)).existsSync()) {
         return true;
       }
     }
@@ -179,7 +181,7 @@ class DesktopAppsRepository {
   /// Callers displaying external events should run this filesystem search off
   /// the UI isolate and cache its result.
   String? resolveIconPath(String icon) {
-    if (icon.startsWith('/')) {
+    if (p.isAbsolute(icon)) {
       return _isSafeIconFile(icon) ? icon : null;
     }
 
@@ -200,21 +202,21 @@ class DesktopAppsRepository {
 
     for (final root in _paths.iconRoots()) {
       for (final extension in extensions) {
-        final pixmap = '$root/pixmaps/$name.$extension';
+        final pixmap = p.join(root, 'pixmaps', '$name.$extension');
         if (_isSafeIconFile(pixmap)) {
           return pixmap;
         }
       }
 
-      final iconsDir = Directory('$root/icons');
+      final iconsDir = Directory(p.join(root, 'icons'));
       if (!iconsDir.existsSync()) {
         continue;
       }
 
       final themes = <String>[
-        '$root/icons/hicolor',
-        '$root/icons/Adwaita',
-        '$root/icons/Tela',
+        p.join(root, 'icons', 'hicolor'),
+        p.join(root, 'icons', 'Adwaita'),
+        p.join(root, 'icons', 'Tela'),
       ];
       try {
         for (final entity in iconsDir.listSync(followLinks: false)) {
@@ -230,7 +232,7 @@ class DesktopAppsRepository {
         for (final size in sizes) {
           for (final context in contexts) {
             for (final extension in extensions) {
-              final path = '$theme/$size/$context/$name.$extension';
+              final path = p.join(theme, size, context, '$name.$extension');
               if (_isSafeIconFile(path)) {
                 return path;
               }
@@ -268,7 +270,7 @@ class DesktopAppsRepository {
       return null;
     }
     for (final directory in _paths.desktopApplicationDirs()) {
-      final file = File('${directory.path}/$normalizedEntry');
+      final file = File(p.join(directory.path, normalizedEntry));
       if (!file.existsSync()) {
         continue;
       }
@@ -348,9 +350,4 @@ String _unescapeDesktopValue(String value) {
       .replaceAll(r'\n', '\n')
       .replaceAll(r'\t', '\t')
       .replaceAll(r'\\', r'\');
-}
-
-String _basename(String path) {
-  final slash = path.lastIndexOf('/');
-  return slash < 0 ? path : path.substring(slash + 1);
 }

@@ -12,6 +12,9 @@ use std::fmt;
 use denial_core::topology::{AtlasPlan, OutputId, SCALE_BASE, TopologySnapshot};
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 
+use super::notification_server::{
+    Notification, NotificationEvent, NotificationEventKind, NotificationUrgency,
+};
 use super::options::{SystemBarOptions, SystemBarSide, WorkAreaOptions};
 
 #[allow(
@@ -46,6 +49,7 @@ const MAX_WINDOWS: usize = 4096;
 const MAX_REGIONS: usize = 8192;
 const MAX_SURFACES: usize = 32768;
 const MAX_PENDING_WINDOW_COMMANDS: usize = 4096;
+const MAX_PENDING_NOTIFICATION_COMMANDS: usize = 256;
 const MAX_LOCAL_APP_ID_BYTES: usize = 256;
 const MAX_LOCAL_WINDOW_TITLE_BYTES: usize = 1024;
 const WINDOW_PLACEMENT_PACKET_BYTES: usize = 80;
@@ -125,6 +129,20 @@ pub enum ShellAction {
     WindowSwitcherNext,
     #[allow(dead_code)]
     WindowSwitcherEnd,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum NotificationCommand {
+    Dismiss {
+        notification_id: u32,
+    },
+    InvokeAction {
+        notification_id: u32,
+        action_key: String,
+    },
+    InvokeDefault {
+        notification_id: u32,
+    },
 }
 
 impl ShellAction {
@@ -405,6 +423,7 @@ pub struct WireBridge {
     input_layout_scratch: InputLayoutSnapshot,
     input_layout_identities_scratch: HashSet<u64>,
     pending_window_commands: VecDeque<WindowCommand>,
+    pending_notification_commands: VecDeque<NotificationCommand>,
     pending_work_area: Option<WorkAreaOptions>,
     next_sequence: u64,
 }
@@ -426,6 +445,7 @@ impl WireBridge {
             input_layout_scratch: InputLayoutSnapshot::default(),
             input_layout_identities_scratch: HashSet::new(),
             pending_window_commands: VecDeque::new(),
+            pending_notification_commands: VecDeque::new(),
             pending_work_area: None,
             next_sequence: 1,
         })
@@ -466,6 +486,12 @@ impl WireBridge {
 
     pub fn drain_window_commands(&mut self) -> impl Iterator<Item = WindowCommand> + '_ {
         self.pending_window_commands.drain(..)
+    }
+
+    pub fn drain_notification_commands(
+        &mut self,
+    ) -> impl Iterator<Item = NotificationCommand> + '_ {
+        self.pending_notification_commands.drain(..)
     }
 
     /// Takes the latest validated system-bar update. Settings changes are
@@ -554,6 +580,17 @@ impl WireBridge {
         Ok(self.outbound_builder.finished_data())
     }
 
+    pub fn encode_notification_event(
+        &mut self,
+        event: &NotificationEvent,
+    ) -> Result<&[u8], WireError> {
+        validate_notification_event(event)?;
+        let sequence = self.take_sequence();
+        self.outbound_builder.reset();
+        encode_notification_event(&mut self.outbound_builder, sequence, event)?;
+        Ok(self.outbound_builder.finished_data())
+    }
+
     /// Handles one verified Flutter message and returns an ordered response,
     /// when the payload is a request/reply operation.
     pub fn handle(&mut self, bytes: &[u8]) -> Result<Option<&[u8]>, WireError> {
@@ -608,7 +645,11 @@ impl WireBridge {
                 let command = envelope
                     .payload_as_desktop_notification_command()
                     .ok_or(WireError::Payload)?;
-                validate_notification_command(command)?;
+                if self.pending_notification_commands.len() >= MAX_PENDING_NOTIFICATION_COMMANDS {
+                    return Err(WireError::Count);
+                }
+                let command = decode_notification_command(command)?;
+                self.pending_notification_commands.push_back(command);
                 Ok(None)
             }
             fb::Payload::WindowRequest => {
@@ -827,30 +868,105 @@ fn validate_keyboard_command(command: fb::KeyboardCommand<'_>) -> Result<(), Wir
     validate_required_string(value)
 }
 
-fn validate_notification_command(
+fn decode_notification_command(
     command: fb::DesktopNotificationCommand<'_>,
-) -> Result<(), WireError> {
+) -> Result<NotificationCommand, WireError> {
     if command.kind().variant_name().is_none() {
         return Err(WireError::Enumeration);
     }
-    if command.notification_id() == 0 {
+    let notification_id = command.notification_id();
+    if notification_id == 0 {
         return Err(WireError::Identity);
     }
 
     match command.kind() {
         fb::DesktopNotificationCommandKind::InvokeAction => {
-            validate_required_string(command.action_key())
+            validate_required_string(command.action_key())?;
+            Ok(NotificationCommand::InvokeAction {
+                notification_id,
+                action_key: command
+                    .action_key()
+                    .expect("validated notification action key")
+                    .to_owned(),
+            })
         }
-        fb::DesktopNotificationCommandKind::Dismiss
-        | fb::DesktopNotificationCommandKind::InvokeDefault => {
+        fb::DesktopNotificationCommandKind::Dismiss => {
             if command.action_key().is_some_and(|key| !key.is_empty()) {
                 Err(WireError::String)
             } else {
-                Ok(())
+                Ok(NotificationCommand::Dismiss { notification_id })
+            }
+        }
+        fb::DesktopNotificationCommandKind::InvokeDefault => {
+            if command.action_key().is_some_and(|key| !key.is_empty()) {
+                Err(WireError::String)
+            } else {
+                Ok(NotificationCommand::InvokeDefault { notification_id })
             }
         }
         _ => Err(WireError::Enumeration),
     }
+}
+
+fn validate_notification_event(event: &NotificationEvent) -> Result<(), WireError> {
+    if event.notification_id == 0 {
+        return Err(WireError::Identity);
+    }
+    match event.kind {
+        NotificationEventKind::Closed => {
+            if event.notification.is_some() || !(1..=4).contains(&event.close_reason) {
+                return Err(WireError::Payload);
+            }
+        }
+        NotificationEventKind::Added | NotificationEventKind::Replaced => {
+            let notification = event.notification.as_ref().ok_or(WireError::Payload)?;
+            if notification.id != event.notification_id || event.close_reason != 0 {
+                return Err(WireError::Identity);
+            }
+            if notification.actions.len() > 16
+                || notification.actions.iter().any(|action| {
+                    action.key.is_empty()
+                        || action.key.len() > MAX_STRING_BYTES
+                        || action.label.len() > MAX_STRING_BYTES
+                })
+                || [
+                    &notification.sender,
+                    &notification.app_name,
+                    &notification.app_icon,
+                    &notification.summary,
+                    &notification.body,
+                    &notification.category,
+                    &notification.desktop_entry,
+                    &notification.image_path,
+                    &notification.sound_name,
+                    &notification.sound_file,
+                ]
+                .into_iter()
+                .any(|value| value.len() > MAX_STRING_BYTES)
+            {
+                return Err(WireError::String);
+            }
+            if let Some(image) = notification.image_data.as_ref() {
+                let expected_channels = if image.has_alpha { 4 } else { 3 };
+                let required = (image.row_stride as usize)
+                    .checked_mul(image.height as usize)
+                    .ok_or(WireError::Count)?;
+                if image.width == 0
+                    || image.height == 0
+                    || image.width > 4096
+                    || image.height > 4096
+                    || image.bits_per_sample != 8
+                    || image.channels != expected_channels
+                    || image.row_stride < image.width.saturating_mul(image.channels.into())
+                    || required != image.data.len()
+                    || required > 512 * 1024
+                {
+                    return Err(WireError::Count);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn decode_input_layout(
@@ -1350,6 +1466,121 @@ fn encode_cursor_shape(
     );
     fb::finish_envelope_buffer(builder, envelope);
     validate_finished_message(builder)
+}
+
+fn encode_notification_event(
+    builder: &mut FlatBufferBuilder<'_>,
+    sequence: u64,
+    event: &NotificationEvent,
+) -> Result<(), WireError> {
+    let notification = event
+        .notification
+        .as_ref()
+        .map(|notification| encode_notification(builder, notification));
+    let kind = match event.kind {
+        NotificationEventKind::Added => fb::DesktopNotificationEventKind::Added,
+        NotificationEventKind::Replaced => fb::DesktopNotificationEventKind::Replaced,
+        NotificationEventKind::Closed => fb::DesktopNotificationEventKind::Closed,
+    };
+    let event = fb::DesktopNotificationEvent::create(
+        builder,
+        &fb::DesktopNotificationEventArgs {
+            kind,
+            notification,
+            notification_id: event.notification_id,
+            close_reason: event.close_reason,
+        },
+    );
+    let envelope = fb::Envelope::create(
+        builder,
+        &fb::EnvelopeArgs {
+            protocol_version: PROTOCOL_VERSION,
+            sequence,
+            request_id: 0,
+            payload_type: fb::Payload::DesktopNotificationEvent,
+            payload: Some(event.as_union_value()),
+        },
+    );
+    fb::finish_envelope_buffer(builder, envelope);
+    validate_finished_message(builder)
+}
+
+fn encode_notification<'a>(
+    builder: &mut FlatBufferBuilder<'a>,
+    notification: &Notification,
+) -> WIPOffset<fb::DesktopNotification<'a>> {
+    let mut action_offsets = Vec::with_capacity(notification.actions.len());
+    for action in &notification.actions {
+        let key = builder.create_string(&action.key);
+        let label = builder.create_string(&action.label);
+        action_offsets.push(fb::DesktopNotificationAction::create(
+            builder,
+            &fb::DesktopNotificationActionArgs {
+                key: Some(key),
+                label: Some(label),
+            },
+        ));
+    }
+    let actions = builder.create_vector(&action_offsets);
+    let image_data = notification.image_data.as_ref().map(|image| {
+        let data = builder.create_vector(&image.data);
+        fb::DesktopNotificationImageData::create(
+            builder,
+            &fb::DesktopNotificationImageDataArgs {
+                width: image.width,
+                height: image.height,
+                row_stride: image.row_stride,
+                has_alpha: image.has_alpha,
+                bits_per_sample: image.bits_per_sample,
+                channels: image.channels,
+                data: Some(data),
+            },
+        )
+    });
+    let sender = builder.create_string(&notification.sender);
+    let app_name = builder.create_string(&notification.app_name);
+    let app_icon = builder.create_string(&notification.app_icon);
+    let summary = builder.create_string(&notification.summary);
+    let body = builder.create_string(&notification.body);
+    let category = builder.create_string(&notification.category);
+    let desktop_entry = builder.create_string(&notification.desktop_entry);
+    let image_path = builder.create_string(&notification.image_path);
+    let sound_name = builder.create_string(&notification.sound_name);
+    let sound_file = builder.create_string(&notification.sound_file);
+    let urgency = match notification.urgency {
+        NotificationUrgency::Low => fb::DesktopNotificationUrgency::Low,
+        NotificationUrgency::Normal => fb::DesktopNotificationUrgency::Normal,
+        NotificationUrgency::Critical => fb::DesktopNotificationUrgency::Critical,
+    };
+    fb::DesktopNotification::create(
+        builder,
+        &fb::DesktopNotificationArgs {
+            id: notification.id,
+            sender: Some(sender),
+            app_name: Some(app_name),
+            app_icon: Some(app_icon),
+            summary: Some(summary),
+            body: Some(body),
+            actions: Some(actions),
+            urgency,
+            category: Some(category),
+            desktop_entry: Some(desktop_entry),
+            image_path: Some(image_path),
+            image_data,
+            resident: notification.resident,
+            transient: notification.transient,
+            suppress_sound: notification.suppress_sound,
+            action_icons: notification.action_icons,
+            sound_name: Some(sound_name),
+            sound_file: Some(sound_file),
+            x: notification.x,
+            y: notification.y,
+            has_position: notification.has_position,
+            progress: notification.progress,
+            has_progress: notification.has_progress,
+            expire_timeout_ms: notification.expire_timeout_ms,
+        },
+    )
 }
 
 fn encode_display_layout(
@@ -2333,6 +2564,26 @@ mod tests {
                 Some("open"),
             ))
             .unwrap();
+        bridge
+            .handle(&notification_command(
+                fb::DesktopNotificationCommandKind::InvokeDefault,
+                10,
+                None,
+            ))
+            .unwrap();
+        assert_eq!(
+            bridge.drain_notification_commands().collect::<Vec<_>>(),
+            vec![
+                NotificationCommand::Dismiss { notification_id: 9 },
+                NotificationCommand::InvokeAction {
+                    notification_id: 9,
+                    action_key: "open".into(),
+                },
+                NotificationCommand::InvokeDefault {
+                    notification_id: 10,
+                },
+            ]
+        );
         assert!(matches!(
             bridge.handle(&notification_command(
                 fb::DesktopNotificationCommandKind(255),
@@ -2407,6 +2658,89 @@ mod tests {
             )),
             Err(WireError::Count)
         ));
+
+        bridge.pending_notification_commands =
+            vec![
+                NotificationCommand::Dismiss { notification_id: 1 };
+                MAX_PENDING_NOTIFICATION_COMMANDS
+            ]
+            .into_iter()
+            .collect();
+        assert!(matches!(
+            bridge.handle(&notification_command(
+                fb::DesktopNotificationCommandKind::Dismiss,
+                1,
+                None,
+            )),
+            Err(WireError::Count)
+        ));
+    }
+
+    #[test]
+    fn encodes_notification_events_for_flutter() {
+        let mut bridge = bridge();
+        let notification = Notification {
+            id: 17,
+            sender: ":1.42".into(),
+            app_name: "Mail".into(),
+            app_icon: "mail-unread".into(),
+            summary: "New message".into(),
+            body: "Hello".into(),
+            actions: vec![super::super::notification_server::NotificationAction {
+                key: "default".into(),
+                label: "Open".into(),
+            }],
+            urgency: NotificationUrgency::Normal,
+            category: "email.arrived".into(),
+            desktop_entry: "mail".into(),
+            image_path: String::new(),
+            image_data: None,
+            resident: true,
+            transient: false,
+            suppress_sound: true,
+            action_icons: false,
+            sound_name: String::new(),
+            sound_file: String::new(),
+            x: 12,
+            y: 24,
+            has_position: true,
+            progress: 50,
+            has_progress: true,
+            expire_timeout_ms: 7000,
+        };
+        let event = NotificationEvent {
+            kind: NotificationEventKind::Added,
+            notification: Some(notification),
+            notification_id: 17,
+            close_reason: 0,
+        };
+        let envelope =
+            fb::root_as_envelope(bridge.encode_notification_event(&event).unwrap()).unwrap();
+        let encoded = envelope.payload_as_desktop_notification_event().unwrap();
+        let value = encoded.notification().unwrap();
+        assert_eq!(
+            envelope.payload_type(),
+            fb::Payload::DesktopNotificationEvent
+        );
+        assert_eq!(encoded.kind(), fb::DesktopNotificationEventKind::Added);
+        assert_eq!(encoded.notification_id(), 17);
+        assert_eq!(value.summary(), Some("New message"));
+        assert_eq!(value.actions().unwrap().get(0).key(), Some("default"));
+        assert_eq!(value.progress(), 50);
+        assert!(value.has_progress());
+
+        let closed = NotificationEvent {
+            kind: NotificationEventKind::Closed,
+            notification: None,
+            notification_id: 17,
+            close_reason: 2,
+        };
+        let envelope =
+            fb::root_as_envelope(bridge.encode_notification_event(&closed).unwrap()).unwrap();
+        let encoded = envelope.payload_as_desktop_notification_event().unwrap();
+        assert_eq!(encoded.kind(), fb::DesktopNotificationEventKind::Closed);
+        assert!(encoded.notification().is_none());
+        assert_eq!(encoded.close_reason(), 2);
     }
 
     #[test]

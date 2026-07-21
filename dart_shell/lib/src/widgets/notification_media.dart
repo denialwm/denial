@@ -137,7 +137,7 @@ class NotificationArtwork extends ConsumerWidget {
               cacheWidth: cacheSize,
               cacheHeight: cacheSize,
               gaplessPlayback: true,
-              errorBuilder: (_, __, ___) =>
+              errorBuilder: (_, _, _) =>
                   NotificationAppIcon(notification: notification),
             );
     } else {

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' show SemanticsRole;
 
 import 'package:denial_dart_shell/src/input/shell_interaction_registry.dart';
 import 'package:denial_dart_shell/src/models/desktop_notification.dart';
@@ -70,6 +71,14 @@ void main() {
         ),
         findsOneWidget,
       );
+      final statusSemantics = tester.widget<Semantics>(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Semantics &&
+              widget.properties.label?.contains('Build finished') == true,
+        ),
+      );
+      expect(statusSemantics.properties.role, SemanticsRole.status);
 
       await tester.pumpWidget(
         _host([_notification(43, 'Replacement text')], container: container),
@@ -81,6 +90,30 @@ void main() {
       expect(find.text('Replacement text'), findsOneWidget);
     },
   );
+
+  testWidgets('critical banners expose the alert semantics role', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host([
+        _notification(
+          42,
+          'Action required',
+          urgency: DesktopNotificationUrgency.critical,
+        ),
+      ]),
+    );
+    await tester.pumpAndSettle();
+
+    final semantics = tester.widget<Semantics>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Semantics &&
+            widget.properties.label?.contains('Action required') == true,
+      ),
+    );
+    expect(semantics.properties.role, SemanticsRole.alert);
+  });
 
   testWidgets('visible burst is capped at three newest cards', (tester) async {
     await tester.pumpWidget(
@@ -301,6 +334,7 @@ Widget _host(
 DesktopNotification _notification(
   int id,
   String summary, {
+  DesktopNotificationUrgency urgency = .normal,
   DesktopNotificationImageData? imageData,
   bool hasProgress = false,
   int progress = 0,
@@ -317,7 +351,7 @@ DesktopNotification _notification(
       DesktopNotificationAction(key: 'default', label: 'Open'),
       DesktopNotificationAction(key: 'accept', label: 'Accept'),
     ],
-    urgency: DesktopNotificationUrgency.normal,
+    urgency: urgency,
     category: 'test',
     desktopEntry: '',
     imagePath: imagePath,

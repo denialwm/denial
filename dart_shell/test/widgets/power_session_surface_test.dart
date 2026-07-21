@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show SemanticsRole;
 
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
@@ -22,6 +23,8 @@ void main() {
 
     await tester.pumpWidget(harness.build());
     await tester.pump();
+
+    expect(_surfaceSemantics(tester).properties.role, SemanticsRole.dialog);
 
     expect(find.byKey(const ValueKey('session-power-unavailable')), findsOne);
     expect(find.text('Session service unavailable'), findsNWidgets(4));
@@ -51,6 +54,10 @@ void main() {
     await tester.tap(find.text('Log out'));
     await tester.pumpAndSettle();
     expect(find.text('Log out of Denial?'), findsOne);
+    expect(
+      _surfaceSemantics(tester).properties.role,
+      SemanticsRole.alertDialog,
+    );
     expect(runtime.logoutCalls, 0);
 
     await tester.tap(find.text('Cancel'));
@@ -103,6 +110,16 @@ void main() {
     expect(find.textContaining('Authentication required'), findsOne);
     expect(tester.takeException(), isNull);
   });
+}
+
+Semantics _surfaceSemantics(WidgetTester tester) {
+  return tester.widget<Semantics>(
+    find.byWidgetPredicate(
+      (widget) =>
+          widget is Semantics &&
+          widget.properties.label == 'Power and session controls',
+    ),
+  );
 }
 
 class _Harness {

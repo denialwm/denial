@@ -181,10 +181,9 @@ abstract interface class SessionRuntimeBackend {
 
 class NativeSessionRuntimeBackend implements SessionRuntimeBackend {
   const NativeSessionRuntimeBackend({
-    required AuthenticationController authentication,
-    required DenialBridge bridge,
-  }) : _authentication = authentication,
-       _bridge = bridge;
+    required this._authentication,
+    required this._bridge,
+  });
 
   final AuthenticationController _authentication;
   final DenialBridge _bridge;

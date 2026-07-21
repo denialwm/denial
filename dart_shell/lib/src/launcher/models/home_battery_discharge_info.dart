@@ -138,7 +138,7 @@ class HomeBatteryDischargePoint {
 
   int? get drawMa {
     final value = currentMa;
-    return value == null ? null : value.abs();
+    return value?.abs();
   }
 
   double? get powerW {
@@ -161,9 +161,9 @@ class HomeBatteryDischargePoint {
   }
 }
 
-String formatPowerMw(int? powerMw) {
+String? formatPowerMw(int? powerMw) {
   if (powerMw == null) {
-    return '-- W';
+    return null;
   }
   return '${(powerMw / 1000).toStringAsFixed(2)} W';
 }

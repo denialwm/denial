@@ -46,8 +46,9 @@ class SystemLevelHudLayer extends ConsumerWidget {
               : _volumeIcon(hud.level),
           title: isBrightness ? 'Brightness' : 'Volume',
           detail: isBrightness ? output.name : null,
-          semanticLabel:
-              isBrightness ? '${output.name} brightness' : 'Output volume',
+          semanticLabel: isBrightness
+              ? '${output.name} brightness'
+              : 'Output volume',
           inactiveColor: isBrightness
               ? ShellColors.brightnessTrack
               : ShellColors.volumeTrack,
@@ -56,10 +57,7 @@ class SystemLevelHudLayer extends ConsumerWidget {
     );
   }
 
-  DisplayOutput? _outputFor(
-    DisplayLayout? layout,
-    SystemLevelHudState? hud,
-  ) {
+  DisplayOutput? _outputFor(DisplayLayout? layout, SystemLevelHudState? hud) {
     if (layout == null || hud == null) {
       return null;
     }
@@ -122,7 +120,7 @@ class _SystemLevelHudCard extends StatelessWidget {
         opacity: visible ? 1 : 0,
         child: Semantics(
           container: true,
-          liveRegion: visible,
+          role: .status,
           hidden: !visible,
           label: semanticLabel,
           value: '$percent percent',
@@ -204,10 +202,7 @@ class _SystemLevelHudCard extends StatelessWidget {
 }
 
 class _LevelProgress extends StatelessWidget {
-  const _LevelProgress({
-    required this.level,
-    required this.inactiveColor,
-  });
+  const _LevelProgress({required this.level, required this.inactiveColor});
 
   final double level;
   final Color inactiveColor;

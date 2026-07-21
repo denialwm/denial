@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show SemanticsRole;
 
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
@@ -81,7 +82,7 @@ void main() {
     );
     expect(volumeSemantics.properties.label, 'Output volume');
     expect(volumeSemantics.properties.value, '64 percent');
-    expect(volumeSemantics.properties.liveRegion, isTrue);
+    expect(volumeSemantics.properties.role, SemanticsRole.status);
     expect(
       tester.getRect(find.byType(IgnorePointer)),
       const Rect.fromLTWH(1410, 698, 380, 74),

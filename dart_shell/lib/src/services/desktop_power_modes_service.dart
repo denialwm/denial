@@ -37,10 +37,9 @@ class DesktopPowerModesService {
   DesktopPowerModesService({
     required Map<String, String> environment,
     DBusClient? systemBus,
-    NonBlockingFifoWriter? fifoWriter,
-  })  : _systemBus = systemBus ?? DBusClient.system(),
-        _environment = Map.unmodifiable(environment),
-        _fifoWriter = fifoWriter;
+    this._fifoWriter,
+  }) : _systemBus = systemBus ?? DBusClient.system(),
+       _environment = Map.unmodifiable(environment);
 
   static const Duration _dbusTimeout = Duration(seconds: 3);
   static const List<_PowerProfilesEndpoint> _powerProfileEndpoints = [
@@ -97,8 +96,9 @@ class DesktopPowerModesService {
       throw StateError('Servizio dei profili energetici non disponibile');
     }
 
-    final desktopProfile =
-        normalized == PowerProfile.powerSave ? 'power-saver' : normalized;
+    final desktopProfile = normalized == PowerProfile.powerSave
+        ? 'power-saver'
+        : normalized;
     final systemCommand = _systemCommand(normalized);
     try {
       await _object(endpoint)
@@ -202,13 +202,11 @@ class DesktopPowerModesService {
     return null;
   }
 
-  Future<String?> _tryReadSystemProfile(
-    _PowerProfilesEndpoint endpoint,
-  ) async {
+  Future<String?> _tryReadSystemProfile(_PowerProfilesEndpoint endpoint) async {
     try {
-      final value = await _object(endpoint)
-          .getProperty(endpoint.interface, 'ActiveProfile')
-          .timeout(_dbusTimeout);
+      final value = await _object(
+        endpoint,
+      ).getProperty(endpoint.interface, 'ActiveProfile').timeout(_dbusTimeout);
       return value is DBusString ? PowerProfile.normalize(value.value) : null;
     } on Object {
       return null;
@@ -229,10 +227,7 @@ class DesktopPowerModesService {
       return const _PboSnapshot.unavailable();
     }
     try {
-      if (await FileSystemEntity.type(
-            '$runtime/command',
-            followLinks: false,
-          ) !=
+      if (await FileSystemEntity.type('$runtime/command', followLinks: false) !=
           FileSystemEntityType.pipe) {
         return const _PboSnapshot.unavailable();
       }
@@ -324,9 +319,7 @@ class _PowerProfilesEndpoint {
 class _PboSnapshot {
   const _PboSnapshot({required this.available, required this.profile});
 
-  const _PboSnapshot.unavailable()
-      : available = false,
-        profile = null;
+  const _PboSnapshot.unavailable() : available = false, profile = null;
 
   final bool available;
   final String? profile;

@@ -26,14 +26,15 @@ class AppIconImage extends StatelessWidget {
         fit: BoxFit.contain,
         theme: const SvgTheme(currentColor: ShellColors.fallbackAppIcon),
         placeholderBuilder: (_) => const _FallbackAppIcon(),
-        errorBuilder: (_, __, ___) => const _FallbackAppIcon(),
+        errorBuilder: (_, _, _) => const _FallbackAppIcon(),
       );
     }
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final logicalWidth =
-            constraints.hasBoundedWidth ? constraints.maxWidth : 85.0;
+        final logicalWidth = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : 85.0;
         final cacheWidth =
             (logicalWidth * MediaQuery.devicePixelRatioOf(context))
                 .ceil()
@@ -45,7 +46,7 @@ class AppIconImage extends StatelessWidget {
           filterQuality: FilterQuality.medium,
           cacheWidth: cacheWidth,
           gaplessPlayback: true,
-          errorBuilder: (_, __, ___) => const _FallbackAppIcon(),
+          errorBuilder: (_, _, _) => const _FallbackAppIcon(),
         );
       },
     );
@@ -57,9 +58,6 @@ class _FallbackAppIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SvgPicture.asset(
-      AppIconImage.fallbackAsset,
-      fit: BoxFit.contain,
-    );
+    return SvgPicture.asset(AppIconImage.fallbackAsset, fit: BoxFit.contain);
   }
 }

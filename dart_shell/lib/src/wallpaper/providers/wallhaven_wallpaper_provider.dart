@@ -3,20 +3,22 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:path/path.dart' as p;
+
 import '../wallpaper.dart';
 import '../wallpaper_provider.dart';
 
 class WallhavenWallpaperProvider implements WallpaperProvider {
   WallhavenWallpaperProvider({
-    required Directory downloadDirectory,
+    required this._downloadDirectory,
     String apiKey = '',
     HttpClient? httpClient,
-  })  : _downloadDirectory = downloadDirectory,
-        _apiKey = apiKey.trim(),
-        _httpClient = httpClient ?? HttpClient();
+  }) : _apiKey = apiKey.trim(),
+       _httpClient = httpClient ?? HttpClient();
 
-  static final Uri _searchEndpoint =
-      Uri.parse('https://wallhaven.cc/api/v1/search');
+  static final Uri _searchEndpoint = Uri.parse(
+    'https://wallhaven.cc/api/v1/search',
+  );
   static const Duration _requestTimeout = Duration(seconds: 30);
   static const Duration _downloadTimeout = Duration(seconds: 60);
   static const int _maximumSearchBytes = 2 * 1024 * 1024;
@@ -72,8 +74,10 @@ class WallhavenWallpaperProvider implements WallpaperProvider {
       throw const FormatException('Wallhaven response is too large');
     }
 
-    final body =
-        await response.transform(utf8.decoder).join().timeout(_requestTimeout);
+    final body = await response
+        .transform(utf8.decoder)
+        .join()
+        .timeout(_requestTimeout);
     if (body.length > _maximumSearchBytes) {
       throw const FormatException('Wallhaven response is too large');
     }
@@ -124,7 +128,8 @@ class WallhavenWallpaperProvider implements WallpaperProvider {
           label: width > 0 && height > 0 ? '$width × $height' : id,
           previewUri: path,
           downloadUri: path,
-          sourceUri: _validWallhavenUri(item['url']) ??
+          sourceUri:
+              _validWallhavenUri(item['url']) ??
               _validWallhavenUri(item['short_url']),
           width: width,
           height: height,
@@ -159,8 +164,9 @@ class WallhavenWallpaperProvider implements WallpaperProvider {
     await _downloadDirectory.create(recursive: true);
     final extension = _safeExtension(uri.path);
     final safeId = candidate.id.replaceAll(RegExp('[^a-zA-Z0-9_-]'), '_');
-    final output =
-        File('${_downloadDirectory.path}/wallhaven-$safeId$extension');
+    final output = File(
+      p.join(_downloadDirectory.path, 'wallhaven-$safeId$extension'),
+    );
     if (await output.exists()) {
       onProgress?.call(1.0);
       return WallpaperResource.file(output.path);

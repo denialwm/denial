@@ -70,6 +70,7 @@ class _DenialSettingsApplicationState
     final l10n = context.l10n;
     return Semantics(
       container: true,
+      role: .main,
       label: l10n.settingsApplicationSemanticsLabel,
       child: ColoredBox(
         color: ShellColors.background,

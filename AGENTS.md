@@ -55,12 +55,12 @@ runner.
 The bootstrap pins Flutter `3.44.7` at
 `84fc5cbb223bc12f83d65b647ff8a56caf779ffd`, coupled to Dart `3.12.2` and
 engine artifact `69c8c61792f04cc809dfef0c910414fb9afc06cd`. Cargo resolves the
-exact crate and Smithay revisions in `compositor/Cargo.lock`. The clean
-upstream release `libflutter_engine.so`, its checksum, source/build metadata,
-and licenses live in `prebuilt/flutter-engine/elinux-x64-release/`. The current
-engine baseline applies none of the historical patches in
-`patches/flutter-engine/`; those remain available for measured, selective
-porting if the upstream baseline regresses performance. The separate,
+exact crate and Smithay revisions in `compositor/Cargo.lock`. The pinned
+upstream-derived `libflutter_engine.so`, its checksum, source/build metadata,
+and licenses live in `prebuilt/flutter-engine/elinux-x64-release/`. It applies
+only the versioned autonomous-texture damage fix in
+`patches/flutter-engine/3.44.7/`; the remaining archived engine patches stay
+unapplied and are available for measured, selective porting. The separate,
 compatible Flutter framework patch in `patches/flutter/` remains part of SDK
 bootstrap and raises touch resampling from 60 Hz to 120 Hz.
 

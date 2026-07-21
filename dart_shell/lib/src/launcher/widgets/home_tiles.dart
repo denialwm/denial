@@ -26,16 +26,17 @@ class HomeGridItemCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return switch (item.type) {
       HomeGridItemType.clock => _HomeClockTile(
-          clock: ref.watch(homeClockProvider),
-        ),
+        clock: ref.watch(homeClockProvider),
+      ),
       HomeGridItemType.batteryDischarge => _HomeBatteryDischargeTile(
-          series: ref.watch(homeBatteryDischargeProvider).asData?.value ??
-              HomeBatteryDischargeSeries.empty,
-        ),
+        series:
+            ref.watch(homeBatteryDischargeProvider).asData?.value ??
+            HomeBatteryDischargeSeries.empty,
+      ),
       HomeGridItemType.app => _HomeAppTile(
-          app: item.app!,
-          onTap: launchEnabled ? () => onLaunch(item.app!) : null,
-        ),
+        app: item.app!,
+        onTap: launchEnabled ? () => onLaunch(item.app!) : null,
+      ),
     };
   }
 }
@@ -50,10 +51,7 @@ class _HomeClockTile extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final timeSize = math
-            .min(
-              constraints.maxWidth * 0.36,
-              constraints.maxHeight * 0.42,
-            )
+            .min(constraints.maxWidth * 0.36, constraints.maxHeight * 0.42)
             .clamp(46.0, 124.0)
             .toDouble();
         final detailScale = (timeSize / 58).clamp(0.9, 1.28).toDouble();
@@ -186,10 +184,7 @@ class _HomeClockStatus extends StatelessWidget {
               runSpacing: 3,
               children: [
                 for (final reading in thermalReadings)
-                  _HomeClockThermalText(
-                    reading: reading,
-                    scale: scale,
-                  ),
+                  _HomeClockThermalText(reading: reading, scale: scale),
               ],
             ),
           ],
@@ -226,10 +221,7 @@ class _HomeClockBatteryGlyph extends StatelessWidget {
 }
 
 class _HomeClockBatteryPainter extends CustomPainter {
-  const _HomeClockBatteryPainter({
-    required this.level,
-    required this.color,
-  });
+  const _HomeClockBatteryPainter({required this.level, required this.color});
 
   final double level;
   final Color color;
@@ -263,7 +255,11 @@ class _HomeClockBatteryPainter extends CustomPainter {
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromLTWH(
-              inset, bodyTop + inset, fillWidth, bodyHeight - inset * 2),
+            inset,
+            bodyTop + inset,
+            fillWidth,
+            bodyHeight - inset * 2,
+          ),
           Radius.circular(size.height * 0.1),
         ),
         fill,
@@ -342,10 +338,7 @@ class _HomeClockProtocolLabel extends StatelessWidget {
 }
 
 class _HomeClockThermalText extends StatelessWidget {
-  const _HomeClockThermalText({
-    required this.reading,
-    required this.scale,
-  });
+  const _HomeClockThermalText({required this.reading, required this.scale});
 
   final HomeThermalReading reading;
   final double scale;
@@ -400,10 +393,10 @@ class _HomeBatteryDischargeTile extends StatelessWidget {
     final stats = _BatteryDischargeStats.fromPoints(graphPoints);
     final avg60 = stats.averageDrawMa ?? series.averageDrawMa();
     final accent = _dischargeAccentColor(latest);
-    final detailParts = [
-      if (latest?.powerMw != null) formatPowerMw(latest?.powerMw),
-      if (latest?.voltageMv != null) formatVoltageMv(latest?.voltageMv),
-    ].whereType<String>().toList(growable: false);
+    final detailParts = <String>[
+      ?formatPowerMw(latest?.powerMw),
+      ?formatVoltageMv(latest?.voltageMv),
+    ];
     final capacity = latest?.capacity;
     final stateLine = [
       latest?.displayState ?? 'Waiting',
@@ -446,8 +439,9 @@ class _HomeBatteryDischargeTile extends StatelessWidget {
                     CustomPaint(
                       size: const Size(28, 15),
                       painter: _MiniBatteryPainter(
-                        level:
-                            ((capacity ?? 0) / 100).clamp(0.0, 1.0).toDouble(),
+                        level: ((capacity ?? 0) / 100)
+                            .clamp(0.0, 1.0)
+                            .toDouble(),
                         color: accent,
                       ),
                     ),
@@ -693,10 +687,7 @@ class _BatteryMetricText extends StatelessWidget {
 }
 
 class _MiniBatteryPainter extends CustomPainter {
-  const _MiniBatteryPainter({
-    required this.level,
-    required this.color,
-  });
+  const _MiniBatteryPainter({required this.level, required this.color});
 
   final double level;
   final Color color;
@@ -781,11 +772,7 @@ class _BatteryDischargeGraphPainter extends CustomPainter {
         ..color = const Color(0x33f7f7f8)
         ..strokeWidth = 2
         ..strokeCap = StrokeCap.round;
-      canvas.drawLine(
-        Offset(0, baseline),
-        Offset(size.width, baseline),
-        empty,
-      );
+      canvas.drawLine(Offset(0, baseline), Offset(size.width, baseline), empty);
       return;
     }
 
@@ -801,7 +788,8 @@ class _BatteryDischargeGraphPainter extends CustomPainter {
     for (var index = 0; index < usable.length; index += 1) {
       final point = usable[index];
       final x = index * stepX;
-      final y = baseline -
+      final y =
+          baseline -
           ((point.drawMa! / maxMa).clamp(0.0, 1.0).toDouble() * baseline);
       if (index == 0) {
         line.moveTo(x, y);
@@ -851,15 +839,7 @@ class _BatteryDischargeGraphPainter extends CustomPainter {
         const Color(0xff8ee6c1),
       );
       if (latestPoint?.wallMs != minPoint?.wallMs) {
-        _drawMarker(
-          canvas,
-          size,
-          usable,
-          maxMa,
-          latestPoint,
-          'now',
-          accent,
-        );
+        _drawMarker(canvas, size, usable, maxMa, latestPoint, 'now', accent);
       }
     }
   }
@@ -938,10 +918,7 @@ class _BatteryDischargeGraphPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1,
     );
-    textPainter.paint(
-      canvas,
-      Offset(labelLeft + 5, labelTop + 4),
-    );
+    textPainter.paint(canvas, Offset(labelLeft + 5, labelTop + 4));
   }
 
   @override

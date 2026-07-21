@@ -26,14 +26,14 @@ void main() {
     );
   });
 
-  testWidgets('local host preserves application state across window updates',
-      (tester) async {
+  testWidgets('local host preserves application state across window updates', (
+    tester,
+  ) async {
     final application = LocalFlutterApplication(
       id: 'dev.denial.counter',
       title: 'Counter',
-      builder: (_, handle) => _CounterApplication(
-        metadataTitle: handle.window.title,
-      ),
+      builder: (_, handle) =>
+          _CounterApplication(metadataTitle: handle.window.title),
     );
 
     Future<void> pump(DenialWindow window) {
@@ -71,7 +71,7 @@ LocalFlutterApplication _application(String id, String title) {
   return LocalFlutterApplication(
     id: id,
     title: title,
-    builder: (_, __) => const SizedBox.shrink(),
+    builder: (_, _) => const SizedBox.shrink(),
   );
 }
 

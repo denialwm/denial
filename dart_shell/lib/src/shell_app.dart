@@ -411,6 +411,7 @@ class _FrameTimingOverlayHost extends ConsumerWidget {
 /// animation detail.
 class UnlockTransitionHost extends StatefulWidget {
   const UnlockTransitionHost({
+    super.key,
     required this.locked,
     required this.lockLayerVisible,
     required this.onUnlockComplete,

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 
 final cpuUsageServiceProvider = Provider<CpuUsageService>((ref) {
   return CpuUsageService();
@@ -10,11 +11,7 @@ final cpuUsageServiceProvider = Provider<CpuUsageService>((ref) {
 /// One reading of the aggregate `cpu` line in `/proc/stat`, in jiffies.
 @immutable
 class CpuSample {
-  const CpuSample({
-    required this.busy,
-    required this.total,
-    this.temperatureC,
-  });
+  const CpuSample({required this.busy, required this.total, this.temperatureC});
 
   final int busy;
   final int total;
@@ -37,14 +34,13 @@ class CpuSample {
 /// the file is unreadable.
 class CpuUsageService {
   CpuUsageService({
-    String statPath = '/proc/stat',
+    this._statPath = '/proc/stat',
     String hwmonRoot = '/sys/class/hwmon',
     String thermalRoot = '/sys/class/thermal',
-  })  : _statPath = statPath,
-        _temperature = CpuTemperatureReader(
-          hwmonRoot: hwmonRoot,
-          thermalRoot: thermalRoot,
-        );
+  }) : _temperature = CpuTemperatureReader(
+         hwmonRoot: hwmonRoot,
+         thermalRoot: thermalRoot,
+       );
 
   final String _statPath;
   final CpuTemperatureReader _temperature;
@@ -71,10 +67,9 @@ class CpuUsageService {
 /// This deliberately avoids process-based collectors such as `sensors`.
 class CpuTemperatureReader {
   CpuTemperatureReader({
-    String hwmonRoot = '/sys/class/hwmon',
-    String thermalRoot = '/sys/class/thermal',
-  })  : _hwmonRoot = hwmonRoot,
-        _thermalRoot = thermalRoot;
+    this._hwmonRoot = '/sys/class/hwmon',
+    this._thermalRoot = '/sys/class/thermal',
+  });
 
   final String _hwmonRoot;
   final String _thermalRoot;
@@ -105,7 +100,7 @@ class CpuTemperatureReader {
   Future<File?> _discoverHwmonSensor() async {
     final entries = await _directoryEntries(_hwmonRoot);
     for (final entry in entries) {
-      final name = await _readTrimmed('${entry.path}/name');
+      final name = await _readTrimmed(p.join(entry.path, 'name'));
       if (name == null || !_cpuHwmonNames.contains(name.toLowerCase())) {
         continue;
       }
@@ -124,9 +119,9 @@ class CpuTemperatureReader {
     File? best;
     var bestScore = -1;
     for (final entry in await _directoryEntries(_thermalRoot)) {
-      final type = await _readTrimmed('${entry.path}/type');
+      final type = await _readTrimmed(p.join(entry.path, 'type'));
       final score = _cpuThermalZoneScore(type ?? '');
-      final sensor = File('${entry.path}/temp');
+      final sensor = File(p.join(entry.path, 'temp'));
       if (score > bestScore && sensor.existsSync()) {
         best = sensor;
         bestScore = score;
@@ -190,7 +185,7 @@ Future<File?> _bestTemperatureInput(
   required int Function(String label) scoreLabel,
 }) async {
   final inputs = (await _directoryEntries(directory))
-      .where((entry) => _temperatureInput.hasMatch(entry.path))
+      .where((entry) => _temperatureInput.hasMatch(p.basename(entry.path)))
       .toList(growable: false);
   File? best;
   var bestScore = -1;
@@ -206,7 +201,7 @@ Future<File?> _bestTemperatureInput(
   return best;
 }
 
-final RegExp _temperatureInput = RegExp(r'/temp\d+_input$');
+final RegExp _temperatureInput = RegExp(r'^temp\d+_input$');
 
 Future<String?> _readTrimmed(String path) async {
   try {

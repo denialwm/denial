@@ -1,11 +1,12 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import '../wallpaper.dart';
 import '../wallpaper_provider.dart';
 
 class LocalWallpaperProvider implements WallpaperProvider {
-  const LocalWallpaperProvider({required Directory directory})
-      : _directory = directory;
+  const LocalWallpaperProvider({required this._directory});
 
   final Directory _directory;
 
@@ -18,8 +19,9 @@ class LocalWallpaperProvider implements WallpaperProvider {
   @override
   Future<WallpaperPage> search(WallpaperQuery query) async {
     final normalizedQuery = query.text.trim().toLowerCase();
-    final bundledDefaultName =
-        _basename(defaultShellWallpaperAsset).toLowerCase();
+    final bundledDefaultName = p
+        .basename(defaultShellWallpaperAsset)
+        .toLowerCase();
     final items = <WallpaperCandidate>[
       if (normalizedQuery.isEmpty || 'default'.contains(normalizedQuery))
         WallpaperCandidate(
@@ -39,7 +41,7 @@ class LocalWallpaperProvider implements WallpaperProvider {
           if (entity is! File || !_isWallpaperFile(entity.path)) {
             continue;
           }
-          final name = _basename(entity.path);
+          final name = p.basename(entity.path);
           if (name.toLowerCase() == bundledDefaultName) {
             continue;
           }
@@ -52,7 +54,7 @@ class LocalWallpaperProvider implements WallpaperProvider {
             WallpaperCandidate(
               id: entity.path,
               providerId: id,
-              label: _withoutExtension(name),
+              label: p.basenameWithoutExtension(name),
               previewUri: Uri.file(entity.path),
               width: 0,
               height: 0,
@@ -102,17 +104,5 @@ class LocalWallpaperProvider implements WallpaperProvider {
 const _wallpaperExtensions = <String>{'.jpg', '.jpeg', '.png', '.webp'};
 
 bool _isWallpaperFile(String path) {
-  final lower = path.toLowerCase();
-  return _wallpaperExtensions.any(lower.endsWith);
-}
-
-String _basename(String path) {
-  final normalized = path.replaceAll('\\', '/');
-  final separator = normalized.lastIndexOf('/');
-  return separator < 0 ? normalized : normalized.substring(separator + 1);
-}
-
-String _withoutExtension(String name) {
-  final dot = name.lastIndexOf('.');
-  return dot <= 0 ? name : name.substring(0, dot);
+  return _wallpaperExtensions.contains(p.extension(path).toLowerCase());
 }

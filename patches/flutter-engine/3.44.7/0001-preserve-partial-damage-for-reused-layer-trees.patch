@@ -1,0 +1,95 @@
+diff --git a/flutter/flow/layers/layer_tree.h b/flutter/flow/layers/layer_tree.h
+--- a/flutter/flow/layers/layer_tree.h
++++ b/flutter/flow/layers/layer_tree.h
+@@ -83,6 +83,10 @@ struct LayerTreeTask {
+   std::unique_ptr<LayerTree> layer_tree;
+   /// The pixel ratio of the target view.
+   float device_pixel_ratio;
++  /// Whether this task was taken from Rasterizer's last-successful cache for
++  /// an autonomous external-texture redraw. While such a task is in flight it
++  /// is also the previous tree against which frame damage must be computed.
++  bool is_reused_layer_tree = false;
+ 
+  private:
+   FML_DISALLOW_COPY_AND_ASSIGN(LayerTreeTask);
+diff --git a/flutter/flow/layers/texture_layer_unittests.cc b/flutter/flow/layers/texture_layer_unittests.cc
+--- a/flutter/flow/layers/texture_layer_unittests.cc
++++ b/flutter/flow/layers/texture_layer_unittests.cc
+@@ -115,6 +115,10 @@ TEST_F(TextureLayerDiffTest, TextureInRetainedLayer) {
+ 
+   damage = DiffLayerTree(tree2, tree1);
+   EXPECT_EQ(damage.frame_damage, DlIRect::MakeLTRB(0, 0, 100, 100));
++
++  // Autonomous texture frames reuse the exact same LayerTree instance.
++  damage = DiffLayerTree(tree2, tree2);
++  EXPECT_EQ(damage.frame_damage, DlIRect::MakeLTRB(0, 0, 100, 100));
+ }
+ 
+ TEST_F(TextureLayerTest, OpacityInheritance) {
+diff --git a/flutter/shell/common/rasterizer.h b/flutter/shell/common/rasterizer.h
+--- a/flutter/shell/common/rasterizer.h
++++ b/flutter/shell/common/rasterizer.h
+@@ -735,6 +735,7 @@ class Rasterizer final : public SnapshotDelegate {
+   DrawSurfaceStatus DrawToSurfaceUnsafe(
+       int64_t view_id,
+       flutter::LayerTree& layer_tree,
++      const flutter::LayerTree* previous_layer_tree,
+       float device_pixel_ratio,
+       std::optional<fml::TimePoint> presentation_time);
+ 
+diff --git a/flutter/shell/common/rasterizer.cc b/flutter/shell/common/rasterizer.cc
+--- a/flutter/shell/common/rasterizer.cc
++++ b/flutter/shell/common/rasterizer.cc
+@@ -223,6 +223,7 @@ void Rasterizer::DrawLastLayerTrees(
+   std::vector<std::unique_ptr<LayerTreeTask>> tasks;
+   for (auto& [view_id, view_record] : view_records_) {
+     if (view_record.last_successful_task) {
++      view_record.last_successful_task->is_reused_layer_tree = true;
+       tasks.push_back(std::move(view_record.last_successful_task));
+     }
+   }
+@@ -652,11 +653,15 @@ std::unique_ptr<FrameItem> Rasterizer::DrawToSurfacesUnsafe(
+   std::vector<std::unique_ptr<LayerTreeTask>> resubmitted_tasks;
+   for (std::unique_ptr<LayerTreeTask>& task : tasks) {
+     int64_t view_id = task->view_id;
++    bool is_reused_layer_tree = task->is_reused_layer_tree;
+     std::unique_ptr<LayerTree> layer_tree = std::move(task->layer_tree);
+     float device_pixel_ratio = task->device_pixel_ratio;
++    const LayerTree* previous_layer_tree =
++        is_reused_layer_tree ? layer_tree.get() : GetLastLayerTree(view_id);
+ 
+-    DrawSurfaceStatus status = DrawToSurfaceUnsafe(
+-        view_id, *layer_tree, device_pixel_ratio, presentation_time);
++    DrawSurfaceStatus status =
++        DrawToSurfaceUnsafe(view_id, *layer_tree, previous_layer_tree,
++                            device_pixel_ratio, presentation_time);
+     FML_DCHECK(status != DrawSurfaceStatus::kDiscarded);
+ 
+     auto& view_record = EnsureViewRecord(task->view_id);
+@@ -665,7 +670,9 @@ std::unique_ptr<FrameItem> Rasterizer::DrawToSurfacesUnsafe(
+       view_record.last_successful_task = std::make_unique<LayerTreeTask>(
+           view_id, std::move(layer_tree), device_pixel_ratio);
+     } else if (status == DrawSurfaceStatus::kRetry) {
+-      resubmitted_tasks.push_back(std::make_unique<LayerTreeTask>(
+-          view_id, std::move(layer_tree), device_pixel_ratio));
++      auto retry_task = std::make_unique<LayerTreeTask>(
++          view_id, std::move(layer_tree), device_pixel_ratio);
++      retry_task->is_reused_layer_tree = is_reused_layer_tree;
++      resubmitted_tasks.push_back(std::move(retry_task));
+     }
+   }
+@@ -696,5 +703,6 @@ std::unique_ptr<FrameItem> Rasterizer::DrawToSurfacesUnsafe(
+ DrawSurfaceStatus Rasterizer::DrawToSurfaceUnsafe(
+     int64_t view_id,
+     flutter::LayerTree& layer_tree,
++    const flutter::LayerTree* previous_layer_tree,
+     float device_pixel_ratio,
+     std::optional<fml::TimePoint> presentation_time) {
+@@ -754,6 +762,6 @@ DrawSurfaceStatus Rasterizer::DrawToSurfaceUnsafe(
+       damage = std::make_unique<FrameDamage>();
+       auto existing_damage = frame->framebuffer_info().existing_damage;
+       if (existing_damage.has_value() && !force_full_repaint) {
+-        damage->SetPreviousLayerTree(GetLastLayerTree(view_id));
++        damage->SetPreviousLayerTree(previous_layer_tree);
+         damage->AddAdditionalDamage(existing_damage.value());
+         damage->SetClipAlignment(

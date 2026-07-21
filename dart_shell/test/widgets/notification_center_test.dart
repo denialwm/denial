@@ -1,3 +1,5 @@
+import 'dart:ui' show SemanticsRole;
+
 import 'package:denial_dart_shell/src/models/desktop_notification.dart';
 import 'package:denial_dart_shell/src/services/notification_policy_repository.dart';
 import 'package:denial_dart_shell/src/theme/tokens.dart';
@@ -45,20 +47,25 @@ void main() {
       expect(harness.state.unreadCount, 0);
       expect(find.text('Summary 2'), findsOneWidget);
       expect(tester.takeException(), isNull);
+      final semanticRoles = tester
+          .widgetList<Semantics>(find.byType(Semantics))
+          .map((widget) => widget.properties.role)
+          .toList(growable: false);
+      expect(semanticRoles, containsAll(<SemanticsRole>[.list, .radioGroup]));
 
       await tester.tap(find.bySemanticsLabel('Enable do not disturb'));
       await tester.pump();
       expect(harness.state.doNotDisturb, isTrue);
       expect(find.textContaining('critical alerts can bypass'), findsOneWidget);
 
-      expect(
+      final fullPreviewSemantics = tester.widget<Semantics>(
         find.byWidgetPredicate(
           (widget) =>
               widget is Semantics &&
               widget.properties.label == 'Full lock screen previews',
         ),
-        findsOneWidget,
       );
+      expect(fullPreviewSemantics.properties.inMutuallyExclusiveGroup, isTrue);
       await tester.tap(find.text('Full'));
       await tester.pump();
       expect(harness.state.lockPreview, NotificationPreviewMode.full);

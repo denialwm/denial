@@ -304,7 +304,7 @@ class _NotificationTransitionState extends State<_NotificationTransition>
     final card = NotificationCard(
       notification: widget.notification,
       previewMode: widget.previewMode,
-      liveRegion: true,
+      announce: true,
       onDismiss: interactive && widget.onDismiss != null
           ? () => widget.onDismiss!(widget.notification.id)
           : null,
@@ -351,7 +351,7 @@ class NotificationCard extends StatelessWidget {
     required this.notification,
     super.key,
     this.previewMode = NotificationPreviewMode.full,
-    this.liveRegion = false,
+    this.announce = false,
     this.compact = false,
     this.onDismiss,
     this.onDefaultAction,
@@ -360,7 +360,7 @@ class NotificationCard extends StatelessWidget {
 
   final DesktopNotification notification;
   final NotificationPreviewMode previewMode;
-  final bool liveRegion;
+  final bool announce;
   final bool compact;
   final VoidCallback? onDismiss;
   final VoidCallback? onDefaultAction;
@@ -437,7 +437,7 @@ class NotificationCard extends StatelessWidget {
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   itemCount: namedActions.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 7),
+                  separatorBuilder: (_, _) => const SizedBox(width: 7),
                   itemBuilder: (context, index) {
                     final action = namedActions[index];
                     return _NotificationActionButton(
@@ -456,7 +456,11 @@ class NotificationCard extends StatelessWidget {
     return Semantics(
       container: true,
       explicitChildNodes: true,
-      liveRegion: liveRegion,
+      role: announce
+          ? notification.urgency == DesktopNotificationUrgency.critical
+                ? .alert
+                : .status
+          : null,
       button: hasDefaultAction,
       label: semanticLabel,
       onTap: hasDefaultAction ? onDefaultAction : null,

@@ -53,7 +53,7 @@ class ShellInteractionSnapshot {
   ShellInteractionSnapshot(Map<int, ShellInteractionSurface> surfaces)
     : surfaces = Map<int, ShellInteractionSurface>.unmodifiable(surfaces);
 
-  ShellInteractionSnapshot.empty()
+  const ShellInteractionSnapshot.empty()
     : surfaces = const <int, ShellInteractionSurface>{};
 
   final Map<int, ShellInteractionSurface> surfaces;

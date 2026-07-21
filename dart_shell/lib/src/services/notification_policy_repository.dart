@@ -46,8 +46,7 @@ abstract interface class NotificationPolicyStore {
 /// Persists notification policy only. Notification contents remain bounded to
 /// the current session and are never written to disk.
 class NotificationPolicyRepository implements NotificationPolicyStore {
-  const NotificationPolicyRepository({required RuntimePaths paths})
-      : _paths = paths;
+  const NotificationPolicyRepository({required this._paths});
 
   final RuntimePaths _paths;
 

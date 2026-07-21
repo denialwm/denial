@@ -20,6 +20,9 @@ mod lifecycle;
 mod local_windows;
 #[path = "deniald/native_shortcut.rs"]
 mod native_shortcut;
+#[cfg(feature = "flutter")]
+#[path = "deniald/notification_server.rs"]
+mod notification_server;
 #[path = "deniald/options.rs"]
 mod options;
 #[cfg(feature = "flutter")]
@@ -56,6 +59,8 @@ use std::path::Path;
 use std::process::Command;
 #[cfg(feature = "flutter")]
 use std::sync::Arc;
+#[cfg(feature = "flutter")]
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use calloop::signals::{Signal, Signals};
@@ -110,6 +115,8 @@ use lifecycle::{
     InactiveDispatch, LifecycleState, ShutdownReason, TeardownGate, inactive_dispatch,
 };
 use native_shortcut::NativeEscapeShortcut;
+#[cfg(feature = "flutter")]
+use notification_server::NotificationServer;
 use options::{Options, RuntimeLimit, SIMULATED_HOTPLUG_GAP_FRAMES};
 use scene_sync::SceneSyncState;
 #[cfg(feature = "flutter")]
@@ -124,6 +131,9 @@ const COLORS: [Color32F; 4] = [
     Color32F::new(0.20, 0.80, 0.48, 1.0),
     Color32F::new(0.72, 0.35, 0.96, 1.0),
 ];
+
+#[cfg(feature = "flutter")]
+const NOTIFICATION_EVENT_QUEUE_CAPACITY: usize = 512;
 
 fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt()
@@ -780,6 +790,10 @@ struct RuntimeState {
     pending_shell_actions: VecDeque<(wire::ShellAction, Option<i64>)>,
     #[cfg(feature = "flutter")]
     published_window_ids: HashSet<u64>,
+    #[cfg(feature = "flutter")]
+    notification_server: Option<NotificationServer>,
+    #[cfg(feature = "flutter")]
+    pending_notification_events: VecDeque<notification_server::NotificationEvent>,
 }
 
 #[cfg(feature = "flutter")]
@@ -1443,6 +1457,8 @@ fn run_flutter_event_loop(
     duration: Option<Duration>,
     event_loop: &mut EventLoop<'_, RuntimeState>,
 ) -> Result<framebuffer::Handle, Box<dyn Error>> {
+    use smithay::reexports::calloop::channel::{Event as ChannelEvent, sync_channel};
+
     let started = Instant::now();
     let deadline = duration
         .map(|duration| {
@@ -1455,10 +1471,43 @@ fn run_flutter_event_loop(
         .as_ref()
         .map(|_| SystemControls::new())
         .transpose()?;
+    let (notification_sender, notification_source) =
+        sync_channel(NOTIFICATION_EVENT_QUEUE_CAPACITY);
+    let notification_server = match NotificationServer::start(move |mut event, stopping| {
+        loop {
+            match notification_sender.try_send(event) {
+                Ok(()) => break,
+                Err(std::sync::mpsc::TrySendError::Full(returned))
+                    if !stopping.load(Ordering::Acquire) =>
+                {
+                    event = returned;
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(_) => break,
+            }
+        }
+    }) {
+        Ok(server) => {
+            event_loop.handle().insert_source(
+                notification_source,
+                |event, _, state: &mut RuntimeState| {
+                    if let ChannelEvent::Msg(event) = event {
+                        state.pending_notification_events.push_back(event);
+                    }
+                },
+            )?;
+            Some(server)
+        }
+        Err(notification_error) => {
+            error!(%notification_error, "Denial could not start its notification service");
+            None
+        }
+    };
     let authentication = Some(flutter.authentication());
     let mut events = RuntimeState {
         wayland,
         system_controls,
+        notification_server,
         authentication,
         flutter_active: true,
         flutter_input: flutter_runtime::InputQueue::new(swapchain.size),
@@ -1682,6 +1731,7 @@ fn run_flutter_event_loop(
         runtime.process_events(events.flutter_events.drain(..))?;
         synchronize_authentication_boundary(&mut events);
         synchronize_system_control_events(runtime, &mut events)?;
+        synchronize_notification_events(runtime, &mut events)?;
         synchronize_system_bar_configuration(runtime, &mut events, Some(flutter_launcher));
         synchronize_flutter_window_management(runtime, &mut events)?;
         synchronize_flutter_scene(runtime, &mut events)?;
@@ -1995,6 +2045,7 @@ fn wait_for_flutter_frame(
         runtime.process_events(events.flutter_events.drain(..))?;
         synchronize_authentication_boundary(events);
         synchronize_system_control_events(runtime, events)?;
+        synchronize_notification_events(runtime, events)?;
         synchronize_system_bar_configuration(runtime, events, flutter_launcher.as_deref_mut());
         synchronize_flutter_window_management(runtime, events)?;
         synchronize_flutter_scene(runtime, events)?;
@@ -2177,6 +2228,48 @@ fn synchronize_system_control_events(
     }
     while let Some(event) = controls.try_event() {
         runtime.send_system_control_event(&event)?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn synchronize_notification_events(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &mut RuntimeState,
+) -> Result<(), Box<dyn Error>> {
+    while let Some(event) = events.pending_notification_events.pop_front() {
+        runtime.send_notification_event(&event)?;
+    }
+
+    let commands = runtime.drain_notification_commands().collect::<Vec<_>>();
+    if events.secure_session_locked() {
+        return Ok(());
+    }
+    let Some(server) = events.notification_server.as_ref() else {
+        return Ok(());
+    };
+    for command in commands {
+        let (notification_id, queued) = match command {
+            wire::NotificationCommand::Dismiss { notification_id } => {
+                (notification_id, server.dismiss(notification_id))
+            }
+            wire::NotificationCommand::InvokeAction {
+                notification_id,
+                action_key,
+            } => (
+                notification_id,
+                server.invoke_action(notification_id, action_key),
+            ),
+            wire::NotificationCommand::InvokeDefault { notification_id } => {
+                (notification_id, server.invoke_default(notification_id))
+            }
+        };
+        if !queued {
+            warn!(
+                notification_id,
+                "could not queue Flutter notification command"
+            );
+        }
     }
     Ok(())
 }

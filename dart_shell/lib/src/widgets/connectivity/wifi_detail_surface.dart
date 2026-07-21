@@ -109,12 +109,14 @@ class _WifiDetailSurfaceState extends ConsumerState<WifiDetailSurface> {
     final state = ref.watch(networkConnectivityProvider);
     final snapshot = state.snapshot;
     final controller = ref.read(networkConnectivityProvider.notifier);
-    final radioEnabled = !state.initializing &&
+    final radioEnabled =
+        !state.initializing &&
         snapshot.serviceAvailable &&
         snapshot.wifiDeviceAvailable &&
         snapshot.wirelessHardwareEnabled &&
         snapshot.radioPermission != NetworkPermission.denied;
-    final scanEnabled = snapshot.wirelessEnabled &&
+    final scanEnabled =
+        snapshot.wirelessEnabled &&
         snapshot.serviceAvailable &&
         snapshot.wifiDeviceAvailable &&
         snapshot.wirelessHardwareEnabled &&
@@ -376,19 +378,20 @@ class _WifiNetworkList extends StatelessWidget {
     return ListView.separated(
       key: const PageStorageKey<String>('wifi-network-list'),
       itemCount: snapshot.networks.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 7),
+      separatorBuilder: (_, _) => const SizedBox(height: 7),
       itemBuilder: (context, index) {
         final network = snapshot.networks[index];
         return _WifiNetworkRow(
           network: network,
           busy: state.busyNetworks.contains(network.identity),
-          activationEnabled: state.snapshot.controlPermission !=
-                  NetworkPermission.denied &&
+          activationEnabled:
+              state.snapshot.controlPermission != NetworkPermission.denied &&
               (network.connected ||
                   network.saved ||
                   state.snapshot.modifyPermission != NetworkPermission.denied),
           onActivate: () => onActivate(network),
-          onForget: network.saved &&
+          onForget:
+              network.saved &&
                   state.snapshot.modifyPermission != NetworkPermission.denied
               ? () => onForget(network)
               : null,
@@ -429,10 +432,10 @@ class _WifiNetworkRowState extends State<_WifiNetworkRow> {
     final status = network.connected
         ? 'Connected'
         : network.saved && !network.available
-            ? 'Saved · out of range'
-            : network.saved
-                ? 'Saved · ${network.security.label}'
-                : network.security.label;
+        ? 'Saved · out of range'
+        : network.saved
+        ? 'Saved · ${network.security.label}'
+        : network.security.label;
     return Semantics(
       button: true,
       explicitChildNodes: widget.onForget != null,
@@ -474,8 +477,8 @@ class _WifiNetworkRowState extends State<_WifiNetworkRow> {
               color: network.connected
                   ? ShellColors.primaryContainer
                   : _hovered || _focused
-                      ? ShellColors.surfaceContainerHighest
-                      : ShellColors.surfaceContainer,
+                  ? ShellColors.surfaceContainerHighest
+                  : ShellColors.surfaceContainer,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: _focused ? ShellColors.accent : ShellColors.hairlineSoft,
@@ -489,8 +492,8 @@ class _WifiNetworkRowState extends State<_WifiNetworkRow> {
                   color: network.connected
                       ? ShellColors.onPrimaryContainer
                       : enabled
-                          ? ShellColors.textPrimary
-                          : ShellColors.glyphInactive,
+                      ? ShellColors.textPrimary
+                      : ShellColors.glyphInactive,
                 ),
                 const SizedBox(width: 11),
                 Expanded(
@@ -703,8 +706,11 @@ class _WifiEmptyState extends StatelessWidget {
             children: [
               Icon(icon, size: 36, color: ShellColors.textTertiary),
               const SizedBox(height: 10),
-              Text(title,
-                  textAlign: TextAlign.center, style: ShellText.cardTitle),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: ShellText.cardTitle,
+              ),
               const SizedBox(height: 5),
               Text(
                 body,
@@ -889,8 +895,8 @@ class _WifiIconButtonState extends State<_WifiIconButton> {
                     size: 18,
                     color: widget.enabled
                         ? widget.active
-                            ? ShellColors.onPrimaryContainer
-                            : ShellColors.textSecondary
+                              ? ShellColors.onPrimaryContainer
+                              : ShellColors.textSecondary
                         : ShellColors.glyphInactive,
                   ),
           ),

@@ -40,7 +40,7 @@ void main() {
         final container = ProviderContainer.test(
           overrides: [cpuUsageServiceProvider.overrideWithValue(service)],
         );
-        final subscription = container.listen(cpuUsageProvider, (_, __) {});
+        final subscription = container.listen(cpuUsageProvider, (_, _) {});
         addTearDown(subscription.close);
         async.elapse(const Duration(seconds: 9));
 
@@ -69,7 +69,7 @@ void main() {
         final container = ProviderContainer.test(
           overrides: [gpuUsageServiceProvider.overrideWithValue(service)],
         );
-        final subscription = container.listen(gpuUsageProvider, (_, __) {});
+        final subscription = container.listen(gpuUsageProvider, (_, _) {});
         addTearDown(subscription.close);
         async.elapse(const Duration(seconds: 3));
 

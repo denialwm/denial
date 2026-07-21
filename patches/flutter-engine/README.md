@@ -2,18 +2,19 @@
 
 ## Current status
 
-These ten patches target the archived Flutter Engine revision
-`cb4b5fff73850b2e42bd4de7cb9a4310a78ac40d`. They are **not applied** to the
-current Flutter 3.44.7 engine. Denial now ships a clean upstream baseline at
-Flutter source revision `84fc5cbb223bc12f83d65b647ff8a56caf779ffd` and engine
-artifact revision `69c8c61792f04cc809dfef0c910414fb9afc06cd`; see
-`prebuilt/flutter-engine/elinux-x64-release/BUILD_INFO.md`.
+The ten patches in this directory target the archived Flutter Engine revision
+`cb4b5fff73850b2e42bd4de7cb9a4310a78ac40d`; those historical files are not
+applied directly to the current engine. Denial's Flutter 3.44.7 engine carries
+one separately rebased patch under `3.44.7/`: the autonomous external-texture
+damage fix derived from historical patch 0008. See
+`prebuilt/flutter-engine/elinux-x64-release/BUILD_INFO.md` for the exact source
+and engine revisions.
 
-Do not apply this series wholesale to a newer engine. Profile the clean
-baseline first, identify which behavior still regresses, selectively port the
-smallest relevant change, and repeat the rendering, correctness, resource,
-and CPU checks below. Nine patches no longer apply cleanly to the current
-monorepo, which is expected after this much engine and Skia churn.
+Do not apply the archived series wholesale to a newer engine. Profile the
+upstream baseline first, identify which behavior still regresses, selectively
+port the smallest relevant change, and repeat the rendering, correctness,
+resource, and CPU checks below. The versioned subdirectory records each port
+against its actual engine revision instead of rewriting the historical files.
 
 `tools/denial-pc` always verifies and installs the currently pinned raw engine
 by checksum, whether that engine is upstream or locally modified. It no longer
@@ -21,7 +22,8 @@ uses `flutter-elinux` or its ephemeral Sony engine copy.
 
 Everything below records the evidence and implementation of the archived
 patch series. Present-tense references to the “patched” or “distributed”
-engine describe that old release, not the current baseline.
+engine describe that old release unless they explicitly reference a versioned
+port.
 
 ## Historical rationale for rebuilding Flutter Engine
 

@@ -320,7 +320,11 @@ build_all() {
 
 test_compositor() {
     require_flutter_bindings
-    CARGO_TARGET_DIR="$RUST_TARGET" cargo test \
+    command -v dbus-run-session >/dev/null 2>&1 \
+        || die "dbus-run-session is required for isolated notification service tests"
+    DENIAL_NOTIFICATION_TEST_BUS=1 \
+    CARGO_TARGET_DIR="$RUST_TARGET" \
+    dbus-run-session -- cargo test \
         --locked \
         --jobs "$BUILD_JOBS" \
         --lib \

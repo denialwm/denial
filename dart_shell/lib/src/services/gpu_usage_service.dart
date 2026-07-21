@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:ffi/ffi.dart' as pkg_ffi;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 
 import 'cpu_usage_service.dart' show parseLinuxTemperatureC;
 
@@ -37,9 +38,8 @@ class GpuSample {
 /// exposes NVML, bound lazily over dart:ffi. GPUs offering neither (i915,
 /// nouveau) simply do not appear; every failure collapses to "no reading".
 class GpuUsageService {
-  GpuUsageService({String drmRoot = '/sys/class/drm', NvmlReader? nvml})
-      : _drmRoot = drmRoot,
-        _nvml = nvml ?? NvmlReader();
+  GpuUsageService({this._drmRoot = '/sys/class/drm', NvmlReader? nvml})
+    : _nvml = nvml ?? NvmlReader();
 
   final String _drmRoot;
   final NvmlReader _nvml;
@@ -62,22 +62,25 @@ class GpuUsageService {
     final gpus = <_SysfsGpu>[];
     try {
       await for (final entry in Directory(_drmRoot).list(followLinks: false)) {
-        final name = entry.path.split('/').last;
+        final name = p.basename(entry.path);
         if (!_cardName.hasMatch(name)) {
           continue;
         }
-        final busyFile = File('${entry.path}/device/gpu_busy_percent');
+        final devicePath = p.join(entry.path, 'device');
+        final busyFile = File(p.join(devicePath, 'gpu_busy_percent'));
         if (!busyFile.existsSync()) {
           continue;
         }
-        gpus.add(_SysfsGpu(
-          id: name,
-          label: await _vendorLabel('${entry.path}/device/vendor'),
-          busyFile: busyFile,
-          temperatureFile: await _discoverGpuTemperatureFile(
-            '${entry.path}/device/hwmon',
+        gpus.add(
+          _SysfsGpu(
+            id: name,
+            label: await _vendorLabel(p.join(devicePath, 'vendor')),
+            busyFile: busyFile,
+            temperatureFile: await _discoverGpuTemperatureFile(
+              p.join(devicePath, 'hwmon'),
+            ),
           ),
-        ));
+        );
       }
     } on FileSystemException {
       return const <_SysfsGpu>[];
@@ -161,8 +164,9 @@ class _SysfsGpu {
       final temperature = temperatureFile;
       if (temperature != null) {
         try {
-          temperatureC =
-              parseLinuxTemperatureC(await temperature.readAsString());
+          temperatureC = parseLinuxTemperatureC(
+            await temperature.readAsString(),
+          );
         } on FileSystemException {
           // Utilization remains useful when an optional sensor disappears.
         }
@@ -186,11 +190,12 @@ Future<File?> _discoverGpuTemperatureFile(String hwmonRoot) async {
     File? best;
     var bestScore = -1;
     for (final hwmon in hwmons) {
-      final entries =
-          await Directory(hwmon.path).list(followLinks: false).toList();
+      final entries = await Directory(
+        hwmon.path,
+      ).list(followLinks: false).toList();
       entries.sort((left, right) => left.path.compareTo(right.path));
       for (final entry in entries) {
-        if (!_temperatureInput.hasMatch(entry.path)) {
+        if (!_temperatureInput.hasMatch(p.basename(entry.path))) {
           continue;
         }
         final labelPath = entry.path.replaceFirst(RegExp(r'_input$'), '_label');
@@ -218,7 +223,7 @@ Future<File?> _discoverGpuTemperatureFile(String hwmonRoot) async {
   }
 }
 
-final RegExp _temperatureInput = RegExp(r'/temp\d+_input$');
+final RegExp _temperatureInput = RegExp(r'^temp\d+_input$');
 
 /// Minimal NVML binding for utilization and optional temperature. The library
 /// is opened on first use; any failure marks NVML permanently unavailable so
@@ -230,9 +235,9 @@ class NvmlReader {
   bool _unavailable = false;
   List<ffi.Pointer<ffi.Void>> _devices = const <ffi.Pointer<ffi.Void>>[];
   late final int Function(ffi.Pointer<ffi.Void>, ffi.Pointer<_NvmlUtilization>)
-      _getUtilization;
+  _getUtilization;
   int Function(ffi.Pointer<ffi.Void>, int, ffi.Pointer<ffi.Uint32>)?
-      _getTemperature;
+  _getTemperature;
 
   List<GpuSample> read() {
     if (_unavailable || (!_ready && !_initialize())) {
@@ -253,12 +258,14 @@ class NvmlReader {
             getTemperature(device, 0, temperature) == 0) {
           temperatureC = temperature.value.toDouble();
         }
-        samples.add(GpuSample(
-          id: 'nvml$index',
-          label: 'NV',
-          usage: (utilization.ref.gpu / 100.0).clamp(0.0, 1.0),
-          temperatureC: temperatureC,
-        ));
+        samples.add(
+          GpuSample(
+            id: 'nvml$index',
+            label: 'NV',
+            usage: (utilization.ref.gpu / 100.0).clamp(0.0, 1.0),
+            temperatureC: temperatureC,
+          ),
+        );
       }
       return samples;
     } finally {
@@ -270,41 +277,41 @@ class NvmlReader {
   bool _initialize() {
     try {
       final library = ffi.DynamicLibrary.open('libnvidia-ml.so.1');
-      final init = library
-          .lookupFunction<ffi.Int32 Function(), int Function()>('nvmlInit_v2');
+      final init = library.lookupFunction<ffi.Int32 Function(), int Function()>(
+        'nvmlInit_v2',
+      );
       if (init() != 0) {
         _unavailable = true;
         return false;
       }
-      final getCount = library.lookupFunction<
-          ffi.Int32 Function(ffi.Pointer<ffi.Uint32>),
-          int Function(ffi.Pointer<ffi.Uint32>)>('nvmlDeviceGetCount_v2');
-      final getHandle = library.lookupFunction<
-          ffi.Int32 Function(ffi.Uint32, ffi.Pointer<ffi.Pointer<ffi.Void>>),
-          int Function(int, ffi.Pointer<ffi.Pointer<ffi.Void>>)>(
-        'nvmlDeviceGetHandleByIndex_v2',
-      );
-      _getUtilization = library.lookupFunction<
-          ffi.Int32 Function(
-            ffi.Pointer<ffi.Void>,
-            ffi.Pointer<_NvmlUtilization>,
-          ),
-          int Function(
-            ffi.Pointer<ffi.Void>,
-            ffi.Pointer<_NvmlUtilization>,
-          )>('nvmlDeviceGetUtilizationRates');
-      try {
-        _getTemperature = library.lookupFunction<
+      final getCount = library
+          .lookupFunction<
+            ffi.Int32 Function(ffi.Pointer<ffi.Uint32>),
+            int Function(ffi.Pointer<ffi.Uint32>)
+          >('nvmlDeviceGetCount_v2');
+      final getHandle = library
+          .lookupFunction<
+            ffi.Int32 Function(ffi.Uint32, ffi.Pointer<ffi.Pointer<ffi.Void>>),
+            int Function(int, ffi.Pointer<ffi.Pointer<ffi.Void>>)
+          >('nvmlDeviceGetHandleByIndex_v2');
+      _getUtilization = library
+          .lookupFunction<
             ffi.Int32 Function(
               ffi.Pointer<ffi.Void>,
-              ffi.Int32,
-              ffi.Pointer<ffi.Uint32>,
+              ffi.Pointer<_NvmlUtilization>,
             ),
-            int Function(
-              ffi.Pointer<ffi.Void>,
-              int,
-              ffi.Pointer<ffi.Uint32>,
-            )>('nvmlDeviceGetTemperature');
+            int Function(ffi.Pointer<ffi.Void>, ffi.Pointer<_NvmlUtilization>)
+          >('nvmlDeviceGetUtilizationRates');
+      try {
+        _getTemperature = library
+            .lookupFunction<
+              ffi.Int32 Function(
+                ffi.Pointer<ffi.Void>,
+                ffi.Int32,
+                ffi.Pointer<ffi.Uint32>,
+              ),
+              int Function(ffi.Pointer<ffi.Void>, int, ffi.Pointer<ffi.Uint32>)
+            >('nvmlDeviceGetTemperature');
       } on Object {
         _getTemperature = null;
       }

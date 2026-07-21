@@ -1,3 +1,5 @@
+import 'dart:ui' show SemanticsRole;
+
 import 'package:denial_dart_shell/src/settings/widgets/focused_border_color_picker.dart';
 import 'package:denial_dart_shell/src/settings/widgets/hsv_color_wheel.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_appearance_page.dart';
@@ -30,6 +32,14 @@ void main() {
     expect(find.byKey(settingsSystemBarPlacementCardKey), findsOneWidget);
     expect(find.text('#4F378B'), findsOneWidget);
     expect(find.bySemanticsLabel(RegExp('Denial Settings')), findsOneWidget);
+    final settingsSemantics = tester.widget<Semantics>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Semantics &&
+            widget.properties.label?.contains('Denial Settings') == true,
+      ),
+    );
+    expect(settingsSemantics.properties.role, SemanticsRole.main);
     semantics.dispose();
   });
 
@@ -48,6 +58,14 @@ void main() {
 
     expect(find.byKey(settingsFocusedBorderColorPickerKey), findsOneWidget);
     expect(find.byType(HsvColorWheel), findsOneWidget);
+    final pickerSemantics = tester.widget<Semantics>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Semantics &&
+            widget.properties.role == SemanticsRole.dialog,
+      ),
+    );
+    expect(pickerSemantics.properties.namesRoute, isTrue);
 
     final wheelRect = tester.getRect(find.byType(HsvColorWheel));
     await tester.tapAt(wheelRect.center + Offset(wheelRect.width * 0.36, 0));

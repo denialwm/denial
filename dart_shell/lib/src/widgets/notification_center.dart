@@ -10,10 +10,7 @@ import '../theme/tokens.dart';
 import 'notification_banner.dart';
 
 class NotificationCenter extends ConsumerStatefulWidget {
-  const NotificationCenter({
-    super.key,
-    this.showTitle = true,
-  });
+  const NotificationCenter({super.key, this.showTitle = true});
 
   final bool showTitle;
 
@@ -67,59 +64,62 @@ class _NotificationCenterState extends ConsumerState<NotificationCenter> {
           Expanded(
             child: records.isEmpty
                 ? const _NotificationEmptyState()
-                : ListView.separated(
-                    key: const PageStorageKey<String>('notification-history'),
-                    itemCount: records.length,
-                    padding: const EdgeInsets.only(bottom: 6),
-                    separatorBuilder: (_, __) => const SizedBox(height: 9),
-                    itemBuilder: (context, index) {
-                      final record = records[index];
-                      final notification = record.notification;
-                      return RepaintBoundary(
-                        key: ValueKey<int>(notification.id),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            NotificationCard(
-                              notification: notification,
-                              compact: true,
-                              onDismiss: () => controller.dismissFromHistory(
-                                notification.id,
-                              ),
-                              onDefaultAction: record.active
-                                  ? () => controller.invokeDefaultAction(
+                : Semantics(
+                    role: .list,
+                    child: ListView.separated(
+                      key: const PageStorageKey<String>('notification-history'),
+                      itemCount: records.length,
+                      padding: const EdgeInsets.only(bottom: 6),
+                      separatorBuilder: (_, _) => const SizedBox(height: 9),
+                      itemBuilder: (context, index) {
+                        final record = records[index];
+                        final notification = record.notification;
+                        return RepaintBoundary(
+                          key: ValueKey<int>(notification.id),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              NotificationCard(
+                                notification: notification,
+                                compact: true,
+                                onDismiss: () => controller.dismissFromHistory(
+                                  notification.id,
+                                ),
+                                onDefaultAction: record.active
+                                    ? () => controller.invokeDefaultAction(
                                         notification.id,
                                       )
-                                  : null,
-                              onAction: record.active
-                                  ? (actionKey) => controller.invokeAction(
+                                    : null,
+                                onAction: record.active
+                                    ? (actionKey) => controller.invokeAction(
                                         notification.id,
                                         actionKey,
                                       )
-                                  : null,
-                            ),
-                            if (!record.active)
-                              Padding(
-                                padding: const EdgeInsets.only(
-                                  top: 4,
-                                  right: 8,
-                                ),
-                                child: Align(
-                                  alignment: Alignment.centerRight,
-                                  child: Text(
-                                    _closeReasonLabel(record.closeReason),
-                                    style: ShellText.base.copyWith(
-                                      color: ShellColors.textTertiary,
-                                      fontSize: 10.5,
-                                      fontWeight: FontWeight.w600,
+                                    : null,
+                              ),
+                              if (!record.active)
+                                Padding(
+                                  padding: const EdgeInsets.only(
+                                    top: 4,
+                                    right: 8,
+                                  ),
+                                  child: Align(
+                                    alignment: Alignment.centerRight,
+                                    child: Text(
+                                      _closeReasonLabel(record.closeReason),
+                                      style: ShellText.base.copyWith(
+                                        color: ShellColors.textTertiary,
+                                        fontSize: 10.5,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                          ],
-                        ),
-                      );
-                    },
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                   ),
           ),
         ],
@@ -180,8 +180,8 @@ class _NotificationCenterHeader extends StatelessWidget {
         _CenterIconButton(
           label: policyLoaded
               ? (doNotDisturb
-                  ? 'Disable do not disturb'
-                  : 'Enable do not disturb')
+                    ? 'Disable do not disturb'
+                    : 'Enable do not disturb')
               : 'Loading do not disturb policy',
           icon: doNotDisturb
               ? Icons.notifications_off_rounded
@@ -243,19 +243,17 @@ class _PrivacyModeSelector extends StatelessWidget {
     return Semantics(
       container: true,
       explicitChildNodes: true,
+      role: .radioGroup,
       label: 'Lock screen notification privacy',
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final stacked = constraints.maxWidth < 390 ||
+          final stacked =
+              constraints.maxWidth < 390 ||
               MediaQuery.textScalerOf(context).scale(1) > 1.35;
           if (stacked) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                label,
-                const SizedBox(height: 7),
-                choices,
-              ],
+              children: [label, const SizedBox(height: 7), choices],
             );
           }
           return Row(
@@ -301,6 +299,7 @@ class _PrivacyChoiceState extends State<_PrivacyChoice> {
     return Semantics(
       button: true,
       selected: widget.selected,
+      inMutuallyExclusiveGroup: true,
       enabled: widget.enabled,
       label: '$label lock screen previews',
       child: FocusableActionDetector(
@@ -349,8 +348,8 @@ class _PrivacyChoiceState extends State<_PrivacyChoice> {
               style: ShellText.base.copyWith(
                 color: widget.enabled
                     ? (widget.selected
-                        ? ShellColors.onPrimaryContainer
-                        : ShellColors.textSecondary)
+                          ? ShellColors.onPrimaryContainer
+                          : ShellColors.textSecondary)
                     : ShellColors.glyphInactive,
                 fontSize: 10.5,
                 fontWeight: FontWeight.w700,
@@ -507,8 +506,8 @@ class _CenterIconButtonState extends State<_CenterIconButton> {
               color: widget.active
                   ? ShellColors.primaryContainer
                   : _hovered || _focused
-                      ? ShellColors.surfaceContainerHighest
-                      : ShellColors.surfaceContainerHigh,
+                  ? ShellColors.surfaceContainerHighest
+                  : ShellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: _focused ? ShellColors.accent : ShellColors.hairlineSoft,
@@ -519,8 +518,8 @@ class _CenterIconButtonState extends State<_CenterIconButton> {
               size: 18,
               color: widget.enabled
                   ? (widget.active
-                      ? ShellColors.onPrimaryContainer
-                      : ShellColors.textSecondary)
+                        ? ShellColors.onPrimaryContainer
+                        : ShellColors.textSecondary)
                   : ShellColors.glyphInactive,
             ),
           ),
@@ -531,8 +530,8 @@ class _CenterIconButtonState extends State<_CenterIconButton> {
 }
 
 String _closeReasonLabel(int reason) => switch (reason) {
-      1 => 'Expired',
-      2 => 'Dismissed',
-      3 => 'Closed by application',
-      _ => 'Closed',
-    };
+  1 => 'Expired',
+  2 => 'Dismissed',
+  3 => 'Closed by application',
+  _ => 'Closed',
+};

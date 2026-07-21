@@ -103,7 +103,7 @@ class DesktopNotificationEvent {
       ..writeln('Denial notification ${kind.name}')
       ..writeln('  id: $notificationId');
     if (kind == DesktopNotificationEventKind.closed) {
-      output.writeln('  close reason: $closeReason (${_closeReasonLabel})');
+      output.writeln('  close reason: $closeReason ($_closeReasonLabel)');
       return output.toString().trimRight();
     }
 
@@ -155,11 +155,11 @@ class DesktopNotificationEvent {
   }
 
   String get _closeReasonLabel => switch (closeReason) {
-        1 => 'expired',
-        2 => 'dismissed',
-        3 => 'closed by sender',
-        _ => 'undefined',
-      };
+    1 => 'expired',
+    2 => 'dismissed',
+    3 => 'closed by sender',
+    _ => 'undefined',
+  };
 }
 
 String _shown(String value) => value.isEmpty ? '(none)' : value;

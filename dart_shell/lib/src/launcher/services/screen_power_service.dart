@@ -4,9 +4,7 @@ import 'dart:io';
 import '../runtime_paths.dart';
 
 class ScreenPowerService {
-  const ScreenPowerService({
-    required RuntimePaths paths,
-  }) : _paths = paths;
+  const ScreenPowerService({required this._paths});
 
   final RuntimePaths _paths;
 
@@ -21,6 +19,8 @@ class ScreenPowerService {
       socket.add(utf8.encode('screen-off $reason\n'));
       await socket.flush();
       await socket.close();
-    } on Object {}
+    } on Object {
+      // The power daemon is optional; a failed request must not disrupt home.
+    }
   }
 }

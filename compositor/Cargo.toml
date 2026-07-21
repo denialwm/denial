@@ -16,6 +16,7 @@ flutter = [
     "dep:denial-flutter-engine",
     "wire",
     "dep:libc",
+    "dep:zbus",
 ]
 wire = [
     "dep:flatbuffers",
@@ -69,6 +70,7 @@ smithay-drm-extras = { git = "https://github.com/Smithay/smithay.git", rev = "81
 tracing = { version = "0.1.37", features = ["max_level_trace", "release_max_level_info"], optional = true }
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"], optional = true }
 winit = { version = "0.31.0-beta.2", default-features = false, optional = true }
+zbus = { version = "=5.18.0", optional = true }
 
 [[bin]]
 name = "denial-nested"

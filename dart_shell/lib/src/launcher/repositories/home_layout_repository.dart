@@ -4,9 +4,7 @@ import '../runtime_paths.dart';
 import '../models/home_grid_item.dart';
 
 class HomeLayoutRepository {
-  const HomeLayoutRepository({
-    required RuntimePaths paths,
-  }) : _paths = paths;
+  const HomeLayoutRepository({required this._paths});
 
   final RuntimePaths _paths;
 
@@ -41,7 +39,9 @@ class HomeLayoutRepository {
         'slots': slots.map(_encodeSlot).toList(growable: false),
       });
       await file.writeAsString('$payload\n', flush: true);
-    } on Object {}
+    } on Object {
+      // Layout persistence is best effort; the in-memory layout remains valid.
+    }
   }
 
   HomeLayoutSlot? _decodeSlot(Object? item) {
@@ -72,11 +72,7 @@ class HomeLayoutRepository {
     }
 
     if (item.resizable) {
-      return {
-        'id': item.id,
-        'colSpan': item.colSpan,
-        'rowSpan': item.rowSpan,
-      };
+      return {'id': item.id, 'colSpan': item.colSpan, 'rowSpan': item.rowSpan};
     }
 
     return item.id;

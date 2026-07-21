@@ -72,17 +72,20 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
   Timer? _wallpaperOpenTimer;
   Timer? _windowSwitcherHoldTimer;
   Timer? _windowSwitcherCleanupTimer;
-  final FocusNode _applicationSearchFocusNode =
-      FocusNode(debugLabel: 'desktop-application-search');
+  final FocusNode _applicationSearchFocusNode = FocusNode(
+    debugLabel: 'desktop-application-search',
+  );
   late final StreamSubscription<DenialShellActionEvent>
-      _shellActionSubscription;
+  _shellActionSubscription;
 
   @override
   void initState() {
     super.initState();
     ref.read(hapticsServiceProvider).prewarm();
-    _shellActionSubscription =
-        ref.read(denialBridgeProvider).shellActions.listen(_handleShellAction);
+    _shellActionSubscription = ref
+        .read(denialBridgeProvider)
+        .shellActions
+        .listen(_handleShellAction);
   }
 
   @override
@@ -128,10 +131,11 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
           .map((objectId) => workspace.placements[objectId])
           .whereType<DesktopWindowPlacement>()
           .where((placement) {
-        final objectId = placement.objectId;
-        return windowsById.containsKey(objectId) &&
-            DesktopOverviewLayout.isUsefulPreview(placement.frame);
-      }).toList(growable: false);
+            final objectId = placement.objectId;
+            return windowsById.containsKey(objectId) &&
+                DesktopOverviewLayout.isUsefulPreview(placement.frame);
+          })
+          .toList(growable: false);
       final activeSessionIds = activeSessionPlacements
           .map((placement) => placement.objectId)
           .toList(growable: false);
@@ -157,7 +161,8 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       final next = controller.beginOrAdvance(
         objectIds: activeSessionIds,
         sourceObjectId: sourceObjectId,
-        usesDesktopMotion: previous.usesDesktopMotion ||
+        usesDesktopMotion:
+            previous.usesDesktopMotion ||
             activeSessionPlacements.any((placement) => placement.minimized),
       );
       if (next == null) {
@@ -183,14 +188,15 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     if (monitorTarget == null) {
       return;
     }
-    final placements = workspace.placements.values
-        .where(
-          (placement) =>
-              monitorTarget.objectIds.contains(placement.objectId) &&
-              windowsById.containsKey(placement.objectId),
-        )
-        .toList(growable: false)
-      ..sort((left, right) => right.z.compareTo(left.z));
+    final placements =
+        workspace.placements.values
+            .where(
+              (placement) =>
+                  monitorTarget.objectIds.contains(placement.objectId) &&
+                  windowsById.containsKey(placement.objectId),
+            )
+            .toList(growable: false)
+          ..sort((left, right) => right.z.compareTo(left.z));
     if (placements.isEmpty) {
       return;
     }
@@ -274,8 +280,8 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     final cleanupDelay = reduceMotion
         ? Duration.zero
         : expanded
-            ? Motion.windowSwitcherCollapse
-            : Motion.windowSwitcherQuick;
+        ? Motion.windowSwitcherCollapse
+        : Motion.windowSwitcherQuick;
     if (cleanupDelay == Duration.zero) {
       controller.clear(switcher.sessionId);
       return;
@@ -381,7 +387,9 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
   void _openAppVolumeManager() {
     _closePanels();
     ref.read(appAudioProvider.notifier).refresh();
-    ref.read(shellSurfaceControllerProvider.notifier).show(
+    ref
+        .read(shellSurfaceControllerProvider.notifier)
+        .show(
           keyName: 'application-volume-manager',
           debugLabel: 'Application volume manager',
           pointerPolicy: ShellPointerPolicy.fullScene,
@@ -394,8 +402,9 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
 
   Future<void> _showWallpaperSelector() async {
     var displayLayout = ref.read(displayLayoutProvider);
-    displayLayout ??=
-        await ref.read(displayLayoutProvider.notifier).ensureLoaded();
+    displayLayout ??= await ref
+        .read(displayLayoutProvider.notifier)
+        .ensureLoaded();
     if (!mounted) {
       return;
     }
@@ -442,7 +451,9 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     final availableBounds = mainOutput == null
         ? Offset.zero & viewSize
         : displayLayout!.workAreaOf(mainOutput);
-    ref.read(localFlutterApplicationLauncherProvider).launch(
+    ref
+        .read(localFlutterApplicationLauncherProvider)
+        .launch(
           app.id,
           availableBounds: availableBounds,
           title: app.titleFor(context),
@@ -493,12 +504,13 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       for (final output in layout?.outputs ?? const <DisplayOutput>[])
         output.monitorId: output.logicalRect,
     };
-    final transferred =
-        ref.read(desktopWorkspaceProvider.notifier).endOverviewDrag(
-              window.objectId,
-              outputBounds: outputBounds,
-              workAreas: layout?.workAreasByMonitor() ?? const <int, Rect>{},
-            );
+    final transferred = ref
+        .read(desktopWorkspaceProvider.notifier)
+        .endOverviewDrag(
+          window.objectId,
+          outputBounds: outputBounds,
+          workAreas: layout?.workAreasByMonitor() ?? const <int, Rect>{},
+        );
     if (transferred) {
       ref.read(shellControllerProvider.notifier).focusWindow(window);
     }
@@ -533,7 +545,8 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     // DENIA_SHELL_DEV_LAYOUT lets the shell run as an ordinary Wayland client
     // (no native bridge) while still rendering layout-dependent chrome such
     // as the system bar, for styling work without restarting deniald.
-    final displayLayout = nativeDisplayLayout ??
+    final displayLayout =
+        nativeDisplayLayout ??
         (ref.watch(startupEnvironmentProvider).flag('DENIA_SHELL_DEV_LAYOUT')
             ? DisplayLayout.fallback(
                 MediaQuery.sizeOf(context),
@@ -579,8 +592,9 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
             onUpdateOverviewDrag: _updateOverviewDrag,
             onEndOverviewDrag: _endOverviewDrag,
             onCancelOverviewDrag: _cancelOverviewDrag,
-            onCloseLeaseComplete:
-                ref.read(denialBridgeProvider).completeWindowClose,
+            onCloseLeaseComplete: ref
+                .read(denialBridgeProvider)
+                .completeWindowClose,
           ),
         ),
       ),
@@ -600,9 +614,9 @@ List<({int monitorId, Rect rect, SystemBarSide side})> _systemBarGeometries(
   return <({int monitorId, Rect rect, SystemBarSide side})>[
     for (final output in displayLayout.systemBarOutputs)
       if (DesktopMetrics.systemBarRect(
-        viewSize,
-        displayLayout.systemBarRectFor(output),
-      )
+            viewSize,
+            displayLayout.systemBarRectFor(output),
+          )
           case final rect when !rect.isEmpty)
         (
           monitorId: output.monitorId,
@@ -671,8 +685,9 @@ _DesktopHomeSceneLayout _layoutDesktopHome({
 
   final widgets = <HomeGridItem>[];
   final seenWidgetIds = <String>{};
-  for (final item in homeGrid.asData?.value.slots.whereType<HomeGridItem>() ??
-      const <HomeGridItem>[]) {
+  for (final item
+      in homeGrid.asData?.value.slots.whereType<HomeGridItem>() ??
+          const <HomeGridItem>[]) {
     if (item.type != HomeGridItemType.app &&
         (item.type != HomeGridItemType.batteryDischarge || hasBatteryData) &&
         seenWidgetIds.add(item.id)) {
@@ -680,18 +695,20 @@ _DesktopHomeSceneLayout _layoutDesktopHome({
     }
   }
 
-  final minimized = placements
-      .where((placement) => placement.minimized)
-      .toList(growable: false)
-    ..sort((left, right) {
-      final zOrder = left.z.compareTo(right.z);
-      return zOrder != 0 ? zOrder : left.objectId.compareTo(right.objectId);
-    });
+  final minimized =
+      placements
+          .where((placement) => placement.minimized)
+          .toList(growable: false)
+        ..sort((left, right) {
+          final zOrder = left.z.compareTo(right.z);
+          return zOrder != 0 ? zOrder : left.objectId.compareTo(right.objectId);
+        });
   final nativeOutputs = displayLayout?.outputs ?? const <DisplayOutput>[];
   final outputAreas = <({int monitorId, Rect bounds})>[
     for (final output in nativeOutputs)
-      if ((displayLayout?.workAreaOf(output) ?? output.logicalRect)
-              .intersect(canvas)
+      if ((displayLayout?.workAreaOf(output) ?? output.logicalRect).intersect(
+            canvas,
+          )
           case final bounds when !bounds.isEmpty)
         (monitorId: output.monitorId, bounds: bounds),
   ];
@@ -790,7 +807,7 @@ List<Widget> _buildDesktopWindowLayers({
   required ValueChanged<DenialWindow> onActivateWindow,
   required ValueChanged<DenialWindow> onBeginOverviewDrag,
   required void Function(DenialWindow window, Offset delta)
-      onUpdateOverviewDrag,
+  onUpdateOverviewDrag,
   required ValueChanged<DenialWindow> onEndOverviewDrag,
   required ValueChanged<DenialWindow> onCancelOverviewDrag,
 }) {
@@ -798,7 +815,8 @@ List<Widget> _buildDesktopWindowLayers({
   for (final placement in placements) {
     final window = windowsById[placement.objectId]!;
     final overview = desktop.isInOverview(placement.objectId);
-    final switching = !overview &&
+    final switching =
+        !overview &&
         DesktopWindowSwitcherLayout.contains(switcher, placement.objectId);
     final desktopWidget = placement.minimized && !overview && !switching;
     if (desktopWidget != desktopPlane) {
@@ -807,17 +825,18 @@ List<Widget> _buildDesktopWindowLayers({
     final frame = desktopWidget
         ? desktopWidgetFrames[placement.objectId]
         : switching
-            ? DesktopWindowSwitcherLayout.visualFrame(
-                placement: placement,
-                switcher: switcher,
-                stageBounds: switcherStageBounds,
-                desktopWidgetFrame: desktopWidgetFrames[placement.objectId],
-              )
-            : desktop.visualFrame(placement);
+        ? DesktopWindowSwitcherLayout.visualFrame(
+            placement: placement,
+            switcher: switcher,
+            stageBounds: switcherStageBounds,
+            desktopWidgetFrame: desktopWidgetFrames[placement.objectId],
+          )
+        : desktop.visualFrame(placement);
     if (frame == null || frame.isEmpty) {
       continue;
     }
-    final visible = desktopWidget ||
+    final visible =
+        desktopWidget ||
         overview ||
         (switching
             ? DesktopWindowSwitcherLayout.isVisible(
@@ -828,17 +847,14 @@ List<Widget> _buildDesktopWindowLayers({
     final motionDuration = reduceMotion
         ? Duration.zero
         : desktopWidget
-            ? Motion.desktopWindowWidget
-            : switching
-                ? DesktopWindowSwitcherLayout.motionDuration(switcher!)
-                : overview
-                    ? Motion.overviewOpen
-                    : Motion.overviewClose;
+        ? Motion.desktopWindowWidget
+        : switching
+        ? DesktopWindowSwitcherLayout.motionDuration(switcher!)
+        : overview
+        ? Motion.overviewOpen
+        : Motion.overviewClose;
     final active = switching
-        ? DesktopWindowSwitcherLayout.isSelected(
-            switcher,
-            placement.objectId,
-          )
+        ? DesktopWindowSwitcherLayout.isSelected(switcher, placement.objectId)
         : !overview && !placement.minimized && placement.z == topZ;
 
     layers.add(
@@ -864,9 +880,7 @@ List<Widget> _buildDesktopWindowLayers({
     if (!desktopWidget) {
       layers.add(
         _DesktopPopupSurfaceLayers(
-          key: ValueKey<String>(
-            'desktop-popup-layers-${placement.objectId}',
-          ),
+          key: ValueKey<String>('desktop-popup-layers-${placement.objectId}'),
           window: window,
           placement: placement,
           frame: frame,
@@ -982,7 +996,8 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
         id: closeId,
         window: window,
         frame: frame,
-        fullscreen: placement.fullscreen &&
+        fullscreen:
+            placement.fullscreen &&
             !oldWidget.desktop.isInOverview(window.objectId),
         effect: widget.closeEffect,
       );
@@ -1041,17 +1056,18 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     final windowsById = <int, DenialWindow>{
       for (final window in windows) window.objectId: window,
     };
-    final placements = desktop.placements.values
-        .where((placement) => windowsById.containsKey(placement.objectId))
-        .toList(growable: false)
-      ..sort(
-        (a, b) => DesktopWindowSwitcherLayout.compare(
-          a,
-          b,
-          windowsById,
-          windowSwitcher,
-        ),
-      );
+    final placements =
+        desktop.placements.values
+            .where((placement) => windowsById.containsKey(placement.objectId))
+            .toList(growable: false)
+          ..sort(
+            (a, b) => DesktopWindowSwitcherLayout.compare(
+              a,
+              b,
+              windowsById,
+              windowSwitcher,
+            ),
+          );
     final homeLayout = _layoutDesktopHome(
       viewSize: viewSize,
       displayLayout: displayLayout,
@@ -1096,24 +1112,25 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     final visibleSystemBars = desktop.overviewActive
         ? systemBars
         : systemBars
-            .where(
-              (bar) => !placements.any(
-                (placement) =>
-                    placement.fullscreen &&
-                    !placement.minimized &&
-                    placement.monitorId == bar.monitorId,
-              ),
-            )
-            .toList(growable: false);
+              .where(
+                (bar) => !placements.any(
+                  (placement) =>
+                      placement.fullscreen &&
+                      !placement.minimized &&
+                      placement.monitorId == bar.monitorId,
+                ),
+              )
+              .toList(growable: false);
     final canvas = Offset.zero & viewSize;
     final requestedDisplayRect = mainOutputRect?.intersect(canvas);
     final mainDisplayRect =
         requestedDisplayRect == null || requestedDisplayRect.isEmpty
-            ? canvas
-            : requestedDisplayRect;
+        ? canvas
+        : requestedDisplayRect;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final selectorMotionDuration =
-        reduceMotion ? Duration.zero : Motion.wallpaperSelector;
+    final selectorMotionDuration = reduceMotion
+        ? Duration.zero
+        : Motion.wallpaperSelector;
     final switcherStageBounds = windowSwitcher == null
         ? Rect.zero
         : _windowSwitcherStageBounds(
@@ -1481,7 +1498,7 @@ class _AppVolumeManagerPanel extends StatelessWidget {
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 22),
         itemCount: state.streams.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        separatorBuilder: (_, _) => const SizedBox(height: 10),
         itemBuilder: (context, index) {
           final stream = state.streams[index];
           return _AppVolumeRow(
@@ -1732,8 +1749,9 @@ class _DesktopPanelTransitionState extends State<_DesktopPanelTransition>
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     _controller
       ..duration = reduceMotion ? Duration.zero : Motion.desktopPanelOpen
-      ..reverseDuration =
-          reduceMotion ? Duration.zero : Motion.desktopPanelClose;
+      ..reverseDuration = reduceMotion
+          ? Duration.zero
+          : Motion.desktopPanelClose;
   }
 
   @override
@@ -1771,8 +1789,9 @@ class _DesktopPanelTransitionState extends State<_DesktopPanelTransition>
 
     return ShellInputRegion(
       debugLabel: widget.inputDebugLabel,
-      keyboardPolicy:
-          widget.visible ? widget.keyboardPolicy : ShellKeyboardPolicy.none,
+      keyboardPolicy: widget.visible
+          ? widget.keyboardPolicy
+          : ShellKeyboardPolicy.none,
       child: IgnorePointer(
         ignoring: !widget.visible,
         child: ExcludeSemantics(
@@ -1798,10 +1817,7 @@ class _DesktopPanelTransitionState extends State<_DesktopPanelTransition>
 }
 
 class _DesktopPanelEdgeTrigger extends StatelessWidget {
-  const _DesktopPanelEdgeTrigger({
-    required this.onEnter,
-    required this.onExit,
-  });
+  const _DesktopPanelEdgeTrigger({required this.onEnter, required this.onExit});
 
   final VoidCallback onEnter;
   final VoidCallback onExit;
@@ -1820,10 +1836,7 @@ class _DesktopPanelEdgeTrigger extends StatelessWidget {
 }
 
 class _DesktopOverviewBarrier extends StatelessWidget {
-  const _DesktopOverviewBarrier({
-    required this.active,
-    required this.onTap,
-  });
+  const _DesktopOverviewBarrier({required this.active, required this.onTap});
 
   final bool active;
   final ValueChanged<Offset> onTap;
@@ -1841,10 +1854,7 @@ class _DesktopOverviewBarrier extends StatelessWidget {
 }
 
 class _DesktopWidgetCanvas extends StatelessWidget {
-  const _DesktopWidgetCanvas({
-    required this.widgets,
-    required this.frames,
-  });
+  const _DesktopWidgetCanvas({required this.widgets, required this.frames});
 
   final List<HomeGridItem> widgets;
   final Map<String, Rect> frames;
@@ -1931,15 +1941,17 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
     final transformed = overview || switching;
     final fullscreenVisual = placement.fullscreen && !transformed;
     final drawsServerFrame = !fullscreenVisual && placement.serverSideDecorated;
-    final contentRect =
-        drawsServerFrame ? frame.deflate(DesktopMetrics.frameBorder) : frame;
+    final contentRect = drawsServerFrame
+        ? frame.deflate(DesktopMetrics.frameBorder)
+        : frame;
     final duration = placement.dragging ? Duration.zero : motionDuration;
     final resizing = desktopTextureNeedsResizeSmoothing(
       targetSize: contentRect.size,
       sourceSize: window.contentCoordinateRect.size,
     );
-    final filterQuality =
-        transformed || resizing ? FilterQuality.high : FilterQuality.none;
+    final filterQuality = transformed || resizing
+        ? FilterQuality.high
+        : FilterQuality.none;
 
     return Positioned.fill(
       child: IgnorePointer(
@@ -2008,9 +2020,7 @@ class _DesktopClosingWindowFrame extends StatelessWidget {
       onCompleted: onCompleted,
       child: CustomPaint(
         painter: drawsServerFrame
-            ? DesktopWindowFramePainter(
-                windowId: closing.window.objectId,
-              )
+            ? DesktopWindowFramePainter(windowId: closing.window.objectId)
             : null,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(math.max(0.0, radius - 1.0)),
@@ -2119,8 +2129,8 @@ class _DesktopWindowFrame extends ConsumerWidget {
                 opacity: minimized
                     ? 0.0
                     : desktopWidget
-                        ? 0.86
-                        : 1.0,
+                    ? 0.86
+                    : 1.0,
                 child: RepaintBoundary(
                   child: _DesktopOverviewPreviewInteraction(
                     overviewActive: overviewActive,
@@ -2168,8 +2178,8 @@ class _DesktopWindowFrame extends ConsumerWidget {
                             color: window.pinned
                                 ? ShellColors.pinnedWindowBorder
                                 : active
-                                    ? focusedWindowBorderColor
-                                    : ShellColors.hairlineWindow,
+                                ? focusedWindowBorderColor
+                                : ShellColors.hairlineWindow,
                             devicePixelRatio: devicePixelRatio,
                           ),
                           child: client,
@@ -2317,7 +2327,8 @@ class _DesktopOverviewPreviewInteractionState
   @override
   Widget build(BuildContext context) {
     final hovered = widget.overview && !widget.dragging && _hovered;
-    final interactive = (widget.overviewActive && widget.overview) ||
+    final interactive =
+        (widget.overviewActive && widget.overview) ||
         (!widget.overviewActive && widget.desktopWidget);
     return Semantics(
       button: interactive,
@@ -2350,10 +2361,7 @@ class _DesktopOverviewPreviewInteractionState
 }
 
 class _DesktopSurfaceTexture extends StatefulWidget {
-  const _DesktopSurfaceTexture({
-    required this.window,
-    required this.smooth,
-  });
+  const _DesktopSurfaceTexture({required this.window, required this.smooth});
 
   final DenialWindow window;
   final bool smooth;
@@ -2500,7 +2508,9 @@ class _DesktopDashboard extends ConsumerWidget {
     final notifications = ref.watch(desktopNotificationsProvider);
 
     void openNotifications() {
-      ref.read(shellSurfaceControllerProvider.notifier).show(
+      ref
+          .read(shellSurfaceControllerProvider.notifier)
+          .show(
             keyName: 'desktop-notification-center',
             debugLabel: 'Notification center',
             builder: (context, handle) =>
@@ -2543,7 +2553,7 @@ class _DesktopDashboard extends ConsumerWidget {
                       semanticLabel: notifications.unreadCount == 0
                           ? 'Open notification center'
                           : 'Open notification center, '
-                              '${notifications.unreadCount} unread',
+                                '${notifications.unreadCount} unread',
                       icon: notifications.unreadCount == 0
                           ? Icons.notifications_none_rounded
                           : Icons.notifications_active_rounded,
@@ -2624,8 +2634,10 @@ class _DesktopDashboard extends ConsumerWidget {
                             ),
                             const SizedBox(width: 10),
                             const Expanded(
-                              child:
-                                  Text('Bluetooth', style: ShellText.cardTitle),
+                              child: Text(
+                                'Bluetooth',
+                                style: ShellText.cardTitle,
+                              ),
                             ),
                             _DashboardIconButton(
                               semanticLabel: bluetooth.powered
@@ -2737,9 +2749,7 @@ class _DesktopNotificationCenterDialog extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  const Expanded(
-                    child: NotificationCenter(showTitle: false),
-                  ),
+                  const Expanded(child: NotificationCenter(showTitle: false)),
                 ],
               ),
             ),
@@ -2763,10 +2773,7 @@ class _DashboardCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: ShellColors.hairlineSoft),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: child,
-      ),
+      child: Padding(padding: const EdgeInsets.all(16), child: child),
     );
   }
 }
@@ -2788,10 +2795,7 @@ class _DesktopWindowCloseEffectCard extends ConsumerWidget {
           ),
           const SizedBox(width: 10),
           const Expanded(
-            child: Text(
-              'Chiusura finestre',
-              style: ShellText.cardTitle,
-            ),
+            child: Text('Chiusura finestre', style: ShellText.cardTitle),
           ),
           DecoratedBox(
             decoration: BoxDecoration(
@@ -2810,9 +2814,8 @@ class _DesktopWindowCloseEffectCard extends ConsumerWidget {
                     selected: selected == DesktopWindowCloseEffect.explosion,
                     busy: false,
                     enabled: true,
-                    onTap: () => controller.select(
-                      DesktopWindowCloseEffect.explosion,
-                    ),
+                    onTap: () =>
+                        controller.select(DesktopWindowCloseEffect.explosion),
                   ),
                   _PowerModeOption(
                     semanticLabel: 'Animazione di chiusura Risucchio',
@@ -2820,9 +2823,8 @@ class _DesktopWindowCloseEffectCard extends ConsumerWidget {
                     selected: selected == DesktopWindowCloseEffect.implode,
                     busy: false,
                     enabled: true,
-                    onTap: () => controller.select(
-                      DesktopWindowCloseEffect.implode,
-                    ),
+                    onTap: () =>
+                        controller.select(DesktopWindowCloseEffect.implode),
                   ),
                   _PowerModeOption(
                     semanticLabel: 'Animazione di chiusura Sfuma',
@@ -2830,9 +2832,8 @@ class _DesktopWindowCloseEffectCard extends ConsumerWidget {
                     selected: selected == DesktopWindowCloseEffect.fade,
                     busy: false,
                     enabled: true,
-                    onTap: () => controller.select(
-                      DesktopWindowCloseEffect.fade,
-                    ),
+                    onTap: () =>
+                        controller.select(DesktopWindowCloseEffect.fade),
                   ),
                   _PowerModeOption(
                     semanticLabel: 'Disattiva animazione di chiusura',
@@ -2840,9 +2841,8 @@ class _DesktopWindowCloseEffectCard extends ConsumerWidget {
                     selected: selected == DesktopWindowCloseEffect.none,
                     busy: false,
                     enabled: true,
-                    onTap: () => controller.select(
-                      DesktopWindowCloseEffect.none,
-                    ),
+                    onTap: () =>
+                        controller.select(DesktopWindowCloseEffect.none),
                   ),
                 ],
               ),
@@ -2877,10 +2877,7 @@ class _DesktopPowerModesCard extends ConsumerWidget {
               ),
               const SizedBox(width: 10),
               const Expanded(
-                child: Text(
-                  'Modalità energetiche',
-                  style: ShellText.cardTitle,
-                ),
+                child: Text('Modalità energetiche', style: ShellText.cardTitle),
               ),
               _DashboardIconButton(
                 semanticLabel: 'Aggiorna modalità energetiche',
@@ -2901,7 +2898,8 @@ class _DesktopPowerModesCard extends ConsumerWidget {
                 semanticLabel: 'Profilo di sistema Risparmio energetico',
                 icon: Icons.energy_savings_leaf_rounded,
                 selected: modes.systemProfile == PowerProfile.powerSave,
-                busy: modes.systemChanging &&
+                busy:
+                    modes.systemChanging &&
                     modes.systemProfile == PowerProfile.powerSave,
                 enabled: systemEnabled,
                 onTap: () => unawaited(
@@ -2912,7 +2910,8 @@ class _DesktopPowerModesCard extends ConsumerWidget {
                 semanticLabel: 'Profilo di sistema Bilanciato',
                 icon: Icons.balance_rounded,
                 selected: modes.systemProfile == PowerProfile.balanced,
-                busy: modes.systemChanging &&
+                busy:
+                    modes.systemChanging &&
                     modes.systemProfile == PowerProfile.balanced,
                 enabled: systemEnabled,
                 onTap: () => unawaited(
@@ -2923,7 +2922,8 @@ class _DesktopPowerModesCard extends ConsumerWidget {
                 semanticLabel: 'Profilo di sistema Prestazioni',
                 icon: Icons.rocket_launch_rounded,
                 selected: modes.systemProfile == PowerProfile.performance,
-                busy: modes.systemChanging &&
+                busy:
+                    modes.systemChanging &&
                     modes.systemProfile == PowerProfile.performance,
                 enabled: systemEnabled,
                 onTap: () => unawaited(
@@ -2942,7 +2942,8 @@ class _DesktopPowerModesCard extends ConsumerWidget {
                 semanticLabel: 'PBO Silenzioso',
                 icon: Icons.bedtime_rounded,
                 selected: modes.pboProfile == DesktopPboProfile.silent,
-                busy: modes.pboChanging &&
+                busy:
+                    modes.pboChanging &&
                     modes.pboProfile == DesktopPboProfile.silent,
                 enabled: pboEnabled,
                 secondary: true,
@@ -2954,7 +2955,8 @@ class _DesktopPowerModesCard extends ConsumerWidget {
                 semanticLabel: 'PBO Bilanciato',
                 icon: Icons.balance_rounded,
                 selected: modes.pboProfile == DesktopPboProfile.balanced,
-                busy: modes.pboChanging &&
+                busy:
+                    modes.pboChanging &&
                     modes.pboProfile == DesktopPboProfile.balanced,
                 enabled: pboEnabled,
                 secondary: true,
@@ -2966,7 +2968,8 @@ class _DesktopPowerModesCard extends ConsumerWidget {
                 semanticLabel: 'PBO Prestazioni',
                 icon: Icons.speed_rounded,
                 selected: modes.pboProfile == DesktopPboProfile.performance,
-                busy: modes.pboChanging &&
+                busy:
+                    modes.pboChanging &&
                     modes.pboProfile == DesktopPboProfile.performance,
                 enabled: pboEnabled,
                 secondary: true,
@@ -3012,8 +3015,8 @@ class _PowerModeRow extends StatelessWidget {
     final availability = checking && !available
         ? 'verifica…'
         : available
-            ? null
-            : 'non disponibile';
+        ? null
+        : 'non disponibile';
     return Row(
       children: [
         Expanded(
@@ -3092,8 +3095,8 @@ class _PowerModeOptionState extends State<_PowerModeOption> {
         mouseCursor: widget.busy
             ? ShellMouseCursors.working
             : actionable
-                ? ShellMouseCursors.link
-                : ShellMouseCursors.normal,
+            ? ShellMouseCursors.link
+            : ShellMouseCursors.normal,
         shortcuts: const <ShortcutActivator, Intent>{
           SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
           SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
@@ -3122,8 +3125,8 @@ class _PowerModeOptionState extends State<_PowerModeOption> {
               color: widget.selected
                   ? selectedBackground
                   : _hovered
-                      ? ShellColors.surfaceContainerHighest
-                      : const Color(0x00000000),
+                  ? ShellColors.surfaceContainerHighest
+                  : const Color(0x00000000),
               borderRadius: BorderRadius.circular(12),
               border: _focused
                   ? Border.all(color: ShellColors.accent, width: 1.5)
@@ -3143,8 +3146,8 @@ class _PowerModeOptionState extends State<_PowerModeOption> {
                     color: !widget.enabled
                         ? ShellColors.glyphInactive
                         : widget.selected
-                            ? selectedForeground
-                            : ShellColors.textSecondary,
+                        ? selectedForeground
+                        : ShellColors.textSecondary,
                   ),
           ),
         ),
@@ -3201,7 +3204,7 @@ class _BluetoothDeviceList extends StatelessWidget {
 
     return ListView.separated(
       itemCount: state.devices.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 7),
+      separatorBuilder: (_, _) => const SizedBox(height: 7),
       itemBuilder: (context, index) {
         final device = state.devices[index];
         return _BluetoothDeviceRow(
@@ -3265,14 +3268,15 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
     final status = device.connected
         ? 'Connesso'
         : device.paired
-            ? 'Associato'
-            : 'Disponibile';
+        ? 'Associato'
+        : 'Disponibile';
     return Semantics(
       button: true,
       label: '${device.connected ? 'Disconnetti' : 'Connetti'} ${device.name}',
       child: MouseRegion(
-        cursor:
-            widget.busy ? ShellMouseCursors.working : ShellMouseCursors.link,
+        cursor: widget.busy
+            ? ShellMouseCursors.working
+            : ShellMouseCursors.link,
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
@@ -3287,8 +3291,8 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
               color: device.connected
                   ? ShellColors.primaryContainer
                   : _hovered
-                      ? ShellColors.surfaceContainerHighest
-                      : ShellColors.surfaceContainer,
+                  ? ShellColors.surfaceContainerHighest
+                  : ShellColors.surfaceContainer,
               borderRadius: BorderRadius.circular(16),
             ),
             child: Row(
@@ -3385,8 +3389,8 @@ class _DashboardIconButtonState extends State<_DashboardIconButton> {
         cursor: widget.busy
             ? ShellMouseCursors.working
             : widget.enabled
-                ? ShellMouseCursors.link
-                : ShellMouseCursors.normal,
+            ? ShellMouseCursors.link
+            : ShellMouseCursors.normal,
         onEnter: widget.enabled ? (_) => setState(() => _hovered = true) : null,
         onExit: widget.enabled ? (_) => setState(() => _hovered = false) : null,
         child: GestureDetector(
@@ -3401,8 +3405,8 @@ class _DashboardIconButtonState extends State<_DashboardIconButton> {
               color: widget.active
                   ? ShellColors.primaryContainer
                   : _hovered
-                      ? ShellColors.surfaceContainerHighest
-                      : ShellColors.surfaceContainerHigh,
+                  ? ShellColors.surfaceContainerHighest
+                  : ShellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(12),
             ),
             child: widget.busy
@@ -3496,11 +3500,7 @@ class _DashboardValueButtonState extends State<_DashboardValueButton> {
                   ),
                 ),
                 const SizedBox(width: 7),
-                Icon(
-                  widget.icon,
-                  size: 16,
-                  color: ShellColors.accent,
-                ),
+                Icon(widget.icon, size: 16, color: ShellColors.accent),
               ],
             ),
           ),
@@ -3679,25 +3679,25 @@ class _DesktopApplicationLauncherState
                   child: allApps.isEmpty
                       ? const Center(child: Text('Caricamento applicazioni…'))
                       : apps.isEmpty
-                          ? const _DesktopAppSearchEmptyState()
-                          : GridView.builder(
-                              gridDelegate:
-                                  const SliverGridDelegateWithMaxCrossAxisExtent(
+                      ? const _DesktopAppSearchEmptyState()
+                      : GridView.builder(
+                          gridDelegate:
+                              const SliverGridDelegateWithMaxCrossAxisExtent(
                                 maxCrossAxisExtent: 112,
                                 mainAxisExtent: 112,
                                 crossAxisSpacing: 8,
                                 mainAxisSpacing: 8,
                               ),
-                              itemCount: apps.length,
-                              itemBuilder: (context, index) => _DesktopAppTile(
-                                key: ValueKey<String>(
-                                  'desktop-app-${apps[index].id}',
-                                ),
-                                app: apps[index],
-                                selected: searching && index == 0,
-                                onTap: () => _launch(apps[index]),
-                              ),
+                          itemCount: apps.length,
+                          itemBuilder: (context, index) => _DesktopAppTile(
+                            key: ValueKey<String>(
+                              'desktop-app-${apps[index].id}',
                             ),
+                            app: apps[index],
+                            selected: searching && index == 0,
+                            onTap: () => _launch(apps[index]),
+                          ),
+                        ),
                 ),
               ],
             ),
@@ -3732,8 +3732,9 @@ class _DesktopAppSearchField extends StatelessWidget {
           color: ShellColors.surfaceContainerHigh,
           borderRadius: BorderRadius.circular(ShellRadii.chip),
           border: Border.all(
-            color:
-                focusNode.hasFocus ? ShellColors.accent : ShellColors.hairline,
+            color: focusNode.hasFocus
+                ? ShellColors.accent
+                : ShellColors.hairline,
           ),
         ),
         child: SizedBox(
@@ -3879,8 +3880,8 @@ class _DesktopAppTileState extends State<_DesktopAppTile> {
               color: widget.selected
                   ? ShellColors.primaryContainer
                   : _hovered
-                      ? ShellColors.surfaceContainerHighest
-                      : const Color(0x00000000),
+                  ? ShellColors.surfaceContainerHighest
+                  : const Color(0x00000000),
               borderRadius: BorderRadius.circular(18),
               border: widget.selected
                   ? Border.all(color: ShellColors.accent)
@@ -3949,8 +3950,9 @@ List<_DesktopLauncherEntry> _installedApps(
   Iterable<LocalFlutterApplication> localApps,
 ) {
   final byId = <String, _DesktopLauncherEntry>{};
-  for (final item in state.asData?.value.slots.whereType<HomeGridItem>() ??
-      const <HomeGridItem>[]) {
+  for (final item
+      in state.asData?.value.slots.whereType<HomeGridItem>() ??
+          const <HomeGridItem>[]) {
     if (item.app case final app?) {
       byId['desktop:${app.id}'] = _DesktopLauncherEntry.desktop(app);
     }
@@ -3972,12 +3974,14 @@ List<_DesktopLauncherEntry> _filterInstalledApps(
     return apps;
   }
 
-  return apps.where((app) {
-    final searchable = <String>[
-      app.name,
-      app.id,
-      ...app.categories,
-    ].join(' ').toLowerCase();
-    return searchable.contains(normalizedQuery);
-  }).toList(growable: false);
+  return apps
+      .where((app) {
+        final searchable = <String>[
+          app.name,
+          app.id,
+          ...app.categories,
+        ].join(' ').toLowerCase();
+        return searchable.contains(normalizedQuery);
+      })
+      .toList(growable: false);
 }

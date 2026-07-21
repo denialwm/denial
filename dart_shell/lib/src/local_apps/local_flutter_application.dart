@@ -8,18 +8,14 @@ import '../models/denial_window.dart';
 import '../platform/denial_bridge.dart';
 import '../state/shell_controller.dart';
 
-typedef LocalFlutterApplicationBuilder = Widget Function(
-  BuildContext context,
-  LocalFlutterWindowHandle window,
-);
+typedef LocalFlutterApplicationBuilder =
+    Widget Function(BuildContext context, LocalFlutterWindowHandle window);
 
-typedef LocalFlutterApplicationTitleBuilder = String Function(
-  BuildContext context,
-);
+typedef LocalFlutterApplicationTitleBuilder =
+    String Function(BuildContext context);
 
-typedef LocalFlutterApplicationCategoriesBuilder = List<String> Function(
-  BuildContext context,
-);
+typedef LocalFlutterApplicationCategoriesBuilder =
+    List<String> Function(BuildContext context);
 
 /// Describes trusted application content compiled into the shell bundle.
 ///
@@ -84,7 +80,7 @@ class LocalFlutterWindowHandle {
 
 class LocalFlutterApplicationRegistry {
   LocalFlutterApplicationRegistry(Iterable<LocalFlutterApplication> apps)
-      : _applications = _validate(apps);
+    : _applications = _validate(apps);
 
   final Map<String, LocalFlutterApplication> _applications;
 
@@ -131,36 +127,33 @@ class LocalFlutterApplicationRegistry {
 /// Flutter applications. It intentionally defaults to an empty catalog.
 final localFlutterApplicationsProvider =
     Provider<List<LocalFlutterApplication>>((ref) {
-  return const <LocalFlutterApplication>[];
-});
+      return const <LocalFlutterApplication>[];
+    });
 
 final localFlutterApplicationRegistryProvider =
     Provider<LocalFlutterApplicationRegistry>((ref) {
-  return LocalFlutterApplicationRegistry(
-    ref.watch(localFlutterApplicationsProvider),
-  );
-});
+      return LocalFlutterApplicationRegistry(
+        ref.watch(localFlutterApplicationsProvider),
+      );
+    });
 
 final localFlutterApplicationLauncherProvider =
     Provider<LocalFlutterApplicationLauncher>((ref) {
-  return LocalFlutterApplicationLauncher(
-    registry: ref.watch(localFlutterApplicationRegistryProvider),
-    bridge: ref.read(denialBridgeProvider),
-    windows: () => ref.read(shellControllerProvider).windows,
-    focus: ref.read(shellControllerProvider.notifier).focusWindow,
-  );
-});
+      return LocalFlutterApplicationLauncher(
+        registry: ref.watch(localFlutterApplicationRegistryProvider),
+        bridge: ref.read(denialBridgeProvider),
+        windows: () => ref.read(shellControllerProvider).windows,
+        focus: ref.read(shellControllerProvider.notifier).focusWindow,
+      );
+    });
 
 class LocalFlutterApplicationLauncher {
   const LocalFlutterApplicationLauncher({
-    required LocalFlutterApplicationRegistry registry,
-    required DenialBridge bridge,
-    required List<DenialWindow> Function() windows,
-    required ValueChanged<DenialWindow> focus,
-  })  : _registry = registry,
-        _bridge = bridge,
-        _windows = windows,
-        _focus = focus;
+    required this._registry,
+    required this._bridge,
+    required this._windows,
+    required this._focus,
+  });
 
   final LocalFlutterApplicationRegistry _registry;
   final DenialBridge _bridge;

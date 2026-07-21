@@ -10,10 +10,12 @@ import '../../widgets/shell_cursor.dart';
 import '../color_format.dart';
 import 'hsv_color_wheel.dart';
 
-const settingsFocusedBorderColorPickerKey =
-    ValueKey<String>('settings-focused-border-color-picker');
-const settingsFocusedBorderResetKey =
-    ValueKey<String>('settings-focused-border-reset');
+const settingsFocusedBorderColorPickerKey = ValueKey<String>(
+  'settings-focused-border-color-picker',
+);
+const settingsFocusedBorderResetKey = ValueKey<String>(
+  'settings-focused-border-reset',
+);
 
 class FocusedBorderColorPicker extends StatelessWidget {
   const FocusedBorderColorPicker({
@@ -105,6 +107,7 @@ class _ColorPickerPanel extends StatelessWidget {
       scopesRoute: true,
       namesRoute: true,
       explicitChildNodes: true,
+      role: .dialog,
       label: l10n.settingsColorPickerRouteLabel,
       child: DecoratedBox(
         decoration: BoxDecoration(
@@ -198,10 +201,7 @@ class _PickerHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                l10n.settingsColorPickerTitle,
-                style: ShellText.cardTitle,
-              ),
+              Text(l10n.settingsColorPickerTitle, style: ShellText.cardTitle),
               const SizedBox(height: 2),
               Text(
                 hex,
@@ -278,11 +278,11 @@ class _PickerButtonState extends State<_PickerButton> {
             decoration: BoxDecoration(
               color: widget.prominent
                   ? highlighted
-                      ? ShellColors.onPrimaryContainer
-                      : ShellColors.accent
+                        ? ShellColors.onPrimaryContainer
+                        : ShellColors.accent
                   : highlighted
-                      ? ShellColors.surfaceContainerHighest
-                      : ShellColors.surfaceContainerHigh,
+                  ? ShellColors.surfaceContainerHighest
+                  : ShellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(ShellRadii.chip),
               border: Border.all(
                 color: _focused ? ShellColors.accent : ShellColors.hairline,

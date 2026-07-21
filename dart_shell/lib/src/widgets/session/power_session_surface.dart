@@ -17,7 +17,9 @@ import '../shell_surface_host.dart';
 
 void showPowerSessionSurface(WidgetRef ref) {
   unawaited(ref.read(sessionPowerProvider.notifier).refresh());
-  ref.read(shellSurfaceControllerProvider.notifier).show(
+  ref
+      .read(shellSurfaceControllerProvider.notifier)
+      .show(
         keyName: 'power-and-session',
         debugLabel: 'Power and session controls',
         pointerPolicy: ShellPointerPolicy.fullScene,
@@ -28,10 +30,7 @@ void showPowerSessionSurface(WidgetRef ref) {
 }
 
 class PowerSessionSurface extends ConsumerWidget {
-  const PowerSessionSurface({
-    required this.onClose,
-    super.key,
-  });
+  const PowerSessionSurface({required this.onClose, super.key});
 
   final VoidCallback onClose;
 
@@ -52,6 +51,7 @@ class PowerSessionSurface extends ConsumerWidget {
             label: 'Power and session controls',
             container: true,
             explicitChildNodes: true,
+            role: confirmationAction == null ? .dialog : .alertDialog,
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: ShellColors.panelBackground,
@@ -125,9 +125,8 @@ class PowerSessionSurface extends ConsumerWidget {
                                   ),
                                   action: confirmationAction,
                                   onCancel: controller.cancelConfirmation,
-                                  onConfirm: () => unawaited(
-                                    controller.confirm(),
-                                  ),
+                                  onConfirm: () =>
+                                      unawaited(controller.confirm()),
                                 )
                               : _ActionList(
                                   key: const ValueKey<String>(
@@ -219,11 +218,7 @@ class _PowerHeader extends StatelessWidget {
 }
 
 class _ActionList extends StatelessWidget {
-  const _ActionList({
-    required this.state,
-    required this.onAction,
-    super.key,
-  });
+  const _ActionList({required this.state, required this.onAction, super.key});
 
   final SessionPowerState state;
   final ValueChanged<SessionPowerAction> onAction;
@@ -243,7 +238,7 @@ class _ActionList extends StatelessWidget {
       primary: false,
       padding: EdgeInsets.zero,
       itemCount: _actions.length + (state.initialized ? 0 : 1),
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         if (!state.initialized && index == 0) {
           return const _PowerNotice(
@@ -294,7 +289,8 @@ class _SessionActionTileState extends State<_SessionActionTile> {
   Widget build(BuildContext context) {
     final action = widget.action;
     final reason = widget.availability.unavailableReason;
-    final subtitle = reason ??
+    final subtitle =
+        reason ??
         (widget.availability.requiresAuthentication
             ? 'Authentication required · ${_actionSubtitle(action)}'
             : _actionSubtitle(action));
@@ -340,8 +336,9 @@ class _SessionActionTileState extends State<_SessionActionTile> {
                     : ShellColors.tileOff,
                 borderRadius: BorderRadius.circular(ShellRadii.tileWide),
                 border: Border.all(
-                  color:
-                      _focused ? ShellColors.accent : ShellColors.hairlineSoft,
+                  color: _focused
+                      ? ShellColors.accent
+                      : ShellColors.hairlineSoft,
                   width: _focused ? 1.5 : 1,
                 ),
               ),
@@ -628,8 +625,9 @@ class _PowerIconButtonState extends State<_PowerIconButton> {
                 color: ShellColors.surfaceContainerHigh,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color:
-                      _focused ? ShellColors.accent : ShellColors.hairlineSoft,
+                  color: _focused
+                      ? ShellColors.accent
+                      : ShellColors.hairlineSoft,
                 ),
               ),
               child: SizedBox.square(
@@ -746,45 +744,45 @@ String? _delayNotice(LogindSnapshot snapshot) {
 }
 
 String _actionLabel(SessionPowerAction action) => switch (action) {
-      SessionPowerAction.lock => 'Lock',
-      SessionPowerAction.logout => 'Log out',
-      SessionPowerAction.suspend => 'Suspend',
-      SessionPowerAction.hibernate => 'Hibernate',
-      SessionPowerAction.reboot => 'Restart',
-      SessionPowerAction.powerOff => 'Power off',
-    };
+  SessionPowerAction.lock => 'Lock',
+  SessionPowerAction.logout => 'Log out',
+  SessionPowerAction.suspend => 'Suspend',
+  SessionPowerAction.hibernate => 'Hibernate',
+  SessionPowerAction.reboot => 'Restart',
+  SessionPowerAction.powerOff => 'Power off',
+};
 
 String _actionSubtitle(SessionPowerAction action) => switch (action) {
-      SessionPowerAction.lock => 'Secure the session immediately',
-      SessionPowerAction.logout => 'Close the Denial session',
-      SessionPowerAction.suspend => 'Keep the session in memory',
-      SessionPowerAction.hibernate => 'Save the session to disk',
-      SessionPowerAction.reboot => 'Restart the computer',
-      SessionPowerAction.powerOff => 'Shut down the computer',
-    };
+  SessionPowerAction.lock => 'Secure the session immediately',
+  SessionPowerAction.logout => 'Close the Denial session',
+  SessionPowerAction.suspend => 'Keep the session in memory',
+  SessionPowerAction.hibernate => 'Save the session to disk',
+  SessionPowerAction.reboot => 'Restart the computer',
+  SessionPowerAction.powerOff => 'Shut down the computer',
+};
 
 IconData _actionIcon(SessionPowerAction action) => switch (action) {
-      SessionPowerAction.lock => Icons.lock_rounded,
-      SessionPowerAction.logout => Icons.logout_rounded,
-      SessionPowerAction.suspend => Icons.bedtime_rounded,
-      SessionPowerAction.hibernate => Icons.ac_unit_rounded,
-      SessionPowerAction.reboot => Icons.restart_alt_rounded,
-      SessionPowerAction.powerOff => Icons.power_settings_new_rounded,
-    };
+  SessionPowerAction.lock => Icons.lock_rounded,
+  SessionPowerAction.logout => Icons.logout_rounded,
+  SessionPowerAction.suspend => Icons.bedtime_rounded,
+  SessionPowerAction.hibernate => Icons.ac_unit_rounded,
+  SessionPowerAction.reboot => Icons.restart_alt_rounded,
+  SessionPowerAction.powerOff => Icons.power_settings_new_rounded,
+};
 
 String _confirmationTitle(SessionPowerAction action) => switch (action) {
-      SessionPowerAction.logout => 'Log out of Denial?',
-      SessionPowerAction.reboot => 'Restart the computer?',
-      SessionPowerAction.powerOff => 'Power off the computer?',
-      _ => _actionLabel(action),
-    };
+  SessionPowerAction.logout => 'Log out of Denial?',
+  SessionPowerAction.reboot => 'Restart the computer?',
+  SessionPowerAction.powerOff => 'Power off the computer?',
+  _ => _actionLabel(action),
+};
 
 String _confirmationBody(SessionPowerAction action) => switch (action) {
-      SessionPowerAction.logout =>
-        'Your graphical session will end. Save work in open applications before continuing.',
-      SessionPowerAction.reboot =>
-        'All applications will be closed and the operating system will restart.',
-      SessionPowerAction.powerOff =>
-        'All applications will be closed and the computer will shut down.',
-      _ => '',
-    };
+  SessionPowerAction.logout =>
+    'Your graphical session will end. Save work in open applications before continuing.',
+  SessionPowerAction.reboot =>
+    'All applications will be closed and the operating system will restart.',
+  SessionPowerAction.powerOff =>
+    'All applications will be closed and the computer will shut down.',
+  _ => '',
+};

@@ -16,9 +16,10 @@ engine checkout.
 - Dart source revision: `d684a576a6aa954ae107a03b2b4e1d61c3bebe93`
   (Dart SDK `3.12.2`)
 - Skia revision: `e9ed4fc9f1544c58d8a9347c1fc9471d8dd7c465`
-- Engine patches applied: none. This is the clean upstream performance
-  baseline; `patches/flutter-engine/` is historical and must be selectively
-  ported and remeasured before reuse.
+- Engine patches applied:
+  `patches/flutter-engine/3.44.7/0001-preserve-partial-damage-for-reused-layer-trees.patch`.
+  This narrow port restores partial damage for autonomous external-texture
+  frames; all archived rendering patches remain unapplied.
 - GN configuration: `args.gn`, copied verbatim from the build output
 - Integrity: `libflutter_engine.so.sha256`; session startup rejects any bundle
   engine that does not match it
@@ -27,10 +28,14 @@ engine checkout.
 
 The validated build tree is
 `/mnt/exty/denial-flutter-engine-3.44.7/engine/src`, checked out from the
-official Flutter monorepo at `FLUTTER_REVISION` with no source changes. Put a
-current `depot_tools` on `PATH`, sync the checkout with `gclient`, then run:
+official Flutter monorepo at `FLUTTER_REVISION` with the single patch above.
+Put a current `depot_tools` on `PATH`, sync the checkout with `gclient`, then
+apply and build from the gclient root:
 
 ```sh
+cd /mnt/exty/denial-flutter-engine-3.44.7
+git apply --directory=engine/src \
+  <repo>/patches/flutter-engine/3.44.7/0001-preserve-partial-damage-for-reused-layer-trees.patch
 cd /mnt/exty/denial-flutter-engine-3.44.7/engine/src
 ./flutter/tools/gn --runtime-mode=release --target-dir=denial_host_release
 /usr/bin/ninja -C out/denial_host_release -j 8 libflutter_engine.so

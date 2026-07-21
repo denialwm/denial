@@ -124,11 +124,13 @@ class _BluetoothDetailSurfaceState
     final state = ref.watch(bluetoothProvider);
     _activePairingRequest = state.pairingRequest;
     final controller = ref.read(bluetoothProvider.notifier);
-    final powerEnabled = !state.initializing &&
+    final powerEnabled =
+        !state.initializing &&
         state.serviceAvailable &&
         state.available &&
         !state.powerChanging;
-    final scanEnabled = state.available &&
+    final scanEnabled =
+        state.available &&
         state.powered &&
         !state.scanning &&
         !state.powerChanging;
@@ -347,7 +349,7 @@ class _BluetoothDeviceList extends StatelessWidget {
     return ListView.separated(
       key: const PageStorageKey<String>('bluetooth-device-list'),
       itemCount: state.devices.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 7),
+      separatorBuilder: (_, _) => const SizedBox(height: 7),
       itemBuilder: (context, index) {
         final device = state.devices[index];
         return _BluetoothDeviceRow(
@@ -395,16 +397,16 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
     final status = device.blocked
         ? 'Blocked'
         : device.connected
-            ? device.servicesResolved
-                ? 'Connected'
-                : 'Connected · configuring services'
-            : device.paired
-                ? device.trusted
-                    ? 'Paired · trusted'
-                    : 'Paired'
-                : device.signalStrength == null
-                    ? 'Available'
-                    : 'Available · ${device.signalStrength} dBm';
+        ? device.servicesResolved
+              ? 'Connected'
+              : 'Connected · configuring services'
+        : device.paired
+        ? device.trusted
+              ? 'Paired · trusted'
+              : 'Paired'
+        : device.signalStrength == null
+        ? 'Available'
+        : 'Available · ${device.signalStrength} dBm';
     return Semantics(
       button: true,
       explicitChildNodes: true,
@@ -414,8 +416,9 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
           : 'Connect ${device.name}, $status',
       child: FocusableActionDetector(
         enabled: enabled,
-        mouseCursor:
-            enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        mouseCursor: enabled
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
         onShowHoverHighlight: (value) => setState(() => _hovered = value),
         onShowFocusHighlight: (value) => setState(() => _focused = value),
         shortcuts: const <ShortcutActivator, Intent>{
@@ -445,8 +448,8 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
               color: device.connected
                   ? ShellColors.primaryContainer
                   : _hovered || _focused
-                      ? ShellColors.surfaceContainerHighest
-                      : ShellColors.surfaceContainer,
+                  ? ShellColors.surfaceContainerHighest
+                  : ShellColors.surfaceContainer,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: _focused ? ShellColors.accent : ShellColors.hairlineSoft,
@@ -460,8 +463,8 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
                   color: device.connected
                       ? ShellColors.onPrimaryContainer
                       : device.blocked
-                          ? ShellColors.glyphInactive
-                          : ShellColors.textPrimary,
+                      ? ShellColors.glyphInactive
+                      : ShellColors.textPrimary,
                 ),
                 const SizedBox(width: 11),
                 Expanded(
@@ -639,17 +642,17 @@ class _BluetoothPairingPanel extends StatelessWidget {
                       autocorrect: false,
                       keyboardType:
                           request.kind == BluetoothPairingRequestKind.passkey
-                              ? TextInputType.number
-                              : TextInputType.visiblePassword,
+                          ? TextInputType.number
+                          : TextInputType.visiblePassword,
                       inputFormatters:
                           request.kind == BluetoothPairingRequestKind.passkey
-                              ? <TextInputFormatter>[
-                                  FilteringTextInputFormatter.digitsOnly,
-                                  LengthLimitingTextInputFormatter(6),
-                                ]
-                              : <TextInputFormatter>[
-                                  LengthLimitingTextInputFormatter(16),
-                                ],
+                          ? <TextInputFormatter>[
+                              FilteringTextInputFormatter.digitsOnly,
+                              LengthLimitingTextInputFormatter(6),
+                            ]
+                          : <TextInputFormatter>[
+                              LengthLimitingTextInputFormatter(16),
+                            ],
                       textInputAction: TextInputAction.done,
                       onSubmitted: (_) => onAccept(),
                       style: ShellText.base,
@@ -677,10 +680,7 @@ class _BluetoothPairingPanel extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  _BluetoothTextButton(
-                    label: 'Reject',
-                    onPressed: onReject,
-                  ),
+                  _BluetoothTextButton(label: 'Reject', onPressed: onReject),
                   const SizedBox(width: 8),
                   _BluetoothTextButton(
                     label: request.kind.needsTextInput ? 'Submit' : 'Allow',
@@ -720,8 +720,11 @@ class _BluetoothEmptyState extends StatelessWidget {
             children: [
               Icon(icon, size: 36, color: ShellColors.textTertiary),
               const SizedBox(height: 10),
-              Text(title,
-                  textAlign: TextAlign.center, style: ShellText.cardTitle),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: ShellText.cardTitle,
+              ),
               const SizedBox(height: 5),
               Text(
                 body,
@@ -741,10 +744,7 @@ class _BluetoothEmptyState extends StatelessWidget {
 }
 
 class _BluetoothErrorNotice extends StatelessWidget {
-  const _BluetoothErrorNotice({
-    required this.message,
-    required this.onDismiss,
-  });
+  const _BluetoothErrorNotice({required this.message, required this.onDismiss});
 
   final String message;
   final VoidCallback onDismiss;
@@ -873,8 +873,8 @@ class _BluetoothIconButtonState extends State<_BluetoothIconButton> {
                     size: 18,
                     color: widget.enabled
                         ? widget.active
-                            ? ShellColors.onPrimaryContainer
-                            : ShellColors.textSecondary
+                              ? ShellColors.onPrimaryContainer
+                              : ShellColors.textSecondary
                         : ShellColors.glyphInactive,
                   ),
           ),
@@ -1031,21 +1031,20 @@ class _BluetoothTextButtonState extends State<_BluetoothTextButton> {
 }
 
 String _pairingTitle(BluetoothPairingRequest request) => switch (request.kind) {
-      BluetoothPairingRequestKind.pinCode =>
-        'Enter the PIN for ${request.deviceName}',
-      BluetoothPairingRequestKind.passkey =>
-        'Enter the passkey for ${request.deviceName}',
-      BluetoothPairingRequestKind.confirmation =>
-        'Confirm ${request.deviceName}',
-      BluetoothPairingRequestKind.authorization =>
-        'Allow ${request.deviceName} to pair?',
-      BluetoothPairingRequestKind.serviceAuthorization =>
-        'Allow a Bluetooth service?',
-      BluetoothPairingRequestKind.displayPinCode =>
-        'Enter this PIN on ${request.deviceName}',
-      BluetoothPairingRequestKind.displayPasskey =>
-        'Enter this passkey on ${request.deviceName}',
-    };
+  BluetoothPairingRequestKind.pinCode =>
+    'Enter the PIN for ${request.deviceName}',
+  BluetoothPairingRequestKind.passkey =>
+    'Enter the passkey for ${request.deviceName}',
+  BluetoothPairingRequestKind.confirmation => 'Confirm ${request.deviceName}',
+  BluetoothPairingRequestKind.authorization =>
+    'Allow ${request.deviceName} to pair?',
+  BluetoothPairingRequestKind.serviceAuthorization =>
+    'Allow a Bluetooth service?',
+  BluetoothPairingRequestKind.displayPinCode =>
+    'Enter this PIN on ${request.deviceName}',
+  BluetoothPairingRequestKind.displayPasskey =>
+    'Enter this passkey on ${request.deviceName}',
+};
 
 String _pairingMessage(BluetoothPairingRequest request) {
   final code = request.pinCode ?? request.passkey?.toString().padLeft(6, '0');

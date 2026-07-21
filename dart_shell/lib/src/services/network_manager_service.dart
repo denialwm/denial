@@ -34,29 +34,28 @@ enum WifiSecurity {
   unknown;
 
   bool get requiresPassword => switch (this) {
-        WifiSecurity.wep ||
-        WifiSecurity.wpaPersonal ||
-        WifiSecurity.wpa3Personal =>
-          true,
-        _ => false,
-      };
+    WifiSecurity.wep ||
+    WifiSecurity.wpaPersonal ||
+    WifiSecurity.wpa3Personal => true,
+    _ => false,
+  };
 
   bool get canCreateProfile => this != enterprise && this != unknown;
 
   String get identityGroup => switch (this) {
-        WifiSecurity.wpaPersonal || WifiSecurity.wpa3Personal => 'personal',
-        _ => name,
-      };
+    WifiSecurity.wpaPersonal || WifiSecurity.wpa3Personal => 'personal',
+    _ => name,
+  };
 
   String get label => switch (this) {
-        WifiSecurity.open => 'Open',
-        WifiSecurity.wep => 'WEP',
-        WifiSecurity.wpaPersonal => 'WPA/WPA2 Personal',
-        WifiSecurity.wpa3Personal => 'WPA3 Personal',
-        WifiSecurity.owe => 'Enhanced Open',
-        WifiSecurity.enterprise => 'Enterprise',
-        WifiSecurity.unknown => 'Unsupported security',
-      };
+    WifiSecurity.open => 'Open',
+    WifiSecurity.wep => 'WEP',
+    WifiSecurity.wpaPersonal => 'WPA/WPA2 Personal',
+    WifiSecurity.wpa3Personal => 'WPA3 Personal',
+    WifiSecurity.owe => 'Enhanced Open',
+    WifiSecurity.enterprise => 'Enterprise',
+    WifiSecurity.unknown => 'Unsupported security',
+  };
 }
 
 @immutable
@@ -72,8 +71,8 @@ class WifiNetwork {
     required this.savedConnectionPath,
     required this.connected,
     required this.available,
-  })  : ssidBytes = List<int>.unmodifiable(ssidBytes),
-        identity = identityFor(ssidBytes, security);
+  }) : ssidBytes = List<int>.unmodifiable(ssidBytes),
+       identity = identityFor(ssidBytes, security);
 
   final String identity;
   final String ssid;
@@ -111,18 +110,18 @@ class WifiNetwork {
 
   @override
   int get hashCode => Object.hash(
-        identity,
-        ssid,
-        Object.hashAll(ssidBytes),
-        security,
-        strength,
-        frequency,
-        devicePath,
-        accessPointPath,
-        savedConnectionPath,
-        connected,
-        available,
-      );
+    identity,
+    ssid,
+    Object.hashAll(ssidBytes),
+    security,
+    strength,
+    frequency,
+    devicePath,
+    accessPointPath,
+    savedConnectionPath,
+    connected,
+    available,
+  );
 
   WifiNetwork copyWith({
     String? devicePath,
@@ -158,8 +157,8 @@ class SavedWifiConnectionInfo {
     required this.name,
     required List<int> ssidBytes,
     required this.security,
-  })  : ssidBytes = List<int>.unmodifiable(ssidBytes),
-        identity = WifiNetwork.identityFor(ssidBytes, security);
+  }) : ssidBytes = List<int>.unmodifiable(ssidBytes),
+       identity = WifiNetwork.identityFor(ssidBytes, security);
 
   final String objectPath;
   final String name;
@@ -179,12 +178,12 @@ class SavedWifiConnectionInfo {
 
   @override
   int get hashCode => Object.hash(
-        objectPath,
-        name,
-        Object.hashAll(ssidBytes),
-        security,
-        identity,
-      );
+    objectPath,
+    name,
+    Object.hashAll(ssidBytes),
+    security,
+    identity,
+  );
 }
 
 @immutable
@@ -204,19 +203,19 @@ class NetworkManagerSnapshot {
     required this.modifyPermission,
   }) : networks = List<WifiNetwork>.unmodifiable(networks);
 
-  NetworkManagerSnapshot.unavailable()
-      : serviceAvailable = false,
-        wifiDeviceAvailable = false,
-        wirelessHardwareEnabled = false,
-        wirelessEnabled = false,
-        status = NetworkConnectivityStatus.unavailable,
-        networks = const <WifiNetwork>[],
-        activeConnectionPath = null,
-        devicePath = null,
-        lastScan = -1,
-        radioPermission = NetworkPermission.unknown,
-        controlPermission = NetworkPermission.unknown,
-        modifyPermission = NetworkPermission.unknown;
+  const NetworkManagerSnapshot.unavailable()
+    : serviceAvailable = false,
+      wifiDeviceAvailable = false,
+      wirelessHardwareEnabled = false,
+      wirelessEnabled = false,
+      status = NetworkConnectivityStatus.unavailable,
+      networks = const <WifiNetwork>[],
+      activeConnectionPath = null,
+      devicePath = null,
+      lastScan = -1,
+      radioPermission = NetworkPermission.unknown,
+      controlPermission = NetworkPermission.unknown,
+      modifyPermission = NetworkPermission.unknown;
 
   final bool serviceAvailable;
   final bool wifiDeviceAvailable;
@@ -259,19 +258,19 @@ class NetworkManagerSnapshot {
 
   @override
   int get hashCode => Object.hash(
-        serviceAvailable,
-        wifiDeviceAvailable,
-        wirelessHardwareEnabled,
-        wirelessEnabled,
-        status,
-        Object.hashAll(networks),
-        activeConnectionPath,
-        devicePath,
-        lastScan,
-        radioPermission,
-        controlPermission,
-        modifyPermission,
-      );
+    serviceAvailable,
+    wifiDeviceAvailable,
+    wirelessHardwareEnabled,
+    wirelessEnabled,
+    status,
+    Object.hashAll(networks),
+    activeConnectionPath,
+    devicePath,
+    lastScan,
+    radioPermission,
+    controlPermission,
+    modifyPermission,
+  );
 }
 
 abstract interface class NetworkManagerBackend {
@@ -302,16 +301,16 @@ class NetworkManagerService implements NetworkManagerBackend {
   }
 
   NetworkManagerService._(this._client)
-      : _root = DBusRemoteObject(
-          _client,
-          name: _serviceName,
-          path: DBusObjectPath(_rootPath),
-        ),
-        _settings = DBusRemoteObject(
-          _client,
-          name: _serviceName,
-          path: DBusObjectPath(_settingsPath),
-        );
+    : _root = DBusRemoteObject(
+        _client,
+        name: _serviceName,
+        path: DBusObjectPath(_rootPath),
+      ),
+      _settings = DBusRemoteObject(
+        _client,
+        name: _serviceName,
+        path: DBusObjectPath(_settingsPath),
+      );
 
   static const String _serviceName = 'org.freedesktop.NetworkManager';
   static const String _rootPath = '/org/freedesktop/NetworkManager';
@@ -367,20 +366,17 @@ class NetworkManagerService implements NetworkManagerBackend {
       _client,
       sender: _serviceName,
       pathNamespace: DBusObjectPath(_rootPath),
-    ).listen(
-      (_) => _scheduleRefresh(),
-      onError: (_) => _scheduleRefresh(),
-    );
+    ).listen((_) => _scheduleRefresh(), onError: (_) => _scheduleRefresh());
     _ownerSubscription = _client.nameOwnerChanged
         .where((event) => event.name == _serviceName)
         .listen((event) {
-      if (event.newOwner == null) {
-        _refreshTimer?.cancel();
-        _emit(NetworkManagerSnapshot.unavailable());
-      } else {
-        _scheduleRefresh(immediate: true);
-      }
-    });
+          if (event.newOwner == null) {
+            _refreshTimer?.cancel();
+            _emit(NetworkManagerSnapshot.unavailable());
+          } else {
+            _scheduleRefresh(immediate: true);
+          }
+        });
     await refresh();
   }
 
@@ -415,11 +411,7 @@ class NetworkManagerService implements NetworkManagerBackend {
   @override
   Future<void> setWirelessEnabled(bool enabled) async {
     await _root
-        .setProperty(
-          _managerInterface,
-          'WirelessEnabled',
-          DBusBoolean(enabled),
-        )
+        .setProperty(_managerInterface, 'WirelessEnabled', DBusBoolean(enabled))
         .timeout(_methodTimeout);
     await refresh();
   }
@@ -431,12 +423,9 @@ class NetworkManagerService implements NetworkManagerBackend {
       throw StateError('No Wi-Fi adapter is available');
     }
     await _object(devicePath)
-        .callMethod(
-          _wirelessInterface,
-          'RequestScan',
-          <DBusValue>[DBusDict.stringVariant(const <String, DBusValue>{})],
-          replySignature: DBusSignature(''),
-        )
+        .callMethod(_wirelessInterface, 'RequestScan', <DBusValue>[
+          DBusDict.stringVariant(const <String, DBusValue>{}),
+        ], replySignature: DBusSignature(''))
         .timeout(_methodTimeout);
   }
 
@@ -455,21 +444,14 @@ class NetworkManagerService implements NetworkManagerBackend {
           .callMethod(
             _managerInterface,
             'ActivateConnection',
-            <DBusValue>[
-              DBusObjectPath(saved),
-              device,
-              accessPoint,
-            ],
+            <DBusValue>[DBusObjectPath(saved), device, accessPoint],
             replySignature: DBusSignature('o'),
           )
           .timeout(_methodTimeout);
       return;
     }
 
-    final settings = buildWifiConnectionSettings(
-      network,
-      password: password,
-    );
+    final settings = buildWifiConnectionSettings(network, password: password);
     await _root
         .callMethod(
           _managerInterface,
@@ -525,8 +507,9 @@ class NetworkManagerService implements NetworkManagerBackend {
       return NetworkManagerSnapshot.unavailable();
     }
 
-    final rootProperties =
-        await _root.getAllProperties(_managerInterface).timeout(_readTimeout);
+    final rootProperties = await _root
+        .getAllProperties(_managerInterface)
+        .timeout(_readTimeout);
     final permissions = await _readPermissions();
     final deviceReply = await _root
         .callMethod(
@@ -540,30 +523,32 @@ class NetworkManagerService implements NetworkManagerBackend {
         .asObjectPathArray()
         .take(_maxDevices)
         .toList(growable: false);
-    final deviceSnapshots = await _mapInBatches(
-      devicePaths,
-      _readBatchSize,
-      (path) async {
-        final deviceProperties = await _tryGetAll(path.value, _deviceInterface);
-        if (_uint32(deviceProperties, 'DeviceType') != 2) {
-          return null;
-        }
-        final wirelessProperties =
-            await _tryGetAll(path.value, _wirelessInterface);
-        return _WifiDeviceSnapshot(
-          path: path.value,
-          state: _uint32(deviceProperties, 'State'),
-          activeConnectionPath:
-              _objectPath(deviceProperties, 'ActiveConnection'),
-          activeAccessPointPath:
-              _objectPath(wirelessProperties, 'ActiveAccessPoint'),
-          accessPoints: _objectPaths(wirelessProperties, 'AccessPoints'),
-          lastScan: _int64(wirelessProperties, 'LastScan', fallback: -1),
-        );
-      },
-    );
-    final wifiDevices =
-        deviceSnapshots.whereType<_WifiDeviceSnapshot>().toList();
+    final deviceSnapshots = await _mapInBatches(devicePaths, _readBatchSize, (
+      path,
+    ) async {
+      final deviceProperties = await _tryGetAll(path.value, _deviceInterface);
+      if (_uint32(deviceProperties, 'DeviceType') != 2) {
+        return null;
+      }
+      final wirelessProperties = await _tryGetAll(
+        path.value,
+        _wirelessInterface,
+      );
+      return _WifiDeviceSnapshot(
+        path: path.value,
+        state: _uint32(deviceProperties, 'State'),
+        activeConnectionPath: _objectPath(deviceProperties, 'ActiveConnection'),
+        activeAccessPointPath: _objectPath(
+          wirelessProperties,
+          'ActiveAccessPoint',
+        ),
+        accessPoints: _objectPaths(wirelessProperties, 'AccessPoints'),
+        lastScan: _int64(wirelessProperties, 'LastScan', fallback: -1),
+      );
+    });
+    final wifiDevices = deviceSnapshots
+        .whereType<_WifiDeviceSnapshot>()
+        .toList();
 
     final wirelessEnabled = _boolean(rootProperties, 'WirelessEnabled');
     final hardwareEnabled = _boolean(rootProperties, 'WirelessHardwareEnabled');
@@ -602,40 +587,36 @@ class NetworkManagerService implements NetworkManagerBackend {
       }
     }
 
-    final candidates = (await _mapInBatches(
-      accessPointPaths,
-      _readBatchSize,
-      (path) async {
-        final properties = await _tryGetAll(path, _accessPointInterface);
-        final ssidBytes = _bytes(properties, 'Ssid');
-        if (ssidBytes.isEmpty || ssidBytes.length > 32) {
-          return null;
-        }
-        final device = wifiDevices.firstWhere(
-          (candidate) => candidate.accessPoints.contains(path),
-          orElse: () => primaryDevice,
-        );
-        final security = classifyWifiSecurity(
-          flags: _uint32(properties, 'Flags'),
-          wpaFlags: _uint32(properties, 'WpaFlags'),
-          rsnFlags: _uint32(properties, 'RsnFlags'),
-        );
-        return WifiNetwork(
-          ssid: utf8.decode(ssidBytes, allowMalformed: true),
-          ssidBytes: ssidBytes,
-          security: security,
-          strength: _byte(properties, 'Strength'),
-          frequency: _uint32(properties, 'Frequency'),
-          devicePath: device.path,
-          accessPointPath: path,
-          savedConnectionPath: null,
-          connected: device.activeAccessPointPath == path,
-          available: true,
-        );
-      },
-    ))
-        .whereType<WifiNetwork>()
-        .toList(growable: false);
+    final candidates = (await _mapInBatches(accessPointPaths, _readBatchSize, (
+      path,
+    ) async {
+      final properties = await _tryGetAll(path, _accessPointInterface);
+      final ssidBytes = _bytes(properties, 'Ssid');
+      if (ssidBytes.isEmpty || ssidBytes.length > 32) {
+        return null;
+      }
+      final device = wifiDevices.firstWhere(
+        (candidate) => candidate.accessPoints.contains(path),
+        orElse: () => primaryDevice,
+      );
+      final security = classifyWifiSecurity(
+        flags: _uint32(properties, 'Flags'),
+        wpaFlags: _uint32(properties, 'WpaFlags'),
+        rsnFlags: _uint32(properties, 'RsnFlags'),
+      );
+      return WifiNetwork(
+        ssid: utf8.decode(ssidBytes, allowMalformed: true),
+        ssidBytes: ssidBytes,
+        security: security,
+        strength: _byte(properties, 'Strength'),
+        frequency: _uint32(properties, 'Frequency'),
+        devicePath: device.path,
+        accessPointPath: path,
+        savedConnectionPath: null,
+        connected: device.activeAccessPointPath == path,
+        available: true,
+      );
+    })).whereType<WifiNetwork>().toList(growable: false);
 
     final savedConnections = await _readSavedConnections();
     final networks = normalizeWifiNetworks(
@@ -723,45 +704,44 @@ class NetworkManagerService implements NetworkManagerBackend {
             replySignature: DBusSignature('ao'),
           )
           .timeout(_readTimeout);
-      final paths = reply.returnValues.first
-          .asObjectPathArray()
-          .take(_maxSavedConnections);
-      final saved = await _mapInBatches(
-        paths,
-        _readBatchSize,
-        (path) async {
-          try {
-            final settingsReply = await _object(path.value)
-                .callMethod(
-                  _settingsConnectionInterface,
-                  'GetSettings',
-                  const <DBusValue>[],
-                  replySignature: DBusSignature('a{sa{sv}}'),
-                )
-                .timeout(_readTimeout);
-            final settings = _settingsMap(settingsReply.returnValues.first);
-            final connection = settings['connection'];
-            final wireless = settings['802-11-wireless'];
-            if (_string(connection, 'type') != '802-11-wireless' ||
-                wireless == null) {
-              return null;
-            }
-            final ssid = _bytes(wireless, 'ssid');
-            if (ssid.isEmpty || ssid.length > 32) {
-              return null;
-            }
-            return SavedWifiConnectionInfo(
-              objectPath: path.value,
-              name: _string(connection, 'id',
-                  fallback: utf8.decode(ssid, allowMalformed: true)),
-              ssidBytes: ssid,
-              security: _savedSecurity(settings),
-            );
-          } on Object {
+      final paths = reply.returnValues.first.asObjectPathArray().take(
+        _maxSavedConnections,
+      );
+      final saved = await _mapInBatches(paths, _readBatchSize, (path) async {
+        try {
+          final settingsReply = await _object(path.value)
+              .callMethod(
+                _settingsConnectionInterface,
+                'GetSettings',
+                const <DBusValue>[],
+                replySignature: DBusSignature('a{sa{sv}}'),
+              )
+              .timeout(_readTimeout);
+          final settings = _settingsMap(settingsReply.returnValues.first);
+          final connection = settings['connection'];
+          final wireless = settings['802-11-wireless'];
+          if (_string(connection, 'type') != '802-11-wireless' ||
+              wireless == null) {
             return null;
           }
-        },
-      );
+          final ssid = _bytes(wireless, 'ssid');
+          if (ssid.isEmpty || ssid.length > 32) {
+            return null;
+          }
+          return SavedWifiConnectionInfo(
+            objectPath: path.value,
+            name: _string(
+              connection,
+              'id',
+              fallback: utf8.decode(ssid, allowMalformed: true),
+            ),
+            ssidBytes: ssid,
+            security: _savedSecurity(settings),
+          );
+        } on Object {
+          return null;
+        }
+      });
       return List<SavedWifiConnectionInfo>.unmodifiable(
         saved.whereType<SavedWifiConnectionInfo>(),
       );
@@ -775,32 +755,26 @@ class NetworkManagerService implements NetworkManagerBackend {
     String interface,
   ) async {
     try {
-      return await _object(path)
-          .getAllProperties(interface)
-          .timeout(_readTimeout);
+      return await _object(
+        path,
+      ).getAllProperties(interface).timeout(_readTimeout);
     } on Object {
       return const <String, DBusValue>{};
     }
   }
 
-  DBusRemoteObject _object(String path) => DBusRemoteObject(
-        _client,
-        name: _serviceName,
-        path: DBusObjectPath(path),
-      );
+  DBusRemoteObject _object(String path) =>
+      DBusRemoteObject(_client, name: _serviceName, path: DBusObjectPath(path));
 
   void _scheduleRefresh({bool immediate = false}) {
     if (_disposed) {
       return;
     }
     _refreshTimer?.cancel();
-    _refreshTimer = Timer(
-      immediate ? Duration.zero : _signalCoalesce,
-      () {
-        _refreshTimer = null;
-        unawaited(refresh());
-      },
-    );
+    _refreshTimer = Timer(immediate ? Duration.zero : _signalCoalesce, () {
+      _refreshTimer = null;
+      unawaited(refresh());
+    });
   }
 
   void _emit(NetworkManagerSnapshot snapshot) {
@@ -837,9 +811,7 @@ Future<List<R>> _mapInBatches<T, R>(
   for (var offset = 0; offset < pending.length; offset += batchSize) {
     final end = (offset + batchSize).clamp(0, pending.length).toInt();
     result.addAll(
-      await Future.wait<R>(
-        pending.sublist(offset, end).map(transform),
-      ),
+      await Future.wait<R>(pending.sublist(offset, end).map(transform)),
     );
   }
   return result;
@@ -966,10 +938,7 @@ List<WifiNetwork> normalizeWifiNetworks(
 }
 
 @visibleForTesting
-DBusDict buildWifiConnectionSettings(
-  WifiNetwork network, {
-  String? password,
-}) {
+DBusDict buildWifiConnectionSettings(WifiNetwork network, {String? password}) {
   final value = password ?? '';
   final sections = <String, Map<String, DBusValue>>{
     'connection': <String, DBusValue>{
@@ -1119,19 +1088,19 @@ List<String> _objectPaths(Map<String, DBusValue>? values, String key) {
   final value = values?[key];
   return value is DBusArray && value.signature == DBusSignature('ao')
       ? value
-          .asObjectPathArray()
-          .take(NetworkManagerService._maxAccessPoints)
-          .map((path) => path.value)
-          .toList(growable: false)
+            .asObjectPathArray()
+            .take(NetworkManagerService._maxAccessPoints)
+            .map((path) => path.value)
+            .toList(growable: false)
       : const <String>[];
 }
 
 NetworkPermission _permission(String? value) => switch (value) {
-      'yes' => NetworkPermission.allowed,
-      'auth' => NetworkPermission.authenticationRequired,
-      'no' => NetworkPermission.denied,
-      _ => NetworkPermission.unknown,
-    };
+  'yes' => NetworkPermission.allowed,
+  'auth' => NetworkPermission.authenticationRequired,
+  'no' => NetworkPermission.denied,
+  _ => NetworkPermission.unknown,
+};
 
 NetworkPermission _strongestPermission(
   NetworkPermission left,

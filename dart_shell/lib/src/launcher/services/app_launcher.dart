@@ -1,13 +1,14 @@
+import 'package:path/path.dart' as p;
+
 import '../../platform/denial_bridge.dart';
 import '../models/desktop_app.dart';
 import 'desktop_exec_parser.dart';
 
 class AppLauncher {
   const AppLauncher({
-    required DenialBridge bridge,
-    DesktopExecParser execParser = const DesktopExecParser(),
-  })  : _bridge = bridge,
-        _execParser = execParser;
+    required this._bridge,
+    this._execParser = const DesktopExecParser(),
+  });
 
   final DenialBridge _bridge;
   final DesktopExecParser _execParser;
@@ -42,8 +43,7 @@ class AppLauncher {
     final argv = _execParser.parse(app.exec, app);
     final executable = _executableFrom(argv);
     if (executable != null) {
-      final slash = executable.lastIndexOf('/');
-      add(slash < 0 ? executable : executable.substring(slash + 1));
+      add(p.basename(executable));
     }
 
     return List<String>.unmodifiable(candidates);
@@ -55,10 +55,7 @@ class AppLauncher {
       return false;
     }
 
-    return _bridge.launchApplication(
-      argv,
-      launchRequestId: launchRequestId,
-    );
+    return _bridge.launchApplication(argv, launchRequestId: launchRequestId);
   }
 
   String? _executableFrom(List<String> argv) {
@@ -66,7 +63,7 @@ class AppLauncher {
       return null;
     }
     var index = 0;
-    final first = argv.first.split('/').last;
+    final first = p.basename(argv.first);
     if (first == 'env') {
       index = 1;
       while (index < argv.length) {

@@ -213,7 +213,6 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
       final slots = HomeGridLayout.refreshSlotsForApps(current.slots, apps);
       state = AsyncData(current.copyWith(slots: slots));
       unawaited(ref.read(homeLayoutRepositoryProvider).saveLayout(slots));
-    } on Object {
     } finally {
       if (_isBuildActive(generation)) {
         _desktopRefreshInFlight = false;
@@ -407,10 +406,7 @@ bool _savedLayoutNeedsRefresh(
     return true;
   }
 
-  final savedIds = {
-    for (final slot in savedLayout)
-      if (slot != null) slot.id,
-  };
+  final savedIds = <String>{for (final slot in savedLayout) ?slot?.id};
   if (savedIds.contains('widget:frame-time')) {
     return true;
   }
