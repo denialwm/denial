@@ -12,8 +12,8 @@ class Motion {
   const Motion._();
 
   // Scripted durations -------------------------------------------------------
-  static const Duration overviewOpen = Duration(milliseconds: 360);
-  static const Duration overviewClose = Duration(milliseconds: 220);
+  static const Duration overviewOpen = Duration(milliseconds: 380);
+  static const Duration overviewClose = Duration(milliseconds: 280);
   static const Duration launch = Duration(milliseconds: 430);
   static const Duration launchReveal = Duration(milliseconds: 160);
   static const Duration focusZoom = Duration(milliseconds: 320);
@@ -49,6 +49,17 @@ class Motion {
   static const Curve md3Emphasized = Cubic(0.2, 0.0, 0.0, 1.0);
   static const Curve md3EmphasizedDecelerate = Cubic(0.05, 0.7, 0.1, 1.0);
   static const Curve md3EmphasizedAccelerate = Cubic(0.3, 0.0, 0.8, 0.15);
+
+  /// Large-distance SUPER+A motion. Unlike the panel-oriented MD3 curves,
+  /// both curves have zero endpoint velocity so a live window neither jumps
+  /// away from its desktop position nor snaps into its final rectangle.
+  static const Curve overviewEnterCurve = Cubic(0.33, 0.0, 0.15, 1.0);
+  static const Curve overviewExitCurve = Cubic(0.55, 0.0, 0.45, 1.0);
+
+  /// Used only when SUPER+A reverses before the preceding transition ends.
+  /// A modest non-zero initial slope avoids a perceptible stop at the reversal
+  /// point, while the zero terminal slope still settles cleanly.
+  static const Curve overviewReversalCurve = Cubic(0.4, 0.2, 0.2, 1.0);
 
   // Springs (tuned for normalised [0,1] controllers) -------------------------
   // Damping is kept at / just below critical so motion is lively but does not
