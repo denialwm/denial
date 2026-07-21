@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../models/display_layout.dart';
 import '../models/denial_window.dart';
+import 'desktop_overview_layout.dart';
 import 'desktop_workspace.dart';
 
 class DesktopOverviewTarget {
@@ -70,6 +71,9 @@ class DesktopOverviewTarget {
     for (final placement in workspace.placements.values) {
       final window = windowsById[placement.objectId];
       if (window == null) {
+        continue;
+      }
+      if (!DesktopOverviewLayout.isUsefulPreview(placement.frame)) {
         continue;
       }
       final belongsToOutput = switch ((output, fallbackMonitorId)) {
