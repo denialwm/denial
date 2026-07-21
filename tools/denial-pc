@@ -39,6 +39,7 @@ Usage: tools/denial-pc COMMAND
 Commands:
   bootstrap         Fetch and patch the pinned Flutter toolchain and Rust crates
   bundle            Build only the x64 Dart/Flutter bundle
+  refresh           Build the bundle and reload its Flutter runtime in this session
   compositor        Build only the release Rust compositor
   build             Build the bundle and release compositor
   test              Run the Rust compositor test suite
@@ -213,6 +214,51 @@ build_bundle() {
     require_file "$BUNDLE/data/icudtl.dat"
     require_file "$BUNDLE/lib/libapp.so"
     install_patched_engine
+}
+
+find_denial_pid() {
+    local candidate found="" index
+    local -a arguments=()
+
+    while read -r candidate; do
+        [[ -n "$candidate" && -r "/proc/$candidate/cmdline" ]] || continue
+        arguments=()
+        mapfile -d '' -t arguments < "/proc/$candidate/cmdline" || continue
+        for ((index = 0; index + 1 < ${#arguments[@]}; index++)); do
+            if [[ "${arguments[index]}" == "--flutter-bundle" \
+                && "${arguments[index + 1]}" == "$BUNDLE" ]]; then
+                [[ -z "$found" ]] \
+                    || die "multiple deniald sessions use Flutter bundle $BUNDLE"
+                found="$candidate"
+                break
+            fi
+        done
+    done < <(ps -C deniald -o pid=)
+
+    [[ -n "$found" ]] || return 1
+    printf '%s\n' "$found"
+}
+
+require_bundle_refresh_support() {
+    local pid="$1"
+    "/proc/$pid/exe" --help 2>/dev/null \
+        | grep -Fq "Control: SIGUSR1 refreshes the embedded Flutter bundle in process." \
+        || die "running deniald process $pid predates in-process bundle refresh support"
+}
+
+refresh_bundle() {
+    local pid
+    pid="$(find_denial_pid)" \
+        || die "no running deniald session uses Flutter bundle $BUNDLE"
+    require_bundle_refresh_support "$pid"
+    build_bundle
+
+    pid="$(find_denial_pid)" \
+        || die "the deniald session exited before its Flutter bundle could be refreshed"
+    require_bundle_refresh_support "$pid"
+    kill -USR1 "$pid" \
+        || die "could not request a Flutter bundle refresh from deniald process $pid"
+    printf '\nRequested an in-process Flutter bundle refresh from deniald process %s.\n' "$pid"
 }
 
 build_compositor() {
@@ -407,6 +453,7 @@ remove_session() {
 case "${1:-}" in
     bootstrap) bootstrap_dependencies ;;
     bundle) build_bundle ;;
+    refresh) refresh_bundle ;;
     compositor) build_compositor ;;
     build) build_all ;;
     test) test_compositor ;;

@@ -3782,6 +3782,10 @@ impl FlutterRuntime {
         self.wire.drain_window_commands()
     }
 
+    pub fn take_work_area_update(&mut self) -> Option<super::options::WorkAreaOptions> {
+        self.wire.take_work_area_update()
+    }
+
     pub fn take_logout_requested(&mut self) -> bool {
         self.system_commands.take_logout_requested()
     }

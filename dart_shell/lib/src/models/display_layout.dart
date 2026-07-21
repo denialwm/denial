@@ -41,6 +41,7 @@ class DisplayLayout {
     required this.engineScale,
     required this.tickerMonitorId,
     required this.systemBarMonitorId,
+    this.systemBarMonitorIds = const <int>[],
     required this.systemBarSide,
     required this.outputs,
     this.systemBarThickness = 0.0,
@@ -57,6 +58,7 @@ class DisplayLayout {
       engineScale: safeScale,
       tickerMonitorId: 0,
       systemBarMonitorId: 0,
+      systemBarMonitorIds: const <int>[0],
       systemBarSide: SystemBarSide.top,
       systemBarThickness: 32.0,
       maximizePadding: 10.0,
@@ -79,6 +81,10 @@ class DisplayLayout {
   final Size pixelSize;
   final double engineScale;
   final int tickerMonitorId;
+
+  /// All outputs which host independent copies of the system bar. Empty is
+  /// the legacy wire representation and falls back to [systemBarMonitorId].
+  final List<int> systemBarMonitorIds;
   final int systemBarMonitorId;
   final SystemBarSide systemBarSide;
   final double systemBarThickness;
@@ -89,20 +95,35 @@ class DisplayLayout {
   final double maximizePadding;
   final List<DisplayOutput> outputs;
 
+  List<int> get effectiveSystemBarMonitorIds {
+    if (systemBarMonitorIds.isNotEmpty) {
+      return systemBarMonitorIds;
+    }
+    return systemBarMonitorId < 0 ? const <int>[] : <int>[systemBarMonitorId];
+  }
+
+  bool hostsSystemBar(DisplayOutput output) =>
+      effectiveSystemBarMonitorIds.contains(output.monitorId);
+
+  List<DisplayOutput> get systemBarOutputs => List<DisplayOutput>.unmodifiable(
+        outputs.where(hostsSystemBar),
+      );
+
   DisplayOutput? get systemBarOutput {
     for (final output in outputs) {
       if (output.monitorId == systemBarMonitorId) {
         return output;
       }
     }
-    return outputs.isEmpty ? null : outputs.first;
+    final selected = systemBarOutputs;
+    return selected.isEmpty ? null : selected.first;
   }
 
   /// Whether a system bar strip is configured and can land on an output.
   bool get systemBarActive =>
       systemBarSide != SystemBarSide.hidden &&
       systemBarThickness > 0.0 &&
-      systemBarOutput != null;
+      systemBarOutputs.isNotEmpty;
 
   /// The flush strip the system bar occupies inside [outputRect], or
   /// [Rect.zero] when the bar is hidden. The strip is clamped so a
@@ -155,6 +176,15 @@ class DisplayLayout {
     return systemBarRectWithin(output.logicalRect);
   }
 
+  /// The bar strip for one selected output, or [Rect.zero] when that output
+  /// does not host a clone.
+  Rect systemBarRectFor(DisplayOutput output) {
+    if (!systemBarActive || !hostsSystemBar(output)) {
+      return Rect.zero;
+    }
+    return systemBarRectWithin(output.logicalRect);
+  }
+
   /// [outputRect] minus the system bar strip [bar] on [barSide], and minus
   /// [maximizePadding] on every bar-free edge. The padding is clamped so a
   /// misconfigured value can never swallow the output.
@@ -184,7 +214,7 @@ class DisplayLayout {
   }
 
   Rect workAreaOf(DisplayOutput output) {
-    if (!systemBarActive || output.monitorId != systemBarOutput?.monitorId) {
+    if (!systemBarActive || !hostsSystemBar(output)) {
       return _workAreaInset(
         output.logicalRect,
         Rect.zero,
@@ -192,6 +222,32 @@ class DisplayLayout {
       );
     }
     return workAreaWithin(output.logicalRect);
+  }
+
+  DisplayLayout copyWithSystemBar({
+    required SystemBarSide side,
+    required List<int> monitorIds,
+  }) {
+    final selected = List<int>.unmodifiable(monitorIds);
+    final primary = selected.contains(tickerMonitorId)
+        ? tickerMonitorId
+        : selected.isEmpty
+            ? -1
+            : selected.first;
+    return DisplayLayout(
+      epoch: epoch,
+      globalOrigin: globalOrigin,
+      logicalSize: logicalSize,
+      pixelSize: pixelSize,
+      engineScale: engineScale,
+      tickerMonitorId: tickerMonitorId,
+      systemBarMonitorId: primary,
+      systemBarMonitorIds: selected,
+      systemBarSide: side,
+      systemBarThickness: systemBarThickness,
+      maximizePadding: maximizePadding,
+      outputs: outputs,
+    );
   }
 
   Map<int, Rect> workAreasByMonitor() {
@@ -205,10 +261,9 @@ class DisplayLayout {
   /// signal, followed by the compositor's render-ticker output. A stable
   /// top-left fallback keeps malformed or older layouts deterministic.
   DisplayOutput? get mainOutput {
-    for (final output in outputs) {
-      if (output.monitorId == systemBarMonitorId) {
-        return output;
-      }
+    final barOutput = systemBarOutput;
+    if (barOutput != null) {
+      return barOutput;
     }
     for (final output in outputs) {
       if (output.monitorId == tickerMonitorId) {

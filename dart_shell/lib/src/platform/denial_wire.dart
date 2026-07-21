@@ -23,6 +23,8 @@ const int denialWireMaxSurfaces = 32768;
 const int denialWireMaxStringLength = 4096;
 const int denialWireMaxNotificationActions = 16;
 const int denialWireMaxNotificationImageBytes = 512 * 1024;
+const int denialWireMaxLocalAppIdBytes = 256;
+const int denialWireMaxLocalWindowTitleBytes = 1024;
 
 const String denialWireToNativeChannel = 'denial/wire/to_native';
 const String denialWireToFlutterChannel = 'denial/wire/to_flutter';
@@ -153,6 +155,10 @@ class DenialWireCodec {
     int requestId = 0,
     int windowId = 0,
     Rect? geometry,
+    String? appId,
+    String? title,
+    generated.SystemBarSide? systemBarSide,
+    List<int>? systemBarMonitorIds,
   }) {
     return _encodeEnvelope(
       generated.PayloadTypeId.WindowRequest,
@@ -160,8 +166,67 @@ class DenialWireCodec {
         kind: kind,
         windowId: windowId,
         geometry: geometry == null ? null : _rectBuilder(geometry),
+        appId: appId,
+        title: title,
+        systemBarSide: systemBarSide,
+        systemBarMonitorIds: systemBarMonitorIds,
       ),
       requestId: requestId,
+    );
+  }
+
+  Uint8List? encodeSystemBarConfiguration({
+    required int requestId,
+    required SystemBarSide side,
+    required List<int> monitorIds,
+  }) {
+    if (requestId <= 0 ||
+        side == SystemBarSide.hidden ||
+        monitorIds.isEmpty ||
+        monitorIds.length > denialWireMaxWindows ||
+        monitorIds.any((monitorId) => monitorId < 0) ||
+        monitorIds.toSet().length != monitorIds.length) {
+      return null;
+    }
+    final wireSide = switch (side) {
+      SystemBarSide.left => generated.SystemBarSide.Left,
+      SystemBarSide.right => generated.SystemBarSide.Right,
+      SystemBarSide.top => generated.SystemBarSide.Top,
+      SystemBarSide.bottom => generated.SystemBarSide.Bottom,
+      SystemBarSide.hidden =>
+        throw StateError('hidden system bar is not configurable'),
+    };
+    return _encodeEnvelope(
+      generated.PayloadTypeId.WindowRequest,
+      _AlignedSystemBarRequestObjectBuilder(
+        side: wireSide,
+        monitorIds: List<int>.unmodifiable(monitorIds),
+      ),
+      requestId: requestId,
+    );
+  }
+
+  Uint8List? encodeCreateLocalWindow({
+    required String appId,
+    required String title,
+    required Rect geometry,
+  }) {
+    final appIdBytes = utf8.encode(appId);
+    final titleBytes = utf8.encode(title);
+    if (appIdBytes.isEmpty ||
+        appIdBytes.length > denialWireMaxLocalAppIdBytes ||
+        titleBytes.isEmpty ||
+        titleBytes.length > denialWireMaxLocalWindowTitleBytes ||
+        appId.contains('\u0000') ||
+        title.contains('\u0000') ||
+        !_validWindowGeometry(geometry)) {
+      return null;
+    }
+    return encodeWindowRequest(
+      generated.WindowRequestKind.CreateLocalWindow,
+      geometry: geometry,
+      appId: appId,
+      title: title,
     );
   }
 
@@ -591,6 +656,17 @@ class DenialWireCodec {
         return null;
       }
       final sourceLayers = window.surfaces ?? const <generated.SurfaceLayer>[];
+      final contentKind = switch (window.contentKind) {
+        generated.WindowContentKind.SurfaceTree =>
+          DenialWindowContentKind.surfaceTree,
+        generated.WindowContentKind.LocalFlutter =>
+          DenialWindowContentKind.localFlutter,
+      };
+      if (contentKind == DenialWindowContentKind.localFlutter &&
+          (window.textureId != 0 || sourceLayers.isNotEmpty)) {
+        rejectedStructuredMessages += 1;
+        return null;
+      }
       surfaceCount += sourceLayers.length;
       if (surfaceCount > denialWireMaxSurfaces) {
         rejectedStructuredMessages += 1;
@@ -670,6 +746,7 @@ class DenialWireCodec {
         contentWidth: window.contentWidth,
         contentHeight: window.contentHeight,
         surfaceLayers: List<DenialSurfaceLayer>.unmodifiable(layers),
+        contentKind: contentKind,
       ));
     }
     return List<DenialWindow>.unmodifiable(windows);
@@ -705,6 +782,7 @@ class DenialWireCodec {
     }
 
     final outputs = <DisplayOutput>[];
+    final outputIds = <int>{};
     for (final output in sourceOutputs) {
       final rect = output.logicalRect;
       final outputPixels = output.pixelSize;
@@ -725,7 +803,9 @@ class DenialWireCodec {
           outputPixels.width <= 0.0 ||
           outputPixels.height <= 0.0 ||
           output.scale <= 0.0 ||
-          output.refreshRate <= 0.0) {
+          output.refreshRate <= 0.0 ||
+          output.monitorId < 0 ||
+          !outputIds.add(output.monitorId)) {
         rejectedStructuredMessages += 1;
         return null;
       }
@@ -744,6 +824,21 @@ class DenialWireCodec {
       ));
     }
 
+    final encodedMonitorIds = layout.systemBarMonitorIds;
+    final systemBarMonitorIds =
+        encodedMonitorIds == null || encodedMonitorIds.isEmpty
+            ? layout.systemBarMonitorId < 0
+                ? const <int>[]
+                : <int>[layout.systemBarMonitorId]
+            : List<int>.of(encodedMonitorIds);
+    if (systemBarMonitorIds.length > outputs.length ||
+        systemBarMonitorIds
+            .any((monitorId) => !outputIds.contains(monitorId)) ||
+        systemBarMonitorIds.toSet().length != systemBarMonitorIds.length) {
+      rejectedStructuredMessages += 1;
+      return null;
+    }
+
     return DisplayLayout(
       epoch: layout.epoch,
       globalOrigin: Offset(origin.x, origin.y),
@@ -752,6 +847,7 @@ class DenialWireCodec {
       engineScale: layout.engineScale,
       tickerMonitorId: layout.tickerMonitorId,
       systemBarMonitorId: layout.systemBarMonitorId,
+      systemBarMonitorIds: List<int>.unmodifiable(systemBarMonitorIds),
       systemBarSide: switch (layout.systemBarSide) {
         generated.SystemBarSide.Right => SystemBarSide.right,
         generated.SystemBarSide.Top => SystemBarSide.top,
@@ -837,6 +933,39 @@ class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
   }
 }
 
+// flat_buffers 25.9.23 has the same length-prefix alignment bug for generated
+// List<int> int64 vectors. Keep the setting request strict-verifier compatible
+// instead of weakening native verification for all Flutter messages.
+class _AlignedSystemBarRequestObjectBuilder extends fb.ObjectBuilder {
+  _AlignedSystemBarRequestObjectBuilder({
+    required this.side,
+    required this.monitorIds,
+  });
+
+  final generated.SystemBarSide side;
+  final List<int> monitorIds;
+
+  @override
+  int finish(fb.Builder builder) {
+    final monitorIdsOffset = _writeAlignedInt64Vector(builder, monitorIds);
+    builder.startTable(7);
+    builder.addUint8(
+      0,
+      generated.WindowRequestKind.ConfigureSystemBar.value,
+    );
+    builder.addUint8(5, side.value);
+    builder.addOffset(6, monitorIdsOffset);
+    return builder.endTable();
+  }
+
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final builder = fb.Builder(deduplicateTables: false);
+    builder.finish(finish(builder), fileIdentifier);
+    return builder.buffer;
+  }
+}
+
 int _writeAlignedStructVector(
   fb.Builder builder,
   List<fb.ObjectBuilder> values,
@@ -852,6 +981,14 @@ int _writeAlignedUint64Vector(fb.Builder builder, List<int> values) {
   builder.pad((-builder.offset) & 7);
   for (var index = values.length - 1; index >= 0; index -= 1) {
     builder.putUint64(values[index]);
+  }
+  return builder.endStructVector(values.length);
+}
+
+int _writeAlignedInt64Vector(fb.Builder builder, List<int> values) {
+  builder.pad((-builder.offset) & 7);
+  for (var index = values.length - 1; index >= 0; index -= 1) {
+    builder.putInt64(values[index]);
   }
   return builder.endStructVector(values.length);
 }
@@ -872,6 +1009,22 @@ bool _validRect(Rect rect) {
       rect.height.isFinite &&
       rect.width > 0.0 &&
       rect.height > 0.0;
+}
+
+bool _validWindowGeometry(Rect rect) {
+  return _validRect(rect) &&
+      rect.left >= 0.0 &&
+      rect.top >= 0.0 &&
+      rect.left <= 16384.0 &&
+      rect.top <= 16384.0 &&
+      rect.width >= 64.0 &&
+      rect.height >= 64.0 &&
+      rect.width <= 16384.0 &&
+      rect.height <= 16384.0 &&
+      rect.right.isFinite &&
+      rect.bottom.isFinite &&
+      rect.right <= 0x7fffffff &&
+      rect.bottom <= 0x7fffffff;
 }
 
 bool _nativePayloadType(generated.PayloadTypeId type) {

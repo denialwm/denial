@@ -262,8 +262,52 @@ class DenialBridge {
     );
   }
 
+  Future<DisplayLayout?> configureSystemBar({
+    required SystemBarSide side,
+    required List<int> monitorIds,
+  }) {
+    final requestId = _nextRequestId++;
+    final bytes = _wireCodec.encodeSystemBarConfiguration(
+      requestId: requestId,
+      side: side,
+      monitorIds: monitorIds,
+    );
+    if (bytes == null) {
+      return Future<DisplayLayout?>.value(null);
+    }
+    final completer = Completer<DisplayLayout?>();
+    _pendingDisplayRequests[requestId] = completer;
+    _sendWire(bytes);
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingDisplayRequests.remove(requestId);
+        return null;
+      },
+    );
+  }
+
   bool publishInputLayout(InputLayoutSnapshot snapshot) {
     final bytes = _wireCodec.encodeInputLayout(snapshot);
+    if (bytes == null) {
+      return false;
+    }
+    _sendWire(bytes);
+    return true;
+  }
+
+  /// Requests a compositor-owned window whose content is built by the
+  /// embedded Flutter shell instead of sampled from a client surface.
+  bool createLocalWindow({
+    required String appId,
+    required String title,
+    required Rect geometry,
+  }) {
+    final bytes = _wireCodec.encodeCreateLocalWindow(
+      appId: appId,
+      title: title,
+      geometry: geometry,
+    );
     if (bytes == null) {
       return false;
     }
@@ -725,7 +769,8 @@ class DenialBridge {
         wire.WindowActionKind.Minimize => DenialWindowAction.minimize,
         wire.WindowActionKind.Maximize => DenialWindowAction.maximize,
         wire.WindowActionKind.Restore => DenialWindowAction.restore,
-        wire.WindowActionKind.ToggleMaximize => DenialWindowAction.toggleMaximize,
+        wire.WindowActionKind.ToggleMaximize =>
+          DenialWindowAction.toggleMaximize,
         wire.WindowActionKind.ToggleFullscreen =>
           DenialWindowAction.toggleFullscreen,
       };

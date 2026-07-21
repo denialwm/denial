@@ -108,7 +108,67 @@ pub(in super::super) fn apply_window_commands(
     commands: impl IntoIterator<Item = WindowCommand>,
 ) {
     for command in commands {
-        let window_id = command.window_id();
+        let command = match command {
+            WindowCommand::CreateLocal {
+                app_id,
+                title,
+                geometry,
+            } => {
+                let created = state
+                    .wayland
+                    .as_mut()
+                    .expect("missing Wayland frontend")
+                    .create_local_flutter_window(app_id, title, geometry);
+                let window_id = match created {
+                    Ok(window_id) => window_id,
+                    Err(error) => {
+                        warn!(?error, "could not create local Flutter window");
+                        continue;
+                    }
+                };
+                activate_local_flutter_window(state, window_id);
+                continue;
+            }
+            command => command,
+        };
+
+        let window_id = command
+            .window_id()
+            .expect("non-create window command is missing its target");
+        let is_local = state
+            .wayland
+            .as_ref()
+            .is_some_and(|frontend| frontend.is_local_flutter_window(window_id));
+        if is_local {
+            match command {
+                WindowCommand::Close { .. } => {
+                    if state
+                        .wayland
+                        .as_mut()
+                        .expect("missing Wayland frontend")
+                        .remove_local_flutter_window(window_id)
+                    {
+                        state.scene_sync.mark_dirty();
+                    }
+                }
+                WindowCommand::Focus { .. } => {
+                    activate_local_flutter_window(state, window_id);
+                }
+                WindowCommand::Configure { geometry, .. } => {
+                    if state
+                        .wayland
+                        .as_mut()
+                        .expect("missing Wayland frontend")
+                        .configure_local_flutter_window(window_id, geometry)
+                    {
+                        state.scene_sync.mark_dirty();
+                    }
+                }
+                WindowCommand::CreateLocal { .. } => unreachable!(),
+            }
+            continue;
+        }
+
         let window = state
             .wayland
             .as_ref()
@@ -246,7 +306,65 @@ pub(in super::super) fn apply_window_commands(
                     .set_window_geometry_target(&window, target);
                 state.scene_sync.mark_dirty();
             }
+            WindowCommand::CreateLocal { .. } => unreachable!(),
         }
+    }
+}
+
+#[cfg(feature = "flutter")]
+pub(super) fn activate_local_flutter_window(state: &mut RuntimeState, window_id: u64) -> bool {
+    if !state
+        .wayland
+        .as_mut()
+        .expect("missing Wayland frontend")
+        .focus_local_flutter_window(window_id)
+    {
+        return false;
+    }
+    let keyboard = state
+        .wayland
+        .as_ref()
+        .expect("missing Wayland frontend")
+        .seat
+        .get_keyboard()
+        .expect("seat has no keyboard");
+    deactivate_client_windows(state.wayland.as_mut().expect("missing Wayland frontend"));
+    keyboard.set_focus(state, None, SERIAL_COUNTER.next_serial());
+    state
+        .pending_window_events
+        .push(PendingWindowEvent::Activated(window_id));
+    state.scene_sync.mark_dirty();
+    true
+}
+
+#[cfg(feature = "flutter")]
+fn deactivate_client_windows(frontend: &mut super::WaylandFrontend) {
+    for candidate in frontend.space.elements() {
+        let changed = candidate.set_activated(false);
+        if let Some(candidate) = candidate.toplevel()
+            && changed
+            && candidate.wl_surface().is_alive()
+        {
+            candidate.send_pending_configure();
+        }
+    }
+}
+
+#[cfg(feature = "flutter")]
+pub(in super::super) fn queue_local_flutter_window_placement(
+    state: &mut RuntimeState,
+    window_id: u64,
+    phase: WindowPlacementPhase,
+    change: WindowPlacementChange,
+) {
+    let placement = state
+        .wayland
+        .as_ref()
+        .and_then(|frontend| frontend.local_flutter_window_placement(window_id, phase, change));
+    if let Some(placement) = placement {
+        state
+            .pending_window_events
+            .push(PendingWindowEvent::Placement(placement));
     }
 }
 
@@ -370,7 +488,27 @@ fn focused_window(state: &RuntimeState) -> Option<Window> {
 }
 
 #[cfg(feature = "flutter")]
+fn focused_local_window(state: &RuntimeState) -> Option<u64> {
+    state
+        .wayland
+        .as_ref()
+        .and_then(|frontend| frontend.focused_local_flutter_window())
+}
+
+#[cfg(feature = "flutter")]
+fn queue_local_window_action(state: &mut RuntimeState, window_id: u64, action: WindowAction) {
+    state
+        .pending_window_events
+        .push(PendingWindowEvent::Action(window_id, action));
+    state.scene_sync.mark_dirty();
+}
+
+#[cfg(feature = "flutter")]
 pub(super) fn minimize_focused_toplevel(state: &mut RuntimeState) -> bool {
+    if let Some(window_id) = focused_local_window(state) {
+        queue_local_window_action(state, window_id, WindowAction::Minimize);
+        return true;
+    }
     let Some(window) = focused_window(state) else {
         return false;
     };
@@ -397,7 +535,18 @@ pub(super) fn minimize_focused_toplevel(state: &mut RuntimeState) -> bool {
 }
 
 #[cfg(feature = "flutter")]
-pub(super) fn close_focused_toplevel(state: &RuntimeState) -> bool {
+pub(super) fn close_focused_toplevel(state: &mut RuntimeState) -> bool {
+    if let Some(window_id) = focused_local_window(state) {
+        let removed = state
+            .wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .remove_local_flutter_window(window_id);
+        if removed {
+            state.scene_sync.mark_dirty();
+        }
+        return removed;
+    }
     let Some(window) = focused_window(state) else {
         return false;
     };
@@ -421,6 +570,10 @@ pub(super) fn close_focused_toplevel(state: &RuntimeState) -> bool {
 /// placement authority throughout the transition instead of waiting for a
 /// later Flutter frame to return the requested coordinates.
 pub(super) fn toggle_shell_maximize_focused_toplevel(state: &mut RuntimeState) -> bool {
+    if let Some(window_id) = focused_local_window(state) {
+        queue_local_window_action(state, window_id, WindowAction::ToggleMaximize);
+        return true;
+    }
     let Some(window) = focused_window(state) else {
         return false;
     };
@@ -504,6 +657,10 @@ pub(super) fn toggle_shell_maximize_focused_toplevel(state: &mut RuntimeState) -
 }
 
 pub(super) fn toggle_shell_fullscreen_focused_toplevel(state: &mut RuntimeState) -> bool {
+    if let Some(window_id) = focused_local_window(state) {
+        queue_local_window_action(state, window_id, WindowAction::ToggleFullscreen);
+        return true;
+    }
     let Some(window) = focused_window(state) else {
         return false;
     };

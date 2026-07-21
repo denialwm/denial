@@ -162,6 +162,7 @@ void main() {
       expect(display.logicalSize, const Size(1920, 1080));
       expect(display.systemBarSide, SystemBarSide.top);
       expect(display.systemBarThickness, 32.0);
+      expect(display.effectiveSystemBarMonitorIds, <int>[4]);
 
       await _sendToFlutter(
         messenger,
@@ -818,6 +819,7 @@ Uint8List _displayResponse({required int requestId}) {
         engineScale: 2,
         tickerMonitorId: 4,
         systemBarMonitorId: 4,
+        systemBarMonitorIds: <int>[4],
         systemBarSide: wire.SystemBarSide.Top,
         systemBarThickness: 32,
         outputs: <wire.DisplayOutputObjectBuilder>[

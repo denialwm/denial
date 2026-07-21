@@ -85,23 +85,20 @@ impl WaylandFrontend {
     ) -> Rectangle<i32, Logical> {
         use crate::options::SystemBarSide;
         let bar = &self.work_area.system_bar;
-        // A configured connector name wins when that output is present;
-        // otherwise the bar follows the render ticker output, exactly like
-        // resolve_system_bar in wire.rs.
-        let host = bar
-            .output
-            .as_deref()
-            .and_then(|name| {
-                self.outputs
-                    .iter()
-                    .find(|entry| entry.connector == name)
-                    .map(|entry| entry.id)
-            })
-            .or(self.ticker_output);
+        // Every present configured connector hosts its own bar. If the
+        // configuration is automatic, or all named connectors are currently
+        // unplugged, the bar follows the render ticker output so it never
+        // disappears during hotplug.
+        let has_configured_host = self
+            .outputs
+            .iter()
+            .any(|entry| bar.outputs.contains(&entry.connector));
         let hosts_bar = bar.side != SystemBarSide::Hidden
             && bar.thickness > 0.0
             && self.outputs.iter().any(|entry| {
-                Some(entry.id) == host
+                let configured = has_configured_host && bar.outputs.contains(&entry.connector);
+                let automatic = !has_configured_host && Some(entry.id) == self.ticker_output;
+                (configured || automatic)
                     && match output {
                         Some(output) => entry.output == *output,
                         None => entry.logical_geometry == geometry,
@@ -139,6 +136,10 @@ impl WaylandFrontend {
         area.size.w -= left + right;
         area.size.h -= top + bottom;
         area
+    }
+
+    pub(crate) fn set_work_area(&mut self, work_area: crate::options::WorkAreaOptions) {
+        self.work_area = work_area;
     }
 
     pub fn update_topology(&mut self, snapshot: &TopologySnapshot) -> Result<(), Box<dyn Error>> {

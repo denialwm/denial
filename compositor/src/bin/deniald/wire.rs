@@ -46,6 +46,8 @@ const MAX_WINDOWS: usize = 4096;
 const MAX_REGIONS: usize = 8192;
 const MAX_SURFACES: usize = 32768;
 const MAX_PENDING_WINDOW_COMMANDS: usize = 4096;
+const MAX_LOCAL_APP_ID_BYTES: usize = 256;
+const MAX_LOCAL_WINDOW_TITLE_BYTES: usize = 1024;
 const WINDOW_PLACEMENT_PACKET_BYTES: usize = 80;
 const KEYBOARD_CTRL: u32 = 1 << 0;
 const KEYBOARD_FLAGS_MASK: u32 = KEYBOARD_CTRL;
@@ -72,8 +74,13 @@ pub struct WindowGeometry {
     pub height: f64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum WindowCommand {
+    CreateLocal {
+        app_id: String,
+        title: String,
+        geometry: WindowGeometry,
+    },
     Close {
         window_id: u64,
     },
@@ -87,11 +94,12 @@ pub enum WindowCommand {
 }
 
 impl WindowCommand {
-    pub fn window_id(self) -> u64 {
+    pub fn window_id(&self) -> Option<u64> {
         match self {
+            Self::CreateLocal { .. } => None,
             Self::Close { window_id }
             | Self::Focus { window_id }
-            | Self::Configure { window_id, .. } => window_id,
+            | Self::Configure { window_id, .. } => Some(*window_id),
         }
     }
 }
@@ -258,6 +266,21 @@ pub enum SurfaceRoleDescription {
     Popup,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WindowContentKind {
+    SurfaceTree,
+    LocalFlutter,
+}
+
+impl WindowContentKind {
+    fn wire(self) -> fb::WindowContentKind {
+        match self {
+            Self::SurfaceTree => fb::WindowContentKind::SurfaceTree,
+            Self::LocalFlutter => fb::WindowContentKind::LocalFlutter,
+        }
+    }
+}
+
 impl SurfaceRoleDescription {
     fn wire(self) -> fb::SurfaceRole {
         match self {
@@ -301,6 +324,7 @@ pub struct WindowDescription {
     pub suppress_animations: bool,
     pub server_side_decorated: bool,
     pub opacity: f32,
+    pub content_kind: WindowContentKind,
 }
 
 #[derive(Debug)]
@@ -381,6 +405,7 @@ pub struct WireBridge {
     input_layout_scratch: InputLayoutSnapshot,
     input_layout_identities_scratch: HashSet<u64>,
     pending_window_commands: VecDeque<WindowCommand>,
+    pending_work_area: Option<WorkAreaOptions>,
     next_sequence: u64,
 }
 
@@ -401,6 +426,7 @@ impl WireBridge {
             input_layout_scratch: InputLayoutSnapshot::default(),
             input_layout_identities_scratch: HashSet::new(),
             pending_window_commands: VecDeque::new(),
+            pending_work_area: None,
             next_sequence: 1,
         })
     }
@@ -440,6 +466,13 @@ impl WireBridge {
 
     pub fn drain_window_commands(&mut self) -> impl Iterator<Item = WindowCommand> + '_ {
         self.pending_window_commands.drain(..)
+    }
+
+    /// Takes the latest validated system-bar update. Settings changes are
+    /// deliberately last-writer-wins so rapid pointer or keyboard input stays
+    /// bounded and applies as one compositor transaction.
+    pub fn take_work_area_update(&mut self) -> Option<WorkAreaOptions> {
+        self.pending_work_area.take()
     }
 
     pub fn encode_window_action(
@@ -625,6 +658,52 @@ impl WireBridge {
                 )?;
                 Ok(Some(self.outbound_builder.finished_data()))
             }
+            fb::WindowRequestKind::ConfigureSystemBar => {
+                if request_id == 0 {
+                    return Err(WireError::RequestId);
+                }
+                let side = match request.system_bar_side() {
+                    fb::SystemBarSide::Left => SystemBarSide::Left,
+                    fb::SystemBarSide::Right => SystemBarSide::Right,
+                    fb::SystemBarSide::Top => SystemBarSide::Top,
+                    fb::SystemBarSide::Bottom => SystemBarSide::Bottom,
+                    fb::SystemBarSide::Hidden => return Err(WireError::Enumeration),
+                    _ => return Err(WireError::Enumeration),
+                };
+                let monitor_ids = request.system_bar_monitor_ids().ok_or(WireError::Payload)?;
+                if monitor_ids.len() == 0 || monitor_ids.len() > self.snapshot.outputs.len() {
+                    return Err(WireError::Count);
+                }
+                let mut unique_ids = HashSet::with_capacity(monitor_ids.len());
+                let mut outputs = Vec::with_capacity(monitor_ids.len());
+                for requested_monitor_id in monitor_ids {
+                    if requested_monitor_id < 0 || !unique_ids.insert(requested_monitor_id) {
+                        return Err(WireError::Identity);
+                    }
+                    let output = self
+                        .snapshot
+                        .outputs
+                        .iter()
+                        .find(|output| monitor_id(output.id) == Some(requested_monitor_id))
+                        .ok_or(WireError::Topology("system bar monitor is not live"))?;
+                    outputs.push(output.name.clone());
+                }
+                self.work_area.system_bar.outputs = outputs;
+                self.work_area.system_bar.side = side;
+                self.pending_work_area = Some(self.work_area.clone());
+
+                let sequence = self.take_sequence();
+                self.outbound_builder.reset();
+                encode_display_layout(
+                    &mut self.outbound_builder,
+                    sequence,
+                    request_id,
+                    &self.snapshot,
+                    &self.atlas,
+                    &self.work_area,
+                )?;
+                Ok(Some(self.outbound_builder.finished_data()))
+            }
             kind @ (fb::WindowRequestKind::CloseWindow
             | fb::WindowRequestKind::FocusWindow
             | fb::WindowRequestKind::ConfigureWindow) => {
@@ -649,6 +728,34 @@ impl WireBridge {
                     _ => unreachable!(),
                 };
                 self.pending_window_commands.push_back(command);
+                Ok(None)
+            }
+            fb::WindowRequestKind::CreateLocalWindow => {
+                if request_id != 0 {
+                    return Err(WireError::RequestId);
+                }
+                if self.pending_window_commands.len() >= MAX_PENDING_WINDOW_COMMANDS {
+                    return Err(WireError::Count);
+                }
+                let app_id = request.app_id().ok_or(WireError::Payload)?;
+                let title = request.title().ok_or(WireError::Payload)?;
+                if app_id.is_empty()
+                    || app_id.len() > MAX_LOCAL_APP_ID_BYTES
+                    || title.is_empty()
+                    || title.len() > MAX_LOCAL_WINDOW_TITLE_BYTES
+                    || app_id.contains('\0')
+                    || title.contains('\0')
+                {
+                    return Err(WireError::Payload);
+                }
+                let geometry =
+                    decode_window_geometry(request.geometry().ok_or(WireError::Geometry)?)?;
+                self.pending_window_commands
+                    .push_back(WindowCommand::CreateLocal {
+                        app_id: app_id.to_owned(),
+                        title: title.to_owned(),
+                        geometry,
+                    });
                 Ok(None)
             }
             kind => Err(WireError::Request(kind)),
@@ -923,6 +1030,11 @@ fn validate_windows(windows: &[WindowDescription]) -> Result<(), WireError> {
         {
             return Err(WireError::Payload);
         }
+        if window.content_kind == WindowContentKind::LocalFlutter
+            && (window.texture_id != 0 || !window.surfaces.is_empty())
+        {
+            return Err(WireError::Payload);
+        }
 
         window_surface_ids.clear();
         window_surface_ids.reserve(window.surfaces.len());
@@ -1072,6 +1184,7 @@ fn create_window_snapshot<'a>(
                 suppress_animations: description.suppress_animations,
                 server_side_decorated: description.server_side_decorated,
                 opacity: description.opacity,
+                content_kind: description.content_kind.wire(),
                 ..Default::default()
             },
         ));
@@ -1303,8 +1416,14 @@ fn encode_display_layout(
         f64::from(atlas.pixel_size.height),
     );
     let ticker = snapshot.ticker.and_then(monitor_id).unwrap_or(-1);
-    let (system_bar_monitor_id, system_bar_side, system_bar_thickness) =
+    let (system_bar_monitor_ids, system_bar_side, system_bar_thickness) =
         resolve_system_bar(snapshot, &work_area.system_bar, ticker);
+    let system_bar_monitor_id = if system_bar_monitor_ids.contains(&ticker) {
+        ticker
+    } else {
+        system_bar_monitor_ids.first().copied().unwrap_or(-1)
+    };
+    let system_bar_monitor_ids = builder.create_vector(&system_bar_monitor_ids);
     let maximize_padding = if work_area.maximize_padding.is_finite() {
         work_area.maximize_padding.max(0.0)
     } else {
@@ -1323,6 +1442,7 @@ fn encode_display_layout(
             system_bar_side,
             system_bar_thickness,
             maximize_padding,
+            system_bar_monitor_ids: Some(system_bar_monitor_ids),
             outputs: Some(outputs),
         },
     );
@@ -1376,17 +1496,19 @@ fn resolve_system_bar(
     snapshot: &TopologySnapshot,
     system_bar: &SystemBarOptions,
     ticker: i64,
-) -> (i64, fb::SystemBarSide, f64) {
+) -> (Vec<i64>, fb::SystemBarSide, f64) {
     if system_bar.side == SystemBarSide::Hidden || system_bar.thickness <= 0.0 {
-        return (-1, fb::SystemBarSide::Hidden, 0.0);
+        return (Vec::new(), fb::SystemBarSide::Hidden, 0.0);
     }
-    let configured = system_bar.output.as_deref().and_then(|name| {
-        snapshot
-            .outputs
-            .iter()
-            .find(|output| output.name == name)
-            .and_then(|output| monitor_id(output.id))
-    });
+    let mut configured = snapshot
+        .outputs
+        .iter()
+        .filter(|output| system_bar.outputs.contains(&output.name))
+        .filter_map(|output| monitor_id(output.id))
+        .collect::<Vec<_>>();
+    if configured.is_empty() && ticker >= 0 {
+        configured.push(ticker);
+    }
     let side = match system_bar.side {
         SystemBarSide::Left => fb::SystemBarSide::Left,
         SystemBarSide::Right => fb::SystemBarSide::Right,
@@ -1394,7 +1516,7 @@ fn resolve_system_bar(
         SystemBarSide::Bottom => fb::SystemBarSide::Bottom,
         SystemBarSide::Hidden => unreachable!("hidden side returned above"),
     };
-    (configured.unwrap_or(ticker), side, system_bar.thickness)
+    (configured, side, system_bar.thickness)
 }
 
 #[cfg(test)]
@@ -1458,6 +1580,9 @@ mod tests {
                 kind,
                 window_id,
                 geometry: geometry.as_ref(),
+                app_id: None,
+                title: None,
+                ..Default::default()
             },
         );
         let envelope = fb::Envelope::create(
@@ -1465,6 +1590,70 @@ mod tests {
             &fb::EnvelopeArgs {
                 protocol_version: PROTOCOL_VERSION,
                 sequence,
+                request_id,
+                payload_type: fb::Payload::WindowRequest,
+                payload: Some(request.as_union_value()),
+            },
+        );
+        fb::finish_envelope_buffer(&mut builder, envelope);
+        builder.finished_data().to_vec()
+    }
+
+    fn create_local_window_request(
+        request_id: u64,
+        app_id: &str,
+        title: &str,
+        geometry: fb::WireRect,
+    ) -> Vec<u8> {
+        let mut builder = FlatBufferBuilder::new();
+        let app_id = builder.create_string(app_id);
+        let title = builder.create_string(title);
+        let request = fb::WindowRequest::create(
+            &mut builder,
+            &fb::WindowRequestArgs {
+                kind: fb::WindowRequestKind::CreateLocalWindow,
+                window_id: 0,
+                geometry: Some(&geometry),
+                app_id: Some(app_id),
+                title: Some(title),
+                ..Default::default()
+            },
+        );
+        let envelope = fb::Envelope::create(
+            &mut builder,
+            &fb::EnvelopeArgs {
+                protocol_version: PROTOCOL_VERSION,
+                sequence: 4,
+                request_id,
+                payload_type: fb::Payload::WindowRequest,
+                payload: Some(request.as_union_value()),
+            },
+        );
+        fb::finish_envelope_buffer(&mut builder, envelope);
+        builder.finished_data().to_vec()
+    }
+
+    fn configure_system_bar_request(
+        request_id: u64,
+        side: fb::SystemBarSide,
+        monitor_ids: &[i64],
+    ) -> Vec<u8> {
+        let mut builder = FlatBufferBuilder::new();
+        let monitor_ids = builder.create_vector(monitor_ids);
+        let request = fb::WindowRequest::create(
+            &mut builder,
+            &fb::WindowRequestArgs {
+                kind: fb::WindowRequestKind::ConfigureSystemBar,
+                system_bar_side: side,
+                system_bar_monitor_ids: Some(monitor_ids),
+                ..Default::default()
+            },
+        );
+        let envelope = fb::Envelope::create(
+            &mut builder,
+            &fb::EnvelopeArgs {
+                protocol_version: PROTOCOL_VERSION,
+                sequence: 5,
                 request_id,
                 payload_type: fb::Payload::WindowRequest,
                 payload: Some(request.as_union_value()),
@@ -1686,6 +1875,7 @@ mod tests {
             suppress_animations: false,
             server_side_decorated: true,
             opacity: 1.0,
+            content_kind: WindowContentKind::SurfaceTree,
         };
         let mut bridge = bridge();
         let (update, recycled) = bridge.update_windows(vec![window.clone()]).unwrap();
@@ -1767,7 +1957,9 @@ mod tests {
 
     #[test]
     fn system_bar_resolves_named_outputs_and_hides_cleanly() {
-        fn layout_fields(system_bar: SystemBarOptions) -> (i64, fb::SystemBarSide, f64, f64) {
+        fn layout_fields(
+            system_bar: SystemBarOptions,
+        ) -> (i64, Vec<i64>, fb::SystemBarSide, f64, f64) {
             let topology = TopologyManager::new([
                 OutputSpec {
                     id: OutputId(7),
@@ -1812,6 +2004,7 @@ mod tests {
                 .unwrap();
             (
                 layout.system_bar_monitor_id(),
+                layout.system_bar_monitor_ids().unwrap().iter().collect(),
                 layout.system_bar_side(),
                 layout.system_bar_thickness(),
                 layout.maximize_padding(),
@@ -1819,21 +2012,67 @@ mod tests {
         }
 
         let named = layout_fields(SystemBarOptions {
-            output: Some("left".to_owned()),
+            outputs: vec!["left".to_owned()],
             side: super::SystemBarSide::Bottom,
             thickness: 40.0,
         });
-        assert_eq!(named, (7, fb::SystemBarSide::Bottom, 40.0, 10.0));
+        assert_eq!(named, (7, vec![7], fb::SystemBarSide::Bottom, 40.0, 10.0));
 
         let absent = layout_fields(SystemBarOptions {
-            output: Some("unplugged".to_owned()),
+            outputs: vec!["unplugged".to_owned()],
             side: super::SystemBarSide::Top,
             thickness: 32.0,
         });
-        assert_eq!(absent, (9, fb::SystemBarSide::Top, 32.0, 10.0));
+        assert_eq!(absent, (9, vec![9], fb::SystemBarSide::Top, 32.0, 10.0));
 
         let hidden = layout_fields(SystemBarOptions::hidden());
-        assert_eq!(hidden, (-1, fb::SystemBarSide::Hidden, 0.0, 10.0));
+        assert_eq!(
+            hidden,
+            (-1, Vec::new(), fb::SystemBarSide::Hidden, 0.0, 10.0)
+        );
+    }
+
+    #[test]
+    fn configures_cloned_system_bars_as_one_validated_transaction() {
+        let mut bridge = bridge();
+        let bytes = bridge
+            .handle(&configure_system_bar_request(
+                62,
+                fb::SystemBarSide::Left,
+                &[7, 9],
+            ))
+            .unwrap()
+            .unwrap();
+        let envelope = fb::root_as_envelope(bytes).unwrap();
+        let layout = envelope
+            .payload_as_window_response()
+            .unwrap()
+            .display_layout()
+            .unwrap();
+        assert_eq!(layout.system_bar_monitor_id(), 9);
+        assert_eq!(
+            layout
+                .system_bar_monitor_ids()
+                .unwrap()
+                .iter()
+                .collect::<Vec<_>>(),
+            vec![7, 9]
+        );
+        assert_eq!(layout.system_bar_side(), fb::SystemBarSide::Left);
+
+        let update = bridge.take_work_area_update().unwrap();
+        assert_eq!(update.system_bar.outputs, vec!["left", "main"]);
+        assert_eq!(update.system_bar.side, SystemBarSide::Left);
+        assert!(bridge.take_work_area_update().is_none());
+
+        for request in [
+            configure_system_bar_request(63, fb::SystemBarSide::Top, &[]),
+            configure_system_bar_request(64, fb::SystemBarSide::Top, &[7, 7]),
+            configure_system_bar_request(65, fb::SystemBarSide::Top, &[77]),
+            configure_system_bar_request(66, fb::SystemBarSide::Hidden, &[7]),
+        ] {
+            assert!(bridge.handle(&request).is_err());
+        }
     }
 
     #[test]
@@ -1949,6 +2188,60 @@ mod tests {
         };
         assert_eq!(geometry.width as i32, 16_384);
         assert_eq!(geometry.height as i32, 16_384);
+    }
+
+    #[test]
+    fn validates_and_queues_generic_local_window_creation() {
+        let mut bridge = bridge();
+        bridge
+            .handle(&create_local_window_request(
+                0,
+                "dev.denial.notes",
+                "Notes",
+                fb::WireRect::new(120.0, 80.0, 900.0, 640.0),
+            ))
+            .unwrap();
+        assert_eq!(
+            bridge.drain_window_commands().collect::<Vec<_>>(),
+            vec![WindowCommand::CreateLocal {
+                app_id: "dev.denial.notes".into(),
+                title: "Notes".into(),
+                geometry: WindowGeometry {
+                    x: 120.0,
+                    y: 80.0,
+                    width: 900.0,
+                    height: 640.0,
+                },
+            }]
+        );
+
+        assert!(matches!(
+            bridge.handle(&create_local_window_request(
+                1,
+                "dev.denial.notes",
+                "Notes",
+                fb::WireRect::new(120.0, 80.0, 900.0, 640.0),
+            )),
+            Err(WireError::RequestId)
+        ));
+        assert!(matches!(
+            bridge.handle(&create_local_window_request(
+                0,
+                "",
+                "Notes",
+                fb::WireRect::new(120.0, 80.0, 900.0, 640.0),
+            )),
+            Err(WireError::Payload)
+        ));
+        assert!(matches!(
+            bridge.handle(&create_local_window_request(
+                0,
+                "dev.denial.notes",
+                "Notes",
+                fb::WireRect::new(120.0, 80.0, 32.0, 640.0),
+            )),
+            Err(WireError::Geometry)
+        ));
     }
 
     #[test]
@@ -2292,6 +2585,34 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn accepts_dart_system_bar_golden_with_strict_alignment() {
+        let mut bridge = bridge();
+        let bytes = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../protocol/golden/dart_system_bar.denw"
+        ));
+        let response = bridge.handle(bytes).unwrap().unwrap();
+        let envelope = fb::root_as_envelope(response).unwrap();
+        assert_eq!(envelope.request_id(), 41);
+        let layout = envelope
+            .payload_as_window_response()
+            .unwrap()
+            .display_layout()
+            .unwrap();
+        assert_eq!(layout.system_bar_side(), fb::SystemBarSide::Right);
+        assert_eq!(
+            layout
+                .system_bar_monitor_ids()
+                .unwrap()
+                .iter()
+                .collect::<Vec<_>>(),
+            vec![7, 9]
+        );
+        let update = bridge.take_work_area_update().unwrap();
+        assert_eq!(update.system_bar.outputs, vec!["left", "main"]);
     }
 
     #[test]

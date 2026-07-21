@@ -14,7 +14,8 @@ const DEFAULT_SYSTEM_BAR_THICKNESS: f64 = 32.0;
 const MAX_SYSTEM_BAR_THICKNESS: f64 = 512.0;
 const DEFAULT_MAXIMIZE_PADDING: f64 = 10.0;
 const MAX_MAXIMIZE_PADDING: f64 = 256.0;
-const SYSTEM_BAR_SPEC_HELP: &str = "system bar must use SIDE,THICKNESS[,OUTPUT] or hidden";
+const SYSTEM_BAR_SPEC_HELP: &str =
+    "system bar must use SIDE,THICKNESS[,OUTPUT[+OUTPUT...]] or hidden";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum SystemBarSide {
@@ -30,8 +31,9 @@ pub(super) enum SystemBarSide {
 /// forwards the resolved placement through the display-layout snapshot.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct SystemBarOptions {
-    /// Connector name; `None` follows the render ticker output.
-    pub(super) output: Option<String>,
+    /// Connector names which receive independent copies of the bar. An empty
+    /// list follows the render ticker output.
+    pub(super) outputs: Vec<String>,
     pub(super) side: SystemBarSide,
     /// Logical pixels reserved across the configured side.
     pub(super) thickness: f64,
@@ -40,7 +42,7 @@ pub(super) struct SystemBarOptions {
 impl Default for SystemBarOptions {
     fn default() -> Self {
         Self {
-            output: None,
+            outputs: Vec::new(),
             side: SystemBarSide::Top,
             thickness: DEFAULT_SYSTEM_BAR_THICKNESS,
         }
@@ -50,7 +52,7 @@ impl Default for SystemBarOptions {
 impl SystemBarOptions {
     pub(super) fn hidden() -> Self {
         Self {
-            output: None,
+            outputs: Vec::new(),
             side: SystemBarSide::Hidden,
             thickness: 0.0,
         }
@@ -210,9 +212,9 @@ impl Options {
                     ));
                 }
                 "--system-bar" => {
-                    let value = args
-                        .next()
-                        .ok_or("--system-bar needs SIDE,THICKNESS[,OUTPUT] or hidden")?;
+                    let value = args.next().ok_or(
+                        "--system-bar needs SIDE,THICKNESS[,OUTPUT[+OUTPUT...]] or hidden",
+                    )?;
                     system_bar_argument = Some(parse_system_bar_spec(&value)?);
                 }
                 "--maximize-padding" => {
@@ -237,11 +239,12 @@ impl Options {
                          [--simulate-hotplug-at-frame N] \
                          [--wayland] \
                          [--flutter-bundle PATH] \
-                         [--system-bar SIDE,THICKNESS[,OUTPUT] | --system-bar hidden] \
+                         [--system-bar SIDE,THICKNESS[,OUTPUT[+OUTPUT...]] | --system-bar hidden] \
                          [--maximize-padding PIXELS] \
                          [--commit-seconds N | --frames N]\n\
                          With --flutter-bundle, omitting both limits runs until logout.\n\
-                         Without Flutter, N=0 performs atomic TEST_ONLY without changing scanout."
+                         Without Flutter, N=0 performs atomic TEST_ONLY without changing scanout.\n\
+                         Control: SIGUSR1 refreshes the embedded Flutter bundle in process."
                     );
                     return Ok(Self {
                         device,
@@ -428,16 +431,37 @@ fn parse_system_bar_spec(value: &str) -> Result<SystemBarOptions, Box<dyn Error>
         )
         .into());
     }
-    let output = match fields.next() {
-        None | Some("auto") => None,
+    let outputs = match fields.next() {
+        None | Some("auto") => Vec::new(),
         Some("") => return Err("system bar output name is empty".into()),
-        Some(name) => Some(name.to_owned()),
+        Some(names) => {
+            let mut outputs = Vec::new();
+            for name in names.split('+').map(str::trim) {
+                if name.is_empty() {
+                    return Err("system bar output name is empty".into());
+                }
+                if name == "auto" {
+                    return Err("auto cannot be combined with named system bar outputs".into());
+                }
+                if outputs.len() == MAX_CONFIGURED_OUTPUTS {
+                    return Err(format!(
+                        "system bar exceeds the {MAX_CONFIGURED_OUTPUTS}-output limit"
+                    )
+                    .into());
+                }
+                if outputs.iter().any(|configured| configured == name) {
+                    return Err(format!("duplicate system bar output {name}").into());
+                }
+                outputs.push(name.to_owned());
+            }
+            outputs
+        }
     };
     if fields.next().is_some() {
         return Err(SYSTEM_BAR_SPEC_HELP.into());
     }
     Ok(SystemBarOptions {
-        output,
+        outputs,
         side,
         thickness,
     })
@@ -674,7 +698,7 @@ mod tests {
         assert_eq!(options(&[]).work_area, WorkAreaOptions::default());
         assert_eq!(SystemBarOptions::default().side, SystemBarSide::Top);
         assert!(SystemBarOptions::default().thickness > 0.0);
-        assert_eq!(SystemBarOptions::default().output, None);
+        assert!(SystemBarOptions::default().outputs.is_empty());
     }
 
     #[test]
@@ -685,7 +709,7 @@ mod tests {
         assert_eq!(
             bar,
             SystemBarOptions {
-                output: Some("DP-3".to_owned()),
+                outputs: vec!["DP-3".to_owned()],
                 side: SystemBarSide::Bottom,
                 thickness: 48.0,
             }
@@ -694,7 +718,15 @@ mod tests {
         let auto = options(&["--system-bar", "top,24,auto"])
             .work_area
             .system_bar;
-        assert_eq!(auto.output, None);
+        assert!(auto.outputs.is_empty());
+
+        let cloned = options(&["--system-bar", "left,40,DP-3+HDMI-A-1"])
+            .work_area
+            .system_bar;
+        assert_eq!(
+            cloned.outputs,
+            vec!["DP-3".to_owned(), "HDMI-A-1".to_owned()]
+        );
 
         let hidden = options(&["--system-bar", "hidden"]).work_area.system_bar;
         assert_eq!(hidden, SystemBarOptions::hidden());
@@ -710,6 +742,8 @@ mod tests {
             "top,513",
             "middle,32",
             "top,32,DP-1,extra",
+            "top,32,DP-1+DP-1",
+            "top,32,auto+DP-1",
         ] {
             assert!(
                 parse_system_bar_spec(spec).is_err(),
@@ -726,7 +760,7 @@ mod tests {
         assert_eq!(
             config.system_bar,
             Some(SystemBarOptions {
-                output: Some("DP-5".to_owned()),
+                outputs: vec!["DP-5".to_owned()],
                 side: SystemBarSide::Top,
                 thickness: 36.0,
             })

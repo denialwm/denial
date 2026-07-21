@@ -10,6 +10,14 @@ enum ObjectKind : ubyte {
   Surface = 1
 }
 
+// The backing source for a logical desktop window. LocalFlutter windows have
+// normal Denial identity, geometry and lifecycle, but their content is built
+// by the embedded Dart shell instead of sampled from a client surface tree.
+enum WindowContentKind : ubyte {
+  SurfaceTree = 0,
+  LocalFlutter = 1
+}
+
 // SurfaceLayer describes one node of the ordered surface tree belonging to a
 // logical window. Popup roots remain part of their owning window instead of
 // being exposed as synthetic top-level windows.
@@ -24,7 +32,9 @@ enum WindowRequestKind : ubyte {
   GetDisplayLayout = 1,
   CloseWindow = 2,
   FocusWindow = 3,
-  ConfigureWindow = 4
+  ConfigureWindow = 4,
+  CreateLocalWindow = 5,
+  ConfigureSystemBar = 6
 }
 
 enum WindowResponseKind : ubyte {
@@ -204,6 +214,10 @@ table Window {
   // Opacity for the legacy primary-texture path. Surface-aware receivers use
   // the value carried by each SurfaceLayer instead.
   opacity:float = 1.0;
+  // Appended for wire compatibility. SurfaceTree preserves the existing
+  // Wayland/X11 behavior; LocalFlutter selects a trusted in-bundle app by
+  // app_id and never treats texture_id == 0 as its discriminator.
+  content_kind:WindowContentKind = SurfaceTree;
 }
 
 table WindowSnapshot {
@@ -237,12 +251,24 @@ table DisplayLayout {
   // a maximized window and every output edge that does not carry the system
   // bar. Zero keeps maximized windows flush with the output edges.
   maximize_padding:double = 0.0;
+  // Appended for wire compatibility. Each listed output hosts an independent
+  // copy of the system bar. Older senders expose the first output through
+  // system_bar_monitor_id only.
+  system_bar_monitor_ids:[long];
 }
 
 table WindowRequest {
   kind:WindowRequestKind = ListWindows;
   window_id:ulong;
   geometry:WireRect;
+  // CreateLocalWindow only. The app ID selects a builder registered in the
+  // embedded shell; no executable name or Dart code crosses this boundary.
+  app_id:string;
+  title:string;
+  // ConfigureSystemBar only. At least one unique live monitor is required;
+  // the native compositor remains authoritative over the resolved layout.
+  system_bar_side:SystemBarSide = Top;
+  system_bar_monitor_ids:[long];
 }
 
 table WindowResponse {

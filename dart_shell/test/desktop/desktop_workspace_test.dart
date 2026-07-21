@@ -599,8 +599,6 @@ void main() {
       workspace: controller.state,
       foregroundObjectId: 1,
       preferredMonitorId: 1,
-      systemBarRect: Rect.zero,
-      systemBarSide: SystemBarSide.hidden,
     );
     final right = DesktopOverviewTarget.resolve(
       viewSize: viewSize,
@@ -609,8 +607,6 @@ void main() {
       workspace: controller.state,
       foregroundObjectId: 1,
       preferredMonitorId: 2,
-      systemBarRect: Rect.zero,
-      systemBarSide: SystemBarSide.hidden,
     );
 
     expect(left?.objectIds, <int>{2});

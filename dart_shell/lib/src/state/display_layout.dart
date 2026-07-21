@@ -32,6 +32,7 @@ class DisplayLayoutController extends StateNotifier<DisplayLayout?> {
   int _retryAttempt = 0;
   Timer? _retryTimer;
   Future<DisplayLayout?>? _requestInFlight;
+  int _configurationSerial = 0;
 
   Future<DisplayLayout?> ensureLoaded() {
     final current = state;
@@ -86,6 +87,52 @@ class DisplayLayoutController extends StateNotifier<DisplayLayout?> {
         unawaited(ensureLoaded());
       }
     });
+  }
+
+  Future<bool> configureSystemBar({
+    required SystemBarSide side,
+    required Iterable<int> monitorIds,
+  }) async {
+    final previous = state;
+    if (previous == null || side == SystemBarSide.hidden) {
+      return false;
+    }
+    final requested = monitorIds.toSet();
+    if (requested.isEmpty ||
+        requested.any(
+          (monitorId) => !previous.outputs.any(
+            (output) => output.monitorId == monitorId,
+          ),
+        )) {
+      return false;
+    }
+    final ordered = previous.outputs
+        .where((output) => requested.contains(output.monitorId))
+        .map((output) => output.monitorId)
+        .toList(growable: false);
+    final currentIds = previous.effectiveSystemBarMonitorIds.toSet();
+    if (side == previous.systemBarSide &&
+        currentIds.length == requested.length &&
+        currentIds.containsAll(requested)) {
+      return true;
+    }
+
+    final serial = ++_configurationSerial;
+    state = previous.copyWithSystemBar(side: side, monitorIds: ordered);
+    DisplayLayout? resolved;
+    try {
+      resolved = await _bridge.configureSystemBar(
+        side: side,
+        monitorIds: ordered,
+      );
+    } on Object {
+      resolved = null;
+    }
+    if (_disposed || serial != _configurationSerial) {
+      return resolved != null;
+    }
+    state = resolved ?? previous;
+    return resolved != null;
   }
 
   @override

@@ -616,6 +616,13 @@ impl SeatHandler for RuntimeState {
     }
 
     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&KeyboardFocusTarget>) {
+        #[cfg(feature = "flutter")]
+        if focused.is_some() {
+            self.wayland
+                .as_mut()
+                .expect("missing Wayland frontend")
+                .clear_local_flutter_focus();
+        }
         let display_handle = self
             .wayland
             .as_ref()

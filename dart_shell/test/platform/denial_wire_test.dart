@@ -4,12 +4,42 @@ import 'dart:typed_data';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:denial_dart_shell/src/input/input_layout.dart';
+import 'package:denial_dart_shell/src/models/display_layout.dart' as model;
 import 'package:denial_dart_shell/src/models/denial_window.dart';
 import 'package:denial_dart_shell/src/models/denial_window_event.dart';
 import 'package:denial_dart_shell/src/platform/denial_wire.dart'
     hide InputWindowRegion;
 
 void main() {
+  test('system bar configuration encodes its edge and selected outputs', () {
+    final codec = DenialWireCodec();
+    final bytes = codec.encodeSystemBarConfiguration(
+      requestId: 41,
+      side: model.SystemBarSide.right,
+      monitorIds: const <int>[7, 9],
+    );
+
+    expect(bytes, isNotNull);
+    final envelope = Envelope(bytes!);
+    final request = envelope.payload as WindowRequest;
+    expect(envelope.requestId, 41);
+    expect(request.kind, WindowRequestKind.ConfigureSystemBar);
+    expect(request.systemBarSide, SystemBarSide.Right);
+    expect(request.systemBarMonitorIds, <int>[7, 9]);
+    expect(
+      bytes,
+      File('../protocol/golden/dart_system_bar.denw').readAsBytesSync(),
+    );
+    expect(
+      codec.encodeSystemBarConfiguration(
+        requestId: 42,
+        side: model.SystemBarSide.hidden,
+        monitorIds: const <int>[7],
+      ),
+      isNull,
+    );
+  });
+
   test('routing comparison is allocation-free and includes surface identity',
       () {
     final original = _inputLayout(1);
@@ -176,8 +206,8 @@ void main() {
         8 => 'eight',
         _ => 'many',
       };
-      final bytes =
-          File('../protocol/golden/native_windows_$label.denw').readAsBytesSync();
+      final bytes = File('../protocol/golden/native_windows_$label.denw')
+          .readAsBytesSync();
       final codec = DenialWireCodec();
       final decoded = codec.decodeStructured(ByteData.sublistView(bytes));
       expect(decoded, isNotNull);
@@ -258,6 +288,87 @@ void main() {
     expect(windows.single.serverSideDecorated, isFalse);
     expect(windows.single.opacity, closeTo(0.75, 0.0001));
     expect(windows.single.surfaceLayers.single.opacity, closeTo(0.5, 0.0001));
+  });
+
+  test('local Flutter window creation carries a generic app identity', () {
+    final codec = DenialWireCodec();
+    final bytes = codec.encodeCreateLocalWindow(
+      appId: 'dev.denial.notes',
+      title: 'Notes',
+      geometry: const Rect.fromLTWH(120, 80, 900, 640),
+    );
+
+    expect(bytes, isNotNull);
+    final envelope = Envelope(bytes!);
+    expect(envelope.requestId, 0);
+    expect(envelope.payloadType, PayloadTypeId.WindowRequest);
+    final request = envelope.payload as WindowRequest;
+    expect(request.kind, WindowRequestKind.CreateLocalWindow);
+    expect(request.windowId, 0);
+    expect(request.appId, 'dev.denial.notes');
+    expect(request.title, 'Notes');
+    expect(request.geometry!.x, 120);
+    expect(request.geometry!.width, 900);
+
+    expect(
+      codec.encodeCreateLocalWindow(
+        appId: '',
+        title: 'Notes',
+        geometry: const Rect.fromLTWH(120, 80, 900, 640),
+      ),
+      isNull,
+    );
+    expect(
+      codec.encodeCreateLocalWindow(
+        appId: 'dev.denial.notes',
+        title: 'Notes',
+        geometry: const Rect.fromLTWH(120, 80, 32, 640),
+      ),
+      isNull,
+    );
+  });
+
+  test('local Flutter content decodes without a sampled surface tree', () {
+    Uint8List snapshot({int textureId = 0}) => EnvelopeObjectBuilder(
+          protocolVersion: 1,
+          sequence: 1,
+          payloadType: PayloadTypeId.WindowSnapshot,
+          payload: WindowSnapshotObjectBuilder(windows: <WindowObjectBuilder>[
+            WindowObjectBuilder(
+              objectId: 91,
+              surfaceId: 91,
+              windowId: 91,
+              textureId: textureId,
+              title: 'Notes',
+              appId: 'dev.denial.notes',
+              width: 900,
+              height: 640,
+              surfaceWidth: 900,
+              surfaceHeight: 640,
+              geometryX: 120,
+              geometryY: 80,
+              geometryWidth: 900,
+              geometryHeight: 640,
+              contentWidth: 900,
+              contentHeight: 640,
+              contentKind: WindowContentKind.LocalFlutter,
+            ),
+          ]),
+        ).toBytes('DENW');
+
+    final codec = DenialWireCodec();
+    final valid = codec.decodeStructured(
+      ByteData.sublistView(snapshot()),
+    );
+    final windows = codec.decodeWindows(valid!.payload as WindowSnapshot);
+    expect(windows, hasLength(1));
+    expect(windows!.single.isLocalFlutter, isTrue);
+    expect(windows.single.visibleSurfaceIds, isEmpty);
+
+    final invalid = codec.decodeStructured(
+      ByteData.sublistView(snapshot(textureId: 7)),
+    );
+    expect(codec.decodeWindows(invalid!.payload as WindowSnapshot), isNull);
   });
 
   test('window business validation rejects opacity outside the unit range', () {

@@ -89,6 +89,8 @@ use super::PendingWindowEvent;
 use super::RuntimeState;
 #[cfg(feature = "flutter")]
 use super::flutter_runtime::{ExternalTextureFrame, ShmSnapshotPool, ShmTextureFrame};
+#[cfg(feature = "flutter")]
+use super::local_windows::{LocalFlutterWindows, LocalWindowError};
 use super::window_grab::{
     MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, X11ResizeSurfaceGrab, checked_pointer_grab,
     constrain_dimension,
@@ -100,7 +102,7 @@ use super::window_placement_store::{
 #[cfg(feature = "flutter")]
 use super::wire::{
     InputLayoutSnapshot, SurfaceLayerDescription, SurfaceRoleDescription, WindowAction,
-    WindowDescription, WindowGeometry, WindowPlacement, WindowPlacementChange,
+    WindowContentKind, WindowDescription, WindowGeometry, WindowPlacement, WindowPlacementChange,
     WindowPlacementPhase,
 };
 
@@ -138,7 +140,9 @@ use topology::{
 };
 use window_management::toplevel_has_state;
 #[cfg(feature = "flutter")]
-pub(super) use window_management::{apply_window_commands, queue_window_placement};
+pub(super) use window_management::{
+    apply_window_commands, queue_local_flutter_window_placement, queue_window_placement,
+};
 #[cfg(feature = "flutter")]
 use window_management::{shell_content_geometry, shell_draws_server_frame};
 
@@ -205,6 +209,8 @@ pub(super) struct WaylandFrontend {
     scene_textures_scratch: Vec<ExternalTextureFrame>,
     #[cfg(feature = "flutter")]
     scene_popups_scratch: Vec<(PopupKind, Point<i32, Logical>)>,
+    #[cfg(feature = "flutter")]
+    local_windows: LocalFlutterWindows,
     #[cfg(feature = "flutter")]
     pending_shm_snapshots: HashSet<ObjectId>,
     #[cfg(feature = "flutter")]
@@ -650,6 +656,8 @@ impl WaylandFrontend {
             scene_textures_scratch: Vec::new(),
             #[cfg(feature = "flutter")]
             scene_popups_scratch: Vec::new(),
+            #[cfg(feature = "flutter")]
+            local_windows: LocalFlutterWindows::default(),
             #[cfg(feature = "flutter")]
             pending_shm_snapshots: HashSet::new(),
             #[cfg(feature = "flutter")]
@@ -1338,7 +1346,16 @@ impl WaylandFrontend {
         let maximum = i64::MAX as u64;
         let mut surface_id = self.next_surface_id.clamp(1, maximum);
         let first_candidate = surface_id;
-        while self.surfaces_by_id.contains_key(&surface_id) {
+        while self.surfaces_by_id.contains_key(&surface_id) || {
+            #[cfg(feature = "flutter")]
+            {
+                self.local_windows.contains(surface_id)
+            }
+            #[cfg(not(feature = "flutter"))]
+            {
+                false
+            }
+        } {
             surface_id = if surface_id == maximum {
                 1
             } else {
@@ -1357,6 +1374,117 @@ impl WaylandFrontend {
         self.surface_ids.insert(surface.id(), surface_id);
         self.surfaces_by_id.insert(surface_id, surface.clone());
         surface_id
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn create_local_flutter_window(
+        &mut self,
+        app_id: String,
+        title: String,
+        mut geometry: WindowGeometry,
+    ) -> Result<u64, LocalWindowError> {
+        // Dart speaks in atlas-relative logical coordinates, while native
+        // window state follows Space and remains global across topology moves.
+        geometry.x += self.atlas_origin.x;
+        geometry.y += self.atlas_origin.y;
+        let surfaces_by_id = &self.surfaces_by_id;
+        self.local_windows.create(app_id, title, geometry, |id| {
+            surfaces_by_id.contains_key(&id)
+        })
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn focused_local_flutter_window(&self) -> Option<u64> {
+        self.local_windows.focused()
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn is_local_flutter_window(&self, window_id: u64) -> bool {
+        self.local_windows.contains(window_id)
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn focus_local_flutter_window(&mut self, window_id: u64) -> bool {
+        self.local_windows.focus(window_id)
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn clear_local_flutter_focus(&mut self) {
+        self.local_windows.clear_focus();
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn configure_local_flutter_window(
+        &mut self,
+        window_id: u64,
+        mut geometry: WindowGeometry,
+    ) -> bool {
+        geometry.x += self.atlas_origin.x;
+        geometry.y += self.atlas_origin.y;
+        self.local_windows.configure(window_id, geometry)
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn local_flutter_window_geometry(&self, window_id: u64) -> Option<WindowGeometry> {
+        self.local_windows
+            .get(window_id)
+            .map(|window| window.geometry)
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn set_local_flutter_window_global_geometry(
+        &mut self,
+        window_id: u64,
+        geometry: WindowGeometry,
+    ) -> bool {
+        self.local_windows.configure(window_id, geometry)
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn local_flutter_window_placement(
+        &self,
+        window_id: u64,
+        phase: WindowPlacementPhase,
+        change: WindowPlacementChange,
+    ) -> Option<WindowPlacement> {
+        let geometry = self.local_windows.get(window_id)?.geometry;
+        let global_geometry = Rectangle::<i32, Logical>::new(
+            Point::from((
+                geometry
+                    .x
+                    .round()
+                    .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32,
+                geometry
+                    .y
+                    .round()
+                    .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32,
+            )),
+            Size::from((
+                geometry.width.round().clamp(1.0, f64::from(i32::MAX)) as i32,
+                geometry.height.round().clamp(1.0, f64::from(i32::MAX)) as i32,
+            )),
+        );
+        let monitor_id = self
+            .output_for_geometry(global_geometry)
+            .and_then(|entry| i64::try_from(entry.id.0).ok())?;
+        Some(WindowPlacement {
+            window_id,
+            monitor_id,
+            workspace_id: 1,
+            phase,
+            change,
+            geometry: WindowGeometry {
+                x: geometry.x - self.atlas_origin.x,
+                y: geometry.y - self.atlas_origin.y,
+                width: geometry.width,
+                height: geometry.height,
+            },
+        })
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn remove_local_flutter_window(&mut self, window_id: u64) -> bool {
+        self.local_windows.remove(window_id)
     }
 
     fn remove_surface_state(&mut self, surface: &WlSurface, remove_identity: bool) {
@@ -2046,6 +2174,96 @@ impl WaylandFrontend {
                 server_side_decorated,
                 opacity: opacity * window_opacity,
                 surfaces: layers,
+                content_kind: WindowContentKind::SurfaceTree,
+            };
+            if let Some(previous) = windows.get_mut(window_count) {
+                *previous = description;
+            } else {
+                windows.push(description);
+            }
+            window_count += 1;
+        }
+        for local_window in self.local_windows.iter() {
+            let width = local_window
+                .geometry
+                .width
+                .round()
+                .clamp(1.0, f64::from(u32::MAX)) as u32;
+            let height = local_window
+                .geometry
+                .height
+                .round()
+                .clamp(1.0, f64::from(u32::MAX)) as u32;
+            let global_geometry = Rectangle::<i32, Logical>::new(
+                Point::from((
+                    local_window
+                        .geometry
+                        .x
+                        .round()
+                        .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32,
+                    local_window
+                        .geometry
+                        .y
+                        .round()
+                        .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32,
+                )),
+                Size::from((
+                    i32::try_from(width).unwrap_or(i32::MAX),
+                    i32::try_from(height).unwrap_or(i32::MAX),
+                )),
+            );
+            let monitor_id = self
+                .output_for_geometry(global_geometry)
+                .and_then(|entry| i64::try_from(entry.id.0).ok())
+                .unwrap_or(-1);
+            let (mut title, mut app_id, mut surfaces) = windows
+                .get_mut(window_count)
+                .map(|previous| {
+                    (
+                        std::mem::take(&mut previous.title),
+                        std::mem::take(&mut previous.app_id),
+                        std::mem::take(&mut previous.surfaces),
+                    )
+                })
+                .unwrap_or_default();
+            title.clear();
+            title.push_str(&local_window.title);
+            app_id.clear();
+            app_id.push_str(&local_window.app_id);
+            surfaces.clear();
+            let description = WindowDescription {
+                object_id: local_window.id,
+                surface_id: local_window.id,
+                window_id: local_window.id,
+                texture_id: 0,
+                title,
+                app_id,
+                width,
+                height,
+                surface_x: 0.0,
+                surface_y: 0.0,
+                surface_width: local_window.geometry.width,
+                surface_height: local_window.geometry.height,
+                texture_source_x: 0.0,
+                texture_source_y: 0.0,
+                texture_source_width: 0.0,
+                texture_source_height: 0.0,
+                geometry_x: local_window.geometry.x - self.atlas_origin.x,
+                geometry_y: local_window.geometry.y - self.atlas_origin.y,
+                geometry_width: local_window.geometry.width,
+                geometry_height: local_window.geometry.height,
+                monitor_id,
+                transform: 0,
+                scale_120: 120,
+                content_x: 0.0,
+                content_y: 0.0,
+                content_width: local_window.geometry.width,
+                content_height: local_window.geometry.height,
+                suppress_animations: false,
+                server_side_decorated: true,
+                opacity: 1.0,
+                surfaces,
+                content_kind: WindowContentKind::LocalFlutter,
             };
             if let Some(previous) = windows.get_mut(window_count) {
                 *previous = description;

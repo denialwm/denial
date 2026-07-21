@@ -12,8 +12,11 @@ dependencies:
   flat_buffers: 25.9.23
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   flutter_riverpod: ^2.6.1
   flutter_svg: ^2.0.17
+  intl: any
   denial_wire_protocol:
     path: ../protocol/generated/dart
 
@@ -22,6 +25,7 @@ dev_dependencies:
     sdk: flutter
 
 flutter:
+  generate: true
   uses-material-design: true
   assets:
     - assets/cursors/yangyang_xuanling/alternate/

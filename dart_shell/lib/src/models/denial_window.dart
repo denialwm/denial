@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
+enum DenialWindowContentKind { surfaceTree, localFlutter }
+
 enum DenialSurfaceRole { root, subsurface, popup }
 
 @immutable
@@ -140,6 +142,7 @@ class DenialWindow {
     this.contentWidth = 0.0,
     this.contentHeight = 0.0,
     this.surfaceLayers = const <DenialSurfaceLayer>[],
+    this.contentKind = DenialWindowContentKind.surfaceTree,
   });
 
   final int objectId;
@@ -176,6 +179,10 @@ class DenialWindow {
   final double contentWidth;
   final double contentHeight;
   final List<DenialSurfaceLayer> surfaceLayers;
+  final DenialWindowContentKind contentKind;
+
+  bool get isLocalFlutter =>
+      contentKind == DenialWindowContentKind.localFlutter;
 
   bool get isHome => appId == 'denia-home' || title == 'denia-home';
 
@@ -286,6 +293,7 @@ class DenialWindow {
         other.contentY == contentY &&
         other.contentWidth == contentWidth &&
         other.contentHeight == contentHeight &&
+        other.contentKind == contentKind &&
         listEquals(other.surfaceLayers, surfaceLayers);
   }
 
@@ -324,6 +332,7 @@ class DenialWindow {
         contentY,
         contentWidth,
         contentHeight,
+        contentKind,
         ...surfaceLayers,
       ]);
 }

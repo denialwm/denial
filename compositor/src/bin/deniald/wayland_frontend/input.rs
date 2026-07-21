@@ -44,7 +44,7 @@ use super::super::native_shortcut::NativeEscapeShortcut;
 use super::super::native_shortcut::ShortcutDisposition;
 #[cfg(feature = "flutter")]
 use super::super::window_grab::{
-    MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, X11ResizeSurfaceGrab,
+    LocalFlutterWindowGrab, MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, X11ResizeSurfaceGrab,
 };
 #[cfg(feature = "flutter")]
 use super::super::wire::{InputWindowRegion, WindowPlacementChange, WindowPlacementPhase};
@@ -419,6 +419,20 @@ impl WaylandFrontend {
             return None;
         }
 
+        // Local Flutter windows participate in the same front-to-back window
+        // region list as client surfaces. They intentionally have no Smithay
+        // input target: once the topmost hit is local, stop traversal so a
+        // covered Wayland client cannot receive the event through it.
+        if layout
+            .windows
+            .iter()
+            .find(|region| region_accepts_input(region, scene_position))
+            .is_some_and(|region| self.local_windows.contains(region.window_id))
+        {
+            self.client_input_route_cache = None;
+            return None;
+        }
+
         // Pointer samples commonly arrive much faster than Flutter layout
         // snapshots. Reuse the fully validated route while it remains the
         // topmost candidate instead of walking Space and the surface tree at
@@ -469,6 +483,28 @@ impl WaylandFrontend {
         }
 
         None
+    }
+
+    fn local_flutter_window_region_at(
+        &self,
+        position: Point<f64, Logical>,
+    ) -> Option<InputWindowRegion> {
+        let layout = self.input_layout.as_ref()?;
+        let scene_position = position - self.atlas_origin;
+        if layout.exclusive_shell()
+            || layout
+                .shell_regions
+                .iter()
+                .any(|region| region.contains(scene_position.x, scene_position.y))
+        {
+            return None;
+        }
+        layout
+            .windows
+            .iter()
+            .find(|region| region_accepts_input(region, scene_position))
+            .copied()
+            .filter(|region| self.local_windows.contains(region.window_id))
     }
 
     fn input_target(&mut self, position: Point<f64, Logical>) -> InputTarget {
@@ -1106,16 +1142,25 @@ fn process_flutter_input_event(
                 .expect("seat has no pointer");
             let pointer_grabbed = pointer.is_grabbed();
             let flutter_captured = state.flutter_input.pointer_captured();
-            let target = {
+            let (target, local_window_region) = {
                 let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
-                if secure_locked || flutter_captured {
+                let target = if secure_locked || flutter_captured {
                     InputTarget::Flutter
                 } else if let Some(route) = frontend.client_pointer_capture.clone() {
                     InputTarget::Client(route)
                 } else {
                     let position = frontend.pointer_location;
                     frontend.input_target(position)
-                }
+                };
+                let local_window_region = if !secure_locked
+                    && !flutter_captured
+                    && matches!(&target, InputTarget::Flutter)
+                {
+                    frontend.local_flutter_window_region_at(frontend.pointer_location)
+                } else {
+                    None
+                };
+                (target, local_window_region)
             };
             if button.state() == ButtonState::Released {
                 state
@@ -1128,12 +1173,24 @@ fn process_flutter_input_event(
             // client-facing seat state. Use the native physical-key tracker
             // for compositor pointer chords instead of Smithay's modifiers.
             let logo = state.native_escape_shortcut.super_pressed();
-            if !pointer_grabbed
+            let super_action = super_pointer_action(logo, button_code);
+            let began_super_grab = if !pointer_grabbed
                 && button.state() == ButtonState::Pressed
-                && let InputTarget::Client(route) = &target
-                && let Some(action) = super_pointer_action(logo, button_code)
-                && begin_super_pointer_grab(state, route, action, button_code, serial)
+                && let Some(action) = super_action
             {
+                match (&target, local_window_region) {
+                    (InputTarget::Client(route), _) => {
+                        begin_super_pointer_grab(state, route, action, button_code, serial)
+                    }
+                    (InputTarget::Flutter, Some(region)) => {
+                        begin_local_super_pointer_grab(state, region, action, button_code, serial)
+                    }
+                    _ => false,
+                }
+            } else {
+                false
+            };
+            if began_super_grab {
                 update_pressed_buttons(
                     &mut state
                         .wayland
@@ -1724,6 +1781,70 @@ fn release_client_geometry_for_shell_grab(
         toplevel.send_pending_configure();
     }
     state.scene_sync.mark_dirty();
+}
+
+#[cfg(feature = "flutter")]
+fn begin_local_super_pointer_grab(
+    state: &mut RuntimeState,
+    region: InputWindowRegion,
+    action: SuperPointerAction,
+    button: u32,
+    serial: Serial,
+) -> bool {
+    if region.geometry_locked() {
+        return false;
+    }
+    let Some((position, geometry)) = state.wayland.as_ref().and_then(|frontend| {
+        frontend
+            .local_flutter_window_geometry(region.window_id)
+            .map(|geometry| (frontend.pointer_location, geometry))
+    }) else {
+        return false;
+    };
+    if !super::window_management::activate_local_flutter_window(state, region.window_id) {
+        return false;
+    }
+    super::window_management::queue_local_flutter_window_placement(
+        state,
+        region.window_id,
+        WindowPlacementPhase::Begin,
+        match action {
+            SuperPointerAction::Move => WindowPlacementChange::Move,
+            SuperPointerAction::Resize => WindowPlacementChange::Resize,
+        },
+    );
+    let start_data = GrabStartData {
+        focus: None,
+        button,
+        location: position,
+    };
+    let grab = match action {
+        SuperPointerAction::Move => {
+            LocalFlutterWindowGrab::new_move(start_data, region.window_id, geometry)
+        }
+        SuperPointerAction::Resize => {
+            let global_geometry = Rectangle::new(
+                Point::from((geometry.x.round() as i32, geometry.y.round() as i32)),
+                (
+                    geometry.width.round() as i32,
+                    geometry.height.round() as i32,
+                )
+                    .into(),
+            );
+            let edge = resize_edge_for_geometry(position, global_geometry);
+            let edges = ResizeEdges::from_xdg(edge).expect("corner is a valid resize edge");
+            LocalFlutterWindowGrab::new_resize(start_data, region.window_id, geometry, edges)
+        }
+    };
+    state
+        .wayland
+        .as_ref()
+        .expect("missing Wayland frontend")
+        .seat
+        .get_pointer()
+        .expect("seat has no pointer")
+        .set_grab(state, grab, serial, Focus::Clear);
+    true
 }
 
 #[cfg(feature = "flutter")]

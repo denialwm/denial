@@ -8,6 +8,7 @@ import 'desktop/desktop_input_layout_publisher.dart';
 import 'desktop/desktop_shell.dart';
 import 'input/input_layout.dart';
 import 'launcher/home_surface.dart';
+import 'localization/denial_localizations.dart';
 import 'models/denial_window.dart';
 import 'state/cursor_theme.dart';
 import 'state/bluetooth.dart';
@@ -146,8 +147,7 @@ class DenialShellApp extends ConsumerWidget {
         ),
     };
 
-    return Directionality(
-      textDirection: TextDirection.ltr,
+    return DenialLocalizationScope(
       child: MediaQuery.fromView(
         view: View.of(context),
         child: ScrollConfiguration(

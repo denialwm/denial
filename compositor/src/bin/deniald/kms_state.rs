@@ -362,6 +362,10 @@ impl FlutterLauncher {
             self.x11_display.clone(),
         )
     }
+
+    pub(super) fn set_work_area(&mut self, work_area: options::WorkAreaOptions) {
+        self.work_area = work_area;
+    }
 }
 
 #[cfg(feature = "flutter")]

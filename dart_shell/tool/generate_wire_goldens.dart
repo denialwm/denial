@@ -16,6 +16,22 @@ void main() {
     };
     File('${output.path}/dart_input_$label.denw').writeAsBytesSync(bytes);
   }
+  File('${output.path}/dart_system_bar.denw').writeAsBytesSync(
+    _systemBarConfiguration(),
+  );
+}
+
+List<int> _systemBarConfiguration() {
+  return wire.EnvelopeObjectBuilder(
+    protocolVersion: 1,
+    sequence: 1,
+    requestId: 41,
+    payloadType: wire.PayloadTypeId.WindowRequest,
+    payload: _AlignedSystemBarRequestObjectBuilder(
+      side: wire.SystemBarSide.Right,
+      monitorIds: const <int>[7, 9],
+    ),
+  ).toBytes('DENW');
 }
 
 List<int> _inputLayout(int count) {
@@ -102,6 +118,33 @@ class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
   }
 }
 
+class _AlignedSystemBarRequestObjectBuilder extends fb.ObjectBuilder {
+  _AlignedSystemBarRequestObjectBuilder({
+    required this.side,
+    required this.monitorIds,
+  });
+
+  final wire.SystemBarSide side;
+  final List<int> monitorIds;
+
+  @override
+  int finish(fb.Builder builder) {
+    final monitorIdsOffset = _writeAlignedInt64Vector(builder, monitorIds);
+    builder.startTable(7);
+    builder.addUint8(0, wire.WindowRequestKind.ConfigureSystemBar.value);
+    builder.addUint8(5, side.value);
+    builder.addOffset(6, monitorIdsOffset);
+    return builder.endTable();
+  }
+
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final builder = fb.Builder(deduplicateTables: false);
+    builder.finish(finish(builder), fileIdentifier);
+    return builder.buffer;
+  }
+}
+
 int _writeAlignedStructVector(
   fb.Builder builder,
   List<fb.ObjectBuilder> values,
@@ -114,6 +157,14 @@ int _writeAlignedUint64Vector(fb.Builder builder, List<int> values) {
   builder.pad((-builder.offset) & 7);
   for (var index = values.length - 1; index >= 0; index -= 1) {
     builder.putUint64(values[index]);
+  }
+  return builder.endStructVector(values.length);
+}
+
+int _writeAlignedInt64Vector(fb.Builder builder, List<int> values) {
+  builder.pad((-builder.offset) & 7);
+  for (var index = values.length - 1; index >= 0; index -= 1) {
+    builder.putInt64(values[index]);
   }
   return builder.endStructVector(values.length);
 }

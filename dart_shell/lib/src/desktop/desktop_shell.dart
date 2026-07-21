@@ -10,6 +10,8 @@ import '../launcher/controllers/home_grid_controller.dart';
 import '../launcher/models/desktop_app.dart';
 import '../launcher/models/home_grid_item.dart';
 import '../launcher/widgets/home_tiles.dart';
+import '../local_apps/local_flutter_application.dart';
+import '../local_apps/local_flutter_window_host.dart';
 import '../input/shell_interaction_registry.dart';
 import '../models/display_layout.dart';
 import '../models/denial_window.dart';
@@ -27,6 +29,7 @@ import '../state/desktop_window_close_effect.dart';
 import '../state/desktop_window_switcher.dart';
 import '../state/display_layout.dart';
 import '../state/quick_settings.dart';
+import '../state/shell_appearance.dart';
 import '../state/shell_controller.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -153,8 +156,6 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         ? MediaQuery.sizeOf(context)
         : workspace.viewSize;
     final displayLayout = ref.read(displayLayoutProvider);
-    final (:systemBarRect, :systemBarSide) =
-        _systemBarGeometry(viewSize, displayLayout);
     final monitorTarget = DesktopOverviewTarget.resolve(
       viewSize: viewSize,
       displayLayout: displayLayout,
@@ -162,8 +163,6 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       workspace: workspace,
       foregroundObjectId: shell.foregroundObjectId,
       preferredMonitorId: preferredMonitorId,
-      systemBarRect: systemBarRect,
-      systemBarSide: systemBarSide,
     );
     if (monitorTarget == null) {
       return;
@@ -287,8 +286,6 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         ? MediaQuery.sizeOf(context)
         : workspaceState.viewSize;
     final displayLayout = ref.read(displayLayoutProvider);
-    final (:systemBarRect, :systemBarSide) =
-        _systemBarGeometry(viewSize, displayLayout);
     final shellState = ref.read(shellControllerProvider);
     final target = DesktopOverviewTarget.resolve(
       viewSize: viewSize,
@@ -297,8 +294,6 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       workspace: workspaceState,
       foregroundObjectId: shellState.foregroundObjectId,
       preferredMonitorId: preferredMonitorId,
-      systemBarRect: systemBarRect,
-      systemBarSide: systemBarSide,
     );
     if (target == null) {
       return;
@@ -409,6 +404,24 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
   Future<void> _launchApp(DesktopApp app) async {
     _closePanels();
     await ref.read(appLauncherProvider).launch(app);
+  }
+
+  void _launchLocalApp(LocalFlutterApplication app) {
+    _closePanels();
+    final displayLayout = ref.read(displayLayoutProvider);
+    final mainOutput = displayLayout?.mainOutput;
+    final workspace = ref.read(desktopWorkspaceProvider);
+    final viewSize = workspace.viewSize.isEmpty
+        ? MediaQuery.sizeOf(context)
+        : workspace.viewSize;
+    final availableBounds = mainOutput == null
+        ? Offset.zero & viewSize
+        : displayLayout!.workAreaOf(mainOutput);
+    ref.read(localFlutterApplicationLauncherProvider).launch(
+          app.id,
+          availableBounds: availableBounds,
+          title: app.titleFor(context),
+        );
   }
 
   void _activateWindow(DenialWindow window) {
@@ -535,6 +548,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
             onCancelPanelClose: _cancelPanelClose,
             onSchedulePanelClose: _schedulePanelClose,
             onLaunchApp: _launchApp,
+            onLaunchLocalApp: _launchLocalApp,
             onActivateWindow: _activateWindow,
             onOverviewBarrierTap: _handleOverviewBarrierTap,
             onBeginOverviewDrag: _beginOverviewDrag,
@@ -550,21 +564,27 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
   }
 }
 
-/// The clipped system bar strip and its effective side. A bar whose strip
-/// cannot land on the visible canvas behaves as hidden everywhere.
-({Rect systemBarRect, SystemBarSide systemBarSide}) _systemBarGeometry(
+/// The independently clipped system-bar clones. No rect may cross an output
+/// boundary, so selecting adjacent displays never creates a spanning bar.
+List<({int monitorId, Rect rect, SystemBarSide side})> _systemBarGeometries(
   Size viewSize,
   DisplayLayout? displayLayout,
 ) {
-  final rect = DesktopMetrics.systemBarRect(
-    viewSize,
-    displayLayout?.systemBarRect ?? Rect.zero,
-  );
-  return (
-    systemBarRect: rect,
-    systemBarSide:
-        rect.isEmpty ? SystemBarSide.hidden : displayLayout!.systemBarSide,
-  );
+  if (displayLayout == null || !displayLayout.systemBarActive) {
+    return const <({int monitorId, Rect rect, SystemBarSide side})>[];
+  }
+  return <({int monitorId, Rect rect, SystemBarSide side})>[
+    for (final output in displayLayout.systemBarOutputs)
+      if (DesktopMetrics.systemBarRect(
+        viewSize,
+        displayLayout.systemBarRectFor(output),
+      ) case final rect when !rect.isEmpty)
+        (
+          monitorId: output.monitorId,
+          rect: rect,
+          side: displayLayout.systemBarSide,
+        ),
+  ];
 }
 
 Rect _windowSwitcherStageBounds({
@@ -709,6 +729,7 @@ class _DesktopScene extends StatefulWidget {
     required this.onCancelPanelClose,
     required this.onSchedulePanelClose,
     required this.onLaunchApp,
+    required this.onLaunchLocalApp,
     required this.onActivateWindow,
     required this.onOverviewBarrierTap,
     required this.onBeginOverviewDrag,
@@ -738,6 +759,7 @@ class _DesktopScene extends StatefulWidget {
   final VoidCallback onCancelPanelClose;
   final VoidCallback onSchedulePanelClose;
   final ValueChanged<DesktopApp> onLaunchApp;
+  final ValueChanged<LocalFlutterApplication> onLaunchLocalApp;
   final ValueChanged<DenialWindow> onActivateWindow;
   final ValueChanged<Offset> onOverviewBarrierTap;
   final ValueChanged<DenialWindow> onBeginOverviewDrag;
@@ -835,6 +857,7 @@ class _DesktopSceneState extends State<_DesktopScene> {
     final onCancelPanelClose = widget.onCancelPanelClose;
     final onSchedulePanelClose = widget.onSchedulePanelClose;
     final onLaunchApp = widget.onLaunchApp;
+    final onLaunchLocalApp = widget.onLaunchLocalApp;
     final onActivateWindow = widget.onActivateWindow;
     final onOverviewBarrierTap = widget.onOverviewBarrierTap;
     final onBeginOverviewDrag = widget.onBeginOverviewDrag;
@@ -858,8 +881,7 @@ class _DesktopSceneState extends State<_DesktopScene> {
     final topZ = placements
         .where((placement) => !placement.minimized)
         .fold<int>(0, (value, placement) => math.max(value, placement.z));
-    final (:systemBarRect, :systemBarSide) =
-        _systemBarGeometry(viewSize, displayLayout);
+    final systemBars = _systemBarGeometries(viewSize, displayLayout);
     final launcherRect = DesktopMetrics.launcherRect(
       viewSize,
       outputRect: shellOutputRect,
@@ -878,16 +900,18 @@ class _DesktopSceneState extends State<_DesktopScene> {
     );
     // True fullscreen owns the complete output, so the bar yields instead of
     // floating above the fullscreen surface.
-    final systemBarMonitorId = displayLayout?.systemBarOutput?.monitorId;
-    final fullscreenCoversSystemBar = !desktop.overviewActive &&
-        placements.any(
-          (placement) =>
-              placement.fullscreen &&
-              !placement.minimized &&
-              placement.monitorId == systemBarMonitorId,
-        );
-    final systemBarVisible =
-        !systemBarRect.isEmpty && !fullscreenCoversSystemBar;
+    final visibleSystemBars = desktop.overviewActive
+        ? systemBars
+        : systemBars
+            .where(
+              (bar) => !placements.any(
+                (placement) =>
+                    placement.fullscreen &&
+                    !placement.minimized &&
+                    placement.monitorId == bar.monitorId,
+              ),
+            )
+            .toList(growable: false);
     final canvas = Offset.zero & viewSize;
     final requestedDisplayRect = mainOutputRect?.intersect(canvas);
     final mainDisplayRect =
@@ -923,11 +947,12 @@ class _DesktopSceneState extends State<_DesktopScene> {
                   const _DesktopWidgetCanvas(),
                   // The bar belongs to the wallpaper plane. Any window moved
                   // into its reserved strip paints and receives input above it.
-                  if (systemBarVisible)
+                  for (final bar in visibleSystemBars)
                     Positioned.fromRect(
-                      rect: systemBarRect,
+                      key: ValueKey<String>('system-bar-${bar.monitorId}'),
+                      rect: bar.rect,
                       child: IgnorePointer(
-                        child: DesktopSystemBar(side: systemBarSide),
+                        child: DesktopSystemBar(side: bar.side),
                       ),
                     ),
                   Positioned.fill(
@@ -1001,11 +1026,12 @@ class _DesktopSceneState extends State<_DesktopScene> {
                         inputDebugLabel: 'Desktop application launcher',
                         keyboardPolicy: ShellKeyboardPolicy.capture,
                         visible: desktop.launcherOpen,
-                        child: _DesktopAppLauncher(
+                        child: DesktopApplicationLauncher(
                           searchFocusNode: applicationSearchFocusNode,
                           onEnter: onCancelPanelClose,
                           onExit: onSchedulePanelClose,
                           onLaunch: onLaunchApp,
+                          onLaunchLocal: onLaunchLocalApp,
                         ),
                       ),
                     ),
@@ -1805,9 +1831,10 @@ class _DesktopClosingWindowFrame extends StatelessWidget {
                 ? const EdgeInsets.all(DesktopMetrics.frameBorder)
                 : EdgeInsets.zero,
             child: SizedBox.expand(
-              child: _DesktopSurfaceTexture(
+              child: _DesktopWindowContent(
                 window: closing.window,
                 smooth: false,
+                active: false,
               ),
             ),
           ),
@@ -1817,7 +1844,7 @@ class _DesktopClosingWindowFrame extends StatelessWidget {
   }
 }
 
-class _DesktopWindowFrame extends StatelessWidget {
+class _DesktopWindowFrame extends ConsumerWidget {
   const _DesktopWindowFrame({
     super.key,
     required this.window,
@@ -1852,13 +1879,18 @@ class _DesktopWindowFrame extends StatelessWidget {
   final VoidCallback onOverviewDragCancel;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     DesktopWindowRenderTelemetry.recordWindowBuild(
       windowId: window.objectId,
       textureId: window.textureId,
       label: window.appId.isEmpty ? window.displayTitle : window.appId,
     );
     final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+    final focusedWindowBorderColor = ref.watch(
+      shellAppearanceProvider.select(
+        (appearance) => appearance.focusedWindowBorderColor,
+      ),
+    );
     final transformed = overview || switching;
     final duration = motionDuration;
     final fullscreenVisual = placement.fullscreen && !transformed;
@@ -1920,9 +1952,10 @@ class _DesktopWindowFrame extends StatelessWidget {
                                   )
                                 : EdgeInsets.zero,
                             child: SizedBox.expand(
-                              child: _DesktopSurfaceTexture(
+                              child: _DesktopWindowContent(
                                 window: window,
                                 smooth: transformed || resizing,
+                                active: active && !minimized,
                               ),
                             ),
                           ),
@@ -1937,7 +1970,7 @@ class _DesktopWindowFrame extends StatelessWidget {
                             color: window.pinned
                                 ? ShellColors.pinnedWindowBorder
                                 : active
-                                    ? ShellColors.focusedWindowBorder
+                                    ? focusedWindowBorderColor
                                     : ShellColors.hairlineWindow,
                             devicePixelRatio: devicePixelRatio,
                           ),
@@ -2126,6 +2159,30 @@ class _DesktopSurfaceTexture extends StatefulWidget {
 
   @override
   State<_DesktopSurfaceTexture> createState() => _DesktopSurfaceTextureState();
+}
+
+class _DesktopWindowContent extends StatelessWidget {
+  const _DesktopWindowContent({
+    required this.window,
+    required this.smooth,
+    required this.active,
+  });
+
+  final DenialWindow window;
+  final bool smooth;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    if (window.isLocalFlutter) {
+      return LocalFlutterWindowHost(
+        key: ValueKey<int>(window.objectId),
+        window: window,
+        active: active,
+      );
+    }
+    return _DesktopSurfaceTexture(window: window, smooth: smooth);
+  }
 }
 
 class _DesktopSurfaceTextureState extends State<_DesktopSurfaceTexture> {
@@ -3252,25 +3309,77 @@ class _DashboardValueButtonState extends State<_DashboardValueButton> {
   }
 }
 
-class _DesktopAppLauncher extends ConsumerStatefulWidget {
-  const _DesktopAppLauncher({
+@immutable
+class _DesktopLauncherEntry {
+  const _DesktopLauncherEntry._({
+    required this.id,
+    required this.name,
+    required this.categories,
+    required this.iconPath,
+    required this.icon,
+    required this.desktopApp,
+    required this.localApp,
+  });
+
+  factory _DesktopLauncherEntry.desktop(DesktopApp app) {
+    return _DesktopLauncherEntry._(
+      id: app.id,
+      name: app.name,
+      categories: app.categories,
+      iconPath: app.iconPath,
+      icon: null,
+      desktopApp: app,
+      localApp: null,
+    );
+  }
+
+  factory _DesktopLauncherEntry.local(
+    LocalFlutterApplication app,
+    BuildContext context,
+  ) {
+    return _DesktopLauncherEntry._(
+      id: app.id,
+      name: app.titleFor(context),
+      categories: app.categoriesFor(context),
+      iconPath: null,
+      icon: app.icon,
+      desktopApp: null,
+      localApp: app,
+    );
+  }
+
+  final String id;
+  final String name;
+  final List<String> categories;
+  final String? iconPath;
+  final IconData? icon;
+  final DesktopApp? desktopApp;
+  final LocalFlutterApplication? localApp;
+}
+
+class DesktopApplicationLauncher extends ConsumerStatefulWidget {
+  const DesktopApplicationLauncher({
+    super.key,
     required this.searchFocusNode,
     required this.onEnter,
     required this.onExit,
     required this.onLaunch,
+    required this.onLaunchLocal,
   });
 
   final FocusNode searchFocusNode;
   final VoidCallback onEnter;
   final VoidCallback onExit;
   final ValueChanged<DesktopApp> onLaunch;
+  final ValueChanged<LocalFlutterApplication> onLaunchLocal;
 
   @override
-  ConsumerState<_DesktopAppLauncher> createState() =>
-      _DesktopAppLauncherState();
+  ConsumerState<DesktopApplicationLauncher> createState() =>
+      _DesktopApplicationLauncherState();
 }
 
-class _DesktopAppLauncherState extends ConsumerState<_DesktopAppLauncher> {
+class _DesktopApplicationLauncherState
+    extends ConsumerState<DesktopApplicationLauncher> {
   late final TextEditingController _searchController;
 
   @override
@@ -3299,9 +3408,22 @@ class _DesktopAppLauncherState extends ConsumerState<_DesktopAppLauncher> {
     widget.searchFocusNode.requestFocus();
   }
 
+  void _launch(_DesktopLauncherEntry entry) {
+    final desktopApp = entry.desktopApp;
+    if (desktopApp != null) {
+      widget.onLaunch(desktopApp);
+      return;
+    }
+    widget.onLaunchLocal(entry.localApp!);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final allApps = _installedApps(ref.watch(homeGridControllerProvider));
+    final allApps = _installedApps(
+      context,
+      ref.watch(homeGridControllerProvider),
+      ref.watch(localFlutterApplicationRegistryProvider).applications,
+    );
     final apps = _filterInstalledApps(allApps, _searchController.text);
     final searching = _searchController.text.trim().isNotEmpty;
     return MouseRegion(
@@ -3347,7 +3469,7 @@ class _DesktopAppLauncherState extends ConsumerState<_DesktopAppLauncher> {
                   onClear: _clearSearch,
                   onSubmit: () {
                     if (searching && apps.isNotEmpty) {
-                      widget.onLaunch(apps.first);
+                      _launch(apps.first);
                     }
                   },
                 ),
@@ -3367,9 +3489,12 @@ class _DesktopAppLauncherState extends ConsumerState<_DesktopAppLauncher> {
                               ),
                               itemCount: apps.length,
                               itemBuilder: (context, index) => _DesktopAppTile(
+                                key: ValueKey<String>(
+                                  'desktop-app-${apps[index].id}',
+                                ),
                                 app: apps[index],
                                 selected: searching && index == 0,
-                                onTap: () => widget.onLaunch(apps[index]),
+                                onTap: () => _launch(apps[index]),
                               ),
                             ),
                 ),
@@ -3515,12 +3640,13 @@ class _DesktopAppSearchEmptyState extends StatelessWidget {
 
 class _DesktopAppTile extends StatefulWidget {
   const _DesktopAppTile({
+    super.key,
     required this.app,
     required this.selected,
     required this.onTap,
   });
 
-  final DesktopApp app;
+  final _DesktopLauncherEntry app;
   final bool selected;
   final VoidCallback onTap;
 
@@ -3564,7 +3690,15 @@ class _DesktopAppTileState extends State<_DesktopAppTile> {
                 SizedBox(
                   width: 54,
                   height: 54,
-                  child: AppIconImage(iconPath: widget.app.iconPath),
+                  child: widget.app.icon != null
+                      ? ExcludeSemantics(
+                          child: Icon(
+                            widget.app.icon!,
+                            size: 46,
+                            color: ShellColors.accent,
+                          ),
+                        )
+                      : AppIconImage(iconPath: widget.app.iconPath),
                 ),
                 const SizedBox(height: 8),
                 Expanded(
@@ -3608,21 +3742,28 @@ IconData _bluetoothIcon(String icon) {
   return Icons.bluetooth_rounded;
 }
 
-List<DesktopApp> _installedApps(AsyncValue<HomeGridState> state) {
-  final byId = <String, DesktopApp>{};
+List<_DesktopLauncherEntry> _installedApps(
+  BuildContext context,
+  AsyncValue<HomeGridState> state,
+  Iterable<LocalFlutterApplication> localApps,
+) {
+  final byId = <String, _DesktopLauncherEntry>{};
   for (final item in state.asData?.value.slots.whereType<HomeGridItem>() ??
       const <HomeGridItem>[]) {
     if (item.app case final app?) {
-      byId[app.id] = app;
+      byId['desktop:${app.id}'] = _DesktopLauncherEntry.desktop(app);
     }
+  }
+  for (final app in localApps) {
+    byId['local:${app.id}'] = _DesktopLauncherEntry.local(app, context);
   }
   final apps = byId.values.toList(growable: false)
     ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
   return apps;
 }
 
-List<DesktopApp> _filterInstalledApps(
-  List<DesktopApp> apps,
+List<_DesktopLauncherEntry> _filterInstalledApps(
+  List<_DesktopLauncherEntry> apps,
   String query,
 ) {
   final normalizedQuery = query.trim().toLowerCase();

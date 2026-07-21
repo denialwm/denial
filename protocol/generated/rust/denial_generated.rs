@@ -112,6 +112,91 @@ impl<'a> flatbuffers::Verifiable for ObjectKind {
 
 impl flatbuffers::SimpleToVerifyInSlice for ObjectKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_WINDOW_CONTENT_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_WINDOW_CONTENT_KIND: u8 = 1;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_WINDOW_CONTENT_KIND: [WindowContentKind; 2] = [
+  WindowContentKind::SurfaceTree,
+  WindowContentKind::LocalFlutter,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct WindowContentKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl WindowContentKind {
+  pub const SurfaceTree: Self = Self(0);
+  pub const LocalFlutter: Self = Self(1);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 1;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::SurfaceTree,
+    Self::LocalFlutter,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::SurfaceTree => Some("SurfaceTree"),
+      Self::LocalFlutter => Some("LocalFlutter"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for WindowContentKind {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for WindowContentKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for WindowContentKind {
+    type Output = WindowContentKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { flatbuffers::emplace_scalar::<u8>(dst, self.0); }
+    }
+}
+
+impl flatbuffers::EndianScalar for WindowContentKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for WindowContentKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for WindowContentKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SURFACE_ROLE: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MAX_SURFACE_ROLE: u8 = 2;
@@ -203,15 +288,17 @@ impl flatbuffers::SimpleToVerifyInSlice for SurfaceRole {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_WINDOW_REQUEST_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_WINDOW_REQUEST_KIND: u8 = 4;
+pub const ENUM_MAX_WINDOW_REQUEST_KIND: u8 = 6;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_WINDOW_REQUEST_KIND: [WindowRequestKind; 5] = [
+pub const ENUM_VALUES_WINDOW_REQUEST_KIND: [WindowRequestKind; 7] = [
   WindowRequestKind::ListWindows,
   WindowRequestKind::GetDisplayLayout,
   WindowRequestKind::CloseWindow,
   WindowRequestKind::FocusWindow,
   WindowRequestKind::ConfigureWindow,
+  WindowRequestKind::CreateLocalWindow,
+  WindowRequestKind::ConfigureSystemBar,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -224,15 +311,19 @@ impl WindowRequestKind {
   pub const CloseWindow: Self = Self(2);
   pub const FocusWindow: Self = Self(3);
   pub const ConfigureWindow: Self = Self(4);
+  pub const CreateLocalWindow: Self = Self(5);
+  pub const ConfigureSystemBar: Self = Self(6);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 4;
+  pub const ENUM_MAX: u8 = 6;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::ListWindows,
     Self::GetDisplayLayout,
     Self::CloseWindow,
     Self::FocusWindow,
     Self::ConfigureWindow,
+    Self::CreateLocalWindow,
+    Self::ConfigureSystemBar,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -242,6 +333,8 @@ impl WindowRequestKind {
       Self::CloseWindow => Some("CloseWindow"),
       Self::FocusWindow => Some("FocusWindow"),
       Self::ConfigureWindow => Some("ConfigureWindow"),
+      Self::CreateLocalWindow => Some("CreateLocalWindow"),
+      Self::ConfigureSystemBar => Some("ConfigureSystemBar"),
       _ => None,
     }
   }
@@ -2562,6 +2655,7 @@ impl<'a> Window<'a> {
   pub const VT_SUPPRESS_ANIMATIONS: flatbuffers::VOffsetT = 68;
   pub const VT_SERVER_SIDE_DECORATED: flatbuffers::VOffsetT = 70;
   pub const VT_OPACITY: flatbuffers::VOffsetT = 72;
+  pub const VT_CONTENT_KIND: flatbuffers::VOffsetT = 74;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -2603,6 +2697,7 @@ impl<'a> Window<'a> {
     builder.add_width(args.width);
     if let Some(x) = args.app_id { builder.add_app_id(x); }
     if let Some(x) = args.title { builder.add_title(x); }
+    builder.add_content_kind(args.content_kind);
     builder.add_server_side_decorated(args.server_side_decorated);
     builder.add_suppress_animations(args.suppress_animations);
     builder.add_pinned(args.pinned);
@@ -2857,6 +2952,13 @@ impl<'a> Window<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<f32>(Window::VT_OPACITY, Some(1.0)).unwrap()}
   }
+  #[inline]
+  pub fn content_kind(&self) -> WindowContentKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<WindowContentKind>(Window::VT_CONTENT_KIND, Some(WindowContentKind::SurfaceTree)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for Window<'_> {
@@ -2901,6 +3003,7 @@ impl flatbuffers::Verifiable for Window<'_> {
      .visit_field::<bool>("suppress_animations", Self::VT_SUPPRESS_ANIMATIONS, false)?
      .visit_field::<bool>("server_side_decorated", Self::VT_SERVER_SIDE_DECORATED, false)?
      .visit_field::<f32>("opacity", Self::VT_OPACITY, false)?
+     .visit_field::<WindowContentKind>("content_kind", Self::VT_CONTENT_KIND, false)?
      .finish();
     Ok(())
   }
@@ -2941,6 +3044,7 @@ pub struct WindowArgs<'a> {
     pub suppress_animations: bool,
     pub server_side_decorated: bool,
     pub opacity: f32,
+    pub content_kind: WindowContentKind,
 }
 impl<'a> Default for WindowArgs<'a> {
   #[inline]
@@ -2981,6 +3085,7 @@ impl<'a> Default for WindowArgs<'a> {
       suppress_animations: false,
       server_side_decorated: true,
       opacity: 1.0,
+      content_kind: WindowContentKind::SurfaceTree,
     }
   }
 }
@@ -3131,6 +3236,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WindowBuilder<'a, 'b, A> {
     self.fbb_.push_slot::<f32>(Window::VT_OPACITY, opacity, 1.0);
   }
   #[inline]
+  pub fn add_content_kind(&mut self, content_kind: WindowContentKind) {
+    self.fbb_.push_slot::<WindowContentKind>(Window::VT_CONTENT_KIND, content_kind, WindowContentKind::SurfaceTree);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WindowBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     WindowBuilder {
@@ -3183,6 +3292,7 @@ impl core::fmt::Debug for Window<'_> {
       ds.field("suppress_animations", &self.suppress_animations());
       ds.field("server_side_decorated", &self.server_side_decorated());
       ds.field("opacity", &self.opacity());
+      ds.field("content_kind", &self.content_kind());
       ds.finish()
   }
 }
@@ -3509,6 +3619,7 @@ impl<'a> DisplayLayout<'a> {
   pub const VT_OUTPUTS: flatbuffers::VOffsetT = 20;
   pub const VT_SYSTEM_BAR_THICKNESS: flatbuffers::VOffsetT = 22;
   pub const VT_MAXIMIZE_PADDING: flatbuffers::VOffsetT = 24;
+  pub const VT_SYSTEM_BAR_MONITOR_IDS: flatbuffers::VOffsetT = 26;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -3526,6 +3637,7 @@ impl<'a> DisplayLayout<'a> {
     builder.add_ticker_monitor_id(args.ticker_monitor_id);
     builder.add_engine_scale(args.engine_scale);
     builder.add_epoch(args.epoch);
+    if let Some(x) = args.system_bar_monitor_ids { builder.add_system_bar_monitor_ids(x); }
     if let Some(x) = args.outputs { builder.add_outputs(x); }
     if let Some(x) = args.pixel_size { builder.add_pixel_size(x); }
     if let Some(x) = args.logical_size { builder.add_logical_size(x); }
@@ -3612,6 +3724,13 @@ impl<'a> DisplayLayout<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<f64>(DisplayLayout::VT_MAXIMIZE_PADDING, Some(0.0)).unwrap()}
   }
+  #[inline]
+  pub fn system_bar_monitor_ids(&self) -> Option<flatbuffers::Vector<'a, i64>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, i64>>>(DisplayLayout::VT_SYSTEM_BAR_MONITOR_IDS, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for DisplayLayout<'_> {
@@ -3632,6 +3751,7 @@ impl flatbuffers::Verifiable for DisplayLayout<'_> {
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<DisplayOutput>>>>("outputs", Self::VT_OUTPUTS, false)?
      .visit_field::<f64>("system_bar_thickness", Self::VT_SYSTEM_BAR_THICKNESS, false)?
      .visit_field::<f64>("maximize_padding", Self::VT_MAXIMIZE_PADDING, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, i64>>>("system_bar_monitor_ids", Self::VT_SYSTEM_BAR_MONITOR_IDS, false)?
      .finish();
     Ok(())
   }
@@ -3648,6 +3768,7 @@ pub struct DisplayLayoutArgs<'a> {
     pub outputs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<DisplayOutput<'a>>>>>,
     pub system_bar_thickness: f64,
     pub maximize_padding: f64,
+    pub system_bar_monitor_ids: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, i64>>>,
 }
 impl<'a> Default for DisplayLayoutArgs<'a> {
   #[inline]
@@ -3664,6 +3785,7 @@ impl<'a> Default for DisplayLayoutArgs<'a> {
       outputs: None,
       system_bar_thickness: 0.0,
       maximize_padding: 0.0,
+      system_bar_monitor_ids: None,
     }
   }
 }
@@ -3718,6 +3840,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> DisplayLayoutBuilder<'a, 'b, A>
     self.fbb_.push_slot::<f64>(DisplayLayout::VT_MAXIMIZE_PADDING, maximize_padding, 0.0);
   }
   #[inline]
+  pub fn add_system_bar_monitor_ids(&mut self, system_bar_monitor_ids: flatbuffers::WIPOffset<flatbuffers::Vector<'b , i64>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(DisplayLayout::VT_SYSTEM_BAR_MONITOR_IDS, system_bar_monitor_ids);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> DisplayLayoutBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     DisplayLayoutBuilder {
@@ -3746,6 +3872,7 @@ impl core::fmt::Debug for DisplayLayout<'_> {
       ds.field("outputs", &self.outputs());
       ds.field("system_bar_thickness", &self.system_bar_thickness());
       ds.field("maximize_padding", &self.maximize_padding());
+      ds.field("system_bar_monitor_ids", &self.system_bar_monitor_ids());
       ds.finish()
   }
 }
@@ -3768,6 +3895,10 @@ impl<'a> WindowRequest<'a> {
   pub const VT_KIND: flatbuffers::VOffsetT = 4;
   pub const VT_WINDOW_ID: flatbuffers::VOffsetT = 6;
   pub const VT_GEOMETRY: flatbuffers::VOffsetT = 8;
+  pub const VT_APP_ID: flatbuffers::VOffsetT = 10;
+  pub const VT_TITLE: flatbuffers::VOffsetT = 12;
+  pub const VT_SYSTEM_BAR_SIDE: flatbuffers::VOffsetT = 14;
+  pub const VT_SYSTEM_BAR_MONITOR_IDS: flatbuffers::VOffsetT = 16;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -3780,7 +3911,11 @@ impl<'a> WindowRequest<'a> {
   ) -> flatbuffers::WIPOffset<WindowRequest<'bldr>> {
     let mut builder = WindowRequestBuilder::new(_fbb);
     builder.add_window_id(args.window_id);
+    if let Some(x) = args.system_bar_monitor_ids { builder.add_system_bar_monitor_ids(x); }
+    if let Some(x) = args.title { builder.add_title(x); }
+    if let Some(x) = args.app_id { builder.add_app_id(x); }
     if let Some(x) = args.geometry { builder.add_geometry(x); }
+    builder.add_system_bar_side(args.system_bar_side);
     builder.add_kind(args.kind);
     builder.finish()
   }
@@ -3807,6 +3942,34 @@ impl<'a> WindowRequest<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<WireRect>(WindowRequest::VT_GEOMETRY, None)}
   }
+  #[inline]
+  pub fn app_id(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(WindowRequest::VT_APP_ID, None)}
+  }
+  #[inline]
+  pub fn title(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(WindowRequest::VT_TITLE, None)}
+  }
+  #[inline]
+  pub fn system_bar_side(&self) -> SystemBarSide {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<SystemBarSide>(WindowRequest::VT_SYSTEM_BAR_SIDE, Some(SystemBarSide::Top)).unwrap()}
+  }
+  #[inline]
+  pub fn system_bar_monitor_ids(&self) -> Option<flatbuffers::Vector<'a, i64>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, i64>>>(WindowRequest::VT_SYSTEM_BAR_MONITOR_IDS, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for WindowRequest<'_> {
@@ -3819,6 +3982,10 @@ impl flatbuffers::Verifiable for WindowRequest<'_> {
      .visit_field::<WindowRequestKind>("kind", Self::VT_KIND, false)?
      .visit_field::<u64>("window_id", Self::VT_WINDOW_ID, false)?
      .visit_field::<WireRect>("geometry", Self::VT_GEOMETRY, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("app_id", Self::VT_APP_ID, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("title", Self::VT_TITLE, false)?
+     .visit_field::<SystemBarSide>("system_bar_side", Self::VT_SYSTEM_BAR_SIDE, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, i64>>>("system_bar_monitor_ids", Self::VT_SYSTEM_BAR_MONITOR_IDS, false)?
      .finish();
     Ok(())
   }
@@ -3827,6 +3994,10 @@ pub struct WindowRequestArgs<'a> {
     pub kind: WindowRequestKind,
     pub window_id: u64,
     pub geometry: Option<&'a WireRect>,
+    pub app_id: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub title: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub system_bar_side: SystemBarSide,
+    pub system_bar_monitor_ids: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, i64>>>,
 }
 impl<'a> Default for WindowRequestArgs<'a> {
   #[inline]
@@ -3835,6 +4006,10 @@ impl<'a> Default for WindowRequestArgs<'a> {
       kind: WindowRequestKind::ListWindows,
       window_id: 0,
       geometry: None,
+      app_id: None,
+      title: None,
+      system_bar_side: SystemBarSide::Top,
+      system_bar_monitor_ids: None,
     }
   }
 }
@@ -3857,6 +4032,22 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WindowRequestBuilder<'a, 'b, A>
     self.fbb_.push_slot_always::<&WireRect>(WindowRequest::VT_GEOMETRY, geometry);
   }
   #[inline]
+  pub fn add_app_id(&mut self, app_id: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WindowRequest::VT_APP_ID, app_id);
+  }
+  #[inline]
+  pub fn add_title(&mut self, title: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WindowRequest::VT_TITLE, title);
+  }
+  #[inline]
+  pub fn add_system_bar_side(&mut self, system_bar_side: SystemBarSide) {
+    self.fbb_.push_slot::<SystemBarSide>(WindowRequest::VT_SYSTEM_BAR_SIDE, system_bar_side, SystemBarSide::Top);
+  }
+  #[inline]
+  pub fn add_system_bar_monitor_ids(&mut self, system_bar_monitor_ids: flatbuffers::WIPOffset<flatbuffers::Vector<'b , i64>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WindowRequest::VT_SYSTEM_BAR_MONITOR_IDS, system_bar_monitor_ids);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WindowRequestBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     WindowRequestBuilder {
@@ -3877,6 +4068,10 @@ impl core::fmt::Debug for WindowRequest<'_> {
       ds.field("kind", &self.kind());
       ds.field("window_id", &self.window_id());
       ds.field("geometry", &self.geometry());
+      ds.field("app_id", &self.app_id());
+      ds.field("title", &self.title());
+      ds.field("system_bar_side", &self.system_bar_side());
+      ds.field("system_bar_monitor_ids", &self.system_bar_monitor_ids());
       ds.finish()
   }
 }

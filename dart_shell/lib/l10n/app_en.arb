@@ -1,0 +1,189 @@
+{
+  "@@locale": "en",
+  "settingsApplicationTitle": "Settings",
+  "@settingsApplicationTitle": {
+    "description": "Display name of the built-in Denial Settings application."
+  },
+  "settingsApplicationCategorySystem": "System",
+  "@settingsApplicationCategorySystem": {
+    "description": "Search category for system-level settings."
+  },
+  "settingsApplicationCategoryAppearance": "Appearance",
+  "@settingsApplicationCategoryAppearance": {
+    "description": "Search category for appearance settings."
+  },
+  "settingsApplicationCategoryPreferences": "Preferences",
+  "@settingsApplicationCategoryPreferences": {
+    "description": "Search category used to find the Settings application."
+  },
+  "settingsApplicationSemanticsLabel": "Denial Settings",
+  "@settingsApplicationSemanticsLabel": {
+    "description": "Accessibility label for the complete Settings application."
+  },
+  "settingsHeaderContext": "DENIAL / SYSTEM",
+  "@settingsHeaderContext": {
+    "description": "Compact product and section context shown in the Settings header."
+  },
+  "settingsAppearanceSection": "APPEARANCE",
+  "@settingsAppearanceSection": {
+    "description": "Uppercase label for the appearance settings section."
+  },
+  "settingsAppearanceTitle": "Make the desktop feel like yours.",
+  "@settingsAppearanceTitle": {
+    "description": "Heading introducing personalization controls."
+  },
+  "settingsAppearanceDescription": "Changes made here are reflected across the desktop in real time.",
+  "@settingsAppearanceDescription": {
+    "description": "Explanation that shell appearance changes are applied immediately."
+  },
+  "settingsLiveChangesSemanticsLabel": "Changes are applied in real time",
+  "@settingsLiveChangesSemanticsLabel": {
+    "description": "Accessibility label for the live-change status badge."
+  },
+  "settingsLiveBadge": "LIVE",
+  "@settingsLiveBadge": {
+    "description": "Short uppercase status label indicating immediate application."
+  },
+  "settingsFocusedBorderTitle": "Focused window border",
+  "@settingsFocusedBorderTitle": {
+    "description": "Title of the focused-window border color setting."
+  },
+  "settingsFocusedBorderDescription": "Choose the accent that identifies the window currently receiving your input.",
+  "@settingsFocusedBorderDescription": {
+    "description": "Explanation of the focused-window border color."
+  },
+  "settingsFocusedBorderPreviewSemanticsLabel": "Preview of the focused window border",
+  "@settingsFocusedBorderPreviewSemanticsLabel": {
+    "description": "Accessibility label for the focused-window border preview."
+  },
+  "settingsFocusedBorderChangeSemanticsLabel": "Change the focused window border color",
+  "@settingsFocusedBorderChangeSemanticsLabel": {
+    "description": "Accessibility label for the button that opens the border color picker."
+  },
+  "settingsSystemBarTitle": "Desktop system bar",
+  "@settingsSystemBarTitle": {
+    "description": "Title of the system bar placement setting."
+  },
+  "settingsSystemBarDescription": "Place the bar on any edge and show an independent copy on every selected display.",
+  "@settingsSystemBarDescription": {
+    "description": "Explanation of system bar edge and multi-display behavior."
+  },
+  "settingsSystemBarEdgeLabel": "EDGE",
+  "@settingsSystemBarEdgeLabel": {
+    "description": "Uppercase label above the system bar edge choices."
+  },
+  "settingsSystemBarEdgeTop": "Top",
+  "@settingsSystemBarEdgeTop": {
+    "description": "Label for placing the system bar at the top edge."
+  },
+  "settingsSystemBarEdgeBottom": "Bottom",
+  "@settingsSystemBarEdgeBottom": {
+    "description": "Label for placing the system bar at the bottom edge."
+  },
+  "settingsSystemBarEdgeLeft": "Left",
+  "@settingsSystemBarEdgeLeft": {
+    "description": "Label for placing the system bar at the left edge."
+  },
+  "settingsSystemBarEdgeRight": "Right",
+  "@settingsSystemBarEdgeRight": {
+    "description": "Label for placing the system bar at the right edge."
+  },
+  "settingsSystemBarDisplaysLabel": "DISPLAYS",
+  "@settingsSystemBarDisplaysLabel": {
+    "description": "Uppercase label above the system bar display choices."
+  },
+  "settingsSystemBarCloneHint": "Each selected display gets its own bar. The bar never spans displays.",
+  "@settingsSystemBarCloneHint": {
+    "description": "Clarifies that multiple bars are cloned rather than stretched."
+  },
+  "settingsSystemBarDisplaysSelected": "{count, plural, =1{1 display selected} other{{count} displays selected}}",
+  "@settingsSystemBarDisplaysSelected": {
+    "description": "Count of displays selected to show a system bar.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsSystemBarMainDisplay": "MAIN",
+  "@settingsSystemBarMainDisplay": {
+    "description": "Badge identifying the compositor's main display."
+  },
+  "settingsSystemBarDisplayDetails": "{width} × {height} · {scale}×",
+  "@settingsSystemBarDisplayDetails": {
+    "description": "Resolution and scale shown for one display.",
+    "placeholders": {
+      "width": {
+        "type": "int"
+      },
+      "height": {
+        "type": "int"
+      },
+      "scale": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsSystemBarDisplaySelectedSemantics": "System bar shown on {displayName}",
+  "@settingsSystemBarDisplaySelectedSemantics": {
+    "description": "Accessibility value for a selected system bar display.",
+    "placeholders": {
+      "displayName": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsSystemBarDisplayNotSelectedSemantics": "System bar not shown on {displayName}",
+  "@settingsSystemBarDisplayNotSelectedSemantics": {
+    "description": "Accessibility value for an unselected system bar display.",
+    "placeholders": {
+      "displayName": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsSystemBarLastDisplayHint": "Select another display before removing this one.",
+  "@settingsSystemBarLastDisplayHint": {
+    "description": "Accessibility hint explaining why the last selected display cannot be removed."
+  },
+  "settingsSystemBarUnavailable": "Display information is not available yet.",
+  "@settingsSystemBarUnavailable": {
+    "description": "Message shown while display topology is unavailable."
+  },
+  "settingsColorPickerRouteLabel": "Focused window border color picker",
+  "@settingsColorPickerRouteLabel": {
+    "description": "Accessibility route name for the focused-window border color picker."
+  },
+  "settingsColorPickerTitle": "Border color",
+  "@settingsColorPickerTitle": {
+    "description": "Title displayed in the border color picker."
+  },
+  "settingsColorPickerInstructions": "Drag to choose a color. Use the arrow keys for fine adjustments.",
+  "@settingsColorPickerInstructions": {
+    "description": "Pointer and keyboard instructions displayed below the color wheel."
+  },
+  "settingsColorPickerReset": "Reset",
+  "@settingsColorPickerReset": {
+    "description": "Button label that restores the default border color."
+  },
+  "settingsColorPickerDone": "Done",
+  "@settingsColorPickerDone": {
+    "description": "Button label that closes the color picker."
+  },
+  "settingsColorPickerCloseSemanticsLabel": "Close color picker",
+  "@settingsColorPickerCloseSemanticsLabel": {
+    "description": "Accessibility label for the icon button that closes the color picker."
+  },
+  "settingsColorWheelSemanticsLabel": "Focused window border color",
+  "@settingsColorWheelSemanticsLabel": {
+    "description": "Accessibility label for the HSV border color wheel."
+  },
+  "settingsColorWheelNextHue": "Next hue",
+  "@settingsColorWheelNextHue": {
+    "description": "Accessibility value announced when increasing the color wheel."
+  },
+  "settingsColorWheelPreviousHue": "Previous hue",
+  "@settingsColorWheelPreviousHue": {
+    "description": "Accessibility value announced when decreasing the color wheel."
+  }
+}

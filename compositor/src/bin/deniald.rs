@@ -15,6 +15,9 @@ mod hotplug_transaction;
 mod kms_state;
 #[path = "deniald/lifecycle.rs"]
 mod lifecycle;
+#[cfg(feature = "flutter")]
+#[path = "deniald/local_windows.rs"]
+mod local_windows;
 #[path = "deniald/native_shortcut.rs"]
 mod native_shortcut;
 #[path = "deniald/options.rs"]
@@ -208,11 +211,21 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
                 SessionEvent::ActivateSession => state.lifecycle.activate_session(),
             })?;
         event_loop.handle().insert_source(
-            Signals::new(&[Signal::SIGINT, Signal::SIGTERM])?,
+            Signals::new(&[
+                Signal::SIGINT,
+                Signal::SIGTERM,
+                #[cfg(feature = "flutter")]
+                Signal::SIGUSR1,
+            ])?,
             |event, _, state| {
                 let reason = match event.signal() {
                     Signal::SIGINT => ShutdownReason::Interrupt,
                     Signal::SIGTERM => ShutdownReason::Terminate,
+                    #[cfg(feature = "flutter")]
+                    Signal::SIGUSR1 => {
+                        state.flutter_reload_requested = true;
+                        return;
+                    }
                     _ => return,
                 };
                 state.lifecycle.request_shutdown(reason);
@@ -748,6 +761,8 @@ struct RuntimeState {
     #[cfg(feature = "flutter")]
     flutter_channel_closed: bool,
     #[cfg(feature = "flutter")]
+    flutter_reload_requested: bool,
+    #[cfg(feature = "flutter")]
     flutter_active: bool,
     #[cfg(feature = "flutter")]
     authentication: Option<Arc<authentication::AuthenticationController>>,
@@ -1069,6 +1084,7 @@ fn run_frame_loop(
                 swapchain.current_framebuffer(),
                 event_loop,
                 &mut events,
+                flutter_launcher.as_deref_mut(),
             )?
             else {
                 return Ok(swapchain.current_framebuffer());
@@ -1585,12 +1601,75 @@ fn run_flutter_event_loop(
                         .ok_or("Flutter runtime was not restarted after topology change")?,
                     &mut events,
                 )?;
+                if events.flutter_reload_requested {
+                    events.flutter_reload_requested = false;
+                    info!(
+                        generation = flutter_launcher.generation,
+                        "loaded the refreshed Flutter bundle during topology restart"
+                    );
+                }
                 // A pause/resume serviced inside the topology transaction was
                 // already absorbed by its synchronous candidate commit and the
                 // freshly created scheduler.
                 events.scanout_rebased = false;
                 continue;
             }
+        }
+
+        if events.flutter_reload_requested {
+            if scheduler.has_pending_scanout_work() {
+                // Stop servicing the producer while its last atlas reaches
+                // every affected CRTC. A ready fence or page flip will wake
+                // this loop through calloop, without disturbing clients or
+                // the graphical session.
+                scheduler.submit_ready(drm, swapchain, scanouts, &mut events)?;
+                let now = Instant::now();
+                let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
+                    Duration::from_millis(50).min(deadline.saturating_duration_since(now))
+                });
+                event_loop.dispatch(timeout, &mut events)?;
+                continue;
+            }
+
+            scheduler.converge_for_topology(
+                flutter
+                    .as_ref()
+                    .ok_or("Flutter runtime disappeared before bundle refresh")?,
+                drm,
+                swapchain,
+                scanouts,
+                &mut events,
+            )?;
+            retired_output_flips =
+                retired_output_flips.saturating_add(scheduler.presented_frames());
+            retired_repeated_flips =
+                retired_repeated_flips.saturating_add(scheduler.repeated_frames());
+            retired_superseded_ready_frames =
+                retired_superseded_ready_frames.saturating_add(scheduler.superseded_ready_frames());
+            reload_flutter_runtime(
+                renderer,
+                swapchain,
+                scanouts,
+                topology,
+                &mut events,
+                &mut flutter,
+                flutter_launcher,
+            )?;
+            scheduler = output_scheduler::OutputScheduler::new(
+                scanouts,
+                swapchain.current,
+                swapchain.buffers.len(),
+                flutter
+                    .as_mut()
+                    .ok_or("Flutter runtime was not restarted after bundle refresh")?,
+                &mut events,
+            )?;
+            events.flutter_reload_requested = false;
+            info!(
+                generation = flutter_launcher.generation,
+                "refreshed Flutter bundle without restarting the compositor session"
+            );
+            continue;
         }
 
         let runtime = flutter
@@ -1603,6 +1682,7 @@ fn run_flutter_event_loop(
         runtime.process_events(events.flutter_events.drain(..))?;
         synchronize_authentication_boundary(&mut events);
         synchronize_system_control_events(runtime, &mut events)?;
+        synchronize_system_bar_configuration(runtime, &mut events, Some(flutter_launcher));
         synchronize_flutter_window_management(runtime, &mut events)?;
         synchronize_flutter_scene(runtime, &mut events)?;
         synchronize_flutter_input_layout(runtime, &mut events);
@@ -1700,6 +1780,69 @@ fn run_flutter_event_loop(
         "independently clocked Flutter KMS session complete"
     );
     Ok(swapchain.current_framebuffer())
+}
+
+#[cfg(feature = "flutter")]
+#[allow(clippy::too_many_arguments)]
+fn reload_flutter_runtime(
+    renderer: &mut GlesRenderer,
+    swapchain: &AtlasSwapchain,
+    scanouts: &[Scanout],
+    topology: &TopologyManager,
+    events: &mut RuntimeState,
+    flutter: &mut Option<flutter_runtime::FlutterRuntime>,
+    flutter_launcher: &mut FlutterLauncher,
+) -> Result<(), Box<dyn Error>> {
+    let snapshot = topology.snapshot();
+    let atlas = AtlasPlan::for_snapshot(&snapshot)
+        .ok_or("current topology produced no atlas during Flutter bundle refresh")?;
+    let Some(mut old_runtime) = flutter.take() else {
+        return Err("Flutter runtime disappeared during bundle refresh".into());
+    };
+    let prepare_restart = (|| -> Result<(), Box<dyn Error>> {
+        old_runtime.process_events(events.flutter_events.drain(..))?;
+        synchronize_authentication_boundary(events);
+        synchronize_system_control_events(&mut old_runtime, events)?;
+        synchronize_system_bar_configuration(&mut old_runtime, events, Some(flutter_launcher));
+        synchronize_flutter_window_management(&mut old_runtime, events)?;
+        synchronize_flutter_input_layout(&mut old_runtime, events);
+        Ok(())
+    })();
+    let shutdown = old_runtime.shutdown();
+    events.flutter_events.clear();
+    match (prepare_restart, shutdown) {
+        (Ok(()), Ok(())) => {}
+        (Err(error), Ok(())) => {
+            return Err(format!("Flutter pre-refresh drain failed: {error}").into());
+        }
+        (Ok(()), Err(error)) => {
+            return Err(format!("Flutter shutdown before refresh failed: {error}").into());
+        }
+        (Err(prepare_error), Err(shutdown_error)) => {
+            return Err(format!(
+                "Flutter pre-refresh drain failed: {prepare_error}; shutdown failed: {shutdown_error}"
+            )
+            .into());
+        }
+    }
+
+    *flutter = Some(flutter_launcher.start(renderer, swapchain, scanouts, &snapshot, &atlas)?);
+    events.flutter_input.resize(swapchain.size);
+    if let Some(frontend) = events.wayland.as_mut() {
+        frontend.reset_flutter_input_generation();
+    }
+    events.synchronize_flutter_pointer_position();
+    events.flutter_channel_closed = false;
+    events.scene_sync.invalidate_runtime();
+    events.published_window_ids.clear();
+    events.pending_window_events.clear();
+    events.pending_unpublished_window_events.clear();
+    if let Some(frontend) = events.wayland.as_ref() {
+        events
+            .pending_window_events
+            .extend(frontend.replay_window_state_events());
+    }
+    Ok(())
 }
 
 #[cfg(feature = "flutter")]
@@ -1812,6 +1955,7 @@ fn wait_for_flutter_frame(
     framebuffer: framebuffer::Handle,
     event_loop: &mut EventLoop<'_, RuntimeState>,
     events: &mut RuntimeState,
+    mut flutter_launcher: Option<&mut FlutterLauncher>,
 ) -> Result<Option<flutter_runtime::ReadyFrame>, Box<dyn Error>> {
     let timeout = if frame_number == 1 {
         Duration::from_secs(15)
@@ -1847,6 +1991,7 @@ fn wait_for_flutter_frame(
         runtime.process_events(events.flutter_events.drain(..))?;
         synchronize_authentication_boundary(events);
         synchronize_system_control_events(runtime, events)?;
+        synchronize_system_bar_configuration(runtime, events, flutter_launcher.as_deref_mut());
         synchronize_flutter_window_management(runtime, events)?;
         synchronize_flutter_scene(runtime, events)?;
         synchronize_flutter_input_layout(runtime, events);
@@ -2069,6 +2214,24 @@ fn synchronize_flutter_window_management(
 }
 
 #[cfg(feature = "flutter")]
+fn synchronize_system_bar_configuration(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &mut RuntimeState,
+    flutter_launcher: Option<&mut FlutterLauncher>,
+) {
+    let Some(work_area) = runtime.take_work_area_update() else {
+        return;
+    };
+    if let Some(frontend) = events.wayland.as_mut() {
+        frontend.set_work_area(work_area.clone());
+    }
+    if let Some(launcher) = flutter_launcher {
+        launcher.set_work_area(work_area);
+    }
+    events.scene_sync.mark_dirty();
+}
+
+#[cfg(feature = "flutter")]
 fn send_flutter_window_event(
     runtime: &mut flutter_runtime::FlutterRuntime,
     event: PendingWindowEvent,
@@ -2098,7 +2261,7 @@ fn apply_hotplug_topology(
     event_loop: &mut EventLoop<'_, RuntimeState>,
     events: &mut RuntimeState,
     #[cfg(feature = "flutter")] flutter: &mut Option<flutter_runtime::FlutterRuntime>,
-    #[cfg(feature = "flutter")] flutter_launcher: Option<&mut FlutterLauncher>,
+    #[cfg(feature = "flutter")] mut flutter_launcher: Option<&mut FlutterLauncher>,
 ) -> Result<(), Box<dyn Error>> {
     if outputs.is_empty() {
         return Err("all DRM outputs were disconnected during the frame loop".into());
@@ -2218,6 +2381,11 @@ fn apply_hotplug_topology(
             old_runtime.process_events(events.flutter_events.drain(..))?;
             synchronize_authentication_boundary(events);
             synchronize_system_control_events(&mut old_runtime, events)?;
+            synchronize_system_bar_configuration(
+                &mut old_runtime,
+                events,
+                flutter_launcher.as_deref_mut(),
+            );
             synchronize_flutter_window_management(&mut old_runtime, events)?;
             synchronize_flutter_input_layout(&mut old_runtime, events);
             Ok(())

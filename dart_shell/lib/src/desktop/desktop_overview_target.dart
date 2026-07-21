@@ -25,8 +25,6 @@ class DesktopOverviewTarget {
     required DesktopWorkspaceState workspace,
     required int? foregroundObjectId,
     required int? preferredMonitorId,
-    required Rect systemBarRect,
-    required SystemBarSide systemBarSide,
   }) {
     final canvas = Offset.zero & viewSize;
     if (canvas.isEmpty || workspace.placements.isEmpty) {
@@ -93,9 +91,12 @@ class DesktopOverviewTarget {
     }
 
     var overviewBounds = monitorBounds;
-    if (output?.monitorId == displayLayout?.systemBarMonitorId &&
-        !systemBarRect.isEmpty &&
-        systemBarRect.overlaps(monitorBounds)) {
+    final systemBarRect = output == null
+        ? Rect.zero
+        : displayLayout?.systemBarRectFor(output).intersect(canvas) ??
+            Rect.zero;
+    final systemBarSide = displayLayout?.systemBarSide ?? SystemBarSide.hidden;
+    if (!systemBarRect.isEmpty && systemBarRect.overlaps(monitorBounds)) {
       overviewBounds = switch (systemBarSide) {
         SystemBarSide.left => Rect.fromLTRB(
             systemBarRect.right + DesktopMetrics.panelGap,

@@ -20,7 +20,7 @@ use smithay::xwayland::xwm::ResizeEdge as X11ResizeEdge;
 
 use super::RuntimeState;
 #[cfg(feature = "flutter")]
-use super::wire::{WindowPlacementChange, WindowPlacementPhase};
+use super::wire::{WindowGeometry, WindowPlacementChange, WindowPlacementPhase};
 
 const MAX_WINDOW_DIMENSION: i32 = 16_384;
 
@@ -404,6 +404,178 @@ impl ResizeEdges {
             left,
             right,
         }
+    }
+}
+
+/// Compositor-owned SUPER+pointer grab for a window whose content and native
+/// identity are local to the embedded Flutter shell. It publishes the same
+/// placement phases as XDG/X11 grabs, without inventing a Wayland surface.
+#[cfg(feature = "flutter")]
+pub(super) struct LocalFlutterWindowGrab {
+    start_data: GrabStartData<RuntimeState>,
+    window_id: u64,
+    initial_geometry: WindowGeometry,
+    last_geometry: WindowGeometry,
+    change: WindowPlacementChange,
+    resize_edges: Option<ResizeEdges>,
+}
+
+#[cfg(feature = "flutter")]
+impl LocalFlutterWindowGrab {
+    pub(super) fn new_move(
+        start_data: GrabStartData<RuntimeState>,
+        window_id: u64,
+        geometry: WindowGeometry,
+    ) -> Self {
+        Self {
+            start_data,
+            window_id,
+            initial_geometry: geometry,
+            last_geometry: geometry,
+            change: WindowPlacementChange::Move,
+            resize_edges: None,
+        }
+    }
+
+    pub(super) fn new_resize(
+        start_data: GrabStartData<RuntimeState>,
+        window_id: u64,
+        geometry: WindowGeometry,
+        resize_edges: ResizeEdges,
+    ) -> Self {
+        Self {
+            start_data,
+            window_id,
+            initial_geometry: geometry,
+            last_geometry: geometry,
+            change: WindowPlacementChange::Resize,
+            resize_edges: Some(resize_edges),
+        }
+    }
+
+    fn update_geometry(&mut self, location: Point<f64, Logical>) {
+        if !location.x.is_finite()
+            || !location.y.is_finite()
+            || !self.start_data.location.x.is_finite()
+            || !self.start_data.location.y.is_finite()
+        {
+            return;
+        }
+        let delta = location - self.start_data.location;
+        let Some(edges) = self.resize_edges else {
+            self.last_geometry.x = (self.initial_geometry.x + delta.x).round();
+            self.last_geometry.y = (self.initial_geometry.y + delta.y).round();
+            return;
+        };
+
+        let requested_width = if edges.left {
+            self.initial_geometry.width - delta.x
+        } else if edges.right {
+            self.initial_geometry.width + delta.x
+        } else {
+            self.initial_geometry.width
+        };
+        let requested_height = if edges.top {
+            self.initial_geometry.height - delta.y
+        } else if edges.bottom {
+            self.initial_geometry.height + delta.y
+        } else {
+            self.initial_geometry.height
+        };
+        let width = constrain_local_dimension(requested_width, self.initial_geometry.width);
+        let height = constrain_local_dimension(requested_height, self.initial_geometry.height);
+        self.last_geometry = WindowGeometry {
+            x: if edges.left {
+                self.initial_geometry.x + self.initial_geometry.width - width
+            } else {
+                self.initial_geometry.x
+            },
+            y: if edges.top {
+                self.initial_geometry.y + self.initial_geometry.height - height
+            } else {
+                self.initial_geometry.y
+            },
+            width,
+            height,
+        };
+    }
+}
+
+#[cfg(feature = "flutter")]
+fn constrain_local_dimension(requested: f64, fallback: f64) -> f64 {
+    if requested.is_finite() {
+        requested
+            .round()
+            .clamp(64.0, f64::from(MAX_WINDOW_DIMENSION))
+    } else {
+        fallback
+    }
+}
+
+#[cfg(feature = "flutter")]
+impl PointerGrab<RuntimeState> for LocalFlutterWindowGrab {
+    fn motion(
+        &mut self,
+        data: &mut RuntimeState,
+        handle: &mut PointerInnerHandle<'_, RuntimeState>,
+        _focus: Option<(WlSurface, Point<f64, Logical>)>,
+        event: &MotionEvent,
+    ) {
+        handle.motion(data, None, event);
+        if !data
+            .wayland
+            .as_ref()
+            .is_some_and(|frontend| frontend.is_local_flutter_window(self.window_id))
+        {
+            handle.unset_grab(self, data, event.serial, event.time, true);
+            return;
+        }
+        self.update_geometry(event.location);
+        data.wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .set_local_flutter_window_global_geometry(self.window_id, self.last_geometry);
+        super::wayland_frontend::queue_local_flutter_window_placement(
+            data,
+            self.window_id,
+            WindowPlacementPhase::Update,
+            self.change,
+        );
+    }
+
+    fn button(
+        &mut self,
+        data: &mut RuntimeState,
+        handle: &mut PointerInnerHandle<'_, RuntimeState>,
+        event: &ButtonEvent,
+    ) {
+        if event.state == ButtonState::Released
+            && !handle.current_pressed().contains(&self.start_data.button)
+        {
+            handle.unset_grab(self, data, event.serial, event.time, true);
+        }
+    }
+
+    forward_pointer_events!();
+
+    fn start_data(&self) -> &GrabStartData<RuntimeState> {
+        &self.start_data
+    }
+
+    fn unset(&mut self, data: &mut RuntimeState) {
+        if data
+            .wayland
+            .as_ref()
+            .is_some_and(|frontend| frontend.is_local_flutter_window(self.window_id))
+        {
+            super::wayland_frontend::queue_local_flutter_window_placement(
+                data,
+                self.window_id,
+                WindowPlacementPhase::End,
+                self.change,
+            );
+        }
+        data.scene_sync.mark_dirty();
     }
 }
 
@@ -844,5 +1016,48 @@ mod tests {
             i32::MAX
         );
         assert_eq!(anchored_resize_origin(i32::MIN, 1, i32::MAX), i32::MIN);
+    }
+
+    #[cfg(feature = "flutter")]
+    #[test]
+    fn local_flutter_grab_uses_anchored_move_and_resize_geometry() {
+        let start = GrabStartData {
+            focus: None,
+            button: 0x110,
+            location: Point::from((200.0, 160.0)),
+        };
+        let initial = WindowGeometry {
+            x: 100.0,
+            y: 80.0,
+            width: 800.0,
+            height: 600.0,
+        };
+        let mut moving = LocalFlutterWindowGrab::new_move(start.clone(), 91, initial);
+        moving.update_geometry(Point::from((235.4, 139.6)));
+        assert_eq!(
+            moving.last_geometry,
+            WindowGeometry {
+                x: 135.0,
+                y: 60.0,
+                ..initial
+            }
+        );
+
+        let mut resizing = LocalFlutterWindowGrab::new_resize(
+            start,
+            91,
+            initial,
+            ResizeEdges::new(true, false, true, false),
+        );
+        resizing.update_geometry(Point::from((250.0, 200.0)));
+        assert_eq!(
+            resizing.last_geometry,
+            WindowGeometry {
+                x: 150.0,
+                y: 120.0,
+                width: 750.0,
+                height: 560.0,
+            }
+        );
     }
 }

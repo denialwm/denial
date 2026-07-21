@@ -62,6 +62,37 @@ void main() {
     });
   });
 
+  test('selected outputs receive independent cloned bars and work areas', () {
+    final right = _output(0, 'right', 2560);
+    final left = _output(1, 'left', 0);
+    final layout = _layout(
+      outputs: <DisplayOutput>[right, left],
+      tickerMonitorId: 0,
+      systemBarMonitorId: 0,
+      systemBarMonitorIds: const <int>[0, 1],
+      systemBarSide: SystemBarSide.bottom,
+      systemBarThickness: 32,
+    );
+
+    expect(layout.systemBarOutputs, <DisplayOutput>[right, left]);
+    expect(
+      layout.systemBarRectFor(right),
+      const Rect.fromLTWH(2560, 1408, 2560, 32),
+    );
+    expect(
+      layout.systemBarRectFor(left),
+      const Rect.fromLTWH(0, 1408, 2560, 32),
+    );
+    expect(
+      layout.workAreaOf(right),
+      const Rect.fromLTWH(2560, 0, 2560, 1408),
+    );
+    expect(
+      layout.workAreaOf(left),
+      const Rect.fromLTWH(0, 0, 2560, 1408),
+    );
+  });
+
   test('hidden or zero-thickness bars reserve no work area', () {
     final only = _output(0, 'only', 0);
     final hidden = _layout(
@@ -170,6 +201,7 @@ DisplayLayout _layout({
   required List<DisplayOutput> outputs,
   required int tickerMonitorId,
   required int systemBarMonitorId,
+  List<int> systemBarMonitorIds = const <int>[],
   SystemBarSide systemBarSide = SystemBarSide.left,
   double systemBarThickness = 0.0,
   double maximizePadding = 0.0,
@@ -182,6 +214,7 @@ DisplayLayout _layout({
     engineScale: 1,
     tickerMonitorId: tickerMonitorId,
     systemBarMonitorId: systemBarMonitorId,
+    systemBarMonitorIds: systemBarMonitorIds,
     systemBarSide: systemBarSide,
     systemBarThickness: systemBarThickness,
     maximizePadding: maximizePadding,

@@ -41,6 +41,40 @@ class _ObjectKindReader extends fb.Reader<ObjectKind> {
       ObjectKind.fromValue(const fb.Uint8Reader().read(bc, offset));
 }
 
+enum WindowContentKind {
+  SurfaceTree(0),
+  LocalFlutter(1);
+
+  final int value;
+  const WindowContentKind(this.value);
+
+  factory WindowContentKind.fromValue(int value) {
+    switch (value) {
+      case 0: return WindowContentKind.SurfaceTree;
+      case 1: return WindowContentKind.LocalFlutter;
+      default: throw StateError('Invalid value $value for bit flag enum');
+    }
+  }
+
+  static WindowContentKind? _createOrNull(int? value) =>
+      value == null ? null : WindowContentKind.fromValue(value);
+
+  static const int minValue = 0;
+  static const int maxValue = 1;
+  static const fb.Reader<WindowContentKind> reader = _WindowContentKindReader();
+}
+
+class _WindowContentKindReader extends fb.Reader<WindowContentKind> {
+  const _WindowContentKindReader();
+
+  @override
+  int get size => 1;
+
+  @override
+  WindowContentKind read(fb.BufferContext bc, int offset) =>
+      WindowContentKind.fromValue(const fb.Uint8Reader().read(bc, offset));
+}
+
 enum SurfaceRole {
   Root(0),
   Subsurface(1),
@@ -82,7 +116,9 @@ enum WindowRequestKind {
   GetDisplayLayout(1),
   CloseWindow(2),
   FocusWindow(3),
-  ConfigureWindow(4);
+  ConfigureWindow(4),
+  CreateLocalWindow(5),
+  ConfigureSystemBar(6);
 
   final int value;
   const WindowRequestKind(this.value);
@@ -94,6 +130,8 @@ enum WindowRequestKind {
       case 2: return WindowRequestKind.CloseWindow;
       case 3: return WindowRequestKind.FocusWindow;
       case 4: return WindowRequestKind.ConfigureWindow;
+      case 5: return WindowRequestKind.CreateLocalWindow;
+      case 6: return WindowRequestKind.ConfigureSystemBar;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -102,7 +140,7 @@ enum WindowRequestKind {
       value == null ? null : WindowRequestKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 4;
+  static const int maxValue = 6;
   static const fb.Reader<WindowRequestKind> reader = _WindowRequestKindReader();
 }
 
@@ -1210,10 +1248,11 @@ class Window {
   bool get suppressAnimations => const fb.BoolReader().vTableGet(_bc, _bcOffset, 68, false);
   bool get serverSideDecorated => const fb.BoolReader().vTableGet(_bc, _bcOffset, 70, true);
   double get opacity => const fb.Float32Reader().vTableGet(_bc, _bcOffset, 72, 1.0);
+  WindowContentKind get contentKind => WindowContentKind.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 74, 0));
 
   @override
   String toString() {
-    return 'Window{objectId: ${objectId}, objectKind: ${objectKind}, surfaceId: ${surfaceId}, windowId: ${windowId}, textureId: ${textureId}, title: ${title}, appId: ${appId}, width: ${width}, height: ${height}, surfaceX: ${surfaceX}, surfaceY: ${surfaceY}, surfaceWidth: ${surfaceWidth}, surfaceHeight: ${surfaceHeight}, textureSourceX: ${textureSourceX}, textureSourceY: ${textureSourceY}, textureSourceWidth: ${textureSourceWidth}, textureSourceHeight: ${textureSourceHeight}, geometryX: ${geometryX}, geometryY: ${geometryY}, geometryWidth: ${geometryWidth}, geometryHeight: ${geometryHeight}, monitorId: ${monitorId}, transform: ${transform}, scale120: ${scale120}, statusColorArgb: ${statusColorArgb}, hasStatusColor: ${hasStatusColor}, contentX: ${contentX}, contentY: ${contentY}, contentWidth: ${contentWidth}, contentHeight: ${contentHeight}, surfaces: ${surfaces}, pinned: ${pinned}, suppressAnimations: ${suppressAnimations}, serverSideDecorated: ${serverSideDecorated}, opacity: ${opacity}}';
+    return 'Window{objectId: ${objectId}, objectKind: ${objectKind}, surfaceId: ${surfaceId}, windowId: ${windowId}, textureId: ${textureId}, title: ${title}, appId: ${appId}, width: ${width}, height: ${height}, surfaceX: ${surfaceX}, surfaceY: ${surfaceY}, surfaceWidth: ${surfaceWidth}, surfaceHeight: ${surfaceHeight}, textureSourceX: ${textureSourceX}, textureSourceY: ${textureSourceY}, textureSourceWidth: ${textureSourceWidth}, textureSourceHeight: ${textureSourceHeight}, geometryX: ${geometryX}, geometryY: ${geometryY}, geometryWidth: ${geometryWidth}, geometryHeight: ${geometryHeight}, monitorId: ${monitorId}, transform: ${transform}, scale120: ${scale120}, statusColorArgb: ${statusColorArgb}, hasStatusColor: ${hasStatusColor}, contentX: ${contentX}, contentY: ${contentY}, contentWidth: ${contentWidth}, contentHeight: ${contentHeight}, surfaces: ${surfaces}, pinned: ${pinned}, suppressAnimations: ${suppressAnimations}, serverSideDecorated: ${serverSideDecorated}, opacity: ${opacity}, contentKind: ${contentKind}}';
   }
 }
 
@@ -1231,7 +1270,7 @@ class WindowBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(35);
+    fbBuilder.startTable(36);
   }
 
   int addObjectId(int? objectId) {
@@ -1374,6 +1413,10 @@ class WindowBuilder {
     fbBuilder.addFloat32(34, opacity);
     return fbBuilder.offset;
   }
+  int addContentKind(WindowContentKind? contentKind) {
+    fbBuilder.addUint8(35, contentKind?.value);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -1416,6 +1459,7 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
   final bool? _suppressAnimations;
   final bool? _serverSideDecorated;
   final double? _opacity;
+  final WindowContentKind? _contentKind;
 
   WindowObjectBuilder({
     int? objectId,
@@ -1453,6 +1497,7 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
     bool? suppressAnimations,
     bool? serverSideDecorated,
     double? opacity,
+    WindowContentKind? contentKind,
   })
       : _objectId = objectId,
         _objectKind = objectKind,
@@ -1488,7 +1533,8 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
         _pinned = pinned,
         _suppressAnimations = suppressAnimations,
         _serverSideDecorated = serverSideDecorated,
-        _opacity = opacity;
+        _opacity = opacity,
+        _contentKind = contentKind;
 
   /// Finish building, and store into the [fbBuilder].
   @override
@@ -1499,7 +1545,7 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
         : fbBuilder.writeString(_appId!);
     final int? surfacesOffset = _surfaces == null ? null
         : fbBuilder.writeList(_surfaces!.map((b) => b.getOrCreateOffset(fbBuilder)).toList());
-    fbBuilder.startTable(35);
+    fbBuilder.startTable(36);
     fbBuilder.addUint64(0, _objectId);
     fbBuilder.addUint8(1, _objectKind?.value);
     fbBuilder.addUint64(2, _surfaceId);
@@ -1535,6 +1581,7 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
     fbBuilder.addBool(32, _suppressAnimations);
     fbBuilder.addBool(33, _serverSideDecorated);
     fbBuilder.addFloat32(34, _opacity);
+    fbBuilder.addUint8(35, _contentKind?.value);
     return fbBuilder.endTable();
   }
 
@@ -1775,10 +1822,11 @@ class DisplayLayout {
   List<DisplayOutput>? get outputs => const fb.ListReader<DisplayOutput>(DisplayOutput.reader).vTableGetNullable(_bc, _bcOffset, 20);
   double get systemBarThickness => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 22, 0.0);
   double get maximizePadding => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 24, 0.0);
+  List<int>? get systemBarMonitorIds => const fb.ListReader<int>(fb.Int64Reader()).vTableGetNullable(_bc, _bcOffset, 26);
 
   @override
   String toString() {
-    return 'DisplayLayout{epoch: ${epoch}, globalOrigin: ${globalOrigin}, logicalSize: ${logicalSize}, pixelSize: ${pixelSize}, engineScale: ${engineScale}, tickerMonitorId: ${tickerMonitorId}, systemBarMonitorId: ${systemBarMonitorId}, systemBarSide: ${systemBarSide}, outputs: ${outputs}, systemBarThickness: ${systemBarThickness}, maximizePadding: ${maximizePadding}}';
+    return 'DisplayLayout{epoch: ${epoch}, globalOrigin: ${globalOrigin}, logicalSize: ${logicalSize}, pixelSize: ${pixelSize}, engineScale: ${engineScale}, tickerMonitorId: ${tickerMonitorId}, systemBarMonitorId: ${systemBarMonitorId}, systemBarSide: ${systemBarSide}, outputs: ${outputs}, systemBarThickness: ${systemBarThickness}, maximizePadding: ${maximizePadding}, systemBarMonitorIds: ${systemBarMonitorIds}}';
   }
 }
 
@@ -1796,7 +1844,7 @@ class DisplayLayoutBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(11);
+    fbBuilder.startTable(12);
   }
 
   int addEpoch(int? epoch) {
@@ -1843,6 +1891,10 @@ class DisplayLayoutBuilder {
     fbBuilder.addFloat64(10, maximizePadding);
     return fbBuilder.offset;
   }
+  int addSystemBarMonitorIdsOffset(int? offset) {
+    fbBuilder.addOffset(11, offset);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -1861,6 +1913,7 @@ class DisplayLayoutObjectBuilder extends fb.ObjectBuilder {
   final List<DisplayOutputObjectBuilder>? _outputs;
   final double? _systemBarThickness;
   final double? _maximizePadding;
+  final List<int>? _systemBarMonitorIds;
 
   DisplayLayoutObjectBuilder({
     int? epoch,
@@ -1874,6 +1927,7 @@ class DisplayLayoutObjectBuilder extends fb.ObjectBuilder {
     List<DisplayOutputObjectBuilder>? outputs,
     double? systemBarThickness,
     double? maximizePadding,
+    List<int>? systemBarMonitorIds,
   })
       : _epoch = epoch,
         _globalOrigin = globalOrigin,
@@ -1885,14 +1939,17 @@ class DisplayLayoutObjectBuilder extends fb.ObjectBuilder {
         _systemBarSide = systemBarSide,
         _outputs = outputs,
         _systemBarThickness = systemBarThickness,
-        _maximizePadding = maximizePadding;
+        _maximizePadding = maximizePadding,
+        _systemBarMonitorIds = systemBarMonitorIds;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
     final int? outputsOffset = _outputs == null ? null
         : fbBuilder.writeList(_outputs!.map((b) => b.getOrCreateOffset(fbBuilder)).toList());
-    fbBuilder.startTable(11);
+    final int? systemBarMonitorIdsOffset = _systemBarMonitorIds == null ? null
+        : fbBuilder.writeListInt64(_systemBarMonitorIds!);
+    fbBuilder.startTable(12);
     fbBuilder.addUint64(0, _epoch);
     if (_globalOrigin != null) {
       fbBuilder.addStruct(1, _globalOrigin!.finish(fbBuilder));
@@ -1910,6 +1967,7 @@ class DisplayLayoutObjectBuilder extends fb.ObjectBuilder {
     fbBuilder.addOffset(8, outputsOffset);
     fbBuilder.addFloat64(9, _systemBarThickness);
     fbBuilder.addFloat64(10, _maximizePadding);
+    fbBuilder.addOffset(11, systemBarMonitorIdsOffset);
     return fbBuilder.endTable();
   }
 
@@ -1936,10 +1994,14 @@ class WindowRequest {
   WindowRequestKind get kind => WindowRequestKind.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 4, 0));
   int get windowId => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 6, 0);
   WireRect? get geometry => WireRect.reader.vTableGetNullable(_bc, _bcOffset, 8);
+  String? get appId => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 10);
+  String? get title => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 12);
+  SystemBarSide get systemBarSide => SystemBarSide.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 14, 2));
+  List<int>? get systemBarMonitorIds => const fb.ListReader<int>(fb.Int64Reader()).vTableGetNullable(_bc, _bcOffset, 16);
 
   @override
   String toString() {
-    return 'WindowRequest{kind: ${kind}, windowId: ${windowId}, geometry: ${geometry}}';
+    return 'WindowRequest{kind: ${kind}, windowId: ${windowId}, geometry: ${geometry}, appId: ${appId}, title: ${title}, systemBarSide: ${systemBarSide}, systemBarMonitorIds: ${systemBarMonitorIds}}';
   }
 }
 
@@ -1957,7 +2019,7 @@ class WindowRequestBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(3);
+    fbBuilder.startTable(7);
   }
 
   int addKind(WindowRequestKind? kind) {
@@ -1972,6 +2034,22 @@ class WindowRequestBuilder {
     fbBuilder.addStruct(2, offset);
     return fbBuilder.offset;
   }
+  int addAppIdOffset(int? offset) {
+    fbBuilder.addOffset(3, offset);
+    return fbBuilder.offset;
+  }
+  int addTitleOffset(int? offset) {
+    fbBuilder.addOffset(4, offset);
+    return fbBuilder.offset;
+  }
+  int addSystemBarSide(SystemBarSide? systemBarSide) {
+    fbBuilder.addUint8(5, systemBarSide?.value);
+    return fbBuilder.offset;
+  }
+  int addSystemBarMonitorIdsOffset(int? offset) {
+    fbBuilder.addOffset(6, offset);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -1982,25 +2060,47 @@ class WindowRequestObjectBuilder extends fb.ObjectBuilder {
   final WindowRequestKind? _kind;
   final int? _windowId;
   final WireRectObjectBuilder? _geometry;
+  final String? _appId;
+  final String? _title;
+  final SystemBarSide? _systemBarSide;
+  final List<int>? _systemBarMonitorIds;
 
   WindowRequestObjectBuilder({
     WindowRequestKind? kind,
     int? windowId,
     WireRectObjectBuilder? geometry,
+    String? appId,
+    String? title,
+    SystemBarSide? systemBarSide,
+    List<int>? systemBarMonitorIds,
   })
       : _kind = kind,
         _windowId = windowId,
-        _geometry = geometry;
+        _geometry = geometry,
+        _appId = appId,
+        _title = title,
+        _systemBarSide = systemBarSide,
+        _systemBarMonitorIds = systemBarMonitorIds;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
-    fbBuilder.startTable(3);
+    final int? appIdOffset = _appId == null ? null
+        : fbBuilder.writeString(_appId!);
+    final int? titleOffset = _title == null ? null
+        : fbBuilder.writeString(_title!);
+    final int? systemBarMonitorIdsOffset = _systemBarMonitorIds == null ? null
+        : fbBuilder.writeListInt64(_systemBarMonitorIds!);
+    fbBuilder.startTable(7);
     fbBuilder.addUint8(0, _kind?.value);
     fbBuilder.addUint64(1, _windowId);
     if (_geometry != null) {
       fbBuilder.addStruct(2, _geometry!.finish(fbBuilder));
     }
+    fbBuilder.addOffset(3, appIdOffset);
+    fbBuilder.addOffset(4, titleOffset);
+    fbBuilder.addUint8(5, _systemBarSide?.value);
+    fbBuilder.addOffset(6, systemBarMonitorIdsOffset);
     return fbBuilder.endTable();
   }
 
