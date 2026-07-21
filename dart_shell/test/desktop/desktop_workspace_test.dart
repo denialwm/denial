@@ -6,6 +6,7 @@ import 'package:denial_dart_shell/src/desktop/desktop_workspace.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/models/denial_window.dart';
 import 'package:denial_dart_shell/src/models/denial_window_event.dart';
+import 'package:denial_dart_shell/src/state/desktop_window_switcher.dart';
 import 'package:denial_dart_shell/src/theme/motion.dart';
 
 void main() {
@@ -27,6 +28,23 @@ void main() {
       1.0 - Motion.overviewReversalCurve.transform(0.99),
       lessThan(0.001),
     );
+  });
+
+  test('window switcher replaces a source that leaves the candidate set', () {
+    final controller = DesktopWindowSwitcherController();
+    addTearDown(controller.dispose);
+    controller.beginOrAdvance(
+      objectIds: const <int>[1, 2, 3],
+      sourceObjectId: 1,
+    );
+
+    final reconciled = controller.beginOrAdvance(
+      objectIds: const <int>[2, 3],
+      sourceObjectId: 2,
+    );
+
+    expect(reconciled?.sourceObjectId, 2);
+    expect(reconciled?.objectIds, <int>[2, 3]);
   });
 
   test('new windows preserve compositor-assigned geometry', () {
@@ -183,6 +201,12 @@ void main() {
     final windows = <DenialWindow>[
       _window(objectId: 1, windowId: 11, monitorId: 1),
       _window(objectId: 2, windowId: 22, monitorId: 1),
+      _window(
+        objectId: 3,
+        windowId: 33,
+        monitorId: 1,
+        geometry: const Rect.fromLTWH(200, 100, 160, 20),
+      ),
     ];
     controller.syncWindows(windows, viewSize, 1);
     final restoreFrame = controller.state.placements[1]!.frame;
@@ -485,7 +509,8 @@ void main() {
     );
   });
 
-  test('overview membership follows authoritative placement ownership', () {
+  test('overview target follows ownership and excludes tiny switcher entries',
+      () {
     final controller = DesktopWorkspaceController();
     addTearDown(controller.dispose);
     final windows = <DenialWindow>[
