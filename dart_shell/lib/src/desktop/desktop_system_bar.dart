@@ -49,7 +49,7 @@ class DesktopSystemBar extends ConsumerWidget {
         direction: horizontal ? Axis.horizontal : Axis.vertical,
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          for (var i = 0; i < gpus.length; i += 1)
+          for (int i = 0; i < gpus.length; i += 1)
             _SystemBarEntrance(
               key: ValueKey('system-bar-gpu-${gpus[i].id}'),
               index: (cpuVisible ? 1 : 0) + (gpus.length - i),
@@ -221,10 +221,7 @@ class _MeterModule extends StatelessWidget {
         ),
         if (series.temperatureC case final temperature?) ...[
           const SizedBox(width: 7),
-          _TemperatureValue(
-            accent: accent,
-            temperatureC: temperature,
-          ),
+          _TemperatureValue(accent: accent, temperatureC: temperature),
         ],
       ],
     );
@@ -232,10 +229,7 @@ class _MeterModule extends StatelessWidget {
 }
 
 class _TemperatureValue extends StatelessWidget {
-  const _TemperatureValue({
-    required this.accent,
-    required this.temperatureC,
-  });
+  const _TemperatureValue({required this.accent, required this.temperatureC});
 
   final WallpaperAccent accent;
   final double temperatureC;
@@ -313,8 +307,9 @@ class _SystemBarEntranceState extends State<_SystemBarEntrance>
   static const double _slideDistance = 12.0;
   static const Duration _stagger = Duration(milliseconds: 60);
 
-  late final AnimationController _controller =
-      AnimationController.unbounded(vsync: this);
+  late final AnimationController _controller = AnimationController.unbounded(
+    vsync: this,
+  );
   Timer? _delay;
 
   @override
@@ -350,8 +345,9 @@ class _SystemBarEntranceState extends State<_SystemBarEntrance>
           child: Opacity(
             opacity: unit(t),
             child: Transform.translate(
-              offset:
-                  widget.horizontal ? Offset(travel, 0.0) : Offset(0.0, travel),
+              offset: widget.horizontal
+                  ? Offset(travel, 0.0)
+                  : Offset(0.0, travel),
               child: child,
             ),
           ),

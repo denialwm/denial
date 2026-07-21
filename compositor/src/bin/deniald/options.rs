@@ -81,7 +81,7 @@ impl Default for WorkAreaOptions {
 
 fn parse_maximize_padding(value: &str) -> Result<f64, Box<dyn Error>> {
     let padding: f64 = value.trim().parse()?;
-    if !padding.is_finite() || padding < 0.0 || padding > MAX_MAXIMIZE_PADDING {
+    if !(0.0..=MAX_MAXIMIZE_PADDING).contains(&padding) {
         return Err(format!(
             "maximize padding must be within [0, {MAX_MAXIMIZE_PADDING}] logical pixels"
         )

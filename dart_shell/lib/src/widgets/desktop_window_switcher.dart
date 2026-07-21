@@ -30,6 +30,15 @@ abstract final class DesktopWindowSwitcherLayout {
   }
 
   static Duration motionDuration(DesktopWindowSwitcherState switcher) {
+    if (switcher.usesDesktopMotion) {
+      return switch (switcher.phase) {
+        DesktopWindowSwitcherPhase.pending => Motion.windowSwitcherExpand,
+        DesktopWindowSwitcherPhase.expanded => Motion.windowSwitcherCycle,
+        DesktopWindowSwitcherPhase.quickExit ||
+        DesktopWindowSwitcherPhase.expandedExit =>
+          Motion.windowSwitcherCollapse,
+      };
+    }
     return switch (switcher.phase) {
       DesktopWindowSwitcherPhase.pending => Motion.windowSwitcherQuick,
       DesktopWindowSwitcherPhase.expanded => Motion.windowSwitcherCycle,
@@ -42,11 +51,29 @@ abstract final class DesktopWindowSwitcherLayout {
     required DesktopWindowPlacement placement,
     required DesktopWindowSwitcherState? switcher,
     required Rect stageBounds,
+    required Rect? desktopWidgetFrame,
   }) {
     if (switcher == null ||
         !contains(switcher, placement.objectId) ||
         stageBounds.isEmpty) {
       return placement.frame;
+    }
+
+    if (switcher.usesDesktopMotion) {
+      return switch (switcher.phase) {
+        DesktopWindowSwitcherPhase.pending ||
+        DesktopWindowSwitcherPhase.expanded =>
+          _expandedFrame(
+            placement: placement,
+            switcher: switcher,
+            stageBounds: stageBounds,
+          ),
+        DesktopWindowSwitcherPhase.quickExit ||
+        DesktopWindowSwitcherPhase.expandedExit =>
+          placement.minimized && desktopWidgetFrame != null
+              ? desktopWidgetFrame
+              : placement.frame,
+      };
     }
 
     return switch (switcher.phase) {
@@ -74,6 +101,13 @@ abstract final class DesktopWindowSwitcherLayout {
   }) {
     if (switcher == null || !contains(switcher, placement.objectId)) {
       return !placement.minimized;
+    }
+
+    // Desktop-aware sessions move the canonical live window between real
+    // coordinates. Hiding it would replay the generic minimize transform and
+    // break continuity on both entry and exit.
+    if (switcher.usesDesktopMotion) {
+      return true;
     }
 
     return switch (switcher.phase) {
@@ -113,23 +147,25 @@ abstract final class DesktopWindowSwitcherLayout {
 
     switch (switcher.phase) {
       case DesktopWindowSwitcherPhase.pending:
+        if (switcher.usesDesktopMotion) {
+          return _compareExpanded(
+            leftIndex: leftIndex,
+            rightIndex: rightIndex,
+            switcher: switcher,
+            desktopOrder: desktopOrder,
+          );
+        }
         final leftRank = _pendingStackRank(left.objectId, switcher);
         final rightRank = _pendingStackRank(right.objectId, switcher);
         final rankOrder = leftRank.compareTo(rightRank);
         return rankOrder != 0 ? rankOrder : desktopOrder;
       case DesktopWindowSwitcherPhase.expanded:
-        final leftDistance = _signedDistance(
-          index: leftIndex,
-          selectedIndex: switcher.selectedIndex,
-          length: switcher.objectIds.length,
-        ).abs();
-        final rightDistance = _signedDistance(
-          index: rightIndex,
-          selectedIndex: switcher.selectedIndex,
-          length: switcher.objectIds.length,
-        ).abs();
-        final distanceOrder = rightDistance.compareTo(leftDistance);
-        return distanceOrder != 0 ? distanceOrder : desktopOrder;
+        return _compareExpanded(
+          leftIndex: leftIndex,
+          rightIndex: rightIndex,
+          switcher: switcher,
+          desktopOrder: desktopOrder,
+        );
       case DesktopWindowSwitcherPhase.quickExit:
       case DesktopWindowSwitcherPhase.expandedExit:
         final leftSelected = left.objectId == switcher.selectedObjectId;
@@ -141,6 +177,26 @@ abstract final class DesktopWindowSwitcherLayout {
     }
   }
 
+  static int _compareExpanded({
+    required int leftIndex,
+    required int rightIndex,
+    required DesktopWindowSwitcherState switcher,
+    required int desktopOrder,
+  }) {
+    final leftDistance = _signedDistance(
+      index: leftIndex,
+      selectedIndex: switcher.selectedIndex,
+      length: switcher.objectIds.length,
+    ).abs();
+    final rightDistance = _signedDistance(
+      index: rightIndex,
+      selectedIndex: switcher.selectedIndex,
+      length: switcher.objectIds.length,
+    ).abs();
+    final distanceOrder = rightDistance.compareTo(leftDistance);
+    return distanceOrder != 0 ? distanceOrder : desktopOrder;
+  }
+
   static Rect _pendingFrame({
     required DesktopWindowPlacement placement,
     required DesktopWindowSwitcherState switcher,
@@ -148,6 +204,9 @@ abstract final class DesktopWindowSwitcherLayout {
   }) {
     final objectId = placement.objectId;
     if (objectId == switcher.selectedObjectId) {
+      if (switcher.sourceObjectId == null) {
+        return placement.frame;
+      }
       return _scaleAndShift(
         placement.frame,
         scale: 0.92,
@@ -332,7 +391,7 @@ class DesktopWindowSwitcherBackdrop extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final expanded = switcher.phase == DesktopWindowSwitcherPhase.expanded;
+    final expanded = switcher.expandedChromeVisible;
     return Positioned.fromRect(
       rect: bounds,
       child: IgnorePointer(
@@ -369,7 +428,7 @@ class DesktopWindowSwitcherLayer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final expanded = switcher.phase == DesktopWindowSwitcherPhase.expanded;
+    final expanded = switcher.expandedChromeVisible;
     final duration = reduceMotion
         ? Duration.zero
         : expanded

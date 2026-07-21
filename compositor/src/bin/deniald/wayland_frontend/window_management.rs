@@ -487,6 +487,36 @@ fn focused_window(state: &RuntimeState) -> Option<Window> {
     frontend.window_for_root_surface(&root)
 }
 
+/// Drop keyboard/activation focus only when `window` currently owns it.
+///
+/// Minimized clients remain mapped so Flutter can keep presenting their live
+/// desktop widget. That makes clearing focus an explicit operation rather than
+/// a side effect of unmapping the Wayland surface.
+#[cfg(feature = "flutter")]
+pub(super) fn release_window_focus(state: &mut RuntimeState, window: &Window) -> bool {
+    if focused_window(state).as_ref() != Some(window) {
+        return false;
+    }
+
+    let keyboard = state
+        .wayland
+        .as_ref()
+        .expect("missing Wayland frontend")
+        .seat
+        .get_keyboard()
+        .expect("seat has no keyboard");
+    let changed = window.set_activated(false);
+    if let Some(toplevel) = window.toplevel()
+        && changed
+        && toplevel.wl_surface().is_alive()
+    {
+        toplevel.send_pending_configure();
+    }
+    keyboard.set_focus(state, None, SERIAL_COUNTER.next_serial());
+    state.scene_sync.mark_dirty();
+    true
+}
+
 #[cfg(feature = "flutter")]
 fn focused_local_window(state: &RuntimeState) -> Option<u64> {
     state
@@ -506,6 +536,11 @@ fn queue_local_window_action(state: &mut RuntimeState, window_id: u64, action: W
 #[cfg(feature = "flutter")]
 pub(super) fn minimize_focused_toplevel(state: &mut RuntimeState) -> bool {
     if let Some(window_id) = focused_local_window(state) {
+        state
+            .wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .clear_local_flutter_focus();
         queue_local_window_action(state, window_id, WindowAction::Minimize);
         return true;
     }
@@ -530,6 +565,7 @@ pub(super) fn minimize_focused_toplevel(state: &mut RuntimeState) -> bool {
     // application to stop rendering, which would make its live Flutter texture
     // stale or black. Keep the client mapped and producing frames.
     queue_window_action_for_window(state, &window, WindowAction::Minimize);
+    release_window_focus(state, &window);
     state.scene_sync.mark_dirty();
     true
 }

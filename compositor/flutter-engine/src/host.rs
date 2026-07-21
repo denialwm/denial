@@ -370,12 +370,14 @@ impl EngineHost {
             runs_task_on_current_thread_callback: Some(runs_task_on_current_thread),
             post_task_callback: Some(post_task),
             identifier: state as usize,
+            destruction_callback: None,
         });
         let custom_runners = Box::new(sys::FlutterCustomTaskRunners {
             struct_size: mem::size_of::<sys::FlutterCustomTaskRunners>(),
             platform_task_runner: &*platform_runner,
             render_task_runner: ptr::null(),
             thread_priority_setter: None,
+            ui_task_runner: ptr::null(),
         });
         let project_args = Box::new(sys::FlutterProjectArgs {
             struct_size: mem::size_of::<sys::FlutterProjectArgs>(),

@@ -1947,6 +1947,10 @@ fn quiesce_flutter_page_flips(
 }
 
 #[cfg(feature = "flutter")]
+// The wait loop coordinates independent Flutter, DRM, calloop, and launcher
+// state; keeping those borrows explicit is clearer than hiding them in a
+// single-use context wrapper.
+#[allow(clippy::too_many_arguments)]
 fn wait_for_flutter_frame(
     runtime: &mut flutter_runtime::FlutterRuntime,
     frame_number: u64,

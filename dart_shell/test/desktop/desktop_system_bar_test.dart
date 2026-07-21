@@ -35,6 +35,38 @@ void main() {
     expect(clockRect.right, closeTo(1280 - 8 - 12, 1.0));
   });
 
+  testWidgets('cards optically center text over a 90%-opaque fill',
+      (tester) async {
+    await _pumpBar(tester, cpuUsage: 0.23);
+
+    final clock = tester.widget<Text>(find.text('21:47'));
+    final dateStyle = tester.widget<AnimatedDefaultTextStyle>(
+      find.ancestor(
+        of: find.text('Dom 19 Lug'),
+        matching: find.byType(AnimatedDefaultTextStyle),
+      ),
+    );
+    expect(
+      clock.style?.leadingDistribution,
+      TextLeadingDistribution.even,
+    );
+    expect(
+      dateStyle.style.leadingDistribution,
+      TextLeadingDistribution.even,
+    );
+
+    final cards = tester.widgetList<AnimatedContainer>(
+      find.byType(AnimatedContainer),
+    );
+    for (final card in cards) {
+      final decoration = card.decoration! as BoxDecoration;
+      final gradient = decoration.gradient! as LinearGradient;
+      for (final color in gradient.colors) {
+        expect(color.a, closeTo(0.90, 1e-6));
+      }
+    }
+  });
+
   testWidgets('the CPU card waits for a real sample', (tester) async {
     await _pumpBar(tester, cpuUsage: null);
 

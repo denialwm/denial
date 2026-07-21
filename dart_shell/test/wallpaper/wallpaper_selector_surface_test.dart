@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:denial_dart_shell/src/launcher/runtime_paths.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
@@ -24,9 +25,7 @@ void main() {
     final controller = WallpaperController(
       sources: const <WallpaperProvider>[],
       store: WallpaperStore(
-        RuntimePaths(
-          environment: <String, String>{'HOME': temporary.path},
-        ),
+        RuntimePaths(environment: <String, String>{'HOME': temporary.path}),
       ),
     );
     var dismissed = false;
@@ -56,9 +55,7 @@ void main() {
 
     expect(dismissed, isFalse);
 
-    await tester.tap(
-      find.bySemanticsLabel('Close wallpaper selector'),
-    );
+    await tester.tap(find.bySemanticsLabel('Close wallpaper selector'));
     await tester.pump();
 
     expect(dismissed, isTrue);
@@ -121,13 +118,9 @@ void main() {
       ),
     );
 
-    await tester.tap(
-      find.bySemanticsLabel('Align spanning wallpaper right'),
-    );
+    await tester.tap(find.bySemanticsLabel('Align spanning wallpaper right'));
     await tester.pump();
-    await tester.tap(
-      find.bySemanticsLabel('Align spanning wallpaper bottom'),
-    );
+    await tester.tap(find.bySemanticsLabel('Align spanning wallpaper bottom'));
     await tester.pump();
 
     expect(

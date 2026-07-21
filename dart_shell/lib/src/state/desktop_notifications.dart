@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../launcher/launcher_providers.dart';
 import '../models/desktop_notification.dart';
@@ -9,22 +10,23 @@ import '../services/notification_policy_repository.dart';
 import 'shell_controller.dart';
 
 final notificationPolicyStoreProvider = Provider<NotificationPolicyStore>(
-  (ref) => NotificationPolicyRepository(
-    paths: ref.watch(runtimePathsProvider),
-  ),
+  (ref) => NotificationPolicyRepository(paths: ref.watch(runtimePathsProvider)),
 );
 
-final desktopNotificationsProvider = StateNotifierProvider<
-    DesktopNotificationsController, DesktopNotificationsState>((ref) {
-  final bridge = ref.read(denialBridgeProvider);
-  return DesktopNotificationsController(
-    bridge.notificationEvents,
-    dismiss: bridge.dismissNotification,
-    invokeAction: bridge.invokeNotificationAction,
-    invokeDefaultAction: bridge.invokeDefaultNotificationAction,
-    policyStore: ref.watch(notificationPolicyStoreProvider),
-  );
-});
+final desktopNotificationsProvider =
+    StateNotifierProvider<
+      DesktopNotificationsController,
+      DesktopNotificationsState
+    >((ref) {
+      final bridge = ref.read(denialBridgeProvider);
+      return DesktopNotificationsController(
+        bridge.notificationEvents,
+        dismiss: bridge.dismissNotification,
+        invokeAction: bridge.invokeNotificationAction,
+        invokeDefaultAction: bridge.invokeDefaultNotificationAction,
+        policyStore: ref.watch(notificationPolicyStoreProvider),
+      );
+    });
 
 @immutable
 class DesktopNotificationRecord {
@@ -150,12 +152,12 @@ class DesktopNotificationsController
     required bool Function(int notificationId) invokeDefaultAction,
     NotificationPolicyStore? policyStore,
     void Function(String message)? logger,
-  })  : _dismiss = dismiss,
-        _invokeAction = invokeAction,
-        _invokeDefaultAction = invokeDefaultAction,
-        _policyStore = policyStore,
-        _logger = logger,
-        super(DesktopNotificationsState(policyLoaded: policyStore == null)) {
+  }) : _dismiss = dismiss,
+       _invokeAction = invokeAction,
+       _invokeDefaultAction = invokeDefaultAction,
+       _policyStore = policyStore,
+       _logger = logger,
+       super(DesktopNotificationsState(policyLoaded: policyStore == null)) {
     _subscription = events.listen(_handleEvent);
     if (policyStore != null) {
       unawaited(_loadPolicy());
@@ -276,11 +278,13 @@ class DesktopNotificationsController
     }
     _policyMutated = true;
     final queue = enabled
-        ? state.bannerQueue.where((id) {
-            final notification = state.active[id];
-            return notification != null &&
-                notification.urgency == DesktopNotificationUrgency.critical;
-          }).toList(growable: false)
+        ? state.bannerQueue
+              .where((id) {
+                final notification = state.active[id];
+                return notification != null &&
+                    notification.urgency == DesktopNotificationUrgency.critical;
+              })
+              .toList(growable: false)
         : state.bannerQueue;
     state = state.copyWith(
       doNotDisturb: enabled,
@@ -317,8 +321,10 @@ class DesktopNotificationsController
     String actionKey,
     bool Function() invoke,
   ) {
-    final invoked =
-        _invokedActions.putIfAbsent(notificationId, () => <String>{});
+    final invoked = _invokedActions.putIfAbsent(
+      notificationId,
+      () => <String>{},
+    );
     if (!invoked.add(actionKey)) {
       return false;
     }

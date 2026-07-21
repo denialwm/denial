@@ -1,58 +1,61 @@
-# Patched Flutter Engine — elinux-x64-release
+# Flutter Engine — Linux x64 release
 
-`libflutter_engine.so` in this directory is the Denial-patched Flutter Engine
-described in `patches/flutter-engine/README.md`. It is the binary that
-`tools/denial-pc` installs into the Dart bundle after every
-`flutter-elinux build`, replacing the stock Sony prebuilt.
+`libflutter_engine.so` is Denial's pinned raw Flutter Embedder library. The
+official Flutter Linux release artifact is the GTK embedding library rather
+than this raw AOT embedder ABI, so Denial builds the release library once and
+commits it. `tools/denial-pc` verifies its checksum and copies it directly into
+the shell bundle; normal contributor builds need neither C++ tools nor an
+engine checkout.
 
-- Engine revision: `cb4b5fff73850b2e42bd4de7cb9a4310a78ac40d` (see
-  `ENGINE_REVISION`; Skia revision `6062afaa505bf7e6c727a20cafe4c7bee0f02df8`
-  via DEPS)
-- Patches applied: `patches/flutter-engine/0001`–`0010`, verified to
-  reproduce the build tree byte-for-byte
-- GN configuration: `args.gn` in this directory (copied verbatim from the
-  build output directory)
-- Integrity: `libflutter_engine.so.sha256` — `tools/denial-pc` refuses to
-  run a session whose bundle engine does not match this hash
+- Flutter: `3.44.7`
+- Flutter source revision: `84fc5cbb223bc12f83d65b647ff8a56caf779ffd`
+  (see `FLUTTER_REVISION`)
+- Coupled engine artifact revision:
+  `69c8c61792f04cc809dfef0c910414fb9afc06cd` (see `ENGINE_REVISION`)
+- Engine content hash: `7076f47b1d1a3a0edfd8837b17dc15be6abab661`
+- Dart source revision: `d684a576a6aa954ae107a03b2b4e1d61c3bebe93`
+  (Dart SDK `3.12.2`)
+- Skia revision: `e9ed4fc9f1544c58d8a9347c1fc9471d8dd7c465`
+- Engine patches applied: none. This is the clean upstream performance
+  baseline; `patches/flutter-engine/` is historical and must be selectively
+  ported and remeasured before reuse.
+- GN configuration: `args.gn`, copied verbatim from the build output
+- Integrity: `libflutter_engine.so.sha256`; session startup rejects any bundle
+  engine that does not match it
 
-## Where it was built
+## Rebuild
 
-Build tree (kept, not disposable): `/mnt/exty/denial-flutter-engine/`
-
-- `src/` — engine checkout at the pinned revision with the patch series
-  applied to `src/flutter` (0001, 0002, 0004, 0005, 0007, 0008, 0009, 0010) and
-  `src/flutter/third_party/skia` (0003, 0006)
-- `depot_tools/` — must be on `PATH` for ninja actions (`vpython3`) and the
-  repo's git hooks
-- `rollback/` — timestamped copies of previous engine binaries
-
-Rebuild command:
-
-```sh
-export PATH=/mnt/exty/denial-flutter-engine/depot_tools:$PATH
-cd /mnt/exty/denial-flutter-engine/src
-flutter/third_party/ninja/ninja -C out/denial_host_release libflutter_engine.so
-```
-
-Then copy the result here and refresh the checksum:
+The validated build tree is
+`/mnt/exty/denial-flutter-engine-3.44.7/engine/src`, checked out from the
+official Flutter monorepo at `FLUTTER_REVISION` with no source changes. Put a
+current `depot_tools` on `PATH`, sync the checkout with `gclient`, then run:
 
 ```sh
-cp src/out/denial_host_release/libflutter_engine.so <repo>/prebuilt/flutter-engine/elinux-x64-release/
-cd <repo>/prebuilt/flutter-engine/elinux-x64-release
-sha256sum libflutter_engine.so > libflutter_engine.so.sha256
+cd /mnt/exty/denial-flutter-engine-3.44.7/engine/src
+./flutter/tools/gn --runtime-mode=release --target-dir=denial_host_release
+/usr/bin/ninja -C out/denial_host_release -j 8 libflutter_engine.so
 ```
 
-If the exty build tree is ever lost, recreate it with a standard engine
-checkout (`gclient`) at the pinned revision, apply the patch series per
-`patches/flutter-engine/README.md`, write `args.gn` from this directory into
-`src/out/denial_host_release/`, and run `gn gen` + the ninja command above.
-Run the full validation checklist in `patches/flutter-engine/README.md`
-before replacing the binary here.
+The generated `out/denial_host_release/args.gn` must match the committed
+`args.gn`. Verify that the library exports `FlutterEngineGetProcAddresses`,
+copy it here, update its SHA-256, refresh `LICENSE.third_party`, and regenerate
+the committed Rust ABI from the exact source header:
+
+```sh
+DENIAL_FLUTTER_EMBEDDER_HEADER=/path/to/flutter/shell/platform/embedder/embedder.h \
+  tools/generate-flutter-embedder-bindings
+tools/generate-flutter-embedder-bindings --check
+```
+
+Keep `FLUTTER_REVISION`, `ENGINE_REVISION`, the SDK pin in `tools/denial-pc`,
+the AOT `libapp.so`, and the generated bindings coupled. A library built from
+a different engine release is not a compatible drop-in merely because its C
+symbols have the same names.
 
 ## Licensing
 
 Flutter Engine is BSD 3-Clause; binary redistribution is permitted.
-`LICENSE.flutter` is the engine license for the pinned revision and
+`LICENSE.flutter` is the engine license for the pinned source revision and
 `LICENSE.third_party` is the cumulative third-party license file from
 `flutter/sky/packages/sky_engine/LICENSE`. Ship both with any release that
 contains this binary. Nothing here implies endorsement by Google or the

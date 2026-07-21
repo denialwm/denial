@@ -3,3 +3,5 @@
 build/
 elinux/flutter/ephemeral/
 elinux/flutter/generated_*
+linux/flutter/ephemeral/
+linux/flutter/generated_*

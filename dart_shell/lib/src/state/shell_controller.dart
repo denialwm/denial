@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../config/startup_environment.dart';
 import '../input/input_layout.dart';
@@ -22,23 +23,23 @@ final denialBridgeProvider = Provider<DenialBridge>((ref) {
 
 final shellControllerProvider =
     StateNotifierProvider<ShellController, ShellState>((ref) {
-  final controller = ShellController(
-    ref.read(denialBridgeProvider),
-    LockStateRepository(
-      environment: ref.watch(startupEnvironmentProvider).values,
-    ),
-    ref.read(authenticationProvider.notifier),
-  );
-  controller.handleAuthenticationState(ref.read(authenticationProvider));
-  ref.listen<AuthenticationState>(authenticationProvider, (_, next) {
-    controller.handleAuthenticationState(next);
-  });
-  return controller;
-});
+      final controller = ShellController(
+        ref.read(denialBridgeProvider),
+        LockStateRepository(
+          environment: ref.watch(startupEnvironmentProvider).values,
+        ),
+        ref.read(authenticationProvider.notifier),
+      );
+      controller.handleAuthenticationState(ref.read(authenticationProvider));
+      ref.listen<AuthenticationState>(authenticationProvider, (_, next) {
+        controller.handleAuthenticationState(next);
+      });
+      return controller;
+    });
 
 class ShellController extends StateNotifier<ShellState> {
   ShellController(this._bridge, this._lockRepository, this._authentication)
-      : super(ShellState.initial()) {
+    : super(ShellState.initial()) {
     _lockRepository.start(onChanged: _handleLockRequestChanged);
     _bridge.start(
       onWindowsChanged: _refreshWindows,
@@ -201,8 +202,9 @@ class ShellController extends StateNotifier<ShellState> {
     _hasLoadedWindowSnapshot = true;
     final stableWindows = List<DenialWindow>.unmodifiable(windows);
     final request = state.launchRequest;
-    final launchWindow =
-        request == null ? null : _matchingLaunchWindow(stableWindows, request);
+    final launchWindow = request == null
+        ? null
+        : _matchingLaunchWindow(stableWindows, request);
 
     if (launchWindow != null) {
       final shouldActivate = state.launchingObjectId != launchWindow.objectId;
@@ -421,6 +423,15 @@ class ShellController extends StateNotifier<ShellState> {
     _bridge.focusWindow(window);
   }
 
+  /// Mirrors the compositor dropping keyboard focus after this window is
+  /// minimized. A later native activation remains authoritative.
+  void releaseWindowFocus(DenialWindow window) {
+    if (state.foregroundObjectId != window.objectId) {
+      return;
+    }
+    state = state.copyWith(clearForegroundObjectId: true);
+  }
+
   void _activateWindowInShell(DenialWindow window) {
     _rawGestureDrag = Offset.zero;
     _gestureLockOrigin = Offset.zero;
@@ -607,7 +618,8 @@ class ShellController extends StateNotifier<ShellState> {
         : state.quickSettingsDrag.dy;
     final flickOpen = velocity >= _quickSettingsFlickVelocity;
     final flickClose = velocity <= -_quickSettingsFlickVelocity;
-    final shouldOpen = !flickClose &&
+    final shouldOpen =
+        !flickClose &&
         ((_quickSettingsDragStartedOpen && !_quickSettingsDragMoved) ||
             drag >= _quickSettingsOpenDistance ||
             flickOpen);
@@ -716,7 +728,8 @@ class ShellController extends StateNotifier<ShellState> {
         : state.edgePanelDrag.dy;
     final flickOpen = velocity <= -_edgePanelFlickVelocity;
     final flickClose = velocity >= _edgePanelFlickVelocity;
-    final shouldOpen = !flickClose &&
+    final shouldOpen =
+        !flickClose &&
         ((_edgePanelDragStartedOpen && !_edgePanelDragMoved) ||
             drag >= ShellMetrics.edgePanelOpenDistance ||
             flickOpen);
@@ -732,20 +745,20 @@ class ShellController extends StateNotifier<ShellState> {
   Offset _visualGestureDrag(Offset rawDrag) {
     return switch (_gestureAxis) {
       _GestureAxis.horizontal => Offset(
-          (rawDrag.dx - _gestureLockOrigin.dx)
-              .clamp(
-                -_gestureHorizontalVisualDistance,
-                _gestureHorizontalVisualDistance,
-              )
-              .toDouble(),
-          0.0,
-        ),
+        (rawDrag.dx - _gestureLockOrigin.dx)
+            .clamp(
+              -_gestureHorizontalVisualDistance,
+              _gestureHorizontalVisualDistance,
+            )
+            .toDouble(),
+        0.0,
+      ),
       _GestureAxis.vertical => Offset(
-          0.0,
-          rawDrag.dy
-              .clamp(-_gestureVisualDistance, _gestureVisualDistance)
-              .toDouble(),
-        ),
+        0.0,
+        rawDrag.dy
+            .clamp(-_gestureVisualDistance, _gestureVisualDistance)
+            .toDouble(),
+      ),
       _GestureAxis.undecided => Offset.zero,
     };
   }
@@ -814,8 +827,8 @@ class ShellController extends StateNotifier<ShellState> {
     );
     final contentOffset = edgePanelActive
         ? (edgePanelRect.height - state.edgePanelViewportScroll)
-            .clamp(0.0, edgePanelRect.height)
-            .toDouble()
+              .clamp(0.0, edgePanelRect.height)
+              .toDouble()
         : 0.0;
     final inputBottom = edgePanelActive
         ? edgePanelRect.top.clamp(0.0, viewSize.height).toDouble()
@@ -903,28 +916,32 @@ class ShellController extends StateNotifier<ShellState> {
       }
       final scaleX = popup.surfaceWidth / popupRect.width;
       final scaleY = popup.surfaceHeight / popupRect.height;
-      regions.add(InputWindowRegion(
-        window: window,
-        surfaceId: popup.surfaceId,
-        rect: clipped,
-        sourceRect: Rect.fromLTWH(
-          (clipped.left - popupRect.left) * scaleX,
-          (clipped.top - popupRect.top) * scaleY,
-          clipped.width * scaleX,
-          clipped.height * scaleY,
+      regions.add(
+        InputWindowRegion(
+          window: window,
+          surfaceId: popup.surfaceId,
+          rect: clipped,
+          sourceRect: Rect.fromLTWH(
+            (clipped.left - popupRect.left) * scaleX,
+            (clipped.top - popupRect.top) * scaleY,
+            clipped.width * scaleX,
+            clipped.height * scaleY,
+          ),
+          z: popup.compositionOrder + 1,
         ),
-        z: popup.compositionOrder + 1,
-      ));
+      );
     }
-    regions.add(InputWindowRegion(
-      window: window,
-      // Route through the toplevel root so native hit testing can select an
-      // input-capable subsurface rather than the current primary texture.
-      surfaceId: window.objectId,
-      rect: rect,
-      sourceRect: sourceRect,
-      z: 0,
-    ));
+    regions.add(
+      InputWindowRegion(
+        window: window,
+        // Route through the toplevel root so native hit testing can select an
+        // input-capable subsurface rather than the current primary texture.
+        surfaceId: window.objectId,
+        rect: rect,
+        sourceRect: sourceRect,
+        z: 0,
+      ),
+    );
     return regions;
   }
 

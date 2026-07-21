@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../../state/display_layout.dart';
 import '../../theme/tokens.dart';
@@ -31,12 +32,12 @@ class WallpaperAccent {
   /// Translucent card fill for system bar cards: the dark surface tone tinted
   /// toward the accent, letting the wallpaper glow through.
   Color get cardFill =>
-      Color.lerp(_cardBase, color, 0.15)!.withValues(alpha: 0.72);
+      Color.lerp(_cardBase, color, 0.15)!.withValues(alpha: 0.90);
 
   /// Top stop of the card gradient: [cardFill] nudged further toward the
   /// accent so pills read as softly lit from above.
   Color get cardFillTop =>
-      Color.lerp(_cardBase, color, 0.24)!.withValues(alpha: 0.76);
+      Color.lerp(_cardBase, color, 0.24)!.withValues(alpha: 0.90);
 
   /// Secondary text inside system bar cards, tinted toward the accent so
   /// captions re-theme with the wallpaper without losing legibility.
@@ -67,26 +68,26 @@ final _accentSourceWallpaperProvider = Provider<WallpaperResource>((ref) {
 
 final wallpaperAccentProvider =
     StateNotifierProvider<WallpaperAccentController, WallpaperAccent>((ref) {
-  final controller = WallpaperAccentController();
-  ref.listen<WallpaperResource>(
-    _accentSourceWallpaperProvider,
-    (previous, next) => unawaited(controller.load(next)),
-    fireImmediately: true,
-  );
-  return controller;
-});
+      final controller = WallpaperAccentController();
+      ref.listen<WallpaperResource>(
+        _accentSourceWallpaperProvider,
+        (previous, next) => unawaited(controller.load(next)),
+        fireImmediately: true,
+      );
+      return controller;
+    });
 
 class WallpaperAccentController extends StateNotifier<WallpaperAccent> {
   WallpaperAccentController({
     Future<Color?> Function(WallpaperResource resource)? extract,
-  })  : _extract = extract ?? _extractFromResource,
-        super(WallpaperAccent.fallback);
+  }) : _extract = extract ?? _extractFromResource,
+       super(WallpaperAccent.fallback);
 
   /// A frozen accent that never extracts, for widget tests and previews.
   @visibleForTesting
   WallpaperAccentController.preview(WallpaperAccent accent)
-      : _extract = _extractFromResource,
-        super(accent);
+    : _extract = _extractFromResource,
+      super(accent);
 
   static const int _maxCacheEntries = 8;
 
@@ -111,8 +112,9 @@ class WallpaperAccentController extends StateNotifier<WallpaperAccent> {
     if (!mounted || generation != _generation) {
       return;
     }
-    final accent =
-        color == null ? WallpaperAccent.fallback : WallpaperAccent(color);
+    final accent = color == null
+        ? WallpaperAccent.fallback
+        : WallpaperAccent(color);
     if (_cache.length >= _maxCacheEntries) {
       _cache.remove(_cache.keys.first);
     }
@@ -221,13 +223,13 @@ Color? dominantVibrantColor(ByteData rgba) {
     return null;
   }
 
-  var hue =
-      math.atan2(hueSin[best], hueCos[best]) * 180.0 / math.pi;
+  var hue = math.atan2(hueSin[best], hueCos[best]) * 180.0 / math.pi;
   if (hue < 0.0) {
     hue += 360.0;
   }
-  final saturation =
-      (saturations[best] / weights[best]).clamp(0.35, 0.75).toDouble();
+  final saturation = (saturations[best] / weights[best])
+      .clamp(0.35, 0.75)
+      .toDouble();
   final value = (values[best] / weights[best]).clamp(0.70, 0.95).toDouble();
   return HSVColor.fromAHSV(1.0, hue, saturation, value).toColor();
 }

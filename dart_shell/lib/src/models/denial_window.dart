@@ -215,6 +215,24 @@ class DenialWindow {
         (layer) => layer.role == DenialSurfaceRole.popup,
       );
 
+  /// Texture-backed surfaces drawn inside the toplevel frame itself.
+  ///
+  /// Desktop widgets use this narrower visibility set because popup surfaces
+  /// are intentionally absent from their compact representation.
+  Iterable<int> get mainVisibleSurfaceIds sync* {
+    if (surfaceLayers.isEmpty) {
+      if (textureId > 0) {
+        yield surfaceId;
+      }
+      return;
+    }
+    for (final layer in mainSurfaceLayers) {
+      if (layer.textureId > 0) {
+        yield layer.surfaceId;
+      }
+    }
+  }
+
   Iterable<int> get visibleSurfaceIds sync* {
     if (surfaceLayers.isEmpty) {
       if (textureId > 0) {

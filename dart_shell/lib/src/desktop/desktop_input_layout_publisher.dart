@@ -132,6 +132,19 @@ class _DesktopInputLayoutPublisherState
 
     final inputWindows = <InputWindowRegion>[];
     final visibleSurfaceIds = <int>{};
+    // Desktop widgets still sample their live main-surface textures. Keep
+    // those surfaces presentation-visible without adding a client input
+    // region or configuring the native window to the widget rectangle.
+    for (final placement in desktop.placements.values) {
+      if (!placement.minimized) {
+        continue;
+      }
+      final window = windowsById[placement.objectId];
+      if (window == null) {
+        continue;
+      }
+      visibleSurfaceIds.addAll(window.mainVisibleSurfaceIds);
+    }
     final zStride = placements.fold<int>(2, (stride, placement) {
       final layers = windowsById[placement.objectId]!.surfaceLayers.length + 2;
       return math.max(stride, layers);

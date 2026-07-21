@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../input/shell_interaction_registry.dart';
 import '../theme/motion.dart';
@@ -10,10 +11,8 @@ import '../theme/tokens.dart';
 
 enum ShellDismissPolicy { none, outsideTap, outsideTapAndEscape }
 
-typedef ShellSurfaceBuilder = Widget Function(
-  BuildContext context,
-  ShellSurfaceHandle handle,
-);
+typedef ShellSurfaceBuilder =
+    Widget Function(BuildContext context, ShellSurfaceHandle handle);
 
 @immutable
 class ManagedShellSurface {
@@ -64,16 +63,17 @@ class ManagedShellSurface {
 }
 
 final shellSurfaceControllerProvider =
-    StateNotifierProvider<ShellSurfaceController, List<ManagedShellSurface>>(
-        (ref) {
-  return ShellSurfaceController(
-    ref.read(shellInteractionRegistryProvider.notifier),
-  );
-});
+    StateNotifierProvider<ShellSurfaceController, List<ManagedShellSurface>>((
+      ref,
+    ) {
+      return ShellSurfaceController(
+        ref.read(shellInteractionRegistryProvider.notifier),
+      );
+    });
 
 class ShellSurfaceController extends StateNotifier<List<ManagedShellSurface>> {
   ShellSurfaceController(this._interactions)
-      : super(const <ManagedShellSurface>[]);
+    : super(const <ManagedShellSurface>[]);
 
   final ShellInteractionRegistry _interactions;
 
@@ -115,13 +115,15 @@ class ShellSurfaceController extends StateNotifier<List<ManagedShellSurface>> {
       ...state,
       surface,
     ]);
-    _interactions.upsert(ShellInteractionSurface(
-      id: id,
-      debugLabel: debugLabel,
-      pointerPolicy: pointerPolicy,
-      keyboardPolicy: keyboardPolicy,
-      compositorPolicy: compositorPolicy,
-    ));
+    _interactions.upsert(
+      ShellInteractionSurface(
+        id: id,
+        debugLabel: debugLabel,
+        pointerPolicy: pointerPolicy,
+        keyboardPolicy: keyboardPolicy,
+        compositorPolicy: compositorPolicy,
+      ),
+    );
     return ShellSurfaceHandle._(this, id);
   }
 
@@ -220,10 +222,7 @@ class ShellSurfaceHost extends ConsumerWidget {
 }
 
 class _ManagedShellSurfaceLayer extends ConsumerStatefulWidget {
-  const _ManagedShellSurfaceLayer({
-    required this.surface,
-    super.key,
-  });
+  const _ManagedShellSurfaceLayer({required this.surface, super.key});
 
   final ManagedShellSurface surface;
 
@@ -238,21 +237,27 @@ class _ManagedShellSurfaceLayerState
   late final AnimationController _controller;
   late final Animation<double> _opacity;
   late final Animation<double> _scale;
-  final FocusScopeNode _focusScopeNode =
-      FocusScopeNode(debugLabel: 'managed-shell-surface');
+  final FocusScopeNode _focusScopeNode = FocusScopeNode(
+    debugLabel: 'managed-shell-surface',
+  );
   bool _completingClose = false;
 
   @override
   void initState() {
     super.initState();
     final reduceMotion = WidgetsBinding
-        .instance.platformDispatcher.accessibilityFeatures.disableAnimations;
+        .instance
+        .platformDispatcher
+        .accessibilityFeatures
+        .disableAnimations;
     _controller = AnimationController(
       vsync: this,
-      duration:
-          reduceMotion ? Duration.zero : widget.surface.transitionDuration,
-      reverseDuration:
-          reduceMotion ? Duration.zero : widget.surface.transitionDuration,
+      duration: reduceMotion
+          ? Duration.zero
+          : widget.surface.transitionDuration,
+      reverseDuration: reduceMotion
+          ? Duration.zero
+          : widget.surface.transitionDuration,
     );
     final curved = CurvedAnimation(
       parent: _controller,
@@ -308,7 +313,7 @@ class _ManagedShellSurfaceLayerState
     );
     final dismissOnOutside =
         surface.dismissPolicy == ShellDismissPolicy.outsideTap ||
-            surface.dismissPolicy == ShellDismissPolicy.outsideTapAndEscape;
+        surface.dismissPolicy == ShellDismissPolicy.outsideTapAndEscape;
     final dismissOnEscape =
         surface.dismissPolicy == ShellDismissPolicy.outsideTapAndEscape;
 

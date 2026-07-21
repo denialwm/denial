@@ -12,13 +12,15 @@ import 'package:denial_dart_shell/src/state/system_status.dart';
 import 'package:denial_dart_shell/src/widgets/lock/lock_screen_layer.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('swipe requests native authentication but cannot unlock',
-      (tester) async {
+  testWidgets('swipe requests native authentication but cannot unlock', (
+    tester,
+  ) async {
     final service = _FakeAuthenticationService();
     final bridge = _LayoutBridge(_singleOutputLayout);
     addTearDown(() {
@@ -30,10 +32,7 @@ void main() {
     service.emit(_state(locked: true));
     await tester.pump();
 
-    await tester.drag(
-      find.byType(LockScreenLayer),
-      const Offset(0, -360),
-    );
+    await tester.drag(find.byType(LockScreenLayer), const Offset(0, -360));
     await tester.pump(const Duration(milliseconds: 240));
 
     expect(service.beginCount, 1);
@@ -48,8 +47,9 @@ void main() {
     expect(find.bySemanticsLabel('Denial secure lock screen'), findsOneWidget);
   });
 
-  testWidgets('credential is one-shot and never enters authentication state',
-      (tester) async {
+  testWidgets('credential is one-shot and never enters authentication state', (
+    tester,
+  ) async {
     final service = _FakeAuthenticationService(expectedResponse: 'one-shot');
     final bridge = _LayoutBridge(_singleOutputLayout);
     addTearDown(() {
@@ -74,47 +74,49 @@ void main() {
     final state = ProviderScope.containerOf(
       tester.element(find.byType(LockScreenLayer)),
     ).read(authenticationProvider);
-    expect(
-      <Object?>[
-        state.prompt?.message,
-        state.resultMessage,
-        state.statusMessage,
-      ],
-      isNot(contains('one-shot')),
-    );
+    expect(<Object?>[
+      state.prompt?.message,
+      state.resultMessage,
+      state.statusMessage,
+    ], isNot(contains('one-shot')));
     expect(state.locked, isTrue);
   });
 
-  testWidgets('every output is covered and only the main output authenticates',
-      (tester) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(1600, 600);
-    addTearDown(tester.view.reset);
-    final service = _FakeAuthenticationService();
-    final bridge = _LayoutBridge(_dualOutputLayout);
-    addTearDown(() {
-      service.dispose();
-      bridge.dispose();
-    });
+  testWidgets(
+    'every output is covered and only the main output authenticates',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1600, 600);
+      addTearDown(tester.view.reset);
+      final service = _FakeAuthenticationService();
+      final bridge = _LayoutBridge(_dualOutputLayout);
+      addTearDown(() {
+        service.dispose();
+        bridge.dispose();
+      });
 
-    await tester.pumpWidget(_host(service: service, bridge: bridge));
-    await tester.pump();
-    service.emit(_state(locked: true));
-    service.emit(_prompt(attemptId: 19, sequence: 5));
-    await tester.pump();
+      await tester.pumpWidget(_host(service: service, bridge: bridge));
+      await tester.pump();
+      service.emit(_state(locked: true));
+      service.emit(_prompt(attemptId: 19, sequence: 5));
+      await tester.pump();
 
-    final mainPane = find.byKey(const ValueKey<int>(11));
-    final secondaryPane = find.byKey(const ValueKey<int>(22));
-    expect(mainPane, findsOneWidget);
-    expect(secondaryPane, findsOneWidget);
-    expect(tester.getRect(mainPane), const Rect.fromLTWH(0, 0, 800, 600));
-    expect(
-      tester.getRect(secondaryPane),
-      const Rect.fromLTWH(800, 0, 800, 600),
-    );
-    expect(find.byType(EditableText), findsOneWidget);
-    expect(find.bySemanticsLabel('Denial secure lock screen'), findsOneWidget);
-  });
+      final mainPane = find.byKey(const ValueKey<int>(11));
+      final secondaryPane = find.byKey(const ValueKey<int>(22));
+      expect(mainPane, findsOneWidget);
+      expect(secondaryPane, findsOneWidget);
+      expect(tester.getRect(mainPane), const Rect.fromLTWH(0, 0, 800, 600));
+      expect(
+        tester.getRect(secondaryPane),
+        const Rect.fromLTWH(800, 0, 800, 600),
+      );
+      expect(find.byType(EditableText), findsOneWidget);
+      expect(
+        find.bySemanticsLabel('Denial secure lock screen'),
+        findsOneWidget,
+      );
+    },
+  );
 }
 
 Widget _host({
@@ -225,10 +227,7 @@ AuthenticationPacket _state({required bool locked}) {
   );
 }
 
-AuthenticationPacket _prompt({
-  required int attemptId,
-  required int sequence,
-}) {
+AuthenticationPacket _prompt({required int attemptId, required int sequence}) {
   return AuthenticationPacket(
     kind: AuthenticationPacketKind.prompt,
     locked: true,

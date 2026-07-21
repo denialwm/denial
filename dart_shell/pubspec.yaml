@@ -4,19 +4,19 @@ publish_to: 'none'
 version: 0.1.0
 
 environment:
-  sdk: ^3.6.0
+  sdk: ^3.12.0
 
 dependencies:
-  dbus: ^0.7.12
-  ffi: ^2.1.0
+  dbus: ^0.7.14
+  ffi: ^2.2.0
   flat_buffers: 25.9.23
   flutter:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
-  flutter_riverpod: ^2.6.1
-  flutter_svg: ^2.0.17
-  intl: any
+  flutter_riverpod: ^3.3.2
+  flutter_svg: ^2.3.0
+  intl: ^0.20.2
   denial_wire_protocol:
     path: ../protocol/generated/dart
 

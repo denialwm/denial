@@ -1,16 +1,19 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../services/network_manager_service.dart';
 
-final networkConnectivityProvider = StateNotifierProvider<
-    NetworkConnectivityController, NetworkConnectivityState>((ref) {
-  return NetworkConnectivityController(
-    ref.watch(networkManagerServiceProvider),
-  );
-});
+final networkConnectivityProvider =
+    StateNotifierProvider<
+      NetworkConnectivityController,
+      NetworkConnectivityState
+    >((ref) {
+      return NetworkConnectivityController(
+        ref.watch(networkManagerServiceProvider),
+      );
+    });
 
 @immutable
 class NetworkConnectivityState {
@@ -24,12 +27,12 @@ class NetworkConnectivityState {
   }) : busyNetworks = Set<String>.unmodifiable(busyNetworks);
 
   NetworkConnectivityState.initial()
-      : snapshot = NetworkManagerSnapshot.unavailable(),
-        initializing = true,
-        scanning = false,
-        radioChanging = false,
-        busyNetworks = const <String>{},
-        error = null;
+    : snapshot = NetworkManagerSnapshot.unavailable(),
+      initializing = true,
+      scanning = false,
+      radioChanging = false,
+      busyNetworks = const <String>{},
+      error = null;
 
   final NetworkManagerSnapshot snapshot;
   final bool initializing;
@@ -61,7 +64,7 @@ class NetworkConnectivityState {
 class NetworkConnectivityController
     extends StateNotifier<NetworkConnectivityState> {
   NetworkConnectivityController(this._service)
-      : super(NetworkConnectivityState.initial()) {
+    : super(NetworkConnectivityState.initial()) {
     _subscription = _service.snapshots.listen(_applySnapshot);
     unawaited(_start());
   }
@@ -209,7 +212,8 @@ class NetworkConnectivityController
     if (!mounted) {
       return;
     }
-    final scanCompleted = state.scanning &&
+    final scanCompleted =
+        state.scanning &&
         snapshot.lastScan >= 0 &&
         snapshot.lastScan != _scanBaseline;
     if (scanCompleted || !snapshot.serviceAvailable) {
@@ -219,8 +223,9 @@ class NetworkConnectivityController
     state = state.copyWith(
       snapshot: snapshot,
       initializing: false,
-      scanning:
-          scanCompleted || !snapshot.serviceAvailable ? false : state.scanning,
+      scanning: scanCompleted || !snapshot.serviceAvailable
+          ? false
+          : state.scanning,
     );
   }
 

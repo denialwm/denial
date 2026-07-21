@@ -31,25 +31,23 @@ class NotificationIconRequest {
   int get hashCode => Object.hash(appIcon, desktopEntry);
 }
 
-final notificationIconPathProvider =
-    FutureProvider.autoDispose.family<String?, NotificationIconRequest>(
-  (ref, request) {
-    final repository = ref.watch(desktopAppsRepositoryProvider);
-    return Isolate.run(
-      () => repository.resolveNotificationIcon(
-        appIcon: request.appIcon,
-        desktopEntry: request.desktopEntry,
-      ),
-    );
-  },
-);
+final notificationIconPathProvider = FutureProvider.autoDispose
+    .family<String?, NotificationIconRequest>((ref, request) {
+      final repository = ref.watch(desktopAppsRepositoryProvider);
+      return Isolate.run(
+        () => repository.resolveNotificationIcon(
+          appIcon: request.appIcon,
+          desktopEntry: request.desktopEntry,
+        ),
+      );
+    });
 
 const int maxNotificationStaticImageBytes = 4 * 1024 * 1024;
 
-final notificationStaticImageProvider =
-    FutureProvider.autoDispose.family<Uint8List?, String>(
-  (ref, path) => Isolate.run(() => loadBoundedNotificationImage(path)),
-);
+final notificationStaticImageProvider = FutureProvider.autoDispose
+    .family<Uint8List?, String>(
+      (ref, path) => Isolate.run(() => loadBoundedNotificationImage(path)),
+    );
 
 @visibleForTesting
 Uint8List? loadBoundedNotificationImage(String path) {
@@ -80,10 +78,7 @@ Uint8List? loadBoundedNotificationImage(String path) {
 }
 
 class NotificationAppIcon extends ConsumerWidget {
-  const NotificationAppIcon({
-    required this.notification,
-    super.key,
-  });
+  const NotificationAppIcon({required this.notification, super.key});
 
   final DesktopNotification notification;
 
@@ -100,7 +95,7 @@ class NotificationAppIcon extends ConsumerWidget {
         ),
       ),
     );
-    return AppIconImage(iconPath: resolved.valueOrNull);
+    return AppIconImage(iconPath: resolved.value);
   }
 }
 
@@ -127,10 +122,11 @@ class NotificationArtwork extends ConsumerWidget {
     if (preferContentImage && image != null) {
       content = _RawNotificationImage(image: image);
     } else if (preferContentImage && imagePath != null) {
-      final cacheSize =
-          (size * MediaQuery.devicePixelRatioOf(context)).ceil().clamp(32, 512);
+      final cacheSize = (size * MediaQuery.devicePixelRatioOf(context))
+          .ceil()
+          .clamp(32, 512);
       final bytes = ref.watch(notificationStaticImageProvider(imagePath));
-      final data = bytes.valueOrNull;
+      final data = bytes.value;
       content = data == null
           ? NotificationAppIcon(notification: notification)
           : Image.memory(
@@ -140,9 +136,8 @@ class NotificationArtwork extends ConsumerWidget {
               cacheWidth: cacheSize,
               cacheHeight: cacheSize,
               gaplessPlayback: true,
-              errorBuilder: (_, __, ___) => NotificationAppIcon(
-                notification: notification,
-              ),
+              errorBuilder: (_, __, ___) =>
+                  NotificationAppIcon(notification: notification),
             );
     } else {
       content = NotificationAppIcon(notification: notification);

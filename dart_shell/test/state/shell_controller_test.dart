@@ -72,6 +72,30 @@ void main() {
     expect(controller.state.locked, isFalse);
     expect(controller.state.lockLayerVisible, isTrue);
   });
+
+  test('minimizing the foreground window releases shell focus', () {
+    final bridge = _TestBridge();
+    final service = _TestAuthenticationService();
+    final authentication = AuthenticationController(service);
+    final controller = ShellController(
+      bridge,
+      _TestLockStateRepository(),
+      authentication,
+    );
+    addTearDown(() {
+      controller.dispose();
+      authentication.dispose();
+      service.dispose();
+      bridge.dispose();
+    });
+    bridge.publish(const <DenialWindow>[_mainWindow]);
+    controller.focusWindow(_mainWindow);
+    expect(controller.state.foregroundObjectId, _mainWindow.objectId);
+
+    controller.releaseWindowFocus(_mainWindow);
+
+    expect(controller.state.foregroundObjectId, isNull);
+  });
 }
 
 class _TestBridge extends DenialBridge {

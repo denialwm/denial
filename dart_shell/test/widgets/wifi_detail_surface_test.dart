@@ -6,11 +6,13 @@ import 'package:denial_dart_shell/src/theme/tokens.dart';
 import 'package:denial_dart_shell/src/widgets/connectivity/wifi_detail_surface.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('surface is truthful without NetworkManager or an adapter',
-      (tester) async {
+  testWidgets('surface is truthful without NetworkManager or an adapter', (
+    tester,
+  ) async {
     final backend = _FakeNetworkBackend(NetworkManagerSnapshot.unavailable());
     final container = ProviderContainer(
       overrides: <Override>[
@@ -32,17 +34,14 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('credential is one-shot and network actions are direct',
-      (tester) async {
+  testWidgets('credential is one-shot and network actions are direct', (
+    tester,
+  ) async {
     final backend = _FakeNetworkBackend(
       _snapshot(
         networks: <WifiNetwork>[
           _network('Secure', security: WifiSecurity.wpaPersonal),
-          _network(
-            'Saved',
-            connected: true,
-            savedConnectionPath: '/saved/1',
-          ),
+          _network('Saved', connected: true, savedConnectionPath: '/saved/1'),
         ],
       ),
     );
@@ -88,10 +87,7 @@ void main() {
   });
 }
 
-Widget _host(
-  ProviderContainer container, {
-  double textScale = 1,
-}) {
+Widget _host(ProviderContainer container, {double textScale = 1}) {
   return UncontrolledProviderScope(
     container: container,
     child: Directionality(
@@ -186,8 +182,9 @@ NetworkManagerSnapshot _snapshot({
         ? NetworkConnectivityStatus.online
         : NetworkConnectivityStatus.disabled,
     networks: networks,
-    activeConnectionPath:
-        networks.any((network) => network.connected) ? '/active/1' : null,
+    activeConnectionPath: networks.any((network) => network.connected)
+        ? '/active/1'
+        : null,
     devicePath: hasAdapter ? '/device/1' : null,
     lastScan: 1,
     radioPermission: NetworkPermission.allowed,

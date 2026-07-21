@@ -1,46 +1,29 @@
-# Denial Flutter Engine delta
+# Historical Denial Flutter Engine delta
 
-## Pinned upstream revision
+## Current status
 
-The patch in this directory targets Flutter Engine revision
-`cb4b5fff73850b2e42bd4de7cb9a4310a78ac40d`.
+These ten patches target the archived Flutter Engine revision
+`cb4b5fff73850b2e42bd4de7cb9a4310a78ac40d`. They are **not applied** to the
+current Flutter 3.44.7 engine. Denial now ships a clean upstream baseline at
+Flutter source revision `84fc5cbb223bc12f83d65b647ff8a56caf779ffd` and engine
+artifact revision `69c8c61792f04cc809dfef0c910414fb9afc06cd`; see
+`prebuilt/flutter-engine/elinux-x64-release/BUILD_INFO.md`.
 
-Keep the revision, the patch, the prebuilt `libflutter_engine.so`, and its
-license bundle versioned as one release unit. Do not silently apply the patch
-to a different engine revision: rebase it and repeat the rendering and CPU
-profile checks below.
+Do not apply this series wholesale to a newer engine. Profile the clean
+baseline first, identify which behavior still regresses, selectively port the
+smallest relevant change, and repeat the rendering, correctness, resource,
+and CPU checks below. Nine patches no longer apply cleanly to the current
+monorepo, which is expected after this much engine and Skia churn.
 
-The release unit lives in `prebuilt/flutter-engine/elinux-x64-release/`:
-the patched binary, its SHA-256, the pinned revision, the GN `args.gn`, and
-both license files are committed to Git so the compiled engine can never be
-lost again. `prebuilt/.../BUILD_INFO.md` records where the engine build tree
-lives and how to rebuild.
+`tools/denial-pc` always verifies and installs the currently pinned raw engine
+by checksum, whether that engine is upstream or locally modified. It no longer
+uses `flutter-elinux` or its ephemeral Sony engine copy.
 
-## How the patched engine reaches the bundle
+Everything below records the evidence and implementation of the archived
+patch series. Present-tense references to the “patched” or “distributed”
+engine describe that old release, not the current baseline.
 
-`flutter-elinux build` unconditionally copies the STOCK Sony engine from the
-SDK artifact cache into `dart_shell/build/.../bundle/lib/` and
-`dart_shell/elinux/flutter/ephemeral/`. On 2026-07-19 this silently reverted
-the bundle to the stock engine and brought the software A8 mask uploads back
-(~956 window-sized `glTexSubImage2D` calls/s, ~20% of a core, measured live).
-
-`tools/denial-pc` therefore enforces the patched engine at both ends:
-
-- `bundle` (and `build`) finish by verifying
-  `prebuilt/flutter-engine/elinux-x64-release/libflutter_engine.so` against
-  its committed SHA-256 and installing it over the bundle and ephemeral
-  copies (`install_patched_engine`).
-- `session` refuses to start when the bundle engine's SHA-256 does not match
-  the prebuilt stamp (`require_patched_engine`), so a stock engine can no
-  longer run unnoticed.
-- `doctor` reports whether both the prebuilt and the bundle engine are the
-  patched build.
-
-Building the bundle through anything other than `tools/denial-pc bundle`
-leaves the stock engine in place by design of the upstream tool; the session
-guard will catch it.
-
-## Why Denial rebuilds Flutter Engine
+## Historical rationale for rebuilding Flutter Engine
 
 Denial supplies Flutter with an embedder-owned OpenGL framebuffer. Upstream
 `GPUSurfaceGLSkia` wraps that framebuffer as a Skia render target, but declares

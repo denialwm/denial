@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../services/desktop_power_modes_service.dart';
 import '../services/power_profile_service.dart';
@@ -21,14 +21,14 @@ class DesktopPowerModesState {
   });
 
   factory DesktopPowerModesState.initial() => const DesktopPowerModesState(
-        systemAvailable: false,
-        systemProfile: PowerProfile.balanced,
-        pboAvailable: false,
-        pboProfile: null,
-        refreshing: false,
-        systemChanging: false,
-        pboChanging: false,
-      );
+    systemAvailable: false,
+    systemProfile: PowerProfile.balanced,
+    pboAvailable: false,
+    pboProfile: null,
+    refreshing: false,
+    systemChanging: false,
+    pboChanging: false,
+  );
 
   final bool systemAvailable;
   final String systemProfile;
@@ -65,17 +65,18 @@ class DesktopPowerModesState {
 }
 
 final desktopPowerModesProvider =
-    StateNotifierProvider<DesktopPowerModesController, DesktopPowerModesState>(
-        (ref) {
-  return DesktopPowerModesController(
-    ref.read(desktopPowerModesServiceProvider),
-  );
-});
+    StateNotifierProvider<DesktopPowerModesController, DesktopPowerModesState>((
+      ref,
+    ) {
+      return DesktopPowerModesController(
+        ref.read(desktopPowerModesServiceProvider),
+      );
+    });
 
 class DesktopPowerModesController
     extends StateNotifier<DesktopPowerModesState> {
   DesktopPowerModesController(this._service)
-      : super(DesktopPowerModesState.initial()) {
+    : super(DesktopPowerModesState.initial()) {
     unawaited(refresh());
   }
 
@@ -102,10 +103,7 @@ class DesktopPowerModesController
       );
     } on Object catch (error) {
       if (mounted) {
-        state = state.copyWith(
-          refreshing: false,
-          error: _message(error),
-        );
+        state = state.copyWith(refreshing: false, error: _message(error));
       }
     }
   }
@@ -126,10 +124,7 @@ class DesktopPowerModesController
       }
     } on Object catch (error) {
       if (mounted) {
-        state = state.copyWith(
-          systemChanging: false,
-          error: _message(error),
-        );
+        state = state.copyWith(systemChanging: false, error: _message(error));
       }
     }
   }
@@ -150,10 +145,7 @@ class DesktopPowerModesController
       }
     } on Object catch (error) {
       if (mounted) {
-        state = state.copyWith(
-          pboChanging: false,
-          error: _message(error),
-        );
+        state = state.copyWith(pboChanging: false, error: _message(error));
       }
     }
   }

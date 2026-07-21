@@ -61,9 +61,9 @@ denial-flutter-engine = { path = "flutter-engine", optional = true }
 drm-ffi = { version = "=0.9.1", optional = true }
 flatbuffers = { version = "=25.9.23", optional = true }
 libc = { version = "0.2", optional = true }
-libloading = { version = "0.8", optional = true }
-serde = { version = "=1.0.228", features = ["derive"], optional = true }
-serde_json = { version = "=1.0.149", features = ["raw_value"], optional = true }
+libloading = { version = "0.9", optional = true }
+serde = { version = "=1.0.229", features = ["derive"], optional = true }
+serde_json = { version = "=1.0.151", features = ["raw_value"], optional = true }
 smithay = { git = "https://github.com/Smithay/smithay.git", rev = "812bd33259ff58810dadef6086d8385eeac1ca55", default-features = false, optional = true }
 smithay-drm-extras = { git = "https://github.com/Smithay/smithay.git", rev = "812bd33259ff58810dadef6086d8385eeac1ca55", default-features = false, optional = true }
 tracing = { version = "0.1.37", features = ["max_level_trace", "release_max_level_info"], optional = true }

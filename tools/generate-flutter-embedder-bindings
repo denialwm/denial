@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+ENGINE_RELEASE="$ROOT/prebuilt/flutter-engine/elinux-x64-release"
+ENGINE_REVISION_FILE="$ENGINE_RELEASE/ENGINE_REVISION"
+FLUTTER_REVISION_FILE="$ENGINE_RELEASE/FLUTTER_REVISION"
+GENERATOR_MANIFEST="$ROOT/tools/flutter-embedder-bindings/Cargo.toml"
+OUTPUT="$ROOT/compositor/flutter-engine/src/sys.rs"
+MODE="${1:-generate}"
+
+if [[ "$MODE" != "generate" && "$MODE" != "--check" ]]; then
+    printf 'Usage: %s [--check]\n' "$0" >&2
+    exit 2
+fi
+
+[[ -f "$ENGINE_REVISION_FILE" ]] || {
+    printf 'missing pinned engine revision: %s\n' "$ENGINE_REVISION_FILE" >&2
+    exit 1
+}
+[[ -f "$FLUTTER_REVISION_FILE" ]] || {
+    printf 'missing pinned Flutter revision: %s\n' "$FLUTTER_REVISION_FILE" >&2
+    exit 1
+}
+
+ENGINE_REVISION="$(tr -d '[:space:]' < "$ENGINE_REVISION_FILE")"
+if [[ ! "$ENGINE_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+    printf 'invalid Flutter engine revision in %s: %s\n' \
+        "$ENGINE_REVISION_FILE" "$ENGINE_REVISION" >&2
+    exit 1
+fi
+FLUTTER_REVISION="$(tr -d '[:space:]' < "$FLUTTER_REVISION_FILE")"
+if [[ ! "$FLUTTER_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+    printf 'invalid Flutter revision in %s: %s\n' \
+        "$FLUTTER_REVISION_FILE" "$FLUTTER_REVISION" >&2
+    exit 1
+fi
+
+TMP="$(mktemp -d)"
+trap 'rm -rf -- "$TMP"' EXIT
+HEADER="$TMP/embedder.h"
+GENERATED="$TMP/sys.rs"
+
+if [[ -n "${DENIAL_FLUTTER_EMBEDDER_HEADER:-}" ]]; then
+    cp -- "$DENIAL_FLUTTER_EMBEDDER_HEADER" "$HEADER"
+else
+    HEADER_URL="https://raw.githubusercontent.com/flutter/flutter/$FLUTTER_REVISION/engine/src/flutter/shell/platform/embedder/embedder.h"
+    curl -fsSL -o "$HEADER" "$HEADER_URL"
+fi
+
+HEADER_SHA256="$(sha256sum -- "$HEADER" | cut -d' ' -f1)"
+(
+    cd "$ROOT/compositor"
+    CARGO_TARGET_DIR="$TMP/cargo-target" cargo run \
+        --quiet \
+        --locked \
+        --manifest-path "$GENERATOR_MANIFEST" \
+        -- \
+        "$HEADER" \
+        "$GENERATED" \
+        "$ENGINE_REVISION" \
+        "$FLUTTER_REVISION" \
+        "$HEADER_SHA256"
+)
+
+if [[ "$MODE" == "--check" ]]; then
+    cmp "$OUTPUT" "$GENERATED"
+    printf 'Flutter embedder Rust bindings are current for engine %s (Flutter %s).\n' \
+        "$ENGINE_REVISION" "$FLUTTER_REVISION"
+    exit 0
+fi
+
+cp -- "$GENERATED" "$OUTPUT"
+printf 'Generated %s from Flutter engine %s / Flutter %s (header SHA-256 %s).\n' \
+    "$OUTPUT" "$ENGINE_REVISION" "$FLUTTER_REVISION" "$HEADER_SHA256"

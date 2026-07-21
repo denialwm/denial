@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/widgets.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../models/display_layout.dart';
 import '../models/denial_window.dart';
@@ -27,10 +27,7 @@ abstract final class DesktopMetrics {
     return clipped.isEmpty ? Rect.zero : clipped;
   }
 
-  static Rect launcherRect(
-    Size viewSize, {
-    Rect? outputRect,
-  }) {
+  static Rect launcherRect(Size viewSize, {Rect? outputRect}) {
     return _panelRect(
       viewSize,
       outputRect: outputRect,
@@ -40,10 +37,7 @@ abstract final class DesktopMetrics {
     );
   }
 
-  static Rect dashboardRect(
-    Size viewSize, {
-    Rect? outputRect,
-  }) {
+  static Rect dashboardRect(Size viewSize, {Rect? outputRect}) {
     return _panelRect(
       viewSize,
       outputRect: outputRect,
@@ -53,10 +47,7 @@ abstract final class DesktopMetrics {
     );
   }
 
-  static Rect launcherTriggerRect(
-    Size viewSize, {
-    Rect? outputRect,
-  }) {
+  static Rect launcherTriggerRect(Size viewSize, {Rect? outputRect}) {
     return _edgeTriggerRect(
       viewSize,
       outputRect: outputRect,
@@ -64,10 +55,7 @@ abstract final class DesktopMetrics {
     );
   }
 
-  static Rect dashboardTriggerRect(
-    Size viewSize, {
-    Rect? outputRect,
-  }) {
+  static Rect dashboardTriggerRect(Size viewSize, {Rect? outputRect}) {
     return _edgeTriggerRect(
       viewSize,
       outputRect: outputRect,
@@ -219,8 +207,9 @@ class DesktopWindowPlacement {
       fullscreen: fullscreen ?? this.fullscreen,
       serverSideDecorated: serverSideDecorated ?? this.serverSideDecorated,
       dragging: dragging ?? this.dragging,
-      restoreFrame:
-          clearRestoreFrame ? null : restoreFrame ?? this.restoreFrame,
+      restoreFrame: clearRestoreFrame
+          ? null
+          : restoreFrame ?? this.restoreFrame,
       fullscreenRestoreFrame: clearFullscreenRestoreFrame
           ? null
           : fullscreenRestoreFrame ?? this.fullscreenRestoreFrame,
@@ -254,13 +243,15 @@ DenialWindow? desktopWindowAtPosition({
   required DesktopWorkspaceState workspace,
   required Map<int, DenialWindow> windowsById,
 }) {
-  final placements = workspace.placements.values
-      .where(
-        (placement) =>
-            !placement.minimized && windowsById.containsKey(placement.objectId),
-      )
-      .toList(growable: false)
-    ..sort((a, b) => compareDesktopWindowStack(a, b, windowsById));
+  final placements =
+      workspace.placements.values
+          .where(
+            (placement) =>
+                !placement.minimized &&
+                windowsById.containsKey(placement.objectId),
+          )
+          .toList(growable: false)
+        ..sort((a, b) => compareDesktopWindowStack(a, b, windowsById));
   for (final placement in placements.reversed) {
     final window = windowsById[placement.objectId]!;
     for (final popup in window.popupRoots.toList(growable: false).reversed) {
@@ -329,10 +320,11 @@ class DesktopWorkspaceState {
 }
 
 final desktopWorkspaceProvider =
-    StateNotifierProvider<DesktopWorkspaceController, DesktopWorkspaceState>(
-        (ref) {
-  return DesktopWorkspaceController();
-});
+    StateNotifierProvider<DesktopWorkspaceController, DesktopWorkspaceState>((
+      ref,
+    ) {
+      return DesktopWorkspaceController();
+    });
 
 class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
   DesktopWorkspaceController() : super(DesktopWorkspaceState.initial());
@@ -384,8 +376,11 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
   }
 
   void syncWindows(
-      List<DenialWindow> windows, Size viewSize, double devicePixelRatio,
-      {int snapshotSequence = 0}) {
+    List<DenialWindow> windows,
+    Size viewSize,
+    double devicePixelRatio, {
+    int snapshotSequence = 0,
+  }) {
     if (viewSize.width <= 0.0 || viewSize.height <= 0.0) {
       return;
     }
@@ -459,7 +454,8 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
                   serverSideDecorated: window.serverSideDecorated,
                 );
           final pendingFrame = _pendingNativeFrames[window.objectId];
-          final nativeAcknowledgedPending = pendingFrame != null &&
+          final nativeAcknowledgedPending =
+              pendingFrame != null &&
               _framesApproximatelyEqual(nativeFrame, pendingFrame);
           if (nativeAcknowledgedPending) {
             _pendingNativeFrames.remove(window.objectId);
@@ -513,8 +509,8 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
       final frame = current.fullscreen
           ? _clampFrame(current.frame, viewSize)
           : current.maximized
-              ? _maximizedFrame(current.monitorId, viewSize)
-              : _clampFrame(current.frame, viewSize);
+          ? _maximizedFrame(current.monitorId, viewSize)
+          : _clampFrame(current.frame, viewSize);
       if (frame != current.frame) {
         _pendingNativeFrames[window.objectId] = frame;
         next[window.objectId] = current.copyWith(frame: frame);
@@ -536,10 +532,12 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
                 z: placement.z,
               ),
         ];
-        final frames = Map<int, Rect>.of(DesktopOverviewLayout.arrange(
-          items: overviewItems,
-          bounds: nextOverview.bounds,
-        ));
+        final frames = Map<int, Rect>.of(
+          DesktopOverviewLayout.arrange(
+            items: overviewItems,
+            bounds: nextOverview.bounds,
+          ),
+        );
         for (final placement in next.values) {
           if (placement.dragging &&
               frames.containsKey(placement.objectId) &&
@@ -598,10 +596,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
       return;
     }
     final next = Map<int, DesktopWindowPlacement>.of(state.placements);
-    next[objectId] = placement.copyWith(
-      z: state.nextZ,
-      minimized: false,
-    );
+    next[objectId] = placement.copyWith(z: state.nextZ, minimized: false);
     state = state.copyWith(
       placements: next,
       nextZ: state.nextZ + 1,
@@ -641,10 +636,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
             z: placement.z,
           ),
     ];
-    final frames = DesktopOverviewLayout.arrange(
-      items: items,
-      bounds: bounds,
-    );
+    final frames = DesktopOverviewLayout.arrange(items: items, bounds: bounds);
     if (frames.isEmpty) {
       return;
     }
@@ -675,10 +667,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
             : placement,
     };
     _overviewDragOrigins.clear();
-    state = state.copyWith(
-      placements: next,
-      clearOverview: true,
-    );
+    state = state.copyWith(placements: next, clearOverview: true);
   }
 
   void beginOverviewDrag(int objectId) {
@@ -691,19 +680,10 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
         placement.dragging) {
       return;
     }
-    _overviewDragOrigins[objectId] = (
-      frame: previewFrame,
-      z: placement.z,
-    );
+    _overviewDragOrigins[objectId] = (frame: previewFrame, z: placement.z);
     final next = Map<int, DesktopWindowPlacement>.of(state.placements);
-    next[objectId] = placement.copyWith(
-      z: state.nextZ,
-      dragging: true,
-    );
-    state = state.copyWith(
-      placements: next,
-      nextZ: state.nextZ + 1,
-    );
+    next[objectId] = placement.copyWith(z: state.nextZ, dragging: true);
+    state = state.copyWith(placements: next, nextZ: state.nextZ + 1);
   }
 
   void moveOverviewBy(int objectId, Offset delta) {
@@ -718,10 +698,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
       return;
     }
     final frames = Map<int, Rect>.of(overview.frames);
-    frames[objectId] = _clampFrame(
-      previewFrame.shift(delta),
-      state.viewSize,
-    );
+    frames[objectId] = _clampFrame(previewFrame.shift(delta), state.viewSize);
     state = state.copyWith(
       overview: DesktopOverviewState(
         monitorId: overview.monitorId,
@@ -782,16 +759,16 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     final destinationFrame = placement.fullscreen
         ? targetOutput
         : placement.maximized
-            ? targetWorkArea
-            : _clampFrame(
-                Rect.fromCenter(
-                  center: previewFrame.center,
-                  width: placement.frame.width,
-                  height: placement.frame.height,
-                ),
-                state.viewSize,
-                bounds: targetWorkArea,
-              );
+        ? targetWorkArea
+        : _clampFrame(
+            Rect.fromCenter(
+              center: previewFrame.center,
+              width: placement.frame.width,
+              height: placement.frame.height,
+            ),
+            state.viewSize,
+            bounds: targetWorkArea,
+          );
     final fullscreenRestoreFrame = placement.fullscreen && placement.maximized
         ? targetWorkArea
         : shiftedRestoreFrame(placement.fullscreenRestoreFrame);
@@ -807,10 +784,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     next[objectId] = transferred;
     _pendingNativeFrames[objectId] = destinationFrame;
     _overviewDragOrigins.clear();
-    state = state.copyWith(
-      placements: next,
-      clearOverview: true,
-    );
+    state = state.copyWith(placements: next, clearOverview: true);
     return true;
   }
 
@@ -835,10 +809,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
       frames[objectId] = origin.frame;
     }
     final next = Map<int, DesktopWindowPlacement>.of(state.placements);
-    next[objectId] = placement.copyWith(
-      z: origin?.z,
-      dragging: false,
-    );
+    next[objectId] = placement.copyWith(z: origin?.z, dragging: false);
     state = state.copyWith(
       placements: next,
       overview: DesktopOverviewState(
@@ -887,9 +858,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
       return;
     }
     final next = Map<int, DesktopWindowPlacement>.of(state.placements);
-    next[objectId] = placement.copyWith(
-      frame: frame,
-    );
+    next[objectId] = placement.copyWith(frame: frame);
     _pendingNativeFrames[objectId] = frame;
     state = state.copyWith(placements: next);
   }
@@ -925,10 +894,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     state = state.copyWith(placements: next);
   }
 
-  void applyNativePlacement(
-    int objectId,
-    DenialWindowPlacementEvent event,
-  ) {
+  void applyNativePlacement(int objectId, DenialWindowPlacementEvent event) {
     if (state.overviewActive) {
       return;
     }
@@ -955,8 +921,9 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
         state = state.copyWith(placements: next);
         return;
       }
-      final fullscreenFrame =
-          event.contentRect.intersect(Offset.zero & state.viewSize);
+      final fullscreenFrame = event.contentRect.intersect(
+        Offset.zero & state.viewSize,
+      );
       if (fullscreenFrame.isEmpty) {
         return;
       }
@@ -1138,10 +1105,7 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     );
   }
 
-  void _exitFullscreen(
-    int objectId,
-    DesktopWindowPlacement placement,
-  ) {
+  void _exitFullscreen(int objectId, DesktopWindowPlacement placement) {
     _moveRemainders.remove(objectId);
     final next = Map<int, DesktopWindowPlacement>.of(state.placements);
     final restored = placement.copyWith(
@@ -1162,20 +1126,14 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     if (state.overviewActive || state.panel == panel) {
       return;
     }
-    state = state.copyWith(
-      panel: panel,
-      clearOverview: state.overviewActive,
-    );
+    state = state.copyWith(panel: panel, clearOverview: state.overviewActive);
   }
 
   void closePanels() {
     showPanel(DesktopPanel.none);
   }
 
-  Rect _initialFrame(
-    Rect contentRect, {
-    required bool serverSideDecorated,
-  }) {
+  Rect _initialFrame(Rect contentRect, {required bool serverSideDecorated}) {
     if (!serverSideDecorated) {
       return contentRect;
     }
@@ -1199,12 +1157,12 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     final workBottom = _snapToPixel(workArea.bottom);
     final width = _snapToPixel(math.min(frame.width, workRight - workLeft));
     final height = _snapToPixel(math.min(frame.height, workBottom - workTop));
-    final left = _snapToPixel(frame.left)
-        .clamp(workLeft, math.max(workLeft, workRight - width))
-        .toDouble();
-    final top = _snapToPixel(frame.top)
-        .clamp(workTop, math.max(workTop, workBottom - height))
-        .toDouble();
+    final left = _snapToPixel(
+      frame.left,
+    ).clamp(workLeft, math.max(workLeft, workRight - width)).toDouble();
+    final top = _snapToPixel(
+      frame.top,
+    ).clamp(workTop, math.max(workTop, workBottom - height)).toDouble();
     return Rect.fromLTWH(left, top, width, height);
   }
 

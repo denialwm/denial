@@ -1350,8 +1350,6 @@ fn run_audio_worker(
                 break 'worker;
             }
         }
-        drop(absorb);
-
         if connection.is_none() {
             match PulseConnection::connect(&api, subscription_commands.clone()) {
                 Ok(active) => connection = Some(active),

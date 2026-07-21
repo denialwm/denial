@@ -1,12 +1,7 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
-enum DesktopWindowSwitcherPhase {
-  pending,
-  expanded,
-  quickExit,
-  expandedExit,
-}
+enum DesktopWindowSwitcherPhase { pending, expanded, quickExit, expandedExit }
 
 @immutable
 class DesktopWindowSwitcherState {
@@ -14,13 +9,27 @@ class DesktopWindowSwitcherState {
     required this.sessionId,
     required this.objectIds,
     required this.sourceObjectId,
+    required this.usesDesktopMotion,
     required this.selectedIndex,
     required this.phase,
   });
 
   final int sessionId;
   final List<int> objectIds;
-  final int sourceObjectId;
+
+  /// The non-minimized window the switch begins from.
+  ///
+  /// This is null when every candidate is already a desktop widget. In that
+  /// case the first candidate is selected directly instead of promoting a
+  /// minimized window into a fake foreground source first.
+  final int? sourceObjectId;
+
+  /// Whether at least one candidate entered from the desktop widget plane.
+  ///
+  /// These sessions use the complete switcher arrangement from their first
+  /// frame and return minimized candidates to desktop coordinates on exit.
+  /// They must never pass through the legacy two-window quick transition.
+  final bool usesDesktopMotion;
   final int selectedIndex;
   final DesktopWindowSwitcherPhase phase;
 
@@ -32,26 +41,38 @@ class DesktopWindowSwitcherState {
 
   bool get isExpanded => phase == DesktopWindowSwitcherPhase.expanded;
 
+  bool get usesExpandedTransition => usesDesktopMotion || isExpanded;
+
+  bool get expandedChromeVisible => isSelecting && isExpanded;
+
   DesktopWindowSwitcherState copyWith({
     List<int>? objectIds,
     int? sourceObjectId,
+    bool clearSourceObjectId = false,
+    bool? usesDesktopMotion,
     int? selectedIndex,
     DesktopWindowSwitcherPhase? phase,
   }) {
     return DesktopWindowSwitcherState(
       sessionId: sessionId,
       objectIds: objectIds ?? this.objectIds,
-      sourceObjectId: sourceObjectId ?? this.sourceObjectId,
+      sourceObjectId: clearSourceObjectId
+          ? null
+          : sourceObjectId ?? this.sourceObjectId,
+      usesDesktopMotion: usesDesktopMotion ?? this.usesDesktopMotion,
       selectedIndex: selectedIndex ?? this.selectedIndex,
       phase: phase ?? this.phase,
     );
   }
 }
 
-final desktopWindowSwitcherProvider = StateNotifierProvider<
-    DesktopWindowSwitcherController, DesktopWindowSwitcherState?>((ref) {
-  return DesktopWindowSwitcherController();
-});
+final desktopWindowSwitcherProvider =
+    StateNotifierProvider<
+      DesktopWindowSwitcherController,
+      DesktopWindowSwitcherState?
+    >((ref) {
+      return DesktopWindowSwitcherController();
+    });
 
 class DesktopWindowSwitcherController
     extends StateNotifier<DesktopWindowSwitcherState?> {
@@ -61,7 +82,8 @@ class DesktopWindowSwitcherController
 
   DesktopWindowSwitcherState? beginOrAdvance({
     required List<int> objectIds,
-    required int sourceObjectId,
+    required int? sourceObjectId,
+    required bool usesDesktopMotion,
   }) {
     final uniqueIds = <int>[];
     final seen = <int>{};
@@ -70,16 +92,25 @@ class DesktopWindowSwitcherController
         uniqueIds.add(objectId);
       }
     }
-    if (uniqueIds.length < 2 || !seen.contains(sourceObjectId)) {
+    if (uniqueIds.isEmpty ||
+        (sourceObjectId != null &&
+            (uniqueIds.length < 2 || !seen.contains(sourceObjectId)))) {
       return null;
     }
 
     final current = state;
     if (current != null && current.isSelecting) {
       final selectedId = current.selectedObjectId;
-      final reconciled =
-          current.objectIds.where(seen.contains).toList(growable: false);
-      if (reconciled.length < 2) {
+      final reconciled = current.objectIds
+          .where(seen.contains)
+          .toList(growable: false);
+      final currentSource = current.sourceObjectId;
+      final reconciledSource =
+          currentSource != null && seen.contains(currentSource)
+          ? currentSource
+          : sourceObjectId;
+      if (reconciled.isEmpty ||
+          (reconciledSource != null && reconciled.length < 2)) {
         state = null;
         return null;
       }
@@ -88,22 +119,25 @@ class DesktopWindowSwitcherController
           ((selectedIndex < 0 ? 0 : selectedIndex) + 1) % reconciled.length;
       state = current.copyWith(
         objectIds: List<int>.unmodifiable(reconciled),
-        sourceObjectId: seen.contains(current.sourceObjectId)
-            ? current.sourceObjectId
-            : sourceObjectId,
+        sourceObjectId: reconciledSource,
+        clearSourceObjectId: reconciledSource == null,
+        usesDesktopMotion: current.usesDesktopMotion || usesDesktopMotion,
         selectedIndex: nextIndex,
       );
       return state;
     }
 
-    uniqueIds
-      ..remove(sourceObjectId)
-      ..insert(0, sourceObjectId);
+    if (sourceObjectId != null) {
+      uniqueIds
+        ..remove(sourceObjectId)
+        ..insert(0, sourceObjectId);
+    }
     state = DesktopWindowSwitcherState(
       sessionId: _nextSessionId++,
       objectIds: List<int>.unmodifiable(uniqueIds),
       sourceObjectId: sourceObjectId,
-      selectedIndex: 1,
+      usesDesktopMotion: usesDesktopMotion,
+      selectedIndex: sourceObjectId == null ? 0 : 1,
       phase: DesktopWindowSwitcherPhase.pending,
     );
     return state;

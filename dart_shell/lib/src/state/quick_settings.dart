@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../services/audio_service.dart';
 import '../services/brightness_service.dart';
@@ -21,13 +21,13 @@ class QuickSettingsState {
   });
 
   factory QuickSettingsState.initial() => const QuickSettingsState(
-        brightness: 0.72,
-        volume: 0.46,
-        rotationLock: true,
-        profile: PowerProfile.balanced,
-        keyboardOpening: false,
-        screenshotRunning: false,
-      );
+    brightness: 0.72,
+    volume: 0.46,
+    rotationLock: true,
+    profile: PowerProfile.balanced,
+    keyboardOpening: false,
+    screenshotRunning: false,
+  );
 
   final double brightness;
   final double volume;
@@ -57,13 +57,13 @@ class QuickSettingsState {
 
 final quickSettingsProvider =
     StateNotifierProvider<QuickSettingsController, QuickSettingsState>((ref) {
-  return QuickSettingsController(
-    brightness: ref.read(brightnessServiceProvider),
-    audio: ref.read(audioServiceProvider),
-    power: ref.read(powerProfileServiceProvider),
-    actions: ref.read(systemActionsServiceProvider),
-  );
-});
+      return QuickSettingsController(
+        brightness: ref.read(brightnessServiceProvider),
+        audio: ref.read(audioServiceProvider),
+        power: ref.read(powerProfileServiceProvider),
+        actions: ref.read(systemActionsServiceProvider),
+      );
+    });
 
 /// Owns the quick-settings controls: optimistic UI state, debounced hardware
 /// writes for the sliders, and the transient guards for one-shot actions.
@@ -78,11 +78,11 @@ class QuickSettingsController extends StateNotifier<QuickSettingsState> {
     required AudioService audio,
     required PowerProfileService power,
     required SystemActionsService actions,
-  })  : _brightness = brightness,
-        _audio = audio,
-        _power = power,
-        _actions = actions,
-        super(QuickSettingsState.initial()) {
+  }) : _brightness = brightness,
+       _audio = audio,
+       _power = power,
+       _actions = actions,
+       super(QuickSettingsState.initial()) {
     _audioSubscription = _audio.states.listen(_handleAudioState);
     unawaited(_loadInitial());
   }
@@ -288,7 +288,8 @@ class QuickSettingsController extends StateNotifier<QuickSettingsState> {
       return;
     }
 
-    final matchesLatestRequest = _latestDesiredVolumeSerial != 0 &&
+    final matchesLatestRequest =
+        _latestDesiredVolumeSerial != 0 &&
         update.requestSerial == _latestDesiredVolumeSerial;
     if (matchesLatestRequest) {
       _volumeAcknowledgementTimer?.cancel();
@@ -335,18 +336,15 @@ class QuickSettingsController extends StateNotifier<QuickSettingsState> {
 
   void _armVolumeAcknowledgementTimeout(int requestSerial) {
     _volumeAcknowledgementTimer?.cancel();
-    _volumeAcknowledgementTimer = Timer(
-      _volumeAcknowledgementTimeout,
-      () {
-        if (!mounted || _latestDesiredVolumeSerial != requestSerial) {
-          return;
-        }
-        _latestDesiredVolumeSerial = 0;
-        _latestDesiredVolumePercent = -1;
-        _applyDeferredAudioStateIfIdle();
-        unawaited(_audio.readLevel());
-      },
-    );
+    _volumeAcknowledgementTimer = Timer(_volumeAcknowledgementTimeout, () {
+      if (!mounted || _latestDesiredVolumeSerial != requestSerial) {
+        return;
+      }
+      _latestDesiredVolumeSerial = 0;
+      _latestDesiredVolumePercent = -1;
+      _applyDeferredAudioStateIfIdle();
+      unawaited(_audio.readLevel());
+    });
   }
 
   void toggleRotation() =>

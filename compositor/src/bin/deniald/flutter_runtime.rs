@@ -2047,10 +2047,10 @@ impl FlutterGlHandler {
                     target.stencil_renderbuffer,
                 );
             }
-            // Flutter draws directly into the imported scanout DMA-BUF. The
-            // stencil attachment makes complex clips available to Ganesh;
-            // the patched engine enables Skia's dynamic MSAA only for draws
-            // that need smooth stencil coverage.
+            // Flutter draws directly into the imported scanout DMA-BUF. Keep
+            // the stencil attachment on the clean upstream baseline so its
+            // behavior can be compared directly with any selectively ported
+            // stencil/dynamic-MSAA engine work.
             let mut actual_samples = 0;
             let mut stencil_bits = 0;
             // SAFETY: the same compatible GLES context remains current, the
@@ -2644,9 +2644,11 @@ impl OpenGlHandler for FlutterGlHandler {
             // could starve the page-flip which frees the next target.
             return 0;
         };
-        // Leave the selected FBO current. The patched engine queries its real
-        // sample/stencil properties immediately after this callback, then Skia
-        // wraps those exact capabilities instead of assuming zero for both.
+        // Leave the selected FBO current as required by the embedder OpenGL
+        // contract. The clean upstream baseline wraps it with the stock
+        // sample/stencil metadata; historical Denial patches queried the real
+        // properties here and can be ported again only if profiling warrants
+        // it.
         // SAFETY: Flutter calls this with the render context current.
         unsafe {
             (self.gl.bind_framebuffer)(gl::FRAMEBUFFER, framebuffer);

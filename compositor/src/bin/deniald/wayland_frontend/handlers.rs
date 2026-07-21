@@ -3,7 +3,7 @@ use super::window_management::{
 };
 #[cfg(feature = "flutter")]
 use super::window_management::{
-    queue_restored_window_state, queue_window_action, queue_window_placement,
+    queue_restored_window_state, queue_window_action, queue_window_placement, release_window_focus,
     toplevel_shell_geometry_locked,
 };
 use super::*;
@@ -1111,11 +1111,18 @@ impl XdgShellHandler for RuntimeState {
     fn minimize_request(&mut self, _surface: ToplevelSurface) {
         #[cfg(feature = "flutter")]
         {
+            let window = self
+                .wayland
+                .as_ref()
+                .and_then(|frontend| frontend.window_for_root_surface(_surface.wl_surface()));
             self.wayland
                 .as_mut()
                 .expect("missing Wayland frontend")
                 .minimized_windows
                 .insert(_surface.wl_surface().id());
+            if let Some(window) = window.as_ref() {
+                release_window_focus(self, window);
+            }
             queue_window_action(self, &_surface, WindowAction::Minimize);
         }
         self.scene_sync.mark_dirty();

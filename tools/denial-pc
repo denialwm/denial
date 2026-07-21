@@ -9,21 +9,24 @@ BUILD_ROOT="${DENIAL_PC_BUILD_ROOT:-$CACHE_HOME/denial/pc-build}"
 RUST_TARGET="${DENIAL_PC_RUST_TARGET:-$BUILD_ROOT/rust}"
 DEPENDENCY_ROOT="${DENIAL_PC_DEPENDENCY_ROOT:-$CACHE_HOME/denial/pc-dependencies}"
 
-FLUTTER_ELINUX_REPOSITORY="https://github.com/sony/flutter-elinux.git"
-FLUTTER_ELINUX_REVISION="d13ebc3c7b4dca316073b5755823c0252b4895cc"
 FLUTTER_SDK_REPOSITORY="https://github.com/flutter/flutter.git"
-FLUTTER_SDK_REVISION="17025dd88227cd9532c33fa78f5250d548d87e9a"
-FLUTTER_ELINUX="${DENIAL_FLUTTER_ELINUX:-$DEPENDENCY_ROOT/flutter-elinux/bin/flutter-elinux}"
+FLUTTER_SDK_VERSION="3.44.7"
+FLUTTER_SDK_REVISION="84fc5cbb223bc12f83d65b647ff8a56caf779ffd"
+FLUTTER_SDK_ROOT="${DENIAL_FLUTTER_SDK_ROOT:-$DEPENDENCY_ROOT/flutter}"
+FLUTTER="${DENIAL_FLUTTER:-$FLUTTER_SDK_ROOT/bin/flutter}"
 FLUTTER_PATCH="$ROOT/patches/flutter/0001-enable-120hz-touch-resampling.patch"
 
 MANIFEST="$ROOT/compositor/Cargo.toml"
-EMBEDDER_HEADER="$ROOT/third_party/flutter_embedder/embedder.h"
 BUNDLE="${DENIAL_PC_BUNDLE:-$ROOT/dart_shell/build/elinux/x64/release/bundle}"
+BUNDLE_ASSEMBLY="${DENIAL_PC_BUNDLE_ASSEMBLY:-$BUILD_ROOT/flutter/release}"
 ENGINE="${DENIAL_PC_ENGINE:-$BUNDLE/lib/libflutter_engine.so}"
-EPHEMERAL_ENGINE="$ROOT/dart_shell/elinux/flutter/ephemeral/libflutter_engine.so"
+ICU_DATA="$FLUTTER_SDK_ROOT/bin/cache/artifacts/engine/linux-x64/icudtl.dat"
 PREBUILT_ENGINE_DIR="$ROOT/prebuilt/flutter-engine/elinux-x64-release"
 PREBUILT_ENGINE="$PREBUILT_ENGINE_DIR/libflutter_engine.so"
 PREBUILT_ENGINE_SHA256="$PREBUILT_ENGINE.sha256"
+PREBUILT_ENGINE_REVISION="$PREBUILT_ENGINE_DIR/ENGINE_REVISION"
+PREBUILT_FLUTTER_REVISION="$PREBUILT_ENGINE_DIR/FLUTTER_REVISION"
+EMBEDDER_BINDINGS="$ROOT/compositor/flutter-engine/src/sys.rs"
 BINARY="${DENIAL_PC_BINARY:-$RUST_TARGET/release/deniald}"
 OUTPUT_CONFIG="${DENIAL_PC_OUTPUT_CONFIG:-$ROOT/dev/denial-outputs.conf}"
 DRM_DEVICE="${DENIAL_PC_DRM_DEVICE:-/dev/dri/by-path/pci-0000:0a:00.0-card}"
@@ -92,6 +95,21 @@ checkout_revision() {
     git -C "$destination" checkout --quiet --detach "$revision"
 }
 
+fetch_revision_tag() {
+    local label="$1"
+    local source="$2"
+    local tag="$3"
+    local revision="$4"
+
+    if ! git -C "$source" cat-file -e "$tag^{commit}" 2>/dev/null; then
+        printf 'Fetching %s tag %s...\n' "$label" "$tag"
+        git -C "$source" fetch --depth=1 origin \
+            "refs/tags/$tag:refs/tags/$tag"
+    fi
+    [[ "$(git -C "$source" rev-parse "$tag^{commit}")" == "$revision" ]] \
+        || die "$label tag $tag does not identify pinned revision $revision"
+}
+
 apply_dependency_patch() {
     local label="$1"
     local source="$2"
@@ -124,21 +142,32 @@ verify_prebuilt_engine() {
         || die "prebuilt Flutter engine does not match $PREBUILT_ENGINE_SHA256; restore it from Git (see $PREBUILT_ENGINE_DIR/BUILD_INFO.md)"
 }
 
-# flutter-elinux build always copies the stock Sony engine into the bundle,
-# silently reverting the patched engine (patches/flutter-engine/README.md).
-# Every bundle build must therefore end by reinstalling the prebuilt engine.
-install_patched_engine() {
+install_pinned_engine() {
     verify_prebuilt_engine
+    mkdir -p -- "$(dirname -- "$ENGINE")"
     install -m644 -- "$PREBUILT_ENGINE" "$ENGINE"
-    [[ ! -e "$EPHEMERAL_ENGINE" ]] || install -m644 -- "$PREBUILT_ENGINE" "$EPHEMERAL_ENGINE"
-    printf 'Installed patched Flutter engine into bundle (sha256 %.12s...)\n' \
+    printf 'Installed pinned Flutter engine into bundle (sha256 %.12s...)\n' \
         "$(prebuilt_engine_sha256)"
 }
 
-require_patched_engine() {
+require_pinned_engine() {
     require_file "$ENGINE"
     [[ "$(file_sha256 "$ENGINE")" == "$(prebuilt_engine_sha256)" ]] \
-        || die "bundle engine is not the patched build (a bundle build reverted it to stock); run '$0 bundle'"
+        || die "bundle engine does not match the pinned build; run '$0 bundle'"
+}
+
+require_flutter_bindings() {
+    require_file "$PREBUILT_ENGINE_REVISION"
+    require_file "$PREBUILT_FLUTTER_REVISION"
+    require_file "$EMBEDDER_BINDINGS"
+    local engine_revision flutter_revision
+    engine_revision="$(tr -d '[:space:]' < "$PREBUILT_ENGINE_REVISION")"
+    flutter_revision="$(tr -d '[:space:]' < "$PREBUILT_FLUTTER_REVISION")"
+    [[ "$flutter_revision" == "$FLUTTER_SDK_REVISION" ]] \
+        || die "prebuilt engine targets Flutter $flutter_revision, but the SDK pin is $FLUTTER_SDK_REVISION"
+    grep -Fqx "// Flutter engine revision: $engine_revision" "$EMBEDDER_BINDINGS" \
+        && grep -Fqx "// Flutter source revision: $flutter_revision" "$EMBEDDER_BINDINGS" \
+        || die "Flutter embedder bindings do not match engine $engine_revision / Flutter $flutter_revision; run 'tools/generate-flutter-embedder-bindings'"
 }
 
 require_revision() {
@@ -168,52 +197,62 @@ require_only_changes() {
 }
 
 prepare_flutter_toolchain() {
-    local toolchain_root flutter_source
-    toolchain_root="$(cd -- "$(dirname -- "$FLUTTER_ELINUX")/.." && pwd -P)"
-    flutter_source="$toolchain_root/flutter"
-    require_revision "flutter-elinux" "$toolchain_root" "$FLUTTER_ELINUX_REVISION"
-    require_revision "Flutter SDK" "$flutter_source" "$FLUTTER_SDK_REVISION"
-    [[ -x "$FLUTTER_ELINUX" ]] || die "Flutter eLinux launcher not found: $FLUTTER_ELINUX"
+    require_revision "Flutter SDK" "$FLUTTER_SDK_ROOT" "$FLUTTER_SDK_REVISION"
+    [[ "$(git -C "$FLUTTER_SDK_ROOT" rev-parse "$FLUTTER_SDK_VERSION^{commit}" 2>/dev/null || true)" \
+        == "$FLUTTER_SDK_REVISION" ]] \
+        || die "Flutter SDK tag $FLUTTER_SDK_VERSION is missing or stale; run '$0 bootstrap'"
+    [[ -x "$FLUTTER" ]] || die "Flutter launcher not found: $FLUTTER"
 
-    apply_dependency_patch "Flutter SDK" "$flutter_source" "$FLUTTER_PATCH"
+    apply_dependency_patch "Flutter SDK" "$FLUTTER_SDK_ROOT" "$FLUTTER_PATCH"
     require_only_changes \
         "Flutter SDK" \
-        "$flutter_source" \
+        "$FLUTTER_SDK_ROOT" \
         "packages/flutter/lib/src/gestures/binding.dart"
 }
 
 bootstrap_dependencies() {
-    local flutter_root flutter_source
-    flutter_root="$(cd -- "$(dirname -- "$FLUTTER_ELINUX")/.." 2>/dev/null && pwd -P \
-        || dirname -- "$(dirname -- "$FLUTTER_ELINUX")")"
-    flutter_source="$flutter_root/flutter"
-
-    checkout_revision \
-        "flutter-elinux" \
-        "$FLUTTER_ELINUX_REPOSITORY" \
-        "$FLUTTER_ELINUX_REVISION" \
-        "$flutter_root"
     checkout_revision \
         "Flutter SDK" \
         "$FLUTTER_SDK_REPOSITORY" \
         "$FLUTTER_SDK_REVISION" \
-        "$flutter_source"
+        "$FLUTTER_SDK_ROOT"
+    fetch_revision_tag \
+        "Flutter SDK" \
+        "$FLUTTER_SDK_ROOT" \
+        "$FLUTTER_SDK_VERSION" \
+        "$FLUTTER_SDK_REVISION"
     prepare_flutter_toolchain
+    "$FLUTTER" precache --linux
     CARGO_TARGET_DIR="$RUST_TARGET" cargo fetch --locked --manifest-path "$MANIFEST"
     printf '\nDependencies are ready below %s\n' "$DEPENDENCY_ROOT"
 }
 
 build_bundle() {
     prepare_flutter_toolchain
+    mkdir -p -- "$BUNDLE_ASSEMBLY" "$BUNDLE/data" "$BUNDLE/lib"
     (
         cd "$ROOT/dart_shell"
-        "$FLUTTER_ELINUX" pub get
-        "$FLUTTER_ELINUX" build elinux --release --target-arch=x64
+        "$FLUTTER" pub get
+        "$FLUTTER" assemble \
+            --suppress-analytics \
+            --output="$BUNDLE_ASSEMBLY" \
+            -dTargetFile=lib/main.dart \
+            -dBuildMode=release \
+            -dTargetPlatform=linux-x64 \
+            -dDartObfuscation=false \
+            -dTrackWidgetCreation=true \
+            -dTreeShakeIcons=true \
+            release_bundle_linux-x64_assets
     )
-    require_file "$ENGINE"
-    require_file "$BUNDLE/data/icudtl.dat"
-    require_file "$BUNDLE/lib/libapp.so"
-    install_patched_engine
+    require_file "$BUNDLE_ASSEMBLY/lib/libapp.so"
+    require_file "$ICU_DATA"
+    mkdir -p -- "$BUNDLE/data/flutter_assets"
+    rsync -a --delete \
+        "$BUNDLE_ASSEMBLY/flutter_assets/" \
+        "$BUNDLE/data/flutter_assets/"
+    install -m644 -- "$ICU_DATA" "$BUNDLE/data/icudtl.dat"
+    install -m755 -- "$BUNDLE_ASSEMBLY/lib/libapp.so" "$BUNDLE/lib/libapp.so"
+    install_pinned_engine
 }
 
 find_denial_pid() {
@@ -262,7 +301,7 @@ refresh_bundle() {
 }
 
 build_compositor() {
-    require_file "$EMBEDDER_HEADER"
+    require_flutter_bindings
     CARGO_TARGET_DIR="$RUST_TARGET" cargo build \
         --locked \
         --release \
@@ -280,7 +319,7 @@ build_all() {
 }
 
 test_compositor() {
-    require_file "$EMBEDDER_HEADER"
+    require_flutter_bindings
     CARGO_TARGET_DIR="$RUST_TARGET" cargo test \
         --locked \
         --jobs "$BUILD_JOBS" \
@@ -306,7 +345,7 @@ resolve_drm_device() {
 
 run_compositor() {
     require_file "$BINARY"
-    require_patched_engine
+    require_pinned_engine
     require_file "$BUNDLE/data/icudtl.dat"
     require_file "$BUNDLE/lib/libapp.so"
     require_file "$OUTPUT_CONFIG"
@@ -348,21 +387,43 @@ show_path_state() {
 
 show_engine_state() {
     if [[ ! -e "$PREBUILT_ENGINE" || ! -e "$PREBUILT_ENGINE_SHA256" ]]; then
-        printf 'missing  %-18s %s\n' "patched engine" "$PREBUILT_ENGINE"
+        printf 'missing  %-18s %s\n' "pinned engine" "$PREBUILT_ENGINE"
     elif [[ "$(file_sha256 "$PREBUILT_ENGINE")" != "$(prebuilt_engine_sha256)" ]]; then
         printf 'corrupt  %-18s %s (checksum mismatch; restore from Git)\n' \
-            "patched engine" "$PREBUILT_ENGINE"
+            "pinned engine" "$PREBUILT_ENGINE"
     else
-        printf 'ok       %-18s %s\n' "patched engine" "$PREBUILT_ENGINE"
+        printf 'ok       %-18s %s\n' "pinned engine" "$PREBUILT_ENGINE"
     fi
 
     if [[ ! -e "$ENGINE" ]]; then
         printf 'missing  %-18s %s\n' "bundle engine" "$ENGINE"
     elif [[ -e "$PREBUILT_ENGINE_SHA256" \
         && "$(file_sha256 "$ENGINE")" == "$(prebuilt_engine_sha256)" ]]; then
-        printf 'ok       %-18s %s (patched)\n' "bundle engine" "$ENGINE"
+        printf 'ok       %-18s %s (pinned)\n' "bundle engine" "$ENGINE"
     else
-        printf 'stale    %-18s %s (stock engine; run bundle)\n' "bundle engine" "$ENGINE"
+        printf 'stale    %-18s %s (not pinned; run bundle)\n' "bundle engine" "$ENGINE"
+    fi
+}
+
+show_flutter_bindings_state() {
+    if [[ ! -e "$PREBUILT_ENGINE_REVISION" ]]; then
+        printf 'missing  %-18s %s\n' "engine revision" "$PREBUILT_ENGINE_REVISION"
+    elif [[ ! -e "$PREBUILT_FLUTTER_REVISION" ]]; then
+        printf 'missing  %-18s %s\n' "Flutter revision" "$PREBUILT_FLUTTER_REVISION"
+    elif [[ ! -e "$EMBEDDER_BINDINGS" ]]; then
+        printf 'missing  %-18s %s\n' "embedder bindings" "$EMBEDDER_BINDINGS"
+    else
+        local engine_revision flutter_revision
+        engine_revision="$(tr -d '[:space:]' < "$PREBUILT_ENGINE_REVISION")"
+        flutter_revision="$(tr -d '[:space:]' < "$PREBUILT_FLUTTER_REVISION")"
+        if grep -Fqx "// Flutter engine revision: $engine_revision" "$EMBEDDER_BINDINGS" \
+            && grep -Fqx "// Flutter source revision: $flutter_revision" "$EMBEDDER_BINDINGS"; then
+            printf 'ok       %-18s %s (engine %.12s...)\n' \
+                "embedder bindings" "$EMBEDDER_BINDINGS" "$engine_revision"
+        else
+            printf 'stale    %-18s %s (run tools/generate-flutter-embedder-bindings)\n' \
+                "embedder bindings" "$EMBEDDER_BINDINGS"
+        fi
     fi
 }
 
@@ -385,10 +446,10 @@ show_session_state() {
 
 doctor() {
     show_path_state "dependency cache" "$DEPENDENCY_ROOT"
-    show_path_state "flutter-elinux" "$FLUTTER_ELINUX"
+    show_path_state "Flutter SDK" "$FLUTTER"
     show_path_state "Flutter patch" "$FLUTTER_PATCH"
     show_path_state "Rust manifest" "$MANIFEST"
-    show_path_state "embedder header" "$EMBEDDER_HEADER"
+    show_flutter_bindings_state
     show_path_state "Dart bundle" "$BUNDLE/lib/libapp.so"
     show_engine_state
     show_path_state "deniald" "$BINARY"

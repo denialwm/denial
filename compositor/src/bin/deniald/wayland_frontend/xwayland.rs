@@ -26,7 +26,8 @@ use super::super::wire::WindowAction;
 use super::super::wire::{WindowPlacementChange, WindowPlacementPhase};
 #[cfg(feature = "flutter")]
 use super::window_management::{
-    queue_restored_window_state, queue_window_action_for_window, queue_window_placement_for_monitor,
+    queue_restored_window_state, queue_window_action_for_window,
+    queue_window_placement_for_monitor, release_window_focus,
 };
 use super::{
     KeyboardFocusTarget, MoveSurfaceGrab, ResizeEdges, WindowIdentity, X11ResizeSurfaceGrab,
@@ -726,12 +727,18 @@ impl XwmHandler for RuntimeState {
 
     fn minimize_request(&mut self, _xwm: XwmId, _window: X11Surface) {
         #[cfg(feature = "flutter")]
+        let window = window_for_x11(self, &_window);
+        #[cfg(feature = "flutter")]
         if let Some(root) = root_surface_for_x11(&_window) {
             self.wayland
                 .as_mut()
                 .expect("missing Wayland frontend")
                 .minimized_windows
                 .insert(root.id());
+        }
+        #[cfg(feature = "flutter")]
+        if let Some(window) = window.as_ref() {
+            release_window_focus(self, window);
         }
         #[cfg(feature = "flutter")]
         queue_x11_action(self, &_window, WindowAction::Minimize);

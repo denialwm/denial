@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../models/display_layout.dart';
 import '../platform/denial_bridge.dart';
@@ -8,11 +8,11 @@ import 'shell_controller.dart';
 
 final displayLayoutProvider =
     StateNotifierProvider<DisplayLayoutController, DisplayLayout?>((ref) {
-  // The shell controller installs the shared native message handler before the
-  // display-layout request is sent.
-  ref.read(shellControllerProvider);
-  return DisplayLayoutController(ref.read(denialBridgeProvider));
-});
+      // The shell controller installs the shared native message handler before the
+      // display-layout request is sent.
+      ref.read(shellControllerProvider);
+      return DisplayLayoutController(ref.read(denialBridgeProvider));
+    });
 
 class DisplayLayoutController extends StateNotifier<DisplayLayout?> {
   DisplayLayoutController(this._bridge) : super(null) {
@@ -47,11 +47,13 @@ class DisplayLayoutController extends StateNotifier<DisplayLayout?> {
     _retryTimer = null;
     final request = _load();
     _requestInFlight = request;
-    unawaited(request.whenComplete(() {
-      if (identical(_requestInFlight, request)) {
-        _requestInFlight = null;
-      }
-    }));
+    unawaited(
+      request.whenComplete(() {
+        if (identical(_requestInFlight, request)) {
+          _requestInFlight = null;
+        }
+      }),
+    );
     return request;
   }
 
@@ -100,9 +102,8 @@ class DisplayLayoutController extends StateNotifier<DisplayLayout?> {
     final requested = monitorIds.toSet();
     if (requested.isEmpty ||
         requested.any(
-          (monitorId) => !previous.outputs.any(
-            (output) => output.monitorId == monitorId,
-          ),
+          (monitorId) =>
+              !previous.outputs.any((output) => output.monitorId == monitorId),
         )) {
       return false;
     }

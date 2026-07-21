@@ -8,7 +8,7 @@ To add a locale:
 
 1. Copy `app_en.arb` to `app_<locale>.arb` and update `@@locale`.
 2. Translate message values while preserving every message key and placeholder.
-3. Run `flutter-elinux gen-l10n`, or build through `tools/denial-pc bundle`.
+3. Run `flutter gen-l10n`, or build through `tools/denial-pc bundle`.
 4. Add or update widget tests for copy length, semantics, and minimum-window
    layout in that locale.
 

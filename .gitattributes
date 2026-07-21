@@ -1,3 +1,4 @@
 *.denw binary
 *.patch -whitespace
 protocol/generated/** -whitespace
+prebuilt/flutter-engine/**/LICENSE.third_party -whitespace

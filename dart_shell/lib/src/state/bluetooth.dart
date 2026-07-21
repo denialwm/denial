@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:dbus/dbus.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../services/bluetooth_service.dart';
 
@@ -26,20 +26,20 @@ class BluetoothState {
   }) : busyDevices = Set<String>.unmodifiable(busyDevices);
 
   factory BluetoothState.initial() => BluetoothState(
-        serviceAvailable: false,
-        available: false,
-        adapterName: '',
-        powered: false,
-        discovering: false,
-        pairable: false,
-        devices: const <BluetoothDeviceInfo>[],
-        initializing: true,
-        refreshing: false,
-        scanning: false,
-        powerChanging: false,
-        busyDevices: const <String>{},
-        pairingRequest: null,
-      );
+    serviceAvailable: false,
+    available: false,
+    adapterName: '',
+    powered: false,
+    discovering: false,
+    pairable: false,
+    devices: const <BluetoothDeviceInfo>[],
+    initializing: true,
+    refreshing: false,
+    scanning: false,
+    powerChanging: false,
+    busyDevices: const <String>{},
+    pairingRequest: null,
+  );
 
   final bool serviceAvailable;
   final bool available;
@@ -87,8 +87,9 @@ class BluetoothState {
       scanning: scanning ?? this.scanning,
       powerChanging: powerChanging ?? this.powerChanging,
       busyDevices: busyDevices ?? this.busyDevices,
-      pairingRequest:
-          clearPairingRequest ? null : pairingRequest ?? this.pairingRequest,
+      pairingRequest: clearPairingRequest
+          ? null
+          : pairingRequest ?? this.pairingRequest,
       error: clearError ? null : error ?? this.error,
     );
   }
@@ -96,8 +97,8 @@ class BluetoothState {
 
 final bluetoothProvider =
     StateNotifierProvider<BluetoothController, BluetoothState>((ref) {
-  return BluetoothController(ref.watch(bluetoothServiceProvider));
-});
+      return BluetoothController(ref.watch(bluetoothServiceProvider));
+    });
 
 class BluetoothController extends StateNotifier<BluetoothState> {
   BluetoothController(this._service) : super(BluetoothState.initial()) {
@@ -186,10 +187,7 @@ class BluetoothController extends StateNotifier<BluetoothState> {
     } on Object catch (error) {
       _ownsDiscovery = false;
       if (mounted) {
-        state = state.copyWith(
-          scanning: false,
-          error: _safeMessage(error),
-        );
+        state = state.copyWith(scanning: false, error: _safeMessage(error));
       }
     } finally {
       _scanStarting = false;
@@ -294,7 +292,8 @@ class BluetoothController extends StateNotifier<BluetoothState> {
     if (!mounted) {
       return;
     }
-    final scanEnded = state.scanning &&
+    final scanEnded =
+        state.scanning &&
         !_scanStarting &&
         (!snapshot.serviceAvailable ||
             !snapshot.available ||
@@ -336,8 +335,7 @@ class BluetoothController extends StateNotifier<BluetoothState> {
       return switch (error.errorName) {
         'org.bluez.Error.AuthenticationCanceled' ||
         'org.bluez.Error.Canceled' ||
-        'org.bluez.Error.Rejected' =>
-          'Bluetooth pairing was cancelled',
+        'org.bluez.Error.Rejected' => 'Bluetooth pairing was cancelled',
         'org.bluez.Error.AuthenticationFailed' ||
         'org.bluez.Error.AuthenticationRejected' =>
           'Bluetooth authentication failed',

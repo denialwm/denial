@@ -9,11 +9,13 @@ import 'package:denial_dart_shell/src/theme/tokens.dart';
 import 'package:denial_dart_shell/src/widgets/session/power_session_surface.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('service loss is honest while local actions remain available',
-      (tester) async {
+  testWidgets('service loss is honest while local actions remain available', (
+    tester,
+  ) async {
     final logind = _FakeLogind(LogindSnapshot.unavailable());
     final runtime = _FakeRuntime();
     final harness = _Harness(logind: logind, runtime: runtime);
@@ -35,8 +37,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('logout confirmation can be cancelled and accepted once',
-      (tester) async {
+  testWidgets('logout confirmation can be cancelled and accepted once', (
+    tester,
+  ) async {
     final logind = _FakeLogind(_snapshot());
     final runtime = _FakeRuntime();
     final harness = _Harness(logind: logind, runtime: runtime);
@@ -65,8 +68,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('inhibitors, authorization, and enlarged text stay legible',
-      (tester) async {
+  testWidgets('inhibitors, authorization, and enlarged text stay legible', (
+    tester,
+  ) async {
     final blocker = LogindInhibitor(
       what: <String>{'sleep'},
       who: 'Game',
@@ -85,10 +89,7 @@ void main() {
     addTearDown(harness.dispose);
 
     await tester.pumpWidget(
-      harness.build(
-        size: const Size(420, 650),
-        textScale: 1.6,
-      ),
+      harness.build(size: const Size(420, 650), textScale: 1.6),
     );
     await tester.pump();
 
@@ -98,9 +99,7 @@ void main() {
     expect(logind.actions, isEmpty);
     expect(tester.takeException(), isNull);
 
-    logind.emit(
-      _snapshot(suspend: LogindCapability.authenticationRequired),
-    );
+    logind.emit(_snapshot(suspend: LogindCapability.authenticationRequired));
     await tester.pump();
     expect(find.textContaining('Authentication required'), findsOne);
     expect(tester.takeException(), isNull);
@@ -128,10 +127,7 @@ class _Harness {
     ],
   );
 
-  Widget build({
-    Size size = const Size(700, 760),
-    double textScale = 1,
-  }) {
+  Widget build({Size size = const Size(700, 760), double textScale = 1}) {
     return UncontrolledProviderScope(
       container: container,
       child: MediaQuery(

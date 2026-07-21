@@ -125,6 +125,7 @@ void _reduceWindowEvent(Ref ref, DenialWindowEvent event) {
       switch (event.action) {
         case DenialWindowAction.minimize:
           workspace.minimize(target.objectId);
+          ref.read(shellControllerProvider.notifier).releaseWindowFocus(target);
         case DenialWindowAction.maximize:
           workspace.maximize(
             target.objectId,

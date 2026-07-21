@@ -1794,6 +1794,13 @@ impl WaylandFrontend {
                 notifier.failed();
             }
         }
+        // Flutter owns steady-state composition, so this Smithay renderer
+        // never reaches the render-frame cleanup which normally prunes dead
+        // WeakDmabuf cache keys and destroys their EGLImages. Without an
+        // explicit cleanup here, every client buffer ever validated remains
+        // resident through the renderer's dma-buf cache for the lifetime of
+        // the compositor.
+        renderer.cleanup_texture_cache()?;
         self.dmabuf_import_queue_saturated = false;
         self.display_handle.flush_clients()?;
         Ok(())
@@ -1972,9 +1979,25 @@ impl WaylandFrontend {
             let Some(surface) = self.window_root_surface(window) else {
                 continue;
             };
-            let stable_id = self
-                .surface_id(&surface)
-                .ok_or("desktop window is missing its stable surface identifier")?;
+            let Some(stable_id) = self.surface_id(&surface) else {
+                let x11 = window.x11_surface();
+                warn!(
+                    surface = ?surface.id(),
+                    surface_alive = surface.is_alive(),
+                    backend = if x11.is_some() { "x11" } else { "wayland" },
+                    x11_window = ?x11.as_ref().map(|surface| surface.window_id()),
+                    x11_override_redirect = ?x11
+                        .as_ref()
+                        .map(|surface| surface.is_override_redirect()),
+                    "omitting desktop window without a stable surface identifier"
+                );
+                // TODO: Make surface destruction and desktop-window eviction
+                // atomic and idempotent. A wl_surface destruction callback can
+                // remove the stable identity before the XDG/Xwayland teardown
+                // callback removes its Window from Space, especially during
+                // Xwayland override-redirect remaps.
+                continue;
+            };
             let geometry = self.window_geometry_target(window);
             if geometry.size.w <= 0 || geometry.size.h <= 0 {
                 continue;

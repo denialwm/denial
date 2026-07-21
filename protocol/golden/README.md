@@ -15,7 +15,7 @@ Regenerate Dart fixtures from `dart_shell`:
 
 ```sh
 DART="${XDG_CACHE_HOME:-$HOME/.cache}/denial/pc-dependencies/\
-flutter-elinux/flutter/bin/cache/dart-sdk/bin/dart"
+flutter/bin/cache/dart-sdk/bin/dart"
 HOME=/tmp "$DART" \
   --packages=.dart_tool/package_config.json tool/generate_wire_goldens.dart
 ```

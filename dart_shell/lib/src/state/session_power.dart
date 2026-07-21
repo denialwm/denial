@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:dbus/dbus.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../platform/denial_bridge.dart';
 import '../services/logind_service.dart';
@@ -23,12 +23,12 @@ enum SessionPowerAction {
       this == SessionPowerAction.powerOff;
 
   LogindAction? get logindAction => switch (this) {
-        SessionPowerAction.suspend => LogindAction.suspend,
-        SessionPowerAction.hibernate => LogindAction.hibernate,
-        SessionPowerAction.reboot => LogindAction.reboot,
-        SessionPowerAction.powerOff => LogindAction.powerOff,
-        _ => null,
-      };
+    SessionPowerAction.suspend => LogindAction.suspend,
+    SessionPowerAction.hibernate => LogindAction.hibernate,
+    SessionPowerAction.reboot => LogindAction.reboot,
+    SessionPowerAction.powerOff => LogindAction.powerOff,
+    _ => null,
+  };
 }
 
 enum SessionActionPermission {
@@ -51,8 +51,8 @@ class SessionActionAvailability {
   }) : blockers = List<String>.unmodifiable(blockers);
 
   const SessionActionAvailability.available()
-      : permission = SessionActionPermission.available,
-        blockers = const <String>[];
+    : permission = SessionActionPermission.available,
+      blockers = const <String>[];
 
   final SessionActionPermission permission;
   final List<String> blockers;
@@ -96,11 +96,11 @@ class SessionPowerState {
   });
 
   SessionPowerState.initial()
-      : initialized = false,
-        snapshot = LogindSnapshot.unavailable(),
-        busyAction = null,
-        confirmationAction = null,
-        error = null;
+    : initialized = false,
+      snapshot = LogindSnapshot.unavailable(),
+      busyAction = null,
+      confirmationAction = null,
+      error = null;
 
   final bool initialized;
   final LogindSnapshot snapshot;
@@ -168,13 +168,8 @@ class SessionPowerState {
           other.error == error;
 
   @override
-  int get hashCode => Object.hash(
-        initialized,
-        snapshot,
-        busyAction,
-        confirmationAction,
-        error,
-      );
+  int get hashCode =>
+      Object.hash(initialized, snapshot, busyAction, confirmationAction, error);
 }
 
 abstract interface class SessionRuntimeBackend {
@@ -187,8 +182,8 @@ class NativeSessionRuntimeBackend implements SessionRuntimeBackend {
   const NativeSessionRuntimeBackend({
     required AuthenticationController authentication,
     required DenialBridge bridge,
-  })  : _authentication = authentication,
-        _bridge = bridge;
+  }) : _authentication = authentication,
+       _bridge = bridge;
 
   final AuthenticationController _authentication;
   final DenialBridge _bridge;
@@ -202,14 +197,14 @@ class NativeSessionRuntimeBackend implements SessionRuntimeBackend {
 
 final sessionPowerProvider =
     StateNotifierProvider<SessionPowerController, SessionPowerState>((ref) {
-  return SessionPowerController(
-    ref.read(logindServiceProvider),
-    NativeSessionRuntimeBackend(
-      authentication: ref.read(authenticationProvider.notifier),
-      bridge: ref.read(denialBridgeProvider),
-    ),
-  );
-});
+      return SessionPowerController(
+        ref.read(logindServiceProvider),
+        NativeSessionRuntimeBackend(
+          authentication: ref.read(authenticationProvider.notifier),
+          bridge: ref.read(denialBridgeProvider),
+        ),
+      );
+    });
 
 class SessionPowerController extends StateNotifier<SessionPowerState> {
   SessionPowerController(
@@ -247,10 +242,7 @@ class SessionPowerController extends StateNotifier<SessionPowerState> {
     if (_disposed) {
       return;
     }
-    state = state.copyWith(
-      initialized: true,
-      snapshot: snapshot,
-    );
+    state = state.copyWith(initialized: true, snapshot: snapshot);
   }
 
   Future<void> refresh() async {
@@ -279,10 +271,7 @@ class SessionPowerController extends StateNotifier<SessionPowerState> {
       return;
     }
     if (action.requiresConfirmation) {
-      state = state.copyWith(
-        confirmationAction: action,
-        clearError: true,
-      );
+      state = state.copyWith(confirmationAction: action, clearError: true);
       return;
     }
     await _perform(action);
@@ -347,9 +336,9 @@ class SessionPowerController extends StateNotifier<SessionPowerState> {
             );
           });
         case SessionPowerAction.suspend ||
-              SessionPowerAction.hibernate ||
-              SessionPowerAction.reboot ||
-              SessionPowerAction.powerOff:
+            SessionPowerAction.hibernate ||
+            SessionPowerAction.reboot ||
+            SessionPowerAction.powerOff:
           await _logind.perform(action.logindAction!);
           if (!_disposed) {
             state = state.copyWith(clearBusyAction: true);

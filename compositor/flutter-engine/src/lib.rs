@@ -30,9 +30,7 @@ pub use host::{
     non_upper_case_globals,
     unsafe_op_in_unsafe_fn
 )]
-pub mod sys {
-    include!(concat!(env!("OUT_DIR"), "/flutter_embedder.rs"));
-}
+pub mod sys;
 
 #[derive(Debug)]
 pub enum LoadError {
@@ -116,7 +114,8 @@ impl EngineLibrary {
         })?;
         type GetProcAddresses =
             unsafe extern "C" fn(*mut sys::FlutterEngineProcTable) -> sys::FlutterEngineResult;
-        // SAFETY: the symbol name and signature are defined by embedder.h.
+        // SAFETY: the symbol name and signature come from the versioned
+        // Flutter embedder bindings generated for this engine revision.
         let get_proc_addresses = unsafe {
             *library
                 .get::<GetProcAddresses>(b"FlutterEngineGetProcAddresses\0")

@@ -24,12 +24,19 @@ cargo clippy --manifest-path compositor/Cargo.toml --all-targets \
   --features flutter -- -D warnings
 ```
 
-The optional Rust Flutter host generates bindings from the vendored
-`embedder.h` and verifies them against the bundled engine and AOT library:
+The optional Rust Flutter host compiles the committed, revision-stamped
+Flutter Embedder API bindings and verifies them against the bundled engine and
+AOT library. Normal builds do not need Clang or libclang:
 
 ```sh
-LIBCLANG_PATH=/usr/lib cargo test \
-  --manifest-path compositor/Cargo.toml -p denial-flutter-engine
+cargo test --manifest-path compositor/Cargo.toml -p denial-flutter-engine
+```
+
+Only a controlled Flutter engine upgrade regenerates the bindings:
+
+```sh
+tools/generate-flutter-embedder-bindings
+tools/generate-flutter-embedder-bindings --check
 ```
 
 The native protocol benchmark replaces the removed C++ benchmark:

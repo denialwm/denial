@@ -23,15 +23,17 @@ class NotificationBannerLayer extends ConsumerWidget {
     final locked = ref.watch(
       shellControllerProvider.select((state) => state.lockLayerVisible),
     );
-    final previewMode =
-        locked ? notificationState.lockPreview : NotificationPreviewMode.full;
+    final previewMode = locked
+        ? notificationState.lockPreview
+        : NotificationPreviewMode.full;
     final notifications =
         locked && previewMode == NotificationPreviewMode.hidden
-            ? const <DesktopNotification>[]
-            : notificationState.bannerNotifications;
+        ? const <DesktopNotification>[]
+        : notificationState.bannerNotifications;
     final controller = ref.read(desktopNotificationsProvider.notifier);
-    final horizontalInset =
-        MediaQuery.sizeOf(context).width < 480 ? 10.0 : 16.0;
+    final horizontalInset = MediaQuery.sizeOf(context).width < 480
+        ? 10.0
+        : 16.0;
 
     return Positioned.fill(
       child: SafeArea(
@@ -322,7 +324,7 @@ class _NotificationTransitionState extends State<_NotificationTransition>
 
     return SizeTransition(
       sizeFactor: _curved,
-      axisAlignment: -1,
+      alignment: AlignmentDirectional.topStart,
       child: FadeTransition(
         opacity: _curved,
         child: SlideTransition(
@@ -372,13 +374,14 @@ class NotificationCard extends StatelessWidget {
         ? (notification.summary.isEmpty ? 'Notification' : notification.summary)
         : 'New notification';
     final body = fullPreview ? plainNotificationBody(notification.body) : '';
-    final hasDefaultAction = fullPreview &&
+    final hasDefaultAction =
+        fullPreview &&
         onDefaultAction != null &&
         notification.actions.any((action) => action.key == 'default');
     final namedActions = fullPreview
         ? notification.actions
-            .where((action) => action.key != 'default')
-            .toList(growable: false)
+              .where((action) => action.key != 'default')
+              .toList(growable: false)
         : const <DesktopNotificationAction>[];
     final semanticLabel = body.isEmpty
         ? '$appName notification. $summary'
@@ -578,7 +581,8 @@ class _NotificationBody extends StatelessWidget {
         ],
       ],
     );
-    final hasImage = fullPreview &&
+    final hasImage =
+        fullPreview &&
         (notification.imageData != null || notification.imagePath.isNotEmpty);
     if (!hasImage) {
       return copy;

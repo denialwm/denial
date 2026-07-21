@@ -4,42 +4,43 @@ import 'package:denial_dart_shell/src/state/display_layout.dart';
 import 'package:denial_dart_shell/src/widgets/main_output_centered_surface.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('centers its child inside the main output, not the output atlas',
-      (tester) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(2000, 800);
-    addTearDown(tester.view.reset);
-    final bridge = _LayoutBridge(_dualOutputLayout);
-    addTearDown(bridge.dispose);
+  testWidgets(
+    'centers its child inside the main output, not the output atlas',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(2000, 800);
+      addTearDown(tester.view.reset);
+      final bridge = _LayoutBridge(_dualOutputLayout);
+      addTearDown(bridge.dispose);
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: <Override>[
-          displayLayoutProvider.overrideWith(
-            (ref) => DisplayLayoutController(bridge),
-          ),
-        ],
-        child: const MediaQuery(
-          data: MediaQueryData(size: Size(2000, 800)),
-          child: Directionality(
-            textDirection: TextDirection.ltr,
-            child: MainOutputCenteredSurface(
-              builder: _testPanel,
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            displayLayoutProvider.overrideWith(
+              (ref) => DisplayLayoutController(bridge),
+            ),
+          ],
+          child: const MediaQuery(
+            data: MediaQueryData(size: Size(2000, 800)),
+            child: Directionality(
+              textDirection: TextDirection.ltr,
+              child: MainOutputCenteredSurface(builder: _testPanel),
             ),
           ),
         ),
-      ),
-    );
-    await tester.pump();
+      );
+      await tester.pump();
 
-    expect(
-      tester.getRect(find.byKey(const ValueKey<String>('test-panel'))),
-      const Rect.fromLTWH(1500, 350, 200, 100),
-    );
-  });
+      expect(
+        tester.getRect(find.byKey(const ValueKey<String>('test-panel'))),
+        const Rect.fromLTWH(1500, 350, 200, 100),
+      );
+    },
+  );
 }
 
 Widget _testPanel(BuildContext context, BoxConstraints constraints) {

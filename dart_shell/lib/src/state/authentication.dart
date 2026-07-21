@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../platform/authentication_protocol.dart';
 import '../services/authentication_service.dart';
@@ -14,11 +15,11 @@ final authenticationServiceProvider = Provider<AuthenticationService>((ref) {
 
 final authenticationProvider =
     StateNotifierProvider<AuthenticationController, AuthenticationState>((ref) {
-  final controller = AuthenticationController(
-    ref.watch(authenticationServiceProvider),
-  );
-  return controller;
-});
+      final controller = AuthenticationController(
+        ref.watch(authenticationServiceProvider),
+      );
+      return controller;
+    });
 
 @immutable
 class AuthenticationPrompt {
@@ -54,16 +55,16 @@ class AuthenticationState {
   });
 
   const AuthenticationState.initial()
-      : synchronized = false,
-        locked = false,
-        available = false,
-        busy = false,
-        attemptId = 0,
-        cooldown = Duration.zero,
-        statusMessage = null,
-        prompt = null,
-        resultMessage = null,
-        resultIsError = false;
+    : synchronized = false,
+      locked = false,
+      available = false,
+      busy = false,
+      attemptId = 0,
+      cooldown = Duration.zero,
+      statusMessage = null,
+      prompt = null,
+      resultMessage = null,
+      resultIsError = false;
 
   final bool synchronized;
   final bool locked;
@@ -100,11 +101,13 @@ class AuthenticationState {
       busy: busy ?? this.busy,
       attemptId: attemptId ?? this.attemptId,
       cooldown: cooldown ?? this.cooldown,
-      statusMessage:
-          clearStatusMessage ? null : (statusMessage ?? this.statusMessage),
+      statusMessage: clearStatusMessage
+          ? null
+          : (statusMessage ?? this.statusMessage),
       prompt: clearPrompt ? null : (prompt ?? this.prompt),
-      resultMessage:
-          clearResultMessage ? null : (resultMessage ?? this.resultMessage),
+      resultMessage: clearResultMessage
+          ? null
+          : (resultMessage ?? this.resultMessage),
       resultIsError: resultIsError ?? this.resultIsError,
     );
   }
@@ -112,7 +115,7 @@ class AuthenticationState {
 
 class AuthenticationController extends StateNotifier<AuthenticationState> {
   AuthenticationController(this._service)
-      : super(const AuthenticationState.initial()) {
+    : super(const AuthenticationState.initial()) {
     _subscription = _service.events.listen(_handleEvent);
     _service.synchronize();
   }
@@ -157,9 +160,10 @@ class AuthenticationController extends StateNotifier<AuthenticationState> {
 
   void _handleEvent(AuthenticationPacket packet) {
     final cooldown = Duration(
-        milliseconds: packet.kind == AuthenticationPacketKind.prompt
-            ? 0
-            : packet.argument);
+      milliseconds: packet.kind == AuthenticationPacketKind.prompt
+          ? 0
+          : packet.argument,
+    );
     AuthenticationPrompt? prompt = state.prompt;
     var clearPrompt = !packet.busy || packet.attemptId != state.attemptId;
     String? resultMessage = state.resultMessage;
@@ -192,11 +196,13 @@ class AuthenticationController extends StateNotifier<AuthenticationState> {
       busy: packet.busy,
       attemptId: packet.attemptId,
       cooldown: cooldown,
-      statusMessage: packet.payload.isNotEmpty &&
+      statusMessage:
+          packet.payload.isNotEmpty &&
               packet.kind == AuthenticationPacketKind.state
           ? packet.payload
           : null,
-      clearStatusMessage: packet.kind != AuthenticationPacketKind.state ||
+      clearStatusMessage:
+          packet.kind != AuthenticationPacketKind.state ||
           packet.payload.isEmpty,
       prompt: prompt,
       clearPrompt: clearPrompt,

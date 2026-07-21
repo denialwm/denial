@@ -6,6 +6,19 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('main visibility excludes popup textures', () {
+    final window = _window(
+      serverSideDecorated: true,
+      surfaceLayers: <DenialSurfaceLayer>[
+        _layer(surfaceId: 1),
+        _layer(surfaceId: 2, popupRootSurfaceId: 2),
+      ],
+    );
+
+    expect(window.mainVisibleSurfaceIds, <int>[1]);
+    expect(window.visibleSurfaceIds, <int>[1, 2]);
+  });
+
   testWidgets('surface opacity is applied to the complete texture layer',
       (tester) async {
     const layer = DenialSurfaceLayer(
@@ -72,7 +85,10 @@ void main() {
   });
 }
 
-DenialWindow _window({required bool serverSideDecorated}) {
+DenialWindow _window({
+  required bool serverSideDecorated,
+  List<DenialSurfaceLayer> surfaceLayers = const <DenialSurfaceLayer>[],
+}) {
   return DenialWindow(
     objectId: 1,
     objectKind: 'root_surface',
@@ -99,5 +115,34 @@ DenialWindow _window({required bool serverSideDecorated}) {
     transform: 0,
     scale120: 120,
     serverSideDecorated: serverSideDecorated,
+    surfaceLayers: surfaceLayers,
+  );
+}
+
+DenialSurfaceLayer _layer({
+  required int surfaceId,
+  int popupRootSurfaceId = 0,
+}) {
+  return DenialSurfaceLayer(
+    surfaceId: surfaceId,
+    parentSurfaceId: 0,
+    popupRootSurfaceId: popupRootSurfaceId,
+    role: popupRootSurfaceId == 0
+        ? DenialSurfaceRole.root
+        : DenialSurfaceRole.popup,
+    textureId: surfaceId + 10,
+    width: 100,
+    height: 80,
+    surfaceX: 0,
+    surfaceY: 0,
+    surfaceWidth: 100,
+    surfaceHeight: 80,
+    textureSourceX: 0,
+    textureSourceY: 0,
+    textureSourceWidth: 100,
+    textureSourceHeight: 80,
+    transform: 0,
+    scale120: 120,
+    compositionOrder: surfaceId,
   );
 }

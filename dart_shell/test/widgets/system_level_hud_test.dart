@@ -8,19 +8,23 @@ import 'package:denial_dart_shell/src/widgets/system_level_hud.dart';
 import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('latest level update uses the correct output and presentation',
-      (tester) async {
+  testWidgets('latest level update uses the correct output and presentation', (
+    tester,
+  ) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(2000, 800);
     addTearDown(tester.view.reset);
 
-    final brightnessUpdates =
-        StreamController<DenialBrightnessState>.broadcast(sync: true);
-    final audioUpdates =
-        StreamController<DenialAudioState>.broadcast(sync: true);
+    final brightnessUpdates = StreamController<DenialBrightnessState>.broadcast(
+      sync: true,
+    );
+    final audioUpdates = StreamController<DenialAudioState>.broadcast(
+      sync: true,
+    );
     final hudController = SystemLevelHudController(
       brightnessStates: brightnessUpdates.stream,
       audioStates: audioUpdates.stream,
@@ -53,10 +57,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: const MediaQuery(
-          data: MediaQueryData(
-            size: Size(2000, 800),
-            disableAnimations: true,
-          ),
+          data: MediaQueryData(size: Size(2000, 800), disableAnimations: true),
           child: Directionality(
             textDirection: TextDirection.ltr,
             child: Stack(
@@ -69,10 +70,7 @@ void main() {
     );
     await tester.pump();
 
-    audioUpdates.add(const DenialAudioState(
-      level: 0.64,
-      requestSerial: 5,
-    ));
+    audioUpdates.add(const DenialAudioState(level: 0.64, requestSerial: 5));
     await tester.pump();
 
     expect(find.text('Volume'), findsOneWidget);
@@ -80,10 +78,7 @@ void main() {
     expect(find.byIcon(Icons.volume_up_rounded), findsOneWidget);
     final volumeSemantics = tester.widget<Semantics>(
       find
-          .ancestor(
-            of: find.text('Volume'),
-            matching: find.byType(Semantics),
-          )
+          .ancestor(of: find.text('Volume'), matching: find.byType(Semantics))
           .first,
     );
     expect(volumeSemantics.properties.label, 'Output volume');
@@ -94,10 +89,9 @@ void main() {
       const Rect.fromLTWH(1410, 698, 380, 74),
     );
 
-    brightnessUpdates.add(const DenialBrightnessState(
-      monitorId: 11,
-      level: 0.35,
-    ));
+    brightnessUpdates.add(
+      const DenialBrightnessState(monitorId: 11, level: 0.35),
+    );
     await tester.pump();
 
     expect(find.text('Volume'), findsNothing);

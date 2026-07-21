@@ -6,11 +6,13 @@ import 'package:denial_dart_shell/src/theme/tokens.dart';
 import 'package:denial_dart_shell/src/widgets/connectivity/bluetooth_detail_surface.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('surface distinguishes service loss and adapter loss',
-      (tester) async {
+  testWidgets('surface distinguishes service loss and adapter loss', (
+    tester,
+  ) async {
     final backend = _FakeBluetoothBackend(
       const BluetoothSnapshot.unavailable(),
     );
@@ -34,8 +36,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('device actions and pairing secret remain one-shot',
-      (tester) async {
+  testWidgets('device actions and pairing secret remain one-shot', (
+    tester,
+  ) async {
     final backend = _FakeBluetoothBackend(_snapshot());
     final container = ProviderContainer(
       overrides: <Override>[
@@ -95,10 +98,7 @@ void main() {
   });
 }
 
-Widget _host(
-  ProviderContainer container, {
-  double textScale = 1,
-}) {
+Widget _host(ProviderContainer container, {double textScale = 1}) {
   return UncontrolledProviderScope(
     container: container,
     child: Directionality(
@@ -191,10 +191,7 @@ class _FakeBluetoothBackend implements BluetoothBackend {
   }
 
   @override
-  Future<void> setTrusted(
-    BluetoothDeviceInfo device,
-    bool trusted,
-  ) async {
+  Future<void> setTrusted(BluetoothDeviceInfo device, bool trusted) async {
     trustWrites.add(trusted);
   }
 
@@ -220,7 +217,8 @@ class _FakeBluetoothBackend implements BluetoothBackend {
     String? response,
   }) {
     pairingResponses += 1;
-    pairingResponseMatched = accepted &&
+    pairingResponseMatched =
+        accepted &&
         requestId == _currentPairing?.id &&
         response == expectedPairingResponse;
     emitPairing(null);

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:isolate';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../../state/system_status.dart';
 import '../../state/shell_controller.dart';
@@ -23,21 +24,17 @@ final desktopAppsRepositoryProvider = Provider<DesktopAppsRepository>((ref) {
 });
 
 final homeLayoutRepositoryProvider = Provider<HomeLayoutRepository>((ref) {
-  return HomeLayoutRepository(
-    paths: ref.watch(runtimePathsProvider),
-  );
+  return HomeLayoutRepository(paths: ref.watch(runtimePathsProvider));
 });
 
 final appLauncherProvider = Provider<AppLauncher>((ref) {
-  return AppLauncher(
-    bridge: ref.read(denialBridgeProvider),
-  );
+  return AppLauncher(bridge: ref.read(denialBridgeProvider));
 });
 
 final homeGridControllerProvider =
     AsyncNotifierProvider<HomeGridController, HomeGridState>(
-  HomeGridController.new,
-);
+      HomeGridController.new,
+    );
 
 final homeDragSessionProvider = StateProvider<HomeDragSession?>((ref) => null);
 
@@ -54,11 +51,11 @@ final homeClockProvider = Provider.autoDispose<HomeClockInfo>((ref) {
 
 final homeBatteryDischargeProvider =
     StreamProvider.autoDispose<HomeBatteryDischargeSeries>((ref) async* {
-  while (true) {
-    yield await HomeBatteryDischargeSeries.readDefault();
-    await Future<void>.delayed(const Duration(seconds: 5));
-  }
-});
+      while (true) {
+        yield await HomeBatteryDischargeSeries.readDefault();
+        await Future<void>.delayed(const Duration(seconds: 5));
+      }
+    });
 
 class HomeGridState {
   HomeGridState({
@@ -102,10 +99,7 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
     final appsRepository = ref.watch(desktopAppsRepositoryProvider);
     final layoutRepository = ref.watch(homeLayoutRepositoryProvider);
     try {
-      final apps = await _loadApplications(
-        appsRepository,
-        reason: 'initial',
-      );
+      final apps = await _loadApplications(appsRepository, reason: 'initial');
       _lastDesktopRefresh = DateTime.now();
       final savedLayout = await layoutRepository.readSavedLayout();
       final slots = HomeGridLayout.initialSlotsForApps(apps, savedLayout);
@@ -291,12 +285,7 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
     return result.movedToIndex;
   }
 
-  bool canResizeSlot(
-    int index,
-    int colSpan,
-    int rowSpan,
-    int pageSize,
-  ) {
+  bool canResizeSlot(int index, int colSpan, int rowSpan, int pageSize) {
     final current = state.asData?.value;
     if (current == null) {
       return false;
@@ -311,12 +300,7 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
     );
   }
 
-  void resizeSlot(
-    int index,
-    int colSpan,
-    int rowSpan,
-    int pageSize,
-  ) {
+  void resizeSlot(int index, int colSpan, int rowSpan, int pageSize) {
     final current = state.asData?.value;
     if (current == null) {
       return;

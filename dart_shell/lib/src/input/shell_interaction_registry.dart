@@ -1,6 +1,7 @@
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 enum ShellPointerPolicy { none, childBounds, fullScene }
 
@@ -39,22 +40,22 @@ class ShellInteractionSurface {
 
   @override
   int get hashCode => Object.hash(
-        id,
-        debugLabel,
-        pointerPolicy,
-        keyboardPolicy,
-        compositorPolicy,
-        bounds,
-      );
+    id,
+    debugLabel,
+    pointerPolicy,
+    keyboardPolicy,
+    compositorPolicy,
+    bounds,
+  );
 }
 
 @immutable
 class ShellInteractionSnapshot {
   ShellInteractionSnapshot(Map<int, ShellInteractionSurface> surfaces)
-      : surfaces = Map<int, ShellInteractionSurface>.unmodifiable(surfaces);
+    : surfaces = Map<int, ShellInteractionSurface>.unmodifiable(surfaces);
 
   ShellInteractionSnapshot.empty()
-      : surfaces = const <int, ShellInteractionSurface>{};
+    : surfaces = const <int, ShellInteractionSurface>{};
 
   final Map<int, ShellInteractionSurface> surfaces;
 
@@ -65,17 +66,16 @@ class ShellInteractionSnapshot {
   }
 
   bool get capturesFullScene => surfaces.values.any(
-        (surface) => surface.pointerPolicy == ShellPointerPolicy.fullScene,
-      );
+    (surface) => surface.pointerPolicy == ShellPointerPolicy.fullScene,
+  );
 
   bool get capturesKeyboard => surfaces.values.any(
-        (surface) => surface.keyboardPolicy == ShellKeyboardPolicy.capture,
-      );
+    (surface) => surface.keyboardPolicy == ShellKeyboardPolicy.capture,
+  );
 
   bool get compositorExclusive => surfaces.values.any(
-        (surface) =>
-            surface.compositorPolicy == ShellCompositorPolicy.exclusive,
-      );
+    (surface) => surface.compositorPolicy == ShellCompositorPolicy.exclusive,
+  );
 
   List<Rect> get childRegions => orderedSurfaces
       .where(
@@ -88,10 +88,11 @@ class ShellInteractionSnapshot {
 }
 
 final shellInteractionRegistryProvider =
-    StateNotifierProvider<ShellInteractionRegistry, ShellInteractionSnapshot>(
-        (ref) {
-  return ShellInteractionRegistry();
-});
+    StateNotifierProvider<ShellInteractionRegistry, ShellInteractionSnapshot>((
+      ref,
+    ) {
+      return ShellInteractionRegistry();
+    });
 
 class ShellInteractionRegistry extends StateNotifier<ShellInteractionSnapshot> {
   ShellInteractionRegistry() : super(ShellInteractionSnapshot.empty());

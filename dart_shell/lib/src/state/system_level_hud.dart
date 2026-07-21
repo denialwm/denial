@@ -1,20 +1,21 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../platform/denial_bridge.dart';
 import 'shell_controller.dart';
 
 final systemLevelHudProvider =
-    StateNotifierProvider<SystemLevelHudController, SystemLevelHudState?>(
-        (ref) {
-  final bridge = ref.read(denialBridgeProvider);
-  return SystemLevelHudController(
-    brightnessStates: bridge.brightnessStates,
-    audioStates: bridge.audioStates,
-  );
-});
+    StateNotifierProvider<SystemLevelHudController, SystemLevelHudState?>((
+      ref,
+    ) {
+      final bridge = ref.read(denialBridgeProvider);
+      return SystemLevelHudController(
+        brightnessStates: bridge.brightnessStates,
+        audioStates: bridge.audioStates,
+      );
+    });
 
 enum SystemLevelHudKind { brightness, audio }
 
@@ -56,8 +57,8 @@ class SystemLevelHudController extends StateNotifier<SystemLevelHudState?> {
     required Stream<DenialBrightnessState> brightnessStates,
     required Stream<DenialAudioState> audioStates,
     Duration visibleDuration = const Duration(milliseconds: 1200),
-  })  : _visibleDuration = visibleDuration,
-        super(null) {
+  }) : _visibleDuration = visibleDuration,
+       super(null) {
     _brightnessSubscription = brightnessStates.listen(_handleBrightnessState);
     _audioSubscription = audioStates.listen(_handleAudioState);
   }
@@ -80,10 +81,7 @@ class SystemLevelHudController extends StateNotifier<SystemLevelHudState?> {
     if (update.completesRead) {
       return;
     }
-    _show(
-      kind: SystemLevelHudKind.audio,
-      level: update.level,
-    );
+    _show(kind: SystemLevelHudKind.audio, level: update.level);
   }
 
   void _show({

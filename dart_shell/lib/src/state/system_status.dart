@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart' show immutable, visibleForTesting;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../config/startup_environment.dart';
 import '../models/battery_status.dart';
@@ -40,28 +41,31 @@ Stream<DateTime> _minuteClock() async* {
   }
 }
 
-final batteryProvider =
-    StateNotifierProvider<BatteryController, BatteryStatus>((ref) {
-  return BatteryController(ref.read(batteryServiceProvider));
-});
+final batteryProvider = StateNotifierProvider<BatteryController, BatteryStatus>(
+  (ref) {
+    return BatteryController(ref.read(batteryServiceProvider));
+  },
+);
 
 final powerStatusProvider =
-    StateNotifierProvider.autoDispose<PowerStatusController, ShellPowerStatus>(
-        (ref) {
-  return PowerStatusController(ref.read(powerStatusServiceProvider));
-});
+    StateNotifierProvider.autoDispose<PowerStatusController, ShellPowerStatus>((
+      ref,
+    ) {
+      return PowerStatusController(ref.read(powerStatusServiceProvider));
+    });
 
 /// Aggregate CPU load plus a short history window for the bar sparkline.
-final cpuUsageProvider =
-    StateNotifierProvider<CpuUsageController, LoadSeries>((ref) {
+final cpuUsageProvider = StateNotifierProvider<CpuUsageController, LoadSeries>((
+  ref,
+) {
   return CpuUsageController(ref.read(cpuUsageServiceProvider));
 });
 
 /// Per-GPU load series for every autodetected GPU, in stable order.
 final gpuUsageProvider =
     StateNotifierProvider<GpuUsageController, List<GpuLoad>>((ref) {
-  return GpuUsageController(ref.read(gpuUsageServiceProvider));
-});
+      return GpuUsageController(ref.read(gpuUsageServiceProvider));
+    });
 
 /// Polls the battery on a fixed interval.
 class BatteryController extends StateNotifier<BatteryStatus> {
@@ -164,8 +168,8 @@ class CpuUsageController extends StateNotifier<LoadSeries> {
   /// A frozen reading that never polls, for widget tests and previews.
   @visibleForTesting
   CpuUsageController.fixed(LoadSeries load)
-      : _service = CpuUsageService(),
-        super(load);
+    : _service = CpuUsageService(),
+      super(load);
 
   static const Duration _interval = Duration(seconds: 2);
 
@@ -191,10 +195,7 @@ class CpuUsageController extends StateNotifier<LoadSeries> {
       }
       final usage = CpuSample.usageBetween(previous, sample);
       if (usage != null) {
-        state = state.append(
-          usage,
-          temperatureC: sample.temperatureC,
-        );
+        state = state.append(usage, temperatureC: sample.temperatureC);
       }
     } finally {
       _refreshing = false;
@@ -219,8 +220,8 @@ class GpuUsageController extends StateNotifier<List<GpuLoad>> {
   /// Frozen readings that never poll, for widget tests and previews.
   @visibleForTesting
   GpuUsageController.fixed(List<GpuLoad> loads)
-      : _service = GpuUsageService(),
-        super(loads);
+    : _service = GpuUsageService(),
+      super(loads);
 
   static const Duration _interval = Duration(seconds: 2);
 

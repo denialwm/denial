@@ -671,7 +671,7 @@ impl WireBridge {
                     _ => return Err(WireError::Enumeration),
                 };
                 let monitor_ids = request.system_bar_monitor_ids().ok_or(WireError::Payload)?;
-                if monitor_ids.len() == 0 || monitor_ids.len() > self.snapshot.outputs.len() {
+                if monitor_ids.is_empty() || monitor_ids.len() > self.snapshot.outputs.len() {
                     return Err(WireError::Count);
                 }
                 let mut unique_ids = HashSet::with_capacity(monitor_ids.len());

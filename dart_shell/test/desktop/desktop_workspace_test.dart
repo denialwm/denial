@@ -36,15 +36,65 @@ void main() {
     controller.beginOrAdvance(
       objectIds: const <int>[1, 2, 3],
       sourceObjectId: 1,
+      usesDesktopMotion: false,
     );
 
     final reconciled = controller.beginOrAdvance(
       objectIds: const <int>[2, 3],
       sourceObjectId: 2,
+      usesDesktopMotion: false,
     );
 
     expect(reconciled?.sourceObjectId, 2);
     expect(reconciled?.objectIds, <int>[2, 3]);
+  });
+
+  test('window switcher starts directly from an all-minimized candidate', () {
+    final controller = DesktopWindowSwitcherController();
+    addTearDown(controller.dispose);
+
+    final started = controller.beginOrAdvance(
+      objectIds: const <int>[3, 2, 1],
+      sourceObjectId: null,
+      usesDesktopMotion: true,
+    );
+
+    expect(started?.sourceObjectId, isNull);
+    expect(started?.selectedObjectId, 3);
+    expect(started?.selectedIndex, 0);
+    expect(started?.usesExpandedTransition, isTrue);
+  });
+
+  test('source-less window switcher cycles without inventing a source', () {
+    final controller = DesktopWindowSwitcherController();
+    addTearDown(controller.dispose);
+    controller.beginOrAdvance(
+      objectIds: const <int>[3, 2, 1],
+      sourceObjectId: null,
+      usesDesktopMotion: true,
+    );
+
+    final advanced = controller.beginOrAdvance(
+      objectIds: const <int>[3, 2, 1],
+      sourceObjectId: null,
+      usesDesktopMotion: true,
+    );
+
+    expect(advanced?.sourceObjectId, isNull);
+    expect(advanced?.selectedObjectId, 2);
+  });
+
+  test('source-less window switcher can restore its only candidate', () {
+    final controller = DesktopWindowSwitcherController();
+    addTearDown(controller.dispose);
+
+    final started = controller.beginOrAdvance(
+      objectIds: const <int>[7],
+      sourceObjectId: null,
+      usesDesktopMotion: true,
+    );
+
+    expect(started?.selectedObjectId, 7);
   });
 
   test('new windows preserve compositor-assigned geometry', () {
@@ -611,6 +661,35 @@ void main() {
 
     expect(left?.objectIds, <int>{2});
     expect(right?.objectIds, <int>{1});
+  });
+
+  test('minimized desktop widgets still participate in overview', () {
+    final controller = DesktopWorkspaceController();
+    addTearDown(controller.dispose);
+    final windows = <DenialWindow>[
+      _window(objectId: 1, windowId: 11, monitorId: 1),
+      _window(objectId: 2, windowId: 22, monitorId: 1),
+    ];
+    controller.syncWindows(windows, viewSize, 1);
+    final nativeFrame = controller.state.placements[2]!.frame;
+
+    controller.minimize(2);
+
+    expect(controller.state.placements[2]!.minimized, isTrue);
+    expect(controller.state.placements[2]!.frame, nativeFrame);
+    final target = DesktopOverviewTarget.resolve(
+      viewSize: viewSize,
+      displayLayout: _displayLayout,
+      windows: windows,
+      workspace: controller.state,
+      foregroundObjectId: 2,
+      preferredMonitorId: 1,
+    );
+    expect(target?.objectIds, <int>{1, 2});
+
+    controller.activate(2);
+    expect(controller.state.placements[2]!.minimized, isFalse);
+    expect(controller.state.placements[2]!.frame, nativeFrame);
   });
 
   test('overview never enlarges a window frame', () {

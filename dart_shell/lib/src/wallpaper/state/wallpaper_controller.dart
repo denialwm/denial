@@ -5,6 +5,7 @@ import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../../launcher/launcher_providers.dart';
 import '../../launcher/runtime_paths.dart';
@@ -15,9 +16,7 @@ import '../wallpaper_provider.dart';
 
 final localWallpaperSourceProvider = Provider<WallpaperProvider>((ref) {
   final paths = ref.watch(runtimePathsProvider);
-  return LocalWallpaperProvider(
-    directory: Directory(paths.wallpaperDirectory),
-  );
+  return LocalWallpaperProvider(directory: Directory(paths.wallpaperDirectory));
 });
 
 final wallhavenWallpaperSourceProvider = Provider<WallpaperProvider>((ref) {
@@ -43,11 +42,11 @@ final wallpaperStoreProvider = Provider<WallpaperStore>((ref) {
 
 final wallpaperControllerProvider =
     StateNotifierProvider<WallpaperController, WallpaperExperienceState>((ref) {
-  return WallpaperController(
-    sources: ref.watch(wallpaperSourcesProvider),
-    store: ref.watch(wallpaperStoreProvider),
-  );
-});
+      return WallpaperController(
+        sources: ref.watch(wallpaperSourcesProvider),
+        store: ref.watch(wallpaperStoreProvider),
+      );
+    });
 
 @immutable
 class WallpaperExperienceState {
@@ -129,8 +128,9 @@ class WallpaperExperienceState {
   }) {
     return WallpaperExperienceState(
       assignment: assignment ?? this.assignment,
-      outgoingAssignment:
-          clearOutgoing ? null : outgoingAssignment ?? this.outgoingAssignment,
+      outgoingAssignment: clearOutgoing
+          ? null
+          : outgoingAssignment ?? this.outgoingAssignment,
       target: target ?? this.target,
       transitionTarget: transitionTarget ?? this.transitionTarget,
       revealOriginFraction: revealOriginFraction ?? this.revealOriginFraction,
@@ -140,8 +140,9 @@ class WallpaperExperienceState {
       candidates: candidates ?? this.candidates,
       query: query ?? this.query,
       loading: loading ?? this.loading,
-      downloadingKey:
-          clearDownloadingKey ? null : downloadingKey ?? this.downloadingKey,
+      downloadingKey: clearDownloadingKey
+          ? null
+          : downloadingKey ?? this.downloadingKey,
       downloadProgress: downloadProgress ?? this.downloadProgress,
       error: clearError ? null : error ?? this.error,
     );
@@ -152,9 +153,9 @@ class WallpaperController extends StateNotifier<WallpaperExperienceState> {
   WallpaperController({
     required List<WallpaperProvider> sources,
     required WallpaperStore store,
-  })  : _sources = List<WallpaperProvider>.unmodifiable(sources),
-        _store = store,
-        super(WallpaperExperienceState.initial()) {
+  }) : _sources = List<WallpaperProvider>.unmodifiable(sources),
+       _store = store,
+       super(WallpaperExperienceState.initial()) {
     unawaited(_restore());
   }
 
@@ -202,10 +203,7 @@ class WallpaperController extends StateNotifier<WallpaperExperienceState> {
       return;
     }
     _assignmentGeneration += 1;
-    state = state.copyWith(
-      assignment: assignment,
-      clearOutgoing: true,
-    );
+    state = state.copyWith(assignment: assignment, clearOutgoing: true);
     unawaited(_store.write(assignment));
   }
 
@@ -215,10 +213,7 @@ class WallpaperController extends StateNotifier<WallpaperExperienceState> {
       return;
     }
     _assignmentGeneration += 1;
-    state = state.copyWith(
-      assignment: assignment,
-      clearOutgoing: true,
-    );
+    state = state.copyWith(assignment: assignment, clearOutgoing: true);
   }
 
   void commitDarkness(double darkness) {
@@ -288,10 +283,7 @@ class WallpaperController extends StateNotifier<WallpaperExperienceState> {
         return null;
       }
       _rememberMaterialized(candidate, resource);
-      state = state.copyWith(
-        clearDownloadingKey: true,
-        downloadProgress: 0.0,
-      );
+      state = state.copyWith(clearDownloadingKey: true, downloadProgress: 0.0);
       return resource;
     } on Object catch (error) {
       if (mounted) {
@@ -553,10 +545,7 @@ class WallpaperStore {
         },
         'outputDarkness': assignment.outputDarknessOverrides,
       });
-      await temporary.writeAsString(
-        '$payload\n',
-        flush: true,
-      );
+      await temporary.writeAsString('$payload\n', flush: true);
       await temporary.rename(file.path);
     } on FileSystemException {
       // Persistence is best-effort; the committed wallpaper remains visible.

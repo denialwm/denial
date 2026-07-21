@@ -1,13 +1,13 @@
 import 'dart:async';
 
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../services/audio_service.dart';
 
 final appAudioProvider =
     StateNotifierProvider<AppAudioController, AppAudioState>((ref) {
-  return AppAudioController(ref.read(audioServiceProvider));
-});
+      return AppAudioController(ref.read(audioServiceProvider));
+    });
 
 class AppAudioState {
   const AppAudioState({
@@ -17,9 +17,9 @@ class AppAudioState {
   });
 
   const AppAudioState.initial()
-      : streams = const <AppAudioStream>[],
-        loading = true,
-        error = null;
+    : streams = const <AppAudioStream>[],
+      loading = true,
+      error = null;
 
   final List<AppAudioStream> streams;
   final bool loading;
@@ -103,19 +103,24 @@ class AppAudioController extends StateNotifier<AppAudioState> {
     _desiredVolumes.removeWhere((id, _) => !liveIds.contains(id));
     _pendingVolumes.removeWhere((id, _) => !liveIds.contains(id));
 
-    final reconciled = streams.map((stream) {
-      final desired = _desiredVolumes[stream.id];
-      if (desired == null) {
-        return stream;
-      }
-      final observed = (stream.level * 100).round().clamp(0, 100);
-      if ((observed - desired).abs() <= 1 && !stream.muted) {
-        _desiredVolumes.remove(stream.id);
-        return stream;
-      }
-      return stream.copyWith(level: desired / 100.0, muted: false);
-    }).toList(growable: false)
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    final reconciled =
+        streams
+            .map((stream) {
+              final desired = _desiredVolumes[stream.id];
+              if (desired == null) {
+                return stream;
+              }
+              final observed = (stream.level * 100).round().clamp(0, 100);
+              if ((observed - desired).abs() <= 1 && !stream.muted) {
+                _desiredVolumes.remove(stream.id);
+                return stream;
+              }
+              return stream.copyWith(level: desired / 100.0, muted: false);
+            })
+            .toList(growable: false)
+          ..sort(
+            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+          );
 
     state = AppAudioState(
       streams: List<AppAudioStream>.unmodifiable(reconciled),

@@ -11,7 +11,7 @@ index 467d354..7620d40 100644
 -// is 33.334 ms. This however assumes zero latency from the input driver.
 -// 4.666 ms margin is added for this.
 -const Duration _defaultSamplingOffset = Duration(milliseconds: -38);
-+// DENIA/eLinux targets run the touch UI at 120Hz with engine-clock pointer
++// Denial targets run the touch UI at 120Hz with engine-clock pointer
 +// timestamps. Use a sub-half-frame offset to smooth minor delivery jitter
 +// without adding a full 120Hz frame of latency.
 +const Duration _defaultSamplingOffset = Duration(milliseconds: -3);
