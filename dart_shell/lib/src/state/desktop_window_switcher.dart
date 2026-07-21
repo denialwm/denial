@@ -88,6 +88,9 @@ class DesktopWindowSwitcherController
           ((selectedIndex < 0 ? 0 : selectedIndex) + 1) % reconciled.length;
       state = current.copyWith(
         objectIds: List<int>.unmodifiable(reconciled),
+        sourceObjectId: seen.contains(current.sourceObjectId)
+            ? current.sourceObjectId
+            : sourceObjectId,
         selectedIndex: nextIndex,
       );
       return state;
