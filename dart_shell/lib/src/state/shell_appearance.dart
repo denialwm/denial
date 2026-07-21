@@ -1,5 +1,5 @@
 import 'package:flutter/widgets.dart';
-import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../theme/tokens.dart';
 
@@ -20,13 +20,13 @@ class ShellAppearance {
 }
 
 final shellAppearanceProvider =
-    StateNotifierProvider<ShellAppearanceController, ShellAppearance>((ref) {
-      return ShellAppearanceController();
-    });
+    NotifierProvider<ShellAppearanceController, ShellAppearance>(
+      ShellAppearanceController.new,
+    );
 
-class ShellAppearanceController extends StateNotifier<ShellAppearance> {
-  ShellAppearanceController([ShellAppearance initial = const ShellAppearance()])
-    : super(initial);
+class ShellAppearanceController extends Notifier<ShellAppearance> {
+  @override
+  ShellAppearance build() => const ShellAppearance();
 
   void setFocusedWindowBorderColor(Color color) {
     final opaque = color.withAlpha(0xff);

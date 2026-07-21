@@ -1,8 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show immutable, visibleForTesting;
+import 'package:flutter/foundation.dart' show immutable;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 
 import '../config/startup_environment.dart';
 import '../models/battery_status.dart';
@@ -41,64 +40,88 @@ Stream<DateTime> _minuteClock() async* {
   }
 }
 
-final batteryProvider = StateNotifierProvider<BatteryController, BatteryStatus>(
-  (ref) {
-    return BatteryController(ref.read(batteryServiceProvider));
-  },
+final batteryProvider = NotifierProvider<BatteryController, BatteryStatus>(
+  BatteryController.new,
+  isAutoDispose: true,
 );
 
 final powerStatusProvider =
-    StateNotifierProvider.autoDispose<PowerStatusController, ShellPowerStatus>((
-      ref,
-    ) {
-      return PowerStatusController(ref.read(powerStatusServiceProvider));
-    });
+    NotifierProvider<PowerStatusController, ShellPowerStatus>(
+      PowerStatusController.new,
+      isAutoDispose: true,
+    );
 
 /// Aggregate CPU load plus a short history window for the bar sparkline.
-final cpuUsageProvider = StateNotifierProvider<CpuUsageController, LoadSeries>((
-  ref,
-) {
-  return CpuUsageController(ref.read(cpuUsageServiceProvider));
-});
+final cpuUsageProvider = NotifierProvider<CpuUsageController, LoadSeries>(
+  CpuUsageController.new,
+  isAutoDispose: true,
+);
 
 /// Per-GPU load series for every autodetected GPU, in stable order.
-final gpuUsageProvider =
-    StateNotifierProvider<GpuUsageController, List<GpuLoad>>((ref) {
-      return GpuUsageController(ref.read(gpuUsageServiceProvider));
+final gpuUsageProvider = NotifierProvider<GpuUsageController, List<GpuLoad>>(
+  GpuUsageController.new,
+  isAutoDispose: true,
+);
+
+mixin _PeriodicRefresh<StateT> on Notifier<StateT> {
+  int _refreshGeneration = 0;
+  bool _refreshing = false;
+
+  void startPeriodicRefresh(
+    Duration interval,
+    Future<void> Function(int generation) refresh,
+  ) {
+    final generation = ++_refreshGeneration;
+    _refreshing = false;
+
+    Future<void> run() async {
+      if (!isRefreshActive(generation) || _refreshing) {
+        return;
+      }
+      _refreshing = true;
+      try {
+        await refresh(generation);
+      } finally {
+        if (generation == _refreshGeneration) {
+          _refreshing = false;
+        }
+      }
+    }
+
+    scheduleMicrotask(() => unawaited(run()));
+    final timer = Timer.periodic(interval, (_) => unawaited(run()));
+    ref.onDispose(() {
+      timer.cancel();
+      if (generation == _refreshGeneration) {
+        _refreshGeneration++;
+        _refreshing = false;
+      }
     });
+  }
+
+  bool isRefreshActive(int generation) =>
+      ref.mounted && generation == _refreshGeneration;
+}
 
 /// Polls the battery on a fixed interval.
-class BatteryController extends StateNotifier<BatteryStatus> {
-  BatteryController(this._service) : super(BatteryStatus.unknown) {
-    unawaited(_refresh());
-    _timer = Timer.periodic(_interval, (_) => unawaited(_refresh()));
+class BatteryController extends Notifier<BatteryStatus>
+    with _PeriodicRefresh<BatteryStatus> {
+  @override
+  BatteryStatus build() {
+    _service = ref.watch(batteryServiceProvider);
+    startPeriodicRefresh(_interval, _refresh);
+    return BatteryStatus.unknown;
   }
 
   static const Duration _interval = Duration(seconds: 15);
 
-  final BatteryService _service;
-  Timer? _timer;
-  bool _refreshing = false;
+  late BatteryService _service;
 
-  Future<void> _refresh() async {
-    if (_refreshing) {
-      return;
+  Future<void> _refresh(int generation) async {
+    final status = await _service.read();
+    if (isRefreshActive(generation) && status != state) {
+      state = status;
     }
-    _refreshing = true;
-    try {
-      final status = await _service.read();
-      if (mounted && status != state) {
-        state = status;
-      }
-    } finally {
-      _refreshing = false;
-    }
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
   }
 }
 
@@ -159,142 +182,90 @@ class GpuLoad {
 
 /// Samples `/proc/stat` on a fixed interval; each usable delta between the two
 /// most recent samples is appended to the published [LoadSeries].
-class CpuUsageController extends StateNotifier<LoadSeries> {
-  CpuUsageController(this._service) : super(LoadSeries.empty) {
-    unawaited(_refresh());
-    _timer = Timer.periodic(_interval, (_) => unawaited(_refresh()));
+class CpuUsageController extends Notifier<LoadSeries>
+    with _PeriodicRefresh<LoadSeries> {
+  @override
+  LoadSeries build() {
+    _service = ref.watch(cpuUsageServiceProvider);
+    _previous = null;
+    startPeriodicRefresh(_interval, _refresh);
+    return LoadSeries.empty;
   }
-
-  /// A frozen reading that never polls, for widget tests and previews.
-  @visibleForTesting
-  CpuUsageController.fixed(LoadSeries load)
-    : _service = CpuUsageService(),
-      super(load);
 
   static const Duration _interval = Duration(seconds: 2);
 
-  final CpuUsageService _service;
-  Timer? _timer;
-  bool _refreshing = false;
+  late CpuUsageService _service;
   CpuSample? _previous;
 
-  Future<void> _refresh() async {
-    if (_refreshing) {
+  Future<void> _refresh(int generation) async {
+    final sample = await _service.read();
+    if (!isRefreshActive(generation)) {
       return;
     }
-    _refreshing = true;
-    try {
-      final sample = await _service.read();
-      if (!mounted) {
-        return;
-      }
-      final previous = _previous;
-      _previous = sample ?? _previous;
-      if (sample == null || previous == null) {
-        return;
-      }
-      final usage = CpuSample.usageBetween(previous, sample);
-      if (usage != null) {
-        state = state.append(usage, temperatureC: sample.temperatureC);
-      }
-    } finally {
-      _refreshing = false;
+    final previous = _previous;
+    _previous = sample ?? _previous;
+    if (sample == null || previous == null) {
+      return;
     }
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
+    final usage = CpuSample.usageBetween(previous, sample);
+    if (usage != null) {
+      state = state.append(usage, temperatureC: sample.temperatureC);
+    }
   }
 }
 
 /// Polls every autodetected GPU on a fixed interval and appends each reading
 /// to that GPU's series. GPUs whose telemetry disappears drop off the list.
-class GpuUsageController extends StateNotifier<List<GpuLoad>> {
-  GpuUsageController(this._service) : super(const <GpuLoad>[]) {
-    unawaited(_refresh());
-    _timer = Timer.periodic(_interval, (_) => unawaited(_refresh()));
+class GpuUsageController extends Notifier<List<GpuLoad>>
+    with _PeriodicRefresh<List<GpuLoad>> {
+  @override
+  List<GpuLoad> build() {
+    _service = ref.watch(gpuUsageServiceProvider);
+    startPeriodicRefresh(_interval, _refresh);
+    return const <GpuLoad>[];
   }
-
-  /// Frozen readings that never poll, for widget tests and previews.
-  @visibleForTesting
-  GpuUsageController.fixed(List<GpuLoad> loads)
-    : _service = GpuUsageService(),
-      super(loads);
 
   static const Duration _interval = Duration(seconds: 2);
 
-  final GpuUsageService _service;
-  Timer? _timer;
-  bool _refreshing = false;
+  late GpuUsageService _service;
 
-  Future<void> _refresh() async {
-    if (_refreshing) {
+  Future<void> _refresh(int generation) async {
+    final samples = await _service.read();
+    if (!isRefreshActive(generation) || (samples.isEmpty && state.isEmpty)) {
       return;
     }
-    _refreshing = true;
-    try {
-      final samples = await _service.read();
-      if (!mounted || (samples.isEmpty && state.isEmpty)) {
-        return;
-      }
-      final previous = <String, GpuLoad>{
-        for (final load in state) load.id: load,
-      };
-      state = <GpuLoad>[
-        for (final sample in samples)
-          GpuLoad(
-            id: sample.id,
-            label: sample.label,
-            series: (previous[sample.id]?.series ?? LoadSeries.empty).append(
-              sample.usage,
-              temperatureC: sample.temperatureC,
-            ),
+    final previous = <String, GpuLoad>{for (final load in state) load.id: load};
+    state = <GpuLoad>[
+      for (final sample in samples)
+        GpuLoad(
+          id: sample.id,
+          label: sample.label,
+          series: (previous[sample.id]?.series ?? LoadSeries.empty).append(
+            sample.usage,
+            temperatureC: sample.temperatureC,
           ),
-      ];
-    } finally {
-      _refreshing = false;
-    }
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
+        ),
+    ];
   }
 }
 
-class PowerStatusController extends StateNotifier<ShellPowerStatus> {
-  PowerStatusController(this._service) : super(ShellPowerStatus.unknown) {
-    unawaited(_refresh());
-    _timer = Timer.periodic(_interval, (_) => unawaited(_refresh()));
+class PowerStatusController extends Notifier<ShellPowerStatus>
+    with _PeriodicRefresh<ShellPowerStatus> {
+  @override
+  ShellPowerStatus build() {
+    _service = ref.watch(powerStatusServiceProvider);
+    startPeriodicRefresh(_interval, _refresh);
+    return ShellPowerStatus.unknown;
   }
 
   static const Duration _interval = Duration(seconds: 2);
 
-  final PowerStatusService _service;
-  Timer? _timer;
-  bool _refreshing = false;
+  late PowerStatusService _service;
 
-  Future<void> _refresh() async {
-    if (_refreshing) {
-      return;
+  Future<void> _refresh(int generation) async {
+    final status = await _service.read();
+    if (isRefreshActive(generation) && status != state) {
+      state = status;
     }
-    _refreshing = true;
-    try {
-      final status = await _service.read();
-      if (mounted && status != state) {
-        state = status;
-      }
-    } finally {
-      _refreshing = false;
-    }
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
   }
 }

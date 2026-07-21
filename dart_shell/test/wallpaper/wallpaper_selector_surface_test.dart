@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:denial_dart_shell/src/launcher/runtime_paths.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
@@ -15,6 +14,8 @@ import 'package:denial_dart_shell/src/wallpaper/widgets/wallpaper_span_controls.
 import 'package:denial_dart_shell/src/wallpaper/widgets/wallpaper_target_selector.dart';
 import 'package:denial_dart_shell/src/widgets/shade/range_bar.dart';
 
+import '../support/wallpaper_controller_harness.dart';
+
 void main() {
   testWidgets('only the close control dismisses the selector', (tester) async {
     final temporary = Directory(
@@ -22,7 +23,7 @@ void main() {
       '${DateTime.now().microsecondsSinceEpoch}',
     )..createSync(recursive: true);
     addTearDown(() => temporary.deleteSync(recursive: true));
-    final controller = WallpaperController(
+    final harness = WallpaperControllerTestHarness(
       sources: const <WallpaperProvider>[],
       store: WallpaperStore(
         RuntimePaths(environment: <String, String>{'HOME': temporary.path}),
@@ -31,10 +32,8 @@ void main() {
     var dismissed = false;
 
     await tester.pumpWidget(
-      ProviderScope(
-        overrides: <Override>[
-          wallpaperControllerProvider.overrideWith((ref) => controller),
-        ],
+      UncontrolledProviderScope(
+        container: harness.container,
         child: Directionality(
           textDirection: TextDirection.ltr,
           child: MediaQuery(
@@ -59,6 +58,7 @@ void main() {
     await tester.pump();
 
     expect(dismissed, isTrue);
+    harness.container.dispose();
   });
 
   testWidgets('target controls expose All and every monitor', (tester) async {

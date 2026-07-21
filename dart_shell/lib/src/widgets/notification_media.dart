@@ -31,8 +31,8 @@ class NotificationIconRequest {
   int get hashCode => Object.hash(appIcon, desktopEntry);
 }
 
-final notificationIconPathProvider = FutureProvider.autoDispose
-    .family<String?, NotificationIconRequest>((ref, request) {
+final notificationIconPathProvider =
+    FutureProvider.family<String?, NotificationIconRequest>((ref, request) {
       final repository = ref.watch(desktopAppsRepositoryProvider);
       return Isolate.run(
         () => repository.resolveNotificationIcon(
@@ -40,13 +40,14 @@ final notificationIconPathProvider = FutureProvider.autoDispose
           desktopEntry: request.desktopEntry,
         ),
       );
-    });
+    }, isAutoDispose: true);
 
 const int maxNotificationStaticImageBytes = 4 * 1024 * 1024;
 
-final notificationStaticImageProvider = FutureProvider.autoDispose
-    .family<Uint8List?, String>(
+final notificationStaticImageProvider =
+    FutureProvider.family<Uint8List?, String>(
       (ref, path) => Isolate.run(() => loadBoundedNotificationImage(path)),
+      isAutoDispose: true,
     );
 
 @visibleForTesting

@@ -14,15 +14,12 @@ void main() {
     tester,
   ) async {
     final backend = _FakeNetworkBackend(NetworkManagerSnapshot.unavailable());
-    final container = ProviderContainer(
+    addTearDown(backend.dispose);
+    final container = ProviderContainer.test(
       overrides: <Override>[
         networkManagerServiceProvider.overrideWithValue(backend),
       ],
     );
-    addTearDown(() async {
-      container.dispose();
-      await backend.dispose();
-    });
 
     await tester.pumpWidget(_host(container));
     await tester.pump();
@@ -45,15 +42,12 @@ void main() {
         ],
       ),
     );
-    final container = ProviderContainer(
+    addTearDown(backend.dispose);
+    final container = ProviderContainer.test(
       overrides: <Override>[
         networkManagerServiceProvider.overrideWithValue(backend),
       ],
     );
-    addTearDown(() async {
-      container.dispose();
-      await backend.dispose();
-    });
 
     await tester.pumpWidget(_host(container, textScale: 1.3));
     await tester.pump();

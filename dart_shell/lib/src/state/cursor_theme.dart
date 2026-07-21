@@ -1,5 +1,4 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 
 import '../config/startup_environment.dart';
 import '../theme/cursor_themes.dart';
@@ -9,20 +8,19 @@ final availableShellCursorThemesProvider = Provider<List<ShellCursorThemeData>>(
 );
 
 final shellCursorThemeProvider =
-    StateNotifierProvider<ShellCursorThemeController, ShellCursorThemeData>((
-      ref,
-    ) {
-      return ShellCursorThemeController(
-        initialId: ref.watch(startupEnvironmentProvider)['DENIA_CURSOR_THEME'],
-      );
-    });
+    NotifierProvider<ShellCursorThemeController, ShellCursorThemeData>(
+      ShellCursorThemeController.new,
+    );
 
-class ShellCursorThemeController extends StateNotifier<ShellCursorThemeData> {
-  ShellCursorThemeController({String? initialId})
-    : super(
-        ShellCursorThemes.find(initialId?.trim().toLowerCase() ?? '') ??
-            ShellCursorThemes.yangyangXuanling,
-      );
+class ShellCursorThemeController extends Notifier<ShellCursorThemeData> {
+  @override
+  ShellCursorThemeData build() {
+    final initialId = ref.watch(
+      startupEnvironmentProvider,
+    )['DENIA_CURSOR_THEME'];
+    return ShellCursorThemes.find(initialId?.trim().toLowerCase() ?? '') ??
+        ShellCursorThemes.yangyangXuanling;
+  }
 
   bool select(String id) {
     final next = ShellCursorThemes.find(id.trim().toLowerCase());

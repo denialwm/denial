@@ -8,17 +8,18 @@ import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/settings/settings_application.dart';
 import 'package:denial_dart_shell/src/state/display_layout.dart';
 import 'package:denial_dart_shell/src/state/shell_appearance.dart';
+import 'package:denial_dart_shell/src/state/shell_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('settings application presents the live appearance control',
-      (tester) async {
+  testWidgets('settings application presents the live appearance control', (
+    tester,
+  ) async {
     final semantics = tester.ensureSemantics();
     final container = _settingsContainer();
-    addTearDown(container.dispose);
 
     await _pumpSettings(tester, container);
 
@@ -28,17 +29,14 @@ void main() {
     expect(find.text('Desktop system bar'), findsOneWidget);
     expect(find.byKey(settingsSystemBarPlacementCardKey), findsOneWidget);
     expect(find.text('#4F378B'), findsOneWidget);
-    expect(
-      find.bySemanticsLabel(RegExp('Denial Settings')),
-      findsOneWidget,
-    );
+    expect(find.bySemanticsLabel(RegExp('Denial Settings')), findsOneWidget);
     semantics.dispose();
   });
 
-  testWidgets('color wheel changes and resets the focused border live',
-      (tester) async {
+  testWidgets('color wheel changes and resets the focused border live', (
+    tester,
+  ) async {
     final container = _settingsContainer();
-    addTearDown(container.dispose);
     await _pumpSettings(tester, container);
     final initial = container.read(shellAppearanceProvider);
 
@@ -52,13 +50,12 @@ void main() {
     expect(find.byType(HsvColorWheel), findsOneWidget);
 
     final wheelRect = tester.getRect(find.byType(HsvColorWheel));
-    await tester.tapAt(
-      wheelRect.center + Offset(wheelRect.width * 0.36, 0),
-    );
+    await tester.tapAt(wheelRect.center + Offset(wheelRect.width * 0.36, 0));
     await tester.pump();
 
-    final pointerColor =
-        container.read(shellAppearanceProvider).focusedWindowBorderColor;
+    final pointerColor = container
+        .read(shellAppearanceProvider)
+        .focusedWindowBorderColor;
     expect(pointerColor, isNot(initial.focusedWindowBorderColor));
 
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
@@ -80,10 +77,10 @@ void main() {
     expect(find.byKey(settingsFocusedBorderColorPickerKey), findsNothing);
   });
 
-  testWidgets('appearance page and picker fit the minimum application size',
-      (tester) async {
+  testWidgets('appearance page and picker fit the minimum application size', (
+    tester,
+  ) async {
     final container = _settingsContainer();
-    addTearDown(container.dispose);
     await _pumpSettings(tester, container, size: const Size(480, 360));
 
     await tester.ensureVisible(
@@ -98,7 +95,6 @@ void main() {
 
   testWidgets('system bar edge and monitor clones update live', (tester) async {
     final container = _settingsContainer();
-    addTearDown(container.dispose);
     await _pumpSettings(tester, container);
     await tester.pumpAndSettle();
 
@@ -145,12 +141,12 @@ void main() {
 }
 
 ProviderContainer _settingsContainer() {
-  return ProviderContainer(
+  return ProviderContainer.test(
     overrides: [
-      displayLayoutProvider.overrideWith((ref) {
+      denialBridgeProvider.overrideWith((ref) {
         final bridge = _SettingsBridge(_displayLayout);
         ref.onDispose(bridge.dispose);
-        return DisplayLayoutController(bridge);
+        return bridge;
       }),
     ],
   );

@@ -1,3 +1,6 @@
+plugins:
+  riverpod_lint: 3.1.4
+
 analyzer:
   exclude:
     - build/**

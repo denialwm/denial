@@ -7,7 +7,7 @@ import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/services/authentication_service.dart';
 import 'package:denial_dart_shell/src/services/power_status_service.dart';
 import 'package:denial_dart_shell/src/state/authentication.dart';
-import 'package:denial_dart_shell/src/state/display_layout.dart';
+import 'package:denial_dart_shell/src/state/shell_controller.dart';
 import 'package:denial_dart_shell/src/state/system_status.dart';
 import 'package:denial_dart_shell/src/widgets/lock/lock_screen_layer.dart';
 import 'package:flutter/widgets.dart';
@@ -126,9 +126,7 @@ Widget _host({
   return ProviderScope(
     overrides: <Override>[
       authenticationServiceProvider.overrideWithValue(service),
-      displayLayoutProvider.overrideWith(
-        (ref) => DisplayLayoutController(bridge),
-      ),
+      denialBridgeProvider.overrideWithValue(bridge),
       clockProvider.overrideWith(
         (ref) => Stream<DateTime>.value(DateTime(2026, 7, 17, 12, 34)),
       ),

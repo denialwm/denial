@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 
 import '../input/shell_interaction_registry.dart';
 import '../theme/motion.dart';
@@ -63,19 +62,18 @@ class ManagedShellSurface {
 }
 
 final shellSurfaceControllerProvider =
-    StateNotifierProvider<ShellSurfaceController, List<ManagedShellSurface>>((
-      ref,
-    ) {
-      return ShellSurfaceController(
-        ref.read(shellInteractionRegistryProvider.notifier),
-      );
-    });
+    NotifierProvider<ShellSurfaceController, List<ManagedShellSurface>>(
+      ShellSurfaceController.new,
+    );
 
-class ShellSurfaceController extends StateNotifier<List<ManagedShellSurface>> {
-  ShellSurfaceController(this._interactions)
-    : super(const <ManagedShellSurface>[]);
+class ShellSurfaceController extends Notifier<List<ManagedShellSurface>> {
+  late ShellInteractionRegistry _interactions;
 
-  final ShellInteractionRegistry _interactions;
+  @override
+  List<ManagedShellSurface> build() {
+    _interactions = ref.watch(shellInteractionRegistryProvider.notifier);
+    return const <ManagedShellSurface>[];
+  }
 
   ShellSurfaceHandle show({
     required String debugLabel,
@@ -177,14 +175,6 @@ class ShellSurfaceController extends StateNotifier<List<ManagedShellSurface>> {
       _interactions.remove(surface.id);
     }
     state = const <ManagedShellSurface>[];
-  }
-
-  @override
-  void dispose() {
-    for (final surface in state) {
-      _interactions.remove(surface.id);
-    }
-    super.dispose();
   }
 }
 

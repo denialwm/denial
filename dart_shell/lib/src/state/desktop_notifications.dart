@@ -2,31 +2,25 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 
 import '../launcher/launcher_providers.dart';
 import '../models/desktop_notification.dart';
 import '../services/notification_policy_repository.dart';
+import 'notifier_lifecycle.dart';
 import 'shell_controller.dart';
 
-final notificationPolicyStoreProvider = Provider<NotificationPolicyStore>(
+final notificationPolicyStoreProvider = Provider<NotificationPolicyStore?>(
   (ref) => NotificationPolicyRepository(paths: ref.watch(runtimePathsProvider)),
 );
 
+final desktopNotificationLoggerProvider = Provider<void Function(String)?>(
+  (ref) => null,
+);
+
 final desktopNotificationsProvider =
-    StateNotifierProvider<
-      DesktopNotificationsController,
-      DesktopNotificationsState
-    >((ref) {
-      final bridge = ref.read(denialBridgeProvider);
-      return DesktopNotificationsController(
-        bridge.notificationEvents,
-        dismiss: bridge.dismissNotification,
-        invokeAction: bridge.invokeNotificationAction,
-        invokeDefaultAction: bridge.invokeDefaultNotificationAction,
-        policyStore: ref.watch(notificationPolicyStoreProvider),
-      );
-    });
+    NotifierProvider<DesktopNotificationsController, DesktopNotificationsState>(
+      DesktopNotificationsController.new,
+    );
 
 @immutable
 class DesktopNotificationRecord {
@@ -143,37 +137,47 @@ class DesktopNotificationsState {
   }
 }
 
-class DesktopNotificationsController
-    extends StateNotifier<DesktopNotificationsState> {
-  DesktopNotificationsController(
-    Stream<DesktopNotificationEvent> events, {
-    required bool Function(int notificationId) dismiss,
-    required bool Function(int notificationId, String actionKey) invokeAction,
-    required bool Function(int notificationId) invokeDefaultAction,
-    NotificationPolicyStore? policyStore,
-    void Function(String message)? logger,
-  }) : _dismiss = dismiss,
-       _invokeAction = invokeAction,
-       _invokeDefaultAction = invokeDefaultAction,
-       _policyStore = policyStore,
-       _logger = logger,
-       super(DesktopNotificationsState(policyLoaded: policyStore == null)) {
-    _subscription = events.listen(_handleEvent);
-    if (policyStore != null) {
-      unawaited(_loadPolicy());
+class DesktopNotificationsController extends Notifier<DesktopNotificationsState>
+    with NotifierLifecycle<DesktopNotificationsState> {
+  @override
+  DesktopNotificationsState build() {
+    final bridge = ref.watch(denialBridgeProvider);
+    _dismiss = bridge.dismissNotification;
+    _invokeAction = bridge.invokeNotificationAction;
+    _invokeDefaultAction = bridge.invokeDefaultNotificationAction;
+    _policyStore = ref.watch(notificationPolicyStoreProvider);
+    _logger = ref.watch(desktopNotificationLoggerProvider);
+    _invokedActions.clear();
+    _nextSequence = 1;
+    _policyMutated = false;
+    _policyWriteRunning = false;
+    _pendingPolicyWrite = null;
+    _buildGeneration = beginBuildGeneration();
+    final generation = _buildGeneration;
+    final subscription = bridge.notificationEvents.listen(
+      (event) => _handleEvent(event, generation),
+    );
+    cancelOnDispose(subscription);
+    if (_policyStore != null) {
+      scheduleMicrotask(() {
+        if (isBuildGenerationActive(generation)) {
+          unawaited(_loadPolicy(generation));
+        }
+      });
     }
+    return DesktopNotificationsState(policyLoaded: _policyStore == null);
   }
 
   static const int maxActiveNotifications = 256;
   static const int maxHistoryEntries = 100;
   static const int maxBannerQueue = 24;
 
-  final void Function(String message)? _logger;
-  final bool Function(int notificationId) _dismiss;
-  final bool Function(int notificationId, String actionKey) _invokeAction;
-  final bool Function(int notificationId) _invokeDefaultAction;
-  final NotificationPolicyStore? _policyStore;
-  late final StreamSubscription<DesktopNotificationEvent> _subscription;
+  late void Function(String message)? _logger;
+  late bool Function(int notificationId) _dismiss;
+  late bool Function(int notificationId, String actionKey) _invokeAction;
+  late bool Function(int notificationId) _invokeDefaultAction;
+  late NotificationPolicyStore? _policyStore;
+  late int _buildGeneration;
 
   final Map<int, Set<String>> _invokedActions = <int, Set<String>>{};
   int _nextSequence = 1;
@@ -348,7 +352,10 @@ class DesktopNotificationsController
     );
   }
 
-  void _handleEvent(DesktopNotificationEvent event) {
+  void _handleEvent(DesktopNotificationEvent event, int generation) {
+    if (!isBuildGenerationActive(generation)) {
+      return;
+    }
     final active = Map<int, DesktopNotification>.of(state.active);
     final history = List<DesktopNotificationRecord>.of(state.history);
     final bannerQueue = List<int>.of(state.bannerQueue);
@@ -434,9 +441,9 @@ class DesktopNotificationsController
     _logger?.call(event.toReadableString());
   }
 
-  Future<void> _loadPolicy() async {
+  Future<void> _loadPolicy(int generation) async {
     final policy = await _policyStore!.read();
-    if (!mounted) {
+    if (!isBuildGenerationActive(generation)) {
       return;
     }
     if (_policyMutated) {
@@ -459,14 +466,14 @@ class DesktopNotificationsController
       lockPreview: state.lockPreview,
     );
     if (!_policyWriteRunning) {
-      unawaited(_drainPolicyWrites());
+      unawaited(_drainPolicyWrites(_buildGeneration));
     }
   }
 
-  Future<void> _drainPolicyWrites() async {
+  Future<void> _drainPolicyWrites(int generation) async {
     _policyWriteRunning = true;
     try {
-      while (true) {
+      while (isBuildGenerationActive(generation)) {
         final policy = _pendingPolicyWrite;
         if (policy == null) {
           return;
@@ -475,13 +482,9 @@ class DesktopNotificationsController
         await _policyStore!.write(policy);
       }
     } finally {
-      _policyWriteRunning = false;
+      if (isBuildGenerationActive(generation)) {
+        _policyWriteRunning = false;
+      }
     }
-  }
-
-  @override
-  void dispose() {
-    unawaited(_subscription.cancel());
-    super.dispose();
   }
 }

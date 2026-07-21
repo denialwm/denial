@@ -2,11 +2,12 @@ import 'dart:async';
 
 import 'package:dbus/dbus.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../platform/denial_bridge.dart';
 import '../services/logind_service.dart';
 import 'authentication.dart';
+import 'notifier_lifecycle.dart';
 import 'shell_controller.dart';
 
 enum SessionPowerAction {
@@ -195,41 +196,61 @@ class NativeSessionRuntimeBackend implements SessionRuntimeBackend {
   bool requestLogout() => _bridge.requestLogout();
 }
 
-final sessionPowerProvider =
-    StateNotifierProvider<SessionPowerController, SessionPowerState>((ref) {
-      return SessionPowerController(
-        ref.read(logindServiceProvider),
-        NativeSessionRuntimeBackend(
-          authentication: ref.read(authenticationProvider.notifier),
-          bridge: ref.read(denialBridgeProvider),
-        ),
-      );
-    });
+final sessionRuntimeBackendProvider = Provider<SessionRuntimeBackend>((ref) {
+  return NativeSessionRuntimeBackend(
+    authentication: ref.watch(authenticationProvider.notifier),
+    bridge: ref.watch(denialBridgeProvider),
+  );
+});
 
-class SessionPowerController extends StateNotifier<SessionPowerState> {
-  SessionPowerController(
-    this._logind,
-    this._runtime, {
-    this.logoutWatchdog = const Duration(seconds: 5),
-  }) : super(SessionPowerState.initial()) {
-    _subscription = _logind.snapshots.listen(_handleSnapshot);
-    unawaited(_initialize());
+final sessionLogoutWatchdogProvider = Provider<Duration>(
+  (ref) => const Duration(seconds: 5),
+);
+
+final sessionPowerProvider =
+    NotifierProvider<SessionPowerController, SessionPowerState>(
+      SessionPowerController.new,
+    );
+
+class SessionPowerController extends Notifier<SessionPowerState>
+    with NotifierLifecycle<SessionPowerState> {
+  @override
+  SessionPowerState build() {
+    _logind = ref.watch(logindServiceProvider);
+    _runtime = ref.watch(sessionRuntimeBackendProvider);
+    _logoutWatchdog = ref.watch(sessionLogoutWatchdogProvider);
+    _logoutTimer = null;
+    _buildGeneration = beginBuildGeneration();
+    final generation = _buildGeneration;
+    final subscription = _logind.snapshots.listen(
+      (snapshot) => _handleSnapshot(snapshot, generation),
+    );
+    cancelOnDispose(subscription);
+    ref.onDispose(() {
+      _logoutTimer?.cancel();
+      _logoutTimer = null;
+    });
+    scheduleMicrotask(() {
+      if (isBuildGenerationActive(generation)) {
+        unawaited(_initialize(generation));
+      }
+    });
+    return SessionPowerState.initial();
   }
 
-  final LogindBackend _logind;
-  final SessionRuntimeBackend _runtime;
-  final Duration logoutWatchdog;
-  late final StreamSubscription<LogindSnapshot> _subscription;
+  late LogindBackend _logind;
+  late SessionRuntimeBackend _runtime;
+  late Duration _logoutWatchdog;
+  late int _buildGeneration;
   Timer? _logoutTimer;
-  bool _disposed = false;
 
-  Future<void> _initialize() async {
+  Future<void> _initialize(int generation) async {
     try {
       await _logind.start();
     } on Object {
       // The unavailable snapshot below is the user-visible result.
     }
-    if (_disposed) {
+    if (!isBuildGenerationActive(generation)) {
       return;
     }
     state = state.copyWith(
@@ -238,29 +259,27 @@ class SessionPowerController extends StateNotifier<SessionPowerState> {
     );
   }
 
-  void _handleSnapshot(LogindSnapshot snapshot) {
-    if (_disposed) {
+  void _handleSnapshot(LogindSnapshot snapshot, int generation) {
+    if (!isBuildGenerationActive(generation)) {
       return;
     }
     state = state.copyWith(initialized: true, snapshot: snapshot);
   }
 
   Future<void> refresh() async {
-    if (_disposed) {
-      return;
-    }
+    final generation = _buildGeneration;
     state = state.copyWith(clearError: true);
     try {
       await _logind.refresh();
     } on Object {
-      if (!_disposed) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(error: 'Could not refresh session controls');
       }
     }
   }
 
   Future<void> request(SessionPowerAction action) async {
-    if (_disposed || state.busy || state.confirmationAction != null) {
+    if (state.busy || state.confirmationAction != null) {
       return;
     }
     final availability = state.availabilityFor(action);
@@ -279,7 +298,7 @@ class SessionPowerController extends StateNotifier<SessionPowerState> {
 
   Future<void> confirm() async {
     final action = state.confirmationAction;
-    if (_disposed || state.busy || action == null) {
+    if (state.busy || action == null) {
       return;
     }
     state = state.copyWith(clearConfirmationAction: true, clearError: true);
@@ -287,22 +306,23 @@ class SessionPowerController extends StateNotifier<SessionPowerState> {
   }
 
   void cancelConfirmation() {
-    if (_disposed || state.busy || state.confirmationAction == null) {
+    if (state.busy || state.confirmationAction == null) {
       return;
     }
     state = state.copyWith(clearConfirmationAction: true, clearError: true);
   }
 
   void clearError() {
-    if (!_disposed && state.error != null) {
+    if (state.error != null) {
       state = state.copyWith(clearError: true);
     }
   }
 
   Future<void> _perform(SessionPowerAction action) async {
-    if (_disposed || state.busy) {
+    if (state.busy) {
       return;
     }
+    final generation = _buildGeneration;
     final availability = state.availabilityFor(action);
     if (!availability.enabled) {
       state = state.copyWith(
@@ -316,7 +336,7 @@ class SessionPowerController extends StateNotifier<SessionPowerState> {
       switch (action) {
         case SessionPowerAction.lock:
           _runtime.lock();
-          if (!_disposed) {
+          if (isBuildGenerationActive(generation)) {
             state = state.copyWith(clearBusyAction: true);
           }
         case SessionPowerAction.logout:
@@ -326,8 +346,9 @@ class SessionPowerController extends StateNotifier<SessionPowerState> {
             );
           }
           _logoutTimer?.cancel();
-          _logoutTimer = Timer(logoutWatchdog, () {
-            if (_disposed || state.busyAction != SessionPowerAction.logout) {
+          _logoutTimer = Timer(_logoutWatchdog, () {
+            if (!isBuildGenerationActive(generation) ||
+                state.busyAction != SessionPowerAction.logout) {
               return;
             }
             state = state.copyWith(
@@ -340,26 +361,18 @@ class SessionPowerController extends StateNotifier<SessionPowerState> {
             SessionPowerAction.reboot ||
             SessionPowerAction.powerOff:
           await _logind.perform(action.logindAction!);
-          if (!_disposed) {
+          if (isBuildGenerationActive(generation)) {
             state = state.copyWith(clearBusyAction: true);
           }
       }
     } on Object catch (error) {
-      if (!_disposed) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(
           clearBusyAction: true,
           error: sessionPowerErrorMessage(error),
         );
       }
     }
-  }
-
-  @override
-  void dispose() {
-    _disposed = true;
-    _logoutTimer?.cancel();
-    unawaited(_subscription.cancel());
-    super.dispose();
   }
 }
 

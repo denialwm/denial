@@ -14,8 +14,9 @@ import 'package:denial_dart_shell/src/state/system_status.dart';
 import 'package:denial_dart_shell/src/wallpaper/state/wallpaper_accent.dart';
 
 void main() {
-  testWidgets('cards cluster at the trailing edge over a bare strip',
-      (tester) async {
+  testWidgets('cards cluster at the trailing edge over a bare strip', (
+    tester,
+  ) async {
     await _pumpBar(tester, cpuUsage: 0.23);
 
     // Transparent canvas: nothing paints a full-strip decoration; only the
@@ -35,8 +36,9 @@ void main() {
     expect(clockRect.right, closeTo(1280 - 8 - 12, 1.0));
   });
 
-  testWidgets('cards optically center text over a 90%-opaque fill',
-      (tester) async {
+  testWidgets('cards optically center text over a 90%-opaque fill', (
+    tester,
+  ) async {
     await _pumpBar(tester, cpuUsage: 0.23);
 
     final clock = tester.widget<Text>(find.text('21:47'));
@@ -46,14 +48,8 @@ void main() {
         matching: find.byType(AnimatedDefaultTextStyle),
       ),
     );
-    expect(
-      clock.style?.leadingDistribution,
-      TextLeadingDistribution.even,
-    );
-    expect(
-      dateStyle.style.leadingDistribution,
-      TextLeadingDistribution.even,
-    );
+    expect(clock.style?.leadingDistribution, TextLeadingDistribution.even);
+    expect(dateStyle.style.leadingDistribution, TextLeadingDistribution.even);
 
     final cards = tester.widgetList<AnimatedContainer>(
       find.byType(AnimatedContainer),
@@ -81,8 +77,9 @@ void main() {
     expect(find.text('CPU'), findsOneWidget);
   });
 
-  testWidgets('every autodetected GPU gets a labelled sparkline card',
-      (tester) async {
+  testWidgets('every autodetected GPU gets a labelled sparkline card', (
+    tester,
+  ) async {
     await _pumpBar(
       tester,
       cpuUsage: 0.23,
@@ -116,8 +113,9 @@ void main() {
     expect(cpuRect.right, lessThan(clockRect.left));
   });
 
-  testWidgets('CPU and GPU temperatures appear only when sensors report them',
-      (tester) async {
+  testWidgets('CPU and GPU temperatures appear only when sensors report them', (
+    tester,
+  ) async {
     await _pumpBar(
       tester,
       cpuUsage: 0.23,
@@ -172,10 +170,7 @@ void main() {
     });
 
     test('a full history spans the whole width', () {
-      final history = List<double>.filled(
-        LoadSeries.capacity,
-        0.5,
-      );
+      final history = List<double>.filled(LoadSeries.capacity, 0.5);
       final points = sparklinePoints(history, size);
       expect(points.first.dx, closeTo(0.0, 1e-9));
       expect(points.last.dx, size.width);
@@ -190,8 +185,9 @@ void main() {
     });
   });
 
-  testWidgets('preview renders a PNG when DENIAL_BAR_PREVIEW_DIR is set',
-      (tester) async {
+  testWidgets('preview renders a PNG when DENIAL_BAR_PREVIEW_DIR is set', (
+    tester,
+  ) async {
     final previewDir = Platform.environment['DENIAL_BAR_PREVIEW_DIR'];
     if (previewDir == null || previewDir.isEmpty) {
       return;
@@ -201,8 +197,9 @@ void main() {
     // test-default block font.
     await tester.runAsync(() async {
       for (final weight in ['Regular', 'Medium', 'Bold']) {
-        final bytes =
-            await File('assets/fonts/JetBrainsMono-$weight.ttf').readAsBytes();
+        final bytes = await File(
+          'assets/fonts/JetBrainsMono-$weight.ttf',
+        ).readAsBytes();
         final loader = FontLoader('JetBrainsMono')
           ..addFont(Future.value(ByteData.sublistView(bytes)));
         await loader.load();
@@ -216,8 +213,8 @@ void main() {
           0.55 * (0.5 + 0.5 * math.sin(i / 4.0)) * (i % 7 == 0 ? 1.0 : 0.6),
     );
     List<double> shifted(double phase, double scale) => [
-          for (final value in wave) (value * scale + phase).clamp(0.0, 1.0),
-        ];
+      for (final value in wave) (value * scale + phase).clamp(0.0, 1.0),
+    ];
     await _pumpBar(
       tester,
       cpuUsage: 0.23,
@@ -245,8 +242,9 @@ void main() {
       ],
       withWallpaper: true,
     );
-    final boundary = tester
-        .renderObject<RenderRepaintBoundary>(find.byKey(_previewBoundaryKey));
+    final boundary = tester.renderObject<RenderRepaintBoundary>(
+      find.byKey(_previewBoundaryKey),
+    );
     await tester.runAsync(() async {
       final image = await boundary.toImage(pixelRatio: 2.0);
       final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
@@ -285,17 +283,11 @@ Future<void> _pumpBar(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        wallpaperAccentProvider.overrideWith(
-          (ref) => WallpaperAccentController.preview(
-            const WallpaperAccent(Color(0xff64d8cb)),
-          ),
+        wallpaperAccentProvider.overrideWithBuild(
+          (ref, controller) => const WallpaperAccent(Color(0xff64d8cb)),
         ),
-        cpuUsageProvider.overrideWith(
-          (ref) => CpuUsageController.fixed(cpuLoad),
-        ),
-        gpuUsageProvider.overrideWith(
-          (ref) => GpuUsageController.fixed(gpus),
-        ),
+        cpuUsageProvider.overrideWithBuild((ref, controller) => cpuLoad),
+        gpuUsageProvider.overrideWithBuild((ref, controller) => gpus),
         clockProvider.overrideWith(
           (ref) => Stream<DateTime>.value(DateTime(2026, 7, 19, 21, 47)),
         ),

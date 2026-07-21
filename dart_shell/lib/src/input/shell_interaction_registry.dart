@@ -1,7 +1,6 @@
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 
 enum ShellPointerPolicy { none, childBounds, fullScene }
 
@@ -88,14 +87,13 @@ class ShellInteractionSnapshot {
 }
 
 final shellInteractionRegistryProvider =
-    StateNotifierProvider<ShellInteractionRegistry, ShellInteractionSnapshot>((
-      ref,
-    ) {
-      return ShellInteractionRegistry();
-    });
+    NotifierProvider<ShellInteractionRegistry, ShellInteractionSnapshot>(
+      ShellInteractionRegistry.new,
+    );
 
-class ShellInteractionRegistry extends StateNotifier<ShellInteractionSnapshot> {
-  ShellInteractionRegistry() : super(ShellInteractionSnapshot.empty());
+class ShellInteractionRegistry extends Notifier<ShellInteractionSnapshot> {
+  @override
+  ShellInteractionSnapshot build() => ShellInteractionSnapshot.empty();
 
   int _nextSurfaceId = 1;
 
@@ -120,7 +118,7 @@ class ShellInteractionRegistry extends StateNotifier<ShellInteractionSnapshot> {
   }
 
   void removeIfMounted(int surfaceId) {
-    if (!mounted) {
+    if (!ref.mounted) {
       return;
     }
     remove(surfaceId);

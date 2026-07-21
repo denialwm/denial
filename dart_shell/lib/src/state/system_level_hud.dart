@@ -1,21 +1,30 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../platform/denial_bridge.dart';
+import 'notifier_lifecycle.dart';
 import 'shell_controller.dart';
 
+final systemLevelHudVisibleDurationProvider = Provider<Duration>(
+  (ref) => const Duration(milliseconds: 1200),
+);
+
+typedef SystemLevelHudSignals = ({
+  Stream<DenialAudioState> audio,
+  Stream<DenialBrightnessState> brightness,
+});
+
+final systemLevelHudSignalsProvider = Provider<SystemLevelHudSignals>((ref) {
+  final bridge = ref.watch(denialBridgeProvider);
+  return (audio: bridge.audioStates, brightness: bridge.brightnessStates);
+});
+
 final systemLevelHudProvider =
-    StateNotifierProvider<SystemLevelHudController, SystemLevelHudState?>((
-      ref,
-    ) {
-      final bridge = ref.read(denialBridgeProvider);
-      return SystemLevelHudController(
-        brightnessStates: bridge.brightnessStates,
-        audioStates: bridge.audioStates,
-      );
-    });
+    NotifierProvider<SystemLevelHudController, SystemLevelHudState?>(
+      SystemLevelHudController.new,
+    );
 
 enum SystemLevelHudKind { brightness, audio }
 
@@ -52,24 +61,40 @@ class SystemLevelHudState {
 ///
 /// Keeping both signals in one controller ensures that rapid changes across
 /// the two controls replace one another instead of painting overlapping HUDs.
-class SystemLevelHudController extends StateNotifier<SystemLevelHudState?> {
-  SystemLevelHudController({
-    required Stream<DenialBrightnessState> brightnessStates,
-    required Stream<DenialAudioState> audioStates,
-    Duration visibleDuration = const Duration(milliseconds: 1200),
-  }) : _visibleDuration = visibleDuration,
-       super(null) {
-    _brightnessSubscription = brightnessStates.listen(_handleBrightnessState);
-    _audioSubscription = audioStates.listen(_handleAudioState);
+class SystemLevelHudController extends Notifier<SystemLevelHudState?>
+    with NotifierLifecycle<SystemLevelHudState?> {
+  @override
+  SystemLevelHudState? build() {
+    final signals = ref.watch(systemLevelHudSignalsProvider);
+    _visibleDuration = ref.watch(systemLevelHudVisibleDurationProvider);
+    _hideTimer = null;
+    _revision = 0;
+    _buildGeneration = beginBuildGeneration();
+    final generation = _buildGeneration;
+    final brightnessSubscription = signals.brightness.listen(
+      (update) => _handleBrightnessState(update, generation),
+    );
+    final audioSubscription = signals.audio.listen(
+      (update) => _handleAudioState(update, generation),
+    );
+    cancelOnDispose(brightnessSubscription);
+    cancelOnDispose(audioSubscription);
+    ref.onDispose(() {
+      _hideTimer?.cancel();
+      _hideTimer = null;
+    });
+    return null;
   }
 
-  final Duration _visibleDuration;
-  late final StreamSubscription<DenialBrightnessState> _brightnessSubscription;
-  late final StreamSubscription<DenialAudioState> _audioSubscription;
+  late Duration _visibleDuration;
+  late int _buildGeneration;
   Timer? _hideTimer;
   int _revision = 0;
 
-  void _handleBrightnessState(DenialBrightnessState update) {
+  void _handleBrightnessState(DenialBrightnessState update, int generation) {
+    if (!isBuildGenerationActive(generation)) {
+      return;
+    }
     _show(
       kind: SystemLevelHudKind.brightness,
       monitorId: update.monitorId,
@@ -77,8 +102,8 @@ class SystemLevelHudController extends StateNotifier<SystemLevelHudState?> {
     );
   }
 
-  void _handleAudioState(DenialAudioState update) {
-    if (update.completesRead) {
+  void _handleAudioState(DenialAudioState update, int generation) {
+    if (!isBuildGenerationActive(generation) || update.completesRead) {
       return;
     }
     _show(kind: SystemLevelHudKind.audio, level: update.level);
@@ -98,19 +123,15 @@ class SystemLevelHudController extends StateNotifier<SystemLevelHudState?> {
       visible: true,
       revision: _revision,
     );
+    final generation = _buildGeneration;
     _hideTimer = Timer(_visibleDuration, () {
+      if (!isBuildGenerationActive(generation)) {
+        return;
+      }
       final current = state;
       if (current != null) {
         state = current.copyWith(visible: false);
       }
     });
-  }
-
-  @override
-  void dispose() {
-    _hideTimer?.cancel();
-    unawaited(_brightnessSubscription.cancel());
-    unawaited(_audioSubscription.cancel());
-    super.dispose();
   }
 }

@@ -1,6 +1,6 @@
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
-import 'package:denial_dart_shell/src/state/display_layout.dart';
+import 'package:denial_dart_shell/src/state/shell_controller.dart';
 import 'package:denial_dart_shell/src/widgets/main_output_centered_surface.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,11 +19,7 @@ void main() {
 
       await tester.pumpWidget(
         ProviderScope(
-          overrides: <Override>[
-            displayLayoutProvider.overrideWith(
-              (ref) => DisplayLayoutController(bridge),
-            ),
-          ],
+          overrides: <Override>[denialBridgeProvider.overrideWithValue(bridge)],
           child: const MediaQuery(
             data: MediaQueryData(size: Size(2000, 800)),
             child: Directionality(

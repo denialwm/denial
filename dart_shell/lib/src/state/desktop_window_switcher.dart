@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 enum DesktopWindowSwitcherPhase { pending, expanded, quickExit, expandedExit }
 
@@ -67,16 +67,15 @@ class DesktopWindowSwitcherState {
 }
 
 final desktopWindowSwitcherProvider =
-    StateNotifierProvider<
+    NotifierProvider<
       DesktopWindowSwitcherController,
       DesktopWindowSwitcherState?
-    >((ref) {
-      return DesktopWindowSwitcherController();
-    });
+    >(DesktopWindowSwitcherController.new);
 
 class DesktopWindowSwitcherController
-    extends StateNotifier<DesktopWindowSwitcherState?> {
-  DesktopWindowSwitcherController() : super(null);
+    extends Notifier<DesktopWindowSwitcherState?> {
+  @override
+  DesktopWindowSwitcherState? build() => null;
 
   int _nextSessionId = 1;
 

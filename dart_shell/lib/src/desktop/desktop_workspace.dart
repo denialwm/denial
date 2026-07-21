@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/widgets.dart';
-import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/display_layout.dart';
 import '../models/denial_window.dart';
@@ -320,14 +320,13 @@ class DesktopWorkspaceState {
 }
 
 final desktopWorkspaceProvider =
-    StateNotifierProvider<DesktopWorkspaceController, DesktopWorkspaceState>((
-      ref,
-    ) {
-      return DesktopWorkspaceController();
-    });
+    NotifierProvider<DesktopWorkspaceController, DesktopWorkspaceState>(
+      DesktopWorkspaceController.new,
+    );
 
-class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
-  DesktopWorkspaceController() : super(DesktopWorkspaceState.initial());
+class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
+  @override
+  DesktopWorkspaceState build() => DesktopWorkspaceState.initial();
 
   final Map<int, Offset> _moveRemainders = <int, Offset>{};
   final Map<int, Rect> _pendingNativeFrames = <int, Rect>{};

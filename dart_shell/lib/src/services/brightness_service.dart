@@ -5,7 +5,7 @@ import '../state/shell_controller.dart';
 import 'system_io.dart';
 
 final brightnessServiceProvider = Provider<BrightnessService>((ref) {
-  return BrightnessService(ref.read(denialBridgeProvider));
+  return BrightnessService(ref.watch(denialBridgeProvider));
 });
 
 /// Reads and applies the panel backlight level.

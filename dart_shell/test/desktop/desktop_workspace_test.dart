@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:denial_dart_shell/src/desktop/desktop_overview_layout.dart';
 import 'package:denial_dart_shell/src/desktop/desktop_overview_target.dart';
@@ -24,15 +25,12 @@ void main() {
     expect(Motion.overviewEnterCurve.transform(0.5), greaterThan(0.75));
     expect(Motion.overviewExitCurve.transform(0.5), closeTo(0.5, 0.001));
     expect(Motion.overviewReversalCurve.transform(0.01), greaterThan(0.003));
-    expect(
-      1.0 - Motion.overviewReversalCurve.transform(0.99),
-      lessThan(0.001),
-    );
+    expect(1.0 - Motion.overviewReversalCurve.transform(0.99), lessThan(0.001));
   });
 
   test('window switcher replaces a source that leaves the candidate set', () {
-    final controller = DesktopWindowSwitcherController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWindowSwitcherProvider.notifier);
     controller.beginOrAdvance(
       objectIds: const <int>[1, 2, 3],
       sourceObjectId: 1,
@@ -50,8 +48,8 @@ void main() {
   });
 
   test('window switcher starts directly from an all-minimized candidate', () {
-    final controller = DesktopWindowSwitcherController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWindowSwitcherProvider.notifier);
 
     final started = controller.beginOrAdvance(
       objectIds: const <int>[3, 2, 1],
@@ -66,8 +64,8 @@ void main() {
   });
 
   test('source-less window switcher cycles without inventing a source', () {
-    final controller = DesktopWindowSwitcherController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWindowSwitcherProvider.notifier);
     controller.beginOrAdvance(
       objectIds: const <int>[3, 2, 1],
       sourceObjectId: null,
@@ -85,8 +83,8 @@ void main() {
   });
 
   test('source-less window switcher can restore its only candidate', () {
-    final controller = DesktopWindowSwitcherController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWindowSwitcherProvider.notifier);
 
     final started = controller.beginOrAdvance(
       objectIds: const <int>[7],
@@ -98,8 +96,8 @@ void main() {
   });
 
   test('new windows preserve compositor-assigned geometry', () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWorkspaceProvider.notifier);
     const nativeGeometry = Rect.fromLTWH(3000, 220, 420, 260);
 
     controller.syncWindows(
@@ -115,13 +113,13 @@ void main() {
       1,
     );
 
-    final placement = controller.state.placements[1]!;
+    final placement = container.read(desktopWorkspaceProvider).placements[1]!;
     expect(placement.contentRect, nativeGeometry);
   });
 
   test('undecorated windows use native content geometry as their frame', () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWorkspaceProvider.notifier);
     const nativeGeometry = Rect.fromLTWH(3000, 220, 420, 260);
 
     controller.syncWindows(
@@ -139,15 +137,15 @@ void main() {
       snapshotSequence: 1,
     );
 
-    final placement = controller.state.placements[1]!;
+    final placement = container.read(desktopWorkspaceProvider).placements[1]!;
     expect(placement.serverSideDecorated, isFalse);
     expect(placement.frame, nativeGeometry);
     expect(placement.contentRect, nativeGeometry);
   });
 
   test('decoration changes preserve the client content rectangle', () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWorkspaceProvider.notifier);
     const nativeGeometry = Rect.fromLTWH(3000, 220, 420, 260);
 
     controller.syncWindows(
@@ -178,54 +176,49 @@ void main() {
       snapshotSequence: 2,
     );
 
-    final placement = controller.state.placements[1]!;
+    final placement = container.read(desktopWorkspaceProvider).placements[1]!;
     expect(placement.serverSideDecorated, isFalse);
     expect(placement.frame, nativeGeometry);
     expect(placement.contentRect, nativeGeometry);
   });
 
   test('window snapshots do not rewrite native initial geometry', () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWorkspaceProvider.notifier);
     final windows = <DenialWindow>[
-      _window(
-        objectId: 1,
-        windowId: 11,
-        monitorId: 2,
-        geometry: secondOutput,
-      ),
+      _window(objectId: 1, windowId: 11, monitorId: 2, geometry: secondOutput),
     ];
 
     controller.syncWindows(windows, viewSize, 1);
     controller.syncWindows(windows, viewSize, 1);
 
-    expect(controller.state.placements[1]!.contentRect, secondOutput);
-  });
-
-  test('windows wait for native geometry instead of using a shell fallback',
-      () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
-
-    controller.syncWindows(
-      <DenialWindow>[
-        _window(
-          objectId: 1,
-          windowId: 11,
-          monitorId: 1,
-          geometry: Rect.zero,
-        ),
-      ],
-      viewSize,
-      1,
+    expect(
+      container.read(desktopWorkspaceProvider).placements[1]!.contentRect,
+      secondOutput,
     );
-
-    expect(controller.state.placements, isEmpty);
   });
+
+  test(
+    'windows wait for native geometry instead of using a shell fallback',
+    () {
+      final container = ProviderContainer.test();
+      final controller = container.read(desktopWorkspaceProvider.notifier);
+
+      controller.syncWindows(
+        <DenialWindow>[
+          _window(objectId: 1, windowId: 11, monitorId: 1, geometry: Rect.zero),
+        ],
+        viewSize,
+        1,
+      );
+
+      expect(container.read(desktopWorkspaceProvider).placements, isEmpty);
+    },
+  );
 
   test('native geometry updates are mirrored without Flutter clamping', () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWorkspaceProvider.notifier);
     final window = _window(objectId: 1, windowId: 11, monitorId: 1);
     controller.syncWindows(<DenialWindow>[window], viewSize, 1);
 
@@ -240,14 +233,14 @@ void main() {
       ),
     );
 
-    final placement = controller.state.placements[1]!;
+    final placement = container.read(desktopWorkspaceProvider).placements[1]!;
     expect(placement.contentRect, animatedPopupGeometry);
     expect(placement.dragging, isFalse);
   });
 
   test('fullscreen keeps normal stacking and locks geometry', () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWorkspaceProvider.notifier);
     final windows = <DenialWindow>[
       _window(objectId: 1, windowId: 11, monitorId: 1),
       _window(objectId: 2, windowId: 22, monitorId: 1),
@@ -259,16 +252,22 @@ void main() {
       ),
     ];
     controller.syncWindows(windows, viewSize, 1);
-    final restoreFrame = controller.state.placements[1]!.frame;
+    final restoreFrame = container
+        .read(desktopWorkspaceProvider)
+        .placements[1]!
+        .frame;
 
     const fullscreenBounds = Rect.fromLTWH(0, 0, 2560, 1440);
     controller.toggleFullscreen(1, bounds: fullscreenBounds);
 
-    final fullscreen = controller.state.placements[1]!;
+    final fullscreen = container.read(desktopWorkspaceProvider).placements[1]!;
     expect(fullscreen.fullscreen, isTrue);
     expect(fullscreen.frame, fullscreenBounds);
     expect(fullscreen.contentRect, fullscreenBounds);
-    expect(fullscreen.z, lessThan(controller.state.placements[2]!.z));
+    expect(
+      fullscreen.z,
+      lessThan(container.read(desktopWorkspaceProvider).placements[2]!.z),
+    );
 
     controller.beginMove(1);
     controller.moveBy(1, const Offset(120, 80));
@@ -282,63 +281,77 @@ void main() {
         phase: DenialWindowPlacementPhase.update,
       ),
     );
-    expect(controller.state.placements[1]!.frame, fullscreenBounds);
-    expect(controller.state.placements[1]!.dragging, isFalse);
+    expect(
+      container.read(desktopWorkspaceProvider).placements[1]!.frame,
+      fullscreenBounds,
+    );
+    expect(
+      container.read(desktopWorkspaceProvider).placements[1]!.dragging,
+      isFalse,
+    );
 
     controller.activate(1);
     expect(
-      controller.state.placements[1]!.z,
-      greaterThan(controller.state.placements[2]!.z),
+      container.read(desktopWorkspaceProvider).placements[1]!.z,
+      greaterThan(container.read(desktopWorkspaceProvider).placements[2]!.z),
     );
     controller.activate(2);
     expect(
-      controller.state.placements[2]!.z,
-      greaterThan(controller.state.placements[1]!.z),
+      container.read(desktopWorkspaceProvider).placements[2]!.z,
+      greaterThan(container.read(desktopWorkspaceProvider).placements[1]!.z),
     );
 
     controller.toggleFullscreen(1, bounds: fullscreenBounds);
-    expect(controller.state.placements[1]!.fullscreen, isFalse);
-    expect(controller.state.placements[1]!.frame, restoreFrame);
+    expect(
+      container.read(desktopWorkspaceProvider).placements[1]!.fullscreen,
+      isFalse,
+    );
+    expect(
+      container.read(desktopWorkspaceProvider).placements[1]!.frame,
+      restoreFrame,
+    );
   });
 
-  test('pinned windows stack above ordinary windows without changing focus z',
-      () {
-    final windows = <DenialWindow>[
-      _window(objectId: 1, windowId: 11, monitorId: 1),
-      _window(objectId: 2, windowId: 22, monitorId: 1, pinned: true),
-      _window(objectId: 3, windowId: 33, monitorId: 1, pinned: true),
-    ];
-    final windowsById = <int, DenialWindow>{
-      for (final window in windows) window.objectId: window,
-    };
-    final placements = <DesktopWindowPlacement>[
-      const DesktopWindowPlacement(
-        objectId: 2,
-        frame: Rect.fromLTWH(0, 0, 100, 100),
-        z: 1,
-        monitorId: 1,
-      ),
-      const DesktopWindowPlacement(
-        objectId: 3,
-        frame: Rect.fromLTWH(0, 0, 100, 100),
-        z: 2,
-        monitorId: 1,
-      ),
-      const DesktopWindowPlacement(
-        objectId: 1,
-        frame: Rect.fromLTWH(0, 0, 100, 100),
-        z: 99,
-        monitorId: 1,
-      ),
-    ]..sort((a, b) => compareDesktopWindowStack(a, b, windowsById));
+  test(
+    'pinned windows stack above ordinary windows without changing focus z',
+    () {
+      final windows = <DenialWindow>[
+        _window(objectId: 1, windowId: 11, monitorId: 1),
+        _window(objectId: 2, windowId: 22, monitorId: 1, pinned: true),
+        _window(objectId: 3, windowId: 33, monitorId: 1, pinned: true),
+      ];
+      final windowsById = <int, DenialWindow>{
+        for (final window in windows) window.objectId: window,
+      };
+      final placements = <DesktopWindowPlacement>[
+        const DesktopWindowPlacement(
+          objectId: 2,
+          frame: Rect.fromLTWH(0, 0, 100, 100),
+          z: 1,
+          monitorId: 1,
+        ),
+        const DesktopWindowPlacement(
+          objectId: 3,
+          frame: Rect.fromLTWH(0, 0, 100, 100),
+          z: 2,
+          monitorId: 1,
+        ),
+        const DesktopWindowPlacement(
+          objectId: 1,
+          frame: Rect.fromLTWH(0, 0, 100, 100),
+          z: 99,
+          monitorId: 1,
+        ),
+      ]..sort((a, b) => compareDesktopWindowStack(a, b, windowsById));
 
-    expect(placements.map((placement) => placement.objectId), <int>[1, 2, 3]);
-    expect(placements.last.z, 2, reason: 'pinning must not rewrite focus z');
-  });
+      expect(placements.map((placement) => placement.objectId), <int>[1, 2, 3]);
+      expect(placements.last.z, 2, reason: 'pinning must not rewrite focus z');
+    },
+  );
 
   test('desktop hit testing returns the visually topmost window', () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWorkspaceProvider.notifier);
     final windows = <DenialWindow>[
       _window(objectId: 1, windowId: 11, monitorId: 1),
       _window(objectId: 2, windowId: 22, monitorId: 1, pinned: true),
@@ -349,8 +362,12 @@ void main() {
       for (final window in windows) window.objectId: window,
     };
     final hit = desktopWindowAtPosition(
-      position: controller.state.placements[1]!.frame.center,
-      workspace: controller.state,
+      position: container
+          .read(desktopWorkspaceProvider)
+          .placements[1]!
+          .frame
+          .center,
+      workspace: container.read(desktopWorkspaceProvider),
       windowsById: windowsById,
     );
 
@@ -358,7 +375,7 @@ void main() {
     expect(
       desktopWindowAtPosition(
         position: const Offset(10, 10),
-        workspace: controller.state,
+        workspace: container.read(desktopWorkspaceProvider),
         windowsById: windowsById,
       ),
       isNull,
@@ -366,11 +383,14 @@ void main() {
   });
 
   test('monitor transfer moves fullscreen frame and restore geometry', () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWorkspaceProvider.notifier);
     final window = _window(objectId: 1, windowId: 11, monitorId: 1);
     controller.syncWindows(<DenialWindow>[window], viewSize, 1);
-    final restoreFrame = controller.state.placements[1]!.frame;
+    final restoreFrame = container
+        .read(desktopWorkspaceProvider)
+        .placements[1]!
+        .frame;
 
     const sourceBounds = Rect.fromLTWH(0, 0, 2560, 1440);
     const targetBounds = Rect.fromLTWH(2560, 0, 2560, 1440);
@@ -386,7 +406,7 @@ void main() {
       ),
     );
 
-    final transferred = controller.state.placements[1]!;
+    final transferred = container.read(desktopWorkspaceProvider).placements[1]!;
     expect(transferred.fullscreen, isTrue);
     expect(transferred.frame, targetBounds);
     expect(transferred.monitorId, 2);
@@ -394,16 +414,19 @@ void main() {
     expect(transferred.dragging, isFalse);
 
     controller.toggleFullscreen(1, bounds: targetBounds);
-    expect(controller.state.placements[1]!.fullscreen, isFalse);
     expect(
-      controller.state.placements[1]!.frame,
+      container.read(desktopWorkspaceProvider).placements[1]!.fullscreen,
+      isFalse,
+    );
+    expect(
+      container.read(desktopWorkspaceProvider).placements[1]!.frame,
       restoreFrame.shift(const Offset(2560, 0)),
     );
   });
 
   test('overview drag transfers a normal window to another monitor', () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWorkspaceProvider.notifier);
     final window = _window(objectId: 1, windowId: 11, monitorId: 1);
     controller.syncWindows(<DenialWindow>[window], viewSize, 1);
     controller.toggleOverview(
@@ -413,10 +436,14 @@ void main() {
       objectIds: const <int>{1},
     );
 
-    final raisedZ = controller.state.nextZ;
+    final raisedZ = container.read(desktopWorkspaceProvider).nextZ;
     controller.beginOverviewDrag(1);
     controller.moveOverviewBy(1, const Offset(2560, 0));
-    final previewCenter = controller.state.overview!.frames[1]!.center;
+    final previewCenter = container
+        .read(desktopWorkspaceProvider)
+        .overview!
+        .frames[1]!
+        .center;
     final transferred = controller.endOverviewDrag(
       1,
       outputBounds: const <int, Rect>{
@@ -429,13 +456,13 @@ void main() {
       },
     );
 
-    final placement = controller.state.placements[1]!;
+    final placement = container.read(desktopWorkspaceProvider).placements[1]!;
     expect(transferred, isTrue);
-    expect(controller.state.overview, isNull);
+    expect(container.read(desktopWorkspaceProvider).overview, isNull);
     expect(placement.monitorId, 2);
     expect(placement.dragging, isFalse);
     expect(placement.z, raisedZ);
-    expect(controller.state.nextZ, raisedZ + 1);
+    expect(container.read(desktopWorkspaceProvider).nextZ, raisedZ + 1);
     expect(placement.frame.center, previewCenter);
     expect(secondOutput.contains(placement.frame.topLeft), isTrue);
     expect(
@@ -446,8 +473,8 @@ void main() {
 
   test('overview drag raises every window state for the whole gesture', () {
     for (final mode in <String>['normal', 'maximized', 'fullscreen']) {
-      final controller = DesktopWorkspaceController();
-      addTearDown(controller.dispose);
+      final container = ProviderContainer.test();
+      final controller = container.read(desktopWorkspaceProvider.notifier);
       controller.syncWindows(
         <DenialWindow>[
           _window(objectId: 1, windowId: 11, monitorId: 1),
@@ -475,18 +502,25 @@ void main() {
         objectIds: const <int>{1},
       );
 
-      final original = controller.state.placements[1]!;
-      final blockingZ = controller.state.placements[2]!.z;
-      final raisedZ = controller.state.nextZ;
+      final original = container.read(desktopWorkspaceProvider).placements[1]!;
+      final blockingZ = container
+          .read(desktopWorkspaceProvider)
+          .placements[2]!
+          .z;
+      final raisedZ = container.read(desktopWorkspaceProvider).nextZ;
       expect(original.z, lessThan(blockingZ), reason: mode);
 
       controller.beginOverviewDrag(1);
 
-      final dragging = controller.state.placements[1]!;
+      final dragging = container.read(desktopWorkspaceProvider).placements[1]!;
       expect(dragging.dragging, isTrue, reason: mode);
       expect(dragging.z, raisedZ, reason: mode);
       expect(dragging.z, greaterThan(blockingZ), reason: mode);
-      expect(controller.state.nextZ, raisedZ + 1, reason: mode);
+      expect(
+        container.read(desktopWorkspaceProvider).nextZ,
+        raisedZ + 1,
+        reason: mode,
+      );
       expect(dragging.frame, original.frame, reason: mode);
       expect(dragging.maximized, original.maximized, reason: mode);
       expect(dragging.fullscreen, original.fullscreen, reason: mode);
@@ -498,15 +532,15 @@ void main() {
       );
 
       controller.cancelOverviewDrag(1);
-      final cancelled = controller.state.placements[1]!;
+      final cancelled = container.read(desktopWorkspaceProvider).placements[1]!;
       expect(cancelled.dragging, isFalse, reason: mode);
       expect(cancelled.z, original.z, reason: mode);
     }
   });
 
   test('cancelled overview drag restores its arranged preview', () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWorkspaceProvider.notifier);
     final window = _window(objectId: 1, windowId: 11, monitorId: 1);
     controller.syncWindows(<DenialWindow>[window], viewSize, 1);
     controller.toggleOverview(
@@ -515,23 +549,35 @@ void main() {
       backgroundBounds: const Rect.fromLTWH(0, 0, 2560, 1440),
       objectIds: const <int>{1},
     );
-    final origin = controller.state.overview!.frames[1];
+    final origin = container.read(desktopWorkspaceProvider).overview!.frames[1];
 
     controller.beginOverviewDrag(1);
     controller.moveOverviewBy(1, const Offset(240, 120));
-    expect(controller.state.overview!.frames[1], isNot(origin));
+    expect(
+      container.read(desktopWorkspaceProvider).overview!.frames[1],
+      isNot(origin),
+    );
     controller.cancelOverviewDrag(1);
 
-    expect(controller.state.overview!.frames[1], origin);
-    expect(controller.state.placements[1]!.dragging, isFalse);
+    expect(
+      container.read(desktopWorkspaceProvider).overview!.frames[1],
+      origin,
+    );
+    expect(
+      container.read(desktopWorkspaceProvider).placements[1]!.dragging,
+      isFalse,
+    );
   });
 
   test('overview transfer preserves maximized restore geometry', () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWorkspaceProvider.notifier);
     final window = _window(objectId: 1, windowId: 11, monitorId: 1);
     controller.syncWindows(<DenialWindow>[window], viewSize, 1);
-    final originalFrame = controller.state.placements[1]!.frame;
+    final originalFrame = container
+        .read(desktopWorkspaceProvider)
+        .placements[1]!
+        .frame;
     controller.toggleMaximized(
       1,
       bounds: const Rect.fromLTWH(0, 0, 2560, 1440),
@@ -560,136 +606,160 @@ void main() {
       isTrue,
     );
 
-    final placement = controller.state.placements[1]!;
+    final placement = container.read(desktopWorkspaceProvider).placements[1]!;
     expect(placement.maximized, isTrue);
     expect(placement.frame, secondOutput);
-    expect(
-      placement.restoreFrame,
-      originalFrame.shift(const Offset(2560, 0)),
-    );
+    expect(placement.restoreFrame, originalFrame.shift(const Offset(2560, 0)));
   });
 
   test(
-      'newer snapshots reconcile placement but older snapshots cannot roll it back',
-      () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
-    final source = _window(objectId: 1, windowId: 11, monitorId: 1);
-    controller.syncWindows(
-      <DenialWindow>[source],
-      viewSize,
-      1,
-      snapshotSequence: 10,
-    );
+    'newer snapshots reconcile placement but older snapshots cannot roll it back',
+    () {
+      final container = ProviderContainer.test();
+      final controller = container.read(desktopWorkspaceProvider.notifier);
+      final source = _window(objectId: 1, windowId: 11, monitorId: 1);
+      controller.syncWindows(
+        <DenialWindow>[source],
+        viewSize,
+        1,
+        snapshotSequence: 10,
+      );
 
-    const targetGeometry = Rect.fromLTWH(3520, 520, 640, 400);
-    controller.applyNativePlacement(
-      1,
-      _placementEvent(
-        sequence: 12,
-        contentRect: targetGeometry,
-        monitorId: 2,
-        workspaceId: 2,
-      ),
-    );
-
-    controller.syncWindows(
-      <DenialWindow>[source],
-      viewSize,
-      1,
-      snapshotSequence: 11,
-    );
-    expect(controller.state.placements[1]!.monitorId, 2);
-    expect(controller.state.placements[1]!.contentRect, targetGeometry);
-
-    controller.syncWindows(
-      <DenialWindow>[
-        _window(
-          objectId: 1,
-          windowId: 11,
-          monitorId: 1,
-          geometry: const Rect.fromLTWH(800, 300, 700, 500),
+      const targetGeometry = Rect.fromLTWH(3520, 520, 640, 400);
+      controller.applyNativePlacement(
+        1,
+        _placementEvent(
+          sequence: 12,
+          contentRect: targetGeometry,
+          monitorId: 2,
+          workspaceId: 2,
         ),
-      ],
-      viewSize,
-      1,
-      snapshotSequence: 13,
-    );
-    expect(controller.state.placements[1]!.monitorId, 1);
-    expect(
-      controller.state.placements[1]!.contentRect,
-      const Rect.fromLTWH(800, 300, 700, 500),
-    );
-  });
+      );
 
-  test('overview target follows ownership and excludes tiny switcher entries',
-      () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
-    final windows = <DenialWindow>[
-      _window(objectId: 1, windowId: 11, monitorId: 1),
-      _window(objectId: 2, windowId: 22, monitorId: 1),
-    ];
-    controller.syncWindows(windows, viewSize, 1);
+      controller.syncWindows(
+        <DenialWindow>[source],
+        viewSize,
+        1,
+        snapshotSequence: 11,
+      );
+      expect(
+        container.read(desktopWorkspaceProvider).placements[1]!.monitorId,
+        2,
+      );
+      expect(
+        container.read(desktopWorkspaceProvider).placements[1]!.contentRect,
+        targetGeometry,
+      );
 
-    controller.applyNativePlacement(
-      1,
-      _placementEvent(
-        sequence: 1,
-        contentRect: const Rect.fromLTWH(3520, 520, 640, 400),
-        monitorId: 2,
-        workspaceId: 2,
-      ),
-    );
+      controller.syncWindows(
+        <DenialWindow>[
+          _window(
+            objectId: 1,
+            windowId: 11,
+            monitorId: 1,
+            geometry: const Rect.fromLTWH(800, 300, 700, 500),
+          ),
+        ],
+        viewSize,
+        1,
+        snapshotSequence: 13,
+      );
+      expect(
+        container.read(desktopWorkspaceProvider).placements[1]!.monitorId,
+        1,
+      );
+      expect(
+        container.read(desktopWorkspaceProvider).placements[1]!.contentRect,
+        const Rect.fromLTWH(800, 300, 700, 500),
+      );
+    },
+  );
 
-    final left = DesktopOverviewTarget.resolve(
-      viewSize: viewSize,
-      displayLayout: _displayLayout,
-      windows: windows,
-      workspace: controller.state,
-      foregroundObjectId: 1,
-      preferredMonitorId: 1,
-    );
-    final right = DesktopOverviewTarget.resolve(
-      viewSize: viewSize,
-      displayLayout: _displayLayout,
-      windows: windows,
-      workspace: controller.state,
-      foregroundObjectId: 1,
-      preferredMonitorId: 2,
-    );
+  test(
+    'overview target follows ownership and excludes tiny switcher entries',
+    () {
+      final container = ProviderContainer.test();
+      final controller = container.read(desktopWorkspaceProvider.notifier);
+      final windows = <DenialWindow>[
+        _window(objectId: 1, windowId: 11, monitorId: 1),
+        _window(objectId: 2, windowId: 22, monitorId: 1),
+      ];
+      controller.syncWindows(windows, viewSize, 1);
 
-    expect(left?.objectIds, <int>{2});
-    expect(right?.objectIds, <int>{1});
-  });
+      controller.applyNativePlacement(
+        1,
+        _placementEvent(
+          sequence: 1,
+          contentRect: const Rect.fromLTWH(3520, 520, 640, 400),
+          monitorId: 2,
+          workspaceId: 2,
+        ),
+      );
+
+      final left = DesktopOverviewTarget.resolve(
+        viewSize: viewSize,
+        displayLayout: _displayLayout,
+        windows: windows,
+        workspace: container.read(desktopWorkspaceProvider),
+        foregroundObjectId: 1,
+        preferredMonitorId: 1,
+      );
+      final right = DesktopOverviewTarget.resolve(
+        viewSize: viewSize,
+        displayLayout: _displayLayout,
+        windows: windows,
+        workspace: container.read(desktopWorkspaceProvider),
+        foregroundObjectId: 1,
+        preferredMonitorId: 2,
+      );
+
+      expect(left?.objectIds, <int>{2});
+      expect(right?.objectIds, <int>{1});
+    },
+  );
 
   test('minimized desktop widgets still participate in overview', () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWorkspaceProvider.notifier);
     final windows = <DenialWindow>[
       _window(objectId: 1, windowId: 11, monitorId: 1),
       _window(objectId: 2, windowId: 22, monitorId: 1),
     ];
     controller.syncWindows(windows, viewSize, 1);
-    final nativeFrame = controller.state.placements[2]!.frame;
+    final nativeFrame = container
+        .read(desktopWorkspaceProvider)
+        .placements[2]!
+        .frame;
 
     controller.minimize(2);
 
-    expect(controller.state.placements[2]!.minimized, isTrue);
-    expect(controller.state.placements[2]!.frame, nativeFrame);
+    expect(
+      container.read(desktopWorkspaceProvider).placements[2]!.minimized,
+      isTrue,
+    );
+    expect(
+      container.read(desktopWorkspaceProvider).placements[2]!.frame,
+      nativeFrame,
+    );
     final target = DesktopOverviewTarget.resolve(
       viewSize: viewSize,
       displayLayout: _displayLayout,
       windows: windows,
-      workspace: controller.state,
+      workspace: container.read(desktopWorkspaceProvider),
       foregroundObjectId: 2,
       preferredMonitorId: 1,
     );
     expect(target?.objectIds, <int>{1, 2});
 
     controller.activate(2);
-    expect(controller.state.placements[2]!.minimized, isFalse);
-    expect(controller.state.placements[2]!.frame, nativeFrame);
+    expect(
+      container.read(desktopWorkspaceProvider).placements[2]!.minimized,
+      isFalse,
+    );
+    expect(
+      container.read(desktopWorkspaceProvider).placements[2]!.frame,
+      nativeFrame,
+    );
   });
 
   test('overview never enlarges a window frame', () {
@@ -741,9 +811,7 @@ void main() {
     expect(frames[1], isNotNull);
     expect(frames[2], isNull);
     expect(
-      DesktopOverviewLayout.isUsefulPreview(
-        const Rect.fromLTWH(0, 0, 160, 20),
-      ),
+      DesktopOverviewLayout.isUsefulPreview(const Rect.fromLTWH(0, 0, 160, 20)),
       isFalse,
     );
   });
@@ -773,8 +841,8 @@ void main() {
   });
 
   test('maximize without explicit bounds uses the monitor work area', () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWorkspaceProvider.notifier);
     const workArea = Rect.fromLTRB(0, 32, 2560, 1440);
 
     controller.syncWindows(
@@ -783,18 +851,18 @@ void main() {
       1,
       snapshotSequence: 1,
     );
-    controller.syncWorkAreas(const <int, Rect>{
-      1: workArea,
-      2: secondOutput,
-    });
+    controller.syncWorkAreas(const <int, Rect>{1: workArea, 2: secondOutput});
     controller.toggleMaximized(1);
 
-    expect(controller.state.placements[1]!.frame, workArea);
+    expect(
+      container.read(desktopWorkspaceProvider).placements[1]!.frame,
+      workArea,
+    );
   });
 
   test('maximize and restore targets survive stale native snapshots', () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWorkspaceProvider.notifier);
     const workArea = Rect.fromLTRB(10, 32, 2550, 1430);
     final original = _window(objectId: 1, windowId: 11, monitorId: 1);
 
@@ -804,7 +872,10 @@ void main() {
       1,
       snapshotSequence: 10,
     );
-    final restoreFrame = controller.state.placements[1]!.frame;
+    final restoreFrame = container
+        .read(desktopWorkspaceProvider)
+        .placements[1]!
+        .frame;
     controller.syncWorkAreas(const <int, Rect>{1: workArea});
     controller.toggleMaximized(1);
 
@@ -814,7 +885,7 @@ void main() {
       1,
       snapshotSequence: 11,
     );
-    var placement = controller.state.placements[1]!;
+    var placement = container.read(desktopWorkspaceProvider).placements[1]!;
     expect(placement.maximized, isTrue);
     expect(placement.frame, workArea);
     expect(placement.restoreFrame, restoreFrame);
@@ -831,7 +902,10 @@ void main() {
       1,
       snapshotSequence: 12,
     );
-    expect(controller.state.placements[1]!.frame, workArea);
+    expect(
+      container.read(desktopWorkspaceProvider).placements[1]!.frame,
+      workArea,
+    );
 
     controller.toggleMaximized(1);
     controller.syncWindows(
@@ -840,7 +914,7 @@ void main() {
       1,
       snapshotSequence: 13,
     );
-    placement = controller.state.placements[1]!;
+    placement = container.read(desktopWorkspaceProvider).placements[1]!;
     expect(placement.maximized, isFalse);
     expect(placement.frame, restoreFrame);
     expect(placement.restoreFrame, isNull);
@@ -851,12 +925,15 @@ void main() {
       1,
       snapshotSequence: 14,
     );
-    expect(controller.state.placements[1]!.frame, restoreFrame);
+    expect(
+      container.read(desktopWorkspaceProvider).placements[1]!.frame,
+      restoreFrame,
+    );
   });
 
   test('fullscreen snapshots cannot roll back another pending maximize', () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWorkspaceProvider.notifier);
     const workArea = Rect.fromLTRB(0, 32, 2560, 1440);
     const fullscreenBounds = Rect.fromLTWH(0, 0, 2560, 1440);
     final maximizedOriginal = _window(
@@ -891,10 +968,22 @@ void main() {
       1,
       snapshotSequence: 21,
     );
-    expect(controller.state.placements[1]!.maximized, isTrue);
-    expect(controller.state.placements[1]!.frame, workArea);
-    expect(controller.state.placements[2]!.fullscreen, isTrue);
-    expect(controller.state.placements[2]!.frame, fullscreenBounds);
+    expect(
+      container.read(desktopWorkspaceProvider).placements[1]!.maximized,
+      isTrue,
+    );
+    expect(
+      container.read(desktopWorkspaceProvider).placements[1]!.frame,
+      workArea,
+    );
+    expect(
+      container.read(desktopWorkspaceProvider).placements[2]!.fullscreen,
+      isTrue,
+    );
+    expect(
+      container.read(desktopWorkspaceProvider).placements[2]!.frame,
+      fullscreenBounds,
+    );
 
     final fullscreenNative = _window(
       objectId: 2,
@@ -908,13 +997,19 @@ void main() {
       1,
       snapshotSequence: 22,
     );
-    expect(controller.state.placements[1]!.maximized, isTrue);
-    expect(controller.state.placements[1]!.frame, workArea);
+    expect(
+      container.read(desktopWorkspaceProvider).placements[1]!.maximized,
+      isTrue,
+    );
+    expect(
+      container.read(desktopWorkspaceProvider).placements[1]!.frame,
+      workArea,
+    );
   });
 
   test('fullscreen round trip returns a maximized window to maximize', () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWorkspaceProvider.notifier);
     const workArea = Rect.fromLTRB(0, 32, 2560, 1440);
     const fullscreenBounds = Rect.fromLTWH(0, 0, 2560, 1440);
     final original = _window(objectId: 1, windowId: 11, monitorId: 1);
@@ -925,7 +1020,10 @@ void main() {
       1,
       snapshotSequence: 30,
     );
-    final restoreFrame = controller.state.placements[1]!.frame;
+    final restoreFrame = container
+        .read(desktopWorkspaceProvider)
+        .placements[1]!
+        .frame;
     controller.syncWorkAreas(const <int, Rect>{1: workArea});
     controller.toggleMaximized(1);
     final maximizedNative = _window(
@@ -948,8 +1046,14 @@ void main() {
       1,
       snapshotSequence: 32,
     );
-    expect(controller.state.placements[1]!.fullscreen, isTrue);
-    expect(controller.state.placements[1]!.frame, fullscreenBounds);
+    expect(
+      container.read(desktopWorkspaceProvider).placements[1]!.fullscreen,
+      isTrue,
+    );
+    expect(
+      container.read(desktopWorkspaceProvider).placements[1]!.frame,
+      fullscreenBounds,
+    );
 
     final fullscreenNative = _window(
       objectId: 1,
@@ -971,7 +1075,7 @@ void main() {
       snapshotSequence: 34,
     );
 
-    final placement = controller.state.placements[1]!;
+    final placement = container.read(desktopWorkspaceProvider).placements[1]!;
     expect(placement.fullscreen, isFalse);
     expect(placement.maximized, isTrue);
     expect(placement.frame, workArea);
@@ -979,8 +1083,8 @@ void main() {
   });
 
   test('work area changes re-anchor maximized windows but not fullscreen', () {
-    final controller = DesktopWorkspaceController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWorkspaceProvider.notifier);
     const monitorRect = Rect.fromLTWH(0, 0, 2560, 1440);
     const workArea = Rect.fromLTRB(0, 32, 2560, 1440);
 
@@ -997,8 +1101,14 @@ void main() {
     controller.toggleFullscreen(2, bounds: monitorRect);
     controller.syncWorkAreas(const <int, Rect>{1: workArea});
 
-    expect(controller.state.placements[1]!.frame, workArea);
-    expect(controller.state.placements[2]!.frame, monitorRect);
+    expect(
+      container.read(desktopWorkspaceProvider).placements[1]!.frame,
+      workArea,
+    );
+    expect(
+      container.read(desktopWorkspaceProvider).placements[2]!.frame,
+      monitorRect,
+    );
   });
 }
 
@@ -1010,13 +1120,8 @@ DenialWindow _window({
   bool pinned = false,
   bool serverSideDecorated = true,
 }) {
-  final nativeGeometry = geometry ??
-      Rect.fromLTWH(
-        monitorId == 2 ? 3520 : 960,
-        520,
-        640,
-        400,
-      );
+  final nativeGeometry =
+      geometry ?? Rect.fromLTWH(monitorId == 2 ? 3520 : 960, 520, 640, 400);
   return DenialWindow(
     objectId: objectId,
     objectKind: 'root_surface',

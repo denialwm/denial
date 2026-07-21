@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/services/audio_service.dart';
@@ -11,27 +12,37 @@ import 'package:denial_dart_shell/src/state/quick_settings.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('volume follows native events without fighting an active gesture',
-      () async {
-    final bridge = DenialBridge();
-    final audio = _FakeAudioService(bridge);
-    final controller = QuickSettingsController(
-      brightness: const _FakeBrightnessService(),
-      audio: audio,
-      power: const _FakePowerProfileService(),
-      actions: const _FakeSystemActionsService(),
-    );
-    try {
+  test(
+    'volume follows native events without fighting an active gesture',
+    () async {
+      final bridge = DenialBridge();
+      final audio = _FakeAudioService(bridge);
+      addTearDown(audio.dispose);
+      final container = ProviderContainer.test(
+        overrides: [
+          brightnessServiceProvider.overrideWithValue(
+            const _FakeBrightnessService(),
+          ),
+          audioServiceProvider.overrideWithValue(audio),
+          powerProfileServiceProvider.overrideWithValue(
+            const _FakePowerProfileService(),
+          ),
+          systemActionsServiceProvider.overrideWithValue(
+            const _FakeSystemActionsService(),
+          ),
+        ],
+      );
+      final controller = container.read(quickSettingsProvider.notifier);
       await Future<void>.delayed(Duration.zero);
 
       audio.emit(level: 0.35);
-      expect(controller.state.volume, 0.35);
+      expect(container.read(quickSettingsProvider).volume, 0.35);
 
       controller.beginVolumeInteraction();
       controller.setVolume(0.70);
       audio.emit(level: 0.20);
       expect(
-        controller.state.volume,
+        container.read(quickSettingsProvider).volume,
         0.70,
         reason: 'external state must not move a thumb under the pointer',
       );
@@ -44,25 +55,22 @@ void main() {
 
       audio.emit(level: 0.40);
       expect(
-        controller.state.volume,
+        container.read(quickSettingsProvider).volume,
         0.70,
         reason: 'an unacknowledged optimistic write remains visually stable',
       );
 
       audio.emit(level: 0.70, requestSerial: write.requestSerial);
-      expect(controller.state.volume, 0.70);
+      expect(container.read(quickSettingsProvider).volume, 0.70);
 
       audio.emit(level: 0.55);
       expect(
-        controller.state.volume,
+        container.read(quickSettingsProvider).volume,
         0.55,
         reason: 'external changes resume immediately after acknowledgement',
       );
-    } finally {
-      controller.dispose();
-      await audio.dispose();
-    }
-  });
+    },
+  );
 }
 
 class _FakeAudioService extends AudioService {
@@ -85,10 +93,7 @@ class _FakeAudioService extends AudioService {
   }
 
   void emit({required double level, int requestSerial = 0}) {
-    _states.add(AudioLevelState(
-      level: level,
-      requestSerial: requestSerial,
-    ));
+    _states.add(AudioLevelState(level: level, requestSerial: requestSerial));
   }
 
   Future<void> dispose() async {

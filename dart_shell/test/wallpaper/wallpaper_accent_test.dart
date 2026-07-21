@@ -1,8 +1,11 @@
 import 'dart:typed_data';
 
 import 'package:flutter/painting.dart' show Color, HSVColor;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:denial_dart_shell/src/state/display_layout.dart';
 import 'package:denial_dart_shell/src/wallpaper/state/wallpaper_accent.dart';
+import 'package:denial_dart_shell/src/wallpaper/state/wallpaper_controller.dart';
 import 'package:denial_dart_shell/src/wallpaper/wallpaper.dart';
 
 void main() {
@@ -45,28 +48,44 @@ void main() {
     expect(dominantVibrantColor(pixels), isNull);
   });
 
-  test('controller keeps the previous accent while a resource is unreadable',
-      () async {
-    final controller = WallpaperAccentController(
-      extract: (resource) async => switch (resource.path) {
-        'vivid' => const Color(0xff3366ff),
-        _ => throw StateError('unreadable'),
-      },
-    );
-    addTearDown(controller.dispose);
+  test(
+    'controller keeps the previous accent while a resource is unreadable',
+    () async {
+      final container = ProviderContainer.test(
+        overrides: [
+          wallpaperAccentExtractorProvider.overrideWithValue(
+            (resource) async => switch (resource.path) {
+              'vivid' => const Color(0xff3366ff),
+              _ => throw StateError('unreadable'),
+            },
+          ),
+          wallpaperControllerProvider.overrideWithBuild(
+            (ref, controller) => WallpaperExperienceState.initial(),
+          ),
+          displayLayoutProvider.overrideWithBuild((ref, controller) => null),
+        ],
+      );
+      final controller = container.read(wallpaperAccentProvider.notifier);
 
-    await controller.load(const WallpaperResource.file('vivid'));
-    expect(controller.state.color, const Color(0xff3366ff));
+      await controller.load(const WallpaperResource.file('vivid'));
+      expect(
+        container.read(wallpaperAccentProvider).color,
+        const Color(0xff3366ff),
+      );
 
-    // An unreadable wallpaper falls back to the brand accent rather than
-    // failing silently with a stale wallpaper-specific color.
-    await controller.load(const WallpaperResource.file('broken'));
-    expect(controller.state, WallpaperAccent.fallback);
+      // An unreadable wallpaper falls back to the brand accent rather than
+      // failing silently with a stale wallpaper-specific color.
+      await controller.load(const WallpaperResource.file('broken'));
+      expect(container.read(wallpaperAccentProvider), WallpaperAccent.fallback);
 
-    // Re-selecting the earlier wallpaper is served from the cache.
-    await controller.load(const WallpaperResource.file('vivid'));
-    expect(controller.state.color, const Color(0xff3366ff));
-  });
+      // Re-selecting the earlier wallpaper is served from the cache.
+      await controller.load(const WallpaperResource.file('vivid'));
+      expect(
+        container.read(wallpaperAccentProvider).color,
+        const Color(0xff3366ff),
+      );
+    },
+  );
 }
 
 ByteData _rgbaPixels(List<Color> colors) {

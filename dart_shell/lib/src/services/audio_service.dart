@@ -4,14 +4,11 @@ import '../platform/denial_bridge.dart';
 import '../state/shell_controller.dart';
 
 final audioServiceProvider = Provider<AudioService>((ref) {
-  return AudioService(ref.read(denialBridgeProvider));
+  return AudioService(ref.watch(denialBridgeProvider));
 });
 
 class AudioLevelState {
-  const AudioLevelState({
-    required this.level,
-    required this.requestSerial,
-  });
+  const AudioLevelState({required this.level, required this.requestSerial});
 
   final double level;
   final int requestSerial;
@@ -51,11 +48,9 @@ class AudioService {
   Future<double?> readLevel() => _bridge.readAudioLevel();
 
   Stream<AudioLevelState> get states => _bridge.audioStates.map(
-        (state) => AudioLevelState(
-          level: state.level,
-          requestSerial: state.requestSerial,
-        ),
-      );
+    (state) =>
+        AudioLevelState(level: state.level, requestSerial: state.requestSerial),
+  );
 
   Stream<List<AppAudioStream>> get appStreamStates =>
       _bridge.audioStreamStates.map(

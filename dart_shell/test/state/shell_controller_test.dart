@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:denial_dart_shell/src/models/denial_window.dart';
 import 'package:denial_dart_shell/src/models/denial_window_snapshot.dart';
@@ -17,18 +18,7 @@ void main() {
   test('new native windows do not trigger a shell focus request', () async {
     final bridge = _TestBridge();
     final service = _TestAuthenticationService();
-    final authentication = AuthenticationController(service);
-    final controller = ShellController(
-      bridge,
-      _TestLockStateRepository(),
-      authentication,
-    );
-    addTearDown(() {
-      controller.dispose();
-      authentication.dispose();
-      service.dispose();
-      bridge.dispose();
-    });
+    final harness = _shellHarness(bridge, service);
 
     await Future<void>.delayed(Duration.zero);
     bridge.publish(const <DenialWindow>[_mainWindow]);
@@ -37,65 +27,80 @@ void main() {
     bridge.publish(const <DenialWindow>[_mainWindow, _notificationWindow]);
 
     expect(bridge.focusedWindowIds, isEmpty);
-    expect(controller.state.windows, hasLength(2));
+    expect(
+      harness.container.read(shellControllerProvider).windows,
+      hasLength(2),
+    );
   });
 
   test('native authentication state wins every Dart-side disagreement', () {
     final bridge = _TestBridge();
     final service = _TestAuthenticationService();
-    final authentication = AuthenticationController(service);
-    final controller = ShellController(
-      bridge,
-      _TestLockStateRepository(),
-      authentication,
-    );
-    addTearDown(() {
-      controller.dispose();
-      authentication.dispose();
-      service.dispose();
-      bridge.dispose();
-    });
+    final harness = _shellHarness(bridge, service);
+    final controller = harness.controller;
 
     service.emit(_authenticationState(locked: true));
-    controller.handleAuthenticationState(authentication.state);
-    expect(controller.state.locked, isTrue);
-    expect(controller.state.lockLayerVisible, isTrue);
+    expect(harness.container.read(shellControllerProvider).locked, isTrue);
+    expect(
+      harness.container.read(shellControllerProvider).lockLayerVisible,
+      isTrue,
+    );
 
     controller.requestUnlock();
     controller.completeUnlockTransition();
     expect(service.beginCount, 1);
-    expect(controller.state.locked, isTrue);
-    expect(controller.state.lockLayerVisible, isTrue);
+    expect(harness.container.read(shellControllerProvider).locked, isTrue);
+    expect(
+      harness.container.read(shellControllerProvider).lockLayerVisible,
+      isTrue,
+    );
 
     service.emit(_authenticationState(locked: false));
-    controller.handleAuthenticationState(authentication.state);
-    expect(controller.state.locked, isFalse);
-    expect(controller.state.lockLayerVisible, isTrue);
+    expect(harness.container.read(shellControllerProvider).locked, isFalse);
+    expect(
+      harness.container.read(shellControllerProvider).lockLayerVisible,
+      isTrue,
+    );
   });
 
   test('minimizing the foreground window releases shell focus', () {
     final bridge = _TestBridge();
     final service = _TestAuthenticationService();
-    final authentication = AuthenticationController(service);
-    final controller = ShellController(
-      bridge,
-      _TestLockStateRepository(),
-      authentication,
-    );
-    addTearDown(() {
-      controller.dispose();
-      authentication.dispose();
-      service.dispose();
-      bridge.dispose();
-    });
+    final harness = _shellHarness(bridge, service);
+    final controller = harness.controller;
     bridge.publish(const <DenialWindow>[_mainWindow]);
     controller.focusWindow(_mainWindow);
-    expect(controller.state.foregroundObjectId, _mainWindow.objectId);
+    expect(
+      harness.container.read(shellControllerProvider).foregroundObjectId,
+      _mainWindow.objectId,
+    );
 
     controller.releaseWindowFocus(_mainWindow);
 
-    expect(controller.state.foregroundObjectId, isNull);
+    expect(
+      harness.container.read(shellControllerProvider).foregroundObjectId,
+      isNull,
+    );
   });
+}
+
+({ProviderContainer container, ShellController controller}) _shellHarness(
+  _TestBridge bridge,
+  _TestAuthenticationService service,
+) {
+  addTearDown(service.dispose);
+  addTearDown(bridge.dispose);
+  final container = ProviderContainer.test(
+    overrides: [
+      denialBridgeProvider.overrideWithValue(bridge),
+      lockStateRepositoryProvider.overrideWithValue(_TestLockStateRepository()),
+      authenticationServiceProvider.overrideWithValue(service),
+    ],
+  );
+  return (
+    container: container,
+    controller: container.read(shellControllerProvider.notifier),
+  );
 }
 
 class _TestBridge extends DenialBridge {
@@ -123,19 +128,18 @@ class _TestBridge extends DenialBridge {
   }
 
   void publish(List<DenialWindow> windows) {
-    _onWindowSnapshot?.call(DenialWindowSnapshot(
-      sequence: ++_sequence,
-      windows: windows,
-    ));
+    _onWindowSnapshot?.call(
+      DenialWindowSnapshot(sequence: ++_sequence, windows: windows),
+    );
   }
 }
 
 class _TestLockStateRepository extends LockStateRepository {
   _TestLockStateRepository()
-      : super(
-          requestPath: '/tmp/denial-shell-controller-test-request',
-          secureStatePath: '/tmp/denial-shell-controller-test-secure',
-        );
+    : super(
+        requestPath: '/tmp/denial-shell-controller-test-request',
+        secureStatePath: '/tmp/denial-shell-controller-test-secure',
+      );
 
   @override
   void start({required LockRequestChanged onChanged}) {}

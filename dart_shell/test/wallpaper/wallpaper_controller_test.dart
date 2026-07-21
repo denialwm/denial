@@ -7,6 +7,8 @@ import 'package:denial_dart_shell/src/wallpaper/state/wallpaper_controller.dart'
 import 'package:denial_dart_shell/src/wallpaper/wallpaper.dart';
 import 'package:denial_dart_shell/src/wallpaper/wallpaper_provider.dart';
 
+import '../support/wallpaper_controller_harness.dart';
+
 void main() {
   test('committing a wallpaper keeps the selector open', () async {
     final temporary = await Directory.systemTemp.createTemp(
@@ -33,11 +35,11 @@ void main() {
         },
       ),
     );
-    final controller = WallpaperController(
+    final harness = WallpaperControllerTestHarness(
       sources: <WallpaperProvider>[source],
       store: store,
     );
-    addTearDown(controller.dispose);
+    final controller = harness.controller;
 
     controller.openSelector(targetPixelSize: const Size(1920, 1080));
     await pumpEventQueue();
@@ -48,19 +50,13 @@ void main() {
       revealOriginFraction: const Offset(0.25, 0.75),
     );
 
-    expect(controller.state.selectorVisible, isTrue);
-    expect(controller.state.current, resource);
-    expect(
-      controller.state.outgoing,
-      WallpaperResource.defaultWallpaper,
-    );
-    expect(
-      controller.state.revealOriginFraction,
-      const Offset(0.25, 0.75),
-    );
+    expect(harness.state.selectorVisible, isTrue);
+    expect(harness.state.current, resource);
+    expect(harness.state.outgoing, WallpaperResource.defaultWallpaper);
+    expect(harness.state.revealOriginFraction, const Offset(0.25, 0.75));
 
-    controller.completeTransition(controller.state.transitionId);
-    expect(controller.state.outgoing, isNull);
+    controller.completeTransition(harness.state.transitionId);
+    expect(harness.state.outgoing, isNull);
   });
 
   test('per-monitor overrides are isolated and All clears them', () async {
@@ -73,7 +69,7 @@ void main() {
     for (final resource in <WallpaperResource>[base, left]) {
       await File(resource.path).writeAsBytes(const <int>[1, 2, 3]);
     }
-    final controller = WallpaperController(
+    final harness = WallpaperControllerTestHarness(
       sources: const <WallpaperProvider>[],
       store: WallpaperStore(
         RuntimePaths(
@@ -84,7 +80,7 @@ void main() {
         ),
       ),
     );
-    addTearDown(controller.dispose);
+    final controller = harness.controller;
     final candidate = WallpaperCandidate(
       id: 'direct',
       providerId: 'direct',
@@ -100,7 +96,7 @@ void main() {
       base,
       revealOriginFraction: const Offset(0.5, 0.5),
     );
-    controller.completeTransition(controller.state.transitionId);
+    controller.completeTransition(harness.state.transitionId);
     controller.selectTarget(
       target: const WallpaperTarget.output('DP-5'),
       targetPixelSize: const Size(2560, 1440),
@@ -111,15 +107,15 @@ void main() {
       revealOriginFraction: const Offset(0.4, 0.6),
     );
 
-    expect(controller.state.assignment.all, base);
-    expect(controller.state.assignment.forOutput('DP-5'), left);
-    expect(controller.state.assignment.forOutput('DP-4'), base);
+    expect(harness.state.assignment.all, base);
+    expect(harness.state.assignment.forOutput('DP-5'), left);
+    expect(harness.state.assignment.forOutput('DP-4'), base);
     expect(
-      controller.state.transitionTarget,
+      harness.state.transitionTarget,
       const WallpaperTarget.output('DP-5'),
     );
 
-    controller.completeTransition(controller.state.transitionId);
+    controller.completeTransition(harness.state.transitionId);
     controller.selectTarget(
       target: const WallpaperTarget.all(),
       targetPixelSize: const Size(2560, 1440),
@@ -130,9 +126,9 @@ void main() {
       revealOriginFraction: const Offset(0.5, 0.5),
     );
 
-    expect(controller.state.assignment.all, base);
-    expect(controller.state.assignment.outputOverrides, isEmpty);
-    expect(controller.state.assignment.forOutput('DP-5'), base);
+    expect(harness.state.assignment.all, base);
+    expect(harness.state.assignment.outputOverrides, isEmpty);
+    expect(harness.state.assignment.forOutput('DP-5'), base);
   });
 
   test('darkness supports per-monitor overrides and All resets them', () async {
@@ -140,7 +136,7 @@ void main() {
       'denial-wallpaper-darkness-test-',
     );
     addTearDown(() => temporary.delete(recursive: true));
-    final controller = WallpaperController(
+    final harness = WallpaperControllerTestHarness(
       sources: const <WallpaperProvider>[],
       store: WallpaperStore(
         RuntimePaths(
@@ -151,7 +147,7 @@ void main() {
         ),
       ),
     );
-    addTearDown(controller.dispose);
+    final controller = harness.controller;
 
     controller.openSelector(targetPixelSize: const Size(2560, 1440));
     controller.setDarkness(0.25);
@@ -163,13 +159,12 @@ void main() {
     controller.setDarkness(0.7);
     controller.commitDarkness(0.7);
 
-    expect(controller.state.assignment.allDarkness, 0.25);
-    expect(controller.state.assignment.darknessForOutput('DP-5'), 0.7);
-    expect(controller.state.assignment.darknessForOutput('DP-4'), 0.25);
-    expect(
-      controller.state.assignment.outputDarknessOverrides,
-      <String, double>{'DP-5': 0.7},
-    );
+    expect(harness.state.assignment.allDarkness, 0.25);
+    expect(harness.state.assignment.darknessForOutput('DP-5'), 0.7);
+    expect(harness.state.assignment.darknessForOutput('DP-4'), 0.25);
+    expect(harness.state.assignment.outputDarknessOverrides, <String, double>{
+      'DP-5': 0.7,
+    });
 
     controller.selectTarget(
       target: const WallpaperTarget.all(),
@@ -178,9 +173,9 @@ void main() {
     controller.setDarkness(0.4);
     controller.commitDarkness(0.4);
 
-    expect(controller.state.assignment.allDarkness, 0.4);
-    expect(controller.state.assignment.outputDarknessOverrides, isEmpty);
-    expect(controller.state.assignment.darknessForOutput('DP-5'), 0.4);
+    expect(harness.state.assignment.allDarkness, 0.4);
+    expect(harness.state.assignment.outputDarknessOverrides, isEmpty);
+    expect(harness.state.assignment.darknessForOutput('DP-5'), 0.4);
     await pumpEventQueue();
   });
 
@@ -203,10 +198,7 @@ void main() {
     final stateFile = await paths.wallpaperStateFile();
     await stateFile.writeAsString('${legacy.persistenceValue}\n');
 
-    expect(
-      await store.read(),
-      WallpaperAssignment(all: legacy),
-    );
+    expect(await store.read(), WallpaperAssignment(all: legacy));
 
     final assignment = WallpaperAssignment(
       all: legacy,
@@ -229,15 +221,13 @@ void main() {
     );
     addTearDown(() => temporary.delete(recursive: true));
     final source = _RecordingWallpaperProvider();
-    final controller = WallpaperController(
+    final harness = WallpaperControllerTestHarness(
       sources: <WallpaperProvider>[source],
       store: WallpaperStore(
-        RuntimePaths(
-          environment: <String, String>{'HOME': temporary.path},
-        ),
+        RuntimePaths(environment: <String, String>{'HOME': temporary.path}),
       ),
     );
-    addTearDown(controller.dispose);
+    final controller = harness.controller;
 
     controller.openSelector(targetPixelSize: const Size(2560, 1440));
     await pumpEventQueue();

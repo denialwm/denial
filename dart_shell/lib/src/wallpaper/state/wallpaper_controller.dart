@@ -5,10 +5,10 @@ import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 
 import '../../launcher/launcher_providers.dart';
 import '../../launcher/runtime_paths.dart';
+import '../../state/notifier_lifecycle.dart';
 import '../providers/local_wallpaper_provider.dart';
 import '../providers/wallhaven_wallpaper_provider.dart';
 import '../wallpaper.dart';
@@ -41,12 +41,9 @@ final wallpaperStoreProvider = Provider<WallpaperStore>((ref) {
 });
 
 final wallpaperControllerProvider =
-    StateNotifierProvider<WallpaperController, WallpaperExperienceState>((ref) {
-      return WallpaperController(
-        sources: ref.watch(wallpaperSourcesProvider),
-        store: ref.watch(wallpaperStoreProvider),
-      );
-    });
+    NotifierProvider<WallpaperController, WallpaperExperienceState>(
+      WallpaperController.new,
+    );
 
 @immutable
 class WallpaperExperienceState {
@@ -149,20 +146,37 @@ class WallpaperExperienceState {
   }
 }
 
-class WallpaperController extends StateNotifier<WallpaperExperienceState> {
-  WallpaperController({
-    required List<WallpaperProvider> sources,
-    required WallpaperStore store,
-  }) : _sources = List<WallpaperProvider>.unmodifiable(sources),
-       _store = store,
-       super(WallpaperExperienceState.initial()) {
-    unawaited(_restore());
+class WallpaperController extends Notifier<WallpaperExperienceState>
+    with NotifierLifecycle<WallpaperExperienceState> {
+  @override
+  WallpaperExperienceState build() {
+    _sources = List<WallpaperProvider>.unmodifiable(
+      ref.watch(wallpaperSourcesProvider),
+    );
+    _store = ref.watch(wallpaperStoreProvider);
+    _sourceResults.clear();
+    _searchTimer = null;
+    _searchGeneration = 0;
+    _assignmentGeneration = 0;
+    _buildGeneration = beginBuildGeneration();
+    final generation = _buildGeneration;
+    ref.onDispose(() {
+      _searchTimer?.cancel();
+      _searchTimer = null;
+    });
+    scheduleMicrotask(() {
+      if (isBuildGenerationActive(generation)) {
+        unawaited(_restore(generation));
+      }
+    });
+    return WallpaperExperienceState.initial();
   }
 
   static const Duration _searchDebounce = Duration(milliseconds: 360);
 
-  final List<WallpaperProvider> _sources;
-  final WallpaperStore _store;
+  late List<WallpaperProvider> _sources;
+  late WallpaperStore _store;
+  late int _buildGeneration;
   final Map<String, List<WallpaperCandidate>> _sourceResults =
       <String, List<WallpaperCandidate>>{};
   Timer? _searchTimer;
@@ -235,7 +249,12 @@ class WallpaperController extends StateNotifier<WallpaperExperienceState> {
     }
     state = state.copyWith(query: query, clearError: true);
     _searchTimer?.cancel();
-    _searchTimer = Timer(_searchDebounce, () => unawaited(_search(query)));
+    final generation = _buildGeneration;
+    _searchTimer = Timer(_searchDebounce, () {
+      if (isBuildGenerationActive(generation)) {
+        unawaited(_search(query));
+      }
+    });
   }
 
   void submitQuery() {
@@ -265,6 +284,7 @@ class WallpaperController extends StateNotifier<WallpaperExperienceState> {
       return null;
     }
 
+    final buildGeneration = _buildGeneration;
     state = state.copyWith(
       downloadingKey: candidate.key,
       downloadProgress: candidate.resource == null ? 0.0 : 1.0,
@@ -274,19 +294,21 @@ class WallpaperController extends StateNotifier<WallpaperExperienceState> {
       final resource = await source.materialize(
         candidate,
         onProgress: (progress) {
-          if (mounted && state.downloadingKey == candidate.key) {
+          if (isBuildGenerationActive(buildGeneration) &&
+              state.downloadingKey == candidate.key) {
             state = state.copyWith(downloadProgress: progress);
           }
         },
       );
-      if (!mounted || state.downloadingKey != candidate.key) {
+      if (!isBuildGenerationActive(buildGeneration) ||
+          state.downloadingKey != candidate.key) {
         return null;
       }
       _rememberMaterialized(candidate, resource);
       state = state.copyWith(clearDownloadingKey: true, downloadProgress: 0.0);
       return resource;
     } on Object catch (error) {
-      if (mounted) {
+      if (isBuildGenerationActive(buildGeneration)) {
         state = state.copyWith(
           clearDownloadingKey: true,
           downloadProgress: 0.0,
@@ -329,11 +351,11 @@ class WallpaperController extends StateNotifier<WallpaperExperienceState> {
     state = state.copyWith(clearOutgoing: true);
   }
 
-  Future<void> _restore() async {
-    final generation = _assignmentGeneration;
+  Future<void> _restore(int buildGeneration) async {
+    final assignmentGeneration = _assignmentGeneration;
     final restored = await _store.read();
-    if (!mounted ||
-        generation != _assignmentGeneration ||
+    if (!isBuildGenerationActive(buildGeneration) ||
+        assignmentGeneration != _assignmentGeneration ||
         restored == null ||
         restored == state.assignment) {
       return;
@@ -342,7 +364,8 @@ class WallpaperController extends StateNotifier<WallpaperExperienceState> {
   }
 
   Future<void> _search(String rawQuery) async {
-    final generation = ++_searchGeneration;
+    final buildGeneration = _buildGeneration;
+    final searchGeneration = ++_searchGeneration;
     _sourceResults.clear();
     state = state.copyWith(
       loading: true,
@@ -369,30 +392,31 @@ class WallpaperController extends StateNotifier<WallpaperExperienceState> {
       unawaited(() async {
         try {
           final page = await source.search(query);
-          if (!mounted || generation != _searchGeneration) {
+          if (!isBuildGenerationActive(buildGeneration) ||
+              searchGeneration != _searchGeneration) {
             return;
           }
           _sourceResults[source.id] = page.items;
         } on Object catch (error) {
           errors.add(error);
         } finally {
-          if (!mounted || generation != _searchGeneration) {
-            return;
+          if (isBuildGenerationActive(buildGeneration) &&
+              searchGeneration == _searchGeneration) {
+            pending -= 1;
+            final combined = <WallpaperCandidate>[
+              for (final orderedSource in _sources)
+                ...?_sourceResults[orderedSource.id],
+            ];
+            state = state.copyWith(
+              candidates: List<WallpaperCandidate>.unmodifiable(combined),
+              loading: pending > 0,
+              error: pending == 0 && combined.isEmpty && errors.isNotEmpty
+                  ? _friendlyError(errors.last)
+                  : null,
+              clearError:
+                  !(pending == 0 && combined.isEmpty && errors.isNotEmpty),
+            );
           }
-          pending -= 1;
-          final combined = <WallpaperCandidate>[
-            for (final orderedSource in _sources)
-              ...?_sourceResults[orderedSource.id],
-          ];
-          state = state.copyWith(
-            candidates: List<WallpaperCandidate>.unmodifiable(combined),
-            loading: pending > 0,
-            error: pending == 0 && combined.isEmpty && errors.isNotEmpty
-                ? _friendlyError(errors.last)
-                : null,
-            clearError:
-                !(pending == 0 && combined.isEmpty && errors.isNotEmpty),
-          );
         }
       }());
     }
@@ -433,12 +457,6 @@ class WallpaperController extends StateNotifier<WallpaperExperienceState> {
       return error.toString().replaceFirst(RegExp('^[^:]+: '), '');
     }
     return 'Could not load this wallpaper';
-  }
-
-  @override
-  void dispose() {
-    _searchTimer?.cancel();
-    super.dispose();
   }
 }
 

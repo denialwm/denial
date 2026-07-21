@@ -2,71 +2,88 @@ import 'dart:async';
 
 import 'package:denial_dart_shell/src/services/logind_service.dart';
 import 'package:denial_dart_shell/src/state/session_power.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('immediate actions serialize requests and follow service signals',
-      () async {
-    final logind = _FakeLogind(_snapshot());
-    final runtime = _FakeRuntime();
-    final controller = SessionPowerController(logind, runtime);
-    addTearDown(() async {
-      controller.dispose();
-      await logind.dispose();
-    });
-    await _settle();
+  test(
+    'immediate actions serialize requests and follow service signals',
+    () async {
+      final logind = _FakeLogind(_snapshot());
+      final runtime = _FakeRuntime();
+      final harness = _sessionPowerHarness(logind, runtime);
+      final controller = harness.controller;
+      await _settle();
 
-    controller.request(SessionPowerAction.lock);
-    expect(runtime.lockCalls, 1);
+      controller.request(SessionPowerAction.lock);
+      expect(runtime.lockCalls, 1);
 
-    logind.gate = Completer<void>();
-    final first = controller.request(SessionPowerAction.suspend);
-    final duplicate = controller.request(SessionPowerAction.suspend);
-    expect(logind.actions, <LogindAction>[LogindAction.suspend]);
-    expect(controller.state.busyAction, SessionPowerAction.suspend);
-    logind.gate!.complete();
-    await Future.wait(<Future<void>>[first, duplicate]);
-    expect(controller.state.busyAction, isNull);
+      logind.gate = Completer<void>();
+      final first = controller.request(SessionPowerAction.suspend);
+      final duplicate = controller.request(SessionPowerAction.suspend);
+      expect(logind.actions, <LogindAction>[LogindAction.suspend]);
+      expect(
+        harness.container.read(sessionPowerProvider).busyAction,
+        SessionPowerAction.suspend,
+      );
+      logind.gate!.complete();
+      await Future.wait(<Future<void>>[first, duplicate]);
+      expect(harness.container.read(sessionPowerProvider).busyAction, isNull);
 
-    logind.emit(LogindSnapshot.unavailable());
-    expect(controller.state.snapshot.serviceAvailable, isFalse);
-    expect(
-      controller.state.availabilityFor(SessionPowerAction.suspend).enabled,
-      isFalse,
-    );
-  });
+      logind.emit(LogindSnapshot.unavailable());
+      expect(
+        harness.container.read(sessionPowerProvider).snapshot.serviceAvailable,
+        isFalse,
+      );
+      expect(
+        harness.container
+            .read(sessionPowerProvider)
+            .availabilityFor(SessionPowerAction.suspend)
+            .enabled,
+        isFalse,
+      );
+    },
+  );
 
-  test('destructive actions require confirmation and duplicate taps coalesce',
-      () async {
-    final logind = _FakeLogind(_snapshot());
-    final runtime = _FakeRuntime();
-    final controller = SessionPowerController(
-      logind,
-      runtime,
-      logoutWatchdog: const Duration(days: 1),
-    );
-    addTearDown(() async {
-      controller.dispose();
-      await logind.dispose();
-    });
-    await _settle();
+  test(
+    'destructive actions require confirmation and duplicate taps coalesce',
+    () async {
+      final logind = _FakeLogind(_snapshot());
+      final runtime = _FakeRuntime();
+      final harness = _sessionPowerHarness(
+        logind,
+        runtime,
+        logoutWatchdog: const Duration(days: 1),
+      );
+      final controller = harness.controller;
+      await _settle();
 
-    await controller.request(SessionPowerAction.logout);
-    expect(controller.state.confirmationAction, SessionPowerAction.logout);
-    expect(runtime.logoutCalls, 0);
+      await controller.request(SessionPowerAction.logout);
+      expect(
+        harness.container.read(sessionPowerProvider).confirmationAction,
+        SessionPowerAction.logout,
+      );
+      expect(runtime.logoutCalls, 0);
 
-    controller.cancelConfirmation();
-    expect(controller.state.confirmationAction, isNull);
-    await controller.request(SessionPowerAction.logout);
-    final first = controller.confirm();
-    final duplicate = controller.confirm();
-    await Future.wait(<Future<void>>[first, duplicate]);
+      controller.cancelConfirmation();
+      expect(
+        harness.container.read(sessionPowerProvider).confirmationAction,
+        isNull,
+      );
+      await controller.request(SessionPowerAction.logout);
+      final first = controller.confirm();
+      final duplicate = controller.confirm();
+      await Future.wait(<Future<void>>[first, duplicate]);
 
-    expect(runtime.logoutCalls, 1);
-    expect(controller.state.busyAction, SessionPowerAction.logout);
-    await controller.request(SessionPowerAction.logout);
-    expect(runtime.logoutCalls, 1);
-  });
+      expect(runtime.logoutCalls, 1);
+      expect(
+        harness.container.read(sessionPowerProvider).busyAction,
+        SessionPowerAction.logout,
+      );
+      await controller.request(SessionPowerAction.logout);
+      expect(runtime.logoutCalls, 1);
+    },
+  );
 
   test('block inhibitors and denied capabilities never cross D-Bus', () async {
     final blocker = LogindInhibitor(
@@ -83,46 +100,75 @@ void main() {
         inhibitors: <LogindInhibitor>[blocker],
       ),
     );
-    final controller = SessionPowerController(logind, _FakeRuntime());
-    addTearDown(() async {
-      controller.dispose();
-      await logind.dispose();
-    });
+    final harness = _sessionPowerHarness(logind, _FakeRuntime());
+    final controller = harness.controller;
     await _settle();
 
     await controller.request(SessionPowerAction.suspend);
     expect(logind.actions, isEmpty);
-    expect(controller.state.error, 'Video editor: Export in progress');
+    expect(
+      harness.container.read(sessionPowerProvider).error,
+      'Video editor: Export in progress',
+    );
 
     controller.clearError();
     logind.emit(_snapshot(hibernate: LogindCapability.denied));
     await controller.request(SessionPowerAction.hibernate);
     expect(logind.actions, isEmpty);
-    expect(controller.state.error, 'Not authorized for this session');
-  });
-
-  test('challenge capability remains actionable and errors are sanitized',
-      () async {
-    final logind = _FakeLogind(
-      _snapshot(suspend: LogindCapability.authenticationRequired),
+    expect(
+      harness.container.read(sessionPowerProvider).error,
+      'Not authorized for this session',
     );
-    final controller = SessionPowerController(logind, _FakeRuntime());
-    addTearDown(() async {
-      controller.dispose();
-      await logind.dispose();
-    });
-    await _settle();
-
-    final availability =
-        controller.state.availabilityFor(SessionPowerAction.suspend);
-    expect(availability.enabled, isTrue);
-    expect(availability.requiresAuthentication, isTrue);
-
-    logind.error = Exception('private implementation details');
-    await controller.request(SessionPowerAction.suspend);
-    expect(controller.state.error, 'The system could not complete the request');
-    expect(controller.state.error, isNot(contains('private')));
   });
+
+  test(
+    'challenge capability remains actionable and errors are sanitized',
+    () async {
+      final logind = _FakeLogind(
+        _snapshot(suspend: LogindCapability.authenticationRequired),
+      );
+      final harness = _sessionPowerHarness(logind, _FakeRuntime());
+      final controller = harness.controller;
+      await _settle();
+
+      final availability = harness.container
+          .read(sessionPowerProvider)
+          .availabilityFor(SessionPowerAction.suspend);
+      expect(availability.enabled, isTrue);
+      expect(availability.requiresAuthentication, isTrue);
+
+      logind.error = Exception('private implementation details');
+      await controller.request(SessionPowerAction.suspend);
+      expect(
+        harness.container.read(sessionPowerProvider).error,
+        'The system could not complete the request',
+      );
+      expect(
+        harness.container.read(sessionPowerProvider).error,
+        isNot(contains('private')),
+      );
+    },
+  );
+}
+
+({ProviderContainer container, SessionPowerController controller})
+_sessionPowerHarness(
+  _FakeLogind logind,
+  SessionRuntimeBackend runtime, {
+  Duration logoutWatchdog = const Duration(seconds: 5),
+}) {
+  addTearDown(logind.dispose);
+  final container = ProviderContainer.test(
+    overrides: [
+      logindServiceProvider.overrideWithValue(logind),
+      sessionRuntimeBackendProvider.overrideWithValue(runtime),
+      sessionLogoutWatchdogProvider.overrideWithValue(logoutWatchdog),
+    ],
+  );
+  return (
+    container: container,
+    controller: container.read(sessionPowerProvider.notifier),
+  );
 }
 
 class _FakeLogind implements LogindBackend {

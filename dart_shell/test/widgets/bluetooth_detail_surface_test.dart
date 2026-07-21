@@ -16,15 +16,12 @@ void main() {
     final backend = _FakeBluetoothBackend(
       const BluetoothSnapshot.unavailable(),
     );
-    final container = ProviderContainer(
+    addTearDown(backend.dispose);
+    final container = ProviderContainer.test(
       overrides: <Override>[
         bluetoothServiceProvider.overrideWithValue(backend),
       ],
     );
-    addTearDown(() async {
-      container.dispose();
-      await backend.dispose();
-    });
 
     await tester.pumpWidget(_host(container));
     await tester.pump();
@@ -40,15 +37,12 @@ void main() {
     tester,
   ) async {
     final backend = _FakeBluetoothBackend(_snapshot());
-    final container = ProviderContainer(
+    addTearDown(backend.dispose);
+    final container = ProviderContainer.test(
       overrides: <Override>[
         bluetoothServiceProvider.overrideWithValue(backend),
       ],
     );
-    addTearDown(() async {
-      container.dispose();
-      await backend.dispose();
-    });
 
     await tester.pumpWidget(_host(container, textScale: 1.25));
     await tester.pump();

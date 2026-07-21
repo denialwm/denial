@@ -4,7 +4,7 @@ import '../platform/denial_bridge.dart';
 import '../state/shell_controller.dart';
 
 final systemActionsServiceProvider = Provider<SystemActionsService>((ref) {
-  return SystemActionsService(ref.read(denialBridgeProvider));
+  return SystemActionsService(ref.watch(denialBridgeProvider));
 });
 
 /// One-shot system actions triggered from the quick-settings shade.

@@ -1,19 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/network_manager_service.dart';
+import 'notifier_lifecycle.dart';
 
 final networkConnectivityProvider =
-    StateNotifierProvider<
-      NetworkConnectivityController,
-      NetworkConnectivityState
-    >((ref) {
-      return NetworkConnectivityController(
-        ref.watch(networkManagerServiceProvider),
-      );
-    });
+    NotifierProvider<NetworkConnectivityController, NetworkConnectivityState>(
+      NetworkConnectivityController.new,
+    );
 
 @immutable
 class NetworkConnectivityState {
@@ -61,27 +57,44 @@ class NetworkConnectivityState {
   }
 }
 
-class NetworkConnectivityController
-    extends StateNotifier<NetworkConnectivityState> {
-  NetworkConnectivityController(this._service)
-    : super(NetworkConnectivityState.initial()) {
-    _subscription = _service.snapshots.listen(_applySnapshot);
-    unawaited(_start());
+class NetworkConnectivityController extends Notifier<NetworkConnectivityState>
+    with NotifierLifecycle<NetworkConnectivityState> {
+  @override
+  NetworkConnectivityState build() {
+    _service = ref.watch(networkManagerServiceProvider);
+    _scanTimer = null;
+    _scanBaseline = -1;
+    _buildGeneration = beginBuildGeneration();
+    final generation = _buildGeneration;
+    final subscription = _service.snapshots.listen(
+      (snapshot) => _applySnapshot(snapshot, generation),
+    );
+    cancelOnDispose(subscription);
+    ref.onDispose(() {
+      _scanTimer?.cancel();
+      _scanTimer = null;
+    });
+    scheduleMicrotask(() {
+      if (isBuildGenerationActive(generation)) {
+        unawaited(_start(generation));
+      }
+    });
+    return NetworkConnectivityState.initial();
   }
 
   static const Duration _scanFallback = Duration(seconds: 15);
 
-  final NetworkManagerBackend _service;
-  late final StreamSubscription<NetworkManagerSnapshot> _subscription;
+  late NetworkManagerBackend _service;
+  late int _buildGeneration;
   Timer? _scanTimer;
   int _scanBaseline = -1;
 
-  Future<void> _start() async {
+  Future<void> _start(int generation) async {
     try {
       await _service.start();
-      _applySnapshot(_service.currentSnapshot);
+      _applySnapshot(_service.currentSnapshot, generation);
     } on Object {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(
           initializing: false,
           error: 'NetworkManager is unavailable',
@@ -91,10 +104,11 @@ class NetworkConnectivityController
   }
 
   Future<void> refresh() async {
+    final generation = _buildGeneration;
     try {
       await _service.refresh();
     } on Object {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(error: 'Unable to refresh network state');
       }
     }
@@ -111,15 +125,16 @@ class NetworkConnectivityController
         state.snapshot.radioPermission == NetworkPermission.denied) {
       return;
     }
+    final generation = _buildGeneration;
     state = state.copyWith(radioChanging: true, clearError: true);
     try {
       await _service.setWirelessEnabled(enabled);
     } on Object catch (error) {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(error: _safeMessage(error));
       }
     } finally {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(radioChanging: false);
       }
     }
@@ -134,15 +149,16 @@ class NetworkConnectivityController
         state.snapshot.controlPermission == NetworkPermission.denied) {
       return;
     }
+    final generation = _buildGeneration;
     _scanBaseline = state.snapshot.lastScan;
     state = state.copyWith(scanning: true, clearError: true);
     _scanTimer?.cancel();
-    _scanTimer = Timer(_scanFallback, _finishScan);
+    _scanTimer = Timer(_scanFallback, () => _finishScan(generation));
     try {
       await _service.requestScan();
     } on Object catch (error) {
-      _finishScan();
-      if (mounted) {
+      _finishScan(generation);
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(error: _safeMessage(error));
       }
     }
@@ -184,17 +200,18 @@ class NetworkConnectivityController
     if (state.busyNetworks.contains(network.identity)) {
       return;
     }
+    final generation = _buildGeneration;
     final busy = Set<String>.of(state.busyNetworks)..add(network.identity);
     state = state.copyWith(busyNetworks: busy, clearError: true);
     try {
       await operation();
       await _service.refresh();
     } on Object catch (error) {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(error: _safeMessage(error));
       }
     } finally {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         final remaining = Set<String>.of(state.busyNetworks)
           ..remove(network.identity);
         state = state.copyWith(busyNetworks: remaining);
@@ -208,8 +225,8 @@ class NetworkConnectivityController
     }
   }
 
-  void _applySnapshot(NetworkManagerSnapshot snapshot) {
-    if (!mounted) {
+  void _applySnapshot(NetworkManagerSnapshot snapshot, int generation) {
+    if (!isBuildGenerationActive(generation)) {
       return;
     }
     final scanCompleted =
@@ -229,10 +246,10 @@ class NetworkConnectivityController
     );
   }
 
-  void _finishScan() {
+  void _finishScan(int generation) {
     _scanTimer?.cancel();
     _scanTimer = null;
-    if (mounted && state.scanning) {
+    if (isBuildGenerationActive(generation) && state.scanning) {
       state = state.copyWith(scanning: false);
     }
   }
@@ -245,12 +262,5 @@ class NetworkConnectivityController
       return error.message?.toString() ?? 'Invalid network settings';
     }
     return 'NetworkManager could not complete the request';
-  }
-
-  @override
-  void dispose() {
-    _scanTimer?.cancel();
-    unawaited(_subscription.cancel());
-    super.dispose();
   }
 }

@@ -127,7 +127,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
       if (!mounted) {
         return;
       }
-      ref.read(homeDragSessionProvider.notifier).state = null;
+      ref.read(homeDragSessionProvider.notifier).clear();
       ref
           .read(homeGridControllerProvider.notifier)
           .setDraggingSourceIndex(null);
@@ -200,10 +200,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
       return;
     }
 
-    final started = await launcher.launch(
-      app,
-      launchRequestId: requestId,
-    );
+    final started = await launcher.launch(app, launchRequestId: requestId);
     if (mounted && !started) {
       shellController.failAppLaunch(requestId);
     }
@@ -212,7 +209,8 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
   void _handlePotentialBackgroundTap(PointerUpEvent event) {
     final startPosition = _tapStartGlobalPosition;
     final startTime = _tapStartTime;
-    final invalidTap = startPosition == null ||
+    final invalidTap =
+        startPosition == null ||
         startTime == null ||
         _tapMoved ||
         _tapStartedOnInteractiveItem ||
@@ -289,9 +287,11 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     final pageStart = gridState.page * pageSize;
     final pageEnd = pageStart + pageSize;
     final localPosition = renderObject.globalToLocal(globalPosition);
-    for (var index = pageStart;
-        index < pageEnd && index < gridState.slots.length;
-        index += 1) {
+    for (
+      var index = pageStart;
+      index < pageEnd && index < gridState.slots.length;
+      index += 1
+    ) {
       final item = gridState.slots[index];
       if (item == null) {
         continue;
@@ -394,10 +394,10 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
       targetIndex: _targetIndexForDragSession(session),
       replaceTargetIndex: true,
     );
-    ref.read(homeGridControllerProvider.notifier).setDraggingSourceIndex(
-          fromIndex,
-        );
-    ref.read(homeDragSessionProvider.notifier).state = targetedSession;
+    ref
+        .read(homeGridControllerProvider.notifier)
+        .setDraggingSourceIndex(fromIndex);
+    ref.read(homeDragSessionProvider.notifier).setSession(targetedSession);
   }
 
   void _handleItemResizeModeStart(
@@ -412,7 +412,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     _dragEndTimer?.cancel();
     _dragEndTimer = null;
     _resizeSession = null;
-    ref.read(homeDragSessionProvider.notifier).state = null;
+    ref.read(homeDragSessionProvider.notifier).clear();
     ref.read(homeGridControllerProvider.notifier).setDraggingSourceIndex(null);
     setState(() {
       _resizeModeIndex = index;
@@ -469,7 +469,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     }
     _dragEndTimer?.cancel();
     _dragEndTimer = null;
-    ref.read(homeDragSessionProvider.notifier).state = null;
+    ref.read(homeDragSessionProvider.notifier).clear();
     ref.read(homeGridControllerProvider.notifier).setDraggingSourceIndex(null);
     _resizeSession = _HomeResizeSession(
       item: item,
@@ -486,10 +486,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     if (session == null) {
       return;
     }
-    final target = _targetSpanForResizeSession(
-      session,
-      details.globalPosition,
-    );
+    final target = _targetSpanForResizeSession(session, details.globalPosition);
     final best = _bestResizableSpan(session, target);
     if (best == null) {
       return;
@@ -498,15 +495,17 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     final gridState = ref.read(homeGridControllerProvider).asData?.value;
     final currentItem =
         gridState != null && session.index < gridState.slots.length
-            ? gridState.slots[session.index]
-            : null;
+        ? gridState.slots[session.index]
+        : null;
     if (currentItem == null ||
         (currentItem.colSpan == best.colSpan &&
             currentItem.rowSpan == best.rowSpan)) {
       return;
     }
 
-    ref.read(homeGridControllerProvider.notifier).resizeSlot(
+    ref
+        .read(homeGridControllerProvider.notifier)
+        .resizeSlot(
           session.index,
           best.colSpan,
           best.rowSpan,
@@ -627,7 +626,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
       targetIndex: _targetIndexForDragSession(next),
       replaceTargetIndex: true,
     );
-    ref.read(homeDragSessionProvider.notifier).state = targetedNext;
+    ref.read(homeDragSessionProvider.notifier).setSession(targetedNext);
     if (autoPage && pageCount > 1) {
       _handleItemDragAutoPage(globalPosition, pageCount);
     }
@@ -644,10 +643,12 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     final rowSpan = session.startRowSpan + (delta.dy / stepY).round();
 
     return _HomeGridSpan(
-      colSpan:
-          colSpan.clamp(session.item.minColSpan, _maxColSpan(session)).toInt(),
-      rowSpan:
-          rowSpan.clamp(session.item.minRowSpan, _maxRowSpan(session)).toInt(),
+      colSpan: colSpan
+          .clamp(session.item.minColSpan, _maxColSpan(session))
+          .toInt(),
+      rowSpan: rowSpan
+          .clamp(session.item.minRowSpan, _maxRowSpan(session))
+          .toInt(),
     );
   }
 
@@ -660,12 +661,16 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     var bestDistance = double.infinity;
     var bestAreaDistance = double.infinity;
 
-    for (var rowSpan = session.item.minRowSpan;
-        rowSpan <= _maxRowSpan(session);
-        rowSpan += 1) {
-      for (var colSpan = session.item.minColSpan;
-          colSpan <= _maxColSpan(session);
-          colSpan += 1) {
+    for (
+      var rowSpan = session.item.minRowSpan;
+      rowSpan <= _maxRowSpan(session);
+      rowSpan += 1
+    ) {
+      for (
+        var colSpan = session.item.minColSpan;
+        colSpan <= _maxColSpan(session);
+        colSpan += 1
+      ) {
         if (!controller.canResizeSlot(
           session.index,
           colSpan,
@@ -675,7 +680,8 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
           continue;
         }
 
-        final distance = math.pow(colSpan - target.colSpan, 2) +
+        final distance =
+            math.pow(colSpan - target.colSpan, 2) +
             math.pow(rowSpan - target.rowSpan, 2);
         final areaDistance =
             (colSpan * rowSpan - target.colSpan * target.rowSpan).abs();
@@ -694,10 +700,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
   int _maxColSpan(_HomeResizeSession session) {
     final localIndex = session.index % session.pageSize;
     final column = localIndex % HomeGridLayout.columns;
-    return math.min(
-      session.item.maxColSpan,
-      HomeGridLayout.columns - column,
-    );
+    return math.min(session.item.maxColSpan, HomeGridLayout.columns - column);
   }
 
   int _maxRowSpan(_HomeResizeSession session) {
@@ -723,7 +726,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
         targetIndex: _targetIndexForDragSession(session),
         replaceTargetIndex: true,
       );
-      ref.read(homeDragSessionProvider.notifier).state = session;
+      ref.read(homeDragSessionProvider.notifier).setSession(session);
     }
 
     final targetIndex = session.targetIndex;
@@ -734,11 +737,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
           targetIndex,
           session.pageSize,
         )) {
-      gridController.moveSlot(
-        session.fromIndex,
-        targetIndex,
-        session.pageSize,
-      );
+      gridController.moveSlot(session.fromIndex, targetIndex, session.pageSize);
     }
 
     _dragEndTimer?.cancel();
@@ -747,7 +746,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
       if (!mounted || ref.read(homeDragSessionProvider) != session) {
         return;
       }
-      ref.read(homeDragSessionProvider.notifier).state = null;
+      ref.read(homeDragSessionProvider.notifier).clear();
       ref
           .read(homeGridControllerProvider.notifier)
           .setDraggingSourceIndex(null);
@@ -810,9 +809,11 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     final gridController = ref.read(homeGridControllerProvider.notifier);
 
     for (var row = 0; row <= _currentRows - session.item.rowSpan; row += 1) {
-      for (var column = 0;
-          column <= HomeGridLayout.columns - session.item.colSpan;
-          column += 1) {
+      for (
+        var column = 0;
+        column <= HomeGridLayout.columns - session.item.colSpan;
+        column += 1
+      ) {
         final left = _pageHorizontalPadding + column * stepX;
         final top = row * stepY;
         final candidateRect = Rect.fromLTWH(
@@ -823,8 +824,10 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
           session.item.rowSpan * _currentTileHeight +
               (session.item.rowSpan - 1) * HomeGridLayout.gridGap,
         );
-        final overlap =
-            HomeGridLayout.rectOverlapArea(localRect, candidateRect);
+        final overlap = HomeGridLayout.rectOverlapArea(
+          localRect,
+          candidateRect,
+        );
         if (overlap <= 0) {
           continue;
         }
@@ -894,9 +897,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
             key: _homeStackKey,
             fit: StackFit.expand,
             children: [
-              const CustomPaint(
-                painter: HomeBackdropPainter(),
-              ),
+              const CustomPaint(painter: HomeBackdropPainter()),
               Padding(
                 padding: _contentPadding,
                 child: Column(
@@ -911,7 +912,8 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
                           // full-bleed paging and no vertical overflow.
                           HomeGridLayout.columns =
                               HomeGridLayout.columnsForViewport(gridWidth);
-                          final tileWidth = (gridWidth -
+                          final tileWidth =
+                              (gridWidth -
                                   HomeGridLayout.gridGap *
                                       (HomeGridLayout.columns - 1)) /
                               HomeGridLayout.columns;
@@ -927,14 +929,19 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
                             tileHeight,
                           );
                           final pageSize = HomeGridLayout.columns * rows;
-                          final gridHeight = rows * tileHeight +
+                          final gridHeight =
+                              rows * tileHeight +
                               (rows - 1) * HomeGridLayout.gridGap;
-                          final rowVisualHeight =
-                              math.min(tileHeight, _appRowVisualHeight);
-                          final visualRowsHeight = (rows - 1) *
+                          final rowVisualHeight = math.min(
+                            tileHeight,
+                            _appRowVisualHeight,
+                          );
+                          final visualRowsHeight =
+                              (rows - 1) *
                                   (tileHeight + HomeGridLayout.gridGap) +
                               rowVisualHeight;
-                          final pageDotsTop = visualRowsHeight +
+                          final pageDotsTop =
+                              visualRowsHeight +
                               math.max(
                                     0,
                                     constraints.maxHeight -
@@ -958,14 +965,15 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
                           );
                           _currentPageCount = pageCount;
                           final currentPage = gridState?.page ?? 0;
-                          final safePage =
-                              currentPage.clamp(0, pageCount - 1).toInt();
+                          final safePage = currentPage
+                              .clamp(0, pageCount - 1)
+                              .toInt();
                           _syncSafePage(currentPage, safePage);
 
                           final content = gridState == null
                               ? gridAsync.hasError
-                                  ? const HomeEmptyState(label: 'Error')
-                                  : const HomeEmptyState(label: 'Loading')
+                                    ? const HomeEmptyState(label: 'Error')
+                                    : const HomeEmptyState(label: 'Loading')
                               : PageView.builder(
                                   controller: _pageController,
                                   itemCount: pageCount,
@@ -976,8 +984,9 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
                                           homeGridControllerProvider.notifier,
                                         )
                                         .setPage(page);
-                                    final activeDrag =
-                                        ref.read(homeDragSessionProvider);
+                                    final activeDrag = ref.read(
+                                      homeDragSessionProvider,
+                                    );
                                     if (activeDrag != null) {
                                       _syncDragSessionToPointer(
                                         activeDrag.pointerGlobalPosition,
@@ -1110,10 +1119,7 @@ class _HomeResizeSession {
 }
 
 class _HomeGridSpan {
-  const _HomeGridSpan({
-    required this.colSpan,
-    required this.rowSpan,
-  });
+  const _HomeGridSpan({required this.colSpan, required this.rowSpan});
 
   final int colSpan;
   final int rowSpan;

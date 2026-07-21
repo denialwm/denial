@@ -2,10 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 
 import '../platform/authentication_protocol.dart';
 import '../services/authentication_service.dart';
+import 'notifier_lifecycle.dart';
 
 final authenticationServiceProvider = Provider<AuthenticationService>((ref) {
   final service = NativeAuthenticationService();
@@ -14,12 +14,9 @@ final authenticationServiceProvider = Provider<AuthenticationService>((ref) {
 });
 
 final authenticationProvider =
-    StateNotifierProvider<AuthenticationController, AuthenticationState>((ref) {
-      final controller = AuthenticationController(
-        ref.watch(authenticationServiceProvider),
-      );
-      return controller;
-    });
+    NotifierProvider<AuthenticationController, AuthenticationState>(
+      AuthenticationController.new,
+    );
 
 @immutable
 class AuthenticationPrompt {
@@ -113,15 +110,32 @@ class AuthenticationState {
   }
 }
 
-class AuthenticationController extends StateNotifier<AuthenticationState> {
-  AuthenticationController(this._service)
-    : super(const AuthenticationState.initial()) {
-    _subscription = _service.events.listen(_handleEvent);
-    _service.synchronize();
+class AuthenticationController extends Notifier<AuthenticationState>
+    with NotifierLifecycle<AuthenticationState> {
+  @override
+  AuthenticationState build() {
+    _service = ref.watch(authenticationServiceProvider);
+    _cooldownTimer = null;
+    _buildGeneration = beginBuildGeneration();
+    final generation = _buildGeneration;
+    final subscription = _service.events.listen(
+      (packet) => _handleEvent(packet, generation),
+    );
+    cancelOnDispose(subscription);
+    ref.onDispose(() {
+      _cooldownTimer?.cancel();
+      _cooldownTimer = null;
+    });
+    scheduleMicrotask(() {
+      if (isBuildGenerationActive(generation)) {
+        _service.synchronize();
+      }
+    });
+    return const AuthenticationState.initial();
   }
 
-  final AuthenticationService _service;
-  late final StreamSubscription<AuthenticationPacket> _subscription;
+  late AuthenticationService _service;
+  late int _buildGeneration;
   Timer? _cooldownTimer;
 
   void lock() => _service.lock();
@@ -158,7 +172,10 @@ class AuthenticationController extends StateNotifier<AuthenticationState> {
     state = state.copyWith(clearResultMessage: true);
   }
 
-  void _handleEvent(AuthenticationPacket packet) {
+  void _handleEvent(AuthenticationPacket packet, int generation) {
+    if (!isBuildGenerationActive(generation)) {
+      return;
+    }
     final cooldown = Duration(
       milliseconds: packet.kind == AuthenticationPacketKind.prompt
           ? 0
@@ -219,16 +236,11 @@ class AuthenticationController extends StateNotifier<AuthenticationState> {
     if (cooldown <= Duration.zero) {
       return;
     }
+    final generation = _buildGeneration;
     _cooldownTimer = Timer(cooldown + const Duration(milliseconds: 20), () {
-      _service.synchronize();
+      if (isBuildGenerationActive(generation)) {
+        _service.synchronize();
+      }
     });
-  }
-
-  @override
-  void dispose() {
-    _cooldownTimer?.cancel();
-    _cooldownTimer = null;
-    unawaited(_subscription.cancel());
-    super.dispose();
   }
 }

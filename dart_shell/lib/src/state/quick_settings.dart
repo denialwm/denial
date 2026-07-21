@@ -1,12 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/audio_service.dart';
 import '../services/brightness_service.dart';
 import '../services/power_profile_service.dart';
 import '../services/system_actions_service.dart';
+import 'notifier_lifecycle.dart';
 
 /// Immutable state for the quick-settings shade controls.
 @immutable
@@ -56,14 +57,9 @@ class QuickSettingsState {
 }
 
 final quickSettingsProvider =
-    StateNotifierProvider<QuickSettingsController, QuickSettingsState>((ref) {
-      return QuickSettingsController(
-        brightness: ref.read(brightnessServiceProvider),
-        audio: ref.read(audioServiceProvider),
-        power: ref.read(powerProfileServiceProvider),
-        actions: ref.read(systemActionsServiceProvider),
-      );
-    });
+    NotifierProvider<QuickSettingsController, QuickSettingsState>(
+      QuickSettingsController.new,
+    );
 
 /// Owns the quick-settings controls: optimistic UI state, debounced hardware
 /// writes for the sliders, and the transient guards for one-shot actions.
@@ -72,19 +68,50 @@ final quickSettingsProvider =
 /// lands. Connectivity and DND live in their own signal-driven providers so
 /// their tiles cannot disagree with NetworkManager, BlueZ, or notification
 /// policy.
-class QuickSettingsController extends StateNotifier<QuickSettingsState> {
-  QuickSettingsController({
-    required BrightnessService brightness,
-    required AudioService audio,
-    required PowerProfileService power,
-    required SystemActionsService actions,
-  }) : _brightness = brightness,
-       _audio = audio,
-       _power = power,
-       _actions = actions,
-       super(QuickSettingsState.initial()) {
-    _audioSubscription = _audio.states.listen(_handleAudioState);
-    unawaited(_loadInitial());
+class QuickSettingsController extends Notifier<QuickSettingsState>
+    with NotifierLifecycle<QuickSettingsState> {
+  @override
+  QuickSettingsState build() {
+    _brightness = ref.watch(brightnessServiceProvider);
+    _audio = ref.watch(audioServiceProvider);
+    _power = ref.watch(powerProfileServiceProvider);
+    _actions = ref.watch(systemActionsServiceProvider);
+    _brightnessTimer = null;
+    _volumeTimer = null;
+    _volumeAcknowledgementTimer = null;
+    _pendingBrightness = -1;
+    _pendingVolume = -1;
+    _pendingVolumeSerial = 0;
+    _lastAppliedBrightness = -1;
+    _nextVolumeRequestSerial = 1;
+    _latestDesiredVolumeSerial = 0;
+    _latestDesiredVolumePercent = -1;
+    _observedVolumePercent = -1;
+    _brightnessApplying = false;
+    _volumeApplying = false;
+    _brightnessFlushRequested = false;
+    _volumeInteracting = false;
+    _deferredAudioState = null;
+    _buildGeneration = beginBuildGeneration();
+    final generation = _buildGeneration;
+    final subscription = _audio.states.listen(
+      (update) => _handleAudioState(update, generation),
+    );
+    cancelOnDispose(subscription);
+    ref.onDispose(() {
+      _brightnessTimer?.cancel();
+      _volumeTimer?.cancel();
+      _volumeAcknowledgementTimer?.cancel();
+      _brightnessTimer = null;
+      _volumeTimer = null;
+      _volumeAcknowledgementTimer = null;
+    });
+    scheduleMicrotask(() {
+      if (isBuildGenerationActive(generation)) {
+        unawaited(_loadInitial(generation));
+      }
+    });
+    return QuickSettingsState.initial();
   }
 
   static const Duration _brightnessCommitInterval = Duration(milliseconds: 90);
@@ -92,15 +119,15 @@ class QuickSettingsController extends StateNotifier<QuickSettingsState> {
   static const Duration _volumeAcknowledgementTimeout = Duration(seconds: 2);
   static const Duration _screenshotSettleDelay = Duration(milliseconds: 260);
 
-  final BrightnessService _brightness;
-  final AudioService _audio;
-  final PowerProfileService _power;
-  final SystemActionsService _actions;
+  late BrightnessService _brightness;
+  late AudioService _audio;
+  late PowerProfileService _power;
+  late SystemActionsService _actions;
+  late int _buildGeneration;
 
   Timer? _brightnessTimer;
   Timer? _volumeTimer;
   Timer? _volumeAcknowledgementTimer;
-  late final StreamSubscription<AudioLevelState> _audioSubscription;
   int _pendingBrightness = -1;
   int _pendingVolume = -1;
   int _pendingVolumeSerial = 0;
@@ -115,18 +142,27 @@ class QuickSettingsController extends StateNotifier<QuickSettingsState> {
   bool _volumeInteracting = false;
   AudioLevelState? _deferredAudioState;
 
-  Future<void> _loadInitial() async {
+  Future<void> _loadInitial(int generation) async {
     final level = await _brightness.readLevel();
-    if (mounted && level != null) {
+    if (!isBuildGenerationActive(generation)) {
+      return;
+    }
+    if (level != null) {
       _lastAppliedBrightness = (level * 100).round().clamp(1, 100);
       state = state.copyWith(brightness: level);
     }
     final volume = await _audio.readLevel();
-    if (mounted && volume != null) {
-      _handleAudioState(AudioLevelState(level: volume, requestSerial: 0));
+    if (!isBuildGenerationActive(generation)) {
+      return;
+    }
+    if (volume != null) {
+      _handleAudioState(
+        AudioLevelState(level: volume, requestSerial: 0),
+        generation,
+      );
     }
     final profile = await _power.read();
-    if (mounted && profile != null) {
+    if (isBuildGenerationActive(generation) && profile != null) {
       state = state.copyWith(profile: profile);
     }
   }
@@ -147,26 +183,27 @@ class QuickSettingsController extends StateNotifier<QuickSettingsState> {
   }
 
   void _scheduleBrightnessApply({bool immediate = false}) {
+    final generation = _buildGeneration;
     if (immediate) {
       _brightnessFlushRequested = true;
       _brightnessTimer?.cancel();
       _brightnessTimer = null;
-      unawaited(_drainBrightnessApplies());
+      unawaited(_drainBrightnessApplies(generation));
       return;
     }
     _brightnessTimer ??= Timer(_brightnessCommitInterval, () {
       _brightnessTimer = null;
-      unawaited(_drainBrightnessApplies());
+      unawaited(_drainBrightnessApplies(generation));
     });
   }
 
-  Future<void> _drainBrightnessApplies() async {
+  Future<void> _drainBrightnessApplies(int generation) async {
     if (_brightnessApplying) {
       return;
     }
     _brightnessApplying = true;
     try {
-      while (mounted) {
+      while (isBuildGenerationActive(generation)) {
         final pending = _pendingBrightness;
         if (pending <= 0 || pending == _lastAppliedBrightness) {
           _pendingBrightness = -1;
@@ -175,6 +212,9 @@ class QuickSettingsController extends StateNotifier<QuickSettingsState> {
         }
         _pendingBrightness = -1;
         await _brightness.apply(pending);
+        if (!isBuildGenerationActive(generation)) {
+          return;
+        }
         _lastAppliedBrightness = pending;
         if (_pendingBrightness <= 0 ||
             _pendingBrightness == _lastAppliedBrightness) {
@@ -188,7 +228,9 @@ class QuickSettingsController extends StateNotifier<QuickSettingsState> {
         await Future<void>.delayed(_brightnessCommitInterval);
       }
     } finally {
-      _brightnessApplying = false;
+      if (isBuildGenerationActive(generation)) {
+        _brightnessApplying = false;
+      }
     }
   }
 
@@ -238,25 +280,26 @@ class QuickSettingsController extends StateNotifier<QuickSettingsState> {
   }
 
   void _scheduleVolumeApply({bool immediate = false}) {
+    final generation = _buildGeneration;
     if (immediate) {
       _volumeTimer?.cancel();
       _volumeTimer = null;
-      unawaited(_drainVolumeApplies());
+      unawaited(_drainVolumeApplies(generation));
       return;
     }
     _volumeTimer ??= Timer(_volumeCommitInterval, () {
       _volumeTimer = null;
-      unawaited(_drainVolumeApplies());
+      unawaited(_drainVolumeApplies(generation));
     });
   }
 
-  Future<void> _drainVolumeApplies() async {
+  Future<void> _drainVolumeApplies(int generation) async {
     if (_volumeApplying) {
       return;
     }
     _volumeApplying = true;
     try {
-      while (mounted) {
+      while (isBuildGenerationActive(generation)) {
         final pending = _pendingVolume;
         if (pending < 0) {
           return;
@@ -266,6 +309,9 @@ class QuickSettingsController extends StateNotifier<QuickSettingsState> {
         _pendingVolumeSerial = 0;
         try {
           await _audio.apply(pending, requestSerial: requestSerial);
+          if (!isBuildGenerationActive(generation)) {
+            return;
+          }
           if (_latestDesiredVolumeSerial == requestSerial) {
             _armVolumeAcknowledgementTimeout(requestSerial);
           }
@@ -274,17 +320,20 @@ class QuickSettingsController extends StateNotifier<QuickSettingsState> {
         }
       }
     } finally {
-      _volumeApplying = false;
-      // A pointer event can enqueue a final value while the previous write is
-      // completing. Always start a fresh drain in that narrow race window.
-      if (mounted && _pendingVolume >= 0) {
-        unawaited(_drainVolumeApplies());
+      if (isBuildGenerationActive(generation)) {
+        _volumeApplying = false;
+        // A pointer event can enqueue a final value while the previous write
+        // is completing. Always start a fresh drain in that narrow race
+        // window.
+        if (_pendingVolume >= 0) {
+          unawaited(_drainVolumeApplies(generation));
+        }
       }
     }
   }
 
-  void _handleAudioState(AudioLevelState update) {
-    if (!mounted) {
+  void _handleAudioState(AudioLevelState update, int generation) {
+    if (!isBuildGenerationActive(generation)) {
       return;
     }
 
@@ -336,8 +385,10 @@ class QuickSettingsController extends StateNotifier<QuickSettingsState> {
 
   void _armVolumeAcknowledgementTimeout(int requestSerial) {
     _volumeAcknowledgementTimer?.cancel();
+    final generation = _buildGeneration;
     _volumeAcknowledgementTimer = Timer(_volumeAcknowledgementTimeout, () {
-      if (!mounted || _latestDesiredVolumeSerial != requestSerial) {
+      if (!isBuildGenerationActive(generation) ||
+          _latestDesiredVolumeSerial != requestSerial) {
         return;
       }
       _latestDesiredVolumeSerial = 0;
@@ -360,11 +411,12 @@ class QuickSettingsController extends StateNotifier<QuickSettingsState> {
     if (state.keyboardOpening) {
       return;
     }
+    final generation = _buildGeneration;
     state = state.copyWith(keyboardOpening: true);
     try {
       await _actions.toggleKeyboard();
     } finally {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(keyboardOpening: false);
       }
     }
@@ -376,23 +428,15 @@ class QuickSettingsController extends StateNotifier<QuickSettingsState> {
     if (state.screenshotRunning) {
       return;
     }
+    final generation = _buildGeneration;
     state = state.copyWith(screenshotRunning: true);
     try {
       await Future<void>.delayed(_screenshotSettleDelay);
       await _actions.takeScreenshot();
     } finally {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(screenshotRunning: false);
       }
     }
-  }
-
-  @override
-  void dispose() {
-    _brightnessTimer?.cancel();
-    _volumeTimer?.cancel();
-    _volumeAcknowledgementTimer?.cancel();
-    unawaited(_audioSubscription.cancel());
-    super.dispose();
   }
 }

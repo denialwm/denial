@@ -4,7 +4,7 @@ import '../platform/denial_bridge.dart';
 import '../state/shell_controller.dart';
 
 final hapticsServiceProvider = Provider<HapticsService>((ref) {
-  final service = HapticsService(ref.read(denialBridgeProvider));
+  final service = HapticsService(ref.watch(denialBridgeProvider));
   ref.onDispose(service.dispose);
   return service;
 });

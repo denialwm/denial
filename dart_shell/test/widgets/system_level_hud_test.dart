@@ -2,13 +2,12 @@ import 'dart:async';
 
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
-import 'package:denial_dart_shell/src/state/display_layout.dart';
+import 'package:denial_dart_shell/src/state/shell_controller.dart';
 import 'package:denial_dart_shell/src/state/system_level_hud.dart';
 import 'package:denial_dart_shell/src/widgets/system_level_hud.dart';
 import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -25,18 +24,17 @@ void main() {
     final audioUpdates = StreamController<DenialAudioState>.broadcast(
       sync: true,
     );
-    final hudController = SystemLevelHudController(
-      brightnessStates: brightnessUpdates.stream,
-      audioStates: audioUpdates.stream,
-      visibleDuration: const Duration(minutes: 1),
-    );
     final layoutBridge = _LayoutBridge(_dualOutputLayout);
-    final container = ProviderContainer(
-      overrides: <Override>[
-        systemLevelHudProvider.overrideWith((ref) => hudController),
-        displayLayoutProvider.overrideWith(
-          (ref) => DisplayLayoutController(layoutBridge),
+    final container = ProviderContainer.test(
+      overrides: [
+        systemLevelHudSignalsProvider.overrideWithValue((
+          audio: audioUpdates.stream,
+          brightness: brightnessUpdates.stream,
+        )),
+        systemLevelHudVisibleDurationProvider.overrideWithValue(
+          const Duration(minutes: 1),
         ),
+        denialBridgeProvider.overrideWithValue(layoutBridge),
       ],
     );
     var disposed = false;

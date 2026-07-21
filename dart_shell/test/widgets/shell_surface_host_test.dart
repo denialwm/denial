@@ -5,10 +5,10 @@ import 'package:denial_dart_shell/src/input/shell_interaction_registry.dart';
 import 'package:denial_dart_shell/src/widgets/shell_surface_host.dart';
 
 void main() {
-  testWidgets('managed modal owns input through its closing transition',
-      (tester) async {
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
+  testWidgets('managed modal owns input through its closing transition', (
+    tester,
+  ) async {
+    final container = ProviderContainer.test();
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
@@ -19,7 +19,9 @@ void main() {
       ),
     );
 
-    final handle = container.read(shellSurfaceControllerProvider.notifier).show(
+    final handle = container
+        .read(shellSurfaceControllerProvider.notifier)
+        .show(
           debugLabel: 'Test modal',
           transitionDuration: const Duration(milliseconds: 200),
           builder: (_, __) => const Center(
@@ -50,15 +52,11 @@ void main() {
 
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey<String>('modal')), findsNothing);
-    expect(
-      container.read(shellInteractionRegistryProvider).surfaces,
-      isEmpty,
-    );
+    expect(container.read(shellInteractionRegistryProvider).surfaces, isEmpty);
   });
 
   testWidgets('outside click dismisses a managed modal', (tester) async {
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
+    final container = ProviderContainer.test();
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
@@ -68,12 +66,13 @@ void main() {
         ),
       ),
     );
-    container.read(shellSurfaceControllerProvider.notifier).show(
+    container
+        .read(shellSurfaceControllerProvider.notifier)
+        .show(
           debugLabel: 'Dismissible modal',
           transitionDuration: Duration.zero,
-          builder: (_, __) => const Center(
-            child: SizedBox(width: 100, height: 100),
-          ),
+          builder: (_, __) =>
+              const Center(child: SizedBox(width: 100, height: 100)),
         );
     await tester.pump();
 
@@ -81,9 +80,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(container.read(shellSurfaceControllerProvider), isEmpty);
-    expect(
-      container.read(shellInteractionRegistryProvider).surfaces,
-      isEmpty,
-    );
+    expect(container.read(shellInteractionRegistryProvider).surfaces, isEmpty);
   });
 }

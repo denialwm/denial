@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 
 import '../config/startup_environment.dart';
 import '../input/input_layout.dart';
@@ -13,6 +12,7 @@ import '../models/denial_window_snapshot.dart';
 import '../platform/denial_bridge.dart';
 import '../services/lock_state_repository.dart';
 import 'authentication.dart';
+import 'notifier_lifecycle.dart';
 import 'shell_state.dart';
 
 final denialBridgeProvider = Provider<DenialBridge>((ref) {
@@ -21,32 +21,67 @@ final denialBridgeProvider = Provider<DenialBridge>((ref) {
   return bridge;
 });
 
-final shellControllerProvider =
-    StateNotifierProvider<ShellController, ShellState>((ref) {
-      final controller = ShellController(
-        ref.read(denialBridgeProvider),
-        LockStateRepository(
-          environment: ref.watch(startupEnvironmentProvider).values,
-        ),
-        ref.read(authenticationProvider.notifier),
-      );
-      controller.handleAuthenticationState(ref.read(authenticationProvider));
-      ref.listen<AuthenticationState>(authenticationProvider, (_, next) {
-        controller.handleAuthenticationState(next);
-      });
-      return controller;
-    });
+final lockStateRepositoryProvider = Provider<LockStateRepository>((ref) {
+  final repository = LockStateRepository(
+    environment: ref.watch(startupEnvironmentProvider).values,
+  );
+  ref.onDispose(repository.dispose);
+  return repository;
+}, isAutoDispose: true);
 
-class ShellController extends StateNotifier<ShellState> {
-  ShellController(this._bridge, this._lockRepository, this._authentication)
-    : super(ShellState.initial()) {
-    _lockRepository.start(onChanged: _handleLockRequestChanged);
-    _bridge.start(
-      onWindowsChanged: _refreshWindows,
-      onWindowSnapshot: _applyWindowSnapshot,
-      onWindowActivated: _handleNativeWindowActivated,
+final shellControllerProvider = NotifierProvider<ShellController, ShellState>(
+  ShellController.new,
+);
+
+class ShellController extends Notifier<ShellState>
+    with NotifierLifecycle<ShellState> {
+  @override
+  ShellState build() {
+    _bridge = ref.watch(denialBridgeProvider);
+    _lockRepository = ref.watch(lockStateRepositoryProvider);
+    _authentication = ref.watch(authenticationProvider.notifier);
+    _resetBuildFields();
+    _buildGeneration = beginBuildGeneration();
+    final generation = _buildGeneration;
+
+    _lockRepository.start(
+      onChanged: (locked) {
+        if (isBuildGenerationActive(generation)) {
+          _handleLockRequestChanged(locked);
+        }
+      },
     );
-    unawaited(_refreshWindows());
+    _bridge.start(
+      onWindowsChanged: () => unawaited(_refreshWindows(generation)),
+      onWindowSnapshot: (snapshot) {
+        if (isBuildGenerationActive(generation)) {
+          _applyWindowSnapshot(snapshot);
+        }
+      },
+      onWindowActivated: (windowId) {
+        if (isBuildGenerationActive(generation)) {
+          _handleNativeWindowActivated(windowId);
+        }
+      },
+    );
+    final authentication = ref.read(authenticationProvider);
+    ref.listen<AuthenticationState>(authenticationProvider, (_, next) {
+      if (isBuildGenerationActive(generation)) {
+        handleAuthenticationState(next);
+      }
+    });
+    ref.onDispose(() {
+      _launchRequestTimer?.cancel();
+      _launchRequestTimer = null;
+    });
+    scheduleMicrotask(() {
+      if (!isBuildGenerationActive(generation)) {
+        return;
+      }
+      handleAuthenticationState(authentication);
+      unawaited(_refreshWindows(generation));
+    });
+    return ShellState.initial();
   }
 
   // Large enough that the vertical swipe tracks the finger across the whole
@@ -60,9 +95,10 @@ class ShellController extends StateNotifier<ShellState> {
   static const double _edgePanelFlickVelocity = 520.0;
   static const Duration _launchRequestTimeout = Duration(seconds: 15);
 
-  final DenialBridge _bridge;
-  final LockStateRepository _lockRepository;
-  final AuthenticationController _authentication;
+  late DenialBridge _bridge;
+  late LockStateRepository _lockRepository;
+  late AuthenticationController _authentication;
+  late int _buildGeneration;
   int _inputLayoutEpoch = 0;
   InputLayoutSnapshot? _lastInputLayoutSnapshot;
   Offset _rawGestureDrag = Offset.zero;
@@ -79,11 +115,22 @@ class ShellController extends StateNotifier<ShellState> {
   Timer? _launchRequestTimer;
   bool? _lastMirroredNativeLock;
 
-  @override
-  void dispose() {
-    _launchRequestTimer?.cancel();
-    _lockRepository.dispose();
-    super.dispose();
+  void _resetBuildFields() {
+    _inputLayoutEpoch = 0;
+    _lastInputLayoutSnapshot = null;
+    _rawGestureDrag = Offset.zero;
+    _gestureLockOrigin = Offset.zero;
+    _gestureAxis = _GestureAxis.undecided;
+    _quickSettingsDragStartedOpen = false;
+    _quickSettingsDragMoved = false;
+    _edgePanelDragStartedOpen = false;
+    _edgePanelDragMoved = false;
+    _refreshInProgress = false;
+    _refreshQueued = false;
+    _hasLoadedWindowSnapshot = false;
+    _nextLaunchRequestId = 1;
+    _launchRequestTimer = null;
+    _lastMirroredNativeLock = null;
   }
 
   void lock() {
@@ -156,7 +203,10 @@ class ShellController extends StateNotifier<ShellState> {
     );
   }
 
-  Future<void> _refreshWindows() async {
+  Future<void> _refreshWindows(int generation) async {
+    if (!isBuildGenerationActive(generation)) {
+      return;
+    }
     if (_refreshInProgress) {
       _refreshQueued = true;
       return;
@@ -168,18 +218,20 @@ class ShellController extends StateNotifier<ShellState> {
         _refreshQueued = false;
         try {
           final snapshot = await _bridge.listWindows(state.windows);
-          if (!mounted) {
+          if (!isBuildGenerationActive(generation)) {
             return;
           }
           _applyWindowSnapshot(snapshot);
         } catch (_) {
           // Keep the last known snapshot. Window changes are invalidation events.
         }
-      } while (_refreshQueued && mounted);
+      } while (_refreshQueued && isBuildGenerationActive(generation));
     } finally {
-      _refreshInProgress = false;
-      if (_refreshQueued && mounted) {
-        unawaited(_refreshWindows());
+      if (isBuildGenerationActive(generation)) {
+        _refreshInProgress = false;
+        if (_refreshQueued) {
+          unawaited(_refreshWindows(generation));
+        }
       }
     }
   }
@@ -304,8 +356,9 @@ class ShellController extends StateNotifier<ShellState> {
     _gestureLockOrigin = Offset.zero;
     _gestureAxis = _GestureAxis.undecided;
     _launchRequestTimer?.cancel();
+    final generation = _buildGeneration;
     _launchRequestTimer = Timer(_launchRequestTimeout, () {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         failAppLaunch(requestId);
       }
     });

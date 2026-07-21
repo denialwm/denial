@@ -2,10 +2,11 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/desktop_power_modes_service.dart';
 import '../services/power_profile_service.dart';
+import 'notifier_lifecycle.dart';
 
 @immutable
 class DesktopPowerModesState {
@@ -65,31 +66,37 @@ class DesktopPowerModesState {
 }
 
 final desktopPowerModesProvider =
-    StateNotifierProvider<DesktopPowerModesController, DesktopPowerModesState>((
-      ref,
-    ) {
-      return DesktopPowerModesController(
-        ref.read(desktopPowerModesServiceProvider),
-      );
-    });
+    NotifierProvider<DesktopPowerModesController, DesktopPowerModesState>(
+      DesktopPowerModesController.new,
+    );
 
-class DesktopPowerModesController
-    extends StateNotifier<DesktopPowerModesState> {
-  DesktopPowerModesController(this._service)
-    : super(DesktopPowerModesState.initial()) {
-    unawaited(refresh());
+class DesktopPowerModesController extends Notifier<DesktopPowerModesState>
+    with NotifierLifecycle<DesktopPowerModesState> {
+  @override
+  DesktopPowerModesState build() {
+    _service = ref.watch(desktopPowerModesServiceProvider);
+    _buildGeneration = beginBuildGeneration();
+    final generation = _buildGeneration;
+    scheduleMicrotask(() {
+      if (isBuildGenerationActive(generation)) {
+        unawaited(refresh());
+      }
+    });
+    return DesktopPowerModesState.initial();
   }
 
-  final DesktopPowerModesService _service;
+  late DesktopPowerModesService _service;
+  late int _buildGeneration;
 
   Future<void> refresh() async {
     if (state.refreshing) {
       return;
     }
+    final generation = _buildGeneration;
     state = state.copyWith(refreshing: true, clearError: true);
     try {
       final snapshot = await _service.readSnapshot();
-      if (!mounted) {
+      if (!isBuildGenerationActive(generation)) {
         return;
       }
       state = state.copyWith(
@@ -102,7 +109,7 @@ class DesktopPowerModesController
         clearError: true,
       );
     } on Object catch (error) {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(refreshing: false, error: _message(error));
       }
     }
@@ -112,10 +119,11 @@ class DesktopPowerModesController
     if (state.systemChanging || !state.systemAvailable) {
       return;
     }
+    final generation = _buildGeneration;
     state = state.copyWith(systemChanging: true, clearError: true);
     try {
       await _service.applySystemProfile(profile);
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(
           systemProfile: profile,
           systemChanging: false,
@@ -123,7 +131,7 @@ class DesktopPowerModesController
         );
       }
     } on Object catch (error) {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(systemChanging: false, error: _message(error));
       }
     }
@@ -133,10 +141,11 @@ class DesktopPowerModesController
     if (state.pboChanging || !state.pboAvailable) {
       return;
     }
+    final generation = _buildGeneration;
     state = state.copyWith(pboChanging: true, clearError: true);
     try {
       await _service.applyPboProfile(profile);
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(
           pboProfile: profile,
           pboChanging: false,
@@ -144,7 +153,7 @@ class DesktopPowerModesController
         );
       }
     } on Object catch (error) {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(pboChanging: false, error: _message(error));
       }
     }

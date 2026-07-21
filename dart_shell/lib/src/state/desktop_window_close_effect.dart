@@ -1,4 +1,4 @@
-import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/startup_environment.dart';
 
@@ -32,22 +32,17 @@ enum DesktopWindowCloseEffect {
 }
 
 final desktopWindowCloseEffectProvider =
-    StateNotifierProvider<
+    NotifierProvider<
       DesktopWindowCloseEffectController,
       DesktopWindowCloseEffect
-    >((ref) {
-      return DesktopWindowCloseEffectController(
-        DesktopWindowCloseEffect.fromEnvironment(
-          ref.watch(startupEnvironmentProvider).values,
-        ),
-      );
-    });
+    >(DesktopWindowCloseEffectController.new);
 
 class DesktopWindowCloseEffectController
-    extends StateNotifier<DesktopWindowCloseEffect> {
-  DesktopWindowCloseEffectController([
-    DesktopWindowCloseEffect initial = DesktopWindowCloseEffect.explosion,
-  ]) : super(initial);
+    extends Notifier<DesktopWindowCloseEffect> {
+  @override
+  DesktopWindowCloseEffect build() => DesktopWindowCloseEffect.fromEnvironment(
+    ref.watch(startupEnvironmentProvider).values,
+  );
 
   void select(DesktopWindowCloseEffect effect) {
     state = effect;

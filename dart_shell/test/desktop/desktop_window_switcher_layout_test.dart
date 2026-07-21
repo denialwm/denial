@@ -3,6 +3,7 @@ import 'package:denial_dart_shell/src/state/desktop_window_switcher.dart';
 import 'package:denial_dart_shell/src/theme/motion.dart';
 import 'package:denial_dart_shell/src/widgets/desktop_window_switcher.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -27,8 +28,8 @@ void main() {
   );
 
   test('desktop-aware entry never passes through quick switch geometry', () {
-    final controller = DesktopWindowSwitcherController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWindowSwitcherProvider.notifier);
     final entering = controller.beginOrAdvance(
       objectIds: const <int>[1, 2],
       sourceObjectId: null,
@@ -42,7 +43,7 @@ void main() {
       desktopWidgetFrame: firstDesktopFrame,
     );
     controller.expand(entering.sessionId);
-    final expanded = controller.state!;
+    final expanded = container.read(desktopWindowSwitcherProvider)!;
     final expandedFrame = DesktopWindowSwitcherLayout.visualFrame(
       placement: first,
       switcher: expanded,
@@ -51,8 +52,10 @@ void main() {
     );
 
     expect(entering.expandedChromeVisible, isFalse);
-    expect(DesktopWindowSwitcherLayout.motionDuration(entering),
-        Motion.windowSwitcherExpand);
+    expect(
+      DesktopWindowSwitcherLayout.motionDuration(entering),
+      Motion.windowSwitcherExpand,
+    );
     expect(enteringFrame, expandedFrame);
     expect(enteringFrame, isNot(firstNativeFrame));
     expect(
@@ -65,15 +68,15 @@ void main() {
   });
 
   test('desktop-aware exit returns every minimized window to home', () {
-    final controller = DesktopWindowSwitcherController();
-    addTearDown(controller.dispose);
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWindowSwitcherProvider.notifier);
     final entering = controller.beginOrAdvance(
       objectIds: const <int>[1, 2],
       sourceObjectId: null,
       usesDesktopMotion: true,
     )!;
     controller.beginExpandedExit(entering.sessionId);
-    final exiting = controller.state!;
+    final exiting = container.read(desktopWindowSwitcherProvider)!;
 
     final unselectedFrame = DesktopWindowSwitcherLayout.visualFrame(
       placement: second,
@@ -89,8 +92,10 @@ void main() {
     );
 
     expect(exiting.expandedChromeVisible, isFalse);
-    expect(DesktopWindowSwitcherLayout.motionDuration(exiting),
-        Motion.windowSwitcherCollapse);
+    expect(
+      DesktopWindowSwitcherLayout.motionDuration(exiting),
+      Motion.windowSwitcherCollapse,
+    );
     expect(unselectedFrame, secondDesktopFrame);
     expect(selectedFrame, firstNativeFrame);
     expect(

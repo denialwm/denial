@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:isolate';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 
 import '../../state/system_status.dart';
 import '../../state/shell_controller.dart';
@@ -28,7 +27,7 @@ final homeLayoutRepositoryProvider = Provider<HomeLayoutRepository>((ref) {
 });
 
 final appLauncherProvider = Provider<AppLauncher>((ref) {
-  return AppLauncher(bridge: ref.read(denialBridgeProvider));
+  return AppLauncher(bridge: ref.watch(denialBridgeProvider));
 });
 
 final homeGridControllerProvider =
@@ -36,9 +35,12 @@ final homeGridControllerProvider =
       HomeGridController.new,
     );
 
-final homeDragSessionProvider = StateProvider<HomeDragSession?>((ref) => null);
+final homeDragSessionProvider =
+    NotifierProvider<HomeDragSessionController, HomeDragSession?>(
+      HomeDragSessionController.new,
+    );
 
-final homeClockProvider = Provider.autoDispose<HomeClockInfo>((ref) {
+final homeClockProvider = Provider<HomeClockInfo>((ref) {
   final locale = HomeClockInfo.localeFromEnvironment(
     ref.watch(runtimePathsProvider).environment,
   );
@@ -47,15 +49,30 @@ final homeClockProvider = Provider.autoDispose<HomeClockInfo>((ref) {
     locale: locale,
     power: ref.watch(powerStatusProvider),
   );
-});
+}, isAutoDispose: true);
 
-final homeBatteryDischargeProvider =
-    StreamProvider.autoDispose<HomeBatteryDischargeSeries>((ref) async* {
-      while (true) {
-        yield await HomeBatteryDischargeSeries.readDefault();
-        await Future<void>.delayed(const Duration(seconds: 5));
-      }
-    });
+final homeBatteryDischargeProvider = StreamProvider<HomeBatteryDischargeSeries>(
+  (ref) async* {
+    while (true) {
+      yield await HomeBatteryDischargeSeries.readDefault();
+      await Future<void>.delayed(const Duration(seconds: 5));
+    }
+  },
+  isAutoDispose: true,
+);
+
+class HomeDragSessionController extends Notifier<HomeDragSession?> {
+  @override
+  HomeDragSession? build() => null;
+
+  void setSession(HomeDragSession? session) {
+    state = session;
+  }
+
+  void clear() {
+    state = null;
+  }
+}
 
 class HomeGridState {
   HomeGridState({
@@ -93,20 +110,41 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
   bool _desktopRefreshInFlight = false;
   bool _desktopRefreshTriggersStarted = false;
   bool _launcherActive = true;
+  int _buildGeneration = 0;
 
   @override
   Future<HomeGridState> build() async {
+    final generation = ++_buildGeneration;
+    _desktopRefreshTimer = null;
+    _activationRefreshTimer = null;
+    _lastDesktopRefresh = null;
+    _desktopRefreshInFlight = false;
+    _desktopRefreshTriggersStarted = false;
+    _launcherActive = true;
+    ref.onDispose(() {
+      if (_buildGeneration == generation) {
+        _buildGeneration++;
+      }
+      _activationRefreshTimer?.cancel();
+      _activationRefreshTimer = null;
+      _desktopRefreshTimer?.cancel();
+      _desktopRefreshTimer = null;
+      _desktopRefreshTriggersStarted = false;
+    });
     final appsRepository = ref.watch(desktopAppsRepositoryProvider);
     final layoutRepository = ref.watch(homeLayoutRepositoryProvider);
     try {
       final apps = await _loadApplications(appsRepository, reason: 'initial');
-      _lastDesktopRefresh = DateTime.now();
       final savedLayout = await layoutRepository.readSavedLayout();
       final slots = HomeGridLayout.initialSlotsForApps(apps, savedLayout);
+      if (!_isBuildActive(generation)) {
+        return HomeGridState(slots: slots);
+      }
+      _lastDesktopRefresh = DateTime.now();
       if (_savedLayoutNeedsRefresh(apps, savedLayout, slots)) {
         unawaited(layoutRepository.saveLayout(slots));
       }
-      _startDesktopRefreshTriggers();
+      _startDesktopRefreshTriggers(generation);
       return HomeGridState(slots: slots);
     } on Object catch (error, stackTrace) {
       Error.throwWithStackTrace(error, stackTrace);
@@ -133,12 +171,16 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
       return;
     }
 
+    final generation = _buildGeneration;
     _desktopRefreshInFlight = true;
     try {
       final apps = await _loadApplications(
         ref.read(desktopAppsRepositoryProvider),
         reason: reason,
       );
+      if (!_isBuildActive(generation)) {
+        return;
+      }
       _lastDesktopRefresh = DateTime.now();
       final current = state.asData?.value;
       if (current == null) {
@@ -173,7 +215,9 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
       unawaited(ref.read(homeLayoutRepositoryProvider).saveLayout(slots));
     } on Object {
     } finally {
-      _desktopRefreshInFlight = false;
+      if (_isBuildActive(generation)) {
+        _desktopRefreshInFlight = false;
+      }
     }
   }
 
@@ -186,36 +230,36 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
     _activationRefreshTimer?.cancel();
     _activationRefreshTimer = null;
     if (active) {
+      final generation = _buildGeneration;
       _activationRefreshTimer = Timer(const Duration(milliseconds: 750), () {
+        if (!_isBuildActive(generation)) {
+          return;
+        }
         _activationRefreshTimer = null;
         unawaited(refreshDesktopApps(reason: 'launcher-visible'));
       });
     }
   }
 
-  void _startDesktopRefreshTriggers() {
+  void _startDesktopRefreshTriggers(int generation) {
     try {
       if (_desktopRefreshTriggersStarted) {
         return;
       }
       _desktopRefreshTriggersStarted = true;
       _desktopRefreshTimer = Timer.periodic(_periodicRefreshInterval, (_) {
-        if (!_launcherActive) {
+        if (!_isBuildActive(generation) || !_launcherActive) {
           return;
         }
         unawaited(refreshDesktopApps(reason: 'timer'));
-      });
-      ref.onDispose(() {
-        _activationRefreshTimer?.cancel();
-        _activationRefreshTimer = null;
-        _desktopRefreshTimer?.cancel();
-        _desktopRefreshTimer = null;
-        _desktopRefreshTriggersStarted = false;
       });
     } on Object {
       _desktopRefreshTriggersStarted = false;
     }
   }
+
+  bool _isBuildActive(int generation) =>
+      ref.mounted && generation == _buildGeneration;
 
   Future<List<DesktopApp>> _loadApplications(
     DesktopAppsRepository repository, {

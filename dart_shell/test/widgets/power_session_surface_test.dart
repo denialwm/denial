@@ -3,13 +3,12 @@ import 'dart:async';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/services/logind_service.dart';
-import 'package:denial_dart_shell/src/state/display_layout.dart';
 import 'package:denial_dart_shell/src/state/session_power.dart';
+import 'package:denial_dart_shell/src/state/shell_controller.dart';
 import 'package:denial_dart_shell/src/theme/tokens.dart';
 import 'package:denial_dart_shell/src/widgets/session/power_session_surface.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -112,18 +111,14 @@ class _Harness {
   final _FakeLogind logind;
   final _FakeRuntime runtime;
   final _LayoutBridge layoutBridge = _LayoutBridge();
-  late final ProviderContainer container = ProviderContainer(
-    overrides: <Override>[
-      sessionPowerProvider.overrideWith(
-        (ref) => SessionPowerController(
-          logind,
-          runtime,
-          logoutWatchdog: const Duration(milliseconds: 1),
-        ),
+  late final ProviderContainer container = ProviderContainer.test(
+    overrides: [
+      logindServiceProvider.overrideWithValue(logind),
+      sessionRuntimeBackendProvider.overrideWithValue(runtime),
+      sessionLogoutWatchdogProvider.overrideWithValue(
+        const Duration(milliseconds: 1),
       ),
-      displayLayoutProvider.overrideWith(
-        (ref) => DisplayLayoutController(layoutBridge),
-      ),
+      denialBridgeProvider.overrideWithValue(layoutBridge),
     ],
   );
 
@@ -156,7 +151,6 @@ class _Harness {
   }
 
   Future<void> dispose() async {
-    container.dispose();
     layoutBridge.dispose();
     await logind.dispose();
   }

@@ -2,9 +2,10 @@ import 'dart:async';
 
 import 'package:dbus/dbus.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/bluetooth_service.dart';
+import 'notifier_lifecycle.dart';
 
 @immutable
 class BluetoothState {
@@ -95,34 +96,55 @@ class BluetoothState {
   }
 }
 
-final bluetoothProvider =
-    StateNotifierProvider<BluetoothController, BluetoothState>((ref) {
-      return BluetoothController(ref.watch(bluetoothServiceProvider));
-    });
+final bluetoothProvider = NotifierProvider<BluetoothController, BluetoothState>(
+  BluetoothController.new,
+);
 
-class BluetoothController extends StateNotifier<BluetoothState> {
-  BluetoothController(this._service) : super(BluetoothState.initial()) {
-    _snapshotSubscription = _service.snapshots.listen(_applySnapshot);
-    _pairingSubscription = _service.pairingRequests.listen(_applyPairing);
-    unawaited(_start());
+class BluetoothController extends Notifier<BluetoothState>
+    with NotifierLifecycle<BluetoothState> {
+  @override
+  BluetoothState build() {
+    _service = ref.watch(bluetoothServiceProvider);
+    _scanTimer = null;
+    _scanStarting = false;
+    _ownsDiscovery = false;
+    _buildGeneration = beginBuildGeneration();
+    final generation = _buildGeneration;
+    final snapshotSubscription = _service.snapshots.listen(
+      (snapshot) => _applySnapshot(snapshot, generation),
+    );
+    final pairingSubscription = _service.pairingRequests.listen(
+      (request) => _applyPairing(request, generation),
+    );
+    cancelOnDispose(snapshotSubscription);
+    cancelOnDispose(pairingSubscription);
+    ref.onDispose(() {
+      _scanTimer?.cancel();
+      _scanTimer = null;
+    });
+    scheduleMicrotask(() {
+      if (isBuildGenerationActive(generation)) {
+        unawaited(_start(generation));
+      }
+    });
+    return BluetoothState.initial();
   }
 
   static const Duration _scanDuration = Duration(seconds: 12);
 
-  final BluetoothBackend _service;
-  late final StreamSubscription<BluetoothSnapshot> _snapshotSubscription;
-  late final StreamSubscription<BluetoothPairingRequest?> _pairingSubscription;
+  late BluetoothBackend _service;
+  late int _buildGeneration;
   Timer? _scanTimer;
   bool _scanStarting = false;
   bool _ownsDiscovery = false;
 
-  Future<void> _start() async {
+  Future<void> _start(int generation) async {
     try {
       await _service.start();
-      _applySnapshot(_service.currentSnapshot);
-      _applyPairing(_service.currentPairingRequest);
+      _applySnapshot(_service.currentSnapshot, generation);
+      _applyPairing(_service.currentPairingRequest, generation);
     } on Object {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(
           initializing: false,
           error: 'Bluetooth service is unavailable',
@@ -135,15 +157,16 @@ class BluetoothController extends StateNotifier<BluetoothState> {
     if (state.refreshing) {
       return;
     }
+    final generation = _buildGeneration;
     state = state.copyWith(refreshing: true, clearError: true);
     try {
       await _service.refresh();
     } on Object catch (error) {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(error: _safeMessage(error));
       }
     } finally {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(refreshing: false);
       }
     }
@@ -153,15 +176,16 @@ class BluetoothController extends StateNotifier<BluetoothState> {
     if (state.powerChanging || !state.available) {
       return;
     }
+    final generation = _buildGeneration;
     state = state.copyWith(powerChanging: true, clearError: true);
     try {
       await _service.setPowered(!state.powered);
     } on Object catch (error) {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(error: _safeMessage(error));
       }
     } finally {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(powerChanging: false);
       }
     }
@@ -171,44 +195,50 @@ class BluetoothController extends StateNotifier<BluetoothState> {
     if (state.scanning || !state.available || !state.powered) {
       return;
     }
+    final generation = _buildGeneration;
     _scanStarting = true;
     _ownsDiscovery = !state.discovering;
     state = state.copyWith(scanning: true, clearError: true);
     try {
       await _service.startDiscovery();
       if (!_ownsDiscovery) {
-        if (mounted) {
+        if (isBuildGenerationActive(generation)) {
           state = state.copyWith(scanning: false);
         }
         return;
       }
       _scanTimer?.cancel();
-      _scanTimer = Timer(_scanDuration, () => unawaited(_finishScan()));
+      _scanTimer = Timer(
+        _scanDuration,
+        () => unawaited(_finishScan(generation)),
+      );
     } on Object catch (error) {
       _ownsDiscovery = false;
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(scanning: false, error: _safeMessage(error));
       }
     } finally {
-      _scanStarting = false;
+      if (isBuildGenerationActive(generation)) {
+        _scanStarting = false;
+      }
     }
   }
 
-  Future<void> stopScan() => _finishScan();
+  Future<void> stopScan() => _finishScan(_buildGeneration);
 
-  Future<void> _finishScan() async {
+  Future<void> _finishScan(int generation) async {
     _scanTimer?.cancel();
     _scanTimer = null;
     final stopDiscovery = _ownsDiscovery;
     _ownsDiscovery = false;
-    if (mounted && state.scanning) {
+    if (isBuildGenerationActive(generation) && state.scanning) {
       state = state.copyWith(scanning: false);
     }
     if (stopDiscovery) {
       try {
         await _service.stopDiscovery();
       } on Object catch (error) {
-        if (mounted) {
+        if (isBuildGenerationActive(generation)) {
           state = state.copyWith(error: _safeMessage(error));
         }
       }
@@ -253,16 +283,17 @@ class BluetoothController extends StateNotifier<BluetoothState> {
     if (state.busyDevices.contains(device.objectPath)) {
       return;
     }
+    final generation = _buildGeneration;
     final busy = Set<String>.of(state.busyDevices)..add(device.objectPath);
     state = state.copyWith(busyDevices: busy, clearError: true);
     try {
       await operation();
     } on Object catch (error) {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         state = state.copyWith(error: _safeMessage(error));
       }
     } finally {
-      if (mounted) {
+      if (isBuildGenerationActive(generation)) {
         final remaining = Set<String>.of(state.busyDevices)
           ..remove(device.objectPath);
         state = state.copyWith(busyDevices: remaining);
@@ -288,8 +319,8 @@ class BluetoothController extends StateNotifier<BluetoothState> {
     }
   }
 
-  void _applySnapshot(BluetoothSnapshot snapshot) {
-    if (!mounted) {
+  void _applySnapshot(BluetoothSnapshot snapshot, int generation) {
+    if (!isBuildGenerationActive(generation)) {
       return;
     }
     final scanEnded =
@@ -318,8 +349,8 @@ class BluetoothController extends StateNotifier<BluetoothState> {
     );
   }
 
-  void _applyPairing(BluetoothPairingRequest? request) {
-    if (!mounted) {
+  void _applyPairing(BluetoothPairingRequest? request, int generation) {
+    if (!isBuildGenerationActive(generation)) {
       return;
     }
     state = request == null
@@ -348,14 +379,6 @@ class BluetoothController extends StateNotifier<BluetoothState> {
       };
     }
     return 'Bluetooth could not complete the request';
-  }
-
-  @override
-  void dispose() {
-    _scanTimer?.cancel();
-    unawaited(_snapshotSubscription.cancel());
-    unawaited(_pairingSubscription.cancel());
-    super.dispose();
   }
 }
 

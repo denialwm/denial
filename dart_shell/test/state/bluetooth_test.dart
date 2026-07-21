@@ -2,95 +2,107 @@ import 'dart:async';
 
 import 'package:denial_dart_shell/src/services/bluetooth_service.dart';
 import 'package:denial_dart_shell/src/state/bluetooth.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('controller converges to signals and serializes adapter/device actions',
-      () async {
-    final backend = _FakeBluetoothBackend();
-    final controller = BluetoothController(backend);
-    addTearDown(() async {
-      controller.dispose();
-      await backend.dispose();
-    });
-    await _settle();
+  test(
+    'controller converges to signals and serializes adapter/device actions',
+    () async {
+      final backend = _FakeBluetoothBackend();
+      addTearDown(backend.dispose);
+      final container = ProviderContainer.test(
+        overrides: [bluetoothServiceProvider.overrideWithValue(backend)],
+      );
+      final controller = container.read(bluetoothProvider.notifier);
+      await _settle();
 
-    expect(backend.started, isTrue);
-    expect(controller.state.initializing, isFalse);
-    expect(controller.state.powered, isTrue);
+      expect(backend.started, isTrue);
+      expect(container.read(bluetoothProvider).initializing, isFalse);
+      expect(container.read(bluetoothProvider).powered, isTrue);
 
-    backend.powerGate = Completer<void>();
-    final firstPower = controller.togglePower();
-    final duplicatePower = controller.togglePower();
-    expect(backend.powerWrites, <bool>[false]);
-    backend.powerGate!.complete();
-    await Future.wait(<Future<void>>[firstPower, duplicatePower]);
-    expect(controller.state.powered, isFalse);
+      backend.powerGate = Completer<void>();
+      final firstPower = controller.togglePower();
+      final duplicatePower = controller.togglePower();
+      expect(backend.powerWrites, <bool>[false]);
+      backend.powerGate!.complete();
+      await Future.wait(<Future<void>>[firstPower, duplicatePower]);
+      expect(container.read(bluetoothProvider).powered, isFalse);
 
-    backend.emit(_snapshot(powered: true));
-    await controller.scan();
-    expect(backend.discoveryStarts, 1);
-    expect(controller.state.scanning, isTrue);
-    expect(controller.state.discovering, isTrue);
-    await controller.stopScan();
-    expect(backend.discoveryStops, 1);
-    expect(controller.state.scanning, isFalse);
+      backend.emit(_snapshot(powered: true));
+      await controller.scan();
+      expect(backend.discoveryStarts, 1);
+      expect(container.read(bluetoothProvider).scanning, isTrue);
+      expect(container.read(bluetoothProvider).discovering, isTrue);
+      await controller.stopScan();
+      expect(backend.discoveryStops, 1);
+      expect(container.read(bluetoothProvider).scanning, isFalse);
 
-    final device = controller.state.devices.single;
-    backend.deviceGate = Completer<void>();
-    final firstConnection = controller.toggleConnection(device);
-    final duplicateConnection = controller.toggleConnection(device);
-    expect(backend.pairCalls, 1);
-    expect(
-      controller.state.busyDevices,
-      <String>{device.objectPath},
-    );
-    backend.deviceGate!.complete();
-    await Future.wait(<Future<void>>[firstConnection, duplicateConnection]);
-    expect(backend.trustWrites, <bool>[true]);
-    expect(backend.connectCalls, 1);
-    expect(controller.state.busyDevices, isEmpty);
+      final device = container.read(bluetoothProvider).devices.single;
+      backend.deviceGate = Completer<void>();
+      final firstConnection = controller.toggleConnection(device);
+      final duplicateConnection = controller.toggleConnection(device);
+      expect(backend.pairCalls, 1);
+      expect(container.read(bluetoothProvider).busyDevices, <String>{
+        device.objectPath,
+      });
+      backend.deviceGate!.complete();
+      await Future.wait(<Future<void>>[firstConnection, duplicateConnection]);
+      expect(backend.trustWrites, <bool>[true]);
+      expect(backend.connectCalls, 1);
+      expect(container.read(bluetoothProvider).busyDevices, isEmpty);
 
-    backend.emit(const BluetoothSnapshot.unavailable());
-    expect(controller.state.serviceAvailable, isFalse);
-    expect(controller.state.available, isFalse);
-  });
+      backend.emit(const BluetoothSnapshot.unavailable());
+      expect(container.read(bluetoothProvider).serviceAvailable, isFalse);
+      expect(container.read(bluetoothProvider).available, isFalse);
+    },
+  );
 
-  test('pairing responses are one-shot and backend errors are sanitized',
-      () async {
-    final backend = _FakeBluetoothBackend();
-    final controller = BluetoothController(backend);
-    addTearDown(() async {
-      controller.dispose();
-      await backend.dispose();
-    });
-    await _settle();
+  test(
+    'pairing responses are one-shot and backend errors are sanitized',
+    () async {
+      final backend = _FakeBluetoothBackend();
+      addTearDown(backend.dispose);
+      final container = ProviderContainer.test(
+        overrides: [bluetoothServiceProvider.overrideWithValue(backend)],
+      );
+      final controller = container.read(bluetoothProvider.notifier);
+      await _settle();
 
-    const request = BluetoothPairingRequest(
-      id: 7,
-      kind: BluetoothPairingRequestKind.pinCode,
-      devicePath: '/org/bluez/hci0/dev_1',
-      address: '00:11:22:33:44:55',
-      deviceName: 'Keyboard',
-    );
-    backend.expectedPairingResponse = 'one-shot-secret';
-    backend.emitPairing(request);
-    expect(controller.state.pairingRequest?.id, 7);
+      const request = BluetoothPairingRequest(
+        id: 7,
+        kind: BluetoothPairingRequestKind.pinCode,
+        devicePath: '/org/bluez/hci0/dev_1',
+        address: '00:11:22:33:44:55',
+        deviceName: 'Keyboard',
+      );
+      backend.expectedPairingResponse = 'one-shot-secret';
+      backend.emitPairing(request);
+      expect(container.read(bluetoothProvider).pairingRequest?.id, 7);
 
-    controller.respondToPairing(
-      accepted: true,
-      response: 'one-shot-secret',
-    );
-    expect(backend.pairingResponses, 1);
-    expect(backend.pairingResponseMatched, isTrue);
-    expect(controller.state.pairingRequest, isNull);
-    expect(controller.state.toString(), isNot(contains('one-shot-secret')));
+      controller.respondToPairing(accepted: true, response: 'one-shot-secret');
+      expect(backend.pairingResponses, 1);
+      expect(backend.pairingResponseMatched, isTrue);
+      expect(container.read(bluetoothProvider).pairingRequest, isNull);
+      expect(
+        container.read(bluetoothProvider).toString(),
+        isNot(contains('one-shot-secret')),
+      );
 
-    backend.operationError = Exception('do not leak this detail');
-    await controller.toggleConnection(controller.state.devices.single);
-    expect(controller.state.error, 'Bluetooth could not complete the request');
-    expect(controller.state.error, isNot(contains('do not leak')));
-  });
+      backend.operationError = Exception('do not leak this detail');
+      await controller.toggleConnection(
+        container.read(bluetoothProvider).devices.single,
+      );
+      expect(
+        container.read(bluetoothProvider).error,
+        'Bluetooth could not complete the request',
+      );
+      expect(
+        container.read(bluetoothProvider).error,
+        isNot(contains('do not leak')),
+      );
+    },
+  );
 }
 
 class _FakeBluetoothBackend implements BluetoothBackend {
@@ -178,10 +190,7 @@ class _FakeBluetoothBackend implements BluetoothBackend {
   }
 
   @override
-  Future<void> setTrusted(
-    BluetoothDeviceInfo device,
-    bool trusted,
-  ) async {
+  Future<void> setTrusted(BluetoothDeviceInfo device, bool trusted) async {
     trustWrites.add(trusted);
     _throwIfNeeded();
   }
@@ -211,7 +220,8 @@ class _FakeBluetoothBackend implements BluetoothBackend {
     String? response,
   }) {
     pairingResponses += 1;
-    pairingResponseMatched = accepted &&
+    pairingResponseMatched =
+        accepted &&
         requestId == _pairingRequest?.id &&
         response == expectedPairingResponse;
     emitPairing(null);
@@ -231,10 +241,7 @@ class _FakeBluetoothBackend implements BluetoothBackend {
   }
 }
 
-BluetoothSnapshot _snapshot({
-  required bool powered,
-  bool discovering = false,
-}) {
+BluetoothSnapshot _snapshot({required bool powered, bool discovering = false}) {
   return BluetoothSnapshot(
     serviceAvailable: true,
     available: true,

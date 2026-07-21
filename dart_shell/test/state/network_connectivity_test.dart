@@ -2,91 +2,123 @@ import 'dart:async';
 
 import 'package:denial_dart_shell/src/services/network_manager_service.dart';
 import 'package:denial_dart_shell/src/state/network_connectivity.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('controller follows service signals and serializes user operations',
-      () async {
-    final service = _FakeNetworkManager();
-    final controller = NetworkConnectivityController(service);
-    addTearDown(() async {
-      controller.dispose();
-      await service.dispose();
-    });
-    await _settle();
+  test(
+    'controller follows service signals and serializes user operations',
+    () async {
+      final service = _FakeNetworkManager();
+      addTearDown(service.dispose);
+      final container = ProviderContainer.test(
+        overrides: [networkManagerServiceProvider.overrideWithValue(service)],
+      );
+      final controller = container.read(networkConnectivityProvider.notifier);
+      await _settle();
 
-    expect(service.started, isTrue);
-    expect(controller.state.snapshot.wirelessEnabled, isFalse);
+      expect(service.started, isTrue);
+      expect(
+        container.read(networkConnectivityProvider).snapshot.wirelessEnabled,
+        isFalse,
+      );
 
-    await controller.toggleWireless();
-    expect(service.radioWrites, <bool>[true]);
-    expect(controller.state.snapshot.wirelessEnabled, isTrue);
+      await controller.toggleWireless();
+      expect(service.radioWrites, <bool>[true]);
+      expect(
+        container.read(networkConnectivityProvider).snapshot.wirelessEnabled,
+        isTrue,
+      );
 
-    await controller.scan();
-    expect(controller.state.scanning, isTrue);
-    service.emit(_snapshot(enabled: true, lastScan: 12));
-    expect(controller.state.scanning, isFalse);
+      await controller.scan();
+      expect(container.read(networkConnectivityProvider).scanning, isTrue);
+      service.emit(_snapshot(enabled: true, lastScan: 12));
+      expect(container.read(networkConnectivityProvider).scanning, isFalse);
 
-    final network = controller.state.snapshot.networks.single;
-    service.connectGate = Completer<void>();
-    final first = controller.connect(network, password: 'never-store-me');
-    final duplicate = controller.connect(network, password: 'never-store-me');
-    expect(service.connectCalls, 1);
-    expect(service.passwordWasProvided, isTrue);
-    expect(controller.state.busyNetworks, <String>{network.identity});
-    service.connectGate!.complete();
-    await Future.wait(<Future<void>>[first, duplicate]);
-    expect(controller.state.busyNetworks, isEmpty);
+      final network = container
+          .read(networkConnectivityProvider)
+          .snapshot
+          .networks
+          .single;
+      service.connectGate = Completer<void>();
+      final first = controller.connect(network, password: 'never-store-me');
+      final duplicate = controller.connect(network, password: 'never-store-me');
+      expect(service.connectCalls, 1);
+      expect(service.passwordWasProvided, isTrue);
+      expect(container.read(networkConnectivityProvider).busyNetworks, <String>{
+        network.identity,
+      });
+      service.connectGate!.complete();
+      await Future.wait(<Future<void>>[first, duplicate]);
+      expect(container.read(networkConnectivityProvider).busyNetworks, isEmpty);
 
-    service.operationError = Exception('secret should never be echoed');
-    await controller.disconnect(network);
-    expect(controller.state.error,
-        'NetworkManager could not complete the request');
-    expect(controller.state.error, isNot(contains('secret')));
-  });
+      service.operationError = Exception('secret should never be echoed');
+      await controller.disconnect(network);
+      expect(
+        container.read(networkConnectivityProvider).error,
+        'NetworkManager could not complete the request',
+      );
+      expect(
+        container.read(networkConnectivityProvider).error,
+        isNot(contains('secret')),
+      );
+    },
+  );
 
   test('service loss is reflected without reopening the surface', () async {
     final service = _FakeNetworkManager();
-    final controller = NetworkConnectivityController(service);
-    addTearDown(() async {
-      controller.dispose();
-      await service.dispose();
-    });
+    addTearDown(service.dispose);
+    final container = ProviderContainer.test(
+      overrides: [networkManagerServiceProvider.overrideWithValue(service)],
+    );
+    container.read(networkConnectivityProvider.notifier);
     await _settle();
 
     service.emit(NetworkManagerSnapshot.unavailable());
-    expect(controller.state.snapshot.serviceAvailable, isFalse);
-    expect(controller.state.initializing, isFalse);
-  });
-
-  test('denied permissions prevent actions before D-Bus receives them',
-      () async {
-    final service = _FakeNetworkManager();
-    final controller = NetworkConnectivityController(service);
-    addTearDown(() async {
-      controller.dispose();
-      await service.dispose();
-    });
-    await _settle();
-
-    service.emit(
-      _snapshot(
-        enabled: true,
-        lastScan: 2,
-        controlPermission: NetworkPermission.denied,
-        modifyPermission: NetworkPermission.denied,
-      ),
+    expect(
+      container.read(networkConnectivityProvider).snapshot.serviceAvailable,
+      isFalse,
     );
-    final network = controller.state.snapshot.networks.single;
-    await controller.connect(network, password: 'must-not-cross-boundary');
-    await controller.disconnect(network);
-    await controller.scan();
-
-    expect(service.connectCalls, 0);
-    expect(service.passwordWasProvided, isFalse);
-    expect(controller.state.scanning, isFalse);
-    expect(controller.state.error, 'Wi-Fi changes are not permitted');
+    expect(container.read(networkConnectivityProvider).initializing, isFalse);
   });
+
+  test(
+    'denied permissions prevent actions before D-Bus receives them',
+    () async {
+      final service = _FakeNetworkManager();
+      addTearDown(service.dispose);
+      final container = ProviderContainer.test(
+        overrides: [networkManagerServiceProvider.overrideWithValue(service)],
+      );
+      final controller = container.read(networkConnectivityProvider.notifier);
+      await _settle();
+
+      service.emit(
+        _snapshot(
+          enabled: true,
+          lastScan: 2,
+          controlPermission: NetworkPermission.denied,
+          modifyPermission: NetworkPermission.denied,
+        ),
+      );
+      final network = container
+          .read(networkConnectivityProvider)
+          .snapshot
+          .networks
+          .single;
+      await controller.connect(network, password: 'must-not-cross-boundary');
+      await controller.disconnect(network);
+      await controller.scan();
+
+      expect(service.connectCalls, 0);
+      expect(service.passwordWasProvided, isFalse);
+      expect(container.read(networkConnectivityProvider).scanning, isFalse);
+      expect(
+        container.read(networkConnectivityProvider).error,
+        'Wi-Fi changes are not permitted',
+      );
+    },
+  );
 }
 
 class _FakeNetworkManager implements NetworkManagerBackend {

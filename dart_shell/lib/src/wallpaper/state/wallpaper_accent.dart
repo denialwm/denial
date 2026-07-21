@@ -7,9 +7,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 
 import '../../state/display_layout.dart';
+import '../../state/notifier_lifecycle.dart';
 import '../../theme/tokens.dart';
 import '../wallpaper.dart';
 import 'wallpaper_controller.dart';
@@ -66,50 +66,64 @@ final _accentSourceWallpaperProvider = Provider<WallpaperResource>((ref) {
   return outputName == null ? assignment.all : assignment.forOutput(outputName);
 });
 
+typedef WallpaperAccentExtractor =
+    Future<Color?> Function(WallpaperResource resource);
+
+final wallpaperAccentExtractorProvider = Provider<WallpaperAccentExtractor>(
+  (ref) => _extractFromResource,
+);
+
 final wallpaperAccentProvider =
-    StateNotifierProvider<WallpaperAccentController, WallpaperAccent>((ref) {
-      final controller = WallpaperAccentController();
-      ref.listen<WallpaperResource>(
-        _accentSourceWallpaperProvider,
-        (previous, next) => unawaited(controller.load(next)),
-        fireImmediately: true,
-      );
-      return controller;
-    });
+    NotifierProvider<WallpaperAccentController, WallpaperAccent>(
+      WallpaperAccentController.new,
+    );
 
-class WallpaperAccentController extends StateNotifier<WallpaperAccent> {
-  WallpaperAccentController({
-    Future<Color?> Function(WallpaperResource resource)? extract,
-  }) : _extract = extract ?? _extractFromResource,
-       super(WallpaperAccent.fallback);
-
-  /// A frozen accent that never extracts, for widget tests and previews.
-  @visibleForTesting
-  WallpaperAccentController.preview(WallpaperAccent accent)
-    : _extract = _extractFromResource,
-      super(accent);
+class WallpaperAccentController extends Notifier<WallpaperAccent>
+    with NotifierLifecycle<WallpaperAccent> {
+  @override
+  WallpaperAccent build() {
+    _extract = ref.watch(wallpaperAccentExtractorProvider);
+    _cache.clear();
+    _loadGeneration = 0;
+    _buildGeneration = beginBuildGeneration();
+    final generation = _buildGeneration;
+    ref.listen<WallpaperResource>(_accentSourceWallpaperProvider, (
+      previous,
+      next,
+    ) {
+      if (isBuildGenerationActive(generation)) {
+        unawaited(_load(next, generation));
+      }
+    }, fireImmediately: true);
+    return WallpaperAccent.fallback;
+  }
 
   static const int _maxCacheEntries = 8;
 
-  final Future<Color?> Function(WallpaperResource resource) _extract;
+  late WallpaperAccentExtractor _extract;
   final Map<String, WallpaperAccent> _cache = <String, WallpaperAccent>{};
-  int _generation = 0;
+  late int _buildGeneration;
+  int _loadGeneration = 0;
 
-  Future<void> load(WallpaperResource resource) async {
+  Future<void> load(WallpaperResource resource) =>
+      _load(resource, _buildGeneration);
+
+  Future<void> _load(WallpaperResource resource, int buildGeneration) async {
     final key = resource.persistenceValue;
     final cached = _cache[key];
     if (cached != null) {
       state = cached;
       return;
     }
-    final generation = ++_generation;
+    final generation = ++_loadGeneration;
     Color? color;
     try {
       color = await _extract(resource);
     } on Object {
       color = null;
     }
-    if (!mounted || generation != _generation) {
+    if (!isBuildGenerationActive(buildGeneration) ||
+        generation != _loadGeneration) {
       return;
     }
     final accent = color == null

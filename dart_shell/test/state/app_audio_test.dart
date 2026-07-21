@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/services/audio_service.dart';
 import 'package:denial_dart_shell/src/state/app_audio.dart';
@@ -8,25 +9,24 @@ import 'package:denial_dart_shell/src/state/app_audio.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('per-app volume stays optimistic until native acknowledgement',
-      () async {
-    final bridge = DenialBridge();
-    final audio = _FakeAudioService(bridge);
-    final controller = AppAudioController(audio);
-    try {
+  test(
+    'per-app volume stays optimistic until native acknowledgement',
+    () async {
+      final bridge = DenialBridge();
+      final audio = _FakeAudioService(bridge);
+      addTearDown(audio.dispose);
+    final container = ProviderContainer.test(
+      overrides: [audioServiceProvider.overrideWithValue(audio)],
+      );
+      final controller = container.read(appAudioProvider.notifier);
       controller.refresh();
       expect(audio.refreshes, 1);
 
       audio.emit(const <AppAudioStream>[
-        AppAudioStream(
-          id: 7,
-          name: 'Firefox',
-          level: 0.30,
-          muted: false,
-        ),
+        AppAudioStream(id: 7, name: 'Firefox', level: 0.30, muted: false),
       ]);
-      expect(controller.state.loading, isFalse);
-      expect(controller.state.streams.single.level, 0.30);
+      expect(container.read(appAudioProvider).loading, isFalse);
+      expect(container.read(appAudioProvider).streams.single.level, 0.30);
 
       controller.commitVolume(7, 0.75);
       expect(audio.writes, const <({int id, int percent})>[
@@ -34,41 +34,23 @@ void main() {
       ]);
 
       audio.emit(const <AppAudioStream>[
-        AppAudioStream(
-          id: 7,
-          name: 'Firefox',
-          level: 0.40,
-          muted: false,
-        ),
+        AppAudioStream(id: 7, name: 'Firefox', level: 0.40, muted: false),
       ]);
       expect(
-        controller.state.streams.single.level,
+        container.read(appAudioProvider).streams.single.level,
         0.75,
         reason: 'an older native snapshot must not pull back the slider',
       );
 
       audio.emit(const <AppAudioStream>[
-        AppAudioStream(
-          id: 7,
-          name: 'Firefox',
-          level: 0.75,
-          muted: false,
-        ),
+        AppAudioStream(id: 7, name: 'Firefox', level: 0.75, muted: false),
       ]);
       audio.emit(const <AppAudioStream>[
-        AppAudioStream(
-          id: 7,
-          name: 'Firefox',
-          level: 0.55,
-          muted: false,
-        ),
+        AppAudioStream(id: 7, name: 'Firefox', level: 0.55, muted: false),
       ]);
-      expect(controller.state.streams.single.level, 0.55);
-    } finally {
-      controller.dispose();
-      await audio.dispose();
-    }
-  });
+      expect(container.read(appAudioProvider).streams.single.level, 0.55);
+    },
+  );
 }
 
 class _FakeAudioService extends AudioService {

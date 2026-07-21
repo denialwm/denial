@@ -3,36 +3,34 @@ import 'dart:async';
 import 'package:denial_dart_shell/src/platform/authentication_protocol.dart';
 import 'package:denial_dart_shell/src/services/authentication_service.dart';
 import 'package:denial_dart_shell/src/state/authentication.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('native lock state wins and failed authentication remains locked', () {
     final service = _FakeAuthenticationService();
-    final controller = AuthenticationController(service);
-    addTearDown(() {
-      controller.dispose();
-      service.dispose();
-    });
+    addTearDown(service.dispose);
+    final container = ProviderContainer.test(
+      overrides: [
+        authenticationServiceProvider.overrideWithValue(service),
+      ],
+    );
+    final controller = container.read(authenticationProvider.notifier);
 
     service.emit(_state(locked: true, available: true));
-    expect(controller.state.synchronized, isTrue);
-    expect(controller.state.locked, isTrue);
+    expect(container.read(authenticationProvider).synchronized, isTrue);
+    expect(container.read(authenticationProvider).locked, isTrue);
 
     controller.begin();
     expect(service.beginCount, 1);
-    service.emit(
-      _prompt(attemptId: 5, sequence: 2, message: 'Password:'),
-    );
+    service.emit(_prompt(attemptId: 5, sequence: 2, message: 'Password:'));
     controller.respond('single-use-secret');
     expect(service.responses, <String>['single-use-secret']);
-    expect(
-      <Object?>[
-        controller.state.prompt?.message,
-        controller.state.resultMessage,
-        controller.state.statusMessage,
-      ],
-      isNot(contains('single-use-secret')),
-    );
+    expect(<Object?>[
+      container.read(authenticationProvider).prompt?.message,
+      container.read(authenticationProvider).resultMessage,
+      container.read(authenticationProvider).statusMessage,
+    ], isNot(contains('single-use-secret')));
 
     service.emit(
       _result(
@@ -43,20 +41,22 @@ void main() {
         cooldownMs: 750,
       ),
     );
-    expect(controller.state.locked, isTrue);
-    expect(controller.state.resultIsError, isTrue);
-    expect(controller.state.rateLimited, isTrue);
+    expect(container.read(authenticationProvider).locked, isTrue);
+    expect(container.read(authenticationProvider).resultIsError, isTrue);
+    expect(container.read(authenticationProvider).rateLimited, isTrue);
     controller.begin();
     expect(service.beginCount, 1);
   });
 
   test('cancellation targets only the active native attempt', () {
     final service = _FakeAuthenticationService();
-    final controller = AuthenticationController(service);
-    addTearDown(() {
-      controller.dispose();
-      service.dispose();
-    });
+    addTearDown(service.dispose);
+    final container = ProviderContainer.test(
+      overrides: [
+        authenticationServiceProvider.overrideWithValue(service),
+      ],
+    );
+    final controller = container.read(authenticationProvider.notifier);
 
     service.emit(_state(locked: true, available: true));
     service.emit(_prompt(attemptId: 17, sequence: 4, message: 'Password:'));
@@ -72,24 +72,26 @@ void main() {
         cancelled: true,
       ),
     );
-    expect(controller.state.locked, isTrue);
-    expect(controller.state.busy, isFalse);
-    expect(controller.state.prompt, isNull);
-    expect(controller.state.resultMessage, isNull);
+    expect(container.read(authenticationProvider).locked, isTrue);
+    expect(container.read(authenticationProvider).busy, isFalse);
+    expect(container.read(authenticationProvider).prompt, isNull);
+    expect(container.read(authenticationProvider).resultMessage, isNull);
   });
 
   test('only a native success event clears authoritative lock state', () {
     final service = _FakeAuthenticationService();
-    final controller = AuthenticationController(service);
-    addTearDown(() {
-      controller.dispose();
-      service.dispose();
-    });
+    addTearDown(service.dispose);
+    final container = ProviderContainer.test(
+      overrides: [
+        authenticationServiceProvider.overrideWithValue(service),
+      ],
+    );
+    final controller = container.read(authenticationProvider.notifier);
 
     service.emit(_state(locked: true, available: true));
     controller.respond('ignored-ui-only-value');
     expect(service.responses, isEmpty);
-    expect(controller.state.locked, isTrue);
+    expect(container.read(authenticationProvider).locked, isTrue);
 
     service.emit(
       _result(
@@ -100,7 +102,7 @@ void main() {
         success: true,
       ),
     );
-    expect(controller.state.locked, isFalse);
+    expect(container.read(authenticationProvider).locked, isFalse);
   });
 }
 

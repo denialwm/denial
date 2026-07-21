@@ -1,22 +1,38 @@
 import 'dart:async';
 
-import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/display_layout.dart';
 import '../platform/denial_bridge.dart';
+import 'notifier_lifecycle.dart';
 import 'shell_controller.dart';
 
 final displayLayoutProvider =
-    StateNotifierProvider<DisplayLayoutController, DisplayLayout?>((ref) {
-      // The shell controller installs the shared native message handler before the
-      // display-layout request is sent.
-      ref.read(shellControllerProvider);
-      return DisplayLayoutController(ref.read(denialBridgeProvider));
-    });
+    NotifierProvider<DisplayLayoutController, DisplayLayout?>(
+      DisplayLayoutController.new,
+    );
 
-class DisplayLayoutController extends StateNotifier<DisplayLayout?> {
-  DisplayLayoutController(this._bridge) : super(null) {
-    unawaited(ensureLoaded());
+class DisplayLayoutController extends Notifier<DisplayLayout?>
+    with NotifierLifecycle<DisplayLayout?> {
+  @override
+  DisplayLayout? build() {
+    _bridge = ref.watch(denialBridgeProvider);
+    _retryAttempt = 0;
+    _retryTimer = null;
+    _requestInFlight = null;
+    _configurationSerial = 0;
+    _buildGeneration = beginBuildGeneration();
+    final generation = _buildGeneration;
+    ref.onDispose(() {
+      _retryTimer?.cancel();
+      _retryTimer = null;
+    });
+    scheduleMicrotask(() {
+      if (isBuildGenerationActive(generation)) {
+        unawaited(ensureLoaded());
+      }
+    });
+    return null;
   }
 
   static const List<Duration> _retryDelays = <Duration>[
@@ -27,8 +43,8 @@ class DisplayLayoutController extends StateNotifier<DisplayLayout?> {
     Duration(seconds: 4),
   ];
 
-  final DenialBridge _bridge;
-  bool _disposed = false;
+  late DenialBridge _bridge;
+  late int _buildGeneration;
   int _retryAttempt = 0;
   Timer? _retryTimer;
   Future<DisplayLayout?>? _requestInFlight;
@@ -45,7 +61,8 @@ class DisplayLayoutController extends StateNotifier<DisplayLayout?> {
     }
     _retryTimer?.cancel();
     _retryTimer = null;
-    final request = _load();
+    final generation = _buildGeneration;
+    final request = _load(generation);
     _requestInFlight = request;
     unawaited(
       request.whenComplete(() {
@@ -57,14 +74,14 @@ class DisplayLayoutController extends StateNotifier<DisplayLayout?> {
     return request;
   }
 
-  Future<DisplayLayout?> _load() async {
+  Future<DisplayLayout?> _load(int generation) async {
     DisplayLayout? layout;
     try {
       layout = await _bridge.getDisplayLayout();
     } on Object {
       layout = null;
     }
-    if (_disposed) {
+    if (!isBuildGenerationActive(generation)) {
       return null;
     }
     if (layout != null && layout.outputs.isNotEmpty) {
@@ -72,12 +89,12 @@ class DisplayLayoutController extends StateNotifier<DisplayLayout?> {
       state = layout;
       return layout;
     }
-    _scheduleRetry();
+    _scheduleRetry(generation);
     return null;
   }
 
-  void _scheduleRetry() {
-    if (_disposed || _retryTimer != null) {
+  void _scheduleRetry(int generation) {
+    if (!isBuildGenerationActive(generation) || _retryTimer != null) {
       return;
     }
     final delayIndex = _retryAttempt.clamp(0, _retryDelays.length - 1).toInt();
@@ -85,7 +102,7 @@ class DisplayLayoutController extends StateNotifier<DisplayLayout?> {
     _retryAttempt += 1;
     _retryTimer = Timer(delay, () {
       _retryTimer = null;
-      if (!_disposed) {
+      if (isBuildGenerationActive(generation)) {
         unawaited(ensureLoaded());
       }
     });
@@ -119,6 +136,7 @@ class DisplayLayoutController extends StateNotifier<DisplayLayout?> {
     }
 
     final serial = ++_configurationSerial;
+    final generation = _buildGeneration;
     state = previous.copyWithSystemBar(side: side, monitorIds: ordered);
     DisplayLayout? resolved;
     try {
@@ -129,17 +147,11 @@ class DisplayLayoutController extends StateNotifier<DisplayLayout?> {
     } on Object {
       resolved = null;
     }
-    if (_disposed || serial != _configurationSerial) {
+    if (!isBuildGenerationActive(generation) ||
+        serial != _configurationSerial) {
       return resolved != null;
     }
     state = resolved ?? previous;
     return resolved != null;
-  }
-
-  @override
-  void dispose() {
-    _disposed = true;
-    _retryTimer?.cancel();
-    super.dispose();
   }
 }

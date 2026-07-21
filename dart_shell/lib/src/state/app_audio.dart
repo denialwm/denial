@@ -1,13 +1,13 @@
 import 'dart:async';
 
-import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/audio_service.dart';
+import 'notifier_lifecycle.dart';
 
-final appAudioProvider =
-    StateNotifierProvider<AppAudioController, AppAudioState>((ref) {
-      return AppAudioController(ref.read(audioServiceProvider));
-    });
+final appAudioProvider = NotifierProvider<AppAudioController, AppAudioState>(
+  AppAudioController.new,
+);
 
 class AppAudioState {
   const AppAudioState({
@@ -39,16 +39,37 @@ class AppAudioState {
   }
 }
 
-class AppAudioController extends StateNotifier<AppAudioState> {
-  AppAudioController(this._audio) : super(const AppAudioState.initial()) {
-    _subscription = _audio.appStreamStates.listen(_handleStreams);
+class AppAudioController extends Notifier<AppAudioState>
+    with NotifierLifecycle<AppAudioState> {
+  @override
+  AppAudioState build() {
+    _audio = ref.watch(audioServiceProvider);
+    _pendingVolumes.clear();
+    _desiredVolumes.clear();
+    _commitTimer = null;
+    _responseTimer = null;
+    _buildGeneration = beginBuildGeneration();
+    final generation = _buildGeneration;
+    final subscription = _audio.appStreamStates.listen(
+      (streams) => _handleStreams(streams, generation),
+    );
+    cancelOnDispose(subscription);
+    ref.onDispose(() {
+      _commitTimer?.cancel();
+      _responseTimer?.cancel();
+      _commitTimer = null;
+      _responseTimer = null;
+      _pendingVolumes.clear();
+      _desiredVolumes.clear();
+    });
+    return const AppAudioState.initial();
   }
 
   static const Duration _commitInterval = Duration(milliseconds: 90);
   static const Duration _responseTimeout = Duration(seconds: 2);
 
-  final AudioService _audio;
-  late final StreamSubscription<List<AppAudioStream>> _subscription;
+  late AudioService _audio;
+  late int _buildGeneration;
   final Map<int, int> _pendingVolumes = <int, int>{};
   final Map<int, int> _desiredVolumes = <int, int>{};
   Timer? _commitTimer;
@@ -98,7 +119,10 @@ class AppAudioController extends StateNotifier<AppAudioState> {
     }
   }
 
-  void _handleStreams(List<AppAudioStream> streams) {
+  void _handleStreams(List<AppAudioStream> streams, int generation) {
+    if (!isBuildGenerationActive(generation)) {
+      return;
+    }
     final liveIds = streams.map((stream) => stream.id).toSet();
     _desiredVolumes.removeWhere((id, _) => !liveIds.contains(id));
     _pendingVolumes.removeWhere((id, _) => !liveIds.contains(id));
@@ -135,8 +159,9 @@ class AppAudioController extends StateNotifier<AppAudioState> {
 
   void _armResponseTimeout() {
     _responseTimer?.cancel();
+    final generation = _buildGeneration;
     _responseTimer = Timer(_responseTimeout, () {
-      if (!mounted) {
+      if (!isBuildGenerationActive(generation)) {
         return;
       }
       final wasLoading = state.loading;
@@ -151,13 +176,5 @@ class AppAudioController extends StateNotifier<AppAudioState> {
         _audio.requestAppStreams();
       }
     });
-  }
-
-  @override
-  void dispose() {
-    _commitTimer?.cancel();
-    _responseTimer?.cancel();
-    unawaited(_subscription.cancel());
-    super.dispose();
   }
 }

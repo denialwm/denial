@@ -16,83 +16,75 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets(
-      'cards stack, animate, replace, and publish precise input regions',
-      (tester) async {
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
+    'cards stack, animate, replace, and publish precise input regions',
+    (tester) async {
+      final container = ProviderContainer.test();
 
-    await tester.pumpWidget(_host(const [], container: container));
-    expect(find.text('Build finished'), findsNothing);
+      await tester.pumpWidget(_host(const [], container: container));
+      expect(find.text('Build finished'), findsNothing);
 
-    await tester.pumpWidget(
-      _host(
-        [
+      await tester.pumpWidget(
+        _host([
           _notification(42, 'Build finished'),
           _notification(43, 'Message received'),
-        ],
-        container: container,
-      ),
-    );
-    await tester.pump(const Duration(milliseconds: 16));
+        ], container: container),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
 
-    expect(find.text('Test application'), findsNWidgets(2));
-    expect(find.text('Build finished'), findsOneWidget);
-    expect(find.text('Message received'), findsOneWidget);
-    expect(find.text('Everything is bold & ready.'), findsNWidgets(2));
-    final slide = tester.widget<SlideTransition>(
-      find
-          .ancestor(
-            of: find.text('Build finished'),
-            matching: find.byType(SlideTransition),
-          )
-          .first,
-    );
-    expect(slide.position.value.dx, lessThan(0));
-    expect(slide.position.value.dy, lessThan(0));
+      expect(find.text('Test application'), findsNWidgets(2));
+      expect(find.text('Build finished'), findsOneWidget);
+      expect(find.text('Message received'), findsOneWidget);
+      expect(find.text('Everything is bold & ready.'), findsNWidgets(2));
+      final slide = tester.widget<SlideTransition>(
+        find
+            .ancestor(
+              of: find.text('Build finished'),
+              matching: find.byType(SlideTransition),
+            )
+            .first,
+      );
+      expect(slide.position.value.dx, lessThan(0));
+      expect(slide.position.value.dy, lessThan(0));
 
-    await tester.pump(Motion.notificationBanner);
-    await tester.pump();
+      await tester.pump(Motion.notificationBanner);
+      await tester.pump();
 
-    expect(slide.position.value, Offset.zero);
-    expect(
-      tester.getTopLeft(find.text('Message received')).dy,
-      greaterThan(tester.getTopLeft(find.text('Build finished')).dy),
-    );
-    expect(
-      container.read(shellInteractionRegistryProvider).childRegions,
-      hasLength(2),
-    );
-    for (final region
-        in container.read(shellInteractionRegistryProvider).childRegions) {
-      expect(region.width, lessThanOrEqualTo(360));
-      expect(region.width, lessThan(800));
-    }
-    expect(
-      find.bySemanticsLabel(
-        'Test application notification. Build finished. '
-        'Everything is bold & ready.',
-      ),
-      findsOneWidget,
-    );
+      expect(slide.position.value, Offset.zero);
+      expect(
+        tester.getTopLeft(find.text('Message received')).dy,
+        greaterThan(tester.getTopLeft(find.text('Build finished')).dy),
+      );
+      expect(
+        container.read(shellInteractionRegistryProvider).childRegions,
+        hasLength(2),
+      );
+      for (final region
+          in container.read(shellInteractionRegistryProvider).childRegions) {
+        expect(region.width, lessThanOrEqualTo(360));
+        expect(region.width, lessThan(800));
+      }
+      expect(
+        find.bySemanticsLabel(
+          'Test application notification. Build finished. '
+          'Everything is bold & ready.',
+        ),
+        findsOneWidget,
+      );
 
-    await tester.pumpWidget(
-      _host(
-        [_notification(43, 'Replacement text')],
-        container: container,
-      ),
-    );
-    await tester.pump(Motion.notificationBanner);
+      await tester.pumpWidget(
+        _host([_notification(43, 'Replacement text')], container: container),
+      );
+      await tester.pump(Motion.notificationBanner);
 
-    expect(find.text('Build finished'), findsNothing);
-    expect(find.text('Message received'), findsNothing);
-    expect(find.text('Replacement text'), findsOneWidget);
-  });
+      expect(find.text('Build finished'), findsNothing);
+      expect(find.text('Message received'), findsNothing);
+      expect(find.text('Replacement text'), findsOneWidget);
+    },
+  );
 
   testWidgets('visible burst is capped at three newest cards', (tester) async {
     await tester.pumpWidget(
-      _host([
-        for (var id = 8; id >= 1; id -= 1) _notification(id, 'Item $id'),
-      ]),
+      _host([for (var id = 8; id >= 1; id -= 1) _notification(id, 'Item $id')]),
     );
     await tester.pumpAndSettle();
 
@@ -102,12 +94,11 @@ void main() {
     expect(find.text('Item 5'), findsNothing);
   });
 
-  testWidgets('rapid replacements keep animated remnants bounded',
-      (tester) async {
+  testWidgets('rapid replacements keep animated remnants bounded', (
+    tester,
+  ) async {
     await tester.pumpWidget(
-      _host([
-        for (var id = 1; id <= 3; id += 1) _notification(id, 'Item $id'),
-      ]),
+      _host([for (var id = 1; id <= 3; id += 1) _notification(id, 'Item $id')]),
     );
     await tester.pumpAndSettle();
 
@@ -131,8 +122,9 @@ void main() {
     expect(find.byType(NotificationCard), findsNWidgets(3));
   });
 
-  testWidgets('default, named, and dismiss controls are interactive',
-      (tester) async {
+  testWidgets('default, named, and dismiss controls are interactive', (
+    tester,
+  ) async {
     final defaults = <int>[];
     final actions = <(int, String)>[];
     final dismissals = <int>[];
@@ -165,13 +157,13 @@ void main() {
     expect(dismissals, <int>[42]);
   });
 
-  testWidgets('application-only lock preview hides content and actions',
-      (tester) async {
+  testWidgets('application-only lock preview hides content and actions', (
+    tester,
+  ) async {
     await tester.pumpWidget(
-      _host(
-        [_notification(42, 'Private subject')],
-        previewMode: NotificationPreviewMode.applicationOnly,
-      ),
+      _host([
+        _notification(42, 'Private subject'),
+      ], previewMode: NotificationPreviewMode.applicationOnly),
     );
     await tester.pumpAndSettle();
 
@@ -181,8 +173,9 @@ void main() {
     expect(find.text('Accept'), findsNothing);
   });
 
-  testWidgets('static image data and progress render within a bounded card',
-      (tester) async {
+  testWidgets('static image data and progress render within a bounded card', (
+    tester,
+  ) async {
     final image = DesktopNotificationImageData(
       width: 2,
       height: 2,
@@ -228,12 +221,15 @@ void main() {
 
     expect(find.byType(RawImage), findsOneWidget);
     expect(find.bySemanticsLabel('Progress 65 percent'), findsOneWidget);
-    expect(tester.getSize(find.byType(NotificationCard)).width,
-        lessThanOrEqualTo(360));
+    expect(
+      tester.getSize(find.byType(NotificationCard)).width,
+      lessThanOrEqualTo(360),
+    );
   });
 
-  testWidgets('static image paths are read and decoded through a byte bound',
-      (tester) async {
+  testWidgets('static image paths are read and decoded through a byte bound', (
+    tester,
+  ) async {
     final directory = Directory.systemTemp.createTempSync(
       'denial-notification-image-',
     );
@@ -248,9 +244,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      _host([
-        _notification(42, 'File image', imagePath: imageFile.path),
-      ]),
+      _host([_notification(42, 'File image', imagePath: imageFile.path)]),
     );
     await tester.pump(Motion.notificationBanner);
     await tester.runAsync(

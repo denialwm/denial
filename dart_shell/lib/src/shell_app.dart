@@ -65,8 +65,10 @@ class DenialShellApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    ref.read(shellControllerProvider.notifier);
-    ref.watch(desktopNotificationsProvider);
+    // These providers own process-lifetime integrations. Keeping this explicit
+    // root subscription documents and enforces their eager initialization.
+    ref.watch(shellControllerProvider.select((_) => null));
+    ref.watch(desktopNotificationsProvider.select((_) => null));
     ref.listen<bool>(
       shellControllerProvider.select((state) => state.lockLayerVisible),
       (_, lockLayerVisible) {
@@ -89,7 +91,9 @@ class DenialShellApp extends ConsumerWidget {
               .respondToPairing(accepted: false);
           return;
         }
-        ref.read(shellSurfaceControllerProvider.notifier).show(
+        ref
+            .read(shellSurfaceControllerProvider.notifier)
+            .show(
               keyName: 'bluetooth-details',
               debugLabel: 'Bluetooth pairing',
               builder: (_, handle) =>
@@ -103,21 +107,40 @@ class DenialShellApp extends ConsumerWidget {
         ? ShellProfile.desktop
         : profile;
     final cursorTheme = ref.watch(shellCursorThemeProvider);
-    final bridge = ref.read(denialBridgeProvider);
+    final bridge = ref.watch(denialBridgeProvider);
     final cursorShapes = bridge.cursorShapes;
     final cursorPositions = bridge.cursorPositions;
     final dragIcons = bridge.dragIcons;
     final content = switch (effectiveProfile) {
       ShellProfile.mobile => InputLayoutPublisher(
-          child: ShellCursorHost(
-            theme: ShellCursorThemes.standard,
-            platformCursorPositions: cursorPositions,
-            platformDragIcons: dragIcons,
-            child: const ShellSurfaceHost(
+        child: ShellCursorHost(
+          theme: ShellCursorThemes.standard,
+          platformCursorPositions: cursorPositions,
+          platformDragIcons: dragIcons,
+          child: const ShellSurfaceHost(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _ShellContent(),
+                SystemLevelHudLayer(),
+                NotificationBannerLayer(),
+              ],
+            ),
+          ),
+        ),
+      ),
+      ShellProfile.desktop => DesktopInputLayoutPublisher(
+        child: ShellCursorHost(
+          theme: cursorTheme,
+          platformCursorShapes: cursorShapes,
+          platformCursorPositions: cursorPositions,
+          platformDragIcons: dragIcons,
+          child: const _DesktopSecureStage(
+            child: ShellSurfaceHost(
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  _ShellContent(),
+                  DesktopShell(),
                   SystemLevelHudLayer(),
                   NotificationBannerLayer(),
                 ],
@@ -125,26 +148,7 @@ class DenialShellApp extends ConsumerWidget {
             ),
           ),
         ),
-      ShellProfile.desktop => DesktopInputLayoutPublisher(
-          child: ShellCursorHost(
-            theme: cursorTheme,
-            platformCursorShapes: cursorShapes,
-            platformCursorPositions: cursorPositions,
-            platformDragIcons: dragIcons,
-            child: const _DesktopSecureStage(
-              child: ShellSurfaceHost(
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    DesktopShell(),
-                    SystemLevelHudLayer(),
-                    NotificationBannerLayer(),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
+      ),
     };
 
     return DenialLocalizationScope(
@@ -232,7 +236,8 @@ class _ShellContent extends ConsumerWidget {
     final primaryWindow = visual.primaryWindow;
     // Hide the fullscreen app whenever the swipe-up hero owns it: during the
     // drag, while the overview is open, and through the fly-away to home.
-    final heroOwnsForeground = visual.foregroundWindow != null &&
+    final heroOwnsForeground =
+        visual.foregroundWindow != null &&
         (visual.overviewVisible ||
             visual.swipeDy < 0.0 ||
             visual.homeTransitionActive);
@@ -245,7 +250,8 @@ class _ShellContent extends ConsumerWidget {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final viewSize = constraints.biggest;
-            final edgePanelOffset = ShellMetrics.edgePanelHeight(viewSize) *
+            final edgePanelOffset =
+                ShellMetrics.edgePanelHeight(viewSize) *
                 visual.edgePanelProgress;
             final viewportScroll = visual.edgePanelViewportScroll
                 .clamp(0.0, edgePanelOffset)
@@ -257,9 +263,7 @@ class _ShellContent extends ConsumerWidget {
                 fit: StackFit.expand,
                 children: [
                   const ShellWallpaper(),
-                  const RepaintBoundary(
-                    child: _LauncherLayer(),
-                  ),
+                  const RepaintBoundary(child: _LauncherLayer()),
                   if (primaryWindow != null)
                     Positioned.fill(
                       child: _PrimaryWindowStage(
@@ -334,17 +338,15 @@ class _DesktopSecureStage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final lock = ref.watch(
       shellControllerProvider.select(
-        (state) => (
-          locked: state.locked,
-          visible: state.lockLayerVisible,
-        ),
+        (state) => (locked: state.locked, visible: state.lockLayerVisible),
       ),
     );
     return UnlockTransitionHost(
       locked: lock.locked,
       lockLayerVisible: lock.visible,
-      onUnlockComplete:
-          ref.read(shellControllerProvider.notifier).completeUnlockTransition,
+      onUnlockComplete: ref
+          .read(shellControllerProvider.notifier)
+          .completeUnlockTransition,
       scene: child,
       chrome: const SizedBox.shrink(),
     );
@@ -358,14 +360,16 @@ class _LauncherLayer extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final flags = ref.watch(
       shellControllerProvider.select((state) {
-        final heroOwnsForeground = state.foregroundWindow != null &&
+        final heroOwnsForeground =
+            state.foregroundWindow != null &&
             (state.overviewVisible ||
                 state.gestureDrag.dy < 0.0 ||
                 state.homeTransitionActive);
         final active = state.primaryWindow == null || heroOwnsForeground;
         return (
           active: active,
-          interactive: active &&
+          interactive:
+              active &&
               !state.launchTransitionActive &&
               !state.overviewVisible &&
               !state.homeTransitionActive &&
@@ -485,14 +489,12 @@ class _UnlockTransitionHostState extends State<UnlockTransitionHost>
               backdrop: widget.backdrop,
               child: widget.scene,
             ),
-            _UnlockChromeStage(
-              progress: progress,
-              child: widget.chrome,
-            ),
+            _UnlockChromeStage(progress: progress, child: widget.chrome),
             if (widget.lockLayerVisible)
               _UnlockLockStage(
                 progress: rawProgress,
-                child: widget.lockLayerBuilder?.call(rawProgress) ??
+                child:
+                    widget.lockLayerBuilder?.call(rawProgress) ??
                     LockScreenLayer(unlockProgress: rawProgress),
               ),
           ],
@@ -532,9 +534,11 @@ class _UnlockApplicationStage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final approach = Motion.md3EmphasizedDecelerate
-        .transform(interval(progress, 0.04, 0.86));
-    final opacity = 0.90 +
+    final approach = Motion.md3EmphasizedDecelerate.transform(
+      interval(progress, 0.04, 0.86),
+    );
+    final opacity =
+        0.90 +
         0.10 *
             Motion.md3EmphasizedDecelerate.transform(
               interval(progress, 0.02, 0.36),
@@ -544,17 +548,11 @@ class _UnlockApplicationStage extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        Visibility(
-          visible: progress < 1.0,
-          child: backdrop,
-        ),
+        Visibility(visible: progress < 1.0, child: backdrop),
         ClipRect(
           child: Opacity(
             opacity: opacity,
-            child: Transform.scale(
-              scale: scale,
-              child: child,
-            ),
+            child: Transform.scale(scale: scale, child: child),
           ),
         ),
         if (progress > 0.0 && progress < 1.0)
@@ -569,27 +567,22 @@ class _UnlockApplicationStage extends StatelessWidget {
 }
 
 class _UnlockChromeStage extends StatelessWidget {
-  const _UnlockChromeStage({
-    required this.progress,
-    required this.child,
-  });
+  const _UnlockChromeStage({required this.progress, required this.child});
 
   final double progress;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    final opacity = Motion.md3EmphasizedDecelerate
-        .transform(interval(progress, 0.42, 0.78));
+    final opacity = Motion.md3EmphasizedDecelerate.transform(
+      interval(progress, 0.42, 0.78),
+    );
     return Opacity(opacity: opacity, child: child);
   }
 }
 
 class _UnlockLockStage extends StatelessWidget {
-  const _UnlockLockStage({
-    required this.progress,
-    required this.child,
-  });
+  const _UnlockLockStage({required this.progress, required this.child});
 
   final double progress;
   final Widget child;
@@ -623,9 +616,9 @@ class _UnlockAppRevealPainter extends CustomPainter {
     final rect = Offset.zero & size;
 
     final dimPaint = Paint()
-      ..color = const Color(0xff050608).withValues(
-        alpha: 0.22 * (1.0 - interval(p, 0.10, 0.70)),
-      );
+      ..color = const Color(
+        0xff050608,
+      ).withValues(alpha: 0.22 * (1.0 - interval(p, 0.10, 0.70)));
     canvas.drawRect(rect, dimPaint);
 
     final vignettePaint = Paint()
@@ -707,8 +700,9 @@ class _PrimaryWindowStage extends StatelessWidget {
   final double switchDragX;
   final double opacity;
   static const double _switchGap = ShellMetrics.appSwitchGap;
-  static const BorderRadius _switchRadius =
-      BorderRadius.all(Radius.circular(18));
+  static const BorderRadius _switchRadius = BorderRadius.all(
+    Radius.circular(18),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -728,8 +722,9 @@ class _PrimaryWindowStage extends StatelessWidget {
         final width = constraints.maxWidth;
         final travel = width + _switchGap;
         final dx = switchDragX.clamp(-travel, travel).toDouble();
-        final targetDx =
-            dx > 0.0 ? dx - width - _switchGap : dx + width + _switchGap;
+        final targetDx = dx > 0.0
+            ? dx - width - _switchGap
+            : dx + width + _switchGap;
 
         return Stack(
           fit: StackFit.expand,

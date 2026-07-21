@@ -4,47 +4,73 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:denial_dart_shell/src/input/shell_interaction_registry.dart';
 
 void main() {
-  test('interaction snapshot derives routing policy from registered surfaces',
-      () {
-    final registry = ShellInteractionRegistry();
-    addTearDown(registry.dispose);
-    final regionId = registry.reserveSurfaceId();
-    final modalId = registry.reserveSurfaceId();
+  test(
+    'interaction snapshot derives routing policy from registered surfaces',
+    () {
+      final container = ProviderContainer.test();
+      final registry = container.read(
+        shellInteractionRegistryProvider.notifier,
+      );
+      final regionId = registry.reserveSurfaceId();
+      final modalId = registry.reserveSurfaceId();
 
-    registry.upsert(ShellInteractionSurface(
-      id: regionId,
-      debugLabel: 'Dashboard',
-      pointerPolicy: ShellPointerPolicy.childBounds,
-      keyboardPolicy: ShellKeyboardPolicy.none,
-      compositorPolicy: ShellCompositorPolicy.normal,
-      bounds: const Rect.fromLTWH(10, 20, 300, 200),
-    ));
-    expect(
-      registry.state.childRegions,
-      const <Rect>[Rect.fromLTWH(10, 20, 300, 200)],
-    );
-    expect(registry.state.capturesFullScene, isFalse);
+      registry.upsert(
+        ShellInteractionSurface(
+          id: regionId,
+          debugLabel: 'Dashboard',
+          pointerPolicy: ShellPointerPolicy.childBounds,
+          keyboardPolicy: ShellKeyboardPolicy.none,
+          compositorPolicy: ShellCompositorPolicy.normal,
+          bounds: const Rect.fromLTWH(10, 20, 300, 200),
+        ),
+      );
+      expect(
+        container.read(shellInteractionRegistryProvider).childRegions,
+        const <Rect>[Rect.fromLTWH(10, 20, 300, 200)],
+      );
+      expect(
+        container.read(shellInteractionRegistryProvider).capturesFullScene,
+        isFalse,
+      );
 
-    registry.upsert(ShellInteractionSurface(
-      id: modalId,
-      debugLabel: 'Modal',
-      pointerPolicy: ShellPointerPolicy.fullScene,
-      keyboardPolicy: ShellKeyboardPolicy.capture,
-      compositorPolicy: ShellCompositorPolicy.exclusive,
-    ));
-    expect(registry.state.capturesFullScene, isTrue);
-    expect(registry.state.capturesKeyboard, isTrue);
-    expect(registry.state.compositorExclusive, isTrue);
+      registry.upsert(
+        ShellInteractionSurface(
+          id: modalId,
+          debugLabel: 'Modal',
+          pointerPolicy: ShellPointerPolicy.fullScene,
+          keyboardPolicy: ShellKeyboardPolicy.capture,
+          compositorPolicy: ShellCompositorPolicy.exclusive,
+        ),
+      );
+      expect(
+        container.read(shellInteractionRegistryProvider).capturesFullScene,
+        isTrue,
+      );
+      expect(
+        container.read(shellInteractionRegistryProvider).capturesKeyboard,
+        isTrue,
+      );
+      expect(
+        container.read(shellInteractionRegistryProvider).compositorExclusive,
+        isTrue,
+      );
 
-    registry.remove(modalId);
-    expect(registry.state.capturesFullScene, isFalse);
-    expect(registry.state.capturesKeyboard, isFalse);
-  });
+      registry.remove(modalId);
+      expect(
+        container.read(shellInteractionRegistryProvider).capturesFullScene,
+        isFalse,
+      );
+      expect(
+        container.read(shellInteractionRegistryProvider).capturesKeyboard,
+        isFalse,
+      );
+    },
+  );
 
-  testWidgets('child-bound input regions report transformed render geometry',
-      (tester) async {
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
+  testWidgets('child-bound input regions report transformed render geometry', (
+    tester,
+  ) async {
+    final container = ProviderContainer.test();
 
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -78,9 +104,6 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(
-      container.read(shellInteractionRegistryProvider).surfaces,
-      isEmpty,
-    );
+    expect(container.read(shellInteractionRegistryProvider).surfaces, isEmpty);
   });
 }
