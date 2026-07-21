@@ -1726,11 +1726,13 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
             children: [
               for (final layer in window.popupSurfaceLayers)
                 if (layer.textureId > 0)
-                  AnimatedPositioned.fromRect(
+                  _DesktopAnimatedWindowPosition(
                     key: ValueKey<int>(layer.surfaceId),
                     duration: duration,
-                    curve: Motion.md3Emphasized,
                     rect: window.mapSurfaceRect(layer, contentRect),
+                    overview: overview,
+                    switching: switching,
+                    dragging: placement.dragging,
                     child: SurfaceLayerTexture(
                       layer: layer,
                       filterQuality: filterQuality,
@@ -1855,13 +1857,12 @@ class _DesktopWindowFrame extends StatelessWidget {
       targetSize: targetContentSize,
       sourceSize: window.contentCoordinateRect.size,
     );
-    return AnimatedPositioned(
+    return _DesktopAnimatedWindowPosition(
       duration: placement.dragging ? Duration.zero : duration,
-      curve: Motion.md3Emphasized,
-      left: frame.left,
-      top: frame.top,
-      width: frame.width,
-      height: frame.height,
+      rect: frame,
+      overview: overview,
+      switching: switching,
+      dragging: placement.dragging,
       child: DesktopWindowReveal(
         key: ValueKey<String>('desktop-window-content-${window.objectId}'),
         enabled: !window.suppressAnimations,
@@ -1937,6 +1938,78 @@ class _DesktopWindowFrame extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _DesktopAnimatedWindowPosition extends StatefulWidget {
+  const _DesktopAnimatedWindowPosition({
+    super.key,
+    required this.duration,
+    required this.rect,
+    required this.overview,
+    required this.switching,
+    required this.dragging,
+    required this.child,
+  });
+
+  final Duration duration;
+  final Rect rect;
+  final bool overview;
+  final bool switching;
+  final bool dragging;
+  final Widget child;
+
+  @override
+  State<_DesktopAnimatedWindowPosition> createState() =>
+      _DesktopAnimatedWindowPositionState();
+}
+
+class _DesktopAnimatedWindowPositionState
+    extends State<_DesktopAnimatedWindowPosition> {
+  late Curve _curve;
+  bool _overviewTransitionActive = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _curve = widget.overview
+        ? Motion.overviewEnterCurve
+        : Motion.md3Emphasized;
+  }
+
+  @override
+  void didUpdateWidget(covariant _DesktopAnimatedWindowPosition oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final interruptedOverviewTransition = _overviewTransitionActive;
+    if (!oldWidget.overview && widget.overview) {
+      _curve = interruptedOverviewTransition
+          ? Motion.overviewReversalCurve
+          : Motion.overviewEnterCurve;
+      _overviewTransitionActive = true;
+    } else if (oldWidget.overview && !widget.overview) {
+      _curve = interruptedOverviewTransition
+          ? Motion.overviewReversalCurve
+          : Motion.overviewExitCurve;
+      _overviewTransitionActive = true;
+    } else if (widget.switching || oldWidget.switching) {
+      _curve = Motion.md3Emphasized;
+      _overviewTransitionActive = false;
+    } else if (!_overviewTransitionActive &&
+        !widget.overview &&
+        widget.rect != oldWidget.rect) {
+      _curve = Motion.standard;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedPositioned.fromRect(
+      duration: widget.dragging ? Duration.zero : widget.duration,
+      curve: _curve,
+      rect: widget.rect,
+      onEnd: () => _overviewTransitionActive = false,
+      child: widget.child,
     );
   }
 }
