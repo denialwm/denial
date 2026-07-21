@@ -6,10 +6,28 @@ import 'package:denial_dart_shell/src/desktop/desktop_workspace.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/models/denial_window.dart';
 import 'package:denial_dart_shell/src/models/denial_window_event.dart';
+import 'package:denial_dart_shell/src/theme/motion.dart';
 
 void main() {
   const viewSize = Size(5120, 1440);
   const secondOutput = Rect.fromLTWH(2560, 0, 2560, 1440);
+
+  test('overview position curves ease smoothly at both endpoints', () {
+    for (final curve in <Curve>[
+      Motion.overviewEnterCurve,
+      Motion.overviewExitCurve,
+    ]) {
+      expect(curve.transform(0.01), lessThan(0.001));
+      expect(1.0 - curve.transform(0.99), lessThan(0.001));
+    }
+    expect(Motion.overviewEnterCurve.transform(0.5), greaterThan(0.75));
+    expect(Motion.overviewExitCurve.transform(0.5), closeTo(0.5, 0.001));
+    expect(Motion.overviewReversalCurve.transform(0.01), greaterThan(0.003));
+    expect(
+      1.0 - Motion.overviewReversalCurve.transform(0.99),
+      lessThan(0.001),
+    );
+  });
 
   test('new windows preserve compositor-assigned geometry', () {
     final controller = DesktopWorkspaceController();
