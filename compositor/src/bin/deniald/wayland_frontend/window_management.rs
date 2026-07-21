@@ -508,25 +508,73 @@ pub(super) fn toggle_shell_fullscreen_focused_toplevel(state: &mut RuntimeState)
         return false;
     };
 
+    let client_fullscreen = if let Some(toplevel) = window.toplevel() {
+        toplevel_has_state(toplevel, xdg_toplevel::State::Fullscreen)
+    } else if let Some(x11) = window.x11_surface() {
+        x11.is_fullscreen()
+    } else {
+        false
+    };
+
     // SUPER+F is a shell-owned geometry toggle. Do not set the XDG fullscreen
     // state here: doing so asks the client to enter its own fullscreen mode.
     // Flutter tracks the restore frame and sends back a plain ConfigureWindow
     // command with the output-sized (or restored) geometry.
-    {
+    let transition = {
         let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
-        let Some(enabled) = frontend.toggle_shell_fullscreen_lock(&window) else {
+        let Some(transition) = frontend.toggle_shell_fullscreen_lock(&window, client_fullscreen)
+        else {
             return true;
         };
-        frontend.remember_window_placement(&window);
-        if !enabled && let Some(root) = frontend.window_root_surface(&window) {
-            frontend
-                .shell_fullscreen_restore_geometries
-                .remove(&root.id());
+        transition
+    };
+    match transition {
+        super::ShellFullscreenTransition::Blocked => return true,
+        super::ShellFullscreenTransition::EnterShell => {
+            state
+                .wayland
+                .as_mut()
+                .expect("missing Wayland frontend")
+                .remember_window_placement(&window);
+        }
+        super::ShellFullscreenTransition::ExitShell => {
+            let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+            frontend.remember_window_placement(&window);
+            if let Some(root) = frontend.window_root_surface(&window) {
+                frontend
+                    .shell_fullscreen_restore_geometries
+                    .remove(&root.id());
+            }
+        }
+        super::ShellFullscreenTransition::ExitClient => {
+            exit_client_fullscreen_for_shell_shortcut(state, &window);
+            let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+            if let Some(root) = frontend.window_root_surface(&window) {
+                frontend
+                    .shell_fullscreen_restore_geometries
+                    .remove(&root.id());
+            }
         }
     }
     queue_window_action_for_window(state, &window, WindowAction::ToggleFullscreen);
     state.scene_sync.mark_dirty();
     true
+}
+
+#[cfg(feature = "flutter")]
+fn exit_client_fullscreen_for_shell_shortcut(state: &mut RuntimeState, window: &Window) {
+    if let Some(toplevel) = window.toplevel().cloned() {
+        clear_toplevel_state(state, &toplevel, xdg_toplevel::State::Fullscreen);
+        return;
+    }
+
+    let Some(x11) = window.x11_surface().cloned() else {
+        return;
+    };
+    if let Err(error) = x11.set_fullscreen(false) {
+        warn!(%error, window = x11.window_id(), "could not leave X11 fullscreen for SUPER+F");
+    }
+    super::xwayland::configure_x11_for_output(state, &x11, false, false);
 }
 
 pub(super) fn configure_toplevel_for_output(

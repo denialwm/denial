@@ -81,7 +81,7 @@ impl NativeEscapeShortcut {
                     self.logo_chorded = false;
                 }
                 self.logo_keys |= bit;
-                return ShortcutDisposition::Forward;
+                return ShortcutDisposition::Consume;
             }
 
             self.logo_keys &= !bit;
@@ -97,10 +97,10 @@ impl NativeEscapeShortcut {
                 return if open_applications {
                     ShortcutDisposition::RequestApplications
                 } else {
-                    ShortcutDisposition::Forward
+                    ShortcutDisposition::Consume
                 };
             }
-            return ShortcutDisposition::Forward;
+            return ShortcutDisposition::Consume;
         }
 
         if pressed && self.logo_keys != 0 {
@@ -227,6 +227,12 @@ impl NativeEscapeShortcut {
         }
     }
 
+    /// Whether either physical SUPER key is currently compositor-owned.
+    #[cfg(any(feature = "flutter", test))]
+    pub(super) fn super_pressed(&self) -> bool {
+        self.logo_keys != 0
+    }
+
     pub(super) fn reset(&mut self) {
         *self = Self::default();
     }
@@ -333,7 +339,7 @@ mod tests {
     fn standalone_super_release_requests_applications() {
         for key in [KEY_LEFT_META, KEY_RIGHT_META] {
             let mut shortcut = NativeEscapeShortcut::default();
-            assert_eq!(press(&mut shortcut, key), ShortcutDisposition::Forward);
+            assert_eq!(press(&mut shortcut, key), ShortcutDisposition::Consume);
             assert_eq!(
                 release(&mut shortcut, key),
                 ShortcutDisposition::RequestApplications
@@ -349,30 +355,35 @@ mod tests {
         release(&mut shortcut, 31);
         assert_eq!(
             release(&mut shortcut, KEY_LEFT_META),
-            ShortcutDisposition::Forward
+            ShortcutDisposition::Consume
         );
 
         press(&mut shortcut, KEY_LEFT_META);
         shortcut.note_pointer_button(true);
         assert_eq!(
             release(&mut shortcut, KEY_LEFT_META),
-            ShortcutDisposition::Forward
+            ShortcutDisposition::Consume
         );
     }
 
     #[test]
     fn both_super_keys_trigger_only_after_the_last_release() {
         let mut shortcut = NativeEscapeShortcut::default();
+        assert!(!shortcut.super_pressed());
         press(&mut shortcut, KEY_LEFT_META);
+        assert!(shortcut.super_pressed());
         press(&mut shortcut, KEY_RIGHT_META);
+        assert!(shortcut.super_pressed());
         assert_eq!(
             release(&mut shortcut, KEY_LEFT_META),
-            ShortcutDisposition::Forward
+            ShortcutDisposition::Consume
         );
+        assert!(shortcut.super_pressed());
         assert_eq!(
             release(&mut shortcut, KEY_RIGHT_META),
             ShortcutDisposition::RequestApplications
         );
+        assert!(!shortcut.super_pressed());
     }
 
     #[test]
@@ -387,14 +398,14 @@ mod tests {
             let mut shortcut = NativeEscapeShortcut::default();
             assert_eq!(
                 press(&mut shortcut, KEY_LEFT_META),
-                ShortcutDisposition::Forward
+                ShortcutDisposition::Consume
             );
             assert_eq!(press(&mut shortcut, key), request);
             assert_eq!(press(&mut shortcut, key), ShortcutDisposition::Consume);
             assert_eq!(release(&mut shortcut, key), ShortcutDisposition::Consume);
             assert_eq!(
                 release(&mut shortcut, KEY_LEFT_META),
-                ShortcutDisposition::Forward
+                ShortcutDisposition::Consume
             );
         }
     }
@@ -405,7 +416,7 @@ mod tests {
 
         assert_eq!(
             press(&mut shortcut, KEY_LEFT_META),
-            ShortcutDisposition::Forward
+            ShortcutDisposition::Consume
         );
         assert_eq!(
             press(&mut shortcut, KEY_ESCAPE),
@@ -417,7 +428,7 @@ mod tests {
         );
         assert_eq!(
             release(&mut shortcut, KEY_LEFT_META),
-            ShortcutDisposition::Forward
+            ShortcutDisposition::Consume
         );
         assert_eq!(
             release(&mut shortcut, KEY_ESCAPE),
@@ -431,7 +442,7 @@ mod tests {
 
         assert_eq!(
             press(&mut shortcut, KEY_LEFT_META),
-            ShortcutDisposition::Forward
+            ShortcutDisposition::Consume
         );
         assert_eq!(
             press(&mut shortcut, KEY_A),
@@ -441,7 +452,7 @@ mod tests {
         assert_eq!(release(&mut shortcut, KEY_A), ShortcutDisposition::Consume);
         assert_eq!(
             release(&mut shortcut, KEY_LEFT_META),
-            ShortcutDisposition::Forward
+            ShortcutDisposition::Consume
         );
     }
 
@@ -488,7 +499,7 @@ mod tests {
         );
         assert_eq!(
             release(&mut shortcut, KEY_RIGHT_META),
-            ShortcutDisposition::Forward
+            ShortcutDisposition::Consume
         );
     }
 
@@ -511,7 +522,7 @@ mod tests {
         );
         assert_eq!(
             release(&mut shortcut, KEY_LEFT_META),
-            ShortcutDisposition::Forward
+            ShortcutDisposition::Consume
         );
         assert_eq!(release(&mut shortcut, KEY_F), ShortcutDisposition::Consume);
     }
@@ -536,13 +547,13 @@ mod tests {
 
             assert_eq!(
                 press(&mut shortcut, KEY_LEFT_META),
-                ShortcutDisposition::Forward
+                ShortcutDisposition::Consume
             );
             assert_eq!(press(&mut shortcut, key), brightness);
             assert_eq!(press(&mut shortcut, key), brightness);
             assert_eq!(
                 release(&mut shortcut, KEY_LEFT_META),
-                ShortcutDisposition::Forward
+                ShortcutDisposition::Consume
             );
             assert_eq!(release(&mut shortcut, key), ShortcutDisposition::Consume);
         }
@@ -568,7 +579,7 @@ mod tests {
         );
         assert_eq!(
             release(&mut shortcut, KEY_LEFT_META),
-            ShortcutDisposition::Forward
+            ShortcutDisposition::Consume
         );
     }
 }

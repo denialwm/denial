@@ -339,7 +339,8 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
 
   final Map<int, Offset> _moveRemainders = <int, Offset>{};
   final Map<int, Rect> _pendingNativeFrames = <int, Rect>{};
-  final Map<int, Rect> _overviewDragOrigins = <int, Rect>{};
+  final Map<int, ({Rect frame, int z})> _overviewDragOrigins =
+      <int, ({Rect frame, int z})>{};
   List<DenialWindow>? _lastSyncedWindows;
   int _lastSyncedSnapshotSequence = -1;
   double _devicePixelRatio = 1.0;
@@ -564,12 +565,15 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
       return;
     }
     if (state.overview != null && nextOverview == null) {
-      _overviewDragOrigins.clear();
       for (final entry in next.entries.toList(growable: false)) {
         if (entry.value.dragging) {
-          next[entry.key] = entry.value.copyWith(dragging: false);
+          next[entry.key] = entry.value.copyWith(
+            z: _overviewDragOrigins[entry.key]?.z,
+            dragging: false,
+          );
         }
       }
+      _overviewDragOrigins.clear();
     }
     state = state.copyWith(
       placements: next,
@@ -664,7 +668,10 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     final next = <int, DesktopWindowPlacement>{
       for (final placement in state.placements.values)
         placement.objectId: placement.dragging
-            ? placement.copyWith(dragging: false)
+            ? placement.copyWith(
+                z: _overviewDragOrigins[placement.objectId]?.z,
+                dragging: false,
+              )
             : placement,
     };
     _overviewDragOrigins.clear();
@@ -678,13 +685,25 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     final overview = state.overview;
     final placement = state.placements[objectId];
     final previewFrame = overview?.frames[objectId];
-    if (overview == null || placement == null || previewFrame == null) {
+    if (overview == null ||
+        placement == null ||
+        previewFrame == null ||
+        placement.dragging) {
       return;
     }
-    _overviewDragOrigins[objectId] = previewFrame;
+    _overviewDragOrigins[objectId] = (
+      frame: previewFrame,
+      z: placement.z,
+    );
     final next = Map<int, DesktopWindowPlacement>.of(state.placements);
-    next[objectId] = placement.copyWith(dragging: true);
-    state = state.copyWith(placements: next);
+    next[objectId] = placement.copyWith(
+      z: state.nextZ,
+      dragging: true,
+    );
+    state = state.copyWith(
+      placements: next,
+      nextZ: state.nextZ + 1,
+    );
   }
 
   void moveOverviewBy(int objectId, Offset delta) {
@@ -780,7 +799,6 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     final transferred = placement.copyWith(
       frame: destinationFrame,
       monitorId: targetMonitorId,
-      z: state.nextZ,
       minimized: false,
       dragging: false,
       restoreFrame: shiftedRestoreFrame(placement.restoreFrame),
@@ -791,7 +809,6 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     _overviewDragOrigins.clear();
     state = state.copyWith(
       placements: next,
-      nextZ: state.nextZ + 1,
       clearOverview: true,
     );
     return true;
@@ -815,10 +832,13 @@ class DesktopWorkspaceController extends StateNotifier<DesktopWorkspaceState> {
     final frames = Map<int, Rect>.of(overview.frames);
     final origin = _overviewDragOrigins.remove(objectId);
     if (origin != null) {
-      frames[objectId] = origin;
+      frames[objectId] = origin.frame;
     }
     final next = Map<int, DesktopWindowPlacement>.of(state.placements);
-    next[objectId] = placement.copyWith(dragging: false);
+    next[objectId] = placement.copyWith(
+      z: origin?.z,
+      dragging: false,
+    );
     state = state.copyWith(
       placements: next,
       overview: DesktopOverviewState(

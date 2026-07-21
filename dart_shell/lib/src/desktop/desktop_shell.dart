@@ -677,6 +677,7 @@ List<Widget> _buildDesktopWindowLayers({
           placement: placement,
           frame: frame,
           minimized: !visible,
+          overviewActive: desktop.overviewActive,
           overview: overview,
           switching: switching,
           motionDuration: motionDuration,
@@ -1823,6 +1824,7 @@ class _DesktopWindowFrame extends StatelessWidget {
     required this.placement,
     required this.frame,
     required this.minimized,
+    required this.overviewActive,
     required this.overview,
     required this.switching,
     required this.motionDuration,
@@ -1838,6 +1840,7 @@ class _DesktopWindowFrame extends StatelessWidget {
   final DesktopWindowPlacement placement;
   final Rect frame;
   final bool minimized;
+  final bool overviewActive;
   final bool overview;
   final bool switching;
   final Duration motionDuration;

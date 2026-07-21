@@ -285,6 +285,33 @@ pub(super) struct WaylandFrontend {
     atlas_size: Size<i32, Physical>,
 }
 
+#[cfg(feature = "flutter")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ShellFullscreenTransition {
+    EnterShell,
+    ExitShell,
+    ExitClient,
+    Blocked,
+}
+
+#[cfg(feature = "flutter")]
+fn shell_fullscreen_transition(
+    client_fullscreen: bool,
+    shell_fullscreen: bool,
+    geometry_locked: bool,
+) -> ShellFullscreenTransition {
+    if client_fullscreen {
+        return ShellFullscreenTransition::ExitClient;
+    }
+    if shell_fullscreen {
+        return ShellFullscreenTransition::ExitShell;
+    }
+    if geometry_locked {
+        return ShellFullscreenTransition::Blocked;
+    }
+    ShellFullscreenTransition::EnterShell
+}
+
 struct WaylandOutput {
     id: OutputId,
     connector: String,
@@ -829,14 +856,25 @@ impl WaylandFrontend {
     }
 
     #[cfg(feature = "flutter")]
-    pub(super) fn toggle_shell_fullscreen_lock(&mut self, window: &Window) -> Option<bool> {
+    pub(super) fn toggle_shell_fullscreen_lock(
+        &mut self,
+        window: &Window,
+        client_fullscreen: bool,
+    ) -> Option<ShellFullscreenTransition> {
         let root_surface = self.window_root_surface(window)?;
         let object_id = root_surface.id();
-        if self.shell_fullscreen_locks.remove(&object_id) {
-            return Some(false);
-        }
-        if self.window_geometry_locked(window) {
-            return None;
+        let transition = shell_fullscreen_transition(
+            client_fullscreen,
+            self.shell_fullscreen_locks.contains(&object_id),
+            self.window_geometry_locked(window),
+        );
+        match transition {
+            ShellFullscreenTransition::ExitShell | ShellFullscreenTransition::ExitClient => {
+                self.shell_fullscreen_locks.remove(&object_id);
+                return Some(transition);
+            }
+            ShellFullscreenTransition::Blocked => return Some(transition),
+            ShellFullscreenTransition::EnterShell => {}
         }
         let preserve_maximized = self.window_placement_state(window).maximized;
         let restore = self
@@ -853,7 +891,7 @@ impl WaylandFrontend {
         self.shell_fullscreen_restore_geometries
             .insert(object_id.clone(), restore);
         self.shell_fullscreen_locks.insert(object_id);
-        Some(true)
+        Some(transition)
     }
 
     pub(super) fn window_for_root_surface(&self, surface: &WlSurface) -> Option<Window> {
@@ -2451,7 +2489,8 @@ smithay::delegate_dispatch2!(RuntimeState);
 mod tests {
     #[cfg(feature = "flutter")]
     use super::{
-        CursorImageStatus, input_routing_changed, input_visibility_changed, software_cursor_shape,
+        CursorImageStatus, ShellFullscreenTransition, input_routing_changed,
+        input_visibility_changed, shell_fullscreen_transition, software_cursor_shape,
         window_expects_sample,
     };
     use super::{MAX_PENDING_DMABUF_IMPORTS, dmabuf_import_queue_has_capacity};
@@ -2515,5 +2554,17 @@ mod tests {
         assert!(window_expects_sample(false, &visible, 7));
         assert!(window_expects_sample(true, &visible, 42));
         assert!(!window_expects_sample(true, &visible, 7));
+    }
+
+    #[cfg(feature = "flutter")]
+    #[test]
+    fn client_fullscreen_shortcut_exits_across_input_layout_races() {
+        use ShellFullscreenTransition::{EnterShell, ExitClient, ExitShell};
+
+        assert_eq!(shell_fullscreen_transition(true, false, true), ExitClient);
+        assert_eq!(shell_fullscreen_transition(true, false, false), ExitClient);
+        assert_eq!(shell_fullscreen_transition(true, true, true), ExitClient);
+        assert_eq!(shell_fullscreen_transition(false, true, true), ExitShell);
+        assert_eq!(shell_fullscreen_transition(false, false, false), EnterShell);
     }
 }

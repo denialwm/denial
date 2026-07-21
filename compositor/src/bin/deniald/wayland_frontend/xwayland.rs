@@ -355,7 +355,7 @@ fn unmap_x11_window(state: &mut RuntimeState, surface: &X11Surface) {
     state.scene_sync.mark_dirty();
 }
 
-fn configure_x11_for_output(
+pub(super) fn configure_x11_for_output(
     state: &mut RuntimeState,
     surface: &X11Surface,
     enabled: bool,

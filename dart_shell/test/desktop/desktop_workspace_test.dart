@@ -363,6 +363,7 @@ void main() {
       objectIds: const <int>{1},
     );
 
+    final raisedZ = controller.state.nextZ;
     controller.beginOverviewDrag(1);
     controller.moveOverviewBy(1, const Offset(2560, 0));
     final previewCenter = controller.state.overview!.frames[1]!.center;
@@ -383,12 +384,74 @@ void main() {
     expect(controller.state.overview, isNull);
     expect(placement.monitorId, 2);
     expect(placement.dragging, isFalse);
+    expect(placement.z, raisedZ);
+    expect(controller.state.nextZ, raisedZ + 1);
     expect(placement.frame.center, previewCenter);
     expect(secondOutput.contains(placement.frame.topLeft), isTrue);
     expect(
       secondOutput.contains(placement.frame.bottomRight - const Offset(1, 1)),
       isTrue,
     );
+  });
+
+  test('overview drag raises every window state for the whole gesture', () {
+    for (final mode in <String>['normal', 'maximized', 'fullscreen']) {
+      final controller = DesktopWorkspaceController();
+      addTearDown(controller.dispose);
+      controller.syncWindows(
+        <DenialWindow>[
+          _window(objectId: 1, windowId: 11, monitorId: 1),
+          _window(objectId: 2, windowId: 22, monitorId: 2),
+        ],
+        viewSize,
+        1,
+      );
+      if (mode != 'normal') {
+        controller.toggleMaximized(
+          1,
+          bounds: const Rect.fromLTWH(0, 0, 2560, 1440),
+        );
+      }
+      if (mode == 'fullscreen') {
+        controller.toggleFullscreen(
+          1,
+          bounds: const Rect.fromLTWH(0, 0, 2560, 1440),
+        );
+      }
+      controller.toggleOverview(
+        monitorId: 1,
+        bounds: const Rect.fromLTWH(0, 0, 2560, 1440),
+        backgroundBounds: const Rect.fromLTWH(0, 0, 2560, 1440),
+        objectIds: const <int>{1},
+      );
+
+      final original = controller.state.placements[1]!;
+      final blockingZ = controller.state.placements[2]!.z;
+      final raisedZ = controller.state.nextZ;
+      expect(original.z, lessThan(blockingZ), reason: mode);
+
+      controller.beginOverviewDrag(1);
+
+      final dragging = controller.state.placements[1]!;
+      expect(dragging.dragging, isTrue, reason: mode);
+      expect(dragging.z, raisedZ, reason: mode);
+      expect(dragging.z, greaterThan(blockingZ), reason: mode);
+      expect(controller.state.nextZ, raisedZ + 1, reason: mode);
+      expect(dragging.frame, original.frame, reason: mode);
+      expect(dragging.maximized, original.maximized, reason: mode);
+      expect(dragging.fullscreen, original.fullscreen, reason: mode);
+      expect(dragging.restoreFrame, original.restoreFrame, reason: mode);
+      expect(
+        dragging.fullscreenRestoreFrame,
+        original.fullscreenRestoreFrame,
+        reason: mode,
+      );
+
+      controller.cancelOverviewDrag(1);
+      final cancelled = controller.state.placements[1]!;
+      expect(cancelled.dragging, isFalse, reason: mode);
+      expect(cancelled.z, original.z, reason: mode);
+    }
   });
 
   test('cancelled overview drag restores its arranged preview', () {

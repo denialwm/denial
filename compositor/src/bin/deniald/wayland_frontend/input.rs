@@ -751,9 +751,7 @@ fn intercept_native_escape(
         ShortcutDisposition::RequestApplications => {
             #[cfg(feature = "flutter")]
             state.queue_shell_action(super::super::wire::ShellAction::Applications, None);
-            // The SUPER release still belongs to the focused client, balancing
-            // the press we forwarded before deciding this was a tap.
-            false
+            true
         }
         ShortcutDisposition::RequestOverview => {
             #[cfg(feature = "flutter")]
@@ -777,9 +775,7 @@ fn intercept_native_escape(
         ShortcutDisposition::RequestWindowSwitcherEnd => {
             #[cfg(feature = "flutter")]
             state.queue_shell_action(super::super::wire::ShellAction::WindowSwitcherEnd, None);
-            // Match Hyprland's transparent SUPER release bind: the client saw
-            // the modifier press and must also see the balancing release.
-            false
+            true
         }
         ShortcutDisposition::RequestMinimize => {
             #[cfg(feature = "flutter")]
@@ -1128,15 +1124,10 @@ fn process_flutter_input_event(
                     .expect("missing Wayland frontend")
                     .forget_client_pointer_button(button_code);
             }
-            let logo = state
-                .wayland
-                .as_ref()
-                .expect("missing Wayland frontend")
-                .seat
-                .get_keyboard()
-                .expect("seat has no keyboard")
-                .modifier_state()
-                .logo;
+            // SUPER is compositor-owned and deliberately never enters the
+            // client-facing seat state. Use the native physical-key tracker
+            // for compositor pointer chords instead of Smithay's modifiers.
+            let logo = state.native_escape_shortcut.super_pressed();
             if !pointer_grabbed
                 && button.state() == ButtonState::Pressed
                 && let InputTarget::Client(route) = &target
@@ -2238,10 +2229,10 @@ mod native_escape_tests {
     fn super_escape_is_consumed_even_without_an_active_client() {
         let mut runtime = RuntimeState::default();
 
-        assert!(!input(&mut runtime, XKB_LEFT_META, KeyState::Pressed));
+        assert!(input(&mut runtime, XKB_LEFT_META, KeyState::Pressed));
         assert!(input(&mut runtime, XKB_ESCAPE, KeyState::Pressed));
         assert!(input(&mut runtime, XKB_ESCAPE, KeyState::Pressed));
-        assert!(!input(&mut runtime, XKB_LEFT_META, KeyState::Released));
+        assert!(input(&mut runtime, XKB_LEFT_META, KeyState::Released));
         assert!(input(&mut runtime, XKB_ESCAPE, KeyState::Released));
     }
 
@@ -2250,20 +2241,20 @@ mod native_escape_tests {
     fn native_shell_chords_queue_the_cpp_equivalent_actions() {
         let mut runtime = RuntimeState::default();
 
-        assert!(!input(&mut runtime, XKB_LEFT_META, KeyState::Pressed));
+        assert!(input(&mut runtime, XKB_LEFT_META, KeyState::Pressed));
         assert!(input(&mut runtime, XKB_A, KeyState::Pressed));
         assert!(input(&mut runtime, XKB_A, KeyState::Released));
-        assert!(!input(&mut runtime, XKB_LEFT_META, KeyState::Released));
+        assert!(input(&mut runtime, XKB_LEFT_META, KeyState::Released));
         assert_eq!(
             runtime.pending_shell_actions.pop_front(),
             Some((super::super::super::wire::ShellAction::Overview, None))
         );
 
-        assert!(!input(&mut runtime, XKB_LEFT_META, KeyState::Pressed));
+        assert!(input(&mut runtime, XKB_LEFT_META, KeyState::Pressed));
         assert!(input(&mut runtime, XKB_TAB, KeyState::Pressed));
         assert!(input(&mut runtime, XKB_TAB, KeyState::Released));
         assert!(input(&mut runtime, XKB_TAB, KeyState::Pressed));
-        assert!(!input(&mut runtime, XKB_LEFT_META, KeyState::Released));
+        assert!(input(&mut runtime, XKB_LEFT_META, KeyState::Released));
         assert!(input(&mut runtime, XKB_TAB, KeyState::Pressed));
         assert!(input(&mut runtime, XKB_TAB, KeyState::Released));
         assert_eq!(
