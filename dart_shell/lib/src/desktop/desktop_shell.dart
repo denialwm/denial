@@ -45,6 +45,7 @@ import '../widgets/window_surface_tree.dart';
 import '../widgets/shade/range_bar.dart';
 import '../wallpaper/state/wallpaper_controller.dart';
 import '../wallpaper/widgets/wallpaper_selector_surface.dart';
+import 'desktop_overview_layout.dart';
 import 'desktop_overview_target.dart';
 import 'desktop_system_bar.dart';
 import 'desktop_texture_resize.dart';
@@ -121,14 +122,24 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     if (previous != null && previous.isSelecting) {
       final activeSessionIds = previous.objectIds
           .where(
-            (objectId) =>
-                windowsById.containsKey(objectId) &&
-                workspace.placements.containsKey(objectId),
+            (objectId) {
+              final placement = workspace.placements[objectId];
+              return windowsById.containsKey(objectId) &&
+                  placement != null &&
+                  DesktopOverviewLayout.isUsefulPreview(placement.frame);
+            },
           )
           .toList(growable: false);
+      if (activeSessionIds.length < 2) {
+        _cancelWindowSwitcher();
+        return;
+      }
+      final sourceObjectId = activeSessionIds.contains(previous.sourceObjectId)
+          ? previous.sourceObjectId
+          : activeSessionIds.first;
       final next = controller.beginOrAdvance(
         objectIds: activeSessionIds,
-        sourceObjectId: previous.sourceObjectId,
+        sourceObjectId: sourceObjectId,
       );
       if (next == null) {
         _cancelWindowSwitcher();
