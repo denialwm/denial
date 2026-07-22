@@ -4,15 +4,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 
-enum ShellOskKeyAction {
-  text,
-  key,
-  space,
-  backspace,
-  enter,
-}
+enum ShellOskKeyAction { text, key, space, backspace, enter }
 
 class ShellOskKeyIntent {
   const ShellOskKeyIntent._({
@@ -23,32 +18,24 @@ class ShellOskKeyIntent {
   });
 
   const ShellOskKeyIntent.text(String value)
-      : this._(action: ShellOskKeyAction.text, text: value);
+    : this._(action: ShellOskKeyAction.text, text: value);
 
   const ShellOskKeyIntent.key(String value, {bool ctrl = false})
-      : this._(action: ShellOskKeyAction.key, key: value, ctrl: ctrl);
+    : this._(action: ShellOskKeyAction.key, key: value, ctrl: ctrl);
 
   const ShellOskKeyIntent.space({bool ctrl = false})
-      : this._(
-          action: ShellOskKeyAction.space,
-          text: ' ',
-          key: 'space',
-          ctrl: ctrl,
-        );
+    : this._(
+        action: ShellOskKeyAction.space,
+        text: ' ',
+        key: 'space',
+        ctrl: ctrl,
+      );
 
   const ShellOskKeyIntent.backspace({bool ctrl = false})
-      : this._(
-          action: ShellOskKeyAction.backspace,
-          key: 'BackSpace',
-          ctrl: ctrl,
-        );
+    : this._(action: ShellOskKeyAction.backspace, key: 'BackSpace', ctrl: ctrl);
 
   const ShellOskKeyIntent.enter({bool ctrl = false})
-      : this._(
-          action: ShellOskKeyAction.enter,
-          key: 'Return',
-          ctrl: ctrl,
-        );
+    : this._(action: ShellOskKeyAction.enter, key: 'Return', ctrl: ctrl);
 
   final ShellOskKeyAction action;
   final String? text;
@@ -84,7 +71,8 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
         final topPadding = compact ? 10.0 : 14.0;
         final keyGap = compact ? 5.0 : 6.0;
         final rowGap = compact ? 6.0 : 7.0;
-        final availableHeight = constraints.maxHeight -
+        final availableHeight =
+            constraints.maxHeight -
             topPadding -
             bottomPadding -
             rowGap * (rows.length - 1);
@@ -337,14 +325,14 @@ class _OskKeyButtonState extends State<_OskKeyButton>
   @override
   Widget build(BuildContext context) {
     final control = widget.spec.control;
+    final accent = ShellTheme.of(context).accent;
     final background = _backgroundFor(widget.spec, widget.selected);
-    final baseBorder =
-        widget.selected ? ShellColors.accent : ShellColors.hairlineSoft;
+    final baseBorder = widget.selected ? accent : ShellColors.hairlineSoft;
     final baseForeground = widget.selected
         ? ShellColors.onPrimaryContainer
         : control == null
-            ? ShellColors.panelText
-            : ShellColors.textSecondary;
+        ? ShellColors.panelText
+        : ShellColors.textSecondary;
 
     return Listener(
       behavior: HitTestBehavior.opaque,
@@ -364,20 +352,14 @@ class _OskKeyButtonState extends State<_OskKeyButton>
               ShellColors.panelText,
               glow * 0.55,
             )!;
-            final border = Color.lerp(
-              baseBorder,
-              ShellColors.accent,
-              glow,
-            )!;
+            final border = Color.lerp(baseBorder, accent, glow)!;
             final glowAlpha = (132 * glow).round().clamp(0, 255);
 
             return DecoratedBox(
               decoration: BoxDecoration(
                 color: Color.lerp(
                   background,
-                  widget.selected
-                      ? ShellColors.onPrimaryContainer
-                      : ShellColors.accent,
+                  widget.selected ? ShellColors.onPrimaryContainer : accent,
                   glow * 0.48,
                 ),
                 borderRadius: BorderRadius.circular(16),
@@ -386,7 +368,7 @@ class _OskKeyButtonState extends State<_OskKeyButton>
                     ? const []
                     : [
                         BoxShadow(
-                          color: ShellColors.accent.withAlpha(glowAlpha),
+                          color: accent.withAlpha(glowAlpha),
                           blurRadius: 22 * glow,
                           spreadRadius: 1.2 * glow,
                         ),
@@ -442,11 +424,7 @@ class _OskKeyButtonState extends State<_OskKeyButton>
   }
 
   void _fadeOut() {
-    _glow.animateTo(
-      0,
-      duration: _fadeOutDuration,
-      curve: Curves.linear,
-    );
+    _glow.animateTo(0, duration: _fadeOutDuration, curve: Curves.linear);
   }
 
   Color _backgroundFor(_OskKeySpec spec, bool selected) {
@@ -494,11 +472,7 @@ class _OskKeyLabel extends StatelessWidget {
   }
 }
 
-enum _OskLayer {
-  letters,
-  numbers,
-  symbols,
-}
+enum _OskLayer { letters, numbers, symbols }
 
 enum _OskControl {
   shift,
@@ -521,9 +495,9 @@ class _OskRowData {
 
 class _OskKeySpec {
   const _OskKeySpec.text(this.value, {this.flex = 10})
-      : control = null,
-        label = null,
-        icon = null;
+    : control = null,
+      label = null,
+      icon = null;
 
   const _OskKeySpec.control(
     this.control, {

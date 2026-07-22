@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 
 import '../../models/denial_window.dart';
 import '../../theme/motion.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../window_hero.dart';
 import 'overview_carousel.dart';
@@ -75,12 +76,14 @@ class _OverviewLayerState extends State<OverviewLayer>
       vsync: this,
       value: widget.visible ? 1.0 : 0.0,
     );
-    _focusController =
-        AnimationController(vsync: this, duration: Motion.focusZoom)
-          ..addStatusListener(_handleFocusStatus);
-    _homeController =
-        AnimationController(vsync: this, duration: Motion.homeFlyAway)
-          ..addStatusListener(_handleHomeStatus);
+    _focusController = AnimationController(
+      vsync: this,
+      duration: Motion.focusZoom,
+    )..addStatusListener(_handleFocusStatus);
+    _homeController = AnimationController(
+      vsync: this,
+      duration: Motion.homeFlyAway,
+    )..addStatusListener(_handleHomeStatus);
     _pageController = PageController(viewportFraction: _pageViewportFraction);
     if (widget.visible) {
       _scheduleForegroundPageJump();
@@ -191,27 +194,28 @@ class _OverviewLayerState extends State<OverviewLayer>
           }
 
           final viewSize = MediaQuery.sizeOf(context);
-          final heroWindow =
-              homeActive ? null : _foregroundHeroWindow(progress);
+          final heroWindow = homeActive
+              ? null
+              : _foregroundHeroWindow(progress);
 
           final overviewContent = widget.windows.isEmpty
               ? _EmptyOverviewState(progress: progress)
               : viewSize.width > viewSize.height
-                  ? OverviewGrid(
-                      windows: widget.windows,
-                      progress: progress,
-                      foregroundObjectId: widget.foregroundObjectId,
-                      onDismissWindow: widget.onDismissWindow,
-                      onFocusWindow: _startFocusTransition,
-                    )
-                  : OverviewCarousel(
-                      windows: widget.windows,
-                      progress: progress,
-                      pageController: _pageController,
-                      foregroundObjectId: widget.foregroundObjectId,
-                      onDismissWindow: widget.onDismissWindow,
-                      onFocusWindow: _startFocusTransition,
-                    );
+              ? OverviewGrid(
+                  windows: widget.windows,
+                  progress: progress,
+                  foregroundObjectId: widget.foregroundObjectId,
+                  onDismissWindow: widget.onDismissWindow,
+                  onFocusWindow: _startFocusTransition,
+                )
+              : OverviewCarousel(
+                  windows: widget.windows,
+                  progress: progress,
+                  pageController: _pageController,
+                  foregroundObjectId: widget.foregroundObjectId,
+                  onDismissWindow: widget.onDismissWindow,
+                  onFocusWindow: _startFocusTransition,
+                );
 
           return Stack(
             fit: StackFit.expand,
@@ -257,7 +261,11 @@ class _OverviewLayerState extends State<OverviewLayer>
     final rect = Rect.lerp(Offset.zero & viewSize, cardRect, progress)!;
     _lastHeroRect = rect;
     _lastHeroWindow = window;
-    final radius = lerpDouble(0.0, ShellRadii.window, progress)!;
+    final radius = lerpDouble(
+      0.0,
+      ShellTheme.of(context).windowRadius,
+      progress,
+    )!;
     final border = Color.lerp(
       const Color(0x00ffffff),
       kWindowHairline,
@@ -267,8 +275,11 @@ class _OverviewLayerState extends State<OverviewLayer>
     return Positioned.fromRect(
       rect: rect,
       child: IgnorePointer(
-        child:
-            WindowSurface(window: window, radius: radius, borderColor: border),
+        child: WindowSurface(
+          window: window,
+          radius: radius,
+          borderColor: border,
+        ),
       ),
     );
   }
@@ -289,7 +300,10 @@ class _OverviewLayerState extends State<OverviewLayer>
       child: IgnorePointer(
         child: Opacity(
           opacity: 1.0 - t,
-          child: WindowSurface(window: window, radius: ShellRadii.window),
+          child: WindowSurface(
+            window: window,
+            radius: ShellTheme.of(context).windowRadius,
+          ),
         ),
       ),
     );
@@ -404,8 +418,9 @@ class _OverviewLayerState extends State<OverviewLayer>
     if (objectId == null) {
       return;
     }
-    final index =
-        widget.windows.indexWhere((window) => window.objectId == objectId);
+    final index = widget.windows.indexWhere(
+      (window) => window.objectId == objectId,
+    );
     if (index < 0) {
       return;
     }
@@ -498,7 +513,7 @@ class _FocusZoomOverlay extends StatelessWidget {
                   beginRect: startRect,
                   endRect: Offset.zero & viewSize,
                   progress: controller.value,
-                  beginRadius: ShellRadii.window,
+                  beginRadius: ShellTheme.of(context).windowRadius,
                 ),
               ],
             );

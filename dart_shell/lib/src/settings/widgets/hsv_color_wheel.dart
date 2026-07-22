@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../localization/denial_localizations.dart';
 import '../../theme/motion.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/shell_cursor.dart';
 import '../color_format.dart';
@@ -14,10 +15,12 @@ class HsvColorWheel extends StatefulWidget {
     super.key,
     required this.color,
     required this.onChanged,
+    this.semanticsLabel,
   });
 
   final Color color;
   final ValueChanged<Color> onChanged;
+  final String? semanticsLabel;
 
   @override
   State<HsvColorWheel> createState() => _HsvColorWheelState();
@@ -58,9 +61,7 @@ class _HsvColorWheelState extends State<HsvColorWheel> {
     widget.onChanged(
       current
           .withHue((current.hue + hue + 360.0) % 360.0)
-          .withSaturation(
-            (current.saturation + saturation).clamp(0.0, 1.0),
-          )
+          .withSaturation((current.saturation + saturation).clamp(0.0, 1.0))
           .toColor(),
     );
   }
@@ -72,7 +73,7 @@ class _HsvColorWheelState extends State<HsvColorWheel> {
     return Semantics(
       excludeSemantics: true,
       slider: true,
-      label: l10n.settingsColorWheelSemanticsLabel,
+      label: widget.semanticsLabel ?? l10n.settingsColorWheelSemanticsLabel,
       value: hex,
       increasedValue: l10n.settingsColorWheelNextHue,
       decreasedValue: l10n.settingsColorWheelPreviousHue,
@@ -95,11 +96,11 @@ class _HsvColorWheelState extends State<HsvColorWheel> {
         actions: <Type, Action<Intent>>{
           _ColorWheelAdjustmentIntent:
               CallbackAction<_ColorWheelAdjustmentIntent>(
-            onInvoke: (intent) {
-              _adjust(hue: intent.hue, saturation: intent.saturation);
-              return null;
-            },
-          ),
+                onInvoke: (intent) {
+                  _adjust(hue: intent.hue, saturation: intent.saturation);
+                  return null;
+                },
+              ),
         },
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -128,7 +129,7 @@ class _HsvColorWheelState extends State<HsvColorWheel> {
                       shape: BoxShape.circle,
                       border: Border.all(
                         color: _focused
-                            ? ShellColors.accent
+                            ? ShellTheme.of(context).accent
                             : ShellColors.hairline,
                       ),
                     ),
@@ -185,10 +186,7 @@ class HsvColorWheelPainter extends CustomPainter {
         radius,
         Paint()
           ..shader = RadialGradient(
-            colors: <Color>[
-              Colors.white,
-              Colors.white.withAlpha(0),
-            ],
+            colors: <Color>[Colors.white, Colors.white.withAlpha(0)],
           ).createShader(rect),
       );
     if (hsv.value < 1.0) {
@@ -203,25 +201,14 @@ class HsvColorWheelPainter extends CustomPainter {
 
     final angle = hsv.hue * math.pi / 180.0;
     final selectionRadius = math.max(0.0, radius - 8.0);
-    final indicator = center +
+    final indicator =
+        center +
         Offset(math.cos(angle), math.sin(angle)) *
             (hsv.saturation * selectionRadius);
     canvas
-      ..drawCircle(
-        indicator,
-        7.0,
-        Paint()..color = ShellColors.shadow,
-      )
-      ..drawCircle(
-        indicator,
-        6.0,
-        Paint()..color = ShellColors.textPrimary,
-      )
-      ..drawCircle(
-        indicator,
-        3.5,
-        Paint()..color = color,
-      );
+      ..drawCircle(indicator, 7.0, Paint()..color = ShellColors.shadow)
+      ..drawCircle(indicator, 6.0, Paint()..color = ShellColors.textPrimary)
+      ..drawCircle(indicator, 3.5, Paint()..color = color);
   }
 
   @override

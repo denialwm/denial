@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 
 import '../../services/power_profile_service.dart';
 import '../../theme/motion.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 
 /// The grid of quick-settings tiles. Purely presentational: every value and
@@ -209,10 +210,13 @@ class _QuickTileState extends State<QuickTile> {
 
   @override
   Widget build(BuildContext context) {
-    final background =
-        widget.active ? ShellColors.primaryContainer : ShellColors.tileOff;
-    final foreground =
-        widget.active ? ShellColors.onPrimaryContainer : ShellColors.panelText;
+    final accent = ShellTheme.of(context).accent;
+    final background = widget.active
+        ? ShellColors.primaryContainer
+        : ShellColors.tileOff;
+    final foreground = widget.active
+        ? ShellColors.onPrimaryContainer
+        : ShellColors.panelText;
     final secondary = widget.active
         ? ShellColors.onPrimaryContainerSecondary
         : ShellColors.textTertiary;
@@ -260,10 +264,10 @@ class _QuickTileState extends State<QuickTile> {
               borderRadius: BorderRadius.circular(radius),
               border: Border.all(
                 color: _focused
-                    ? ShellColors.accent
+                    ? accent
                     : widget.active
-                        ? ShellColors.surfaceTint
-                        : ShellColors.hairlineSoft,
+                    ? ShellColors.surfaceTint
+                    : ShellColors.hairlineSoft,
                 width: _focused ? 1.5 : 1,
               ),
             ),
@@ -429,6 +433,7 @@ class _TileDetailsButtonState extends State<_TileDetailsButton> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
       label: widget.label,
@@ -456,7 +461,7 @@ class _TileDetailsButtonState extends State<_TileDetailsButton> {
                   ? ShellColors.surfaceContainerHighest
                   : const Color(0x00000000),
               borderRadius: BorderRadius.circular(10),
-              border: _focused ? Border.all(color: ShellColors.accent) : null,
+              border: _focused ? Border.all(color: accent) : null,
             ),
             child: SizedBox.square(
               dimension: 34,
@@ -550,11 +555,7 @@ class _FooterStatusIcon extends StatelessWidget {
 }
 
 class _RoundButton extends StatefulWidget {
-  const _RoundButton({
-    required this.label,
-    required this.icon,
-    this.onPressed,
-  });
+  const _RoundButton({required this.label, required this.icon, this.onPressed});
 
   final String label;
   final IconData icon;
@@ -570,6 +571,7 @@ class _RoundButtonState extends State<_RoundButton> {
   @override
   Widget build(BuildContext context) {
     final enabled = widget.onPressed != null;
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
       enabled: enabled,
@@ -578,8 +580,9 @@ class _RoundButtonState extends State<_RoundButton> {
         message: widget.label,
         child: FocusableActionDetector(
           enabled: enabled,
-          mouseCursor:
-              enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+          mouseCursor: enabled
+              ? SystemMouseCursors.click
+              : SystemMouseCursors.basic,
           onShowFocusHighlight: (focused) => setState(() => _focused = focused),
           shortcuts: const <ShortcutActivator, Intent>{
             SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
@@ -601,8 +604,7 @@ class _RoundButtonState extends State<_RoundButton> {
                 color: ShellColors.chip,
                 borderRadius: BorderRadius.circular(ShellRadii.roundButton),
                 border: Border.all(
-                  color:
-                      _focused ? ShellColors.accent : ShellColors.hairlineSoft,
+                  color: _focused ? accent : ShellColors.hairlineSoft,
                 ),
               ),
               child: SizedBox(
@@ -625,13 +627,13 @@ class _RoundButtonState extends State<_RoundButton> {
 }
 
 IconData _profileIcon(String profile) => switch (profile) {
-      PowerProfile.powerSave => Icons.energy_savings_leaf_rounded,
-      PowerProfile.performance => Icons.speed_rounded,
-      _ => Icons.balance_rounded,
-    };
+  PowerProfile.powerSave => Icons.energy_savings_leaf_rounded,
+  PowerProfile.performance => Icons.speed_rounded,
+  _ => Icons.balance_rounded,
+};
 
 String _profileLabel(String profile) => switch (profile) {
-      PowerProfile.powerSave => 'Battery saver',
-      PowerProfile.performance => 'High performance',
-      _ => 'Balanced',
-    };
+  PowerProfile.powerSave => 'Battery saver',
+  PowerProfile.performance => 'High performance',
+  _ => 'Balanced',
+};

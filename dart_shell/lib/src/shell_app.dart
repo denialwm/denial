@@ -10,6 +10,7 @@ import 'input/input_layout.dart';
 import 'launcher/home_surface.dart';
 import 'localization/denial_localizations.dart';
 import 'models/denial_window.dart';
+import 'settings/settings_controller.dart';
 import 'state/cursor_theme.dart';
 import 'state/bluetooth.dart';
 import 'state/desktop_notifications.dart';
@@ -18,7 +19,9 @@ import 'state/shell_controller.dart';
 import 'state/shell_profile.dart';
 import 'theme/cursor_themes.dart';
 import 'theme/motion.dart';
+import 'theme/shell_theme.dart';
 import 'theme/tokens.dart';
+import 'wallpaper/state/wallpaper_accent.dart';
 import 'widgets/bottom_gesture_handle.dart';
 import 'widgets/connectivity/bluetooth_detail_surface.dart';
 import 'widgets/edge_panel_layer.dart';
@@ -107,6 +110,21 @@ class DenialShellApp extends ConsumerWidget {
         ? ShellProfile.desktop
         : profile;
     final cursorTheme = ref.watch(shellCursorThemeProvider);
+    final settings = ref.watch(shellSettingsProvider);
+    final accent = ref.watch(shellAccentProvider);
+    ref.listen(shellSettingsProvider.select((value) => value.layout), (
+      _,
+      layout,
+    ) {
+      ref
+          .read(displayLayoutProvider.notifier)
+          .applyShellConfiguration(
+            side: layout.systemBarSide,
+            outputNames: layout.systemBarOutputNames,
+            systemBarThickness: layout.systemBarThickness,
+            maximizePadding: layout.maximizePadding,
+          );
+    }, fireImmediately: true);
     final bridge = ref.watch(denialBridgeProvider);
     final cursorShapes = bridge.cursorShapes;
     final cursorPositions = bridge.cursorPositions;
@@ -151,12 +169,22 @@ class DenialShellApp extends ConsumerWidget {
       ),
     };
 
-    return DenialLocalizationScope(
-      child: MediaQuery.fromView(
-        view: View.of(context),
-        child: ScrollConfiguration(
-          behavior: const _ShellScrollBehavior(),
-          child: _ShellOverlayHost(child: content),
+    return ShellTheme(
+      data: ShellThemeData(
+        accent: accent.color,
+        windowRadius: settings.appearance.windowRadius,
+        panelRadius: settings.appearance.panelRadius,
+        panelOpacity: settings.appearance.panelOpacity,
+        focusedWindowOpacity: settings.appearance.focusedWindowOpacity,
+        unfocusedWindowOpacity: settings.appearance.unfocusedWindowOpacity,
+      ),
+      child: DenialLocalizationScope(
+        child: MediaQuery.fromView(
+          view: View.of(context),
+          child: ScrollConfiguration(
+            behavior: const _ShellScrollBehavior(),
+            child: _ShellOverlayHost(child: content),
+          ),
         ),
       ),
     );
@@ -559,7 +587,10 @@ class _UnlockApplicationStage extends StatelessWidget {
         if (progress > 0.0 && progress < 1.0)
           IgnorePointer(
             child: CustomPaint(
-              painter: _UnlockAppRevealPainter(progress: progress),
+              painter: _UnlockAppRevealPainter(
+                progress: progress,
+                accent: ShellTheme.of(context).accent,
+              ),
             ),
           ),
       ],
@@ -604,9 +635,10 @@ class _UnlockLockStage extends StatelessWidget {
 }
 
 class _UnlockAppRevealPainter extends CustomPainter {
-  const _UnlockAppRevealPainter({required this.progress});
+  const _UnlockAppRevealPainter({required this.progress, required this.accent});
 
   final double progress;
+  final Color accent;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -651,7 +683,7 @@ class _UnlockAppRevealPainter extends CustomPainter {
           const Color(0x00000000),
           ShellColors.lockAccent.withValues(alpha: 0.32 * pulse),
           ShellColors.textPrimary.withValues(alpha: 0.20 * pulse),
-          ShellColors.accent.withValues(alpha: 0.16 * pulse),
+          accent.withValues(alpha: 0.16 * pulse),
           const Color(0x00000000),
         ],
         stops: const [0.0, 0.40, 0.50, 0.58, 1.0],
@@ -684,7 +716,7 @@ class _UnlockAppRevealPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _UnlockAppRevealPainter oldDelegate) {
-    return oldDelegate.progress != progress;
+    return oldDelegate.progress != progress || oldDelegate.accent != accent;
   }
 }
 

@@ -105,9 +105,8 @@ class DisplayLayout {
   bool hostsSystemBar(DisplayOutput output) =>
       effectiveSystemBarMonitorIds.contains(output.monitorId);
 
-  List<DisplayOutput> get systemBarOutputs => List<DisplayOutput>.unmodifiable(
-        outputs.where(hostsSystemBar),
-      );
+  List<DisplayOutput> get systemBarOutputs =>
+      List<DisplayOutput>.unmodifiable(outputs.where(hostsSystemBar));
 
   DisplayOutput? get systemBarOutput {
     for (final output in outputs) {
@@ -227,13 +226,15 @@ class DisplayLayout {
   DisplayLayout copyWithSystemBar({
     required SystemBarSide side,
     required List<int> monitorIds,
+    double? thickness,
+    double? windowPadding,
   }) {
     final selected = List<int>.unmodifiable(monitorIds);
     final primary = selected.contains(tickerMonitorId)
         ? tickerMonitorId
         : selected.isEmpty
-            ? -1
-            : selected.first;
+        ? -1
+        : selected.first;
     return DisplayLayout(
       epoch: epoch,
       globalOrigin: globalOrigin,
@@ -244,9 +245,21 @@ class DisplayLayout {
       systemBarMonitorId: primary,
       systemBarMonitorIds: selected,
       systemBarSide: side,
-      systemBarThickness: systemBarThickness,
-      maximizePadding: maximizePadding,
+      systemBarThickness: thickness ?? systemBarThickness,
+      maximizePadding: windowPadding ?? maximizePadding,
       outputs: outputs,
+    );
+  }
+
+  DisplayLayout copyWithShellMetrics({
+    required double systemBarThickness,
+    required double maximizePadding,
+  }) {
+    return copyWithSystemBar(
+      side: systemBarSide,
+      monitorIds: effectiveSystemBarMonitorIds,
+      thickness: systemBarThickness,
+      windowPadding: maximizePadding,
     );
   }
 
@@ -276,7 +289,8 @@ class DisplayLayout {
     var result = outputs.first;
     for (final output in outputs.skip(1)) {
       final isFurtherLeft = output.logicalRect.left < result.logicalRect.left;
-      final isFurtherUp = output.logicalRect.left == result.logicalRect.left &&
+      final isFurtherUp =
+          output.logicalRect.left == result.logicalRect.left &&
           output.logicalRect.top < result.logicalRect.top;
       if (isFurtherLeft || isFurtherUp) {
         result = output;

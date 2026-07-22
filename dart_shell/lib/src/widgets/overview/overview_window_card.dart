@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 
 import '../../models/denial_window.dart';
 import '../../theme/motion.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../window_hero.dart';
 
@@ -82,8 +83,10 @@ class _OverviewWindowCardState extends State<OverviewWindowCard>
     final placeholderHeight = widget.cardSize.height + 44.0;
     if (widget.hidden || _dismissed) {
       return Center(
-        child:
-            SizedBox(width: widget.cardSize.width, height: placeholderHeight),
+        child: SizedBox(
+          width: widget.cardSize.width,
+          height: placeholderHeight,
+        ),
       );
     }
 
@@ -96,7 +99,8 @@ class _OverviewWindowCardState extends State<OverviewWindowCard>
     // The whole strip slides in horizontally (see OverviewCarousel); each card
     // only keeps the small side-card dip plus its page parallax.
     final y = pageDistance * 18.0;
-    final x = widget.pageOffset.clamp(-1.0, 1.0).toDouble() *
+    final x =
+        widget.pageOffset.clamp(-1.0, 1.0).toDouble() *
         lerpDouble(18.0, 0.0, easedIntro)!;
     final baseOpacity = easedIntro * lerpDouble(1.0, 0.68, pageDistance)!;
 
@@ -106,10 +110,12 @@ class _OverviewWindowCardState extends State<OverviewWindowCard>
         child: _buildBody(),
         builder: (context, child) {
           final dismissY = _dismiss.value;
-          final dismissProgress =
-              unit(-dismissY / (widget.cardSize.height * 0.72));
-          final opacity =
-              unit(baseOpacity * lerpDouble(1.0, 0.48, dismissProgress)!);
+          final dismissProgress = unit(
+            -dismissY / (widget.cardSize.height * 0.72),
+          );
+          final opacity = unit(
+            baseOpacity * lerpDouble(1.0, 0.48, dismissProgress)!,
+          );
 
           return Opacity(
             opacity: opacity,
@@ -146,7 +152,7 @@ class _OverviewWindowCardState extends State<OverviewWindowCard>
             height: widget.cardSize.height,
             child: WindowSurface(
               window: widget.window,
-              radius: ShellRadii.window,
+              radius: ShellTheme.of(context).windowRadius,
               borderColor: kWindowHairline,
             ),
           ),

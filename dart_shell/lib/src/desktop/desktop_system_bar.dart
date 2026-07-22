@@ -28,7 +28,7 @@ class DesktopSystemBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final accent = ref.watch(wallpaperAccentProvider);
+    final accent = ref.watch(shellAccentProvider);
     final now = ref.watch(clockProvider).value ?? DateTime.now();
     final locale = ref.watch(clockLocaleProvider);
     final cpu = ref.watch(cpuUsageProvider);

@@ -11,6 +11,7 @@ import '../../input/shell_interaction_registry.dart';
 import '../../services/logind_service.dart';
 import '../../state/session_power.dart';
 import '../../theme/motion.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../main_output_centered_surface.dart';
 import '../shell_surface_host.dart';
@@ -39,6 +40,7 @@ class PowerSessionSurface extends ConsumerWidget {
     final state = ref.watch(sessionPowerProvider);
     final controller = ref.read(sessionPowerProvider.notifier);
     final confirmationAction = state.confirmationAction;
+    final theme = ShellTheme.of(context);
     return MainOutputCenteredSurface(
       padding: const EdgeInsets.all(20),
       builder: (context, constraints) {
@@ -54,8 +56,8 @@ class PowerSessionSurface extends ConsumerWidget {
             role: confirmationAction == null ? .dialog : .alertDialog,
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: ShellColors.panelBackground,
-                borderRadius: BorderRadius.circular(ShellRadii.panel),
+                color: theme.panelColor(ShellColors.panelBackground),
+                borderRadius: BorderRadius.circular(theme.panelRadius),
                 border: Border.all(color: ShellColors.hairline),
                 boxShadow: const <BoxShadow>[
                   BoxShadow(
@@ -288,6 +290,7 @@ class _SessionActionTileState extends State<_SessionActionTile> {
   @override
   Widget build(BuildContext context) {
     final action = widget.action;
+    final accent = ShellTheme.of(context).accent;
     final reason = widget.availability.unavailableReason;
     final subtitle =
         reason ??
@@ -336,9 +339,7 @@ class _SessionActionTileState extends State<_SessionActionTile> {
                     : ShellColors.tileOff,
                 borderRadius: BorderRadius.circular(ShellRadii.tileWide),
                 border: Border.all(
-                  color: _focused
-                      ? ShellColors.accent
-                      : ShellColors.hairlineSoft,
+                  color: _focused ? accent : ShellColors.hairlineSoft,
                   width: _focused ? 1.5 : 1,
                 ),
               ),
@@ -354,11 +355,11 @@ class _SessionActionTileState extends State<_SessionActionTile> {
                     child: SizedBox.square(
                       dimension: 42,
                       child: widget.busy
-                          ? const Padding(
-                              padding: EdgeInsets.all(12),
+                          ? Padding(
+                              padding: const EdgeInsets.all(12),
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                color: ShellColors.accent,
+                                color: accent,
                               ),
                             )
                           : Icon(
@@ -433,12 +434,13 @@ class _ConfirmationPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = ShellTheme.of(context);
     return SingleChildScrollView(
       primary: false,
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: ShellColors.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(ShellRadii.panel),
+          borderRadius: BorderRadius.circular(theme.panelRadius),
           border: Border.all(color: ShellColors.hairlineSoft),
         ),
         child: Padding(
@@ -523,6 +525,7 @@ class _PowerNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     return DecoratedBox(
       decoration: BoxDecoration(
         color: ShellColors.surfaceContainerHigh,
@@ -534,12 +537,9 @@ class _PowerNotice extends StatelessWidget {
         child: Row(
           children: <Widget>[
             if (busy)
-              const SizedBox.square(
+              SizedBox.square(
                 dimension: 17,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: ShellColors.accent,
-                ),
+                child: CircularProgressIndicator(strokeWidth: 2, color: accent),
               )
             else
               Icon(icon, size: 17, color: color),
@@ -591,6 +591,7 @@ class _PowerIconButtonState extends State<_PowerIconButton> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
       enabled: widget.enabled,
@@ -625,9 +626,7 @@ class _PowerIconButtonState extends State<_PowerIconButton> {
                 color: ShellColors.surfaceContainerHigh,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: _focused
-                      ? ShellColors.accent
-                      : ShellColors.hairlineSoft,
+                  color: _focused ? accent : ShellColors.hairlineSoft,
                 ),
               ),
               child: SizedBox.square(
@@ -670,6 +669,7 @@ class _PowerTextButtonState extends State<_PowerTextButton> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
       label: widget.label,
@@ -698,7 +698,7 @@ class _PowerTextButtonState extends State<_PowerTextButton> {
                   : ShellColors.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: _focused ? ShellColors.accent : ShellColors.hairlineSoft,
+                color: _focused ? accent : ShellColors.hairlineSoft,
               ),
             ),
             child: SizedBox(

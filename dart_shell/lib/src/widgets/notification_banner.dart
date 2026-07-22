@@ -7,10 +7,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../input/shell_interaction_registry.dart';
 import '../models/desktop_notification.dart';
+import '../settings/settings_controller.dart';
 import '../services/notification_policy_repository.dart';
 import '../state/desktop_notifications.dart';
+import '../state/display_layout.dart';
 import '../state/shell_controller.dart';
 import '../theme/motion.dart';
+import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
 import 'notification_media.dart';
 
@@ -31,31 +34,46 @@ class NotificationBannerLayer extends ConsumerWidget {
         ? const <DesktopNotification>[]
         : notificationState.bannerNotifications;
     final controller = ref.read(desktopNotificationsProvider.notifier);
-    final horizontalInset = MediaQuery.sizeOf(context).width < 480
-        ? 10.0
-        : 16.0;
-
-    return Positioned.fill(
-      child: SafeArea(
-        minimum: EdgeInsets.symmetric(
-          horizontal: horizontalInset,
-          vertical: 14,
-        ),
-        child: Align(
-          alignment: Alignment.topLeft,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 410),
-            child: NotificationBannerView(
-              notifications: notifications,
-              previewMode: previewMode,
-              interactive: !locked,
-              onDismiss: controller.dismiss,
-              onDefaultAction: controller.invokeDefaultAction,
-              onAction: controller.invokeAction,
-            ),
-          ),
-        ),
+    final placement = ref.watch(
+      shellSettingsProvider.select(
+        (settings) => settings.overlays.notifications,
       ),
+    );
+    final mainOutput = ref.watch(
+      displayLayoutProvider.select((layout) => layout?.mainOutput),
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final canvas = Offset.zero & constraints.biggest;
+        final output = mainOutput?.logicalRect.intersect(canvas) ?? canvas;
+        final rect = placement.resolve(output);
+        if (rect.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned.fromRect(
+              rect: rect,
+              child: Align(
+                alignment: placement.anchor.alignment,
+                child: SizedBox(
+                  width: rect.width,
+                  child: NotificationBannerView(
+                    notifications: notifications,
+                    previewMode: previewMode,
+                    interactive: !locked,
+                    onDismiss: controller.dismiss,
+                    onDefaultAction: controller.invokeDefaultAction,
+                    onAction: controller.invokeAction,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -112,6 +130,7 @@ class _NotificationBannerViewState extends State<NotificationBannerView> {
         : Motion.notificationBanner;
     return Column(
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (final entry in _displayed)
           _NotificationTransition(
@@ -368,6 +387,7 @@ class NotificationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = ShellTheme.of(context);
     final appName = notificationAppName(notification);
     final fullPreview = previewMode == NotificationPreviewMode.full;
     final summary = fullPreview
@@ -389,8 +409,8 @@ class NotificationCard extends StatelessWidget {
 
     final content = DecoratedBox(
       decoration: BoxDecoration(
-        color: ShellColors.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(ShellRadii.notification),
+        color: theme.panelColor(ShellColors.surfaceContainerLow),
+        borderRadius: BorderRadius.circular(theme.panelRadius),
         border: Border.all(color: ShellColors.hairlineSoft),
         boxShadow: compact
             ? const <BoxShadow>[]
@@ -490,7 +510,7 @@ class _NotificationHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final indicator = switch (notification.urgency) {
       DesktopNotificationUrgency.low => ShellColors.textTertiary,
-      DesktopNotificationUrgency.normal => ShellColors.accent,
+      DesktopNotificationUrgency.normal => ShellTheme.of(context).accent,
       DesktopNotificationUrgency.critical => ShellColors.performanceBad,
     };
     return Row(
@@ -627,7 +647,7 @@ class _NotificationProgress extends StatelessWidget {
               FractionallySizedBox(
                 alignment: Alignment.centerLeft,
                 widthFactor: normalized / 100,
-                child: const ColoredBox(color: ShellColors.accent),
+                child: ColoredBox(color: ShellTheme.of(context).accent),
               ),
             ],
           ),
@@ -679,7 +699,7 @@ class _NotificationActivatorState extends State<_NotificationActivator> {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(ShellRadii.notification),
             border: _focused
-                ? Border.all(color: ShellColors.accent, width: 1.5)
+                ? Border.all(color: ShellTheme.of(context).accent, width: 1.5)
                 : null,
           ),
           child: widget.child,
@@ -745,7 +765,9 @@ class _NotificationActionButtonState extends State<_NotificationActionButton> {
                   : ShellColors.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: _focused ? ShellColors.accent : ShellColors.hairlineSoft,
+                color: _focused
+                    ? ShellTheme.of(context).accent
+                    : ShellColors.hairlineSoft,
               ),
             ),
             child: Text(
@@ -816,7 +838,9 @@ class _NotificationIconButtonState extends State<_NotificationIconButton> {
                   ? ShellColors.surfaceContainerHighest
                   : const Color(0x00000000),
               borderRadius: BorderRadius.circular(11),
-              border: _focused ? Border.all(color: ShellColors.accent) : null,
+              border: _focused
+                  ? Border.all(color: ShellTheme.of(context).accent)
+                  : null,
             ),
             child: Icon(
               widget.icon,

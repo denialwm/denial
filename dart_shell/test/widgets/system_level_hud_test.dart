@@ -2,7 +2,11 @@ import 'dart:async';
 import 'dart:ui' show SemanticsRole;
 
 import 'package:denial_dart_shell/src/models/display_layout.dart';
+import 'package:denial_dart_shell/src/models/shell_popup_placement.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
+import 'package:denial_dart_shell/src/settings/settings_controller.dart';
+import 'package:denial_dart_shell/src/settings/settings_store.dart';
+import 'package:denial_dart_shell/src/settings/shell_settings.dart';
 import 'package:denial_dart_shell/src/state/shell_controller.dart';
 import 'package:denial_dart_shell/src/state/system_level_hud.dart';
 import 'package:denial_dart_shell/src/widgets/system_level_hud.dart';
@@ -36,6 +40,7 @@ void main() {
           const Duration(minutes: 1),
         ),
         denialBridgeProvider.overrideWithValue(layoutBridge),
+        settingsStoreProvider.overrideWithValue(_MemorySettingsStore()),
       ],
     );
     var disposed = false;
@@ -103,6 +108,23 @@ void main() {
       const Rect.fromLTWH(410, 698, 380, 74),
     );
 
+    container
+        .read(shellSettingsProvider.notifier)
+        .setOverlayPlacement(
+          ShellOverlaySurface.systemHud,
+          const ShellPopupPlacement(
+            anchor: ShellPopupAnchor.topRight,
+            width: 300,
+            height: 74,
+            margin: 20,
+          ),
+        );
+    await tester.pump();
+    expect(
+      tester.getRect(find.byType(IgnorePointer)),
+      const Rect.fromLTWH(880, 20, 300, 74),
+    );
+
     await tester.pumpWidget(const SizedBox.shrink());
     await disposeHarness();
   });
@@ -115,6 +137,14 @@ class _LayoutBridge extends DenialBridge {
 
   @override
   Future<DisplayLayout?> getDisplayLayout() async => layout;
+}
+
+class _MemorySettingsStore implements SettingsStore {
+  @override
+  Future<ShellSettings?> read() async => null;
+
+  @override
+  Future<void> write(ShellSettings settings) async {}
 }
 
 const _dualOutputLayout = DisplayLayout(

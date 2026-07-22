@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../theme/motion.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/shade/range_bar.dart';
 import '../../widgets/shell_cursor.dart';
@@ -43,6 +44,7 @@ class _WallpaperDarknessControlState extends State<WallpaperDarknessControl> {
   Widget build(BuildContext context) {
     final value = _value;
     final percentage = (value * 100).round();
+    final theme = ShellTheme.of(context);
     return Semantics(
       excludeSemantics: true,
       label: 'Wallpaper darkness',
@@ -79,19 +81,15 @@ class _WallpaperDarknessControlState extends State<WallpaperDarknessControl> {
           curve: Motion.standard,
           padding: const EdgeInsets.fromLTRB(12, 7, 8, 7),
           decoration: BoxDecoration(
-            color: ShellColors.panelBackground,
+            color: theme.panelColor(ShellColors.panelBackground),
             borderRadius: BorderRadius.circular(ShellRadii.tile),
             border: Border.all(
-              color: _focused ? ShellColors.accent : ShellColors.hairline,
+              color: _focused ? theme.accent : ShellColors.hairline,
             ),
           ),
           child: Row(
             children: [
-              const Icon(
-                Icons.dark_mode_rounded,
-                size: 20,
-                color: ShellColors.accent,
-              ),
+              Icon(Icons.dark_mode_rounded, size: 20, color: theme.accent),
               const SizedBox(width: 8),
               const Text('Darkness', style: ShellText.cardTitle),
               const SizedBox(width: 8),
@@ -110,7 +108,7 @@ class _WallpaperDarknessControlState extends State<WallpaperDarknessControl> {
                 child: RangeBar(
                   icon: Icons.dark_mode_rounded,
                   value: value,
-                  activeColor: ShellColors.accent,
+                  activeColor: theme.accent,
                   inactiveColor: ShellColors.wallpaperEffectTrack,
                   onChanged: widget.onChanged,
                   onChangeEnd: widget.onChangeEnd,

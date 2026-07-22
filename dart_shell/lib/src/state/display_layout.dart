@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/display_layout.dart';
@@ -21,6 +22,10 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
     _retryTimer = null;
     _requestInFlight = null;
     _configurationSerial = 0;
+    _configuredSide = null;
+    _configuredOutputNames = const <String>[];
+    _configuredThickness = null;
+    _configuredMaximizePadding = null;
     _buildGeneration = beginBuildGeneration();
     final generation = _buildGeneration;
     ref.onDispose(() {
@@ -49,6 +54,10 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
   Timer? _retryTimer;
   Future<DisplayLayout?>? _requestInFlight;
   int _configurationSerial = 0;
+  SystemBarSide? _configuredSide;
+  List<String> _configuredOutputNames = const <String>[];
+  double? _configuredThickness;
+  double? _configuredMaximizePadding;
 
   Future<DisplayLayout?> ensureLoaded() {
     final current = state;
@@ -86,8 +95,10 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
     }
     if (layout != null && layout.outputs.isNotEmpty) {
       _retryAttempt = 0;
-      state = layout;
-      return layout;
+      final configured = _applyConfiguredValues(layout);
+      state = configured;
+      _publishConfiguredSystemBar(layout, configured);
+      return configured;
     }
     _scheduleRetry(generation);
     return null;
@@ -151,7 +162,82 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
         serial != _configurationSerial) {
       return resolved != null;
     }
-    state = resolved ?? previous;
+    state = _applyConfiguredValues(resolved ?? previous);
     return resolved != null;
+  }
+
+  /// Applies persisted shell policy without coupling this runtime controller
+  /// to the Settings UI or its serialization model.
+  void applyShellConfiguration({
+    required SystemBarSide? side,
+    required Iterable<String> outputNames,
+    required double systemBarThickness,
+    required double maximizePadding,
+  }) {
+    _configuredSide = side;
+    _configuredOutputNames = List<String>.unmodifiable(outputNames);
+    _configuredThickness = systemBarThickness;
+    _configuredMaximizePadding = maximizePadding;
+    final current = state;
+    if (current == null) {
+      return;
+    }
+    final configured = _applyConfiguredValues(current);
+    if (!_sameShellConfiguration(current, configured)) {
+      state = configured;
+    }
+    _publishConfiguredSystemBar(current, configured);
+  }
+
+  DisplayLayout _applyConfiguredValues(DisplayLayout layout) {
+    final selectedNames = _configuredOutputNames.toSet();
+    final selectedIds = selectedNames.isEmpty
+        ? layout.effectiveSystemBarMonitorIds
+        : layout.outputs
+              .where((output) => selectedNames.contains(output.name))
+              .map((output) => output.monitorId)
+              .toList(growable: false);
+    final side = _configuredSide ?? layout.systemBarSide;
+    final monitorIds = selectedIds.isEmpty
+        ? layout.effectiveSystemBarMonitorIds
+        : selectedIds;
+    return layout.copyWithSystemBar(
+      side: side,
+      monitorIds: monitorIds,
+      thickness: _configuredThickness ?? layout.systemBarThickness,
+      windowPadding: _configuredMaximizePadding ?? layout.maximizePadding,
+    );
+  }
+
+  bool _sameShellConfiguration(DisplayLayout left, DisplayLayout right) {
+    return left.systemBarSide == right.systemBarSide &&
+        left.systemBarThickness == right.systemBarThickness &&
+        left.maximizePadding == right.maximizePadding &&
+        listEquals(
+          left.effectiveSystemBarMonitorIds,
+          right.effectiveSystemBarMonitorIds,
+        );
+  }
+
+  void _publishConfiguredSystemBar(
+    DisplayLayout native,
+    DisplayLayout configured,
+  ) {
+    if (_configuredSide == null ||
+        _configuredOutputNames.isEmpty ||
+        (native.systemBarSide == configured.systemBarSide &&
+            native.effectiveSystemBarMonitorIds.toSet().containsAll(
+              configured.effectiveSystemBarMonitorIds,
+            ) &&
+            native.effectiveSystemBarMonitorIds.length ==
+                configured.effectiveSystemBarMonitorIds.length)) {
+      return;
+    }
+    unawaited(
+      _bridge.configureSystemBar(
+        side: configured.systemBarSide,
+        monitorIds: configured.effectiveSystemBarMonitorIds,
+      ),
+    );
   }
 }

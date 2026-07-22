@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/bluetooth_service.dart';
 import '../../state/bluetooth.dart';
 import '../../theme/motion.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 
 class BluetoothDetailSurface extends ConsumerStatefulWidget {
@@ -134,6 +135,7 @@ class _BluetoothDetailSurfaceState
         state.powered &&
         !state.scanning &&
         !state.powerChanging;
+    final theme = ShellTheme.of(context);
 
     return SafeArea(
       minimum: const EdgeInsets.all(16),
@@ -142,8 +144,8 @@ class _BluetoothDetailSurfaceState
           constraints: const BoxConstraints(maxWidth: 560, maxHeight: 720),
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: ShellColors.panelBackground,
-              borderRadius: BorderRadius.circular(ShellRadii.panel),
+              color: theme.panelColor(ShellColors.panelBackground),
+              borderRadius: BorderRadius.circular(theme.panelRadius),
               border: Border.all(color: ShellColors.hairline),
               boxShadow: const <BoxShadow>[
                 BoxShadow(
@@ -162,10 +164,10 @@ class _BluetoothDetailSurfaceState
                   children: [
                     Row(
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.bluetooth_rounded,
                           size: 23,
-                          color: ShellColors.accent,
+                          color: theme.accent,
                         ),
                         const SizedBox(width: 10),
                         Expanded(
@@ -303,14 +305,12 @@ class _BluetoothDeviceList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     if (state.initializing) {
-      return const Center(
+      return Center(
         child: SizedBox.square(
           dimension: 25,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: ShellColors.accent,
-          ),
+          child: CircularProgressIndicator(strokeWidth: 2, color: accent),
         ),
       );
     }
@@ -394,6 +394,7 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
   Widget build(BuildContext context) {
     final device = widget.device;
     final enabled = !device.blocked && !widget.busy;
+    final accent = ShellTheme.of(context).accent;
     final status = device.blocked
         ? 'Blocked'
         : device.connected
@@ -452,7 +453,7 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
                   : ShellColors.surfaceContainer,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: _focused ? ShellColors.accent : ShellColors.hairlineSoft,
+                color: _focused ? accent : ShellColors.hairlineSoft,
               ),
             ),
             child: Row(
@@ -525,11 +526,11 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
                 ],
                 const SizedBox(width: 5),
                 if (widget.busy)
-                  const SizedBox.square(
+                  SizedBox.square(
                     dimension: 20,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: ShellColors.accent,
+                      color: accent,
                     ),
                   )
                 else
@@ -572,6 +573,7 @@ class _BluetoothPairingPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final title = _pairingTitle(request);
     final message = _pairingMessage(request);
+    final theme = ShellTheme.of(context);
     return DecoratedBox(
       decoration: BoxDecoration(
         color: ShellColors.surfaceContainerHigh,
@@ -589,11 +591,7 @@ class _BluetoothPairingPanel extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(
-                  Icons.security_rounded,
-                  size: 19,
-                  color: ShellColors.accent,
-                ),
+                Icon(Icons.security_rounded, size: 19, color: theme.accent),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -624,7 +622,7 @@ class _BluetoothPairingPanel extends StatelessWidget {
                     : 'Bluetooth passkey',
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: ShellColors.panelBackground,
+                    color: theme.panelColor(ShellColors.panelBackground),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: ShellColors.hairline),
                   ),
@@ -656,7 +654,7 @@ class _BluetoothPairingPanel extends StatelessWidget {
                       textInputAction: TextInputAction.done,
                       onSubmitted: (_) => onAccept(),
                       style: ShellText.base,
-                      cursorColor: ShellColors.accent,
+                      cursorColor: theme.accent,
                       backgroundCursorColor: ShellColors.textSecondary,
                       selectionColor: ShellColors.primaryContainer,
                     ),
@@ -710,6 +708,7 @@ class _BluetoothEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       label: '$title. $body',
       child: Center(
@@ -857,15 +856,15 @@ class _BluetoothIconButtonState extends State<_BluetoothIconButton> {
                   : ShellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: _focused ? ShellColors.accent : ShellColors.hairlineSoft,
+                color: _focused ? accent : ShellColors.hairlineSoft,
               ),
             ),
             child: widget.busy
-                ? const Padding(
-                    padding: EdgeInsets.all(9),
+                ? Padding(
+                    padding: const EdgeInsets.all(9),
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: ShellColors.accent,
+                      color: accent,
                     ),
                   )
                 : Icon(
@@ -906,6 +905,7 @@ class _BluetoothInlineButtonState extends State<_BluetoothInlineButton> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
       enabled: widget.enabled,
@@ -941,7 +941,7 @@ class _BluetoothInlineButtonState extends State<_BluetoothInlineButton> {
             height: 30,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(9),
-              border: _focused ? Border.all(color: ShellColors.accent) : null,
+              border: _focused ? Border.all(color: accent) : null,
             ),
             child: Icon(
               widget.icon,
@@ -977,6 +977,7 @@ class _BluetoothTextButtonState extends State<_BluetoothTextButton> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
       label: widget.label,
@@ -1008,7 +1009,7 @@ class _BluetoothTextButtonState extends State<_BluetoothTextButton> {
                   : ShellColors.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(11),
               border: Border.all(
-                color: _focused ? ShellColors.accent : ShellColors.hairlineSoft,
+                color: _focused ? accent : ShellColors.hairlineSoft,
               ),
             ),
             child: Padding(

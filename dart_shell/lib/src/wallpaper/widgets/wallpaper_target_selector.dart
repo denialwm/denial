@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 
 import '../../models/display_layout.dart';
 import '../../theme/motion.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/shell_cursor.dart';
 import '../wallpaper.dart';
@@ -86,6 +87,7 @@ class _WallpaperTargetButtonState extends State<_WallpaperTargetButton> {
   Widget build(BuildContext context) {
     final selected = widget.selected;
     final highlighted = _hovered || _focused;
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
       selected: selected,
@@ -117,13 +119,11 @@ class _WallpaperTargetButtonState extends State<_WallpaperTargetButton> {
               color: selected
                   ? ShellColors.primaryContainer
                   : highlighted
-                      ? ShellColors.surfaceContainerHighest
-                      : ShellColors.surfaceContainerHigh,
+                  ? ShellColors.surfaceContainerHighest
+                  : ShellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(ShellRadii.chip),
               border: Border.all(
-                color: highlighted || selected
-                    ? ShellColors.accent
-                    : ShellColors.hairline,
+                color: highlighted || selected ? accent : ShellColors.hairline,
               ),
             ),
             child: Text(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 
 import '../../models/battery_status.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 
 /// Battery pictogram with a level fill and a percentage label.
@@ -20,8 +21,11 @@ class BatteryMark extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final level = ((status.capacity ?? 64) / 100.0).clamp(0.0, 1.0);
-    final foreground = color ??
-        (status.charging ? ShellColors.accent : ShellColors.textPrimary);
+    final foreground =
+        color ??
+        (status.charging
+            ? ShellTheme.of(context).accent
+            : ShellColors.textPrimary);
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -98,8 +102,11 @@ class BatteryIconMark extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final level = ((status.capacity ?? 64) / 100.0).clamp(0.0, 1.0);
-    final foreground = color ??
-        (status.charging ? ShellColors.accent : ShellColors.textPrimary);
+    final foreground =
+        color ??
+        (status.charging
+            ? ShellTheme.of(context).accent
+            : ShellColors.textPrimary);
 
     return SizedBox(
       width: 24 * scale,
@@ -147,12 +154,7 @@ class BatteryIconMark extends StatelessWidget {
 
 /// Wi-Fi status icon.
 class WifiMark extends StatelessWidget {
-  const WifiMark({
-    super.key,
-    required this.active,
-    this.size = 17,
-    this.color,
-  });
+  const WifiMark({super.key, required this.active, this.size = 17, this.color});
 
   final bool active;
   final double size;

@@ -8,6 +8,8 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../settings/settings_controller.dart';
+import '../../settings/shell_settings.dart';
 import '../../state/display_layout.dart';
 import '../../state/notifier_lifecycle.dart';
 import '../../theme/tokens.dart';
@@ -77,6 +79,20 @@ final wallpaperAccentProvider =
     NotifierProvider<WallpaperAccentController, WallpaperAccent>(
       WallpaperAccentController.new,
     );
+
+/// Effective shell accent after applying the user's source preference.
+///
+/// Wallpaper extraction remains independently cached so toggling between a
+/// custom color and the wallpaper never decodes the image again.
+final shellAccentProvider = Provider<WallpaperAccent>((ref) {
+  final appearance = ref.watch(
+    shellSettingsProvider.select((settings) => settings.appearance),
+  );
+  if (appearance.accentSource == ShellAccentSource.custom) {
+    return WallpaperAccent(appearance.customAccentColor);
+  }
+  return ref.watch(wallpaperAccentProvider);
+});
 
 class WallpaperAccentController extends Notifier<WallpaperAccent>
     with NotifierLifecycle<WallpaperAccent> {

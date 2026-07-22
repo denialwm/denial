@@ -6,10 +6,14 @@ import 'package:denial_dart_shell/src/platform/authentication_protocol.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/services/authentication_service.dart';
 import 'package:denial_dart_shell/src/services/power_status_service.dart';
+import 'package:denial_dart_shell/src/settings/settings_controller.dart';
+import 'package:denial_dart_shell/src/settings/settings_store.dart';
+import 'package:denial_dart_shell/src/settings/shell_settings.dart';
 import 'package:denial_dart_shell/src/state/authentication.dart';
 import 'package:denial_dart_shell/src/state/shell_controller.dart';
 import 'package:denial_dart_shell/src/state/system_status.dart';
 import 'package:denial_dart_shell/src/widgets/lock/lock_screen_layer.dart';
+import 'package:denial_dart_shell/src/widgets/shell_wallpaper.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
@@ -115,8 +119,41 @@ void main() {
         find.bySemanticsLabel('Denial secure lock screen'),
         findsOneWidget,
       );
+      expect(find.byType(ShellWallpaper), findsOneWidget);
     },
   );
+
+  testWidgets('desktop lock uses a click-first sign-in stage', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1600, 600);
+    addTearDown(tester.view.reset);
+    final service = _FakeAuthenticationService();
+    final bridge = _LayoutBridge(_dualOutputLayout);
+    addTearDown(() {
+      service.dispose();
+      bridge.dispose();
+    });
+
+    await tester.pumpWidget(_host(service: service, bridge: bridge));
+    service.emit(_state(locked: true));
+    await tester.pump();
+
+    expect(find.text('Welcome back'), findsOneWidget);
+    expect(find.bySemanticsLabel('Sign in to Denial'), findsOneWidget);
+    expect(find.byType(ShellWallpaper), findsOneWidget);
+    await tester.tap(find.bySemanticsLabel('Sign in to Denial'));
+    await tester.pump();
+    expect(service.beginCount, 1);
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(LockScreenLayer)),
+    );
+    container
+        .read(shellSettingsProvider.notifier)
+        .setLockScreen(useSystemWallpaper: false);
+    await tester.pump();
+    expect(find.byType(ShellWallpaper), findsNothing);
+  });
 }
 
 Widget _host({
@@ -126,6 +163,7 @@ Widget _host({
   return ProviderScope(
     overrides: <Override>[
       authenticationServiceProvider.overrideWithValue(service),
+      settingsStoreProvider.overrideWithValue(_MemorySettingsStore()),
       denialBridgeProvider.overrideWithValue(bridge),
       clockProvider.overrideWith(
         (ref) => Stream<DateTime>.value(DateTime(2026, 7, 17, 12, 34)),
@@ -148,6 +186,14 @@ Widget _host({
       ),
     ),
   );
+}
+
+class _MemorySettingsStore implements SettingsStore {
+  @override
+  Future<ShellSettings?> read() async => null;
+
+  @override
+  Future<void> write(ShellSettings settings) async {}
 }
 
 class _FakeAuthenticationService implements AuthenticationService {

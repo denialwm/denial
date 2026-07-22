@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/notification_policy_repository.dart';
 import '../state/desktop_notifications.dart';
 import '../theme/motion.dart';
+import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
 import 'notification_banner.dart';
 
@@ -296,6 +297,7 @@ class _PrivacyChoiceState extends State<_PrivacyChoice> {
       NotificationPreviewMode.applicationOnly => 'App only',
       NotificationPreviewMode.full => 'Full',
     };
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
       selected: widget.selected,
@@ -338,7 +340,7 @@ class _PrivacyChoiceState extends State<_PrivacyChoice> {
                   : ShellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: _focused ? ShellColors.accent : ShellColors.hairlineSoft,
+                color: _focused ? accent : ShellColors.hairlineSoft,
               ),
             ),
             child: Text(
@@ -367,6 +369,7 @@ class _DoNotDisturbNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       label:
           'Do not disturb is on. Ordinary banners are silent. Critical notifications can still appear.',
@@ -510,7 +513,7 @@ class _CenterIconButtonState extends State<_CenterIconButton> {
                   : ShellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: _focused ? ShellColors.accent : ShellColors.hairlineSoft,
+                color: _focused ? accent : ShellColors.hairlineSoft,
               ),
             ),
             child: Icon(

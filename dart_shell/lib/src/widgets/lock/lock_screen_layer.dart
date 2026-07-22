@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart'
     show CircularProgressIndicator, Icons, Tooltip;
@@ -7,29 +8,30 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../input/shell_interaction_registry.dart';
 import '../../models/shell_clock_info.dart';
 import '../../models/shell_power_status.dart';
 import '../../platform/authentication_protocol.dart';
+import '../../settings/settings_controller.dart';
 import '../../state/authentication.dart';
 import '../../state/display_layout.dart';
+import '../../state/shell_profile.dart';
 import '../../state/system_status.dart';
-import '../../input/shell_interaction_registry.dart';
 import '../../theme/motion.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../shell_wallpaper.dart';
 import '../shade/status_glyphs.dart';
 
 class LockScreenLayer extends ConsumerWidget {
-  const LockScreenLayer({
-    super.key,
-    required this.unlockProgress,
-  });
+  const LockScreenLayer({super.key, required this.unlockProgress});
 
   final double unlockProgress;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final layout = ref.watch(displayLayoutProvider);
+    final shellProfile = ref.watch(shellProfileProvider);
     return ShellInputRegion(
       debugLabel: 'secure lock screen',
       pointerPolicy: ShellPointerPolicy.fullScene,
@@ -39,14 +41,29 @@ class LockScreenLayer extends ConsumerWidget {
         builder: (context, constraints) {
           final canvas = Offset.zero & constraints.biggest;
           final outputs = (layout?.outputs ?? const [])
-              .map((output) =>
-                  (output: output, rect: output.logicalRect.intersect(canvas)))
+              .map(
+                (output) => (
+                  output: output,
+                  rect: output.logicalRect.intersect(canvas),
+                ),
+              )
               .where((entry) => !entry.rect.isEmpty)
               .toList(growable: false);
+          final desktop =
+              shellProfile == ShellProfile.desktop ||
+              canvas.width >= 900 ||
+              outputs.length > 1;
           if (outputs.length <= 1) {
-            return _LockScreenPane(
-              unlockProgress: unlockProgress,
-              authenticationEnabled: true,
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                _LockBackdrop(unlockProgress: unlockProgress),
+                _LockScreenPane(
+                  unlockProgress: unlockProgress,
+                  authenticationEnabled: true,
+                  desktop: desktop,
+                ),
+              ],
             );
           }
 
@@ -54,7 +71,7 @@ class LockScreenLayer extends ConsumerWidget {
           return Stack(
             fit: StackFit.expand,
             children: [
-              const ColoredBox(color: ShellColors.background),
+              _LockBackdrop(unlockProgress: unlockProgress),
               for (final entry in outputs)
                 Positioned.fromRect(
                   rect: entry.rect,
@@ -70,6 +87,7 @@ class LockScreenLayer extends ConsumerWidget {
                         unlockProgress: unlockProgress,
                         authenticationEnabled:
                             entry.output.monitorId == authenticationMonitorId,
+                        desktop: true,
                       ),
                     ),
                   ),
@@ -87,10 +105,12 @@ class _LockScreenPane extends ConsumerStatefulWidget {
     super.key,
     required this.unlockProgress,
     required this.authenticationEnabled,
+    required this.desktop,
   });
 
   final double unlockProgress;
   final bool authenticationEnabled;
+  final bool desktop;
 
   @override
   ConsumerState<_LockScreenPane> createState() => _LockScreenPaneState();
@@ -110,8 +130,9 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
   double _slideOffset = 0.0;
   bool _dragging = false;
   final TextEditingController _responseController = TextEditingController();
-  final FocusNode _responseFocus =
-      FocusNode(debugLabel: 'lock-authentication-response');
+  final FocusNode _responseFocus = FocusNode(
+    debugLabel: 'lock-authentication-response',
+  );
   bool _authenticationVisible = false;
   bool _oskVisible = false;
   int? _focusedPromptSequence;
@@ -134,6 +155,9 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
   @override
   Widget build(BuildContext context) {
     final authentication = ref.watch(authenticationProvider);
+    final lockSettings = ref.watch(
+      shellSettingsProvider.select((settings) => settings.lockScreen),
+    );
     if (widget.authenticationEnabled &&
         authentication.prompt?.sequence != _focusedPromptSequence) {
       _focusedPromptSequence = authentication.prompt?.sequence;
@@ -158,31 +182,25 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
       builder: (context, constraints) {
         final size = constraints.biggest;
         final dragDistance = _dragDistance(size.height);
-        final progress =
-            (-_slideOffset / dragDistance).clamp(0.0, 1.0).toDouble();
+        final progress = (-_slideOffset / dragDistance)
+            .clamp(0.0, 1.0)
+            .toDouble();
         final unlockProgress = widget.unlockProgress;
-        final backdropOpacity = 1.0 - interval(unlockProgress, 0.08, 0.66);
         final panelGlassOpacity = 1.0 - interval(unlockProgress, 0.16, 0.74);
+        final allowsSwipe = widget.authenticationEnabled && !widget.desktop;
 
         final content = GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: widget.authenticationEnabled ? _showAuthentication : null,
-          onPanStart:
-              widget.authenticationEnabled ? (_) => _beginGesture() : null,
-          onPanUpdate: widget.authenticationEnabled
+          onPanStart: allowsSwipe ? (_) => _beginGesture() : null,
+          onPanUpdate: allowsSwipe
               ? (details) => _updateGesture(details.delta, size.height)
               : null,
-          onPanCancel: widget.authenticationEnabled ? _cancelGesture : null,
-          onPanEnd: widget.authenticationEnabled
-              ? (_) => _finishGesture(size.height)
-              : null,
+          onPanCancel: allowsSwipe ? _cancelGesture : null,
+          onPanEnd: allowsSwipe ? (_) => _finishGesture(size.height) : null,
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Opacity(
-                opacity: backdropOpacity,
-                child: const _LockBackdrop(),
-              ),
               if (unlockProgress > 0.0)
                 _UnlockRevealBackdrop(progress: unlockProgress),
               Transform.translate(
@@ -233,23 +251,35 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                         height: 1,
                         child: const ColoredBox(color: Color(0x16ffffff)),
                       ),
-                      _LockStatusIcons(
-                        power: power,
-                        unlockProgress: unlockProgress,
-                      ),
+                      if (lockSettings.showSystemStatus)
+                        _LockStatusIcons(
+                          power: power,
+                          unlockProgress: unlockProgress,
+                        ),
                       _LockClockBlock(
                         clock: clock,
                         unlockProgress: unlockProgress,
+                        desktop: widget.desktop,
+                        scale: lockSettings.clockScale,
+                        showSystemStatus: lockSettings.showSystemStatus,
                       ),
-                      _LockSwipePill(
-                        progress: progress,
-                        unlockProgress: unlockProgress,
-                      ),
+                      if (!widget.desktop)
+                        _LockSwipePill(
+                          progress: progress,
+                          unlockProgress: unlockProgress,
+                        ),
+                      if (widget.desktop &&
+                          widget.authenticationEnabled &&
+                          !_authenticationVisible &&
+                          !authentication.busy &&
+                          authentication.resultMessage == null)
+                        _DesktopUnlockPrompt(onBegin: _showAuthentication),
                       if (widget.authenticationEnabled &&
                           (_authenticationVisible ||
                               authentication.busy ||
                               authentication.resultMessage != null))
                         _LockAuthenticationPanel(
+                          desktop: widget.desktop,
                           state: authentication,
                           controller: _responseController,
                           focusNode: _responseFocus,
@@ -260,8 +290,9 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                           onInsertText: _insertText,
                           onBackspace: _backspace,
                           onSubmit: _submitResponse,
-                          onBegin:
-                              ref.read(authenticationProvider.notifier).begin,
+                          onBegin: ref
+                              .read(authenticationProvider.notifier)
+                              .begin,
                           onCancel: _cancelAuthentication,
                         ),
                     ],
@@ -315,8 +346,9 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
     }
 
     setState(() {
-      _slideOffset =
-          (_slideOffset + delta.dy).clamp(-height - 48.0, 0.0).toDouble();
+      _slideOffset = (_slideOffset + delta.dy)
+          .clamp(-height - 48.0, 0.0)
+          .toDouble();
     });
   }
 
@@ -326,23 +358,16 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
     }
 
     _dragging = false;
-    final progress =
-        (-_slideOffset / _dragDistance(height)).clamp(0.0, 1.0).toDouble();
+    final progress = (-_slideOffset / _dragDistance(height))
+        .clamp(0.0, 1.0)
+        .toDouble();
     if (progress >= _unlockThreshold) {
       _showAuthentication();
-      _animateSlideTo(
-        0.0,
-        duration: _snapDuration,
-        curve: Motion.standard,
-      );
+      _animateSlideTo(0.0, duration: _snapDuration, curve: Motion.standard);
       return;
     }
 
-    _animateSlideTo(
-      0.0,
-      duration: _snapDuration,
-      curve: Motion.standard,
-    );
+    _animateSlideTo(0.0, duration: _snapDuration, curve: Motion.standard);
   }
 
   void _showAuthentication() {
@@ -430,11 +455,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
     }
 
     _dragging = false;
-    _animateSlideTo(
-      0.0,
-      duration: _snapDuration,
-      curve: Motion.standard,
-    );
+    _animateSlideTo(0.0, duration: _snapDuration, curve: Motion.standard);
   }
 
   void _animateSlideTo(
@@ -479,8 +500,133 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
   }
 }
 
+class _DesktopUnlockPrompt extends StatelessWidget {
+  const _DesktopUnlockPrompt({required this.onBegin});
+
+  final VoidCallback onBegin;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShellTheme.of(context);
+    final size = MediaQuery.sizeOf(context);
+    return Positioned.fill(
+      child: SafeArea(
+        minimum: EdgeInsets.fromLTRB(
+          24,
+          24,
+          math.max(32.0, size.width * 0.06),
+          24,
+        ),
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: Semantics(
+            button: true,
+            label: 'Sign in to Denial',
+            onTap: onBegin,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onBegin,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: math.min(420.0, size.width * 0.42),
+                  ),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: theme.panelColor(const Color(0xff171b22)),
+                      borderRadius: BorderRadius.circular(theme.panelRadius),
+                      border: Border.all(color: theme.accent.withAlpha(82)),
+                      boxShadow: const <BoxShadow>[
+                        BoxShadow(
+                          color: Color(0x99000000),
+                          blurRadius: 42,
+                          spreadRadius: 4,
+                          offset: Offset(0, 18),
+                        ),
+                      ],
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(28, 26, 28, 28),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: theme.accent.withAlpha(36),
+                              shape: BoxShape.circle,
+                            ),
+                            child: SizedBox.square(
+                              dimension: 52,
+                              child: Icon(
+                                Icons.person_outline_rounded,
+                                color: theme.accent,
+                                size: 26,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 42),
+                          Text(
+                            'Welcome back',
+                            style: ShellText.statusClock.copyWith(fontSize: 27),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Press Enter or click anywhere on this card to unlock.',
+                            style: ShellText.base.copyWith(
+                              color: ShellColors.textSecondary,
+                              fontSize: 13,
+                              height: 1.35,
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: theme.accent,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 18,
+                                vertical: 12,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.lock_open_rounded,
+                                    size: 18,
+                                    color: Color(0xff071014),
+                                  ),
+                                  const SizedBox(width: 9),
+                                  Text(
+                                    'Unlock',
+                                    style: ShellText.cardTitle.copyWith(
+                                      color: const Color(0xff071014),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _LockAuthenticationPanel extends StatelessWidget {
   const _LockAuthenticationPanel({
+    required this.desktop,
     required this.state,
     required this.controller,
     required this.focusNode,
@@ -493,6 +639,7 @@ class _LockAuthenticationPanel extends StatelessWidget {
     required this.onCancel,
   });
 
+  final bool desktop;
   final AuthenticationState state;
   final TextEditingController controller;
   final FocusNode focusNode;
@@ -507,7 +654,8 @@ class _LockAuthenticationPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final prompt = state.prompt;
-    final message = state.resultMessage ??
+    final message =
+        state.resultMessage ??
         state.statusMessage ??
         prompt?.message ??
         (state.busy ? 'Waiting for system authentication…' : null);
@@ -517,27 +665,30 @@ class _LockAuthenticationPanel extends StatelessWidget {
         state.available && state.busy && (prompt?.requiresResponse ?? false);
     final canBegin =
         state.available && state.locked && !state.busy && !state.rateLimited;
-    final cooldownSeconds =
-        (state.cooldown.inMilliseconds / 1000).ceil().clamp(1, 30);
+    final cooldownSeconds = (state.cooldown.inMilliseconds / 1000).ceil().clamp(
+      1,
+      30,
+    );
+    final theme = ShellTheme.of(context);
+    final size = MediaQuery.sizeOf(context);
 
     return Positioned.fill(
       child: SafeArea(
-        minimum: const EdgeInsets.fromLTRB(16, 16, 16, 30),
+        minimum: desktop
+            ? EdgeInsets.fromLTRB(24, 24, math.max(32.0, size.width * 0.06), 24)
+            : const EdgeInsets.fromLTRB(16, 16, 16, 30),
         child: Align(
-          alignment: Alignment.bottomCenter,
+          alignment: desktop ? Alignment.centerRight : Alignment.bottomCenter,
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              maxWidth: 520,
-              maxHeight: math.max(
-                220,
-                MediaQuery.sizeOf(context).height * 0.72,
-              ),
+              maxWidth: desktop ? math.min(460.0, size.width * 0.42) : 520,
+              maxHeight: math.max(220.0, size.height * (desktop ? 0.86 : 0.72)),
             ),
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: const Color(0xf21a1e25),
-                borderRadius: BorderRadius.circular(ShellRadii.panel),
-                border: Border.all(color: const Color(0x5278dce8)),
+                borderRadius: BorderRadius.circular(theme.panelRadius),
+                border: Border.all(color: theme.accent.withAlpha(82)),
                 boxShadow: const <BoxShadow>[
                   BoxShadow(
                     color: Color(0x99000000),
@@ -556,19 +707,15 @@ class _LockAuthenticationPanel extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          const DecoratedBox(
+                          DecoratedBox(
                             decoration: BoxDecoration(
-                              color: Color(0x2678dce8),
+                              color: theme.accent.withAlpha(38),
                               shape: BoxShape.circle,
                             ),
-                            child: SizedBox(
+                            child: const SizedBox(
                               width: 42,
                               height: 42,
-                              child: Icon(
-                                Icons.lock_outline_rounded,
-                                color: ShellColors.lockAccent,
-                                size: 21,
-                              ),
+                              child: Icon(Icons.lock_outline_rounded, size: 21),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -597,12 +744,12 @@ class _LockAuthenticationPanel extends StatelessWidget {
                             ),
                           ),
                           if (state.busy)
-                            const SizedBox(
+                            SizedBox(
                               width: 20,
                               height: 20,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                color: ShellColors.lockAccent,
+                                color: theme.accent,
                               ),
                             ),
                         ],
@@ -672,7 +819,7 @@ class _LockAuthenticationPanel extends StatelessWidget {
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(
                                 color: focusNode.hasFocus
-                                    ? ShellColors.lockAccent
+                                    ? theme.accent
                                     : ShellColors.hairline,
                               ),
                             ),
@@ -691,7 +838,7 @@ class _LockAuthenticationPanel extends StatelessWidget {
                                         fontSize: 16,
                                         letterSpacing: prompt.obscure ? 2.5 : 0,
                                       ),
-                                      cursorColor: ShellColors.lockAccent,
+                                      cursorColor: theme.accent,
                                       backgroundCursorColor:
                                           ShellColors.textTertiary,
                                       selectionColor:
@@ -751,10 +898,10 @@ class _LockAuthenticationPanel extends StatelessWidget {
                               label: canRespond
                                   ? 'Unlock'
                                   : state.busy
-                                      ? 'Authenticating…'
-                                      : state.rateLimited
-                                          ? 'Please wait'
-                                          : 'Try again',
+                                  ? 'Authenticating…'
+                                  : state.rateLimited
+                                  ? 'Please wait'
+                                  : 'Try again',
                               icon: Icons.arrow_forward_rounded,
                               primary: true,
                               enabled: canRespond || canBegin,
@@ -800,6 +947,7 @@ class _LockActionButtonState extends State<_LockActionButton> {
   @override
   Widget build(BuildContext context) {
     final active = widget.enabled && _highlighted;
+    final accent = ShellTheme.of(context).accent;
     final foreground = widget.enabled
         ? (widget.primary ? ShellColors.onAccent : ShellColors.textPrimary)
         : ShellColors.textTertiary.withValues(alpha: 0.55);
@@ -838,16 +986,13 @@ class _LockActionButtonState extends State<_LockActionButton> {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: widget.primary
-                  ? (widget.enabled
-                      ? ShellColors.lockAccent
-                      : ShellColors.lockAccent.withValues(alpha: 0.18))
+                  ? (widget.enabled ? accent : accent.withValues(alpha: 0.18))
                   : (active
-                      ? ShellColors.surfaceContainerHighest
-                      : ShellColors.surfaceContainerHigh),
+                        ? ShellColors.surfaceContainerHighest
+                        : ShellColors.surfaceContainerHigh),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color:
-                    active ? ShellColors.lockAccent : ShellColors.hairlineSoft,
+                color: active ? accent : ShellColors.hairlineSoft,
               ),
             ),
             child: Row(
@@ -890,6 +1035,7 @@ class _LockIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
       label: label,
@@ -915,7 +1061,7 @@ class _LockIconButton extends StatelessWidget {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: active
-                    ? const Color(0x3378dce8)
+                    ? accent.withAlpha(51)
                     : ShellColors.surfaceContainerHigh,
                 shape: BoxShape.circle,
                 border: Border.all(color: ShellColors.hairlineSoft),
@@ -926,9 +1072,7 @@ class _LockIconButton extends StatelessWidget {
                 child: Icon(
                   icon,
                   size: 19,
-                  color: active
-                      ? ShellColors.lockAccent
-                      : ShellColors.textSecondary,
+                  color: active ? accent : ShellColors.textSecondary,
                 ),
               ),
             ),
@@ -1071,6 +1215,7 @@ class _LockKeyboardKeyState extends State<_LockKeyboardKey> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     final child = Semantics(
       button: true,
       label: widget.label,
@@ -1102,15 +1247,13 @@ class _LockKeyboardKeyState extends State<_LockKeyboardKey> {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: widget.active
-                    ? const Color(0x4078dce8)
+                    ? accent.withAlpha(64)
                     : _highlighted
-                        ? ShellColors.surfaceContainerHighest
-                        : ShellColors.surfaceContainerHigh,
+                    ? ShellColors.surfaceContainerHighest
+                    : ShellColors.surfaceContainerHigh,
                 borderRadius: BorderRadius.circular(9),
                 border: Border.all(
-                  color: _highlighted
-                      ? ShellColors.lockAccent
-                      : ShellColors.hairlineSoft,
+                  color: _highlighted ? accent : ShellColors.hairlineSoft,
                 ),
               ),
               child: SizedBox(
@@ -1128,7 +1271,7 @@ class _LockKeyboardKeyState extends State<_LockKeyboardKey> {
                           widget.icon,
                           size: 16,
                           color: widget.active
-                              ? ShellColors.lockAccent
+                              ? accent
                               : ShellColors.textSecondary,
                         ),
                 ),
@@ -1142,39 +1285,61 @@ class _LockKeyboardKeyState extends State<_LockKeyboardKey> {
   }
 }
 
-class _LockBackdrop extends StatelessWidget {
-  const _LockBackdrop();
+class _LockBackdrop extends ConsumerWidget {
+  const _LockBackdrop({required this.unlockProgress});
+
+  final double unlockProgress;
 
   @override
-  Widget build(BuildContext context) {
-    return const Stack(
-      fit: StackFit.expand,
-      children: [
-        DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Color(0xff171a1f),
-                Color(0xff0b0d12),
-                Color(0xff050608),
-              ],
-              stops: [0.0, 0.54, 1.0],
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(
+      shellSettingsProvider.select((value) => value.lockScreen),
+    );
+    final opacity = 1.0 - interval(unlockProgress, 0.08, 0.66);
+    return Opacity(
+      opacity: opacity,
+      child: RepaintBoundary(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color(0xff171a1f),
+                    Color(0xff0b0d12),
+                    Color(0xff050608),
+                  ],
+                  stops: [0.0, 0.54, 1.0],
+                ),
+              ),
             ),
-          ),
+            if (settings.useSystemWallpaper)
+              ClipRect(
+                child: ImageFiltered(
+                  imageFilter: ImageFilter.blur(
+                    sigmaX: settings.blurRadius,
+                    sigmaY: settings.blurRadius,
+                  ),
+                  child: const ShellWallpaper(),
+                ),
+              ),
+            ColoredBox(
+              color: const Color(
+                0xff000000,
+              ).withValues(alpha: settings.dimAmount),
+            ),
+          ],
         ),
-        ShellWallpaper(),
-      ],
+      ),
     );
   }
 }
 
 class _LockStatusIcons extends StatelessWidget {
-  const _LockStatusIcons({
-    required this.power,
-    required this.unlockProgress,
-  });
+  const _LockStatusIcons({required this.power, required this.unlockProgress});
 
   final ShellPowerStatus power;
   final double unlockProgress;
@@ -1206,21 +1371,30 @@ class _LockClockBlock extends StatelessWidget {
   const _LockClockBlock({
     required this.clock,
     required this.unlockProgress,
+    required this.desktop,
+    required this.scale,
+    required this.showSystemStatus,
   });
 
   final ShellClockInfo clock;
   final double unlockProgress;
+  final bool desktop;
+  final double scale;
+  final bool showSystemStatus;
 
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
-    final top = math.max(48.0, size.height * 0.25 - 96.0);
+    final top = desktop
+        ? math.max(72.0, size.height * 0.22)
+        : math.max(48.0, size.height * 0.25 - 96.0);
     final lift = Curves.easeOutCubic.transform(unlockProgress);
     final fade = 1.0 - interval(unlockProgress, 0.52, 0.92);
+    final horizontalInset = desktop ? math.max(48.0, size.width * 0.065) : 0.0;
 
     return Positioned(
-      left: 0,
-      right: 0,
+      left: horizontalInset,
+      right: desktop ? size.width * 0.48 : 0,
       top: top,
       child: Transform.translate(
         offset: Offset(0.0, -44.0 * lift),
@@ -1228,32 +1402,42 @@ class _LockClockBlock extends StatelessWidget {
           scale: 1.0 - 0.035 * lift,
           child: Opacity(
             opacity: fade,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 28),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: _UnlockTimeLine(
-                      text: clock.timeLine,
-                      progress: unlockProgress,
+            child: Transform.scale(
+              alignment: desktop ? Alignment.topLeft : Alignment.topCenter,
+              scale: scale,
+              child: Padding(
+                padding: desktop
+                    ? EdgeInsets.zero
+                    : const EdgeInsets.symmetric(horizontal: 28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: desktop
+                      ? CrossAxisAlignment.start
+                      : CrossAxisAlignment.center,
+                  children: [
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: _UnlockTimeLine(
+                        text: clock.timeLine,
+                        progress: unlockProgress,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(clock.dateLine, style: ShellText.lockDate),
-                  ),
-                  if (clock.power.displayLine.isNotEmpty ||
-                      clock.thermalReadings.isNotEmpty) ...[
-                    const SizedBox(height: 18),
-                    _LockClockStatus(
-                      power: clock.power,
-                      thermalReadings: clock.thermalReadings,
+                    const SizedBox(height: 10),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(clock.dateLine, style: ShellText.lockDate),
                     ),
+                    if (showSystemStatus &&
+                        (clock.power.displayLine.isNotEmpty ||
+                            clock.thermalReadings.isNotEmpty)) ...[
+                      const SizedBox(height: 18),
+                      _LockClockStatus(
+                        power: clock.power,
+                        thermalReadings: clock.thermalReadings,
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
@@ -1264,10 +1448,7 @@ class _LockClockBlock extends StatelessWidget {
 }
 
 class _UnlockTimeLine extends StatelessWidget {
-  const _UnlockTimeLine({
-    required this.text,
-    required this.progress,
-  });
+  const _UnlockTimeLine({required this.text, required this.progress});
 
   final String text;
   final double progress;
@@ -1326,10 +1507,7 @@ class _UnlockTimeGlyph extends StatelessWidget {
 }
 
 class _LockClockStatus extends StatelessWidget {
-  const _LockClockStatus({
-    required this.power,
-    required this.thermalReadings,
-  });
+  const _LockClockStatus({required this.power, required this.thermalReadings});
 
   final ShellPowerStatus power;
   final List<ShellThermalReading> thermalReadings;
@@ -1526,10 +1704,7 @@ class _LockBatteryGlyph extends StatelessWidget {
 }
 
 class _LockSwipePill extends StatelessWidget {
-  const _LockSwipePill({
-    required this.progress,
-    required this.unlockProgress,
-  });
+  const _LockSwipePill({required this.progress, required this.unlockProgress});
 
   final double progress;
   final double unlockProgress;
@@ -1547,7 +1722,8 @@ class _LockSwipePill extends StatelessWidget {
     return Positioned(
       left: 0,
       right: 0,
-      bottom: math.max(34.0, MediaQuery.sizeOf(context).height * 0.034) +
+      bottom:
+          math.max(34.0, MediaQuery.sizeOf(context).height * 0.034) +
           bottomPadding,
       child: Center(
         child: Opacity(
@@ -1578,7 +1754,10 @@ class _UnlockRevealBackdrop extends StatelessWidget {
     return Positioned.fill(
       child: IgnorePointer(
         child: CustomPaint(
-          painter: _UnlockRevealPainter(progress: progress),
+          painter: _UnlockRevealPainter(
+            progress: progress,
+            accent: ShellTheme.of(context).accent,
+          ),
         ),
       ),
     );
@@ -1586,9 +1765,10 @@ class _UnlockRevealBackdrop extends StatelessWidget {
 }
 
 class _UnlockRevealPainter extends CustomPainter {
-  const _UnlockRevealPainter({required this.progress});
+  const _UnlockRevealPainter({required this.progress, required this.accent});
 
   final double progress;
+  final Color accent;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1602,7 +1782,7 @@ class _UnlockRevealPainter extends CustomPainter {
         end: Alignment.topCenter,
         colors: [
           ShellColors.lockAccent.withValues(alpha: 0.10 * (1.0 - clear)),
-          ShellColors.accent.withValues(alpha: 0.05 * (1.0 - clear)),
+          accent.withValues(alpha: 0.05 * (1.0 - clear)),
           const Color(0x00000000),
         ],
         stops: const [0.0, 0.46, 1.0],
@@ -1619,7 +1799,7 @@ class _UnlockRevealPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _UnlockRevealPainter oldDelegate) {
-    return oldDelegate.progress != progress;
+    return oldDelegate.progress != progress || oldDelegate.accent != accent;
   }
 }
 
@@ -1632,9 +1812,7 @@ class _UnlockSweep extends StatelessWidget {
   Widget build(BuildContext context) {
     return Positioned.fill(
       child: IgnorePointer(
-        child: CustomPaint(
-          painter: _UnlockSweepPainter(progress: progress),
-        ),
+        child: CustomPaint(painter: _UnlockSweepPainter(progress: progress)),
       ),
     );
   }
@@ -1682,7 +1860,8 @@ class _UnlockSweepPainter extends CustomPainter {
       ..strokeWidth = 0.8
       ..style = PaintingStyle.stroke;
     for (var i = 0; i < 5; i++) {
-      final x = size.width * (0.14 + i * 0.18) +
+      final x =
+          size.width * (0.14 + i * 0.18) +
           math.sin(progress * math.pi + i) * 18.0;
       canvas.drawLine(
         Offset(x, y + bandHeight * 0.16),

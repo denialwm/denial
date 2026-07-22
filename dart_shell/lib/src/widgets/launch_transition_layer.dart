@@ -6,14 +6,12 @@ import 'package:flutter/widgets.dart';
 import '../models/app_launch_request.dart';
 import '../models/denial_window.dart';
 import '../theme/motion.dart';
+import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
 import 'app_icon.dart';
 import 'window_hero.dart';
 
-typedef LaunchTransitionCompleted = void Function(
-  int requestId,
-  int objectId,
-);
+typedef LaunchTransitionCompleted = void Function(int requestId, int objectId);
 
 /// Immediately grows a black app preview from the centre of the launcher.
 ///
@@ -47,10 +45,8 @@ class _LaunchTransitionLayerState extends State<LaunchTransitionLayer>
   @override
   void initState() {
     super.initState();
-    _zoomController = AnimationController(
-      vsync: this,
-      duration: Motion.launch,
-    )..addStatusListener(_handleAnimationStatus);
+    _zoomController = AnimationController(vsync: this, duration: Motion.launch)
+      ..addStatusListener(_handleAnimationStatus);
     _revealController = AnimationController(
       vsync: this,
       duration: Motion.launchReveal,
@@ -132,7 +128,7 @@ class _LaunchTransitionLayerState extends State<LaunchTransitionLayer>
     final viewRect = Offset.zero & constraints.biggest;
     final startRect = _startRectFor(context, constraints);
     final rect = Rect.lerp(startRect, viewRect, zoom)!;
-    final radius = lerpDouble(ShellRadii.panel, 0.0, zoom)!;
+    final radius = lerpDouble(ShellTheme.of(context).panelRadius, 0.0, zoom)!;
     final iconSize = math
         .min(startRect.width * 0.28, startRect.height * 0.34)
         .clamp(56.0, 112.0)

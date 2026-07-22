@@ -4,16 +4,16 @@ import 'package:flutter/services.dart';
 import '../../localization/denial_localizations.dart';
 import '../../models/display_layout.dart';
 import '../../theme/motion.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/shell_cursor.dart';
 
-const settingsSystemBarPlacementCardKey =
-    ValueKey<String>('settings-system-bar-placement-card');
-
-typedef SystemBarPlacementChanged = void Function(
-  SystemBarSide side,
-  List<int> monitorIds,
+const settingsSystemBarPlacementCardKey = ValueKey<String>(
+  'settings-system-bar-placement-card',
 );
+
+typedef SystemBarPlacementChanged =
+    void Function(SystemBarSide side, List<int> monitorIds);
 
 class SystemBarPlacementCard extends StatelessWidget {
   const SystemBarPlacementCard({
@@ -275,6 +275,7 @@ class _EdgeChoiceState extends State<_EdgeChoice> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     final highlighted = widget.enabled && (_hovered || _focused);
     return Semantics(
       button: true,
@@ -283,8 +284,9 @@ class _EdgeChoiceState extends State<_EdgeChoice> {
       label: widget.label,
       child: FocusableActionDetector(
         enabled: widget.enabled,
-        mouseCursor:
-            widget.enabled ? ShellMouseCursors.link : SystemMouseCursors.basic,
+        mouseCursor: widget.enabled
+            ? ShellMouseCursors.link
+            : SystemMouseCursors.basic,
         onShowHoverHighlight: (value) => setState(() => _hovered = value),
         onShowFocusHighlight: (value) => setState(() => _focused = value),
         shortcuts: const <ShortcutActivator, Intent>{
@@ -311,12 +313,12 @@ class _EdgeChoiceState extends State<_EdgeChoice> {
               color: widget.selected
                   ? ShellColors.primaryContainer
                   : highlighted
-                      ? ShellColors.surfaceContainerHighest
-                      : ShellColors.surfaceContainerHigh,
+                  ? ShellColors.surfaceContainerHighest
+                  : ShellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(ShellRadii.chip),
               border: Border.all(
                 color: _focused || widget.selected
-                    ? ShellColors.accent
+                    ? accent
                     : ShellColors.hairline,
               ),
             ),
@@ -421,6 +423,7 @@ class _DisplayChoiceState extends State<_DisplayChoice> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     final l10n = context.l10n;
     final enabled = !widget.selected || widget.canDeselect;
     final scale = widget.output.scale.toStringAsFixed(
@@ -446,8 +449,9 @@ class _DisplayChoiceState extends State<_DisplayChoice> {
           : null,
       child: FocusableActionDetector(
         enabled: enabled,
-        mouseCursor:
-            enabled ? ShellMouseCursors.link : SystemMouseCursors.basic,
+        mouseCursor: enabled
+            ? ShellMouseCursors.link
+            : SystemMouseCursors.basic,
         onShowHoverHighlight: (value) => setState(() => _hovered = value),
         onShowFocusHighlight: (value) => setState(() => _focused = value),
         shortcuts: const <ShortcutActivator, Intent>{
@@ -473,21 +477,18 @@ class _DisplayChoiceState extends State<_DisplayChoice> {
               color: widget.selected
                   ? ShellColors.primaryContainer.withAlpha(110)
                   : highlighted
-                      ? ShellColors.surfaceContainerHighest
-                      : ShellColors.surfaceContainerHigh,
+                  ? ShellColors.surfaceContainerHighest
+                  : ShellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(ShellRadii.chip),
               border: Border.all(
                 color: _focused || widget.selected
-                    ? ShellColors.accent
+                    ? accent
                     : ShellColors.hairline,
               ),
             ),
             child: Row(
               children: [
-                _MonitorPreview(
-                  side: widget.side,
-                  selected: widget.selected,
-                ),
+                _MonitorPreview(side: widget.side, selected: widget.selected),
                 const SizedBox(width: 13),
                 Expanded(
                   child: Column(
@@ -508,7 +509,8 @@ class _DisplayChoiceState extends State<_DisplayChoice> {
                           if (widget.isMain) ...[
                             const SizedBox(width: 6),
                             _MainBadge(
-                                label: l10n.settingsSystemBarMainDisplay),
+                              label: l10n.settingsSystemBarMainDisplay,
+                            ),
                           ],
                         ],
                       ),
@@ -531,9 +533,7 @@ class _DisplayChoiceState extends State<_DisplayChoice> {
                       ? Icons.check_circle_rounded
                       : Icons.circle_outlined,
                   size: 19,
-                  color: widget.selected
-                      ? ShellColors.accent
-                      : ShellColors.textTertiary,
+                  color: widget.selected ? accent : ShellColors.textTertiary,
                 ),
               ],
             ),
@@ -552,9 +552,10 @@ class _MonitorPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     final bar = DecoratedBox(
       decoration: BoxDecoration(
-        color: selected ? ShellColors.accent : ShellColors.textTertiary,
+        color: selected ? accent : ShellColors.textTertiary,
         borderRadius: BorderRadius.circular(2),
       ),
     );
@@ -566,13 +567,11 @@ class _MonitorPreview extends StatelessWidget {
       decoration: BoxDecoration(
         color: ShellColors.windowFrameSurface,
         borderRadius: BorderRadius.circular(7),
-        border: Border.all(
-          color: selected ? ShellColors.accent : ShellColors.hairline,
-        ),
+        border: Border.all(color: selected ? accent : ShellColors.hairline),
         boxShadow: selected
             ? [
                 BoxShadow(
-                  color: ShellColors.accent.withAlpha(70),
+                  color: accent.withAlpha(70),
                   blurRadius: 12,
                   spreadRadius: -2,
                 ),
@@ -591,33 +590,33 @@ class _MonitorPreview extends StatelessWidget {
           ),
           switch (side) {
             SystemBarSide.top => Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                height: 4,
-                child: bar,
-              ),
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 4,
+              child: bar,
+            ),
             SystemBarSide.bottom => Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: 4,
-                child: bar,
-              ),
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: 4,
+              child: bar,
+            ),
             SystemBarSide.left => Positioned(
-                top: 0,
-                bottom: 0,
-                left: 0,
-                width: 4,
-                child: bar,
-              ),
+              top: 0,
+              bottom: 0,
+              left: 0,
+              width: 4,
+              child: bar,
+            ),
             SystemBarSide.right => Positioned(
-                top: 0,
-                bottom: 0,
-                right: 0,
-                width: 4,
-                child: bar,
-              ),
+              top: 0,
+              bottom: 0,
+              right: 0,
+              width: 4,
+              child: bar,
+            ),
             SystemBarSide.hidden => const SizedBox.shrink(),
           },
         ],

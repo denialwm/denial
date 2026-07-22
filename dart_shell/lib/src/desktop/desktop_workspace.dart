@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/display_layout.dart';
 import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
+import '../models/shell_popup_placement.dart';
 import 'desktop_overview_layout.dart';
 
 abstract final class DesktopMetrics {
@@ -27,85 +28,64 @@ abstract final class DesktopMetrics {
     return clipped.isEmpty ? Rect.zero : clipped;
   }
 
-  static Rect launcherRect(Size viewSize, {Rect? outputRect}) {
-    return _panelRect(
-      viewSize,
-      outputRect: outputRect,
-      preferredWidth: 680.0,
-      preferredHeight: 620.0,
-      alignBottom: false,
-    );
-  }
-
-  static Rect dashboardRect(Size viewSize, {Rect? outputRect}) {
-    return _panelRect(
-      viewSize,
-      outputRect: outputRect,
-      preferredWidth: 470.0,
-      preferredHeight: 620.0,
-      alignBottom: true,
-    );
-  }
-
-  static Rect launcherTriggerRect(Size viewSize, {Rect? outputRect}) {
-    return _edgeTriggerRect(
-      viewSize,
-      outputRect: outputRect,
-      alignBottom: false,
-    );
-  }
-
-  static Rect dashboardTriggerRect(Size viewSize, {Rect? outputRect}) {
-    return _edgeTriggerRect(
-      viewSize,
-      outputRect: outputRect,
-      alignBottom: true,
-    );
-  }
-
-  static Rect _panelRect(
+  static Rect launcherRect(
     Size viewSize, {
-    required Rect? outputRect,
-    required double preferredWidth,
-    required double preferredHeight,
-    required bool alignBottom,
+    Rect? outputRect,
+    ShellPopupPlacement placement = const ShellPopupPlacement(
+      anchor: ShellPopupAnchor.topLeft,
+      width: 680,
+      height: 620,
+      margin: panelMargin,
+    ),
   }) {
-    final bounds = _outputBounds(viewSize, outputRect);
-    if (bounds.isEmpty) {
-      return Rect.zero;
-    }
-
-    final width = math.min(
-      preferredWidth,
-      math.max(0.0, bounds.width - panelMargin * 2.0),
-    );
-    final height = math.min(
-      preferredHeight,
-      math.max(0.0, bounds.height - panelMargin * 2.0),
-    );
-    if (width <= 0.0 || height <= 0.0) {
-      return Rect.zero;
-    }
-    final left = bounds.left + panelMargin;
-    final top = alignBottom
-        ? bounds.bottom - panelMargin - height
-        : bounds.top + panelMargin;
-    return Rect.fromLTWH(left, top, width, height);
+    return placement.resolve(_outputBounds(viewSize, outputRect));
   }
 
-  static Rect _edgeTriggerRect(
+  static Rect dashboardRect(
     Size viewSize, {
-    required Rect? outputRect,
-    required bool alignBottom,
+    Rect? outputRect,
+    ShellPopupPlacement placement = const ShellPopupPlacement(
+      anchor: ShellPopupAnchor.bottomLeft,
+      width: 470,
+      height: 620,
+      margin: panelMargin,
+    ),
   }) {
-    final bounds = _outputBounds(viewSize, outputRect);
-    if (bounds.isEmpty) {
-      return Rect.zero;
-    }
-    final width = math.min(edgeTriggerWidth, bounds.width);
-    final height = math.min(edgeTriggerExtent, bounds.height / 2.0);
-    final top = alignBottom ? bounds.bottom - height : bounds.top;
-    return Rect.fromLTWH(bounds.left, top, width, height);
+    return placement.resolve(_outputBounds(viewSize, outputRect));
+  }
+
+  static Rect launcherTriggerRect(
+    Size viewSize, {
+    Rect? outputRect,
+    ShellPopupPlacement placement = const ShellPopupPlacement(
+      anchor: ShellPopupAnchor.topLeft,
+      width: 680,
+      height: 620,
+      margin: panelMargin,
+    ),
+  }) {
+    return placement.edgeTrigger(
+      _outputBounds(viewSize, outputRect),
+      thickness: edgeTriggerWidth,
+      extent: edgeTriggerExtent,
+    );
+  }
+
+  static Rect dashboardTriggerRect(
+    Size viewSize, {
+    Rect? outputRect,
+    ShellPopupPlacement placement = const ShellPopupPlacement(
+      anchor: ShellPopupAnchor.bottomLeft,
+      width: 470,
+      height: 620,
+      margin: panelMargin,
+    ),
+  }) {
+    return placement.edgeTrigger(
+      _outputBounds(viewSize, outputRect),
+      thickness: edgeTriggerWidth,
+      extent: edgeTriggerExtent,
+    );
   }
 
   static Rect _outputBounds(Size viewSize, Rect? outputRect) {

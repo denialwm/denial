@@ -7,6 +7,7 @@ import 'package:denial_dart_shell/src/desktop/desktop_workspace.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/models/denial_window.dart';
 import 'package:denial_dart_shell/src/models/denial_window_event.dart';
+import 'package:denial_dart_shell/src/models/shell_popup_placement.dart';
 import 'package:denial_dart_shell/src/state/desktop_window_switcher.dart';
 import 'package:denial_dart_shell/src/theme/motion.dart';
 
@@ -838,6 +839,32 @@ void main() {
     expect(dashboard, const Rect.fromLTWH(2574, 806, 470, 620));
     expect(launcherTrigger, const Rect.fromLTWH(2560, 0, 8, 96));
     expect(dashboardTrigger, const Rect.fromLTWH(2560, 1344, 8, 96));
+  });
+
+  test('desktop panels and hover triggers follow configured anchors', () {
+    const placement = ShellPopupPlacement(
+      anchor: ShellPopupAnchor.topRight,
+      width: 640,
+      height: 500,
+      margin: 24,
+    );
+
+    expect(
+      DesktopMetrics.launcherRect(
+        viewSize,
+        outputRect: secondOutput,
+        placement: placement,
+      ),
+      const Rect.fromLTWH(4456, 24, 640, 500),
+    );
+    expect(
+      DesktopMetrics.launcherTriggerRect(
+        viewSize,
+        outputRect: secondOutput,
+        placement: placement,
+      ),
+      const Rect.fromLTWH(5112, 0, 8, 96),
+    );
   });
 
   test('maximize without explicit bounds uses the monitor work area', () {

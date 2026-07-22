@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
 
+import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
 import 'desktop_window_render_telemetry.dart';
 import 'desktop_workspace.dart';
@@ -33,16 +34,17 @@ class DesktopWindowFrameLayers extends StatelessWidget {
         RepaintBoundary(
           child: IgnorePointer(
             child: CustomPaint(
-              painter: DesktopWindowFramePainter(windowId: windowId),
+              painter: DesktopWindowFramePainter(
+                windowId: windowId,
+                radius: ShellTheme.of(context).windowRadius,
+              ),
               isComplex: true,
               willChange: false,
             ),
           ),
         ),
         child,
-        IgnorePointer(
-          child: CustomPaint(painter: borderPainter),
-        ),
+        IgnorePointer(child: CustomPaint(painter: borderPainter)),
       ],
     );
   }
@@ -53,9 +55,13 @@ class DesktopWindowFrameLayers extends StatelessWidget {
 /// The center is deliberately left clear so client-provided per-pixel alpha is
 /// preserved instead of being composited over a shell-owned window backdrop.
 class DesktopWindowFramePainter extends CustomPainter {
-  const DesktopWindowFramePainter({this.windowId = 0});
+  const DesktopWindowFramePainter({
+    this.windowId = 0,
+    this.radius = ShellRadii.window,
+  });
 
   final int windowId;
+  final double radius;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -65,10 +71,7 @@ class DesktopWindowFramePainter extends CustomPainter {
     }
 
     final frame = Offset.zero & size;
-    final frameShape = RRect.fromRectAndRadius(
-      frame,
-      const Radius.circular(ShellRadii.window),
-    );
+    final frameShape = RRect.fromRectAndRadius(frame, Radius.circular(radius));
     final outsideFrame = Path()
       ..fillType = PathFillType.evenOdd
       ..addRect(frame.inflate(64))
@@ -82,10 +85,7 @@ class DesktopWindowFramePainter extends CustomPainter {
       ..save()
       ..clipPath(outsideFrame)
       ..drawRRect(
-        RRect.fromRectAndRadius(
-          shadowRect,
-          const Radius.circular(ShellRadii.window + 2),
-        ),
+        RRect.fromRectAndRadius(shadowRect, Radius.circular(radius + 2)),
         shadowPaint,
       )
       ..restore();
@@ -103,12 +103,7 @@ class DesktopWindowFramePainter extends CustomPainter {
       frameShape,
       RRect.fromRectAndRadius(
         innerFrame,
-        Radius.circular(
-          math.max(
-            0.0,
-            ShellRadii.window - DesktopMetrics.frameBorder,
-          ),
-        ),
+        Radius.circular(math.max(0.0, radius - DesktopMetrics.frameBorder)),
       ),
       Paint()..color = ShellColors.windowFrameSurface,
     );
@@ -116,6 +111,6 @@ class DesktopWindowFramePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant DesktopWindowFramePainter oldDelegate) {
-    return windowId != oldDelegate.windowId;
+    return windowId != oldDelegate.windowId || radius != oldDelegate.radius;
   }
 }

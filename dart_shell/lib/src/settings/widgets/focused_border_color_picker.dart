@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../localization/denial_localizations.dart';
 import '../../theme/motion.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/shell_cursor.dart';
 import '../color_format.dart';
@@ -24,15 +25,22 @@ class FocusedBorderColorPicker extends StatelessWidget {
     required this.onChanged,
     required this.onReset,
     required this.onClose,
+    this.title,
+    this.routeLabel,
+    this.wheelSemanticsLabel,
   });
 
   final Color color;
   final ValueChanged<Color> onChanged;
   final VoidCallback onReset;
   final VoidCallback onClose;
+  final String? title;
+  final String? routeLabel;
+  final String? wheelSemanticsLabel;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Focus(
       autofocus: true,
       onKeyEvent: (_, event) {
@@ -72,6 +80,12 @@ class FocusedBorderColorPicker extends StatelessWidget {
                       onChanged: onChanged,
                       onReset: onReset,
                       onClose: onClose,
+                      title: title ?? l10n.settingsColorPickerTitle,
+                      routeLabel:
+                          routeLabel ?? l10n.settingsColorPickerRouteLabel,
+                      wheelSemanticsLabel:
+                          wheelSemanticsLabel ??
+                          l10n.settingsColorWheelSemanticsLabel,
                     ),
                   ),
                 ),
@@ -91,6 +105,9 @@ class _ColorPickerPanel extends StatelessWidget {
     required this.onChanged,
     required this.onReset,
     required this.onClose,
+    required this.title,
+    required this.routeLabel,
+    required this.wheelSemanticsLabel,
   });
 
   final Color color;
@@ -98,6 +115,9 @@ class _ColorPickerPanel extends StatelessWidget {
   final ValueChanged<Color> onChanged;
   final VoidCallback onReset;
   final VoidCallback onClose;
+  final String title;
+  final String routeLabel;
+  final String wheelSemanticsLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -108,7 +128,7 @@ class _ColorPickerPanel extends StatelessWidget {
       namesRoute: true,
       explicitChildNodes: true,
       role: .dialog,
-      label: l10n.settingsColorPickerRouteLabel,
+      label: routeLabel,
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: ShellColors.panelBackgroundBottom,
@@ -128,11 +148,20 @@ class _ColorPickerPanel extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
             child: Column(
               children: [
-                _PickerHeader(color: color, hex: hex, onClose: onClose),
+                _PickerHeader(
+                  color: color,
+                  hex: hex,
+                  title: title,
+                  onClose: onClose,
+                ),
                 const SizedBox(height: 12),
                 SizedBox.square(
                   dimension: wheelSize,
-                  child: HsvColorWheel(color: color, onChanged: onChanged),
+                  child: HsvColorWheel(
+                    color: color,
+                    onChanged: onChanged,
+                    semanticsLabel: wheelSemanticsLabel,
+                  ),
                 ),
                 const Spacer(),
                 Text(
@@ -174,11 +203,13 @@ class _PickerHeader extends StatelessWidget {
   const _PickerHeader({
     required this.color,
     required this.hex,
+    required this.title,
     required this.onClose,
   });
 
   final Color color;
   final String hex;
+  final String title;
   final VoidCallback onClose;
 
   @override
@@ -201,7 +232,7 @@ class _PickerHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(l10n.settingsColorPickerTitle, style: ShellText.cardTitle),
+              Text(title, style: ShellText.cardTitle),
               const SizedBox(height: 2),
               Text(
                 hex,
@@ -247,6 +278,7 @@ class _PickerButtonState extends State<_PickerButton> {
   @override
   Widget build(BuildContext context) {
     final highlighted = _hovered || _focused;
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
       label: widget.label,
@@ -279,13 +311,13 @@ class _PickerButtonState extends State<_PickerButton> {
               color: widget.prominent
                   ? highlighted
                         ? ShellColors.onPrimaryContainer
-                        : ShellColors.accent
+                        : accent
                   : highlighted
                   ? ShellColors.surfaceContainerHighest
                   : ShellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(ShellRadii.chip),
               border: Border.all(
-                color: _focused ? ShellColors.accent : ShellColors.hairline,
+                color: _focused ? accent : ShellColors.hairline,
               ),
             ),
             child: Text(
@@ -325,6 +357,7 @@ class _PickerIconButtonState extends State<_PickerIconButton> {
   @override
   Widget build(BuildContext context) {
     final highlighted = _hovered || _focused;
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
       label: widget.semanticsLabel,
@@ -357,7 +390,7 @@ class _PickerIconButtonState extends State<_PickerIconButton> {
                   : ShellColors.surfaceContainerHigh,
               shape: BoxShape.circle,
               border: Border.all(
-                color: _focused ? ShellColors.accent : ShellColors.hairline,
+                color: _focused ? accent : ShellColors.hairline,
               ),
             ),
             child: Icon(

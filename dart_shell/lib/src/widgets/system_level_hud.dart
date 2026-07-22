@@ -1,20 +1,19 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart' show IconData, Icons;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/display_layout.dart';
+import '../settings/settings_controller.dart';
 import '../state/display_layout.dart';
 import '../state/system_level_hud.dart';
 import '../theme/motion.dart';
+import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
 
 class SystemLevelHudLayer extends ConsumerWidget {
   const SystemLevelHudLayer({super.key});
 
   static const double _height = 74;
-  static const double _bottomInset = 28;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -24,19 +23,17 @@ class SystemLevelHudLayer extends ConsumerWidget {
       return const SizedBox.shrink();
     }
 
-    final width = math
-        .min(380.0, math.max(220.0, output.logicalRect.width - 32))
-        .toDouble();
-    final left =
-        output.logicalRect.left + (output.logicalRect.width - width) / 2;
-    final top = output.logicalRect.bottom - _bottomInset - _height;
+    final placement = ref.watch(
+      shellSettingsProvider.select((settings) => settings.overlays.systemHud),
+    );
+    final rect = placement.resolve(output.logicalRect, fixedHeight: _height);
+    if (rect.isEmpty) {
+      return const SizedBox.shrink();
+    }
     final isBrightness = hud.kind == SystemLevelHudKind.brightness;
 
-    return Positioned(
-      left: left,
-      top: top,
-      width: width,
-      height: _height,
+    return Positioned.fromRect(
+      rect: rect,
       child: IgnorePointer(
         child: _SystemLevelHudCard(
           level: hud.level,
@@ -107,6 +104,7 @@ class _SystemLevelHudCard extends StatelessWidget {
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final duration = reduceMotion ? Duration.zero : Motion.systemLevelHud;
     final percent = (level * 100).round();
+    final theme = ShellTheme.of(context);
 
     return AnimatedSlide(
       duration: duration,
@@ -127,15 +125,15 @@ class _SystemLevelHudCard extends StatelessWidget {
           child: RepaintBoundary(
             child: DecoratedBox(
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
+                gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: <Color>[
-                    ShellColors.panelBackground,
-                    ShellColors.panelBackgroundBottom,
+                    theme.panelColor(ShellColors.panelBackground),
+                    theme.panelColor(ShellColors.panelBackgroundBottom),
                   ],
                 ),
-                borderRadius: BorderRadius.circular(ShellRadii.panel),
+                borderRadius: BorderRadius.circular(theme.panelRadius),
                 border: Border.all(color: ShellColors.hairline),
                 boxShadow: const <BoxShadow>[
                   BoxShadow(
@@ -149,7 +147,7 @@ class _SystemLevelHudCard extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 18),
                 child: Row(
                   children: [
-                    Icon(icon, size: 22, color: ShellColors.accent),
+                    Icon(icon, size: 22, color: theme.accent),
                     const SizedBox(width: 14),
                     Expanded(
                       child: Column(
@@ -229,7 +227,7 @@ class _LevelProgress extends StatelessWidget {
               FractionallySizedBox(
                 alignment: Alignment.centerLeft,
                 widthFactor: value.clamp(0.0, 1.0).toDouble(),
-                child: const ColoredBox(color: ShellColors.accent),
+                child: ColoredBox(color: ShellTheme.of(context).accent),
               ),
             ],
           ),

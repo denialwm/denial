@@ -7,6 +7,7 @@ import '../input/shell_interaction_registry.dart';
 import '../models/denial_window.dart';
 import '../state/desktop_window_switcher.dart';
 import '../theme/motion.dart';
+import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
 
 /// Geometry and stacking for SUPER+TAB's existing desktop window widgets.
@@ -15,17 +16,11 @@ import '../theme/tokens.dart';
 /// ownership of the single live desktop frame for every window and feeds the
 /// frame returned here to that widget, exactly as it does for SUPER+A.
 abstract final class DesktopWindowSwitcherLayout {
-  static bool contains(
-    DesktopWindowSwitcherState? switcher,
-    int objectId,
-  ) {
+  static bool contains(DesktopWindowSwitcherState? switcher, int objectId) {
     return switcher?.objectIds.contains(objectId) ?? false;
   }
 
-  static bool isSelected(
-    DesktopWindowSwitcherState? switcher,
-    int objectId,
-  ) {
+  static bool isSelected(DesktopWindowSwitcherState? switcher, int objectId) {
     return switcher?.selectedObjectId == objectId;
   }
 
@@ -62,12 +57,11 @@ abstract final class DesktopWindowSwitcherLayout {
     if (switcher.usesDesktopMotion) {
       return switch (switcher.phase) {
         DesktopWindowSwitcherPhase.pending ||
-        DesktopWindowSwitcherPhase.expanded =>
-          _expandedFrame(
-            placement: placement,
-            switcher: switcher,
-            stageBounds: stageBounds,
-          ),
+        DesktopWindowSwitcherPhase.expanded => _expandedFrame(
+          placement: placement,
+          switcher: switcher,
+          stageBounds: stageBounds,
+        ),
         DesktopWindowSwitcherPhase.quickExit ||
         DesktopWindowSwitcherPhase.expandedExit =>
           placement.minimized && desktopWidgetFrame != null
@@ -78,18 +72,17 @@ abstract final class DesktopWindowSwitcherLayout {
 
     return switch (switcher.phase) {
       DesktopWindowSwitcherPhase.pending => _pendingFrame(
-          placement: placement,
-          switcher: switcher,
-          stageBounds: stageBounds,
-        ),
+        placement: placement,
+        switcher: switcher,
+        stageBounds: stageBounds,
+      ),
       DesktopWindowSwitcherPhase.expanded => _expandedFrame(
-          placement: placement,
-          switcher: switcher,
-          stageBounds: stageBounds,
-        ),
+        placement: placement,
+        switcher: switcher,
+        stageBounds: stageBounds,
+      ),
       DesktopWindowSwitcherPhase.quickExit ||
-      DesktopWindowSwitcherPhase.expandedExit =>
-        placement.frame,
+      DesktopWindowSwitcherPhase.expandedExit => placement.frame,
     };
   }
 
@@ -248,7 +241,8 @@ abstract final class DesktopWindowSwitcherLayout {
       selectedIndex: switcher.selectedIndex,
       length: switcher.objectIds.length,
     );
-    final verySmall = source.width * source.height < 130000.0 ||
+    final verySmall =
+        source.width * source.height < 130000.0 ||
         math.min(source.width, source.height) < 180.0;
 
     if (distance == 0) {
@@ -264,25 +258,29 @@ abstract final class DesktopWindowSwitcherLayout {
       );
     }
 
-    final sameSideDistances = <int>[
-      for (var candidateIndex = 0;
-          candidateIndex < switcher.objectIds.length;
-          candidateIndex += 1)
-        _signedDistance(
-          index: candidateIndex,
-          selectedIndex: switcher.selectedIndex,
-          length: switcher.objectIds.length,
-        ),
-    ]
-      ..removeWhere(
-        (candidateDistance) =>
-            candidateDistance == 0 ||
-            candidateDistance.isNegative != distance.isNegative,
-      )
-      ..sort((left, right) => left.abs().compareTo(right.abs()));
+    final sameSideDistances =
+        <int>[
+            for (
+              var candidateIndex = 0;
+              candidateIndex < switcher.objectIds.length;
+              candidateIndex += 1
+            )
+              _signedDistance(
+                index: candidateIndex,
+                selectedIndex: switcher.selectedIndex,
+                length: switcher.objectIds.length,
+              ),
+          ]
+          ..removeWhere(
+            (candidateDistance) =>
+                candidateDistance == 0 ||
+                candidateDistance.isNegative != distance.isNegative,
+          )
+          ..sort((left, right) => left.abs().compareTo(right.abs()));
     final railIndex = sameSideDistances.indexOf(distance);
     final railCount = math.max(1, sameSideDistances.length);
-    final railSpacing = available.height *
+    final railSpacing =
+        available.height *
         (railCount <= 2 ? 0.36 : 0.82 / railCount.toDouble());
     final railOffset = _centeredRailOffset(railIndex, railCount);
     final railCenter = Offset(
@@ -296,8 +294,9 @@ abstract final class DesktopWindowSwitcherLayout {
       source,
       center: railCenter,
       maximumWidth: available.width * 0.22,
-      maximumHeight:
-          railCount == 1 ? available.height * 0.48 : railSpacing * 0.82,
+      maximumHeight: railCount == 1
+          ? available.height * 0.48
+          : railSpacing * 0.82,
       maximumScale: verySmall ? 1.0 : 1.15,
     );
   }
@@ -399,8 +398,8 @@ class DesktopWindowSwitcherBackdrop extends StatelessWidget {
           duration: reduceMotion
               ? Duration.zero
               : expanded
-                  ? Motion.windowSwitcherExpand
-                  : Motion.windowSwitcherCollapse,
+              ? Motion.windowSwitcherExpand
+              : Motion.windowSwitcherCollapse,
           curve: Motion.md3Emphasized,
           color: expanded
               ? ShellColors.background.withValues(alpha: 0.72)
@@ -432,8 +431,8 @@ class DesktopWindowSwitcherLayer extends StatelessWidget {
     final duration = reduceMotion
         ? Duration.zero
         : expanded
-            ? Motion.windowSwitcherExpand
-            : Motion.windowSwitcherCollapse;
+        ? Motion.windowSwitcherExpand
+        : Motion.windowSwitcherCollapse;
     final labelWidth = math.max(0.0, math.min(520.0, stageBounds.width - 64.0));
 
     return Positioned.fill(
@@ -469,9 +468,12 @@ class DesktopWindowSwitcherLayer extends StatelessWidget {
                                   : 'Selected ${selectedWindow!.displayTitle}',
                               child: DecoratedBox(
                                 decoration: BoxDecoration(
-                                  color: ShellColors.panelBackground,
-                                  borderRadius:
-                                      BorderRadius.circular(ShellRadii.chip),
+                                  color: ShellTheme.of(
+                                    context,
+                                  ).panelColor(ShellColors.panelBackground),
+                                  borderRadius: BorderRadius.circular(
+                                    ShellRadii.chip,
+                                  ),
                                 ),
                                 child: Padding(
                                   padding: const EdgeInsets.symmetric(

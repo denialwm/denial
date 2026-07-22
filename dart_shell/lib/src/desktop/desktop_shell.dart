@@ -21,6 +21,7 @@ import '../services/desktop_power_modes_service.dart';
 import '../services/haptics_service.dart';
 import '../services/audio_service.dart';
 import '../services/power_profile_service.dart';
+import '../settings/settings_controller.dart';
 import '../state/app_audio.dart';
 import '../state/bluetooth.dart';
 import '../state/desktop_power_modes.dart';
@@ -29,9 +30,9 @@ import '../state/desktop_window_close_effect.dart';
 import '../state/desktop_window_switcher.dart';
 import '../state/display_layout.dart';
 import '../state/quick_settings.dart';
-import '../state/shell_appearance.dart';
 import '../state/shell_controller.dart';
 import '../theme/motion.dart';
+import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
 import '../widgets/app_icon.dart';
 import '../widgets/desktop_window_close_animation.dart';
@@ -1027,6 +1028,9 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
 
   @override
   Widget build(BuildContext context) {
+    final overlaySettings = ref.watch(
+      shellSettingsProvider.select((settings) => settings.overlays),
+    );
     final viewSize = widget.viewSize;
     final windows = widget.windows;
     final desktop = widget.desktop;
@@ -1094,18 +1098,22 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     final launcherRect = DesktopMetrics.launcherRect(
       viewSize,
       outputRect: shellOutputRect,
+      placement: overlaySettings.launcher,
     );
     final dashboardRect = DesktopMetrics.dashboardRect(
       viewSize,
       outputRect: shellOutputRect,
+      placement: overlaySettings.dashboard,
     );
     final launcherTriggerRect = DesktopMetrics.launcherTriggerRect(
       viewSize,
       outputRect: shellOutputRect,
+      placement: overlaySettings.launcher,
     );
     final dashboardTriggerRect = DesktopMetrics.dashboardTriggerRect(
       viewSize,
       outputRect: shellOutputRect,
+      placement: overlaySettings.dashboard,
     );
     // True fullscreen owns the complete output, so the bar yields instead of
     // floating above the fullscreen surface.
@@ -1257,6 +1265,10 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                         inputDebugLabel: 'Desktop application launcher',
                         keyboardPolicy: ShellKeyboardPolicy.capture,
                         visible: desktop.launcherOpen,
+                        entryOffset: _entryOffsetFor(
+                          overlaySettings.launcher.anchor.horizontal,
+                          overlaySettings.launcher.anchor.vertical,
+                        ),
                         child: DesktopApplicationLauncher(
                           searchFocusNode: applicationSearchFocusNode,
                           onEnter: onCancelPanelClose,
@@ -1274,6 +1286,10 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                         inputDebugLabel: 'Desktop dashboard',
                         keyboardPolicy: ShellKeyboardPolicy.capture,
                         visible: desktop.dashboardOpen,
+                        entryOffset: _entryOffsetFor(
+                          overlaySettings.dashboard.anchor.horizontal,
+                          overlaySettings.dashboard.anchor.vertical,
+                        ),
                         child: _DesktopDashboard(
                           onEnter: onCancelPanelClose,
                           onExit: onSchedulePanelClose,
@@ -1384,11 +1400,12 @@ class _AppVolumeManagerPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = ShellTheme.of(context);
     return FocusTraversalGroup(
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: ShellColors.panelBackground,
-          borderRadius: BorderRadius.circular(ShellRadii.panel),
+          color: theme.panelColor(ShellColors.panelBackground),
+          borderRadius: BorderRadius.circular(theme.panelRadius),
           border: Border.all(color: ShellColors.hairline),
           boxShadow: const [
             BoxShadow(
@@ -1400,7 +1417,7 @@ class _AppVolumeManagerPanel extends StatelessWidget {
           ],
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(ShellRadii.panel),
+          borderRadius: BorderRadius.circular(theme.panelRadius),
           child: Column(
             children: [
               Padding(
@@ -1458,7 +1475,7 @@ class _AppVolumeManagerPanel extends StatelessWidget {
                 ),
               ),
               const Divider(height: 1, color: ShellColors.hairlineSoft),
-              Expanded(child: _buildBody()),
+              Expanded(child: _buildBody(context)),
             ],
           ),
         ),
@@ -1466,15 +1483,15 @@ class _AppVolumeManagerPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(BuildContext context) {
     if (state.loading && state.streams.isEmpty) {
-      return const Center(
+      return Center(
         child: SizedBox(
           width: 28,
           height: 28,
           child: CircularProgressIndicator(
             strokeWidth: 2.5,
-            color: ShellColors.accent,
+            color: ShellTheme.of(context).accent,
           ),
         ),
       );
@@ -1594,6 +1611,7 @@ class _AppVolumeRowState extends State<_AppVolumeRow> {
   @override
   Widget build(BuildContext context) {
     final percent = (widget.stream.level * 100).round();
+    final accent = ShellTheme.of(context).accent;
     return Focus(
       focusNode: _focusNode,
       onFocusChange: (focused) => setState(() => _focused = focused),
@@ -1633,7 +1651,7 @@ class _AppVolumeRowState extends State<_AppVolumeRow> {
                   : ShellColors.surfaceContainerLow,
               borderRadius: BorderRadius.circular(18),
               border: Border.all(
-                color: _focused ? ShellColors.accent : ShellColors.hairlineSoft,
+                color: _focused ? accent : ShellColors.hairlineSoft,
               ),
             ),
             child: Column(
@@ -1655,7 +1673,7 @@ class _AppVolumeRowState extends State<_AppVolumeRow> {
                           size: 19,
                           color: widget.stream.muted
                               ? ShellColors.textTertiary
-                              : ShellColors.accent,
+                              : accent,
                         ),
                       ),
                     ),
@@ -1684,7 +1702,7 @@ class _AppVolumeRowState extends State<_AppVolumeRow> {
                       ? Icons.volume_off_rounded
                       : Icons.volume_up_rounded,
                   value: widget.stream.level,
-                  activeColor: ShellColors.accent,
+                  activeColor: accent,
                   inactiveColor: ShellColors.volumeTrack,
                   onChanged: widget.onChanged,
                   onChangeEnd: widget.onChangeEnd,
@@ -1705,12 +1723,14 @@ class _DesktopPanelTransition extends StatefulWidget {
     required this.inputDebugLabel,
     required this.visible,
     required this.child,
+    this.entryOffset = const Offset(-32, 0),
     this.keyboardPolicy = ShellKeyboardPolicy.none,
   });
 
   final String inputDebugLabel;
   final bool visible;
   final Widget child;
+  final Offset entryOffset;
   final ShellKeyboardPolicy keyboardPolicy;
 
   @override
@@ -1720,8 +1740,6 @@ class _DesktopPanelTransition extends StatefulWidget {
 
 class _DesktopPanelTransitionState extends State<_DesktopPanelTransition>
     with SingleTickerProviderStateMixin {
-  static const double _slideDistance = 32.0;
-
   late final AnimationController _controller;
   late final Animation<double> _progress;
   late bool _showChild;
@@ -1804,7 +1822,7 @@ class _DesktopPanelTransitionState extends State<_DesktopPanelTransition>
               return Opacity(
                 opacity: progress,
                 child: Transform.translate(
-                  offset: Offset(-_slideDistance * (1.0 - progress), 0.0),
+                  offset: widget.entryOffset * (1.0 - progress),
                   child: child,
                 ),
               );
@@ -1833,6 +1851,16 @@ class _DesktopPanelEdgeTrigger extends StatelessWidget {
       ),
     );
   }
+}
+
+Offset _entryOffsetFor(int horizontal, int vertical) {
+  if (horizontal != 0) {
+    return Offset(horizontal * 32.0, 0);
+  }
+  if (vertical != 0) {
+    return Offset(0, vertical * 32.0);
+  }
+  return const Offset(0, 20);
 }
 
 class _DesktopOverviewBarrier extends StatelessWidget {
@@ -1887,6 +1915,7 @@ class _DesktopHomeWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = ShellTheme.of(context);
     final content = Padding(
       padding: const EdgeInsets.all(12),
       child: HomeGridItemCard(
@@ -1900,7 +1929,7 @@ class _DesktopHomeWidget extends StatelessWidget {
           ? content
           : DecoratedBox(
               decoration: BoxDecoration(
-                color: ShellColors.panelBackground,
+                color: theme.panelColor(ShellColors.panelBackground),
                 borderRadius: BorderRadius.circular(ShellRadii.tile),
                 border: Border.all(color: ShellColors.hairlineSoft),
               ),
@@ -2013,14 +2042,17 @@ class _DesktopClosingWindowFrame extends StatelessWidget {
   Widget build(BuildContext context) {
     final drawsServerFrame =
         !closing.fullscreen && closing.window.serverSideDecorated;
-    final radius = drawsServerFrame ? ShellRadii.window : 0.0;
+    final radius = drawsServerFrame ? ShellTheme.of(context).windowRadius : 0.0;
     return DesktopWindowCloseAnimation(
       effect: closing.effect,
       seed: Object.hash(closing.window.objectId, closing.id),
       onCompleted: onCompleted,
       child: CustomPaint(
         painter: drawsServerFrame
-            ? DesktopWindowFramePainter(windowId: closing.window.objectId)
+            ? DesktopWindowFramePainter(
+                windowId: closing.window.objectId,
+                radius: radius,
+              )
             : null,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(math.max(0.0, radius - 1.0)),
@@ -2086,16 +2118,19 @@ class _DesktopWindowFrame extends ConsumerWidget {
       label: window.appId.isEmpty ? window.displayTitle : window.appId,
     );
     final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
-    final focusedWindowBorderColor = ref.watch(
-      shellAppearanceProvider.select(
-        (appearance) => appearance.focusedWindowBorderColor,
-      ),
+    final appearance = ref.watch(
+      shellSettingsProvider.select((settings) => settings.appearance),
     );
+    final focusedWindowBorderColor = appearance.focusedWindowBorderColor;
     final transformed = overview || switching || desktopWidget;
     final duration = motionDuration;
     final fullscreenVisual = placement.fullscreen && !transformed;
     final drawsServerFrame = !fullscreenVisual && placement.serverSideDecorated;
-    final windowRadius = drawsServerFrame ? ShellRadii.window : 0.0;
+    final theme = ShellTheme.of(context);
+    final windowRadius = drawsServerFrame ? theme.windowRadius : 0.0;
+    final windowOpacity = active
+        ? theme.focusedWindowOpacity
+        : theme.unfocusedWindowOpacity;
     final targetContentSize = drawsServerFrame
         ? frame.deflate(DesktopMetrics.frameBorder).size
         : frame.size;
@@ -2129,8 +2164,8 @@ class _DesktopWindowFrame extends ConsumerWidget {
                 opacity: minimized
                     ? 0.0
                     : desktopWidget
-                    ? 0.86
-                    : 1.0,
+                    ? 0.86 * windowOpacity
+                    : windowOpacity,
                 child: RepaintBoundary(
                   child: _DesktopOverviewPreviewInteraction(
                     overviewActive: overviewActive,
@@ -2181,6 +2216,7 @@ class _DesktopWindowFrame extends ConsumerWidget {
                                 ? focusedWindowBorderColor
                                 : ShellColors.hairlineWindow,
                             devicePixelRatio: devicePixelRatio,
+                            radius: windowRadius,
                           ),
                           child: client,
                         );
@@ -2442,11 +2478,13 @@ class _DesktopWindowBorderPainter extends CustomPainter {
     required this.windowId,
     required this.color,
     required this.devicePixelRatio,
+    required this.radius,
   });
 
   final int windowId;
   final Color color;
   final double devicePixelRatio;
+  final double radius;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -2466,14 +2504,14 @@ class _DesktopWindowBorderPainter extends CustomPainter {
       math.max(0.0, size.width - pixel),
       math.max(0.0, size.height - pixel),
     );
-    final radius = math.max(0.0, ShellRadii.window - inset);
+    final resolvedRadius = math.max(0.0, radius - inset);
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
       ..strokeWidth = pixel
       ..isAntiAlias = false;
     canvas.drawRRect(
-      RRect.fromRectAndRadius(rect, Radius.circular(radius)),
+      RRect.fromRectAndRadius(rect, Radius.circular(resolvedRadius)),
       paint,
     );
   }
@@ -2482,7 +2520,8 @@ class _DesktopWindowBorderPainter extends CustomPainter {
   bool shouldRepaint(covariant _DesktopWindowBorderPainter oldDelegate) {
     return windowId != oldDelegate.windowId ||
         color != oldDelegate.color ||
-        devicePixelRatio != oldDelegate.devicePixelRatio;
+        devicePixelRatio != oldDelegate.devicePixelRatio ||
+        radius != oldDelegate.radius;
   }
 }
 
@@ -2506,6 +2545,7 @@ class _DesktopDashboard extends ConsumerWidget {
     final bluetooth = ref.watch(bluetoothProvider);
     final bluetoothController = ref.read(bluetoothProvider.notifier);
     final notifications = ref.watch(desktopNotificationsProvider);
+    final theme = ShellTheme.of(context);
 
     void openNotifications() {
       ref
@@ -2524,8 +2564,8 @@ class _DesktopDashboard extends ConsumerWidget {
       child: FocusTraversalGroup(
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: ShellColors.panelBackground,
-            borderRadius: BorderRadius.circular(ShellRadii.panel),
+            color: theme.panelColor(ShellColors.panelBackground),
+            borderRadius: BorderRadius.circular(theme.panelRadius),
             border: Border.all(color: ShellColors.hairline),
             boxShadow: const [
               BoxShadow(
@@ -2581,10 +2621,10 @@ class _DesktopDashboard extends ConsumerWidget {
                     children: [
                       Row(
                         children: [
-                          const Icon(
+                          Icon(
                             Icons.volume_up_rounded,
                             size: 21,
-                            color: ShellColors.accent,
+                            color: theme.accent,
                           ),
                           const SizedBox(width: 10),
                           const Expanded(
@@ -2604,7 +2644,7 @@ class _DesktopDashboard extends ConsumerWidget {
                             ? Icons.volume_off_rounded
                             : Icons.volume_up_rounded,
                         value: quickSettings.volume,
-                        activeColor: ShellColors.accent,
+                        activeColor: theme.accent,
                         inactiveColor: ShellColors.volumeTrack,
                         onChangeStart:
                             quickSettingsController.beginVolumeInteraction,
@@ -2627,10 +2667,10 @@ class _DesktopDashboard extends ConsumerWidget {
                       children: [
                         Row(
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.bluetooth_rounded,
                               size: 21,
-                              color: ShellColors.accent,
+                              color: theme.accent,
                             ),
                             const SizedBox(width: 10),
                             const Expanded(
@@ -2707,6 +2747,7 @@ class _DesktopNotificationCenterDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = ShellTheme.of(context);
     return MainOutputCenteredSurface(
       builder: (context, constraints) {
         final panelWidth = math.min(520.0, constraints.maxWidth);
@@ -2716,8 +2757,8 @@ class _DesktopNotificationCenterDialog extends StatelessWidget {
           height: panelHeight,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: ShellColors.panelBackground,
-              borderRadius: BorderRadius.circular(ShellRadii.panel),
+              color: theme.panelColor(ShellColors.panelBackground),
+              borderRadius: BorderRadius.circular(theme.panelRadius),
               border: Border.all(color: ShellColors.hairline),
               boxShadow: const <BoxShadow>[
                 BoxShadow(
@@ -2785,14 +2826,11 @@ class _DesktopWindowCloseEffectCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final selected = ref.watch(desktopWindowCloseEffectProvider);
     final controller = ref.read(desktopWindowCloseEffectProvider.notifier);
+    final accent = ShellTheme.of(context).accent;
     return _DashboardCard(
       child: Row(
         children: [
-          const Icon(
-            Icons.animation_rounded,
-            size: 21,
-            color: ShellColors.accent,
-          ),
+          Icon(Icons.animation_rounded, size: 21, color: accent),
           const SizedBox(width: 10),
           const Expanded(
             child: Text('Chiusura finestre', style: ShellText.cardTitle),
@@ -2863,6 +2901,7 @@ class _DesktopPowerModesCard extends ConsumerWidget {
     final controller = ref.read(desktopPowerModesProvider.notifier);
     final systemEnabled = modes.systemAvailable && !modes.systemChanging;
     final pboEnabled = modes.pboAvailable && !modes.pboChanging;
+    final accent = ShellTheme.of(context).accent;
 
     return _DashboardCard(
       child: Column(
@@ -2870,11 +2909,7 @@ class _DesktopPowerModesCard extends ConsumerWidget {
         children: [
           Row(
             children: [
-              const Icon(
-                Icons.tune_rounded,
-                size: 21,
-                color: ShellColors.accent,
-              ),
+              Icon(Icons.tune_rounded, size: 21, color: accent),
               const SizedBox(width: 10),
               const Expanded(
                 child: Text('Modalità energetiche', style: ShellText.cardTitle),
@@ -3078,6 +3113,7 @@ class _PowerModeOptionState extends State<_PowerModeOption> {
   @override
   Widget build(BuildContext context) {
     final actionable = widget.enabled && !widget.busy;
+    final accent = ShellTheme.of(context).accent;
     final selectedBackground = widget.secondary
         ? ShellColors.secondaryContainer
         : ShellColors.primaryContainer;
@@ -3128,16 +3164,14 @@ class _PowerModeOptionState extends State<_PowerModeOption> {
                   ? ShellColors.surfaceContainerHighest
                   : const Color(0x00000000),
               borderRadius: BorderRadius.circular(12),
-              border: _focused
-                  ? Border.all(color: ShellColors.accent, width: 1.5)
-                  : null,
+              border: _focused ? Border.all(color: accent, width: 1.5) : null,
             ),
             child: widget.busy
-                ? const Padding(
-                    padding: EdgeInsets.all(8),
+                ? Padding(
+                    padding: const EdgeInsets.all(8),
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: ShellColors.accent,
+                      color: accent,
                     ),
                   )
                 : Icon(
@@ -3168,13 +3202,13 @@ class _BluetoothDeviceList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (state.refreshing && state.devices.isEmpty) {
-      return const Center(
+      return Center(
         child: SizedBox(
           width: 24,
           height: 24,
           child: CircularProgressIndicator(
             strokeWidth: 2,
-            color: ShellColors.accent,
+            color: ShellTheme.of(context).accent,
           ),
         ),
       );
@@ -3265,6 +3299,7 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
   @override
   Widget build(BuildContext context) {
     final device = widget.device;
+    final accent = ShellTheme.of(context).accent;
     final status = device.connected
         ? 'Connesso'
         : device.paired
@@ -3330,12 +3365,12 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
                   ),
                 ),
                 if (widget.busy)
-                  const SizedBox(
+                  SizedBox(
                     width: 21,
                     height: 21,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: ShellColors.accent,
+                      color: accent,
                     ),
                   )
                 else
@@ -3381,6 +3416,7 @@ class _DashboardIconButtonState extends State<_DashboardIconButton> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
       enabled: widget.enabled,
@@ -3410,11 +3446,11 @@ class _DashboardIconButtonState extends State<_DashboardIconButton> {
               borderRadius: BorderRadius.circular(12),
             ),
             child: widget.busy
-                ? const Padding(
-                    padding: EdgeInsets.all(9),
+                ? Padding(
+                    padding: const EdgeInsets.all(9),
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: ShellColors.accent,
+                      color: accent,
                     ),
                   )
                 : Icon(
@@ -3454,6 +3490,7 @@ class _DashboardValueButtonState extends State<_DashboardValueButton> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
       label: widget.semanticLabel,
@@ -3487,7 +3524,7 @@ class _DashboardValueButtonState extends State<_DashboardValueButton> {
                   : ShellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: _focused ? ShellColors.accent : ShellColors.hairlineSoft,
+                color: _focused ? accent : ShellColors.hairlineSoft,
               ),
             ),
             child: Row(
@@ -3500,7 +3537,7 @@ class _DashboardValueButtonState extends State<_DashboardValueButton> {
                   ),
                 ),
                 const SizedBox(width: 7),
-                Icon(widget.icon, size: 16, color: ShellColors.accent),
+                Icon(widget.icon, size: 16, color: accent),
               ],
             ),
           ),
@@ -3627,14 +3664,15 @@ class _DesktopApplicationLauncherState
     );
     final apps = _filterInstalledApps(allApps, _searchController.text);
     final searching = _searchController.text.trim().isNotEmpty;
+    final theme = ShellTheme.of(context);
     return MouseRegion(
       onEnter: (_) => widget.onEnter(),
       onExit: (_) => widget.onExit(),
       child: FocusTraversalGroup(
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: ShellColors.panelBackground,
-            borderRadius: BorderRadius.circular(ShellRadii.panel),
+            color: theme.panelColor(ShellColors.panelBackground),
+            borderRadius: BorderRadius.circular(theme.panelRadius),
             border: Border.all(color: ShellColors.hairline),
             boxShadow: const [
               BoxShadow(
@@ -3724,6 +3762,7 @@ class _DesktopAppSearchField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasQuery = controller.text.isNotEmpty;
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       textField: true,
       label: 'Cerca applicazioni',
@@ -3732,9 +3771,7 @@ class _DesktopAppSearchField extends StatelessWidget {
           color: ShellColors.surfaceContainerHigh,
           borderRadius: BorderRadius.circular(ShellRadii.chip),
           border: Border.all(
-            color: focusNode.hasFocus
-                ? ShellColors.accent
-                : ShellColors.hairline,
+            color: focusNode.hasFocus ? accent : ShellColors.hairline,
           ),
         ),
         child: SizedBox(
@@ -3775,7 +3812,7 @@ class _DesktopAppSearchField extends StatelessWidget {
                         onEditingComplete: () {},
                         onSubmitted: (_) => onSubmit(),
                         style: ShellText.base,
-                        cursorColor: ShellColors.accent,
+                        cursorColor: accent,
                         backgroundCursorColor: ShellColors.textSecondary,
                         selectionColor: ShellColors.primaryContainer,
                       ),
@@ -3861,6 +3898,7 @@ class _DesktopAppTileState extends State<_DesktopAppTile> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
       selected: widget.selected,
@@ -3883,9 +3921,7 @@ class _DesktopAppTileState extends State<_DesktopAppTile> {
                   ? ShellColors.surfaceContainerHighest
                   : const Color(0x00000000),
               borderRadius: BorderRadius.circular(18),
-              border: widget.selected
-                  ? Border.all(color: ShellColors.accent)
-                  : null,
+              border: widget.selected ? Border.all(color: accent) : null,
             ),
             child: Column(
               children: [
@@ -3897,7 +3933,7 @@ class _DesktopAppTileState extends State<_DesktopAppTile> {
                           child: Icon(
                             widget.app.icon!,
                             size: 46,
-                            color: ShellColors.accent,
+                            color: accent,
                           ),
                         )
                       : AppIconImage(iconPath: widget.app.iconPath),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/shell_cursor.dart';
 import '../wallpaper.dart';
@@ -33,6 +34,7 @@ class _WallpaperStripState extends State<WallpaperStrip>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    final accent = ShellTheme.of(context).accent;
     return LayoutBuilder(
       builder: (context, constraints) {
         final cacheHeight =
@@ -63,12 +65,12 @@ class _WallpaperStripState extends State<WallpaperStrip>
                       excludeFromSemantics: true,
                       errorBuilder: (context, error, stackTrace) =>
                           const ColoredBox(
-                        color: ShellColors.surfaceContainerHigh,
-                        child: Icon(
-                          Icons.broken_image_rounded,
-                          color: ShellColors.textTertiary,
-                        ),
-                      ),
+                            color: ShellColors.surfaceContainerHigh,
+                            child: Icon(
+                              Icons.broken_image_rounded,
+                              color: ShellColors.textTertiary,
+                            ),
+                          ),
                     )
                   else
                     const ColoredBox(
@@ -88,7 +90,7 @@ class _WallpaperStripState extends State<WallpaperStrip>
                             value: widget.downloadProgress > 0.0
                                 ? widget.downloadProgress
                                 : null,
-                            color: ShellColors.accent,
+                            color: accent,
                             backgroundColor:
                                 ShellColors.surfaceContainerHighest,
                             strokeWidth: 4,

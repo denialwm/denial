@@ -12,6 +12,7 @@ import '../../state/network_connectivity.dart';
 import '../../state/quick_settings.dart';
 import '../../state/shell_controller.dart';
 import '../../state/system_status.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../connectivity/bluetooth_detail_surface.dart';
 import '../connectivity/wifi_detail_surface.dart';
@@ -92,30 +93,32 @@ class _ControlPanelState extends ConsumerState<_ControlPanel> {
     final bluetooth = ref.watch(bluetoothProvider);
     final bluetoothController = ref.read(bluetoothProvider.notifier);
     final notifications = ref.watch(desktopNotificationsProvider);
-    final notificationController =
-        ref.read(desktopNotificationsProvider.notifier);
+    final notificationController = ref.read(
+      desktopNotificationsProvider.notifier,
+    );
     final padding = MediaQuery.paddingOf(context);
+    final theme = ShellTheme.of(context);
 
     return RepaintBoundary(
       child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(
-          bottom: Radius.circular(ShellRadii.panel),
+        borderRadius: BorderRadius.vertical(
+          bottom: Radius.circular(theme.panelRadius),
         ),
         child: DecoratedBox(
-          decoration: const BoxDecoration(
-            color: ShellColors.panelBackground,
+          decoration: BoxDecoration(
+            color: theme.panelColor(ShellColors.panelBackground),
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                ShellColors.panelBackground,
-                ShellColors.panelBackgroundBottom,
+                theme.panelColor(ShellColors.panelBackground),
+                theme.panelColor(ShellColors.panelBackgroundBottom),
               ],
             ),
-            border: Border(
+            border: const Border(
               bottom: BorderSide(color: ShellColors.hairline, width: 1),
             ),
-            boxShadow: [
+            boxShadow: const [
               BoxShadow(
                 color: ShellColors.shadow,
                 blurRadius: 24,
@@ -135,7 +138,9 @@ class _ControlPanelState extends ConsumerState<_ControlPanel> {
                 notificationPolicyLoaded: notifications.policyLoaded,
                 onToggleWifi: networkController.toggleWireless,
                 onOpenWifi: () {
-                  ref.read(shellSurfaceControllerProvider.notifier).show(
+                  ref
+                      .read(shellSurfaceControllerProvider.notifier)
+                      .show(
                         keyName: 'wifi-details',
                         debugLabel: 'Wi-Fi details',
                         builder: (_, handle) =>
@@ -144,7 +149,9 @@ class _ControlPanelState extends ConsumerState<_ControlPanel> {
                 },
                 onToggleBluetooth: bluetoothController.togglePower,
                 onOpenBluetooth: () {
-                  ref.read(shellSurfaceControllerProvider.notifier).show(
+                  ref
+                      .read(shellSurfaceControllerProvider.notifier)
+                      .show(
                         keyName: 'bluetooth-details',
                         debugLabel: 'Bluetooth details',
                         builder: (_, handle) =>
@@ -187,14 +194,12 @@ class _ControlPanelState extends ConsumerState<_ControlPanel> {
                                   ),
                                 ),
                                 const SizedBox(width: 20),
-                                const Expanded(
-                                  child: NotificationCenter(),
-                                ),
+                                const Expanded(child: NotificationCenter()),
                               ],
                             )
                           : _section == _ShadeSection.controls
-                              ? controls
-                              : const NotificationCenter(),
+                          ? controls
+                          : const NotificationCenter(),
                     ),
                     const SizedBox(height: 8),
                     const Center(child: _ShadeHandle()),
@@ -240,14 +245,17 @@ class _ControlContents extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     final networkSnapshot = network.snapshot;
-    final wifiToggleEnabled = !network.initializing &&
+    final wifiToggleEnabled =
+        !network.initializing &&
         networkSnapshot.serviceAvailable &&
         networkSnapshot.wifiDeviceAvailable &&
         networkSnapshot.wirelessHardwareEnabled &&
         networkSnapshot.radioPermission != NetworkPermission.denied &&
         !network.radioChanging;
-    final bluetoothToggleEnabled = !bluetooth.initializing &&
+    final bluetoothToggleEnabled =
+        !bluetooth.initializing &&
         bluetooth.serviceAvailable &&
         bluetooth.available &&
         !bluetooth.powerChanging;
@@ -256,7 +264,8 @@ class _ControlContents extends StatelessWidget {
       padding: EdgeInsets.zero,
       children: [
         QuickSettingsTiles(
-          wifi: networkSnapshot.wirelessEnabled &&
+          wifi:
+              networkSnapshot.wirelessEnabled &&
               networkSnapshot.wifiDeviceAvailable,
           wifiSubtitle: wifiStatusLabel(network),
           wifiEnabled: wifiToggleEnabled,
@@ -283,7 +292,7 @@ class _ControlContents extends StatelessWidget {
         RangeBar(
           icon: Icons.brightness_6_rounded,
           value: quickSettings.brightness,
-          activeColor: ShellColors.accent,
+          activeColor: accent,
           inactiveColor: ShellColors.brightnessTrack,
           onChanged: controller.setBrightness,
           onChangeEnd: controller.commitBrightness,
@@ -293,7 +302,7 @@ class _ControlContents extends StatelessWidget {
         RangeBar(
           icon: Icons.volume_up_rounded,
           value: quickSettings.volume,
-          activeColor: ShellColors.accent,
+          activeColor: accent,
           inactiveColor: ShellColors.volumeTrack,
           onChangeStart: controller.beginVolumeInteraction,
           onChanged: controller.setVolume,
@@ -368,6 +377,7 @@ class _ShadeSectionButtonState extends State<_ShadeSectionButton> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
       selected: widget.selected,
@@ -402,7 +412,7 @@ class _ShadeSectionButtonState extends State<_ShadeSectionButton> {
                   : ShellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(13),
               border: Border.all(
-                color: _focused ? ShellColors.accent : ShellColors.hairlineSoft,
+                color: _focused ? accent : ShellColors.hairlineSoft,
               ),
             ),
             child: Row(
@@ -465,23 +475,21 @@ class _ShadeHeader extends ConsumerWidget {
         const Spacer(),
         Padding(
           padding: const EdgeInsets.only(top: 2),
-          child: _StatusPill(
-            child: StatusCluster(battery: battery),
-          ),
+          child: _StatusPill(child: StatusCluster(battery: battery)),
         ),
       ],
     );
   }
 
   String _weekday(int weekday) => switch (weekday) {
-        DateTime.monday => 'Monday',
-        DateTime.tuesday => 'Tuesday',
-        DateTime.wednesday => 'Wednesday',
-        DateTime.thursday => 'Thursday',
-        DateTime.friday => 'Friday',
-        DateTime.saturday => 'Saturday',
-        _ => 'Sunday',
-      };
+    DateTime.monday => 'Monday',
+    DateTime.tuesday => 'Tuesday',
+    DateTime.wednesday => 'Wednesday',
+    DateTime.thursday => 'Thursday',
+    DateTime.friday => 'Friday',
+    DateTime.saturday => 'Saturday',
+    _ => 'Sunday',
+  };
 }
 
 class _StatusPill extends StatelessWidget {
@@ -532,12 +540,10 @@ class _ShadeHandle extends ConsumerWidget {
           behavior: HitTestBehavior.opaque,
           onTap: controller.closeQuickSettings,
           onVerticalDragStart: (_) => controller.startQuickSettingsDrag(),
-          onVerticalDragUpdate: (details) => controller.updateQuickSettingsDrag(
-            Offset(0.0, details.delta.dy),
-          ),
-          onVerticalDragEnd: (details) => controller.endQuickSettingsDrag(
-            details.primaryVelocity ?? 0.0,
-          ),
+          onVerticalDragUpdate: (details) =>
+              controller.updateQuickSettingsDrag(Offset(0.0, details.delta.dy)),
+          onVerticalDragEnd: (details) =>
+              controller.endQuickSettingsDrag(details.primaryVelocity ?? 0.0),
           onVerticalDragCancel: () => controller.endQuickSettingsDrag(0.0),
           child: SizedBox(
             width: 72,

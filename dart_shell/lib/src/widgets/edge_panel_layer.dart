@@ -6,6 +6,7 @@ import '../platform/denial_bridge.dart';
 import '../services/haptics_service.dart';
 import '../state/shell_controller.dart';
 import '../theme/motion.dart';
+import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
 import 'osk/shell_osk_panel.dart';
 
@@ -205,14 +206,15 @@ class _EdgePanelContent extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final bridge = ref.read(denialBridgeProvider);
     final haptics = ref.read(hapticsServiceProvider);
+    final theme = ShellTheme.of(context);
     return ClipRRect(
-      borderRadius: const BorderRadius.vertical(
-        top: Radius.circular(ShellRadii.panel),
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(theme.panelRadius),
       ),
       child: DecoratedBox(
-        decoration: const BoxDecoration(
-          color: ShellColors.panelBackground,
-          border: Border(
+        decoration: BoxDecoration(
+          color: theme.panelColor(ShellColors.panelBackground),
+          border: const Border(
             top: BorderSide(color: ShellColors.hairline, width: 1),
           ),
         ),

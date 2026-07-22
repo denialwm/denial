@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/shell_cursor.dart';
 
@@ -20,16 +21,16 @@ class WallpaperSearchField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasQuery = controller.text.isNotEmpty;
+    final theme = ShellTheme.of(context);
     return Semantics(
       textField: true,
       label: 'Search Wallhaven wallpapers',
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: ShellColors.panelBackground,
-          borderRadius: BorderRadius.circular(ShellRadii.panel),
+          color: theme.panelColor(ShellColors.panelBackground),
+          borderRadius: BorderRadius.circular(theme.panelRadius),
           border: Border.all(
-            color:
-                focusNode.hasFocus ? ShellColors.accent : ShellColors.hairline,
+            color: focusNode.hasFocus ? theme.accent : ShellColors.hairline,
           ),
           boxShadow: const [
             BoxShadow(
@@ -77,7 +78,7 @@ class WallpaperSearchField extends StatelessWidget {
                         onEditingComplete: () {},
                         onSubmitted: (_) => onSubmit(),
                         style: ShellText.base.copyWith(fontSize: 15),
-                        cursorColor: ShellColors.accent,
+                        cursorColor: theme.accent,
                         backgroundCursorColor: ShellColors.textSecondary,
                         selectionColor: ShellColors.primaryContainer,
                       ),
@@ -118,9 +119,10 @@ class WallpaperStatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = ShellTheme.of(context);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: ShellColors.panelBackground,
+        color: theme.panelColor(ShellColors.panelBackground),
         borderRadius: BorderRadius.circular(ShellRadii.chip),
         border: Border.all(color: ShellColors.hairline),
       ),
@@ -160,12 +162,13 @@ class WallpaperEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (loading)
-            const CircularProgressIndicator(color: ShellColors.accent)
+            CircularProgressIndicator(color: accent)
           else
             const Icon(
               Icons.image_search_rounded,

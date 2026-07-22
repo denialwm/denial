@@ -1,383 +1,224 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../localization/denial_localizations.dart';
-import '../../models/display_layout.dart';
-import '../../theme/motion.dart';
+import '../../settings/shell_settings.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
-import '../../widgets/shell_cursor.dart';
-import '../color_format.dart';
-import 'system_bar_placement_card.dart';
+import 'settings_controls.dart';
 
-const settingsFocusedBorderColorTriggerKey =
-    ValueKey<String>('settings-focused-border-color-trigger');
+const settingsFocusedBorderColorTriggerKey = ValueKey<String>(
+  'settings-focused-border-color-trigger',
+);
+const settingsAccentColorTriggerKey = ValueKey<String>(
+  'settings-accent-color-trigger',
+);
 
 class SettingsAppearancePage extends StatelessWidget {
   const SettingsAppearancePage({
+    required this.settings,
+    required this.extractedAccent,
+    required this.onAccentSourceChanged,
+    required this.onOpenAccentPicker,
+    required this.onOpenBorderPicker,
+    required this.onWindowRadiusChanged,
+    required this.onPanelRadiusChanged,
+    required this.onPanelOpacityChanged,
+    required this.onFocusedOpacityChanged,
+    required this.onUnfocusedOpacityChanged,
+    required this.onReset,
     super.key,
-    required this.focusedBorderColor,
-    required this.onOpenColorPicker,
-    required this.displayLayout,
-    required this.onSystemBarChanged,
   });
 
-  final Color focusedBorderColor;
-  final VoidCallback onOpenColorPicker;
-  final DisplayLayout? displayLayout;
-  final SystemBarPlacementChanged onSystemBarChanged;
+  final ShellAppearanceSettings settings;
+  final Color extractedAccent;
+  final ValueChanged<ShellAccentSource> onAccentSourceChanged;
+  final VoidCallback onOpenAccentPicker;
+  final VoidCallback onOpenBorderPicker;
+  final ValueChanged<double> onWindowRadiusChanged;
+  final ValueChanged<double> onPanelRadiusChanged;
+  final ValueChanged<double> onPanelOpacityChanged;
+  final ValueChanged<double> onFocusedOpacityChanged;
+  final ValueChanged<double> onUnfocusedOpacityChanged;
+  final VoidCallback onReset;
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(28, 26, 28, 32),
-      child: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 760),
+    final effectiveAccent = settings.accentSource == ShellAccentSource.wallpaper
+        ? extractedAccent
+        : settings.customAccentColor;
+    return SettingsPageLayout(
+      icon: Icons.palette_outlined,
+      eyebrow: l10n.settingsAppearanceSection,
+      title: l10n.settingsAppearanceTitle,
+      description: l10n.settingsAppearanceDescription,
+      onReset: onReset,
+      children: [
+        SettingsCard(
+          title: 'Shell accent',
+          description:
+              'Follow the dominant wallpaper color or choose a permanent accent.',
+          leading: _ColorOrb(color: effectiveAccent),
+          trailing: settings.accentSource == ShellAccentSource.custom
+              ? SettingsColorButton(
+                  key: settingsAccentColorTriggerKey,
+                  color: settings.customAccentColor,
+                  label: 'Choose custom shell accent',
+                  onPressed: onOpenAccentPicker,
+                )
+              : null,
+          child: SettingsSegmentedControl<ShellAccentSource>(
+            value: settings.accentSource,
+            choices: const [
+              SettingsChoice(ShellAccentSource.wallpaper, 'From wallpaper'),
+              SettingsChoice(ShellAccentSource.custom, 'Custom color'),
+            ],
+            onChanged: onAccentSourceChanged,
+          ),
+        ),
+        SettingsCard(
+          title: l10n.settingsFocusedBorderTitle,
+          description: l10n.settingsFocusedBorderDescription,
+          leading: _WindowPreview(
+            color: settings.focusedWindowBorderColor,
+            radius: settings.windowRadius,
+            semanticsLabel: l10n.settingsFocusedBorderPreviewSemanticsLabel,
+          ),
+          trailing: SettingsColorButton(
+            key: settingsFocusedBorderColorTriggerKey,
+            color: settings.focusedWindowBorderColor,
+            label: l10n.settingsFocusedBorderChangeSemanticsLabel,
+            onPressed: onOpenBorderPicker,
+          ),
+          child: const SizedBox.shrink(),
+        ),
+        SettingsCard(
+          title: 'Shape & surfaces',
+          description:
+              'Tune the geometry shared by windows and floating shell panels.',
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const _SectionEyebrow(),
-              const SizedBox(height: 18),
-              Text(
-                l10n.settingsAppearanceTitle,
-                style: const TextStyle(
-                  color: ShellColors.textPrimary,
-                  fontSize: 25,
-                  height: 1.12,
-                  fontWeight: FontWeight.w800,
-                  decoration: TextDecoration.none,
-                ),
+              SettingsSlider(
+                label: 'Window corner radius',
+                value: settings.windowRadius,
+                minimum: 0,
+                maximum: 48,
+                divisions: 48,
+                valueLabel: '${settings.windowRadius.round()} px',
+                onChanged: onWindowRadiusChanged,
               ),
               const SizedBox(height: 8),
-              Text(
-                l10n.settingsAppearanceDescription,
-                style: ShellText.base.copyWith(
-                  color: ShellColors.textSecondary,
-                  height: 1.45,
-                ),
+              SettingsSlider(
+                label: 'Panel corner radius',
+                value: settings.panelRadius,
+                minimum: 8,
+                maximum: 56,
+                divisions: 48,
+                valueLabel: '${settings.panelRadius.round()} px',
+                onChanged: onPanelRadiusChanged,
               ),
-              const SizedBox(height: 24),
-              SystemBarPlacementCard(
-                layout: displayLayout,
-                onChanged: onSystemBarChanged,
-              ),
-              const SizedBox(height: 16),
-              _FocusedBorderColorCard(
-                color: focusedBorderColor,
-                onPressed: onOpenColorPicker,
+              const SizedBox(height: 8),
+              SettingsSlider(
+                label: 'Panel alpha',
+                value: settings.panelOpacity,
+                minimum: 0.35,
+                maximum: 1,
+                divisions: 65,
+                valueLabel: '${(settings.panelOpacity * 100).round()}%',
+                onChanged: onPanelOpacityChanged,
               ),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _SectionEyebrow extends StatelessWidget {
-  const _SectionEyebrow();
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return Row(
-      children: [
-        const Icon(
-          Icons.palette_outlined,
-          size: 16,
-          color: ShellColors.accent,
-        ),
-        const SizedBox(width: 8),
-        Text(
-          l10n.settingsAppearanceSection,
-          style: ShellText.cardTitle.copyWith(
-            color: ShellColors.accent,
-            fontSize: 11,
-            letterSpacing: 1.4,
+        SettingsCard(
+          title: 'Window alpha',
+          description:
+              'Keep focus obvious without forcing applications to draw their own dim state.',
+          child: Column(
+            children: [
+              SettingsSlider(
+                label: 'Focused windows',
+                value: settings.focusedWindowOpacity,
+                minimum: 0.35,
+                maximum: 1,
+                divisions: 65,
+                valueLabel: '${(settings.focusedWindowOpacity * 100).round()}%',
+                onChanged: onFocusedOpacityChanged,
+              ),
+              const SizedBox(height: 8),
+              SettingsSlider(
+                label: 'Unfocused windows',
+                value: settings.unfocusedWindowOpacity,
+                minimum: 0.2,
+                maximum: 1,
+                divisions: 80,
+                valueLabel:
+                    '${(settings.unfocusedWindowOpacity * 100).round()}%',
+                onChanged: onUnfocusedOpacityChanged,
+              ),
+            ],
           ),
         ),
-        const Spacer(),
-        const _LiveBadge(),
       ],
     );
   }
 }
 
-class _LiveBadge extends StatelessWidget {
-  const _LiveBadge();
+class _ColorOrb extends StatelessWidget {
+  const _ColorOrb({required this.color});
+
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return Semantics(
-      label: l10n.settingsLiveChangesSemanticsLabel,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: ShellColors.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(ShellRadii.chip),
-          border: Border.all(color: ShellColors.hairlineSoft),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 6,
-                height: 6,
-                decoration: const BoxDecoration(
-                  color: ShellColors.gestureArmed,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 7),
-              Text(
-                l10n.settingsLiveBadge,
-                style: ShellText.cardTitle.copyWith(
-                  color: ShellColors.textSecondary,
-                  fontSize: 9,
-                  letterSpacing: 0.8,
-                ),
-              ),
-            ],
-          ),
-        ),
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        border: Border.all(color: ShellColors.panelHighlight),
+        boxShadow: [BoxShadow(color: color.withAlpha(48), blurRadius: 18)],
       ),
     );
   }
 }
 
-class _FocusedBorderColorCard extends StatelessWidget {
-  const _FocusedBorderColorCard({
+class _WindowPreview extends StatelessWidget {
+  const _WindowPreview({
     required this.color,
-    required this.onPressed,
+    required this.radius,
+    required this.semanticsLabel,
   });
 
   final Color color;
-  final VoidCallback onPressed;
+  final double radius;
+  final String semanticsLabel;
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final compact = constraints.maxWidth < 560;
-        final description = Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                l10n.settingsFocusedBorderTitle,
-                style: ShellText.statusClock,
-              ),
-              const SizedBox(height: 7),
-              Text(
-                l10n.settingsFocusedBorderDescription,
-                style: ShellText.base.copyWith(
-                  color: ShellColors.textSecondary,
-                  height: 1.4,
-                ),
-              ),
-            ],
-          ),
-        );
-        return DecoratedBox(
-          decoration: BoxDecoration(
-            color: ShellColors.surfaceContainerLow,
-            borderRadius: BorderRadius.circular(ShellRadii.tile),
-            border: Border.all(color: ShellColors.hairline),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: compact
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          _ActiveWindowPreview(color: color),
-                          const SizedBox(width: 16),
-                          description,
-                        ],
-                      ),
-                      const SizedBox(height: 18),
-                      _ColorTrigger(color: color, onPressed: onPressed),
-                    ],
-                  )
-                : Row(
-                    children: [
-                      _ActiveWindowPreview(color: color),
-                      const SizedBox(width: 20),
-                      description,
-                      const SizedBox(width: 20),
-                      _ColorTrigger(color: color, onPressed: onPressed),
-                    ],
-                  ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _ActiveWindowPreview extends StatelessWidget {
-  const _ActiveWindowPreview({required this.color});
-
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
+    final safeRadius = radius.clamp(0, 32).toDouble();
     return Semantics(
       image: true,
-      label: context.l10n.settingsFocusedBorderPreviewSemanticsLabel,
+      label: semanticsLabel,
       child: AnimatedContainer(
-        duration: Motion.tile,
-        curve: Motion.standard,
-        width: 104,
-        height: 70,
-        padding: const EdgeInsets.all(7),
+        duration: const Duration(milliseconds: 220),
+        width: 92,
+        height: 62,
+        padding: const EdgeInsets.all(5),
         decoration: BoxDecoration(
           color: ShellColors.windowFrameSurface,
-          borderRadius: BorderRadius.circular(ShellRadii.window + 2),
+          borderRadius: BorderRadius.circular(safeRadius + 2),
           border: Border.all(color: color, width: 2),
-          boxShadow: [
-            BoxShadow(
-              color: color.withAlpha(48),
-              blurRadius: 18,
-              spreadRadius: 1,
-            ),
-          ],
+          boxShadow: [BoxShadow(color: color.withAlpha(42), blurRadius: 16)],
         ),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: ShellColors.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(ShellRadii.window - 1),
-          ),
-          child: Align(
-            alignment: Alignment.topLeft,
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: const [
-                  _PreviewDot(color: ShellColors.performanceBad),
-                  SizedBox(width: 4),
-                  _PreviewDot(color: ShellColors.performanceWarning),
-                  SizedBox(width: 4),
-                  _PreviewDot(color: ShellColors.gestureArmed),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PreviewDot extends StatelessWidget {
-  const _PreviewDot({required this.color});
-
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-      child: const SizedBox.square(dimension: 5),
-    );
-  }
-}
-
-class _ColorTrigger extends StatefulWidget {
-  const _ColorTrigger({required this.color, required this.onPressed});
-
-  final Color color;
-  final VoidCallback onPressed;
-
-  @override
-  State<_ColorTrigger> createState() => _ColorTriggerState();
-}
-
-class _ColorTriggerState extends State<_ColorTrigger> {
-  var _hovered = false;
-  var _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final hex = formatOpaqueColorHex(widget.color);
-    final highlighted = _hovered || _focused;
-    return Semantics(
-      button: true,
-      label: context.l10n.settingsFocusedBorderChangeSemanticsLabel,
-      value: hex,
-      child: FocusableActionDetector(
-        mouseCursor: ShellMouseCursors.link,
-        onShowHoverHighlight: (value) => setState(() => _hovered = value),
-        onShowFocusHighlight: (value) => setState(() => _focused = value),
-        shortcuts: const <ShortcutActivator, Intent>{
-          SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-          SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-        },
-        actions: <Type, Action<Intent>>{
-          ActivateIntent: CallbackAction<ActivateIntent>(
-            onInvoke: (_) {
-              widget.onPressed();
-              return null;
-            },
-          ),
-        },
-        child: GestureDetector(
-          key: settingsFocusedBorderColorTriggerKey,
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onPressed,
-          child: AnimatedContainer(
-            duration: Motion.tile,
-            curve: Motion.standard,
-            height: 48,
-            padding: const EdgeInsets.fromLTRB(8, 6, 10, 6),
-            decoration: BoxDecoration(
-              color: highlighted
-                  ? ShellColors.surfaceContainerHighest
-                  : ShellColors.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(ShellRadii.chip),
-              border: Border.all(
-                color: _focused ? ShellColors.accent : ShellColors.hairline,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                AnimatedContainer(
-                  duration: Motion.tile,
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color: widget.color,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: ShellColors.panelHighlight),
-                  ),
-                ),
-                const SizedBox(width: 9),
-                Text(
-                  hex,
-                  style: ShellText.cardTitle.copyWith(
-                    color: ShellColors.textSecondary,
-                    fontFamily: ShellText.systemBarFontFamily,
-                  ),
-                ),
-                const SizedBox(width: 7),
-                const Icon(
-                  Icons.expand_more_rounded,
-                  size: 18,
-                  color: ShellColors.textTertiary,
-                ),
-              ],
-            ),
+            color: ShellTheme.of(
+              context,
+            ).panelColor(ShellColors.surfaceContainerHigh),
+            borderRadius: BorderRadius.circular(safeRadius),
           ),
         ),
       ),

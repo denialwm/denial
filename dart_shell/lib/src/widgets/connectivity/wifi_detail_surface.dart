@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/network_manager_service.dart';
 import '../../state/network_connectivity.dart';
 import '../../theme/motion.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 
 class WifiDetailSurface extends ConsumerStatefulWidget {
@@ -122,6 +123,7 @@ class _WifiDetailSurfaceState extends ConsumerState<WifiDetailSurface> {
         snapshot.wirelessHardwareEnabled &&
         snapshot.controlPermission != NetworkPermission.denied &&
         !state.scanning;
+    final theme = ShellTheme.of(context);
 
     return SafeArea(
       minimum: const EdgeInsets.all(16),
@@ -130,8 +132,8 @@ class _WifiDetailSurfaceState extends ConsumerState<WifiDetailSurface> {
           constraints: const BoxConstraints(maxWidth: 540, maxHeight: 720),
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: ShellColors.panelBackground,
-              borderRadius: BorderRadius.circular(ShellRadii.panel),
+              color: theme.panelColor(ShellColors.panelBackground),
+              borderRadius: BorderRadius.circular(theme.panelRadius),
               border: Border.all(color: ShellColors.hairline),
               boxShadow: const <BoxShadow>[
                 BoxShadow(
@@ -150,11 +152,7 @@ class _WifiDetailSurfaceState extends ConsumerState<WifiDetailSurface> {
                   children: [
                     Row(
                       children: [
-                        const Icon(
-                          Icons.wifi_rounded,
-                          size: 23,
-                          color: ShellColors.accent,
-                        ),
+                        Icon(Icons.wifi_rounded, size: 23, color: theme.accent),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Column(
@@ -326,14 +324,12 @@ class _WifiNetworkList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final snapshot = state.snapshot;
+    final accent = ShellTheme.of(context).accent;
     if (state.initializing) {
-      return const Center(
+      return Center(
         child: SizedBox.square(
           dimension: 25,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: ShellColors.accent,
-          ),
+          child: CircularProgressIndicator(strokeWidth: 2, color: accent),
         ),
       );
     }
@@ -427,6 +423,7 @@ class _WifiNetworkRowState extends State<_WifiNetworkRow> {
   @override
   Widget build(BuildContext context) {
     final network = widget.network;
+    final accent = ShellTheme.of(context).accent;
     final enabled =
         widget.activationEnabled && (network.connectable || network.connected);
     final status = network.connected
@@ -481,7 +478,7 @@ class _WifiNetworkRowState extends State<_WifiNetworkRow> {
                   : ShellColors.surfaceContainer,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: _focused ? ShellColors.accent : ShellColors.hairlineSoft,
+                color: _focused ? accent : ShellColors.hairlineSoft,
               ),
             ),
             child: Row(
@@ -548,11 +545,11 @@ class _WifiNetworkRowState extends State<_WifiNetworkRow> {
                 ],
                 const SizedBox(width: 5),
                 if (widget.busy)
-                  const SizedBox.square(
+                  SizedBox.square(
                     dimension: 20,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: ShellColors.accent,
+                      color: accent,
                     ),
                   )
                 else
@@ -593,6 +590,7 @@ class _WifiCredentialPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = ShellTheme.of(context);
     return DecoratedBox(
       decoration: BoxDecoration(
         color: ShellColors.surfaceContainerHigh,
@@ -621,11 +619,11 @@ class _WifiCredentialPanel extends StatelessWidget {
               label: 'Wi-Fi password for ${network.ssid}',
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  color: ShellColors.panelBackground,
+                  color: theme.panelColor(ShellColors.panelBackground),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: focusNode.hasFocus
-                        ? ShellColors.accent
+                        ? theme.accent
                         : ShellColors.hairline,
                   ),
                 ),
@@ -645,7 +643,7 @@ class _WifiCredentialPanel extends StatelessWidget {
                     textInputAction: TextInputAction.done,
                     onSubmitted: (_) => onSubmit(),
                     style: ShellText.base,
-                    cursorColor: ShellColors.accent,
+                    cursorColor: theme.accent,
                     backgroundCursorColor: ShellColors.textSecondary,
                     selectionColor: ShellColors.primaryContainer,
                   ),
@@ -696,6 +694,7 @@ class _WifiEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       label: '$title. $body',
       child: Center(
@@ -879,15 +878,15 @@ class _WifiIconButtonState extends State<_WifiIconButton> {
                   : ShellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: _focused ? ShellColors.accent : ShellColors.hairlineSoft,
+                color: _focused ? accent : ShellColors.hairlineSoft,
               ),
             ),
             child: widget.busy
-                ? const Padding(
-                    padding: EdgeInsets.all(9),
+                ? Padding(
+                    padding: const EdgeInsets.all(9),
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: ShellColors.accent,
+                      color: accent,
                     ),
                   )
                 : Icon(
@@ -928,6 +927,7 @@ class _WifiInlineButtonState extends State<_WifiInlineButton> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
       enabled: widget.enabled,
@@ -963,7 +963,7 @@ class _WifiInlineButtonState extends State<_WifiInlineButton> {
             height: 30,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(9),
-              border: _focused ? Border.all(color: ShellColors.accent) : null,
+              border: _focused ? Border.all(color: accent) : null,
             ),
             child: Icon(
               widget.icon,
@@ -999,6 +999,7 @@ class _WifiTextButtonState extends State<_WifiTextButton> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
       label: widget.label,
@@ -1030,7 +1031,7 @@ class _WifiTextButtonState extends State<_WifiTextButton> {
                   : ShellColors.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(11),
               border: Border.all(
-                color: _focused ? ShellColors.accent : ShellColors.hairlineSoft,
+                color: _focused ? accent : ShellColors.hairlineSoft,
               ),
             ),
             child: Padding(

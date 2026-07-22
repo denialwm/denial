@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../theme/motion.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/shell_cursor.dart';
 import '../wallpaper.dart';
@@ -34,9 +35,7 @@ class WallpaperSpanAlignmentSelector extends StatelessWidget {
                 semanticsLabel: 'Align spanning wallpaper left',
                 selected: value.horizontal == WallpaperHorizontalAlignment.left,
                 onPressed: () => onChanged(
-                  value.copyWith(
-                    horizontal: WallpaperHorizontalAlignment.left,
-                  ),
+                  value.copyWith(horizontal: WallpaperHorizontalAlignment.left),
                 ),
               ),
               _ShellIconControl(
@@ -78,9 +77,7 @@ class WallpaperSpanAlignmentSelector extends StatelessWidget {
                 semanticsLabel: 'Center spanning wallpaper vertically',
                 selected: value.vertical == WallpaperVerticalAlignment.center,
                 onPressed: () => onChanged(
-                  value.copyWith(
-                    vertical: WallpaperVerticalAlignment.center,
-                  ),
+                  value.copyWith(vertical: WallpaperVerticalAlignment.center),
                 ),
               ),
               _ShellIconControl(
@@ -88,9 +85,7 @@ class WallpaperSpanAlignmentSelector extends StatelessWidget {
                 semanticsLabel: 'Align spanning wallpaper bottom',
                 selected: value.vertical == WallpaperVerticalAlignment.bottom,
                 onPressed: () => onChanged(
-                  value.copyWith(
-                    vertical: WallpaperVerticalAlignment.bottom,
-                  ),
+                  value.copyWith(vertical: WallpaperVerticalAlignment.bottom),
                 ),
               ),
             ],
@@ -102,10 +97,7 @@ class WallpaperSpanAlignmentSelector extends StatelessWidget {
 }
 
 class WallpaperSelectorCloseButton extends StatelessWidget {
-  const WallpaperSelectorCloseButton({
-    super.key,
-    required this.onPressed,
-  });
+  const WallpaperSelectorCloseButton({super.key, required this.onPressed});
 
   final VoidCallback onPressed;
 
@@ -171,6 +163,7 @@ class _ShellIconControlState extends State<_ShellIconControl> {
   @override
   Widget build(BuildContext context) {
     final highlighted = _hovered || _focused;
+    final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
       selected: widget.selected,
@@ -203,12 +196,12 @@ class _ShellIconControlState extends State<_ShellIconControl> {
               color: widget.selected
                   ? ShellColors.primaryContainer
                   : highlighted
-                      ? ShellColors.surfaceContainerHighest
-                      : ShellColors.panelBackground,
+                  ? ShellColors.surfaceContainerHighest
+                  : ShellColors.panelBackground,
               shape: BoxShape.circle,
               border: Border.all(
                 color: widget.selected || highlighted
-                    ? ShellColors.accent
+                    ? accent
                     : ShellColors.hairline,
               ),
               boxShadow: widget.dimension > 40

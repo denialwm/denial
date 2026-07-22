@@ -8,8 +8,10 @@ import 'package:denial_dart_shell/src/localization/denial_localizations.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/settings/settings_application.dart';
+import 'package:denial_dart_shell/src/settings/settings_controller.dart';
+import 'package:denial_dart_shell/src/settings/settings_store.dart';
+import 'package:denial_dart_shell/src/settings/shell_settings.dart';
 import 'package:denial_dart_shell/src/state/display_layout.dart';
-import 'package:denial_dart_shell/src/state/shell_appearance.dart';
 import 'package:denial_dart_shell/src/state/shell_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -22,14 +24,15 @@ void main() {
   ) async {
     final semantics = tester.ensureSemantics();
     final container = _settingsContainer();
+    addTearDown(container.dispose);
 
     await _pumpSettings(tester, container);
 
     expect(find.text('Settings'), findsOneWidget);
     expect(find.text('Make the desktop feel like yours.'), findsOneWidget);
     expect(find.text('Focused window border'), findsOneWidget);
-    expect(find.text('Desktop system bar'), findsOneWidget);
-    expect(find.byKey(settingsSystemBarPlacementCardKey), findsOneWidget);
+    expect(find.text('Popups & overlays'), findsOneWidget);
+    expect(find.byKey(settingsSystemBarPlacementCardKey), findsNothing);
     expect(find.text('#4F378B'), findsOneWidget);
     expect(find.bySemanticsLabel(RegExp('Denial Settings')), findsOneWidget);
     final settingsSemantics = tester.widget<Semantics>(
@@ -47,8 +50,9 @@ void main() {
     tester,
   ) async {
     final container = _settingsContainer();
+    addTearDown(container.dispose);
     await _pumpSettings(tester, container);
-    final initial = container.read(shellAppearanceProvider);
+    final initial = container.read(shellSettingsProvider).appearance;
 
     await tester.ensureVisible(
       find.byKey(settingsFocusedBorderColorTriggerKey),
@@ -72,21 +76,22 @@ void main() {
     await tester.pump();
 
     final pointerColor = container
-        .read(shellAppearanceProvider)
+        .read(shellSettingsProvider)
+        .appearance
         .focusedWindowBorderColor;
     expect(pointerColor, isNot(initial.focusedWindowBorderColor));
 
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pump();
     expect(
-      container.read(shellAppearanceProvider).focusedWindowBorderColor,
+      container.read(shellSettingsProvider).appearance.focusedWindowBorderColor,
       isNot(pointerColor),
     );
 
     await tester.tap(find.byKey(settingsFocusedBorderResetKey));
     await tester.pump();
     expect(
-      container.read(shellAppearanceProvider).focusedWindowBorderColor,
+      container.read(shellSettingsProvider).appearance.focusedWindowBorderColor,
       initial.focusedWindowBorderColor,
     );
 
@@ -99,7 +104,8 @@ void main() {
     tester,
   ) async {
     final container = _settingsContainer();
-    await _pumpSettings(tester, container, size: const Size(480, 360));
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container, size: const Size(560, 440));
 
     await tester.ensureVisible(
       find.byKey(settingsFocusedBorderColorTriggerKey),
@@ -113,8 +119,13 @@ void main() {
 
   testWidgets('system bar edge and monitor clones update live', (tester) async {
     final container = _settingsContainer();
+    addTearDown(container.dispose);
     await _pumpSettings(tester, container);
     await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Desktop layout'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(settingsSystemBarPlacementCardKey), findsOneWidget);
 
     await tester.ensureVisible(find.text('Bottom'));
     await tester.tap(find.text('Bottom'));
@@ -156,11 +167,42 @@ void main() {
       <int>[2],
     );
   });
+
+  testWidgets('custom accent and popup anchor update the typed settings', (
+    tester,
+  ) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container, size: const Size(900, 680));
+
+    await tester.tap(find.text('Custom color'));
+    await tester.pump();
+    expect(
+      container.read(shellSettingsProvider).appearance.accentSource,
+      ShellAccentSource.custom,
+    );
+    await tester.tap(find.byKey(settingsAccentColorTriggerKey));
+    await tester.pumpAndSettle();
+    expect(find.byKey(settingsFocusedBorderColorPickerKey), findsOneWidget);
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Popups & overlays'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.bySemanticsLabel('Top right').first);
+    await tester.pump();
+
+    expect(
+      container.read(shellSettingsProvider).overlays.launcher.anchor.name,
+      'topRight',
+    );
+  });
 }
 
 ProviderContainer _settingsContainer() {
   return ProviderContainer.test(
     overrides: [
+      settingsStoreProvider.overrideWithValue(_MemorySettingsStore()),
       denialBridgeProvider.overrideWith((ref) {
         final bridge = _SettingsBridge(_displayLayout);
         ref.onDispose(bridge.dispose);
@@ -168,6 +210,14 @@ ProviderContainer _settingsContainer() {
       }),
     ],
   );
+}
+
+class _MemorySettingsStore implements SettingsStore {
+  @override
+  Future<ShellSettings?> read() async => null;
+
+  @override
+  Future<void> write(ShellSettings settings) async {}
 }
 
 Future<void> _pumpSettings(

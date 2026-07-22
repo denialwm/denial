@@ -4,6 +4,9 @@ import 'package:flutter/painting.dart' show Color, HSVColor;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:denial_dart_shell/src/state/display_layout.dart';
+import 'package:denial_dart_shell/src/settings/settings_controller.dart';
+import 'package:denial_dart_shell/src/settings/settings_store.dart';
+import 'package:denial_dart_shell/src/settings/shell_settings.dart';
 import 'package:denial_dart_shell/src/wallpaper/state/wallpaper_accent.dart';
 import 'package:denial_dart_shell/src/wallpaper/state/wallpaper_controller.dart';
 import 'package:denial_dart_shell/src/wallpaper/wallpaper.dart';
@@ -86,6 +89,34 @@ void main() {
       );
     },
   );
+
+  test('effective accent switches between wallpaper and custom color', () {
+    final container = ProviderContainer.test(
+      overrides: [
+        settingsStoreProvider.overrideWithValue(_MemorySettingsStore()),
+        wallpaperAccentProvider.overrideWithBuild(
+          (ref, controller) => const WallpaperAccent(Color(0xff3366ff)),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    expect(container.read(shellAccentProvider).color, const Color(0xff3366ff));
+    final controller = container.read(shellSettingsProvider.notifier);
+    controller
+      ..setCustomAccentColor(const Color(0xffff7043))
+      ..setAccentSource(ShellAccentSource.custom);
+
+    expect(container.read(shellAccentProvider).color, const Color(0xffff7043));
+  });
+}
+
+class _MemorySettingsStore implements SettingsStore {
+  @override
+  Future<ShellSettings?> read() async => null;
+
+  @override
+  Future<void> write(ShellSettings settings) async {}
 }
 
 ByteData _rgbaPixels(List<Color> colors) {
