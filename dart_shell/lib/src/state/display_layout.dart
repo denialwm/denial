@@ -233,11 +233,18 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
                 configured.effectiveSystemBarMonitorIds.length)) {
       return;
     }
-    unawaited(
-      _bridge.configureSystemBar(
+    unawaited(_sendConfiguredSystemBar(configured));
+  }
+
+  Future<void> _sendConfiguredSystemBar(DisplayLayout configured) async {
+    try {
+      await _bridge.configureSystemBar(
         side: configured.systemBarSide,
         monitorIds: configured.effectiveSystemBarMonitorIds,
-      ),
-    );
+      );
+    } on Object {
+      // Persisted policy is applied locally even when the native bridge is
+      // temporarily unavailable; bridge failure must not take down the shell.
+    }
   }
 }

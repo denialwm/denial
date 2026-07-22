@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
@@ -11,6 +12,7 @@ import 'launcher/home_surface.dart';
 import 'localization/denial_localizations.dart';
 import 'models/denial_window.dart';
 import 'settings/settings_controller.dart';
+import 'settings/shell_settings.dart';
 import 'state/cursor_theme.dart';
 import 'state/bluetooth.dart';
 import 'state/desktop_notifications.dart';
@@ -63,11 +65,45 @@ final _userAppWindowsProvider = Provider<List<DenialWindow>>((ref) {
   );
 });
 
-class DenialShellApp extends ConsumerWidget {
+class DenialShellApp extends ConsumerStatefulWidget {
   const DenialShellApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DenialShellApp> createState() => _DenialShellAppState();
+}
+
+class _DenialShellAppState extends ConsumerState<DenialShellApp> {
+  @override
+  void initState() {
+    super.initState();
+    ref.listenManual(
+      shellSettingsProvider.select((settings) => settings.layout),
+      (_, layout) => _scheduleLayoutSync(layout),
+      fireImmediately: true,
+    );
+  }
+
+  void _scheduleLayoutSync(ShellLayoutSettings layout) {
+    // A manual listener gives the compositor its persisted policy on the very
+    // first frame. Deferring the cross-provider mutation also keeps it outside
+    // Flutter's widget lifecycle callbacks.
+    scheduleMicrotask(() {
+      if (!mounted) {
+        return;
+      }
+      ref
+          .read(displayLayoutProvider.notifier)
+          .applyShellConfiguration(
+            side: layout.systemBarSide,
+            outputNames: layout.systemBarOutputNames,
+            systemBarThickness: layout.systemBarThickness,
+            maximizePadding: layout.maximizePadding,
+          );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     // These providers own process-lifetime integrations. Keeping this explicit
     // root subscription documents and enforces their eager initialization.
     ref.watch(shellControllerProvider.select((_) => null));
@@ -112,19 +148,6 @@ class DenialShellApp extends ConsumerWidget {
     final cursorTheme = ref.watch(shellCursorThemeProvider);
     final settings = ref.watch(shellSettingsProvider);
     final accent = ref.watch(shellAccentProvider);
-    ref.listen(shellSettingsProvider.select((value) => value.layout), (
-      _,
-      layout,
-    ) {
-      ref
-          .read(displayLayoutProvider.notifier)
-          .applyShellConfiguration(
-            side: layout.systemBarSide,
-            outputNames: layout.systemBarOutputNames,
-            systemBarThickness: layout.systemBarThickness,
-            maximizePadding: layout.maximizePadding,
-          );
-    }, fireImmediately: true);
     final bridge = ref.watch(denialBridgeProvider);
     final cursorShapes = bridge.cursorShapes;
     final cursorPositions = bridge.cursorPositions;

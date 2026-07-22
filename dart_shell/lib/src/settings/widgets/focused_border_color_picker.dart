@@ -123,6 +123,7 @@ class _ColorPickerPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final hex = formatOpaqueColorHex(color);
     final l10n = context.l10n;
+    final theme = ShellTheme.of(context);
     return Semantics(
       scopesRoute: true,
       namesRoute: true,
@@ -131,8 +132,8 @@ class _ColorPickerPanel extends StatelessWidget {
       label: routeLabel,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: ShellColors.panelBackgroundBottom,
-          borderRadius: BorderRadius.circular(ShellRadii.panel),
+          color: theme.panelColor(ShellColors.panelBackgroundBottom),
+          borderRadius: BorderRadius.circular(theme.panelRadius),
           border: Border.all(color: ShellColors.hairline),
           boxShadow: const [
             BoxShadow(

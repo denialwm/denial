@@ -467,6 +467,7 @@ class SettingsAnchorPicker extends StatelessWidget {
         child: GridView.count(
           physics: const NeverScrollableScrollPhysics(),
           crossAxisCount: 3,
+          childAspectRatio: 1.5,
           mainAxisSpacing: 5,
           crossAxisSpacing: 5,
           children: [
