@@ -83,6 +83,37 @@ the first public release. The compositor already runs as a complete Wayland
 session with Xwayland, multi-output presentation, native input routing, direct
 screenshots, and portal-based screen sharing.
 
+## Install on Arch Linux
+
+Denial provides signed first-party packages for Arch Linux on `x86_64`. Import
+the repository key and locally trust its permanent fingerprint:
+
+```sh
+key_file="$(mktemp)"
+curl -fsSL -o "$key_file" \
+  https://denialwm.github.io/denial/denial-repo-key.asc
+sudo pacman-key --add "$key_file"
+sudo pacman-key --lsign-key AE4108FA5E91E26BE0EE331E0F5B3AD16E023091
+rm -f -- "$key_file"
+```
+
+Add the repository after the official repositories in `/etc/pacman.conf`:
+
+```ini
+[denial]
+SigLevel = Required TrustedOnly
+Server = https://denialwm.github.io/denial/$arch
+```
+
+Then upgrade the system and install Denial:
+
+```sh
+sudo pacman -Syu denial
+```
+
+See the [complete installation guide](docs/packaging/arch/INSTALL.md) for
+keyring initialization, verification, updates, and removal.
+
 ## Documentation
 
 - [Install from the Arch repository](docs/packaging/arch/INSTALL.md)
