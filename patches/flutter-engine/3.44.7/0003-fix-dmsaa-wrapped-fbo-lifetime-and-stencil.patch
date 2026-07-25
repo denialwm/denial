@@ -1,0 +1,63 @@
+From 9c5b4af03ef9b5bfc193838c449c042c6c47312e Mon Sep 17 00:00:00 2001
+From: Koto Letta <kotolettaffxiv@gmail.com>
+Date: Sat, 25 Jul 2026 12:06:55 +0200
+Subject: [PATCH] Fix DMSAA lifetime and stencil continuity on wrapped GL
+ FBOs
+
+Release internally owned dynamic-MSAA framebuffers even when the final single-sample FBO is borrowed, clean up failed attachment allocation, and keep stencil-clip consumers on the multisample attachment across split Ganesh operation tasks.
+---
+ src/gpu/ganesh/SurfaceDrawContext.cpp  |  8 +++++---
+ src/gpu/ganesh/gl/GrGLRenderTarget.cpp | 13 ++++++++++++-
+ 2 files changed, 17 insertions(+), 4 deletions(-)
+
+diff --git a/engine/src/flutter/third_party/skia/src/gpu/ganesh/SurfaceDrawContext.cpp b/engine/src/flutter/third_party/skia/src/gpu/ganesh/SurfaceDrawContext.cpp
+index dc08078843c11895cb41e55d64cb70fd1c37ec13..80a123fbe901b034f2b44f0978ed064c37c9b9be 100644
+--- a/engine/src/flutter/third_party/skia/src/gpu/ganesh/SurfaceDrawContext.cpp
++++ b/engine/src/flutter/third_party/skia/src/gpu/ganesh/SurfaceDrawContext.cpp
+@@ -1939,9 +1939,11 @@ void SurfaceDrawContext::addDrawOp(const GrClip* clip,
+ 
+     const bool opUsesStencil = drawOp->usesStencil();
+ 
+-    // Always trigger DMSAA when there is stencil. This ensures stencil contents get properly
+-    // preserved between render passes, if needed.
+-    const bool drawNeedsMSAA = opUsesMSAA || (fCanUseDynamicMSAA && opUsesStencil);
++    // Always trigger DMSAA when an op writes stencil or consumes a stencil clip. This keeps
++    // preserved stencil contents on the same attachment when the SurfaceDrawContext splits its
++    // OpsTask; the single-sample attachment is a different stencil domain.
++    const bool drawNeedsMSAA =
++            opUsesMSAA || (fCanUseDynamicMSAA && (opUsesStencil || appliedClip.hasStencilClip()));
+ 
+     // Must be called before setDstProxyView so that it sees the final bounds of the op.
+     op->setClippedBounds(bounds);
+diff --git a/engine/src/flutter/third_party/skia/src/gpu/ganesh/gl/GrGLRenderTarget.cpp b/engine/src/flutter/third_party/skia/src/gpu/ganesh/gl/GrGLRenderTarget.cpp
+index 83725517a3700a54940a3f451cba6bc7a07c8048..01f214d170e615bee28dac2b82392ea6249f5803 100644
+--- a/engine/src/flutter/third_party/skia/src/gpu/ganesh/gl/GrGLRenderTarget.cpp
++++ b/engine/src/flutter/third_party/skia/src/gpu/ganesh/gl/GrGLRenderTarget.cpp
+@@ -202,6 +202,8 @@ bool GrGLRenderTarget::ensureDynamicMSAAAttachment() {
+                     this->dimensions(), this->backendFormat(), internalSampleCount,
+                     GrProtected(this->isProtected()), GrMemoryless::kNo).release()));
+     if (!fDynamicMSAAAttachment) {
++        this->getGLGpu()->deleteFramebuffer(fMultisampleFBOID);
++        fMultisampleFBOID = 0;
+         return false;
+     }
+ 
+@@ -312,8 +314,17 @@ void GrGLRenderTarget::bindForResolve(GrGLGpu::ResolveDirection resolveDirection
+ }
+ 
+ void GrGLRenderTarget::onRelease() {
++    GrGLGpu* gpu = this->getGLGpu();
++
++    // fRTFBOOwnership describes the FBO IDs supplied when this render target was wrapped. A
++    // manual dynamic-MSAA FBO is created internally afterwards and is always ours, even when the
++    // single-sample FBO is borrowed from an embedder.
++    if (fDynamicMSAAAttachment && fMultisampleFBOID && fMultisampleFBOID != fSingleSampleFBOID) {
++        gpu->deleteFramebuffer(fMultisampleFBOID);
++        fMultisampleFBOID = 0;
++    }
++
+     if (GrBackendObjectOwnership::kBorrowed != fRTFBOOwnership) {
+-        GrGLGpu* gpu = this->getGLGpu();
+         if (fSingleSampleFBOID) {
+             gpu->deleteFramebuffer(fSingleSampleFBOID);
+         }

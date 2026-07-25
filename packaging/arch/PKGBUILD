@@ -1,0 +1,143 @@
+# Maintainer: Doctor Logix <doctor.logix@gmail.com>
+
+pkgname=denial
+pkgver="${DENIAL_PACKAGE_VERSION:-0.1.0}"
+pkgrel="${DENIAL_PACKAGE_RELEASE:-1}"
+pkgdesc='Flutter-native Wayland compositor and desktop shell'
+arch=('x86_64')
+url='https://github.com/denialwm/denial'
+license=(
+  'GPL-3.0-or-later'
+  'CC-BY-SA-4.0'
+  'GPL-3.0-only'
+  'OFL-1.1'
+)
+_flutter_generation='3.44.7.denial1'
+depends=(
+  'bash'
+  'coreutils'
+  'ddcutil'
+  'denial-flutter-engine'
+  "denial-flutter-engine-abi=${_flutter_generation}"
+  'dbus'
+  'glibc'
+  'libgcc'
+  'libglvnd'
+  'libinput'
+  'libpulse'
+  'libxkbcommon'
+  'mesa'
+  'pam'
+  'seatd'
+  'systemd-libs'
+  'uwsm'
+  'xkeyboard-config'
+  'xdg-desktop-portal'
+  'xdg-desktop-portal-gtk'
+  'xdg-desktop-portal-wlr'
+  'xorg-xwayland'
+  'zenity'
+)
+optdepends=(
+  'lact: AMD GPU performance controls'
+  'networkmanager: Wi-Fi and network controls'
+  'pipewire-pulse: desktop audio controls'
+  'power-profiles-daemon: system power profiles'
+  'sddm: graphical login and session selection'
+  'upower: battery and power status'
+)
+conflicts=('denial-git')
+backup=(
+  'etc/denial/outputs.conf'
+  'etc/denial/session.conf'
+  'etc/xdg/xdg-desktop-portal-wlr/Denial'
+)
+options=('!strip')
+source=(
+  'denial-session'
+  'denial.desktop'
+  'denial-portals.conf'
+  'outputs.conf'
+  'session.conf'
+  'xdg-desktop-portal-wlr-Denial'
+)
+sha256sums=(
+  'f5148dbd273edb8c55b196fb5479cced85afb8ede686d0fd6b2257fa14100270'
+  'aa35c7e222fc814b9b48599176794db375885f444f0d03fb1b1a3fcad118fbe1'
+  '92d54e0cce7ef20febd0dcbfdd2fd8578aa0996e50a78ac0160e3b8fcaa6c99f'
+  '4e94352954d9c60ebc27ff5f544380f3a23fa100675511ca41323d633c806da5'
+  'e99849d39152a7979b3c871ded9f0e12ebed35760961f6c35d733b85ce9ca9c9'
+  '3b4e3a52dff1a2ece31d122bd7220ddee2bdbaeb73ebe24ed9bd8c350580cd30'
+)
+
+package() {
+  local repository_root="${DENIAL_PACKAGE_SOURCE_ROOT:-$(realpath "$startdir/../..")}"
+  local cache_root="${XDG_CACHE_HOME:-$HOME/.cache}"
+  local binary="${DENIAL_PACKAGE_BINARY:-$cache_root/denial/pc-build/rust/release/deniald}"
+  local bundle="${DENIAL_PACKAGE_BUNDLE:-$repository_root/dart_shell/build/linux/x64/release/bundle}"
+
+  if [[ ! -x "$binary" ]]; then
+    error "Denial compositor is missing: $binary"
+    error "Build through tools/denial-pc arch-package."
+    return 1
+  fi
+  for required in \
+    "$bundle/data/flutter_assets/AssetManifest.bin" \
+    "$bundle/lib/libapp.so"; do
+    if [[ ! -f "$required" ]]; then
+      error "Flutter bundle component is missing: $required"
+      error "Build through tools/denial-pc arch-package."
+      return 1
+    fi
+  done
+
+  install -Dm755 "$binary" "$pkgdir/usr/bin/deniald"
+  install -Dm755 "$srcdir/denial-session" "$pkgdir/usr/bin/denial-session"
+
+  install -dm755 \
+    "$pkgdir/usr/lib/denial/flutter/data" \
+    "$pkgdir/usr/lib/denial/flutter/lib"
+  cp -a -- "$bundle/data/flutter_assets" \
+    "$pkgdir/usr/lib/denial/flutter/data/flutter_assets"
+  chmod -R u=rwX,go=rX \
+    "$pkgdir/usr/lib/denial/flutter/data/flutter_assets"
+  install -m755 "$bundle/lib/libapp.so" \
+    "$pkgdir/usr/lib/denial/flutter/lib/libapp.so"
+
+  install -Dm644 "$srcdir/denial.desktop" \
+    "$pkgdir/usr/share/wayland-sessions/denial.desktop"
+  install -Dm644 "$srcdir/denial-portals.conf" \
+    "$pkgdir/usr/share/xdg-desktop-portal/denial-portals.conf"
+  install -Dm644 "$srcdir/xdg-desktop-portal-wlr-Denial" \
+    "$pkgdir/etc/xdg/xdg-desktop-portal-wlr/Denial"
+  install -Dm644 "$srcdir/outputs.conf" "$pkgdir/etc/denial/outputs.conf"
+  install -Dm644 "$srcdir/session.conf" "$pkgdir/etc/denial/session.conf"
+
+  install -Dm644 "$repository_root/README.md" \
+    "$pkgdir/usr/share/doc/denial/README.md"
+  install -Dm644 \
+    "$repository_root/dart_shell/assets/wallpapers/ATTRIBUTION.md" \
+    "$pkgdir/usr/share/doc/denial/WALLPAPERS.md"
+  install -Dm644 \
+    "$repository_root/dart_shell/assets/cursors/BIBATA_MODERN_ICE.md" \
+    "$pkgdir/usr/share/doc/denial/CURSORS.md"
+  install -Dm644 \
+    "$repository_root/dart_shell/assets/cursors/bibata_modern_ice.sha256" \
+    "$pkgdir/usr/share/doc/denial/BIBATA_MODERN_ICE.sha256"
+  install -Dm644 "$repository_root/dart_shell/assets/fonts/README.md" \
+    "$pkgdir/usr/share/doc/denial/FONTS.md"
+  install -Dm644 \
+    "$repository_root/dart_shell/assets/fonts/JetBrainsMono.sha256" \
+    "$pkgdir/usr/share/doc/denial/JETBRAINS_MONO.sha256"
+  install -Dm644 \
+    "$repository_root/third_party/bibata/Bibata_Cursor-v2.0.7-source.tar.gz" \
+    "$pkgdir/usr/share/doc/denial/sources/Bibata_Cursor-v2.0.7-source.tar.gz"
+  install -Dm644 "$repository_root/LICENSES/CC-BY-SA-4.0.txt" \
+    "$pkgdir/usr/share/licenses/denial/CC-BY-SA-4.0.txt"
+  install -Dm644 "$repository_root/LICENSES/GPL-3.0-only.txt" \
+    "$pkgdir/usr/share/licenses/denial/GPL-3.0-only.txt"
+  install -Dm644 "$repository_root/dart_shell/assets/fonts/OFL.txt" \
+    "$pkgdir/usr/share/licenses/denial/OFL-1.1.txt"
+  install -Dm644 "$repository_root/LICENSE" \
+    "$pkgdir/usr/share/licenses/denial/LICENSE"
+}

@@ -1,0 +1,648 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+failures=0
+warnings=0
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tools/denial-release doctor [--ci] [--release-tag TAG]
+  tools/denial-release source-audit [--development] [--public-alpha TAG]
+
+Commands:
+  doctor        Inspect an Arch x86-64 release-builder host.
+  source-audit  Verify committed source, manifests, and Arch PKGBUILDs.
+
+Options:
+  --ci              Require the protected manual GitHub runner context.
+  --release-tag TAG Require a manual workflow running from this version tag.
+  --development     Allow a dirty checkout, reported as a warning.
+  --public-alpha TAG
+                    Audit a clean version-tag checkout for public-alpha use.
+
+Neither command builds, signs, attests, or publishes a package.
+EOF
+}
+
+pass() {
+  printf 'PASS  %s\n' "$*"
+}
+
+warn() {
+  warnings=$((warnings + 1))
+  printf 'WARN  %s\n' "$*"
+}
+
+fail() {
+  failures=$((failures + 1))
+  printf 'FAIL  %s\n' "$*"
+}
+
+finish() {
+  printf '\nResult: %d failure(s), %d warning(s)\n' "$failures" "$warnings"
+  ((failures == 0))
+}
+
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+check_command() {
+  local command_name="$1"
+  if command_exists "$command_name"; then
+    pass "command available: $command_name"
+  else
+    fail "missing required command: $command_name"
+  fi
+}
+
+existing_path_for() {
+  local candidate="$1"
+  local parent
+
+  while [[ ! -e "$candidate" ]]; do
+    parent="$(dirname -- "$candidate")"
+    if [[ "$parent" == "$candidate" ]]; then
+      return 1
+    fi
+    candidate="$parent"
+  done
+  printf '%s\n' "$candidate"
+}
+
+doctor() {
+  local require_ci=0
+  local architecture
+  local available_kib
+  local available_gib
+  local builder_root
+  local disk_probe
+  local memory_gib
+  local memory_kib
+  local release_tag=''
+  local required_commands=(
+    actionlint
+    arch-nspawn
+    awk
+    bash
+    bsdtar
+    bwrap
+    cargo
+    clang
+    cmake
+    diffoscope
+    git
+    gn
+    gpg
+    jq
+    ld.lld
+    lddtree
+    makechrootpkg
+    makepkg
+    makerepropkg
+    mkarchroot
+    namcap
+    ninja
+    objdump
+    patchelf
+    pkg-config
+    pkgctl
+    python3
+    readelf
+    repo-add
+    rustc
+    sha256sum
+    shellcheck
+    sudo
+    systemd-nspawn
+    unshare
+    zstd
+  )
+
+  while (($#)); do
+    case "$1" in
+      --ci) require_ci=1 ;;
+      --release-tag)
+        (($# >= 2)) \
+          || {
+            printf 'denial-release: --release-tag requires a value\n' >&2
+            return 2
+          }
+        release_tag="$2"
+        shift
+        ;;
+      -h | --help)
+        usage
+        return 0
+        ;;
+      *)
+        printf 'denial-release: unknown doctor option: %s\n' "$1" >&2
+        return 2
+        ;;
+    esac
+    shift
+  done
+
+  printf 'Denial x86-64 builder qualification\n\n'
+
+  if [[ -r /etc/arch-release ]]; then
+    pass 'host is Arch Linux'
+  else
+    fail 'host is not an Arch Linux installation'
+  fi
+
+  architecture="$(uname -m)"
+  if [[ "$architecture" == x86_64 ]]; then
+    pass 'native architecture is x86_64'
+  else
+    fail "native architecture is $architecture, expected x86_64"
+  fi
+
+  if ((EUID == 0)); then
+    fail 'runner must use a dedicated unprivileged account, not root'
+  else
+    pass "runner account is unprivileged: $(id -un)"
+  fi
+
+  memory_kib="$(
+    awk '$1 == "MemTotal:" { print $2; exit }' /proc/meminfo
+  )"
+  memory_gib=$((memory_kib / 1024 / 1024))
+  if ((memory_gib >= 32)); then
+    pass "physical memory is ${memory_gib} GiB"
+  elif ((memory_gib >= 24)); then
+    warn "physical memory is ${memory_gib} GiB; 32 GiB or more is preferred"
+  else
+    fail "physical memory is ${memory_gib} GiB; at least 24 GiB is required"
+  fi
+
+  builder_root="${DENIAL_BUILDER_ROOT:-${HOME:?HOME is required}/.cache/denial-builder}"
+  if disk_probe="$(existing_path_for "$builder_root")"; then
+    available_kib="$(
+      df -Pk -- "$disk_probe" \
+        | awk 'NR == 2 { print $4 }'
+    )"
+    available_gib=$((available_kib / 1024 / 1024))
+    if ((available_gib >= 150)); then
+      pass "builder filesystem has ${available_gib} GiB free"
+    elif ((available_gib >= 80)); then
+      warn "builder filesystem has ${available_gib} GiB free; 150 GiB is preferred"
+    else
+      fail "builder filesystem has ${available_gib} GiB free; at least 80 GiB is required"
+    fi
+    printf 'INFO  builder root: %s\n' "$builder_root"
+  else
+    fail "could not locate a filesystem for builder root: $builder_root"
+  fi
+
+  for command_name in "${required_commands[@]}"; do
+    check_command "$command_name"
+  done
+
+  if command_exists timedatectl \
+    && [[ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null || true)" == yes ]]; then
+    pass 'system clock reports network synchronization'
+  else
+    warn 'system clock synchronization could not be confirmed'
+  fi
+
+  if ((require_ci)); then
+    if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
+      pass 'running under GitHub Actions'
+    else
+      fail 'not running under GitHub Actions'
+    fi
+    if [[ -n "$release_tag" ]]; then
+      if [[ "${GITHUB_EVENT_NAME:-}" == workflow_dispatch ]]; then
+        pass 'release workflow was triggered manually'
+      else
+        fail "unexpected release workflow event: ${GITHUB_EVENT_NAME:-unset}"
+      fi
+      if [[ "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        pass "release tag has the required form: $release_tag"
+      else
+        fail "invalid release tag: $release_tag"
+      fi
+      if [[ "${GITHUB_REF:-}" == "refs/tags/${release_tag}" ]]; then
+        pass "workflow ref is refs/tags/${release_tag}"
+      else
+        fail "unexpected workflow ref: ${GITHUB_REF:-unset}"
+      fi
+    else
+      case "${GITHUB_EVENT_NAME:-}" in
+        push)
+          pass 'validation workflow was triggered by a push'
+          ;;
+        workflow_dispatch)
+          pass 'validation workflow was triggered manually'
+          ;;
+        *)
+          fail "unexpected validation workflow event: ${GITHUB_EVENT_NAME:-unset}"
+          ;;
+      esac
+      if [[ "${GITHUB_REF:-}" == refs/heads/main ]]; then
+        pass 'workflow ref is refs/heads/main'
+      else
+        fail "unexpected workflow ref: ${GITHUB_REF:-unset}"
+      fi
+    fi
+    if [[ "${RUNNER_OS:-}" == Linux ]]; then
+      pass 'GitHub runner OS is Linux'
+    else
+      fail "unexpected runner OS: ${RUNNER_OS:-unset}"
+    fi
+    if [[ "${RUNNER_ARCH:-}" == X64 ]]; then
+      pass 'GitHub runner architecture is X64'
+    else
+      fail "unexpected runner architecture: ${RUNNER_ARCH:-unset}"
+    fi
+  fi
+
+  warn 'signing-key separation requires an operational review; it is not inferred from this host scan'
+  finish
+}
+
+check_equal() {
+  local label="$1"
+  local expected="$2"
+  local actual="$3"
+
+  if [[ "$actual" == "$expected" ]]; then
+    pass "$label"
+  else
+    fail "$label: expected $expected, got $actual"
+  fi
+}
+
+file_sha256() {
+  sha256sum "$1" | awk '{ print $1 }'
+}
+
+source_audit() {
+  local allow_dirty=0
+  local actual
+  local cargo_version
+  local dart_version
+  local engine_dir="$ROOT/prebuilt/flutter-engine/linux-x64-release"
+  local github_sha
+  local makepkg_audit_root
+  local manifest="$ROOT/packaging/arch/flutter-engine/manifest.json"
+  local package_version
+  local patch_dir="$ROOT/patches/flutter-engine/3.44.7"
+  local public_alpha_tag=''
+  local public_key="$ROOT/packaging/arch/denial-repo-key.asc"
+  local public_key_fingerprint
+  local remote
+  local status
+
+  while (($#)); do
+    case "$1" in
+      --development) allow_dirty=1 ;;
+      --public-alpha)
+        (($# >= 2)) \
+          || {
+            printf 'denial-release: --public-alpha requires a tag\n' >&2
+            return 2
+          }
+        public_alpha_tag="$2"
+        shift
+        ;;
+      -h | --help)
+        usage
+        return 0
+        ;;
+      *)
+        printf 'denial-release: unknown source-audit option: %s\n' "$1" >&2
+        return 2
+        ;;
+    esac
+    shift
+  done
+
+  printf 'Denial committed-source audit\n\n'
+
+  for command_name in bash git gpg jq makepkg sha256sum; do
+    if ! command_exists "$command_name"; then
+      fail "missing required command: $command_name"
+    fi
+  done
+  if ((failures)); then
+    finish
+    return
+  fi
+
+  if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    pass 'repository is a Git working tree'
+  else
+    fail 'repository is not a Git working tree'
+    finish
+    return
+  fi
+
+  remote="$(git -C "$ROOT" remote get-url origin 2>/dev/null || true)"
+  case "$remote" in
+    https://github.com/denialwm/denial.git | git@github.com:denialwm/denial.git)
+      pass 'origin identifies denialwm/denial'
+      ;;
+    *)
+      warn "origin is not the canonical Denial URL: ${remote:-unset}"
+      ;;
+  esac
+
+  status="$(git -C "$ROOT" status --porcelain --untracked-files=normal)"
+  if [[ -z "$status" ]]; then
+    pass 'checkout is clean'
+  elif ((allow_dirty)); then
+    warn 'checkout is dirty; development override accepted'
+  else
+    fail 'checkout is dirty'
+  fi
+
+  if git -C "$ROOT" diff --check; then
+    pass 'working-tree diff has no whitespace errors'
+  else
+    fail 'working-tree diff contains whitespace errors'
+  fi
+  if git -C "$ROOT" show --check --format= HEAD >/dev/null; then
+    pass 'HEAD commit has no whitespace errors'
+  else
+    fail 'HEAD commit contains whitespace errors'
+  fi
+  if git -C "$ROOT" fsck --strict --no-dangling --no-progress >/dev/null; then
+    pass 'Git object graph passes strict verification'
+  else
+    fail 'Git object graph failed strict verification'
+  fi
+
+  if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
+    if [[ -n "$public_alpha_tag" ]]; then
+      github_sha="${GITHUB_SHA:-unset}"
+      if [[ "$github_sha" == "$(git -C "$ROOT" rev-parse HEAD)" \
+        || "$github_sha" == "$(
+          git -C "$ROOT" rev-parse "$public_alpha_tag"
+        )" ]]; then
+        pass 'checked-out release commit matches the GitHub tag context'
+      else
+        fail \
+          "checked-out release commit does not match GITHUB_SHA: $github_sha"
+      fi
+      check_equal \
+        'public-alpha workflow uses the requested tag' \
+        "refs/tags/${public_alpha_tag}" \
+        "${GITHUB_REF:-unset}"
+    else
+      check_equal \
+        'checked-out commit matches GITHUB_SHA' \
+        "${GITHUB_SHA:-unset}" \
+        "$(git -C "$ROOT" rev-parse HEAD)"
+      check_equal \
+        'qualification workflow uses main' \
+        refs/heads/main \
+        "${GITHUB_REF:-unset}"
+    fi
+  fi
+
+  if jq -e '
+      .schema_version == 1
+      and .stage == "public-alpha"
+      and .package.architecture == "x86_64"
+      and .assurances.offline_source_closure == false
+      and .assurances.reproducible_package == false
+      and .assurances.signed_generation_tags == false
+    ' "$manifest" >/dev/null; then
+    pass 'engine manifest states the public-alpha assurances accurately'
+  else
+    fail 'engine manifest schema, architecture, or assurance state is invalid'
+  fi
+
+  if (
+    cd "$patch_dir"
+    sha256sum --check --strict series.sha256
+  ) >/dev/null; then
+    pass 'Flutter Engine patch series matches series.sha256'
+  else
+    fail 'Flutter Engine patch series does not match series.sha256'
+  fi
+  if (
+    cd "$ROOT/dart_shell/assets/fonts"
+    sha256sum --check --strict JetBrainsMono.sha256
+  ) >/dev/null; then
+    pass 'bundled JetBrains Mono files match their source manifest'
+  else
+    fail 'bundled JetBrains Mono files failed source verification'
+  fi
+  if (
+    cd "$ROOT"
+    sha256sum --check --strict \
+      dart_shell/assets/cursors/bibata_modern_ice.sha256
+  ) >/dev/null; then
+    pass 'bundled Bibata cursor frames match their import manifest'
+  else
+    fail 'bundled Bibata cursor frames failed source verification'
+  fi
+
+  check_equal \
+    'engine patch manifest hash matches generation manifest' \
+    "$(jq -r '.patches.engine_series_manifest_sha256' "$manifest")" \
+    "$(file_sha256 "$patch_dir/series.sha256")"
+  check_equal \
+    'framework patch hash matches generation manifest' \
+    "$(jq -r '.patches.framework_patch_sha256' "$manifest")" \
+    "$(file_sha256 "$ROOT/patches/flutter/0001-enable-120hz-touch-resampling.patch")"
+  check_equal \
+    'generated Rust ABI hash matches generation manifest' \
+    "$(jq -r '.abi.generated_rust_bindings_sha256' "$manifest")" \
+    "$(file_sha256 "$ROOT/compositor/flutter-engine/src/sys.rs")"
+  check_equal \
+    'GN arguments hash matches generation manifest' \
+    "$(jq -r '.artifacts.gn_args_sha256' "$manifest")" \
+    "$(file_sha256 "$engine_dir/args.gn")"
+  check_equal \
+    'engine checksum matches generation manifest' \
+    "$(jq -r '.artifacts.libflutter_engine_sha256' "$manifest")" \
+    "$(awk 'NR == 1 { print $1 }' "$engine_dir/libflutter_engine.so.sha256")"
+
+  if git -C "$ROOT" ls-files --error-unmatch -- \
+      prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so \
+      >/dev/null 2>&1; then
+    fail 'generated Flutter engine must not be tracked by Git'
+  else
+    pass 'generated Flutter engine is not tracked by Git'
+  fi
+
+  if [[ -f "$engine_dir/libflutter_engine.so" ]]; then
+    if (
+      cd "$engine_dir"
+      sha256sum --check --strict libflutter_engine.so.sha256
+    ) >/dev/null; then
+      pass 'local engine artifact matches its adjacent checksum'
+    else
+      fail 'local engine artifact does not match its adjacent checksum'
+    fi
+  else
+    pass 'local engine artifact is not required for the committed-source audit'
+  fi
+
+  check_equal \
+    'Flutter revision file matches generation manifest' \
+    "$(jq -r '.sources.flutter_revision' "$manifest")" \
+    "$(< "$engine_dir/FLUTTER_REVISION")"
+  check_equal \
+    'engine revision file matches generation manifest' \
+    "$(jq -r '.sources.engine_artifact_revision' "$manifest")" \
+    "$(< "$engine_dir/ENGINE_REVISION")"
+
+  makepkg_audit_root="$(mktemp -d /tmp/denial-source-audit.XXXXXX)"
+  [[ "$makepkg_audit_root" == /tmp/denial-source-audit.* ]] \
+    || {
+      fail "unexpected makepkg audit directory: $makepkg_audit_root"
+      finish
+      return
+    }
+  if BUILDDIR="$makepkg_audit_root/build" \
+    SRCDEST="$makepkg_audit_root/sources" \
+    makepkg --dir "$ROOT/packaging/arch" --verifysource >/dev/null; then
+    pass 'Denial PKGBUILD source hashes verify'
+  else
+    fail 'Denial PKGBUILD source hashes failed'
+  fi
+  if BUILDDIR="$makepkg_audit_root/build" \
+    SRCDEST="$makepkg_audit_root/sources" \
+    makepkg --dir "$ROOT/packaging/arch/flutter-engine" \
+      --verifysource >/dev/null; then
+    pass 'engine PKGBUILD source hashes verify'
+  else
+    fail 'engine PKGBUILD source hashes failed'
+  fi
+  rm -rf --one-file-system -- "$makepkg_audit_root"
+
+  if bash -n \
+    "$ROOT/tools/denial-pc" \
+    "$ROOT/tools/denial-builder" \
+    "$ROOT/tools/denial-release-key" \
+    "$ROOT/tools/denial-repository" \
+    "$ROOT/tools/denial-release" \
+    "$ROOT/tools/generate-denial-wire" \
+    "$ROOT/tools/package-denial-arch" \
+    "$ROOT/tools/import-bibata-cursor" \
+    "$ROOT/tools/notification-test-client" \
+    "$ROOT/packaging/arch/denial-session" \
+    "$ROOT/packaging/arch/PKGBUILD" \
+    "$ROOT/packaging/arch/flutter-engine/PKGBUILD" \
+    "$ROOT/packaging/arch/runner/denial-actions-runner-arm" \
+    "$ROOT/packaging/arch/runner/denial-actions-runner-cleanup" \
+    "$ROOT/packaging/arch/runner/install-host"; then
+    pass 'release-facing Bash files parse successfully'
+  else
+    fail 'a release-facing Bash file has a syntax error'
+  fi
+
+  cargo_version="$(
+    sed -n 's/^version = "\([^"]*\)"/\1/p' "$ROOT/compositor/Cargo.toml" \
+      | head -n 1
+  )"
+  dart_version="$(
+    sed -n 's/^version: *//p' "$ROOT/dart_shell/pubspec.yaml" \
+      | head -n 1
+  )"
+  package_version="$(
+    (
+      unset DENIAL_PACKAGE_VERSION
+      # PKGBUILD is executable Bash and is intentionally loaded to inspect its
+      # effective default metadata.
+      # shellcheck disable=SC1091
+      source "$ROOT/packaging/arch/PKGBUILD"
+      # Assigned by the sourced PKGBUILD above.
+      # shellcheck disable=SC2154
+      printf '%s\n' "$pkgver"
+    )
+  )"
+  check_equal 'Cargo and Dart versions agree' "$cargo_version" "$dart_version"
+  check_equal 'Cargo and package versions agree' "$cargo_version" "$package_version"
+
+  if [[ -f "$public_key" ]]; then
+    public_key_fingerprint="$(
+      gpg \
+        --batch \
+        --show-keys \
+        --with-colons \
+        --fingerprint \
+        "$public_key" \
+        | awk -F: '$1 == "fpr" { print toupper($10); exit }'
+    )"
+    if [[ "$public_key_fingerprint" =~ ^[0-9A-F]{40,64}$ ]]; then
+      pass "tracked release key is valid: $public_key_fingerprint"
+    else
+      fail 'tracked release key has no valid primary fingerprint'
+    fi
+  elif [[ -n "$public_alpha_tag" ]]; then
+    fail 'tracked release key is missing'
+  else
+    warn 'tracked release key has not been created yet'
+  fi
+
+  if [[ -n "$public_alpha_tag" ]]; then
+    if [[ "$public_alpha_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      pass "public-alpha tag has the required form: $public_alpha_tag"
+    else
+      fail "invalid public-alpha tag: $public_alpha_tag"
+    fi
+    if git -C "$ROOT" rev-parse --verify \
+      "${public_alpha_tag}^{commit}" >/dev/null 2>&1; then
+      check_equal \
+        'public-alpha tag resolves to audited HEAD' \
+        "$(git -C "$ROOT" rev-parse HEAD)" \
+        "$(git -C "$ROOT" rev-parse "${public_alpha_tag}^{commit}")"
+    else
+      fail "public-alpha tag is unavailable: $public_alpha_tag"
+    fi
+    check_equal \
+      'public-alpha tag and project version agree' \
+      "$cargo_version" \
+      "${public_alpha_tag#v}"
+  fi
+
+  if [[ -f "$ROOT/compositor/Cargo.lock" ]]; then
+    pass 'Cargo.lock is present'
+  else
+    fail 'Cargo.lock is missing'
+  fi
+  if [[ -f "$ROOT/dart_shell/pubspec.lock" ]]; then
+    pass 'pubspec.lock is present'
+  else
+    fail 'pubspec.lock is missing'
+  fi
+
+  actual="$(git -C "$ROOT" rev-parse HEAD)"
+  printf 'INFO  audited commit: %s\n' "$actual"
+  if [[ -n "$public_alpha_tag" ]]; then
+    printf '%s\n' \
+      'INFO  release stage: signed public alpha' \
+      'INFO  non-claims: no offline closure, reproducibility, independent build, SBOM, or AArch64'
+  else
+    printf 'INFO  release stage: development/prototype; publication is forbidden\n'
+  fi
+  finish
+}
+
+if (($# == 0)); then
+  usage >&2
+  exit 2
+fi
+
+command_name="$1"
+shift
+case "$command_name" in
+  doctor) doctor "$@" ;;
+  source-audit) source_audit "$@" ;;
+  -h | --help | help) usage ;;
+  *)
+    printf 'denial-release: unknown command: %s\n' "$command_name" >&2
+    usage >&2
+    exit 2
+    ;;
+esac

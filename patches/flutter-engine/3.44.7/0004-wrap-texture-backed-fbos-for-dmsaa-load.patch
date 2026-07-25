@@ -1,0 +1,119 @@
+From bb098bcf0a256f39761fa3ce1f58d47d15ba6bb4 Mon Sep 17 00:00:00 2001
+From: Koto Letta <kotolettaffxiv@gmail.com>
+Date: Sat, 25 Jul 2026 12:06:41 +0200
+Subject: [PATCH] Wrap texture-backed FBOs for GLES DMSAA loads
+
+On GLES, loading a dynamic-MSAA pass cannot blit from a single-sample framebuffer into an MSAA framebuffer. Discover and wrap the texture attached to Denial's borrowed FBO so Ganesh can sample the preserved pixels; disable dynamic MSAA when no compatible texture is available.
+---
+ .../flutter/shell/gpu/gpu_surface_gl_skia.cc  | 58 +++++++++++++++++--
+ 1 file changed, 54 insertions(+), 4 deletions(-)
+
+diff --git a/engine/src/flutter/shell/gpu/gpu_surface_gl_skia.cc b/engine/src/flutter/shell/gpu/gpu_surface_gl_skia.cc
+index c2d0cc25aa2b5ae3cdd82cfcc66ca3d9faa78399..c6b6c9c3cd4d281edff2f76aa93ee3a17bb90406 100644
+--- a/engine/src/flutter/shell/gpu/gpu_surface_gl_skia.cc
++++ b/engine/src/flutter/shell/gpu/gpu_surface_gl_skia.cc
+@@ -15,6 +15,7 @@
+ #include "third_party/skia/include/core/SkColorSpace.h"
+ #include "third_party/skia/include/core/SkColorType.h"
+ #include "third_party/skia/include/core/SkSurface.h"
++#include "third_party/skia/include/gpu/GpuTypes.h"
+ #include "third_party/skia/include/gpu/ganesh/GrBackendSurface.h"
+ #include "third_party/skia/include/gpu/ganesh/GrContextOptions.h"
+ #include "third_party/skia/include/gpu/ganesh/SkSurfaceGanesh.h"
+@@ -31,8 +32,14 @@
+ #define GPU_GL_RGBA4 0x8056
+ #define GPU_GL_RGB565 0x8D62
+ #define GPU_GL_FRAMEBUFFER 0x8D40
++#define GPU_GL_COLOR_ATTACHMENT0 0x8CE0
++#define GPU_GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE 0x8CD0
++#define GPU_GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME 0x8CD1
++#define GPU_GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL 0x8CD2
+ #define GPU_GL_SAMPLES 0x80A9
+ #define GPU_GL_STENCIL_BITS 0x0D57
++#define GPU_GL_TEXTURE 0x1702
++#define GPU_GL_TEXTURE_2D 0x0DE1
+ 
+ namespace flutter {
+ 
+@@ -143,6 +150,9 @@ static sk_sp<SkSurface> WrapOnscreenSurface(GrDirectContext* context,
+                                             intptr_t fbo,
+                                             const GrGLInterface* gl) {
+   GrGLint sample_count = 0;
++  GrGLint color_attachment_type = 0;
++  GrGLint color_attachment_name = 0;
++  GrGLint color_attachment_level = -1;
+   GrGLint stencil_bits = 0;
+   gl->fFunctions.fBindFramebuffer(GPU_GL_FRAMEBUFFER,
+                                   static_cast<GrGLuint>(fbo));
+@@ -154,9 +164,48 @@ static sk_sp<SkSurface> WrapOnscreenSurface(GrDirectContext* context,
+   if (stencil_bits != 8 && stencil_bits != 16) {
+     stencil_bits = 0;
+   }
++  if (fbo != 0) {
++    gl->fFunctions.fGetFramebufferAttachmentParameteriv(
++        GPU_GL_FRAMEBUFFER, GPU_GL_COLOR_ATTACHMENT0,
++        GPU_GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &color_attachment_type);
++    if (color_attachment_type == GPU_GL_TEXTURE) {
++      gl->fFunctions.fGetFramebufferAttachmentParameteriv(
++          GPU_GL_FRAMEBUFFER, GPU_GL_COLOR_ATTACHMENT0,
++          GPU_GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &color_attachment_name);
++      gl->fFunctions.fGetFramebufferAttachmentParameteriv(
++          GPU_GL_FRAMEBUFFER, GPU_GL_COLOR_ATTACHMENT0,
++          GPU_GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL, &color_attachment_level);
++    }
++  }
+ 
+   GrGLenum format = kUnknown_SkColorType;
+   const SkColorType color_type = FirstSupportedColorType(context, &format);
++  sk_sp<SkColorSpace> colorspace = SkColorSpace::MakeSRGB();
++  SkSurfaceProps dynamic_msaa_props(SkSurfaceProps::kDynamicMSAA_Flag,
++                                    kUnknown_SkPixelGeometry);
++
++  // GLES cannot blit a single-sample framebuffer into an MSAA framebuffer.
++  // Ganesh therefore loads its dynamic-MSAA attachment by sampling the
++  // single-sample target as a texture. Wrapping only the embedder's FBO hides
++  // that texture from Ganesh and leaves the MSAA load undefined. If the color
++  // attachment is the level-zero 2D texture used by Denial's EGLImage target,
++  // wrap that borrowed texture directly. Skia creates only its lightweight
++  // FBO/stencil state around the same storage; no image copy is introduced.
++  if (sample_count == 0 && color_attachment_type == GPU_GL_TEXTURE &&
++      color_attachment_name > 0 && color_attachment_level == 0) {
++    GrGLTextureInfo texture_info = {};
++    texture_info.fTarget = GPU_GL_TEXTURE_2D;
++    texture_info.fID = static_cast<GrGLuint>(color_attachment_name);
++    texture_info.fFormat = format;
++    auto backend_texture = GrBackendTextures::MakeGL(
++        size.width, size.height, skgpu::Mipmapped::kNo, texture_info);
++    auto texture_surface = SkSurfaces::WrapBackendTexture(
++        context, backend_texture, GrSurfaceOrigin::kBottomLeft_GrSurfaceOrigin,
++        0, color_type, colorspace, &dynamic_msaa_props);
++    if (texture_surface) {
++      return texture_surface;
++    }
++  }
+ 
+   GrGLFramebufferInfo framebuffer_info = {};
+   framebuffer_info.fFBOID = static_cast<GrGLuint>(fbo);
+@@ -170,9 +219,10 @@ static sk_sp<SkSurface> WrapOnscreenSurface(GrDirectContext* context,
+                                      framebuffer_info  // framebuffer info
+       );
+ 
+-  sk_sp<SkColorSpace> colorspace = SkColorSpace::MakeSRGB();
+-  SkSurfaceProps surface_props(SkSurfaceProps::kDynamicMSAA_Flag,
+-                               kUnknown_SkPixelGeometry);
++  // A framebuffer whose color storage cannot also be wrapped as a texture
++  // cannot preserve a dynamic-MSAA load on GLES. Keep the ordinary FBO path
++  // correct and let Ganesh choose its non-DMSAA clip implementation.
++  SkSurfaceProps framebuffer_props(0, kUnknown_SkPixelGeometry);
+ 
+   return SkSurfaces::WrapBackendRenderTarget(
+       context,                                       // Gr context
+@@ -180,7 +230,7 @@ static sk_sp<SkSurface> WrapOnscreenSurface(GrDirectContext* context,
+       GrSurfaceOrigin::kBottomLeft_GrSurfaceOrigin,  // origin
+       color_type,                                    // color type
+       colorspace,                                    // colorspace
+-      &surface_props                                 // surface properties
++      &framebuffer_props                             // surface properties
+   );
+ }
+ 

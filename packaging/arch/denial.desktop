@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Denial
+Comment=Flutter-native Wayland compositor and desktop shell
+Exec=uwsm start -e -D Denial /usr/bin/denial-session
+TryExec=/usr/bin/denial-session
+Type=Application
+DesktopNames=Denial
+Keywords=wayland;compositor;flutter;rust;

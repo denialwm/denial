@@ -1,0 +1,662 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+CACHE_HOME="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
+BUILD_ROOT="${DENIAL_PC_BUILD_ROOT:-$CACHE_HOME/denial/pc-build}"
+RUST_TARGET="${DENIAL_PC_RUST_TARGET:-$BUILD_ROOT/rust}"
+DEPENDENCY_ROOT="${DENIAL_PC_DEPENDENCY_ROOT:-$CACHE_HOME/denial/pc-dependencies}"
+
+FLUTTER_SDK_REPOSITORY="https://github.com/flutter/flutter.git"
+FLUTTER_SDK_VERSION="3.44.7"
+FLUTTER_SDK_REVISION="84fc5cbb223bc12f83d65b647ff8a56caf779ffd"
+FLUTTER_SDK_ROOT="${DENIAL_FLUTTER_SDK_ROOT:-$DEPENDENCY_ROOT/flutter}"
+FLUTTER="${DENIAL_FLUTTER:-$FLUTTER_SDK_ROOT/bin/flutter}"
+FLUTTER_PATCH="$ROOT/patches/flutter/0001-enable-120hz-touch-resampling.patch"
+
+COMPOSITOR_ROOT="$ROOT/compositor"
+MANIFEST="$COMPOSITOR_ROOT/Cargo.toml"
+BUNDLE="${DENIAL_PC_BUNDLE:-$ROOT/dart_shell/build/linux/x64/release/bundle}"
+BUNDLE_ASSEMBLY="${DENIAL_PC_BUNDLE_ASSEMBLY:-$BUILD_ROOT/flutter/release}"
+ENGINE="${DENIAL_PC_ENGINE:-$BUNDLE/lib/libflutter_engine.so}"
+ICU_DATA="$FLUTTER_SDK_ROOT/bin/cache/artifacts/engine/linux-x64/icudtl.dat"
+PREBUILT_ENGINE_DIR="$ROOT/prebuilt/flutter-engine/linux-x64-release"
+PREBUILT_ENGINE="${DENIAL_PC_ENGINE_SOURCE:-$PREBUILT_ENGINE_DIR/libflutter_engine.so}"
+PREBUILT_ENGINE_SHA256="$PREBUILT_ENGINE_DIR/libflutter_engine.so.sha256"
+PREBUILT_ENGINE_REVISION="$PREBUILT_ENGINE_DIR/ENGINE_REVISION"
+PREBUILT_FLUTTER_REVISION="$PREBUILT_ENGINE_DIR/FLUTTER_REVISION"
+EMBEDDER_BINDINGS="$ROOT/compositor/flutter-engine/src/sys.rs"
+BINARY="${DENIAL_PC_BINARY:-$RUST_TARGET/release/deniald}"
+OUTPUT_CONFIG="${DENIAL_PC_OUTPUT_CONFIG:-$ROOT/dev/denial-outputs.conf}"
+DRM_DEVICE="${DENIAL_PC_DRM_DEVICE:-/dev/dri/by-path/pci-0000:0a:00.0-card}"
+SESSION_TEMPLATE="$ROOT/dev/denial.desktop.in"
+SESSION_FILE="${DENIAL_SESSION_FILE:-/usr/share/wayland-sessions/denial-development.desktop}"
+PORTAL_TEMPLATE="$ROOT/dev/denial-portals.conf.in"
+PORTAL_FILE="${DENIAL_PORTAL_FILE:-/usr/share/xdg-desktop-portal/denial-portals.conf}"
+WLR_PORTAL_DESCRIPTOR="${DENIAL_WLR_PORTAL_DESCRIPTOR:-/usr/share/xdg-desktop-portal/portals/wlr.portal}"
+WLR_PORTAL_CONFIG_TEMPLATE="$ROOT/dev/xdg-desktop-portal-wlr-Denial.in"
+WLR_PORTAL_CONFIG="${DENIAL_WLR_PORTAL_CONFIG:-/etc/xdg/xdg-desktop-portal-wlr/Denial}"
+LEGACY_SESSION_FILE="${DENIAL_LEGACY_SESSION_FILE:-/usr/share/wayland-sessions/denial-rs.desktop}"
+BUILD_JOBS="${DENIAL_BUILD_JOBS:-$(nproc)}"
+
+usage() {
+    cat <<'EOF'
+Usage: tools/denial-pc COMMAND
+
+Commands:
+  bootstrap         Fetch and patch the pinned Flutter toolchain and Rust crates
+  bundle            Build only the x64 Dart/Flutter bundle
+  refresh           Build the bundle and reload its Flutter runtime in this session
+  kms-refresh       Re-evaluate the live KMS topology without ending the session
+  compositor        Build only the release Rust compositor
+  build             Build the bundle and release compositor
+  arch-package      Build an installable Arch Linux package
+  test              Run the Rust compositor test suite
+  session           Run the real DRM session (normally invoked by SDDM/UWSM)
+  doctor            Show prerequisites and built artifact state
+  install-session   Add the SDDM entry and Denial portal routing
+  remove-session    Remove that session and portal configuration
+
+The production compositor is deniald. The denial-nested binary is a separate
+visual topology harness and never acquires DRM or input devices.
+EOF
+}
+
+die() {
+    printf 'denial-pc: %s\n' "$*" >&2
+    exit 1
+}
+
+run_pinned_cargo() (
+    cd -- "$COMPOSITOR_ROOT"
+    CARGO_TARGET_DIR="$RUST_TARGET" cargo "$@"
+)
+
+require_file() {
+    [[ -f "$1" ]] || die "missing $1; run '$0 build' first"
+}
+
+require_managed_config_or_absent() {
+    local label="$1"
+    local path="$2"
+    if [[ -e "$path" || -L "$path" ]] \
+        && ! grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" "$path"; then
+        die "refusing to replace unrecognized $label: $path"
+    fi
+}
+
+checkout_revision() {
+    local label="$1"
+    local repository="$2"
+    local revision="$3"
+    local destination="$4"
+
+    if [[ ! -e "$destination" ]]; then
+        mkdir -p -- "$(dirname -- "$destination")"
+        git init --quiet "$destination"
+        git -C "$destination" remote add origin "$repository"
+    elif [[ ! -d "$destination/.git" ]]; then
+        die "$label path exists but is not a Git checkout: $destination"
+    fi
+
+    if ! git -C "$destination" cat-file -e "$revision^{commit}" 2>/dev/null; then
+        printf 'Fetching %s at %s...\n' "$label" "$revision"
+        git -C "$destination" fetch --depth=1 origin "$revision"
+    fi
+
+    local current
+    current="$(git -C "$destination" rev-parse HEAD 2>/dev/null || true)"
+    if [[ "$current" == "$revision" ]]; then
+        return
+    fi
+    if [[ -n "$(git -C "$destination" status --porcelain --untracked-files=no)" ]]; then
+        die "$label has tracked changes and cannot switch to $revision: $destination"
+    fi
+    git -C "$destination" checkout --quiet --detach "$revision"
+}
+
+fetch_revision_tag() {
+    local label="$1"
+    local source="$2"
+    local tag="$3"
+    local revision="$4"
+
+    if ! git -C "$source" cat-file -e "$tag^{commit}" 2>/dev/null; then
+        printf 'Fetching %s tag %s...\n' "$label" "$tag"
+        git -C "$source" fetch --depth=1 origin \
+            "refs/tags/$tag:refs/tags/$tag"
+    fi
+    [[ "$(git -C "$source" rev-parse "$tag^{commit}")" == "$revision" ]] \
+        || die "$label tag $tag does not identify pinned revision $revision"
+}
+
+apply_dependency_patch() {
+    local label="$1"
+    local source="$2"
+    local patch="$3"
+
+    require_file "$patch"
+    if git -C "$source" apply --reverse --check "$patch" >/dev/null 2>&1; then
+        return
+    fi
+    if git -C "$source" apply --check "$patch"; then
+        git -C "$source" apply "$patch"
+        printf 'Applied %s patch: %s\n' "$label" "$(basename -- "$patch")"
+        return
+    fi
+    die "$label patch does not apply cleanly: $patch"
+}
+
+file_sha256() {
+    sha256sum -- "$1" | cut -d' ' -f1
+}
+
+prebuilt_engine_sha256() {
+    require_file "$PREBUILT_ENGINE_SHA256"
+    cut -d' ' -f1 < "$PREBUILT_ENGINE_SHA256"
+}
+
+verify_prebuilt_engine() {
+    [[ -f "$PREBUILT_ENGINE" ]] \
+        || die "missing locally built Flutter engine: $PREBUILT_ENGINE (see $PREBUILT_ENGINE_DIR/BUILD_INFO.md)"
+    [[ "$(file_sha256 "$PREBUILT_ENGINE")" == "$(prebuilt_engine_sha256)" ]] \
+        || die "locally built Flutter engine does not match $PREBUILT_ENGINE_SHA256; rebuild or investigate it (see $PREBUILT_ENGINE_DIR/BUILD_INFO.md)"
+}
+
+install_pinned_engine() {
+    verify_prebuilt_engine
+    mkdir -p -- "$(dirname -- "$ENGINE")"
+    install -m644 -- "$PREBUILT_ENGINE" "$ENGINE"
+    printf 'Installed pinned Flutter engine into bundle (sha256 %.12s...)\n' \
+        "$(prebuilt_engine_sha256)"
+}
+
+require_pinned_engine() {
+    require_file "$ENGINE"
+    [[ "$(file_sha256 "$ENGINE")" == "$(prebuilt_engine_sha256)" ]] \
+        || die "bundle engine does not match the pinned build; run '$0 bundle'"
+}
+
+require_flutter_bindings() {
+    require_file "$PREBUILT_ENGINE_REVISION"
+    require_file "$PREBUILT_FLUTTER_REVISION"
+    require_file "$EMBEDDER_BINDINGS"
+    local engine_revision flutter_revision
+    engine_revision="$(tr -d '[:space:]' < "$PREBUILT_ENGINE_REVISION")"
+    flutter_revision="$(tr -d '[:space:]' < "$PREBUILT_FLUTTER_REVISION")"
+    [[ "$flutter_revision" == "$FLUTTER_SDK_REVISION" ]] \
+        || die "prebuilt engine targets Flutter $flutter_revision, but the SDK pin is $FLUTTER_SDK_REVISION"
+    if ! grep -Fqx \
+        "// Flutter engine revision: $engine_revision" "$EMBEDDER_BINDINGS" \
+        || ! grep -Fqx \
+            "// Flutter source revision: $flutter_revision" "$EMBEDDER_BINDINGS"; then
+        die "Flutter embedder bindings do not match engine $engine_revision / Flutter $flutter_revision; run 'tools/generate-flutter-embedder-bindings'"
+    fi
+}
+
+require_revision() {
+    local label="$1"
+    local source="$2"
+    local revision="$3"
+
+    [[ -d "$source/.git" ]] || die "$label checkout not found: $source (run '$0 bootstrap')"
+    local current
+    current="$(git -C "$source" rev-parse HEAD)"
+    [[ "$current" == "$revision" ]] \
+        || die "$label revision is $current, expected $revision: $source"
+}
+
+require_only_changes() {
+    local label="$1"
+    local source="$2"
+    local expected="$3"
+    local actual
+    actual="$(git -C "$source" diff --name-only | LC_ALL=C sort)"
+    [[ "$actual" == "$expected" ]] || {
+        printf 'denial-pc: unexpected tracked changes in %s:\n%s\n' \
+            "$label" "${actual:-<none>}" >&2
+        die "restore the pinned checkout and re-run '$0 bootstrap'"
+    }
+    git -C "$source" diff --check
+}
+
+prepare_flutter_toolchain() {
+    require_revision "Flutter SDK" "$FLUTTER_SDK_ROOT" "$FLUTTER_SDK_REVISION"
+    [[ "$(git -C "$FLUTTER_SDK_ROOT" rev-parse "$FLUTTER_SDK_VERSION^{commit}" 2>/dev/null || true)" \
+        == "$FLUTTER_SDK_REVISION" ]] \
+        || die "Flutter SDK tag $FLUTTER_SDK_VERSION is missing or stale; run '$0 bootstrap'"
+    [[ -x "$FLUTTER" ]] || die "Flutter launcher not found: $FLUTTER"
+
+    apply_dependency_patch "Flutter SDK" "$FLUTTER_SDK_ROOT" "$FLUTTER_PATCH"
+    require_only_changes \
+        "Flutter SDK" \
+        "$FLUTTER_SDK_ROOT" \
+        "packages/flutter/lib/src/gestures/binding.dart"
+}
+
+bootstrap_dependencies() {
+    checkout_revision \
+        "Flutter SDK" \
+        "$FLUTTER_SDK_REPOSITORY" \
+        "$FLUTTER_SDK_REVISION" \
+        "$FLUTTER_SDK_ROOT"
+    fetch_revision_tag \
+        "Flutter SDK" \
+        "$FLUTTER_SDK_ROOT" \
+        "$FLUTTER_SDK_VERSION" \
+        "$FLUTTER_SDK_REVISION"
+    prepare_flutter_toolchain
+    "$FLUTTER" precache --linux
+    run_pinned_cargo fetch --locked
+    printf '\nDependencies are ready below %s\n' "$DEPENDENCY_ROOT"
+}
+
+build_bundle() (
+    prepare_flutter_toolchain
+    mkdir -p -- "$(dirname -- "$BUNDLE_ASSEMBLY")" "$BUNDLE/data" "$BUNDLE/lib"
+    local assembly
+    assembly="$(mktemp -d -- "${BUNDLE_ASSEMBLY}.XXXXXX")"
+    trap 'rm -rf -- "$assembly"' EXIT
+    (
+        cd "$ROOT/dart_shell"
+        "$FLUTTER" pub get
+        "$FLUTTER" assemble \
+            --suppress-analytics \
+            --output="$assembly" \
+            -dTargetFile=lib/main.dart \
+            -dBuildMode=release \
+            -dTargetPlatform=linux-x64 \
+            -dDartObfuscation=false \
+            -dTrackWidgetCreation=true \
+            -dTreeShakeIcons=true \
+            release_bundle_linux-x64_assets
+    )
+    require_file "$assembly/lib/libapp.so"
+    require_file "$ICU_DATA"
+    mkdir -p -- "$BUNDLE/data/flutter_assets"
+    rsync -a --delete \
+        "$assembly/flutter_assets/" \
+        "$BUNDLE/data/flutter_assets/"
+    install -m644 -- "$ICU_DATA" "$BUNDLE/data/icudtl.dat"
+    install -m755 -- "$assembly/lib/libapp.so" "$BUNDLE/lib/libapp.so"
+    install_pinned_engine
+)
+
+find_denial_pid() {
+    local candidate found="" index
+    local -a arguments=()
+
+    while read -r candidate; do
+        [[ -n "$candidate" && -r "/proc/$candidate/cmdline" ]] || continue
+        arguments=()
+        mapfile -d '' -t arguments < "/proc/$candidate/cmdline" || continue
+        for ((index = 0; index + 1 < ${#arguments[@]}; index++)); do
+            if [[ "${arguments[index]}" == "--flutter-bundle" \
+                && "${arguments[index + 1]}" == "$BUNDLE" ]]; then
+                [[ -z "$found" ]] \
+                    || die "multiple deniald sessions use Flutter bundle $BUNDLE"
+                found="$candidate"
+                break
+            fi
+        done
+    done < <(ps -C deniald -o pid=)
+
+    [[ -n "$found" ]] || return 1
+    printf '%s\n' "$found"
+}
+
+require_bundle_refresh_support() {
+    local pid="$1"
+    "/proc/$pid/exe" --help 2>/dev/null \
+        | grep -Fq "Control: SIGUSR1 refreshes the embedded Flutter bundle in process." \
+        || die "running deniald process $pid predates in-process bundle refresh support"
+}
+
+refresh_bundle() {
+    local pid
+    pid="$(find_denial_pid)" \
+        || die "no running deniald session uses Flutter bundle $BUNDLE"
+    require_bundle_refresh_support "$pid"
+    build_bundle
+
+    pid="$(find_denial_pid)" \
+        || die "the deniald session exited before its Flutter bundle could be refreshed"
+    require_bundle_refresh_support "$pid"
+    kill -USR1 "$pid" \
+        || die "could not request a Flutter bundle refresh from deniald process $pid"
+    printf '\nRequested an in-process Flutter bundle refresh from deniald process %s.\n' "$pid"
+}
+
+build_compositor() {
+    require_flutter_bindings
+    run_pinned_cargo build \
+        --locked \
+        --release \
+        --jobs "$BUILD_JOBS" \
+        --features flutter \
+        --bin deniald
+    require_file "$BINARY"
+    printf '\nBuilt %s\n' "$BINARY"
+}
+
+build_all() {
+    build_bundle
+    build_compositor
+}
+
+test_compositor() {
+    require_flutter_bindings
+    command -v dbus-run-session >/dev/null 2>&1 \
+        || die "dbus-run-session is required for isolated notification service tests"
+    (
+        cd -- "$COMPOSITOR_ROOT"
+        DENIAL_NOTIFICATION_TEST_BUS=1 \
+        CARGO_TARGET_DIR="$RUST_TARGET" \
+        dbus-run-session -- cargo test \
+            --locked \
+            --jobs "$BUILD_JOBS" \
+            --lib \
+            --bins \
+            --tests \
+            --features flutter
+    )
+    run_pinned_cargo test \
+        --locked \
+        --jobs "$BUILD_JOBS" \
+        -p denial-flutter-engine
+}
+
+resolve_drm_device() {
+    [[ -e "$DRM_DEVICE" ]] || die "DRM device not found: $DRM_DEVICE"
+    local resolved
+    resolved="$(readlink -f -- "$DRM_DEVICE")"
+    [[ -c "$resolved" ]] || die "DRM device is not a character device: $resolved"
+    printf '%s\n' "$resolved"
+}
+
+run_compositor() {
+    require_file "$BINARY"
+    require_pinned_engine
+    require_file "$BUNDLE/data/icudtl.dat"
+    require_file "$BUNDLE/lib/libapp.so"
+    require_file "$OUTPUT_CONFIG"
+    command -v Xwayland >/dev/null 2>&1 \
+        || die "Xwayland is required for X11 applications such as Steam"
+
+    local drm_device
+    drm_device="$(resolve_drm_device)"
+    local shell_profile="${DENIA_SHELL_PROFILE:-desktop}"
+    case "$shell_profile" in
+        mobile | desktop) ;;
+        *) die "DENIA_SHELL_PROFILE must be mobile or desktop, got: $shell_profile" ;;
+    esac
+
+    unset DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE SWAYSOCK I3SOCK
+    unset NO_COLOR WLR_DRM_DEVICES AQ_DRM_DEVICES
+    export LIBSEAT_BACKEND=logind
+    export DENIA_SHELL_PROFILE="$shell_profile"
+    export DENIA_UWSM_FINALIZE=1
+    export RUST_BACKTRACE=1
+    export RUST_LOG="${DENIA_RUST_LOG:-deniald=info,smithay=warn}"
+
+    exec "$BINARY" \
+        --device "$drm_device" \
+        --output-config "$OUTPUT_CONFIG" \
+        --wayland \
+        --flutter-bundle "$BUNDLE"
+}
+
+run_session() {
+    [[ -z "${WAYLAND_DISPLAY:-}" ]] \
+        || die "a Wayland compositor is already active; log out and select Denial from SDDM"
+    run_compositor
+}
+
+request_kms_reconfigure() {
+    local pid
+    pid="$(pgrep -u "$(id -u)" -x deniald || true)"
+    [[ $pid =~ ^[0-9]+$ ]] \
+        || die "expected exactly one deniald process for this user, found: ${pid:-none}"
+    grep -aFq "live KMS reconfiguration requested" "/proc/$pid/exe" \
+        || die "the running deniald predates live KMS re-evaluation; reboot into the rebuilt session first"
+    kill -USR2 "$pid"
+    printf 'Requested live KMS re-evaluation from deniald PID %s\n' "$pid"
+}
+
+show_path_state() {
+    local label="$1"
+    local path="$2"
+    if [[ -e "$path" ]]; then
+        printf 'ok       %-18s %s\n' "$label" "$path"
+    else
+        printf 'missing  %-18s %s\n' "$label" "$path"
+    fi
+}
+
+show_command_state() {
+    local label="$1"
+    local command="$2"
+    local path
+    path="$(command -v "$command" || true)"
+    if [[ -n "$path" ]]; then
+        printf 'ok       %-18s %s\n' "$label" "$path"
+    else
+        printf 'missing  %-18s %s\n' "$label" "$command"
+    fi
+}
+
+show_engine_state() {
+    if [[ ! -e "$PREBUILT_ENGINE" || ! -e "$PREBUILT_ENGINE_SHA256" ]]; then
+        printf 'missing  %-18s %s (rebuild locally)\n' \
+            "pinned engine" "$PREBUILT_ENGINE"
+    elif [[ "$(file_sha256 "$PREBUILT_ENGINE")" != "$(prebuilt_engine_sha256)" ]]; then
+        printf 'corrupt  %-18s %s (checksum mismatch; rebuild or investigate)\n' \
+            "pinned engine" "$PREBUILT_ENGINE"
+    else
+        printf 'ok       %-18s %s\n' "pinned engine" "$PREBUILT_ENGINE"
+    fi
+
+    if [[ ! -e "$ENGINE" ]]; then
+        printf 'missing  %-18s %s\n' "bundle engine" "$ENGINE"
+    elif [[ -e "$PREBUILT_ENGINE_SHA256" \
+        && "$(file_sha256 "$ENGINE")" == "$(prebuilt_engine_sha256)" ]]; then
+        printf 'ok       %-18s %s (pinned)\n' "bundle engine" "$ENGINE"
+    else
+        printf 'stale    %-18s %s (not pinned; run bundle)\n' "bundle engine" "$ENGINE"
+    fi
+}
+
+show_flutter_bindings_state() {
+    if [[ ! -e "$PREBUILT_ENGINE_REVISION" ]]; then
+        printf 'missing  %-18s %s\n' "engine revision" "$PREBUILT_ENGINE_REVISION"
+    elif [[ ! -e "$PREBUILT_FLUTTER_REVISION" ]]; then
+        printf 'missing  %-18s %s\n' "Flutter revision" "$PREBUILT_FLUTTER_REVISION"
+    elif [[ ! -e "$EMBEDDER_BINDINGS" ]]; then
+        printf 'missing  %-18s %s\n' "embedder bindings" "$EMBEDDER_BINDINGS"
+    else
+        local engine_revision flutter_revision
+        engine_revision="$(tr -d '[:space:]' < "$PREBUILT_ENGINE_REVISION")"
+        flutter_revision="$(tr -d '[:space:]' < "$PREBUILT_FLUTTER_REVISION")"
+        if grep -Fqx "// Flutter engine revision: $engine_revision" "$EMBEDDER_BINDINGS" \
+            && grep -Fqx "// Flutter source revision: $flutter_revision" "$EMBEDDER_BINDINGS"; then
+            printf 'ok       %-18s %s (engine %.12s...)\n' \
+                "embedder bindings" "$EMBEDDER_BINDINGS" "$engine_revision"
+        else
+            printf 'stale    %-18s %s (run tools/generate-flutter-embedder-bindings)\n' \
+                "embedder bindings" "$EMBEDDER_BINDINGS"
+        fi
+    fi
+}
+
+show_session_state() {
+    if [[ ! -e "$SESSION_FILE" ]]; then
+        printf 'missing  %-18s %s\n' "SDDM entry" "$SESSION_FILE"
+    elif grep -Fqx "X-Denial-Launcher=$SCRIPT_DIR/denial-pc" "$SESSION_FILE" \
+        && grep -Fqx "DesktopNames=Denial" "$SESSION_FILE" \
+        && grep -Fq " -D Denial " "$SESSION_FILE"; then
+        printf 'ok       %-18s %s\n' "SDDM entry" "$SESSION_FILE"
+    else
+        printf 'stale    %-18s %s (run install-session)\n' "SDDM entry" "$SESSION_FILE"
+    fi
+
+    if [[ -e "$LEGACY_SESSION_FILE" ]]; then
+        printf 'stale    %-18s %s (removed by install-session)\n' \
+            "legacy SDDM entry" "$LEGACY_SESSION_FILE"
+    fi
+
+    if [[ ! -e "$PORTAL_FILE" ]]; then
+        printf 'missing  %-18s %s\n' "portal routing" "$PORTAL_FILE"
+    elif grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" "$PORTAL_FILE" \
+        && grep -Fqx "org.freedesktop.impl.portal.ScreenCast=wlr" "$PORTAL_FILE" \
+        && grep -Fqx "org.freedesktop.impl.portal.Screenshot=wlr" "$PORTAL_FILE"; then
+        printf 'ok       %-18s %s\n' "portal routing" "$PORTAL_FILE"
+    else
+        printf 'stale    %-18s %s (run install-session)\n' \
+            "portal routing" "$PORTAL_FILE"
+    fi
+
+    if [[ ! -e "$WLR_PORTAL_CONFIG" ]]; then
+        printf 'missing  %-18s %s\n' "wlr portal config" "$WLR_PORTAL_CONFIG"
+    elif grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" "$WLR_PORTAL_CONFIG" \
+        && grep -Fqx "chooser_type=dmenu" "$WLR_PORTAL_CONFIG" \
+        && grep -Fq "chooser_cmd=zenity --list " "$WLR_PORTAL_CONFIG"; then
+        printf 'ok       %-18s %s\n' "wlr portal config" "$WLR_PORTAL_CONFIG"
+    else
+        printf 'stale    %-18s %s (run install-session)\n' \
+            "wlr portal config" "$WLR_PORTAL_CONFIG"
+    fi
+}
+
+doctor() {
+    show_path_state "dependency cache" "$DEPENDENCY_ROOT"
+    show_path_state "Flutter SDK" "$FLUTTER"
+    show_path_state "Flutter patch" "$FLUTTER_PATCH"
+    show_path_state "Rust manifest" "$MANIFEST"
+    show_flutter_bindings_state
+    show_path_state "Dart bundle" "$BUNDLE/lib/libapp.so"
+    show_engine_state
+    show_path_state "deniald" "$BINARY"
+    show_path_state "output config" "$OUTPUT_CONFIG"
+    show_path_state "DRM device" "$DRM_DEVICE"
+    show_path_state "wlr portal backend" "$WLR_PORTAL_DESCRIPTOR"
+    show_command_state "portal chooser" zenity
+    show_session_state
+}
+
+as_root() {
+    if [[ "$(id -u)" -eq 0 ]]; then
+        "$@"
+    else
+        sudo "$@"
+    fi
+}
+
+remove_legacy_session_entry() {
+    [[ -e "$LEGACY_SESSION_FILE" ]] || return
+    if ! grep -Fqx "Name=Denial (Rust)" "$LEGACY_SESSION_FILE" \
+        || ! grep -Fqx \
+            "Exec=uwsm start -e -D Denial $ROOT/dev/denial-rs-session session" \
+            "$LEGACY_SESSION_FILE"; then
+        printf 'warning  refusing to remove unrecognized legacy entry %s\n' \
+            "$LEGACY_SESSION_FILE" >&2
+        return
+    fi
+    as_root rm -f -- "$LEGACY_SESSION_FILE"
+    printf 'Removed obsolete %s\n' "$LEGACY_SESSION_FILE"
+}
+
+install_session() {
+    require_file "$SESSION_TEMPLATE"
+    require_file "$PORTAL_TEMPLATE"
+    require_file "$WLR_PORTAL_CONFIG_TEMPLATE"
+    require_file "$BINARY"
+    require_managed_config_or_absent "portal routing" "$PORTAL_FILE"
+    require_managed_config_or_absent "wlr portal config" "$WLR_PORTAL_CONFIG"
+    if [[ ! -e "$WLR_PORTAL_DESCRIPTOR" ]]; then
+        printf 'warning  xdg-desktop-portal-wlr is not installed (%s is missing)\n' \
+            "$WLR_PORTAL_DESCRIPTOR" >&2
+    fi
+    if ! command -v zenity >/dev/null 2>&1; then
+        printf 'warning  zenity is not installed; the OBS source selector will not open\n' >&2
+    fi
+
+    local rendered portal_rendered wlr_portal_rendered
+    rendered="$(mktemp)"
+    portal_rendered="$(mktemp)"
+    wlr_portal_rendered="$(mktemp)"
+    sed "s|@LAUNCHER@|$SCRIPT_DIR/denial-pc|g" "$SESSION_TEMPLATE" > "$rendered"
+    sed "s|@LAUNCHER@|$SCRIPT_DIR/denial-pc|g" \
+        "$PORTAL_TEMPLATE" > "$portal_rendered"
+    sed "s|@LAUNCHER@|$SCRIPT_DIR/denial-pc|g" \
+        "$WLR_PORTAL_CONFIG_TEMPLATE" > "$wlr_portal_rendered"
+    if as_root install -Dm644 "$rendered" "$SESSION_FILE" \
+        && as_root install -Dm644 "$portal_rendered" "$PORTAL_FILE" \
+        && as_root install -Dm644 "$wlr_portal_rendered" "$WLR_PORTAL_CONFIG"; then
+        :
+    else
+        local status=$?
+        rm -f -- "$rendered" "$portal_rendered" "$wlr_portal_rendered"
+        return "$status"
+    fi
+    rm -f -- "$rendered" "$portal_rendered" "$wlr_portal_rendered"
+    remove_legacy_session_entry
+    printf 'Installed %s\nInstalled %s\nInstalled %s\n' \
+        "$SESSION_FILE" "$PORTAL_FILE" "$WLR_PORTAL_CONFIG"
+    printf 'Log out, then choose "Denial (development)" in SDDM.\n'
+}
+
+remove_portal_entry() {
+    [[ -e "$PORTAL_FILE" ]] || return
+    if ! grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" "$PORTAL_FILE"; then
+        printf 'warning  refusing to remove unrecognized portal routing %s\n' \
+            "$PORTAL_FILE" >&2
+        return
+    fi
+    as_root rm -f -- "$PORTAL_FILE"
+    printf 'Removed %s\n' "$PORTAL_FILE"
+}
+
+remove_wlr_portal_config() {
+    [[ -e "$WLR_PORTAL_CONFIG" ]] || return
+    if ! grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" "$WLR_PORTAL_CONFIG"; then
+        printf 'warning  refusing to remove unrecognized wlr portal config %s\n' \
+            "$WLR_PORTAL_CONFIG" >&2
+        return
+    fi
+    as_root rm -f -- "$WLR_PORTAL_CONFIG"
+    printf 'Removed %s\n' "$WLR_PORTAL_CONFIG"
+}
+
+remove_session() {
+    if [[ ! -e "$SESSION_FILE" ]]; then
+        printf 'Already absent: %s\n' "$SESSION_FILE"
+        remove_portal_entry
+        remove_wlr_portal_config
+        return
+    fi
+    grep -Fq "X-Denial-Launcher=$SCRIPT_DIR/denial-pc" "$SESSION_FILE" \
+        || die "refusing to remove a session entry not installed by this checkout: $SESSION_FILE"
+    as_root rm -f -- "$SESSION_FILE"
+    printf 'Removed %s\n' "$SESSION_FILE"
+    remove_portal_entry
+    remove_wlr_portal_config
+}
+
+case "${1:-}" in
+    bootstrap) bootstrap_dependencies ;;
+    bundle) build_bundle ;;
+    refresh) refresh_bundle ;;
+    kms-refresh) request_kms_reconfigure ;;
+    compositor) build_compositor ;;
+    build) build_all ;;
+    arch-package) "$ROOT/tools/package-denial-arch" ;;
+    test) test_compositor ;;
+    session) run_session ;;
+    doctor) doctor ;;
+    install-session) install_session ;;
+    remove-session) remove_session ;;
+    help|-h|--help|'') usage ;;
+    *) die "unknown command '$1' (try '$0 help')" ;;
+esac

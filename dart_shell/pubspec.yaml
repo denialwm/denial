@@ -1,0 +1,63 @@
+name: denial_dart_shell
+description: Dart shell embedded by deniald.
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.12.0
+  flutter: 3.44.7
+
+dependencies:
+  dbus: ^0.7.14
+  ffi: ^2.2.0
+  flat_buffers: 25.9.23
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  flutter_riverpod: ^3.3.2
+  flutter_svg: ^2.3.0
+  intl: ^0.20.2
+  path: ^1.9.1
+  denial_wire_protocol:
+    path: ../protocol/generated/dart
+
+dev_dependencies:
+  fake_async: ^1.3.3
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  generate: true
+  uses-material-design: true
+  assets:
+    - assets/cursors/bibata_modern_ice/alternate/
+    - assets/cursors/bibata_modern_ice/busy/
+    - assets/cursors/bibata_modern_ice/diagonal_nesw/
+    - assets/cursors/bibata_modern_ice/diagonal_nwse/
+    - assets/cursors/bibata_modern_ice/handwriting/
+    - assets/cursors/bibata_modern_ice/help/
+    - assets/cursors/bibata_modern_ice/horizontal_resize/
+    - assets/cursors/bibata_modern_ice/link/
+    - assets/cursors/bibata_modern_ice/move/
+    - assets/cursors/bibata_modern_ice/normal/
+    - assets/cursors/bibata_modern_ice/person/
+    - assets/cursors/bibata_modern_ice/pin/
+    - assets/cursors/bibata_modern_ice/precision/
+    - assets/cursors/bibata_modern_ice/text/
+    - assets/cursors/bibata_modern_ice/unavailable/
+    - assets/cursors/bibata_modern_ice/vertical_resize/
+    - assets/cursors/bibata_modern_ice/working/
+    - assets/branding/denial-dark.svg
+    - assets/icons/application-default-icon.svg
+    - assets/wallpapers/trails-h-accent-9-dark.png
+  fonts:
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/JetBrainsMono-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/JetBrainsMono-Bold.ttf
+          weight: 700

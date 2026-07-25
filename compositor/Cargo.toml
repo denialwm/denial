@@ -1,0 +1,87 @@
+[package]
+name = "denial"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace]
+members = ["flutter-engine"]
+resolver = "3"
+
+[features]
+default = []
+flutter = [
+    "kms",
+    "dep:denial-flutter-engine",
+    "wire",
+    "dep:libc",
+    "dep:zbus",
+]
+wire = [
+    "dep:flatbuffers",
+    "dep:serde",
+    "dep:serde_json",
+]
+nested = [
+    "dep:smithay",
+    "dep:tracing",
+    "dep:tracing-subscriber",
+    "dep:winit",
+    "smithay/backend_winit",
+    "smithay/renderer_gl",
+]
+kms = [
+    "dep:calloop",
+    "dep:drm-ffi",
+    "dep:libloading",
+    "dep:serde",
+    "dep:serde_json",
+    "dep:smithay",
+    "dep:smithay-drm-extras",
+    "dep:tracing",
+    "dep:tracing-subscriber",
+    "smithay/backend_drm",
+    "smithay/backend_gbm",
+    "smithay/backend_libinput",
+    "smithay/backend_session_libseat",
+    "smithay/backend_udev",
+    "smithay/desktop",
+    "smithay/renderer_gl",
+    "smithay/wayland_frontend",
+    "smithay/xwayland",
+]
+
+[lib]
+name = "denial_core"
+path = "src/lib.rs"
+
+[dependencies]
+calloop = { version = "0.14", features = ["signals"], optional = true }
+denial-flutter-engine = { path = "flutter-engine", optional = true }
+drm-ffi = { version = "=0.9.1", optional = true }
+flatbuffers = { version = "=25.9.23", optional = true }
+libc = { version = "0.2", optional = true }
+libloading = { version = "0.9", optional = true }
+serde = { version = "=1.0.229", features = ["derive"], optional = true }
+serde_json = { version = "=1.0.151", features = ["raw_value"], optional = true }
+smithay = { git = "https://github.com/Smithay/smithay.git", rev = "812bd33259ff58810dadef6086d8385eeac1ca55", default-features = false, optional = true }
+smithay-drm-extras = { git = "https://github.com/Smithay/smithay.git", rev = "812bd33259ff58810dadef6086d8385eeac1ca55", default-features = false, optional = true }
+tracing = { version = "0.1.37", features = ["max_level_trace", "release_max_level_info"], optional = true }
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"], optional = true }
+winit = { version = "0.31.0-beta.2", default-features = false, optional = true }
+zbus = { version = "=5.18.0", optional = true }
+
+[[bin]]
+name = "denial-nested"
+path = "src/main.rs"
+required-features = ["nested"]
+
+[[bin]]
+name = "deniald"
+path = "src/bin/deniald.rs"
+required-features = ["kms"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

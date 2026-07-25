@@ -1,0 +1,3015 @@
+{
+  "@@locale": "en",
+  "actionCancel": "Cancel",
+  "@actionCancel": {
+    "description": "English UI text for actionCancel."
+  },
+  "actionDismiss": "Dismiss",
+  "@actionDismiss": {
+    "description": "English UI text for actionDismiss."
+  },
+  "anchorBottomCenter": "Bottom center",
+  "@anchorBottomCenter": {
+    "description": "English UI text for anchorBottomCenter."
+  },
+  "anchorBottomLeft": "Bottom left",
+  "@anchorBottomLeft": {
+    "description": "English UI text for anchorBottomLeft."
+  },
+  "anchorBottomRight": "Bottom right",
+  "@anchorBottomRight": {
+    "description": "English UI text for anchorBottomRight."
+  },
+  "anchorCenter": "Center",
+  "@anchorCenter": {
+    "description": "English UI text for anchorCenter."
+  },
+  "anchorCenterLeft": "Center left",
+  "@anchorCenterLeft": {
+    "description": "English UI text for anchorCenterLeft."
+  },
+  "anchorCenterRight": "Center right",
+  "@anchorCenterRight": {
+    "description": "English UI text for anchorCenterRight."
+  },
+  "anchorTopCenter": "Top center",
+  "@anchorTopCenter": {
+    "description": "English UI text for anchorTopCenter."
+  },
+  "anchorTopLeft": "Top left",
+  "@anchorTopLeft": {
+    "description": "English UI text for anchorTopLeft."
+  },
+  "anchorTopRight": "Top right",
+  "@anchorTopRight": {
+    "description": "English UI text for anchorTopRight."
+  },
+  "batteryCapacityUnavailable": "--",
+  "@batteryCapacityUnavailable": {
+    "description": "English UI text for batteryCapacityUnavailable."
+  },
+  "batteryCharging": "Charging",
+  "@batteryCharging": {
+    "description": "English UI text for batteryCharging."
+  },
+  "batteryDischarging": "Discharging",
+  "@batteryDischarging": {
+    "description": "English UI text for batteryDischarging."
+  },
+  "batteryGraphMarker": "{label} {value}",
+  "@batteryGraphMarker": {
+    "description": "English UI text for batteryGraphMarker.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "batteryIdle": "Idle",
+  "@batteryIdle": {
+    "description": "English UI text for batteryIdle."
+  },
+  "batteryStateAndPercent": "{state} {percent}%",
+  "@batteryStateAndPercent": {
+    "description": "English UI text for batteryStateAndPercent.",
+    "placeholders": {
+      "state": {
+        "type": "String"
+      },
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "batteryTitle": "Battery",
+  "@batteryTitle": {
+    "description": "English UI text for batteryTitle."
+  },
+  "bluetoothAllow": "Allow",
+  "@bluetoothAllow": {
+    "description": "English UI text for bluetoothAllow."
+  },
+  "bluetoothAllowPairing": "Allow {deviceName} to pair?",
+  "@bluetoothAllowPairing": {
+    "description": "English UI text for bluetoothAllowPairing.",
+    "placeholders": {
+      "deviceName": {
+        "type": "String"
+      }
+    }
+  },
+  "bluetoothAllowService": "Allow a Bluetooth service?",
+  "@bluetoothAllowService": {
+    "description": "English UI text for bluetoothAllowService."
+  },
+  "bluetoothAvailableSignal": "Available · {signal} dBm",
+  "@bluetoothAvailableSignal": {
+    "description": "English UI text for bluetoothAvailableSignal.",
+    "placeholders": {
+      "signal": {
+        "type": "int"
+      }
+    }
+  },
+  "bluetoothBlocked": "Blocked",
+  "@bluetoothBlocked": {
+    "description": "English UI text for bluetoothBlocked."
+  },
+  "bluetoothCloseDetails": "Close Bluetooth details",
+  "@bluetoothCloseDetails": {
+    "description": "English UI text for bluetoothCloseDetails."
+  },
+  "bluetoothCodeDisplayed": "Code displayed",
+  "@bluetoothCodeDisplayed": {
+    "description": "English UI text for bluetoothCodeDisplayed."
+  },
+  "bluetoothConfirmCode": "Confirm that both devices display {code}.",
+  "@bluetoothConfirmCode": {
+    "description": "English UI text for bluetoothConfirmCode.",
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "bluetoothConfirmDevice": "Confirm {deviceName}",
+  "@bluetoothConfirmDevice": {
+    "description": "English UI text for bluetoothConfirmDevice.",
+    "placeholders": {
+      "deviceName": {
+        "type": "String"
+      }
+    }
+  },
+  "bluetoothConnectDeviceStatus": "Connect {deviceName}, {status}",
+  "@bluetoothConnectDeviceStatus": {
+    "description": "English UI text for bluetoothConnectDeviceStatus.",
+    "placeholders": {
+      "deviceName": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  },
+  "bluetoothConnectedConfiguring": "Connected · configuring services",
+  "@bluetoothConnectedConfiguring": {
+    "description": "English UI text for bluetoothConnectedConfiguring."
+  },
+  "bluetoothDevicesConnected": "Connected devices: {count}",
+  "@bluetoothDevicesConnected": {
+    "description": "English UI text for bluetoothDevicesConnected.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "bluetoothDismissError": "Dismiss Bluetooth error",
+  "@bluetoothDismissError": {
+    "description": "English UI text for bluetoothDismissError."
+  },
+  "bluetoothEnterPasskey": "Enter the passkey for {deviceName}",
+  "@bluetoothEnterPasskey": {
+    "description": "English UI text for bluetoothEnterPasskey.",
+    "placeholders": {
+      "deviceName": {
+        "type": "String"
+      }
+    }
+  },
+  "bluetoothEnterPasskeyOnDevice": "Enter this passkey on {deviceName}",
+  "@bluetoothEnterPasskeyOnDevice": {
+    "description": "English UI text for bluetoothEnterPasskeyOnDevice.",
+    "placeholders": {
+      "deviceName": {
+        "type": "String"
+      }
+    }
+  },
+  "bluetoothEnterPin": "Enter the PIN for {deviceName}",
+  "@bluetoothEnterPin": {
+    "description": "English UI text for bluetoothEnterPin.",
+    "placeholders": {
+      "deviceName": {
+        "type": "String"
+      }
+    }
+  },
+  "bluetoothEnterPinOnDevice": "Enter this PIN on {deviceName}",
+  "@bluetoothEnterPinOnDevice": {
+    "description": "English UI text for bluetoothEnterPinOnDevice.",
+    "placeholders": {
+      "deviceName": {
+        "type": "String"
+      }
+    }
+  },
+  "bluetoothLoadingService": "Loading Bluetooth service…",
+  "@bluetoothLoadingService": {
+    "description": "English UI text for bluetoothLoadingService."
+  },
+  "bluetoothNoAdapter": "No Bluetooth adapter",
+  "@bluetoothNoAdapter": {
+    "description": "English UI text for bluetoothNoAdapter."
+  },
+  "bluetoothNoAdapterDescription": "Denial will enable these controls when an adapter appears.",
+  "@bluetoothNoAdapterDescription": {
+    "description": "English UI text for bluetoothNoAdapterDescription."
+  },
+  "bluetoothNoAdapterShort": "No adapter",
+  "@bluetoothNoAdapterShort": {
+    "description": "English UI text for bluetoothNoAdapterShort."
+  },
+  "bluetoothNoDevices": "No devices found",
+  "@bluetoothNoDevices": {
+    "description": "English UI text for bluetoothNoDevices."
+  },
+  "bluetoothNoDevicesDescription": "Start a scan and make the other device discoverable.",
+  "@bluetoothNoDevicesDescription": {
+    "description": "English UI text for bluetoothNoDevicesDescription."
+  },
+  "bluetoothOff": "Bluetooth is off",
+  "@bluetoothOff": {
+    "description": "English UI text for bluetoothOff."
+  },
+  "bluetoothOffDescription": "Turn it on to see paired and nearby devices.",
+  "@bluetoothOffDescription": {
+    "description": "English UI text for bluetoothOffDescription."
+  },
+  "bluetoothOperationFailed": "Bluetooth could not complete the request.",
+  "@bluetoothOperationFailed": {
+    "description": "English UI text for bluetoothOperationFailed."
+  },
+  "bluetoothPairDevice": "Pair {deviceName}",
+  "@bluetoothPairDevice": {
+    "description": "English UI text for bluetoothPairDevice.",
+    "placeholders": {
+      "deviceName": {
+        "type": "String"
+      }
+    }
+  },
+  "bluetoothPairedTrusted": "Paired · trusted",
+  "@bluetoothPairedTrusted": {
+    "description": "English UI text for bluetoothPairedTrusted."
+  },
+  "bluetoothPasskey": "Bluetooth passkey",
+  "@bluetoothPasskey": {
+    "description": "English UI text for bluetoothPasskey."
+  },
+  "bluetoothPasskeyPrivacy": "The passkey is sent once to BlueZ and is not retained by Denial.",
+  "@bluetoothPasskeyPrivacy": {
+    "description": "English UI text for bluetoothPasskeyPrivacy."
+  },
+  "bluetoothPasskeyProgress": "{code} · {enteredDigits} of 6 digits entered.",
+  "@bluetoothPasskeyProgress": {
+    "description": "English UI text for bluetoothPasskeyProgress.",
+    "placeholders": {
+      "code": {
+        "type": "String"
+      },
+      "enteredDigits": {
+        "type": "int"
+      }
+    }
+  },
+  "bluetoothPasskeyRequirements": "Enter a numeric passkey up to 6 digits.",
+  "@bluetoothPasskeyRequirements": {
+    "description": "English UI text for bluetoothPasskeyRequirements."
+  },
+  "bluetoothPinCode": "Bluetooth PIN code",
+  "@bluetoothPinCode": {
+    "description": "English UI text for bluetoothPinCode."
+  },
+  "bluetoothPinPrivacy": "The PIN is sent once to BlueZ and is not retained by Denial.",
+  "@bluetoothPinPrivacy": {
+    "description": "English UI text for bluetoothPinPrivacy."
+  },
+  "bluetoothPinRequirements": "Enter a PIN containing 1–16 characters.",
+  "@bluetoothPinRequirements": {
+    "description": "English UI text for bluetoothPinRequirements."
+  },
+  "bluetoothRecognizeDevice": "Only continue if you recognize this device.",
+  "@bluetoothRecognizeDevice": {
+    "description": "English UI text for bluetoothRecognizeDevice."
+  },
+  "bluetoothReject": "Reject",
+  "@bluetoothReject": {
+    "description": "English UI text for bluetoothReject."
+  },
+  "bluetoothRemoveDevice": "Remove {deviceName}",
+  "@bluetoothRemoveDevice": {
+    "description": "English UI text for bluetoothRemoveDevice.",
+    "placeholders": {
+      "deviceName": {
+        "type": "String"
+      }
+    }
+  },
+  "bluetoothSameCode": "the same code",
+  "@bluetoothSameCode": {
+    "description": "English UI text for bluetoothSameCode."
+  },
+  "bluetoothScanningDescription": "Nearby devices will appear automatically.",
+  "@bluetoothScanningDescription": {
+    "description": "English UI text for bluetoothScanningDescription."
+  },
+  "bluetoothServiceUnavailable": "BlueZ is unavailable",
+  "@bluetoothServiceUnavailable": {
+    "description": "English UI text for bluetoothServiceUnavailable."
+  },
+  "bluetoothServiceUnavailableDescription": "Bluetooth controls will return when the service starts.",
+  "@bluetoothServiceUnavailableDescription": {
+    "description": "English UI text for bluetoothServiceUnavailableDescription."
+  },
+  "bluetoothServiceUnavailableShort": "Bluetooth unavailable",
+  "@bluetoothServiceUnavailableShort": {
+    "description": "English UI text for bluetoothServiceUnavailableShort."
+  },
+  "bluetoothStopScanning": "Stop scanning for Bluetooth devices",
+  "@bluetoothStopScanning": {
+    "description": "English UI text for bluetoothStopScanning."
+  },
+  "bluetoothStopTrustingDevice": "Stop trusting {deviceName}",
+  "@bluetoothStopTrustingDevice": {
+    "description": "English UI text for bluetoothStopTrustingDevice.",
+    "placeholders": {
+      "deviceName": {
+        "type": "String"
+      }
+    }
+  },
+  "bluetoothSubmit": "Submit",
+  "@bluetoothSubmit": {
+    "description": "English UI text for bluetoothSubmit."
+  },
+  "bluetoothTrustDevice": "Trust {deviceName}",
+  "@bluetoothTrustDevice": {
+    "description": "English UI text for bluetoothTrustDevice.",
+    "placeholders": {
+      "deviceName": {
+        "type": "String"
+      }
+    }
+  },
+  "bluetoothTrustServiceDevice": "Only continue if you trust {deviceName}.",
+  "@bluetoothTrustServiceDevice": {
+    "description": "English UI text for bluetoothTrustServiceDevice.",
+    "placeholders": {
+      "deviceName": {
+        "type": "String"
+      }
+    }
+  },
+  "bluetoothWaitingForDevice": "{code} · waiting for the other device.",
+  "@bluetoothWaitingForDevice": {
+    "description": "English UI text for bluetoothWaitingForDevice.",
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "brightnessTitle": "Brightness",
+  "@brightnessTitle": {
+    "description": "English UI text for brightnessTitle."
+  },
+  "celsiusUnit": "°C",
+  "@celsiusUnit": {
+    "description": "English UI text for celsiusUnit."
+  },
+  "chargeProtocolFast": "FAST",
+  "@chargeProtocolFast": {
+    "description": "English UI text for chargeProtocolFast."
+  },
+  "chargeProtocolPowerDelivery": "PD",
+  "@chargeProtocolPowerDelivery": {
+    "description": "English UI text for chargeProtocolPowerDelivery."
+  },
+  "chargeProtocolPps": "PPS",
+  "@chargeProtocolPps": {
+    "description": "English UI text for chargeProtocolPps."
+  },
+  "chargeProtocolVooc": "VOOC",
+  "@chargeProtocolVooc": {
+    "description": "English UI text for chargeProtocolVooc."
+  },
+  "commonBluetooth": "Bluetooth",
+  "@commonBluetooth": {
+    "description": "English UI text for commonBluetooth."
+  },
+  "commonCancel": "Cancel",
+  "@commonCancel": {
+    "description": "English UI text for commonCancel."
+  },
+  "commonChecking": "Checking…",
+  "@commonChecking": {
+    "description": "English UI text for commonChecking."
+  },
+  "commonConnecting": "Connecting…",
+  "@commonConnecting": {
+    "description": "English UI text for commonConnecting."
+  },
+  "commonError": "Error",
+  "@commonError": {
+    "description": "English UI text for commonError."
+  },
+  "commonLimited": "Limited",
+  "@commonLimited": {
+    "description": "English UI text for commonLimited."
+  },
+  "commonLoading": "Loading…",
+  "@commonLoading": {
+    "description": "English UI text for commonLoading."
+  },
+  "commonNotConnected": "Not connected",
+  "@commonNotConnected": {
+    "description": "English UI text for commonNotConnected."
+  },
+  "commonOff": "Off",
+  "@commonOff": {
+    "description": "English UI text for commonOff."
+  },
+  "commonOn": "On",
+  "@commonOn": {
+    "description": "English UI text for commonOn."
+  },
+  "commonOnline": "Online",
+  "@commonOnline": {
+    "description": "English UI text for commonOnline."
+  },
+  "commonOpening": "Opening…",
+  "@commonOpening": {
+    "description": "English UI text for commonOpening."
+  },
+  "commonRetry": "Retry",
+  "@commonRetry": {
+    "description": "English UI text for commonRetry."
+  },
+  "commonScanning": "Scanning…",
+  "@commonScanning": {
+    "description": "English UI text for commonScanning."
+  },
+  "commonTitleAndBody": "{title}. {body}",
+  "@commonTitleAndBody": {
+    "description": "English UI text for commonTitleAndBody.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "body": {
+        "type": "String"
+      }
+    }
+  },
+  "commonTitleAndSubtitle": "{title}, {subtitle}",
+  "@commonTitleAndSubtitle": {
+    "description": "English UI text for commonTitleAndSubtitle.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "subtitle": {
+        "type": "String"
+      }
+    }
+  },
+  "commonUnavailable": "Unavailable",
+  "@commonUnavailable": {
+    "description": "English UI text for commonUnavailable."
+  },
+  "commonVolume": "Volume",
+  "@commonVolume": {
+    "description": "English UI text for commonVolume."
+  },
+  "commonWifi": "Wi-Fi",
+  "@commonWifi": {
+    "description": "English UI text for commonWifi."
+  },
+  "currentMilliamps": "{value} mA",
+  "@currentMilliamps": {
+    "description": "English UI text for currentMilliamps.",
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "currentMilliampsUnavailable": "-- mA",
+  "@currentMilliampsUnavailable": {
+    "description": "English UI text for currentMilliampsUnavailable."
+  },
+  "desktopActivateWindow": "Activate {windowTitle}",
+  "@desktopActivateWindow": {
+    "description": "English UI text for desktopActivateWindow.",
+    "placeholders": {
+      "windowTitle": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopApplicationAudioUnavailable": "Application audio is unavailable.",
+  "@desktopApplicationAudioUnavailable": {
+    "description": "English UI text for desktopApplicationAudioUnavailable."
+  },
+  "desktopApplicationSearchResults": "{visible} of {total} applications",
+  "@desktopApplicationSearchResults": {
+    "description": "English UI text for desktopApplicationSearchResults.",
+    "placeholders": {
+      "visible": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopApplicationVolumeDescription": "Adjust audio for individual applications.",
+  "@desktopApplicationVolumeDescription": {
+    "description": "English UI text for desktopApplicationVolumeDescription."
+  },
+  "desktopApplicationVolumeTitle": "Application volume",
+  "@desktopApplicationVolumeTitle": {
+    "description": "English UI text for desktopApplicationVolumeTitle."
+  },
+  "desktopApplicationsTitle": "Applications",
+  "@desktopApplicationsTitle": {
+    "description": "English UI text for desktopApplicationsTitle."
+  },
+  "desktopChooseWallpaper": "Choose wallpaper",
+  "@desktopChooseWallpaper": {
+    "description": "English UI text for desktopChooseWallpaper."
+  },
+  "desktopClearApplicationSearch": "Clear application search",
+  "@desktopClearApplicationSearch": {
+    "description": "English UI text for desktopClearApplicationSearch."
+  },
+  "desktopCloseApplicationAudio": "Close application volume",
+  "@desktopCloseApplicationAudio": {
+    "description": "English UI text for desktopCloseApplicationAudio."
+  },
+  "desktopConnectDevice": "Connect {deviceName}",
+  "@desktopConnectDevice": {
+    "description": "English UI text for desktopConnectDevice.",
+    "placeholders": {
+      "deviceName": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopDashboardTitle": "Dashboard",
+  "@desktopDashboardTitle": {
+    "description": "English UI text for desktopDashboardTitle."
+  },
+  "desktopDisconnectDevice": "Disconnect {deviceName}",
+  "@desktopDisconnectDevice": {
+    "description": "English UI text for desktopDisconnectDevice.",
+    "placeholders": {
+      "deviceName": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopEnableBluetoothForDevices": "Turn on Bluetooth to see devices.",
+  "@desktopEnableBluetoothForDevices": {
+    "description": "English UI text for desktopEnableBluetoothForDevices."
+  },
+  "desktopFeatureAvailability": "{feature}: {availability}",
+  "@desktopFeatureAvailability": {
+    "description": "English UI text for desktopFeatureAvailability.",
+    "placeholders": {
+      "feature": {
+        "type": "String"
+      },
+      "availability": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopGpuLabel": "GPU",
+  "@desktopGpuLabel": {
+    "description": "English UI text for desktopGpuLabel."
+  },
+  "desktopGpuPresetAutomatic": "Automatic",
+  "@desktopGpuPresetAutomatic": {
+    "description": "English UI text for desktopGpuPresetAutomatic."
+  },
+  "desktopGpuPresetHigh": "High",
+  "@desktopGpuPresetHigh": {
+    "description": "English UI text for desktopGpuPresetHigh."
+  },
+  "desktopGpuPresetLow": "Low",
+  "@desktopGpuPresetLow": {
+    "description": "English UI text for desktopGpuPresetLow."
+  },
+  "desktopInstalledApplications": "Installed applications: {count}",
+  "@desktopInstalledApplications": {
+    "description": "English UI text for desktopInstalledApplications.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopLaunchApplication": "Launch {applicationName}",
+  "@desktopLaunchApplication": {
+    "description": "English UI text for desktopLaunchApplication.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopLoadingApplications": "Loading applications…",
+  "@desktopLoadingApplications": {
+    "description": "English UI text for desktopLoadingApplications."
+  },
+  "desktopNoApplicationAudio": "No applications are playing audio.",
+  "@desktopNoApplicationAudio": {
+    "description": "English UI text for desktopNoApplicationAudio."
+  },
+  "desktopNoApplicationsFound": "No applications found",
+  "@desktopNoApplicationsFound": {
+    "description": "English UI text for desktopNoApplicationsFound."
+  },
+  "desktopOpenApplicationAudio": "Open application volume",
+  "@desktopOpenApplicationAudio": {
+    "description": "English UI text for desktopOpenApplicationAudio."
+  },
+  "desktopOpenNotificationCenter": "Open notification center",
+  "@desktopOpenNotificationCenter": {
+    "description": "English UI text for desktopOpenNotificationCenter."
+  },
+  "desktopOpenNotificationCenterUnread": "Open notification center · {count} unread",
+  "@desktopOpenNotificationCenterUnread": {
+    "description": "English UI text for desktopOpenNotificationCenterUnread.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "desktopOpenPowerControls": "Open power controls",
+  "@desktopOpenPowerControls": {
+    "description": "English UI text for desktopOpenPowerControls."
+  },
+  "desktopPboBalanced": "Balanced",
+  "@desktopPboBalanced": {
+    "description": "English UI text for desktopPboBalanced."
+  },
+  "desktopPboLabel": "PBO",
+  "@desktopPboLabel": {
+    "description": "English UI text for desktopPboLabel."
+  },
+  "desktopPboPerformance": "Performance",
+  "@desktopPboPerformance": {
+    "description": "English UI text for desktopPboPerformance."
+  },
+  "desktopPboSilent": "Silent",
+  "@desktopPboSilent": {
+    "description": "English UI text for desktopPboSilent."
+  },
+  "desktopPowerModesTitle": "Power modes",
+  "@desktopPowerModesTitle": {
+    "description": "English UI text for desktopPowerModesTitle."
+  },
+  "desktopPowerModesUnavailable": "Power modes are unavailable.",
+  "@desktopPowerModesUnavailable": {
+    "description": "English UI text for desktopPowerModesUnavailable."
+  },
+  "desktopRefreshApplicationAudio": "Refresh application audio",
+  "@desktopRefreshApplicationAudio": {
+    "description": "English UI text for desktopRefreshApplicationAudio."
+  },
+  "desktopRefreshBluetooth": "Refresh Bluetooth devices",
+  "@desktopRefreshBluetooth": {
+    "description": "English UI text for desktopRefreshBluetooth."
+  },
+  "desktopRefreshPowerModes": "Refresh power modes",
+  "@desktopRefreshPowerModes": {
+    "description": "English UI text for desktopRefreshPowerModes."
+  },
+  "desktopRestoreWindow": "Restore {windowTitle}",
+  "@desktopRestoreWindow": {
+    "description": "English UI text for desktopRestoreWindow.",
+    "placeholders": {
+      "windowTitle": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopScanBluetooth": "Scan for Bluetooth devices",
+  "@desktopScanBluetooth": {
+    "description": "English UI text for desktopScanBluetooth."
+  },
+  "desktopScanningBluetoothDevices": "Scanning for Bluetooth devices…",
+  "@desktopScanningBluetoothDevices": {
+    "description": "English UI text for desktopScanningBluetoothDevices."
+  },
+  "desktopSearchApplications": "Search applications",
+  "@desktopSearchApplications": {
+    "description": "English UI text for desktopSearchApplications."
+  },
+  "desktopSystemProfile": "System profile",
+  "@desktopSystemProfile": {
+    "description": "English UI text for desktopSystemProfile."
+  },
+  "desktopSystemProfileBalanced": "Balanced",
+  "@desktopSystemProfileBalanced": {
+    "description": "English UI text for desktopSystemProfileBalanced."
+  },
+  "desktopSystemProfilePerformance": "Performance",
+  "@desktopSystemProfilePerformance": {
+    "description": "English UI text for desktopSystemProfilePerformance."
+  },
+  "desktopSystemProfilePowerSaver": "Power saver",
+  "@desktopSystemProfilePowerSaver": {
+    "description": "English UI text for desktopSystemProfilePowerSaver."
+  },
+  "desktopTurnBluetoothOff": "Turn Bluetooth off",
+  "@desktopTurnBluetoothOff": {
+    "description": "English UI text for desktopTurnBluetoothOff."
+  },
+  "desktopTurnBluetoothOn": "Turn Bluetooth on",
+  "@desktopTurnBluetoothOn": {
+    "description": "English UI text for desktopTurnBluetoothOn."
+  },
+  "desktopVolumeForApplication": "Volume for {applicationName}",
+  "@desktopVolumeForApplication": {
+    "description": "English UI text for desktopVolumeForApplication.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "frameAppRendering": "APP · {title} · RENDER",
+  "@frameAppRendering": {
+    "description": "English UI text for frameAppRendering.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "frameAppWaiting": "APP · {title} · WAIT",
+  "@frameAppWaiting": {
+    "description": "English UI text for frameAppWaiting.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "frameImportedStats": "AVG {average}  MAX {maximum}  OVER {overBudget}  N {samples}",
+  "@frameImportedStats": {
+    "description": "English UI text for frameImportedStats.",
+    "placeholders": {
+      "average": {
+        "type": "String"
+      },
+      "maximum": {
+        "type": "String"
+      },
+      "overBudget": {
+        "type": "int"
+      },
+      "samples": {
+        "type": "int"
+      }
+    }
+  },
+  "frameImportedStatsUnavailable": "AVG --.-  MAX --.-  OVER -  N -",
+  "@frameImportedStatsUnavailable": {
+    "description": "English UI text for frameImportedStatsUnavailable."
+  },
+  "frameMilliseconds": "~{value} ms",
+  "@frameMilliseconds": {
+    "description": "English UI text for frameMilliseconds.",
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "frameMillisecondsUnavailable": "--.- ms",
+  "@frameMillisecondsUnavailable": {
+    "description": "English UI text for frameMillisecondsUnavailable."
+  },
+  "frameShellPhases": "UI {build}  R {raster}  GAP {gap}",
+  "@frameShellPhases": {
+    "description": "English UI text for frameShellPhases.",
+    "placeholders": {
+      "build": {
+        "type": "String"
+      },
+      "raster": {
+        "type": "String"
+      },
+      "gap": {
+        "type": "String"
+      }
+    }
+  },
+  "frameShellRendering": "SHELL · {refreshRate} HZ · RENDER",
+  "@frameShellRendering": {
+    "description": "English UI text for frameShellRendering.",
+    "placeholders": {
+      "refreshRate": {
+        "type": "int"
+      }
+    }
+  },
+  "frameShellStats": "AVG {average}  MAX {maximum}  OVER {overBudget}",
+  "@frameShellStats": {
+    "description": "English UI text for frameShellStats.",
+    "placeholders": {
+      "average": {
+        "type": "String"
+      },
+      "maximum": {
+        "type": "String"
+      },
+      "overBudget": {
+        "type": "int"
+      }
+    }
+  },
+  "frameShellWaiting": "SHELL · WAIT",
+  "@frameShellWaiting": {
+    "description": "English UI text for frameShellWaiting."
+  },
+  "launchOpeningApplication": "Opening {applicationName}",
+  "@launchOpeningApplication": {
+    "description": "English UI text for launchOpeningApplication.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      }
+    }
+  },
+  "localApplicationNotRegistered": "Local application “{appId}” is not registered.",
+  "@localApplicationNotRegistered": {
+    "description": "English UI text for localApplicationNotRegistered.",
+    "placeholders": {
+      "appId": {
+        "type": "String"
+      }
+    }
+  },
+  "lockAuthenticating": "Authenticating…",
+  "@lockAuthenticating": {
+    "description": "English UI text for lockAuthenticating."
+  },
+  "lockAuthenticationResponse": "Authentication response",
+  "@lockAuthenticationResponse": {
+    "description": "English UI text for lockAuthenticationResponse."
+  },
+  "lockAuthenticationUnavailable": "Authentication is unavailable.",
+  "@lockAuthenticationUnavailable": {
+    "description": "English UI text for lockAuthenticationUnavailable."
+  },
+  "lockCpuLabel": "CPU",
+  "@lockCpuLabel": {
+    "description": "English UI text for lockCpuLabel."
+  },
+  "lockDesktopPromptDescription": "Enter your password to unlock this desktop session.",
+  "@lockDesktopPromptDescription": {
+    "description": "English UI text for lockDesktopPromptDescription."
+  },
+  "lockHideOnScreenKeyboard": "Hide on-screen keyboard",
+  "@lockHideOnScreenKeyboard": {
+    "description": "English UI text for lockHideOnScreenKeyboard."
+  },
+  "lockKeyboardBackspace": "Backspace",
+  "@lockKeyboardBackspace": {
+    "description": "English UI text for lockKeyboardBackspace."
+  },
+  "lockKeyboardLetters": "Letters",
+  "@lockKeyboardLetters": {
+    "description": "English UI text for lockKeyboardLetters."
+  },
+  "lockKeyboardShift": "Shift",
+  "@lockKeyboardShift": {
+    "description": "English UI text for lockKeyboardShift."
+  },
+  "lockKeyboardSpace": "Space",
+  "@lockKeyboardSpace": {
+    "description": "English UI text for lockKeyboardSpace."
+  },
+  "lockKeyboardSymbols": "Symbols",
+  "@lockKeyboardSymbols": {
+    "description": "English UI text for lockKeyboardSymbols."
+  },
+  "lockMetricUnavailable": "--",
+  "@lockMetricUnavailable": {
+    "description": "English UI text for lockMetricUnavailable."
+  },
+  "lockOnScreenKeyboard": "On-screen keyboard",
+  "@lockOnScreenKeyboard": {
+    "description": "English UI text for lockOnScreenKeyboard."
+  },
+  "lockPamVerified": "Identity verified",
+  "@lockPamVerified": {
+    "description": "English UI text for lockPamVerified."
+  },
+  "lockPasswordObscured": "Password, obscured",
+  "@lockPasswordObscured": {
+    "description": "English UI text for lockPasswordObscured."
+  },
+  "lockPerformanceMetric": "{label}: {value}",
+  "@lockPerformanceMetric": {
+    "description": "English UI text for lockPerformanceMetric.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "lockPerformanceStatusLabel": "Desktop performance status",
+  "@lockPerformanceStatusLabel": {
+    "description": "English UI text for lockPerformanceStatusLabel."
+  },
+  "lockPleaseWait": "Please wait…",
+  "@lockPleaseWait": {
+    "description": "English UI text for lockPleaseWait."
+  },
+  "lockPressEnter": "Press Enter to unlock",
+  "@lockPressEnter": {
+    "description": "English UI text for lockPressEnter."
+  },
+  "lockRetryInSeconds": "Try again in {seconds} s",
+  "@lockRetryInSeconds": {
+    "description": "English UI text for lockRetryInSeconds.",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "lockScreenSemanticsLabel": "Desktop lock screen",
+  "@lockScreenSemanticsLabel": {
+    "description": "English UI text for lockScreenSemanticsLabel."
+  },
+  "lockShowOnScreenKeyboard": "Show on-screen keyboard",
+  "@lockShowOnScreenKeyboard": {
+    "description": "English UI text for lockShowOnScreenKeyboard."
+  },
+  "lockSignInSemantics": "Sign in to Denial",
+  "@lockSignInSemantics": {
+    "description": "English UI text for lockSignInSemantics."
+  },
+  "lockTemperature": "{temperature}°C",
+  "@lockTemperature": {
+    "description": "English UI text for lockTemperature.",
+    "placeholders": {
+      "temperature": {
+        "type": "int"
+      }
+    }
+  },
+  "lockTryAgain": "Try again",
+  "@lockTryAgain": {
+    "description": "English UI text for lockTryAgain."
+  },
+  "lockUnlock": "Unlock",
+  "@lockUnlock": {
+    "description": "English UI text for lockUnlock."
+  },
+  "lockUnlockDenial": "Unlock Denial",
+  "@lockUnlockDenial": {
+    "description": "English UI text for lockUnlockDenial."
+  },
+  "lockWaitingForAuthentication": "Waiting for authentication…",
+  "@lockWaitingForAuthentication": {
+    "description": "English UI text for lockWaitingForAuthentication."
+  },
+  "lockWelcomeBack": "Welcome back",
+  "@lockWelcomeBack": {
+    "description": "English UI text for lockWelcomeBack."
+  },
+  "longDate": "{weekday} {day} {month}",
+  "@longDate": {
+    "description": "English UI text for longDate.",
+    "placeholders": {
+      "weekday": {
+        "type": "String"
+      },
+      "day": {
+        "type": "int"
+      },
+      "month": {
+        "type": "String"
+      }
+    }
+  },
+  "mediaControls": "Media controls",
+  "@mediaControls": {
+    "description": "Accessible label for the system bar media controls."
+  },
+  "mediaNext": "Next track",
+  "@mediaNext": {
+    "description": "Accessible label for the next-track action."
+  },
+  "mediaNowPlaying": "Now playing",
+  "@mediaNowPlaying": {
+    "description": "Heading for the active media popup."
+  },
+  "mediaPause": "Pause",
+  "@mediaPause": {
+    "description": "Accessible label for pausing media."
+  },
+  "mediaPlay": "Play",
+  "@mediaPlay": {
+    "description": "Accessible label for playing media."
+  },
+  "mediaPrevious": "Previous track",
+  "@mediaPrevious": {
+    "description": "Accessible label for the previous-track action."
+  },
+  "metricAverage": "AVG",
+  "@metricAverage": {
+    "description": "English UI text for metricAverage."
+  },
+  "metricCpu": "CPU",
+  "@metricCpu": {
+    "description": "English UI text for metricCpu."
+  },
+  "metricMaximum": "MAX",
+  "@metricMaximum": {
+    "description": "English UI text for metricMaximum."
+  },
+  "metricMinimum": "MIN",
+  "@metricMinimum": {
+    "description": "English UI text for metricMinimum."
+  },
+  "metricNow": "NOW",
+  "@metricNow": {
+    "description": "English UI text for metricNow."
+  },
+  "monthApril": "April",
+  "@monthApril": {
+    "description": "English UI text for monthApril."
+  },
+  "monthAugust": "August",
+  "@monthAugust": {
+    "description": "English UI text for monthAugust."
+  },
+  "monthDecember": "December",
+  "@monthDecember": {
+    "description": "English UI text for monthDecember."
+  },
+  "monthFebruary": "February",
+  "@monthFebruary": {
+    "description": "English UI text for monthFebruary."
+  },
+  "monthJanuary": "January",
+  "@monthJanuary": {
+    "description": "English UI text for monthJanuary."
+  },
+  "monthJuly": "July",
+  "@monthJuly": {
+    "description": "English UI text for monthJuly."
+  },
+  "monthJune": "June",
+  "@monthJune": {
+    "description": "English UI text for monthJune."
+  },
+  "monthMarch": "March",
+  "@monthMarch": {
+    "description": "English UI text for monthMarch."
+  },
+  "monthMay": "May",
+  "@monthMay": {
+    "description": "English UI text for monthMay."
+  },
+  "monthNovember": "November",
+  "@monthNovember": {
+    "description": "English UI text for monthNovember."
+  },
+  "monthOctober": "October",
+  "@monthOctober": {
+    "description": "English UI text for monthOctober."
+  },
+  "monthSeptember": "September",
+  "@monthSeptember": {
+    "description": "English UI text for monthSeptember."
+  },
+  "notificationDismiss": "Dismiss notification",
+  "@notificationDismiss": {
+    "description": "English UI text for notificationDismiss."
+  },
+  "notificationGeneric": "Notification",
+  "@notificationGeneric": {
+    "description": "English UI text for notificationGeneric."
+  },
+  "notificationNew": "New notification",
+  "@notificationNew": {
+    "description": "English UI text for notificationNew."
+  },
+  "notificationOpen": "Open {summary}",
+  "@notificationOpen": {
+    "description": "English UI text for notificationOpen.",
+    "placeholders": {
+      "summary": {
+        "type": "String"
+      }
+    }
+  },
+  "notificationProgress": "Progress: {percent}%",
+  "@notificationProgress": {
+    "description": "English UI text for notificationProgress.",
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "notificationSemantics": "{applicationName}: {summary}",
+  "@notificationSemantics": {
+    "description": "English UI text for notificationSemantics.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      },
+      "summary": {
+        "type": "String"
+      }
+    }
+  },
+  "notificationSemanticsWithBody": "{applicationName}: {summary}. {body}",
+  "@notificationSemanticsWithBody": {
+    "description": "English UI text for notificationSemanticsWithBody.",
+    "placeholders": {
+      "applicationName": {
+        "type": "String"
+      },
+      "summary": {
+        "type": "String"
+      },
+      "body": {
+        "type": "String"
+      }
+    }
+  },
+  "notificationsAllQuiet": "All quiet",
+  "@notificationsAllQuiet": {
+    "description": "English UI text for notificationsAllQuiet."
+  },
+  "notificationsClearAll": "Clear all notifications",
+  "@notificationsClearAll": {
+    "description": "English UI text for notificationsClearAll."
+  },
+  "notificationsCloseCenter": "Close notification center",
+  "@notificationsCloseCenter": {
+    "description": "English UI text for notificationsCloseCenter."
+  },
+  "notificationsClosed": "Closed",
+  "@notificationsClosed": {
+    "description": "English UI text for notificationsClosed."
+  },
+  "notificationsClosedByApplication": "Closed by application",
+  "@notificationsClosedByApplication": {
+    "description": "English UI text for notificationsClosedByApplication."
+  },
+  "notificationsDisableDoNotDisturb": "Disable do not disturb",
+  "@notificationsDisableDoNotDisturb": {
+    "description": "English UI text for notificationsDisableDoNotDisturb."
+  },
+  "notificationsDismissed": "Dismissed",
+  "@notificationsDismissed": {
+    "description": "English UI text for notificationsDismissed."
+  },
+  "notificationsDoNotDisturbSemantics": "Do not disturb is on. Ordinary banners are silent. Critical notifications can still appear.",
+  "@notificationsDoNotDisturbSemantics": {
+    "description": "English UI text for notificationsDoNotDisturbSemantics."
+  },
+  "notificationsEmptyDescription": "New notifications will appear here.",
+  "@notificationsEmptyDescription": {
+    "description": "English UI text for notificationsEmptyDescription."
+  },
+  "notificationsEnableDoNotDisturb": "Enable do not disturb",
+  "@notificationsEnableDoNotDisturb": {
+    "description": "English UI text for notificationsEnableDoNotDisturb."
+  },
+  "notificationsExpired": "Expired",
+  "@notificationsExpired": {
+    "description": "English UI text for notificationsExpired."
+  },
+  "notificationsLoadingPolicy": "Loading do not disturb policy",
+  "@notificationsLoadingPolicy": {
+    "description": "English UI text for notificationsLoadingPolicy."
+  },
+  "notificationsLockPrivacy": "Lock screen notification privacy",
+  "@notificationsLockPrivacy": {
+    "description": "English UI text for notificationsLockPrivacy."
+  },
+  "notificationsNone": "No notifications",
+  "@notificationsNone": {
+    "description": "English UI text for notificationsNone."
+  },
+  "notificationsOnLockScreen": "On lock screen",
+  "@notificationsOnLockScreen": {
+    "description": "English UI text for notificationsOnLockScreen."
+  },
+  "notificationsPreviewApplicationOnly": "App only",
+  "@notificationsPreviewApplicationOnly": {
+    "description": "English UI text for notificationsPreviewApplicationOnly."
+  },
+  "notificationsPreviewFull": "Full",
+  "@notificationsPreviewFull": {
+    "description": "English UI text for notificationsPreviewFull."
+  },
+  "notificationsPreviewHidden": "Hidden",
+  "@notificationsPreviewHidden": {
+    "description": "English UI text for notificationsPreviewHidden."
+  },
+  "notificationsPreviewModeSemantics": "{mode} lock screen previews",
+  "@notificationsPreviewModeSemantics": {
+    "description": "English UI text for notificationsPreviewModeSemantics.",
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
+  "notificationsQuietMode": "Quiet mode · critical alerts can bypass",
+  "@notificationsQuietMode": {
+    "description": "English UI text for notificationsQuietMode."
+  },
+  "notificationsTitle": "Notifications",
+  "@notificationsTitle": {
+    "description": "English UI text for notificationsTitle."
+  },
+  "notificationsUnread": "Unread notifications: {count}",
+  "@notificationsUnread": {
+    "description": "English UI text for notificationsUnread.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "numberValue": "{value}",
+  "@numberValue": {
+    "description": "English UI text for numberValue.",
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "oskArrowDown": "Down",
+  "@oskArrowDown": {
+    "description": "English UI text for oskArrowDown."
+  },
+  "oskArrowUp": "Up",
+  "@oskArrowUp": {
+    "description": "English UI text for oskArrowUp."
+  },
+  "oskBackspace": "Backspace",
+  "@oskBackspace": {
+    "description": "English UI text for oskBackspace."
+  },
+  "oskControlKey": "CTRL",
+  "@oskControlKey": {
+    "description": "English UI text for oskControlKey."
+  },
+  "oskEnter": "Enter",
+  "@oskEnter": {
+    "description": "English UI text for oskEnter."
+  },
+  "oskLetters": "Letters",
+  "@oskLetters": {
+    "description": "English UI text for oskLetters."
+  },
+  "oskLettersKey": "ABC",
+  "@oskLettersKey": {
+    "description": "English UI text for oskLettersKey."
+  },
+  "oskMoreSymbols": "More symbols",
+  "@oskMoreSymbols": {
+    "description": "English UI text for oskMoreSymbols."
+  },
+  "oskMoreSymbolsKey": "=<",
+  "@oskMoreSymbolsKey": {
+    "description": "English UI text for oskMoreSymbolsKey."
+  },
+  "oskNumbersAndSymbols": "Numbers and symbols",
+  "@oskNumbersAndSymbols": {
+    "description": "English UI text for oskNumbersAndSymbols."
+  },
+  "oskNumbersAndSymbolsKey": "?123",
+  "@oskNumbersAndSymbolsKey": {
+    "description": "English UI text for oskNumbersAndSymbolsKey."
+  },
+  "oskShift": "Shift",
+  "@oskShift": {
+    "description": "English UI text for oskShift."
+  },
+  "oskSpace": "Space",
+  "@oskSpace": {
+    "description": "English UI text for oskSpace."
+  },
+  "outputBrightnessSemantics": "{outputName} brightness",
+  "@outputBrightnessSemantics": {
+    "description": "English UI text for outputBrightnessSemantics.",
+    "placeholders": {
+      "outputName": {
+        "type": "String"
+      }
+    }
+  },
+  "outputVolumeSemantics": "Output volume",
+  "@outputVolumeSemantics": {
+    "description": "English UI text for outputVolumeSemantics."
+  },
+  "overviewNoWindows": "No windows",
+  "@overviewNoWindows": {
+    "description": "English UI text for overviewNoWindows."
+  },
+  "percentCompact": "{percent}%",
+  "@percentCompact": {
+    "description": "English UI text for percentCompact.",
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "percentSign": "%",
+  "@percentSign": {
+    "description": "English UI text for percentSign."
+  },
+  "percentValue": "{percent} percent",
+  "@percentValue": {
+    "description": "English UI text for percentValue.",
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "powerActionHibernate": "Hibernate",
+  "@powerActionHibernate": {
+    "description": "English UI text for powerActionHibernate."
+  },
+  "powerActionHibernateDescription": "Save the session to disk",
+  "@powerActionHibernateDescription": {
+    "description": "English UI text for powerActionHibernateDescription."
+  },
+  "powerActionLock": "Lock",
+  "@powerActionLock": {
+    "description": "English UI text for powerActionLock."
+  },
+  "powerActionLockDescription": "Secure the session immediately",
+  "@powerActionLockDescription": {
+    "description": "English UI text for powerActionLockDescription."
+  },
+  "powerActionLogOut": "Log out",
+  "@powerActionLogOut": {
+    "description": "English UI text for powerActionLogOut."
+  },
+  "powerActionLogOutDescription": "Close the Denial session",
+  "@powerActionLogOutDescription": {
+    "description": "English UI text for powerActionLogOutDescription."
+  },
+  "powerActionPowerOff": "Power off",
+  "@powerActionPowerOff": {
+    "description": "English UI text for powerActionPowerOff."
+  },
+  "powerActionPowerOffDescription": "Shut down the computer",
+  "@powerActionPowerOffDescription": {
+    "description": "English UI text for powerActionPowerOffDescription."
+  },
+  "powerActionRestart": "Restart",
+  "@powerActionRestart": {
+    "description": "English UI text for powerActionRestart."
+  },
+  "powerActionRestartDescription": "Restart the computer",
+  "@powerActionRestartDescription": {
+    "description": "English UI text for powerActionRestartDescription."
+  },
+  "powerActionSuspend": "Suspend",
+  "@powerActionSuspend": {
+    "description": "English UI text for powerActionSuspend."
+  },
+  "powerActionSuspendDescription": "Keep the session in memory",
+  "@powerActionSuspendDescription": {
+    "description": "English UI text for powerActionSuspendDescription."
+  },
+  "powerAuthenticationRequired": "Authentication required · {description}",
+  "@powerAuthenticationRequired": {
+    "description": "English UI text for powerAuthenticationRequired.",
+    "placeholders": {
+      "description": {
+        "type": "String"
+      }
+    }
+  },
+  "powerBlockedBy": "An application is preventing this action: {blocker}",
+  "@powerBlockedBy": {
+    "description": "English UI text for powerBlockedBy.",
+    "placeholders": {
+      "blocker": {
+        "type": "String"
+      }
+    }
+  },
+  "powerConfirmLogOutBody": "Your graphical session will end. Save work in open applications before continuing.",
+  "@powerConfirmLogOutBody": {
+    "description": "English UI text for powerConfirmLogOutBody."
+  },
+  "powerConfirmLogOutTitle": "Log out of Denial?",
+  "@powerConfirmLogOutTitle": {
+    "description": "English UI text for powerConfirmLogOutTitle."
+  },
+  "powerConfirmPowerOffBody": "All applications will be closed and the computer will shut down.",
+  "@powerConfirmPowerOffBody": {
+    "description": "English UI text for powerConfirmPowerOffBody."
+  },
+  "powerConfirmPowerOffTitle": "Power off the computer?",
+  "@powerConfirmPowerOffTitle": {
+    "description": "English UI text for powerConfirmPowerOffTitle."
+  },
+  "powerConfirmRestartBody": "All applications will be closed and the operating system will restart.",
+  "@powerConfirmRestartBody": {
+    "description": "English UI text for powerConfirmRestartBody."
+  },
+  "powerConfirmRestartTitle": "Restart the computer?",
+  "@powerConfirmRestartTitle": {
+    "description": "English UI text for powerConfirmRestartTitle."
+  },
+  "powerDelayNotice": "An application may briefly delay sleep or shutdown: {details}",
+  "@powerDelayNotice": {
+    "description": "English UI text for powerDelayNotice.",
+    "placeholders": {
+      "details": {
+        "type": "String"
+      }
+    }
+  },
+  "powerPermissionDenied": "Not authorized for this session",
+  "@powerPermissionDenied": {
+    "description": "English UI text for powerPermissionDenied."
+  },
+  "powerPermissionUnavailable": "Session service unavailable",
+  "@powerPermissionUnavailable": {
+    "description": "English UI text for powerPermissionUnavailable."
+  },
+  "powerPermissionUnsupported": "Not supported by this system",
+  "@powerPermissionUnsupported": {
+    "description": "English UI text for powerPermissionUnsupported."
+  },
+  "powerSessionBusy": "Completing system request…",
+  "@powerSessionBusy": {
+    "description": "English UI text for powerSessionBusy."
+  },
+  "powerSessionClose": "Close power and session controls",
+  "@powerSessionClose": {
+    "description": "English UI text for powerSessionClose."
+  },
+  "powerSessionDescription": "Choose what Denial does",
+  "@powerSessionDescription": {
+    "description": "English UI text for powerSessionDescription."
+  },
+  "powerSessionLoading": "Reading system capabilities and inhibitors…",
+  "@powerSessionLoading": {
+    "description": "English UI text for powerSessionLoading."
+  },
+  "powerSessionRefresh": "Refresh power capabilities",
+  "@powerSessionRefresh": {
+    "description": "English UI text for powerSessionRefresh."
+  },
+  "powerSessionRequestError": "The system could not complete the request.",
+  "@powerSessionRequestError": {
+    "description": "English UI text for powerSessionRequestError."
+  },
+  "powerSessionSemantics": "Power and session controls",
+  "@powerSessionSemantics": {
+    "description": "English UI text for powerSessionSemantics."
+  },
+  "powerSessionTitle": "Power & session",
+  "@powerSessionTitle": {
+    "description": "English UI text for powerSessionTitle."
+  },
+  "powerSessionUnavailable": "System power controls are unavailable. Lock and log out remain local to Denial.",
+  "@powerSessionUnavailable": {
+    "description": "English UI text for powerSessionUnavailable."
+  },
+  "powerWatts": "{watts} W",
+  "@powerWatts": {
+    "description": "English UI text for powerWatts.",
+    "placeholders": {
+      "watts": {
+        "type": "int"
+      }
+    }
+  },
+  "powerWattsDecimal": "{watts} W",
+  "@powerWattsDecimal": {
+    "description": "English UI text for powerWattsDecimal.",
+    "placeholders": {
+      "watts": {
+        "type": "String"
+      }
+    }
+  },
+  "quickSettingsAutomatic": "Automatic",
+  "@quickSettingsAutomatic": {
+    "description": "English UI text for quickSettingsAutomatic."
+  },
+  "quickSettingsBalanced": "Balanced",
+  "@quickSettingsBalanced": {
+    "description": "English UI text for quickSettingsBalanced."
+  },
+  "quickSettingsBatterySaver": "Battery saver",
+  "@quickSettingsBatterySaver": {
+    "description": "English UI text for quickSettingsBatterySaver."
+  },
+  "quickSettingsClose": "Close quick settings",
+  "@quickSettingsClose": {
+    "description": "English UI text for quickSettingsClose."
+  },
+  "quickSettingsControls": "Controls",
+  "@quickSettingsControls": {
+    "description": "English UI text for quickSettingsControls."
+  },
+  "quickSettingsDate": "{weekday} {day}",
+  "@quickSettingsDate": {
+    "description": "English UI text for quickSettingsDate.",
+    "placeholders": {
+      "weekday": {
+        "type": "String"
+      },
+      "day": {
+        "type": "int"
+      }
+    }
+  },
+  "quickSettingsHighPerformance": "High performance",
+  "@quickSettingsHighPerformance": {
+    "description": "English UI text for quickSettingsHighPerformance."
+  },
+  "quickSettingsKeyboard": "Keyboard",
+  "@quickSettingsKeyboard": {
+    "description": "English UI text for quickSettingsKeyboard."
+  },
+  "quickSettingsLocked": "Locked",
+  "@quickSettingsLocked": {
+    "description": "English UI text for quickSettingsLocked."
+  },
+  "quickSettingsNormal": "Normal",
+  "@quickSettingsNormal": {
+    "description": "English UI text for quickSettingsNormal."
+  },
+  "quickSettingsNotificationsCount": "Notifications · {count}",
+  "@quickSettingsNotificationsCount": {
+    "description": "English UI text for quickSettingsNotificationsCount.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "quickSettingsOneAppActive": "One application active",
+  "@quickSettingsOneAppActive": {
+    "description": "English UI text for quickSettingsOneAppActive."
+  },
+  "quickSettingsOpenDetails": "Open {title} details",
+  "@quickSettingsOpenDetails": {
+    "description": "English UI text for quickSettingsOpenDetails.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "quickSettingsOpenOnScreen": "Open on-screen keyboard",
+  "@quickSettingsOpenOnScreen": {
+    "description": "English UI text for quickSettingsOpenOnScreen."
+  },
+  "quickSettingsPerformance": "Performance",
+  "@quickSettingsPerformance": {
+    "description": "English UI text for quickSettingsPerformance."
+  },
+  "quickSettingsRotation": "Rotation",
+  "@quickSettingsRotation": {
+    "description": "English UI text for quickSettingsRotation."
+  },
+  "quickSettingsSettingsUnavailable": "Settings are unavailable.",
+  "@quickSettingsSettingsUnavailable": {
+    "description": "English UI text for quickSettingsSettingsUnavailable."
+  },
+  "quickSettingsSilent": "Silent",
+  "@quickSettingsSilent": {
+    "description": "English UI text for quickSettingsSilent."
+  },
+  "settingsAboutArchitecture": "Flutter is not an overlay placed on top of another compositor. It is part of the compositor’s foundation.",
+  "@settingsAboutArchitecture": {
+    "description": "Second explanatory paragraph on the Settings About page."
+  },
+  "settingsAboutBelief": "Origin does not have to dictate purpose.",
+  "@settingsAboutBelief": {
+    "description": "Denial's founding belief, shown prominently on the Settings About page."
+  },
+  "settingsAboutCollaboration": "Built in continuous collaboration with OpenAI Codex.",
+  "@settingsAboutCollaboration": {
+    "description": "Collaboration credit on the Settings About page."
+  },
+  "settingsAboutCreditLabel": "CONCEIVED, DIRECTED & TESTED BY",
+  "@settingsAboutCreditLabel": {
+    "description": "Uppercase label above the creator's name on the Settings About page."
+  },
+  "settingsAboutCreditName": "Doctor Logix",
+  "@settingsAboutCreditName": {
+    "description": "The credited creator of Denial."
+  },
+  "settingsAboutDescription": "Denial gives Flutter a different life. It owns the desktop scene itself: the shell, its motion, and the composition of Wayland applications.",
+  "@settingsAboutDescription": {
+    "description": "Primary explanation of Denial on the Settings About page."
+  },
+  "settingsAboutLogoSemanticsLabel": "Denial wordmark",
+  "@settingsAboutLogoSemanticsLabel": {
+    "description": "Accessibility label for the large Denial wordmark on the Settings About page."
+  },
+  "settingsAboutPageSemanticsLabel": "About Denial",
+  "@settingsAboutPageSemanticsLabel": {
+    "description": "Accessibility label for the Settings About page."
+  },
+  "settingsAboutTagline": "A Flutter-native Wayland compositor.",
+  "@settingsAboutTagline": {
+    "description": "Denial's product tagline on the Settings About page."
+  },
+  "settingsAccentPickerRouteLabel": "Shell accent color picker",
+  "@settingsAccentPickerRouteLabel": {
+    "description": "English UI text for settingsAccentPickerRouteLabel."
+  },
+  "settingsAccentPickerWheelLabel": "Shell accent color",
+  "@settingsAccentPickerWheelLabel": {
+    "description": "English UI text for settingsAccentPickerWheelLabel."
+  },
+  "settingsAnimateLockScreen": "Animate lock screen",
+  "@settingsAnimateLockScreen": {
+    "description": "English UI text for settingsAnimateLockScreen."
+  },
+  "settingsAnimateLockScreenDescription": "Use a short desktop entrance animation while security input remains active immediately.",
+  "@settingsAnimateLockScreenDescription": {
+    "description": "English UI text for settingsAnimateLockScreenDescription."
+  },
+  "settingsAnimationSpeed": "Animation speed",
+  "@settingsAnimationSpeed": {
+    "description": "English UI text for settingsAnimationSpeed."
+  },
+  "settingsAnimationSpeedValue": "{percent}% speed",
+  "@settingsAnimationSpeedValue": {
+    "description": "English UI text for settingsAnimationSpeedValue.",
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsAnimationsDescription": "Choose close effects and tune how quickly shell surfaces move.",
+  "@settingsAnimationsDescription": {
+    "description": "English UI text for settingsAnimationsDescription."
+  },
+  "settingsAnimationsSection": "ANIMATIONS",
+  "@settingsAnimationsSection": {
+    "description": "English UI text for settingsAnimationsSection."
+  },
+  "settingsAnimationsTitle": "Motion that matches your desktop.",
+  "@settingsAnimationsTitle": {
+    "description": "English UI text for settingsAnimationsTitle."
+  },
+  "settingsAppearanceDescription": "Changes made here are reflected across the desktop in real time.",
+  "@settingsAppearanceDescription": {
+    "description": "Explanation that shell appearance changes are applied immediately."
+  },
+  "settingsAppearanceSection": "APPEARANCE",
+  "@settingsAppearanceSection": {
+    "description": "Uppercase label for the appearance settings section."
+  },
+  "settingsAppearanceTitle": "Make the desktop feel like yours.",
+  "@settingsAppearanceTitle": {
+    "description": "Heading introducing personalization controls."
+  },
+  "settingsApplicationAudioDescription": "Adjust active audio streams independently.",
+  "@settingsApplicationAudioDescription": {
+    "description": "English UI text for settingsApplicationAudioDescription."
+  },
+  "settingsApplicationAudioTitle": "Application audio",
+  "@settingsApplicationAudioTitle": {
+    "description": "English UI text for settingsApplicationAudioTitle."
+  },
+  "settingsApplicationCategoryAppearance": "Appearance",
+  "@settingsApplicationCategoryAppearance": {
+    "description": "Search category for appearance settings."
+  },
+  "settingsApplicationCategoryPreferences": "Preferences",
+  "@settingsApplicationCategoryPreferences": {
+    "description": "Search category used to find the Settings application."
+  },
+  "settingsApplicationCategorySystem": "System",
+  "@settingsApplicationCategorySystem": {
+    "description": "Search category for system-level settings."
+  },
+  "settingsApplicationSemanticsLabel": "Denial Settings",
+  "@settingsApplicationSemanticsLabel": {
+    "description": "Accessibility label for the complete Settings application."
+  },
+  "settingsApplicationTitle": "Settings",
+  "@settingsApplicationTitle": {
+    "description": "Display name of the built-in Denial Settings application."
+  },
+  "settingsAudioDescription": "Control the master output and individual application streams.",
+  "@settingsAudioDescription": {
+    "description": "English UI text for settingsAudioDescription."
+  },
+  "settingsAudioSection": "AUDIO",
+  "@settingsAudioSection": {
+    "description": "English UI text for settingsAudioSection."
+  },
+  "settingsAudioTitle": "Audio for the whole desktop.",
+  "@settingsAudioTitle": {
+    "description": "English UI text for settingsAudioTitle."
+  },
+  "settingsAudioUnavailable": "Application audio is unavailable.",
+  "@settingsAudioUnavailable": {
+    "description": "English UI text for settingsAudioUnavailable."
+  },
+  "settingsAutomaticDisplayPowerDescription": "Turn displays off after a period of inactivity.",
+  "@settingsAutomaticDisplayPowerDescription": {
+    "description": "English UI text for settingsAutomaticDisplayPowerDescription."
+  },
+  "settingsAutomaticDisplayPowerTitle": "Automatic display power",
+  "@settingsAutomaticDisplayPowerTitle": {
+    "description": "English UI text for settingsAutomaticDisplayPowerTitle."
+  },
+  "settingsAutomaticDisplayPowerToggle": "Turn displays off automatically",
+  "@settingsAutomaticDisplayPowerToggle": {
+    "description": "English UI text for settingsAutomaticDisplayPowerToggle."
+  },
+  "settingsAutomaticDisplayPowerToggleDescription": "The timer resets whenever keyboard or pointer activity is detected.",
+  "@settingsAutomaticDisplayPowerToggleDescription": {
+    "description": "English UI text for settingsAutomaticDisplayPowerToggleDescription."
+  },
+  "settingsAvailable": "Available",
+  "@settingsAvailable": {
+    "description": "English UI text for settingsAvailable."
+  },
+  "settingsAvailableNetworksDescription": "Nearby and saved Wi-Fi networks.",
+  "@settingsAvailableNetworksDescription": {
+    "description": "English UI text for settingsAvailableNetworksDescription."
+  },
+  "settingsAvailableNetworksTitle": "Available networks",
+  "@settingsAvailableNetworksTitle": {
+    "description": "English UI text for settingsAvailableNetworksTitle."
+  },
+  "settingsBackdropBlur": "Backdrop blur",
+  "@settingsBackdropBlur": {
+    "description": "English UI text for settingsBackdropBlur."
+  },
+  "settingsBackdropBlurDescription": "Soften content behind translucent windows and panels. Higher intensity uses more GPU.",
+  "@settingsBackdropBlurDescription": {
+    "description": "Explanation and performance guidance for compositor backdrop blur."
+  },
+  "settingsBackdropBlurEnabled": "Enable backdrop blur",
+  "@settingsBackdropBlurEnabled": {
+    "description": "Toggle label for compositor backdrop blur."
+  },
+  "settingsBackdropBlurEnabledDescription": "Blur only where transparent content can reveal the desktop beneath it.",
+  "@settingsBackdropBlurEnabledDescription": {
+    "description": "Description of the compositor backdrop blur toggle."
+  },
+  "settingsBackdropBlurIntensity": "Blur intensity",
+  "@settingsBackdropBlurIntensity": {
+    "description": "Slider label for the compositor backdrop blur radius."
+  },
+  "settingsBackdropDimming": "Backdrop dimming",
+  "@settingsBackdropDimming": {
+    "description": "English UI text for settingsBackdropDimming."
+  },
+  "settingsBarGeometryDescription": "Adjust the space reserved for the desktop system bar.",
+  "@settingsBarGeometryDescription": {
+    "description": "English UI text for settingsBarGeometryDescription."
+  },
+  "settingsBarGeometryTitle": "System bar geometry",
+  "@settingsBarGeometryTitle": {
+    "description": "English UI text for settingsBarGeometryTitle."
+  },
+  "settingsBarThickness": "Bar thickness",
+  "@settingsBarThickness": {
+    "description": "English UI text for settingsBarThickness."
+  },
+  "settingsBluetoothAdapterDescription": "Current adapter",
+  "@settingsBluetoothAdapterDescription": {
+    "description": "English UI text for settingsBluetoothAdapterDescription."
+  },
+  "settingsBluetoothDescription": "Manage the radio and connect paired or nearby devices.",
+  "@settingsBluetoothDescription": {
+    "description": "English UI text for settingsBluetoothDescription."
+  },
+  "settingsBluetoothDevicesDescription": "Paired and nearby Bluetooth devices.",
+  "@settingsBluetoothDevicesDescription": {
+    "description": "English UI text for settingsBluetoothDevicesDescription."
+  },
+  "settingsBluetoothDevicesTitle": "Devices",
+  "@settingsBluetoothDevicesTitle": {
+    "description": "English UI text for settingsBluetoothDevicesTitle."
+  },
+  "settingsBluetoothEnabled": "Bluetooth enabled",
+  "@settingsBluetoothEnabled": {
+    "description": "English UI text for settingsBluetoothEnabled."
+  },
+  "settingsBluetoothEnabledDescription": "Allow Denial to discover and connect Bluetooth devices.",
+  "@settingsBluetoothEnabledDescription": {
+    "description": "English UI text for settingsBluetoothEnabledDescription."
+  },
+  "settingsBluetoothRadioTitle": "Bluetooth radio",
+  "@settingsBluetoothRadioTitle": {
+    "description": "English UI text for settingsBluetoothRadioTitle."
+  },
+  "settingsBluetoothSection": "BLUETOOTH",
+  "@settingsBluetoothSection": {
+    "description": "English UI text for settingsBluetoothSection."
+  },
+  "settingsBluetoothTitle": "Bluetooth devices.",
+  "@settingsBluetoothTitle": {
+    "description": "English UI text for settingsBluetoothTitle."
+  },
+  "settingsBluetoothUnavailable": "Bluetooth controls are unavailable.",
+  "@settingsBluetoothUnavailable": {
+    "description": "English UI text for settingsBluetoothUnavailable."
+  },
+  "settingsBrightness": "Brightness",
+  "@settingsBrightness": {
+    "description": "English UI text for settingsBrightness."
+  },
+  "settingsClockScale": "Clock scale",
+  "@settingsClockScale": {
+    "description": "English UI text for settingsClockScale."
+  },
+  "settingsCloseEffectExplosion": "Explosion",
+  "@settingsCloseEffectExplosion": {
+    "description": "English UI text for settingsCloseEffectExplosion."
+  },
+  "settingsCloseEffectFade": "Fade",
+  "@settingsCloseEffectFade": {
+    "description": "English UI text for settingsCloseEffectFade."
+  },
+  "settingsCloseEffectImplode": "Implode",
+  "@settingsCloseEffectImplode": {
+    "description": "English UI text for settingsCloseEffectImplode."
+  },
+  "settingsCloseEffectNone": "None",
+  "@settingsCloseEffectNone": {
+    "description": "English UI text for settingsCloseEffectNone."
+  },
+  "settingsColorPickerCloseSemanticsLabel": "Close color picker",
+  "@settingsColorPickerCloseSemanticsLabel": {
+    "description": "Accessibility label for the icon button that closes the color picker."
+  },
+  "settingsColorPickerDone": "Done",
+  "@settingsColorPickerDone": {
+    "description": "Button label that closes the color picker."
+  },
+  "settingsColorPickerInstructions": "Drag to choose a color. Use the arrow keys for fine adjustments.",
+  "@settingsColorPickerInstructions": {
+    "description": "Pointer and keyboard instructions displayed below the color wheel."
+  },
+  "settingsColorPickerReset": "Reset",
+  "@settingsColorPickerReset": {
+    "description": "Button label that restores the default border color."
+  },
+  "settingsColorPickerRouteLabel": "Shell accent color picker",
+  "@settingsColorPickerRouteLabel": {
+    "description": "Accessibility route name for the focused-window border color picker."
+  },
+  "settingsColorPickerTitle": "Accent color",
+  "@settingsColorPickerTitle": {
+    "description": "Title displayed in the border color picker."
+  },
+  "settingsColorWheelNextHue": "Next hue",
+  "@settingsColorWheelNextHue": {
+    "description": "Accessibility value announced when increasing the color wheel."
+  },
+  "settingsColorWheelPreviousHue": "Previous hue",
+  "@settingsColorWheelPreviousHue": {
+    "description": "Accessibility value announced when decreasing the color wheel."
+  },
+  "settingsColorWheelSemanticsLabel": "Shell accent color",
+  "@settingsColorWheelSemanticsLabel": {
+    "description": "Accessibility label for the HSV border color wheel."
+  },
+  "settingsConnect": "Connect",
+  "@settingsConnect": {
+    "description": "English UI text for settingsConnect."
+  },
+  "settingsConnected": "Connected",
+  "@settingsConnected": {
+    "description": "English UI text for settingsConnected."
+  },
+  "settingsConnectedDisplaysDescription": "Resolution, refresh rate, and scale for every output.",
+  "@settingsConnectedDisplaysDescription": {
+    "description": "English UI text for settingsConnectedDisplaysDescription."
+  },
+  "settingsConnectedDisplaysTitle": "Connected displays",
+  "@settingsConnectedDisplaysTitle": {
+    "description": "English UI text for settingsConnectedDisplaysTitle."
+  },
+  "settingsDashboardOverlayDescription": "Position the desktop dashboard.",
+  "@settingsDashboardOverlayDescription": {
+    "description": "English UI text for settingsDashboardOverlayDescription."
+  },
+  "settingsDashboardOverlayTitle": "Dashboard",
+  "@settingsDashboardOverlayTitle": {
+    "description": "English UI text for settingsDashboardOverlayTitle."
+  },
+  "settingsDisconnect": "Disconnect",
+  "@settingsDisconnect": {
+    "description": "English UI text for settingsDisconnect."
+  },
+  "settingsDisplayBrightnessDescription": "Adjust the main display brightness.",
+  "@settingsDisplayBrightnessDescription": {
+    "description": "English UI text for settingsDisplayBrightnessDescription."
+  },
+  "settingsDisplayBrightnessTitle": "Brightness",
+  "@settingsDisplayBrightnessTitle": {
+    "description": "English UI text for settingsDisplayBrightnessTitle."
+  },
+  "settingsDisplayDetails": "{width} × {height} · {refreshRate} Hz · {scale}×",
+  "@settingsDisplayDetails": {
+    "description": "English UI text for settingsDisplayDetails.",
+    "placeholders": {
+      "width": {
+        "type": "int"
+      },
+      "height": {
+        "type": "int"
+      },
+      "refreshRate": {
+        "type": "String"
+      },
+      "scale": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsDisplayInformationUnavailable": "Display information is unavailable.",
+  "@settingsDisplayInformationUnavailable": {
+    "description": "English UI text for settingsDisplayInformationUnavailable."
+  },
+  "settingsDisplaysDescription": "Review connected outputs and control screen brightness.",
+  "@settingsDisplaysDescription": {
+    "description": "English UI text for settingsDisplaysDescription."
+  },
+  "settingsDisplaysSection": "DISPLAYS & VIDEO",
+  "@settingsDisplaysSection": {
+    "description": "English UI text for settingsDisplaysSection."
+  },
+  "settingsDisplaysTitle": "Displays and video.",
+  "@settingsDisplaysTitle": {
+    "description": "English UI text for settingsDisplaysTitle."
+  },
+  "settingsEdgeDistance": "Edge distance",
+  "@settingsEdgeDistance": {
+    "description": "English UI text for settingsEdgeDistance."
+  },
+  "settingsFocusedWindows": "Focused windows",
+  "@settingsFocusedWindows": {
+    "description": "English UI text for settingsFocusedWindows."
+  },
+  "settingsHeaderContext": "DENIAL / SYSTEM",
+  "@settingsHeaderContext": {
+    "description": "Compact product and section context shown in the Settings header."
+  },
+  "settingsHeaderLogoSemanticsLabel": "Denial",
+  "@settingsHeaderLogoSemanticsLabel": {
+    "description": "Accessibility label for the Denial wordmark in the Settings header."
+  },
+  "settingsHeight": "Height",
+  "@settingsHeight": {
+    "description": "English UI text for settingsHeight."
+  },
+  "settingsHudOverlayDescription": "Position volume and brightness feedback.",
+  "@settingsHudOverlayDescription": {
+    "description": "English UI text for settingsHudOverlayDescription."
+  },
+  "settingsHudOverlayTitle": "System level display",
+  "@settingsHudOverlayTitle": {
+    "description": "English UI text for settingsHudOverlayTitle."
+  },
+  "settingsIdleInhibitDescription": "Honor application requests that temporarily prevent display power-off.",
+  "@settingsIdleInhibitDescription": {
+    "description": "English UI text for settingsIdleInhibitDescription."
+  },
+  "settingsIdleInhibitSemantics": "Applications may keep displays awake",
+  "@settingsIdleInhibitSemantics": {
+    "description": "English UI text for settingsIdleInhibitSemantics."
+  },
+  "settingsInactivityTimeout": "Inactivity timeout",
+  "@settingsInactivityTimeout": {
+    "description": "English UI text for settingsInactivityTimeout."
+  },
+  "settingsLauncherOverlayDescription": "Position the application launcher.",
+  "@settingsLauncherOverlayDescription": {
+    "description": "English UI text for settingsLauncherOverlayDescription."
+  },
+  "settingsLauncherOverlayTitle": "Applications",
+  "@settingsLauncherOverlayTitle": {
+    "description": "English UI text for settingsLauncherOverlayTitle."
+  },
+  "settingsLayoutDescription": "Control the spacing reserved around ordinary and maximized windows.",
+  "@settingsLayoutDescription": {
+    "description": "English UI text for settingsLayoutDescription."
+  },
+  "settingsLayoutSection": "DESKTOP LAYOUT",
+  "@settingsLayoutSection": {
+    "description": "English UI text for settingsLayoutSection."
+  },
+  "settingsLayoutTitle": "Give every window room to breathe.",
+  "@settingsLayoutTitle": {
+    "description": "English UI text for settingsLayoutTitle."
+  },
+  "settingsLiveBadge": "LIVE",
+  "@settingsLiveBadge": {
+    "description": "Short uppercase status label indicating immediate application."
+  },
+  "settingsLiveChangesSemanticsLabel": "Changes are applied in real time",
+  "@settingsLiveChangesSemanticsLabel": {
+    "description": "Accessibility label for the live-change status badge."
+  },
+  "settingsLoadingAudio": "Loading application audio…",
+  "@settingsLoadingAudio": {
+    "description": "English UI text for settingsLoadingAudio."
+  },
+  "settingsLockBackdropDescription": "Control wallpaper darkness and blur while locked.",
+  "@settingsLockBackdropDescription": {
+    "description": "English UI text for settingsLockBackdropDescription."
+  },
+  "settingsLockBackdropTitle": "Backdrop",
+  "@settingsLockBackdropTitle": {
+    "description": "English UI text for settingsLockBackdropTitle."
+  },
+  "settingsLockInformationDescription": "Choose which useful details remain visible before sign-in.",
+  "@settingsLockInformationDescription": {
+    "description": "English UI text for settingsLockInformationDescription."
+  },
+  "settingsLockInformationTitle": "Desktop status",
+  "@settingsLockInformationTitle": {
+    "description": "English UI text for settingsLockInformationTitle."
+  },
+  "settingsLockMotionDescription": "Animate the desktop lock screen when it appears.",
+  "@settingsLockMotionDescription": {
+    "description": "English UI text for settingsLockMotionDescription."
+  },
+  "settingsLockMotionTitle": "Lock screen motion",
+  "@settingsLockMotionTitle": {
+    "description": "English UI text for settingsLockMotionTitle."
+  },
+  "settingsLockPreviewDate": "Thursday 23 July",
+  "@settingsLockPreviewDate": {
+    "description": "English UI text for settingsLockPreviewDate."
+  },
+  "settingsLockPreviewSemantics": "Lock screen preview",
+  "@settingsLockPreviewSemantics": {
+    "description": "English UI text for settingsLockPreviewSemantics."
+  },
+  "settingsLockPreviewStatus": "CPU 18% · GPU 12% · 52°C",
+  "@settingsLockPreviewStatus": {
+    "description": "English UI text for settingsLockPreviewStatus."
+  },
+  "settingsLockPreviewTime": "22:41",
+  "@settingsLockPreviewTime": {
+    "description": "English UI text for settingsLockPreviewTime."
+  },
+  "settingsLockScreenDescription": "The main display presents an intentional sign-in stage while secondary displays remain calm and informative.",
+  "@settingsLockScreenDescription": {
+    "description": "English UI text for settingsLockScreenDescription."
+  },
+  "settingsLockScreenSection": "LOCK SCREEN",
+  "@settingsLockScreenSection": {
+    "description": "English UI text for settingsLockScreenSection."
+  },
+  "settingsLockScreenTitle": "A desktop lock screen, not a stretched phone.",
+  "@settingsLockScreenTitle": {
+    "description": "English UI text for settingsLockScreenTitle."
+  },
+  "settingsMasterOutputDescription": "Set the current desktop output volume.",
+  "@settingsMasterOutputDescription": {
+    "description": "English UI text for settingsMasterOutputDescription."
+  },
+  "settingsMasterOutputTitle": "Master output",
+  "@settingsMasterOutputTitle": {
+    "description": "English UI text for settingsMasterOutputTitle."
+  },
+  "settingsMaximizedSpacingDescription": "Keep a small margin around maximized windows.",
+  "@settingsMaximizedSpacingDescription": {
+    "description": "English UI text for settingsMaximizedSpacingDescription."
+  },
+  "settingsMaximizedSpacingTitle": "Maximized spacing",
+  "@settingsMaximizedSpacingTitle": {
+    "description": "English UI text for settingsMaximizedSpacingTitle."
+  },
+  "settingsMinutes": "{minutes} min",
+  "@settingsMinutes": {
+    "description": "English UI text for settingsMinutes.",
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsNavigationAbout": "About",
+  "@settingsNavigationAbout": {
+    "description": "Label for the About destination in Settings navigation."
+  },
+  "settingsNavigationAnimations": "Animations",
+  "@settingsNavigationAnimations": {
+    "description": "English UI text for settingsNavigationAnimations."
+  },
+  "settingsNavigationAppearance": "Appearance",
+  "@settingsNavigationAppearance": {
+    "description": "English UI text for settingsNavigationAppearance."
+  },
+  "settingsNavigationAudio": "Audio",
+  "@settingsNavigationAudio": {
+    "description": "English UI text for settingsNavigationAudio."
+  },
+  "settingsNavigationBluetooth": "Bluetooth",
+  "@settingsNavigationBluetooth": {
+    "description": "English UI text for settingsNavigationBluetooth."
+  },
+  "settingsNavigationDesktopLayout": "Desktop layout",
+  "@settingsNavigationDesktopLayout": {
+    "description": "English UI text for settingsNavigationDesktopLayout."
+  },
+  "settingsNavigationDisplays": "Displays & video",
+  "@settingsNavigationDisplays": {
+    "description": "English UI text for settingsNavigationDisplays."
+  },
+  "settingsNavigationLockScreen": "Lock screen",
+  "@settingsNavigationLockScreen": {
+    "description": "English UI text for settingsNavigationLockScreen."
+  },
+  "settingsNavigationNetwork": "Network",
+  "@settingsNavigationNetwork": {
+    "description": "English UI text for settingsNavigationNetwork."
+  },
+  "settingsNavigationOverlays": "Overlays",
+  "@settingsNavigationOverlays": {
+    "description": "English UI text for settingsNavigationOverlays."
+  },
+  "settingsNavigationPower": "Power",
+  "@settingsNavigationPower": {
+    "description": "English UI text for settingsNavigationPower."
+  },
+  "settingsNavigationSection": "SETTINGS",
+  "@settingsNavigationSection": {
+    "description": "English UI text for settingsNavigationSection."
+  },
+  "settingsNetworkDescription": "Manage Wi-Fi and connect to nearby networks.",
+  "@settingsNetworkDescription": {
+    "description": "English UI text for settingsNetworkDescription."
+  },
+  "settingsNetworkSection": "NETWORK",
+  "@settingsNetworkSection": {
+    "description": "English UI text for settingsNetworkSection."
+  },
+  "settingsNetworkStatusCaptivePortal": "Sign-in required",
+  "@settingsNetworkStatusCaptivePortal": {
+    "description": "English UI text for settingsNetworkStatusCaptivePortal."
+  },
+  "settingsNetworkStatusConnecting": "Connecting…",
+  "@settingsNetworkStatusConnecting": {
+    "description": "English UI text for settingsNetworkStatusConnecting."
+  },
+  "settingsNetworkStatusDisabled": "Wi-Fi is off",
+  "@settingsNetworkStatusDisabled": {
+    "description": "English UI text for settingsNetworkStatusDisabled."
+  },
+  "settingsNetworkStatusDisconnected": "Disconnected",
+  "@settingsNetworkStatusDisconnected": {
+    "description": "English UI text for settingsNetworkStatusDisconnected."
+  },
+  "settingsNetworkStatusLimited": "Limited connection",
+  "@settingsNetworkStatusLimited": {
+    "description": "English UI text for settingsNetworkStatusLimited."
+  },
+  "settingsNetworkStatusLocal": "Local network only",
+  "@settingsNetworkStatusLocal": {
+    "description": "English UI text for settingsNetworkStatusLocal."
+  },
+  "settingsNetworkStatusOnline": "Online",
+  "@settingsNetworkStatusOnline": {
+    "description": "English UI text for settingsNetworkStatusOnline."
+  },
+  "settingsNetworkStatusUnavailable": "Network unavailable",
+  "@settingsNetworkStatusUnavailable": {
+    "description": "English UI text for settingsNetworkStatusUnavailable."
+  },
+  "settingsNetworkTitle": "Network connections.",
+  "@settingsNetworkTitle": {
+    "description": "English UI text for settingsNetworkTitle."
+  },
+  "settingsNetworkUnavailable": "Network controls are unavailable.",
+  "@settingsNetworkUnavailable": {
+    "description": "English UI text for settingsNetworkUnavailable."
+  },
+  "settingsNoApplicationAudio": "No applications are playing audio.",
+  "@settingsNoApplicationAudio": {
+    "description": "English UI text for settingsNoApplicationAudio."
+  },
+  "settingsNoBluetoothDevices": "No Bluetooth devices found.",
+  "@settingsNoBluetoothDevices": {
+    "description": "English UI text for settingsNoBluetoothDevices."
+  },
+  "settingsNoNetworks": "No networks found.",
+  "@settingsNoNetworks": {
+    "description": "English UI text for settingsNoNetworks."
+  },
+  "settingsNotificationOverlayDescription": "Position notification banners.",
+  "@settingsNotificationOverlayDescription": {
+    "description": "English UI text for settingsNotificationOverlayDescription."
+  },
+  "settingsNotificationOverlayTitle": "Notifications",
+  "@settingsNotificationOverlayTitle": {
+    "description": "English UI text for settingsNotificationOverlayTitle."
+  },
+  "settingsOneHour": "1 hour",
+  "@settingsOneHour": {
+    "description": "English UI text for settingsOneHour."
+  },
+  "settingsOuterPadding": "Outer padding",
+  "@settingsOuterPadding": {
+    "description": "English UI text for settingsOuterPadding."
+  },
+  "settingsOutputVolume": "Output volume",
+  "@settingsOutputVolume": {
+    "description": "English UI text for settingsOutputVolume."
+  },
+  "settingsOverlaysDescription": "Choose the position and size of launchers, notifications, and system feedback.",
+  "@settingsOverlaysDescription": {
+    "description": "English UI text for settingsOverlaysDescription."
+  },
+  "settingsOverlaysSection": "OVERLAYS",
+  "@settingsOverlaysSection": {
+    "description": "English UI text for settingsOverlaysSection."
+  },
+  "settingsOverlaysTitle": "Put shell controls where they belong.",
+  "@settingsOverlaysTitle": {
+    "description": "English UI text for settingsOverlaysTitle."
+  },
+  "settingsPaired": "Paired",
+  "@settingsPaired": {
+    "description": "English UI text for settingsPaired."
+  },
+  "settingsPanelMotionDescription": "Tune the speed and travel of launcher and dashboard transitions.",
+  "@settingsPanelMotionDescription": {
+    "description": "English UI text for settingsPanelMotionDescription."
+  },
+  "settingsPanelMotionTitle": "Panel motion",
+  "@settingsPanelMotionTitle": {
+    "description": "English UI text for settingsPanelMotionTitle."
+  },
+  "settingsPanelOpacity": "Panel opacity",
+  "@settingsPanelOpacity": {
+    "description": "English UI text for settingsPanelOpacity."
+  },
+  "settingsPanelRadius": "Panel radius",
+  "@settingsPanelRadius": {
+    "description": "English UI text for settingsPanelRadius."
+  },
+  "settingsPanelTravel": "Panel travel",
+  "@settingsPanelTravel": {
+    "description": "English UI text for settingsPanelTravel."
+  },
+  "settingsPasswordRequired": "Password required",
+  "@settingsPasswordRequired": {
+    "description": "English UI text for settingsPasswordRequired."
+  },
+  "settingsPercent": "{percent}%",
+  "@settingsPercent": {
+    "description": "English UI text for settingsPercent.",
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsPixels": "{pixels} px",
+  "@settingsPixels": {
+    "description": "English UI text for settingsPixels.",
+    "placeholders": {
+      "pixels": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsPowerDescription": "Control display timeout behavior and idle inhibition.",
+  "@settingsPowerDescription": {
+    "description": "English UI text for settingsPowerDescription."
+  },
+  "settingsPowerSection": "POWER",
+  "@settingsPowerSection": {
+    "description": "English UI text for settingsPowerSection."
+  },
+  "settingsPowerTitle": "Power that respects your workflow.",
+  "@settingsPowerTitle": {
+    "description": "English UI text for settingsPowerTitle."
+  },
+  "settingsRefresh": "Refresh",
+  "@settingsRefresh": {
+    "description": "English UI text for settingsRefresh."
+  },
+  "settingsResetPage": "Reset page",
+  "@settingsResetPage": {
+    "description": "English UI text for settingsResetPage."
+  },
+  "settingsScan": "Scan",
+  "@settingsScan": {
+    "description": "English UI text for settingsScan."
+  },
+  "settingsScanning": "Scanning…",
+  "@settingsScanning": {
+    "description": "English UI text for settingsScanning."
+  },
+  "settingsScreenAnchor": "Screen anchor",
+  "@settingsScreenAnchor": {
+    "description": "English UI text for settingsScreenAnchor."
+  },
+  "settingsShapeDescription": "Tune window and panel corner radii.",
+  "@settingsShapeDescription": {
+    "description": "English UI text for settingsShapeDescription."
+  },
+  "settingsShapeTitle": "Shape",
+  "@settingsShapeTitle": {
+    "description": "English UI text for settingsShapeTitle."
+  },
+  "settingsShellAccentChoose": "Choose accent color",
+  "@settingsShellAccentChoose": {
+    "description": "English UI text for settingsShellAccentChoose."
+  },
+  "settingsShellAccentCustom": "Custom color",
+  "@settingsShellAccentCustom": {
+    "description": "English UI text for settingsShellAccentCustom."
+  },
+  "settingsShellAccentDescription": "The accent colors focused windows, controls, and active shell surfaces.",
+  "@settingsShellAccentDescription": {
+    "description": "English UI text for settingsShellAccentDescription."
+  },
+  "settingsShellAccentTitle": "Shell accent",
+  "@settingsShellAccentTitle": {
+    "description": "English UI text for settingsShellAccentTitle."
+  },
+  "settingsShellAccentWallpaper": "From wallpaper",
+  "@settingsShellAccentWallpaper": {
+    "description": "English UI text for settingsShellAccentWallpaper."
+  },
+  "settingsShowSystemStatus": "Show performance and power status",
+  "@settingsShowSystemStatus": {
+    "description": "English UI text for settingsShowSystemStatus."
+  },
+  "settingsShowSystemStatusDescription": "Show CPU, GPU, battery, and temperature information on the desktop lock screen.",
+  "@settingsShowSystemStatusDescription": {
+    "description": "English UI text for settingsShowSystemStatusDescription."
+  },
+  "settingsSignalStrength": "Signal: {strength}%",
+  "@settingsSignalStrength": {
+    "description": "English UI text for settingsSignalStrength.",
+    "placeholders": {
+      "strength": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsStorageLocation": "Settings are stored in\n~/.config/denial/settings.json",
+  "@settingsStorageLocation": {
+    "description": "English UI text for settingsStorageLocation."
+  },
+  "settingsSystemBarCloneHint": "Each selected display gets its own bar. The bar never spans displays.",
+  "@settingsSystemBarCloneHint": {
+    "description": "Clarifies that multiple bars are cloned rather than stretched."
+  },
+  "settingsSystemBarDescription": "Place the bar on any edge and show an independent copy on every selected display.",
+  "@settingsSystemBarDescription": {
+    "description": "Explanation of system bar edge and multi-display behavior."
+  },
+  "settingsSystemBarDisplayDetails": "{width} × {height} · {scale}×",
+  "@settingsSystemBarDisplayDetails": {
+    "description": "Resolution and scale shown for one display.",
+    "placeholders": {
+      "width": {
+        "type": "int"
+      },
+      "height": {
+        "type": "int"
+      },
+      "scale": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsSystemBarDisplayNotSelectedSemantics": "System bar not shown on {displayName}",
+  "@settingsSystemBarDisplayNotSelectedSemantics": {
+    "description": "Accessibility value for an unselected system bar display.",
+    "placeholders": {
+      "displayName": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsSystemBarDisplaySelectedSemantics": "System bar shown on {displayName}",
+  "@settingsSystemBarDisplaySelectedSemantics": {
+    "description": "Accessibility value for a selected system bar display.",
+    "placeholders": {
+      "displayName": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsSystemBarDisplaysLabel": "DISPLAYS",
+  "@settingsSystemBarDisplaysLabel": {
+    "description": "Uppercase label above the system bar display choices."
+  },
+  "settingsSystemBarDisplaysSelected": "{count, plural, =1{1 display selected} other{{count} displays selected}}",
+  "@settingsSystemBarDisplaysSelected": {
+    "description": "Count of displays selected to show a system bar.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsSystemBarEdgeBottom": "Bottom",
+  "@settingsSystemBarEdgeBottom": {
+    "description": "Label for placing the system bar at the bottom edge."
+  },
+  "settingsSystemBarEdgeLabel": "EDGE",
+  "@settingsSystemBarEdgeLabel": {
+    "description": "Uppercase label above the system bar edge choices."
+  },
+  "settingsSystemBarEdgeLeft": "Left",
+  "@settingsSystemBarEdgeLeft": {
+    "description": "Label for placing the system bar at the left edge."
+  },
+  "settingsSystemBarEdgeRight": "Right",
+  "@settingsSystemBarEdgeRight": {
+    "description": "Label for placing the system bar at the right edge."
+  },
+  "settingsSystemBarEdgeTop": "Top",
+  "@settingsSystemBarEdgeTop": {
+    "description": "Label for placing the system bar at the top edge."
+  },
+  "settingsSystemBarLastDisplayHint": "Select another display before removing this one.",
+  "@settingsSystemBarLastDisplayHint": {
+    "description": "Accessibility hint explaining why the last selected display cannot be removed."
+  },
+  "settingsSystemBarMainDisplay": "MAIN",
+  "@settingsSystemBarMainDisplay": {
+    "description": "Badge identifying the compositor's main display."
+  },
+  "settingsSystemBarTitle": "Desktop system bar",
+  "@settingsSystemBarTitle": {
+    "description": "Title of the system bar placement setting."
+  },
+  "settingsSystemBarUnavailable": "Display information is not available yet.",
+  "@settingsSystemBarUnavailable": {
+    "description": "Message shown while display topology is unavailable."
+  },
+  "settingsTwoHours": "2 hours",
+  "@settingsTwoHours": {
+    "description": "English UI text for settingsTwoHours."
+  },
+  "settingsUnfocusedWindows": "Unfocused windows",
+  "@settingsUnfocusedWindows": {
+    "description": "English UI text for settingsUnfocusedWindows."
+  },
+  "settingsUseSystemWallpaper": "Use system wallpaper",
+  "@settingsUseSystemWallpaper": {
+    "description": "English UI text for settingsUseSystemWallpaper."
+  },
+  "settingsUseSystemWallpaperDescription": "The lock screen follows wallpaper changes and per-output assignments.",
+  "@settingsUseSystemWallpaperDescription": {
+    "description": "English UI text for settingsUseSystemWallpaperDescription."
+  },
+  "settingsWidth": "Width",
+  "@settingsWidth": {
+    "description": "English UI text for settingsWidth."
+  },
+  "settingsWifiEnabled": "Wi-Fi enabled",
+  "@settingsWifiEnabled": {
+    "description": "English UI text for settingsWifiEnabled."
+  },
+  "settingsWifiEnabledDescription": "Allow Denial to scan for and connect to wireless networks.",
+  "@settingsWifiEnabledDescription": {
+    "description": "English UI text for settingsWifiEnabledDescription."
+  },
+  "settingsWifiTitle": "Wi-Fi",
+  "@settingsWifiTitle": {
+    "description": "English UI text for settingsWifiTitle."
+  },
+  "settingsWindowCloseEffectDescription": "Choose the animation used when a desktop window closes.",
+  "@settingsWindowCloseEffectDescription": {
+    "description": "English UI text for settingsWindowCloseEffectDescription."
+  },
+  "settingsWindowCloseEffectTitle": "Window closing effect",
+  "@settingsWindowCloseEffectTitle": {
+    "description": "English UI text for settingsWindowCloseEffectTitle."
+  },
+  "settingsWindowOpacityDescription": "Control the opacity of focused and unfocused windows.",
+  "@settingsWindowOpacityDescription": {
+    "description": "English UI text for settingsWindowOpacityDescription."
+  },
+  "settingsWindowOpacityTitle": "Window opacity",
+  "@settingsWindowOpacityTitle": {
+    "description": "English UI text for settingsWindowOpacityTitle."
+  },
+  "settingsWindowRadius": "Window radius",
+  "@settingsWindowRadius": {
+    "description": "English UI text for settingsWindowRadius."
+  },
+  "shortDate": "{weekday} {day} {month}",
+  "@shortDate": {
+    "description": "English UI text for shortDate.",
+    "placeholders": {
+      "weekday": {
+        "type": "String"
+      },
+      "day": {
+        "type": "int"
+      },
+      "month": {
+        "type": "String"
+      }
+    }
+  },
+  "statusBarLiveTime": "{time} · LIVE",
+  "@statusBarLiveTime": {
+    "description": "English UI text for statusBarLiveTime.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "statusUnknown": "Unknown",
+  "@statusUnknown": {
+    "description": "English UI text for statusUnknown."
+  },
+  "statusWaiting": "Waiting",
+  "@statusWaiting": {
+    "description": "English UI text for statusWaiting."
+  },
+  "temperatureCelsius": "{temperature}°C",
+  "@temperatureCelsius": {
+    "description": "English UI text for temperatureCelsius.",
+    "placeholders": {
+      "temperature": {
+        "type": "int"
+      }
+    }
+  },
+  "thermalSensorCpu": "CPU",
+  "@thermalSensorCpu": {
+    "description": "English UI text for thermalSensorCpu."
+  },
+  "thermalSensorExp2": "EXP2",
+  "@thermalSensorExp2": {
+    "description": "English UI text for thermalSensorExp2."
+  },
+  "thermalSensorPmic": "PMIC",
+  "@thermalSensorPmic": {
+    "description": "English UI text for thermalSensorPmic."
+  },
+  "thermalSensorSvooc": "SVOOC",
+  "@thermalSensorSvooc": {
+    "description": "English UI text for thermalSensorSvooc."
+  },
+  "timeHoursMinutes": "{hour}:{minute}",
+  "@timeHoursMinutes": {
+    "description": "English UI text for timeHoursMinutes.",
+    "placeholders": {
+      "hour": {
+        "type": "String"
+      },
+      "minute": {
+        "type": "String"
+      }
+    }
+  },
+  "valueUnavailable": "--.-",
+  "@valueUnavailable": {
+    "description": "English UI text for valueUnavailable."
+  },
+  "voltageVolts": "{voltage} V",
+  "@voltageVolts": {
+    "description": "English UI text for voltageVolts.",
+    "placeholders": {
+      "voltage": {
+        "type": "String"
+      }
+    }
+  },
+  "volumeTitle": "Volume",
+  "@volumeTitle": {
+    "description": "English UI text for volumeTitle."
+  },
+  "wallpaperAlignBottom": "Bottom",
+  "@wallpaperAlignBottom": {
+    "description": "English UI text for wallpaperAlignBottom."
+  },
+  "wallpaperAlignHorizontalCenter": "Horizontal center",
+  "@wallpaperAlignHorizontalCenter": {
+    "description": "English UI text for wallpaperAlignHorizontalCenter."
+  },
+  "wallpaperAlignLeft": "Left",
+  "@wallpaperAlignLeft": {
+    "description": "English UI text for wallpaperAlignLeft."
+  },
+  "wallpaperAlignRight": "Right",
+  "@wallpaperAlignRight": {
+    "description": "English UI text for wallpaperAlignRight."
+  },
+  "wallpaperAlignTop": "Top",
+  "@wallpaperAlignTop": {
+    "description": "English UI text for wallpaperAlignTop."
+  },
+  "wallpaperAlignVerticalCenter": "Vertical center",
+  "@wallpaperAlignVerticalCenter": {
+    "description": "English UI text for wallpaperAlignVerticalCenter."
+  },
+  "wallpaperAllDisplays": "All displays",
+  "@wallpaperAllDisplays": {
+    "description": "English UI text for wallpaperAllDisplays."
+  },
+  "wallpaperApplyAllDisplays": "Apply to all displays",
+  "@wallpaperApplyAllDisplays": {
+    "description": "English UI text for wallpaperApplyAllDisplays."
+  },
+  "wallpaperApplyCandidate": "Apply {wallpaperName}",
+  "@wallpaperApplyCandidate": {
+    "description": "English UI text for wallpaperApplyCandidate.",
+    "placeholders": {
+      "wallpaperName": {
+        "type": "String"
+      }
+    }
+  },
+  "wallpaperApplyDisplay": "Apply to {displayName}",
+  "@wallpaperApplyDisplay": {
+    "description": "English UI text for wallpaperApplyDisplay.",
+    "placeholders": {
+      "displayName": {
+        "type": "String"
+      }
+    }
+  },
+  "wallpaperCloseSelector": "Close wallpaper selector",
+  "@wallpaperCloseSelector": {
+    "description": "English UI text for wallpaperCloseSelector."
+  },
+  "wallpaperDarkness": "Wallpaper darkness",
+  "@wallpaperDarkness": {
+    "description": "English UI text for wallpaperDarkness."
+  },
+  "wallpaperDarknessShort": "Darkness",
+  "@wallpaperDarknessShort": {
+    "description": "English UI text for wallpaperDarknessShort."
+  },
+  "wallpaperDecodeError": "This wallpaper could not be decoded.",
+  "@wallpaperDecodeError": {
+    "description": "English UI text for wallpaperDecodeError."
+  },
+  "wallpaperDefault": "Default",
+  "@wallpaperDefault": {
+    "description": "English UI text for wallpaperDefault."
+  },
+  "wallpaperDimensions": "{width} × {height}",
+  "@wallpaperDimensions": {
+    "description": "English UI text for wallpaperDimensions.",
+    "placeholders": {
+      "width": {
+        "type": "int"
+      },
+      "height": {
+        "type": "int"
+      }
+    }
+  },
+  "wallpaperFinding": "Finding wallpapers…",
+  "@wallpaperFinding": {
+    "description": "English UI text for wallpaperFinding."
+  },
+  "wallpaperNoneFound": "No wallpapers found",
+  "@wallpaperNoneFound": {
+    "description": "English UI text for wallpaperNoneFound."
+  },
+  "wallpaperSearchHint": "Search wallpapers",
+  "@wallpaperSearchHint": {
+    "description": "English UI text for wallpaperSearchHint."
+  },
+  "wallpaperSearchSemantics": "Search wallpapers",
+  "@wallpaperSearchSemantics": {
+    "description": "English UI text for wallpaperSearchSemantics."
+  },
+  "wallpaperServiceUnavailable": "Wallpaper service unavailable",
+  "@wallpaperServiceUnavailable": {
+    "description": "English UI text for wallpaperServiceUnavailable."
+  },
+  "wallpaperSpanAlignment": "Span alignment",
+  "@wallpaperSpanAlignment": {
+    "description": "English UI text for wallpaperSpanAlignment."
+  },
+  "wallpaperTarget": "Target",
+  "@wallpaperTarget": {
+    "description": "English UI text for wallpaperTarget."
+  },
+  "weekdayFriday": "Friday",
+  "@weekdayFriday": {
+    "description": "English UI text for weekdayFriday."
+  },
+  "weekdayMonday": "Monday",
+  "@weekdayMonday": {
+    "description": "English UI text for weekdayMonday."
+  },
+  "weekdaySaturday": "Saturday",
+  "@weekdaySaturday": {
+    "description": "English UI text for weekdaySaturday."
+  },
+  "weekdaySunday": "Sunday",
+  "@weekdaySunday": {
+    "description": "English UI text for weekdaySunday."
+  },
+  "weekdayThursday": "Thursday",
+  "@weekdayThursday": {
+    "description": "English UI text for weekdayThursday."
+  },
+  "weekdayTuesday": "Tuesday",
+  "@weekdayTuesday": {
+    "description": "English UI text for weekdayTuesday."
+  },
+  "weekdayWednesday": "Wednesday",
+  "@weekdayWednesday": {
+    "description": "English UI text for weekdayWednesday."
+  },
+  "wifiAuthorizationMayBeRequired": "Authorization may be required.",
+  "@wifiAuthorizationMayBeRequired": {
+    "description": "English UI text for wifiAuthorizationMayBeRequired."
+  },
+  "wifiCloseDetails": "Close Wi-Fi details",
+  "@wifiCloseDetails": {
+    "description": "English UI text for wifiCloseDetails."
+  },
+  "wifiConnectNetwork": "Connect to {networkName}, {status}, signal {strength}%",
+  "@wifiConnectNetwork": {
+    "description": "English UI text for wifiConnectNetwork.",
+    "placeholders": {
+      "networkName": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      },
+      "strength": {
+        "type": "int"
+      }
+    }
+  },
+  "wifiDisconnectNetwork": "Disconnect from {networkName}",
+  "@wifiDisconnectNetwork": {
+    "description": "English UI text for wifiDisconnectNetwork.",
+    "placeholders": {
+      "networkName": {
+        "type": "String"
+      }
+    }
+  },
+  "wifiDismissError": "Dismiss Wi-Fi error",
+  "@wifiDismissError": {
+    "description": "English UI text for wifiDismissError."
+  },
+  "wifiForgetNetwork": "Forget {networkName}",
+  "@wifiForgetNetwork": {
+    "description": "English UI text for wifiForgetNetwork.",
+    "placeholders": {
+      "networkName": {
+        "type": "String"
+      }
+    }
+  },
+  "wifiHardwareBlocked": "Wi-Fi is hardware blocked",
+  "@wifiHardwareBlocked": {
+    "description": "English UI text for wifiHardwareBlocked."
+  },
+  "wifiHardwareBlockedDescription": "Enable the wireless hardware switch to continue.",
+  "@wifiHardwareBlockedDescription": {
+    "description": "English UI text for wifiHardwareBlockedDescription."
+  },
+  "wifiHardwareDisabled": "Wi-Fi hardware disabled",
+  "@wifiHardwareDisabled": {
+    "description": "English UI text for wifiHardwareDisabled."
+  },
+  "wifiLimitedConnection": "Limited connection",
+  "@wifiLimitedConnection": {
+    "description": "English UI text for wifiLimitedConnection."
+  },
+  "wifiLoadingService": "Loading network service…",
+  "@wifiLoadingService": {
+    "description": "English UI text for wifiLoadingService."
+  },
+  "wifiLocalConnection": "Local network",
+  "@wifiLocalConnection": {
+    "description": "English UI text for wifiLocalConnection."
+  },
+  "wifiLocalOnly": "Local only",
+  "@wifiLocalOnly": {
+    "description": "English UI text for wifiLocalOnly."
+  },
+  "wifiNamedStatus": "{networkName} · {status}",
+  "@wifiNamedStatus": {
+    "description": "English UI text for wifiNamedStatus.",
+    "placeholders": {
+      "networkName": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  },
+  "wifiNoAdapter": "No Wi-Fi adapter",
+  "@wifiNoAdapter": {
+    "description": "English UI text for wifiNoAdapter."
+  },
+  "wifiNoAdapterDescription": "Wi-Fi controls will appear when an adapter is available.",
+  "@wifiNoAdapterDescription": {
+    "description": "English UI text for wifiNoAdapterDescription."
+  },
+  "wifiNoNetworks": "No networks found",
+  "@wifiNoNetworks": {
+    "description": "English UI text for wifiNoNetworks."
+  },
+  "wifiNoNetworksDescription": "Start a scan to find nearby networks.",
+  "@wifiNoNetworksDescription": {
+    "description": "English UI text for wifiNoNetworksDescription."
+  },
+  "wifiOff": "Wi-Fi is off",
+  "@wifiOff": {
+    "description": "English UI text for wifiOff."
+  },
+  "wifiOffDescription": "Turn it on to see nearby networks.",
+  "@wifiOffDescription": {
+    "description": "English UI text for wifiOffDescription."
+  },
+  "wifiOperationFailed": "Wi-Fi could not complete the request.",
+  "@wifiOperationFailed": {
+    "description": "English UI text for wifiOperationFailed."
+  },
+  "wifiPasswordField": "Password for {networkName}",
+  "@wifiPasswordField": {
+    "description": "English UI text for wifiPasswordField.",
+    "placeholders": {
+      "networkName": {
+        "type": "String"
+      }
+    }
+  },
+  "wifiPasswordFor": "Enter the password for {networkName}",
+  "@wifiPasswordFor": {
+    "description": "English UI text for wifiPasswordFor.",
+    "placeholders": {
+      "networkName": {
+        "type": "String"
+      }
+    }
+  },
+  "wifiPasswordRequirements": "Enter a password containing at least 8 characters.",
+  "@wifiPasswordRequirements": {
+    "description": "English UI text for wifiPasswordRequirements."
+  },
+  "wifiPermissionLimited": "Network permissions are limited.",
+  "@wifiPermissionLimited": {
+    "description": "English UI text for wifiPermissionLimited."
+  },
+  "wifiSavedOutOfRange": "Saved · out of range",
+  "@wifiSavedOutOfRange": {
+    "description": "English UI text for wifiSavedOutOfRange."
+  },
+  "wifiSavedWithSecurity": "Saved · {security}",
+  "@wifiSavedWithSecurity": {
+    "description": "English UI text for wifiSavedWithSecurity.",
+    "placeholders": {
+      "security": {
+        "type": "String"
+      }
+    }
+  },
+  "wifiScanNetworks": "Scan for Wi-Fi networks",
+  "@wifiScanNetworks": {
+    "description": "English UI text for wifiScanNetworks."
+  },
+  "wifiScanningDescription": "Nearby networks will appear automatically.",
+  "@wifiScanningDescription": {
+    "description": "English UI text for wifiScanningDescription."
+  },
+  "wifiScanningNetworks": "Scanning for Wi-Fi networks…",
+  "@wifiScanningNetworks": {
+    "description": "English UI text for wifiScanningNetworks."
+  },
+  "wifiSecurityEnhancedOpen": "Enhanced Open",
+  "@wifiSecurityEnhancedOpen": {
+    "description": "English UI text for wifiSecurityEnhancedOpen."
+  },
+  "wifiSecurityEnterprise": "Enterprise",
+  "@wifiSecurityEnterprise": {
+    "description": "English UI text for wifiSecurityEnterprise."
+  },
+  "wifiSecurityOpen": "Open",
+  "@wifiSecurityOpen": {
+    "description": "English UI text for wifiSecurityOpen."
+  },
+  "wifiSecurityUnsupported": "Unsupported security",
+  "@wifiSecurityUnsupported": {
+    "description": "English UI text for wifiSecurityUnsupported."
+  },
+  "wifiSecurityWep": "WEP",
+  "@wifiSecurityWep": {
+    "description": "English UI text for wifiSecurityWep."
+  },
+  "wifiSecurityWpa3Personal": "WPA3 Personal",
+  "@wifiSecurityWpa3Personal": {
+    "description": "English UI text for wifiSecurityWpa3Personal."
+  },
+  "wifiSecurityWpaPersonal": "WPA/WPA2 Personal",
+  "@wifiSecurityWpaPersonal": {
+    "description": "English UI text for wifiSecurityWpaPersonal."
+  },
+  "wifiServiceUnavailable": "NetworkManager is unavailable",
+  "@wifiServiceUnavailable": {
+    "description": "English UI text for wifiServiceUnavailable."
+  },
+  "wifiServiceUnavailableDescription": "Wi-Fi controls will return when the network service starts.",
+  "@wifiServiceUnavailableDescription": {
+    "description": "English UI text for wifiServiceUnavailableDescription."
+  },
+  "wifiServiceUnavailableShort": "Network unavailable",
+  "@wifiServiceUnavailableShort": {
+    "description": "English UI text for wifiServiceUnavailableShort."
+  },
+  "wifiSignInRequired": "Sign-in required",
+  "@wifiSignInRequired": {
+    "description": "English UI text for wifiSignInRequired."
+  },
+  "wifiTurnOff": "Turn Wi-Fi off",
+  "@wifiTurnOff": {
+    "description": "English UI text for wifiTurnOff."
+  },
+  "wifiTurnOn": "Turn Wi-Fi on",
+  "@wifiTurnOn": {
+    "description": "English UI text for wifiTurnOn."
+  },
+  "wifiWepRequirements": "WEP keys must contain between 5 and 64 characters.",
+  "@wifiWepRequirements": {
+    "description": "English UI text for wifiWepRequirements."
+  },
+  "windowSwitcherPosition": "{position} / {total}",
+  "@windowSwitcherPosition": {
+    "description": "English UI text for windowSwitcherPosition.",
+    "placeholders": {
+      "position": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "windowSwitcherSelected": "Selected {windowTitle}",
+  "@windowSwitcherSelected": {
+    "description": "English UI text for windowSwitcherSelected.",
+    "placeholders": {
+      "windowTitle": {
+        "type": "String"
+      }
+    }
+  },
+  "windowUntitled": "Window {windowId}",
+  "@windowUntitled": {
+    "description": "English UI text for windowUntitled.",
+    "placeholders": {
+      "windowId": {
+        "type": "int"
+      }
+    }
+  }
+}

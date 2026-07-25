@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly CONFIG_FILE=/etc/denial/session.conf
+readonly DEFAULT_BUNDLE=/usr/lib/denial/flutter
+readonly SYSTEM_OUTPUT_CONFIG=/etc/denial/outputs.conf
+
+die() {
+  printf 'denial-session: %s\n' "$*" >&2
+  exit 1
+}
+
+default_user_output_config() {
+  local config_home="${XDG_CONFIG_HOME:-}"
+  if [[ -z "$config_home" ]]; then
+    [[ -n "${HOME:-}" ]] \
+      || die 'HOME is unset and XDG_CONFIG_HOME was not provided'
+    config_home="$HOME/.config"
+  fi
+  [[ "$config_home" == /* ]] \
+    || die "XDG_CONFIG_HOME must be an absolute path: $config_home"
+  printf '%s/denial/outputs.conf\n' "${config_home%/}"
+}
+
+initialize_user_output_config() {
+  local target="$1"
+  local parent
+
+  if [[ ! -e "$target" && ! -L "$target" ]]; then
+    [[ -r "$SYSTEM_OUTPUT_CONFIG" ]] \
+      || die "system output configuration is unreadable: $SYSTEM_OUTPUT_CONFIG"
+    parent="$(dirname -- "$target")"
+    (
+      umask 077
+      mkdir -p -- "$parent"
+      cp -- "$SYSTEM_OUTPUT_CONFIG" "$target"
+      chmod 600 -- "$target"
+    ) || die "could not initialize per-user output configuration: $target"
+  fi
+}
+
+validate_output_config() {
+  local target="$1"
+  local parent
+
+  [[ ! -L "$target" ]] \
+    || die "output configuration must not be a symbolic link: $target"
+  [[ -f "$target" && -r "$target" ]] \
+    || die "output configuration is not a readable regular file: $target"
+  parent="$(dirname -- "$target")"
+  [[ -d "$parent" && -w "$parent" && -x "$parent" ]] \
+    || die "output configuration directory must be writable for persistent display changes: $parent"
+}
+
+card_has_connected_output() {
+  local sys_card="$1"
+  local status
+  for status in "$sys_card"-*/status; do
+    [[ -r "$status" ]] || continue
+    if [[ "$(< "$status")" == connected ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+card_device() {
+  local sys_card="$1"
+  local name="${sys_card##*/}"
+  local device="/dev/dri/$name"
+  [[ -c "$device" ]] || return 1
+  readlink -f -- "$device"
+}
+
+automatic_drm_device() {
+  local sys_card
+  local boot_vga
+
+  for sys_card in /sys/class/drm/card[0-9]*; do
+    [[ -e "$sys_card" && "${sys_card##*/}" =~ ^card[0-9]+$ ]] || continue
+    boot_vga="$sys_card/device/boot_vga"
+    if [[ -r "$boot_vga" ]] \
+      && [[ "$(< "$boot_vga")" == 1 ]] \
+      && card_has_connected_output "$sys_card"; then
+      card_device "$sys_card"
+      return
+    fi
+  done
+
+  for sys_card in /sys/class/drm/card[0-9]*; do
+    [[ -e "$sys_card" && "${sys_card##*/}" =~ ^card[0-9]+$ ]] || continue
+    if card_has_connected_output "$sys_card"; then
+      card_device "$sys_card"
+      return
+    fi
+  done
+
+  for sys_card in /sys/class/drm/card[0-9]*; do
+    [[ -e "$sys_card" && "${sys_card##*/}" =~ ^card[0-9]+$ ]] || continue
+    boot_vga="$sys_card/device/boot_vga"
+    if [[ -r "$boot_vga" ]] && [[ "$(< "$boot_vga")" == 1 ]]; then
+      card_device "$sys_card"
+      return
+    fi
+  done
+
+  for sys_card in /sys/class/drm/card[0-9]*; do
+    [[ -e "$sys_card" && "${sys_card##*/}" =~ ^card[0-9]+$ ]] || continue
+    if card_device "$sys_card"; then
+      return
+    fi
+  done
+
+  return 1
+}
+
+resolve_drm_device() {
+  local configured="${DENIAL_DRM_DEVICE:-}"
+  local resolved
+  if [[ -n "$configured" ]]; then
+    resolved="$(readlink -f -- "$configured")" \
+      || die "configured DRM device does not exist: $configured"
+    [[ -c "$resolved" ]] \
+      || die "configured DRM device is not a character device: $resolved"
+    printf '%s\n' "$resolved"
+    return
+  fi
+
+  automatic_drm_device \
+    || die 'no usable DRM card was found below /sys/class/drm'
+}
+
+if [[ -r "$CONFIG_FILE" ]]; then
+  # This is a root-owned, shell-compatible machine configuration.
+  # shellcheck source=/etc/denial/session.conf
+  source "$CONFIG_FILE"
+fi
+
+shell_profile="${DENIA_SHELL_PROFILE:-desktop}"
+case "$shell_profile" in
+  mobile | desktop) ;;
+  *) die "DENIA_SHELL_PROFILE must be mobile or desktop, got: $shell_profile" ;;
+esac
+export DENIA_SHELL_PROFILE="$shell_profile"
+
+bundle="${DENIAL_FLUTTER_BUNDLE:-$DEFAULT_BUNDLE}"
+if [[ -n "${DENIAL_OUTPUT_CONFIG:-}" ]]; then
+  output_config="$DENIAL_OUTPUT_CONFIG"
+else
+  output_config="$(default_user_output_config)"
+  initialize_user_output_config "$output_config"
+fi
+validate_output_config "$output_config"
+drm_device="$(resolve_drm_device)"
+
+[[ -x /usr/bin/deniald ]] || die 'missing /usr/bin/deniald'
+[[ -f "$bundle/data/icudtl.dat" ]] || die "missing Flutter ICU data below $bundle"
+[[ -f "$bundle/lib/libapp.so" ]] || die "missing Flutter application below $bundle"
+[[ -f "$bundle/lib/libflutter_engine.so" ]] \
+  || die "missing Flutter engine below $bundle"
+command -v Xwayland >/dev/null 2>&1 \
+  || die 'Xwayland is required for X11 applications'
+command -v uwsm >/dev/null 2>&1 \
+  || die 'UWSM is required to manage the graphical session'
+
+if [[ "${1:-}" == --check ]]; then
+  printf 'ok  %-16s %s\n' 'compositor' /usr/bin/deniald
+  printf 'ok  %-16s %s\n' 'Flutter bundle' "$bundle"
+  printf 'ok  %-16s %s\n' 'output config' "$output_config"
+  printf 'ok  %-16s %s\n' 'DRM device' "$drm_device"
+  printf 'ok  %-16s %s\n' 'shell profile' "$DENIA_SHELL_PROFILE"
+  printf 'ok  %-16s %s\n' 'Xwayland' "$(command -v Xwayland)"
+  printf 'ok  %-16s %s\n' 'UWSM' "$(command -v uwsm)"
+  exit 0
+fi
+
+[[ -z "${WAYLAND_DISPLAY:-}" ]] \
+  || die 'a Wayland compositor is already active; log out before starting Denial'
+
+unset DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE SWAYSOCK I3SOCK
+unset NO_COLOR WLR_DRM_DEVICES AQ_DRM_DEVICES
+export LIBSEAT_BACKEND="${LIBSEAT_BACKEND:-logind}"
+export DENIA_UWSM_FINALIZE=1
+export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
+export RUST_LOG="${DENIAL_RUST_LOG:-deniald=info,smithay=warn}"
+
+exec /usr/bin/deniald \
+  --device "$drm_device" \
+  --output-config "$output_config" \
+  --wayland \
+  --flutter-bundle "$bundle" \
+  "$@"

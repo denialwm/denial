@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly RUNNER_USER='denial-builder'
+readonly RUNNER_GROUP='denial-builder'
+readonly RUNNER_HOME='/var/lib/denial-builder'
+readonly RUNNER_STATE='/srv/denial-builder'
+readonly RUNNER_RELEASE_ROOT='/opt/denial-actions-runner'
+readonly ENGINE_ARTIFACT_ROOT='/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1'
+
+fail() {
+  printf 'install-host: %s\n' "$*" >&2
+  exit 1
+}
+
+if ((EUID != 0)); then
+  fail 'must run as root'
+fi
+
+if (($# != 1)); then
+  fail 'usage: install-host SOURCE_DIRECTORY'
+fi
+
+source_dir="$(readlink -f -- "$1")"
+[[ -d "$source_dir" ]] || fail "source directory does not exist: $source_dir"
+
+for source_file in \
+  runner.env \
+  denial-actions-runner-arm \
+  denial-actions-runner-cleanup \
+  denial-actions-runner.service \
+  libflutter_engine.so \
+  libflutter_engine.so.sha256; do
+  [[ -f "${source_dir}/${source_file}" ]] \
+    || fail "missing installer input: $source_file"
+done
+
+# shellcheck source=/dev/null
+source "${source_dir}/runner.env"
+
+[[ "$(uname -m)" == x86_64 ]] || fail 'host architecture must be x86_64'
+[[ -r /etc/arch-release ]] || fail 'host must be Arch Linux compatible'
+[[ "$DENIAL_ACTIONS_RUNNER_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+  || fail 'invalid runner version'
+[[ "$DENIAL_ACTIONS_RUNNER_SHA256" =~ ^[0-9a-f]{64}$ ]] \
+  || fail 'invalid runner checksum'
+[[ "$DENIAL_ACTIONS_RUNNER_FILENAME" == \
+  "actions-runner-linux-x64-${DENIAL_ACTIONS_RUNNER_VERSION}.tar.gz" ]] \
+  || fail 'runner filename and version disagree'
+[[ "$DENIAL_ACTIONS_RUNNER_URL" == \
+  "https://github.com/actions/runner/releases/download/v${DENIAL_ACTIONS_RUNNER_VERSION}/${DENIAL_ACTIONS_RUNNER_FILENAME}" ]] \
+  || fail 'runner URL is not the expected official release URL'
+(
+  cd "$source_dir"
+  sha256sum --check --strict libflutter_engine.so.sha256
+) || fail 'staged Flutter Engine does not match its pinned checksum'
+
+for required_command in \
+  awk bsdtar cmp curl getent install mktemp mv readlink runuser sha256sum \
+  systemctl useradd usermod; do
+  command -v "$required_command" >/dev/null 2>&1 \
+    || fail "missing host command: $required_command"
+done
+
+if getent passwd "$RUNNER_USER" >/dev/null; then
+  actual_home="$(getent passwd "$RUNNER_USER" | awk -F: '{print $6}')"
+  [[ "$actual_home" == "$RUNNER_HOME" ]] \
+    || fail "existing $RUNNER_USER has unexpected home: $actual_home"
+else
+  useradd \
+    --system \
+    --user-group \
+    --create-home \
+    --home-dir "$RUNNER_HOME" \
+    --shell /usr/bin/nologin \
+    "$RUNNER_USER"
+fi
+
+usermod --lock --shell /usr/bin/nologin --groups '' "$RUNNER_USER"
+chown root:"$RUNNER_GROUP" "$RUNNER_HOME"
+chmod 0750 "$RUNNER_HOME"
+
+if runuser --user "$RUNNER_USER" -- sudo -n true >/dev/null 2>&1; then
+  fail "$RUNNER_USER unexpectedly has noninteractive sudo access"
+fi
+
+install -d -m 0755 -o root -g root \
+  "$RUNNER_STATE" \
+  "${RUNNER_STATE}/artifacts" \
+  "${RUNNER_STATE}/artifacts/flutter-engine" \
+  "${RUNNER_STATE}/runner"
+install -d -m 0750 -o root -g "$RUNNER_GROUP" "$ENGINE_ARTIFACT_ROOT"
+install -d -m 0755 -o root -g root \
+  /etc/denial-builder \
+  /usr/local/libexec \
+  /usr/local/sbin \
+  "$RUNNER_RELEASE_ROOT"
+
+install -m 0644 -o root -g root \
+  "${source_dir}/runner.env" \
+  /etc/denial-builder/runner.env
+install -m 0755 -o root -g root \
+  "${source_dir}/denial-actions-runner-arm" \
+  /usr/local/sbin/denial-actions-runner-arm
+install -m 0755 -o root -g root \
+  "${source_dir}/denial-actions-runner-cleanup" \
+  /usr/local/libexec/denial-actions-runner-cleanup
+install -m 0644 -o root -g root \
+  "${source_dir}/denial-actions-runner.service" \
+  /etc/systemd/system/denial-actions-runner.service
+install -m 0640 -o root -g "$RUNNER_GROUP" \
+  "${source_dir}/libflutter_engine.so" \
+  "${source_dir}/libflutter_engine.so.sha256" \
+  "$ENGINE_ARTIFACT_ROOT/"
+
+release_dir="${RUNNER_RELEASE_ROOT}/${DENIAL_ACTIONS_RUNNER_VERSION}"
+source_record="${release_dir}/DENIAL_RUNNER_SOURCE.env"
+
+if [[ -x "${release_dir}/config.sh" ]] \
+  && cmp -s -- /etc/denial-builder/runner.env "$source_record"; then
+  printf 'Reusing verified runner release %s\n' \
+    "$DENIAL_ACTIONS_RUNNER_VERSION"
+else
+  [[ ! -e "$release_dir" ]] \
+    || fail "runner release exists but its source record is invalid: $release_dir"
+
+  download_dir="$(mktemp -d /var/tmp/denial-runner-install.XXXXXX)"
+  partial_dir="${RUNNER_RELEASE_ROOT}/.${DENIAL_ACTIONS_RUNNER_VERSION}.$$"
+
+  cleanup_download() {
+    if [[ "${download_dir:-}" == /var/tmp/denial-runner-install.* ]]; then
+      rm -rf --one-file-system -- "$download_dir"
+    fi
+    if [[ "${partial_dir:-}" == \
+      "${RUNNER_RELEASE_ROOT}/.${DENIAL_ACTIONS_RUNNER_VERSION}."* ]]; then
+      rm -rf --one-file-system -- "$partial_dir"
+    fi
+  }
+  trap cleanup_download EXIT
+
+  archive="${download_dir}/${DENIAL_ACTIONS_RUNNER_FILENAME}"
+  curl \
+    --fail \
+    --location \
+    --proto '=https' \
+    --tlsv1.2 \
+    --output "$archive" \
+    "$DENIAL_ACTIONS_RUNNER_URL"
+
+  printf '%s  %s\n' "$DENIAL_ACTIONS_RUNNER_SHA256" "$archive" \
+    | sha256sum --check --strict -
+
+  install -d -m 0755 -o root -g root "$partial_dir"
+  bsdtar --extract --file "$archive" --directory "$partial_dir"
+  install -m 0644 -o root -g root \
+    "${source_dir}/runner.env" \
+    "${partial_dir}/DENIAL_RUNNER_SOURCE.env"
+  chown -R root:root "$partial_dir"
+  chmod -R go-w "$partial_dir"
+  mv -- "$partial_dir" "$release_dir"
+  partial_dir=''
+
+  cleanup_download
+  trap - EXIT
+fi
+
+systemctl daemon-reload
+
+enabled_state="$(
+  systemctl is-enabled denial-actions-runner.service 2>/dev/null || true
+)"
+[[ "$enabled_state" == static ]] \
+  || fail "runner service must remain static, got: ${enabled_state:-unknown}"
+
+/usr/local/libexec/denial-actions-runner-cleanup
+install -d -m 0755 -o root -g root \
+  "${RUNNER_STATE}/runner/current"
+ln -s /usr/bin/true "${RUNNER_STATE}/runner/current/run.sh"
+trap /usr/local/libexec/denial-actions-runner-cleanup EXIT
+systemd-analyze verify /etc/systemd/system/denial-actions-runner.service
+/usr/local/libexec/denial-actions-runner-cleanup
+trap - EXIT
+
+printf '%s\n' \
+  'Denial runner host installed.' \
+  'The service is static and no runner is registered.' \
+  'Use tools/denial-builder arm from the trusted operator workstation.'

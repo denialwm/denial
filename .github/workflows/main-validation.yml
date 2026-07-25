@@ -1,0 +1,352 @@
+name: Validate Denial main
+run-name: Validate main at ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: denial-main-validation-x86_64
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and test x86-64 production candidate
+    if: github.ref == 'refs/heads/main'
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - denial-builder
+    timeout-minutes: 240
+
+    steps:
+      - name: Require a fresh runner workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s dotglob nullglob
+          entries=(*)
+          if ((${#entries[@]} != 0)); then
+            printf 'Refusing reused workspace: %s\n' "$GITHUB_WORKSPACE" >&2
+            exit 1
+          fi
+
+      - name: Define isolated build paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
+          {
+            printf 'XDG_CACHE_HOME=%s\n' "$cache_home"
+            printf 'DENIAL_PC_DEPENDENCY_ROOT=%s\n' \
+              "$cache_home/denial/pc-dependencies"
+            printf 'DENIAL_PC_ENGINE_SOURCE=%s\n' \
+              '/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/libflutter_engine.so'
+            printf 'EVIDENCE_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-main-evidence"
+            printf 'CANDIDATE_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-main-candidate"
+            printf 'DENIAL_PC_PACKAGE_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-main-packages"
+            printf 'DENIAL_PC_MAKEPKG_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-main-makepkg"
+            printf 'DENIAL_PC_PACKAGE_INPUT_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-main-package-input"
+          } >>"$GITHUB_ENV"
+
+      - name: Check out the exact pushed commit
+        shell: bash
+        env:
+          DENIAL_CHECKOUT_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.sha }}
+          REPOSITORY_NAME: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          askpass="$RUNNER_TEMP/denial-git-askpass"
+          trap 'rm -f -- "$askpass"' EXIT
+          umask 077
+          # The parameter expansions below are literal askpass-script source.
+          # shellcheck disable=SC2016
+          printf '%s\n' \
+            '#!/usr/bin/env bash' \
+            'set -euo pipefail' \
+            'case "${1:-}" in' \
+            '  *Username*) printf "%s\n" x-access-token ;;' \
+            '  *Password*) printf "%s\n" "${DENIAL_CHECKOUT_TOKEN:?}" ;;' \
+            '  *) exit 1 ;;' \
+            'esac' \
+            >"$askpass"
+          chmod 0700 "$askpass"
+
+          git init --initial-branch=detached .
+          git remote add origin "https://github.com/${REPOSITORY_NAME}.git"
+          GIT_ASKPASS="$askpass" \
+          GIT_ASKPASS_REQUIRE=force \
+          GIT_TERMINAL_PROMPT=0 \
+          git -c protocol.version=2 fetch \
+            --no-tags \
+            origin \
+            "$EXPECTED_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Audit source and builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 0755 "$EVIDENCE_ROOT"
+          actionlint 2>&1 | tee "$EVIDENCE_ROOT/actionlint.txt"
+          tools/denial-release source-audit \
+            2>&1 | tee "$EVIDENCE_ROOT/source-audit.txt"
+          tools/denial-release doctor --ci \
+            2>&1 | tee "$EVIDENCE_ROOT/builder-doctor.txt"
+
+      - name: Bootstrap pinned development toolchains
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/denial-pc bootstrap \
+            2>&1 | tee "$EVIDENCE_ROOT/bootstrap.txt"
+
+      - name: Build Flutter integration-test bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/denial-pc bundle \
+            2>&1 | tee "$EVIDENCE_ROOT/integration-test-bundle.txt"
+
+      - name: Run compositor and Flutter tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/denial-pc test \
+            2>&1 | tee "$EVIDENCE_ROOT/compositor-tests.txt"
+          (
+            cd dart_shell
+            "$DENIAL_PC_DEPENDENCY_ROOT/flutter/bin/flutter" test
+          ) 2>&1 | tee "$EVIDENCE_ROOT/flutter-tests.txt"
+
+      - name: Build candidate packages
+        shell: bash
+        env:
+          DENIAL_PACKAGE_PACKAGER: Doctor Logix <doctor.logix@gmail.com>
+          DENIAL_PACKAGE_RELEASE: "1"
+          DENIAL_REBUILD_ENGINE_PACKAGE: "1"
+        run: |
+          set -euo pipefail
+          TIMEFORMAT=$'real_seconds=%3R\nuser_seconds=%3U\nsystem_seconds=%3S\ncpu_percent=%P'
+          {
+            time tools/denial-pc arch-package
+          } 2>&1 | tee "$EVIDENCE_ROOT/package-build.txt"
+
+      - name: Assemble candidate and build evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_root="$DENIAL_PC_PACKAGE_ROOT"
+          install -d -m 0755 \
+            "$CANDIDATE_ROOT/packages" \
+            "$CANDIDATE_ROOT/evidence/package-metadata"
+          cp -a -- "$EVIDENCE_ROOT/." "$CANDIDATE_ROOT/evidence/"
+
+          mapfile -d '' packages < <(
+            find "$package_root" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.pkg.tar.zst' \
+              -print0 \
+              | sort -z
+          )
+          if ((${#packages[@]} != 2)); then
+            printf 'Expected two packages, found %d\n' "${#packages[@]}" >&2
+            exit 1
+          fi
+          cp --reflink=auto -- "${packages[@]}" "$CANDIDATE_ROOT/packages/"
+
+          for package in "${packages[@]}"; do
+            package_name="$(basename -- "$package")"
+            bsdtar -xOf "$package" .PKGINFO \
+              >"$CANDIDATE_ROOT/evidence/package-metadata/${package_name}.PKGINFO"
+            bsdtar -xOf "$package" .BUILDINFO \
+              >"$CANDIDATE_ROOT/evidence/package-metadata/${package_name}.BUILDINFO"
+          done
+
+          {
+            printf 'artifact_class=main-production-candidate\n'
+            printf 'publication_authorized=false\n'
+            printf 'signature_status=unsigned\n'
+            printf 'source_commit=%s\n' "$GITHUB_SHA"
+            printf 'source_ref=%s\n' "$GITHUB_REF"
+            printf 'workflow_run=%s\n' "$GITHUB_RUN_ID"
+            printf 'workflow_attempt=%s\n' "$GITHUB_RUN_ATTEMPT"
+            printf 'workflow_event=%s\n' "$GITHUB_EVENT_NAME"
+            printf 'runner_name=%s\n' "$RUNNER_NAME"
+            printf 'runner_os=%s\n' "$RUNNER_OS"
+            printf 'runner_arch=%s\n' "$RUNNER_ARCH"
+            printf 'logical_cpus=%s\n' "$(nproc)"
+            printf 'rust_build_jobs=%s\n' "${DENIAL_BUILD_JOBS:-$(nproc)}"
+            printf 'created_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            uname -a
+          } >"$CANDIDATE_ROOT/evidence/provenance.txt"
+          cat >"$CANDIDATE_ROOT/NOTICE.txt" <<'EOF'
+          This is an unsigned production candidate built from remote main.
+          It is a validation artifact, not a published Denial release.
+          A release requires a separately signed version tag and the release workflow.
+          EOF
+          pacman -Q >"$CANDIDATE_ROOT/evidence/host-packages.txt"
+          (
+            cd compositor
+            rustc -vV
+          ) >"$CANDIDATE_ROOT/evidence/rustc.txt"
+          "$DENIAL_PC_DEPENDENCY_ROOT/flutter/bin/flutter" \
+            --version \
+            >"$CANDIDATE_ROOT/evidence/flutter.txt"
+
+          (
+            cd "$CANDIDATE_ROOT/packages"
+            sha256sum -- *.pkg.tar.zst >SHA256SUMS
+            sha256sum --check --strict SHA256SUMS
+          )
+          namcap "$CANDIDATE_ROOT"/packages/*.pkg.tar.zst \
+            2>&1 | tee "$CANDIDATE_ROOT/evidence/namcap.txt"
+
+      - name: Upload main production candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denial-main-validated-candidate-${{ github.run_id }}
+          path: ${{ runner.temp }}/denial-main-candidate
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  verify:
+    name: Independently verify candidate artifact
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container:
+      image: archlinux:base-devel
+
+    steps:
+      - name: Install verification tools
+        shell: bash
+        run: pacman -Syu --needed --noconfirm git
+
+      - name: Check out the exact candidate source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify source checkout
+        shell: bash
+        run: |
+          test "$(
+            git -c safe.directory="$GITHUB_WORKSPACE" rev-parse HEAD
+          )" = "$GITHUB_SHA"
+
+      - name: Download candidate artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: denial-main-validated-candidate-${{ github.run_id }}
+          path: ${{ runner.temp }}/denial-main-candidate
+
+      - name: Verify provenance and package contents
+        shell: bash
+        env:
+          CANDIDATE_ROOT: ${{ runner.temp }}/denial-main-candidate
+        run: |
+          set -euo pipefail
+          provenance="$CANDIDATE_ROOT/evidence/provenance.txt"
+          test -f "$CANDIDATE_ROOT/NOTICE.txt"
+          grep -Fxq 'artifact_class=main-production-candidate' "$provenance"
+          grep -Fxq 'publication_authorized=false' "$provenance"
+          grep -Fxq 'signature_status=unsigned' "$provenance"
+          grep -Fxq "source_commit=$GITHUB_SHA" "$provenance"
+          grep -Fxq 'source_ref=refs/heads/main' "$provenance"
+
+          mapfile -d '' packages < <(
+            find "$CANDIDATE_ROOT/packages" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.pkg.tar.zst' \
+              -print0 \
+              | sort -z
+          )
+          if ((${#packages[@]} != 2)); then
+            printf 'Expected two candidate packages, found %d\n' \
+              "${#packages[@]}" >&2
+            exit 1
+          fi
+          (
+            cd "$CANDIDATE_ROOT/packages"
+            sha256sum --check --strict SHA256SUMS
+          )
+
+          denial_packages=0
+          engine_packages=0
+          for package in "${packages[@]}"; do
+            package_info="$(bsdtar -xOf "$package" .PKGINFO)"
+            package_name="$(
+              sed -n 's/^pkgname = //p' <<<"$package_info"
+            )"
+            package_version="$(
+              sed -n 's/^pkgver = //p' <<<"$package_info"
+            )"
+            package_arch="$(
+              sed -n 's/^arch = //p' <<<"$package_info"
+            )"
+            test "$package_arch" = x86_64
+            [[ "$package_version" != *dirty* ]]
+
+            mtree="$(bsdtar -xOf "$package" .MTREE | gzip -dc)"
+            grep -Eq '^/set .*uid=0 .*gid=0' <<<"$mtree"
+            if grep -Eq '(^| )(uid|gid)=[1-9][0-9]*' <<<"$mtree"; then
+              printf 'Package contains a non-root owner: %s\n' \
+                "$package" >&2
+              exit 1
+            fi
+
+            case "$package_name" in
+              denial)
+                denial_packages=$((denial_packages + 1))
+                grep -Fxq \
+                  'depend = denial-flutter-engine-abi=3.44.7.denial1' \
+                  <<<"$package_info"
+                bsdtar -tf "$package" \
+                  | grep -Fxq usr/bin/deniald
+                bsdtar -tf "$package" \
+                  | grep -Fxq usr/lib/denial/flutter/lib/libapp.so
+                ;;
+              denial-flutter-engine)
+                engine_packages=$((engine_packages + 1))
+                test "$package_version" = 3.44.7.denial1-1
+                bsdtar -tf "$package" \
+                  | grep -Fxq \
+                    usr/lib/denial/flutter/lib/libflutter_engine.so
+                bsdtar -tf "$package" \
+                  | grep -Fxq usr/lib/denial/flutter/data/icudtl.dat
+                ;;
+              *)
+                printf 'Unexpected package name: %s\n' "$package_name" >&2
+                exit 1
+                ;;
+            esac
+          done
+          test "$denial_packages" -eq 1
+          test "$engine_packages" -eq 1
+
+      - name: Record validation result
+        shell: bash
+        run: |
+          printf '%s\n' \
+            'The main production candidate passed independent verification.' \
+            'It remains unsigned and cannot be published as a release.'

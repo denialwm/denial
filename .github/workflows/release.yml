@@ -1,0 +1,534 @@
+name: Publish signed Denial public alpha
+run-name: Publish ${{ github.ref_name }} from ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: denial-public-release-x86_64
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build unsigned x86-64 release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - denial-builder
+    timeout-minutes: 240
+    outputs:
+      release_tag: ${{ steps.resolve.outputs.release_tag }}
+      release_version: ${{ steps.resolve.outputs.release_version }}
+      source_sha: ${{ steps.resolve.outputs.source_sha }}
+
+    steps:
+      - name: Require a fresh runner workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s dotglob nullglob
+          entries=(*)
+          if ((${#entries[@]} != 0)); then
+            printf 'Refusing reused workspace: %s\n' "$GITHUB_WORKSPACE" >&2
+            exit 1
+          fi
+
+      - name: Define isolated build paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
+          {
+            printf 'XDG_CACHE_HOME=%s\n' "$cache_home"
+            printf 'DENIAL_PC_DEPENDENCY_ROOT=%s\n' \
+              "$cache_home/denial/pc-dependencies"
+            printf 'DENIAL_PC_ENGINE_SOURCE=%s\n' \
+              '/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/libflutter_engine.so'
+            printf 'EVIDENCE_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-release-evidence"
+            printf 'UNSIGNED_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-release-unsigned"
+            printf 'DENIAL_PC_PACKAGE_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-release-packages"
+            printf 'DENIAL_PC_MAKEPKG_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-release-makepkg"
+            printf 'DENIAL_PC_PACKAGE_INPUT_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-release-package-input"
+          } >>"$GITHUB_ENV"
+
+      - name: Check out and verify the signed version tag
+        id: resolve
+        shell: bash
+        env:
+          DENIAL_CHECKOUT_TOKEN: ${{ github.token }}
+          EXPECTED_FINGERPRINT: ${{ vars.DENIAL_RELEASE_SIGNING_FINGERPRINT }}
+          EXPECTED_GITHUB_SHA: ${{ github.sha }}
+          RELEASE_REF: ${{ github.ref }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY_NAME: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_REF" == "refs/tags/$RELEASE_TAG" ]]
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$EXPECTED_FINGERPRINT" =~ ^[0-9A-F]{40,64}$ ]]
+
+          askpass="$RUNNER_TEMP/denial-git-askpass"
+          tag_gnupg="$RUNNER_TEMP/denial-release-tag-gnupg"
+          cleanup() {
+            gpgconf --homedir "$tag_gnupg" --kill all >/dev/null 2>&1 || true
+            rm -f -- "$askpass"
+            if [[ "$tag_gnupg" == "$RUNNER_TEMP/denial-release-tag-gnupg" ]]; then
+              rm -rf --one-file-system -- "$tag_gnupg"
+            fi
+          }
+          trap cleanup EXIT
+
+          umask 077
+          # The parameter expansions below are literal askpass-script source.
+          # shellcheck disable=SC2016
+          printf '%s\n' \
+            '#!/usr/bin/env bash' \
+            'set -euo pipefail' \
+            'case "${1:-}" in' \
+            '  *Username*) printf "%s\n" x-access-token ;;' \
+            '  *Password*) printf "%s\n" "${DENIAL_CHECKOUT_TOKEN:?}" ;;' \
+            '  *) exit 1 ;;' \
+            'esac' \
+            >"$askpass"
+          chmod 0700 "$askpass"
+
+          git init --initial-branch=detached .
+          git remote add origin "https://github.com/${REPOSITORY_NAME}.git"
+          GIT_ASKPASS="$askpass" \
+          GIT_ASKPASS_REQUIRE=force \
+          GIT_TERMINAL_PROMPT=0 \
+          git -c protocol.version=2 fetch \
+            --no-tags \
+            origin \
+            "+refs/heads/main:refs/remotes/origin/main" \
+            "+refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+
+          tag_object="$(git rev-parse "$RELEASE_TAG")"
+          source_sha="$(git rev-parse "${RELEASE_TAG}^{commit}")"
+          if [[ "$EXPECTED_GITHUB_SHA" != "$source_sha" \
+            && "$EXPECTED_GITHUB_SHA" != "$tag_object" ]]; then
+            printf \
+              'GitHub SHA %s is neither tag object %s nor source commit %s\n' \
+              "$EXPECTED_GITHUB_SHA" "$tag_object" "$source_sha" >&2
+            exit 1
+          fi
+          git merge-base --is-ancestor "$source_sha" refs/remotes/origin/main
+          git checkout --detach "$source_sha"
+
+          install -d -m 0700 "$tag_gnupg"
+          actual_fingerprint="$(
+            GNUPGHOME="$tag_gnupg" \
+              gpg \
+                --batch \
+                --show-keys \
+                --with-colons \
+                --fingerprint \
+                packaging/arch/denial-repo-key.asc \
+              | awk -F: '$1 == "fpr" { print toupper($10); exit }'
+          )"
+          [[ "$actual_fingerprint" == "$EXPECTED_FINGERPRINT" ]]
+          GNUPGHOME="$tag_gnupg" \
+            gpg --batch --import packaging/arch/denial-repo-key.asc
+          GNUPGHOME="$tag_gnupg" \
+            git -c gpg.program=gpg verify-tag "$RELEASE_TAG"
+
+          release_version="${RELEASE_TAG#v}"
+          {
+            printf 'DENIAL_RELEASE_TAG=%s\n' "$RELEASE_TAG"
+            printf 'RELEASE_TAG=%s\n' "$RELEASE_TAG"
+            printf 'RELEASE_VERSION=%s\n' "$release_version"
+            printf 'SOURCE_SHA=%s\n' "$source_sha"
+          } >>"$GITHUB_ENV"
+          {
+            printf 'release_tag=%s\n' "$RELEASE_TAG"
+            printf 'release_version=%s\n' "$release_version"
+            printf 'source_sha=%s\n' "$source_sha"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Audit source and builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 0755 "$EVIDENCE_ROOT"
+          actionlint 2>&1 | tee "$EVIDENCE_ROOT/actionlint.txt"
+          tools/denial-release source-audit \
+            --public-alpha "$RELEASE_TAG" \
+            2>&1 | tee "$EVIDENCE_ROOT/source-audit.txt"
+          tools/denial-release doctor \
+            --ci \
+            --release-tag "$RELEASE_TAG" \
+            2>&1 | tee "$EVIDENCE_ROOT/builder-doctor.txt"
+
+      - name: Bootstrap pinned development toolchains
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/denial-pc bootstrap \
+            2>&1 | tee "$EVIDENCE_ROOT/bootstrap.txt"
+
+      - name: Build Flutter integration-test bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/denial-pc bundle \
+            2>&1 | tee "$EVIDENCE_ROOT/integration-test-bundle.txt"
+
+      - name: Run compositor and Flutter tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/denial-pc test \
+            2>&1 | tee "$EVIDENCE_ROOT/compositor-tests.txt"
+          (
+            cd dart_shell
+            "$DENIAL_PC_DEPENDENCY_ROOT/flutter/bin/flutter" test
+          ) 2>&1 | tee "$EVIDENCE_ROOT/flutter-tests.txt"
+
+      - name: Build versioned release packages
+        shell: bash
+        env:
+          DENIAL_PACKAGE_PACKAGER: Doctor Logix <doctor.logix@gmail.com>
+          DENIAL_PACKAGE_RELEASE: "1"
+          DENIAL_REBUILD_ENGINE_PACKAGE: "1"
+        run: |
+          set -euo pipefail
+          TIMEFORMAT=$'real_seconds=%3R\nuser_seconds=%3U\nsystem_seconds=%3S\ncpu_percent=%P'
+          {
+            time tools/denial-pc arch-package
+          } 2>&1 | tee "$EVIDENCE_ROOT/package-build.txt"
+
+      - name: Assemble unsigned build evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_root="$DENIAL_PC_PACKAGE_ROOT"
+          install -d -m 0755 \
+            "$UNSIGNED_ROOT/packages" \
+            "$UNSIGNED_ROOT/evidence/package-metadata"
+          cp -a -- "$EVIDENCE_ROOT/." "$UNSIGNED_ROOT/evidence/"
+
+          mapfile -d '' packages < <(
+            find "$package_root" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.pkg.tar.zst' \
+              -print0 \
+              | sort -z
+          )
+          if ((${#packages[@]} != 2)); then
+            printf 'Expected two packages, found %d\n' "${#packages[@]}" >&2
+            exit 1
+          fi
+          cp --reflink=auto -- "${packages[@]}" "$UNSIGNED_ROOT/packages/"
+
+          for package in "${packages[@]}"; do
+            package_name="$(basename -- "$package")"
+            bsdtar -xOf "$package" .PKGINFO \
+              >"$UNSIGNED_ROOT/evidence/package-metadata/${package_name}.PKGINFO"
+            bsdtar -xOf "$package" .BUILDINFO \
+              >"$UNSIGNED_ROOT/evidence/package-metadata/${package_name}.BUILDINFO"
+          done
+
+          {
+            printf 'public_alpha=true\n'
+            printf 'release_tag=%s\n' "$RELEASE_TAG"
+            printf 'source_commit=%s\n' "$SOURCE_SHA"
+            printf 'workflow_run=%s\n' "$GITHUB_RUN_ID"
+            printf 'workflow_attempt=%s\n' "$GITHUB_RUN_ATTEMPT"
+            printf 'runner_name=%s\n' "$RUNNER_NAME"
+            printf 'runner_os=%s\n' "$RUNNER_OS"
+            printf 'runner_arch=%s\n' "$RUNNER_ARCH"
+            printf 'logical_cpus=%s\n' "$(nproc)"
+            printf 'rust_build_jobs=%s\n' "${DENIAL_BUILD_JOBS:-$(nproc)}"
+            printf 'created_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            uname -a
+          } >"$UNSIGNED_ROOT/evidence/provenance.txt"
+          pacman -Q >"$UNSIGNED_ROOT/evidence/host-packages.txt"
+          (
+            cd compositor
+            rustc -vV
+          ) >"$UNSIGNED_ROOT/evidence/rustc.txt"
+          "$DENIAL_PC_DEPENDENCY_ROOT/flutter/bin/flutter" \
+            --version \
+            >"$UNSIGNED_ROOT/evidence/flutter.txt"
+
+          (
+            cd "$UNSIGNED_ROOT/packages"
+            sha256sum -- *.pkg.tar.zst >SHA256SUMS
+            sha256sum --check --strict SHA256SUMS
+          )
+          namcap "$UNSIGNED_ROOT"/packages/*.pkg.tar.zst \
+            2>&1 | tee "$UNSIGNED_ROOT/evidence/namcap.txt"
+
+      - name: Upload unsigned release handoff
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denial-release-unsigned-${{ github.run_id }}
+          path: ${{ runner.temp }}/denial-release-unsigned
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  sign:
+    name: Sign and verify release repository
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release-signing
+    container:
+      image: archlinux:base-devel
+
+    steps:
+      - name: Define isolated signing paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            printf 'GNUPGHOME=%s\n' \
+              "$RUNNER_TEMP/denial-release-gnupg"
+            printf 'SIGNED_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-release-signed"
+            printf 'UNSIGNED_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-release-unsigned"
+          } >>"$GITHUB_ENV"
+
+      - name: Install Arch checkout and signing tools
+        shell: bash
+        run: pacman -Syu --needed --noconfirm git gnupg
+
+      - name: Check out the exact signed source commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.build.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify signing checkout
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          test "$(
+            git -c safe.directory="$GITHUB_WORKSPACE" rev-parse HEAD
+          )" = "$EXPECTED_SHA"
+
+      - name: Download unsigned handoff
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: denial-release-unsigned-${{ github.run_id }}
+          path: ${{ runner.temp }}/denial-release-unsigned
+
+      - name: Import release-signing subkey
+        shell: bash
+        env:
+          DENIAL_RELEASE_SIGNING_KEY: ${{ secrets.DENIAL_RELEASE_SIGNING_KEY }}
+          EXPECTED_FINGERPRINT: ${{ vars.DENIAL_RELEASE_SIGNING_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_FINGERPRINT" =~ ^[0-9A-F]{40,64}$ ]]
+          test -n "$DENIAL_RELEASE_SIGNING_KEY"
+          install -d -m 0700 "$GNUPGHOME"
+          printf '%s' "$DENIAL_RELEASE_SIGNING_KEY" \
+            | gpg --batch --import
+          actual_fingerprint="$(
+            gpg \
+              --batch \
+              --with-colons \
+              --fingerprint \
+              --list-secret-keys \
+              "$EXPECTED_FINGERPRINT" \
+              | awk -F: '$1 == "fpr" { print toupper($10); exit }'
+          )"
+          test "$actual_fingerprint" = "$EXPECTED_FINGERPRINT"
+
+      - name: Sign packages and repository databases
+        shell: bash
+        env:
+          DENIAL_RELEASE_SIGNING_PASSPHRASE: ${{ secrets.DENIAL_RELEASE_SIGNING_PASSPHRASE }}
+          DENIAL_RELEASE_SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+          DENIAL_RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+          DENIAL_RELEASE_WORKFLOW_RUN: ${{ github.run_id }}
+          EXPECTED_FINGERPRINT: ${{ vars.DENIAL_RELEASE_SIGNING_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          tools/denial-repository \
+            "$UNSIGNED_ROOT" \
+            "$SIGNED_ROOT" \
+            "$EXPECTED_FINGERPRINT"
+
+      - name: Upload signed release repository
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denial-release-signed-${{ github.run_id }}
+          path: ${{ runner.temp }}/denial-release-signed
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Erase imported release key
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          gpgconf --kill all >/dev/null 2>&1 || true
+          if [[ "$GNUPGHOME" == "$RUNNER_TEMP/denial-release-gnupg" ]]; then
+            rm -rf --one-file-system -- "$GNUPGHOME"
+          fi
+
+  publish:
+    name: Publish GitHub Release and Pacman repository
+    needs:
+      - build
+      - sign
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Define publication paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            printf 'GNUPGHOME=%s\n' \
+              "$RUNNER_TEMP/denial-release-verification-gnupg"
+            printf 'SIGNED_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-release-signed"
+          } >>"$GITHUB_ENV"
+
+      - name: Download signed repository
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: denial-release-signed-${{ github.run_id }}
+          path: ${{ runner.temp }}/denial-release-signed
+
+      - name: Independently verify publication input
+        shell: bash
+        env:
+          EXPECTED_FINGERPRINT: ${{ vars.DENIAL_RELEASE_SIGNING_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$GNUPGHOME"
+          actual_fingerprint="$(
+            gpg \
+              --batch \
+              --show-keys \
+              --with-colons \
+              --fingerprint \
+              "$SIGNED_ROOT/denial-repo-key.asc" \
+              | awk -F: '$1 == "fpr" { print toupper($10); exit }'
+          )"
+          test "$actual_fingerprint" = "$EXPECTED_FINGERPRINT"
+          gpg --batch --import "$SIGNED_ROOT/denial-repo-key.asc"
+          if gpg --batch --list-secret-keys 2>/dev/null | grep -q .; then
+            printf 'Publication input unexpectedly contains a secret key\n' >&2
+            exit 1
+          fi
+          (
+            cd "$SIGNED_ROOT"
+            sha256sum --check --strict SHA256SUMS
+            gpg --batch --verify SHA256SUMS.sig SHA256SUMS
+          )
+          for signed_file in \
+            "$SIGNED_ROOT"/x86_64/*.pkg.tar.zst \
+            "$SIGNED_ROOT"/x86_64/denial.db.tar.zst \
+            "$SIGNED_ROOT"/x86_64/denial.files.tar.zst; do
+            gpg --batch --verify "${signed_file}.sig" "$signed_file"
+          done
+          test -z "$(
+            find "$SIGNED_ROOT" ! -type d ! -type f -print -quit
+          )"
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+
+      - name: Upload complete Pages artifact
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: ${{ runner.temp }}/denial-release-signed
+
+      - name: Create draft GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.build.outputs.release_version }}
+          REPOSITORY_NAME: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if gh release view \
+            "$RELEASE_TAG" \
+            --repo "$REPOSITORY_NAME" \
+            >/dev/null 2>&1; then
+            printf 'Release already exists: %s\n' "$RELEASE_TAG" >&2
+            exit 1
+          fi
+
+          evidence_archive="$RUNNER_TEMP/denial-${RELEASE_VERSION}-release-evidence.tar.gz"
+          tar -czf "$evidence_archive" -C "$SIGNED_ROOT" .
+          mapfile -d '' repository_assets < <(
+            find "$SIGNED_ROOT/x86_64" \
+              -maxdepth 1 \
+              -type f \
+              -print0 \
+              | sort -z
+          )
+          gh release create \
+            "$RELEASE_TAG" \
+            --repo "$REPOSITORY_NAME" \
+            --verify-tag \
+            --draft \
+            --prerelease \
+            --title "Denial ${RELEASE_VERSION} public alpha" \
+            --notes-file "$SIGNED_ROOT/RELEASE-NOTES.md" \
+            "${repository_assets[@]}" \
+            "$SIGNED_ROOT/denial-repo-key.asc" \
+            "$SIGNED_ROOT/RELEASE-METADATA.txt" \
+            "$SIGNED_ROOT/SHA256SUMS" \
+            "$SIGNED_ROOT/SHA256SUMS.sig" \
+            "$evidence_archive"
+
+      - name: Deploy Pacman repository to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+          REPOSITORY_NAME: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release edit \
+            "$RELEASE_TAG" \
+            --repo "$REPOSITORY_NAME" \
+            --draft=false \
+            --prerelease
+
+      - name: Erase verification keyring
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          gpgconf --kill all >/dev/null 2>&1 || true
+          if [[ "$GNUPGHOME" == \
+            "$RUNNER_TEMP/denial-release-verification-gnupg" ]]; then
+            rm -rf --one-file-system -- "$GNUPGHOME"
+          fi

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Denial (development)
+Comment=Denial Rust compositor from the local development checkout
+Exec=uwsm start -e -D Denial @LAUNCHER@ session
+TryExec=uwsm
+Type=Application
+DesktopNames=Denial
+Keywords=wayland;compositor;flutter;rust;
+X-Denial-Launcher=@LAUNCHER@

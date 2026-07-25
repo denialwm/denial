@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+PACKAGE_CONFIG="$ROOT/dart_shell/.dart_tool/package_config.json"
+
+if [[ ! -f "$PACKAGE_CONFIG" ]]; then
+    printf 'notification-test-client: missing %s; build the Dart bundle first\n' "$PACKAGE_CONFIG" >&2
+    exit 1
+fi
+
+exec dart \
+    --packages="$PACKAGE_CONFIG" \
+    "$ROOT/dart_shell/tool/notification_test_client.dart" \
+    "$@"

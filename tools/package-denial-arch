@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+CACHE_ROOT="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
+BUILD_ROOT="${DENIAL_PC_BUILD_ROOT:-$CACHE_ROOT/denial/pc-build}"
+RUST_TARGET="${DENIAL_PC_RUST_TARGET:-$BUILD_ROOT/rust}"
+BINARY="${DENIAL_PC_BINARY:-$RUST_TARGET/release/deniald}"
+PACKAGE_ROOT="${DENIAL_PC_PACKAGE_ROOT:-$BUILD_ROOT/packages}"
+MAKEPKG_ROOT="${DENIAL_PC_MAKEPKG_ROOT:-$BUILD_ROOT/makepkg}"
+PACKAGE_INPUT_ROOT="${DENIAL_PC_PACKAGE_INPUT_ROOT:-$BUILD_ROOT/package-input}"
+BUNDLE="${DENIAL_PC_BUNDLE:-$PACKAGE_INPUT_ROOT/bundle}"
+BUNDLE_ASSEMBLY="${DENIAL_PC_BUNDLE_ASSEMBLY:-$PACKAGE_INPUT_ROOT/flutter-release}"
+PACKAGE_RELEASE="${DENIAL_PACKAGE_RELEASE:-1}"
+PACKAGE_PACKAGER="${DENIAL_PACKAGE_PACKAGER:-Doctor Logix <doctor.logix@gmail.com>}"
+REBUILD_ENGINE_PACKAGE="${DENIAL_REBUILD_ENGINE_PACKAGE:-0}"
+RELEASE_TAG="${DENIAL_RELEASE_TAG:-}"
+ENGINE_PACKAGE_DIR="$ROOT/packaging/arch/flutter-engine"
+DENIAL_PACKAGE_DIR="$ROOT/packaging/arch"
+
+for required_command in bsdtar find makepkg mktemp rm; do
+  command -v "$required_command" >/dev/null 2>&1 \
+    || {
+      printf 'package-denial-arch: %s is required\n' \
+        "$required_command" >&2
+      exit 1
+    }
+done
+[[ "$REBUILD_ENGINE_PACKAGE" == 0 || "$REBUILD_ENGINE_PACKAGE" == 1 ]] \
+  || {
+    printf 'package-denial-arch: DENIAL_REBUILD_ENGINE_PACKAGE must be 0 or 1\n' >&2
+    exit 1
+  }
+
+base_version="$(
+  sed -n 's/^version = "\([^"]*\)"/\1/p' "$ROOT/compositor/Cargo.toml" \
+    | head -n 1
+)"
+[[ -n "$base_version" ]] \
+  || {
+    printf 'package-denial-arch: could not read the compositor version\n' >&2
+    exit 1
+  }
+
+if [[ -n "$RELEASE_TAG" ]]; then
+  [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || {
+      printf \
+        'package-denial-arch: release tag must have the form vMAJOR.MINOR.PATCH\n' \
+        >&2
+      exit 1
+    }
+  [[ "$(git -C "$ROOT" rev-parse "${RELEASE_TAG}^{commit}")" \
+    == "$(git -C "$ROOT" rev-parse HEAD)" ]] \
+    || {
+      printf 'package-denial-arch: %s does not resolve to HEAD\n' \
+        "$RELEASE_TAG" >&2
+      exit 1
+    }
+  [[ -z "$(git -C "$ROOT" status --porcelain --untracked-files=normal)" ]] \
+    || {
+      printf 'package-denial-arch: release checkout is dirty\n' >&2
+      exit 1
+    }
+  package_version="${RELEASE_TAG#v}"
+  [[ "$package_version" == "$base_version" ]] \
+    || {
+      printf \
+        'package-denial-arch: tag version %s does not match Cargo version %s\n' \
+        "$package_version" "$base_version" >&2
+      exit 1
+    }
+  dart_version="$(
+    sed -n 's/^version: *//p' "$ROOT/dart_shell/pubspec.yaml" \
+      | head -n 1
+  )"
+  [[ "$package_version" == "$dart_version" ]] \
+    || {
+      printf \
+        'package-denial-arch: tag version %s does not match Dart version %s\n' \
+        "$package_version" "$dart_version" >&2
+      exit 1
+    }
+  [[ "$PACKAGE_RELEASE" == 1 ]] \
+    || {
+      printf \
+        'package-denial-arch: a version-tag release must use package release 1\n' \
+        >&2
+      exit 1
+    }
+else
+  revision_count="$(git -C "$ROOT" rev-list --count HEAD)"
+  revision="$(git -C "$ROOT" rev-parse --short=8 HEAD)"
+  package_version="$base_version.r$revision_count.g$revision"
+  if [[ -n "$(git -C "$ROOT" status --porcelain --untracked-files=normal)" ]]; then
+    package_version="$package_version.dirty"
+  fi
+fi
+
+DENIAL_PC_BUNDLE="$BUNDLE" \
+DENIAL_PC_BUNDLE_ASSEMBLY="$BUNDLE_ASSEMBLY" \
+  "$ROOT/tools/denial-pc" build
+
+[[ -x "$BINARY" ]] \
+  || {
+    printf 'package-denial-arch: missing compositor: %s\n' "$BINARY" >&2
+    exit 1
+  }
+[[ -f "$BUNDLE/data/icudtl.dat" \
+  && -f "$BUNDLE/lib/libapp.so" \
+  && -f "$BUNDLE/lib/libflutter_engine.so" ]] \
+  || {
+    printf 'package-denial-arch: incomplete Flutter bundle: %s\n' "$BUNDLE" >&2
+    exit 1
+  }
+
+mkdir -p -- "$PACKAGE_ROOT" "$MAKEPKG_ROOT"
+
+export DENIAL_PACKAGE_SOURCE_ROOT="$ROOT"
+export DENIAL_PACKAGE_BINARY="$BINARY"
+export DENIAL_PACKAGE_BUNDLE="$BUNDLE"
+export DENIAL_PACKAGE_ENGINE_SOURCE="$BUNDLE/lib/libflutter_engine.so"
+export DENIAL_PACKAGE_VERSION="$package_version"
+export DENIAL_PACKAGE_RELEASE="$PACKAGE_RELEASE"
+export PKGDEST="$PACKAGE_ROOT"
+export BUILDDIR="$MAKEPKG_ROOT"
+export PACKAGER="$PACKAGE_PACKAGER"
+
+engine_package="$(makepkg --dir "$ENGINE_PACKAGE_DIR" --packagelist)"
+expected_engine_sha256="$(
+  cut -d' ' -f1 \
+    < "$ROOT/prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so.sha256"
+)"
+
+validate_engine_package() {
+  local package="$1"
+  local packaged_engine_sha256
+
+  [[ -f "$package" ]] \
+    || {
+      printf 'package-denial-arch: engine package is missing: %s\n' "$package" >&2
+      return 1
+    }
+  packaged_engine_sha256="$(
+    bsdtar -xOf "$package" usr/lib/denial/flutter/lib/libflutter_engine.so \
+      | sha256sum \
+      | cut -d' ' -f1
+  )"
+  [[ "$packaged_engine_sha256" == "$expected_engine_sha256" ]] \
+    || {
+      printf 'package-denial-arch: engine package contains SHA-256 %s, expected %s\n' \
+        "$packaged_engine_sha256" "$expected_engine_sha256" >&2
+      return 1
+    }
+  bsdtar -xOf "$package" .PKGINFO \
+    | grep -Fqx 'provides = denial-flutter-engine-abi=3.44.7.denial1' \
+    || {
+      printf 'package-denial-arch: engine package has the wrong ABI capability\n' >&2
+      return 1
+    }
+}
+
+validate_denial_package() (
+  local package="$1"
+  local asset_root
+  local invalid_path
+  local validation_root
+
+  [[ -f "$package" ]] \
+    || {
+      printf 'package-denial-arch: Denial package is missing: %s\n' \
+        "$package" >&2
+      return 1
+    }
+
+  validation_root="$(mktemp -d "$MAKEPKG_ROOT/validate-denial.XXXXXX")"
+  # Invoked indirectly by the EXIT trap below.
+  # shellcheck disable=SC2329
+  cleanup_validation() {
+    if [[ "$validation_root" == "$MAKEPKG_ROOT"/validate-denial.* ]]; then
+      rm -rf --one-file-system -- "$validation_root"
+    fi
+  }
+  trap cleanup_validation EXIT
+
+  # Preserve archive modes so the hardened runner's UMask=0077 does not alter
+  # the evidence being checked.
+  bsdtar -xpf "$package" -C "$validation_root"
+  asset_root="$validation_root/usr/lib/denial/flutter/data/flutter_assets"
+  [[ -d "$asset_root" ]] \
+    || {
+      printf 'package-denial-arch: packaged Flutter assets are missing\n' >&2
+      return 1
+    }
+
+  invalid_path="$(
+    find "$asset_root" -type d ! -perm 0755 -print -quit
+  )"
+  [[ -z "$invalid_path" ]] \
+    || {
+      printf \
+        'package-denial-arch: packaged asset directory is not mode 0755: %s\n' \
+        "${invalid_path#"$validation_root/"}" >&2
+      return 1
+    }
+
+  invalid_path="$(
+    find "$asset_root" -type f ! -perm 0644 -print -quit
+  )"
+  [[ -z "$invalid_path" ]] \
+    || {
+      printf \
+        'package-denial-arch: packaged asset file is not mode 0644: %s\n' \
+        "${invalid_path#"$validation_root/"}" >&2
+      return 1
+    }
+
+  invalid_path="$(
+    find "$asset_root" ! -type d ! -type f -print -quit
+  )"
+  [[ -z "$invalid_path" ]] \
+    || {
+      printf \
+        'package-denial-arch: packaged assets contain an unexpected entry: %s\n' \
+        "${invalid_path#"$validation_root/"}" >&2
+      return 1
+    }
+)
+
+if [[ ! -f "$engine_package" || "$REBUILD_ENGINE_PACKAGE" == 1 ]]; then
+  makepkg \
+    --dir "$ENGINE_PACKAGE_DIR" \
+    --force \
+    --cleanbuild \
+    --clean \
+    --noconfirm
+  validate_engine_package "$engine_package"
+else
+  validate_engine_package "$engine_package"
+  printf 'Reusing validated Flutter generation package: %s\n' "$engine_package"
+fi
+
+# The exact engine dependency is the package built immediately above, not a
+# package installed into the developer's live Pacman root. Validate both
+# package metadata records after the build and install them together in Stage 1.
+makepkg \
+  --dir "$DENIAL_PACKAGE_DIR" \
+  --force \
+  --cleanbuild \
+  --clean \
+  --nodeps \
+  --noconfirm
+
+denial_package="$(makepkg --dir "$DENIAL_PACKAGE_DIR" --packagelist)"
+validate_denial_package "$denial_package"
+
+printf '\nArch packages ready:\n'
+printf '%s\n' "$engine_package"
+printf '%s\n' "$denial_package"

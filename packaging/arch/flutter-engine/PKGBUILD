@@ -1,0 +1,77 @@
+# Maintainer: Doctor Logix <doctor.logix@gmail.com>
+
+pkgname=denial-flutter-engine
+pkgver=3.44.7.denial1
+pkgrel=1
+pkgdesc='Pinned source-built Flutter Engine runtime for Denial'
+arch=('x86_64')
+url='https://github.com/denialwm/denial'
+license=('BSD-3-Clause')
+depends=('glibc')
+provides=("denial-flutter-engine-abi=${pkgver}")
+conflicts=('denial-flutter-engine-git')
+options=('!strip' '!debug')
+source=('manifest.json')
+sha256sums=('2cfecc6ea1f793746d40164239876cf101e148be4a8b0e669751ebd66dcda0eb')
+
+_engine_sha256='acc47606f2c905b089a55cc8f1af6e52dfcbd4a7dc8c7133f462c2f0791bc0cc'
+_icu_sha256='998367809a821d595928089c197b3f7959f0420f81f79d4d0daee53378492ed5'
+
+package() {
+  local repository_root="${DENIAL_PACKAGE_SOURCE_ROOT:-$(realpath "$startdir/../../..")}"
+  local bundle="${DENIAL_PACKAGE_BUNDLE:-$repository_root/dart_shell/build/linux/x64/release/bundle}"
+  local engine_root="$repository_root/prebuilt/flutter-engine/linux-x64-release"
+  local engine="${DENIAL_PACKAGE_ENGINE_SOURCE:-$engine_root/libflutter_engine.so}"
+  local icu="$bundle/data/icudtl.dat"
+  local actual
+
+  for required in \
+    "$engine" \
+    "$engine_root/libflutter_engine.so.sha256" \
+    "$engine_root/BUILD_INFO.md" \
+    "$engine_root/ENGINE_REVISION" \
+    "$engine_root/FLUTTER_REVISION" \
+    "$engine_root/LICENSE.flutter" \
+    "$engine_root/LICENSE.third_party" \
+    "$engine_root/args.gn" \
+    "$icu"; do
+    if [[ ! -f "$required" ]]; then
+      error "Flutter generation input is missing: $required"
+      return 1
+    fi
+  done
+
+  actual="$(sha256sum "$engine" | cut -d' ' -f1)"
+  if [[ "$actual" != "$_engine_sha256" ]]; then
+    error "Flutter Engine SHA-256 is $actual, expected $_engine_sha256"
+    return 1
+  fi
+  actual="$(sha256sum "$icu" | cut -d' ' -f1)"
+  if [[ "$actual" != "$_icu_sha256" ]]; then
+    error "ICU data SHA-256 is $actual, expected $_icu_sha256"
+    return 1
+  fi
+
+  install -Dm755 "$engine" \
+    "$pkgdir/usr/lib/denial/flutter/lib/libflutter_engine.so"
+  install -Dm644 "$icu" \
+    "$pkgdir/usr/lib/denial/flutter/data/icudtl.dat"
+
+  install -Dm644 "$srcdir/manifest.json" \
+    "$pkgdir/usr/share/denial/flutter-engine/manifest.json"
+  install -Dm644 "$engine_root/libflutter_engine.so.sha256" \
+    "$pkgdir/usr/share/denial/flutter-engine/libflutter_engine.so.sha256"
+  install -Dm644 "$engine_root/ENGINE_REVISION" \
+    "$pkgdir/usr/share/denial/flutter-engine/ENGINE_REVISION"
+  install -Dm644 "$engine_root/FLUTTER_REVISION" \
+    "$pkgdir/usr/share/denial/flutter-engine/FLUTTER_REVISION"
+  install -Dm644 "$engine_root/args.gn" \
+    "$pkgdir/usr/share/denial/flutter-engine/args.gn"
+  install -Dm644 "$engine_root/BUILD_INFO.md" \
+    "$pkgdir/usr/share/doc/denial-flutter-engine/BUILD_INFO.md"
+
+  install -Dm644 "$engine_root/LICENSE.flutter" \
+    "$pkgdir/usr/share/licenses/denial-flutter-engine/LICENSE.flutter"
+  install -Dm644 "$engine_root/LICENSE.third_party" \
+    "$pkgdir/usr/share/licenses/denial-flutter-engine/LICENSE.third_party"
+}

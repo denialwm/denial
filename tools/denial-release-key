@@ -1,0 +1,701 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+readonly REPOSITORY="${DENIAL_BUILDER_REPOSITORY:-denialwm/denial}"
+readonly ENVIRONMENT='release-signing'
+readonly KEY_SECRET='DENIAL_RELEASE_SIGNING_KEY'
+readonly PASSPHRASE_SECRET='DENIAL_RELEASE_SIGNING_PASSPHRASE'
+readonly FINGERPRINT_VARIABLE='DENIAL_RELEASE_SIGNING_FINGERPRINT'
+readonly KEY_UID='Doctor Logix (Denial Repository Signing) <doctor.logix@gmail.com>'
+readonly PUBLIC_KEY_PATH="${ROOT}/packaging/arch/denial-repo-key.asc"
+
+key_root=''
+rollback_remote=0
+created_backup_dir=''
+created_backup_archive=''
+created_recovery_file=''
+created_public_key=0
+
+fail() {
+  printf 'denial-release-key: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tools/denial-release-key create BACKUP_DIRECTORY RECOVERY_FILE
+  tools/denial-release-key verify-backup BACKUP_ARCHIVE RECOVERY_FILE
+  tools/denial-release-key sign-tag TAG BACKUP_ARCHIVE RECOVERY_FILE
+  tools/denial-release-key status
+
+create generates a five-year certification key and a one-year release-signing
+subkey in an isolated temporary keyring. It:
+
+  1. writes an AES-256 encrypted full recovery archive below BACKUP_DIRECTORY;
+  2. writes the separate recovery passphrases to RECOVERY_FILE (mode 0600);
+  3. installs only the encrypted secret-subkey export and its passphrase as
+     GitHub environment secrets;
+  4. records the primary fingerprint as a GitHub repository variable; and
+  5. writes the public key to packaging/arch/denial-repo-key.asc.
+
+BACKUP_DIRECTORY and RECOVERY_FILE must be on different storage locations.
+Neither path may already exist. Keep an additional offline copy before the
+first public release.
+
+sign-tag temporarily opens the encrypted backup, imports only its signing
+subkey, creates and verifies one annotated version tag at clean local main,
+then erases the temporary keyring. It does not push the tag.
+EOF
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 \
+    || fail "missing command: $1"
+}
+
+require_github() {
+  require_command gh
+  gh auth status >/dev/null 2>&1
+  gh api "repos/${REPOSITORY}" --silent
+}
+
+environment_secret_exists() {
+  local name="$1"
+  gh api \
+    "repos/${REPOSITORY}/environments/${ENVIRONMENT}" \
+    --silent \
+    >/dev/null 2>&1 \
+    || return 1
+  gh secret list \
+    --repo "$REPOSITORY" \
+    --env "$ENVIRONMENT" \
+    --json name \
+    --jq '.[].name' \
+    | grep -Fxq "$name"
+}
+
+variable_value() {
+  gh variable get "$FINGERPRINT_VARIABLE" \
+    --repo "$REPOSITORY" \
+    --json value \
+    --jq '.value' \
+    2>/dev/null || true
+}
+
+public_key_fingerprint() {
+  local key_file="$1"
+  gpg \
+    --batch \
+    --show-keys \
+    --with-colons \
+    --fingerprint \
+    "$key_file" \
+    | awk -F: '$1 == "fpr" { print toupper($10); exit }'
+}
+
+cleanup() {
+  local exit_status=$?
+
+  gpgconf --kill all >/dev/null 2>&1 || true
+  if ((exit_status != 0 && rollback_remote)); then
+    gh secret delete "$KEY_SECRET" \
+      --repo "$REPOSITORY" \
+      --env "$ENVIRONMENT" \
+      >/dev/null 2>&1 || true
+    gh secret delete "$PASSPHRASE_SECRET" \
+      --repo "$REPOSITORY" \
+      --env "$ENVIRONMENT" \
+      >/dev/null 2>&1 || true
+    gh variable delete "$FINGERPRINT_VARIABLE" \
+      --repo "$REPOSITORY" \
+      >/dev/null 2>&1 || true
+  fi
+  if ((exit_status != 0)); then
+    if ((created_public_key)) && [[ -f "$PUBLIC_KEY_PATH" ]]; then
+      rm -f -- "$PUBLIC_KEY_PATH"
+    fi
+    if [[ -n "$created_backup_archive" && -f "$created_backup_archive" ]]; then
+      rm -f -- "$created_backup_archive"
+    fi
+    if [[ -n "$created_recovery_file" && -f "$created_recovery_file" ]]; then
+      rm -f -- "$created_recovery_file"
+    fi
+    if [[ -n "$created_backup_dir" && -d "$created_backup_dir" ]]; then
+      rmdir -- "$created_backup_dir" >/dev/null 2>&1 || true
+    fi
+  fi
+  if [[ "$key_root" == /tmp/denial-release-key.* ]]; then
+    rm -rf --one-file-system -- "$key_root"
+  fi
+  return "$exit_status"
+}
+
+read_recovery_value() {
+  local name="$1"
+  local recovery_file="$2"
+  sed -n "s/^${name}=//p" "$recovery_file" | head -n 1
+}
+
+verify_backup_files() {
+  local archive="$1"
+  local recovery_file="$2"
+  local expected_fingerprint="$3"
+  local archive_passphrase
+  local primary_secret_marker
+  local signing_secret_markers
+  local subkey_gnupg
+  local verify_root
+  local verified_fingerprint
+
+  [[ -f "$archive" ]] || fail "backup archive is missing: $archive"
+  [[ -f "$recovery_file" ]] || fail "recovery file is missing: $recovery_file"
+  archive_passphrase="$(
+    read_recovery_value BACKUP_ARCHIVE_PASSPHRASE "$recovery_file"
+  )"
+  [[ "$archive_passphrase" =~ ^[A-Za-z0-9+/=]+$ ]] \
+    || fail 'recovery file contains no valid backup passphrase'
+
+  verify_root="$(mktemp -d /tmp/denial-release-key.verify.XXXXXX)"
+  (
+    trap 'rm -rf --one-file-system -- "$verify_root"' EXIT
+    printf '%s\n' "$archive_passphrase" >"${verify_root}/archive-passphrase"
+    chmod 0600 "${verify_root}/archive-passphrase"
+    gpg \
+      --batch \
+      --yes \
+      --pinentry-mode loopback \
+      --passphrase-file "${verify_root}/archive-passphrase" \
+      --output "${verify_root}/recovery.tar.zst" \
+      --decrypt \
+      "$archive"
+    install -d -m 0700 "${verify_root}/kit"
+    bsdtar -xf "${verify_root}/recovery.tar.zst" -C "${verify_root}/kit"
+    (
+      cd -- "${verify_root}/kit"
+      sha256sum --check --strict SHA256SUMS
+    )
+    verified_fingerprint="$(
+      public_key_fingerprint "${verify_root}/kit/public-key.asc"
+    )"
+    [[ "$verified_fingerprint" == "$expected_fingerprint" ]] \
+      || fail \
+        "backup fingerprint is $verified_fingerprint, expected $expected_fingerprint"
+    [[ -s "${verify_root}/kit/secret-primary-and-subkeys.asc" ]] \
+      || fail 'backup contains no full secret-key export'
+    [[ -s "${verify_root}/kit/secret-subkeys.asc" ]] \
+      || fail 'backup contains no secret-subkey export'
+    [[ -s "${verify_root}/kit/revocation-certificate.rev" ]] \
+      || fail 'backup contains no revocation certificate'
+
+    subkey_gnupg="${verify_root}/subkey-gnupg"
+    install -d -m 0700 "$subkey_gnupg"
+    GNUPGHOME="$subkey_gnupg" \
+      gpg --batch --import "${verify_root}/kit/public-key.asc"
+    GNUPGHOME="$subkey_gnupg" \
+      gpg \
+      --batch \
+      --pinentry-mode loopback \
+      --passphrase-file "${verify_root}/kit/signing-key-passphrase" \
+      --import \
+      "${verify_root}/kit/secret-subkeys.asc"
+    primary_secret_marker="$(
+      GNUPGHOME="$subkey_gnupg" \
+        gpg \
+        --batch \
+        --with-colons \
+        --list-secret-keys \
+        "$expected_fingerprint" \
+        | awk -F: '$1 == "sec" { print $15; exit }'
+    )"
+    [[ "$primary_secret_marker" == '#' ]] \
+      || fail 'CI export unexpectedly contains usable primary-key material'
+    signing_secret_markers="$(
+      GNUPGHOME="$subkey_gnupg" \
+        gpg \
+        --batch \
+        --with-colons \
+        --list-secret-keys \
+        "$expected_fingerprint" \
+        | awk -F: '$1 == "ssb" { print $15 }'
+    )"
+    printf '%s\n' "$signing_secret_markers" | grep -Fxq '+' \
+      || fail 'CI export contains no usable signing subkey'
+    GNUPGHOME="$subkey_gnupg" \
+      gpgconf --kill all >/dev/null 2>&1 || true
+  )
+  archive_passphrase=''
+  unset archive_passphrase
+}
+
+create_key() {
+  local backup_archive
+  local backup_directory
+  local backup_passphrase
+  local fingerprint
+  local key_passphrase
+  local recovery_file
+  local recovery_parent
+  local revocation_certificate
+
+  (($# == 2)) || fail 'create requires BACKUP_DIRECTORY and RECOVERY_FILE'
+  backup_directory="$1"
+  recovery_file="$2"
+
+  require_github
+  for command_name in \
+    bsdtar date gh gpg gpgconf install mktemp mv openssl realpath \
+    sha256sum; do
+    require_command "$command_name"
+  done
+
+  [[ ! -e "$backup_directory" ]] \
+    || fail "backup directory already exists: $backup_directory"
+  [[ ! -e "$recovery_file" ]] \
+    || fail "recovery file already exists: $recovery_file"
+  [[ ! -e "$PUBLIC_KEY_PATH" ]] \
+    || fail "public key already exists: $PUBLIC_KEY_PATH"
+  environment_secret_exists "$KEY_SECRET" \
+    && fail "$KEY_SECRET already exists in $ENVIRONMENT"
+  environment_secret_exists "$PASSPHRASE_SECRET" \
+    && fail "$PASSPHRASE_SECRET already exists in $ENVIRONMENT"
+  [[ -z "$(variable_value)" ]] \
+    || fail "$FINGERPRINT_VARIABLE already exists"
+
+  recovery_parent="$(dirname -- "$recovery_file")"
+  install -d -m 0700 "$recovery_parent"
+  backup_directory="$(realpath -m -- "$backup_directory")"
+  recovery_file="$(realpath -m -- "$recovery_file")"
+  [[ "$backup_directory" != "$recovery_parent" ]] \
+    || fail 'backup archive and recovery file must use different directories'
+
+  install -d -m 0700 "$backup_directory"
+  created_backup_dir="$backup_directory"
+  key_root="$(mktemp -d /tmp/denial-release-key.XXXXXX)"
+  [[ "$key_root" == /tmp/denial-release-key.* ]] \
+    || fail "unexpected temporary directory: $key_root"
+  export GNUPGHOME="${key_root}/gnupg"
+  install -d -m 0700 "$GNUPGHOME" "${key_root}/kit"
+  trap cleanup EXIT
+
+  key_passphrase="$(openssl rand -base64 48)"
+  backup_passphrase="$(openssl rand -base64 48)"
+  [[ "$key_passphrase" =~ ^[A-Za-z0-9+/=]+$ ]] \
+    || fail 'generated key passphrase has an unexpected format'
+  [[ "$backup_passphrase" =~ ^[A-Za-z0-9+/=]+$ ]] \
+    || fail 'generated backup passphrase has an unexpected format'
+  printf '%s\n' "$key_passphrase" >"${key_root}/key-passphrase"
+  printf '%s\n' "$backup_passphrase" >"${key_root}/backup-passphrase"
+  chmod 0600 "${key_root}/key-passphrase" "${key_root}/backup-passphrase"
+
+  gpg \
+    --batch \
+    --pinentry-mode loopback \
+    --passphrase-file "${key_root}/key-passphrase" \
+    --quick-generate-key \
+    "$KEY_UID" \
+    ed25519 \
+    cert \
+    5y
+
+  fingerprint="$(
+    gpg --batch --with-colons --fingerprint --list-secret-keys "$KEY_UID" \
+      | awk -F: '$1 == "fpr" { print toupper($10); exit }'
+  )"
+  [[ "$fingerprint" =~ ^[0-9A-F]{40,64}$ ]] \
+    || fail 'could not determine the generated primary fingerprint'
+
+  gpg \
+    --batch \
+    --pinentry-mode loopback \
+    --passphrase-file "${key_root}/key-passphrase" \
+    --quick-add-key \
+    "$fingerprint" \
+    ed25519 \
+    sign \
+    1y
+
+  gpg --batch --armor --export "$fingerprint" \
+    >"${key_root}/kit/public-key.asc"
+  gpg \
+    --batch \
+    --pinentry-mode loopback \
+    --passphrase-file "${key_root}/key-passphrase" \
+    --armor \
+    --export-secret-keys \
+    "$fingerprint" \
+    >"${key_root}/kit/secret-primary-and-subkeys.asc"
+  gpg \
+    --batch \
+    --pinentry-mode loopback \
+    --passphrase-file "${key_root}/key-passphrase" \
+    --armor \
+    --export-secret-subkeys \
+    "$fingerprint" \
+    >"${key_root}/kit/secret-subkeys.asc"
+
+  revocation_certificate="${GNUPGHOME}/openpgp-revocs.d/${fingerprint}.rev"
+  [[ -s "$revocation_certificate" ]] \
+    || fail 'GnuPG did not create an automatic revocation certificate'
+  install -m 0600 \
+    "$revocation_certificate" \
+    "${key_root}/kit/revocation-certificate.rev"
+  install -m 0600 \
+    "${key_root}/key-passphrase" \
+    "${key_root}/kit/signing-key-passphrase"
+  printf '%s\n' "$fingerprint" >"${key_root}/kit/FINGERPRINT"
+
+  cat >"${key_root}/kit/README.txt" <<EOF
+DENIAL RELEASE-SIGNING KEY RECOVERY KIT
+
+Identity:            $KEY_UID
+Primary fingerprint: $fingerprint
+Primary role:        certification only
+Primary expiration:  five years after creation
+Subkey role:         package, database, manifest, and release-tag signing
+Subkey expiration:   one year after creation
+Created UTC:         $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+The GitHub release-signing environment receives only secret-subkeys.asc and
+the signing-key passphrase. Keep this full archive offline. The revocation
+certificate intentionally retains GnuPG's protective leading colon; review
+its own instructions before use.
+EOF
+
+  (
+    cd -- "${key_root}/kit"
+    sha256sum -- \
+      FINGERPRINT \
+      README.txt \
+      public-key.asc \
+      revocation-certificate.rev \
+      secret-primary-and-subkeys.asc \
+      secret-subkeys.asc \
+      signing-key-passphrase \
+      >SHA256SUMS
+    sha256sum --check --strict SHA256SUMS
+  )
+
+  backup_archive="${backup_directory}/denial-release-key-${fingerprint}.tar.zst.gpg"
+  created_backup_archive="$backup_archive"
+  bsdtar -caf "${key_root}/recovery.tar.zst" -C "${key_root}/kit" .
+  gpg \
+    --batch \
+    --yes \
+    --symmetric \
+    --cipher-algo AES256 \
+    --pinentry-mode loopback \
+    --passphrase-file "${key_root}/backup-passphrase" \
+    --output "${backup_archive}.partial" \
+    "${key_root}/recovery.tar.zst"
+  mv -- "${backup_archive}.partial" "$backup_archive"
+  chmod 0600 "$backup_archive"
+
+  cat >"$recovery_file" <<EOF
+DENIAL_RELEASE_KEY_FINGERPRINT=$fingerprint
+BACKUP_ARCHIVE=$backup_archive
+BACKUP_ARCHIVE_PASSPHRASE=$backup_passphrase
+SIGNING_KEY_PASSPHRASE=$key_passphrase
+EOF
+  chmod 0600 "$recovery_file"
+  created_recovery_file="$recovery_file"
+
+  verify_backup_files "$backup_archive" "$recovery_file" "$fingerprint"
+
+  gh api \
+    --method PUT \
+    "repos/${REPOSITORY}/environments/${ENVIRONMENT}" \
+    --silent
+  rollback_remote=1
+  gh secret set "$KEY_SECRET" \
+    --repo "$REPOSITORY" \
+    --env "$ENVIRONMENT" \
+    <"${key_root}/kit/secret-subkeys.asc"
+  gh secret set "$PASSPHRASE_SECRET" \
+    --repo "$REPOSITORY" \
+    --env "$ENVIRONMENT" \
+    <"${key_root}/key-passphrase"
+  gh variable set "$FINGERPRINT_VARIABLE" \
+    --repo "$REPOSITORY" \
+    --body "$fingerprint"
+
+  environment_secret_exists "$KEY_SECRET" \
+    || fail "$KEY_SECRET was not stored"
+  environment_secret_exists "$PASSPHRASE_SECRET" \
+    || fail "$PASSPHRASE_SECRET was not stored"
+  [[ "$(variable_value)" == "$fingerprint" ]] \
+    || fail "$FINGERPRINT_VARIABLE was not stored correctly"
+
+  install -m 0644 "${key_root}/kit/public-key.asc" "$PUBLIC_KEY_PATH"
+  created_public_key=1
+  [[ "$(public_key_fingerprint "$PUBLIC_KEY_PATH")" == "$fingerprint" ]] \
+    || fail 'installed public key has the wrong fingerprint'
+
+  rollback_remote=0
+  created_backup_dir=''
+  created_backup_archive=''
+  created_recovery_file=''
+  created_public_key=0
+  cleanup
+  trap - EXIT
+  key_root=''
+  key_passphrase=''
+  backup_passphrase=''
+  unset key_passphrase backup_passphrase
+
+  printf '%s\n' \
+    'Permanent Denial release-signing identity created.' \
+    "Fingerprint: $fingerprint" \
+    "Encrypted backup: $backup_archive" \
+    "Separate recovery file: $recovery_file" \
+    "Public key: $PUBLIC_KEY_PATH" \
+    "GitHub environment: $ENVIRONMENT" \
+    'Create one more offline backup before the first public release.'
+}
+
+verify_backup() {
+  local archive
+  local expected_fingerprint
+  local recovery_file
+
+  (($# == 2)) \
+    || fail 'verify-backup requires BACKUP_ARCHIVE and RECOVERY_FILE'
+  archive="$1"
+  recovery_file="$2"
+  require_command bsdtar
+  require_command gpg
+  require_command mktemp
+  require_command sha256sum
+  expected_fingerprint="$(
+    read_recovery_value DENIAL_RELEASE_KEY_FINGERPRINT "$recovery_file"
+  )"
+  [[ "$expected_fingerprint" =~ ^[0-9A-F]{40,64}$ ]] \
+    || fail 'recovery file contains no valid fingerprint'
+  verify_backup_files "$archive" "$recovery_file" "$expected_fingerprint"
+  printf 'Backup verified for %s.\n' "$expected_fingerprint"
+}
+
+sign_release_tag() {
+  local archive
+  local archive_passphrase
+  local branch
+  local expected_fingerprint
+  local key_passphrase
+  local keygrip
+  local preset_passphrase=''
+  local recovery_file
+  local signing_root
+  local tag_created=0
+  local tag_name
+  local version
+
+  (($# == 3)) \
+    || fail 'sign-tag requires TAG, BACKUP_ARCHIVE, and RECOVERY_FILE'
+  tag_name="$1"
+  archive="$2"
+  recovery_file="$3"
+  [[ "$tag_name" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || fail 'tag must have the form vMAJOR.MINOR.PATCH'
+  [[ -f "$archive" ]] || fail "backup archive is missing: $archive"
+  [[ -f "$recovery_file" ]] \
+    || fail "recovery file is missing: $recovery_file"
+
+  for command_name in bsdtar git gpg gpg-connect-agent gpgconf mktemp sha256sum; do
+    require_command "$command_name"
+  done
+  branch="$(git -C "$ROOT" symbolic-ref --quiet --short HEAD || true)"
+  [[ "$branch" == main ]] || fail "current branch is $branch, expected main"
+  [[ -z "$(git -C "$ROOT" status --porcelain --untracked-files=normal)" ]] \
+    || fail 'refusing to sign a tag from a dirty checkout'
+  [[ "$(git -C "$ROOT" rev-parse HEAD)" \
+    == "$(git -C "$ROOT" rev-parse refs/remotes/origin/main)" ]] \
+    || fail 'local main does not exactly match origin/main'
+  if git -C "$ROOT" show-ref --verify --quiet "refs/tags/${tag_name}"; then
+    fail "tag already exists: $tag_name"
+  fi
+
+  version="${tag_name#v}"
+  [[ "$version" == "$(
+    sed -n 's/^version = "\([^"]*\)"/\1/p' "$ROOT/compositor/Cargo.toml" \
+      | head -n 1
+  )" ]] || fail 'tag does not match the Cargo project version'
+  [[ "$version" == "$(
+    sed -n 's/^version: *//p' "$ROOT/dart_shell/pubspec.yaml" \
+      | head -n 1
+  )" ]] || fail 'tag does not match the Dart project version'
+
+  expected_fingerprint="$(
+    read_recovery_value DENIAL_RELEASE_KEY_FINGERPRINT "$recovery_file"
+  )"
+  archive_passphrase="$(
+    read_recovery_value BACKUP_ARCHIVE_PASSPHRASE "$recovery_file"
+  )"
+  key_passphrase="$(
+    read_recovery_value SIGNING_KEY_PASSPHRASE "$recovery_file"
+  )"
+  [[ "$expected_fingerprint" =~ ^[0-9A-F]{40,64}$ ]] \
+    || fail 'recovery file contains no valid fingerprint'
+  [[ "$archive_passphrase" =~ ^[A-Za-z0-9+/=]+$ ]] \
+    || fail 'recovery file contains no valid backup passphrase'
+  [[ "$key_passphrase" =~ ^[A-Za-z0-9+/=]+$ ]] \
+    || fail 'recovery file contains no valid signing-key passphrase'
+
+  signing_root="$(mktemp -d /tmp/denial-release-tag.XXXXXX)"
+  export GNUPGHOME="${signing_root}/gnupg"
+  install -d -m 0700 "$GNUPGHOME" "${signing_root}/kit"
+  printf '%s\n' "$archive_passphrase" >"${signing_root}/archive-passphrase"
+  printf '%s\n' "$key_passphrase" >"${signing_root}/key-passphrase"
+  chmod 0600 \
+    "${signing_root}/archive-passphrase" \
+    "${signing_root}/key-passphrase"
+
+  cleanup_signing() {
+    local exit_status=$?
+    gpgconf --kill all >/dev/null 2>&1 || true
+    if ((exit_status != 0 && tag_created)); then
+      git -C "$ROOT" tag --delete "$tag_name" >/dev/null 2>&1 || true
+    fi
+    if [[ "$signing_root" == /tmp/denial-release-tag.* ]]; then
+      rm -rf --one-file-system -- "$signing_root"
+    fi
+    return "$exit_status"
+  }
+  trap cleanup_signing EXIT
+
+  gpg \
+    --batch \
+    --yes \
+    --pinentry-mode loopback \
+    --passphrase-file "${signing_root}/archive-passphrase" \
+    --output "${signing_root}/recovery.tar.zst" \
+    --decrypt \
+    "$archive"
+  bsdtar -xf "${signing_root}/recovery.tar.zst" -C "${signing_root}/kit"
+  (
+    cd -- "${signing_root}/kit"
+    sha256sum --check --strict SHA256SUMS
+  )
+  [[ "$(public_key_fingerprint "${signing_root}/kit/public-key.asc")" \
+    == "$expected_fingerprint" ]] \
+    || fail 'backup public key does not match the recovery fingerprint'
+  gpg --batch --import "${signing_root}/kit/public-key.asc"
+  gpg \
+    --batch \
+    --pinentry-mode loopback \
+    --passphrase-file "${signing_root}/key-passphrase" \
+    --import \
+    "${signing_root}/kit/secret-subkeys.asc"
+
+  for candidate in \
+    /usr/lib/gnupg/gpg-preset-passphrase \
+    /usr/libexec/gpg-preset-passphrase; do
+    if [[ -x "$candidate" ]]; then
+      preset_passphrase="$candidate"
+      break
+    fi
+  done
+  [[ -n "$preset_passphrase" ]] \
+    || fail 'gpg-preset-passphrase is unavailable'
+  printf '%s\n' 'allow-preset-passphrase' >"$GNUPGHOME/gpg-agent.conf"
+  gpgconf --kill gpg-agent >/dev/null 2>&1 || true
+  gpg-connect-agent /bye >/dev/null
+  while IFS= read -r keygrip; do
+    [[ -n "$keygrip" ]] || continue
+    "$preset_passphrase" \
+      --preset \
+      --passphrase "$key_passphrase" \
+      "$keygrip"
+  done < <(
+    gpg \
+      --batch \
+      --with-colons \
+      --with-keygrip \
+      --list-secret-keys \
+      "$expected_fingerprint" \
+      | awk -F: '$1 == "grp" { print $10 }'
+  )
+
+  git -C "$ROOT" \
+    -c gpg.program=gpg \
+    tag \
+    --sign \
+    --local-user "$expected_fingerprint" \
+    --message "Denial ${version}" \
+    "$tag_name"
+  tag_created=1
+  git -C "$ROOT" -c gpg.program=gpg verify-tag "$tag_name"
+
+  tag_created=0
+  cleanup_signing
+  trap - EXIT
+  signing_root=''
+  archive_passphrase=''
+  key_passphrase=''
+  unset archive_passphrase key_passphrase
+
+  printf '%s\n' \
+    "Signed tag created and verified: $tag_name" \
+    "Source commit: $(git -C "$ROOT" rev-parse "${tag_name}^{commit}")" \
+    "Signer: $expected_fingerprint" \
+    "Review it, then push explicitly with: git push origin $tag_name"
+}
+
+show_status() {
+  local fingerprint
+  local public_fingerprint=''
+
+  require_github
+  require_command gpg
+  fingerprint="$(variable_value)"
+  if environment_secret_exists "$KEY_SECRET"; then
+    printf 'environment secret %-35s present\n' "$KEY_SECRET"
+  else
+    printf 'environment secret %-35s absent\n' "$KEY_SECRET"
+  fi
+  if environment_secret_exists "$PASSPHRASE_SECRET"; then
+    printf 'environment secret %-35s present\n' "$PASSPHRASE_SECRET"
+  else
+    printf 'environment secret %-35s absent\n' "$PASSPHRASE_SECRET"
+  fi
+  if [[ -f "$PUBLIC_KEY_PATH" ]]; then
+    public_fingerprint="$(public_key_fingerprint "$PUBLIC_KEY_PATH")"
+  fi
+  printf 'repository variable %-33s %s\n' \
+    "$FINGERPRINT_VARIABLE" \
+    "${fingerprint:-absent}"
+  printf 'tracked public key fingerprint                 %s\n' \
+    "${public_fingerprint:-absent}"
+  [[ -n "$fingerprint" && "$public_fingerprint" == "$fingerprint" ]]
+}
+
+case "${1:-}" in
+  create)
+    shift
+    create_key "$@"
+    ;;
+  verify-backup)
+    shift
+    verify_backup "$@"
+    ;;
+  sign-tag)
+    shift
+    sign_release_tag "$@"
+    ;;
+  status)
+    (($# == 1)) || fail 'status takes no arguments'
+    show_status
+    ;;
+  -h | --help | help)
+    usage
+    ;;
+  '')
+    usage >&2
+    exit 2
+    ;;
+  *)
+    fail "unknown command: $1"
+    ;;
+esac

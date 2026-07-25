@@ -1,0 +1,10 @@
+name: denial_wire_protocol
+description: Generated Denial FlatBuffers wire types.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  flat_buffers: 25.9.23

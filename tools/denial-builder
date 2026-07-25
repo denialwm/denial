@@ -1,0 +1,523 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+RUNNER_SOURCE="${ROOT}/packaging/arch/runner"
+ENGINE_SOURCE_ROOT="${ROOT}/prebuilt/flutter-engine/linux-x64-release"
+ENGINE_SOURCE="${ENGINE_SOURCE_ROOT}/libflutter_engine.so"
+ENGINE_CHECKSUM="${ENGINE_SOURCE_ROOT}/libflutter_engine.so.sha256"
+
+readonly REPOSITORY="${DENIAL_BUILDER_REPOSITORY:-denialwm/denial}"
+readonly SSH_TARGET="${DENIAL_BUILDER_SSH:-192.168.1.18}"
+readonly RUNNER_SERVICE='denial-actions-runner.service'
+
+fail() {
+  printf 'denial-builder: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tools/denial-builder install
+  tools/denial-builder doctor
+  tools/denial-builder arm
+  tools/denial-builder qualify
+  tools/denial-builder validate
+  tools/denial-builder release TAG
+  tools/denial-builder status
+  tools/denial-builder logs
+  tools/denial-builder cancel
+
+Commands:
+  install  Install the pinned runner and locked builder account on the host.
+  doctor   Audit the remote builder as its unprivileged account.
+  arm      Register and start one ephemeral repository-scoped runner.
+  qualify  Arm a runner, dispatch the main-only qualification, and watch it.
+  validate Arm a runner, build and independently verify a main candidate.
+  release TAG
+           Build, sign, verify, and publish one signed version tag.
+  status   Show the local service and GitHub runner registration.
+  logs     Show recent runner service logs.
+  cancel   Stop the runner, wipe its instance, and delete its registration.
+
+Environment:
+  DENIAL_BUILDER_SSH         SSH target (default: 192.168.1.18)
+  DENIAL_BUILDER_REPOSITORY  GitHub owner/repository (default: denialwm/denial)
+
+The builder stores neither a GitHub PAT nor a package-signing key. The arm
+command obtains a one-hour registration token on this workstation and passes
+it to the host only over SSH.
+EOF
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 \
+    || fail "missing local command: $1"
+}
+
+require_github() {
+  require_command gh
+  gh auth status >/dev/null
+  gh api "repos/${REPOSITORY}" --silent
+}
+
+remote_stage=''
+
+cleanup_stage() {
+  if [[ "$remote_stage" == /tmp/denial-runner-install.* ]]; then
+    ssh "$SSH_TARGET" \
+      /usr/bin/rm -rf --one-file-system -- "$remote_stage" \
+      >/dev/null 2>&1 || true
+  fi
+}
+
+install_host() {
+  require_command scp
+  require_command sha256sum
+  require_command ssh
+
+  [[ -f "$ENGINE_SOURCE" ]] \
+    || fail "missing locally rebuilt engine: $ENGINE_SOURCE"
+  (
+    cd "$ENGINE_SOURCE_ROOT"
+    sha256sum --check --strict "$(basename -- "$ENGINE_CHECKSUM")"
+  ) >/dev/null \
+    || fail "local engine does not match $ENGINE_CHECKSUM"
+
+  remote_stage="$(
+    ssh "$SSH_TARGET" \
+      /usr/bin/mktemp -d /tmp/denial-runner-install.XXXXXX
+  )"
+  [[ "$remote_stage" == /tmp/denial-runner-install.* ]] \
+    || fail "unexpected remote staging path: $remote_stage"
+  trap cleanup_stage EXIT
+
+  scp \
+    "${RUNNER_SOURCE}/runner.env" \
+    "${RUNNER_SOURCE}/denial-actions-runner-arm" \
+    "${RUNNER_SOURCE}/denial-actions-runner-cleanup" \
+    "${RUNNER_SOURCE}/denial-actions-runner.service" \
+    "${RUNNER_SOURCE}/install-host" \
+    "$ENGINE_SOURCE" \
+    "$ENGINE_CHECKSUM" \
+    "${SSH_TARGET}:${remote_stage}/"
+
+  # remote_stage is accepted only after the fixed /tmp prefix check above.
+  # shellcheck disable=SC2029
+  ssh "$SSH_TARGET" \
+    sudo /usr/bin/bash "${remote_stage}/install-host" "$remote_stage"
+
+  cleanup_stage
+  remote_stage=''
+  trap - EXIT
+}
+
+doctor_host() {
+  local actual_engine_sha256
+  local expected_engine_sha256
+
+  require_command scp
+  require_command ssh
+
+  remote_stage="$(
+    ssh "$SSH_TARGET" \
+      /usr/bin/mktemp -d /tmp/denial-runner-install.XXXXXX
+  )"
+  [[ "$remote_stage" == /tmp/denial-runner-install.* ]] \
+    || fail "unexpected remote staging path: $remote_stage"
+  trap cleanup_stage EXIT
+
+  scp \
+    "${ROOT}/tools/denial-release" \
+    "${SSH_TARGET}:${remote_stage}/denial-release"
+  # remote_stage is accepted only after the fixed /tmp prefix check above.
+  # shellcheck disable=SC2029
+  ssh "$SSH_TARGET" \
+    /usr/bin/chmod 0755 "$remote_stage" "${remote_stage}/denial-release"
+
+  # remote_stage is accepted only after the fixed /tmp prefix check above.
+  # shellcheck disable=SC2029
+  ssh "$SSH_TARGET" \
+    sudo --user denial-builder \
+      env -i \
+        HOME=/var/lib/denial-builder \
+        USER=denial-builder \
+        LOGNAME=denial-builder \
+        PATH=/usr/local/bin:/usr/bin \
+        LANG=C.UTF-8 \
+        DENIAL_BUILDER_ROOT=/srv/denial-builder \
+        "${remote_stage}/denial-release" doctor
+
+  expected_engine_sha256="$(cut -d' ' -f1 < "$ENGINE_CHECKSUM")"
+  actual_engine_sha256="$(
+    ssh "$SSH_TARGET" \
+      sudo --user denial-builder \
+        /usr/bin/sha256sum \
+        /srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/libflutter_engine.so \
+      | cut -d' ' -f1
+  )"
+  [[ "$actual_engine_sha256" == "$expected_engine_sha256" ]] \
+    || fail 'builder engine artifact does not match the tracked checksum'
+  printf 'Builder engine artifact matches %s.\n' "$expected_engine_sha256"
+
+  cleanup_stage
+  remote_stage=''
+  trap - EXIT
+
+  ssh "$SSH_TARGET" \
+    sudo systemd-analyze security "$RUNNER_SERVICE" --no-pager
+}
+
+github_runner_count() {
+  gh api "repos/${REPOSITORY}/actions/runners" --jq '.total_count'
+}
+
+github_runner_status() {
+  local expected_name="$1"
+  local registered_name
+  local registered_status
+
+  while IFS=$'\t' read -r registered_name registered_status; do
+    if [[ "$registered_name" == "$expected_name" ]]; then
+      printf '%s\n' "$registered_status"
+      return 0
+    fi
+  done < <(
+    gh api "repos/${REPOSITORY}/actions/runners" \
+      --jq '.runners[]? | [.name, .status] | @tsv'
+  )
+  return 1
+}
+
+arm_runner() {
+  local arm_output
+  local arm_status
+  local broker_session
+  local registration_token
+  local runner_count
+  local runner_name
+  local runner_status=''
+
+  require_command ssh
+  require_github
+
+  runner_count="$(github_runner_count)"
+  ((runner_count == 0)) \
+    || fail "repository already has $runner_count registered runner(s)"
+
+  registration_token="$(
+    gh api \
+      --method POST \
+      "repos/${REPOSITORY}/actions/runners/registration-token" \
+      --jq '.token'
+  )"
+  [[ -n "$registration_token" ]] \
+    || fail 'GitHub returned an empty registration token'
+
+  if arm_output="$(
+    printf '%s\n' "$registration_token" \
+      | ssh "$SSH_TARGET" \
+          sudo /usr/local/sbin/denial-actions-runner-arm
+  )"; then
+    :
+  else
+    arm_status=$?
+    registration_token=''
+    unset registration_token
+    [[ -z "$arm_output" ]] || printf '%s\n' "$arm_output"
+    cancel_runner >/dev/null 2>&1 || true
+    fail "remote runner arm failed with status $arm_status; cleanup attempted"
+  fi
+  registration_token=''
+  unset registration_token
+
+  printf '%s\n' "$arm_output"
+  runner_name="$(
+    printf '%s\n' "$arm_output" \
+      | sed -n 's/^runner_name=//p' \
+      | tail -n 1
+  )"
+  if [[ ! "$runner_name" =~ ^denial-x64-[[:alnum:]._-]+-[0-9]{8}T[0-9]{6}Z$ ]]; then
+    cancel_runner >/dev/null 2>&1 || true
+    fail 'remote arm helper returned an invalid runner name'
+  fi
+  broker_session="$(
+    printf '%s\n' "$arm_output" \
+      | sed -n 's/^broker_session=//p' \
+      | tail -n 1
+  )"
+  if [[ "$broker_session" != ready ]]; then
+    cancel_runner >/dev/null 2>&1 || true
+    fail 'remote arm helper did not confirm its GitHub broker session'
+  fi
+
+  for _ in {1..60}; do
+    runner_status="$(github_runner_status "$runner_name" || true)"
+    if [[ "$runner_status" == online ]]; then
+      printf 'Runner is online and waiting for one trusted job.\n'
+      return 0
+    fi
+    sleep 1
+  done
+
+  runner_status="$(github_runner_status "$runner_name" || true)"
+  if [[ "$runner_status" == offline ]] \
+    && ssh "$SSH_TARGET" \
+      sudo systemctl is-active --quiet "$RUNNER_SERVICE"; then
+    printf '%s\n' \
+      'WARNING: GitHub REST reports the broker-connected runner offline.' \
+      'The exact fresh registration and active authenticated session were verified.' \
+      'Continuing under the guarded false-offline fallback.'
+    return 0
+  fi
+
+  cancel_runner >/dev/null 2>&1 || true
+  fail 'runner did not reach a verified dispatchable state'
+}
+
+workflow_run_id() {
+  local workflow="$1"
+  local minimum_epoch="$2"
+  local workflow_ref="$3"
+
+  gh api "repos/${REPOSITORY}/actions/workflows/${workflow}/runs?event=workflow_dispatch&branch=${workflow_ref}&per_page=10" \
+    --jq \
+    ".workflow_runs[] | select((.created_at | fromdateiso8601) >= ${minimum_epoch}) | .id" \
+    | head -n 1
+}
+
+run_manual_workflow() (
+  local workflow="$1"
+  local run_label="$2"
+  local workflow_ref="$3"
+  local armed=0
+  local dispatched_at
+  local run_id=''
+  local watch_status
+
+  # Invoked indirectly by the EXIT trap below.
+  # shellcheck disable=SC2329
+  cleanup_qualification() {
+    if ((armed)); then
+      cancel_runner >/dev/null 2>&1 || true
+    fi
+  }
+  trap cleanup_qualification EXIT
+
+  require_command timeout
+  require_github
+  gh api \
+    "repos/${REPOSITORY}/actions/workflows/${workflow}" \
+    --silent \
+    || fail "$workflow is not present on the remote default branch"
+
+  arm_runner
+  armed=1
+  dispatched_at="$(date -u +%s)"
+  gh workflow run \
+    "$workflow" \
+    --repo "$REPOSITORY" \
+    --ref "$workflow_ref"
+
+  for _ in {1..30}; do
+    run_id="$(
+      workflow_run_id "$workflow" "$dispatched_at" "$workflow_ref"
+    )"
+    if [[ -n "$run_id" ]]; then
+      break
+    fi
+    sleep 1
+  done
+  [[ -n "$run_id" ]] || fail 'could not locate the dispatched workflow run'
+
+  printf '%s run: %s\n' "$run_label" "$run_id"
+  set +e
+  timeout \
+    --foreground \
+    --kill-after=30s \
+    30m \
+    gh run watch "$run_id" --repo "$REPOSITORY" --exit-status
+  watch_status=$?
+  set -e
+  if ((watch_status == 124)); then
+    fail "$run_label exceeded the 30-minute controller timeout"
+  fi
+  ((watch_status == 0)) \
+    || fail "$run_label failed with status $watch_status"
+
+  cancel_runner
+  armed=0
+  trap - EXIT
+)
+
+qualify_builder() {
+  run_manual_workflow \
+    builder-qualification.yml \
+    Qualification \
+    main
+}
+
+validate_builder() {
+  run_manual_workflow \
+    main-validation.yml \
+    'Main validation' \
+    main
+}
+
+release_builder() {
+  local fingerprint
+  local public_fingerprint
+  local public_key="${ROOT}/packaging/arch/denial-repo-key.asc"
+  local release_tag="$1"
+  local secret_names
+
+  [[ "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || fail 'release tag must have the form vMAJOR.MINOR.PATCH'
+  require_github
+  require_command gpg
+  gh api \
+    "repos/${REPOSITORY}/git/ref/tags/${release_tag}" \
+    --silent \
+    || fail "release tag is not present on GitHub: $release_tag"
+
+  secret_names="$(
+    gh secret list \
+      --repo "$REPOSITORY" \
+      --env release-signing \
+      --json name \
+      --jq '.[].name'
+  )"
+  for required_secret in \
+    DENIAL_RELEASE_SIGNING_KEY \
+    DENIAL_RELEASE_SIGNING_PASSPHRASE; do
+    printf '%s\n' "$secret_names" | grep -Fxq "$required_secret" \
+      || fail "missing release-signing environment secret: $required_secret"
+  done
+
+  fingerprint="$(
+    gh variable get \
+      DENIAL_RELEASE_SIGNING_FINGERPRINT \
+      --repo "$REPOSITORY" \
+      --json value \
+      --jq '.value'
+  )"
+  [[ "$fingerprint" =~ ^[0-9A-F]{40,64}$ ]] \
+    || fail 'release signing fingerprint variable is missing or invalid'
+  [[ -f "$public_key" ]] \
+    || fail "tracked release public key is missing: $public_key"
+  public_fingerprint="$(
+    gpg \
+      --batch \
+      --show-keys \
+      --with-colons \
+      --fingerprint \
+      "$public_key" \
+      | awk -F: '$1 == "fpr" { print toupper($10); exit }'
+  )"
+  [[ "$public_fingerprint" == "$fingerprint" ]] \
+    || fail 'tracked public key does not match the release fingerprint variable'
+
+  run_manual_workflow \
+    release.yml \
+    "Public release $release_tag" \
+    "$release_tag"
+}
+
+show_status() {
+  require_github
+  printf '%s\n' 'GitHub registration:'
+  gh api "repos/${REPOSITORY}/actions/runners" \
+    --jq '.runners[]? | [.id, .name, .status, (.busy | tostring), ([.labels[].name] | join(","))] | @tsv'
+
+  printf '%s\n' 'Host service:'
+  ssh "$SSH_TARGET" \
+    sudo systemctl show "$RUNNER_SERVICE" \
+      --property=LoadState,ActiveState,SubState,UnitFileState \
+      --no-pager
+}
+
+show_logs() {
+  require_command ssh
+  ssh "$SSH_TARGET" \
+    sudo journalctl \
+      --unit "$RUNNER_SERVICE" \
+      --lines 200 \
+      --no-pager
+}
+
+cancel_runner() {
+  local runner_id
+
+  require_github
+  ssh "$SSH_TARGET" \
+    sudo systemctl stop denial-actions-runner.service
+  ssh "$SSH_TARGET" \
+    sudo /usr/local/libexec/denial-actions-runner-cleanup
+  ssh "$SSH_TARGET" \
+    sudo systemctl reset-failed denial-actions-runner.service \
+    >/dev/null 2>&1 || true
+
+  while IFS= read -r runner_id; do
+    [[ -n "$runner_id" ]] || continue
+    gh api \
+      --method DELETE \
+      "repos/${REPOSITORY}/actions/runners/${runner_id}" \
+      --silent
+    printf 'Deleted GitHub runner registration %s.\n' "$runner_id"
+  done < <(
+    gh api "repos/${REPOSITORY}/actions/runners" \
+      --jq '.runners[] | select(.name | startswith("denial-x64-")) | .id'
+  )
+}
+
+command_name="${1:-}"
+case "$command_name" in
+  install)
+    (($# == 1)) || fail 'install takes no arguments'
+    install_host
+    ;;
+  doctor)
+    (($# == 1)) || fail 'doctor takes no arguments'
+    doctor_host
+    ;;
+  arm)
+    (($# == 1)) || fail 'arm takes no arguments'
+    arm_runner
+    ;;
+  qualify)
+    (($# == 1)) || fail 'qualify takes no arguments'
+    qualify_builder
+    ;;
+  validate)
+    (($# == 1)) || fail 'validate takes no arguments'
+    validate_builder
+    ;;
+  release)
+    (($# == 2)) || fail 'release requires exactly one TAG'
+    release_builder "$2"
+    ;;
+  status)
+    (($# == 1)) || fail 'status takes no arguments'
+    show_status
+    ;;
+  logs)
+    (($# == 1)) || fail 'logs takes no arguments'
+    show_logs
+    ;;
+  cancel)
+    (($# == 1)) || fail 'cancel takes no arguments'
+    cancel_runner
+    ;;
+  -h | --help | help)
+    usage
+    ;;
+  '')
+    usage >&2
+    exit 2
+    ;;
+  *)
+    fail "unknown command: $command_name"
+    ;;
+esac

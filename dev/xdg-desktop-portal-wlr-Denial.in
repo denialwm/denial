@@ -1,0 +1,9 @@
+# Installed by @LAUNCHER@
+#
+# xdg-desktop-portal-wlr's default chooser starts with slurp, whose overlay
+# requires zwlr-layer-shell. Denial does not expose layer-shell yet, so use a
+# regular xdg-shell Zenity window instead. In dmenu mode, xdpw writes its valid
+# sources to the chooser's stdin and reads the selected source from stdout.
+[screencast]
+chooser_type=dmenu
+chooser_cmd=zenity --list --title='Share your screen' --text='Choose a source to share' --column='Source' --width=520 --height=320

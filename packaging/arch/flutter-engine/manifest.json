@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "stage": "public-alpha",
+  "generation": "flutter-3.44.7-engine-69c8c617-denial-r1",
+  "package": {
+    "name": "denial-flutter-engine",
+    "version": "3.44.7.denial1",
+    "release": 1,
+    "architecture": "x86_64"
+  },
+  "sources": {
+    "flutter_version": "3.44.7",
+    "flutter_revision": "84fc5cbb223bc12f83d65b647ff8a56caf779ffd",
+    "engine_artifact_revision": "69c8c61792f04cc809dfef0c910414fb9afc06cd",
+    "engine_content_hash": "7076f47b1d1a3a0edfd8837b17dc15be6abab661",
+    "dart_version": "3.12.2",
+    "dart_revision": "d684a576a6aa954ae107a03b2b4e1d61c3bebe93",
+    "skia_revision": "e9ed4fc9f1544c58d8a9347c1fc9471d8dd414",
+    "flutter_fork_revision": "5498828ee023a05ae2c6677a1dee3eae7007eebc",
+    "skia_fork_revision": "5097a648e9bbb1d4a7fdf06a2a6d7bef3c9dd414"
+  },
+  "patches": {
+    "engine_series": "patches/flutter-engine/3.44.7/",
+    "engine_series_manifest_sha256": "ae429d568466e528e7b2a83e3a2597ad819855a780288b362304c2dbb265ff81",
+    "framework_patch": "patches/flutter/0001-enable-120hz-touch-resampling.patch",
+    "framework_patch_sha256": "428a6a56ef9ffcdb45853abdabe9d04e6788abc04ec14fdc843ae0142db2a31f"
+  },
+  "abi": {
+    "official_embedder_header_sha256": "166626fb689d4e77e720c925f18e814a3cd55280999a443d9d1cc244384e37af",
+    "denial_embedder_header_sha256": "a4760b81a90ee44dc1a10199042129073a0087394b51acd9b5cf037793c4b9f8",
+    "generated_rust_bindings_sha256": "d35c52f8f844e378e320c50eb3fb126a85f33c0a0b28815675bde4d52396b6a7"
+  },
+  "artifacts": {
+    "gn_args_sha256": "2510d311b93f02a6738cd129efae5d2d0ef15938b3b21c7cc318d43a1e4c228e",
+    "libflutter_engine_sha256": "acc47606f2c905b089a55cc8f1af6e52dfcbd4a7dc8c7133f462c2f0791bc0cc",
+    "libflutter_engine_build_id": "81a2d25ef8f0e565a9171d6c14555ae5ee24dfd8",
+    "icudtl_sha256": "998367809a821d595928089c197b3f7959f0420f81f79d4d0daee53378492ed5"
+  },
+  "assurances": {
+    "source_tree_equality_verified": true,
+    "source_build_verified": true,
+    "unit_tests_verified": true,
+    "x86_64_hardware_verified": true,
+    "offline_source_closure": false,
+    "reproducible_package": false,
+    "signed_generation_tags": false
+  }
+}

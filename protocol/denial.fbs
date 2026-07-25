@@ -1,0 +1,401 @@
+// Denial custom platform bridge protocol.
+//
+// Generated code is committed. Bump protocol_version only for an intentional
+// incompatible change. Never reuse a removed field id.
+
+namespace Denial.Wire;
+
+enum ObjectKind : ubyte {
+  RootSurface = 0,
+  Surface = 1
+}
+
+// The backing source for a logical desktop window. LocalFlutter windows have
+// normal Denial identity, geometry and lifecycle, but their content is built
+// by the embedded Dart shell instead of sampled from a client surface tree.
+enum WindowContentKind : ubyte {
+  SurfaceTree = 0,
+  LocalFlutter = 1
+}
+
+// SurfaceLayer describes one node of the ordered surface tree belonging to a
+// logical window. Popup roots remain part of their owning window instead of
+// being exposed as synthetic top-level windows.
+enum SurfaceRole : ubyte {
+  Root = 0,
+  Subsurface = 1,
+  Popup = 2
+}
+
+enum WindowRequestKind : ubyte {
+  ListWindows = 0,
+  GetDisplayLayout = 1,
+  CloseWindow = 2,
+  FocusWindow = 3,
+  ConfigureWindow = 4,
+  CreateLocalWindow = 5,
+  ConfigureSystemBar = 6
+}
+
+enum WindowResponseKind : ubyte {
+  Windows = 0,
+  DisplayLayout = 1
+}
+
+enum WindowEventKind : ubyte {
+  WindowsChanged = 0,
+  Activated = 1,
+  Action = 2
+}
+
+enum WindowActionKind : ubyte {
+  Minimize = 0,
+  Maximize = 1,
+  Restore = 2,
+  ToggleMaximize = 3,
+  ToggleFullscreen = 4
+}
+
+enum ShellActionKind : ubyte {
+  Applications = 0,
+  Overview = 1,
+  WindowSwitcherNext = 2,
+  WindowSwitcherEnd = 3,
+  Clipboard = 4
+}
+
+enum KeyboardCommandKind : ubyte {
+  Text = 0,
+  Key = 1
+}
+
+enum DesktopNotificationEventKind : ubyte {
+  Added = 0,
+  Replaced = 1,
+  Closed = 2
+}
+
+enum DesktopNotificationUrgency : ubyte {
+  Low = 0,
+  Normal = 1,
+  Critical = 2
+}
+
+enum DesktopNotificationCommandKind : ubyte {
+  Dismiss = 0,
+  InvokeAction = 1,
+  InvokeDefault = 2
+}
+
+enum SystemBarSide : ubyte {
+  Left = 0,
+  Right = 1,
+  Top = 2,
+  Bottom = 3,
+  Hidden = 4
+}
+
+struct WireRect {
+  x:double;
+  y:double;
+  width:double;
+  height:double;
+}
+
+struct WirePoint {
+  x:double;
+  y:double;
+}
+
+struct WireSize {
+  width:double;
+  height:double;
+}
+
+// InputLayout.flags:
+//   bit 0: Flutter captures the keyboard
+//   bit 1: Flutter shell is exclusive
+// InputWindowRegion.flags:
+//   bit 0: visible
+//   bit 1: hit-test disabled
+//   bit 2: compositor geometry is locked
+// Receivers ignore unknown input flag bits. A newer sender must not leave an
+// older compositor stuck on its previous input snapshot.
+struct InputWindowRegion {
+  object_id:ulong;
+  surface_id:ulong;
+  window_id:ulong;
+  rect:WireRect;
+  source_rect:WireRect;
+  z:int;
+  flags:uint;
+}
+
+table InputLayout {
+  epoch:ulong;
+  flags:uint;
+  shell_regions:[WireRect];
+  windows:[InputWindowRegion];
+  // All sampled surfaces currently visible in Flutter. This is intentionally
+  // independent from hit-test regions: a negative-z subsurface can be visible
+  // without ever being the input target.
+  visible_surface_ids:[ulong];
+}
+
+table SurfaceLayer {
+  surface_id:ulong;
+  parent_surface_id:ulong;
+  // Zero for the top-level surface tree. For a popup and all of its
+  // subsurfaces this identifies the popup root used for input routing.
+  popup_root_surface_id:ulong;
+  role:SurfaceRole = Root;
+  // Zero means the protocol node is mapped but does not currently have a
+  // sampleable buffer. Keeping the node preserves popup input geometry.
+  texture_id:ulong;
+  width:uint;
+  height:uint;
+  surface_x:double;
+  surface_y:double;
+  surface_width:double;
+  surface_height:double;
+  texture_source_x:double;
+  texture_source_y:double;
+  texture_source_width:double;
+  texture_source_height:double;
+  transform:uint;
+  scale_120:uint = 120;
+  composition_order:uint;
+  // Appended for wire compatibility. This combines the committed
+  // alpha-modifier and compositor-surface opacity for this wl_surface.
+  opacity:float = 1.0;
+  // True only when the complete logical surface is guaranteed opaque.
+  // Older senders default false so receivers conservatively keep effects.
+  opaque:bool;
+}
+
+table Window {
+  object_id:ulong;
+  object_kind:ObjectKind = RootSurface;
+  surface_id:ulong;
+  window_id:ulong;
+  texture_id:ulong;
+  title:string;
+  app_id:string;
+  width:uint;
+  height:uint;
+  surface_x:double;
+  surface_y:double;
+  surface_width:double;
+  surface_height:double;
+  texture_source_x:double;
+  texture_source_y:double;
+  texture_source_width:double;
+  texture_source_height:double;
+  geometry_x:double;
+  geometry_y:double;
+  geometry_width:double;
+  geometry_height:double;
+  monitor_id:long = -1;
+  transform:uint;
+  scale_120:uint = 120;
+  status_color_argb:uint;
+  has_status_color:bool;
+  // The content coordinate space used by every SurfaceLayer position.
+  content_x:double;
+  content_y:double;
+  content_width:double;
+  content_height:double;
+  surfaces:[SurfaceLayer];
+  // Appended for wire compatibility: older senders/receivers default false.
+  pinned:bool;
+  // X11 menus, tooltips and override-redirect popups are logical top-level
+  // objects only because XWayland cannot attach them to an owning surface.
+  // The shell must present them immediately, like native xdg_popup surfaces.
+  suppress_animations:bool;
+  // Appended for wire compatibility: older senders/receivers retain Denial's
+  // original server-side frame policy.
+  server_side_decorated:bool = true;
+  // Opacity for the legacy primary-texture path. Surface-aware receivers use
+  // the value carried by each SurfaceLayer instead.
+  opacity:float = 1.0;
+  // Appended for wire compatibility. SurfaceTree preserves the existing
+  // Wayland/X11 behavior; LocalFlutter selects a trusted in-bundle app by
+  // app_id and never treats texture_id == 0 as its discriminator.
+  content_kind:WindowContentKind = SurfaceTree;
+}
+
+table WindowSnapshot {
+  windows:[Window];
+}
+
+table DisplayOutput {
+  monitor_id:long;
+  name:string;
+  logical_rect:WireRect;
+  pixel_size:WireSize;
+  source_rect:WireRect;
+  scale:double = 1.0;
+  refresh_rate:double = 60.0;
+}
+
+table DisplayLayout {
+  epoch:ulong;
+  global_origin:WirePoint;
+  logical_size:WireSize;
+  pixel_size:WireSize;
+  engine_scale:double = 1.0;
+  ticker_monitor_id:long = -1;
+  system_bar_monitor_id:long = -1;
+  system_bar_side:SystemBarSide = Left;
+  outputs:[DisplayOutput];
+  // Appended for wire compatibility: older senders/receivers keep a zero
+  // thickness, which hides the shell system bar and reserves no work area.
+  system_bar_thickness:double = 0.0;
+  // Appended for wire compatibility: logical pixels of breathing room between
+  // a maximized window and every output edge that does not carry the system
+  // bar. Zero keeps maximized windows flush with the output edges.
+  maximize_padding:double = 0.0;
+  // Appended for wire compatibility. Each listed output hosts an independent
+  // copy of the system bar. Older senders expose the first output through
+  // system_bar_monitor_id only.
+  system_bar_monitor_ids:[long];
+}
+
+table WindowRequest {
+  kind:WindowRequestKind = ListWindows;
+  window_id:ulong;
+  geometry:WireRect;
+  // CreateLocalWindow only. The app ID selects a builder registered in the
+  // embedded shell; no executable name or Dart code crosses this boundary.
+  app_id:string;
+  title:string;
+  // ConfigureSystemBar only. At least one unique live monitor is required;
+  // the native compositor remains authoritative over the resolved layout.
+  system_bar_side:SystemBarSide = Top;
+  system_bar_monitor_ids:[long];
+}
+
+table WindowResponse {
+  kind:WindowResponseKind = Windows;
+  success:bool = true;
+  windows:WindowSnapshot;
+  display_layout:DisplayLayout;
+  error:string;
+}
+
+table WindowEvent {
+  kind:WindowEventKind = WindowsChanged;
+  window_id:ulong;
+  action:WindowActionKind = Minimize;
+}
+
+table ShellAction {
+  action:ShellActionKind = Applications;
+  monitor_id:long = -1;
+  has_monitor_id:bool;
+}
+
+// Rust-authoritative software cursor state. Flutter cursor intents and
+// Wayland set_cursor requests both resolve through this message.
+table CursorShape {
+  shape:string;
+}
+
+// Native pointer position updates that do not participate in Flutter hit
+// testing. These keep Rust authoritative while a Wayland client, an xdg-popup
+// seat grab, or drag-and-drop bypasses normal Flutter pointer routing.
+table CursorPosition {
+  x:double;
+  y:double;
+}
+
+// KeyboardCommand.flags bit 0 means Ctrl is held.
+table KeyboardCommand {
+  kind:KeyboardCommandKind = Text;
+  text:string;
+  key:string;
+  flags:uint;
+}
+
+table DesktopNotificationAction {
+  key:string;
+  label:string;
+}
+
+table DesktopNotificationImageData {
+  width:uint;
+  height:uint;
+  row_stride:uint;
+  has_alpha:bool;
+  bits_per_sample:ubyte = 8;
+  channels:ubyte;
+  data:[ubyte];
+}
+
+// Normalized org.freedesktop.Notifications data. Unknown D-Bus hints stay on
+// the native side rather than crossing the bridge as arbitrary variants.
+table DesktopNotification {
+  id:uint;
+  sender:string;
+  app_name:string;
+  app_icon:string;
+  summary:string;
+  body:string;
+  actions:[DesktopNotificationAction];
+  urgency:DesktopNotificationUrgency = Normal;
+  category:string;
+  desktop_entry:string;
+  image_path:string;
+  image_data:DesktopNotificationImageData;
+  resident:bool;
+  transient:bool;
+  suppress_sound:bool;
+  action_icons:bool;
+  sound_name:string;
+  sound_file:string;
+  x:int;
+  y:int;
+  has_position:bool;
+  progress:int;
+  has_progress:bool;
+  expire_timeout_ms:int = -1;
+}
+
+table DesktopNotificationEvent {
+  kind:DesktopNotificationEventKind = Added;
+  notification:DesktopNotification;
+  notification_id:uint;
+  close_reason:uint;
+}
+
+table DesktopNotificationCommand {
+  kind:DesktopNotificationCommandKind = Dismiss;
+  notification_id:uint;
+  action_key:string;
+}
+
+union Payload {
+  InputLayout,
+  WindowSnapshot,
+  DisplayLayout,
+  WindowRequest,
+  WindowResponse,
+  WindowEvent,
+  ShellAction,
+  CursorShape,
+  KeyboardCommand,
+  CursorPosition,
+  DesktopNotificationEvent,
+  DesktopNotificationCommand
+}
+
+table Envelope {
+  protocol_version:ushort = 1;
+  sequence:ulong;
+  request_id:ulong;
+  payload:Payload;
+}
+
+root_type Envelope;
+file_identifier "DENW";
+file_extension "denw";

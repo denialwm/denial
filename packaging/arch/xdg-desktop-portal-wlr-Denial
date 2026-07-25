@@ -1,0 +1,5 @@
+# Denial's current protocol set does not include zwlr-layer-shell, which the
+# default slurp chooser requires. Use a regular xdg-shell Zenity window.
+[screencast]
+chooser_type=dmenu
+chooser_cmd=zenity --list --title='Share your screen' --text='Choose a source to share' --column='Source' --width=520 --height=320

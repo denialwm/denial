@@ -1,0 +1,104 @@
+From cf6d28175ad4d635c7d7d96d3c2c48b797db5c06 Mon Sep 17 00:00:00 2001
+From: Koto Letta <kotolettaffxiv@gmail.com>
+Date: Sat, 25 Jul 2026 12:06:42 +0200
+Subject: [PATCH] Decouple autonomous damage from the raster clip
+
+Keep precise external-texture frame damage for output routing, but do not force the same nearly full-atlas rectangle to become Ganesh's raster clip. Reused autonomous layer trees raster through the normal full-repaint path while ordinary framework frames retain Flutter's partial-repaint policy.
+---
+ engine/src/flutter/flow/compositor_context.cc | 10 +++++++---
+ engine/src/flutter/flow/compositor_context.h  |  3 ++-
+ engine/src/flutter/shell/common/rasterizer.cc | 12 +++++++-----
+ engine/src/flutter/shell/common/rasterizer.h  |  1 +
+ 4 files changed, 17 insertions(+), 9 deletions(-)
+
+diff --git a/engine/src/flutter/flow/compositor_context.cc b/engine/src/flutter/flow/compositor_context.cc
+index 08d800264e5d0adab1bc0f22ce425fc8e69ef2c9..114021d1b3fb44b7dd074d868b444826e28da05b 100644
+--- a/engine/src/flutter/flow/compositor_context.cc
++++ b/engine/src/flutter/flow/compositor_context.cc
+@@ -114,7 +114,8 @@ CompositorContext::ScopedFrame::~ScopedFrame() {
+ RasterStatus CompositorContext::ScopedFrame::Raster(
+     flutter::LayerTree& layer_tree,
+     bool ignore_raster_cache,
+-    FrameDamage* frame_damage) {
++    FrameDamage* frame_damage,
++    bool force_full_repaint) {
+   TRACE_EVENT0("flutter", "CompositorContext::ScopedFrame::Raster");
+ 
+   std::optional<DlRect> clip_rect;
+@@ -122,8 +123,11 @@ RasterStatus CompositorContext::ScopedFrame::Raster(
+     clip_rect = frame_damage->ComputeClipRect(layer_tree, !ignore_raster_cache,
+                                               !gr_context_);
+ 
+-    if (aiks_context_ &&
+-        !ShouldPerformPartialRepaint(clip_rect, layer_tree.frame_size())) {
++    if (force_full_repaint) {
++      clip_rect = std::nullopt;
++      frame_damage->Reset();
++    } else if (aiks_context_ && !ShouldPerformPartialRepaint(
++                                    clip_rect, layer_tree.frame_size())) {
+       clip_rect = std::nullopt;
+       frame_damage->Reset();
+     }
+diff --git a/engine/src/flutter/flow/compositor_context.h b/engine/src/flutter/flow/compositor_context.h
+index cc00a09b1362f40d87d659a99e13a4923f0dbfc0..95421524a2912bc50f807c2359952c44d21bf853 100644
+--- a/engine/src/flutter/flow/compositor_context.h
++++ b/engine/src/flutter/flow/compositor_context.h
+@@ -146,7 +146,8 @@ class CompositorContext {
+ 
+     virtual RasterStatus Raster(LayerTree& layer_tree,
+                                 bool ignore_raster_cache,
+-                                FrameDamage* frame_damage);
++                                FrameDamage* frame_damage,
++                                bool force_full_repaint = false);
+ 
+    private:
+     void PaintLayerTreeSkia(flutter::LayerTree& layer_tree,
+diff --git a/engine/src/flutter/shell/common/rasterizer.cc b/engine/src/flutter/shell/common/rasterizer.cc
+index 6c6603e14393ce9ff51ef248e44ac7ecb519809e..bbc15baa7c81f85fff7cb626e43be4e562fbcebf 100644
+--- a/engine/src/flutter/shell/common/rasterizer.cc
++++ b/engine/src/flutter/shell/common/rasterizer.cc
+@@ -700,10 +700,10 @@ std::unique_ptr<FrameItem> Rasterizer::DrawToSurfacesUnsafe(
+     const LayerTree* previous_layer_tree =
+         is_reused_layer_tree ? layer_tree.get() : GetLastLayerTree(view_id);
+ 
+-    DrawSurfaceStatus status =
+-        DrawToSurfaceUnsafe(view_id, *layer_tree, previous_layer_tree,
+-                            dirty_texture_ids ? &*dirty_texture_ids : nullptr,
+-                            device_pixel_ratio, presentation_time);
++    DrawSurfaceStatus status = DrawToSurfaceUnsafe(
++        view_id, *layer_tree, previous_layer_tree,
++        dirty_texture_ids ? &*dirty_texture_ids : nullptr, is_reused_layer_tree,
++        device_pixel_ratio, presentation_time);
+     FML_DCHECK(status != DrawSurfaceStatus::kDiscarded);
+ 
+     auto& view_record = EnsureViewRecord(task->view_id);
+@@ -748,6 +748,7 @@ DrawSurfaceStatus Rasterizer::DrawToSurfaceUnsafe(
+     flutter::LayerTree& layer_tree,
+     const flutter::LayerTree* previous_layer_tree,
+     const std::unordered_set<int64_t>* dirty_texture_ids,
++    bool force_full_repaint,
+     float device_pixel_ratio,
+     std::optional<fml::TimePoint> presentation_time) {
+   FML_DCHECK(surface_);
+@@ -823,7 +824,8 @@ DrawSurfaceStatus Rasterizer::DrawToSurfaceUnsafe(
+     RasterStatus frame_status =
+         compositor_frame->Raster(layer_tree,           // layer tree
+                                  ignore_raster_cache,  // ignore raster cache
+-                                 damage.get()          // frame damage
++                                 damage.get(),         // frame damage
++                                 force_full_repaint    // raster policy
+         );
+     if (frame_status == RasterStatus::kSkipAndRetry) {
+       return DrawSurfaceStatus::kRetry;
+diff --git a/engine/src/flutter/shell/common/rasterizer.h b/engine/src/flutter/shell/common/rasterizer.h
+index a72cc7db27e9563b6809c85d81f7547e0eb4a2dc..084048d7b12caed902a56148449bb0c5e862043e 100644
+--- a/engine/src/flutter/shell/common/rasterizer.h
++++ b/engine/src/flutter/shell/common/rasterizer.h
+@@ -761,6 +761,7 @@ class Rasterizer final : public SnapshotDelegate,
+       flutter::LayerTree& layer_tree,
+       const flutter::LayerTree* previous_layer_tree,
+       const std::unordered_set<int64_t>* dirty_texture_ids,
++      bool force_full_repaint,
+       float device_pixel_ratio,
+       std::optional<fml::TimePoint> presentation_time);
+ 

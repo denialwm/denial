@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly REPOSITORY_URL='https://github.com/denialwm/denial'
+readonly RUNNER_USER='denial-builder'
+readonly RUNNER_GROUP='denial-builder'
+readonly RUNNER_PARENT='/srv/denial-builder/runner'
+readonly RUNNER_INSTANCE="${RUNNER_PARENT}/current"
+readonly RUNNER_RELEASE_ROOT='/opt/denial-actions-runner'
+readonly RUNNER_ENV='/etc/denial-builder/runner.env'
+readonly RUNNER_SERVICE='denial-actions-runner.service'
+
+fail() {
+  printf 'denial-actions-runner-arm: %s\n' "$*" >&2
+  exit 1
+}
+
+if ((EUID != 0)); then
+  fail 'must run as root'
+fi
+
+# shellcheck source=/dev/null
+source "$RUNNER_ENV"
+
+readonly RUNNER_RELEASE="${RUNNER_RELEASE_ROOT}/${DENIAL_ACTIONS_RUNNER_VERSION}"
+
+[[ -x "${RUNNER_RELEASE}/config.sh" ]] \
+  || fail "runner release is not installed: $RUNNER_RELEASE"
+
+if systemctl is-active --quiet "$RUNNER_SERVICE"; then
+  fail 'a runner is already active'
+fi
+
+registration_token=''
+IFS= read -r registration_token \
+  || fail 'a repository registration token is required on standard input'
+
+[[ -n "$registration_token" ]] || fail 'the registration token is empty'
+[[ "$registration_token" != *[$' \t\r\n']* ]] \
+  || fail 'the registration token contains whitespace'
+
+systemctl reset-failed "$RUNNER_SERVICE" >/dev/null 2>&1 || true
+/usr/local/libexec/denial-actions-runner-cleanup
+
+install -d -m 0700 -o "$RUNNER_USER" -g "$RUNNER_GROUP" "$RUNNER_INSTANCE"
+cp -a --reflink=auto -- "${RUNNER_RELEASE}/." "${RUNNER_INSTANCE}/"
+chown -R "$RUNNER_USER:$RUNNER_GROUP" "$RUNNER_INSTANCE"
+
+install -d -m 0700 -o "$RUNNER_USER" -g "$RUNNER_GROUP" \
+  "${RUNNER_INSTANCE}/home" \
+  "${RUNNER_INSTANCE}/build" \
+  "${RUNNER_INSTANCE}/_work"
+
+runner_host="$(hostname -s | tr -cd '[:alnum:]._-')"
+runner_name="denial-x64-${runner_host}-$(date -u +%Y%m%dT%H%M%SZ)"
+
+cleanup_failed_arm() {
+  registration_token=''
+  systemctl stop "$RUNNER_SERVICE" >/dev/null 2>&1 || true
+  /usr/local/libexec/denial-actions-runner-cleanup
+}
+trap cleanup_failed_arm ERR
+
+(
+  cd -- "$RUNNER_INSTANCE"
+  runuser --user "$RUNNER_USER" -- \
+    env -i \
+      HOME="${RUNNER_INSTANCE}/home" \
+      USER="$RUNNER_USER" \
+      LOGNAME="$RUNNER_USER" \
+      PATH='/usr/local/bin:/usr/bin' \
+      LANG='C.UTF-8' \
+      XDG_CACHE_HOME="${RUNNER_INSTANCE}/home/.cache" \
+      ./config.sh \
+        --url "$REPOSITORY_URL" \
+        --token "$registration_token" \
+        --name "$runner_name" \
+        --work '_work' \
+        --labels 'denial-builder' \
+        --unattended \
+        --ephemeral \
+        --disableupdate
+)
+
+registration_token=''
+unset registration_token
+
+printf '%s\n' "$runner_name" >"${RUNNER_INSTANCE}/.denial-runner-name"
+chown "$RUNNER_USER:$RUNNER_GROUP" \
+  "${RUNNER_INSTANCE}/.denial-runner-name"
+chmod 0600 "${RUNNER_INSTANCE}/.denial-runner-name"
+
+systemctl start "$RUNNER_SERVICE"
+systemctl is-active --quiet "$RUNNER_SERVICE" \
+  || fail 'runner service did not become active'
+
+broker_session_ready=0
+for _ in {1..30}; do
+  systemctl is-active --quiet "$RUNNER_SERVICE" \
+    || fail 'runner service exited before its broker session became ready'
+
+  if grep -R -Fq -- 'Session created.' "${RUNNER_INSTANCE}/_diag" \
+      2>/dev/null \
+    && grep -R -Fq -- 'Listening for Jobs' "${RUNNER_INSTANCE}/_diag" \
+      2>/dev/null; then
+    broker_session_ready=1
+    break
+  fi
+  sleep 1
+done
+((broker_session_ready)) \
+  || fail 'runner did not establish a GitHub broker session'
+
+trap - ERR
+printf 'runner_name=%s\n' "$runner_name"
+printf 'broker_session=ready\n'

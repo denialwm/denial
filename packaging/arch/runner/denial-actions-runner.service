@@ -1,0 +1,45 @@
+[Unit]
+Description=Denial one-job GitHub Actions runner
+Documentation=https://github.com/denialwm/denial/blob/main/docs/packaging/arch/BUILDER.md
+Wants=network-online.target
+After=network-online.target
+ConditionPathIsDirectory=/srv/denial-builder/runner/current
+
+[Service]
+Type=simple
+User=denial-builder
+Group=denial-builder
+WorkingDirectory=/srv/denial-builder/runner/current
+Environment=HOME=/srv/denial-builder/runner/current/home
+Environment=DENIAL_BUILDER_ROOT=/srv/denial-builder/runner/current/build
+ExecStart=/srv/denial-builder/runner/current/run.sh
+ExecStopPost=+/usr/local/libexec/denial-actions-runner-cleanup
+Restart=no
+KillMode=mixed
+TimeoutStopSec=30s
+UMask=0077
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateDevices=yes
+PrivateTmp=yes
+RemoveIPC=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectHostname=yes
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+LockPersonality=yes
+ReadWritePaths=/srv/denial-builder/runner/current
+
+[Install]
+# Deliberately no WantedBy: this one-job runner must be armed manually.

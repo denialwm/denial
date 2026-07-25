@@ -1,0 +1,28 @@
+From 9353c04c284bc1628bc09298b7b85de70e1da294 Mon Sep 17 00:00:00 2001
+From: Koto Letta <kotolettaffxiv@gmail.com>
+Date: Sat, 25 Jul 2026 12:06:41 +0200
+Subject: [PATCH] Enable stencil for embedder GL surfaces
+
+Flutter globally avoids stencil buffers for OpenGL surfaces even when Denial's framebuffer supplies a valid stencil attachment. Allow GPUSurfaceGLSkia to use that attachment so Ganesh can keep antialiased clipping on the GPU.
+---
+ engine/src/flutter/shell/gpu/gpu_surface_gl_skia.cc | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/engine/src/flutter/shell/gpu/gpu_surface_gl_skia.cc b/engine/src/flutter/shell/gpu/gpu_surface_gl_skia.cc
+index 5f642ef540c3633b9b3b8584d4c64046f8c6da12..c2d0cc25aa2b5ae3cdd82cfcc66ca3d9faa78399 100644
+--- a/engine/src/flutter/shell/gpu/gpu_surface_gl_skia.cc
++++ b/engine/src/flutter/shell/gpu/gpu_surface_gl_skia.cc
+@@ -52,8 +52,12 @@ sk_sp<GrDirectContext> GPUSurfaceGLSkia::MakeGLContext(
+     return nullptr;
+   }
+ 
+-  const auto options =
++  auto options =
+       MakeDefaultContextOptions(ContextType::kRender, GrBackendApi::kOpenGL);
++  // Denial supplies real stencil attachments on its embedder-owned targets.
++  // Let Ganesh use them for GPU stencil and dynamic MSAA instead of falling
++  // back to CPU-rasterized A8 clip masks.
++  options.fAvoidStencilBuffers = false;
+ 
+   auto context = GrDirectContexts::MakeGL(delegate->GetGLInterface(), options);
+ 

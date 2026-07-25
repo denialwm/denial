@@ -1,0 +1,42 @@
+# Denial documentation
+
+This directory contains Denial's project-level design, development, protocol,
+performance, packaging, and release documentation. Component-specific build
+metadata and attribution remain beside the files they describe.
+
+## Development and architecture
+
+- [Build Denial](BUILDING.md)
+- [Architecture](architecture.md)
+- [Screenshots and screen sharing](SCREEN_CAPTURE.md)
+- [Window rendering diagnostics](RENDER_AUDIT.md)
+
+## Protocols
+
+- [Platform-channel inventory](protocol/CHANNEL_INVENTORY.md)
+- [Denial wire format](protocol/WIRE_FORMAT.md)
+- [Output-control protocol v1](protocol/output-control-v1.md)
+
+The versioned FlatBuffers schema and generated bindings remain under
+[`protocol/`](../protocol/).
+
+## Arch packaging and releases
+
+- [Packaging overview](packaging/arch/README.md)
+- [Repository installation](packaging/arch/INSTALL.md)
+- [Build trust and release evidence](BUILD_TRUST.md)
+- [Publishing design](packaging/arch/PUBLISHING.md)
+- [Builder runbook](packaging/arch/BUILDER.md)
+- [Release-signing operations](packaging/arch/SIGNING.md)
+- [Package validation evidence](packaging/arch/VALIDATION.md)
+- [Main-branch candidate validation](packaging/arch/MAIN_VALIDATION.md)
+
+## Colocated references
+
+The following documentation stays with its implementation or artifact:
+
+- [`compositor/README.md`](../compositor/README.md)
+- [`protocol/golden/README.md`](../protocol/golden/README.md)
+- [`patches/flutter-engine/README.md`](../patches/flutter-engine/README.md)
+- [`prebuilt/flutter-engine/.../BUILD_INFO.md`](../prebuilt/flutter-engine/linux-x64-release/BUILD_INFO.md)
+- [`tools/flutter-embedder-bindings/README.md`](../tools/flutter-embedder-bindings/README.md)

@@ -1,0 +1,26 @@
+/compositor/target/
+/compositor/flutter-engine/target/
+/dart_shell/.dart_tool/
+/dart_shell/build/
+/dart_shell/.flutter-plugins
+/dart_shell/.flutter-plugins-dependencies
+
+# Locally rebuilt Flutter Embedder library. Its sources, build recipe, and
+# expected checksum are tracked; the generated architecture-specific binary
+# is not.
+/prebuilt/flutter-engine/*/libflutter_engine.so
+
+# In-tree makepkg output. Denial's packaging tool normally places all of this
+# under its external build root, but direct makepkg invocations must not dirty
+# the source checkout.
+/packaging/arch/src/
+/packaging/arch/pkg/
+/packaging/arch/*.pkg.tar.*
+/packaging/arch/*.src.tar.*
+/packaging/arch/flutter-engine/src/
+/packaging/arch/flutter-engine/pkg/
+/packaging/arch/flutter-engine/*.pkg.tar.*
+/packaging/arch/flutter-engine/*.src.tar.*
+
+# Local-only cursor reference; its license prohibits redistribution.
+/dart_shell/assets/cursors/yangyang_xuanling/

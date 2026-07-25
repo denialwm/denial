@@ -1,0 +1,101 @@
+name: Qualify Denial release builder
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: denial-builder-qualification-x86_64
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    if: github.ref == 'refs/heads/main'
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - denial-builder
+    timeout-minutes: 30
+
+    steps:
+      - name: Require a fresh runner workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s dotglob nullglob
+          entries=(*)
+          if ((${#entries[@]} != 0)); then
+            printf 'Refusing reused workspace: %s\n' "$GITHUB_WORKSPACE" >&2
+            exit 1
+          fi
+
+      - name: Check out the exact private-repository commit
+        shell: bash
+        env:
+          DENIAL_CHECKOUT_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.sha }}
+          REPOSITORY_NAME: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          askpass="$RUNNER_TEMP/denial-git-askpass"
+          trap 'rm -f -- "$askpass"' EXIT
+          umask 077
+          # The parameter expansions below are literal askpass-script source.
+          # shellcheck disable=SC2016
+          printf '%s\n' \
+            '#!/usr/bin/env bash' \
+            'set -euo pipefail' \
+            'case "${1:-}" in' \
+            '  *Username*) printf "%s\n" x-access-token ;;' \
+            '  *Password*) printf "%s\n" "${DENIAL_CHECKOUT_TOKEN:?}" ;;' \
+            '  *) exit 1 ;;' \
+            'esac' \
+            >"$askpass"
+          chmod 0700 "$askpass"
+
+          git init --initial-branch=detached .
+          git remote add origin "https://github.com/${REPOSITORY_NAME}.git"
+          GIT_ASKPASS="$askpass" \
+          GIT_ASKPASS_REQUIRE=force \
+          GIT_TERMINAL_PROMPT=0 \
+          git -c protocol.version=2 fetch \
+            --no-tags \
+            --depth=2 \
+            origin \
+            "$EXPECTED_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Audit committed release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          actionlint
+          tools/denial-release source-audit
+
+      - name: Qualify the x86-64 builder
+        shell: bash
+        run: tools/denial-release doctor --ci
+
+      - name: Verify the staged Flutter Engine generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          engine='/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/libflutter_engine.so'
+          expected="$(
+            cut -d' ' -f1 \
+              <prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so.sha256
+          )"
+          actual="$(sha256sum "$engine" | cut -d' ' -f1)"
+          test "$actual" = "$expected"
+
+      - name: State the boundary
+        shell: bash
+        run: |
+          printf '%s\n' \
+            'Builder qualification passed.' \
+            'No package was built, signed, attested, or published.'

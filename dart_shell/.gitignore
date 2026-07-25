@@ -1,0 +1,6 @@
+.dart_tool/
+.packages
+build/
+# Denial embeds Flutter directly and does not use the generated GTK runner.
+/linux/
+test/**/failures/

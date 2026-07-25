@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+VERSION="$(tr -d '[:space:]' < "$ROOT/protocol/FLATBUFFERS_VERSION")"
+SCHEMA="$ROOT/protocol/denial.fbs"
+DART_OUT="$ROOT/protocol/generated/dart"
+RUST_OUT="$ROOT/protocol/generated/rust"
+MODE="${1:-generate}"
+
+if [[ "$MODE" != "generate" && "$MODE" != "--check" ]]; then
+    printf 'Usage: %s [--check]\n' "$0" >&2
+    exit 2
+fi
+
+FLATC_BIN="${FLATC:-}"
+if [[ -z "$FLATC_BIN" ]]; then
+    FLATC_BIN="$(command -v flatc || true)"
+fi
+if [[ -z "$FLATC_BIN" || ! -x "$FLATC_BIN" ]]; then
+    printf 'flatc %s is required; set FLATC to the matching executable\n' "$VERSION" >&2
+    exit 1
+fi
+
+ACTUAL_VERSION="$($FLATC_BIN --version | awk '{print $NF}')"
+if [[ "$ACTUAL_VERSION" != "$VERSION" ]]; then
+    printf 'flatc version mismatch: need %s, found %s at %s\n' \
+        "$VERSION" "$ACTUAL_VERSION" "$FLATC_BIN" >&2
+    exit 1
+fi
+
+TMP="$(mktemp -d)"
+trap 'rm -rf -- "$TMP"' EXIT
+mkdir -p "$TMP/dart" "$TMP/rust"
+
+"$FLATC_BIN" --dart --warnings-as-errors -o "$TMP/dart" "$SCHEMA"
+"$FLATC_BIN" --rust --warnings-as-errors -o "$TMP/rust" "$SCHEMA"
+
+if [[ "$MODE" == "--check" ]]; then
+    cmp "$DART_OUT/lib/denial_denial.wire_generated.dart" \
+        "$TMP/dart/denial_denial.wire_generated.dart"
+    cmp "$RUST_OUT/denial_generated.rs" \
+        "$TMP/rust/denial_generated.rs"
+    printf 'Denial generated wire code is current (FlatBuffers %s)\n' "$VERSION"
+    exit 0
+fi
+
+mkdir -p "$DART_OUT/lib" "$RUST_OUT"
+cp "$TMP/dart/denial_denial.wire_generated.dart" \
+    "$DART_OUT/lib/denial_denial.wire_generated.dart"
+cp "$TMP/rust/denial_generated.rs" "$RUST_OUT/denial_generated.rs"
+printf 'generated Denial wire code with FlatBuffers %s\n' "$VERSION"

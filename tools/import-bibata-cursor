@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+DESTINATION="$ROOT/dart_shell/assets/cursors/bibata_modern_ice"
+MANIFEST="$ROOT/dart_shell/assets/cursors/bibata_modern_ice.sha256"
+
+LINUX_SHA256='a68cae60c4dc706350e194ebc91c5fe48bc7bc9d59e119555834a2a7ee5078ef'
+WINDOWS_SHA256='0045e40324da5b540b3bee260f53d0792df62be9cdef91655a024ae9f151bd04'
+
+usage() {
+  printf 'Usage: %s BIBATA_MODERN_ICE_TAR_XZ BIBATA_MODERN_ICE_WINDOWS_ZIP\n' \
+    "$0" >&2
+}
+
+if [[ "$#" -ne 2 ]]; then
+  usage
+  exit 2
+fi
+
+for command in \
+  awk bsdtar find icotool install realpath sha256sum sort wc xargs xcur2png
+do
+  command -v "$command" >/dev/null 2>&1 \
+    || {
+      printf 'import-bibata-cursor: missing command: %s\n' "$command" >&2
+      exit 1
+    }
+done
+
+LINUX_ARCHIVE="$(realpath -e -- "$1")"
+WINDOWS_ARCHIVE="$(realpath -e -- "$2")"
+
+verify_sha256() {
+  local archive="$1"
+  local expected="$2"
+  local actual
+
+  actual="$(sha256sum -- "$archive" | awk '{print $1}')"
+  [[ "$actual" == "$expected" ]] \
+    || {
+      printf 'import-bibata-cursor: SHA-256 mismatch for %s\n' "$archive" >&2
+      printf '  expected: %s\n  actual:   %s\n' "$expected" "$actual" >&2
+      exit 1
+    }
+}
+
+verify_sha256 "$LINUX_ARCHIVE" "$LINUX_SHA256"
+verify_sha256 "$WINDOWS_ARCHIVE" "$WINDOWS_SHA256"
+
+WORK="$(mktemp -d)"
+trap 'rm -rf -- "$WORK"' EXIT
+install -d -- "$WORK/linux" "$WORK/windows" "$WORK/stage"
+bsdtar -xf "$LINUX_ARCHIVE" -C "$WORK/linux"
+bsdtar -xf "$WINDOWS_ARCHIVE" -C "$WORK/windows"
+
+XCURSOR_ROOT="$WORK/linux/Bibata-Modern-Ice/cursors"
+WINDOWS_ROOT="$WORK/windows/Bibata-Modern-Ice-Regular-Windows"
+[[ -d "$XCURSOR_ROOT" && -d "$WINDOWS_ROOT" ]] \
+  || {
+    printf 'import-bibata-cursor: unexpected upstream archive layout\n' >&2
+    exit 1
+  }
+
+extract_xcursor_frame() {
+  local role="$1"
+  local source_name="$2"
+  local expected_hotspot_x="$3"
+  local expected_hotspot_y="$4"
+  local extraction_root="$WORK/extracted/$role"
+  local config="$WORK/$role.conf"
+  local size
+  local hotspot_x
+  local hotspot_y
+  local image_name
+  local delay
+
+  install -d -- "$extraction_root" "$WORK/stage/$role"
+  xcur2png \
+    --quiet \
+    --directory "$extraction_root" \
+    --conf "$config" \
+    "$XCURSOR_ROOT/$source_name" >/dev/null 2>&1
+  read -r size hotspot_x hotspot_y image_name delay < <(
+    awk '$1 == 32 { print $1, $2, $3, $4, $5; exit }' "$config"
+  )
+  [[ "$size" == 32 \
+    && "$hotspot_x" == "$expected_hotspot_x" \
+    && "$hotspot_y" == "$expected_hotspot_y" \
+    && -f "$image_name" ]] \
+    || {
+      printf 'import-bibata-cursor: unexpected %s frame metadata\n' "$role" >&2
+      exit 1
+    }
+  install -m644 -- "$image_name" \
+    "$WORK/stage/$role/00.png"
+}
+
+while read -r role source_name hotspot_x hotspot_y; do
+  extract_xcursor_frame "$role" "$source_name" "$hotspot_x" "$hotspot_y"
+done <<'ROLE_MAP'
+normal left_ptr 6 2
+help question_arrow 5 10
+working left_ptr_watch 6 2
+text xterm 16 16
+link hand2 14 2
+busy wait 16 16
+precision crosshair 16 16
+handwriting pencil 5 26
+unavailable crossed_circle 16 16
+vertical_resize sb_v_double_arrow 16 16
+horizontal_resize sb_h_double_arrow 16 16
+diagonal_nwse bd_double_arrow 16 16
+diagonal_nesw fd_double_arrow 16 16
+move move 16 16
+alternate dnd-link 12 8
+ROLE_MAP
+
+extract_windows_frame() {
+  local role="$1"
+  local source_name="$2"
+  local listing
+
+  listing="$(icotool --list --index=1 "$WINDOWS_ROOT/$source_name")"
+  [[ "$listing" == *'--width=32 --height=32'* \
+    && "$listing" == *'--hotspot-x=4 --hotspot-y=1'* ]] \
+    || {
+      printf 'import-bibata-cursor: unexpected %s frame metadata\n' "$role" >&2
+      exit 1
+    }
+  install -d -- "$WORK/stage/$role"
+  icotool \
+    --extract \
+    --index=1 \
+    --output="$WORK/stage/$role/00.png" \
+    "$WINDOWS_ROOT/$source_name"
+}
+
+extract_windows_frame person Person.cur
+extract_windows_frame pin Pin.cur
+
+frame_count="$(find "$WORK/stage" -type f -name '*.png' | wc -l)"
+[[ "$frame_count" == 17 ]] \
+  || {
+    printf 'import-bibata-cursor: expected 17 frames, found %s\n' \
+      "$frame_count" >&2
+    exit 1
+  }
+
+rm -rf -- "$DESTINATION"
+install -d -- "$(dirname -- "$DESTINATION")"
+cp -a -- "$WORK/stage" "$DESTINATION"
+(
+  cd "$ROOT"
+  find dart_shell/assets/cursors/bibata_modern_ice \
+    -type f \
+    -name '*.png' \
+    -print0 \
+    | LC_ALL=C sort -z \
+    | xargs -0 sha256sum
+) > "$MANIFEST"
+
+printf 'Imported 17 unchanged Bibata Modern Ice 32px frames into %s\n' \
+  "$DESTINATION"
+printf 'Wrote frame manifest: %s\n' "$MANIFEST"
