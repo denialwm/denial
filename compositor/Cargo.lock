@@ -391,7 +391,7 @@ checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
 name = "denial"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "calloop",
  "denial-flutter-engine",
@@ -401,6 +401,7 @@ dependencies = [
  "libloading 0.9.0",
  "serde",
  "serde_json",
+ "sha2",
  "smithay",
  "smithay-drm-extras",
  "tracing",

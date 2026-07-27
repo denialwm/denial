@@ -61,9 +61,10 @@ Git. Its expected checksum, source/build metadata, and licenses live in
 directory's `BUILD_INFO.md` before creating a bundle. It applies the versioned
 engine series in `patches/flutter-engine/3.44.7/`: six coupled OpenGL
 stencil/dynamic-MSAA correctness patches plus four autonomous-texture damage,
-raster, and scheduling fixes. The separate, compatible Flutter framework
-patch in `patches/flutter/` remains part of SDK bootstrap and raises touch
-resampling from 60 Hz to 120 Hz.
+raster, and scheduling fixes. The separate, compatible SDK series in
+`patches/flutter/` remains part of bootstrap: it raises touch resampling from
+60 Hz to 120 Hz and permits explicit VM-service attachment to Denial's raw
+embedder project without a generated platform runner.
 
 The Flutter embedder ABI is committed as generated Rust in
 `compositor/flutter-engine/src/sys.rs`, stamped with the coupled revisions from

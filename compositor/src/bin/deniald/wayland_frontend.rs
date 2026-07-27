@@ -1392,30 +1392,22 @@ impl WaylandFrontend {
         &mut self,
         window: &Window,
     ) -> Option<Rectangle<i32, Logical>> {
-        let Some(root) = self.window_root_surface(window) else {
-            return None;
-        };
+        let root = self.window_root_surface(window)?;
         let object_id = root.id();
-        let Some(pending) = self
+        let pending = self
             .pending_client_sized_placements
             .get(&object_id)
-            .copied()
-        else {
-            return None;
-        };
+            .copied()?;
         let committed = window.geometry();
         if committed.size.w <= 0 || committed.size.h <= 0 {
             return None;
         }
-        let Some(output_geometry) = self
+        let output_geometry = self
             .outputs
             .iter()
             .find(|output| output.id == pending.output_id)
             .map(|output| output.logical_geometry)
-            .or_else(|| self.fallback_output_geometry())
-        else {
-            return None;
-        };
+            .or_else(|| self.fallback_output_geometry())?;
         let target = clamp_window_geometry(
             Rectangle::new(pending.requested_location, committed.size),
             output_geometry,

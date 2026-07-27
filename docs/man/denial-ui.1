@@ -1,0 +1,104 @@
+.TH DENIAL-UI 1 "July 2026" "Denial 0.2.0" "User Commands"
+.SH NAME
+denial-ui \- prepare and attach to Denial's live Flutter UI
+.SH SYNOPSIS
+.B denial-ui
+.I command
+.RI [ workspace ]
+.SH DESCRIPTION
+.B denial-ui
+is the native development client installed by
+.BR denial-ui-development .
+It uses the package-pinned Flutter and Dart toolchain to prepare a JIT shell
+bundle, discover the authenticated Dart VM service, and attach an editor or
+terminal to the running shell.
+.PP
+The package does not replace Denial's optimized default runtime.
+Entering live development performs an in-process Flutter engine replacement;
+Wayland clients and the compositor session remain alive.
+.PP
+Dart kernels and assets may be rebuilt without ending the session.
+After installing or rebuilding a different native
+.IR libflutter_engine.so ,
+restart the Denial session once before enabling live development.
+Denial rejects a changed JIT engine after another native JIT engine has already
+been loaded by the same compositor process.
+.SH COMMANDS
+.TP
+.B doctor
+Inspect the selected workspace, pinned toolchain, JIT engine, prepared bundle,
+and live VM-service endpoint.
+.TP
+.BI "prepare " [workspace]
+Resolve the packaged dependency set offline and atomically prepare a debug
+kernel and asset bundle.
+.TP
+.B uri
+Print the authenticated loopback Dart VM-service URI.
+.TP
+.BI "attach " [workspace]
+Attach the pinned Flutter tool to the live shell.
+.TP
+.BI "flutter " [arguments...]
+Run the immutable package-pinned Flutter tool.
+The
+.B denial-flutter
+command is an equivalent editor-compatible entry point.
+.TP
+.B version
+Show the client version and coupled Flutter generation.
+.SH WORKSPACE DISCOVERY
+When no workspace is given,
+.B denial-ui
+checks
+.BR DENIAL_UI_WORKSPACE ,
+the current directory,
+the
+.I dart_shell
+directory below it, and finally the workspace selected in Denial Settings.
+A workspace must contain
+.I pubspec.yaml
+and
+.IR lib/main.dart .
+.SH ENVIRONMENT
+.TP
+.B DENIAL_UI_WORKSPACE
+Default Flutter source workspace.
+.TP
+.B DENIAL_UI_DEVELOPMENT_ROOT
+Override the installed development package root.
+.TP
+.B DENIAL_FLUTTER_SDK_ROOT
+Override the pinned Flutter SDK root.
+.TP
+.B DENIAL_UI_DEBUG_ENGINE
+Override the patched JIT engine library.
+.TP
+.B DENIAL_UI_BUILD_ROOT
+Override the per-user development build root.
+.TP
+.B DENIAL_UI_DEBUG_BUNDLE
+Override the prepared JIT bundle below the build root.
+.TP
+.B DENIAL_UI_PUB_CACHE
+Override the Denial-scoped writable Pub cache seeded from the development
+package.
+.TP
+.B XDG_CACHE_HOME
+Locates per-user compilation output and the default writable Pub cache.
+.TP
+.B XDG_RUNTIME_DIR
+Locates Denial's private VM-service discovery file.
+.SH SECURITY
+Flutter source loaded through live development is trusted session code.
+The VM service binds only to
+.B 127.0.0.1
+and retains its unpredictable authentication path.
+The discovery file must be owned by the current user and have mode 0600.
+The packaged editor attachment deliberately does not grant debugger pause,
+breakpoint, stepping, or expression-evaluation control over the desktop
+isolate.
+Hot reload and Flutter Inspector remain available.
+.SH SEE ALSO
+.BR denialctl (1),
+.BR pacman (8)

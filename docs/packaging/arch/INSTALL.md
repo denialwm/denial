@@ -1,15 +1,34 @@
 # Install Denial from its Arch repository
 
-> The repository becomes live with Denial's first announced public-alpha
-> release. Until then, the URL below may return `404`.
-
 The first-party repository currently supports Arch Linux on `x86_64`. It
-contains two packages:
+contains three packages:
 
 - `denial`, the compositor, Flutter application, session, and configuration;
-- `denial-flutter-engine`, the matching pinned Flutter runtime.
+- `denial-flutter-engine`, the matching pinned Flutter runtime; and
+- `denial-ui-development`, an optional version-coupled live Flutter
+  development environment.
 
-Pacman installs and upgrades them together.
+Installing `denial` pulls in the required engine automatically. The
+development package is installed only when requested.
+
+## Guided installation
+
+Review the repository-owned [`install.sh`](../../../install.sh), then run:
+
+```sh
+curl -fsSL https://install.denialwm.org | sh
+```
+
+The installer downloads the public key from the published Denial repository,
+derives its full fingerprint locally, and refuses to continue unless it equals
+`AE4108FA5E91E26BE0EE331E0F5B3AD16E023091`. It also rejects an existing
+`[denial]` section unless its signature policy and server exactly match the
+configuration below. After showing its plan and receiving confirmation, it
+uses `sudo` to trust the verified key, add the repository when necessary, and
+run `pacman -Syu --needed denial`.
+
+The following sections document the same process for users who prefer to
+perform every step manually.
 
 ## 1. Import the Denial release key
 
@@ -79,7 +98,7 @@ Server = https://denialwm.github.io/denial/$arch
 ```
 
 Do not use `TrustAll`, `Optional`, or `Never`. The configuration above
-requires trusted signatures for both packages and repository databases.
+requires trusted signatures for every package and repository database.
 
 ## 3. Install Denial
 
@@ -93,12 +112,37 @@ sudo pacman -Syu denial
 Inspect the selected package source and version if desired:
 
 ```sh
-pacman -Si denial denial-flutter-engine
+pacman -Si denial denial-flutter-engine denial-ui-development
 ```
 
 Then log out, choose **Denial** in the display manager, and sign in. From an
 existing graphical session, `denial-session --check` performs an installation
-and hardware preflight without starting the compositor.
+and hardware preflight without starting the compositor. Inside a running
+Denial session, `denialctl status` verifies the native control connection and
+reports the compositor, output, and Flutter UI state.
+
+## Optional live Flutter development
+
+Install the development environment only when you want to edit Denial's
+Flutter shell:
+
+```sh
+sudo pacman -S denial-ui-development
+denialctl ui setup
+```
+
+The setup command creates a version-matched editable checkout in `~/DenialUI`,
+prepares it with the packaged toolchain, and enters live development. Open
+`~/DenialUI/dart_shell` in VSCodium and run **Attach to Denial live UI** for
+hot reload on save and Flutter Inspector. Return to the packaged optimized
+shell at any time with:
+
+```sh
+denialctl ui restore
+```
+
+See [Live Flutter UI development](../../UI_DEVELOPMENT.md) for the runtime,
+security, and recovery model.
 
 ## Updates
 
@@ -120,9 +164,16 @@ Remove the compositor and its now-unused dependencies with:
 sudo pacman -Rns denial
 ```
 
+If `denial-ui-development` is installed, remove it in the same transaction:
+
+```sh
+sudo pacman -Rns denial-ui-development denial
+```
+
 Pacman preserves administrator-modified backup files according to its normal
 `.pacsave` behavior. Remove the `[denial]` block from `/etc/pacman.conf` if the
-repository is no longer wanted.
+repository is no longer wanted. An editable `~/DenialUI` checkout is user
+data and is not removed by Pacman.
 
 ## Release trust
 

@@ -19,6 +19,7 @@ enum SettingsPageId {
   network,
   bluetooth,
   power,
+  developer,
   about,
 }
 
@@ -35,6 +36,7 @@ extension SettingsPageIdPresentation on SettingsPageId {
     SettingsPageId.network => context.l10n.settingsNavigationNetwork,
     SettingsPageId.bluetooth => context.l10n.settingsNavigationBluetooth,
     SettingsPageId.power => context.l10n.settingsNavigationPower,
+    SettingsPageId.developer => context.l10n.settingsNavigationDeveloper,
   };
 
   IconData get icon => switch (this) {
@@ -49,6 +51,7 @@ extension SettingsPageIdPresentation on SettingsPageId {
     SettingsPageId.displays => Icons.monitor_rounded,
     SettingsPageId.network => Icons.wifi_rounded,
     SettingsPageId.bluetooth => Icons.bluetooth_rounded,
+    SettingsPageId.developer => Icons.code_rounded,
   };
 }
 

@@ -1,9 +1,11 @@
 /compositor/target/
 /compositor/flutter-engine/target/
+/tools/xtask/target/
 /dart_shell/.dart_tool/
 /dart_shell/build/
 /dart_shell/.flutter-plugins
 /dart_shell/.flutter-plugins-dependencies
+/.denial-ui-source.json
 
 # Locally rebuilt Flutter Embedder library. Its sources, build recipe, and
 # expected checksum are tracked; the generated architecture-specific binary
@@ -21,6 +23,10 @@
 /packaging/arch/flutter-engine/pkg/
 /packaging/arch/flutter-engine/*.pkg.tar.*
 /packaging/arch/flutter-engine/*.src.tar.*
+/packaging/arch/ui-development/src/
+/packaging/arch/ui-development/pkg/
+/packaging/arch/ui-development/*.pkg.tar.*
+/packaging/arch/ui-development/*.src.tar.*
 
 # Local-only cursor reference; its license prohibits redistribution.
 /dart_shell/assets/cursors/yangyang_xuanling/

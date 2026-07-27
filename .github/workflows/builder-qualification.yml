@@ -85,13 +85,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          engine='/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/libflutter_engine.so'
-          expected="$(
+          engine_root='/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1'
+          release_expected="$(
             cut -d' ' -f1 \
               <prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so.sha256
           )"
-          actual="$(sha256sum "$engine" | cut -d' ' -f1)"
-          test "$actual" = "$expected"
+          release_actual="$(
+            sha256sum "$engine_root/libflutter_engine.so" | cut -d' ' -f1
+          )"
+          test "$release_actual" = "$release_expected"
+          debug_expected="$(
+            cut -d' ' -f1 \
+              <prebuilt/flutter-engine/linux-x64-debug/libflutter_engine.so.sha256
+          )"
+          debug_actual="$(
+            sha256sum "$engine_root/debug/libflutter_engine.so" | cut -d' ' -f1
+          )"
+          test "$debug_actual" = "$debug_expected"
 
       - name: State the boundary
         shell: bash

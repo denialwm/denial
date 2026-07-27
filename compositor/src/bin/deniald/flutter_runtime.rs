@@ -8,7 +8,7 @@
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::ffi::{CStr, OsString, c_void};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::mem;
 use std::os::fd::{AsFd, OwnedFd};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -21,9 +21,10 @@ use std::time::{Duration, Instant};
 
 use denial_core::topology::{AtlasPlan, PixelSize, TopologySnapshot};
 use denial_flutter_engine::{
-    EngineError, EngineEvent, EngineHost, EngineLibrary, EngineProject, OpenGlHandler,
-    PlatformMessage, PresentFrame, ScheduledTask, sys,
+    DartRuntimeMode, EngineError, EngineEvent, EngineHost, EngineLibrary, EngineProject,
+    OpenGlHandler, PlatformMessage, PresentFrame, ScheduledTask, sys,
 };
+use sha2::{Digest, Sha256};
 use smithay::backend::allocator::Buffer as AllocatorBuffer;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::egl::display::EGLDisplayHandle;
@@ -87,6 +88,7 @@ const MAX_LIVE_EXTERNAL_TEXTURE_RESOURCES: usize = 1024;
 const PLATFORM_TASK_MAX_DISPATCH_TIMEOUT: Duration = Duration::from_millis(100);
 const MAX_PENDING_AUDIO_REQUESTS: usize = 128;
 const MAX_PENDING_BRIGHTNESS_REQUESTS: usize = 128;
+const MAX_PENDING_UI_DEVELOPMENT_COMMANDS: usize = 64;
 const WINDOW_CLOSE_LEASE_TIMEOUT: Duration = Duration::from_secs(5);
 const RENDER_AUDIT_INTERVAL: Duration = Duration::from_secs(1);
 const FLUTTER_RESOURCE_CACHE_MAX_BYTES_THRESHOLD: usize = 256 * 1024 * 1024;
@@ -398,6 +400,10 @@ pub enum RuntimeEvent {
     QueueOverflow {
         generation: u64,
         queue: &'static str,
+    },
+    VmServiceUri {
+        generation: u64,
+        uri: String,
     },
     FrameReady {
         generation: u64,
@@ -3174,6 +3180,48 @@ impl OpenGlHandler for FlutterGlHandler {
             event,
         });
     }
+
+    fn log(&self, tag: &str, message: &str) {
+        if tag.is_empty() {
+            eprintln!("flutter: {message}");
+        } else {
+            eprintln!("flutter[{tag}]: {message}");
+        }
+        let Some(uri) = vm_service_uri_from_log(message) else {
+            return;
+        };
+        let _ = self.events.send(RuntimeEvent::VmServiceUri {
+            generation: self.generation,
+            uri: uri.to_owned(),
+        });
+    }
+}
+
+fn vm_service_uri_from_log(message: &str) -> Option<&str> {
+    const MAX_VM_SERVICE_URI_BYTES: usize = 2048;
+    const ANNOUNCEMENT: &str = "The Dart VM service is listening on ";
+    const LOOPBACK_PREFIX: &str = "http://127.0.0.1:";
+    let start = message
+        .find(ANNOUNCEMENT)?
+        .checked_add(ANNOUNCEMENT.len())?;
+    let uri = message[start..]
+        .split_ascii_whitespace()
+        .next()?
+        .trim_end_matches(['.', ',', ';']);
+    if uri.len() > MAX_VM_SERVICE_URI_BYTES {
+        return None;
+    }
+    let authority_and_path = uri.strip_prefix(LOOPBACK_PREFIX)?;
+    let (port, authentication_path) = authority_and_path.split_once('/')?;
+    if port.parse::<u16>().ok().is_none_or(|port| port == 0)
+        || authentication_path.is_empty()
+        || !authentication_path
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'=' | b'_' | b'-'))
+    {
+        return None;
+    }
+    Some(uri)
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -3210,8 +3258,8 @@ pub struct FlutterRuntimeFactory {
 }
 
 impl FlutterRuntimeFactory {
-    pub fn new(bundle: &Path) -> Result<Self, Box<dyn Error>> {
-        let project = project_from_bundle(bundle)?;
+    pub fn new(bundle: &Path, runtime: DartRuntimeMode) -> Result<Self, Box<dyn Error>> {
+        let project = project_from_bundle(bundle, runtime)?;
         let library = Arc::new(EngineLibrary::load(&project.engine_library)?);
         Ok(Self {
             bundle: bundle.to_owned(),
@@ -3232,6 +3280,35 @@ impl PartialEq for QueuedPlatformTask {
     fn eq(&self, other: &Self) -> bool {
         self.task.target_time_nanos == other.task.target_time_nanos && self.order == other.order
     }
+}
+
+pub(super) fn bundle_engine_fingerprint(bundle: &Path) -> Result<[u8; 32], Box<dyn Error>> {
+    let engine = first_file(&[
+        bundle.join("lib/libflutter_engine.so"),
+        bundle.join("libflutter_engine.so"),
+    ])
+    .ok_or_else(|| format!("{} has no libflutter_engine.so", bundle.display()))?;
+    let mut file = std::fs::File::open(&engine).map_err(|error| {
+        format!(
+            "could not open Flutter engine {}: {error}",
+            engine.display()
+        )
+    })?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let bytes = file.read(&mut buffer).map_err(|error| {
+            format!(
+                "could not read Flutter engine {}: {error}",
+                engine.display()
+            )
+        })?;
+        if bytes == 0 {
+            break;
+        }
+        digest.update(&buffer[..bytes]);
+    }
+    Ok(digest.finalize().into())
 }
 
 impl Eq for QueuedPlatformTask {}
@@ -3446,7 +3523,9 @@ pub struct FlutterRuntime {
     authentication: Arc<super::authentication::AuthenticationController>,
     pending_audio_requests: VecDeque<super::system_controls::AudioRequest>,
     pending_brightness_requests: VecDeque<super::system_controls::BrightnessRequest>,
+    pending_ui_development_commands: VecDeque<super::ui_development::UiDevelopmentCommand>,
     pending_idle_dpms_timeout: Option<Option<Duration>>,
+    pending_vm_service_uri: Option<String>,
     generation: u64,
     scheduled_tasks: BinaryHeap<QueuedPlatformTask>,
     platform_task_scratch: Vec<PendingPlatformTask>,
@@ -3555,7 +3634,9 @@ impl FlutterRuntime {
             authentication,
             pending_audio_requests: VecDeque::with_capacity(16),
             pending_brightness_requests: VecDeque::with_capacity(16),
+            pending_ui_development_commands: VecDeque::with_capacity(8),
             pending_idle_dpms_timeout: None,
+            pending_vm_service_uri: None,
             generation,
             scheduled_tasks: BinaryHeap::with_capacity(INITIAL_PLATFORM_TASK_BATCH_CAPACITY),
             platform_task_scratch: Vec::with_capacity(INITIAL_PLATFORM_TASK_BATCH_CAPACITY),
@@ -3703,9 +3784,13 @@ impl FlutterRuntime {
                 {
                     return Err(format!("Flutter {queue} queue exceeded its safety limit").into());
                 }
+                RuntimeEvent::VmServiceUri { generation, uri } if generation == self.generation => {
+                    self.pending_vm_service_uri = Some(uri);
+                }
                 RuntimeEvent::Engine { .. }
                 | RuntimeEvent::PlatformTasksReady { .. }
                 | RuntimeEvent::QueueOverflow { .. }
+                | RuntimeEvent::VmServiceUri { .. }
                 | RuntimeEvent::FrameReady { .. }
                 | RuntimeEvent::SampledBuffersReady { .. } => {}
             }
@@ -4209,6 +4294,23 @@ impl FlutterRuntime {
         self.pending_brightness_requests.drain(..)
     }
 
+    pub fn drain_ui_development_commands(
+        &mut self,
+    ) -> impl Iterator<Item = super::ui_development::UiDevelopmentCommand> + '_ {
+        self.pending_ui_development_commands.drain(..)
+    }
+
+    pub fn take_vm_service_uri(&mut self) -> Option<String> {
+        self.pending_vm_service_uri.take()
+    }
+
+    pub fn publish_ui_development_state(&mut self, packet: &[u8]) -> Result<(), Box<dyn Error>> {
+        self.host()
+            .engine()
+            .send_platform_message(super::ui_development::STATE_CHANNEL, packet)?;
+        Ok(())
+    }
+
     pub fn authentication(&self) -> Arc<super::authentication::AuthenticationController> {
         Arc::clone(&self.authentication)
     }
@@ -4380,6 +4482,22 @@ impl FlutterRuntime {
                 ),
                 Err(error) => warn!(%error, "rejected Denial brightness request from Flutter"),
             }
+        } else if message.channel.as_bytes() == super::ui_development::CONTROL_CHANNEL.to_bytes() {
+            match super::ui_development::decode_control_packet(&message.data) {
+                Ok(command)
+                    if self.pending_ui_development_commands.len()
+                        < MAX_PENDING_UI_DEVELOPMENT_COMMANDS =>
+                {
+                    self.pending_ui_development_commands.push_back(command);
+                }
+                Ok(_) => warn!(
+                    limit = MAX_PENDING_UI_DEVELOPMENT_COMMANDS,
+                    "dropped excess Denial UI development command from Flutter"
+                ),
+                Err(error) => {
+                    warn!(%error, "rejected Denial UI development command from Flutter");
+                }
+            }
         } else if message.channel.as_bytes() == idle_policy::CHANNEL.to_bytes() {
             match idle_policy::decode_timeout(&message.data) {
                 Ok(timeout) => self.pending_idle_dpms_timeout = Some(timeout),
@@ -4488,7 +4606,10 @@ impl Drop for FlutterRuntime {
     }
 }
 
-fn project_from_bundle(bundle: &Path) -> Result<EngineProject, Box<dyn Error>> {
+fn project_from_bundle(
+    bundle: &Path,
+    runtime: DartRuntimeMode,
+) -> Result<EngineProject, Box<dyn Error>> {
     let engine_library = first_file(&[
         bundle.join("lib/libflutter_engine.so"),
         bundle.join("libflutter_engine.so"),
@@ -4496,8 +4617,21 @@ fn project_from_bundle(bundle: &Path) -> Result<EngineProject, Box<dyn Error>> {
     .ok_or_else(|| format!("{} has no libflutter_engine.so", bundle.display()))?;
     let assets = bundle.join("data/flutter_assets");
     let icu_data = bundle.join("data/icudtl.dat");
-    let aot_library = first_file(&[bundle.join("lib/libapp.so"), bundle.join("libapp.so")])
-        .ok_or_else(|| format!("{} has no libapp.so", bundle.display()))?;
+    let aot_library = match runtime {
+        DartRuntimeMode::Aot => Some(
+            first_file(&[bundle.join("lib/libapp.so"), bundle.join("libapp.so")])
+                .ok_or_else(|| format!("{} has no libapp.so", bundle.display()))?,
+        ),
+        DartRuntimeMode::Jit => {
+            let kernel = assets.join("kernel_blob.bin");
+            if !kernel.is_file() {
+                return Err(
+                    format!("JIT Flutter kernel is missing at {}", kernel.display()).into(),
+                );
+            }
+            None
+        }
+    };
     for (name, path) in [("Flutter assets", &assets), ("ICU data", &icu_data)] {
         if !path.exists() {
             return Err(format!("{name} is missing at {}", path.display()).into());
@@ -4507,6 +4641,7 @@ fn project_from_bundle(bundle: &Path) -> Result<EngineProject, Box<dyn Error>> {
         engine_library,
         assets,
         icu_data,
+        runtime,
         aot_library,
         // Flutter derives 48 bytes per physical viewport pixel, which gives
         // this 5120x1440 atlas a 337.5 MiB cache. Keep the official adaptive
@@ -4523,6 +4658,30 @@ fn first_file(paths: &[PathBuf]) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vm_service_log_parser_only_accepts_the_configured_loopback_service() {
+        assert_eq!(
+            vm_service_uri_from_log(
+                "The Dart VM service is listening on http://127.0.0.1:43125/AUTH=/"
+            ),
+            Some("http://127.0.0.1:43125/AUTH=/")
+        );
+        assert_eq!(
+            vm_service_uri_from_log("http://0.0.0.0:43125/unsafe=/"),
+            None
+        );
+        assert_eq!(
+            vm_service_uri_from_log("application printed http://127.0.0.1:43125/spoof=/"),
+            None
+        );
+        assert_eq!(
+            vm_service_uri_from_log("http://127.0.0.1:not-a-port/token=/"),
+            None
+        );
+        assert_eq!(vm_service_uri_from_log("http://127.0.0.1:43125/"), None);
+        assert_eq!(vm_service_uri_from_log("ordinary Flutter log"), None);
+    }
 
     #[test]
     fn flutter_scroll_delta_normalizes_wheels_and_preserves_smooth_pixels() {

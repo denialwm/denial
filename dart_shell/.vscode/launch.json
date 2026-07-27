@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Attach to Denial live UI",
+      "type": "dart",
+      "request": "attach",
+      "debuggerType": "flutter",
+      "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder}/lib/main.dart",
+      "deviceId": "linux",
+      "vmServiceInfoFile": "${env:XDG_RUNTIME_DIR}/denial/flutter-vm-service.json",
+      "customTool": "/usr/bin/denial-flutter"
+    }
+  ]
+}

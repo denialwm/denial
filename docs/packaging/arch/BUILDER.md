@@ -72,10 +72,10 @@ permissions, forbids Actions from approving pull requests, and requires every
 referenced action to use a full commit SHA. The qualification workflow uses no
 external action.
 
-While the repository is private on GitHub Free, branch protection and
-repository rulesets are unavailable. Enable them before or when the repository
-becomes public. Organization-wide two-factor-authentication enforcement is
-also still an explicit operator gate.
+The repository is public. Repository rules, environment protection, action
+pinning, and organization account security remain operator controls to review
+whenever the release workflow or maintainer set changes. The ephemeral runner
+boundary does not replace those controls.
 
 ## Host prerequisites
 
@@ -123,10 +123,12 @@ Install or update the pinned host configuration:
 tools/denial-builder install
 ```
 
-The installer also verifies the locally rebuilt Flutter Engine against the
-tracked checksum and installs it as a root-owned, runner-readable artifact
-under `/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/`. The
-ephemeral runner can consume this rare generation input but cannot modify it.
+The installer also verifies both locally rebuilt Flutter engines against their
+tracked checksums. It installs the optimized AOT engine at
+`/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/` and the
+JIT-capable engine below its `debug/` directory as root-owned, runner-readable
+artifacts. The ephemeral runner can consume these rare generation inputs but
+cannot modify them.
 
 Audit the machine as the unprivileged runner account:
 
@@ -158,11 +160,11 @@ tools/denial-builder validate
 Its unsigned artifact and independent verification boundary are documented in
 [`MAIN_VALIDATION.md`](MAIN_VALIDATION.md).
 
-After public review, Pages enablement, and a signed tag are complete, the
-public-alpha release controller is:
+After a release commit and tag have been reviewed, the public-alpha release
+controller is:
 
 ```sh
-tools/denial-builder release v0.1.0
+tools/denial-builder release v0.2.0
 ```
 
 It refuses a missing tag, missing release-signing environment secret, or a
@@ -202,17 +204,16 @@ It checks the exact source revision, committed manifests and hashes, host
 capacity, required tools, architecture, event, ref, and GitHub runner context.
 It does not build, sign, attest, or publish a package.
 
-## Next gate
+## Recurring release gate
 
 Run `tools/denial-builder qualify` after any material builder or workflow
 change. Run `tools/denial-builder validate` for an explicit candidate rebuild;
 trusted pushes to `main` run the same lane automatically when the ephemeral
 runner is armed.
 
-Neither command authorizes publication. `tools/denial-builder release` becomes
-available only after the public-alpha gates in
-[`PUBLISHING.md`](PUBLISHING.md) are complete. Stage 2 and Stage 3 harden that
-same release channel later; they are not prerequisites for the explicitly
-limited alpha.
+Neither command authorizes publication. `tools/denial-builder release` still
+requires a clean signed version tag contained in `main` and the protected
+signing environment. Stage 2 and Stage 3 harden that same release channel
+later; they are not prerequisites for the explicitly limited alpha.
 
 [runner-false-offline]: https://github.com/actions/runner/issues/3892

@@ -74,7 +74,6 @@ extract_xcursor_frame() {
   local hotspot_x
   local hotspot_y
   local image_name
-  local delay
 
   install -d -- "$extraction_root" "$WORK/stage/$role"
   xcur2png \
@@ -82,8 +81,8 @@ extract_xcursor_frame() {
     --directory "$extraction_root" \
     --conf "$config" \
     "$XCURSOR_ROOT/$source_name" >/dev/null 2>&1
-  read -r size hotspot_x hotspot_y image_name delay < <(
-    awk '$1 == 32 { print $1, $2, $3, $4, $5; exit }' "$config"
+  read -r size hotspot_x hotspot_y image_name < <(
+    awk '$1 == 32 { print $1, $2, $3, $4; exit }' "$config"
   )
   [[ "$size" == 32 \
     && "$hotspot_x" == "$expected_hotspot_x" \

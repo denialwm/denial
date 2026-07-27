@@ -7,6 +7,9 @@ RUNNER_SOURCE="${ROOT}/packaging/arch/runner"
 ENGINE_SOURCE_ROOT="${ROOT}/prebuilt/flutter-engine/linux-x64-release"
 ENGINE_SOURCE="${ENGINE_SOURCE_ROOT}/libflutter_engine.so"
 ENGINE_CHECKSUM="${ENGINE_SOURCE_ROOT}/libflutter_engine.so.sha256"
+DEBUG_ENGINE_SOURCE_ROOT="${ROOT}/prebuilt/flutter-engine/linux-x64-debug"
+DEBUG_ENGINE_SOURCE="${DEBUG_ENGINE_SOURCE_ROOT}/libflutter_engine.so"
+DEBUG_ENGINE_CHECKSUM="${DEBUG_ENGINE_SOURCE_ROOT}/libflutter_engine.so.sha256"
 
 readonly REPOSITORY="${DENIAL_BUILDER_REPOSITORY:-denialwm/denial}"
 readonly SSH_TARGET="${DENIAL_BUILDER_SSH:-192.168.1.18}"
@@ -80,11 +83,18 @@ install_host() {
 
   [[ -f "$ENGINE_SOURCE" ]] \
     || fail "missing locally rebuilt engine: $ENGINE_SOURCE"
+  [[ -f "$DEBUG_ENGINE_SOURCE" ]] \
+    || fail "missing locally rebuilt debug engine: $DEBUG_ENGINE_SOURCE"
   (
     cd "$ENGINE_SOURCE_ROOT"
     sha256sum --check --strict "$(basename -- "$ENGINE_CHECKSUM")"
   ) >/dev/null \
     || fail "local engine does not match $ENGINE_CHECKSUM"
+  (
+    cd "$DEBUG_ENGINE_SOURCE_ROOT"
+    sha256sum --check --strict "$(basename -- "$DEBUG_ENGINE_CHECKSUM")"
+  ) >/dev/null \
+    || fail "local debug engine does not match $DEBUG_ENGINE_CHECKSUM"
 
   remote_stage="$(
     ssh "$SSH_TARGET" \
@@ -93,6 +103,11 @@ install_host() {
   [[ "$remote_stage" == /tmp/denial-runner-install.* ]] \
     || fail "unexpected remote staging path: $remote_stage"
   trap cleanup_stage EXIT
+
+  # remote_stage is accepted only after the fixed /tmp prefix check above.
+  # shellcheck disable=SC2029
+  ssh "$SSH_TARGET" \
+    /usr/bin/install -d -m 0755 -- "${remote_stage}/debug"
 
   scp \
     "${RUNNER_SOURCE}/runner.env" \
@@ -103,6 +118,10 @@ install_host() {
     "$ENGINE_SOURCE" \
     "$ENGINE_CHECKSUM" \
     "${SSH_TARGET}:${remote_stage}/"
+  scp \
+    "$DEBUG_ENGINE_SOURCE" \
+    "$DEBUG_ENGINE_CHECKSUM" \
+    "${SSH_TARGET}:${remote_stage}/debug/"
 
   # remote_stage is accepted only after the fixed /tmp prefix check above.
   # shellcheck disable=SC2029
@@ -116,7 +135,9 @@ install_host() {
 
 doctor_host() {
   local actual_engine_sha256
+  local actual_debug_engine_sha256
   local expected_engine_sha256
+  local expected_debug_engine_sha256
 
   require_command scp
   require_command ssh
@@ -161,6 +182,18 @@ doctor_host() {
   [[ "$actual_engine_sha256" == "$expected_engine_sha256" ]] \
     || fail 'builder engine artifact does not match the tracked checksum'
   printf 'Builder engine artifact matches %s.\n' "$expected_engine_sha256"
+  expected_debug_engine_sha256="$(cut -d' ' -f1 < "$DEBUG_ENGINE_CHECKSUM")"
+  actual_debug_engine_sha256="$(
+    ssh "$SSH_TARGET" \
+      sudo --user denial-builder \
+        /usr/bin/sha256sum \
+        /srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/debug/libflutter_engine.so \
+      | cut -d' ' -f1
+  )"
+  [[ "$actual_debug_engine_sha256" == "$expected_debug_engine_sha256" ]] \
+    || fail 'builder debug-engine artifact does not match the tracked checksum'
+  printf 'Builder debug-engine artifact matches %s.\n' \
+    "$expected_debug_engine_sha256"
 
   cleanup_stage
   remote_stage=''

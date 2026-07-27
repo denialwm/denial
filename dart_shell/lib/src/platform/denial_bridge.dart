@@ -11,7 +11,9 @@ import '../models/display_layout.dart';
 import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
 import '../models/denial_window_snapshot.dart';
+import '../models/ui_development.dart';
 import 'denial_wire.dart' as wire;
+import 'ui_development_protocol.dart';
 
 enum DenialShellAction {
   applications,
@@ -109,6 +111,10 @@ class DenialBridge {
       _brightnessStateChannel,
       _handleBrightnessStateMessage,
     );
+    ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
+      denialUiDevelopmentStateChannel,
+      _handleUiDevelopmentStateMessage,
+    );
   }
 
   final Map<int, Completer<DenialWindowSnapshot>> _pendingWindowRequests = {};
@@ -132,7 +138,11 @@ class DenialBridge {
       StreamController<DenialBrightnessState>.broadcast(sync: true);
   final StreamController<DesktopNotificationEvent> _notificationEvents =
       StreamController<DesktopNotificationEvent>.broadcast(sync: true);
+  final StreamController<DenialUiDevelopmentState> _uiDevelopmentStates =
+      StreamController<DenialUiDevelopmentState>.broadcast(sync: true);
   final wire.DenialWireCodec _wireCodec = wire.DenialWireCodec();
+  final DenialUiDevelopmentProtocol _uiDevelopmentProtocol =
+      DenialUiDevelopmentProtocol();
   int _nextRequestId = 1;
   VoidCallback? _onWindowsChanged;
   ValueChanged<DenialWindowSnapshot>? _onWindowSnapshot;
@@ -150,6 +160,8 @@ class DenialBridge {
       _brightnessStates.stream;
   Stream<DesktopNotificationEvent> get notificationEvents =>
       _notificationEvents.stream;
+  Stream<DenialUiDevelopmentState> get uiDevelopmentStates =>
+      _uiDevelopmentStates.stream;
 
   void start({
     required VoidCallback onWindowsChanged,
@@ -182,6 +194,10 @@ class DenialBridge {
       _brightnessStateChannel,
       null,
     );
+    ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
+      denialUiDevelopmentStateChannel,
+      null,
+    );
     for (final completer in _pendingWindowRequests.values) {
       if (!completer.isCompleted) {
         completer.completeError(StateError('Denial bridge disposed'));
@@ -212,6 +228,7 @@ class DenialBridge {
     unawaited(_audioStreamStates.close());
     unawaited(_brightnessStates.close());
     unawaited(_notificationEvents.close());
+    unawaited(_uiDevelopmentStates.close());
   }
 
   Future<DenialWindowSnapshot> listWindows(List<DenialWindow> fallback) {
@@ -393,10 +410,7 @@ class DenialBridge {
     _sendWire(_wireCodec.encodeKeyboardKey(key, ctrl: ctrl));
   }
 
-  bool requestBrightness({
-    required int monitorId,
-    required String connector,
-  }) {
+  bool requestBrightness({required int monitorId, required String connector}) {
     return _sendBrightnessRequest(
       command: 0,
       monitorId: monitorId,
@@ -453,6 +467,83 @@ class DenialBridge {
     ServicesBinding.instance.defaultBinaryMessenger
         .send(_idlePolicyChannel, data)
         ?.catchError((Object _) => null);
+  }
+
+  int queryUiDevelopmentState() {
+    return _sendUiDevelopmentCommand(DenialUiDevelopmentCommand.query);
+  }
+
+  int enableLiveUiDevelopment() {
+    return _sendUiDevelopmentCommand(
+      DenialUiDevelopmentCommand.enableLiveDevelopment,
+    );
+  }
+
+  int disableLiveUiDevelopment() {
+    return _sendUiDevelopmentCommand(
+      DenialUiDevelopmentCommand.disableLiveDevelopment,
+    );
+  }
+
+  int setUiDevelopmentWorkspace(String workspace) {
+    return _sendUiDevelopmentCommand(
+      DenialUiDevelopmentCommand.setWorkspace,
+      workspace: workspace,
+    );
+  }
+
+  int hotReloadUi() {
+    return _sendUiDevelopmentCommand(DenialUiDevelopmentCommand.hotReload);
+  }
+
+  int hotRestartUi() {
+    return _sendUiDevelopmentCommand(DenialUiDevelopmentCommand.hotRestart);
+  }
+
+  int buildAndActivateOptimizedUi() {
+    return _sendUiDevelopmentCommand(
+      DenialUiDevelopmentCommand.buildAndActivateOptimized,
+    );
+  }
+
+  int restoreOfficialUi() {
+    return _sendUiDevelopmentCommand(
+      DenialUiDevelopmentCommand.restoreOfficial,
+    );
+  }
+
+  int revertLastWorkingUi() {
+    return _sendUiDevelopmentCommand(
+      DenialUiDevelopmentCommand.revertLastWorking,
+    );
+  }
+
+  int setUiDevelopmentAutoReload(bool enabled) {
+    return _sendUiDevelopmentCommand(
+      DenialUiDevelopmentCommand.setAutoReload,
+      autoReload: enabled,
+    );
+  }
+
+  int _sendUiDevelopmentCommand(
+    DenialUiDevelopmentCommand command, {
+    String workspace = '',
+    bool autoReload = false,
+  }) {
+    final requestId = _nextRequestId++;
+    final bytes = _uiDevelopmentProtocol.encodeCommand(
+      command: command,
+      requestId: requestId,
+      workspace: workspace,
+      autoReload: autoReload,
+    );
+    if (bytes == null) {
+      return 0;
+    }
+    ServicesBinding.instance.defaultBinaryMessenger
+        .send(denialUiDevelopmentControlChannel, ByteData.sublistView(bytes))
+        ?.catchError((Object _) => null);
+    return requestId;
   }
 
   bool launchApplication(List<String> argv, {int? launchRequestId}) {
@@ -713,6 +804,14 @@ class DenialBridge {
         level: data.getUint8(8).clamp(0, 100) / 100.0,
       ),
     );
+    return null;
+  }
+
+  Future<ByteData?> _handleUiDevelopmentStateMessage(ByteData? data) async {
+    final state = _uiDevelopmentProtocol.decodeState(data);
+    if (state != null && !_uiDevelopmentStates.isClosed) {
+      _uiDevelopmentStates.add(state);
+    }
     return null;
   }
 

@@ -1,0 +1,191 @@
+# Maintainer: Doctor Logix <doctor.logix@gmail.com>
+
+pkgname=denial-ui-development
+pkgver="${DENIAL_PACKAGE_VERSION:-0.2.0}"
+pkgrel="${DENIAL_PACKAGE_RELEASE:-1}"
+pkgdesc='Pinned live Flutter UI development environment for Denial'
+arch=('x86_64')
+url='https://github.com/denialwm/denial'
+license=('BSD-3-Clause' 'GPL-3.0-or-later')
+depends=(
+  'denial>=0.2.0'
+  'denial<0.3.0'
+  'denial-flutter-engine-abi=3.44.7.denial1'
+  'git'
+  'glibc'
+  'libgcc'
+)
+provides=('denial-ui-development-engine=3.44.7.denial1')
+conflicts=('denial-ui-development-git')
+options=('!strip' '!debug')
+source=('manifest.json')
+sha256sums=('b03a418fd6547ef9f408b2f72748a0c4e2fef76aa6feec91955a5ce68ab48745')
+
+_flutter_revision='84fc5cbb223bc12f83d65b647ff8a56caf779ffd'
+_dart_revision='d684a576a6aa954ae107a03b2b4e1d61c3bebe93'
+_engine_sha256='c5eb1a110887ca2a6b6ae6f98dfaeb609614e5f204bdf731164dc12ae5ed0729'
+_flutter_binding_sha256='387b0b92fab3db5ed2d072b9bcd9797d960a983236d4ce07cda628bb20bfda89'
+_flutter_tool_sha256='a22710cc1d4c7a8d81f7b64c5c8bea304df339c2a3da5cbc6c4e2e6c7e673f90'
+_dart_sha256='c03ad868b5c53e31461b0fef22dc6eb6aeb56b7567efff6ca488ce9c4a6f8a6a'
+_icu_sha256='998367809a821d595928089c197b3f7959f0420f81f79d4d0daee53378492ed5'
+
+package() {
+  local repository_root="${DENIAL_PACKAGE_SOURCE_ROOT:-$(realpath "$startdir/../../..")}"
+  local cache_root="${XDG_CACHE_HOME:-$HOME/.cache}"
+  local development_binary="${DENIAL_PACKAGE_UI_BINARY:-$cache_root/denial/pc-build/rust/release/denial-ui}"
+  local flutter_sdk="${DENIAL_PACKAGE_FLUTTER_SDK:-$cache_root/denial/pc-dependencies/flutter}"
+  local flutter_tool_snapshot="${DENIAL_PACKAGE_FLUTTER_TOOL_SNAPSHOT:-$cache_root/denial/pc-build/ui-development/flutter-tools/flutter_tools.snapshot}"
+  local flutter_tool_runtime="${DENIAL_PACKAGE_FLUTTER_TOOL_RUNTIME:-$cache_root/denial/pc-build/ui-development/flutter-tools/runtime}"
+  local flutter_sdk_runtime="${DENIAL_PACKAGE_FLUTTER_SDK_RUNTIME:-$cache_root/denial/pc-build/ui-development/flutter-sdk-runtime}"
+  local workspace_template="${DENIAL_PACKAGE_UI_WORKSPACE_TEMPLATE:-$cache_root/denial/pc-build/ui-development/workspace-template}"
+  local flutter_tool_root="$repository_root/prebuilt/flutter-tools/3.44.7"
+  local engine_root="$repository_root/prebuilt/flutter-engine/linux-x64-debug"
+  local engine="${DENIAL_PACKAGE_DEBUG_ENGINE_SOURCE:-$engine_root/libflutter_engine.so}"
+  local icu="$flutter_sdk/bin/cache/artifacts/engine/linux-x64/icudtl.dat"
+  local destination="$pkgdir/usr/lib/denial/ui-development"
+  local actual
+  local changes
+
+  for required in \
+    "$development_binary" \
+    "$engine" \
+    "$flutter_tool_snapshot" \
+    "$flutter_tool_runtime/package_config.json" \
+    "$flutter_tool_runtime/pub-cache" \
+    "$flutter_tool_runtime/pub-cache/.denial-generation" \
+    "$flutter_sdk_runtime/bin/cache/dart-sdk/bin/dart" \
+    "$flutter_sdk_runtime/bin/cache/dart-sdk/bin/dartvm" \
+    "$flutter_sdk_runtime/bin/cache/dart-sdk/bin/dartaotruntime" \
+    "$flutter_sdk_runtime/bin/cache/dart-sdk/lib/core/core.dart" \
+    "$flutter_sdk_runtime/bin/cache/dart-sdk/bin/snapshots/analysis_server.dart.snapshot" \
+    "$flutter_sdk_runtime/bin/cache/dart-sdk/bin/snapshots/analysis_server_aot.dart.snapshot" \
+    "$flutter_sdk_runtime/bin/cache/dart-sdk/bin/snapshots/dds_aot.dart.snapshot" \
+    "$flutter_sdk_runtime/bin/cache/dart-sdk/bin/snapshots/frontend_server_aot.dart.snapshot" \
+    "$flutter_sdk_runtime/bin/cache/artifacts/engine/linux-x64/impellerc" \
+    "$flutter_sdk_runtime/bin/cache/pkg/sky_engine/lib/_embedder.yaml" \
+    "$flutter_sdk_runtime/bin/cache/pkg/sky_engine/lib/ui/ui.dart" \
+    "$flutter_sdk_runtime/packages/flutter/lib/src/gestures/binding.dart" \
+    "$workspace_template/.denial-ui-source.json" \
+    "$workspace_template/dart_shell/.vscode/launch.json" \
+    "$workspace_template/dart_shell/.vscode/settings.json" \
+    "$workspace_template/dart_shell/pubspec.yaml" \
+    "$workspace_template/dart_shell/lib/main.dart" \
+    "$workspace_template/protocol/generated/dart/pubspec.yaml" \
+    "$flutter_tool_root/BUILD_INFO.md" \
+    "$flutter_tool_root/flutter_tools.snapshot.sha256" \
+    "$engine_root/libflutter_engine.so.sha256" \
+    "$engine_root/BUILD_INFO.md" \
+    "$engine_root/ENGINE_REVISION" \
+    "$engine_root/FLUTTER_REVISION" \
+    "$engine_root/args.gn" \
+    "$flutter_sdk/.git" \
+    "$flutter_sdk/LICENSE" \
+    "$flutter_sdk/PATENT_GRANT" \
+    "$flutter_sdk/packages/flutter/lib/src/gestures/binding.dart" \
+    "$flutter_sdk/bin/cache/dart-sdk/bin/dart" \
+    "$flutter_sdk/bin/cache/dart-sdk/LICENSE" \
+    "$icu"; do
+    if [[ ! -e "$required" ]]; then
+      error "UI development package input is missing: $required"
+      return 1
+    fi
+  done
+
+  [[ "$(git -C "$flutter_sdk" rev-parse HEAD)" == "$_flutter_revision" ]] \
+    || {
+      error "Flutter SDK does not identify the pinned source revision"
+      return 1
+    }
+  changes="$(git -C "$flutter_sdk" diff --name-only)"
+  [[ "$changes" == $'packages/flutter/lib/src/gestures/binding.dart\npackages/flutter_tools/lib/src/commands/attach.dart\npackages/flutter_tools/lib/src/debug_adapters/flutter_adapter.dart\npackages/flutter_tools/test/general.shard/dap/flutter_adapter_test.dart' ]] \
+    || {
+      error "Flutter SDK contains unexpected tracked changes: ${changes:-<none>}"
+      return 1
+    }
+  git -C "$flutter_sdk" diff --check \
+    || {
+      error "Flutter SDK patch does not pass git diff --check"
+      return 1
+    }
+  [[ "$(<"$flutter_sdk/bin/cache/dart-sdk/revision")" == "$_dart_revision" ]] \
+    || {
+      error "Flutter SDK contains the wrong Dart revision"
+      return 1
+    }
+
+  for specification in \
+    "$engine:$_engine_sha256" \
+    "$flutter_sdk/packages/flutter/lib/src/gestures/binding.dart:$_flutter_binding_sha256" \
+    "$flutter_tool_snapshot:$_flutter_tool_sha256" \
+    "$flutter_sdk/bin/cache/dart-sdk/bin/dart:$_dart_sha256" \
+    "$icu:$_icu_sha256"; do
+    actual="$(sha256sum "${specification%%:*}" | cut -d' ' -f1)"
+    if [[ "$actual" != "${specification##*:}" ]]; then
+      error "${specification%%:*} has SHA-256 $actual, expected ${specification##*:}"
+      return 1
+    fi
+  done
+
+  install -Dm755 "$development_binary" "$pkgdir/usr/bin/denial-ui"
+  ln -s denial-ui "$pkgdir/usr/bin/denial-flutter"
+  install -Dm755 "$engine" "$destination/lib/libflutter_engine.so"
+  install -Dm644 "$icu" "$destination/data/icudtl.dat"
+
+  cp -a -- "$flutter_sdk_runtime" "$destination/flutter"
+  # Dart Code resolves Flutter launchers and rejects a symlink whose final
+  # basename is not literally "flutter". Install the same native Rust client
+  # as a real executable here so SDK discovery remains editor-compatible
+  # without introducing a shell wrapper.
+  install -m755 "$development_binary" "$destination/flutter/bin/flutter"
+  install -m644 "$flutter_tool_snapshot" \
+    "$destination/flutter/bin/cache/flutter_tools.snapshot"
+  install -Dm644 "$flutter_tool_runtime/package_config.json" \
+    "$destination/flutter/packages/flutter_tools/.dart_tool/package_config.json"
+  cp -a -- "$flutter_tool_runtime/pub-cache" "$destination/pub-cache"
+  install -dm755 "$pkgdir/usr/share/denial/ui-development"
+  cp -a -- "$workspace_template" \
+    "$pkgdir/usr/share/denial/ui-development/workspace"
+
+  chmod -R u=rwX,go=rX \
+    "$destination/flutter" \
+    "$destination/pub-cache" \
+    "$pkgdir/usr/share/denial/ui-development/workspace"
+  find \
+    "$destination/flutter" \
+    "$destination/pub-cache" \
+    "$pkgdir/usr/share/denial/ui-development/workspace" \
+    -type d \
+    -exec chmod 0755 -- {} +
+
+  install -Dm644 "$srcdir/manifest.json" \
+    "$pkgdir/usr/share/denial/ui-development/manifest.json"
+  install -Dm644 "$engine_root/libflutter_engine.so.sha256" \
+    "$pkgdir/usr/share/denial/ui-development/libflutter_engine.so.sha256"
+  install -Dm644 "$engine_root/ENGINE_REVISION" \
+    "$pkgdir/usr/share/denial/ui-development/ENGINE_REVISION"
+  install -Dm644 "$engine_root/FLUTTER_REVISION" \
+    "$pkgdir/usr/share/denial/ui-development/FLUTTER_REVISION"
+  install -Dm644 "$engine_root/args.gn" \
+    "$pkgdir/usr/share/denial/ui-development/args.gn"
+  install -Dm644 "$engine_root/BUILD_INFO.md" \
+    "$pkgdir/usr/share/doc/denial-ui-development/BUILD_INFO.md"
+  install -Dm644 "$flutter_tool_root/BUILD_INFO.md" \
+    "$pkgdir/usr/share/doc/denial-ui-development/FLUTTER_TOOL_BUILD_INFO.md"
+  install -Dm644 "$flutter_tool_root/flutter_tools.snapshot.sha256" \
+    "$pkgdir/usr/share/denial/ui-development/flutter_tools.snapshot.sha256"
+  install -Dm644 "$repository_root/docs/UI_DEVELOPMENT.md" \
+    "$pkgdir/usr/share/doc/denial-ui-development/UI_DEVELOPMENT.md"
+  install -Dm644 "$repository_root/docs/man/denial-ui.1" \
+    "$pkgdir/usr/share/man/man1/denial-ui.1"
+
+  install -Dm644 \
+    "$repository_root/prebuilt/flutter-engine/linux-x64-release/LICENSE.flutter" \
+    "$pkgdir/usr/share/licenses/denial-ui-development/LICENSE.flutter"
+  install -Dm644 \
+    "$repository_root/prebuilt/flutter-engine/linux-x64-release/LICENSE.third_party" \
+    "$pkgdir/usr/share/licenses/denial-ui-development/LICENSE.flutter-third-party"
+  install -Dm644 "$flutter_sdk/bin/cache/dart-sdk/LICENSE" \
+    "$pkgdir/usr/share/licenses/denial-ui-development/LICENSE.dart"
+  install -Dm644 "$repository_root/LICENSE" \
+    "$pkgdir/usr/share/licenses/denial-ui-development/LICENSE.denial"
+}

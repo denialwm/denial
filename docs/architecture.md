@@ -104,6 +104,22 @@ Embedded Dart never starts a process. Application launch and one-shot shell
 actions cross the native command bridge. Frequent controls use persistent
 native connections rather than command-line utilities.
 
+## External control
+
+`deniald` exposes one mode-`0600` Unix socket below the user's runtime
+directory. `denialctl` uses its versioned request/response protocol for native
+status, output inspection, Flutter runtime changes, and packaged-shell
+recovery. Display clients use the same transport for complete transactional
+output configurations.
+
+The socket worker never mutates compositor state. It validates and bounds each
+request, queues mutations onto the compositor event loop, and returns the
+authoritative result. UI lifecycle commands enter the native controller
+directly, so restoring the packaged shell does not require the current Flutter
+code to render or answer a platform message. See the
+[control protocol](protocol/control-v1.md) and [`denialctl`](DENIALCTL.md)
+reference.
+
 ## Source and build boundaries
 
 Project-owned native code lives in `compositor/`; the shell lives in

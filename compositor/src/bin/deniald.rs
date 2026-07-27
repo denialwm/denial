@@ -43,6 +43,9 @@ mod output_scheduler;
 mod scene_sync;
 #[path = "deniald/system_controls.rs"]
 mod system_controls;
+#[cfg(feature = "flutter")]
+#[path = "deniald/ui_development.rs"]
+mod ui_development;
 #[path = "deniald/wayland_frontend.rs"]
 mod wayland_frontend;
 #[cfg(feature = "flutter")]
@@ -123,7 +126,7 @@ use kms_state::{
     shared_atlas_modifiers,
 };
 #[cfg(feature = "flutter")]
-use kms_state::{FlutterLauncher, flutter_pool_length};
+use kms_state::{FlutterLaunchConfiguration, FlutterLauncher, flutter_pool_length};
 use lifecycle::{
     InactiveDispatch, LifecycleState, ShutdownReason, TeardownGate, inactive_dispatch,
 };
@@ -132,7 +135,7 @@ use native_shortcut::NativeEscapeShortcut;
 use notification_server::NotificationServer;
 use options::{Options, RuntimeLimit, SIMULATED_HOTPLUG_GAP_FRAMES};
 #[cfg(feature = "flutter")]
-use output_control::{OutputControlServer, PendingOutputApply};
+use output_control::{ControlEvent, OutputControlServer, PendingOutputApply, PendingUiDevelopment};
 use scene_sync::SceneSyncState;
 #[cfg(feature = "flutter")]
 use scene_sync::{WindowEventDisposition, window_event_disposition};
@@ -565,7 +568,14 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
                 .handle()
                 .insert_source(source, |event, _, state: &mut RuntimeState| {
                     if let ChannelEvent::Msg(request) = event {
-                        state.pending_output_applies.push_back(request);
+                        match request {
+                            ControlEvent::OutputApply(request) => {
+                                state.pending_output_applies.push_back(request);
+                            }
+                            ControlEvent::UiDevelopment(request) => {
+                                state.pending_ui_development.push_back(request);
+                            }
+                        }
                     }
                 })?;
             Some(server)
@@ -593,7 +603,11 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
             },
         )?;
         Some(FlutterLauncher::new(
-            bundle,
+            FlutterLaunchConfiguration {
+                bundle,
+                debug_bundle: options.flutter_debug_bundle.clone(),
+                ui_workspace: options.flutter_ui_workspace.clone(),
+            },
             sender,
             wayland
                 .as_ref()
@@ -960,6 +974,8 @@ struct RuntimeState {
     pending_notification_events: VecDeque<notification_server::NotificationEvent>,
     #[cfg(feature = "flutter")]
     pending_output_applies: VecDeque<PendingOutputApply>,
+    #[cfg(feature = "flutter")]
+    pending_ui_development: VecDeque<PendingUiDevelopment>,
     #[cfg(feature = "flutter")]
     idle_dpms: idle_policy::IdleDpmsPolicy,
 }
@@ -1944,6 +1960,29 @@ fn run_flutter_event_loop(
             persistence_available,
         )?);
 
+        while let Some(request) = events.pending_ui_development.pop_front() {
+            let Some(runtime) = flutter.as_mut() else {
+                request.reply(Err(output_control::OutputControlFailure::new(
+                    "unavailable",
+                    "the Flutter runtime is unavailable",
+                )));
+                continue;
+            };
+            let is_query = request.command.kind() == ui_development::CommandKind::Query;
+            let (reload_requested, state) =
+                flutter_launcher.handle_external_ui_development(runtime, request.command.clone());
+            if reload_requested {
+                events.flutter_reload_requested = true;
+            }
+            if !is_query && let Some(error) = state.error_message() {
+                request.reply(Err(output_control::OutputControlFailure::new(
+                    "rejected", error,
+                )));
+            } else {
+                request.reply(Ok(state));
+            }
+        }
+
         if let Some(request) = events.pending_output_applies.pop_front() {
             if !scanout_rebased && scheduler.has_pending_scanout_work() {
                 scheduler.submit_ready(drm, swapchain, scanouts, &mut events)?;
@@ -2385,6 +2424,9 @@ fn run_flutter_event_loop(
         // frame/engine dispatches. AwaitVSync and platform-task traffic is a
         // steady-state hot path and must not rebuild this Vec every time.
         runtime.process_events(events.flutter_events.drain(..))?;
+        if flutter_launcher.synchronize_ui_development(runtime)? {
+            events.flutter_reload_requested = true;
+        }
         synchronize_idle_dpms_configuration(runtime, &mut events);
         synchronize_authentication_boundary(&mut events);
         synchronize_clipboard(runtime, &mut events)?;
@@ -2514,6 +2556,7 @@ fn reload_flutter_runtime(
     };
     let prepare_restart = (|| -> Result<(), Box<dyn Error>> {
         old_runtime.process_events(events.flutter_events.drain(..))?;
+        let _ = flutter_launcher.synchronize_ui_development(&mut old_runtime)?;
         synchronize_authentication_boundary(events);
         synchronize_clipboard(&mut old_runtime, events)?;
         synchronize_system_control_events(&mut old_runtime, events)?;
@@ -2707,6 +2750,11 @@ fn wait_for_flutter_frame(
         }
         runtime.process_input(&mut events.flutter_input)?;
         runtime.process_events(events.flutter_events.drain(..))?;
+        if let Some(launcher) = flutter_launcher.as_deref_mut()
+            && launcher.synchronize_ui_development(runtime)?
+        {
+            events.flutter_reload_requested = true;
+        }
         synchronize_authentication_boundary(events);
         synchronize_clipboard(runtime, events)?;
         synchronize_system_control_events(runtime, events)?;
@@ -3243,6 +3291,11 @@ fn apply_hotplug_topology(
         };
         let prepare_restart = (|| -> Result<(), Box<dyn Error>> {
             old_runtime.process_events(events.flutter_events.drain(..))?;
+            if let Some(launcher) = flutter_launcher.as_deref_mut()
+                && launcher.synchronize_ui_development(&mut old_runtime)?
+            {
+                events.flutter_reload_requested = true;
+            }
             synchronize_authentication_boundary(events);
             synchronize_clipboard(&mut old_runtime, events)?;
             synchronize_system_control_events(&mut old_runtime, events)?;
@@ -3933,8 +3986,10 @@ fn output_control_state(
             modes,
         });
     }
-    let mut capabilities = output_control::OutputControlCapabilities::default();
-    capabilities.persistent = persistence_available;
+    let capabilities = output_control::OutputControlCapabilities {
+        persistent: persistence_available,
+        ..Default::default()
+    };
     Ok(output_control::OutputControlState {
         capabilities,
         outputs,

@@ -4,6 +4,9 @@ use super::*;
 use std::collections::BTreeSet;
 use std::fmt;
 
+#[cfg(feature = "flutter")]
+use smithay::backend::egl::EGLContext;
+
 const ATLAS_BYTES_PER_PIXEL: u64 = 4;
 const MAX_ATLAS_DIMENSION: u32 = 16_384;
 const MAX_ATLAS_POOL_BYTES: u64 = 1024 * 1024 * 1024;
@@ -307,7 +310,10 @@ pub(super) struct LayoutTransition {
 
 #[cfg(feature = "flutter")]
 pub(super) struct FlutterLauncher {
-    factory: flutter_runtime::FlutterRuntimeFactory,
+    factory: Option<flutter_runtime::FlutterRuntimeFactory>,
+    active_mode: ui_development::UiRuntimeMode,
+    resident_jit_engine_fingerprint: Option<[u8; 32]>,
+    ui_development: ui_development::UiDevelopmentController,
     events: Sender<flutter_runtime::RuntimeEvent>,
     authentication: Arc<authentication::AuthenticationController>,
     clipboard: clipboard::ClipboardManager,
@@ -319,9 +325,16 @@ pub(super) struct FlutterLauncher {
 }
 
 #[cfg(feature = "flutter")]
+pub(super) struct FlutterLaunchConfiguration<'a> {
+    pub(super) bundle: &'a Path,
+    pub(super) debug_bundle: Option<PathBuf>,
+    pub(super) ui_workspace: Option<PathBuf>,
+}
+
+#[cfg(feature = "flutter")]
 impl FlutterLauncher {
     pub(super) fn new(
-        bundle: &Path,
+        configuration: FlutterLaunchConfiguration<'_>,
         events: Sender<flutter_runtime::RuntimeEvent>,
         wayland_display: Option<OsString>,
         x11_display: Option<OsString>,
@@ -329,8 +342,19 @@ impl FlutterLauncher {
         work_area: options::WorkAreaOptions,
         start_locked: bool,
     ) -> Result<Self, Box<dyn Error>> {
+        let ui_development = ui_development::UiDevelopmentController::new(
+            configuration.bundle,
+            configuration.debug_bundle,
+            configuration.ui_workspace,
+        );
         Ok(Self {
-            factory: flutter_runtime::FlutterRuntimeFactory::new(bundle)?,
+            factory: Some(flutter_runtime::FlutterRuntimeFactory::new(
+                configuration.bundle,
+                denial_flutter_engine::DartRuntimeMode::Aot,
+            )?),
+            active_mode: ui_development::UiRuntimeMode::OfficialOptimized,
+            resident_jit_engine_fingerprint: None,
+            ui_development,
             events,
             authentication: Arc::new(authentication::AuthenticationController::new(start_locked)?),
             clipboard: clipboard::ClipboardManager::default(),
@@ -351,20 +375,89 @@ impl FlutterLauncher {
         atlas: &AtlasPlan,
     ) -> Result<flutter_runtime::FlutterRuntime, Box<dyn Error>> {
         self.generation = self.generation.wrapping_add(1).max(1);
+        if let Err(error) = self.activate_requested_factory() {
+            let failed_mode = self.ui_development.desired_mode();
+            if failed_mode == ui_development::UiRuntimeMode::OfficialOptimized {
+                return Err(error);
+            }
+            self.ui_development
+                .runtime_failed(failed_mode, error.as_ref());
+            warn!(
+                %error,
+                ?failed_mode,
+                "could not prepare custom Flutter runtime; restoring the packaged shell"
+            );
+            self.replace_factory(ui_development::UiRuntimeMode::OfficialOptimized)?;
+        }
         let refresh_millihz = scanouts
             .iter()
             .map(|scanout| OutputMode::from(scanout.output.mode).refresh)
             .max()
             .ok_or("Flutter runtime has no output refresh")?;
-        flutter_runtime::FlutterRuntime::start(
+        let runtime = self.start_with_current_factory(
             renderer.egl_context(),
             swapchain.buffers.iter().map(|buffer| &buffer.dmabuf),
             swapchain.current,
             swapchain.size,
             snapshot,
             atlas,
+            scanouts,
             u32::try_from(refresh_millihz)?,
-            &self.factory,
+        );
+        let mut runtime = match runtime {
+            Ok(runtime) => runtime,
+            Err(error) if self.active_mode != ui_development::UiRuntimeMode::OfficialOptimized => {
+                let failed_mode = self.active_mode;
+                self.ui_development
+                    .runtime_failed(failed_mode, error.as_ref());
+                warn!(
+                    %error,
+                    ?failed_mode,
+                    "custom Flutter runtime failed; restoring the packaged shell"
+                );
+                self.replace_factory(ui_development::UiRuntimeMode::OfficialOptimized)?;
+                self.start_with_current_factory(
+                    renderer.egl_context(),
+                    swapchain.buffers.iter().map(|buffer| &buffer.dmabuf),
+                    swapchain.current,
+                    swapchain.size,
+                    snapshot,
+                    atlas,
+                    scanouts,
+                    u32::try_from(refresh_millihz)?,
+                )?
+            }
+            Err(error) => return Err(error),
+        };
+        self.ui_development
+            .runtime_started(self.active_mode, self.generation);
+        self.publish_ui_development_state(&mut runtime)?;
+        Ok(runtime)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn start_with_current_factory<'a>(
+        &self,
+        shared_context: &EGLContext,
+        dmabufs: impl IntoIterator<Item = &'a Dmabuf>,
+        initial_scanout: usize,
+        size: PixelSize,
+        snapshot: &TopologySnapshot,
+        atlas: &AtlasPlan,
+        scanouts: &[Scanout],
+        refresh_millihz: u32,
+    ) -> Result<flutter_runtime::FlutterRuntime, Box<dyn Error>> {
+        flutter_runtime::FlutterRuntime::start(
+            shared_context,
+            dmabufs,
+            initial_scanout,
+            size,
+            snapshot,
+            atlas,
+            refresh_millihz,
+            self.factory
+                .as_ref()
+                .ok_or("Flutter launcher has no active runtime factory")?,
             self.events.clone(),
             Arc::clone(&self.authentication),
             self.clipboard.clone(),
@@ -379,9 +472,139 @@ impl FlutterLauncher {
         )
     }
 
+    fn activate_requested_factory(&mut self) -> Result<(), Box<dyn Error>> {
+        let requested = self.ui_development.desired_mode();
+        if requested == self.active_mode && self.factory.is_some() {
+            if requested == ui_development::UiRuntimeMode::LiveDevelopment {
+                let bundle = self
+                    .ui_development
+                    .bundle_for(requested)
+                    .ok_or("live development has no configured Flutter bundle")?;
+                let prepared = flutter_runtime::bundle_engine_fingerprint(bundle)?;
+                ensure_resident_jit_engine_matches(
+                    self.resident_jit_engine_fingerprint.as_ref(),
+                    &prepared,
+                )?;
+            }
+            return Ok(());
+        }
+        self.replace_factory(requested)
+    }
+
+    fn replace_factory(
+        &mut self,
+        requested: ui_development::UiRuntimeMode,
+    ) -> Result<(), Box<dyn Error>> {
+        let bundle = self
+            .ui_development
+            .bundle_for(requested)
+            .ok_or_else(|| format!("{requested:?} has no configured Flutter bundle"))?
+            .to_owned();
+        let runtime = match requested {
+            ui_development::UiRuntimeMode::OfficialOptimized
+            | ui_development::UiRuntimeMode::CustomOptimized => {
+                denial_flutter_engine::DartRuntimeMode::Aot
+            }
+            ui_development::UiRuntimeMode::LiveDevelopment => {
+                denial_flutter_engine::DartRuntimeMode::Jit
+            }
+            ui_development::UiRuntimeMode::Unavailable => {
+                return Err("cannot launch an unavailable Flutter runtime".into());
+            }
+        };
+        let jit_engine_fingerprint = (requested == ui_development::UiRuntimeMode::LiveDevelopment)
+            .then(|| flutter_runtime::bundle_engine_fingerprint(&bundle))
+            .transpose()?;
+        if let Some(prepared) = jit_engine_fingerprint.as_ref() {
+            ensure_resident_jit_engine_matches(
+                self.resident_jit_engine_fingerprint.as_ref(),
+                prepared,
+            )?;
+        }
+
+        // AOT and JIT Flutter libraries each own process-global Dart state.
+        // The old runtime is shut down before this method is reached; release
+        // its library before loading the other runtime mode.
+        self.factory = None;
+        self.factory = Some(flutter_runtime::FlutterRuntimeFactory::new(
+            &bundle, runtime,
+        )?);
+        if let Some(fingerprint) = jit_engine_fingerprint {
+            self.resident_jit_engine_fingerprint = Some(fingerprint);
+        }
+        self.active_mode = requested;
+        Ok(())
+    }
+
+    pub(super) fn synchronize_ui_development(
+        &mut self,
+        runtime: &mut flutter_runtime::FlutterRuntime,
+    ) -> Result<bool, Box<dyn Error>> {
+        let vm_service_uri = runtime.take_vm_service_uri();
+        let vm_service_changed = vm_service_uri.is_some();
+        let commands = runtime.drain_ui_development_commands().collect::<Vec<_>>();
+        if let Some(uri) = vm_service_uri {
+            self.ui_development.set_vm_service_uri(uri);
+        }
+        if commands.is_empty() && !vm_service_changed {
+            return Ok(false);
+        }
+        let mut reload_requested = false;
+        for command in commands {
+            if let ui_development::UiDevelopmentEffect::Reload(requested_mode) =
+                self.ui_development.handle_command(command)
+            {
+                debug_assert_eq!(self.ui_development.desired_mode(), requested_mode);
+                reload_requested = true;
+            }
+        }
+        self.publish_ui_development_state(runtime)?;
+        Ok(reload_requested)
+    }
+
+    pub(super) fn handle_external_ui_development(
+        &mut self,
+        runtime: &mut flutter_runtime::FlutterRuntime,
+        command: ui_development::UiDevelopmentCommand,
+    ) -> (bool, ui_development::UiDevelopmentState) {
+        let reload_requested = matches!(
+            self.ui_development.handle_command(command),
+            ui_development::UiDevelopmentEffect::Reload(_)
+        );
+        // denialctl is the recovery path when Flutter itself is unavailable
+        // or unhealthy. Updating the shell is useful, but it must never be a
+        // prerequisite for accepting an external restore command.
+        if let Err(error) = self.publish_ui_development_state(runtime) {
+            warn!(%error, "could not publish denialctl UI state to Flutter");
+        }
+        (reload_requested, self.ui_development.state_snapshot())
+    }
+
+    fn publish_ui_development_state(
+        &self,
+        runtime: &mut flutter_runtime::FlutterRuntime,
+    ) -> Result<(), Box<dyn Error>> {
+        let packet = self.ui_development.state_packet()?;
+        runtime.publish_ui_development_state(&packet)
+    }
+
     pub(super) fn set_work_area(&mut self, work_area: options::WorkAreaOptions) {
         self.work_area = work_area;
     }
+}
+
+#[cfg(feature = "flutter")]
+fn ensure_resident_jit_engine_matches(
+    resident: Option<&[u8; 32]>,
+    prepared: &[u8; 32],
+) -> Result<(), Box<dyn Error>> {
+    if resident.is_some_and(|resident| resident != prepared) {
+        return Err(
+            "The prepared JIT Flutter engine changed after this Denial session loaded its native development runtime. Restart the Denial session before enabling live UI development."
+                .into(),
+        );
+    }
+    Ok(())
 }
 
 #[cfg(feature = "flutter")]
@@ -1189,12 +1412,12 @@ fn restore_original_modes_with_atlas(
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "flutter")]
-    use super::flutter_pool_length;
     use super::{
         Format, FormatSet, Fourcc, Modifier, PixelSize, ScanoutIdentity, ScanoutIdentityError,
         common_xrgb8888_modifiers, validate_atlas_allocation, validate_scanout_identities,
     };
+    #[cfg(feature = "flutter")]
+    use super::{ensure_resident_jit_engine_matches, flutter_pool_length};
 
     #[cfg(feature = "flutter")]
     #[test]
@@ -1205,6 +1428,20 @@ mod tests {
         assert_eq!(flutter_pool_length(16).expect("sixteen outputs"), 33);
         assert!(flutter_pool_length(17).is_err());
         assert!(flutter_pool_length(usize::MAX).is_err());
+    }
+
+    #[cfg(feature = "flutter")]
+    #[test]
+    fn a_changed_resident_jit_engine_requires_a_session_restart() {
+        let first = [0x11; 32];
+        let same = [0x11; 32];
+        let changed = [0x22; 32];
+
+        assert!(ensure_resident_jit_engine_matches(None, &first).is_ok());
+        assert!(ensure_resident_jit_engine_matches(Some(&first), &same).is_ok());
+        let error = ensure_resident_jit_engine_matches(Some(&first), &changed)
+            .expect_err("changed native JIT engine must be rejected");
+        assert!(error.to_string().contains("Restart the Denial session"));
     }
 
     #[test]
