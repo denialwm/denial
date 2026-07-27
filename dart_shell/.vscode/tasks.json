@@ -1,0 +1,36 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Denial UI: Inspect live development",
+      "type": "process",
+      "command": "/usr/bin/denial-ui",
+      "args": [
+        "doctor"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Denial UI: Prepare live bundle",
+      "type": "process",
+      "command": "/usr/bin/denial-ui",
+      "args": [
+        "prepare"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": [],
+      "presentation": {
+        "clear": true,
+        "focus": true,
+        "panel": "dedicated",
+        "reveal": "always"
+      }
+    }
+  ]
+}

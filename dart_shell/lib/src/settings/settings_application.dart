@@ -8,6 +8,7 @@ import '../local_apps/local_flutter_application.dart';
 import '../localization/denial_localizations.dart';
 import '../models/display_layout.dart';
 import '../state/display_layout.dart';
+import '../state/ui_development.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../wallpaper/state/wallpaper_accent.dart';
@@ -20,6 +21,7 @@ import 'widgets/focused_border_color_picker.dart';
 import 'widgets/settings_about_page.dart';
 import 'widgets/settings_appearance_page.dart';
 import 'widgets/settings_animations_page.dart';
+import 'widgets/settings_developer_page.dart';
 import 'widgets/settings_layout_page.dart';
 import 'widgets/settings_lock_screen_page.dart';
 import 'widgets/settings_navigation.dart';
@@ -278,6 +280,11 @@ class _DenialSettingsApplicationState
       SettingsPageId.displays => const SettingsDisplaysPage(),
       SettingsPageId.network => const SettingsNetworkPage(),
       SettingsPageId.bluetooth => const SettingsBluetoothPage(),
+      SettingsPageId.developer => SettingsDeveloperPage(
+        state: ref.watch(uiDevelopmentProvider),
+        controller: ref.read(uiDevelopmentProvider.notifier),
+        workspaceSetup: ref.watch(uiWorkspaceSetupProvider),
+      ),
       SettingsPageId.about => const SettingsAboutPage(),
     };
   }

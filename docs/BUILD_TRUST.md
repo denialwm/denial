@@ -1,24 +1,26 @@
 # Denial build trust
 
-Denial publishes only claims supported by its current evidence. The first
-public alpha prioritizes ordinary signed installation and transparent build
-ownership. Complete offline closure and independent reproducibility remain
-later goals. The project does not treat a CI badge, package signature, or
-maintainer-owned builder as proof that a binary is safe.
+Denial publishes only claims supported by its current evidence. The signed
+public alpha prioritizes ordinary installation, verified updates, and
+transparent build ownership. Complete offline closure and independent
+reproducibility remain later goals. The project does not treat a CI badge,
+package signature, or maintainer-owned builder as proof that a binary is safe.
 
 ## Current status
 
-As of 2026-07-25:
+As of 2026-07-27:
 
 - the x86-64 source-built Flutter Engine and split Pacman package prototype
   have passed source reconstruction, tests, package transactions, and
   real-hardware validation;
-- no production Denial package repository exists;
+- Denial 0.1.0 was published through the signed-tag workflow and installed
+  successfully from the signed first-party Pages repository;
 - the permanent release identity
   `AE4108FA5E91E26BE0EE331E0F5B3AD16E023091` is backed up and its signing
   subkey is installed in the GitHub `release-signing` environment;
-- the signed-tag, GitHub Release, and Pages workflow is staged but has not
-  been publicly run;
+- the v0.2.0 candidate path adds the separately versioned and optional
+  `denial-ui-development` package to the same build, signing, verification,
+  repository, and release-evidence boundary;
 - no Stage 1 development or disposable-key package is presented as a public
   release;
 - complete offline dependency closure and package reproducibility remain
@@ -36,9 +38,9 @@ work and release gates are in
 
 The initial x86-64 release builder is a dedicated CachyOS laptop owned and
 operated by the Denial maintainer. CachyOS is the host; a recreated clean Arch
-environment must become the Stage 2 package build authority. The machine
-accepts only manually triggered, trusted `main` or future signed-tag jobs. It
-never executes pull-request or fork code.
+environment must become the Stage 2 package build authority. The machine is
+manually armed for one trusted `main` or signed-tag job at a time. It never
+executes pull-request or fork code.
 
 Machine ownership is disclosed rather than presented as an assurance. The
 builder is one trust domain, so two builds on that machine can demonstrate
@@ -50,7 +52,8 @@ For the public alpha, the builder must:
 - receive no production signing key;
 - be registered as an ephemeral one-job GitHub runner;
 - retain no credentials or writable build environment after the job;
-- accept only a manually dispatched reviewed version tag;
+- accept only a reviewed `main` revision or manually dispatched signed version
+  tag after the operator explicitly arms it;
 - run the compositor and Flutter tests before packaging;
 - publish the exact source revision, host package inventory, logs, manifests,
   `.BUILDINFO`, and artifact hashes.
@@ -91,6 +94,11 @@ Every public-alpha release publishes:
 - the full public key and fingerprint;
 - explicit non-claims for offline closure, reproducibility, independent
   rebuilding, SBOMs, and AArch64.
+
+Beginning with v0.2.0, the signed package set contains exactly one
+`denial-flutter-engine`, one `denial`, and one optional
+`denial-ui-development` archive. The latter is not installed by default, but
+it is built and verified in the same release run as the runtime pair.
 
 Stage 2 and Stage 3 later add immutable source/tool closures, generated
 `.SRCINFO`, normalized compiler and linker manifests, SBOMs, attestations,

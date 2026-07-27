@@ -132,7 +132,7 @@ resolve_drm_device() {
 
 if [[ -r "$CONFIG_FILE" ]]; then
   # This is a root-owned, shell-compatible machine configuration.
-  # shellcheck source=/etc/denial/session.conf
+  # shellcheck source=/dev/null
   source "$CONFIG_FILE"
 fi
 
@@ -154,6 +154,7 @@ validate_output_config "$output_config"
 drm_device="$(resolve_drm_device)"
 
 [[ -x /usr/bin/deniald ]] || die 'missing /usr/bin/deniald'
+[[ -x /usr/bin/denialctl ]] || die 'missing /usr/bin/denialctl'
 [[ -f "$bundle/data/icudtl.dat" ]] || die "missing Flutter ICU data below $bundle"
 [[ -f "$bundle/lib/libapp.so" ]] || die "missing Flutter application below $bundle"
 [[ -f "$bundle/lib/libflutter_engine.so" ]] \
@@ -165,6 +166,7 @@ command -v uwsm >/dev/null 2>&1 \
 
 if [[ "${1:-}" == --check ]]; then
   printf 'ok  %-16s %s\n' 'compositor' /usr/bin/deniald
+  printf 'ok  %-16s %s\n' 'control client' /usr/bin/denialctl
   printf 'ok  %-16s %s\n' 'Flutter bundle' "$bundle"
   printf 'ok  %-16s %s\n' 'output config' "$output_config"
   printf 'ok  %-16s %s\n' 'DRM device' "$drm_device"
@@ -177,6 +179,23 @@ fi
 [[ -z "${WAYLAND_DISPLAY:-}" ]] \
   || die 'a Wayland compositor is already active; log out before starting Denial'
 
+denial_args=(
+  --device "$drm_device"
+  --output-config "$output_config"
+  --wayland
+  --flutter-bundle "$bundle"
+)
+if [[ -n "${DENIAL_FLUTTER_DEBUG_BUNDLE:-}" ]]; then
+  [[ "$DENIAL_FLUTTER_DEBUG_BUNDLE" == /* ]] \
+    || die "DENIAL_FLUTTER_DEBUG_BUNDLE must be absolute: $DENIAL_FLUTTER_DEBUG_BUNDLE"
+  denial_args+=(--flutter-debug-bundle "$DENIAL_FLUTTER_DEBUG_BUNDLE")
+fi
+if [[ -n "${DENIAL_FLUTTER_UI_WORKSPACE:-}" ]]; then
+  [[ "$DENIAL_FLUTTER_UI_WORKSPACE" == /* ]] \
+    || die "DENIAL_FLUTTER_UI_WORKSPACE must be absolute: $DENIAL_FLUTTER_UI_WORKSPACE"
+  denial_args+=(--flutter-ui-workspace "$DENIAL_FLUTTER_UI_WORKSPACE")
+fi
+
 unset DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE SWAYSOCK I3SOCK
 unset NO_COLOR WLR_DRM_DEVICES AQ_DRM_DEVICES
 export LIBSEAT_BACKEND="${LIBSEAT_BACKEND:-logind}"
@@ -184,9 +203,4 @@ export DENIA_UWSM_FINALIZE=1
 export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
 export RUST_LOG="${DENIAL_RUST_LOG:-deniald=info,smithay=warn}"
 
-exec /usr/bin/deniald \
-  --device "$drm_device" \
-  --output-config "$output_config" \
-  --wayland \
-  --flutter-bundle "$bundle" \
-  "$@"
+exec /usr/bin/deniald "${denial_args[@]}" "$@"

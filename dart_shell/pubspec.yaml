@@ -1,7 +1,7 @@
 name: denial_dart_shell
 description: Dart shell embedded by deniald.
 publish_to: 'none'
-version: 0.1.0
+version: 0.2.0
 
 environment:
   sdk: ^3.12.0

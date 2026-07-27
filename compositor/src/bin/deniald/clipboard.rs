@@ -1343,19 +1343,15 @@ fn encode_data(item_id: u64, mime_type: &str, data: &[u8]) -> Vec<u8> {
 fn encode_snapshot(state: &ClipboardState, folded_query: &str) -> Vec<u8> {
     let mut encoder = encode_header(RESPONSE_SNAPSHOT, STATUS_OK);
     encoder.u64(state.revision);
-    encoder.u64(
-        (!state.locked)
-            .then_some(state.history_bytes)
-            .unwrap_or_default()
-            .try_into()
-            .unwrap_or(u64::MAX),
-    );
+    let history_bytes = if state.locked { 0 } else { state.history_bytes };
+    encoder.u64(history_bytes.try_into().unwrap_or(u64::MAX));
     let active_id = (!state.locked)
         .then(|| state.active_history_id())
         .flatten()
         .unwrap_or(0);
     encoder.u64(active_id);
-    let flags = u8::from(state.paused) * SNAPSHOT_PAUSED | u8::from(state.locked) * SNAPSHOT_LOCKED;
+    let flags =
+        (u8::from(state.paused) * SNAPSHOT_PAUSED) | (u8::from(state.locked) * SNAPSHOT_LOCKED);
     encoder.u8(flags);
 
     let visible = if state.locked {
@@ -1377,8 +1373,8 @@ fn encode_snapshot(state: &ClipboardState, folded_query: &str) -> Vec<u8> {
         encoder.u32(item.height);
         encoder.u8(item.origin as u8);
         encoder.u8(item.kind as u8);
-        let flags =
-            u8::from(item.pinned) * ENTRY_PINNED | u8::from(active_id == item.id) * ENTRY_ACTIVE;
+        let flags = (u8::from(item.pinned) * ENTRY_PINNED)
+            | (u8::from(active_id == item.id) * ENTRY_ACTIVE);
         encoder.u8(flags);
         encoder.u8(item.representations.len().try_into().unwrap_or(u8::MAX));
         encoder.string_u16(&item.preview);

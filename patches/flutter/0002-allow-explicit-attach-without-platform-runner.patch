@@ -1,0 +1,26 @@
+diff --git a/packages/flutter_tools/lib/src/commands/attach.dart b/packages/flutter_tools/lib/src/commands/attach.dart
+index c53877111..ecaeebe1f 100644
+--- a/packages/flutter_tools/lib/src/commands/attach.dart
++++ b/packages/flutter_tools/lib/src/commands/attach.dart
+@@ -215,7 +215,9 @@ known, it can be explicitly provided to attach via the command-line, e.g.
+ 
+     await super.validateCommand();
+ 
+-    final Device? targetDevice = await findTargetDevice();
++    final Device? targetDevice = await findTargetDevice(
++      includeDevicesUnsupportedByProject: debugPort != null || debugUri != null,
++    );
+     if (targetDevice == null) {
+       throwToolExit(null);
+     }
+@@ -254,7 +256,9 @@ known, it can be explicitly provided to attach via the command-line, e.g.
+ 
+   @override
+   Future<FlutterCommandResult> runCommand() async {
+-    final Device? device = await findTargetDevice();
++    final Device? device = await findTargetDevice(
++      includeDevicesUnsupportedByProject: debugPort != null || debugUri != null,
++    );
+ 
+     if (device == null) {
+       throwToolExit('Did not find any valid target devices.');

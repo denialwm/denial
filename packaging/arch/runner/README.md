@@ -12,7 +12,9 @@ separate reusable host installation from per-job GitHub registration.
   for one repository job, and starts the static service.
 - `denial-actions-runner-cleanup` removes only the fixed disposable instance.
 - `denial-actions-runner.service` confines the unprivileged listener and
-  guarantees cleanup after exit.
+  guarantees cleanup after exit. Its startup probe must successfully create
+  the same private Bubblewrap network namespace used by package validation
+  before the GitHub listener is allowed to start.
 
 Use these files through `tools/denial-builder`; do not run the remote helpers
 manually during normal operation.
@@ -30,6 +32,11 @@ The package-signing key is outside this design entirely.
 other users. Standard read-only `/proc` system information remains available
 because the qualification check and native build tools use CPU and memory
 topology data.
+
+The service admits `AF_NETLINK` because Bubblewrap uses `NETLINK_ROUTE` to
+initialize loopback after `--unshare-net`. This does not restore host-network
+access to the package sandbox: the child still runs in its own network
+namespace, and the runner service retains an empty capability set.
 
 When a job exits, the service first erases every credential-bearing file from
 its disposable instance. If systemd still holds the empty instance root as a

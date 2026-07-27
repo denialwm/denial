@@ -1,7 +1,7 @@
 # Maintainer: Doctor Logix <doctor.logix@gmail.com>
 
 pkgname=denial
-pkgver="${DENIAL_PACKAGE_VERSION:-0.1.0}"
+pkgver="${DENIAL_PACKAGE_VERSION:-0.2.0}"
 pkgrel="${DENIAL_PACKAGE_RELEASE:-1}"
 pkgdesc='Flutter-native Wayland compositor and desktop shell'
 arch=('x86_64')
@@ -39,6 +39,7 @@ depends=(
   'zenity'
 )
 optdepends=(
+  'denial-ui-development: live Flutter UI editing and hot reload'
   'lact: AMD GPU performance controls'
   'networkmanager: Wi-Fi and network controls'
   'pipewire-pulse: desktop audio controls'
@@ -62,11 +63,11 @@ source=(
   'xdg-desktop-portal-wlr-Denial'
 )
 sha256sums=(
-  'f5148dbd273edb8c55b196fb5479cced85afb8ede686d0fd6b2257fa14100270'
+  'c8b84a9ac7a40b126944f616c2fda9abe2eb750db539e3878c38a446a6e4f7ec'
   'aa35c7e222fc814b9b48599176794db375885f444f0d03fb1b1a3fcad118fbe1'
   '92d54e0cce7ef20febd0dcbfdd2fd8578aa0996e50a78ac0160e3b8fcaa6c99f'
   '4e94352954d9c60ebc27ff5f544380f3a23fa100675511ca41323d633c806da5'
-  'e99849d39152a7979b3c871ded9f0e12ebed35760961f6c35d733b85ce9ca9c9'
+  '7b4ceb13fd5d35f3679445b0161bca5b78d296045028869f65ffd413656d1b5e'
   '3b4e3a52dff1a2ece31d122bd7220ddee2bdbaeb73ebe24ed9bd8c350580cd30'
 )
 
@@ -74,10 +75,16 @@ package() {
   local repository_root="${DENIAL_PACKAGE_SOURCE_ROOT:-$(realpath "$startdir/../..")}"
   local cache_root="${XDG_CACHE_HOME:-$HOME/.cache}"
   local binary="${DENIAL_PACKAGE_BINARY:-$cache_root/denial/pc-build/rust/release/deniald}"
+  local control_binary="${DENIAL_PACKAGE_CONTROL_BINARY:-$cache_root/denial/pc-build/rust/release/denialctl}"
   local bundle="${DENIAL_PACKAGE_BUNDLE:-$repository_root/dart_shell/build/linux/x64/release/bundle}"
 
   if [[ ! -x "$binary" ]]; then
     error "Denial compositor is missing: $binary"
+    error "Build through tools/denial-pc arch-package."
+    return 1
+  fi
+  if [[ ! -x "$control_binary" ]]; then
+    error "Denial control client is missing: $control_binary"
     error "Build through tools/denial-pc arch-package."
     return 1
   fi
@@ -92,6 +99,7 @@ package() {
   done
 
   install -Dm755 "$binary" "$pkgdir/usr/bin/deniald"
+  install -Dm755 "$control_binary" "$pkgdir/usr/bin/denialctl"
   install -Dm755 "$srcdir/denial-session" "$pkgdir/usr/bin/denial-session"
 
   install -dm755 \
@@ -115,6 +123,8 @@ package() {
 
   install -Dm644 "$repository_root/README.md" \
     "$pkgdir/usr/share/doc/denial/README.md"
+  install -Dm644 "$repository_root/docs/man/denialctl.1" \
+    "$pkgdir/usr/share/man/man1/denialctl.1"
   install -Dm644 \
     "$repository_root/dart_shell/assets/wallpapers/ATTRIBUTION.md" \
     "$pkgdir/usr/share/doc/denial/WALLPAPERS.md"

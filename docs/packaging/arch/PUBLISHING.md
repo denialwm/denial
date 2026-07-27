@@ -1,15 +1,14 @@
 # Denial Arch packaging and repository design
 
-> Status: Stage 1, the private signed-pipeline rehearsal, the resource and
-> structure review, and the clean repository root completed on 2026-07-25.
-> Every trusted `main` push can now produce an unsigned, independently checked
-> production candidate. A separate signed public-alpha path is staged, but no
-> public package has been released. Public visibility, Pages enablement, and a
-> signed version tag remain explicit gates before the first publication. The
-> permanent release identity is created, independently re-opened from its
-> encrypted backup, and installed only as a signing subkey in GitHub. Stage 2
-> and Stage 3 remain later hardening work rather than prerequisites for an
-> honest alpha.
+> Status: Stage 1, the private pipeline rehearsal, the resource and structure
+> review, and the clean repository root completed on 2026-07-25. Denial 0.1.0
+> activated the signed public-alpha repository on 2026-07-26. Every trusted
+> `main` push can produce an unsigned, independently checked candidate when the
+> ephemeral runner is armed; clean signed tags use the separate release,
+> signing, verification, and Pages path. Denial 0.2.0 extends that path with
+> the optional, version-coupled `denial-ui-development` package. Stage 2 and
+> Stage 3 remain later hardening work rather than prerequisites for an honest
+> alpha.
 
 This document defines both the intended production packaging model for Denial
 and the gates used to reach it. It supersedes the earlier monolithic
@@ -22,20 +21,20 @@ public alpha discloses that its owner-operated builder is not independently
 reproducible. Later stages progressively close and reproduce every build
 input.
 
-The long-term package model has three packages:
+The long-term package model has four roles:
 
 ```text
-denial-flutter-toolchain  ──builds──▶  denial
-          │                              │
-          │ matching generation          │ exact runtime requirement
-          ▼                              ▼
-denial-flutter-engine  ◀──────────────  libapp.so + deniald
+denial-flutter-toolchain ──builds──▶ denial ──requires──▶ denial-flutter-engine
+                                         ▲                     ▲
+                                         │                     │ same ABI
+denial-ui-development (optional) ─requires┘─────────────────────┘
 ```
 
 Compilation happens in package builders, never during `pacman -S`, an install
-hook, or first launch. The public alpha uses the already validated two-package
-runtime split, `denial-flutter-engine` plus `denial`; the packaged Flutter
-toolchain arrives in Stage 2.
+hook, or first launch. The public alpha uses the validated two-package runtime
+split, `denial-flutter-engine` plus `denial`, and publishes
+`denial-ui-development` separately for users who want live Flutter shell
+editing. The build-only `denial-flutter-toolchain` arrives in Stage 2.
 
 ## Delivery stages
 
@@ -44,7 +43,7 @@ The build and distribution system is introduced in four deliberate stages:
 | Stage | Purpose | Dependency control | Distribution |
 |---|---|---|---|
 | 1. Prototype build | Prove the source build and package split | Pinned top-level revisions, but online acquisition and existing caches are allowed | Local `pacman -U` testing only |
-| 1.5. Signed public alpha | Give early users ordinary Pacman install and update semantics with explicit limits | Stage 1 inputs plus a clean signed version tag, locked package pair, release evidence, and a separate signing job | Signed x86_64 first-party repository |
+| 1.5. Signed public alpha | Give early users ordinary Pacman install and update semantics with explicit limits | Stage 1 inputs plus a clean signed version tag, locked package set, release evidence, and a separate signing job | Signed x86_64 first-party repository |
 | 2. Pinned build | Make the build repeatable and reviewable | All effective inputs are fixed, declared, and checked | Clean-chroot and testing repository |
 | 3. Secured build | Harden releases after adoption justifies the cost | Offline closure, reproducibility, independent comparison, SBOM, audit, and recovery exercises | Hardened public repository |
 
@@ -80,8 +79,9 @@ The initial public repository deliberately makes a smaller, testable promise:
 - the owner-operated x86_64 builder receives no signing secret and never runs
   pull-request or fork code;
 - the existing compositor and Flutter test suites run before packaging;
-- exactly one compatible `denial` and `denial-flutter-engine` pair is handed
-  to a separate GitHub-hosted signing job;
+- exactly one compatible `denial` and `denial-flutter-engine` pair, plus the
+  optional version-matched `denial-ui-development` package when present in the
+  release contract, is handed to a separate GitHub-hosted signing job;
 - packages, Pacman databases, and the complete checksum manifest are signed;
 - the signed repository is re-verified without a secret key before one Pages
   artifact is deployed;
@@ -100,7 +100,8 @@ prove that those bytes were independently reconstructed from source.
 
 The release system must provide:
 
-- source-built `libflutter_engine.so`, `libapp.so`, and `deniald`;
+- source-built `libflutter_engine.so`, `libapp.so`, `deniald`, and
+  `denialctl`;
 - immutable and independently verifiable source provenance;
 - compilation without network access after inputs have been acquired;
 - exact coupling between Flutter, Dart, the engine, AOT output, and the Rust
@@ -123,8 +124,10 @@ identified.
 
 Stage 1 implements the `denial-flutter-engine` and `denial` runtime split. It
 uses the locally bootstrapped pinned Flutter SDK to build the application. The
-immutable `denial-flutter-toolchain` package and the combined split-package
-base are introduced in Stage 2, after the engine source build is proven.
+public-alpha channel additionally carries the optional
+`denial-ui-development` package. The immutable
+`denial-flutter-toolchain` package and the combined split-package base are
+introduced in Stage 2, after the engine source build is proven.
 
 ### `denial-flutter-engine`
 
@@ -176,7 +179,9 @@ This is the user-facing package. It contains:
 
 ```text
 /usr/bin/deniald
+/usr/bin/denialctl
 /usr/bin/denial-session
+/usr/share/man/man1/denialctl.1.gz
 /usr/lib/denial/flutter/lib/libapp.so
 /usr/lib/denial/flutter/data/flutter_assets/
 /usr/share/wayland-sessions/denial.desktop
@@ -188,11 +193,33 @@ This is the user-facing package. It contains:
 
 It depends on the exact compatible virtual engine generation and uses the
 matching toolchain generation at build time. Routine Denial releases rebuild
-only the Rust compositor, Dart AOT application, assets, tests, and package.
+only the Rust compositor and control client, Dart AOT application, assets,
+tests, and package.
 
 The package retains `backup=()` entries for administrator-owned configuration.
 Normal installation does not require a `.install` script beyond actions that
 cannot be expressed through ordinary package ownership.
+
+### `denial-ui-development`
+
+This is an optional, user-facing development package for live editing of the
+Flutter shell. It contains the matching JIT-capable engine, a curated Flutter
+and Dart runtime, the patched Flutter tool snapshot, locked shell dependency
+sources, the native `denial-ui` client, a version-matched source snapshot, and
+the editor configuration exercised by Denial.
+
+It requires a bounded Denial version range and the exact
+`denial-flutter-engine-abi` generation. Its isolated package validation
+prepares Denial's real JIT shell with network access disabled and verifies the
+engine, tool, source, permissions, licenses, and size budgets. Initial
+`denialctl ui setup` uses GitHub to create a normal editable checkout at the
+recorded source revision; compilation does not occur inside a Pacman hook.
+
+The package is not a sandbox. A custom Flutter shell and direct VM-service
+access are trusted local-user capabilities. The packaged non-pausing editor
+profile preserves hot reload and Flutter Inspector while withholding
+breakpoint, pause, stepping, and expression-evaluation control over the
+desktop isolate.
 
 ### Split package base
 
@@ -201,10 +228,10 @@ one source PKGBUILD with a package base such as `denial-flutter`. One checkout,
 one source closure, and one engine build then produce both packages with an
 identical generation.
 
-An optional `denial-flutter-engine-debug` package or debug-symbol publication
-may be produced from the same build. The production runtime should be
-stripped, while matching unstripped symbols remain available for crash
-analysis.
+Debug-symbol publication may be produced from the same build. The production
+runtime should be stripped, while matching unstripped symbols remain available
+for crash analysis. The JIT engine shipped by `denial-ui-development` is a
+runtime-mode artifact, not a substitute for separate native debug symbols.
 
 ## Flutter generation and compatibility
 
@@ -818,8 +845,8 @@ The release authority should use:
 
 The initial x86-64 authority is a dedicated, maintainer-owned Arch Linux
 laptop. Ownership is disclosed and is not presented as an independent trust
-domain. It accepts only manually dispatched trusted-`main` qualification jobs
-and, later, signed-tag release jobs. It never runs pull-request or fork code,
+domain. It accepts only explicitly armed trusted-`main` jobs and manually
+dispatched signed-tag release jobs. It never runs pull-request or fork code,
 contains no production signing key, and registers as an ephemeral one-job
 runner. The public operating contract and bring-up procedure are recorded in
 [BUILDER.md](BUILDER.md).
@@ -990,7 +1017,7 @@ be renewed or revoked:
 - give the GitHub `release-signing` environment only the secret-subkey export
   and its passphrase, never the primary secret key;
 - keep an encrypted full recovery archive separately from its recovery
-  passphrase and make another offline copy before first publication;
+  passphrase, keep another offline copy, and verify it periodically;
 - publish the public key and full fingerprint through multiple trusted
   channels;
 - document key rotation and revocation;
@@ -1003,7 +1030,7 @@ Equivalent manual package signing is:
 
 ```sh
 gpg --local-user "$KEY_FINGERPRINT" \
-  --detach-sign denial-0.1.0-1-x86_64.pkg.tar.zst
+  --detach-sign denial-0.2.0-1-x86_64.pkg.tar.zst
 ```
 
 Create and sign each architecture's database only after its package set is
@@ -1017,7 +1044,8 @@ repo-add \
   --prevent-downgrade \
   public/x86_64/denial.db.tar.zst \
   public/x86_64/denial-flutter-engine-3.44.7.denial1-1-x86_64.pkg.tar.zst \
-  public/x86_64/denial-0.1.0-1-x86_64.pkg.tar.zst
+  public/x86_64/denial-0.2.0-1-x86_64.pkg.tar.zst \
+  public/x86_64/denial-ui-development-0.2.0-1-x86_64.pkg.tar.zst
 ```
 
 Stage 2 adds `denial-flutter-toolchain` to the same compatible set.
@@ -1033,6 +1061,7 @@ The public-alpha repository is one static HTTPS tree:
 ```text
 public/
 ├── denial-repo-key.asc
+├── install.sh
 ├── x86_64/
 │   ├── denial.db
 │   ├── denial.db.sig
@@ -1041,11 +1070,16 @@ public/
 │   ├── denial.files
 │   ├── denial.files.sig
 │   ├── denial-flutter-engine-3.44.7.denial1-1-x86_64.pkg.tar.zst
-│   └── denial-0.1.0-1-x86_64.pkg.tar.zst
+│   ├── denial-0.2.0-1-x86_64.pkg.tar.zst
+│   └── denial-ui-development-0.2.0-1-x86_64.pkg.tar.zst
 ```
 
 Every package also has a detached `.sig`. The abbreviated tree omits those
-repeated entries. Stage 2 adds the toolchain package; AArch64 adds a sibling
+repeated entries. The release job copies the repository-owned `install.sh`
+from the exact tagged source, requires its embedded fingerprint to match the
+active release key, and includes it in the signed `SHA256SUMS` manifest.
+`install.denialwm.org` serves that file through the project-controlled
+Cloudflare route. Stage 2 adds the toolchain package; AArch64 adds a sibling
 directory only after its own build and hardware lane exists.
 
 Package filenames are immutable. GitHub Releases retain the complete package
@@ -1264,27 +1298,28 @@ user-facing release.
 
 ### Stage 1.5 — signed public alpha
 
-Goal: make the validated x86-64 package pair installable and updatable through
+Goal: make the validated x86-64 packages installable and updatable through
 ordinary Pacman while describing the owner-operated build boundary precisely.
 
-Implement it in this order:
+Denial 0.1.0 completed the initial publication path on 2026-07-26. The same
+gates apply to every later release:
 
-1. Rework the repository history into its reviewed public root and perform a
-   resource, attribution, documentation, and top-level structure review.
-2. Make the Denial, Flutter, and Skia source repositories public.
-3. Publish the permanent Denial public key and full fingerprint.
-4. Enable GitHub Pages with GitHub Actions as its source.
-5. Create and push a signed `vMAJOR.MINOR.PATCH` tag contained in `main`.
-6. Manually run `.github/workflows/release.yml` for that tag.
-7. Verify installation from the Pages URL in a fresh Arch environment.
-8. On the next real release, verify that `pacman -Syu` performs the expected
-   signed upgrade.
+1. review a clean release commit and its resource, attribution, documentation,
+   package, and workflow changes;
+2. validate the exact commit through the unsigned main-candidate lane;
+3. create and push a signed `vMAJOR.MINOR.PATCH` tag contained in `main`;
+4. manually run `.github/workflows/release.yml` for that tag;
+5. verify the Pages repository and GitHub Release produced by the workflow;
+6. install or upgrade through `pacman -Syu` on a real Arch system; and
+7. retain the package, database, signature, checksum, and build evidence.
 
 The workflow itself:
 
 - rebuilds and tests only on the ephemeral owner-operated x86-64 runner;
 - transfers unsigned packages and evidence to a GitHub-hosted signing job;
-- signs exactly one `denial` and one compatible `denial-flutter-engine`;
+- signs exactly one `denial`, one compatible `denial-flutter-engine`, and,
+  beginning with 0.2.0, one optional version-matched
+  `denial-ui-development`;
 - creates and verifies signed `denial.db` and `denial.files` databases;
 - materializes every Pages alias as a regular file;
 - re-verifies the complete signed tree in a job with no secret key;
@@ -1300,10 +1335,12 @@ Stage 1.5 explicitly does not claim:
 - generated SBOM or attestation coverage;
 - AArch64 support.
 
-Stage 1.5 passes when a fresh x86-64 Arch system rejects an altered package,
-accepts the published key and signed databases, installs `denial`, launches a
-working session, and later receives a normal signed update. These are release
-integrity and usability claims, not independent source-to-binary proof.
+Stage 1.5 passes for each release when a fresh or existing x86-64 Arch system
+rejects altered content, accepts the published key and signed databases,
+installs or upgrades `denial`, and launches a working session. Denial 0.2.0 is
+also the first signed-upgrade and optional-development-package exercise. These
+are release integrity and usability claims, not independent source-to-binary
+proof.
 
 ### Stage 2 — pinned build
 

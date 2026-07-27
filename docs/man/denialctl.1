@@ -1,0 +1,145 @@
+.TH DENIALCTL 1 "July 2026" "Denial 0.2.0" "User Commands"
+.SH NAME
+denialctl \- inspect and control a running Denial compositor
+.SH SYNOPSIS
+.B denialctl
+.RI [ options ]
+.I command
+.SH DESCRIPTION
+.B denialctl
+is Denial's native command-line client.
+It connects directly to the compositor's per-user control socket and does not
+depend on the Flutter shell being able to render or answer a platform message.
+It provides compositor status, output inspection, Flutter UI development
+controls, and packaged-shell recovery.
+.SH OPTIONS
+.TP
+.B \-\-json
+Write stable, machine-readable JSON to standard output.
+.TP
+.B \-\-no\-wait
+Return after a runtime transition is accepted instead of polling for its
+completion.
+.TP
+.BI \-\-socket " path"
+Use an explicit absolute control socket path.
+.TP
+.BR \-h ", " \-\-help
+Show command help.
+.TP
+.BR \-V ", " \-\-version
+Show the local client version.
+.SH COMMANDS
+.TP
+.B status
+Show a concise Flutter UI and output summary.
+.TP
+.B outputs
+List connected outputs, modes, positions, scale, power state, and the current
+configuration serial.
+.TP
+.B ui status
+Show the complete Flutter runtime and UI-development state.
+.TP
+.BI "ui setup [" path "]"
+Clone the branch or release recorded by
+.BR denial-ui-development ,
+verify its exact commit, overlay its packaged UI source, prepare it offline
+with the pinned toolchain, select its Flutter workspace, and enter live
+development.
+The default destination is
+.IR $HOME/DenialUI .
+The checkout starts on
+.B main
+with the official Denial repository configured as
+.BR origin .
+An existing valid checkout is preserved and reused; files are never
+overwritten.
+.TP
+.BI "ui workspace " path
+Validate and select a Flutter source workspace.
+Relative paths are resolved before being sent to the compositor.
+.TP
+.B "ui live on"
+Replace the packaged AOT shell with the prepared JIT development shell.
+.TP
+.B "ui live off"
+Return to the packaged optimized shell.
+.TP
+.B ui reload
+Request Dart hot reload when the native tooling backend supports it.
+.TP
+.B ui restart
+Request Dart hot restart when the native tooling backend supports it.
+.TP
+.B ui build
+Build and activate an optimized custom shell when supported.
+.TP
+.B ui restore
+Restore the packaged optimized shell.
+This is the native recovery path when custom Flutter UI code is unusable.
+.TP
+.B ui revert
+Restore the last working custom shell when supported.
+.TP
+.B "ui auto-reload on|off"
+Configure native source watching when supported.
+.TP
+.B ui vm-service
+Print the authenticated loopback Dart VM-service URI for the live shell.
+.SH RUNTIME TRANSITIONS
+Runtime mode changes are asynchronous inside the compositor.
+Unless
+.B \-\-no\-wait
+is used,
+.B denialctl
+polls until the requested mode is active and the controller is idle.
+Unsupported actions and rejected workspaces produce a nonzero exit status
+instead of reporting a false success.
+.B ui setup
+always waits because its contract is to leave an editor-ready live runtime.
+.SH ENVIRONMENT
+.TP
+.B DENIAL_SOCKET
+Absolute path to the active Denial control socket.
+.TP
+.B XDG_RUNTIME_DIR
+Used to derive
+.I $XDG_RUNTIME_DIR/denial/control.sock
+when
+.B DENIAL_SOCKET
+is unset.
+.SH FILES
+.TP
+.I $XDG_RUNTIME_DIR/denial/control.sock
+Per-user versioned control socket, normally mode 0600.
+.TP
+.I $XDG_RUNTIME_DIR/denial/flutter-vm-service.json
+Mode-0600 Flutter VM-service discovery file present during live development.
+.TP
+.I $XDG_CONFIG_HOME/denial/ui-development.json
+Persisted Flutter source workspace and UI-development preferences.
+.TP
+.I $HOME/DenialUI
+Default editable source root created by
+.BR "denialctl ui setup" .
+.TP
+.I /usr/share/denial/ui-development/workspace
+Version-matched, read-only UI source overlay supplied by the optional
+development package.
+.SH EXIT STATUS
+Zero indicates that the request succeeded.
+Invalid arguments, insecure or unavailable sockets, protocol failures,
+rejected commands, runtime transition failures, and timeouts return nonzero.
+With
+.B \-\-json
+enabled, standard output contains only a successful result or authoritative
+state; diagnostics are written to standard error.
+.SH SECURITY
+A custom Flutter shell is trusted session code.
+The VM-service URI contains an authentication token and is available only
+through user-private runtime paths.
+.B denialctl
+rejects relative, non-socket, and group- or world-accessible control paths.
+.SH SEE ALSO
+.BR pacman (8)

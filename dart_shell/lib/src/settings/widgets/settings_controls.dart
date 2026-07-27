@@ -362,6 +362,7 @@ class SettingsToggle extends StatelessWidget {
     required this.description,
     required this.value,
     required this.onChanged,
+    this.enabled = true,
     super.key,
   });
 
@@ -369,16 +370,21 @@ class SettingsToggle extends StatelessWidget {
   final String description;
   final bool value;
   final ValueChanged<bool> onChanged;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
     final accent = ShellTheme.of(context).accent;
     return Semantics(
       button: true,
+      enabled: enabled,
       toggled: value,
       label: label,
       child: FocusableActionDetector(
-        mouseCursor: ShellMouseCursors.link,
+        enabled: enabled,
+        mouseCursor: enabled
+            ? ShellMouseCursors.link
+            : SystemMouseCursors.basic,
         shortcuts: const <ShortcutActivator, Intent>{
           SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
           SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
@@ -386,55 +392,63 @@ class SettingsToggle extends StatelessWidget {
         actions: <Type, Action<Intent>>{
           ActivateIntent: CallbackAction<ActivateIntent>(
             onInvoke: (_) {
-              onChanged(!value);
+              if (enabled) {
+                onChanged(!value);
+              }
               return null;
             },
           ),
         },
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => onChanged(!value),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(label, style: ShellText.cardTitle),
-                    const SizedBox(height: 4),
-                    Text(
-                      description,
-                      style: ShellText.base.copyWith(
-                        color: ShellColors.textTertiary,
-                        fontSize: 12,
+        child: AnimatedOpacity(
+          duration: Motion.tile,
+          opacity: enabled ? 1 : 0.46,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: enabled ? () => onChanged(!value) : null,
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(label, style: ShellText.cardTitle),
+                      const SizedBox(height: 4),
+                      Text(
+                        description,
+                        style: ShellText.base.copyWith(
+                          color: ShellColors.textTertiary,
+                          fontSize: 12,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 18),
-              AnimatedContainer(
-                duration: Motion.tile,
-                width: 44,
-                height: 25,
-                padding: const EdgeInsets.all(3),
-                alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-                decoration: BoxDecoration(
-                  color: value ? accent : ShellColors.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(99),
-                  border: Border.all(
-                    color: value ? accent : ShellColors.hairline,
+                    ],
                   ),
                 ),
-                child: const DecoratedBox(
+                const SizedBox(width: 18),
+                AnimatedContainer(
+                  duration: Motion.tile,
+                  width: 44,
+                  height: 25,
+                  padding: const EdgeInsets.all(3),
+                  alignment: value
+                      ? Alignment.centerRight
+                      : Alignment.centerLeft,
                   decoration: BoxDecoration(
-                    color: ShellColors.sliderThumb,
-                    shape: BoxShape.circle,
+                    color: value ? accent : ShellColors.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(99),
+                    border: Border.all(
+                      color: value ? accent : ShellColors.hairline,
+                    ),
                   ),
-                  child: SizedBox.square(dimension: 17),
+                  child: const DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: ShellColors.sliderThumb,
+                      shape: BoxShape.circle,
+                    ),
+                    child: SizedBox.square(dimension: 17),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -589,7 +603,7 @@ class SettingsTextButton extends StatelessWidget {
   });
 
   final String label;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -610,7 +624,7 @@ class _SettingsChoiceChip extends StatefulWidget {
 
   final String label;
   final bool selected;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   State<_SettingsChoiceChip> createState() => _SettingsChoiceChipState();
@@ -622,12 +636,17 @@ class _SettingsChoiceChipState extends State<_SettingsChoiceChip> {
   @override
   Widget build(BuildContext context) {
     final accent = ShellTheme.of(context).accent;
+    final enabled = widget.onPressed != null;
     return Semantics(
       button: true,
+      enabled: enabled,
       selected: widget.selected,
       label: widget.label,
       child: FocusableActionDetector(
-        mouseCursor: ShellMouseCursors.link,
+        enabled: enabled,
+        mouseCursor: enabled
+            ? ShellMouseCursors.link
+            : SystemMouseCursors.basic,
         onShowFocusHighlight: (value) => setState(() => _highlighted = value),
         onShowHoverHighlight: (value) => setState(() => _highlighted = value),
         shortcuts: const <ShortcutActivator, Intent>{
@@ -637,36 +656,40 @@ class _SettingsChoiceChipState extends State<_SettingsChoiceChip> {
         actions: <Type, Action<Intent>>{
           ActivateIntent: CallbackAction<ActivateIntent>(
             onInvoke: (_) {
-              widget.onPressed();
+              widget.onPressed?.call();
               return null;
             },
           ),
         },
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onPressed,
-          child: AnimatedContainer(
-            duration: Motion.tile,
-            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
-            decoration: BoxDecoration(
-              color: widget.selected
-                  ? accent.withAlpha(42)
-                  : _highlighted
-                  ? ShellColors.surfaceContainerHighest
-                  : ShellColors.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(ShellRadii.chip),
-              border: Border.all(
+        child: AnimatedOpacity(
+          duration: Motion.tile,
+          opacity: enabled ? 1 : 0.46,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.onPressed,
+            child: AnimatedContainer(
+              duration: Motion.tile,
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+              decoration: BoxDecoration(
                 color: widget.selected
-                    ? accent
+                    ? accent.withAlpha(42)
                     : _highlighted
-                    ? ShellColors.textTertiary
-                    : ShellColors.hairline,
+                    ? ShellColors.surfaceContainerHighest
+                    : ShellColors.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(ShellRadii.chip),
+                border: Border.all(
+                  color: widget.selected
+                      ? accent
+                      : _highlighted
+                      ? ShellColors.textTertiary
+                      : ShellColors.hairline,
+                ),
               ),
-            ),
-            child: Text(
-              widget.label,
-              style: ShellText.cardTitle.copyWith(
-                color: widget.selected ? accent : ShellColors.textSecondary,
+              child: Text(
+                widget.label,
+                style: ShellText.cardTitle.copyWith(
+                  color: widget.selected ? accent : ShellColors.textSecondary,
+                ),
               ),
             ),
           ),

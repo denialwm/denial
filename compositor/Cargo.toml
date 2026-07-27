@@ -1,6 +1,6 @@
 [package]
 name = "denial"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
 publish = false
@@ -13,11 +13,18 @@ resolver = "3"
 default = []
 flutter = [
     "kms",
+    "control",
     "dep:denial-flutter-engine",
+    "dep:sha2",
     "wire",
     "dep:libc",
     "dep:zbus",
 ]
+control = [
+    "dep:serde",
+    "dep:serde_json",
+]
+ui-development = ["control"]
 wire = [
     "dep:flatbuffers",
     "dep:serde",
@@ -65,6 +72,7 @@ libc = { version = "0.2", optional = true }
 libloading = { version = "0.9", optional = true }
 serde = { version = "=1.0.229", features = ["derive"], optional = true }
 serde_json = { version = "=1.0.151", features = ["raw_value"], optional = true }
+sha2 = { version = "=0.10.9", optional = true }
 smithay = { git = "https://github.com/Smithay/smithay.git", rev = "812bd33259ff58810dadef6086d8385eeac1ca55", default-features = false, optional = true }
 smithay-drm-extras = { git = "https://github.com/Smithay/smithay.git", rev = "812bd33259ff58810dadef6086d8385eeac1ca55", default-features = false, optional = true }
 tracing = { version = "0.1.37", features = ["max_level_trace", "release_max_level_info"], optional = true }
@@ -81,6 +89,16 @@ required-features = ["nested"]
 name = "deniald"
 path = "src/bin/deniald.rs"
 required-features = ["kms"]
+
+[[bin]]
+name = "denialctl"
+path = "src/bin/denialctl.rs"
+required-features = ["control"]
+
+[[bin]]
+name = "denial-ui"
+path = "src/bin/denial_ui.rs"
+required-features = ["ui-development"]
 
 [profile.release]
 lto = "thin"

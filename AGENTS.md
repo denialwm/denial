@@ -9,6 +9,15 @@ top of another compositor. It is part of the compositor's foundation.
 
 That is the architecture. It is also the meaning of the name.
 
+## Repository workflow
+
+Trusted development lands on `dev` first. Arm the ephemeral builder before
+pushing so `.github/workflows/branch-validation.yml` can build, package, and
+independently verify that exact commit. Do not repair pipeline failures
+directly on `main`; fix and prove them on `dev`, then promote the green commit
+to `main` through a pull request. Signed public releases remain restricted to
+separately signed version tags.
+
 ## Why Denial
 
 **Denial** is an English word. The name contains **Denia**, followed by one
@@ -61,9 +70,10 @@ Git. Its expected checksum, source/build metadata, and licenses live in
 directory's `BUILD_INFO.md` before creating a bundle. It applies the versioned
 engine series in `patches/flutter-engine/3.44.7/`: six coupled OpenGL
 stencil/dynamic-MSAA correctness patches plus four autonomous-texture damage,
-raster, and scheduling fixes. The separate, compatible Flutter framework
-patch in `patches/flutter/` remains part of SDK bootstrap and raises touch
-resampling from 60 Hz to 120 Hz.
+raster, and scheduling fixes. The separate, compatible SDK series in
+`patches/flutter/` remains part of bootstrap: it raises touch resampling from
+60 Hz to 120 Hz and permits explicit VM-service attachment to Denial's raw
+embedder project without a generated platform runner.
 
 The Flutter embedder ABI is committed as generated Rust in
 `compositor/flutter-engine/src/sys.rs`, stamped with the coupled revisions from
@@ -86,7 +96,8 @@ For separate caches, set `DENIAL_PC_DEPENDENCY_ROOT`,
 `DENIAL_PC_BUILD_ROOT`, or `DENIAL_PC_RUST_TARGET`. A first bootstrap requires
 network access; subsequent builds reuse the cache.
 
-The host needs a Rust toolchain compatible with `compositor/rust-toolchain.toml`,
+The host needs a Rust toolchain compatible with the repository-level
+`rust-toolchain.toml`,
 `pkg-config`, Xwayland, and the development libraries required by Smithay's
 DRM, GBM/EGL, libinput, libseat and udev backends. Only binding regeneration
 needs Clang/libclang.

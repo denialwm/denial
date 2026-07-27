@@ -1507,6 +1507,131 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsMaximizedSpacingTitle => 'Maximized spacing';
 
   @override
+  String get settingsDeveloperAutoReloadDescription =>
+      'Let Denial watch the workspace and reload successful source changes. Available when the native tooling bridge is installed.';
+
+  @override
+  String get settingsDeveloperAutoReloadTitle => 'Reload when files change';
+
+  @override
+  String get settingsDeveloperBuildOptimized => 'Build & activate optimized';
+
+  @override
+  String get settingsDeveloperBuildRecoveryDescription =>
+      'Promote the current workspace to an optimized shell, or return to a known working UI without restarting the Wayland session.';
+
+  @override
+  String get settingsDeveloperBuildRecoveryTitle => 'Build & recovery';
+
+  @override
+  String get settingsDeveloperDescription =>
+      'Edit the complete Flutter desktop, reload it live, then promote it to an optimized build.';
+
+  @override
+  String get settingsDeveloperDiagnosticsTitle => 'Connection & diagnostics';
+
+  @override
+  String get settingsDeveloperEditorAttachDescription =>
+      'Open the Flutter shell workspace in VSCodium, choose “Attach to Denial live UI” in Run and Debug, then save changed Dart files to reload the desktop. Native compositor changes require a normal rebuild.';
+
+  @override
+  String get settingsDeveloperEnableDescription =>
+      'Run the selected workspace with the Dart VM service available for VSCodium and Flutter tooling.';
+
+  @override
+  String get settingsDeveloperEnableTitle => 'Enable live UI development';
+
+  @override
+  String get settingsDeveloperGeneration => 'Generation';
+
+  @override
+  String get settingsDeveloperHotReload => 'Hot reload';
+
+  @override
+  String get settingsDeveloperHotRestart => 'Hot restart';
+
+  @override
+  String get settingsDeveloperLiveControlsTitle => 'Live session';
+
+  @override
+  String get settingsDeveloperModeCustom => 'Custom optimized';
+
+  @override
+  String get settingsDeveloperModeLive => 'Live development';
+
+  @override
+  String get settingsDeveloperModeOfficial => 'Official optimized';
+
+  @override
+  String get settingsDeveloperModeUnavailable => 'Connecting';
+
+  @override
+  String get settingsDeveloperNoDiagnostics => 'No diagnostics reported.';
+
+  @override
+  String get settingsDeveloperPerformanceWarning =>
+      'Live development uses a JIT Flutter engine and debug checks. Frame pacing and game performance will be lower until you return to an optimized build.';
+
+  @override
+  String get settingsDeveloperRefreshStatus => 'Refresh status';
+
+  @override
+  String get settingsDeveloperRestoreOfficial => 'Restore official UI';
+
+  @override
+  String get settingsDeveloperRevertLastWorking => 'Revert last working';
+
+  @override
+  String get settingsDeveloperRuntimeTitle => 'Flutter shell runtime';
+
+  @override
+  String get settingsDeveloperSection => 'DEVELOPER';
+
+  @override
+  String get settingsDeveloperSetupAction => 'Create and start editable UI';
+
+  @override
+  String get settingsDeveloperSetupDescription =>
+      'Clone the version-matched Denial source from GitHub into ~/DenialUI, prepare it with the pinned toolchain, and enter live development.';
+
+  @override
+  String get settingsDeveloperSetupRunning =>
+      'Preparing the editable UI. The shell will switch automatically when it is ready…';
+
+  @override
+  String get settingsDeveloperSetupUnavailable =>
+      'Install denial-ui-development to enable automatic setup.';
+
+  @override
+  String get settingsDeveloperUseWorkspace => 'Use this workspace';
+
+  @override
+  String get settingsDeveloperVmServiceTitle => 'Dart VM service';
+
+  @override
+  String get settingsDeveloperWaitingForStatus =>
+      'Waiting for native runtime status…';
+
+  @override
+  String get settingsDeveloperWorkspaceDescription =>
+      'Select a Flutter project containing pubspec.yaml and lib/main.dart. Source changes can replace any shell UI that does not require a new native protocol.';
+
+  @override
+  String get settingsDeveloperWorkspaceFieldLabel => 'Flutter source workspace';
+
+  @override
+  String get settingsDeveloperWorkspaceHint => '/home/you/DenialUI/dart_shell';
+
+  @override
+  String get settingsDeveloperWorkspaceNotReady => 'Needs setup';
+
+  @override
+  String get settingsDeveloperWorkspaceReady => 'Ready';
+
+  @override
+  String get settingsDeveloperWorkspaceTitle => 'Source workspace';
+
+  @override
   String settingsMinutes(int minutes) {
     return '$minutes min';
   }
@@ -1528,6 +1653,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsNavigationDesktopLayout => 'Desktop layout';
+
+  @override
+  String get settingsNavigationDeveloper => 'Developer';
 
   @override
   String get settingsNavigationDisplays => 'Displays & video';

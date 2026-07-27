@@ -1,8 +1,10 @@
-//! Versioned, compositor-owned output-management IPC.
+//! Versioned, compositor-owned control IPC.
 //!
-//! The protocol deliberately exposes Denial's output model instead of
-//! impersonating another compositor. Clients connect to `DENIAL_SOCKET`, send
-//! one newline-delimited JSON request, read one response, and close.
+//! The socket carries output transactions and shell-independent Flutter UI
+//! lifecycle/recovery commands. It deliberately exposes Denial's own model
+//! instead of impersonating another compositor. Clients connect to
+//! `DENIAL_SOCKET`, send one newline-delimited JSON request, read one response,
+//! and close.
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -23,6 +25,10 @@ use serde_json::{Value, json};
 use smithay::reexports::calloop::channel::{Channel, SyncSender, sync_channel};
 use tracing::{info, warn};
 
+use super::ui_development::{
+    CommandKind as UiDevelopmentCommandKind, UiDevelopmentCommand, UiDevelopmentState,
+};
+
 pub(super) const PROTOCOL_VERSION: u32 = 1;
 
 const SOCKET_DIRECTORY: &str = "denial";
@@ -31,6 +37,7 @@ const EVENT_QUEUE_CAPACITY: usize = 8;
 const MAX_REQUEST_BYTES: usize = 256 * 1024;
 const CLIENT_IO_TIMEOUT: Duration = Duration::from_secs(3);
 const APPLY_TIMEOUT: Duration = Duration::from_secs(15);
+const UI_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub(super) struct OutputControlCapabilities {
@@ -244,6 +251,26 @@ impl PendingOutputApply {
     }
 }
 
+pub(super) type UiDevelopmentReply = Result<UiDevelopmentState, OutputControlFailure>;
+
+#[derive(Debug)]
+pub(super) struct PendingUiDevelopment {
+    pub(super) command: UiDevelopmentCommand,
+    reply: mpsc::SyncSender<UiDevelopmentReply>,
+}
+
+impl PendingUiDevelopment {
+    pub(super) fn reply(self, result: UiDevelopmentReply) {
+        let _ = self.reply.send(result);
+    }
+}
+
+#[derive(Debug)]
+pub(super) enum ControlEvent {
+    OutputApply(PendingOutputApply),
+    UiDevelopment(PendingUiDevelopment),
+}
+
 #[derive(Debug, Deserialize)]
 struct RequestEnvelope {
     version: u32,
@@ -251,6 +278,18 @@ struct RequestEnvelope {
     method: String,
     #[serde(default)]
     params: Value,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UiWorkspaceParams {
+    path: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UiAutoReloadParams {
+    enabled: bool,
 }
 
 pub(super) struct OutputControlServer {
@@ -266,7 +305,7 @@ pub(super) struct OutputControlServer {
 impl OutputControlServer {
     pub(super) fn start(
         initial: OutputControlState,
-    ) -> Result<(Self, Channel<PendingOutputApply>), Box<dyn Error>> {
+    ) -> Result<(Self, Channel<ControlEvent>), Box<dyn Error>> {
         let path = default_socket_path()?;
         Self::start_at(path, initial)
     }
@@ -274,7 +313,7 @@ impl OutputControlServer {
     fn start_at(
         socket_path: PathBuf,
         initial: OutputControlState,
-    ) -> Result<(Self, Channel<PendingOutputApply>), Box<dyn Error>> {
+    ) -> Result<(Self, Channel<ControlEvent>), Box<dyn Error>> {
         prepare_socket_path(&socket_path)?;
         let listener = UnixListener::bind(&socket_path)?;
         fs::set_permissions(&socket_path, Permissions::from_mode(0o600))?;
@@ -288,7 +327,7 @@ impl OutputControlServer {
         let (shutdown, worker_shutdown) = UnixStream::pair()?;
         let (events, source) = sync_channel(EVENT_QUEUE_CAPACITY);
         let worker = thread::Builder::new()
-            .name("denial-output-control".into())
+            .name("denial-control".into())
             .spawn(move || {
                 serve(
                     listener,
@@ -302,7 +341,7 @@ impl OutputControlServer {
         info!(
             path = %socket_path.display(),
             protocol_version = PROTOCOL_VERSION,
-            "output-control socket listening"
+            "Denial control socket listening"
         );
         Ok((
             Self {
@@ -338,7 +377,7 @@ impl Drop for OutputControlServer {
         if let Some(worker) = self.worker.take()
             && worker.join().is_err()
         {
-            warn!("output-control worker panicked during shutdown");
+            warn!("Denial control worker panicked during shutdown");
         }
         let owned_socket = fs::symlink_metadata(&self.socket_path)
             .ok()
@@ -356,7 +395,7 @@ impl Drop for OutputControlServer {
             Err(error) => warn!(
                 path = %self.socket_path.display(),
                 %error,
-                "could not remove output-control socket"
+                "could not remove Denial control socket"
             ),
         }
     }
@@ -364,7 +403,7 @@ impl Drop for OutputControlServer {
 
 fn default_socket_path() -> Result<PathBuf, Box<dyn Error>> {
     let runtime = std::env::var_os("XDG_RUNTIME_DIR")
-        .ok_or("XDG_RUNTIME_DIR is required for Denial output control")?;
+        .ok_or("XDG_RUNTIME_DIR is required for Denial control")?;
     let runtime = PathBuf::from(runtime);
     if !runtime.is_absolute() {
         return Err("XDG_RUNTIME_DIR must be an absolute path".into());
@@ -393,7 +432,7 @@ fn prepare_socket_path(path: &Path) -> Result<(), Box<dyn Error>> {
     };
     if !metadata.file_type().is_socket() {
         return Err(format!(
-            "refusing to replace non-socket output-control path {}",
+            "refusing to replace non-socket Denial control path {}",
             path.display()
         )
         .into());
@@ -401,7 +440,7 @@ fn prepare_socket_path(path: &Path) -> Result<(), Box<dyn Error>> {
 
     match UnixStream::connect(path) {
         Ok(_) => Err(format!(
-            "another Denial output-control server is already listening at {}",
+            "another Denial control server is already listening at {}",
             path.display()
         )
         .into()),
@@ -426,7 +465,7 @@ fn serve(
     listener: UnixListener,
     shutdown: UnixStream,
     publisher: OutputControlPublisher,
-    events: SyncSender<PendingOutputApply>,
+    events: SyncSender<ControlEvent>,
     stopping: Arc<AtomicBool>,
 ) {
     let mut poll_fds = [
@@ -451,7 +490,7 @@ fn serve(
             if error.kind() == io::ErrorKind::Interrupted {
                 continue;
             }
-            warn!(%error, "output-control listener poll failed");
+            warn!(%error, "Denial control listener poll failed");
             break;
         }
         if poll_fds[1].revents != 0 || stopping.load(Ordering::Acquire) {
@@ -464,13 +503,13 @@ fn serve(
             Ok((stream, _)) => {
                 let result = handle_connection(stream, &publisher, &events);
                 if let Err(error) = result {
-                    warn!(%error, "output-control client request failed");
+                    warn!(%error, "Denial control client request failed");
                 }
             }
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) => {
-                warn!(%error, "output-control listener failed");
+                warn!(%error, "Denial control listener failed");
                 break;
             }
         }
@@ -480,7 +519,7 @@ fn serve(
 fn handle_connection(
     mut stream: UnixStream,
     publisher: &OutputControlPublisher,
-    events: &SyncSender<PendingOutputApply>,
+    events: &SyncSender<ControlEvent>,
 ) -> io::Result<()> {
     stream.set_nonblocking(false)?;
     stream.set_read_timeout(Some(CLIENT_IO_TIMEOUT))?;
@@ -527,7 +566,7 @@ fn handle_connection(
                 configuration,
                 reply,
             };
-            match events.try_send(pending) {
+            match events.try_send(ControlEvent::OutputApply(pending)) {
                 Err(mpsc::TrySendError::Full(_)) => error_response(
                     Some(request.id),
                     "busy",
@@ -554,13 +593,157 @@ fn handle_connection(
                 },
             }
         }
+        "ui.get" => queue_ui_development(
+            request.id,
+            UiDevelopmentCommandKind::Query,
+            None,
+            false,
+            events,
+        ),
+        "ui.live.enable" => queue_ui_development(
+            request.id,
+            UiDevelopmentCommandKind::EnableLiveDevelopment,
+            None,
+            false,
+            events,
+        ),
+        "ui.live.disable" => queue_ui_development(
+            request.id,
+            UiDevelopmentCommandKind::DisableLiveDevelopment,
+            None,
+            false,
+            events,
+        ),
+        "ui.workspace.set" => {
+            let parameters = match serde_json::from_value::<UiWorkspaceParams>(request.params) {
+                Ok(parameters) => parameters,
+                Err(error) => {
+                    return write_response(
+                        &mut stream,
+                        &error_response(Some(request.id), "invalid_params", error.to_string()),
+                    );
+                }
+            };
+            queue_ui_development(
+                request.id,
+                UiDevelopmentCommandKind::SetWorkspace,
+                Some(parameters.path),
+                false,
+                events,
+            )
+        }
+        "ui.reload" => queue_ui_development(
+            request.id,
+            UiDevelopmentCommandKind::HotReload,
+            None,
+            false,
+            events,
+        ),
+        "ui.restart" => queue_ui_development(
+            request.id,
+            UiDevelopmentCommandKind::HotRestart,
+            None,
+            false,
+            events,
+        ),
+        "ui.build" => queue_ui_development(
+            request.id,
+            UiDevelopmentCommandKind::BuildAndActivateOptimized,
+            None,
+            false,
+            events,
+        ),
+        "ui.restore" => queue_ui_development(
+            request.id,
+            UiDevelopmentCommandKind::RestoreOfficial,
+            None,
+            false,
+            events,
+        ),
+        "ui.revert" => queue_ui_development(
+            request.id,
+            UiDevelopmentCommandKind::RevertLastWorking,
+            None,
+            false,
+            events,
+        ),
+        "ui.auto_reload.set" => {
+            let parameters = match serde_json::from_value::<UiAutoReloadParams>(request.params) {
+                Ok(parameters) => parameters,
+                Err(error) => {
+                    return write_response(
+                        &mut stream,
+                        &error_response(Some(request.id), "invalid_params", error.to_string()),
+                    );
+                }
+            };
+            queue_ui_development(
+                request.id,
+                UiDevelopmentCommandKind::SetAutoReload,
+                None,
+                parameters.enabled,
+                events,
+            )
+        }
         _ => error_response(
             Some(request.id),
             "unknown_method",
-            format!("unknown output-control method {:?}", request.method),
+            format!("unknown Denial control method {:?}", request.method),
         ),
     };
     write_response(&mut stream, &response)
+}
+
+fn queue_ui_development(
+    id: u64,
+    kind: UiDevelopmentCommandKind,
+    workspace: Option<PathBuf>,
+    auto_reload: bool,
+    events: &SyncSender<ControlEvent>,
+) -> Value {
+    let request_id = match u32::try_from(id).ok().filter(|id| *id != 0) {
+        Some(request_id) => request_id,
+        None => {
+            return error_response(
+                Some(id),
+                "invalid_request",
+                "UI-development request IDs must fit a nonzero uint32",
+            );
+        }
+    };
+    let command = match UiDevelopmentCommand::from_control(kind, request_id, workspace, auto_reload)
+    {
+        Ok(command) => command,
+        Err(error) => {
+            return error_response(Some(id), "invalid_params", error.to_string());
+        }
+    };
+    let (reply, result) = mpsc::sync_channel(1);
+    let pending = PendingUiDevelopment { command, reply };
+    match events.try_send(ControlEvent::UiDevelopment(pending)) {
+        Err(mpsc::TrySendError::Full(_)) => {
+            error_response(Some(id), "busy", "the compositor control queue is full")
+        }
+        Err(mpsc::TrySendError::Disconnected(_)) => error_response(
+            Some(id),
+            "unavailable",
+            "the compositor control queue is unavailable",
+        ),
+        Ok(()) => match result.recv_timeout(UI_COMMAND_TIMEOUT) {
+            Ok(Ok(snapshot)) => success_response(id, snapshot),
+            Ok(Err(error)) => error_response(Some(id), &error.code, error.message),
+            Err(mpsc::RecvTimeoutError::Timeout) => error_response(
+                Some(id),
+                "timeout",
+                "the compositor did not process the UI-development command in time",
+            ),
+            Err(mpsc::RecvTimeoutError::Disconnected) => error_response(
+                Some(id),
+                "unavailable",
+                "the compositor stopped before processing the UI-development command",
+            ),
+        },
+    }
 }
 
 fn read_request(stream: &UnixStream) -> io::Result<RequestEnvelope> {
@@ -662,7 +845,7 @@ mod tests {
     fn socket_path() -> PathBuf {
         let suffix = NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed);
         let directory = std::env::temp_dir().join(format!(
-            "denial-output-control-test-{}-{suffix}",
+            "denial-control-test-{}-{suffix}",
             std::process::id()
         ));
         fs::create_dir(&directory).expect("create test socket directory");
@@ -723,13 +906,13 @@ mod tests {
         event_loop
             .handle()
             .insert_source(source, move |event, _, _| {
-                if let ChannelEvent::Msg(request) = event {
+                if let ChannelEvent::Msg(ControlEvent::OutputApply(request)) = event {
                     assert_eq!(request.configuration.serial, serial);
                     assert_eq!(request.configuration.outputs[0].name, "DP-4");
                     request.reply(Ok(publisher.snapshot()));
                 }
             })
-            .expect("insert output-control source");
+            .expect("insert Denial control source");
 
         let client = thread::spawn(move || {
             let mut stream = UnixStream::connect(&path).expect("connect to server");
@@ -749,10 +932,59 @@ mod tests {
         event_loop
             .dispatch(Duration::from_secs(1), &mut ())
             .expect("dispatch output apply");
-        let response = client.join().expect("join output-control client");
+        let response = client.join().expect("join Denial control client");
         assert_eq!(response["id"], 23);
         assert_eq!(response["ok"], true);
         assert_eq!(response["result"]["outputs"][0]["name"], "DP-4");
+
+        drop(server);
+        fs::remove_dir(directory).expect("remove test socket directory");
+    }
+
+    #[test]
+    fn ui_query_is_handed_to_the_compositor_event_loop() {
+        let path = socket_path();
+        let directory = path.parent().expect("test socket has parent").to_owned();
+        let (server, source) =
+            OutputControlServer::start_at(path.clone(), state("DP-4")).expect("start server");
+        let mut controller = super::super::ui_development::UiDevelopmentController::new(
+            Path::new("/packaged/ui"),
+            None,
+            None,
+        );
+        let mut event_loop = EventLoop::<()>::try_new().expect("create event loop");
+        event_loop
+            .handle()
+            .insert_source(source, move |event, _, _| {
+                if let ChannelEvent::Msg(ControlEvent::UiDevelopment(request)) = event {
+                    assert_eq!(
+                        controller.handle_command(request.command.clone()),
+                        super::super::ui_development::UiDevelopmentEffect::None
+                    );
+                    request.reply(Ok(controller.state_snapshot()));
+                }
+            })
+            .expect("insert Denial control source");
+
+        let client = thread::spawn(move || {
+            let mut stream = UnixStream::connect(&path).expect("connect to server");
+            stream
+                .write_all(b"{\"version\":1,\"id\":29,\"method\":\"ui.get\"}\n")
+                .expect("write UI query");
+            let mut response = String::new();
+            BufReader::new(stream)
+                .read_to_string(&mut response)
+                .expect("read UI response");
+            serde_json::from_str::<Value>(&response).expect("decode UI response")
+        });
+
+        event_loop
+            .dispatch(Duration::from_secs(1), &mut ())
+            .expect("dispatch UI query");
+        let response = client.join().expect("join Denial control client");
+        assert_eq!(response["id"], 29);
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["active_mode"], "official_optimized");
 
         drop(server);
         fs::remove_dir(directory).expect("remove test socket directory");
@@ -813,7 +1045,11 @@ mod tests {
         let path = socket_path();
         fs::File::create(&path).expect("create sentinel");
         let error = prepare_socket_path(&path).expect_err("regular file must be preserved");
-        assert!(error.to_string().contains("refusing to replace non-socket"));
+        assert!(
+            error
+                .to_string()
+                .contains("refusing to replace non-socket Denial control")
+        );
         assert!(path.is_file());
 
         fs::remove_file(&path).expect("remove sentinel");

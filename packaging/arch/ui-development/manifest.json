@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "stage": "public-alpha",
+  "package": {
+    "name": "denial-ui-development",
+    "version_source": "denial",
+    "architecture": "x86_64"
+  },
+  "compatibility": {
+    "denial_ui_development_api": 1,
+    "denial_minimum_version": "0.2.0",
+    "denial_version_before": "0.3.0",
+    "flutter_engine_abi": "3.44.7.denial1"
+  },
+  "sources": {
+    "flutter_version": "3.44.7",
+    "flutter_revision": "84fc5cbb223bc12f83d65b647ff8a56caf779ffd",
+    "engine_artifact_revision": "69c8c61792f04cc809dfef0c910414fb9afc06cd",
+    "dart_version": "3.12.2",
+    "dart_revision": "d684a576a6aa954ae107a03b2b4e1d61c3bebe93"
+  },
+  "patches": {
+    "flutter_series": "patches/flutter/",
+    "flutter_series_manifest_sha256": "666fa331debacce3bce7de8bdb977138c4a11a4b55942b4e4beb489ad9661cd4",
+    "engine_series": "patches/flutter-engine/3.44.7/"
+  },
+  "artifacts": {
+    "debug_engine_sha256": "c5eb1a110887ca2a6b6ae6f98dfaeb609614e5f204bdf731164dc12ae5ed0729",
+    "debug_engine_args_sha256": "07acf85f399ce9252589b80fd102fa9ffd0127938bb913d47ba1339eb78f8930",
+    "flutter_tool_sha256": "e9bafdf002e980c7f239e68b2f2448e54f3641ce245803152c0cbdd3222db38f",
+    "dart_executable_sha256": "c03ad868b5c53e31461b0fef22dc6eb6aeb56b7567efff6ca488ce9c4a6f8a6a",
+    "dartaotruntime_sha256": "297f6b68adf22140d0bfc92cf974dc0e22bd54be6e15d730b911ad5b661d6a89",
+    "icudtl_sha256": "998367809a821d595928089c197b3f7959f0420f81f79d4d0daee53378492ed5"
+  },
+  "runtime": {
+    "engine_mode": "debug-jit",
+    "native_engine_optimization": "release-lto",
+    "flutter_tool_snapshot_kind": "app-aot-elf",
+    "flutter_tool_runtime": "dartaotruntime",
+    "flutter_tool_target_cpu": "generic-x64",
+    "native_engine_change_requires_session_restart": true,
+    "vm_service_bind": "127.0.0.1",
+    "vm_service_authentication_codes": true,
+    "mdns_publication": false,
+    "browser_devtools_assets": false,
+    "editor_analysis": "pinned-aot-and-jit",
+    "editor_attach_mode": "non-pausing",
+    "dap_debugger_control": false,
+    "hot_reload": true,
+    "flutter_inspector": true,
+    "scope": "denial-shell-assembly-and-editor-attach"
+  },
+  "workspace": {
+    "version_matched_source_snapshot": true,
+    "version_matched_git_checkout": true,
+    "origin": "https://github.com/denialwm/denial.git",
+    "github_access_required_for_initial_setup": true,
+    "exact_commit_verification": true,
+    "locked_dependency_sources": true,
+    "offline_preparation": true,
+    "default_destination": "$HOME/DenialUI",
+    "entrypoint": "dart_shell/lib/main.dart",
+    "setup_command": "denialctl ui setup"
+  },
+  "assurances": {
+    "pinned_source_identity": true,
+    "debug_engine_checksum_verified": true,
+    "offline_shell_preparation_verified": true,
+    "non_pausing_editor_attach_tested": true,
+    "offline_source_closure": false,
+    "reproducible_package": false,
+    "independently_reproduced": false
+  }
+}

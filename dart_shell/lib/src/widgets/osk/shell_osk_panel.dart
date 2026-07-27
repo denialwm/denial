@@ -507,19 +507,13 @@ class _OskRowData {
 class _OskKeySpec {
   const _OskKeySpec.text(this.value, {this.flex = 10})
     : control = null,
-      label = null,
       icon = null;
 
-  const _OskKeySpec.control(
-    this.control, {
-    this.label,
-    this.icon,
-    this.flex = 14,
-  }) : value = null;
+  const _OskKeySpec.control(this.control, {this.icon, this.flex = 14})
+    : value = null;
 
   final String? value;
   final _OskControl? control;
-  final String? label;
   final IconData? icon;
   final int flex;
 
@@ -553,9 +547,6 @@ class _OskKeySpec {
     }
     if (control == _OskControl.letters) {
       return l10n.oskLettersKey;
-    }
-    if (label != null) {
-      return label!;
     }
     return outputText(shiftEnabled: shiftEnabled);
   }
@@ -623,7 +614,7 @@ class _OskKeySpec {
     if (control == null) {
       return 'text:$value:$flex';
     }
-    return 'control:${control.name}:${label ?? ''}:${icon?.codePoint ?? 0}:$flex';
+    return 'control:${control.name}:${icon?.codePoint ?? 0}:$flex';
   }
 
   bool isSelected({required bool shiftEnabled, required bool ctrlArmed}) {

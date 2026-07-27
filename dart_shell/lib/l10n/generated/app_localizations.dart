@@ -2688,6 +2688,234 @@ abstract class AppLocalizations {
   /// **'Maximized spacing'**
   String get settingsMaximizedSpacingTitle;
 
+  /// Description for automatic live UI reload.
+  ///
+  /// In en, this message translates to:
+  /// **'Let Denial watch the workspace and reload successful source changes. Available when the native tooling bridge is installed.'**
+  String get settingsDeveloperAutoReloadDescription;
+
+  /// Title for automatic live UI reload.
+  ///
+  /// In en, this message translates to:
+  /// **'Reload when files change'**
+  String get settingsDeveloperAutoReloadTitle;
+
+  /// Action which builds the workspace in release mode and activates it.
+  ///
+  /// In en, this message translates to:
+  /// **'Build & activate optimized'**
+  String get settingsDeveloperBuildOptimized;
+
+  /// Description for UI build and recovery controls.
+  ///
+  /// In en, this message translates to:
+  /// **'Promote the current workspace to an optimized shell, or return to a known working UI without restarting the Wayland session.'**
+  String get settingsDeveloperBuildRecoveryDescription;
+
+  /// Heading for UI build and recovery controls.
+  ///
+  /// In en, this message translates to:
+  /// **'Build & recovery'**
+  String get settingsDeveloperBuildRecoveryTitle;
+
+  /// Developer settings page description.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit the complete Flutter desktop, reload it live, then promote it to an optimized build.'**
+  String get settingsDeveloperDescription;
+
+  /// Heading for live development diagnostics.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection & diagnostics'**
+  String get settingsDeveloperDiagnosticsTitle;
+
+  /// Instructions for attaching VSCodium to the live Flutter shell.
+  ///
+  /// In en, this message translates to:
+  /// **'Open the Flutter shell workspace in VSCodium, choose “Attach to Denial live UI” in Run and Debug, then save changed Dart files to reload the desktop. Native compositor changes require a normal rebuild.'**
+  String get settingsDeveloperEditorAttachDescription;
+
+  /// Description for enabling live UI development.
+  ///
+  /// In en, this message translates to:
+  /// **'Run the selected workspace with the Dart VM service available for VSCodium and Flutter tooling.'**
+  String get settingsDeveloperEnableDescription;
+
+  /// Title for enabling live UI development.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable live UI development'**
+  String get settingsDeveloperEnableTitle;
+
+  /// Label preceding the Flutter runtime generation number.
+  ///
+  /// In en, this message translates to:
+  /// **'Generation'**
+  String get settingsDeveloperGeneration;
+
+  /// Action which hot reloads Dart source changes.
+  ///
+  /// In en, this message translates to:
+  /// **'Hot reload'**
+  String get settingsDeveloperHotReload;
+
+  /// Action which hot restarts the Dart isolate.
+  ///
+  /// In en, this message translates to:
+  /// **'Hot restart'**
+  String get settingsDeveloperHotRestart;
+
+  /// Heading for live UI development controls.
+  ///
+  /// In en, this message translates to:
+  /// **'Live session'**
+  String get settingsDeveloperLiveControlsTitle;
+
+  /// Label for a user-built optimized Flutter shell.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom optimized'**
+  String get settingsDeveloperModeCustom;
+
+  /// Label for the JIT Flutter shell development mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Live development'**
+  String get settingsDeveloperModeLive;
+
+  /// Label for the packaged Denial Flutter shell.
+  ///
+  /// In en, this message translates to:
+  /// **'Official optimized'**
+  String get settingsDeveloperModeOfficial;
+
+  /// Label shown before native UI development state is known.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting'**
+  String get settingsDeveloperModeUnavailable;
+
+  /// Empty state for live UI diagnostics.
+  ///
+  /// In en, this message translates to:
+  /// **'No diagnostics reported.'**
+  String get settingsDeveloperNoDiagnostics;
+
+  /// Performance warning shown for live UI development.
+  ///
+  /// In en, this message translates to:
+  /// **'Live development uses a JIT Flutter engine and debug checks. Frame pacing and game performance will be lower until you return to an optimized build.'**
+  String get settingsDeveloperPerformanceWarning;
+
+  /// Action which requests fresh live development state.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh status'**
+  String get settingsDeveloperRefreshStatus;
+
+  /// Recovery action which activates the packaged shell.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore official UI'**
+  String get settingsDeveloperRestoreOfficial;
+
+  /// Recovery action which activates the previous working shell.
+  ///
+  /// In en, this message translates to:
+  /// **'Revert last working'**
+  String get settingsDeveloperRevertLastWorking;
+
+  /// Heading for the active Flutter shell runtime.
+  ///
+  /// In en, this message translates to:
+  /// **'Flutter shell runtime'**
+  String get settingsDeveloperRuntimeTitle;
+
+  /// Eyebrow for the Developer settings page.
+  ///
+  /// In en, this message translates to:
+  /// **'DEVELOPER'**
+  String get settingsDeveloperSection;
+
+  /// Action which creates, prepares, selects, and starts the version-matched Denial UI source.
+  ///
+  /// In en, this message translates to:
+  /// **'Create and start editable UI'**
+  String get settingsDeveloperSetupAction;
+
+  /// Description of automatic Denial UI development setup.
+  ///
+  /// In en, this message translates to:
+  /// **'Clone the version-matched Denial source from GitHub into ~/DenialUI, prepare it with the pinned toolchain, and enter live development.'**
+  String get settingsDeveloperSetupDescription;
+
+  /// Progress message while automatic UI development setup is running.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing the editable UI. The shell will switch automatically when it is ready…'**
+  String get settingsDeveloperSetupRunning;
+
+  /// Message shown when the optional UI development package is absent.
+  ///
+  /// In en, this message translates to:
+  /// **'Install denial-ui-development to enable automatic setup.'**
+  String get settingsDeveloperSetupUnavailable;
+
+  /// Action which validates and selects a Flutter source workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Use this workspace'**
+  String get settingsDeveloperUseWorkspace;
+
+  /// Label for the local Dart VM service URI.
+  ///
+  /// In en, this message translates to:
+  /// **'Dart VM service'**
+  String get settingsDeveloperVmServiceTitle;
+
+  /// Fallback while UI development state is loading.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for native runtime status…'**
+  String get settingsDeveloperWaitingForStatus;
+
+  /// Description for the live UI source workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Select a Flutter project containing pubspec.yaml and lib/main.dart. Source changes can replace any shell UI that does not require a new native protocol.'**
+  String get settingsDeveloperWorkspaceDescription;
+
+  /// Accessible label for the Flutter workspace path field.
+  ///
+  /// In en, this message translates to:
+  /// **'Flutter source workspace'**
+  String get settingsDeveloperWorkspaceFieldLabel;
+
+  /// Example path shown in the Flutter workspace field.
+  ///
+  /// In en, this message translates to:
+  /// **'/home/you/DenialUI/dart_shell'**
+  String get settingsDeveloperWorkspaceHint;
+
+  /// Status for an absent or invalid Flutter workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Needs setup'**
+  String get settingsDeveloperWorkspaceNotReady;
+
+  /// Status for a valid Flutter workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Ready'**
+  String get settingsDeveloperWorkspaceReady;
+
+  /// Heading for Flutter source workspace selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Source workspace'**
+  String get settingsDeveloperWorkspaceTitle;
+
   /// English UI text for settingsMinutes.
   ///
   /// In en, this message translates to:
@@ -2729,6 +2957,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Desktop layout'**
   String get settingsNavigationDesktopLayout;
+
+  /// Label for the Developer destination in Settings navigation.
+  ///
+  /// In en, this message translates to:
+  /// **'Developer'**
+  String get settingsNavigationDeveloper;
 
   /// English UI text for settingsNavigationDisplays.
   ///

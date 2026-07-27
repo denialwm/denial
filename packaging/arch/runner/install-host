@@ -7,6 +7,7 @@ readonly RUNNER_HOME='/var/lib/denial-builder'
 readonly RUNNER_STATE='/srv/denial-builder'
 readonly RUNNER_RELEASE_ROOT='/opt/denial-actions-runner'
 readonly ENGINE_ARTIFACT_ROOT='/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1'
+readonly DEBUG_ENGINE_ARTIFACT_ROOT="${ENGINE_ARTIFACT_ROOT}/debug"
 
 fail() {
   printf 'install-host: %s\n' "$*" >&2
@@ -30,7 +31,9 @@ for source_file in \
   denial-actions-runner-cleanup \
   denial-actions-runner.service \
   libflutter_engine.so \
-  libflutter_engine.so.sha256; do
+  libflutter_engine.so.sha256 \
+  debug/libflutter_engine.so \
+  debug/libflutter_engine.so.sha256; do
   [[ -f "${source_dir}/${source_file}" ]] \
     || fail "missing installer input: $source_file"
 done
@@ -54,6 +57,10 @@ source "${source_dir}/runner.env"
   cd "$source_dir"
   sha256sum --check --strict libflutter_engine.so.sha256
 ) || fail 'staged Flutter Engine does not match its pinned checksum'
+(
+  cd "${source_dir}/debug"
+  sha256sum --check --strict libflutter_engine.so.sha256
+) || fail 'staged debug Flutter Engine does not match its pinned checksum'
 
 for required_command in \
   awk bsdtar cmp curl getent install mktemp mv readlink runuser sha256sum \
@@ -90,6 +97,7 @@ install -d -m 0755 -o root -g root \
   "${RUNNER_STATE}/artifacts/flutter-engine" \
   "${RUNNER_STATE}/runner"
 install -d -m 0750 -o root -g "$RUNNER_GROUP" "$ENGINE_ARTIFACT_ROOT"
+install -d -m 0750 -o root -g "$RUNNER_GROUP" "$DEBUG_ENGINE_ARTIFACT_ROOT"
 install -d -m 0755 -o root -g root \
   /etc/denial-builder \
   /usr/local/libexec \
@@ -112,6 +120,10 @@ install -m 0640 -o root -g "$RUNNER_GROUP" \
   "${source_dir}/libflutter_engine.so" \
   "${source_dir}/libflutter_engine.so.sha256" \
   "$ENGINE_ARTIFACT_ROOT/"
+install -m 0640 -o root -g "$RUNNER_GROUP" \
+  "${source_dir}/debug/libflutter_engine.so" \
+  "${source_dir}/debug/libflutter_engine.so.sha256" \
+  "$DEBUG_ENGINE_ARTIFACT_ROOT/"
 
 release_dir="${RUNNER_RELEASE_ROOT}/${DENIAL_ACTIONS_RUNNER_VERSION}"
 source_record="${release_dir}/DENIAL_RUNNER_SOURCE.env"
@@ -178,10 +190,27 @@ install -d -m 0755 -o root -g root \
 ln -s /usr/bin/true "${RUNNER_STATE}/runner/current/run.sh"
 trap /usr/local/libexec/denial-actions-runner-cleanup EXIT
 systemd-analyze verify /etc/systemd/system/denial-actions-runner.service
+if ! systemctl start --wait denial-actions-runner.service; then
+  journalctl \
+    --unit denial-actions-runner.service \
+    --lines 50 \
+    --no-pager >&2 || true
+  systemctl reset-failed denial-actions-runner.service >/dev/null 2>&1 || true
+  fail 'runner service sandbox probe failed'
+fi
+service_result="$(
+  systemctl show denial-actions-runner.service \
+    --property=Result \
+    --value
+)"
+[[ "$service_result" == success ]] \
+  || fail "runner service sandbox probe returned: $service_result"
 /usr/local/libexec/denial-actions-runner-cleanup
+systemctl reset-failed denial-actions-runner.service >/dev/null 2>&1 || true
 trap - EXIT
 
 printf '%s\n' \
   'Denial runner host installed.' \
-  'The service is static and no runner is registered.' \
+  'The static service sandbox and private-network probe passed.' \
+  'No runner is registered.' \
   'Use tools/denial-builder arm from the trusted operator workstation.'
