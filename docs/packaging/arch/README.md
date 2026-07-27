@@ -76,6 +76,12 @@ does not exist. To start Denial, log out, choose **Denial** in the display
 manager, and sign in. Once the session is running, use `denialctl status` for
 a native compositor and Flutter UI health summary.
 
+The packaged display-manager entry starts unlocked because that path already
+authenticated the user. Direct or autologin startup must opt into the native
+startup lock with `denial-session --start-locked`; the complete policy and
+launcher examples are documented in
+[Session startup and locking](../../SESSION_STARTUP.md).
+
 ## First-party repository
 
 The public-alpha workflow publishes a signed x86-64 repository at:

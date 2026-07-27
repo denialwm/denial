@@ -6,9 +6,15 @@ enum ShellProfile {
   mobile,
   desktop;
 
+  /// Selects the mobile shell only when it was requested explicitly.
+  ///
+  /// The compositor is a desktop product, so a missing or malformed
+  /// environment must never make a direct `deniald` launch fall back to the
+  /// mobile development shell.
   static ShellProfile fromEnvironment(Map<String, String> environment) {
-    final configured = environment['DENIA_SHELL_PROFILE']?.trim().toLowerCase();
-    return configured == 'desktop' ? ShellProfile.desktop : ShellProfile.mobile;
+    return environment['DENIA_SHELL_PROFILE'] == 'mobile'
+        ? ShellProfile.mobile
+        : ShellProfile.desktop;
   }
 }
 
