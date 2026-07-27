@@ -12,7 +12,9 @@ x86-64 build and package path before a version tag is created.
 
 The owner-operated x86-64 runner:
 
-1. checks out the exact pushed commit into a fresh ephemeral workspace;
+1. checks out the exact pushed commit as a local `main` branch in a fresh
+   ephemeral workspace, allowing the development package to record both that
+   verified revision and its cloneable upstream branch;
 2. verifies and consumes the root-owned pinned optimized and JIT Flutter
    Engine artifacts installed separately on the builder host;
 3. audits committed inputs and qualifies the builder;
