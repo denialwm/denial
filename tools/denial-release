@@ -303,6 +303,8 @@ source_audit() {
   local public_key="$ROOT/packaging/arch/denial-repo-key.asc"
   local public_key_fingerprint
   local remote
+  local rust_toolchain="$ROOT/rust-toolchain.toml"
+  local rust_toolchain_channel
   local status
   local ui_dependency_bounds
   local ui_manifest="$ROOT/packaging/arch/ui-development/manifest.json"
@@ -388,6 +390,23 @@ source_audit() {
     pass 'Git object graph passes strict verification'
   else
     fail 'Git object graph failed strict verification'
+  fi
+
+  if [[ -f "$rust_toolchain" ]]; then
+    rust_toolchain_channel="$(
+      sed -n 's/^channel = "\([^"]*\)"$/\1/p' "$rust_toolchain"
+    )"
+    check_equal \
+      'repository-level Rust toolchain is pinned' \
+      '1.95.0' \
+      "$rust_toolchain_channel"
+  else
+    fail 'repository-level rust-toolchain.toml is missing'
+  fi
+  if [[ -e "$ROOT/compositor/rust-toolchain.toml" ]]; then
+    fail 'compositor has a duplicate Rust toolchain pin'
+  else
+    pass 'repository has one canonical Rust toolchain pin'
   fi
 
   if [[ "${GITHUB_ACTIONS:-}" == true ]]; then

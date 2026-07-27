@@ -87,7 +87,8 @@ For separate caches, set `DENIAL_PC_DEPENDENCY_ROOT`,
 `DENIAL_PC_BUILD_ROOT`, or `DENIAL_PC_RUST_TARGET`. A first bootstrap requires
 network access; subsequent builds reuse the cache.
 
-The host needs a Rust toolchain compatible with `compositor/rust-toolchain.toml`,
+The host needs a Rust toolchain compatible with the repository-level
+`rust-toolchain.toml`,
 `pkg-config`, Xwayland, and the development libraries required by Smithay's
 DRM, GBM/EGL, libinput, libseat and udev backends. Only binding regeneration
 needs Clang/libclang.

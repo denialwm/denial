@@ -83,7 +83,7 @@ tools/generate-flutter-embedder-bindings --check
 
 The host needs:
 
-- the Rust toolchain selected by `compositor/rust-toolchain.toml`;
+- the Rust toolchain selected by the repository-level `rust-toolchain.toml`;
 - `pkg-config`;
 - Xwayland;
 - the development libraries used by Smithay's DRM, GBM/EGL, libinput,
