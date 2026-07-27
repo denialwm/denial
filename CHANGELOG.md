@@ -43,6 +43,9 @@ boundaries may change before 1.0.
 - The repository-level Rust toolchain pin now applies consistently to both the
   compositor and `cargo xtask`, including hardened builders with no default
   Rustup toolchain.
+- Main validation now binds the exact verified push SHA to a local `main`
+  branch so development packages record a cloneable source ref without
+  weakening detached release-tag validation.
 - The alpha contribution policy now explicitly defers pull requests until
   Denial exits alpha while continuing to welcome issue reports and technical
   feedback.

@@ -87,7 +87,7 @@ jobs:
             >"$askpass"
           chmod 0700 "$askpass"
 
-          git init --initial-branch=detached .
+          git init --initial-branch=main .
           git remote add origin "https://github.com/${REPOSITORY_NAME}.git"
           GIT_ASKPASS="$askpass" \
           GIT_ASKPASS_REQUIRE=force \
@@ -96,8 +96,9 @@ jobs:
             --no-tags \
             origin \
             "$EXPECTED_SHA"
-          git checkout --detach FETCH_HEAD
+          git checkout -B main FETCH_HEAD
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$(git branch --show-current)" = main
 
       - name: Audit source and builder
         shell: bash
