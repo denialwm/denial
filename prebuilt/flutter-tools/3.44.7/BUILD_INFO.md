@@ -17,6 +17,7 @@ breakpoint or step operation.
 - Flutter tool lockfile:
   `packages/flutter_tools/pubspec.lock` from the pinned Flutter revision
 - Snapshot kind: Dart `app-jit`
+- Snapshot CPU target: generic x86-64 (`--target-unknown-cpu`)
 - Expected output: `flutter_tools.snapshot.sha256`
 
 Flutter's ordinary bootstrap snapshot records absolute paths to the SDK and
@@ -27,12 +28,14 @@ Dart's deterministic snapshot mode is enabled from a neutral directory which
 is not itself a Flutter project. The namespace clears the complete ambient
 environment, then supplies fixed `HOME`, XDG, `PATH`, locale, timezone, CI,
 Git, temporary-directory, and `SOURCE_DATE_EPOCH` values. Dart's snapshot
-layout changes with some of those inputs even in deterministic mode. Two
-builds launched with deliberately different user, locale, timezone, and XDG
-environments produced the checksum recorded here after that boundary was
-sealed. The resulting diagnostic source URIs contain no builder identity or
-home directory, and the snapshot does not retain the Flutter tool sources as
-its default project.
+layout changes with some of those inputs even in deterministic mode. The
+snapshot command also selects Dart's generic CPU target so a newer x86-64 host
+cannot specialize the tool snapshot beyond the baseline used by another
+x86-64 machine. Two builds launched with deliberately different user, locale,
+timezone, and XDG environments produced the checksum recorded here after that
+boundary was sealed. The resulting diagnostic source URIs contain no builder
+identity or home directory, and the snapshot does not retain the Flutter tool
+sources as its default project.
 
 The optional Pacman package records all 102 package roots resolved by this
 Flutter tool lockfile in a generated runtime package map using only relative

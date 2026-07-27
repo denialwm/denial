@@ -519,6 +519,8 @@ source_audit() {
       and .compatibility.denial_ui_development_api == 1
       and .compatibility.flutter_engine_abi == "3.44.7.denial1"
       and .runtime.engine_mode == "debug-jit"
+      and .runtime.flutter_tool_snapshot_kind == "app-jit"
+      and .runtime.flutter_tool_target_cpu == "generic-x64"
       and .runtime.editor_attach_mode == "non-pausing"
       and .runtime.dap_debugger_control == false
       and .runtime.hot_reload == true

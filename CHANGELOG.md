@@ -40,6 +40,8 @@ boundaries may change before 1.0.
 - The packaged Flutter tool snapshot is built in a cleared, fixed environment
   and verified by checksum, preventing host locale, identity, and XDG settings
   from changing the development toolchain artifact.
+- The Flutter tool snapshot now targets Dart's generic x86-64 CPU profile so
+  development packages do not vary with builder-specific instruction sets.
 - The repository-level Rust toolchain pin now applies consistently to both the
   compositor and `cargo xtask`, including hardened builders with no default
   Rustup toolchain.

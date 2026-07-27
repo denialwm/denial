@@ -464,6 +464,7 @@ fn build_flutter_tool_snapshot(paths: &BuildPaths) -> Result<(), ToolError> {
             "true",
             &canonical_dart,
             "--deterministic",
+            "--target-unknown-cpu",
             "--verbosity=error",
             snapshot_argument,
             "--snapshot-kind=app-jit",

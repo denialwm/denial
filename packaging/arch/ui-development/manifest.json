@@ -34,6 +34,8 @@
   "runtime": {
     "engine_mode": "debug-jit",
     "native_engine_optimization": "release-lto",
+    "flutter_tool_snapshot_kind": "app-jit",
+    "flutter_tool_target_cpu": "generic-x64",
     "native_engine_change_requires_session_restart": true,
     "vm_service_bind": "127.0.0.1",
     "vm_service_authentication_codes": true,
