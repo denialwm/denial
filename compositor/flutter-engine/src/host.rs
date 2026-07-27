@@ -120,12 +120,19 @@ pub trait OpenGlHandler: Send + Sync + 'static {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DartRuntimeMode {
+    Aot,
+    Jit,
+}
+
 #[derive(Clone, Debug)]
 pub struct EngineProject {
     pub engine_library: PathBuf,
     pub assets: PathBuf,
     pub icu_data: PathBuf,
-    pub aot_library: PathBuf,
+    pub runtime: DartRuntimeMode,
+    pub aot_library: Option<PathBuf>,
     /// Upper bound for Flutter's viewport-derived Ganesh resource cache.
     /// Zero leaves the engine's calculated limit unchanged.
     pub resource_cache_max_bytes_threshold: usize,
@@ -135,7 +142,15 @@ pub struct EngineProject {
 pub enum HostError {
     Load(LoadError),
     Engine(EngineError),
-    PathContainsNul { field: &'static str, path: PathBuf },
+    PathContainsNul {
+        field: &'static str,
+        path: PathBuf,
+    },
+    RuntimeModeMismatch {
+        project: DartRuntimeMode,
+        engine_runs_aot: bool,
+    },
+    MissingAotLibrary,
 }
 
 impl fmt::Display for HostError {
@@ -150,6 +165,17 @@ impl fmt::Display for HostError {
                     path.display()
                 )
             }
+            Self::RuntimeModeMismatch {
+                project,
+                engine_runs_aot,
+            } => write!(
+                formatter,
+                "Flutter project requests {project:?}, but the engine reports {}",
+                if *engine_runs_aot { "AOT" } else { "JIT" }
+            ),
+            Self::MissingAotLibrary => {
+                write!(formatter, "AOT Flutter project has no application library")
+            }
         }
     }
 }
@@ -159,7 +185,9 @@ impl Error for HostError {
         match self {
             Self::Load(error) => Some(error),
             Self::Engine(error) => Some(error),
-            Self::PathContainsNul { .. } => None,
+            Self::PathContainsNul { .. }
+            | Self::RuntimeModeMismatch { .. }
+            | Self::MissingAotLibrary => None,
         }
     }
 }
@@ -286,15 +314,27 @@ thread_local! {
     static EXISTING_DAMAGE: RefCell<Vec<sys::FlutterRect>> = const { RefCell::new(Vec::new()) };
 }
 
-fn engine_command_line(resource_cache_max_bytes_threshold: usize) -> Vec<CString> {
+fn engine_command_line(project: &EngineProject) -> Vec<CString> {
     let mut arguments = vec![CString::new("deniald").expect("static argv has no NUL")];
-    if resource_cache_max_bytes_threshold != 0 {
+    if project.resource_cache_max_bytes_threshold != 0 {
         arguments.push(
             CString::new(format!(
-                "--resource-cache-max-bytes-threshold={resource_cache_max_bytes_threshold}"
+                "--resource-cache-max-bytes-threshold={}",
+                project.resource_cache_max_bytes_threshold
             ))
             .expect("numeric Flutter cache threshold has no NUL"),
         );
+    }
+    if project.runtime == DartRuntimeMode::Jit {
+        for argument in [
+            "--enable-checked-mode",
+            "--enable-dart-profiling",
+            "--vm-service-host=127.0.0.1",
+            "--vm-service-port=0",
+            "--disable-vm-service-publication",
+        ] {
+            arguments.push(CString::new(argument).expect("static argv has no NUL"));
+        }
     }
     arguments
 }
@@ -339,10 +379,27 @@ impl EngineHost {
         handler: Arc<dyn OpenGlHandler>,
         library: Arc<EngineLibrary>,
     ) -> Result<Self, HostError> {
-        let aot_data = library.create_aot_data(&project.aot_library)?;
+        let engine_runs_aot = library.runs_aot_compiled_dart_code();
+        if engine_runs_aot != (project.runtime == DartRuntimeMode::Aot) {
+            return Err(HostError::RuntimeModeMismatch {
+                project: project.runtime,
+                engine_runs_aot,
+            });
+        }
+        let aot_data = match project.runtime {
+            DartRuntimeMode::Aot => Some(
+                library.create_aot_data(
+                    project
+                        .aot_library
+                        .as_deref()
+                        .ok_or(HostError::MissingAotLibrary)?,
+                )?,
+            ),
+            DartRuntimeMode::Jit => None,
+        };
         let assets = path_cstring("assets", &project.assets)?;
         let icu_data = path_cstring("ICU", &project.icu_data)?;
-        let argv = engine_command_line(project.resource_cache_max_bytes_threshold);
+        let argv = engine_command_line(project);
         let argv_pointers = argv
             .iter()
             .map(|argument| argument.as_ptr())
@@ -400,9 +457,9 @@ impl EngineHost {
             assets_path: assets.as_ptr(),
             icu_data_path: icu_data.as_ptr(),
             // AOT data is owned by this host and collected after shutdown.
-            // Flutter only permits that when every engine using the mapping
-            // opts into a full Dart VM shutdown; otherwise process-global VM
-            // workers may still be executing instructions from the mapping.
+            // A full Dart VM shutdown is also required before Denial swaps an
+            // AOT engine library for a JIT one (or vice versa); process-global
+            // VM workers must not outlive either library or AOT mapping.
             shutdown_dart_vm_when_done: true,
             command_line_argc: i32::try_from(argv_pointers.len())
                 .expect("Flutter argv count fits i32"),
@@ -927,7 +984,15 @@ mod tests {
 
     #[test]
     fn engine_command_line_caps_the_resource_cache_when_requested() {
-        let arguments = engine_command_line(256 * 1024 * 1024);
+        let project = EngineProject {
+            engine_library: PathBuf::from("/engine"),
+            assets: PathBuf::from("/assets"),
+            icu_data: PathBuf::from("/icudtl.dat"),
+            runtime: DartRuntimeMode::Aot,
+            aot_library: Some(PathBuf::from("/libapp.so")),
+            resource_cache_max_bytes_threshold: 256 * 1024 * 1024,
+        };
+        let arguments = engine_command_line(&project);
         let arguments = arguments
             .iter()
             .map(|argument| argument.to_str().unwrap())
@@ -937,9 +1002,33 @@ mod tests {
             ["deniald", "--resource-cache-max-bytes-threshold=268435456"]
         );
 
-        let default_arguments = engine_command_line(0);
+        let default_arguments = engine_command_line(&EngineProject {
+            resource_cache_max_bytes_threshold: 0,
+            ..project
+        });
         assert_eq!(default_arguments.len(), 1);
         assert_eq!(default_arguments[0].to_str().unwrap(), "deniald");
+    }
+
+    #[test]
+    fn jit_command_line_enables_a_loopback_authenticated_vm_service() {
+        let arguments = engine_command_line(&EngineProject {
+            engine_library: PathBuf::from("/engine"),
+            assets: PathBuf::from("/assets"),
+            icu_data: PathBuf::from("/icudtl.dat"),
+            runtime: DartRuntimeMode::Jit,
+            aot_library: None,
+            resource_cache_max_bytes_threshold: 0,
+        });
+        let arguments = arguments
+            .iter()
+            .map(|argument| argument.to_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(arguments.contains(&"--enable-checked-mode"));
+        assert!(arguments.contains(&"--vm-service-host=127.0.0.1"));
+        assert!(arguments.contains(&"--vm-service-port=0"));
+        assert!(arguments.contains(&"--disable-vm-service-publication"));
+        assert!(!arguments.contains(&"--disable-service-auth-codes"));
     }
 
     struct DropProbe(&'static AtomicUsize);

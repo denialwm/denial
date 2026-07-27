@@ -1,8 +1,8 @@
-# Denial output-control protocol v1
+# Denial control protocol v1
 
-Denial exposes a compositor-owned output-management API for display settings
-clients. It is intentionally a Denial protocol: clients must not pretend that
-the compositor is Sway, Hyprland, or Niri.
+Denial exposes a compositor-owned API for display settings clients and
+shell-independent runtime control. It is intentionally a Denial protocol:
+clients must not pretend that the compositor is Sway, Hyprland, or Niri.
 
 ## Discovery and transport
 
@@ -196,6 +196,48 @@ filesystem commit fails after the KMS transaction has already succeeded, the
 request returns `persistence_failed`; the runtime state is still published and
 the client should query it again.
 
+## Flutter UI lifecycle and recovery
+
+UI-development methods are executed by the compositor event loop. They do not
+travel through Flutter, so they remain available when a custom shell is
+unusable. Every successful method returns the authoritative UI state:
+
+```json
+{"version":1,"id":3,"method":"ui.get"}
+```
+
+The result contains `active_mode`, `desired_mode`, `operation`, capability
+flags, workspace and JIT-component validity, runtime generation and state
+revision, optional progress, the authenticated loopback VM-service URI,
+status, error, and bounded diagnostics.
+
+UI method IDs must be nonzero and fit an unsigned 32-bit integer. The returned
+state includes that value as `acknowledged_request_id`, allowing clients to
+distinguish an accepted transition from an older state snapshot.
+
+| Method | Parameters | Effect |
+| --- | --- | --- |
+| `ui.get` | none | Refresh and return UI runtime state |
+| `ui.workspace.set` | `{"path":"/absolute/flutter/project"}` | Validate and select the source workspace |
+| `ui.live.enable` | none | Replace the packaged AOT shell with the prepared JIT shell |
+| `ui.live.disable` | none | Return from JIT to the packaged AOT shell |
+| `ui.reload` | none | Request Dart hot reload when the native tooling client supports it |
+| `ui.restart` | none | Request Dart hot restart when supported |
+| `ui.build` | none | Build and activate an optimized custom shell when supported |
+| `ui.restore` | none | Restore the packaged optimized shell |
+| `ui.revert` | none | Restore the last working custom shell when supported |
+| `ui.auto_reload.set` | `{"enabled":true}` | Configure native source watching when supported |
+
+Runtime replacement methods acknowledge the requested transition before the
+engine replacement completes. Clients which need completion semantics should
+poll `ui.get` until `operation` is `idle` and `active_mode` matches the
+requested mode. `denialctl` does this by default.
+
+Unsupported actions and invalid workspaces return the `rejected` error. A
+failure while starting JIT or a custom shell is represented in `ui.get`;
+Denial attempts to restore `official_optimized` without ending the Wayland
+session.
+
 ## Errors
 
 Errors use this envelope:
@@ -215,7 +257,7 @@ Errors use this envelope:
 Defined codes are `invalid_request`, `unsupported_version`,
 `unknown_method`, `invalid_params`, `busy`, `timeout`, `unavailable`,
 `stale_configuration`, `invalid_configuration`, `unsupported`,
-`apply_failed`, and `persistence_failed`.
+`apply_failed`, `persistence_failed`, and `rejected`.
 
 After `stale_configuration`, a client must query again and must not silently
 replay edits against the new hardware state.

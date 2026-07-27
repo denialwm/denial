@@ -8,7 +8,7 @@
 #[cfg(feature = "flutter")]
 use std::collections::HashMap;
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Default, Eq, PartialEq)]
 pub(super) struct SceneSyncState {
     metadata_revision: u64,
     #[cfg(feature = "flutter")]
@@ -21,22 +21,6 @@ pub(super) struct SceneSyncState {
     synchronized_buffer_revision: u64,
     #[cfg(feature = "flutter")]
     dirty_surfaces: HashMap<u64, u64>,
-}
-
-impl Default for SceneSyncState {
-    fn default() -> Self {
-        Self {
-            metadata_revision: 0,
-            #[cfg(feature = "flutter")]
-            synchronized_metadata_revision: None,
-            #[cfg(feature = "flutter")]
-            buffer_revision: 0,
-            #[cfg(feature = "flutter")]
-            synchronized_buffer_revision: 0,
-            #[cfg(feature = "flutter")]
-            dirty_surfaces: HashMap::new(),
-        }
-    }
 }
 
 /// What to do with a window event when the native window list and Dart's

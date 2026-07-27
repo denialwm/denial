@@ -8,6 +8,7 @@ CACHE_ROOT="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
 BUILD_ROOT="${DENIAL_PC_BUILD_ROOT:-$CACHE_ROOT/denial/pc-build}"
 RUST_TARGET="${DENIAL_PC_RUST_TARGET:-$BUILD_ROOT/rust}"
 BINARY="${DENIAL_PC_BINARY:-$RUST_TARGET/release/deniald}"
+CONTROL_BINARY="${DENIAL_PC_CONTROL_BINARY:-$RUST_TARGET/release/denialctl}"
 PACKAGE_ROOT="${DENIAL_PC_PACKAGE_ROOT:-$BUILD_ROOT/packages}"
 MAKEPKG_ROOT="${DENIAL_PC_MAKEPKG_ROOT:-$BUILD_ROOT/makepkg}"
 PACKAGE_INPUT_ROOT="${DENIAL_PC_PACKAGE_INPUT_ROOT:-$BUILD_ROOT/package-input}"
@@ -108,6 +109,12 @@ DENIAL_PC_BUNDLE_ASSEMBLY="$BUNDLE_ASSEMBLY" \
     printf 'package-denial-arch: missing compositor: %s\n' "$BINARY" >&2
     exit 1
   }
+[[ -x "$CONTROL_BINARY" ]] \
+  || {
+    printf 'package-denial-arch: missing control client: %s\n' \
+      "$CONTROL_BINARY" >&2
+    exit 1
+  }
 [[ -f "$BUNDLE/data/icudtl.dat" \
   && -f "$BUNDLE/lib/libapp.so" \
   && -f "$BUNDLE/lib/libflutter_engine.so" ]] \
@@ -120,6 +127,7 @@ mkdir -p -- "$PACKAGE_ROOT" "$MAKEPKG_ROOT"
 
 export DENIAL_PACKAGE_SOURCE_ROOT="$ROOT"
 export DENIAL_PACKAGE_BINARY="$BINARY"
+export DENIAL_PACKAGE_CONTROL_BINARY="$CONTROL_BINARY"
 export DENIAL_PACKAGE_BUNDLE="$BUNDLE"
 export DENIAL_PACKAGE_ENGINE_SOURCE="$BUNDLE/lib/libflutter_engine.so"
 export DENIAL_PACKAGE_VERSION="$package_version"
@@ -188,6 +196,20 @@ validate_denial_package() (
   # Preserve archive modes so the hardened runner's UMask=0077 does not alter
   # the evidence being checked.
   bsdtar -xpf "$package" -C "$validation_root"
+  for executable in deniald denialctl denial-session; do
+    [[ -x "$validation_root/usr/bin/$executable" ]] \
+      || {
+        printf 'package-denial-arch: packaged executable is missing: usr/bin/%s\n' \
+          "$executable" >&2
+        return 1
+      }
+  done
+  [[ -f "$validation_root/usr/share/man/man1/denialctl.1" \
+    || -f "$validation_root/usr/share/man/man1/denialctl.1.gz" ]] \
+    || {
+      printf 'package-denial-arch: denialctl manual page is missing\n' >&2
+      return 1
+    }
   asset_root="$validation_root/usr/lib/denial/flutter/data/flutter_assets"
   [[ -d "$asset_root" ]] \
     || {

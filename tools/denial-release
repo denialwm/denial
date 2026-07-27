@@ -285,10 +285,16 @@ file_sha256() {
 source_audit() {
   local allow_dirty=0
   local actual
+  local cargo_lock_version
   local cargo_version
   local dart_version
+  local debug_engine_dir="$ROOT/prebuilt/flutter-engine/linux-x64-debug"
   local engine_dir="$ROOT/prebuilt/flutter-engine/linux-x64-release"
+  local flutter_patch_dir="$ROOT/patches/flutter"
+  local flutter_tool_dir="$ROOT/prebuilt/flutter-tools/3.44.7"
   local github_sha
+  local installer_fingerprint
+  local installer_key_url
   local makepkg_audit_root
   local manifest="$ROOT/packaging/arch/flutter-engine/manifest.json"
   local package_version
@@ -298,6 +304,12 @@ source_audit() {
   local public_key_fingerprint
   local remote
   local status
+  local ui_dependency_bounds
+  local ui_manifest="$ROOT/packaging/arch/ui-development/manifest.json"
+  local ui_package_version
+  local version_major
+  local version_minor
+  local version_patch
 
   while (($#)); do
     case "$1" in
@@ -418,6 +430,26 @@ source_audit() {
   else
     fail 'engine manifest schema, architecture, or assurance state is invalid'
   fi
+  if jq -e '
+      .schema_version == 1
+      and .stage == "public-alpha"
+      and .package.name == "denial-ui-development"
+      and .package.architecture == "x86_64"
+      and .compatibility.denial_ui_development_api == 1
+      and .compatibility.flutter_engine_abi == "3.44.7.denial1"
+      and .runtime.engine_mode == "debug-jit"
+      and .runtime.editor_attach_mode == "non-pausing"
+      and .runtime.dap_debugger_control == false
+      and .runtime.hot_reload == true
+      and .runtime.flutter_inspector == true
+      and .assurances.offline_source_closure == false
+      and .assurances.reproducible_package == false
+      and .assurances.independently_reproduced == false
+    ' "$ui_manifest" >/dev/null; then
+    pass 'UI-development manifest states its public-alpha boundary accurately'
+  else
+    fail 'UI-development manifest schema, runtime, or assurance state is invalid'
+  fi
 
   if (
     cd "$patch_dir"
@@ -426,6 +458,14 @@ source_audit() {
     pass 'Flutter Engine patch series matches series.sha256'
   else
     fail 'Flutter Engine patch series does not match series.sha256'
+  fi
+  if (
+    cd "$flutter_patch_dir"
+    sha256sum --check --strict series.sha256
+  ) >/dev/null; then
+    pass 'Flutter framework and tool patch series matches series.sha256'
+  else
+    fail 'Flutter framework and tool patch series does not match series.sha256'
   fi
   if (
     cd "$ROOT/dart_shell/assets/fonts"
@@ -454,6 +494,22 @@ source_audit() {
     "$(jq -r '.patches.framework_patch_sha256' "$manifest")" \
     "$(file_sha256 "$ROOT/patches/flutter/0001-enable-120hz-touch-resampling.patch")"
   check_equal \
+    'UI manifest identifies the complete Flutter patch series' \
+    "$(jq -r '.patches.flutter_series_manifest_sha256' "$ui_manifest")" \
+    "$(file_sha256 "$flutter_patch_dir/series.sha256")"
+  check_equal \
+    'UI manifest identifies the debug-engine arguments' \
+    "$(jq -r '.artifacts.debug_engine_args_sha256' "$ui_manifest")" \
+    "$(file_sha256 "$debug_engine_dir/args.gn")"
+  check_equal \
+    'UI manifest identifies the debug-engine checksum' \
+    "$(jq -r '.artifacts.debug_engine_sha256' "$ui_manifest")" \
+    "$(awk 'NR == 1 { print $1 }' "$debug_engine_dir/libflutter_engine.so.sha256")"
+  check_equal \
+    'UI manifest identifies the Flutter-tool snapshot checksum' \
+    "$(jq -r '.artifacts.flutter_tool_sha256' "$ui_manifest")" \
+    "$(awk 'NR == 1 { print $1 }' "$flutter_tool_dir/flutter_tools.snapshot.sha256")"
+  check_equal \
     'generated Rust ABI hash matches generation manifest' \
     "$(jq -r '.abi.generated_rust_bindings_sha256' "$manifest")" \
     "$(file_sha256 "$ROOT/compositor/flutter-engine/src/sys.rs")"
@@ -473,6 +529,13 @@ source_audit() {
   else
     pass 'generated Flutter engine is not tracked by Git'
   fi
+  if git -C "$ROOT" ls-files --error-unmatch -- \
+      prebuilt/flutter-engine/linux-x64-debug/libflutter_engine.so \
+      >/dev/null 2>&1; then
+    fail 'generated debug Flutter engine must not be tracked by Git'
+  else
+    pass 'generated debug Flutter engine is not tracked by Git'
+  fi
 
   if [[ -f "$engine_dir/libflutter_engine.so" ]]; then
     if (
@@ -485,6 +548,18 @@ source_audit() {
     fi
   else
     pass 'local engine artifact is not required for the committed-source audit'
+  fi
+  if [[ -f "$debug_engine_dir/libflutter_engine.so" ]]; then
+    if (
+      cd "$debug_engine_dir"
+      sha256sum --check --strict libflutter_engine.so.sha256
+    ) >/dev/null; then
+      pass 'local debug-engine artifact matches its adjacent checksum'
+    else
+      fail 'local debug-engine artifact does not match its adjacent checksum'
+    fi
+  else
+    pass 'local debug-engine artifact is not required for the committed-source audit'
   fi
 
   check_equal \
@@ -518,9 +593,18 @@ source_audit() {
   else
     fail 'engine PKGBUILD source hashes failed'
   fi
+  if BUILDDIR="$makepkg_audit_root/build" \
+    SRCDEST="$makepkg_audit_root/sources" \
+    makepkg --dir "$ROOT/packaging/arch/ui-development" \
+      --verifysource >/dev/null; then
+    pass 'UI-development PKGBUILD source hashes verify'
+  else
+    fail 'UI-development PKGBUILD source hashes failed'
+  fi
   rm -rf --one-file-system -- "$makepkg_audit_root"
 
-  if bash -n \
+  if sh -n "$ROOT/install.sh" \
+    && bash -n \
     "$ROOT/tools/denial-pc" \
     "$ROOT/tools/denial-builder" \
     "$ROOT/tools/denial-release-key" \
@@ -533,12 +617,13 @@ source_audit() {
     "$ROOT/packaging/arch/denial-session" \
     "$ROOT/packaging/arch/PKGBUILD" \
     "$ROOT/packaging/arch/flutter-engine/PKGBUILD" \
+    "$ROOT/packaging/arch/ui-development/PKGBUILD" \
     "$ROOT/packaging/arch/runner/denial-actions-runner-arm" \
     "$ROOT/packaging/arch/runner/denial-actions-runner-cleanup" \
     "$ROOT/packaging/arch/runner/install-host"; then
-    pass 'release-facing Bash files parse successfully'
+    pass 'release-facing shell files parse successfully'
   else
-    fail 'a release-facing Bash file has a syntax error'
+    fail 'a release-facing shell file has a syntax error'
   fi
 
   cargo_version="$(
@@ -561,8 +646,80 @@ source_audit() {
       printf '%s\n' "$pkgver"
     )
   )"
+  ui_package_version="$(
+    (
+      unset DENIAL_PACKAGE_VERSION
+      # shellcheck disable=SC1091
+      source "$ROOT/packaging/arch/ui-development/PKGBUILD"
+      # shellcheck disable=SC2154
+      printf '%s\n' "$pkgver"
+    )
+  )"
   check_equal 'Cargo and Dart versions agree' "$cargo_version" "$dart_version"
   check_equal 'Cargo and package versions agree' "$cargo_version" "$package_version"
+  cargo_lock_version="$(
+    awk '
+      $0 == "name = \"denial\"" {
+        denial = 1
+        next
+      }
+      denial && /^version = "/ {
+        gsub(/^version = "|".*$/, "")
+        print
+        exit
+      }
+    ' "$ROOT/compositor/Cargo.lock"
+  )"
+  check_equal \
+    'Cargo manifest and lockfile versions agree' \
+    "$cargo_version" \
+    "$cargo_lock_version"
+  check_equal \
+    'Cargo and UI-development package versions agree' \
+    "$cargo_version" \
+    "$ui_package_version"
+  IFS=. read -r version_major version_minor version_patch <<<"$cargo_version"
+  if [[ "$version_major" =~ ^[0-9]+$ \
+    && "$version_minor" =~ ^[0-9]+$ \
+    && "$version_patch" =~ ^[0-9]+$ ]]; then
+    ui_dependency_bounds="$(
+      (
+        # shellcheck disable=SC1091
+        source "$ROOT/packaging/arch/ui-development/PKGBUILD"
+        # shellcheck disable=SC2154
+        printf '%s\n' "${depends[@]}" | grep -E '^denial(>=|<)'
+      )
+    )"
+    check_equal \
+      'UI-development package has the expected Denial compatibility range' \
+      "$(printf 'denial>=%s\ndenial<%s.%s.0' \
+        "$cargo_version" "$version_major" "$((version_minor + 1))")" \
+      "$ui_dependency_bounds"
+    check_equal \
+      'UI-development manifest has the expected minimum Denial version' \
+      "$cargo_version" \
+      "$(jq -r '.compatibility.denial_minimum_version' "$ui_manifest")"
+    check_equal \
+      'UI-development manifest has the expected upper Denial boundary' \
+      "${version_major}.$((version_minor + 1)).0" \
+      "$(jq -r '.compatibility.denial_version_before' "$ui_manifest")"
+  else
+    fail "project version is not numeric semantic versioning: $cargo_version"
+  fi
+  if grep -Eq \
+      "^## \\[${cargo_version//./\\.}\\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$" \
+      "$ROOT/CHANGELOG.md"; then
+    pass "changelog contains release $cargo_version"
+  else
+    fail "changelog has no dated entry for release $cargo_version"
+  fi
+  for manual in denialctl denial-ui; do
+    if grep -Fq "Denial $cargo_version" "$ROOT/docs/man/${manual}.1"; then
+      pass "$manual manual identifies Denial $cargo_version"
+    else
+      fail "$manual manual does not identify Denial $cargo_version"
+    fi
+  done
 
   if [[ -f "$public_key" ]]; then
     public_key_fingerprint="$(
@@ -576,6 +733,13 @@ source_audit() {
     )"
     if [[ "$public_key_fingerprint" =~ ^[0-9A-F]{40,64}$ ]]; then
       pass "tracked release key is valid: $public_key_fingerprint"
+      installer_fingerprint="$(
+        sed -n "s/^SIGNING_KEY='\\([^']*\\)'$/\\1/p" "$ROOT/install.sh"
+      )"
+      check_equal \
+        'guided installer uses the tracked release fingerprint' \
+        "$public_key_fingerprint" \
+        "$installer_fingerprint"
     else
       fail 'tracked release key has no valid primary fingerprint'
     fi
@@ -584,6 +748,25 @@ source_audit() {
   else
     warn 'tracked release key has not been created yet'
   fi
+
+  installer_key_url="$(
+    sed -n "s/^PUBLIC_KEY_URL='\\([^']*\\)'$/\\1/p" "$ROOT/install.sh"
+  )"
+  check_equal \
+    'guided installer uses the published release-key URL' \
+    'https://denialwm.github.io/denial/denial-repo-key.asc' \
+    "$installer_key_url"
+  for install_document in \
+    "$ROOT/README.md" \
+    "$ROOT/docs/packaging/arch/INSTALL.md"; do
+    if grep -Fqx \
+      'curl -fsSL https://install.denialwm.org | sh' \
+      "$install_document"; then
+      pass "$(realpath --relative-to="$ROOT" "$install_document") uses the canonical guided-install command"
+    else
+      fail "$(realpath --relative-to="$ROOT" "$install_document") does not use the canonical guided-install command"
+    fi
+  done
 
   if [[ -n "$public_alpha_tag" ]]; then
     if [[ "$public_alpha_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then

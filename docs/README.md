@@ -4,10 +4,19 @@ This directory contains Denial's project-level design, development, protocol,
 performance, packaging, and release documentation. Component-specific build
 metadata and attribution remain beside the files they describe.
 
+Project-level release documents live at the repository root:
+
+- [Changelog](../CHANGELOG.md)
+- [Roadmap](../ROADMAP.md)
+- [Security policy](../SECURITY.md)
+- [Alpha contribution policy](../CONTRIBUTING.md)
+
 ## Development and architecture
 
 - [Build Denial](BUILDING.md)
 - [Architecture](architecture.md)
+- [denialctl](DENIALCTL.md)
+- [Live Flutter UI development](UI_DEVELOPMENT.md)
 - [Screenshots and screen sharing](SCREEN_CAPTURE.md)
 - [Window rendering diagnostics](RENDER_AUDIT.md)
 
@@ -15,7 +24,7 @@ metadata and attribution remain beside the files they describe.
 
 - [Platform-channel inventory](protocol/CHANNEL_INVENTORY.md)
 - [Denial wire format](protocol/WIRE_FORMAT.md)
-- [Output-control protocol v1](protocol/output-control-v1.md)
+- [Control protocol v1](protocol/control-v1.md)
 
 The versioned FlatBuffers schema and generated bindings remain under
 [`protocol/`](../protocol/).

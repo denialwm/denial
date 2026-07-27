@@ -16,8 +16,8 @@ use libloading::Library;
 mod host;
 
 pub use host::{
-    EngineEvent, EngineHost, EngineProject, HostError, OpenGlHandler, PlatformMessage,
-    PresentFrame, ScheduledTask,
+    DartRuntimeMode, EngineEvent, EngineHost, EngineProject, HostError, OpenGlHandler,
+    PlatformMessage, PresentFrame, ScheduledTask,
 };
 
 #[allow(
@@ -234,10 +234,10 @@ impl EngineLibrary {
         renderer: &sys::FlutterRendererConfig,
         args: &sys::FlutterProjectArgs,
         user_data: *mut c_void,
-        aot_data: AotData,
+        aot_data: Option<AotData>,
     ) -> Result<RunningEngine, EngineError> {
         let mut project_args = *args;
-        project_args.aot_data = aot_data.as_raw();
+        project_args.aot_data = aot_data.as_ref().map_or(ptr::null_mut(), AotData::as_raw);
         let mut handle = ptr::null_mut();
         let function = self.table.Run.expect("validated Flutter proc table");
         // SAFETY: upheld by this method's caller; all stack-resident config
@@ -258,7 +258,7 @@ impl EngineLibrary {
         Ok(RunningEngine {
             handle,
             library: Arc::clone(self),
-            aot_data: Some(aot_data),
+            aot_data,
         })
     }
 }

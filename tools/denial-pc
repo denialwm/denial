@@ -14,7 +14,11 @@ FLUTTER_SDK_VERSION="3.44.7"
 FLUTTER_SDK_REVISION="84fc5cbb223bc12f83d65b647ff8a56caf779ffd"
 FLUTTER_SDK_ROOT="${DENIAL_FLUTTER_SDK_ROOT:-$DEPENDENCY_ROOT/flutter}"
 FLUTTER="${DENIAL_FLUTTER:-$FLUTTER_SDK_ROOT/bin/flutter}"
-FLUTTER_PATCH="$ROOT/patches/flutter/0001-enable-120hz-touch-resampling.patch"
+FLUTTER_PATCHES=(
+    "$ROOT/patches/flutter/0001-enable-120hz-touch-resampling.patch"
+    "$ROOT/patches/flutter/0002-allow-explicit-attach-without-platform-runner.patch"
+    "$ROOT/patches/flutter/0003-keep-denial-attach-runnable-during-hot-reload.patch"
+)
 
 COMPOSITOR_ROOT="$ROOT/compositor"
 MANIFEST="$COMPOSITOR_ROOT/Cargo.toml"
@@ -29,6 +33,7 @@ PREBUILT_ENGINE_REVISION="$PREBUILT_ENGINE_DIR/ENGINE_REVISION"
 PREBUILT_FLUTTER_REVISION="$PREBUILT_ENGINE_DIR/FLUTTER_REVISION"
 EMBEDDER_BINDINGS="$ROOT/compositor/flutter-engine/src/sys.rs"
 BINARY="${DENIAL_PC_BINARY:-$RUST_TARGET/release/deniald}"
+CONTROL_BINARY="${DENIAL_PC_CONTROL_BINARY:-$RUST_TARGET/release/denialctl}"
 OUTPUT_CONFIG="${DENIAL_PC_OUTPUT_CONFIG:-$ROOT/dev/denial-outputs.conf}"
 DRM_DEVICE="${DENIAL_PC_DRM_DEVICE:-/dev/dri/by-path/pci-0000:0a:00.0-card}"
 SESSION_TEMPLATE="$ROOT/dev/denial.desktop.in"
@@ -50,8 +55,8 @@ Commands:
   bundle            Build only the x64 Dart/Flutter bundle
   refresh           Build the bundle and reload its Flutter runtime in this session
   kms-refresh       Re-evaluate the live KMS topology without ending the session
-  compositor        Build only the release Rust compositor
-  build             Build the bundle and release compositor
+  compositor        Build the release Rust compositor and denialctl
+  build             Build the bundle, release compositor, and denialctl
   arch-package      Build an installable Arch Linux package
   test              Run the Rust compositor test suite
   session           Run the real DRM session (normally invoked by SDDM/UWSM)
@@ -59,8 +64,9 @@ Commands:
   install-session   Add the SDDM entry and Denial portal routing
   remove-session    Remove that session and portal configuration
 
-The production compositor is deniald. The denial-nested binary is a separate
-visual topology harness and never acquires DRM or input devices.
+The production compositor is deniald and its native client is denialctl. The
+denial-nested binary is a separate visual topology harness and never acquires
+DRM or input devices.
 EOF
 }
 
@@ -229,11 +235,14 @@ prepare_flutter_toolchain() {
         || die "Flutter SDK tag $FLUTTER_SDK_VERSION is missing or stale; run '$0 bootstrap'"
     [[ -x "$FLUTTER" ]] || die "Flutter launcher not found: $FLUTTER"
 
-    apply_dependency_patch "Flutter SDK" "$FLUTTER_SDK_ROOT" "$FLUTTER_PATCH"
+    local flutter_patch
+    for flutter_patch in "${FLUTTER_PATCHES[@]}"; do
+        apply_dependency_patch "Flutter SDK" "$FLUTTER_SDK_ROOT" "$flutter_patch"
+    done
     require_only_changes \
         "Flutter SDK" \
         "$FLUTTER_SDK_ROOT" \
-        "packages/flutter/lib/src/gestures/binding.dart"
+        $'packages/flutter/lib/src/gestures/binding.dart\npackages/flutter_tools/lib/src/commands/attach.dart\npackages/flutter_tools/lib/src/debug_adapters/flutter_adapter.dart\npackages/flutter_tools/test/general.shard/dap/flutter_adapter_test.dart'
 }
 
 bootstrap_dependencies() {
@@ -336,9 +345,11 @@ build_compositor() {
         --release \
         --jobs "$BUILD_JOBS" \
         --features flutter \
-        --bin deniald
+        --bin deniald \
+        --bin denialctl
     require_file "$BINARY"
-    printf '\nBuilt %s\n' "$BINARY"
+    require_file "$CONTROL_BINARY"
+    printf '\nBuilt %s\nBuilt %s\n' "$BINARY" "$CONTROL_BINARY"
 }
 
 build_all() {
@@ -532,12 +543,16 @@ show_session_state() {
 doctor() {
     show_path_state "dependency cache" "$DEPENDENCY_ROOT"
     show_path_state "Flutter SDK" "$FLUTTER"
-    show_path_state "Flutter patch" "$FLUTTER_PATCH"
+    local flutter_patch
+    for flutter_patch in "${FLUTTER_PATCHES[@]}"; do
+        show_path_state "Flutter patch" "$flutter_patch"
+    done
     show_path_state "Rust manifest" "$MANIFEST"
     show_flutter_bindings_state
     show_path_state "Dart bundle" "$BUNDLE/lib/libapp.so"
     show_engine_state
     show_path_state "deniald" "$BINARY"
+    show_path_state "denialctl" "$CONTROL_BINARY"
     show_path_state "output config" "$OUTPUT_CONFIG"
     show_path_state "DRM device" "$DRM_DEVICE"
     show_path_state "wlr portal backend" "$WLR_PORTAL_DESCRIPTOR"
@@ -572,6 +587,7 @@ install_session() {
     require_file "$PORTAL_TEMPLATE"
     require_file "$WLR_PORTAL_CONFIG_TEMPLATE"
     require_file "$BINARY"
+    require_file "$CONTROL_BINARY"
     require_managed_config_or_absent "portal routing" "$PORTAL_FILE"
     require_managed_config_or_absent "wlr portal config" "$WLR_PORTAL_CONFIG"
     if [[ ! -e "$WLR_PORTAL_DESCRIPTOR" ]]; then

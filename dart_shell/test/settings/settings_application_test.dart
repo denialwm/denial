@@ -5,6 +5,7 @@ import 'package:denial_dart_shell/src/settings/widgets/hsv_color_wheel.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_about_page.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_appearance_page.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_controls.dart';
+import 'package:denial_dart_shell/src/settings/widgets/settings_developer_page.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_power_page.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_navigation.dart';
 import 'package:denial_dart_shell/src/settings/widgets/system_bar_placement_card.dart';
@@ -118,6 +119,7 @@ void main() {
       SettingsPageId.overlays,
       SettingsPageId.lockScreen,
       SettingsPageId.power,
+      SettingsPageId.developer,
       SettingsPageId.about,
     ];
     for (final page in pages) {
@@ -173,7 +175,14 @@ void main() {
     await _pumpSettings(tester, container, size: const Size(980, 700));
 
     expect(SettingsPageId.values.last, SettingsPageId.about);
-    await tester.ensureVisible(find.text('About'));
+    await tester.scrollUntilVisible(
+      find.text('About'),
+      180,
+      scrollable: find.descendant(
+        of: find.byKey(settingsNavigationListKey),
+        matching: find.byType(Scrollable),
+      ),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('About'));
     await tester.pumpAndSettle();
@@ -194,13 +203,43 @@ void main() {
     addTearDown(container.dispose);
     await _pumpSettings(tester, container, size: const Size(560, 440));
 
-    await tester.ensureVisible(find.text('About'));
+    await tester.scrollUntilVisible(
+      find.text('About'),
+      180,
+      scrollable: find.descendant(
+        of: find.byKey(settingsNavigationListKey),
+        matching: find.byType(Scrollable),
+      ),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('About'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(settingsAboutWordmarkKey), findsOneWidget);
     expect(find.text('Doctor Logix'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('developer page offers automatic editable UI setup', (
+    tester,
+  ) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container, size: const Size(980, 700));
+
+    await tester.scrollUntilVisible(
+      find.text('About'),
+      180,
+      scrollable: find.descendant(
+        of: find.byKey(settingsNavigationListKey),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.tap(find.text('Developer'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Create and start editable UI'), findsOneWidget);
+    expect(find.byKey(settingsDeveloperWorkspaceFieldKey), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

@@ -77,49 +77,62 @@ not have to determine what it can become.
 
 ## Project status
 
-Denial is in active development. The current PC target is x86-64, and the
-native APIs, Flutter bundle contract, and wire protocol may still change before
-the first public release. The compositor already runs as a complete Wayland
-session with Xwayland, multi-output presentation, native input routing, direct
-screenshots, and portal-based screen sharing.
+Denial is a public alpha in active development. The current PC target is
+x86-64, and the native APIs, Flutter bundle contract, configuration, and wire
+protocol may still change before 1.0. The compositor already runs as a complete
+Wayland session with Xwayland, multi-output presentation, native input routing,
+direct screenshots, and portal-based screen sharing.
+
+## Live Flutter shell development
+
+The optional `denial-ui-development` package turns the reference shell into an
+editable Flutter workspace. `denialctl ui setup` creates the matching source
+checkout and starts a JIT shell; opening its `dart_shell` directory in
+VSCodium enables hot reload on save and Flutter Inspector while Wayland
+applications keep running.
+
+Install it separately when this workflow is wanted:
+
+```sh
+sudo pacman -S denial-ui-development
+denialctl ui setup
+```
+
+The supported editor connection is deliberately non-pausing. It does not grant
+breakpoint, pause, stepping, or expression-evaluation control over the desktop
+isolate. A native `denialctl ui restore` command returns to the packaged
+optimized shell even when edited Flutter code cannot present a usable Settings
+window.
 
 ## Install on Arch Linux
 
-Denial provides signed first-party packages for Arch Linux on `x86_64`. Import
-the repository key and locally trust its permanent fingerprint:
+Denial provides signed first-party packages for Arch Linux on `x86_64`.
+Review the [installer](install.sh), then run:
 
 ```sh
-key_file="$(mktemp)"
-curl -fsSL -o "$key_file" \
-  https://denialwm.github.io/denial/denial-repo-key.asc
-sudo pacman-key --add "$key_file"
-sudo pacman-key --lsign-key AE4108FA5E91E26BE0EE331E0F5B3AD16E023091
-rm -f -- "$key_file"
+curl -fsSL https://install.denialwm.org | sh
 ```
 
-Add the repository after the official repositories in `/etc/pacman.conf`:
-
-```ini
-[denial]
-SigLevel = Required TrustedOnly
-Server = https://denialwm.github.io/denial/$arch
-```
-
-Then upgrade the system and install Denial:
-
-```sh
-sudo pacman -Syu denial
-```
+It verifies the complete release-key fingerprint, rejects conflicting Pacman
+configuration, adds the signed repository when needed, and asks Pacman to
+perform a normal full upgrade and install Denial. It shows the complete plan
+and asks for confirmation before using `sudo`.
 
 See the [complete installation guide](docs/packaging/arch/INSTALL.md) for
-keyring initialization, verification, updates, and removal.
+manual setup, keyring initialization, verification, updates, and removal.
 
 ## Documentation
 
 - [Install from the Arch repository](docs/packaging/arch/INSTALL.md)
 - [Build Denial](docs/BUILDING.md)
+- [Control and recover Denial with `denialctl`](docs/DENIALCTL.md)
+- [Live Flutter UI development](docs/UI_DEVELOPMENT.md)
 - [Architecture](docs/architecture.md)
 - [Screenshots and screen sharing](docs/SCREEN_CAPTURE.md)
+- [Changelog](CHANGELOG.md)
+- [Roadmap](ROADMAP.md)
+- [Security policy](SECURITY.md)
+- [Alpha contribution policy](CONTRIBUTING.md)
 - [Complete documentation index](docs/README.md)
 
 ## Made through dialogue

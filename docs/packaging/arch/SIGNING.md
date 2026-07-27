@@ -61,7 +61,7 @@ From the reviewed clean root, create one signed tag at clean local `main`:
 
 ```sh
 tools/denial-release-key sign-tag \
-  v0.1.0 \
+  v0.2.0 \
   /mnt/exty/denial-release-key-backups/denial-release-key-AE4108FA5E91E26BE0EE331E0F5B3AD16E023091.tar.zst.gpg \
   /home/logix/.local/share/denial-release-key/recovery.conf
 ```
@@ -71,20 +71,21 @@ subkey, signs and verifies the local tag, and erases the temporary material.
 It deliberately does not push. Review the tag before:
 
 ```sh
-git push origin v0.1.0
-tools/denial-builder release v0.1.0
+git push origin v0.2.0
+tools/denial-builder release v0.2.0
 ```
 
-## Before first publication
+## Backup and pre-release checks
 
 The current second-NVMe backup protects against failure of the system drive;
 it is not an offline backup because both NVMe devices are normally attached
-to one computer. Before the first public release:
+to one computer. Maintain a separate offline copy, and before each release:
 
-1. copy the encrypted archive to separate removable or offline storage;
-2. copy the recovery values into a password manager or another separately
-   protected location;
-3. verify that offline copy with `verify-backup`;
+1. confirm the encrypted archive still has a separate removable or offline
+   copy;
+2. confirm the recovery values remain in a password manager or another
+   separately protected location;
+3. verify an offline copy with `verify-backup`;
 4. confirm the tracked public key and GitHub variable have the same complete
    fingerprint;
 5. confirm the GitHub environment contains no primary secret key;

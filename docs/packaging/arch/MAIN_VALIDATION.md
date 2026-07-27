@@ -13,20 +13,22 @@ x86-64 build and package path before a version tag is created.
 The owner-operated x86-64 runner:
 
 1. checks out the exact pushed commit into a fresh ephemeral workspace;
-2. verifies and consumes the root-owned pinned Flutter Engine artifact
-   installed separately on the builder host;
+2. verifies and consumes the root-owned pinned optimized and JIT Flutter
+   Engine artifacts installed separately on the builder host;
 3. audits committed inputs and qualifies the builder;
 4. bootstraps the pinned Flutter and Rust toolchains;
 5. builds the Flutter integration bundle;
 6. runs the Rust and Flutter test suites;
-7. builds and internally validates the engine and Denial packages;
+7. builds and internally validates the two required runtime packages and the
+   optional UI-development package;
 8. records package metadata, host inputs, checksums, toolchain versions, and
    build logs;
 9. uploads one seven-day candidate artifact.
 
 A separate GitHub-hosted Arch job downloads that artifact and independently
-checks its source identity, checksums, architecture, package set, package
-ownership metadata, engine ABI dependency, and required runtime payloads.
+checks its source identity, checksums, architecture, three-package set, package
+ownership metadata, engine ABI dependencies, version bounds, and required
+runtime and development payloads.
 
 The artifact is named:
 
@@ -50,15 +52,15 @@ trusted push:
 ```sh
 tools/denial-builder install
 tools/denial-builder arm
-git push --force-with-lease origin main
+git push origin main
 ```
 
-`install` verifies the ignored local `libflutter_engine.so` against the
-tracked checksum and places it under
-`/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/` as a root-owned,
-read-only build input. Routine runner instances can read but cannot replace
-it. Update that host artifact only as part of a controlled Flutter generation
-change.
+`install` verifies the ignored local optimized and JIT
+`libflutter_engine.so` files against their tracked checksums. It places them
+under `/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/` and its
+`debug/` subdirectory as root-owned, read-only build inputs. Routine runner
+instances can read but cannot replace them. Update either host artifact only
+as part of a controlled Flutter generation change.
 
 After the workflow finishes, remove any remaining runner registration with:
 

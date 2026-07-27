@@ -116,6 +116,8 @@ pub(super) struct Options {
     pub(super) simulate_hotplug_at_frame: Option<u64>,
     pub(super) wayland: bool,
     pub(super) flutter_bundle: Option<PathBuf>,
+    pub(super) flutter_debug_bundle: Option<PathBuf>,
+    pub(super) flutter_ui_workspace: Option<PathBuf>,
     pub(super) start_locked: bool,
     pub(super) work_area: WorkAreaOptions,
     frames: u64,
@@ -151,6 +153,8 @@ impl Options {
         let mut simulate_hotplug_at_frame = None;
         let mut wayland = false;
         let mut flutter_bundle = None;
+        let mut flutter_debug_bundle = None;
+        let mut flutter_ui_workspace = None;
         let mut start_locked = false;
         let mut system_bar_argument = None;
         let mut maximize_padding_argument = None;
@@ -229,6 +233,16 @@ impl Options {
                         args.next().ok_or("--flutter-bundle needs a path")?,
                     ));
                 }
+                "--flutter-debug-bundle" => {
+                    flutter_debug_bundle = Some(PathBuf::from(
+                        args.next().ok_or("--flutter-debug-bundle needs a path")?,
+                    ));
+                }
+                "--flutter-ui-workspace" => {
+                    flutter_ui_workspace = Some(PathBuf::from(
+                        args.next().ok_or("--flutter-ui-workspace needs a path")?,
+                    ));
+                }
                 "--system-bar" => {
                     let value = args.next().ok_or(
                         "--system-bar needs SIDE,THICKNESS[,OUTPUT[+OUTPUT...]] or hidden",
@@ -257,6 +271,8 @@ impl Options {
                          [--simulate-hotplug-at-frame N] \
                          [--wayland] \
                          [--flutter-bundle PATH] \
+                         [--flutter-debug-bundle PATH] \
+                         [--flutter-ui-workspace PATH] \
                          [--start-locked] \
                          [--system-bar SIDE,THICKNESS[,OUTPUT[+OUTPUT...]] | --system-bar hidden] \
                          [--maximize-padding PIXELS] \
@@ -282,6 +298,8 @@ impl Options {
                         simulate_hotplug_at_frame,
                         wayland,
                         flutter_bundle,
+                        flutter_debug_bundle,
+                        flutter_ui_workspace,
                         start_locked,
                         work_area: WorkAreaOptions {
                             system_bar: system_bar_argument.unwrap_or_default(),
@@ -368,6 +386,13 @@ impl Options {
         if flutter_bundle.is_some() && !wayland {
             return Err("--flutter-bundle requires --wayland".into());
         }
+        if (flutter_debug_bundle.is_some() || flutter_ui_workspace.is_some())
+            && flutter_bundle.is_none()
+        {
+            return Err(
+                "--flutter-debug-bundle and --flutter-ui-workspace require --flutter-bundle".into(),
+            );
+        }
         if start_locked && flutter_bundle.is_none() {
             return Err("--start-locked requires --flutter-bundle".into());
         }
@@ -391,6 +416,8 @@ impl Options {
             simulate_hotplug_at_frame,
             wayland,
             flutter_bundle,
+            flutter_debug_bundle,
+            flutter_ui_workspace,
             start_locked,
             work_area,
             frames,
@@ -1221,6 +1248,38 @@ mod tests {
         .expect_err("Flutter without a Wayland frontend must be rejected");
 
         assert_eq!(error.to_string(), "--flutter-bundle requires --wayland");
+    }
+
+    #[test]
+    fn live_ui_paths_are_explicit_and_require_the_packaged_bundle() {
+        let configured = options(&[
+            "--wayland",
+            "--flutter-bundle",
+            "/tmp/denial-release",
+            "--flutter-debug-bundle",
+            "/tmp/denial-debug",
+            "--flutter-ui-workspace",
+            "/home/example/denial-ui",
+        ]);
+        assert_eq!(
+            configured.flutter_debug_bundle.as_deref(),
+            Some(Path::new("/tmp/denial-debug"))
+        );
+        assert_eq!(
+            configured.flutter_ui_workspace.as_deref(),
+            Some(Path::new("/home/example/denial-ui"))
+        );
+
+        let error = Options::parse_from(
+            ["--flutter-debug-bundle", "/tmp/denial-debug"]
+                .into_iter()
+                .map(str::to_owned),
+        )
+        .expect_err("a debug bundle without the recovery bundle must be rejected");
+        assert_eq!(
+            error.to_string(),
+            "--flutter-debug-bundle and --flutter-ui-workspace require --flutter-bundle"
+        );
     }
 
     #[test]

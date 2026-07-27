@@ -43,8 +43,8 @@ subkey in an isolated temporary keyring. It:
   5. writes the public key to packaging/arch/denial-repo-key.asc.
 
 BACKUP_DIRECTORY and RECOVERY_FILE must be on different storage locations.
-Neither path may already exist. Keep an additional offline copy before the
-first public release.
+Neither path may already exist. Keep an additional offline copy before using
+the identity and verify it periodically.
 
 sign-tag temporarily opens the encrypted backup, imports only its signing
 subkey, creates and verifies one annotated version tag at clean local main,
@@ -453,7 +453,7 @@ EOF
     "Separate recovery file: $recovery_file" \
     "Public key: $PUBLIC_KEY_PATH" \
     "GitHub environment: $ENVIRONMENT" \
-    'Create one more offline backup before the first public release.'
+    'Create and verify one more offline backup before using this identity.'
 }
 
 verify_backup() {

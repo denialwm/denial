@@ -246,14 +246,13 @@ mod tests {
         let started = Instant::now();
         let mut policy = IdleDpmsPolicy::default();
         policy.configure(Some(Duration::from_secs(10)), started);
-        assert_eq!(
-            policy.evaluate(
+        assert!(
+            !policy.evaluate(
                 started + Duration::from_secs(10),
                 false,
                 [(output(7), true)],
             )[0]
-            .powered,
-            false
+            .powered
         );
         assert_eq!(
             policy.evaluate(
@@ -289,14 +288,13 @@ mod tests {
                 )
                 .is_empty()
         );
-        assert_eq!(
-            policy.evaluate(
+        assert!(
+            !policy.evaluate(
                 started + Duration::from_secs(61),
                 false,
                 [(output(7), true)],
             )[0]
-            .powered,
-            false
+            .powered
         );
     }
 

@@ -18,6 +18,8 @@ outside this inventory.
 | `denial/brightness` | Dart → native | little-endian `float64` | Absolute level for the output under the cursor |
 | `denial/brightness_state` | Native → Dart | monitor ID + level | Authoritative native brightness update |
 | `denial/idle_policy` | Dart → native | little-endian `uint64` milliseconds | Configure native idle display power-off; zero disables it |
+| `denial/ui_development/control` | Dart → native | bounded versioned packet | Query or change the Flutter workspace/runtime and request development or recovery actions |
+| `denial/ui_development/state` | Native → Dart | bounded versioned packet | Active/desired runtime, capabilities, operation progress, VM-service URI, errors, and source diagnostics |
 | `denial/system_command` | Dart → native | bounded length-prefixed packet | Launch application, toggle OSK, take screenshot, or log out |
 | `denial/window_close_complete` | Dart → native | little-endian nonzero `uint64` window ID | Release native texture leases after Flutter's close animation |
 
@@ -73,3 +75,29 @@ bounded PNG, JPEG, or WebP images are retained. Requests are at most 4 KiB,
 capture and send file descriptors are nonblocking and time-bounded, and a
 locked session publishes an empty redacted snapshot. Clipboard contents are
 never written to disk.
+
+## UI-development packets
+
+Both UI-development directions use protocol version `1`, little-endian
+integers, strict packet-length equality, bounded UTF-8 strings, and zeroed
+reserved fields. No request or state packet may exceed 64 KiB.
+
+The 12-byte control header contains version, command, flags, nonzero request
+ID, workspace byte length, and a reserved `uint16`. Commands are query, enable
+or disable live development, set workspace, hot reload, hot restart, build and
+activate optimized, restore official, revert last working, and set automatic
+reload. Only set-workspace carries a payload, limited to 4,096 bytes with no
+NUL. Only set-auto-reload uses its one-bit flags field.
+
+The 40-byte state header contains active and desired runtime modes, current
+operation, capability flags, optional basis-point progress, runtime
+generation, state revision, acknowledged request ID, four string lengths,
+diagnostic count, and a reserved `uint16`. Its strings are workspace, local
+authenticated VM-service URI, status, and error. At most 64 diagnostics follow
+with severity, source line/column, path length, message length, and their UTF-8
+payloads.
+
+The VM service binds to IPv4 loopback, keeps Flutter's authentication code,
+and disables mDNS publication. Native also writes its URI to a mode-`0600`
+file below `$XDG_RUNTIME_DIR/denial/` for same-user editor tooling, and removes
+it when the live runtime ends.

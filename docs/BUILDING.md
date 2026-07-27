@@ -3,7 +3,7 @@
 Denial currently supports an x86-64 PC development build. It builds two
 versioned components:
 
-- the Rust compositor in `compositor/`;
+- the Rust compositor and native control client in `compositor/`;
 - the embedded Flutter shell bundle in `dart_shell/`.
 
 Downloaded toolchains and native build output live outside the checkout by
@@ -32,6 +32,12 @@ The release compositor is written to:
 $XDG_CACHE_HOME/denial/pc-build/rust/release/deniald
 ```
 
+The matching native control and recovery client is written to:
+
+```text
+$XDG_CACHE_HOME/denial/pc-build/rust/release/denialctl
+```
+
 The Flutter bundle is written to:
 
 ```text
@@ -50,7 +56,7 @@ The current development generation couples:
 - Dart `3.12.2`;
 - engine artifact revision `69c8c61792f04cc809dfef0c910414fb9afc06cd`;
 - the ordered engine series in `patches/flutter-engine/3.44.7/`;
-- the framework patch in `patches/flutter/`;
+- the ordered framework and Flutter-tool patches in `patches/flutter/`;
 - the generated Rust embedder ABI in
   `compositor/flutter-engine/src/sys.rs`.
 
@@ -88,7 +94,7 @@ Only binding regeneration needs Clang and libclang. Run
 
 ## Local Arch package prototype
 
-Build the two local Stage 1 packages with:
+Build the two required Stage 1 packages with:
 
 ```sh
 tools/denial-pc arch-package
@@ -112,10 +118,32 @@ reproducibility. See:
 The dedicated x86-64 host and its manually armed one-job GitHub runner are
 documented in the [builder runbook](packaging/arch/BUILDER.md). Every trusted
 push to `main` can build and independently verify an unsigned production
-candidate when the ephemeral runner is armed. The first public alpha remains
-gated on public repository controls, Pages enablement, and a signed version
-tag. Stage 2 later adds offline input closure. See the
+candidate when the ephemeral runner is armed. Clean signed version tags use
+the separate signing and Pages publication path. Stage 2 later adds offline
+input closure. See the
 [main validation boundary](packaging/arch/MAIN_VALIDATION.md).
+
+Live Flutter UI editing is deliberately split into a third, optional package.
+After the pinned debug engine described in
+[`BUILD_INFO.md`](../prebuilt/flutter-engine/linux-x64-debug/BUILD_INFO.md) has
+been rebuilt and staged, create and validate it with the repository's Rust
+task:
+
+```sh
+cargo xtask ui-development-package
+```
+
+The resulting `denial-ui-development` archive is written beside the two
+required packages. It contains the coupled, native-optimized JIT engine, the
+curated Dart and Flutter runtime needed for shell assembly and editor attach,
+locked dependency sources needed by Denial's shell, a version-matched editable
+source snapshot and revision metadata, and the native `denial-ui` client. Its
+isolated validation prepares the real packaged shell with networking disabled.
+An engine binary change requires one Denial session restart; normal Dart hot
+reload does not.
+The validator reports the compressed and installed sizes and enforces explicit
+budgets so accidental package growth fails before publication. See
+[Live Flutter UI development](UI_DEVELOPMENT.md).
 
 ## Local session
 

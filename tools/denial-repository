@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+readonly ROOT
+
 fail() {
   printf 'denial-repository: %s\n' "$*" >&2
   exit 1
@@ -33,7 +37,7 @@ fi
 
 for required_command in \
   awk basename bsdtar cp date dirname find gpg gpg-connect-agent gpgconf \
-  grep head install readlink realpath repo-add rm sed sha256sum sort tr; do
+  grep head install readlink realpath repo-add rm sed sh sha256sum sort tr; do
   command -v "$required_command" >/dev/null 2>&1 \
     || fail "missing command: $required_command"
 done
@@ -139,12 +143,19 @@ mapfile -d '' package_inputs < <(
     -print0 \
     | sort -z
 )
-((${#package_inputs[@]} == 2)) \
-  || fail "expected exactly two packages, found ${#package_inputs[@]}"
+((${#package_inputs[@]} == 3)) \
+  || fail "expected exactly three packages, found ${#package_inputs[@]}"
 
 release_version="${RELEASE_TAG#v}"
+IFS=. read -r release_major release_minor release_patch <<<"$release_version"
+[[ "$release_major" =~ ^[0-9]+$ \
+  && "$release_minor" =~ ^[0-9]+$ \
+  && "$release_patch" =~ ^[0-9]+$ ]] \
+  || fail "release tag has an invalid semantic version: $RELEASE_TAG"
+ui_denial_before="${release_major}.$((release_minor + 1)).0"
 engine_packages=0
 denial_packages=0
+ui_development_packages=0
 for package in "${package_inputs[@]}"; do
   package_info="$(bsdtar -xOf "$package" .PKGINFO)"
   package_name="$(
@@ -175,18 +186,98 @@ for package in "${package_inputs[@]}"; do
         'depend = denial-flutter-engine-abi=3.44.7.denial1' \
         <<<"$package_info" \
         || fail 'Denial package does not require the exact Flutter Engine ABI'
+      grep -Fqx \
+        'optdepend = denial-ui-development: live Flutter UI editing and hot reload' \
+        <<<"$package_info" \
+        || fail 'Denial package does not advertise its optional development package'
       denial_packages=$((denial_packages + 1))
+      ;;
+    denial-ui-development)
+      [[ "$package_version" == "${release_version}-1" ]] \
+        || fail \
+          "UI-development package version is $package_version, expected ${release_version}-1"
+      for dependency in \
+        "depend = denial>=${release_version}" \
+        "depend = denial<${ui_denial_before}" \
+        'depend = denial-flutter-engine-abi=3.44.7.denial1'; do
+        grep -Fqx "$dependency" <<<"$package_info" \
+          || fail "UI-development package is missing $dependency"
+      done
+      bsdtar -tf "$package" | grep -Fxq usr/bin/denial-ui \
+        || fail 'UI-development package has no denial-ui client'
+      bsdtar -tf "$package" \
+        | grep -Fxq \
+          usr/lib/denial/ui-development/flutter/bin/cache/flutter_tools.snapshot \
+        || fail 'UI-development package has no pinned Flutter tool snapshot'
+      bsdtar -xOf \
+        "$package" \
+        usr/share/denial/ui-development/manifest.json \
+        | grep -Fq '"stage": "public-alpha"' \
+        || fail 'UI-development package does not declare its public-alpha stage'
+      expected_debug_engine_sha="$(
+        awk 'NR == 1 { print $1 }' \
+          "$ROOT/prebuilt/flutter-engine/linux-x64-debug/libflutter_engine.so.sha256"
+      )"
+      actual_debug_engine_sha="$(
+        bsdtar -xOf \
+          "$package" \
+          usr/lib/denial/ui-development/lib/libflutter_engine.so \
+          | sha256sum \
+          | awk '{ print $1 }'
+      )"
+      [[ "$actual_debug_engine_sha" == "$expected_debug_engine_sha" ]] \
+        || fail 'UI-development package contains the wrong debug engine'
+      expected_flutter_tool_sha="$(
+        awk 'NR == 1 { print $1 }' \
+          "$ROOT/prebuilt/flutter-tools/3.44.7/flutter_tools.snapshot.sha256"
+      )"
+      actual_flutter_tool_sha="$(
+        bsdtar -xOf \
+          "$package" \
+          usr/lib/denial/ui-development/flutter/bin/cache/flutter_tools.snapshot \
+          | sha256sum \
+          | awk '{ print $1 }'
+      )"
+      [[ "$actual_flutter_tool_sha" == "$expected_flutter_tool_sha" ]] \
+        || fail 'UI-development package contains the wrong Flutter tool'
+      expected_ui_manifest_sha="$(
+        sha256sum "$ROOT/packaging/arch/ui-development/manifest.json" \
+          | awk '{ print $1 }'
+      )"
+      actual_ui_manifest_sha="$(
+        bsdtar -xOf \
+          "$package" \
+          usr/share/denial/ui-development/manifest.json \
+          | sha256sum \
+          | awk '{ print $1 }'
+      )"
+      [[ "$actual_ui_manifest_sha" == "$expected_ui_manifest_sha" ]] \
+        || fail 'UI-development package contains the wrong release manifest'
+      ui_development_packages=$((ui_development_packages + 1))
       ;;
     *)
       fail "unexpected package name: ${package_name:-unset}"
       ;;
   esac
 done
-((engine_packages == 1 && denial_packages == 1)) \
-  || fail 'the package set must contain denial and denial-flutter-engine'
+((engine_packages == 1 \
+  && denial_packages == 1 \
+  && ui_development_packages == 1)) \
+  || fail \
+    'the package set must contain denial, denial-flutter-engine, and denial-ui-development'
+
+readonly INSTALLER="${ROOT}/install.sh"
+[[ -f "$INSTALLER" ]] || fail "guided installer is missing: $INSTALLER"
+sh -n "$INSTALLER" || fail 'guided installer does not parse as POSIX shell'
+installer_fingerprint="$(
+  sed -n "s/^SIGNING_KEY='\\([^']*\\)'$/\\1/p" "$INSTALLER"
+)"
+[[ "$installer_fingerprint" == "$FINGERPRINT" ]] \
+  || fail 'guided installer fingerprint does not match the release key'
 
 install -d -m 0755 "$REPOSITORY_ROOT"
 cp -a -- "$EVIDENCE_INPUT" "${OUTPUT_ROOT}/evidence"
+install -m 0644 "$INSTALLER" "${OUTPUT_ROOT}/install.sh"
 
 signed_packages=()
 for package in "${package_inputs[@]}"; do
@@ -288,6 +379,23 @@ Build disclosure:
   packages, independent rebuilding, an SBOM, or AArch64 support.
 EOF
 
+release_changes="$(
+  awk -v heading="## [${release_version}]" '
+    index($0, heading) == 1 {
+      found = 1
+      next
+    }
+    found && /^## \[/ {
+      exit
+    }
+    found {
+      print
+    }
+  ' "$ROOT/CHANGELOG.md"
+)"
+[[ -n "$release_changes" ]] \
+  || fail "CHANGELOG.md has no release notes for ${release_version}"
+
 cat >"${OUTPUT_ROOT}/RELEASE-NOTES.md" <<EOF
 ## Denial ${release_version}
 
@@ -296,7 +404,10 @@ This is a signed x86-64 public-alpha release of Denial.
 - Source tag: \`${RELEASE_TAG}\`
 - Source commit: \`${SOURCE_SHA}\`
 - Signing fingerprint: \`${FINGERPRINT}\`
-- Packages: \`denial\` and \`denial-flutter-engine\`
+- Required packages: \`denial\` and \`denial-flutter-engine\`
+- Optional live-development package: \`denial-ui-development\`
+
+${release_changes}
 
 The packages were built on Denial's owner-operated x86-64 runner, then signed
 and independently re-verified in a GitHub-hosted signing job. This release
@@ -320,6 +431,10 @@ cat >"${OUTPUT_ROOT}/index.html" <<EOF
     <h1>Denial Pacman repository</h1>
     <p>Signed x86-64 packages for Denial ${release_version}.</p>
     <p>Signing fingerprint: <code>${FINGERPRINT}</code></p>
+    <p>
+      Guided installer:
+      <a href="install.sh"><code>install.sh</code></a>
+    </p>
     <p>
       <a href="https://github.com/denialwm/denial/blob/${RELEASE_TAG}/docs/packaging/arch/INSTALL.md">
         Installation instructions

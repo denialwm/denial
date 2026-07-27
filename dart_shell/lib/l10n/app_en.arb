@@ -2120,6 +2120,158 @@
   "@settingsMaximizedSpacingTitle": {
     "description": "English UI text for settingsMaximizedSpacingTitle."
   },
+  "settingsDeveloperAutoReloadDescription": "Let Denial watch the workspace and reload successful source changes. Available when the native tooling bridge is installed.",
+  "@settingsDeveloperAutoReloadDescription": {
+    "description": "Description for automatic live UI reload."
+  },
+  "settingsDeveloperAutoReloadTitle": "Reload when files change",
+  "@settingsDeveloperAutoReloadTitle": {
+    "description": "Title for automatic live UI reload."
+  },
+  "settingsDeveloperBuildOptimized": "Build & activate optimized",
+  "@settingsDeveloperBuildOptimized": {
+    "description": "Action which builds the workspace in release mode and activates it."
+  },
+  "settingsDeveloperBuildRecoveryDescription": "Promote the current workspace to an optimized shell, or return to a known working UI without restarting the Wayland session.",
+  "@settingsDeveloperBuildRecoveryDescription": {
+    "description": "Description for UI build and recovery controls."
+  },
+  "settingsDeveloperBuildRecoveryTitle": "Build & recovery",
+  "@settingsDeveloperBuildRecoveryTitle": {
+    "description": "Heading for UI build and recovery controls."
+  },
+  "settingsDeveloperDescription": "Edit the complete Flutter desktop, reload it live, then promote it to an optimized build.",
+  "@settingsDeveloperDescription": {
+    "description": "Developer settings page description."
+  },
+  "settingsDeveloperDiagnosticsTitle": "Connection & diagnostics",
+  "@settingsDeveloperDiagnosticsTitle": {
+    "description": "Heading for live development diagnostics."
+  },
+  "settingsDeveloperEditorAttachDescription": "Open the Flutter shell workspace in VSCodium, choose “Attach to Denial live UI” in Run and Debug, then save changed Dart files to reload the desktop. Native compositor changes require a normal rebuild.",
+  "@settingsDeveloperEditorAttachDescription": {
+    "description": "Instructions for attaching VSCodium to the live Flutter shell."
+  },
+  "settingsDeveloperEnableDescription": "Run the selected workspace with the Dart VM service available for VSCodium and Flutter tooling.",
+  "@settingsDeveloperEnableDescription": {
+    "description": "Description for enabling live UI development."
+  },
+  "settingsDeveloperEnableTitle": "Enable live UI development",
+  "@settingsDeveloperEnableTitle": {
+    "description": "Title for enabling live UI development."
+  },
+  "settingsDeveloperGeneration": "Generation",
+  "@settingsDeveloperGeneration": {
+    "description": "Label preceding the Flutter runtime generation number."
+  },
+  "settingsDeveloperHotReload": "Hot reload",
+  "@settingsDeveloperHotReload": {
+    "description": "Action which hot reloads Dart source changes."
+  },
+  "settingsDeveloperHotRestart": "Hot restart",
+  "@settingsDeveloperHotRestart": {
+    "description": "Action which hot restarts the Dart isolate."
+  },
+  "settingsDeveloperLiveControlsTitle": "Live session",
+  "@settingsDeveloperLiveControlsTitle": {
+    "description": "Heading for live UI development controls."
+  },
+  "settingsDeveloperModeCustom": "Custom optimized",
+  "@settingsDeveloperModeCustom": {
+    "description": "Label for a user-built optimized Flutter shell."
+  },
+  "settingsDeveloperModeLive": "Live development",
+  "@settingsDeveloperModeLive": {
+    "description": "Label for the JIT Flutter shell development mode."
+  },
+  "settingsDeveloperModeOfficial": "Official optimized",
+  "@settingsDeveloperModeOfficial": {
+    "description": "Label for the packaged Denial Flutter shell."
+  },
+  "settingsDeveloperModeUnavailable": "Connecting",
+  "@settingsDeveloperModeUnavailable": {
+    "description": "Label shown before native UI development state is known."
+  },
+  "settingsDeveloperNoDiagnostics": "No diagnostics reported.",
+  "@settingsDeveloperNoDiagnostics": {
+    "description": "Empty state for live UI diagnostics."
+  },
+  "settingsDeveloperPerformanceWarning": "Live development uses a JIT Flutter engine and debug checks. Frame pacing and game performance will be lower until you return to an optimized build.",
+  "@settingsDeveloperPerformanceWarning": {
+    "description": "Performance warning shown for live UI development."
+  },
+  "settingsDeveloperRefreshStatus": "Refresh status",
+  "@settingsDeveloperRefreshStatus": {
+    "description": "Action which requests fresh live development state."
+  },
+  "settingsDeveloperRestoreOfficial": "Restore official UI",
+  "@settingsDeveloperRestoreOfficial": {
+    "description": "Recovery action which activates the packaged shell."
+  },
+  "settingsDeveloperRevertLastWorking": "Revert last working",
+  "@settingsDeveloperRevertLastWorking": {
+    "description": "Recovery action which activates the previous working shell."
+  },
+  "settingsDeveloperRuntimeTitle": "Flutter shell runtime",
+  "@settingsDeveloperRuntimeTitle": {
+    "description": "Heading for the active Flutter shell runtime."
+  },
+  "settingsDeveloperSection": "DEVELOPER",
+  "@settingsDeveloperSection": {
+    "description": "Eyebrow for the Developer settings page."
+  },
+  "settingsDeveloperSetupAction": "Create and start editable UI",
+  "@settingsDeveloperSetupAction": {
+    "description": "Action which creates, prepares, selects, and starts the version-matched Denial UI source."
+  },
+  "settingsDeveloperSetupDescription": "Clone the version-matched Denial source from GitHub into ~/DenialUI, prepare it with the pinned toolchain, and enter live development.",
+  "@settingsDeveloperSetupDescription": {
+    "description": "Description of automatic Denial UI development setup."
+  },
+  "settingsDeveloperSetupRunning": "Preparing the editable UI. The shell will switch automatically when it is ready…",
+  "@settingsDeveloperSetupRunning": {
+    "description": "Progress message while automatic UI development setup is running."
+  },
+  "settingsDeveloperSetupUnavailable": "Install denial-ui-development to enable automatic setup.",
+  "@settingsDeveloperSetupUnavailable": {
+    "description": "Message shown when the optional UI development package is absent."
+  },
+  "settingsDeveloperUseWorkspace": "Use this workspace",
+  "@settingsDeveloperUseWorkspace": {
+    "description": "Action which validates and selects a Flutter source workspace."
+  },
+  "settingsDeveloperVmServiceTitle": "Dart VM service",
+  "@settingsDeveloperVmServiceTitle": {
+    "description": "Label for the local Dart VM service URI."
+  },
+  "settingsDeveloperWaitingForStatus": "Waiting for native runtime status…",
+  "@settingsDeveloperWaitingForStatus": {
+    "description": "Fallback while UI development state is loading."
+  },
+  "settingsDeveloperWorkspaceDescription": "Select a Flutter project containing pubspec.yaml and lib/main.dart. Source changes can replace any shell UI that does not require a new native protocol.",
+  "@settingsDeveloperWorkspaceDescription": {
+    "description": "Description for the live UI source workspace."
+  },
+  "settingsDeveloperWorkspaceFieldLabel": "Flutter source workspace",
+  "@settingsDeveloperWorkspaceFieldLabel": {
+    "description": "Accessible label for the Flutter workspace path field."
+  },
+  "settingsDeveloperWorkspaceHint": "/home/you/DenialUI/dart_shell",
+  "@settingsDeveloperWorkspaceHint": {
+    "description": "Example path shown in the Flutter workspace field."
+  },
+  "settingsDeveloperWorkspaceNotReady": "Needs setup",
+  "@settingsDeveloperWorkspaceNotReady": {
+    "description": "Status for an absent or invalid Flutter workspace."
+  },
+  "settingsDeveloperWorkspaceReady": "Ready",
+  "@settingsDeveloperWorkspaceReady": {
+    "description": "Status for a valid Flutter workspace."
+  },
+  "settingsDeveloperWorkspaceTitle": "Source workspace",
+  "@settingsDeveloperWorkspaceTitle": {
+    "description": "Heading for Flutter source workspace selection."
+  },
   "settingsMinutes": "{minutes} min",
   "@settingsMinutes": {
     "description": "English UI text for settingsMinutes.",
@@ -2152,6 +2304,10 @@
   "settingsNavigationDesktopLayout": "Desktop layout",
   "@settingsNavigationDesktopLayout": {
     "description": "English UI text for settingsNavigationDesktopLayout."
+  },
+  "settingsNavigationDeveloper": "Developer",
+  "@settingsNavigationDeveloper": {
+    "description": "Label for the Developer destination in Settings navigation."
   },
   "settingsNavigationDisplays": "Displays & video",
   "@settingsNavigationDisplays": {

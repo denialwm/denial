@@ -1,11 +1,13 @@
 # Denial compositor
 
-The Rust workspace contains three deliberately separate layers:
+The Rust workspace contains four deliberately separate layers:
 
 - a pure topology/atlas model with atomic hotplug transactions;
 - a nested visual harness for development inside another compositor;
 - a real Smithay DRM/KMS compositor using libseat, GBM/EGL, libinput, udev and
-  a Wayland frontend.
+  a Wayland frontend; and
+- a shell-independent native control client for the compositor's versioned
+  per-user IPC.
 
 The KMS backend allocates one desktop-wide XRGB8888 GBM atlas.  Every connected
 CRTC scans a different source rectangle of that same framebuffer; there is no
@@ -70,14 +72,16 @@ normal-exit path then restores the captured atomic KMS state:
 
 ```sh
 cargo build --release --features flutter --manifest-path compositor/Cargo.toml \
-  --bin deniald
+  --bin deniald --bin denialctl
 
 LIBSEAT_BACKEND=logind compositor/target/release/deniald \
   --wayland --flutter-bundle /path/to/denial/bundle
 ```
 
 The `flutter` feature includes `kms`; a binary built with only `kms` cannot
-load the Flutter bundle.
+load the Flutter bundle. While that session is running,
+`compositor/target/release/denialctl status` inspects its output and Flutter UI
+state without depending on the shell.
 
 The KMS compositor starts a rootless Xwayland server and exports its dynamic
 `DISPLAY` alongside `WAYLAND_DISPLAY`. Install the system `Xwayland` executable

@@ -378,7 +378,6 @@ class _DoNotDisturbNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = ShellTheme.of(context).accent;
     return Semantics(
       label: context.l10n.notificationsDoNotDisturbSemantics,
       child: DecoratedBox(
