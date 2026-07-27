@@ -1,9 +1,10 @@
-name: Validate Denial main
-run-name: Validate main at ${{ github.sha }}
+name: Validate Denial branches
+run-name: Validate ${{ github.ref_name }} at ${{ github.sha }}
 
 on:
   push:
     branches:
+      - dev
       - main
   workflow_dispatch:
 
@@ -11,13 +12,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: denial-main-validation-x86_64
-  cancel-in-progress: false
+  group: denial-branch-validation-x86_64-${{ github.ref_name }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/dev' }}
 
 jobs:
   build:
-    name: Build and test x86-64 production candidate
-    if: github.ref == 'refs/heads/main'
+    name: Build and test ${{ github.ref_name }} x86-64 candidate
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
     runs-on:
       - self-hosted
       - linux
@@ -37,6 +38,33 @@ jobs:
             exit 1
           fi
 
+      - name: Define branch validation policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$GITHUB_REF" in
+            refs/heads/dev)
+              candidate_class='development-test-candidate'
+              package_release='0'
+              validation_branch='dev'
+              ;;
+            refs/heads/main)
+              candidate_class='main-production-candidate'
+              package_release='1'
+              validation_branch='main'
+              ;;
+            *)
+              printf 'Unsupported validation ref: %s\n' "$GITHUB_REF" >&2
+              exit 1
+              ;;
+          esac
+          {
+            printf 'CANDIDATE_CLASS=%s\n' "$candidate_class"
+            printf 'DENIAL_PACKAGE_RELEASE=%s\n' "$package_release"
+            printf 'RELEASE_SIGNING_ELIGIBLE=false\n'
+            printf 'VALIDATION_BRANCH=%s\n' "$validation_branch"
+          } >>"$GITHUB_ENV"
+
       - name: Define isolated build paths
         shell: bash
         run: |
@@ -51,15 +79,15 @@ jobs:
             printf 'DENIAL_PACKAGE_DEBUG_ENGINE_SOURCE=%s\n' \
               '/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/debug/libflutter_engine.so'
             printf 'EVIDENCE_ROOT=%s\n' \
-              "$RUNNER_TEMP/denial-main-evidence"
+              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-evidence"
             printf 'CANDIDATE_ROOT=%s\n' \
-              "$RUNNER_TEMP/denial-main-candidate"
+              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-candidate"
             printf 'DENIAL_PC_PACKAGE_ROOT=%s\n' \
-              "$RUNNER_TEMP/denial-main-packages"
+              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-packages"
             printf 'DENIAL_PC_MAKEPKG_ROOT=%s\n' \
-              "$RUNNER_TEMP/denial-main-makepkg"
+              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-makepkg"
             printf 'DENIAL_PC_PACKAGE_INPUT_ROOT=%s\n' \
-              "$RUNNER_TEMP/denial-main-package-input"
+              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-package-input"
           } >>"$GITHUB_ENV"
 
       - name: Check out the exact pushed commit
@@ -87,7 +115,7 @@ jobs:
             >"$askpass"
           chmod 0700 "$askpass"
 
-          git init --initial-branch=main .
+          git init --initial-branch="$VALIDATION_BRANCH" .
           git remote add origin "https://github.com/${REPOSITORY_NAME}.git"
           GIT_ASKPASS="$askpass" \
           GIT_ASKPASS_REQUIRE=force \
@@ -96,9 +124,9 @@ jobs:
             --no-tags \
             origin \
             "$EXPECTED_SHA"
-          git checkout -B main FETCH_HEAD
+          git checkout -B "$VALIDATION_BRANCH" FETCH_HEAD
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-          test "$(git branch --show-current)" = main
+          test "$(git branch --show-current)" = "$VALIDATION_BRANCH"
 
       - name: Audit source and builder
         shell: bash
@@ -106,9 +134,9 @@ jobs:
           set -euo pipefail
           install -d -m 0755 "$EVIDENCE_ROOT"
           actionlint 2>&1 | tee "$EVIDENCE_ROOT/actionlint.txt"
-          tools/denial-release source-audit \
+          tools/denial-release source-audit --branch "$VALIDATION_BRANCH" \
             2>&1 | tee "$EVIDENCE_ROOT/source-audit.txt"
-          tools/denial-release doctor --ci \
+          tools/denial-release doctor --ci --branch "$VALIDATION_BRANCH" \
             2>&1 | tee "$EVIDENCE_ROOT/builder-doctor.txt"
 
       - name: Bootstrap pinned development toolchains
@@ -145,7 +173,6 @@ jobs:
         shell: bash
         env:
           DENIAL_PACKAGE_PACKAGER: Doctor Logix <doctor.logix@gmail.com>
-          DENIAL_PACKAGE_RELEASE: "1"
           DENIAL_REBUILD_ENGINE_PACKAGE: "1"
         run: |
           set -euo pipefail
@@ -188,9 +215,12 @@ jobs:
           done
 
           {
-            printf 'artifact_class=main-production-candidate\n'
+            printf 'artifact_class=%s\n' "$CANDIDATE_CLASS"
             printf 'publication_authorized=false\n'
+            printf 'release_signing_eligible=%s\n' \
+              "$RELEASE_SIGNING_ELIGIBLE"
             printf 'signature_status=unsigned\n'
+            printf 'package_release=%s\n' "$DENIAL_PACKAGE_RELEASE"
             printf 'source_commit=%s\n' "$GITHUB_SHA"
             printf 'source_ref=%s\n' "$GITHUB_REF"
             printf 'workflow_run=%s\n' "$GITHUB_RUN_ID"
@@ -204,11 +234,19 @@ jobs:
             printf 'created_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             uname -a
           } >"$CANDIDATE_ROOT/evidence/provenance.txt"
-          cat >"$CANDIDATE_ROOT/NOTICE.txt" <<'EOF'
-          This is an unsigned production candidate built from remote main.
-          It is a validation artifact, not a published Denial release.
-          A release requires a separately signed version tag and the release workflow.
-          EOF
+          if [[ "$VALIDATION_BRANCH" == dev ]]; then
+            printf '%s\n' \
+              'This is an installable development test candidate built from dev.' \
+              'Its package release is 0 and it is ineligible for release signing or publication.' \
+              'A release must be rebuilt from a separately signed version tag.' \
+              >"$CANDIDATE_ROOT/NOTICE.txt"
+          else
+            printf '%s\n' \
+              'This is an unsigned production candidate built from remote main.' \
+              'It is a validation artifact, not a published Denial release.' \
+              'A release must be rebuilt from a separately signed version tag.' \
+              >"$CANDIDATE_ROOT/NOTICE.txt"
+          fi
           pacman -Q >"$CANDIDATE_ROOT/evidence/host-packages.txt"
           (
             cd compositor
@@ -226,11 +264,11 @@ jobs:
           namcap "$CANDIDATE_ROOT"/packages/*.pkg.tar.zst \
             2>&1 | tee "$CANDIDATE_ROOT/evidence/namcap.txt"
 
-      - name: Upload main production candidate
+      - name: Upload branch validation candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: denial-main-validated-candidate-${{ github.run_id }}
-          path: ${{ runner.temp }}/denial-main-candidate
+          name: denial-${{ github.ref_name }}-validated-candidate-${{ github.run_id }}
+          path: ${{ runner.temp }}/denial-${{ github.ref_name }}-candidate
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
@@ -265,22 +303,40 @@ jobs:
       - name: Download candidate artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: denial-main-validated-candidate-${{ github.run_id }}
-          path: ${{ runner.temp }}/denial-main-candidate
+          name: denial-${{ github.ref_name }}-validated-candidate-${{ github.run_id }}
+          path: ${{ runner.temp }}/denial-${{ github.ref_name }}-candidate
 
       - name: Verify provenance and package contents
         shell: bash
         env:
-          CANDIDATE_ROOT: ${{ runner.temp }}/denial-main-candidate
+          CANDIDATE_ROOT: ${{ runner.temp }}/denial-${{ github.ref_name }}-candidate
         run: |
           set -euo pipefail
+          case "$GITHUB_REF" in
+            refs/heads/dev)
+              expected_class='development-test-candidate'
+              expected_package_release='0'
+              ;;
+            refs/heads/main)
+              expected_class='main-production-candidate'
+              expected_package_release='1'
+              ;;
+            *)
+              printf 'Unsupported validation ref: %s\n' "$GITHUB_REF" >&2
+              exit 1
+              ;;
+          esac
           provenance="$CANDIDATE_ROOT/evidence/provenance.txt"
           test -f "$CANDIDATE_ROOT/NOTICE.txt"
-          grep -Fxq 'artifact_class=main-production-candidate' "$provenance"
+          grep -Fxq "artifact_class=$expected_class" "$provenance"
           grep -Fxq 'publication_authorized=false' "$provenance"
+          grep -Fxq 'release_signing_eligible=false' "$provenance"
           grep -Fxq 'signature_status=unsigned' "$provenance"
+          grep -Fxq \
+            "package_release=$expected_package_release" \
+            "$provenance"
           grep -Fxq "source_commit=$GITHUB_SHA" "$provenance"
-          grep -Fxq 'source_ref=refs/heads/main' "$provenance"
+          grep -Fxq "source_ref=$GITHUB_REF" "$provenance"
 
           mapfile -d '' packages < <(
             find "$CANDIDATE_ROOT/packages" \
@@ -340,6 +396,7 @@ jobs:
             )"
             test "$package_arch" = x86_64
             [[ "$package_version" != *dirty* ]]
+            [[ "$package_version" == *-"$expected_package_release" ]]
 
             mtree="$(bsdtar -xOf "$package" .MTREE | gzip -dc)"
             grep -Eq '^/set .*uid=0 .*gid=0' <<<"$mtree"
@@ -368,7 +425,8 @@ jobs:
                 ;;
               denial-flutter-engine)
                 engine_packages=$((engine_packages + 1))
-                test "$package_version" = 3.44.7.denial1-1
+                test "$package_version" = \
+                  "3.44.7.denial1-${expected_package_release}"
                 bsdtar -tf "$package" \
                   | grep -Fxq \
                     usr/lib/denial/flutter/lib/libflutter_engine.so
@@ -434,6 +492,12 @@ jobs:
       - name: Record validation result
         shell: bash
         run: |
-          printf '%s\n' \
-            'The main production candidate passed independent verification.' \
-            'It remains unsigned and cannot be published as a release.'
+          if [[ "$GITHUB_REF" == refs/heads/dev ]]; then
+            printf '%s\n' \
+              'The installable dev candidate passed independent verification.' \
+              'Package release 0 is ineligible for release signing or publication.'
+          else
+            printf '%s\n' \
+              'The main production candidate passed independent verification.' \
+              'It remains unsigned and cannot be published as a release.'
+          fi

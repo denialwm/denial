@@ -38,7 +38,7 @@ The versioned FlatBuffers schema and generated bindings remain under
 - [Builder runbook](packaging/arch/BUILDER.md)
 - [Release-signing operations](packaging/arch/SIGNING.md)
 - [Package validation evidence](packaging/arch/VALIDATION.md)
-- [Main-branch candidate validation](packaging/arch/MAIN_VALIDATION.md)
+- [Trusted-branch candidate validation](packaging/arch/BRANCH_VALIDATION.md)
 
 ## Colocated references
 

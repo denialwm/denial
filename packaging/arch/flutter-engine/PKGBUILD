@@ -2,7 +2,7 @@
 
 pkgname=denial-flutter-engine
 pkgver=3.44.7.denial1
-pkgrel=1
+pkgrel="${DENIAL_PACKAGE_RELEASE:-1}"
 pkgdesc='Pinned source-built Flutter Engine runtime for Denial'
 arch=('x86_64')
 url='https://github.com/denialwm/denial'

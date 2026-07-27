@@ -12,6 +12,7 @@ Group=denial-builder
 WorkingDirectory=/srv/denial-builder/runner/current
 Environment=HOME=/srv/denial-builder/runner/current/home
 Environment=DENIAL_BUILDER_ROOT=/srv/denial-builder/runner/current/build
+ExecStartPre=/usr/bin/bwrap --die-with-parent --unshare-user --unshare-pid --unshare-net --unshare-ipc --unshare-uts --unshare-cgroup-try --new-session --ro-bind / / -- /usr/bin/true
 ExecStart=/srv/denial-builder/runner/current/run.sh
 ExecStopPost=+/usr/local/libexec/denial-actions-runner-cleanup
 Restart=no
@@ -36,7 +37,9 @@ ProtectControlGroups=yes
 ProtectProc=invisible
 RestrictSUIDSGID=yes
 RestrictRealtime=yes
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# Bubblewrap uses NETLINK_ROUTE only to initialize the private network
+# namespace requested by --unshare-net. The runner still has no capabilities.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallArchitectures=native
 LockPersonality=yes
 ReadWritePaths=/srv/denial-builder/runner/current

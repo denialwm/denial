@@ -190,10 +190,27 @@ install -d -m 0755 -o root -g root \
 ln -s /usr/bin/true "${RUNNER_STATE}/runner/current/run.sh"
 trap /usr/local/libexec/denial-actions-runner-cleanup EXIT
 systemd-analyze verify /etc/systemd/system/denial-actions-runner.service
+if ! systemctl start --wait denial-actions-runner.service; then
+  journalctl \
+    --unit denial-actions-runner.service \
+    --lines 50 \
+    --no-pager >&2 || true
+  systemctl reset-failed denial-actions-runner.service >/dev/null 2>&1 || true
+  fail 'runner service sandbox probe failed'
+fi
+service_result="$(
+  systemctl show denial-actions-runner.service \
+    --property=Result \
+    --value
+)"
+[[ "$service_result" == success ]] \
+  || fail "runner service sandbox probe returned: $service_result"
 /usr/local/libexec/denial-actions-runner-cleanup
+systemctl reset-failed denial-actions-runner.service >/dev/null 2>&1 || true
 trap - EXIT
 
 printf '%s\n' \
   'Denial runner host installed.' \
-  'The service is static and no runner is registered.' \
+  'The static service sandbox and private-network probe passed.' \
+  'No runner is registered.' \
   'Use tools/denial-builder arm from the trusted operator workstation.'

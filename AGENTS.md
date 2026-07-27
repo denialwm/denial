@@ -9,6 +9,15 @@ top of another compositor. It is part of the compositor's foundation.
 
 That is the architecture. It is also the meaning of the name.
 
+## Repository workflow
+
+Trusted development lands on `dev` first. Arm the ephemeral builder before
+pushing so `.github/workflows/branch-validation.yml` can build, package, and
+independently verify that exact commit. Do not repair pipeline failures
+directly on `main`; fix and prove them on `dev`, then promote the green commit
+to `main` through a pull request. Signed public releases remain restricted to
+separately signed version tags.
+
 ## Why Denial
 
 **Denial** is an English word. The name contains **Denia**, followed by one

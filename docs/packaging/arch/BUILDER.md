@@ -61,9 +61,10 @@ runner's generated credentials disappear with the writable instance.
 
 Jobs accepted by this machine are deliberately narrow:
 
-- `workflow_dispatch` only;
-- trusted `main` only during qualification;
-- clean signed `vMAJOR.MINOR.PATCH` tags for public-alpha releases;
+- owner-pushed `dev` and trusted `main` pushes, or explicit manual dispatch,
+  during branch validation;
+- manual dispatch only for builder qualification and clean signed
+  `vMAJOR.MINOR.PATCH` public-alpha tags;
 - never `pull_request`, `pull_request_target`, or fork code;
 - never a job whose workflow revision has not been reviewed by the operator.
 
@@ -106,7 +107,7 @@ shellcheck
 nvme-cli
 ```
 
-These host packages qualify the builder and produce main-branch candidates
+These host packages qualify the builder and produce trusted-branch candidates
 and public-alpha packages. They are not the Stage 2 dependency closure.
 Compositor and Flutter build dependencies ultimately belong in the recreated
 clean environment, not in undocumented ambient host state.
@@ -143,22 +144,25 @@ arm one runner, dispatch the workflow, and watch it to completion:
 tools/denial-builder qualify
 ```
 
-Every trusted push to remote `main` starts the production-candidate workflow
-when a runner has been armed before the push:
+Every trusted push to remote `dev` or `main` starts the branch-candidate
+workflow when a runner has been armed before the push. Development work is
+proven first:
 
 ```sh
 tools/denial-builder arm
-git push origin main
+git push origin dev
 ```
 
-The same validation lane can be dispatched and watched manually:
+The same validation lane can be dispatched and watched manually for either
+branch:
 
 ```sh
+tools/denial-builder validate-dev
 tools/denial-builder validate
 ```
 
 Its unsigned artifact and independent verification boundary are documented in
-[`MAIN_VALIDATION.md`](MAIN_VALIDATION.md).
+[`BRANCH_VALIDATION.md`](BRANCH_VALIDATION.md).
 
 After a release commit and tag have been reviewed, the public-alpha release
 controller is:
@@ -207,9 +211,11 @@ It does not build, sign, attest, or publish a package.
 ## Recurring release gate
 
 Run `tools/denial-builder qualify` after any material builder or workflow
-change. Run `tools/denial-builder validate` for an explicit candidate rebuild;
-trusted pushes to `main` run the same lane automatically when the ephemeral
-runner is armed.
+change. Run `tools/denial-builder validate-dev` or
+`tools/denial-builder validate` for an explicit candidate rebuild; trusted
+pushes to `dev` and `main` run the same lane automatically when the ephemeral
+runner is armed. A failed `main` candidate is repaired and proven on `dev`
+before another promotion.
 
 Neither command authorizes publication. `tools/denial-builder release` still
 requires a clean signed version tag contained in `main` and the protected

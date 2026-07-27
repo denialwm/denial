@@ -10,8 +10,9 @@ warnings=0
 usage() {
   cat <<'EOF'
 Usage:
-  tools/denial-release doctor [--ci] [--release-tag TAG]
-  tools/denial-release source-audit [--development] [--public-alpha TAG]
+  tools/denial-release doctor [--ci] [--branch BRANCH] [--release-tag TAG]
+  tools/denial-release source-audit [--branch BRANCH] [--development]
+                                    [--public-alpha TAG]
 
 Commands:
   doctor        Inspect an Arch x86-64 release-builder host.
@@ -19,6 +20,7 @@ Commands:
 
 Options:
   --ci              Require the protected manual GitHub runner context.
+  --branch BRANCH   Require the main or dev validation branch (default: main).
   --release-tag TAG Require a manual workflow running from this version tag.
   --development     Allow a dirty checkout, reported as a warning.
   --public-alpha TAG
@@ -60,6 +62,31 @@ check_command() {
   fi
 }
 
+check_bwrap_network_isolation() {
+  local output
+
+  command_exists bwrap || return
+  if output="$(
+    bwrap \
+      --die-with-parent \
+      --unshare-user \
+      --unshare-pid \
+      --unshare-net \
+      --unshare-ipc \
+      --unshare-uts \
+      --unshare-cgroup-try \
+      --new-session \
+      --ro-bind / / \
+      -- /usr/bin/true \
+      2>&1
+  )"; then
+    pass 'bubblewrap can create the package-build private network namespace'
+  else
+    fail 'bubblewrap cannot create the package-build private network namespace'
+    [[ -z "$output" ]] || printf 'INFO  bubblewrap: %s\n' "$output"
+  fi
+}
+
 existing_path_for() {
   local candidate="$1"
   local parent
@@ -84,6 +111,7 @@ doctor() {
   local memory_gib
   local memory_kib
   local release_tag=''
+  local validation_branch='main'
   local required_commands=(
     actionlint
     arch-nspawn
@@ -126,6 +154,15 @@ doctor() {
   while (($#)); do
     case "$1" in
       --ci) require_ci=1 ;;
+      --branch)
+        (($# >= 2)) \
+          || {
+            printf 'denial-release: --branch requires a value\n' >&2
+            return 2
+          }
+        validation_branch="$2"
+        shift
+        ;;
       --release-tag)
         (($# >= 2)) \
           || {
@@ -146,6 +183,13 @@ doctor() {
     esac
     shift
   done
+  case "$validation_branch" in
+    main | dev) ;;
+    *)
+      printf 'denial-release: --branch must be main or dev\n' >&2
+      return 2
+      ;;
+  esac
 
   printf 'Denial x86-64 builder qualification\n\n'
 
@@ -202,6 +246,7 @@ doctor() {
   for command_name in "${required_commands[@]}"; do
     check_command "$command_name"
   done
+  check_bwrap_network_isolation
 
   if command_exists timedatectl \
     && [[ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null || true)" == yes ]]; then
@@ -244,8 +289,8 @@ doctor() {
           fail "unexpected validation workflow event: ${GITHUB_EVENT_NAME:-unset}"
           ;;
       esac
-      if [[ "${GITHUB_REF:-}" == refs/heads/main ]]; then
-        pass 'workflow ref is refs/heads/main'
+      if [[ "${GITHUB_REF:-}" == "refs/heads/${validation_branch}" ]]; then
+        pass "workflow ref is refs/heads/${validation_branch}"
       else
         fail "unexpected workflow ref: ${GITHUB_REF:-unset}"
       fi
@@ -309,12 +354,22 @@ source_audit() {
   local ui_dependency_bounds
   local ui_manifest="$ROOT/packaging/arch/ui-development/manifest.json"
   local ui_package_version
+  local validation_branch='main'
   local version_major
   local version_minor
   local version_patch
 
   while (($#)); do
     case "$1" in
+      --branch)
+        (($# >= 2)) \
+          || {
+            printf 'denial-release: --branch requires a value\n' >&2
+            return 2
+          }
+        validation_branch="$2"
+        shift
+        ;;
       --development) allow_dirty=1 ;;
       --public-alpha)
         (($# >= 2)) \
@@ -336,6 +391,13 @@ source_audit() {
     esac
     shift
   done
+  case "$validation_branch" in
+    main | dev) ;;
+    *)
+      printf 'denial-release: --branch must be main or dev\n' >&2
+      return 2
+      ;;
+  esac
 
   printf 'Denial committed-source audit\n\n'
 
@@ -431,8 +493,8 @@ source_audit() {
         "${GITHUB_SHA:-unset}" \
         "$(git -C "$ROOT" rev-parse HEAD)"
       check_equal \
-        'qualification workflow uses main' \
-        refs/heads/main \
+        'validation workflow uses the requested branch' \
+        "refs/heads/${validation_branch}" \
         "${GITHUB_REF:-unset}"
     fi
   fi

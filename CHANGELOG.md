@@ -46,6 +46,13 @@ boundaries may change before 1.0.
 - Main validation now binds the exact verified push SHA to a local `main`
   branch so development packages record a cloneable source ref without
   weakening detached release-tag validation.
+- Trusted `dev` pushes now run the complete production-shaped build, package,
+  artifact, and independent-verification lane before promotion to `main`.
+  Installable `dev` candidates use package release `0` and are excluded from
+  the signed-tag publication path.
+- Builder qualification now exercises Bubblewrap's private-network namespace
+  before accepting work, and the runner permits the capability-free
+  `AF_NETLINK` access required to initialize that isolated namespace.
 - The alpha contribution policy now explicitly defers pull requests until
   Denial exits alpha while continuing to welcome issue reports and technical
   feedback.

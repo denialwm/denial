@@ -93,5 +93,5 @@ rotation, and revocation procedure is in [SIGNING.md](SIGNING.md).
 The completed local package validation is recorded in
 [VALIDATION.md](VALIDATION.md). The public-alpha contract and later hardening
 stages are defined in [PUBLISHING.md](PUBLISHING.md). Every trusted push to
-`main` can produce the unsigned, independently checked candidate documented in
-[MAIN_VALIDATION.md](MAIN_VALIDATION.md).
+`dev` or `main` can produce the unsigned, independently checked candidate
+documented in [BRANCH_VALIDATION.md](BRANCH_VALIDATION.md).
