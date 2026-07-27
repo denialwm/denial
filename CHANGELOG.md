@@ -40,6 +40,9 @@ boundaries may change before 1.0.
 - The packaged Flutter tool snapshot is built in a cleared, fixed environment
   and verified by checksum, preventing host locale, identity, and XDG settings
   from changing the development toolchain artifact.
+- The repository-level Rust toolchain pin now applies consistently to both the
+  compositor and `cargo xtask`, including hardened builders with no default
+  Rustup toolchain.
 - The alpha contribution policy now explicitly defers pull requests until
   Denial exits alpha while continuing to welcome issue reports and technical
   feedback.
