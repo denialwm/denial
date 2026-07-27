@@ -42,6 +42,9 @@ boundaries may change before 1.0.
   from changing the development toolchain artifact.
 - The Flutter tool snapshot now targets Dart's generic x86-64 CPU profile so
   development packages do not vary with builder-specific instruction sets.
+- Flutter's optional package-map version metadata is now normalized to the
+  pinned SDK version, so fresh and previously initialized toolchains produce
+  the same development snapshot.
 - The repository-level Rust toolchain pin now applies consistently to both the
   compositor and `cargo xtask`, including hardened builders with no default
   Rustup toolchain.

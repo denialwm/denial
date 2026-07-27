@@ -29,13 +29,15 @@ is not itself a Flutter project. The namespace clears the complete ambient
 environment, then supplies fixed `HOME`, XDG, `PATH`, locale, timezone, CI,
 Git, temporary-directory, and `SOURCE_DATE_EPOCH` values. Dart's snapshot
 layout changes with some of those inputs even in deterministic mode. The
-snapshot command also selects Dart's generic CPU target so a newer x86-64 host
-cannot specialize the tool snapshot beyond the baseline used by another
-x86-64 machine. Two builds launched with deliberately different user, locale,
-timezone, and XDG environments produced the checksum recorded here after that
-boundary was sealed. The resulting diagnostic source URIs contain no builder
-identity or home directory, and the snapshot does not retain the Flutter tool
-sources as its default project.
+canonical package map also fixes `flutterRoot`, `pubCache`, and the optional
+`flutterVersion` metadata to the pinned SDK values. Flutter may omit
+`flutterVersion` in a fresh tool bootstrap while retaining it in an already
+initialized SDK; leaving that incidental difference in the map changes the
+snapshot bytes. The snapshot command additionally selects Dart's generic CPU
+target so a newer x86-64 host cannot specialize the tool snapshot beyond the
+baseline used by another x86-64 machine. The resulting diagnostic source URIs
+contain no builder identity or home directory, and the snapshot does not
+retain the Flutter tool sources as its default project.
 
 The optional Pacman package records all 102 package roots resolved by this
 Flutter tool lockfile in a generated runtime package map using only relative

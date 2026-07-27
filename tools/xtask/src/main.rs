@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde_json::{Value, json};
 
 const FLUTTER_ENGINE_ABI: &str = "3.44.7.denial1";
+const FLUTTER_SDK_VERSION: &str = "3.44.7";
 const UI_PACKAGE_NAME: &str = "denial-ui-development";
 const UI_DENIAL_MINIMUM_VERSION: &str = "0.2.0";
 const UI_DENIAL_VERSION_BEFORE: &str = "0.3.0";
@@ -500,6 +501,7 @@ fn build_flutter_tool_snapshot(paths: &BuildPaths) -> Result<(), ToolError> {
     fs::set_permissions(&generated, fs::Permissions::from_mode(0o644)).map_err(ToolError::io)?;
     let expected = checksum_record(&paths.flutter_tool_checksum)?;
     let actual = sha256(&generated)?;
+    let canonical_package_config_sha256 = sha256(&package_config)?;
     if actual != expected {
         fs::create_dir_all(&diagnostic_root).map_err(ToolError::io)?;
         let candidate = diagnostic_root.join("flutter_tools.snapshot");
@@ -524,7 +526,7 @@ target_cpu=generic-x64
             sha256(&dart)?,
             sha256(&source_script)?,
             sha256(&source_config)?,
-            sha256(&package_config)?,
+            canonical_package_config_sha256,
         );
         let diagnostic_inputs = diagnostic_root.join("inputs.txt");
         fs::write(&diagnostic_inputs, inputs).map_err(ToolError::io)?;
@@ -537,8 +539,8 @@ target_cpu=generic-x64
     }
     fs::rename(&generated, &paths.flutter_tool_snapshot).map_err(ToolError::io)?;
     println!(
-        "Built canonical Flutter tool snapshot (sha256 {:.12}...)",
-        actual
+        "Built canonical Flutter tool snapshot (sha256 {:.12}..., package config {:.12}...)",
+        actual, canonical_package_config_sha256
     );
     Ok(())
 }
@@ -596,6 +598,10 @@ fn write_canonical_package_config(source: &Path, destination: &Path) -> Result<(
     object.insert(
         String::from("flutterRoot"),
         Value::String(format!("file://{CANONICAL_TOOLCHAIN_ROOT}/flutter")),
+    );
+    object.insert(
+        String::from("flutterVersion"),
+        Value::String(String::from(FLUTTER_SDK_VERSION)),
     );
 
     let mut file = File::create(destination).map_err(ToolError::io)?;
@@ -2277,3 +2283,81 @@ impl fmt::Display for ToolError {
 }
 
 impl Error for ToolError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_package_config_normalizes_optional_flutter_version() {
+        let temporary =
+            TemporaryDirectory::create(&env::temp_dir(), "denial-package-config-test").unwrap();
+        let first_source = temporary.path().join("first.json");
+        let second_source = temporary.path().join("second.json");
+        let first_output = temporary.path().join("first-canonical.json");
+        let second_output = temporary.path().join("second-canonical.json");
+        fs::write(
+            &first_source,
+            r#"{
+  "configVersion": 2,
+  "packages": [
+    {
+      "name": "example",
+      "rootUri": "file:///tmp/first-cache/hosted/pub.dev/example-1.0.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.0"
+    },
+    {
+      "name": "flutter_tools",
+      "rootUri": "../",
+      "packageUri": "lib/",
+      "languageVersion": "3.10"
+    }
+  ],
+  "generator": "pub",
+  "generatorVersion": "3.12.2",
+  "flutterRoot": "file:///tmp/first-flutter",
+  "flutterVersion": "stale",
+  "pubCache": "file:///tmp/first-cache"
+}"#,
+        )
+        .unwrap();
+        fs::write(
+            &second_source,
+            r#"{
+  "configVersion": 2,
+  "packages": [
+    {
+      "name": "example",
+      "rootUri": "file:///var/tmp/second-cache/hosted/pub.dev/example-1.0.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.0"
+    },
+    {
+      "name": "flutter_tools",
+      "rootUri": "../",
+      "packageUri": "lib/",
+      "languageVersion": "3.10"
+    }
+  ],
+  "generator": "pub",
+  "generatorVersion": "3.12.2",
+  "flutterRoot": "file:///var/tmp/second-flutter",
+  "pubCache": "file:///var/tmp/second-cache"
+}"#,
+        )
+        .unwrap();
+
+        write_canonical_package_config(&first_source, &first_output).unwrap();
+        write_canonical_package_config(&second_source, &second_output).unwrap();
+
+        let first = fs::read(&first_output).unwrap();
+        let second = fs::read(&second_output).unwrap();
+        assert_eq!(first, second);
+        let document: Value = serde_json::from_slice(&first).unwrap();
+        assert_eq!(
+            document.get("flutterVersion").and_then(Value::as_str),
+            Some(FLUTTER_SDK_VERSION)
+        );
+    }
+}
