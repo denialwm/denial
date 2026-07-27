@@ -27,14 +27,16 @@
   "artifacts": {
     "debug_engine_sha256": "c5eb1a110887ca2a6b6ae6f98dfaeb609614e5f204bdf731164dc12ae5ed0729",
     "debug_engine_args_sha256": "07acf85f399ce9252589b80fd102fa9ffd0127938bb913d47ba1339eb78f8930",
-    "flutter_tool_sha256": "a22710cc1d4c7a8d81f7b64c5c8bea304df339c2a3da5cbc6c4e2e6c7e673f90",
+    "flutter_tool_sha256": "e9bafdf002e980c7f239e68b2f2448e54f3641ce245803152c0cbdd3222db38f",
     "dart_executable_sha256": "c03ad868b5c53e31461b0fef22dc6eb6aeb56b7567efff6ca488ce9c4a6f8a6a",
+    "dartaotruntime_sha256": "297f6b68adf22140d0bfc92cf974dc0e22bd54be6e15d730b911ad5b661d6a89",
     "icudtl_sha256": "998367809a821d595928089c197b3f7959f0420f81f79d4d0daee53378492ed5"
   },
   "runtime": {
     "engine_mode": "debug-jit",
     "native_engine_optimization": "release-lto",
-    "flutter_tool_snapshot_kind": "app-jit",
+    "flutter_tool_snapshot_kind": "app-aot-elf",
+    "flutter_tool_runtime": "dartaotruntime",
     "flutter_tool_target_cpu": "generic-x64",
     "native_engine_change_requires_session_restart": true,
     "vm_service_bind": "127.0.0.1",

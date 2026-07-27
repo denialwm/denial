@@ -16,28 +16,33 @@ breakpoint or step operation.
 - Dart revision: `d684a576a6aa954ae107a03b2b4e1d61c3bebe93`
 - Flutter tool lockfile:
   `packages/flutter_tools/pubspec.lock` from the pinned Flutter revision
-- Snapshot kind: Dart `app-jit`
+- Snapshot kind: Dart `app-aot-elf`
+- Snapshot runtime: pinned `dartaotruntime`
 - Snapshot CPU target: generic x86-64 (`--target-unknown-cpu`)
 - Expected output: `flutter_tools.snapshot.sha256`
 
-Flutter's ordinary bootstrap snapshot records absolute paths to the SDK and
-the build user's Pub cache. Denial's Rust `xtask` rebuilds it inside an
-unprivileged Bubblewrap mount namespace. Flutter and every locked Pub package
-appear below the stable virtual root `/opt/denial-build/ui-development`, and
-Dart's deterministic snapshot mode is enabled from a neutral directory which
-is not itself a Flutter project. The namespace clears the complete ambient
+Flutter's ordinary bootstrap artifact is an app-JIT image of a warmed Dart VM
+heap. Even after paths, environment, package inputs, and CPU targeting were
+fixed, that heap produced stable but different bytes on two x86-64 hosts.
+Denial therefore does not package the warmed heap.
+
+The Rust `xtask` first runs the pinned `gen_kernel_aot.dart.snapshot` frontend
+against a canonical package map, then gives that kernel to the pinned
+`gen_snapshot` binary to produce an AOT ELF shared object. The compiler never
+executes the Flutter tool entrypoint, so runtime platform state cannot enter
+the captured heap. `gen_snapshot` uses deterministic mode, removes source
+timestamps, and selects Dart's generic x86-64 CPU target.
+
+Both stages run inside an unprivileged Bubblewrap mount namespace. Flutter and
+every locked Pub package appear below the stable virtual root
+`/opt/denial-build/ui-development`. The namespace clears the ambient
 environment, then supplies fixed `HOME`, XDG, `PATH`, locale, timezone, CI,
-Git, temporary-directory, and `SOURCE_DATE_EPOCH` values. Dart's snapshot
-layout changes with some of those inputs even in deterministic mode. The
-canonical package map also fixes `flutterRoot`, `pubCache`, and the optional
-`flutterVersion` metadata to the pinned SDK values. Flutter may omit
-`flutterVersion` in a fresh tool bootstrap while retaining it in an already
-initialized SDK; leaving that incidental difference in the map changes the
-snapshot bytes. The snapshot command additionally selects Dart's generic CPU
-target so a newer x86-64 host cannot specialize the tool snapshot beyond the
-baseline used by another x86-64 machine. The resulting diagnostic source URIs
-contain no builder identity or home directory, and the snapshot does not
-retain the Flutter tool sources as its default project.
+Git, temporary-directory, and `SOURCE_DATE_EPOCH` values. The canonical
+package map fixes `flutterRoot`, `pubCache`, and the optional `flutterVersion`
+metadata to the pinned SDK values. Flutter may omit `flutterVersion` in a
+fresh tool bootstrap while retaining it in an already initialized SDK; Denial
+normalizes both forms. The resulting diagnostic source URIs contain no
+builder identity or home directory.
 
 The optional Pacman package records all 102 package roots resolved by this
 Flutter tool lockfile in a generated runtime package map using only relative

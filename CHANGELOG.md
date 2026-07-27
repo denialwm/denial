@@ -40,6 +40,9 @@ boundaries may change before 1.0.
 - The packaged Flutter tool snapshot is built in a cleared, fixed environment
   and verified by checksum, preventing host locale, identity, and XDG settings
   from changing the development toolchain artifact.
+- The packaged Flutter command-line tool now uses a deterministic AOT image
+  and pinned `dartaotruntime`, removing host-specific warmed-JIT heap state
+  while reducing its uncompressed payload.
 - The Flutter tool snapshot now targets Dart's generic x86-64 CPU profile so
   development packages do not vary with builder-specific instruction sets.
 - Flutter's optional package-map version metadata is now normalized to the

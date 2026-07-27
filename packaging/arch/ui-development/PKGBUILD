@@ -19,14 +19,15 @@ provides=('denial-ui-development-engine=3.44.7.denial1')
 conflicts=('denial-ui-development-git')
 options=('!strip' '!debug')
 source=('manifest.json')
-sha256sums=('5531e64e3d03d267a164b6c01b52fde4528b460c001ba5ce330981ae5b966409')
+sha256sums=('e36f2e9bb346cda340bd785fe8e49c601025666a75dc5190ee0fc87cddf829a6')
 
 _flutter_revision='84fc5cbb223bc12f83d65b647ff8a56caf779ffd'
 _dart_revision='d684a576a6aa954ae107a03b2b4e1d61c3bebe93'
 _engine_sha256='c5eb1a110887ca2a6b6ae6f98dfaeb609614e5f204bdf731164dc12ae5ed0729'
 _flutter_binding_sha256='387b0b92fab3db5ed2d072b9bcd9797d960a983236d4ce07cda628bb20bfda89'
-_flutter_tool_sha256='a22710cc1d4c7a8d81f7b64c5c8bea304df339c2a3da5cbc6c4e2e6c7e673f90'
+_flutter_tool_sha256='e9bafdf002e980c7f239e68b2f2448e54f3641ce245803152c0cbdd3222db38f'
 _dart_sha256='c03ad868b5c53e31461b0fef22dc6eb6aeb56b7567efff6ca488ce9c4a6f8a6a'
+_dartaotruntime_sha256='297f6b68adf22140d0bfc92cf974dc0e22bd54be6e15d730b911ad5b661d6a89'
 _icu_sha256='998367809a821d595928089c197b3f7959f0420f81f79d4d0daee53378492ed5'
 
 package() {
@@ -118,6 +119,7 @@ package() {
     "$flutter_sdk/packages/flutter/lib/src/gestures/binding.dart:$_flutter_binding_sha256" \
     "$flutter_tool_snapshot:$_flutter_tool_sha256" \
     "$flutter_sdk/bin/cache/dart-sdk/bin/dart:$_dart_sha256" \
+    "$flutter_sdk/bin/cache/dart-sdk/bin/dartaotruntime:$_dartaotruntime_sha256" \
     "$icu:$_icu_sha256"; do
     actual="$(sha256sum "${specification%%:*}" | cut -d' ' -f1)"
     if [[ "$actual" != "${specification##*:}" ]]; then

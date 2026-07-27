@@ -357,9 +357,16 @@ fn build_flutter_tool_snapshot(paths: &BuildPaths) -> Result<(), ToolError> {
     let source_script = paths
         .flutter_sdk
         .join("packages/flutter_tools/bin/flutter_tools.dart");
-    let dart = paths.flutter_sdk.join("bin/cache/dart-sdk/bin/dart");
-    for required in [&source_config, &source_script, &dart] {
+    let dart_sdk = paths.flutter_sdk.join("bin/cache/dart-sdk");
+    let dartaotruntime = dart_sdk.join("bin/dartaotruntime");
+    let gen_kernel = dart_sdk.join("bin/snapshots/gen_kernel_aot.dart.snapshot");
+    let platform = dart_sdk.join("lib/_internal/vm_platform_product.dill");
+    let gen_snapshot = dart_sdk.join("bin/utils/gen_snapshot");
+    for required in [&source_config, &source_script, &gen_kernel, &platform] {
         require_regular_file(required)?;
+    }
+    for executable in [&dartaotruntime, &gen_snapshot] {
+        require_executable(executable)?;
     }
     if !paths.pub_cache.is_dir() {
         return Err(ToolError::new(format!(
@@ -381,13 +388,120 @@ fn build_flutter_tool_snapshot(paths: &BuildPaths) -> Result<(), ToolError> {
     write_canonical_package_config(&source_config, &package_config)?;
 
     let canonical_flutter = format!("{CANONICAL_TOOLCHAIN_ROOT}/flutter");
-    let canonical_pub_cache = format!("{CANONICAL_TOOLCHAIN_ROOT}/pub-cache");
-    let canonical_dart = format!("{canonical_flutter}/bin/cache/dart-sdk/bin/dart");
+    let canonical_dart_sdk = format!("{canonical_flutter}/bin/cache/dart-sdk");
+    let canonical_dartaotruntime = format!("{canonical_dart_sdk}/bin/dartaotruntime");
+    let canonical_gen_kernel =
+        format!("{canonical_dart_sdk}/bin/snapshots/gen_kernel_aot.dart.snapshot");
+    let canonical_platform = format!("{canonical_dart_sdk}/lib/_internal/vm_platform_product.dill");
+    let canonical_gen_snapshot = format!("{canonical_dart_sdk}/bin/utils/gen_snapshot");
     let canonical_script =
         format!("{canonical_flutter}/packages/flutter_tools/bin/flutter_tools.dart");
-    let snapshot_argument = "--snapshot=/tmp/output/flutter_tools.snapshot";
+    let kernel_argument = "--output=/tmp/output/flutter_tools.dill";
     let packages_argument = "--packages=/tmp/output/package_config.json";
 
+    let mut compile = flutter_tool_build_sandbox(paths, temporary.path());
+    compile
+        .args([
+            &canonical_dartaotruntime,
+            &canonical_gen_kernel,
+            &format!("--platform={canonical_platform}"),
+            "-Ddart.vm.product=true",
+            "-Ddart.vm.asan=false",
+            "-Ddart.vm.msan=false",
+            "-Ddart.vm.tsan=false",
+            "--target-os=linux",
+            "--aot",
+            "--no-embed-sources",
+            kernel_argument,
+            "--invocation-modes=compile",
+            "--verbosity=error",
+            packages_argument,
+            &canonical_script,
+        ])
+        .stdout(Stdio::null());
+    checked_status(
+        &mut compile,
+        "could not compile the canonical Flutter tool kernel",
+    )?;
+
+    let kernel = temporary.path().join("flutter_tools.dill");
+    require_regular_file(&kernel)?;
+    let mut snapshot = flutter_tool_build_sandbox(paths, temporary.path());
+    snapshot
+        .args([
+            &canonical_gen_snapshot,
+            "--deterministic",
+            "--remove-script-timestamps-for-test",
+            "--target-unknown-cpu",
+            "--snapshot-kind=app-aot-elf",
+            "--elf=/tmp/output/flutter_tools.snapshot",
+            "/tmp/output/flutter_tools.dill",
+        ])
+        .stdout(Stdio::null());
+    checked_status(
+        &mut snapshot,
+        "could not build the canonical Flutter tool AOT snapshot",
+    )?;
+
+    let generated = temporary.path().join("flutter_tools.snapshot");
+    require_regular_file(&generated)?;
+    require_x86_64_aot_elf(&generated)?;
+    fs::set_permissions(&generated, fs::Permissions::from_mode(0o644)).map_err(ToolError::io)?;
+    let expected = checksum_record(&paths.flutter_tool_checksum)?;
+    let actual = sha256(&generated)?;
+    let canonical_package_config_sha256 = sha256(&package_config)?;
+    if actual != expected {
+        fs::create_dir_all(&diagnostic_root).map_err(ToolError::io)?;
+        let candidate = diagnostic_root.join("flutter_tools.snapshot");
+        fs::copy(&generated, &candidate).map_err(ToolError::io)?;
+        fs::set_permissions(&candidate, fs::Permissions::from_mode(0o644))
+            .map_err(ToolError::io)?;
+        let diagnostic_config = diagnostic_root.join("package_config.json");
+        fs::copy(&package_config, &diagnostic_config).map_err(ToolError::io)?;
+        fs::set_permissions(&diagnostic_config, fs::Permissions::from_mode(0o644))
+            .map_err(ToolError::io)?;
+        let inputs = format!(
+            "\
+expected_snapshot_sha256={expected}
+generated_snapshot_sha256={actual}
+dartaotruntime_sha256={}
+flutter_tools_entrypoint_sha256={}
+source_package_config_sha256={}
+canonical_package_config_sha256={}
+gen_kernel_aot_sha256={}
+vm_platform_product_sha256={}
+gen_snapshot_sha256={}
+snapshot_kind=app-aot-elf
+target_cpu=generic-x64
+",
+            sha256(&dartaotruntime)?,
+            sha256(&source_script)?,
+            sha256(&source_config)?,
+            canonical_package_config_sha256,
+            sha256(&gen_kernel)?,
+            sha256(&platform)?,
+            sha256(&gen_snapshot)?,
+        );
+        let diagnostic_inputs = diagnostic_root.join("inputs.txt");
+        fs::write(&diagnostic_inputs, inputs).map_err(ToolError::io)?;
+        fs::set_permissions(&diagnostic_inputs, fs::Permissions::from_mode(0o644))
+            .map_err(ToolError::io)?;
+        return Err(ToolError::new(format!(
+            "canonical Flutter tool snapshot SHA-256 is {actual}, expected {expected}; preserved failure diagnostics at {}",
+            diagnostic_root.display()
+        )));
+    }
+    fs::rename(&generated, &paths.flutter_tool_snapshot).map_err(ToolError::io)?;
+    println!(
+        "Built canonical Flutter tool snapshot (sha256 {:.12}..., package config {:.12}...)",
+        actual, canonical_package_config_sha256
+    );
+    Ok(())
+}
+
+fn flutter_tool_build_sandbox(paths: &BuildPaths, output: &Path) -> Command {
+    let canonical_flutter = format!("{CANONICAL_TOOLCHAIN_ROOT}/flutter");
+    let canonical_pub_cache = format!("{CANONICAL_TOOLCHAIN_ROOT}/pub-cache");
     let mut bwrap = Command::new("bwrap");
     bwrap
         .args([
@@ -421,7 +535,7 @@ fn build_flutter_tool_snapshot(paths: &BuildPaths) -> Result<(), ToolError> {
         .arg(&paths.pub_cache)
         .arg(&canonical_pub_cache)
         .arg("--bind")
-        .arg(temporary.path())
+        .arg(output)
         .arg("/tmp/output")
         .args([
             "--chdir",
@@ -480,69 +594,8 @@ fn build_flutter_tool_snapshot(paths: &BuildPaths) -> Result<(), ToolError> {
             "--setenv",
             "FLUTTER_SUPPRESS_ANALYTICS",
             "true",
-            &canonical_dart,
-            "--deterministic",
-            "--target-unknown-cpu",
-            "--verbosity=error",
-            snapshot_argument,
-            "--snapshot-kind=app-jit",
-            packages_argument,
-            "--no-enable-mirrors",
-            &canonical_script,
-        ])
-        .stdout(Stdio::null());
-    checked_status(
-        &mut bwrap,
-        "could not build the canonical Flutter tool snapshot",
-    )?;
-
-    let generated = temporary.path().join("flutter_tools.snapshot");
-    require_regular_file(&generated)?;
-    fs::set_permissions(&generated, fs::Permissions::from_mode(0o644)).map_err(ToolError::io)?;
-    let expected = checksum_record(&paths.flutter_tool_checksum)?;
-    let actual = sha256(&generated)?;
-    let canonical_package_config_sha256 = sha256(&package_config)?;
-    if actual != expected {
-        fs::create_dir_all(&diagnostic_root).map_err(ToolError::io)?;
-        let candidate = diagnostic_root.join("flutter_tools.snapshot");
-        fs::copy(&generated, &candidate).map_err(ToolError::io)?;
-        fs::set_permissions(&candidate, fs::Permissions::from_mode(0o644))
-            .map_err(ToolError::io)?;
-        let diagnostic_config = diagnostic_root.join("package_config.json");
-        fs::copy(&package_config, &diagnostic_config).map_err(ToolError::io)?;
-        fs::set_permissions(&diagnostic_config, fs::Permissions::from_mode(0o644))
-            .map_err(ToolError::io)?;
-        let inputs = format!(
-            "\
-expected_snapshot_sha256={expected}
-generated_snapshot_sha256={actual}
-dart_sha256={}
-flutter_tools_entrypoint_sha256={}
-source_package_config_sha256={}
-canonical_package_config_sha256={}
-snapshot_kind=app-jit
-target_cpu=generic-x64
-",
-            sha256(&dart)?,
-            sha256(&source_script)?,
-            sha256(&source_config)?,
-            canonical_package_config_sha256,
-        );
-        let diagnostic_inputs = diagnostic_root.join("inputs.txt");
-        fs::write(&diagnostic_inputs, inputs).map_err(ToolError::io)?;
-        fs::set_permissions(&diagnostic_inputs, fs::Permissions::from_mode(0o644))
-            .map_err(ToolError::io)?;
-        return Err(ToolError::new(format!(
-            "canonical Flutter tool snapshot SHA-256 is {actual}, expected {expected}; preserved failure diagnostics at {}",
-            diagnostic_root.display()
-        )));
-    }
-    fs::rename(&generated, &paths.flutter_tool_snapshot).map_err(ToolError::io)?;
-    println!(
-        "Built canonical Flutter tool snapshot (sha256 {:.12}..., package config {:.12}...)",
-        actual, canonical_package_config_sha256
-    );
-    Ok(())
+        ]);
+    bwrap
 }
 
 fn write_canonical_package_config(source: &Path, destination: &Path) -> Result<(), ToolError> {
@@ -1420,11 +1473,25 @@ fn validate_package(
     }
     let packaged_flutter_tool =
         root.join("usr/lib/denial/ui-development/flutter/bin/cache/flutter_tools.snapshot");
+    require_x86_64_aot_elf(&packaged_flutter_tool)?;
     let expected_flutter_tool_sha256 = checksum_record(&paths.flutter_tool_checksum)?;
     let packaged_flutter_tool_sha256 = sha256(&packaged_flutter_tool)?;
     if packaged_flutter_tool_sha256 != expected_flutter_tool_sha256 {
         return Err(ToolError::new(format!(
             "packaged Flutter tool SHA-256 is {packaged_flutter_tool_sha256}, expected {expected_flutter_tool_sha256}"
+        )));
+    }
+    let expected_flutter_tool_runtime_sha256 = sha256(
+        &paths
+            .flutter_sdk
+            .join("bin/cache/dart-sdk/bin/dartaotruntime"),
+    )?;
+    let packaged_flutter_tool_runtime =
+        root.join("usr/lib/denial/ui-development/flutter/bin/cache/dart-sdk/bin/dartaotruntime");
+    let packaged_flutter_tool_runtime_sha256 = sha256(&packaged_flutter_tool_runtime)?;
+    if packaged_flutter_tool_runtime_sha256 != expected_flutter_tool_runtime_sha256 {
+        return Err(ToolError::new(format!(
+            "packaged Flutter tool runtime SHA-256 is {packaged_flutter_tool_runtime_sha256}, expected {expected_flutter_tool_runtime_sha256}"
         )));
     }
 
@@ -1570,6 +1637,8 @@ fn validate_package(
         "\"debug_engine_sha256\": \"{expected_engine_sha256}\""
     )) || !manifest.contains(&format!(
         "\"flutter_tool_sha256\": \"{expected_flutter_tool_sha256}\""
+    )) || !manifest.contains(&format!(
+        "\"dartaotruntime_sha256\": \"{expected_flutter_tool_runtime_sha256}\""
     )) || !manifest.contains("\"stage\": \"public-alpha\"")
         || !manifest.contains(&format!(
             "\"flutter_series_manifest_sha256\": \"{expected_flutter_patch_series_sha256}\""
@@ -1584,6 +1653,8 @@ fn validate_package(
             "\"denial_version_before\": \"{UI_DENIAL_VERSION_BEFORE}\""
         ))
         || !manifest.contains("\"engine_mode\": \"debug-jit\"")
+        || !manifest.contains("\"flutter_tool_snapshot_kind\": \"app-aot-elf\"")
+        || !manifest.contains("\"flutter_tool_runtime\": \"dartaotruntime\"")
         || !manifest.contains("\"editor_attach_mode\": \"non-pausing\"")
         || !manifest.contains("\"dap_debugger_control\": false")
         || !manifest.contains("\"hot_reload\": true")
@@ -1930,6 +2001,27 @@ fn require_regular_file(path: &Path) -> Result<(), ToolError> {
     } else {
         Err(ToolError::new(format!(
             "expected a regular file: {}",
+            path.display()
+        )))
+    }
+}
+
+fn require_x86_64_aot_elf(path: &Path) -> Result<(), ToolError> {
+    require_regular_file(path)?;
+    let mut header = [0_u8; 20];
+    File::open(path)
+        .map_err(ToolError::io)?
+        .read_exact(&mut header)
+        .map_err(ToolError::io)?;
+    let is_elf = header[..4] == [0x7f, b'E', b'L', b'F'];
+    let is_64_bit_little_endian = header[4] == 2 && header[5] == 1 && header[6] == 1;
+    let object_type = u16::from_le_bytes([header[16], header[17]]);
+    let machine = u16::from_le_bytes([header[18], header[19]]);
+    if is_elf && is_64_bit_little_endian && object_type == 3 && machine == 62 {
+        Ok(())
+    } else {
+        Err(ToolError::new(format!(
+            "expected an x86-64 AOT ELF shared object: {}",
             path.display()
         )))
     }

@@ -220,7 +220,7 @@ struct DevelopmentPaths {
     root: PathBuf,
     flutter_root: PathBuf,
     flutter_launcher: PathBuf,
-    dart: PathBuf,
+    flutter_tool_runtime: PathBuf,
     flutter_tool: PathBuf,
     engine: PathBuf,
     icu: PathBuf,
@@ -274,14 +274,14 @@ impl DevelopmentPaths {
         require_absolute("debug bundle", &bundle)?;
         require_absolute("packaged Pub cache seed", &pub_cache_seed)?;
         require_absolute("user Pub cache", &pub_cache)?;
-        let dart = flutter_root.join("bin/cache/dart-sdk/bin/dart");
+        let flutter_tool_runtime = flutter_root.join("bin/cache/dart-sdk/bin/dartaotruntime");
         let flutter_launcher = flutter_root.join("bin/flutter");
         let flutter_tool = flutter_root.join("bin/cache/flutter_tools.snapshot");
         Ok(Self {
             root,
             flutter_root,
             flutter_launcher,
-            dart,
+            flutter_tool_runtime,
             flutter_tool,
             engine,
             icu,
@@ -327,7 +327,11 @@ fn doctor(workspace: Option<&Path>) -> Result<(), CliError> {
         ready = false;
     }
     ready &= show_path("Flutter launcher", &paths.flutter_launcher, Path::is_file);
-    ready &= show_path("pinned Dart", &paths.dart, Path::is_file);
+    ready &= show_path(
+        "Flutter tool AOT runtime",
+        &paths.flutter_tool_runtime,
+        Path::is_file,
+    );
     ready &= show_path("Flutter tool", &paths.flutter_tool, Path::is_file);
     ready &= show_path(
         "Flutter analyzer SDK",
@@ -528,7 +532,7 @@ fn lexical_absolute(path: &Path) -> Result<PathBuf, CliError> {
 
 fn validate_toolchain(paths: &DevelopmentPaths) -> Result<(), CliError> {
     for required in [
-        &paths.dart,
+        &paths.flutter_tool_runtime,
         &paths.flutter_tool,
         &paths.icu,
         &paths
@@ -685,7 +689,7 @@ fn run_flutter(
 }
 
 fn flutter_process(paths: &DevelopmentPaths, arguments: &[OsString]) -> Process {
-    let mut process = Process::new(&paths.dart);
+    let mut process = Process::new(&paths.flutter_tool_runtime);
     process
         .arg(&paths.flutter_tool)
         .arg("--suppress-analytics")

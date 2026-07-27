@@ -117,6 +117,11 @@ user's existing Pub cache. Its executable interface is native Rust; the
 package does not install a Denial-owned Bash wrapper. `denial-flutter` is an
 editor-compatible entry point to the same compiled binary.
 
+The Flutter command-line tool in that SDK is a deterministic AOT image run by
+the pinned `dartaotruntime`. This only optimizes and stabilizes the tooling
+that prepares and attaches to the shell; the live Denial UI still uses its
+separate debug JIT engine and retains hot reload.
+
 None of it is installed for users who keep the normal optimized Denial
 runtime.
 
@@ -165,13 +170,13 @@ sudo pacman -U \
   "$XDG_CACHE_HOME/denial/pc-build/packages/denial-ui-development-"*.pkg.tar.zst
 ```
 
-The Rust `xtask` creates the builder-neutral Flutter tool snapshot, stages the
+The Rust `xtask` creates the builder-neutral AOT Flutter tool, stages the
 curated SDK runtime, locked dependency source cache, source revision metadata,
 and UI source snapshot; builds the native client; creates the Pacman archive;
 and validates its metadata, checksums, permissions, licenses, size budget, and
 absence of builder-home paths. Its isolated smoke test clones the recorded
-revision from a local repository, overlays the packaged UI source, and prepares
-the real Denial JIT bundle with networking disabled.
+revision from a local repository, overlays the packaged UI source, and
+prepares the real Denial JIT bundle with networking disabled.
 
 For a manually managed source tree, inspect and prepare the JIT assets
 explicitly:
