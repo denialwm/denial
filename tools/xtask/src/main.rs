@@ -37,6 +37,16 @@ fn main() -> ExitCode {
 fn run() -> Result<(), ToolError> {
     let mut arguments = env::args_os().skip(1);
     match arguments.next().as_deref().and_then(OsStr::to_str) {
+        Some("flutter-tool-snapshot") => {
+            if arguments.next().is_some() {
+                return Err(ToolError::usage(
+                    "flutter-tool-snapshot accepts no arguments",
+                ));
+            }
+            let paths = BuildPaths::discover()?;
+            validate_host(&paths)?;
+            build_flutter_tool_snapshot(&paths)
+        }
         Some("ui-development-package") => {
             if arguments.next().is_some() {
                 return Err(ToolError::usage(
@@ -62,6 +72,7 @@ fn print_help() {
 Usage: cargo xtask COMMAND
 
 Commands:
+  flutter-tool-snapshot  Build and verify the packaged Flutter tool snapshot
   ui-development-package  Build and validate denial-ui-development
 
 Environment:
@@ -358,6 +369,12 @@ fn build_flutter_tool_snapshot(paths: &BuildPaths) -> Result<(), ToolError> {
 
     let output_root = paths.build_root.join("ui-development/flutter-tools");
     fs::create_dir_all(&output_root).map_err(ToolError::io)?;
+    let diagnostic_root = output_root.join("snapshot-failure");
+    if let Err(error) = fs::remove_dir_all(&diagnostic_root)
+        && error.kind() != io::ErrorKind::NotFound
+    {
+        return Err(ToolError::io(error));
+    }
     let temporary = TemporaryDirectory::create(&output_root, "snapshot")?;
     let package_config = temporary.path().join("package_config.json");
     write_canonical_package_config(&source_config, &package_config)?;
@@ -484,15 +501,38 @@ fn build_flutter_tool_snapshot(paths: &BuildPaths) -> Result<(), ToolError> {
     let expected = checksum_record(&paths.flutter_tool_checksum)?;
     let actual = sha256(&generated)?;
     if actual != expected {
-        let candidate = paths
-            .flutter_tool_snapshot
-            .with_file_name("flutter_tools.snapshot.candidate");
+        fs::create_dir_all(&diagnostic_root).map_err(ToolError::io)?;
+        let candidate = diagnostic_root.join("flutter_tools.snapshot");
         fs::copy(&generated, &candidate).map_err(ToolError::io)?;
         fs::set_permissions(&candidate, fs::Permissions::from_mode(0o644))
             .map_err(ToolError::io)?;
+        let diagnostic_config = diagnostic_root.join("package_config.json");
+        fs::copy(&package_config, &diagnostic_config).map_err(ToolError::io)?;
+        fs::set_permissions(&diagnostic_config, fs::Permissions::from_mode(0o644))
+            .map_err(ToolError::io)?;
+        let inputs = format!(
+            "\
+expected_snapshot_sha256={expected}
+generated_snapshot_sha256={actual}
+dart_sha256={}
+flutter_tools_entrypoint_sha256={}
+source_package_config_sha256={}
+canonical_package_config_sha256={}
+snapshot_kind=app-jit
+target_cpu=generic-x64
+",
+            sha256(&dart)?,
+            sha256(&source_script)?,
+            sha256(&source_config)?,
+            sha256(&package_config)?,
+        );
+        let diagnostic_inputs = diagnostic_root.join("inputs.txt");
+        fs::write(&diagnostic_inputs, inputs).map_err(ToolError::io)?;
+        fs::set_permissions(&diagnostic_inputs, fs::Permissions::from_mode(0o644))
+            .map_err(ToolError::io)?;
         return Err(ToolError::new(format!(
-            "canonical Flutter tool snapshot SHA-256 is {actual}, expected {expected}; preserved the rejected candidate at {}",
-            candidate.display()
+            "canonical Flutter tool snapshot SHA-256 is {actual}, expected {expected}; preserved failure diagnostics at {}",
+            diagnostic_root.display()
         )));
     }
     fs::rename(&generated, &paths.flutter_tool_snapshot).map_err(ToolError::io)?;

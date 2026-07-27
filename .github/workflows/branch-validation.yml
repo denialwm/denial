@@ -146,6 +146,13 @@ jobs:
           tools/denial-pc bootstrap \
             2>&1 | tee "$EVIDENCE_ROOT/bootstrap.txt"
 
+      - name: Verify packaged Flutter tool snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo xtask flutter-tool-snapshot \
+            2>&1 | tee "$EVIDENCE_ROOT/flutter-tool-snapshot.txt"
+
       - name: Build Flutter integration-test bundle
         shell: bash
         run: |
@@ -178,9 +185,34 @@ jobs:
           set -euo pipefail
           TIMEFORMAT=$'real_seconds=%3R\nuser_seconds=%3U\nsystem_seconds=%3S\ncpu_percent=%P'
           {
-            time tools/denial-pc arch-package
             time cargo xtask ui-development-package
+            time tools/denial-pc arch-package
           } 2>&1 | tee "$EVIDENCE_ROOT/package-build.txt"
+
+      - name: Collect failed build diagnostics
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          failure_root="$RUNNER_TEMP/denial-$GITHUB_REF_NAME-failure"
+          snapshot_root="${XDG_CACHE_HOME:-$HOME/.cache}/denial/pc-build/ui-development/flutter-tools/snapshot-failure"
+          install -d -m 0755 "$failure_root"
+          if [[ -n "${EVIDENCE_ROOT:-}" && -d "$EVIDENCE_ROOT" ]]; then
+            cp -a -- "$EVIDENCE_ROOT" "$failure_root/evidence"
+          fi
+          if [[ -d "$snapshot_root" && -f "${EVIDENCE_ROOT:-}/flutter-tool-snapshot.txt" ]]; then
+            cp -a -- "$snapshot_root" "$failure_root/snapshot-failure"
+          fi
+
+      - name: Upload failed build diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denial-${{ github.ref_name }}-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/denial-${{ github.ref_name }}-failure
+          if-no-files-found: ignore
+          retention-days: 1
+          compression-level: 0
 
       - name: Assemble candidate and build evidence
         shell: bash
