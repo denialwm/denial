@@ -12,6 +12,7 @@ import 'package:denial_dart_shell/src/settings/settings_store.dart';
 import 'package:denial_dart_shell/src/settings/shell_settings.dart';
 import 'package:denial_dart_shell/src/state/authentication.dart';
 import 'package:denial_dart_shell/src/state/shell_controller.dart';
+import 'package:denial_dart_shell/src/state/shell_profile.dart';
 import 'package:denial_dart_shell/src/state/system_status.dart';
 import 'package:denial_dart_shell/src/widgets/lock/lock_screen_layer.dart';
 import 'package:denial_dart_shell/src/widgets/shell_wallpaper.dart';
@@ -33,7 +34,9 @@ void main() {
       bridge.dispose();
     });
 
-    await tester.pumpWidget(_host(service: service, bridge: bridge));
+    await tester.pumpWidget(
+      _host(service: service, bridge: bridge, profile: ShellProfile.mobile),
+    );
     service.emit(_state(locked: true));
     await tester.pump();
 
@@ -157,12 +160,14 @@ void main() {
 Widget _host({
   required _FakeAuthenticationService service,
   required _LayoutBridge bridge,
+  ShellProfile profile = ShellProfile.desktop,
 }) {
   return ProviderScope(
     overrides: <Override>[
       authenticationServiceProvider.overrideWithValue(service),
       settingsStoreProvider.overrideWithValue(_MemorySettingsStore()),
       denialBridgeProvider.overrideWithValue(bridge),
+      shellProfileProvider.overrideWithValue(profile),
       clockProvider.overrideWith(
         (ref) => Stream<DateTime>.value(DateTime(2026, 7, 17, 12, 34)),
       ),

@@ -125,6 +125,7 @@ manual setup, keyring initialization, verification, updates, and removal.
 
 - [Install from the Arch repository](docs/packaging/arch/INSTALL.md)
 - [Build Denial](docs/BUILDING.md)
+- [Session startup and locking](docs/SESSION_STARTUP.md)
 - [Control and recover Denial with `denialctl`](docs/DENIALCTL.md)
 - [Live Flutter UI development](docs/UI_DEVELOPMENT.md)
 - [Architecture](docs/architecture.md)

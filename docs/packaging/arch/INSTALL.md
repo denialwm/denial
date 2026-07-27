@@ -121,6 +121,13 @@ and hardware preflight without starting the compositor. Inside a running
 Denial session, `denialctl status` verifies the native control connection and
 reports the compositor, output, and Flutter UI state.
 
+The standard display-manager entry starts unlocked because the display manager
+has already authenticated the user. An autologin or other direct boot path
+which does not authenticate first should launch
+`denial-session --start-locked`. See
+[Session startup and locking](../../SESSION_STARTUP.md) for the exact UWSM and
+greetd forms and the supported launcher modes.
+
 ## Optional live Flutter development
 
 Install the development environment only when you want to edit Denial's

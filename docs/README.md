@@ -15,6 +15,7 @@ Project-level release documents live at the repository root:
 
 - [Build Denial](BUILDING.md)
 - [Architecture](architecture.md)
+- [Session startup and locking](SESSION_STARTUP.md)
 - [denialctl](DENIALCTL.md)
 - [Live Flutter UI development](UI_DEVELOPMENT.md)
 - [Screenshots and screen sharing](SCREEN_CAPTURE.md)

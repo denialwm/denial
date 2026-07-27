@@ -22,6 +22,9 @@ boundaries may change before 1.0.
   development.
 - VSCodium hot reload on save and Flutter Inspector support for the running
   desktop shell.
+- `denial-session --start-locked` for autologin and direct-start setups which
+  need Denial's native security gate closed before Flutter presents its first
+  frame.
 - A repository-owned guided installer which verifies the complete signing-key
   fingerprint, rejects conflicting Pacman configuration, and installs Denial
   through a normal full-system upgrade.
@@ -35,6 +38,11 @@ boundaries may change before 1.0.
   native control path independently of Flutter Settings.
 - Every login starts from the official optimized shell; live development must
   be enabled explicitly.
+- The desktop shell is now the fail-safe default. The mobile shell is selected
+  only by an exact, explicit `DENIA_SHELL_PROFILE=mobile` request.
+- Normal display-manager sessions start unlocked after the display manager has
+  authenticated the user; unattended startup can opt into Denial's own initial
+  lock instead of imposing a duplicate password prompt on every login.
 - Main-branch and signed-release validation now build, inspect, and retain the
   optional development package alongside the two required runtime packages.
 - The packaged Flutter tool snapshot is built in a cleared, fixed environment
