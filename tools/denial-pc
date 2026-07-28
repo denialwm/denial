@@ -557,6 +557,7 @@ doctor() {
     show_path_state "DRM device" "$DRM_DEVICE"
     show_path_state "wlr portal backend" "$WLR_PORTAL_DESCRIPTOR"
     show_command_state "portal chooser" zenity
+    show_command_state "realtime broker" rtkitctl
     show_session_state
 }
 

@@ -1,6 +1,6 @@
 .TH DENIAL-UI 1 "July 2026" "Denial 0.2.0" "User Commands"
 .SH NAME
-denial-ui \- prepare and attach to Denial's live Flutter UI
+denial-ui \- prepare and attach to Denial's debug and AOT profile Flutter UI
 .SH SYNOPSIS
 .B denial-ui
 .I command
@@ -9,9 +9,10 @@ denial-ui \- prepare and attach to Denial's live Flutter UI
 .B denial-ui
 is the native development client installed by
 .BR denial-ui-development .
-It uses the package-pinned Flutter and Dart toolchain to prepare a JIT shell
-bundle, discover the authenticated Dart VM service, and attach an editor or
-terminal to the running shell.
+It uses the package-pinned Flutter and Dart toolchain to prepare JIT debug or
+optimized AOT profile shell bundles, discover the authenticated Dart VM
+service, and attach an editor, terminal, or browser DevTools to the running
+shell.
 .PP
 The package does not replace Denial's optimized default runtime.
 Entering live development performs an in-process Flutter engine replacement;
@@ -33,11 +34,19 @@ and live VM-service endpoint.
 Resolve the packaged dependency set offline and atomically prepare a debug
 kernel and asset bundle.
 .TP
+.BI "prepare-profile " [workspace]
+Resolve the packaged dependency set offline and atomically prepare an
+optimized AOT profile application and asset bundle.
+.TP
 .B uri
 Print the authenticated loopback Dart VM-service URI.
 .TP
 .BI "attach " [workspace]
 Attach the pinned Flutter tool to the live shell.
+.TP
+.BI "attach-profile " [workspace]
+Attach the pinned Flutter tool and browser DevTools to an active AOT profile
+shell using Flutter's profile attachment mode.
 .TP
 .BI "flutter " [arguments...]
 Run the immutable package-pinned Flutter tool.
@@ -74,11 +83,17 @@ Override the pinned Flutter SDK root.
 .B DENIAL_UI_DEBUG_ENGINE
 Override the patched JIT engine library.
 .TP
+.B DENIAL_UI_PROFILE_ENGINE
+Override the patched AOT profile engine library.
+.TP
 .B DENIAL_UI_BUILD_ROOT
 Override the per-user development build root.
 .TP
 .B DENIAL_UI_DEBUG_BUNDLE
 Override the prepared JIT bundle below the build root.
+.TP
+.B DENIAL_UI_PROFILE_BUNDLE
+Override the prepared AOT profile bundle below the build root.
 .TP
 .B DENIAL_UI_PUB_CACHE
 Override the Denial-scoped writable Pub cache seeded from the development
@@ -98,7 +113,10 @@ The discovery file must be owned by the current user and have mode 0600.
 The packaged editor attachment deliberately does not grant debugger pause,
 breakpoint, stepping, or expression-evaluation control over the desktop
 isolate.
-Hot reload and Flutter Inspector remain available.
+Hot reload and the packaged browser DevTools remain available for Flutter
+Inspector and performance profiling.
+Browser DevTools connects directly through the broader VM-service interface;
+pausing the root isolate also pauses the interactive desktop.
 .SH SEE ALSO
 .BR denialctl (1),
 .BR pacman (8)

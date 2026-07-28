@@ -18,6 +18,17 @@ directly on `main`; fix and prove them on `dev`, then promote the green commit
 to `main` through a pull request. Signed public releases remain restricted to
 separately signed version tags.
 
+## Graphical session control
+
+Never log out, terminate, restart, or otherwise stop the user's graphical
+session on the user's behalf. In particular, do not terminate a login session,
+stop its user-session targets, kill the compositor to force an exit, reboot, or
+power off the machine. When testing requires a fresh Denial session, tell the
+user that a restart is required and wait for the user to log off and return to
+SDDM themselves. Continue only after the user confirms that they have logged
+back in. Perform session-control actions only when the user explicitly asks
+for that exact action.
+
 ## Why Denial
 
 **Denial** is an English word. The name contains **Denia**, followed by one
@@ -69,11 +80,20 @@ Git. Its expected checksum, source/build metadata, and licenses live in
 `prebuilt/flutter-engine/linux-x64-release/`. Rebuild it using that
 directory's `BUILD_INFO.md` before creating a bundle. It applies the versioned
 engine series in `patches/flutter-engine/3.44.7/`: six coupled OpenGL
-stencil/dynamic-MSAA correctness patches plus four autonomous-texture damage,
-raster, and scheduling fixes. The separate, compatible SDK series in
+stencil/dynamic-MSAA correctness patches, one rotating-atlas surface-cache
+fix, and four autonomous-texture damage, raster, and scheduling fixes. The
+separate, compatible SDK series in
 `patches/flutter/` remains part of bootstrap: it raises touch resampling from
 60 Hz to 120 Hz and permits explicit VM-service attachment to Denial's raw
 embedder project without a generated platform runner.
+
+Denial-owned Flutter and Skia commits and mail patches use
+`Doctor Logix <doctor.logix@gmail.com>`. Set that identity locally in source
+forks and temporary repositories; never rely on the host's global Git config.
+The release source audit enforces the committed patch headers.
+
+For direct engine builds, put `flutter/third_party/depot_tools` on `PATH` for
+`vpython3`, but invoke `/usr/bin/ninja` explicitly to bypass its Python wrapper.
 
 The Flutter embedder ABI is committed as generated Rust in
 `compositor/flutter-engine/src/sys.rs`, stamped with the coupled revisions from

@@ -6,6 +6,7 @@ import '../state/desktop_window_close_effect.dart';
 import '../theme/motion.dart';
 import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
+import 'desktop_window_snapshot.dart';
 
 /// Plays a desktop window's terminal visual without retaining native input.
 ///
@@ -89,12 +90,18 @@ class _DesktopWindowCloseAnimationState
   @override
   Widget build(BuildContext context) {
     final accent = ShellTheme.of(context).accent;
+    final snapshotting =
+        widget.effect != DesktopWindowCloseEffect.none &&
+        !MediaQuery.disableAnimationsOf(context);
     return IgnorePointer(
       child: ExcludeSemantics(
         child: RepaintBoundary(
           child: AnimatedBuilder(
             animation: _controller,
-            child: widget.child,
+            child: DesktopWindowSnapshotScope(
+              snapshotting: snapshotting,
+              child: widget.child,
+            ),
             builder: (context, child) {
               final progress = _controller.value;
               final transform = _windowTransform(widget.effect, progress);

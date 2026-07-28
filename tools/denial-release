@@ -335,6 +335,8 @@ source_audit() {
   local dart_version
   local debug_engine_dir="$ROOT/prebuilt/flutter-engine/linux-x64-debug"
   local engine_dir="$ROOT/prebuilt/flutter-engine/linux-x64-release"
+  local engine_patch_author='From: Doctor Logix <doctor.logix@gmail.com>'
+  local engine_patch_author_ok
   local flutter_patch_dir="$ROOT/patches/flutter"
   local flutter_tool_dir="$ROOT/prebuilt/flutter-tools/3.44.7"
   local github_sha
@@ -344,6 +346,8 @@ source_audit() {
   local manifest="$ROOT/packaging/arch/flutter-engine/manifest.json"
   local package_version
   local patch_dir="$ROOT/patches/flutter-engine/3.44.7"
+  local patch_file
+  local profile_engine_dir="$ROOT/prebuilt/flutter-engine/linux-x64-profile"
   local public_alpha_tag=''
   local public_key="$ROOT/packaging/arch/denial-repo-key.asc"
   local public_key_fingerprint
@@ -543,6 +547,19 @@ source_audit() {
   else
     fail 'Flutter Engine patch series does not match series.sha256'
   fi
+  engine_patch_author_ok=1
+  for patch_file in "$patch_dir"/*.patch; do
+    if [[ "$(sed -n '2p' "$patch_file")" != "$engine_patch_author" ]]; then
+      engine_patch_author_ok=0
+      printf 'INFO  unexpected engine patch author: %s\n' \
+        "${patch_file#"$ROOT/"}"
+    fi
+  done
+  if ((engine_patch_author_ok)); then
+    pass 'Flutter Engine patch authors use the repository identity'
+  else
+    fail 'Flutter Engine patch author metadata is not normalized'
+  fi
   if (
     cd "$flutter_patch_dir"
     sha256sum --check --strict series.sha256
@@ -590,6 +607,14 @@ source_audit() {
     "$(jq -r '.artifacts.debug_engine_sha256' "$ui_manifest")" \
     "$(awk 'NR == 1 { print $1 }' "$debug_engine_dir/libflutter_engine.so.sha256")"
   check_equal \
+    'UI manifest identifies the profile-engine arguments' \
+    "$(jq -r '.artifacts.profile_engine_args_sha256' "$ui_manifest")" \
+    "$(file_sha256 "$profile_engine_dir/args.gn")"
+  check_equal \
+    'UI manifest identifies the profile-engine checksum' \
+    "$(jq -r '.artifacts.profile_engine_sha256' "$ui_manifest")" \
+    "$(awk 'NR == 1 { print $1 }' "$profile_engine_dir/libflutter_engine.so.sha256")"
+  check_equal \
     'UI manifest identifies the Flutter-tool snapshot checksum' \
     "$(jq -r '.artifacts.flutter_tool_sha256' "$ui_manifest")" \
     "$(awk 'NR == 1 { print $1 }' "$flutter_tool_dir/flutter_tools.snapshot.sha256")"
@@ -620,6 +645,13 @@ source_audit() {
   else
     pass 'generated debug Flutter engine is not tracked by Git'
   fi
+  if git -C "$ROOT" ls-files --error-unmatch -- \
+      prebuilt/flutter-engine/linux-x64-profile/libflutter_engine.so \
+      >/dev/null 2>&1; then
+    fail 'generated profile Flutter engine must not be tracked by Git'
+  else
+    pass 'generated profile Flutter engine is not tracked by Git'
+  fi
 
   if [[ -f "$engine_dir/libflutter_engine.so" ]]; then
     if (
@@ -644,6 +676,18 @@ source_audit() {
     fi
   else
     pass 'local debug-engine artifact is not required for the committed-source audit'
+  fi
+  if [[ -f "$profile_engine_dir/libflutter_engine.so" ]]; then
+    if (
+      cd "$profile_engine_dir"
+      sha256sum --check --strict libflutter_engine.so.sha256
+    ) >/dev/null; then
+      pass 'local profile-engine artifact matches its adjacent checksum'
+    else
+      fail 'local profile-engine artifact does not match its adjacent checksum'
+    fi
+  else
+    pass 'local profile-engine artifact is not required for the committed-source audit'
   fi
 
   check_equal \

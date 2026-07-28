@@ -1,5 +1,6 @@
 import 'package:denial_dart_shell/src/theme/motion.dart';
 import 'package:denial_dart_shell/src/widgets/desktop_window_reveal.dart';
+import 'package:denial_dart_shell/src/widgets/desktop_window_snapshot.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -7,10 +8,7 @@ void main() {
   const viewport = Size(1000, 800);
 
   test('window entrance uses the fixed fast duration', () {
-    expect(
-      Motion.desktopWindowRevealLeadIn,
-      const Duration(milliseconds: 64),
-    );
+    expect(Motion.desktopWindowRevealLeadIn, const Duration(milliseconds: 64));
     expect(Motion.desktopWindowReveal, const Duration(milliseconds: 320));
   });
 
@@ -80,19 +78,29 @@ void main() {
     );
   });
 
-  testWidgets('new scene entry warms its texture and animates only once',
-      (tester) async {
+  testWidgets('new scene entry warms its texture and animates only once', (
+    tester,
+  ) async {
     await tester.pumpWidget(const _RevealHarness());
 
     expect(find.byType(ClipPath), findsOneWidget);
-    expect(find.byType(AnimatedBuilder), findsNothing);
+    expect(find.byType(AnimatedBuilder), findsOneWidget);
     expect(_clipper(tester).progress, 0.001);
+    expect(_clipPath(tester).clipBehavior, Clip.antiAlias);
+    expect(_snapshotting(tester), isTrue);
+    final initialWindowElement = tester.element(
+      find.byKey(const ValueKey<String>('window')),
+    );
 
     await tester.pump(
       Motion.desktopWindowRevealLeadIn + const Duration(milliseconds: 1),
     );
     expect(find.byType(AnimatedBuilder), findsOneWidget);
     expect(_clipper(tester).progress, 0.0);
+    expect(
+      tester.element(find.byKey(const ValueKey<String>('window'))),
+      same(initialWindowElement),
+    );
 
     // The controller begins from the post-frame callback above, so its first
     // ticker frame intentionally preserves the fully laid-out start state.
@@ -104,16 +112,27 @@ void main() {
       Motion.desktopWindowReveal + const Duration(milliseconds: 1),
     );
     await tester.pump();
-    expect(find.byType(ClipPath), findsNothing);
-    expect(find.byType(AnimatedBuilder), findsNothing);
+    expect(find.byType(ClipPath), findsOneWidget);
+    expect(find.byType(AnimatedBuilder), findsOneWidget);
+    expect(_clipPath(tester).clipBehavior, Clip.none);
+    expect(_clipPath(tester).clipper, isNull);
+    expect(_snapshotting(tester), isFalse);
+    expect(
+      tester.element(find.byKey(const ValueKey<String>('window'))),
+      same(initialWindowElement),
+    );
 
     await tester.pumpWidget(const _RevealHarness());
-    expect(find.byType(ClipPath), findsNothing);
-    expect(find.byType(AnimatedBuilder), findsNothing);
+    expect(_clipPath(tester).clipBehavior, Clip.none);
+    expect(
+      tester.element(find.byKey(const ValueKey<String>('window'))),
+      same(initialWindowElement),
+    );
   });
 
-  testWidgets('entrance timeline is independent of window size',
-      (tester) async {
+  testWidgets('entrance timeline is independent of window size', (
+    tester,
+  ) async {
     final compactProgress = await _midpointProgress(
       tester,
       key: const ValueKey<String>('compact'),
@@ -129,13 +148,18 @@ void main() {
     expect(largeProgress, closeTo(compactProgress, 0.000001));
   });
 
-  testWidgets('normal root still enters after transient metadata settles',
-      (tester) async {
+  testWidgets('normal root still enters after transient metadata settles', (
+    tester,
+  ) async {
     await tester.pumpWidget(const _RevealHarness(enabled: false));
-    expect(find.byType(AnimatedBuilder), findsNothing);
+    expect(find.byType(AnimatedBuilder), findsOneWidget);
+    expect(_clipPath(tester).clipBehavior, Clip.none);
+    expect(_snapshotting(tester), isFalse);
 
     await tester.pumpWidget(const _RevealHarness());
     expect(find.byType(ClipPath), findsOneWidget);
+    expect(_clipPath(tester).clipBehavior, Clip.antiAlias);
+    expect(_snapshotting(tester), isTrue);
 
     await tester.pump(
       Motion.desktopWindowRevealLeadIn + const Duration(milliseconds: 1),
@@ -143,30 +167,45 @@ void main() {
     expect(find.byType(AnimatedBuilder), findsOneWidget);
   });
 
-  testWidgets('disabled entrance displays transient surfaces immediately',
-      (tester) async {
+  testWidgets('disabled entrance displays transient surfaces immediately', (
+    tester,
+  ) async {
     await tester.pumpWidget(const _RevealHarness(enabled: false));
 
-    expect(find.byType(ClipPath), findsNothing);
-    expect(find.byType(AnimatedBuilder), findsNothing);
+    expect(find.byType(ClipPath), findsOneWidget);
+    expect(find.byType(AnimatedBuilder), findsOneWidget);
+    expect(_clipPath(tester).clipBehavior, Clip.none);
+    expect(_snapshotting(tester), isFalse);
     expect(find.byKey(const ValueKey<String>('window')), findsOneWidget);
   });
 
-  testWidgets('reduced motion displays the scene entry immediately',
-      (tester) async {
-    await tester.pumpWidget(
-      const _RevealHarness(disableAnimations: true),
-    );
+  testWidgets('reduced motion displays the scene entry immediately', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const _RevealHarness(disableAnimations: true));
 
-    expect(find.byType(ClipPath), findsNothing);
-    expect(find.byType(AnimatedBuilder), findsNothing);
+    expect(find.byType(ClipPath), findsOneWidget);
+    expect(find.byType(AnimatedBuilder), findsOneWidget);
+    expect(_clipPath(tester).clipBehavior, Clip.none);
+    expect(_snapshotting(tester), isFalse);
     expect(find.byKey(const ValueKey<String>('window')), findsOneWidget);
   });
 }
 
+ClipPath _clipPath(WidgetTester tester) {
+  return tester.widget<ClipPath>(find.byType(ClipPath));
+}
+
 DesktopWindowSquircleRevealClipper _clipper(WidgetTester tester) {
-  return tester.widget<ClipPath>(find.byType(ClipPath)).clipper!
-      as DesktopWindowSquircleRevealClipper;
+  return _clipPath(tester).clipper! as DesktopWindowSquircleRevealClipper;
+}
+
+bool _snapshotting(WidgetTester tester) {
+  return tester
+      .widget<DesktopWindowSnapshotScope>(
+        find.byType(DesktopWindowSnapshotScope),
+      )
+      .snapshotting;
 }
 
 Future<double> _midpointProgress(

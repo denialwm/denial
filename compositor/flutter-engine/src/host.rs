@@ -123,7 +123,18 @@ pub trait OpenGlHandler: Send + Sync + 'static {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DartRuntimeMode {
     Aot,
+    AotProfile,
     Jit,
+}
+
+impl DartRuntimeMode {
+    fn runs_aot(self) -> bool {
+        matches!(self, Self::Aot | Self::AotProfile)
+    }
+
+    fn exposes_vm_service(self) -> bool {
+        matches!(self, Self::AotProfile | Self::Jit)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -326,8 +337,10 @@ fn engine_command_line(project: &EngineProject) -> Vec<CString> {
         );
     }
     if project.runtime == DartRuntimeMode::Jit {
+        arguments.push(CString::new("--enable-checked-mode").expect("static argv has no NUL"));
+    }
+    if project.runtime.exposes_vm_service() {
         for argument in [
-            "--enable-checked-mode",
             "--enable-dart-profiling",
             "--vm-service-host=127.0.0.1",
             "--vm-service-port=0",
@@ -379,15 +392,26 @@ impl EngineHost {
         handler: Arc<dyn OpenGlHandler>,
         library: Arc<EngineLibrary>,
     ) -> Result<Self, HostError> {
+        Self::start_with_library_and_priority_setter(project, handler, library, None)
+    }
+
+    /// Starts an engine with an embedder-owned callback that Flutter invokes
+    /// on each engine-managed thread after assigning its latency role.
+    pub fn start_with_library_and_priority_setter(
+        project: &EngineProject,
+        handler: Arc<dyn OpenGlHandler>,
+        library: Arc<EngineLibrary>,
+        thread_priority_setter: Option<unsafe extern "C" fn(sys::FlutterThreadPriority)>,
+    ) -> Result<Self, HostError> {
         let engine_runs_aot = library.runs_aot_compiled_dart_code();
-        if engine_runs_aot != (project.runtime == DartRuntimeMode::Aot) {
+        if engine_runs_aot != project.runtime.runs_aot() {
             return Err(HostError::RuntimeModeMismatch {
                 project: project.runtime,
                 engine_runs_aot,
             });
         }
         let aot_data = match project.runtime {
-            DartRuntimeMode::Aot => Some(
+            DartRuntimeMode::Aot | DartRuntimeMode::AotProfile => Some(
                 library.create_aot_data(
                     project
                         .aot_library
@@ -449,7 +473,7 @@ impl EngineHost {
             struct_size: mem::size_of::<sys::FlutterCustomTaskRunners>(),
             platform_task_runner: &*platform_runner,
             render_task_runner: ptr::null(),
-            thread_priority_setter: None,
+            thread_priority_setter,
             ui_task_runner: ptr::null(),
         });
         let project_args = Box::new(sys::FlutterProjectArgs {
@@ -1028,6 +1052,28 @@ mod tests {
         assert!(arguments.contains(&"--vm-service-host=127.0.0.1"));
         assert!(arguments.contains(&"--vm-service-port=0"));
         assert!(arguments.contains(&"--disable-vm-service-publication"));
+        assert!(!arguments.contains(&"--disable-service-auth-codes"));
+    }
+
+    #[test]
+    fn profile_command_line_enables_profiling_without_debug_checks() {
+        let arguments = engine_command_line(&EngineProject {
+            engine_library: PathBuf::from("/engine"),
+            assets: PathBuf::from("/assets"),
+            icu_data: PathBuf::from("/icudtl.dat"),
+            runtime: DartRuntimeMode::AotProfile,
+            aot_library: Some(PathBuf::from("/libapp.so")),
+            resource_cache_max_bytes_threshold: 0,
+        });
+        let arguments = arguments
+            .iter()
+            .map(|argument| argument.to_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(arguments.contains(&"--enable-dart-profiling"));
+        assert!(arguments.contains(&"--vm-service-host=127.0.0.1"));
+        assert!(arguments.contains(&"--vm-service-port=0"));
+        assert!(arguments.contains(&"--disable-vm-service-publication"));
+        assert!(!arguments.contains(&"--enable-checked-mode"));
         assert!(!arguments.contains(&"--disable-service-auth-codes"));
     }
 

@@ -320,6 +320,7 @@ impl OutputScheduler {
         if broker_index != initial_index {
             return Err("Flutter and KMS disagree about the initial atlas buffer".into());
         }
+        runtime.set_outputs_visible(powered_outputs > 0)?;
         let pipelines = scanouts
             .iter()
             .enumerate()

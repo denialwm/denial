@@ -21,7 +21,7 @@
   },
   "patches": {
     "engine_series": "patches/flutter-engine/3.44.7/",
-    "engine_series_manifest_sha256": "ae429d568466e528e7b2a83e3a2597ad819855a780288b362304c2dbb265ff81",
+    "engine_series_manifest_sha256": "e0b3146041cec016b42da18bfd54a76a8f5e94ecca5200c327c5791b1402131d",
     "framework_patch": "patches/flutter/0001-enable-120hz-touch-resampling.patch",
     "framework_patch_sha256": "428a6a56ef9ffcdb45853abdabe9d04e6788abc04ec14fdc843ae0142db2a31f"
   },
@@ -32,12 +32,12 @@
   },
   "artifacts": {
     "gn_args_sha256": "2510d311b93f02a6738cd129efae5d2d0ef15938b3b21c7cc318d43a1e4c228e",
-    "libflutter_engine_sha256": "acc47606f2c905b089a55cc8f1af6e52dfcbd4a7dc8c7133f462c2f0791bc0cc",
-    "libflutter_engine_build_id": "81a2d25ef8f0e565a9171d6c14555ae5ee24dfd8",
+    "libflutter_engine_sha256": "6e884cbed86f1a60431f8755f1137516610f02d5daf3dd55682b9986d59032f7",
+    "libflutter_engine_build_id": "453bfc3429c171fbe36d71719dd71ddef05948bc",
     "icudtl_sha256": "998367809a821d595928089c197b3f7959f0420f81f79d4d0daee53378492ed5"
   },
   "assurances": {
-    "source_tree_equality_verified": true,
+    "source_tree_equality_verified": false,
     "source_build_verified": true,
     "unit_tests_verified": true,
     "x86_64_hardware_verified": true,

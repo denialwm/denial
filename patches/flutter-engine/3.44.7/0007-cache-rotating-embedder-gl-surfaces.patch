@@ -1,0 +1,160 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Doctor Logix <doctor.logix@gmail.com>
+Date: Tue, 28 Jul 2026 19:15:00 +0200
+Subject: [PATCH] Cache rotating embedder GL surfaces
+
+Denial presents from a persistent pool of embedder-owned atlas FBOs. Flutter
+asks for the next target after every present, but GPUSurfaceGLSkia previously
+destroyed the old SkSurface wrapper and created another one even when that FBO
+was about to rotate back into use.
+
+The wrapper owns the stencil and dynamic-MSAA resources around Denial's
+borrowed texture. Recreating it every frame therefore makes the GL driver tear
+down and allocate full-atlas GPU resources on the raster thread. Keep one
+wrapper per stable pool FBO and clear the pool only when the surface size
+changes or the GL surface is destroyed.
+---
+ .../src/flutter/shell/gpu/gpu_surface_gl_skia.cc   | 62 +++++++++++-----------
+ .../src/flutter/shell/gpu/gpu_surface_gl_skia.h    |  8 +++
+ 2 files changed, 38 insertions(+), 32 deletions(-)
+
+diff --git a/engine/src/flutter/shell/gpu/gpu_surface_gl_skia.h b/engine/src/flutter/shell/gpu/gpu_surface_gl_skia.h
+--- a/engine/src/flutter/shell/gpu/gpu_surface_gl_skia.h
++++ b/engine/src/flutter/shell/gpu/gpu_surface_gl_skia.h
+@@ -7,6 +7,7 @@
+ 
+ #include <functional>
+ #include <memory>
++#include <unordered_map>
+ 
+ #include "flutter/common/graphics/gl_context_switch.h"
+ #include "flutter/flow/embedded_views.h"
+@@ -59,6 +60,9 @@ class GPUSurfaceGLSkia : public Surface {
+  private:
+   bool CreateOrUpdateSurfaces(const DlISize& size);
+ 
++  bool SelectOrCreateOnscreenSurface(const DlISize& size,
++                                     const GLFBOInfo& fbo_info);
++
+   sk_sp<SkSurface> AcquireRenderSurface(
+       const DlISize& untransformed_size,
+       const DlMatrix& root_surface_transformation);
+@@ -69,6 +73,10 @@ class GPUSurfaceGLSkia : public Surface {
+   sk_sp<GrDirectContext> context_;
+   sk_sp<const GrGLInterface> gl_interface_;
+   sk_sp<SkSurface> onscreen_surface_;
++  // Denial's embedder FBOs form a stable pool for the lifetime of this
++  // surface. Keep their SkSurface wrappers alive so rotating the scanout
++  // target does not repeatedly destroy and recreate stencil/DMSAA resources.
++  std::unordered_map<uint32_t, sk_sp<SkSurface>> onscreen_surfaces_;
+   /// FBO backing the current `onscreen_surface_`.
+   uint32_t fbo_id_ = 0;
+   // The current FBO's existing damage, as tracked by the GPU surface, delegates
+diff --git a/engine/src/flutter/shell/gpu/gpu_surface_gl_skia.cc b/engine/src/flutter/shell/gpu/gpu_surface_gl_skia.cc
+--- a/engine/src/flutter/shell/gpu/gpu_surface_gl_skia.cc
++++ b/engine/src/flutter/shell/gpu/gpu_surface_gl_skia.cc
+@@ -121,6 +121,7 @@ GPUSurfaceGLSkia::~GPUSurfaceGLSkia() {
+   }
+ 
+   onscreen_surface_ = nullptr;
++  onscreen_surfaces_.clear();
+   fbo_id_ = 0;
+   if (context_owner_) {
+     context_->releaseResourcesAndAbandonContext();
+@@ -263,6 +264,30 @@ static sk_sp<SkSurface> WrapOnscreenSurface(GrDirectContext* context,
+   );
+ }
+ 
++bool GPUSurfaceGLSkia::SelectOrCreateOnscreenSurface(
++    const DlISize& size,
++    const GLFBOInfo& fbo_info) {
++  auto surface_it = onscreen_surfaces_.find(fbo_info.fbo_id);
++  if (surface_it == onscreen_surfaces_.end()) {
++    auto surface =
++        WrapOnscreenSurface(context_.get(),   // GL context
++                            size,             // root surface size
++                            fbo_info.fbo_id,  // window FBO ID
++                            gl_interface_.get());
++    if (!surface) {
++      FML_LOG(ERROR) << "Could not wrap onscreen surface.";
++      return false;
++    }
++    surface_it =
++        onscreen_surfaces_.emplace(fbo_info.fbo_id, std::move(surface)).first;
++  }
++
++  onscreen_surface_ = surface_it->second;
++  fbo_id_ = fbo_info.fbo_id;
++  existing_damage_ = fbo_info.existing_damage;
++  return true;
++}
++
+ bool GPUSurfaceGLSkia::CreateOrUpdateSurfaces(const DlISize& size) {
+   if (onscreen_surface_ != nullptr &&
+       size.width == onscreen_surface_->width() &&
+@@ -276,6 +301,7 @@ bool GPUSurfaceGLSkia::CreateOrUpdateSurfaces(const DlISize& size) {
+ 
+   // Either way, we need to get rid of previous surface.
+   onscreen_surface_ = nullptr;
++  onscreen_surfaces_.clear();
+   fbo_id_ = 0;
+ 
+   if (size.IsEmpty()) {
+@@ -283,28 +309,10 @@ bool GPUSurfaceGLSkia::CreateOrUpdateSurfaces(const DlISize& size) {
+     return false;
+   }
+ 
+-  sk_sp<SkSurface> onscreen_surface;
+-
+   GLFrameInfo frame_info = {static_cast<uint32_t>(size.width),
+                             static_cast<uint32_t>(size.height)};
+   const GLFBOInfo fbo_info = delegate_->GLContextFBO(frame_info);
+-  onscreen_surface = WrapOnscreenSurface(context_.get(),   // GL context
+-                                         size,             // root surface size
+-                                         fbo_info.fbo_id,  // window FBO ID
+-                                         gl_interface_.get());
+-
+-  if (onscreen_surface == nullptr) {
+-    // If the onscreen surface could not be wrapped. There is absolutely no
+-    // point in moving forward.
+-    FML_LOG(ERROR) << "Could not wrap onscreen surface.";
+-    return false;
+-  }
+-
+-  onscreen_surface_ = std::move(onscreen_surface);
+-  fbo_id_ = fbo_info.fbo_id;
+-  existing_damage_ = fbo_info.existing_damage;
+-
+-  return true;
++  return SelectOrCreateOnscreenSurface(size, fbo_info);
+ }
+ 
+ // |Surface|
+@@ -398,22 +406,12 @@ bool GPUSurfaceGLSkia::PresentSurface(const SurfaceFrame& frame) {
+     GLFrameInfo frame_info = {static_cast<uint32_t>(current_size.width),
+                               static_cast<uint32_t>(current_size.height)};
+ 
+-    // The FBO has changed, ask the delegate for the new FBO and do a surface
+-    // re-wrap.
++    // The FBO has changed. Select its existing wrapper, or create one the
++    // first time this pool entry is returned.
+     const GLFBOInfo fbo_info = delegate_->GLContextFBO(frame_info);
+-    auto new_onscreen_surface =
+-        WrapOnscreenSurface(context_.get(),   // GL context
+-                            current_size,     // root surface size
+-                            fbo_info.fbo_id,  // window FBO ID
+-                            gl_interface_.get());
+-
+-    if (!new_onscreen_surface) {
++    if (!SelectOrCreateOnscreenSurface(current_size, fbo_info)) {
+       return false;
+     }
+-
+-    onscreen_surface_ = std::move(new_onscreen_surface);
+-    fbo_id_ = fbo_info.fbo_id;
+-    existing_damage_ = fbo_info.existing_damage;
+   }
+ 
+   return true;
+-- 
+2.50.1

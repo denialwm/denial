@@ -88,8 +88,9 @@ direct screenshots, and portal-based screen sharing.
 The optional `denial-ui-development` package turns the reference shell into an
 editable Flutter workspace. `denialctl ui setup` creates the matching source
 checkout and starts a JIT shell; opening its `dart_shell` directory in
-VSCodium enables hot reload on save and Flutter Inspector while Wayland
-applications keep running.
+VSCodium enables hot reload on save and the packaged browser DevTools for
+Flutter Inspector and performance profiling while Wayland applications keep
+running.
 
 Install it separately when this workflow is wanted:
 
@@ -98,11 +99,13 @@ sudo pacman -S denial-ui-development
 denialctl ui setup
 ```
 
-The supported editor connection is deliberately non-pausing. It does not grant
-breakpoint, pause, stepping, or expression-evaluation control over the desktop
-isolate. A native `denialctl ui restore` command returns to the packaged
-optimized shell even when edited Flutter code cannot present a usable Settings
-window.
+The supported editor debug-adapter connection is deliberately non-pausing. It
+does not grant breakpoint, pause, stepping, or expression-evaluation control
+over the desktop isolate. Browser DevTools connects through the broader VM
+service and should be used carefully because pausing the root isolate pauses
+the interactive desktop. A native `denialctl ui restore` command returns to
+the packaged optimized shell even when edited Flutter code cannot present a
+usable Settings window.
 
 ## Install on Arch Linux
 

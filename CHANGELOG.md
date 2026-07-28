@@ -4,6 +4,28 @@ This file records user-visible changes to Denial. Denial is still a public
 alpha: native APIs, the Flutter shell contract, configuration, and package
 boundaries may change before 1.0.
 
+## [Unreleased]
+
+### Added
+
+- The optional UI development package now includes and enables the
+  version-matched browser DevTools frontend for Flutter Inspector and
+  performance profiling.
+
+### Changed
+
+- The native compositor plus Flutter's display and raster threads now request
+  minimum-priority `SCHED_RR` only under a non-fatal realtime envelope, with
+  RTKit-backed high-priority normal scheduling as the fallback. Realtime
+  overruns demote Denial instead of terminating the graphical session;
+  background workers and launched applications remain ordinary tasks.
+
+### Fixed
+
+- Powering off the final output now moves Flutter into its standard hidden
+  lifecycle and cancels stale frame authorization. The shell stops producing
+  invisible frames while Wayland applications remain alive for wake.
+
 ## [0.2.0] - 2026-07-27
 
 ### Added

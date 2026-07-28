@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -15,7 +16,7 @@ const int _maxDeferredWindowEvents = 4096;
 @visibleForTesting
 class DesktopWindowEventBacklog {
   DesktopWindowEventBacklog({this.capacity = _maxDeferredWindowEvents})
-      : assert(capacity >= 0);
+    : assert(capacity >= 0);
 
   final int capacity;
   final ListQueue<DenialWindowEvent> _events = ListQueue<DenialWindowEvent>();
@@ -49,17 +50,54 @@ class DesktopWindowEventBacklog {
   }
 }
 
+/// Retains only the newest in-progress native placement for each window.
+///
+/// Pointer sampling can run faster than Flutter's current frame rate,
+/// especially in a debug build. Publishing every intermediate coordinate to
+/// provider state creates work that can never be displayed. Begin/end phases
+/// remain immediate; update phases are sampled once at the next frame.
+@visibleForTesting
+class DesktopWindowPlacementFrameBatch {
+  final Map<int, DenialWindowPlacementEvent> _updates =
+      <int, DenialWindowPlacementEvent>{};
+
+  int get length => _updates.length;
+
+  void add(DenialWindowPlacementEvent event) {
+    assert(event.phase == DenialWindowPlacementPhase.update);
+    final previous = _updates[event.windowId];
+    if (previous == null || event.sequence > previous.sequence) {
+      _updates[event.windowId] = event;
+    }
+  }
+
+  DenialWindowPlacementEvent? remove(int windowId) => _updates.remove(windowId);
+
+  List<DenialWindowPlacementEvent> takeAll() {
+    final updates = _updates.values.toList(growable: false)
+      ..sort((left, right) => left.sequence.compareTo(right.sequence));
+    _updates.clear();
+    return updates;
+  }
+
+  void clear() => _updates.clear();
+}
+
 // Own the native-event subscription outside the widget tree's rendering
 // logic. Every native placement is reduced into DesktopWindowPlacement before
 // UI consumers such as overview resolve monitor membership.
 final desktopWindowCoordinatorProvider = Provider<void>((ref) {
   ref.read(shellControllerProvider);
   final backlog = DesktopWindowEventBacklog();
+  final placementFrameBatch = DesktopWindowPlacementFrameBatch();
   var drainingBacklog = false;
+  int? placementFrameCallbackId;
+  var disposed = false;
 
   bool eventIsReady(DenialWindowEvent event) {
-    final target =
-        ref.read(shellControllerProvider).windowByWindowId(event.windowId);
+    final target = ref
+        .read(shellControllerProvider)
+        .windowByWindowId(event.windowId);
     if (target == null) {
       return false;
     }
@@ -70,14 +108,51 @@ final desktopWindowCoordinatorProvider = Provider<void>((ref) {
             .containsKey(target.objectId);
   }
 
-  void drainBacklog() {
+  void flushPlacementFrame(Duration _) {
+    placementFrameCallbackId = null;
+    if (disposed) {
+      placementFrameBatch.clear();
+      return;
+    }
+    for (final event in placementFrameBatch.takeAll()) {
+      _reduceWindowEvent(ref, event);
+    }
+  }
+
+  void schedulePlacementUpdate(DenialWindowPlacementEvent event) {
+    placementFrameBatch.add(event);
+    placementFrameCallbackId ??= SchedulerBinding.instance
+        .scheduleFrameCallback(flushPlacementFrame);
+  }
+
+  void dispatchWindowEvent(DenialWindowEvent event) {
+    switch (event) {
+      case DenialWindowPlacementEvent(phase: DenialWindowPlacementPhase.update):
+        schedulePlacementUpdate(event);
+      case DenialWindowPlacementEvent():
+        // Begin and end packets both contain authoritative geometry. They
+        // supersede an update that has not reached a frame yet.
+        placementFrameBatch.remove(event.windowId);
+        _reduceWindowEvent(ref, event);
+      case DenialWindowActionEvent():
+        // Preserve per-window ordering when an action follows a placement in
+        // the same event-loop turn.
+        final pending = placementFrameBatch.remove(event.windowId);
+        if (pending != null) {
+          _reduceWindowEvent(ref, pending);
+        }
+        _reduceWindowEvent(ref, event);
+    }
+  }
+
+  void drainDeferredBacklog() {
     if (drainingBacklog) {
       return;
     }
     drainingBacklog = true;
     try {
       for (final event in backlog.takeReady(eventIsReady)) {
-        _reduceWindowEvent(ref, event);
+        dispatchWindowEvent(event);
       }
     } finally {
       drainingBacklog = false;
@@ -90,11 +165,17 @@ final desktopWindowCoordinatorProvider = Provider<void>((ref) {
     // the corresponding placement. Retain that ordered prefix instead of
     // interpreting restored geometry as a brand-new maximize operation.
     backlog.add(event);
-    drainBacklog();
+    drainDeferredBacklog();
   }
 
-  ref.listen(shellControllerProvider, (previous, next) => drainBacklog());
-  ref.listen(desktopWorkspaceProvider, (previous, next) => drainBacklog());
+  ref.listen(
+    shellControllerProvider,
+    (previous, next) => drainDeferredBacklog(),
+  );
+  ref.listen(
+    desktopWorkspaceProvider,
+    (previous, next) => drainDeferredBacklog(),
+  );
   ref.listen<DisplayLayout?>(
     displayLayoutProvider,
     (previous, next) => ref
@@ -102,9 +183,18 @@ final desktopWindowCoordinatorProvider = Provider<void>((ref) {
         .syncWorkAreas(next?.workAreasByMonitor() ?? const <int, Rect>{}),
     fireImmediately: true,
   );
-  final subscription =
-      ref.read(denialBridgeProvider).windowEvents.listen(handleWindowEvent);
-  ref.onDispose(() => unawaited(subscription.cancel()));
+  final subscription = ref
+      .read(denialBridgeProvider)
+      .windowEvents
+      .listen(handleWindowEvent);
+  ref.onDispose(() {
+    disposed = true;
+    if (placementFrameCallbackId case final callbackId?) {
+      SchedulerBinding.instance.cancelFrameCallbackWithId(callbackId);
+    }
+    placementFrameBatch.clear();
+    unawaited(subscription.cancel());
+  });
 });
 
 void _reduceWindowEvent(Ref ref, DenialWindowEvent event) {
@@ -163,8 +253,9 @@ Rect _outputBounds(Ref ref, int objectId, {required bool workArea}) {
   }
 
   Rect resolve(DisplayOutput output) {
-    final rect =
-        workArea ? displayLayout!.workAreaOf(output) : output.logicalRect;
+    final rect = workArea
+        ? displayLayout!.workAreaOf(output)
+        : output.logicalRect;
     return rect.intersect(canvas);
   }
 

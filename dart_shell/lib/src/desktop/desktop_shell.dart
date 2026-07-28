@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -70,6 +72,99 @@ class DesktopShell extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<DesktopShell> createState() => _DesktopShellState();
+}
+
+final Expando<Set<int>> _desktopSceneLivePlacementObjectIds = Expando<Set<int>>(
+  'desktopSceneLivePlacementObjectIds',
+);
+
+_DesktopSceneWindows _desktopSceneWindows(
+  List<DenialWindow> windows,
+  Set<int> livePlacementObjectIds,
+) {
+  final selection = _DesktopSceneWindows(windows);
+  _desktopSceneLivePlacementObjectIds[selection] = Set<int>.unmodifiable(
+    livePlacementObjectIds,
+  );
+  return selection;
+}
+
+class _DesktopSceneWindows {
+  // Structural scene invalidation deliberately excludes window titles. During
+  // a native grab it also excludes live buffer geometry for the grabbed
+  // windows. Each keyed frame and popup layer selects its own current window.
+  _DesktopSceneWindows(List<DenialWindow> windows)
+    : windows = List<DenialWindow>.unmodifiable(
+        windows.where((window) => window.isUserApp),
+      );
+
+  final List<DenialWindow> windows;
+
+  @override
+  bool operator ==(Object other) {
+    final livePlacementObjectIds =
+        _desktopSceneLivePlacementObjectIds[this] ?? const <int>{};
+    final otherLivePlacementObjectIds = other is _DesktopSceneWindows
+        ? _desktopSceneLivePlacementObjectIds[other] ?? const <int>{}
+        : const <int>{};
+    if (other is! _DesktopSceneWindows ||
+        !setEquals(otherLivePlacementObjectIds, livePlacementObjectIds) ||
+        other.windows.length != windows.length) {
+      return false;
+    }
+    for (var index = 0; index < windows.length; index += 1) {
+      final window = windows[index];
+      final otherWindow = other.windows[index];
+      final livePlacement =
+          livePlacementObjectIds.contains(window.objectId) &&
+          otherLivePlacementObjectIds.contains(otherWindow.objectId);
+      if (livePlacement
+          ? !window.hasSameStaticSceneRoleAs(otherWindow)
+          : !window.hasSameSceneDescriptionAs(otherWindow)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    Object.hashAll(
+      windows.map(
+        (window) => Object.hash(
+          window.objectId,
+          window.windowId,
+          window.appId,
+          window.pinned,
+          window.contentKind,
+        ),
+      ),
+    ),
+    Object.hashAllUnordered(
+      _desktopSceneLivePlacementObjectIds[this] ?? const <int>{},
+    ),
+  );
+}
+
+class _DesktopSceneWorkspace {
+  const _DesktopSceneWorkspace(this.state);
+
+  final DesktopWorkspaceState state;
+
+  @override
+  bool operator ==(Object other) {
+    return other is _DesktopSceneWorkspace &&
+        desktopWorkspaceHasSameSceneStructure(state, other.state);
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    state.nextZ,
+    state.viewSize,
+    state.panel,
+    identityHashCode(state.overview),
+    state.placements.length,
+  );
 }
 
 class _DesktopShellState extends ConsumerState<DesktopShell> {
@@ -564,10 +659,21 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         }
       },
     );
-    final windows = ref.watch(
-      shellControllerProvider.select((state) => state.openAppWindows),
-    );
-    final desktop = ref.watch(desktopWorkspaceProvider);
+    final desktop = ref
+        .watch(desktopWorkspaceProvider.select(_DesktopSceneWorkspace.new))
+        .state;
+    final livePlacementObjectIds = <int>{
+      for (final placement in desktop.placements.values)
+        if (placement.dragging) placement.objectId,
+    };
+    final windows = ref
+        .watch(
+          shellControllerProvider.select(
+            (state) =>
+                _desktopSceneWindows(state.windows, livePlacementObjectIds),
+          ),
+        )
+        .windows;
     final animations = ref.watch(
       shellSettingsProvider.select((settings) => settings.animations),
     );
@@ -2098,55 +2204,99 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (window.surfaceLayers.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    final transformed = overview || switching;
-    final fullscreenVisual = placement.fullscreen && !transformed;
-    final drawsServerFrame = !fullscreenVisual && placement.serverSideDecorated;
-    final contentRect = drawsServerFrame
-        ? frame.deflate(DesktopMetrics.frameBorder)
-        : frame;
-    final duration = placement.dragging ? Duration.zero : motionDuration;
-    final resizing = desktopTextureNeedsResizeSmoothing(
-      targetSize: contentRect.size,
-      sourceSize: window.contentCoordinateRect.size,
-    );
-    final filterQuality = transformed || resizing
-        ? FilterQuality.high
-        : FilterQuality.none;
-
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: AnimatedOpacity(
-          duration: duration,
-          curve: Motion.md3EmphasizedAccelerate,
-          opacity: minimized ? 0.0 : 1.0,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              for (final layer in window.popupSurfaceLayers)
-                if (layer.textureId > 0)
-                  _DesktopAnimatedWindowPosition(
-                    key: ValueKey<int>(layer.surfaceId),
-                    duration: duration,
-                    rect: window.mapSurfaceRect(layer, contentRect),
-                    overview: overview,
-                    switching: switching,
+    return Consumer(
+      builder: (context, ref, _) {
+        final window =
+            ref.watch(
+              shellControllerProvider.select(
+                (state) => state.windowByObjectId(this.window.objectId),
+              ),
+            ) ??
+            this.window;
+        final liveGeometry = ref.watch(
+          desktopWorkspaceProvider.select((state) {
+            final placement = state.placements[this.placement.objectId];
+            return placement == null
+                ? null
+                : (
+                    frameSize: placement.frame.size,
                     dragging: placement.dragging,
-                    child: ShellBackdropBlur(
-                      blur: !layer.opaque || layer.opacity < 1.0,
-                      child: SurfaceLayerTexture(
-                        layer: layer,
-                        filterQuality: filterQuality,
-                      ),
-                    ),
-                  ),
-            ],
+                  );
+          }),
+        );
+        final selectedPlacement = ref.read(
+          desktopWorkspaceProvider.select(
+            (state) => state.placements[this.placement.objectId],
           ),
-        ),
-      ),
+        );
+        final followsLivePlacement =
+            this.placement.dragging &&
+            liveGeometry?.dragging == true &&
+            selectedPlacement != null;
+        final placement = followsLivePlacement
+            ? selectedPlacement
+            : this.placement;
+        final frame = followsLivePlacement
+            ? desktopLivePlacementVisualFrame(
+                visualFrame: this.frame,
+                placementFrame: this.placement.frame,
+                livePlacementFrame: placement.frame,
+              )
+            : this.frame;
+        if (window.surfaceLayers.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final transformed = overview || switching;
+        final fullscreenVisual = placement.fullscreen && !transformed;
+        final drawsServerFrame =
+            !fullscreenVisual && placement.serverSideDecorated;
+        final contentRect = drawsServerFrame
+            ? frame.deflate(DesktopMetrics.frameBorder)
+            : frame;
+        final duration = placement.dragging ? Duration.zero : motionDuration;
+        final resizing = desktopTextureNeedsResizeSmoothing(
+          targetSize: contentRect.size,
+          sourceSize: window.contentCoordinateRect.size,
+        );
+        final filterQuality = transformed || resizing || placement.dragging
+            ? FilterQuality.medium
+            : FilterQuality.none;
+
+        return Positioned.fill(
+          child: IgnorePointer(
+            child: AnimatedOpacity(
+              duration: duration,
+              curve: Motion.md3EmphasizedAccelerate,
+              opacity: minimized ? 0.0 : 1.0,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  for (final layer in window.popupSurfaceLayers)
+                    if (layer.textureId > 0)
+                      _DesktopAnimatedWindowPosition(
+                        key: ValueKey<int>(layer.surfaceId),
+                        duration: duration,
+                        rect: window.mapSurfaceRect(layer, contentRect),
+                        placementObjectId: placement.objectId,
+                        placementFrame: placement.frame,
+                        overview: overview,
+                        switching: switching,
+                        dragging: placement.dragging,
+                        child: ShellBackdropBlur(
+                          blur: !layer.opaque || layer.opacity < 1.0,
+                          child: SurfaceLayerTexture(
+                            layer: layer,
+                            filterQuality: filterQuality,
+                          ),
+                        ),
+                      ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -2250,6 +2400,38 @@ class _DesktopWindowFrame extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final window =
+        ref.watch(
+          shellControllerProvider.select(
+            (state) => state.windowByObjectId(this.window.objectId),
+          ),
+        ) ??
+        this.window;
+    final liveGeometry = ref.watch(
+      desktopWorkspaceProvider.select((state) {
+        final placement = state.placements[this.placement.objectId];
+        return placement == null
+            ? null
+            : (frameSize: placement.frame.size, dragging: placement.dragging);
+      }),
+    );
+    final selectedPlacement = ref.read(
+      desktopWorkspaceProvider.select(
+        (state) => state.placements[this.placement.objectId],
+      ),
+    );
+    final followsLivePlacement =
+        this.placement.dragging &&
+        liveGeometry?.dragging == true &&
+        selectedPlacement != null;
+    final placement = followsLivePlacement ? selectedPlacement : this.placement;
+    final frame = followsLivePlacement
+        ? desktopLivePlacementVisualFrame(
+            visualFrame: this.frame,
+            placementFrame: this.placement.frame,
+            livePlacementFrame: placement.frame,
+          )
+        : this.frame;
     DesktopWindowRenderTelemetry.recordWindowBuild(
       windowId: window.objectId,
       textureId: window.textureId,
@@ -2277,6 +2459,8 @@ class _DesktopWindowFrame extends ConsumerWidget {
     return _DesktopAnimatedWindowPosition(
       duration: placement.dragging ? Duration.zero : duration,
       rect: frame,
+      placementObjectId: placement.objectId,
+      placementFrame: placement.frame,
       overview: overview,
       switching: switching,
       desktopWidget: desktopWidget,
@@ -2337,7 +2521,10 @@ class _DesktopWindowFrame extends ConsumerWidget {
                             child: SizedBox.expand(
                               child: _DesktopWindowContent(
                                 window: window,
-                                smooth: transformed || resizing,
+                                smooth:
+                                    transformed ||
+                                    resizing ||
+                                    placement.dragging,
                                 active: active && !minimized,
                                 forceBackdropBlur: desktopWidget,
                                 localLayoutSize: window.isLocalFlutter
@@ -2377,11 +2564,13 @@ class _DesktopWindowFrame extends ConsumerWidget {
   }
 }
 
-class _DesktopAnimatedWindowPosition extends StatefulWidget {
+class _DesktopAnimatedWindowPosition extends ConsumerStatefulWidget {
   const _DesktopAnimatedWindowPosition({
     super.key,
     required this.duration,
     required this.rect,
+    required this.placementObjectId,
+    required this.placementFrame,
     required this.overview,
     required this.switching,
     this.desktopWidget = false,
@@ -2391,6 +2580,8 @@ class _DesktopAnimatedWindowPosition extends StatefulWidget {
 
   final Duration duration;
   final Rect rect;
+  final int placementObjectId;
+  final Rect placementFrame;
   final bool overview;
   final bool switching;
   final bool desktopWidget;
@@ -2398,24 +2589,35 @@ class _DesktopAnimatedWindowPosition extends StatefulWidget {
   final Widget child;
 
   @override
-  State<_DesktopAnimatedWindowPosition> createState() =>
+  ConsumerState<_DesktopAnimatedWindowPosition> createState() =>
       _DesktopAnimatedWindowPositionState();
 }
 
 class _DesktopAnimatedWindowPositionState
-    extends State<_DesktopAnimatedWindowPosition> {
+    extends ConsumerState<_DesktopAnimatedWindowPosition> {
   late Curve _curve;
+  Rect? _dragAnchorRect;
   bool _overviewTransitionActive = false;
+  bool _suppressNextPositionAnimation = false;
 
   @override
   void initState() {
     super.initState();
     _curve = widget.overview ? Motion.overviewEnterCurve : Motion.md3Emphasized;
+    if (widget.dragging) {
+      _dragAnchorRect = widget.rect;
+    }
   }
 
   @override
   void didUpdateWidget(covariant _DesktopAnimatedWindowPosition oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!oldWidget.dragging && widget.dragging) {
+      _dragAnchorRect = widget.rect;
+    } else if (oldWidget.dragging && !widget.dragging) {
+      _dragAnchorRect = null;
+      _suppressNextPositionAnimation = true;
+    }
     final interruptedOverviewTransition = _overviewTransitionActive;
     if (!oldWidget.overview && widget.overview) {
       _curve = interruptedOverviewTransition
@@ -2441,12 +2643,44 @@ class _DesktopAnimatedWindowPositionState
 
   @override
   Widget build(BuildContext context) {
+    final livePlacement = ref.watch(
+      desktopWorkspaceProvider.select(
+        (state) => state.placements[widget.placementObjectId],
+      ),
+    );
+    var rect = widget.rect;
+    final followsLivePlacement =
+        widget.dragging && livePlacement?.dragging == true;
+    if (followsLivePlacement) {
+      rect = desktopLivePlacementVisualFrame(
+        visualFrame: rect,
+        placementFrame: widget.placementFrame,
+        livePlacementFrame: livePlacement!.frame,
+      );
+    }
+    final liveMove =
+        followsLivePlacement &&
+        livePlacement!.frame.size == widget.placementFrame.size;
+    final dragAnchorRect = _dragAnchorRect;
+    final translatesLiveMove =
+        liveMove &&
+        dragAnchorRect != null &&
+        dragAnchorRect.width == rect.width &&
+        dragAnchorRect.height == rect.height;
+    final positionedRect = translatesLiveMove ? dragAnchorRect : rect;
+    final translation = translatesLiveMove
+        ? rect.topLeft - dragAnchorRect.topLeft
+        : Offset.zero;
+    final suppressPositionAnimation = _suppressNextPositionAnimation;
+    _suppressNextPositionAnimation = false;
     return AnimatedPositioned.fromRect(
-      duration: widget.dragging ? Duration.zero : widget.duration,
+      duration: widget.dragging || suppressPositionAnimation
+          ? Duration.zero
+          : widget.duration,
       curve: _curve,
-      rect: widget.rect,
+      rect: positionedRect,
       onEnd: () => _overviewTransitionActive = false,
-      child: widget.child,
+      child: Transform.translate(offset: translation, child: widget.child),
     );
   }
 }
@@ -2595,7 +2829,7 @@ class _DesktopWindowContent extends ConsumerWidget {
   Widget _buildContent() {
     if (window.isLocalFlutter) {
       final host = LocalFlutterWindowHost(
-        key: ValueKey<int>(window.objectId),
+        key: LocalFlutterWindowHostKey(window.objectId),
         window: window,
         active: active,
       );
@@ -2654,7 +2888,7 @@ class _DesktopSurfaceTextureState extends State<_DesktopSurfaceTexture> {
 
   @override
   Widget build(BuildContext context) {
-    final filterQuality = _smooth ? FilterQuality.high : FilterQuality.none;
+    final filterQuality = _smooth ? FilterQuality.medium : FilterQuality.none;
     return WindowSurfaceTree(
       window: widget.window,
       filterQuality: filterQuality,
@@ -3930,6 +4164,7 @@ class _DesktopApplicationLauncherState
                       : apps.isEmpty
                       ? const _DesktopAppSearchEmptyState()
                       : GridView.builder(
+                          scrollCacheExtent: const ScrollCacheExtent.pixels(0),
                           gridDelegate:
                               const SliverGridDelegateWithMaxCrossAxisExtent(
                                 maxCrossAxisExtent: 112,
@@ -4151,7 +4386,7 @@ class _DesktopAppTileState extends State<_DesktopAppTile> {
                             color: accent.primary,
                           ),
                         )
-                      : AppIconImage(iconPath: widget.app.iconPath),
+                      : DeferredAppIcon(iconPath: widget.app.iconPath),
                 ),
                 const SizedBox(height: 8),
                 Expanded(

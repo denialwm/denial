@@ -35,10 +35,7 @@ void main() {
       <DenialWindowEvent>[placement, maximize],
     );
     expect(backlog.length, 1);
-    expect(
-      backlog.takeReady((event) => true),
-      <DenialWindowEvent>[unrelated],
-    );
+    expect(backlog.takeReady((event) => true), <DenialWindowEvent>[unrelated]);
   });
 
   test('startup event backlog drops the oldest event at its hard bound', () {
@@ -60,9 +57,70 @@ void main() {
       ..add(second)
       ..add(third);
 
-    expect(
-      backlog.takeReady((event) => true),
-      <DenialWindowEvent>[second, third],
+    expect(backlog.takeReady((event) => true), <DenialWindowEvent>[
+      second,
+      third,
+    ]);
+  });
+
+  test('placement frame batch keeps only the newest update per window', () {
+    final batch = DesktopWindowPlacementFrameBatch();
+    const firstWindowOld = DenialWindowPlacementEvent(
+      sequence: 10,
+      windowId: 11,
+      contentRect: Rect.fromLTWH(100, 120, 800, 600),
+      monitorId: 1,
+      workspaceId: 1,
+      phase: DenialWindowPlacementPhase.update,
+      change: DenialWindowPlacementChange.move,
     );
+    const secondWindow = DenialWindowPlacementEvent(
+      sequence: 12,
+      windowId: 22,
+      contentRect: Rect.fromLTWH(500, 400, 640, 480),
+      monitorId: 1,
+      workspaceId: 1,
+      phase: DenialWindowPlacementPhase.update,
+      change: DenialWindowPlacementChange.move,
+    );
+    const firstWindowNew = DenialWindowPlacementEvent(
+      sequence: 13,
+      windowId: 11,
+      contentRect: Rect.fromLTWH(140, 160, 800, 600),
+      monitorId: 1,
+      workspaceId: 1,
+      phase: DenialWindowPlacementPhase.update,
+      change: DenialWindowPlacementChange.move,
+    );
+
+    batch
+      ..add(firstWindowOld)
+      ..add(secondWindow)
+      ..add(firstWindowNew)
+      ..add(firstWindowOld);
+
+    expect(batch.length, 2);
+    expect(batch.takeAll(), <DenialWindowPlacementEvent>[
+      secondWindow,
+      firstWindowNew,
+    ]);
+    expect(batch.length, 0);
+  });
+
+  test('placement frame batch can discard an update superseded by end', () {
+    final batch = DesktopWindowPlacementFrameBatch();
+    const update = DenialWindowPlacementEvent(
+      sequence: 10,
+      windowId: 11,
+      contentRect: Rect.fromLTWH(100, 120, 800, 600),
+      monitorId: 1,
+      workspaceId: 1,
+      phase: DenialWindowPlacementPhase.update,
+      change: DenialWindowPlacementChange.move,
+    );
+    batch.add(update);
+
+    expect(batch.remove(update.windowId), update);
+    expect(batch.takeAll(), isEmpty);
   });
 }

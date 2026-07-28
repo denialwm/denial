@@ -1,5 +1,5 @@
 From cf6d28175ad4d635c7d7d96d3c2c48b797db5c06 Mon Sep 17 00:00:00 2001
-From: Koto Letta <kotolettaffxiv@gmail.com>
+From: Doctor Logix <doctor.logix@gmail.com>
 Date: Sat, 25 Jul 2026 12:06:42 +0200
 Subject: [PATCH] Decouple autonomous damage from the raster clip
 

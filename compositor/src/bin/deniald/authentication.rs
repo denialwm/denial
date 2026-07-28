@@ -753,7 +753,10 @@ impl AuthenticationController {
         let username = current_username();
         let worker = thread::Builder::new()
             .name("denial-authentication".into())
-            .spawn(move || run_authentication_worker(&worker_shared, &mut *backend, &username))?;
+            .spawn(move || {
+                crate::cpu_scheduling::normalize_current_worker("authentication");
+                run_authentication_worker(&worker_shared, &mut *backend, &username);
+            })?;
         Ok(Self {
             shared,
             worker: Mutex::new(Some(worker)),

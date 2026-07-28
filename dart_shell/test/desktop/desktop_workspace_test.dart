@@ -697,6 +697,110 @@ void main() {
   );
 
   test(
+    'presentation-only snapshots advance ordering without changing workspace',
+    () {
+      final container = ProviderContainer.test();
+      final controller = container.read(desktopWorkspaceProvider.notifier);
+      controller.syncWindows(
+        <DenialWindow>[
+          _window(objectId: 1, windowId: 11, monitorId: 1, title: 'Building ⠼'),
+        ],
+        viewSize,
+        1,
+        snapshotSequence: 10,
+      );
+      final before = container.read(desktopWorkspaceProvider);
+
+      controller.syncWindows(
+        <DenialWindow>[
+          _window(objectId: 1, windowId: 11, monitorId: 1, title: 'Building ⠴'),
+        ],
+        viewSize,
+        1,
+        snapshotSequence: 11,
+      );
+
+      expect(container.read(desktopWorkspaceProvider), same(before));
+
+      controller.applyNativePlacement(
+        1,
+        _placementEvent(
+          sequence: 11,
+          contentRect: const Rect.fromLTWH(100, 100, 300, 200),
+          monitorId: 1,
+          workspaceId: 1,
+        ),
+      );
+      expect(container.read(desktopWorkspaceProvider), same(before));
+    },
+  );
+
+  test(
+    'live placement geometry does not invalidate static scene structure',
+    () {
+      const original = DesktopWindowPlacement(
+        objectId: 1,
+        frame: Rect.fromLTWH(100, 120, 800, 600),
+        z: 3,
+        monitorId: 1,
+        dragging: true,
+      );
+      final before = DesktopWorkspaceState(
+        placements: const <int, DesktopWindowPlacement>{1: original},
+        nextZ: 4,
+        viewSize: viewSize,
+      );
+      final moved = before.copyWith(
+        placements: <int, DesktopWindowPlacement>{
+          1: original.copyWith(frame: const Rect.fromLTWH(400, 360, 800, 600)),
+        },
+      );
+      final resized = before.copyWith(
+        placements: <int, DesktopWindowPlacement>{
+          1: original.copyWith(frame: const Rect.fromLTWH(100, 120, 900, 600)),
+        },
+      );
+      final settled = moved.copyWith(
+        placements: <int, DesktopWindowPlacement>{
+          1: moved.placements[1]!.copyWith(dragging: false),
+        },
+      );
+      final idle = before.copyWith(
+        placements: <int, DesktopWindowPlacement>{
+          1: original.copyWith(dragging: false),
+        },
+      );
+      final idleResized = idle.copyWith(
+        placements: <int, DesktopWindowPlacement>{
+          1: idle.placements[1]!.copyWith(
+            frame: const Rect.fromLTWH(100, 120, 900, 600),
+          ),
+        },
+      );
+
+      expect(desktopWorkspaceHasSameSceneStructure(before, moved), isTrue);
+      expect(desktopWorkspaceHasSameSceneStructure(before, resized), isTrue);
+      expect(desktopWorkspaceHasSameSceneStructure(moved, settled), isFalse);
+      expect(desktopWorkspaceHasSameSceneStructure(idle, idleResized), isFalse);
+    },
+  );
+
+  test('live visual frame follows every resized placement edge', () {
+    const visualFrame = Rect.fromLTWH(110, 130, 800, 600);
+    const placementFrame = Rect.fromLTWH(100, 120, 800, 600);
+    const livePlacementFrame = Rect.fromLTRB(80, 90, 940, 760);
+
+    expect(
+      desktopLivePlacementVisualFrame(
+        visualFrame: visualFrame,
+        placementFrame: placementFrame,
+        livePlacementFrame: livePlacementFrame,
+      ),
+      const Rect.fromLTRB(90, 100, 950, 770),
+    );
+  });
+
+  test(
     'overview target follows ownership and excludes tiny switcher entries',
     () {
       final container = ProviderContainer.test();
@@ -1188,6 +1292,7 @@ DenialWindow _window({
   required int windowId,
   required int monitorId,
   Rect? geometry,
+  String? title,
   bool pinned = false,
   bool serverSideDecorated = true,
 }) {
@@ -1199,7 +1304,7 @@ DenialWindow _window({
     surfaceId: objectId,
     windowId: windowId,
     textureId: objectId,
-    title: 'Window $objectId',
+    title: title ?? 'Window $objectId',
     appId: 'test-$objectId',
     width: 2560,
     height: 1440,

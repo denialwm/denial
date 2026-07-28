@@ -237,14 +237,17 @@ impl SystemControls {
         let audio_worker = thread::Builder::new()
             .name("denial-audio".into())
             .spawn(move || {
+                crate::cpu_scheduling::normalize_current_worker("audio");
                 run_audio_worker(audio_rx, audio_events, subscription_commands);
             })?;
 
         let (brightness_commands, brightness_rx) = mpsc::sync_channel(COMMAND_QUEUE_CAPACITY);
         let brightness_worker = match thread::Builder::new()
             .name("denial-brightness".into())
-            .spawn(move || run_brightness_worker(brightness_rx, events_tx))
-        {
+            .spawn(move || {
+                crate::cpu_scheduling::normalize_current_worker("brightness");
+                run_brightness_worker(brightness_rx, events_tx);
+            }) {
             Ok(worker) => worker,
             Err(error) => {
                 let _ = audio_commands.send(AudioCommand::Stop);

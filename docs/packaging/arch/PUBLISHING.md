@@ -202,11 +202,13 @@ cannot be expressed through ordinary package ownership.
 
 ### `denial-ui-development`
 
-This is an optional, user-facing development package for live editing of the
-Flutter shell. It contains the matching JIT-capable engine, a curated Flutter
-and Dart runtime, the patched Flutter tool snapshot, locked shell dependency
-sources, the native `denial-ui` client, a version-matched source snapshot, and
-the editor configuration exercised by Denial.
+This is an optional, user-facing development package for live editing and
+profile-mode analysis of the Flutter shell. It contains the matching
+JIT-capable and optimized AOT profile engines, a curated Flutter and Dart
+runtime, the patched Flutter tool snapshot, matching browser DevTools assets,
+locked shell dependency sources, the native `denial-ui` client, a
+version-matched source snapshot, and the editor configuration exercised by
+Denial.
 
 It requires a bounded Denial version range and the exact
 `denial-flutter-engine-abi` generation. Its isolated package validation
@@ -216,10 +218,10 @@ engine, tool, source, permissions, licenses, and size budgets. Initial
 recorded source revision; compilation does not occur inside a Pacman hook.
 
 The package is not a sandbox. A custom Flutter shell and direct VM-service
-access are trusted local-user capabilities. The packaged non-pausing editor
-profile preserves hot reload and Flutter Inspector while withholding
-breakpoint, pause, stepping, and expression-evaluation control over the
-desktop isolate.
+access are trusted local-user capabilities. The packaged editor debug-adapter
+connection remains non-pausing, but browser DevTools uses the broader
+VM-service interface for Inspector and performance profiling. Pausing the root
+isolate through DevTools also pauses the interactive desktop.
 
 ### Split package base
 
@@ -292,6 +294,7 @@ _flutter_generation=3.44.7.denial1
 depends+=(
   denial-flutter-engine
   "denial-flutter-engine-abi=${_flutter_generation}"
+  rtkit
 )
 makedepends+=(
   denial-flutter-toolchain
@@ -435,6 +438,23 @@ google/skia @ e9ed4fc9f1544c58d8a9347c1fc9471d8dd7c465
 Keep one reviewable change in each commit. Commit messages must describe the
 problem, Denial's dependency on the behavior, validation evidence, and any
 corresponding upstream issue or pull request.
+
+`git format-patch` preserves the author stored in each source commit. Do not
+let Flutter, Skia, or temporary patch repositories inherit an unrelated
+machine-wide identity. Before creating Denial-owned engine commits, configure
+both fork checkouts explicitly:
+
+```sh
+git -C /path/to/flutter-fork config --local user.name 'Doctor Logix'
+git -C /path/to/flutter-fork config --local user.email 'doctor.logix@gmail.com'
+git -C /path/to/skia-fork config --local user.name 'Doctor Logix'
+git -C /path/to/skia-fork config --local user.email 'doctor.logix@gmail.com'
+```
+
+This configuration affects only new commits. If a commit already has the
+wrong author, amend or rebase it before publishing the review branch or
+generating patches. `tools/denial-release source-audit` rejects engine patch
+headers that do not use the repository identity.
 
 Generate both patch streams from explicit endpoints. The generation tool
 retains their reviewed interleaving and rewrites paths relative to the Flutter
@@ -700,6 +720,7 @@ _flutter_generation=3.44.7.denial1
 depends=(
   denial-flutter-engine
   "denial-flutter-engine-abi=${_flutter_generation}"
+  rtkit
   # Other direct runtime dependencies.
 )
 makedepends=(

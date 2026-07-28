@@ -45,10 +45,11 @@ sudo pacman -U \
 
 The optional package requires the exact
 `denial-flutter-engine-abi=3.44.7.denial1` generation and contains the pinned
-JIT engine, Dart and Flutter tools, Denial's locked UI dependency sources, a
-version-matched editable source snapshot and revision metadata, native
-`denial-ui` client, metadata, and licenses. Its build and validation workflow
-is documented in [UI development](../../UI_DEVELOPMENT.md).
+JIT and optimized AOT profile engines, Dart and Flutter tools, Denial's locked
+UI dependency sources, a version-matched editable source snapshot and revision
+metadata, native `denial-ui` client, browser DevTools for Inspector and
+performance profiling, metadata, and licenses. Its build and validation
+workflow is documented in [UI development](../../UI_DEVELOPMENT.md).
 
 Development packages use a VCS-derived version. The public release workflow
 accepts only a clean signed `vMAJOR.MINOR.PATCH` tag matching both project

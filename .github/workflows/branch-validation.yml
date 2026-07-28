@@ -78,6 +78,8 @@ jobs:
               '/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/libflutter_engine.so'
             printf 'DENIAL_PACKAGE_DEBUG_ENGINE_SOURCE=%s\n' \
               '/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/debug/libflutter_engine.so'
+            printf 'DENIAL_PACKAGE_PROFILE_ENGINE_SOURCE=%s\n' \
+              '/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/profile/libflutter_engine.so'
             printf 'EVIDENCE_ROOT=%s\n' \
               "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-evidence"
             printf 'CANDIDATE_ROOT=%s\n' \
@@ -407,6 +409,10 @@ jobs:
             awk 'NR == 1 { print $1 }' \
               prebuilt/flutter-engine/linux-x64-debug/libflutter_engine.so.sha256
           )"
+          expected_profile_engine_sha="$(
+            awk 'NR == 1 { print $1 }' \
+              prebuilt/flutter-engine/linux-x64-profile/libflutter_engine.so.sha256
+          )"
           expected_flutter_tool_sha="$(
             awk 'NR == 1 { print $1 }' \
               prebuilt/flutter-tools/3.44.7/flutter_tools.snapshot.sha256
@@ -484,6 +490,9 @@ jobs:
                     usr/lib/denial/ui-development/lib/libflutter_engine.so
                 bsdtar -tf "$package" \
                   | grep -Fxq \
+                    usr/lib/denial/ui-development/profile/lib/libflutter_engine.so
+                bsdtar -tf "$package" \
+                  | grep -Fxq \
                     usr/lib/denial/ui-development/flutter/bin/cache/flutter_tools.snapshot
                 bsdtar -tf "$package" \
                   | grep -Fxq \
@@ -495,6 +504,13 @@ jobs:
                     | sha256sum \
                     | awk '{ print $1 }'
                 )" = "$expected_debug_engine_sha"
+                test "$(
+                  bsdtar -xOf \
+                    "$package" \
+                    usr/lib/denial/ui-development/profile/lib/libflutter_engine.so \
+                    | sha256sum \
+                    | awk '{ print $1 }'
+                )" = "$expected_profile_engine_sha"
                 test "$(
                   bsdtar -xOf \
                     "$package" \

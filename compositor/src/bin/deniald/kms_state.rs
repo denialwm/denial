@@ -501,9 +501,11 @@ impl FlutterLauncher {
             .ok_or_else(|| format!("{requested:?} has no configured Flutter bundle"))?
             .to_owned();
         let runtime = match requested {
-            ui_development::UiRuntimeMode::OfficialOptimized
-            | ui_development::UiRuntimeMode::CustomOptimized => {
+            ui_development::UiRuntimeMode::OfficialOptimized => {
                 denial_flutter_engine::DartRuntimeMode::Aot
+            }
+            ui_development::UiRuntimeMode::CustomOptimized => {
+                denial_flutter_engine::DartRuntimeMode::AotProfile
             }
             ui_development::UiRuntimeMode::LiveDevelopment => {
                 denial_flutter_engine::DartRuntimeMode::Jit

@@ -186,6 +186,8 @@ for package in "${package_inputs[@]}"; do
         'depend = denial-flutter-engine-abi=3.44.7.denial1' \
         <<<"$package_info" \
         || fail 'Denial package does not require the exact Flutter Engine ABI'
+      grep -Fqx 'depend = rtkit' <<<"$package_info" \
+        || fail 'Denial package does not require rtkit'
       grep -Fqx \
         'optdepend = denial-ui-development: live Flutter UI editing and hot reload' \
         <<<"$package_info" \
@@ -227,6 +229,19 @@ for package in "${package_inputs[@]}"; do
       )"
       [[ "$actual_debug_engine_sha" == "$expected_debug_engine_sha" ]] \
         || fail 'UI-development package contains the wrong debug engine'
+      expected_profile_engine_sha="$(
+        awk 'NR == 1 { print $1 }' \
+          "$ROOT/prebuilt/flutter-engine/linux-x64-profile/libflutter_engine.so.sha256"
+      )"
+      actual_profile_engine_sha="$(
+        bsdtar -xOf \
+          "$package" \
+          usr/lib/denial/ui-development/profile/lib/libflutter_engine.so \
+          | sha256sum \
+          | awk '{ print $1 }'
+      )"
+      [[ "$actual_profile_engine_sha" == "$expected_profile_engine_sha" ]] \
+        || fail 'UI-development package contains the wrong profile engine'
       expected_flutter_tool_sha="$(
         awk 'NR == 1 { print $1 }' \
           "$ROOT/prebuilt/flutter-tools/3.44.7/flutter_tools.snapshot.sha256"

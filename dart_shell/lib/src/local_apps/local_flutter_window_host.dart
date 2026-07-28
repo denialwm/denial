@@ -6,6 +6,7 @@ import '../localization/denial_localizations.dart';
 import '../models/denial_window.dart';
 import '../state/shell_controller.dart';
 import '../theme/tokens.dart';
+import '../widgets/desktop_window_snapshot.dart';
 import 'local_flutter_application.dart';
 
 /// Resolves and mounts the in-bundle widget tree for a native local window.
@@ -27,11 +28,21 @@ class LocalFlutterWindowHost extends ConsumerStatefulWidget {
       _LocalFlutterWindowHostState();
 }
 
+/// Stable identity used when a local application moves from the live desktop
+/// layer into its terminal close-animation layer.
+///
+/// Its dedicated runtime type prevents collisions with other object-id based
+/// global keys in the shell.
+class LocalFlutterWindowHostKey extends GlobalObjectKey<State<StatefulWidget>> {
+  const LocalFlutterWindowHostKey(super.value);
+}
+
 class _LocalFlutterWindowHostState
     extends ConsumerState<LocalFlutterWindowHost> {
   late final FocusScopeNode _focusScope = FocusScopeNode(
     debugLabel: 'local-app-${widget.window.appId}-${widget.window.objectId}',
   );
+  late final SnapshotController _snapshotController = SnapshotController();
 
   @override
   void initState() {
@@ -49,6 +60,13 @@ class _LocalFlutterWindowHostState
     } else if (!widget.active && oldWidget.active) {
       _focusScope.unfocus();
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _snapshotController.allowSnapshotting =
+        DesktopWindowSnapshotScope.snapshottingOf(context);
   }
 
   void _requestFocusAfterFrame() {
@@ -70,20 +88,23 @@ class _LocalFlutterWindowHostState
 
   @override
   void dispose() {
+    _snapshotController.dispose();
     _focusScope.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final application =
-        ref.watch(localFlutterApplicationRegistryProvider)[widget.window.appId];
+    final application = ref.watch(
+      localFlutterApplicationRegistryProvider,
+    )[widget.window.appId];
     final handle = LocalFlutterWindowHandle(
       window: widget.window,
       focus: _focusWindow,
       close: _closeWindow,
     );
-    final content = application?.builder(context, handle) ??
+    final content =
+        application?.builder(context, handle) ??
         _MissingLocalFlutterApplication(window: widget.window);
 
     return ShellInputRegion(
@@ -101,9 +122,14 @@ class _LocalFlutterWindowHostState
             child: Listener(
               behavior: HitTestBehavior.opaque,
               onPointerDown: (_) => _focusWindow(),
-              child: KeyedSubtree(
-                key: ValueKey<String>(widget.window.appId),
-                child: content,
+              child: SnapshotWidget(
+                controller: _snapshotController,
+                mode: SnapshotMode.permissive,
+                autoresize: true,
+                child: KeyedSubtree(
+                  key: ValueKey<String>(widget.window.appId),
+                  child: content,
+                ),
               ),
             ),
           ),

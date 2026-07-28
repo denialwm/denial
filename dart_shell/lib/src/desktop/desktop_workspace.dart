@@ -130,7 +130,6 @@ class DesktopWindowPlacement {
     required this.z,
     required this.monitorId,
     this.workspaceId = -1,
-    this.nativeSequence = 0,
     this.minimized = false,
     this.maximized = false,
     this.fullscreen = false,
@@ -145,7 +144,6 @@ class DesktopWindowPlacement {
   final int z;
   final int monitorId;
   final int workspaceId;
-  final int nativeSequence;
   final bool minimized;
   final bool maximized;
   final bool fullscreen;
@@ -164,7 +162,6 @@ class DesktopWindowPlacement {
     int? z,
     int? monitorId,
     int? workspaceId,
-    int? nativeSequence,
     bool? minimized,
     bool? maximized,
     bool? fullscreen,
@@ -181,7 +178,6 @@ class DesktopWindowPlacement {
       z: z ?? this.z,
       monitorId: monitorId ?? this.monitorId,
       workspaceId: workspaceId ?? this.workspaceId,
-      nativeSequence: nativeSequence ?? this.nativeSequence,
       minimized: minimized ?? this.minimized,
       maximized: maximized ?? this.maximized,
       fullscreen: fullscreen ?? this.fullscreen,
@@ -299,6 +295,75 @@ class DesktopWorkspaceState {
   }
 }
 
+/// Whether rebuilding the static desktop scene can change its structure.
+///
+/// A native move/resize grab changes only one keyed window's geometry. That
+/// layer samples its live rectangle independently, so rebuilding the
+/// surrounding wallpaper, bars, panels, and every other window is redundant.
+bool desktopWorkspaceHasSameSceneStructure(
+  DesktopWorkspaceState left,
+  DesktopWorkspaceState right,
+) {
+  if (identical(left, right)) {
+    return true;
+  }
+  if (left.nextZ != right.nextZ ||
+      left.viewSize != right.viewSize ||
+      left.panel != right.panel ||
+      !identical(left.overview, right.overview) ||
+      left.placements.length != right.placements.length) {
+    return false;
+  }
+  for (final entry in left.placements.entries) {
+    final other = right.placements[entry.key];
+    if (other == null ||
+        !_desktopPlacementHasSameSceneStructure(entry.value, other)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool _desktopPlacementHasSameSceneStructure(
+  DesktopWindowPlacement left,
+  DesktopWindowPlacement right,
+) {
+  if (identical(left, right)) {
+    return true;
+  }
+  final livePlacementOnly = left.dragging && right.dragging;
+  return left.objectId == right.objectId &&
+      (left.frame == right.frame || livePlacementOnly) &&
+      left.z == right.z &&
+      left.monitorId == right.monitorId &&
+      left.workspaceId == right.workspaceId &&
+      left.minimized == right.minimized &&
+      left.maximized == right.maximized &&
+      left.fullscreen == right.fullscreen &&
+      left.serverSideDecorated == right.serverSideDecorated &&
+      left.dragging == right.dragging &&
+      left.restoreFrame == right.restoreFrame &&
+      left.fullscreenRestoreFrame == right.fullscreenRestoreFrame;
+}
+
+/// Applies one live native placement delta to its derived visual rectangle.
+///
+/// [visualFrame] may include a shell-only offset while [placementFrame] is the
+/// canonical native frame. Applying deltas edge-by-edge preserves that offset
+/// and follows left/top-edge resizes as well as bottom/right-edge resizes.
+Rect desktopLivePlacementVisualFrame({
+  required Rect visualFrame,
+  required Rect placementFrame,
+  required Rect livePlacementFrame,
+}) {
+  return Rect.fromLTRB(
+    visualFrame.left + livePlacementFrame.left - placementFrame.left,
+    visualFrame.top + livePlacementFrame.top - placementFrame.top,
+    visualFrame.right + livePlacementFrame.right - placementFrame.right,
+    visualFrame.bottom + livePlacementFrame.bottom - placementFrame.bottom,
+  );
+}
+
 final desktopWorkspaceProvider =
     NotifierProvider<DesktopWorkspaceController, DesktopWorkspaceState>(
       DesktopWorkspaceController.new,
@@ -310,6 +375,9 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
 
   final Map<int, Offset> _moveRemainders = <int, Offset>{};
   final Map<int, Rect> _pendingNativeFrames = <int, Rect>{};
+  // Native ordering prevents stale placement events but has no visual effect,
+  // so keep it outside provider state and its widget rebuild boundary.
+  final Map<int, int> _nativeSequences = <int, int>{};
   final Map<int, ({Rect frame, int z})> _overviewDragOrigins =
       <int, ({Rect frame, int z})>{};
   List<DenialWindow>? _lastSyncedWindows;
@@ -388,6 +456,9 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     _pendingNativeFrames.removeWhere(
       (objectId, _) => !activeIds.contains(objectId),
     );
+    _nativeSequences.removeWhere(
+      (objectId, _) => !activeIds.contains(objectId),
+    );
     final next = <int, DesktopWindowPlacement>{
       for (final entry in state.placements.entries)
         if (activeIds.contains(entry.key)) entry.key: entry.value,
@@ -410,16 +481,17 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
           ),
           z: nextZ++,
           monitorId: window.monitorId,
-          nativeSequence: snapshotSequence,
           serverSideDecorated: window.serverSideDecorated,
         );
+        _nativeSequences[window.objectId] = snapshotSequence;
         changed = true;
         continue;
       }
 
       var current = existing;
       final nativeGeometry = window.geometry;
-      if (snapshotSequence > existing.nativeSequence) {
+      if (snapshotSequence > (_nativeSequences[window.objectId] ?? 0)) {
+        _nativeSequences[window.objectId] = snapshotSequence;
         var frame = existing.frame;
         var fullscreenRestoreFrame = existing.fullscreenRestoreFrame;
         var monitorId = existing.monitorId;
@@ -467,13 +539,11 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
         current = existing.copyWith(
           frame: frame,
           monitorId: monitorId,
-          nativeSequence: snapshotSequence,
           serverSideDecorated: window.serverSideDecorated,
           fullscreenRestoreFrame: fullscreenRestoreFrame,
         );
         if (current.frame != existing.frame ||
             current.monitorId != existing.monitorId ||
-            current.nativeSequence != existing.nativeSequence ||
             current.serverSideDecorated != existing.serverSideDecorated ||
             current.fullscreenRestoreFrame != existing.fullscreenRestoreFrame) {
           next[window.objectId] = current;
@@ -881,7 +951,8 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
       activate(objectId);
     }
     final placement = state.placements[objectId];
-    if (placement == null || event.sequence <= placement.nativeSequence) {
+    if (placement == null ||
+        event.sequence <= (_nativeSequences[objectId] ?? 0)) {
       return;
     }
     _pendingNativeFrames.remove(objectId);
@@ -895,8 +966,8 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
         next[objectId] = placement.copyWith(
           monitorId: event.monitorId,
           workspaceId: event.workspaceId,
-          nativeSequence: event.sequence,
         );
+        _nativeSequences[objectId] = event.sequence;
         state = state.copyWith(placements: next);
         return;
       }
@@ -912,12 +983,12 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
         frame: fullscreenFrame,
         monitorId: event.monitorId,
         workspaceId: event.workspaceId,
-        nativeSequence: event.sequence,
         dragging: event.phase != DenialWindowPlacementPhase.end,
         fullscreenRestoreFrame: monitorChanged
             ? placement.fullscreenRestoreFrame?.shift(delta)
             : placement.fullscreenRestoreFrame,
       );
+      _nativeSequences[objectId] = event.sequence;
       state = state.copyWith(placements: next);
       return;
     }
@@ -934,7 +1005,6 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
       frame: frame,
       monitorId: event.monitorId,
       workspaceId: event.workspaceId,
-      nativeSequence: event.sequence,
       minimized: false,
       maximized: false,
       fullscreen: false,
@@ -942,6 +1012,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
       clearRestoreFrame: true,
       clearFullscreenRestoreFrame: true,
     );
+    _nativeSequences[objectId] = event.sequence;
     state = state.copyWith(placements: next);
   }
 

@@ -167,7 +167,7 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command, CliError> {
             method: "ui.restart",
             expected_mode: None,
         }),
-        ["ui", "build"] => Ok(Command::UiAction {
+        ["ui", "build"] | ["ui", "profile"] => Ok(Command::UiAction {
             method: "ui.build",
             expected_mode: Some("custom_optimized"),
         }),
@@ -1424,7 +1424,8 @@ Commands:
   ui live on|off                 Enter or leave JIT live-development mode
   ui reload                      Request a Dart hot reload when supported
   ui restart                     Request a Dart hot restart when supported
-  ui build                       Build and activate an optimized custom UI
+  ui profile                     Activate the prepared AOT profile UI
+  ui build                       Alias for 'ui profile'
   ui restore                     Restore the packaged optimized UI
   ui revert                      Restore the last working custom UI
   ui auto-reload on|off          Configure native source watching
@@ -1530,6 +1531,19 @@ mod tests {
             parse(&["ui", "dev", "disable"]).command,
             Command::UiLive(false)
         ));
+    }
+
+    #[test]
+    fn parses_aot_profile_activation() {
+        for command in [["ui", "profile"], ["ui", "build"]] {
+            assert!(matches!(
+                parse(&command).command,
+                Command::UiAction {
+                    method: "ui.build",
+                    expected_mode: Some("custom_optimized")
+                }
+            ));
+        }
     }
 
     #[test]
