@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/widgets.dart';
 
 import '../theme/motion.dart';
+import 'desktop_window_snapshot.dart';
 
 /// Centres of the four quarters inside a desktop window.
 ///
@@ -177,38 +178,29 @@ class _DesktopWindowRevealState extends State<DesktopWindowReveal>
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.enabled ||
-        _revealComplete ||
-        MediaQuery.disableAnimationsOf(context)) {
-      return widget.child;
-    }
-    if (!_revealStarted) {
-      return ClipPath(
-        clipBehavior: Clip.antiAlias,
-        clipper: DesktopWindowSquircleRevealClipper(
-          origin: _origin,
-          progress: _textureWarmupProgress,
-        ),
-        child: widget.child,
-      );
-    }
-
+    final revealActive =
+        widget.enabled &&
+        !_revealComplete &&
+        !MediaQuery.disableAnimationsOf(context);
+    final transitionChild = DesktopWindowSnapshotScope(
+      snapshotting: revealActive,
+      child: widget.child,
+    );
     return AnimatedBuilder(
       animation: _controller,
-      child: widget.child,
+      child: transitionChild,
       builder: (context, child) {
-        final progress = Motion.desktopWindowRevealCurve.transform(
-          _controller.value,
-        );
-        if (progress >= 1.0) {
-          return child!;
-        }
+        final progress = _revealStarted
+            ? Motion.desktopWindowRevealCurve.transform(_controller.value)
+            : _textureWarmupProgress;
         return ClipPath(
-          clipBehavior: Clip.antiAlias,
-          clipper: DesktopWindowSquircleRevealClipper(
-            origin: _origin,
-            progress: progress,
-          ),
+          clipBehavior: revealActive ? Clip.antiAlias : Clip.none,
+          clipper: revealActive
+              ? DesktopWindowSquircleRevealClipper(
+                  origin: _origin,
+                  progress: progress,
+                )
+              : null,
           child: child,
         );
       },

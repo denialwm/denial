@@ -1,5 +1,5 @@
 From ef8d243f38bbe499268ae39083946555efd2d956 Mon Sep 17 00:00:00 2001
-From: Koto Letta <kotolettaffxiv@gmail.com>
+From: Doctor Logix <doctor.logix@gmail.com>
 Date: Sat, 25 Jul 2026 12:06:41 +0200
 Subject: [PATCH] Preserve partial damage for reused layer trees
 

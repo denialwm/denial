@@ -141,8 +141,8 @@ denialctl ui setup
 The setup command creates a version-matched editable checkout in `~/DenialUI`,
 prepares it with the packaged toolchain, and enters live development. Open
 `~/DenialUI/dart_shell` in VSCodium and run **Attach to Denial live UI** for
-hot reload on save and Flutter Inspector. Return to the packaged optimized
-shell at any time with:
+hot reload on save, Flutter Inspector, and browser DevTools performance
+profiling. Return to the packaged optimized shell at any time with:
 
 ```sh
 denialctl ui restore

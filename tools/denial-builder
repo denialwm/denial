@@ -10,6 +10,9 @@ ENGINE_CHECKSUM="${ENGINE_SOURCE_ROOT}/libflutter_engine.so.sha256"
 DEBUG_ENGINE_SOURCE_ROOT="${ROOT}/prebuilt/flutter-engine/linux-x64-debug"
 DEBUG_ENGINE_SOURCE="${DEBUG_ENGINE_SOURCE_ROOT}/libflutter_engine.so"
 DEBUG_ENGINE_CHECKSUM="${DEBUG_ENGINE_SOURCE_ROOT}/libflutter_engine.so.sha256"
+PROFILE_ENGINE_SOURCE_ROOT="${ROOT}/prebuilt/flutter-engine/linux-x64-profile"
+PROFILE_ENGINE_SOURCE="${PROFILE_ENGINE_SOURCE_ROOT}/libflutter_engine.so"
+PROFILE_ENGINE_CHECKSUM="${PROFILE_ENGINE_SOURCE_ROOT}/libflutter_engine.so.sha256"
 
 readonly REPOSITORY="${DENIAL_BUILDER_REPOSITORY:-denialwm/denial}"
 readonly SSH_TARGET="${DENIAL_BUILDER_SSH:-192.168.1.18}"
@@ -88,6 +91,8 @@ install_host() {
     || fail "missing locally rebuilt engine: $ENGINE_SOURCE"
   [[ -f "$DEBUG_ENGINE_SOURCE" ]] \
     || fail "missing locally rebuilt debug engine: $DEBUG_ENGINE_SOURCE"
+  [[ -f "$PROFILE_ENGINE_SOURCE" ]] \
+    || fail "missing locally rebuilt profile engine: $PROFILE_ENGINE_SOURCE"
   (
     cd "$ENGINE_SOURCE_ROOT"
     sha256sum --check --strict "$(basename -- "$ENGINE_CHECKSUM")"
@@ -98,6 +103,11 @@ install_host() {
     sha256sum --check --strict "$(basename -- "$DEBUG_ENGINE_CHECKSUM")"
   ) >/dev/null \
     || fail "local debug engine does not match $DEBUG_ENGINE_CHECKSUM"
+  (
+    cd "$PROFILE_ENGINE_SOURCE_ROOT"
+    sha256sum --check --strict "$(basename -- "$PROFILE_ENGINE_CHECKSUM")"
+  ) >/dev/null \
+    || fail "local profile engine does not match $PROFILE_ENGINE_CHECKSUM"
 
   remote_stage="$(
     ssh "$SSH_TARGET" \
@@ -110,7 +120,9 @@ install_host() {
   # remote_stage is accepted only after the fixed /tmp prefix check above.
   # shellcheck disable=SC2029
   ssh "$SSH_TARGET" \
-    /usr/bin/install -d -m 0755 -- "${remote_stage}/debug"
+    /usr/bin/install -d -m 0755 -- \
+      "${remote_stage}/debug" \
+      "${remote_stage}/profile"
 
   scp \
     "${RUNNER_SOURCE}/runner.env" \
@@ -125,6 +137,10 @@ install_host() {
     "$DEBUG_ENGINE_SOURCE" \
     "$DEBUG_ENGINE_CHECKSUM" \
     "${SSH_TARGET}:${remote_stage}/debug/"
+  scp \
+    "$PROFILE_ENGINE_SOURCE" \
+    "$PROFILE_ENGINE_CHECKSUM" \
+    "${SSH_TARGET}:${remote_stage}/profile/"
 
   # remote_stage is accepted only after the fixed /tmp prefix check above.
   # shellcheck disable=SC2029
@@ -141,6 +157,8 @@ doctor_host() {
   local actual_debug_engine_sha256
   local expected_engine_sha256
   local expected_debug_engine_sha256
+  local actual_profile_engine_sha256
+  local expected_profile_engine_sha256
 
   require_command scp
   require_command ssh
@@ -197,6 +215,20 @@ doctor_host() {
     || fail 'builder debug-engine artifact does not match the tracked checksum'
   printf 'Builder debug-engine artifact matches %s.\n' \
     "$expected_debug_engine_sha256"
+  expected_profile_engine_sha256="$(
+    cut -d' ' -f1 < "$PROFILE_ENGINE_CHECKSUM"
+  )"
+  actual_profile_engine_sha256="$(
+    ssh "$SSH_TARGET" \
+      sudo --user denial-builder \
+        /usr/bin/sha256sum \
+        /srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/profile/libflutter_engine.so \
+      | cut -d' ' -f1
+  )"
+  [[ "$actual_profile_engine_sha256" == "$expected_profile_engine_sha256" ]] \
+    || fail 'builder profile-engine artifact does not match the tracked checksum'
+  printf 'Builder profile-engine artifact matches %s.\n' \
+    "$expected_profile_engine_sha256"
 
   cleanup_stage
   remote_stage=''

@@ -19,11 +19,12 @@ provides=('denial-ui-development-engine=3.44.7.denial1')
 conflicts=('denial-ui-development-git')
 options=('!strip' '!debug')
 source=('manifest.json')
-sha256sums=('e36f2e9bb346cda340bd785fe8e49c601025666a75dc5190ee0fc87cddf829a6')
+sha256sums=('87b5181bd191eec93fb2175e64fa7571a043d9bb4662a17bdf7ef3daee7191df')
 
 _flutter_revision='84fc5cbb223bc12f83d65b647ff8a56caf779ffd'
 _dart_revision='d684a576a6aa954ae107a03b2b4e1d61c3bebe93'
 _engine_sha256='c5eb1a110887ca2a6b6ae6f98dfaeb609614e5f204bdf731164dc12ae5ed0729'
+_profile_engine_sha256='465a0b6c76d9f8561c177db4a76a267527fa2a411ed5d9f34f61739844000bce'
 _flutter_binding_sha256='387b0b92fab3db5ed2d072b9bcd9797d960a983236d4ce07cda628bb20bfda89'
 _flutter_tool_sha256='e9bafdf002e980c7f239e68b2f2448e54f3641ce245803152c0cbdd3222db38f'
 _dart_sha256='c03ad868b5c53e31461b0fef22dc6eb6aeb56b7567efff6ca488ce9c4a6f8a6a'
@@ -42,6 +43,8 @@ package() {
   local flutter_tool_root="$repository_root/prebuilt/flutter-tools/3.44.7"
   local engine_root="$repository_root/prebuilt/flutter-engine/linux-x64-debug"
   local engine="${DENIAL_PACKAGE_DEBUG_ENGINE_SOURCE:-$engine_root/libflutter_engine.so}"
+  local profile_engine_root="$repository_root/prebuilt/flutter-engine/linux-x64-profile"
+  local profile_engine="${DENIAL_PACKAGE_PROFILE_ENGINE_SOURCE:-$profile_engine_root/libflutter_engine.so}"
   local icu="$flutter_sdk/bin/cache/artifacts/engine/linux-x64/icudtl.dat"
   local destination="$pkgdir/usr/lib/denial/ui-development"
   local actual
@@ -50,6 +53,7 @@ package() {
   for required in \
     "$development_binary" \
     "$engine" \
+    "$profile_engine" \
     "$flutter_tool_snapshot" \
     "$flutter_tool_runtime/package_config.json" \
     "$flutter_tool_runtime/pub-cache" \
@@ -62,7 +66,17 @@ package() {
     "$flutter_sdk_runtime/bin/cache/dart-sdk/bin/snapshots/analysis_server_aot.dart.snapshot" \
     "$flutter_sdk_runtime/bin/cache/dart-sdk/bin/snapshots/dds_aot.dart.snapshot" \
     "$flutter_sdk_runtime/bin/cache/dart-sdk/bin/snapshots/frontend_server_aot.dart.snapshot" \
+    "$flutter_sdk_runtime/bin/cache/dart-sdk/bin/resources/devtools/assets/NOTICES" \
+    "$flutter_sdk_runtime/bin/cache/dart-sdk/bin/resources/devtools/index.html" \
+    "$flutter_sdk_runtime/bin/cache/dart-sdk/bin/resources/devtools/main.dart.js" \
+    "$flutter_sdk_runtime/bin/cache/dart-sdk/bin/resources/devtools/version.json" \
+    "$flutter_sdk_runtime/bin/cache/artifacts/engine/linux-x64/const_finder.dart.snapshot" \
+    "$flutter_sdk_runtime/bin/cache/artifacts/engine/linux-x64/font-subset" \
+    "$flutter_sdk_runtime/bin/cache/artifacts/engine/linux-x64/flutter_linux/flutter_linux.h" \
+    "$flutter_sdk_runtime/bin/cache/artifacts/engine/linux-x64/icudtl.dat" \
     "$flutter_sdk_runtime/bin/cache/artifacts/engine/linux-x64/impellerc" \
+    "$flutter_sdk_runtime/bin/cache/artifacts/engine/linux-x64-profile/gen_snapshot" \
+    "$flutter_sdk_runtime/bin/cache/artifacts/engine/linux-x64-profile/libflutter_linux_gtk.so" \
     "$flutter_sdk_runtime/bin/cache/pkg/sky_engine/lib/_embedder.yaml" \
     "$flutter_sdk_runtime/bin/cache/pkg/sky_engine/lib/ui/ui.dart" \
     "$flutter_sdk_runtime/packages/flutter/lib/src/gestures/binding.dart" \
@@ -79,6 +93,11 @@ package() {
     "$engine_root/ENGINE_REVISION" \
     "$engine_root/FLUTTER_REVISION" \
     "$engine_root/args.gn" \
+    "$profile_engine_root/libflutter_engine.so.sha256" \
+    "$profile_engine_root/BUILD_INFO.md" \
+    "$profile_engine_root/ENGINE_REVISION" \
+    "$profile_engine_root/FLUTTER_REVISION" \
+    "$profile_engine_root/args.gn" \
     "$flutter_sdk/.git" \
     "$flutter_sdk/LICENSE" \
     "$flutter_sdk/PATENT_GRANT" \
@@ -116,6 +135,7 @@ package() {
 
   for specification in \
     "$engine:$_engine_sha256" \
+    "$profile_engine:$_profile_engine_sha256" \
     "$flutter_sdk/packages/flutter/lib/src/gestures/binding.dart:$_flutter_binding_sha256" \
     "$flutter_tool_snapshot:$_flutter_tool_sha256" \
     "$flutter_sdk/bin/cache/dart-sdk/bin/dart:$_dart_sha256" \
@@ -131,6 +151,8 @@ package() {
   install -Dm755 "$development_binary" "$pkgdir/usr/bin/denial-ui"
   ln -s denial-ui "$pkgdir/usr/bin/denial-flutter"
   install -Dm755 "$engine" "$destination/lib/libflutter_engine.so"
+  install -Dm755 "$profile_engine" \
+    "$destination/profile/lib/libflutter_engine.so"
   install -Dm644 "$icu" "$destination/data/icudtl.dat"
 
   cp -a -- "$flutter_sdk_runtime" "$destination/flutter"
@@ -171,6 +193,16 @@ package() {
     "$pkgdir/usr/share/denial/ui-development/args.gn"
   install -Dm644 "$engine_root/BUILD_INFO.md" \
     "$pkgdir/usr/share/doc/denial-ui-development/BUILD_INFO.md"
+  install -Dm644 "$profile_engine_root/libflutter_engine.so.sha256" \
+    "$pkgdir/usr/share/denial/ui-development/profile/libflutter_engine.so.sha256"
+  install -Dm644 "$profile_engine_root/ENGINE_REVISION" \
+    "$pkgdir/usr/share/denial/ui-development/profile/ENGINE_REVISION"
+  install -Dm644 "$profile_engine_root/FLUTTER_REVISION" \
+    "$pkgdir/usr/share/denial/ui-development/profile/FLUTTER_REVISION"
+  install -Dm644 "$profile_engine_root/args.gn" \
+    "$pkgdir/usr/share/denial/ui-development/profile/args.gn"
+  install -Dm644 "$profile_engine_root/BUILD_INFO.md" \
+    "$pkgdir/usr/share/doc/denial-ui-development/PROFILE_ENGINE_BUILD_INFO.md"
   install -Dm644 "$flutter_tool_root/BUILD_INFO.md" \
     "$pkgdir/usr/share/doc/denial-ui-development/FLUTTER_TOOL_BUILD_INFO.md"
   install -Dm644 "$flutter_tool_root/flutter_tools.snapshot.sha256" \

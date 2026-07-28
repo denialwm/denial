@@ -116,6 +116,7 @@ impl Source for ClipboardDndSource {
         let spawn = thread::Builder::new()
             .name("denial-clipboard-dnd".to_owned())
             .spawn(move || {
+                crate::cpu_scheduling::normalize_current_worker("clipboard-dnd");
                 let mut file = File::from(fd);
                 if let Err(error) = file.write_all(&data) {
                     debug!(

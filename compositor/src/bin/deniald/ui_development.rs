@@ -388,6 +388,7 @@ impl UiDevelopmentController {
         Self::with_paths(
             official_bundle,
             debug_bundle.or_else(default_debug_bundle_path),
+            default_profile_bundle_path(),
             workspace_override,
             default_config_path(),
             default_vm_service_path(),
@@ -397,6 +398,7 @@ impl UiDevelopmentController {
     fn with_paths(
         official_bundle: &Path,
         debug_bundle: Option<PathBuf>,
+        custom_bundle: Option<PathBuf>,
         workspace_override: Option<PathBuf>,
         config_path: Option<PathBuf>,
         vm_service_path: Option<PathBuf>,
@@ -421,6 +423,10 @@ impl UiDevelopmentController {
         let developer_components_available = debug_bundle.as_deref().is_some_and(|bundle| {
             validate_debug_bundle(bundle, workspace.as_deref().filter(|_| workspace_valid)).is_ok()
         });
+        let profile_components_available = custom_bundle.as_deref().is_some_and(|bundle| {
+            validate_profile_bundle(bundle, workspace.as_deref().filter(|_| workspace_valid))
+                .is_ok()
+        });
         let status = if developer_components_available {
             "The packaged optimized Flutter shell is active.".to_owned()
         } else {
@@ -429,7 +435,7 @@ impl UiDevelopmentController {
         Self {
             official_bundle: official_bundle.to_owned(),
             debug_bundle,
-            custom_bundle: None,
+            custom_bundle,
             config_path,
             vm_service_path,
             state: UiDevelopmentState {
@@ -442,7 +448,7 @@ impl UiDevelopmentController {
                 auto_reload_supported: false,
                 can_hot_reload: false,
                 can_hot_restart: false,
-                can_build_optimized: false,
+                can_build_optimized: profile_components_available,
                 can_revert: false,
                 vm_service_uri: String::new(),
                 generation: 0,
@@ -459,7 +465,7 @@ impl UiDevelopmentController {
 
     #[cfg(test)]
     fn isolated(official_bundle: &Path) -> Self {
-        Self::with_paths(official_bundle, None, None, None, None)
+        Self::with_paths(official_bundle, None, None, None, None, None)
     }
 
     pub(super) fn handle_command(&mut self, command: UiDevelopmentCommand) -> UiDevelopmentEffect {
@@ -477,9 +483,13 @@ impl UiDevelopmentController {
                 UiDevelopmentEffect::None
             }
             CommandKind::SetWorkspace => {
-                if self.state.active_mode == UiRuntimeMode::LiveDevelopment
-                    || self.state.desired_mode == UiRuntimeMode::LiveDevelopment
-                {
+                if matches!(
+                    self.state.active_mode,
+                    UiRuntimeMode::LiveDevelopment | UiRuntimeMode::CustomOptimized
+                ) || matches!(
+                    self.state.desired_mode,
+                    UiRuntimeMode::LiveDevelopment | UiRuntimeMode::CustomOptimized
+                ) {
                     self.reject(
                         "Return to the packaged optimized UI before changing the live workspace.",
                     );
@@ -521,10 +531,23 @@ impl UiDevelopmentController {
                 UiDevelopmentEffect::None
             }
             CommandKind::BuildAndActivateOptimized => {
-                self.reject(
-                    "The optimized workspace builder is not connected yet. The packaged UI remains active.",
-                );
-                UiDevelopmentEffect::None
+                let expected_workspace = self
+                    .state
+                    .workspace_valid
+                    .then(|| Path::new(&self.state.workspace));
+                let validation = self
+                    .custom_bundle
+                    .as_deref()
+                    .ok_or_else(|| "No AOT profile Flutter bundle is configured.".to_owned())
+                    .and_then(|bundle| validate_profile_bundle(bundle, expected_workspace));
+                match validation {
+                    Ok(()) => self.request_mode(UiRuntimeMode::CustomOptimized),
+                    Err(error) => {
+                        self.state.can_build_optimized = false;
+                        self.reject(error);
+                        UiDevelopmentEffect::None
+                    }
+                }
             }
             CommandKind::RevertLastWorking => {
                 self.reject("There is no previous custom optimized UI to restore.");
@@ -573,6 +596,9 @@ impl UiDevelopmentController {
             }
         }
         self.state.operation = UiDevelopmentOperation::Idle;
+        self.state.can_build_optimized = self.custom_bundle.as_deref().is_some_and(|bundle| {
+            validate_profile_bundle(bundle, Some(Path::new(&self.state.workspace))).is_ok()
+        });
         self.persist();
     }
 
@@ -587,7 +613,7 @@ impl UiDevelopmentController {
                     "Live UI development is already active.".to_owned()
                 }
                 UiRuntimeMode::CustomOptimized => {
-                    "The custom optimized Flutter shell is already active.".to_owned()
+                    "Optimized AOT profile mode is already active.".to_owned()
                 }
                 UiRuntimeMode::Unavailable => "No Flutter runtime is active.".to_owned(),
             };
@@ -612,6 +638,21 @@ impl UiDevelopmentController {
                 self.reject(error);
                 return UiDevelopmentEffect::None;
             }
+        } else if mode == UiRuntimeMode::CustomOptimized {
+            let expected_workspace = self
+                .state
+                .workspace_valid
+                .then(|| Path::new(&self.state.workspace));
+            let validation = self
+                .custom_bundle
+                .as_deref()
+                .ok_or_else(|| "No AOT profile Flutter bundle is configured.".to_owned())
+                .and_then(|bundle| validate_profile_bundle(bundle, expected_workspace));
+            if let Err(error) = validation {
+                self.state.can_build_optimized = false;
+                self.reject(error);
+                return UiDevelopmentEffect::None;
+            }
         }
         self.state.desired_mode = mode;
         self.state.operation = UiDevelopmentOperation::SwitchingRuntime;
@@ -620,7 +661,7 @@ impl UiDevelopmentController {
                 "Switching to the packaged optimized Flutter shell…".to_owned()
             }
             UiRuntimeMode::CustomOptimized => {
-                "Switching to the custom optimized Flutter shell…".to_owned()
+                "Starting the optimized AOT profile Flutter shell and Dart VM service…".to_owned()
             }
             UiRuntimeMode::LiveDevelopment => {
                 "Starting the JIT Flutter shell and Dart VM service…".to_owned()
@@ -656,6 +697,10 @@ impl UiDevelopmentController {
             .ok_or_else(|| "No JIT Flutter bundle is configured.".to_owned())
             .and_then(|bundle| validate_debug_bundle(bundle, expected_workspace));
         self.state.developer_components_available = debug_validation.is_ok();
+        self.state.can_build_optimized = self
+            .custom_bundle
+            .as_deref()
+            .is_some_and(|bundle| validate_profile_bundle(bundle, expected_workspace).is_ok());
         if self.state.active_mode == UiRuntimeMode::OfficialOptimized && self.state.error.is_empty()
         {
             self.state.status = if !self.state.workspace_valid {
@@ -714,7 +759,7 @@ impl UiDevelopmentController {
             }
             (UiRuntimeMode::CustomOptimized, _) => {
                 self.state.error.clear();
-                "Your optimized Flutter shell is active.".to_owned()
+                "Optimized AOT profile mode is active.".to_owned()
             }
             (UiRuntimeMode::LiveDevelopment, _) => {
                 self.state.error.clear();
@@ -747,7 +792,10 @@ impl UiDevelopmentController {
     }
 
     pub(super) fn set_vm_service_uri(&mut self, uri: String) {
-        if self.state.active_mode != UiRuntimeMode::LiveDevelopment {
+        if !matches!(
+            self.state.active_mode,
+            UiRuntimeMode::LiveDevelopment | UiRuntimeMode::CustomOptimized
+        ) {
             return;
         }
         if let Some(path) = self.vm_service_path.as_deref()
@@ -767,8 +815,11 @@ impl UiDevelopmentController {
         // hot-reload button is ready until it owns a VM-service client.
         self.state.can_hot_reload = false;
         self.state.can_hot_restart = false;
-        self.state.status =
-            "Live Flutter UI development is ready for VSCodium and Flutter tooling.".to_owned();
+        self.state.status = if self.state.active_mode == UiRuntimeMode::CustomOptimized {
+            "Optimized AOT profile mode is ready for Flutter DevTools.".to_owned()
+        } else {
+            "Live Flutter UI development is ready for VSCodium and Flutter tooling.".to_owned()
+        };
         self.bump_revision();
     }
 
@@ -838,7 +889,7 @@ impl UiRuntimeMode {
     fn description(self) -> &'static str {
         match self {
             Self::OfficialOptimized => "the packaged optimized Flutter shell",
-            Self::CustomOptimized => "the custom optimized Flutter shell",
+            Self::CustomOptimized => "the optimized AOT profile Flutter shell",
             Self::LiveDevelopment => "the live Flutter development shell",
             Self::Unavailable => "an unavailable Flutter shell",
         }
@@ -893,12 +944,54 @@ fn validate_debug_bundle(path: &Path, expected_workspace: Option<&Path>) -> Resu
             ));
         }
     }
+    validate_bundle_workspace(
+        path,
+        expected_workspace,
+        "JIT Flutter bundle",
+        "denial-ui prepare",
+    )
+}
+
+fn validate_profile_bundle(path: &Path, expected_workspace: Option<&Path>) -> Result<(), String> {
+    if !path.is_absolute() {
+        return Err("The AOT profile Flutter bundle path must be absolute.".to_owned());
+    }
+    for candidates in [
+        vec![
+            path.join("lib/libflutter_engine.so"),
+            path.join("libflutter_engine.so"),
+        ],
+        vec![path.join("data/icudtl.dat")],
+        vec![path.join("lib/libapp.so"), path.join("libapp.so")],
+        vec![path.join("data/flutter_assets/AssetManifest.bin")],
+    ] {
+        if !candidates.iter().any(|candidate| regular_file(candidate)) {
+            return Err(format!(
+                "AOT profile Flutter bundle is missing {}.",
+                candidates[0].display()
+            ));
+        }
+    }
+    validate_bundle_workspace(
+        path,
+        expected_workspace,
+        "AOT profile Flutter bundle",
+        "denial-ui prepare-profile",
+    )
+}
+
+fn validate_bundle_workspace(
+    path: &Path,
+    expected_workspace: Option<&Path>,
+    label: &str,
+    prepare_command: &str,
+) -> Result<(), String> {
     let workspace_marker = path.join("workspace.path");
-    let prepared_workspace = read_workspace_marker(&workspace_marker)?;
+    let prepared_workspace = read_workspace_marker(&workspace_marker, label)?;
     if let Some(expected_workspace) = expected_workspace {
         let prepared = fs::canonicalize(&prepared_workspace).map_err(|error| {
             format!(
-                "Could not resolve the JIT bundle workspace {}: {error}",
+                "Could not resolve the {label} workspace {}: {error}",
                 prepared_workspace.display()
             )
         })?;
@@ -910,7 +1003,7 @@ fn validate_debug_bundle(path: &Path, expected_workspace: Option<&Path>) -> Resu
         })?;
         if prepared != expected {
             return Err(format!(
-                "The JIT bundle was prepared for {}, not {}. Run denial-ui prepare for the selected workspace.",
+                "The {label} was prepared for {}, not {}. Run {prepare_command} for the selected workspace.",
                 prepared.display(),
                 expected.display()
             ));
@@ -923,10 +1016,10 @@ fn regular_file(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
 }
 
-fn read_workspace_marker(path: &Path) -> Result<PathBuf, String> {
+fn read_workspace_marker(path: &Path, label: &str) -> Result<PathBuf, String> {
     if !regular_file(path) {
         return Err(format!(
-            "JIT Flutter bundle is missing its workspace marker at {}.",
+            "{label} is missing its workspace marker at {}.",
             path.display()
         ));
     }
@@ -937,7 +1030,7 @@ fn read_workspace_marker(path: &Path) -> Result<PathBuf, String> {
         .read_to_end(&mut bytes)
         .map_err(|error| format!("Could not read {}: {error}", path.display()))?;
     if bytes.len() > MAX_WORKSPACE_BYTES + 1 {
-        return Err("JIT Flutter bundle workspace marker exceeds the size limit.".to_owned());
+        return Err(format!("{label} workspace marker exceeds the size limit."));
     }
     if bytes.last() == Some(&b'\n') {
         bytes.pop();
@@ -948,13 +1041,13 @@ fn read_workspace_marker(path: &Path) -> Result<PathBuf, String> {
         || bytes.contains(&b'\n')
         || bytes.contains(&b'\r')
     {
-        return Err("JIT Flutter bundle workspace marker is malformed.".to_owned());
+        return Err(format!("{label} workspace marker is malformed."));
     }
     let value = std::str::from_utf8(&bytes)
-        .map_err(|_| "JIT Flutter bundle workspace marker is not valid UTF-8.".to_owned())?;
+        .map_err(|_| format!("{label} workspace marker is not valid UTF-8."))?;
     let workspace = PathBuf::from(value);
     if !workspace.is_absolute() {
-        return Err("JIT Flutter bundle workspace marker is not absolute.".to_owned());
+        return Err(format!("{label} workspace marker is not absolute."));
     }
     Ok(workspace)
 }
@@ -983,6 +1076,19 @@ fn default_debug_bundle_path() -> Option<PathBuf> {
                 .map(|path| path.join(".cache"))
         })?;
     Some(root.join("denial/ui-development/debug/bundle"))
+}
+
+fn default_profile_bundle_path() -> Option<PathBuf> {
+    let root = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .map(|path| path.join(".cache"))
+        })?;
+    Some(root.join("denial/ui-development/profile/bundle"))
 }
 
 fn default_vm_service_path() -> Option<PathBuf> {

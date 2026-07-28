@@ -6,6 +6,8 @@
 mod authentication;
 #[path = "deniald/clipboard.rs"]
 mod clipboard;
+#[path = "deniald/cpu_scheduling.rs"]
+mod cpu_scheduling;
 #[path = "deniald/egl_context.rs"]
 mod egl_context;
 #[cfg(feature = "flutter")]
@@ -255,6 +257,10 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     if !session.is_active() {
         return Err("libseat did not activate the current TTY session".into());
     }
+    // RTKit grants priority only to active local sessions. Prepare the policy
+    // after libseat activation, but keep this thread ordinary until Flutter,
+    // graphics drivers, and persistent compositor workers have initialized.
+    cpu_scheduling::initialize();
     let seat_name = session.seat();
     let drm_device_id = std::fs::metadata(&options.device)?.rdev();
 
@@ -1173,7 +1179,7 @@ fn synchronize_idle_dpms_configuration(
 
 #[cfg(feature = "flutter")]
 fn apply_output_power_requests(
-    runtime: &flutter_runtime::FlutterRuntime,
+    runtime: &mut flutter_runtime::FlutterRuntime,
     scheduler: &mut output_scheduler::OutputScheduler,
     swapchain: &mut AtlasSwapchain,
     scanouts: &mut [Scanout],
@@ -1270,6 +1276,7 @@ fn apply_output_power_requests(
             frontend.output_power_applied(output, powered);
         }
     }
+    runtime.set_outputs_visible(scanouts.iter().any(|scanout| scanout.powered))?;
     events.output_power_requests = deferred;
     Ok(())
 }
@@ -1889,6 +1896,11 @@ fn run_flutter_event_loop(
     )?;
     let mut frame_scheduler = frame_scheduler::FrameScheduler::new(scanouts, Instant::now());
 
+    // Any native helper inadvertently created by an elevated Flutter thread
+    // is normalized before the compositor itself becomes realtime.
+    cpu_scheduling::contain_unregistered_priority_threads();
+    cpu_scheduling::promote_compositor_thread();
+
     loop {
         service_session_lifecycle(
             drm,
@@ -1943,7 +1955,7 @@ fn run_flutter_event_loop(
         if !scanout_rebased {
             apply_output_power_requests(
                 flutter
-                    .as_ref()
+                    .as_mut()
                     .ok_or("Flutter runtime disappeared during DPMS dispatch")?,
                 &mut scheduler,
                 swapchain,
@@ -2121,7 +2133,7 @@ fn run_flutter_event_loop(
                 events.output_power_requests.extend(desired_power);
                 apply_output_power_requests(
                     flutter
-                        .as_ref()
+                        .as_mut()
                         .ok_or("Flutter runtime disappeared during output power application")?,
                     &mut scheduler,
                     swapchain,
@@ -2226,7 +2238,7 @@ fn run_flutter_event_loop(
             events.output_power_requests.extend(desired_power);
             apply_output_power_requests(
                 flutter
-                    .as_ref()
+                    .as_mut()
                     .ok_or("Flutter runtime disappeared during output power application")?,
                 &mut scheduler,
                 swapchain,

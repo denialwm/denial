@@ -1,5 +1,5 @@
 From 9c5b4af03ef9b5bfc193838c449c042c6c47312e Mon Sep 17 00:00:00 2001
-From: Koto Letta <kotolettaffxiv@gmail.com>
+From: Doctor Logix <doctor.logix@gmail.com>
 Date: Sat, 25 Jul 2026 12:06:55 +0200
 Subject: [PATCH] Fix DMSAA lifetime and stencil continuity on wrapped GL
  FBOs

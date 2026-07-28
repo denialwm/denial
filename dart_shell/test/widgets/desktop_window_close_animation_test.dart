@@ -3,10 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:denial_dart_shell/src/state/desktop_window_close_effect.dart';
 import 'package:denial_dart_shell/src/theme/motion.dart';
 import 'package:denial_dart_shell/src/widgets/desktop_window_close_animation.dart';
+import 'package:denial_dart_shell/src/widgets/desktop_window_snapshot.dart';
 
 void main() {
-  testWidgets('explosion paints particles and completes on schedule',
-      (tester) async {
+  testWidgets('explosion paints particles and completes on schedule', (
+    tester,
+  ) async {
     var completed = false;
     await tester.pumpWidget(
       _TestHost(
@@ -23,6 +25,14 @@ void main() {
       find.byKey(const ValueKey<String>('desktop-window-close-explosion')),
       findsOneWidget,
     );
+    expect(
+      tester
+          .widget<DesktopWindowSnapshotScope>(
+            find.byType(DesktopWindowSnapshotScope),
+          )
+          .snapshotting,
+      isTrue,
+    );
     expect(completed, isFalse);
 
     await tester.pump(Motion.desktopWindowCloseExplosion);
@@ -31,8 +41,9 @@ void main() {
     expect(completed, isTrue);
   });
 
-  testWidgets('reduced motion completes without retaining a ticker',
-      (tester) async {
+  testWidgets('reduced motion completes without retaining a ticker', (
+    tester,
+  ) async {
     var completed = false;
     await tester.pumpWidget(
       _TestHost(
@@ -47,16 +58,21 @@ void main() {
     );
     await tester.pump();
 
+    expect(
+      tester
+          .widget<DesktopWindowSnapshotScope>(
+            find.byType(DesktopWindowSnapshotScope),
+          )
+          .snapshotting,
+      isFalse,
+    );
     expect(completed, isTrue);
     expect(tester.binding.transientCallbackCount, 0);
   });
 }
 
 class _TestHost extends StatelessWidget {
-  const _TestHost({
-    required this.child,
-    this.disableAnimations = false,
-  });
+  const _TestHost({required this.child, this.disableAnimations = false});
 
   final Widget child;
   final bool disableAnimations;
@@ -70,13 +86,7 @@ class _TestHost extends StatelessWidget {
       ),
       child: Directionality(
         textDirection: TextDirection.ltr,
-        child: Center(
-          child: SizedBox(
-            width: 320,
-            height: 220,
-            child: child,
-          ),
-        ),
+        child: Center(child: SizedBox(width: 320, height: 220, child: child)),
       ),
     );
   }

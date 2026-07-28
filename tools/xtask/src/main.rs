@@ -127,7 +127,7 @@ fn build_ui_development_package() -> Result<(), ToolError> {
     validate_package(&paths, &identity, &package)?;
     let archive_sha256 = sha256(&package)?;
     let size = fs::metadata(&package).map_err(ToolError::io)?.len();
-    const MAX_PACKAGE_BYTES: u64 = 160 * 1024 * 1024;
+    const MAX_PACKAGE_BYTES: u64 = 208 * 1024 * 1024;
     if size > MAX_PACKAGE_BYTES {
         return Err(ToolError::new(format!(
             "development package is {}, above the {} archive size budget",
@@ -163,6 +163,8 @@ struct BuildPaths {
     flutter_tool_checksum: PathBuf,
     debug_engine: PathBuf,
     debug_engine_checksum: PathBuf,
+    profile_engine: PathBuf,
+    profile_engine_checksum: PathBuf,
 }
 
 impl BuildPaths {
@@ -205,6 +207,10 @@ impl BuildPaths {
             .unwrap_or_else(|| {
                 repository.join("prebuilt/flutter-engine/linux-x64-debug/libflutter_engine.so")
             });
+        let profile_engine = absolute_environment_path("DENIAL_PACKAGE_PROFILE_ENGINE_SOURCE")?
+            .unwrap_or_else(|| {
+                repository.join("prebuilt/flutter-engine/linux-x64-profile/libflutter_engine.so")
+            });
 
         Ok(Self {
             compositor: repository.join("compositor"),
@@ -225,6 +231,9 @@ impl BuildPaths {
             debug_engine,
             debug_engine_checksum: repository
                 .join("prebuilt/flutter-engine/linux-x64-debug/libflutter_engine.so.sha256"),
+            profile_engine,
+            profile_engine_checksum: repository
+                .join("prebuilt/flutter-engine/linux-x64-profile/libflutter_engine.so.sha256"),
             repository,
         })
     }
@@ -953,10 +962,13 @@ fn build_flutter_sdk_runtime(paths: &BuildPaths) -> Result<(), ToolError> {
 
     for relative in [
         "bin/cache/artifacts/engine/common/flutter_patched_sdk",
+        "bin/cache/artifacts/engine/linux-x64/flutter_linux",
         "bin/cache/artifacts/engine/linux-x64/shader_lib",
+        "bin/cache/artifacts/engine/linux-x64-profile",
         "bin/cache/artifacts/gradle_wrapper",
         "bin/cache/artifacts/material_fonts",
         "bin/cache/dart-sdk/lib",
+        "bin/cache/dart-sdk/bin/resources/devtools",
         "bin/cache/pkg/sky_engine/lib",
         "packages/flutter/lib",
         "packages/flutter_localizations/lib",
@@ -970,6 +982,9 @@ fn build_flutter_sdk_runtime(paths: &BuildPaths) -> Result<(), ToolError> {
         "AUTHORS",
         "LICENSE",
         "PATENT_GRANT",
+        "bin/cache/artifacts/engine/linux-x64/const_finder.dart.snapshot",
+        "bin/cache/artifacts/engine/linux-x64/font-subset",
+        "bin/cache/artifacts/engine/linux-x64/icudtl.dat",
         "bin/cache/artifacts/engine/linux-x64/impellerc",
         "bin/cache/artifacts/engine/linux-x64/isolate_snapshot.bin",
         "bin/cache/artifacts/engine/linux-x64/vm_isolate_snapshot.bin",
@@ -1002,7 +1017,6 @@ fn build_flutter_sdk_runtime(paths: &BuildPaths) -> Result<(), ToolError> {
     copy_flutter_version_markers(paths, destination)?;
 
     for relative in [
-        "bin/cache/artifacts/engine/linux-x64-profile",
         "bin/cache/artifacts/engine/linux-x64-release",
         "bin/cache/artifacts/ios-deploy",
         "bin/cache/artifacts/libimobiledevice",
@@ -1338,6 +1352,8 @@ fn validate_package_inputs(paths: &BuildPaths) -> Result<(), ToolError> {
         paths.flutter_tool_checksum.clone(),
         paths.debug_engine.clone(),
         paths.debug_engine_checksum.clone(),
+        paths.profile_engine.clone(),
+        paths.profile_engine_checksum.clone(),
     ] {
         require_regular_file(&path)?;
     }
@@ -1363,6 +1379,13 @@ fn validate_package_inputs(paths: &BuildPaths) -> Result<(), ToolError> {
     if actual != expected {
         return Err(ToolError::new(format!(
             "debug engine SHA-256 is {actual}, expected {expected}"
+        )));
+    }
+    let expected = checksum_record(&paths.profile_engine_checksum)?;
+    let actual = sha256(&paths.profile_engine)?;
+    if actual != expected {
+        return Err(ToolError::new(format!(
+            "profile engine SHA-256 is {actual}, expected {expected}"
         )));
     }
     let expected = checksum_record(&paths.flutter_tool_checksum)?;
@@ -1403,6 +1426,10 @@ fn makepkg_command(paths: &BuildPaths, identity: &PackageIdentity) -> Command {
             &paths.ui_workspace_template,
         )
         .env("DENIAL_PACKAGE_DEBUG_ENGINE_SOURCE", &paths.debug_engine)
+        .env(
+            "DENIAL_PACKAGE_PROFILE_ENGINE_SOURCE",
+            &paths.profile_engine,
+        )
         .env("DENIAL_PACKAGE_VERSION", &identity.version)
         .env("DENIAL_PACKAGE_RELEASE", &identity.release)
         .env("PKGDEST", &paths.package_root)
@@ -1471,6 +1498,16 @@ fn validate_package(
             "packaged debug engine SHA-256 is {packaged_engine_sha256}, expected {expected_engine_sha256}"
         )));
     }
+    let packaged_profile_engine =
+        root.join("usr/lib/denial/ui-development/profile/lib/libflutter_engine.so");
+    require_mode(&packaged_profile_engine, 0o755)?;
+    let expected_profile_engine_sha256 = checksum_record(&paths.profile_engine_checksum)?;
+    let packaged_profile_engine_sha256 = sha256(&packaged_profile_engine)?;
+    if packaged_profile_engine_sha256 != expected_profile_engine_sha256 {
+        return Err(ToolError::new(format!(
+            "packaged profile engine SHA-256 is {packaged_profile_engine_sha256}, expected {expected_profile_engine_sha256}"
+        )));
+    }
     let packaged_flutter_tool =
         root.join("usr/lib/denial/ui-development/flutter/bin/cache/flutter_tools.snapshot");
     require_x86_64_aot_elf(&packaged_flutter_tool)?;
@@ -1507,7 +1544,17 @@ fn validate_package(
         "usr/lib/denial/ui-development/flutter/bin/cache/dart-sdk/bin/snapshots/dds_aot.dart.snapshot",
         "usr/lib/denial/ui-development/flutter/bin/cache/dart-sdk/bin/snapshots/dart_tooling_daemon_aot.dart.snapshot",
         "usr/lib/denial/ui-development/flutter/bin/cache/dart-sdk/bin/snapshots/frontend_server_aot.dart.snapshot",
+        "usr/lib/denial/ui-development/flutter/bin/cache/dart-sdk/bin/resources/devtools/assets/NOTICES",
+        "usr/lib/denial/ui-development/flutter/bin/cache/dart-sdk/bin/resources/devtools/index.html",
+        "usr/lib/denial/ui-development/flutter/bin/cache/dart-sdk/bin/resources/devtools/main.dart.js",
+        "usr/lib/denial/ui-development/flutter/bin/cache/dart-sdk/bin/resources/devtools/version.json",
+        "usr/lib/denial/ui-development/flutter/bin/cache/artifacts/engine/linux-x64/flutter_linux/flutter_linux.h",
+        "usr/lib/denial/ui-development/flutter/bin/cache/artifacts/engine/linux-x64/const_finder.dart.snapshot",
+        "usr/lib/denial/ui-development/flutter/bin/cache/artifacts/engine/linux-x64/font-subset",
+        "usr/lib/denial/ui-development/flutter/bin/cache/artifacts/engine/linux-x64/icudtl.dat",
         "usr/lib/denial/ui-development/flutter/bin/cache/artifacts/engine/linux-x64/impellerc",
+        "usr/lib/denial/ui-development/flutter/bin/cache/artifacts/engine/linux-x64-profile/gen_snapshot",
+        "usr/lib/denial/ui-development/flutter/bin/cache/artifacts/engine/linux-x64-profile/libflutter_linux_gtk.so",
         "usr/lib/denial/ui-development/flutter/bin/cache/pkg/sky_engine/lib/_embedder.yaml",
         "usr/lib/denial/ui-development/flutter/bin/cache/pkg/sky_engine/lib/ui/ui.dart",
         "usr/lib/denial/ui-development/flutter/packages/flutter/lib/src/gestures/binding.dart",
@@ -1519,6 +1566,10 @@ fn validate_package(
         "usr/lib/denial/ui-development/pub-cache/.denial-generation",
         "usr/share/denial/ui-development/manifest.json",
         "usr/share/denial/ui-development/flutter_tools.snapshot.sha256",
+        "usr/share/denial/ui-development/profile/libflutter_engine.so.sha256",
+        "usr/share/denial/ui-development/profile/ENGINE_REVISION",
+        "usr/share/denial/ui-development/profile/FLUTTER_REVISION",
+        "usr/share/denial/ui-development/profile/args.gn",
         "usr/share/denial/ui-development/workspace/.denial-ui-source.json",
         "usr/share/denial/ui-development/workspace/dart_shell/.vscode/launch.json",
         "usr/share/denial/ui-development/workspace/dart_shell/.vscode/settings.json",
@@ -1527,6 +1578,7 @@ fn validate_package(
         "usr/share/denial/ui-development/workspace/protocol/generated/dart/pubspec.yaml",
         "usr/share/doc/denial-ui-development/BUILD_INFO.md",
         "usr/share/doc/denial-ui-development/FLUTTER_TOOL_BUILD_INFO.md",
+        "usr/share/doc/denial-ui-development/PROFILE_ENGINE_BUILD_INFO.md",
         "usr/share/licenses/denial-ui-development/LICENSE.flutter",
         "usr/share/licenses/denial-ui-development/LICENSE.flutter-third-party",
         "usr/share/licenses/denial-ui-development/LICENSE.dart",
@@ -1577,9 +1629,14 @@ fn validate_package(
     require_executable(&root.join(
         "usr/lib/denial/ui-development/flutter/bin/cache/artifacts/engine/linux-x64/impellerc",
     ))?;
+    require_executable(&root.join(
+        "usr/lib/denial/ui-development/flutter/bin/cache/artifacts/engine/linux-x64/font-subset",
+    ))?;
+    require_executable(&root.join(
+        "usr/lib/denial/ui-development/flutter/bin/cache/artifacts/engine/linux-x64-profile/gen_snapshot",
+    ))?;
 
     for forbidden in [
-        "usr/lib/denial/ui-development/flutter/bin/cache/dart-sdk/bin/resources/devtools",
         "usr/lib/denial/ui-development/flutter/bin/cache/artifacts/engine/linux-x64/libflutter_linux_gtk.so",
         "usr/lib/denial/ui-development/flutter/packages/flutter/test",
         "usr/lib/denial/ui-development/flutter/packages/flutter_tools/test",
@@ -1598,7 +1655,7 @@ fn validate_package(
     }
 
     let development_bytes = tree_bytes(&root.join("usr/lib/denial/ui-development"))?;
-    const MAX_DEVELOPMENT_BYTES: u64 = 448 * 1024 * 1024;
+    const MAX_DEVELOPMENT_BYTES: u64 = 608 * 1024 * 1024;
     if development_bytes > MAX_DEVELOPMENT_BYTES {
         return Err(ToolError::new(format!(
             "development runtime is {}, above the {} size budget",
@@ -1609,6 +1666,22 @@ fn validate_package(
     println!(
         "Validated installed development runtime size: {}",
         human_size(development_bytes)
+    );
+    let devtools_bytes =
+        tree_bytes(&root.join(
+            "usr/lib/denial/ui-development/flutter/bin/cache/dart-sdk/bin/resources/devtools",
+        ))?;
+    const MAX_DEVTOOLS_BYTES: u64 = 104 * 1024 * 1024;
+    if devtools_bytes > MAX_DEVTOOLS_BYTES {
+        return Err(ToolError::new(format!(
+            "browser DevTools assets are {}, above the {} size budget",
+            human_size(devtools_bytes),
+            human_size(MAX_DEVTOOLS_BYTES)
+        )));
+    }
+    println!(
+        "Validated browser DevTools assets size: {}",
+        human_size(devtools_bytes)
     );
     let workspace_bytes = tree_bytes(&root.join("usr/share/denial/ui-development/workspace"))?;
     const MAX_WORKSPACE_BYTES: u64 = 32 * 1024 * 1024;
@@ -1633,8 +1706,15 @@ fn validate_package(
             .repository
             .join("prebuilt/flutter-engine/linux-x64-debug/args.gn"),
     )?;
+    let expected_profile_engine_args_sha256 = sha256(
+        &paths
+            .repository
+            .join("prebuilt/flutter-engine/linux-x64-profile/args.gn"),
+    )?;
     if !manifest.contains(&format!(
         "\"debug_engine_sha256\": \"{expected_engine_sha256}\""
+    )) || !manifest.contains(&format!(
+        "\"profile_engine_sha256\": \"{expected_profile_engine_sha256}\""
     )) || !manifest.contains(&format!(
         "\"flutter_tool_sha256\": \"{expected_flutter_tool_sha256}\""
     )) || !manifest.contains(&format!(
@@ -1647,23 +1727,31 @@ fn validate_package(
             "\"debug_engine_args_sha256\": \"{expected_debug_engine_args_sha256}\""
         ))
         || !manifest.contains(&format!(
+            "\"profile_engine_args_sha256\": \"{expected_profile_engine_args_sha256}\""
+        ))
+        || !manifest.contains(&format!(
             "\"denial_minimum_version\": \"{UI_DENIAL_MINIMUM_VERSION}\""
         ))
         || !manifest.contains(&format!(
             "\"denial_version_before\": \"{UI_DENIAL_VERSION_BEFORE}\""
         ))
         || !manifest.contains("\"engine_mode\": \"debug-jit\"")
+        || !manifest.contains("\"profile_engine_mode\": \"profile-aot\"")
         || !manifest.contains("\"flutter_tool_snapshot_kind\": \"app-aot-elf\"")
         || !manifest.contains("\"flutter_tool_runtime\": \"dartaotruntime\"")
         || !manifest.contains("\"editor_attach_mode\": \"non-pausing\"")
         || !manifest.contains("\"dap_debugger_control\": false")
         || !manifest.contains("\"hot_reload\": true")
         || !manifest.contains("\"flutter_inspector\": true")
+        || !manifest.contains("\"browser_devtools_assets\": true")
+        || !manifest.contains("\"performance_profiling\": true")
+        || !manifest.contains("\"aot_performance_profiling\": true")
         || !manifest.contains("\"version_matched_git_checkout\": true")
         || !manifest.contains(&format!("\"origin\": \"{DENIAL_GIT_REMOTE}\""))
         || !manifest.contains("\"github_access_required_for_initial_setup\": true")
         || !manifest.contains("\"exact_commit_verification\": true")
         || !manifest.contains("\"offline_shell_preparation_verified\": true")
+        || !manifest.contains("\"profile_engine_checksum_verified\": true")
         || !manifest.contains("\"non_pausing_editor_attach_tested\": true")
         || !manifest.contains("\"offline_source_closure\": false")
         || !manifest.contains("\"reproducible_package\": false")
@@ -1801,6 +1889,27 @@ fn validate_packaged_flutter_tool(
             .path()
             .join("build/debug/bundle/lib/libflutter_engine.so"),
         smoke.path().join("build/pub-cache/.denial-generation"),
+    ] {
+        require_regular_file(&required)?;
+    }
+
+    let mut prepare_profile =
+        packaged_denial_ui_command(smoke.path(), package_root, &sandbox_workspace);
+    prepare_profile
+        .args(["prepare-profile"])
+        .arg(&sandbox_workspace);
+    checked_status(
+        &mut prepare_profile,
+        "packaged Denial UI workspace failed its immutable offline AOT profile preparation test",
+    )?;
+    for required in [
+        smoke
+            .path()
+            .join("build/profile/bundle/data/flutter_assets/AssetManifest.bin"),
+        smoke.path().join("build/profile/bundle/lib/libapp.so"),
+        smoke
+            .path()
+            .join("build/profile/bundle/lib/libflutter_engine.so"),
     ] {
         require_regular_file(&required)?;
     }

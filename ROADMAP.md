@@ -108,8 +108,9 @@ foundation:
 - the optional `denial-ui-development` package carries a version-coupled JIT
   engine and scoped Flutter/Dart tooling;
 - `denialctl ui setup` creates and prepares a matching editable checkout;
-- VSCodium can hot reload saved Dart changes and use Flutter Inspector without
-  receiving pause or breakpoint control over the desktop isolate;
+- VSCodium can hot reload saved Dart changes, and the matching browser
+  DevTools supports Flutter Inspector and performance profiling while the
+  editor debug-adapter profile remains non-pausing;
 - switching between the optimized AOT shell and the JIT shell keeps Wayland
   clients and the compositor session alive; and
 - `denialctl ui restore` remains available independently of the Flutter UI.

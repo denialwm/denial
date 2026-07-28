@@ -124,12 +124,12 @@ Install or update the pinned host configuration:
 tools/denial-builder install
 ```
 
-The installer also verifies both locally rebuilt Flutter engines against their
-tracked checksums. It installs the optimized AOT engine at
-`/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/` and the
-JIT-capable engine below its `debug/` directory as root-owned, runner-readable
-artifacts. The ephemeral runner can consume these rare generation inputs but
-cannot modify them.
+The installer also verifies all three locally rebuilt Flutter engines against
+their tracked checksums. It installs the optimized AOT engine at
+`/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/`, the optimized
+AOT profiling engine below `profile/`, and the JIT-capable engine below
+`debug/` as root-owned, runner-readable artifacts. The ephemeral runner can
+consume these rare generation inputs but cannot modify them.
 
 Audit the machine as the unprivileged runner account:
 

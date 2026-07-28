@@ -51,6 +51,8 @@ jobs:
               '/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/libflutter_engine.so'
             printf 'DENIAL_PACKAGE_DEBUG_ENGINE_SOURCE=%s\n' \
               '/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/debug/libflutter_engine.so'
+            printf 'DENIAL_PACKAGE_PROFILE_ENGINE_SOURCE=%s\n' \
+              '/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/profile/libflutter_engine.so'
             printf 'EVIDENCE_ROOT=%s\n' \
               "$RUNNER_TEMP/denial-release-evidence"
             printf 'UNSIGNED_ROOT=%s\n' \

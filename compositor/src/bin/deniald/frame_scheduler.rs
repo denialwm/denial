@@ -59,6 +59,13 @@ impl FrameScheduler {
 
     pub(super) fn reconfigure(&mut self, scanouts: &[Scanout], now: Instant) {
         self.outputs.reconfigure(scanouts, now);
+        if self.outputs.is_parked() {
+            // A texture-only tick may have been waiting for Flutter when the
+            // final output powered down. Keep any eventual AwaitVSync baton
+            // pending for the first fresh output tick after wake instead of
+            // rendering against a clock edge which is no longer visible.
+            self.waiting_for_flutter = None;
+        }
     }
 
     pub(super) fn observe_presentation(&mut self, presentation: PresentedOutput) {
@@ -176,6 +183,10 @@ impl OutputClocks {
 
     fn ticks(&self) -> &[FrameTick] {
         &self.ticks
+    }
+
+    fn is_parked(&self) -> bool {
+        self.render_output.is_none()
     }
 
     fn limit_dispatch_timeout(&self, now: Instant, timeout: Duration) -> Duration {
@@ -555,5 +566,24 @@ mod tests {
             matches!(render, FrameAction::Render(tick) if tick.output == FAST_OUTPUT && tick.observed_at == now)
         );
         assert!(scheduler.output_ticks().is_empty());
+    }
+
+    #[test]
+    fn powering_off_every_output_cancels_stale_frame_authorization() {
+        let now = Instant::now();
+        let mut scheduler = scheduler(now);
+        assert_eq!(
+            scheduler.step(now, pending(false, true, true)),
+            FrameAction::RequestFlutter
+        );
+
+        scheduler.reconfigure(&[], now + Duration::from_millis(1));
+
+        assert_eq!(
+            scheduler.step(now + Duration::from_millis(2), pending(true, false, true)),
+            FrameAction::Skip
+        );
+        assert!(scheduler.output_ticks().is_empty());
+        assert!(scheduler.waiting_for_flutter.is_none());
     }
 }

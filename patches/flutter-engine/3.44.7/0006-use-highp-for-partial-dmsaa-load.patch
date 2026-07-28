@@ -1,5 +1,5 @@
 From 5097a648e9bbb1d4a7fdf06a2a6d7bef3c9dd414 Mon Sep 17 00:00:00 2001
-From: Koto Letta <kotolettaffxiv@gmail.com>
+From: Doctor Logix <doctor.logix@gmail.com>
 Date: Sat, 25 Jul 2026 12:06:55 +0200
 Subject: [PATCH] Use highp coordinates for partial DMSAA loads
 

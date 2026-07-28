@@ -17,8 +17,6 @@ flutter = [
     "dep:denial-flutter-engine",
     "dep:sha2",
     "wire",
-    "dep:libc",
-    "dep:zbus",
 ]
 control = [
     "dep:serde",
@@ -41,6 +39,7 @@ nested = [
 kms = [
     "dep:calloop",
     "dep:drm-ffi",
+    "dep:libc",
     "dep:libloading",
     "dep:serde",
     "dep:serde_json",
@@ -48,6 +47,7 @@ kms = [
     "dep:smithay-drm-extras",
     "dep:tracing",
     "dep:tracing-subscriber",
+    "dep:zbus",
     "smithay/backend_drm",
     "smithay/backend_gbm",
     "smithay/backend_libinput",

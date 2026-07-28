@@ -59,7 +59,11 @@ fn run() -> Result<(), CliError> {
         }
         Some("prepare") => {
             let workspace = required_workspace(&remainder)?;
-            prepare(&workspace)
+            prepare(&workspace, PreparedRuntime::Debug)
+        }
+        Some("prepare-profile") => {
+            let workspace = required_workspace(&remainder)?;
+            prepare(&workspace, PreparedRuntime::Profile)
         }
         Some("uri") => {
             expect_no_arguments(&remainder)?;
@@ -68,7 +72,11 @@ fn run() -> Result<(), CliError> {
         }
         Some("attach") => {
             let workspace = required_workspace(&remainder)?;
-            attach(&workspace)
+            attach(&workspace, false)
+        }
+        Some("attach-profile") => {
+            let workspace = required_workspace(&remainder)?;
+            attach(&workspace, true)
         }
         Some("flutter") => run_flutter_passthrough(remainder),
         Some("version") | Some("--version") | Some("-V") => {
@@ -97,8 +105,10 @@ Usage: denial-ui COMMAND [WORKSPACE]
 Commands:
   doctor              Inspect the workspace and installed development runtime
   prepare [WORKSPACE] Build and atomically install the JIT Flutter bundle
+  prepare-profile     Build and atomically install the optimized AOT profile bundle
   uri                 Print the authenticated loopback Dart VM-service URI
   attach [WORKSPACE]  Attach the pinned Flutter tool to the live Denial shell
+  attach-profile      Attach the pinned Flutter tool to an AOT profile shell
   flutter [ARGS...]   Run the package-pinned Flutter tool
   version             Show tool and Flutter-generation versions
 
@@ -110,7 +120,9 @@ Path overrides:
   DENIAL_UI_DEVELOPMENT_ROOT
   DENIAL_FLUTTER_SDK_ROOT
   DENIAL_UI_DEBUG_ENGINE
+  DENIAL_UI_PROFILE_ENGINE
   DENIAL_UI_DEBUG_BUNDLE
+  DENIAL_UI_PROFILE_BUNDLE
   DENIAL_UI_BUILD_ROOT
   DENIAL_UI_PUB_CACHE"
     );
@@ -223,9 +235,11 @@ struct DevelopmentPaths {
     flutter_tool_runtime: PathBuf,
     flutter_tool: PathBuf,
     engine: PathBuf,
+    profile_engine: PathBuf,
     icu: PathBuf,
     build_root: PathBuf,
     bundle: PathBuf,
+    profile_bundle: PathBuf,
     pub_cache_seed: PathBuf,
     pub_cache: PathBuf,
 }
@@ -254,6 +268,13 @@ impl DevelopmentPaths {
                 cache.join("flutter-engine/linux-x64-debug/libflutter_engine.so")
             }
         });
+        let profile_engine = env_path("DENIAL_UI_PROFILE_ENGINE").unwrap_or_else(|| {
+            if installed {
+                root.join("profile/lib/libflutter_engine.so")
+            } else {
+                cache.join("flutter-engine/linux-x64-profile/libflutter_engine.so")
+            }
+        });
         let packaged_icu = root.join("data/icudtl.dat");
         let icu = if installed && packaged_icu.is_file() {
             packaged_icu
@@ -264,14 +285,18 @@ impl DevelopmentPaths {
             env_path("DENIAL_UI_BUILD_ROOT").unwrap_or_else(|| cache.join("ui-development"));
         let bundle =
             env_path("DENIAL_UI_DEBUG_BUNDLE").unwrap_or_else(|| build_root.join("debug/bundle"));
+        let profile_bundle = env_path("DENIAL_UI_PROFILE_BUNDLE")
+            .unwrap_or_else(|| build_root.join("profile/bundle"));
         let pub_cache_seed = root.join("pub-cache");
         let pub_cache =
             env_path("DENIAL_UI_PUB_CACHE").unwrap_or_else(|| build_root.join("pub-cache"));
         require_absolute("development root", &root)?;
         require_absolute("Flutter SDK", &flutter_root)?;
         require_absolute("debug engine", &engine)?;
+        require_absolute("profile engine", &profile_engine)?;
         require_absolute("build root", &build_root)?;
         require_absolute("debug bundle", &bundle)?;
+        require_absolute("profile bundle", &profile_bundle)?;
         require_absolute("packaged Pub cache seed", &pub_cache_seed)?;
         require_absolute("user Pub cache", &pub_cache)?;
         let flutter_tool_runtime = flutter_root.join("bin/cache/dart-sdk/bin/dartaotruntime");
@@ -284,9 +309,11 @@ impl DevelopmentPaths {
             flutter_tool_runtime,
             flutter_tool,
             engine,
+            profile_engine,
             icu,
             build_root,
             bundle,
+            profile_bundle,
             pub_cache_seed,
             pub_cache,
         })
@@ -385,11 +412,36 @@ fn show_path(label: &str, path: &Path, predicate: impl FnOnce(&Path) -> bool) ->
     exists
 }
 
-fn prepare(workspace: &Path) -> Result<(), CliError> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PreparedRuntime {
+    Debug,
+    Profile,
+}
+
+fn prepare(workspace: &Path, runtime: PreparedRuntime) -> Result<(), CliError> {
     let paths = DevelopmentPaths::resolve()?;
     validate_toolchain(&paths)?;
-    validate_debug_engine(&paths.engine)?;
-    let (build_root, bundle) = prepare_destinations(&paths)?;
+    let (engine, configured_bundle, build_mode, track_widget_creation, tree_shake_icons, target) =
+        match runtime {
+            PreparedRuntime::Debug => (
+                &paths.engine,
+                &paths.bundle,
+                "debug",
+                "true",
+                "false",
+                "copy_flutter_bundle",
+            ),
+            PreparedRuntime::Profile => (
+                &paths.profile_engine,
+                &paths.profile_bundle,
+                "profile",
+                "false",
+                "true",
+                "profile_bundle_linux-x64_assets",
+            ),
+        };
+    validate_engine(engine, build_mode)?;
+    let (build_root, bundle) = prepare_destinations(&paths, configured_bundle, build_mode)?;
 
     run_flutter(
         &paths,
@@ -405,7 +457,7 @@ fn prepare(workspace: &Path) -> Result<(), CliError> {
     let assembly = TemporaryDirectory::create(&build_root, "assembly")?;
     let bundle_parent = bundle
         .parent()
-        .ok_or_else(|| CliError::new("debug bundle has no parent directory"))?;
+        .ok_or_else(|| CliError::new(format!("{build_mode} bundle has no parent directory")))?;
     let mut staging = TemporaryDirectory::create(bundle_parent, ".bundle")?;
     let mut previous = TemporaryDirectory::create(bundle_parent, ".previous")?;
     let assembly_output = assembly.path().to_owned();
@@ -414,36 +466,51 @@ fn prepare(workspace: &Path) -> Result<(), CliError> {
         OsString::from("assemble"),
         OsString::from(format!("--output={}", assembly_output.display())),
         OsString::from("-dTargetFile=lib/main.dart"),
-        OsString::from("-dBuildMode=debug"),
+        OsString::from(format!("-dBuildMode={build_mode}")),
         OsString::from("-dTargetPlatform=linux-x64"),
         OsString::from("-dDartObfuscation=false"),
-        OsString::from("-dTrackWidgetCreation=true"),
-        OsString::from("-dTreeShakeIcons=false"),
-        OsString::from("copy_flutter_bundle"),
+        OsString::from(format!("-dTrackWidgetCreation={track_widget_creation}")),
+        OsString::from(format!("-dTreeShakeIcons={tree_shake_icons}")),
+        OsString::from(target),
     ];
     run_flutter(&paths, workspace, &assemble_arguments, false)?;
 
-    // The platform-neutral bundle target avoids unpacking Flutter's GTK
-    // embedder, which Denial's raw embedder never uses. Its VM snapshots are
-    // build inputs for Flutter, but the JIT engine already owns those
-    // snapshots, so do not duplicate them in the prepared shell bundle.
-    for redundant in [
-        "vm_snapshot_data",
-        "isolate_snapshot_data",
-        ".last_build_id",
-    ] {
-        remove_regular_file_if_present(&assembly_output.join(redundant))?;
-    }
-    let assets = assembly_output;
-    require_regular_file(&assets.join("kernel_blob.bin"))?;
+    let assets = match runtime {
+        PreparedRuntime::Debug => {
+            // The JIT engine owns these snapshots, so do not duplicate them
+            // in the prepared shell bundle.
+            for redundant in [
+                "vm_snapshot_data",
+                "isolate_snapshot_data",
+                ".last_build_id",
+            ] {
+                remove_regular_file_if_present(&assembly_output.join(redundant))?;
+            }
+            require_regular_file(&assembly_output.join("kernel_blob.bin"))?;
+            assembly_output.clone()
+        }
+        PreparedRuntime::Profile => {
+            require_regular_file(&assembly_output.join("lib/libapp.so"))?;
+            let assets = assembly_output.join("flutter_assets");
+            require_regular_file(&assets.join("AssetManifest.bin"))?;
+            assets
+        }
+    };
     let staged_bundle = staging.path();
     copy_tree(&assets, &staged_bundle.join("data/flutter_assets"))?;
     copy_regular_file(&paths.icu, &staged_bundle.join("data/icudtl.dat"), 0o644)?;
     copy_regular_file(
-        &paths.engine,
+        engine,
         &staged_bundle.join("lib/libflutter_engine.so"),
         0o755,
     )?;
+    if runtime == PreparedRuntime::Profile {
+        copy_regular_file(
+            &assembly_output.join("lib/libapp.so"),
+            &staged_bundle.join("lib/libapp.so"),
+            0o755,
+        )?;
+    }
     write_private(
         &staged_bundle.join("workspace.path"),
         format!("{}\n", workspace.display()).as_bytes(),
@@ -454,7 +521,7 @@ fn prepare(workspace: &Path) -> Result<(), CliError> {
         let metadata = fs::symlink_metadata(&bundle).map_err(CliError::io)?;
         if !metadata.file_type().is_dir() {
             return Err(CliError::new(format!(
-                "debug bundle target is not a directory: {}",
+                "{build_mode} bundle target is not a directory: {}",
                 bundle.display()
             )));
         }
@@ -478,31 +545,44 @@ fn prepare(workspace: &Path) -> Result<(), CliError> {
     fs::remove_dir_all(previous.path()).map_err(CliError::io)?;
 
     println!(
-        "Prepared Denial live UI bundle:\n  {}\n\nSelect this workspace in Settings > Developer, then enable live UI development.",
-        bundle.display()
+        "{}",
+        match runtime {
+            PreparedRuntime::Debug => format!(
+                "Prepared Denial live UI bundle:\n  {}\n\nSelect this workspace in Settings > Developer, then enable live UI development.",
+                bundle.display()
+            ),
+            PreparedRuntime::Profile => format!(
+                "Prepared Denial optimized AOT profile bundle:\n  {}\n\nActivate it with: denialctl ui profile",
+                bundle.display()
+            ),
+        }
     );
     Ok(())
 }
 
-fn prepare_destinations(paths: &DevelopmentPaths) -> Result<(PathBuf, PathBuf), CliError> {
+fn prepare_destinations(
+    paths: &DevelopmentPaths,
+    configured_bundle: &Path,
+    label: &str,
+) -> Result<(PathBuf, PathBuf), CliError> {
     fs::create_dir_all(&paths.build_root).map_err(CliError::io)?;
     let build_root = fs::canonicalize(&paths.build_root).map_err(CliError::io)?;
-    let bundle = lexical_absolute(&paths.bundle)?;
+    let bundle = lexical_absolute(configured_bundle)?;
     if !bundle.starts_with(&build_root) || bundle == build_root {
         return Err(CliError::new(format!(
-            "debug bundle must be below the build root {}: {}",
+            "{label} bundle must be below the build root {}: {}",
             build_root.display(),
             bundle.display()
         )));
     }
     let parent = bundle
         .parent()
-        .ok_or_else(|| CliError::new("debug bundle has no parent directory"))?;
+        .ok_or_else(|| CliError::new(format!("{label} bundle has no parent directory")))?;
     fs::create_dir_all(parent).map_err(CliError::io)?;
     let parent = fs::canonicalize(parent).map_err(CliError::io)?;
     let name = bundle
         .file_name()
-        .ok_or_else(|| CliError::new("debug bundle has no file name"))?;
+        .ok_or_else(|| CliError::new(format!("{label} bundle has no file name")))?;
     Ok((build_root, parent.join(name)))
 }
 
@@ -606,6 +686,10 @@ fn prepare_pub_cache(paths: &DevelopmentPaths) -> Result<(), CliError> {
 }
 
 fn validate_debug_engine(path: &Path) -> Result<(), CliError> {
+    validate_engine(path, "debug")
+}
+
+fn validate_engine(path: &Path, label: &str) -> Result<(), CliError> {
     require_regular_file(path)?;
     let bytes = fs::read(path).map_err(CliError::io)?;
     for symbol in [
@@ -614,7 +698,7 @@ fn validate_debug_engine(path: &Path) -> Result<(), CliError> {
     ] {
         if !contains_bytes(&bytes, symbol) {
             return Err(CliError::new(format!(
-                "debug engine does not export {}: {}",
+                "{label} engine does not export {}: {}",
                 String::from_utf8_lossy(&symbol[..symbol.len() - 1]),
                 path.display()
             )));
@@ -710,35 +794,30 @@ fn flutter_process(paths: &DevelopmentPaths, arguments: &[OsString]) -> Process 
 fn run_flutter_passthrough(arguments: Vec<OsString>) -> Result<(), CliError> {
     let paths = DevelopmentPaths::resolve()?;
     let workspace = env::current_dir().map_err(CliError::io)?;
-    let arguments = attach_without_browser_devtools(arguments);
+    let arguments = attach_with_browser_devtools(arguments);
     run_flutter(&paths, &workspace, &arguments, true)
 }
 
-fn attach_without_browser_devtools(mut arguments: Vec<OsString>) -> Vec<OsString> {
+fn attach_with_browser_devtools(mut arguments: Vec<OsString>) -> Vec<OsString> {
     if arguments.first().is_some_and(|value| value == "attach")
         && !arguments
             .iter()
             .any(|value| value == "--devtools" || value == "--no-devtools")
     {
-        arguments.insert(1, OsString::from("--no-devtools"));
+        arguments.insert(1, OsString::from("--devtools"));
     }
     arguments
 }
 
-fn attach(workspace: &Path) -> Result<(), CliError> {
+fn attach(workspace: &Path, profile: bool) -> Result<(), CliError> {
     let paths = DevelopmentPaths::resolve()?;
     let uri = read_vm_service_uri()?;
-    run_flutter(
-        &paths,
-        workspace,
-        &[
-            OsString::from("attach"),
-            OsString::from("--no-devtools"),
-            OsString::from("--debug-url"),
-            OsString::from(uri),
-        ],
-        true,
-    )
+    let mut arguments = vec![OsString::from("attach"), OsString::from("--devtools")];
+    if profile {
+        arguments.push(OsString::from("--profile"));
+    }
+    arguments.extend([OsString::from("--debug-url"), OsString::from(uri)]);
+    run_flutter(&paths, workspace, &arguments, true)
 }
 
 fn read_vm_service_uri() -> Result<String, CliError> {
@@ -977,7 +1056,7 @@ impl Error for CliError {}
 #[cfg(test)]
 mod tests {
     use super::{
-        attach_without_browser_devtools, contains_bytes, is_flutter_passthrough_executable,
+        attach_with_browser_devtools, contains_bytes, is_flutter_passthrough_executable,
         lexical_absolute, valid_vm_service_uri,
     };
     use std::ffi::{OsStr, OsString};
@@ -1015,24 +1094,24 @@ mod tests {
     }
 
     #[test]
-    fn disables_browser_devtools_for_attach_without_overriding_an_explicit_choice() {
+    fn enables_browser_devtools_for_attach_without_overriding_an_explicit_choice() {
         assert_eq!(
-            attach_without_browser_devtools(vec![
+            attach_with_browser_devtools(vec![
                 OsString::from("attach"),
                 OsString::from("--machine"),
             ]),
             vec![
                 OsString::from("attach"),
-                OsString::from("--no-devtools"),
+                OsString::from("--devtools"),
                 OsString::from("--machine"),
             ]
         );
         assert_eq!(
-            attach_without_browser_devtools(vec![
+            attach_with_browser_devtools(vec![
                 OsString::from("attach"),
-                OsString::from("--devtools"),
+                OsString::from("--no-devtools"),
             ]),
-            vec![OsString::from("attach"), OsString::from("--devtools"),]
+            vec![OsString::from("attach"), OsString::from("--no-devtools"),]
         );
     }
 }

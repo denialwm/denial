@@ -158,7 +158,10 @@ impl NotificationServer {
             .spawn({
                 let commands = commands.clone();
                 let stopping = Arc::clone(&stopping);
-                move || run_worker(command_rx, commands, publish, stopping, ready_tx)
+                move || {
+                    crate::cpu_scheduling::normalize_current_worker("notifications");
+                    run_worker(command_rx, commands, publish, stopping, ready_tx);
+                }
             })
             .map_err(|error| {
                 NotificationServerError(format!("could not spawn the notification worker: {error}"))

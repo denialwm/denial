@@ -204,6 +204,11 @@ validate_denial_package() (
         return 1
       }
   done
+  grep -Fqx 'depend = rtkit' "$validation_root/.PKGINFO" \
+    || {
+      printf 'package-denial-arch: Denial package does not require rtkit\n' >&2
+      return 1
+    }
   [[ -f "$validation_root/usr/share/man/man1/denialctl.1" \
     || -f "$validation_root/usr/share/man/man1/denialctl.1.gz" ]] \
     || {

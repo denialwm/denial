@@ -102,6 +102,15 @@ jobs:
             sha256sum "$engine_root/debug/libflutter_engine.so" | cut -d' ' -f1
           )"
           test "$debug_actual" = "$debug_expected"
+          profile_expected="$(
+            cut -d' ' -f1 \
+              <prebuilt/flutter-engine/linux-x64-profile/libflutter_engine.so.sha256
+          )"
+          profile_actual="$(
+            sha256sum "$engine_root/profile/libflutter_engine.so" \
+              | cut -d' ' -f1
+          )"
+          test "$profile_actual" = "$profile_expected"
 
       - name: State the boundary
         shell: bash

@@ -52,6 +52,7 @@ const APPLICATION_ENVIRONMENT_REMOVALS: &[&str] = &[
     "LISTEN_FDNAMES",
     "LISTEN_PID",
     "SYSTEMD_EXEC_PID",
+    "DENIAL_NO_RT",
     "DENIA_LAUNCH_REQUEST_ID",
     "DENIA_UWSM_FINALIZE",
     "DENIAL_SOCKET",
@@ -427,10 +428,12 @@ fn application_command(
     // calloop's signalfd intentionally blocks the shutdown signals in every
     // compositor thread. A fork inherits that mask, so undo it in the child
     // between fork and exec; otherwise ordinary applications cannot receive
-    // SIGINT/SIGTERM from their own process manager.
-    // SAFETY: the closure uses only libc signal-mask operations which are
-    // valid in the post-fork child, touches no shared Rust state, and returns
-    // before exec on every error.
+    // SIGINT/SIGTERM from their own process manager. Also enforce ordinary
+    // CPU scheduling even if the compositor's kernel reset-on-fork guard or
+    // normal-scheduler fallback changes in the future.
+    // SAFETY: the closure uses only libc signal-mask and scheduling syscalls
+    // which are valid in the post-fork child, touches no shared Rust state,
+    // and returns before exec on every error.
     unsafe {
         command.pre_exec(|| {
             let mut signals = MaybeUninit::<libc::sigset_t>::uninit();
@@ -447,6 +450,7 @@ fn application_command(
             if result != 0 {
                 return Err(io::Error::from_raw_os_error(result));
             }
+            crate::cpu_scheduling::reset_application_scheduling()?;
             Ok(())
         });
     }
@@ -523,7 +527,10 @@ fn reaper_sender() -> io::Result<ReaperSender> {
     let (sender, receiver) = mpsc::channel();
     thread::Builder::new()
         .name("denial-child-reaper".into())
-        .spawn(move || reap_children(receiver))?;
+        .spawn(move || {
+            crate::cpu_scheduling::normalize_current_worker("child-reaper");
+            reap_children(receiver);
+        })?;
     slot.next_generation = slot.next_generation.wrapping_add(1);
     let sender = ReaperSender {
         generation: slot.next_generation,

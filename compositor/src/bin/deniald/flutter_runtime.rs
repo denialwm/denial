@@ -62,6 +62,9 @@ mod damage;
 use damage::DamageRegion;
 
 const FLUTTER_KEY_EVENT_CHANNEL: &CStr = c"flutter/keyevent";
+const FLUTTER_LIFECYCLE_CHANNEL: &CStr = c"flutter/lifecycle";
+const FLUTTER_LIFECYCLE_RESUMED: &[u8] = b"AppLifecycleState.resumed";
+const FLUTTER_LIFECYCLE_HIDDEN: &[u8] = b"AppLifecycleState.hidden";
 const AUDIO_CHANNEL: &CStr = c"denial/audio";
 const AUDIO_STATE_CHANNEL: &CStr = c"denial/audio_state";
 const AUDIO_STREAMS_STATE_CHANNEL: &CStr = c"denial/audio_streams_state";
@@ -3539,6 +3542,7 @@ pub struct FlutterRuntime {
     key_event_scratch: Vec<u8>,
     frame_interval: Duration,
     kms_frame_clock_enabled: bool,
+    outputs_visible: Option<bool>,
     frame_ready_observed: bool,
     last_pointer_timestamp_micros: usize,
 }
@@ -3578,10 +3582,11 @@ impl FlutterRuntime {
             generation,
             use_native_fence,
         )?;
-        let host = EngineHost::start_with_library(
+        let host = EngineHost::start_with_library_and_priority_setter(
             &factory.project,
             handler.clone(),
             Arc::clone(&factory.library),
+            Some(super::cpu_scheduling::set_flutter_thread_priority),
         )?;
         let refresh_hz = f64::from(refresh_millihz) / 1_000.0;
         host.engine().notify_displays(
@@ -3650,6 +3655,7 @@ impl FlutterRuntime {
             key_event_scratch: Vec::with_capacity(160),
             frame_interval,
             kms_frame_clock_enabled: false,
+            outputs_visible: None,
             frame_ready_observed: false,
             last_pointer_timestamp_micros: 0,
         })
@@ -3862,6 +3868,32 @@ impl FlutterRuntime {
             .map_err(Box::<dyn Error>::from)?;
         self.kms_frame_clock_enabled = true;
         Ok(scanning)
+    }
+
+    /// Mirrors physical desktop visibility into Flutter's standard lifecycle.
+    ///
+    /// A desktop whose outputs are all powered off is equivalent to a hidden
+    /// desktop window: the framework retains widget state and timers while
+    /// disabling frame production until visibility is restored.
+    pub fn set_outputs_visible(&mut self, visible: bool) -> Result<(), Box<dyn Error>> {
+        if self.outputs_visible == Some(visible) {
+            return Ok(());
+        }
+        let state = if visible {
+            FLUTTER_LIFECYCLE_RESUMED
+        } else {
+            FLUTTER_LIFECYCLE_HIDDEN
+        };
+        self.host()
+            .engine()
+            .send_platform_message(FLUTTER_LIFECYCLE_CHANNEL, state)?;
+        self.outputs_visible = Some(visible);
+        info!(
+            visible,
+            lifecycle = std::str::from_utf8(state).unwrap_or("unknown"),
+            "synchronized Flutter desktop visibility"
+        );
+        Ok(())
     }
 
     pub fn publish_to_outputs(&self, index: usize, count: usize) -> Result<(), Box<dyn Error>> {
@@ -4618,7 +4650,7 @@ fn project_from_bundle(
     let assets = bundle.join("data/flutter_assets");
     let icu_data = bundle.join("data/icudtl.dat");
     let aot_library = match runtime {
-        DartRuntimeMode::Aot => Some(
+        DartRuntimeMode::Aot | DartRuntimeMode::AotProfile => Some(
             first_file(&[bundle.join("lib/libapp.so"), bundle.join("libapp.so")])
                 .ok_or_else(|| format!("{} has no libapp.so", bundle.display()))?,
         ),

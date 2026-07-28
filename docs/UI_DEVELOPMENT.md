@@ -19,7 +19,8 @@ way to recover the session.
 Denial distinguishes three runtime modes:
 
 - **Official optimized** — the packaged AOT shell and the normal default.
-- **Custom optimized** — an AOT bundle built from the selected workspace.
+- **Custom optimized** — a Flutter AOT profile bundle built from the selected
+  workspace, with the VM service retained for DevTools.
 - **Live development** — a JIT bundle with debug checks and an authenticated
   loopback Dart VM service.
 
@@ -50,7 +51,7 @@ The initial vertical slice contains:
   progress, errors, and source diagnostics;
 - native persistence of the selected workspace and future auto-reload
   preference in `~/.config/denial/ui-development.json`;
-- AOT and JIT project modes in the raw Flutter embedder;
+- release AOT, profile AOT, and JIT project modes in the raw Flutter embedder;
 - loopback-only VM-service startup with Dart service authentication codes
   retained and mDNS publication disabled;
 - VM-service discovery from the embedder log and publication through both the
@@ -70,8 +71,7 @@ the following work is complete:
 
 - a Denial-owned VM-service client for the Settings **Hot reload** button;
 - native file watching for the **Reload when files change** switch;
-- background optimized builds, validation, activation, and last-working
-  rollback;
+- background optimized builds and last-working rollback;
 - a versioned shell-bundle manifest and native capability negotiation.
 
 Until the VM-service client is added, VSCodium or `flutter attach` owns Dart
@@ -80,17 +80,22 @@ This is useful rather than throwaway work: those are the same Flutter
 semantics the final Denial tooling bridge must drive. A successful hot reload
 preserves application state, replaces the changed Dart code, reassembles the
 complete existing Flutter element tree, and schedules the refreshed frame.
-The packaged editor connection deliberately does not expose debugger pause,
-breakpoint, stepping, or expression-evaluation control: suspending the shell
-isolate would suspend the complete interactive desktop. Flutter Inspector and
-other non-pausing DevTools remain available.
+The packaged VSCodium debug-adapter connection deliberately does not expose
+debugger pause, breakpoint, stepping, or expression-evaluation control:
+suspending the shell isolate would suspend the complete interactive desktop.
+The package also includes the version-matched browser DevTools frontend for
+Flutter Inspector, frame analysis, CPU and memory profiling, logging, and
+other VM-service tooling. Browser DevTools can exercise broader VM-service
+control than the restricted editor profile; pausing or evaluating the root
+isolate can freeze the interactive desktop until it is resumed.
 
 ## Development package
 
 Live development is intentionally optional. The normal `denial` package keeps
 shipping only the optimized runtime; the version-coupled
-`denial-ui-development` package owns the patched JIT engine, pinned Flutter
-and Dart toolchain, native development client, metadata, and licenses.
+`denial-ui-development` package owns the patched JIT and AOT profile engines,
+pinned Flutter and Dart toolchain, native development client, metadata, and
+licenses.
 
 Install it from the Denial repository:
 
@@ -109,8 +114,12 @@ compile Denial's own Flutter shell offline. The editor profile points Dart
 Code at this scoped SDK. Its pinned AOT and JIT analysis-server snapshots
 and Flutter's generated `sky_engine` source map provide normal Dart and
 `dart:ui` diagnostics and navigation through both Dart's CLI and Dart Code's
-SDK discovery contract. The package does not ship browser DevTools, GTK runner
-artifacts, SDK test trees, or unused Pub source trees.
+SDK discovery contract. It retains the matching browser DevTools web assets
+needed for Inspector and performance analysis. It also retains Flutter's
+profile `gen_snapshot` and GTK artifact as build inputs for the standard
+profile assembly target; Denial still runs the resulting bundle through its
+raw embedder and never installs or launches Flutter's GTK runner. SDK test
+trees and unused Pub source trees remain excluded.
 
 The immutable installation does not rely on the builder's home directory or a
 user's existing Pub cache. Its executable interface is native Rust; the
@@ -126,8 +135,9 @@ None of it is installed for users who keep the normal optimized Denial
 runtime.
 
 The current validated package sizes are reported by
-`cargo xtask ui-development-package`; both the compressed archive and
-installed development runtime are enforced by explicit size budgets.
+`cargo xtask ui-development-package`; the browser DevTools assets, compressed
+archive, and installed development runtime are each reported and enforced by
+explicit size budgets.
 
 ## One-command setup
 
@@ -186,6 +196,23 @@ denial-ui doctor
 denial-ui prepare /absolute/path/to/denial/dart_shell
 ```
 
+For representative performance measurements, prepare and activate Flutter's
+standard AOT profile mode instead:
+
+```sh
+denial-ui prepare-profile /absolute/path/to/denial/dart_shell
+denialctl ui profile
+denial-ui attach-profile /absolute/path/to/denial/dart_shell
+```
+
+This is the same runtime class Flutter recommends for performance analysis:
+application Dart code is ahead-of-time compiled and optimized, while the
+profile engine keeps the authenticated VM service, timeline events, and CPU
+profiling available to DevTools. It is not a JIT or debug build. The first
+command builds and atomically stages the bundle, the second replaces the
+running shell without ending the Wayland session, and the third opens browser
+DevTools through Flutter's profile attachment.
+
 The repository also exposes these as **Denial UI: Inspect live development**
 and **Denial UI: Prepare live bundle** in VSCodium's **Run Task** menu. The
 prepare task is explicit; attaching to a running shell never starts a build
@@ -214,6 +241,14 @@ To use the Flutter CLI:
 ```sh
 denial-ui attach /absolute/path/to/denial-ui
 ```
+
+The attach command enables browser DevTools and prints its authenticated local
+URL. In VSCodium, use the Dart/Flutter status menu or the **Open DevTools**
+command after starting **Attach to Denial live UI**. The Performance view can
+record Flutter frames and CPU activity from the running shell, although debug
+JIT overhead means those timings are diagnostic rather than release-mode
+benchmarks. Use the AOT profile workflow above when frame timing itself is the
+subject of the investigation.
 
 For the built-in Denial shell, open the repository's `dart_shell` directory
 in VSCodium, select **Attach to Denial live UI** in **Run and Debug**, and
@@ -254,8 +289,11 @@ standard JSON shape, and is removed when the live runtime ends.
 
 A custom Flutter shell is trusted session code. It can observe compositor
 state and invoke every native action granted by the Denial shell protocol.
-Debug mode also exposes a powerful Dart VM service to the local user. Neither
-is a sandbox for untrusted code.
+Debug mode also exposes a powerful Dart VM service to the local user. Browser
+DevTools connects to that service and can perform operations—including
+pausing the root isolate—which the supported VSCodium debug-adapter profile
+withholds. Neither live development nor DevTools is a sandbox for untrusted
+code.
 
 The packaged UI remains the recovery root. `denialctl ui restore` is the
 native escape path and does not depend on the custom Flutter UI rendering

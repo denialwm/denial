@@ -85,12 +85,19 @@ The host needs:
 
 - the Rust toolchain selected by the repository-level `rust-toolchain.toml`;
 - `pkg-config`;
+- RealtimeKit (`rtkit`) for the compositor's unprivileged high-priority
+  scheduling fallback;
 - Xwayland;
 - the development libraries used by Smithay's DRM, GBM/EGL, libinput,
   libseat, udev, and libxkbcommon backends.
 
 Only binding regeneration needs Clang and libclang. Run
 `tools/denial-pc doctor` for the authoritative check on the current host.
+Denial uses lowest-priority `SCHED_RR` only when the inherited host limits let
+it keep a non-fatal realtime guard. Otherwise RTKit gives the compositor,
+Flutter display, and Flutter raster threads a negative nice value without
+changing them to a realtime policy. Denial remains usable with ordinary CPU
+scheduling when neither grant is available.
 
 ## Local Arch package prototype
 
@@ -124,21 +131,22 @@ publication path. Stage 2 later adds offline input closure. See the
 [branch validation boundary](packaging/arch/BRANCH_VALIDATION.md).
 
 Live Flutter UI editing is deliberately split into a third, optional package.
-After the pinned debug engine described in
-[`BUILD_INFO.md`](../prebuilt/flutter-engine/linux-x64-debug/BUILD_INFO.md) has
-been rebuilt and staged, create and validate it with the repository's Rust
-task:
+After the pinned debug and profile engines described under
+`prebuilt/flutter-engine/` have been rebuilt and staged, create and validate
+it with the repository's Rust task:
 
 ```sh
 cargo xtask ui-development-package
 ```
 
 The resulting `denial-ui-development` archive is written beside the two
-required packages. It contains the coupled, native-optimized JIT engine, the
-curated Dart and Flutter runtime needed for shell assembly and editor attach,
-locked dependency sources needed by Denial's shell, a version-matched editable
-source snapshot and revision metadata, and the native `denial-ui` client. Its
-isolated validation prepares the real packaged shell with networking disabled.
+required packages. It contains the coupled JIT engine, optimized AOT profile
+engine, curated Dart and Flutter runtime needed for shell assembly and editor
+attach, matching browser DevTools assets needed for Inspector and performance
+profiling, locked dependency sources needed by Denial's shell, a
+version-matched editable source snapshot and revision metadata, and the native
+`denial-ui` client. Its isolated validation prepares the real packaged shell
+with networking disabled.
 An engine binary change requires one Denial session restart; normal Dart hot
 reload does not.
 The validator reports the compressed and installed sizes and enforces explicit

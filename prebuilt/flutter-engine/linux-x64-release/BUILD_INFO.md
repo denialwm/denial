@@ -27,32 +27,35 @@ copying it into the shell bundle.
   `a4760b81a90ee44dc1a10199042129073a0087394b51acd9b5cf037793c4b9f8`
 - Engine patches applied: the ordered series under
   `patches/flutter-engine/3.44.7/`. Patches 0001 through 0006 enable and repair
-  stencil-backed dynamic MSAA for Denial's borrowed texture FBOs; patch 0008
+  stencil-backed dynamic MSAA for Denial's borrowed texture FBOs; patch 0007
+  retains one SkSurface wrapper per stable rotating atlas FBO; patch 0008
   restores partial damage for autonomous external-texture frames; patch 0009
   restricts those frames to the texture IDs that requested them; patch 0010
   keeps that precise frame damage for output routing while rasterizing reused
-  autonomous layer trees without a partial DMSAA preservation clip; patch 0011
-  publishes one batched texture transaction through Denial's versioned
+  autonomous layer trees without a partial DMSAA preservation clip; patch
+  0011 publishes one batched texture transaction through Denial's versioned
   embedder API and preserves its IDs across frame coalescing. Diagnostic-only
   experiments are not included in the release series.
 - GN configuration: `args.gn`, copied verbatim from the build output
 - Integrity: `libflutter_engine.so.sha256`; session startup rejects any bundle
   engine that does not match it
 
-The validated reference binary was rebuilt from those review histories. The
-normalized series reconstructs both branch-tip Git trees exactly, compiles
-successfully for x86_64, and passes the relevant engine unit-test suites and
-real-hardware compositor validation. Compared with the former bootstrap
-engine, it has identical dynamic exports, ELF sections, SONAME, dependencies,
-and size; the only 29 differing byte positions are its 20-byte build ID and
-nine formatter-shifted diagnostic source-line values. The [validation
-report](../../../patches/flutter-engine/3.44.7/VALIDATION.md) records the
-evidence.
+The fork-derived baseline was rebuilt from those review histories, and its
+normalized patches reconstruct both branch-tip Git trees exactly. Patch 0007
+is a later Denial-specific change: its profile and release artifacts compile
+with the same pinned configuration, pass the shell and embedder unit suites,
+and pass real-hardware 144 Hz compositor validation. The [validation
+report](../../../patches/flutter-engine/3.44.7/VALIDATION.md) separates the
+original reconstruction checkpoint from this post-promotion addendum.
 
-The normalized patches, reference checksum, and metadata were promoted
-together after validation. The Stage 1 engine/app package split and Pacman
-transactions, routine-engine reuse, and live package-installed login are
-complete. Signed fork tags remain provenance work before later release stages.
+The fork-derived patches, reference checksum, and metadata were promoted
+together after their initial validation. Their mail-format author headers were
+subsequently normalized to the repository identity. Patch 0007 and the current
+artifact checksums were then promoted after their separate build, unit-test,
+driver-trace, and hardware gates. The Stage 1 engine/app package split and
+Pacman transactions, routine-engine reuse, and live package-installed login
+are complete. Publishing patch 0007 to the review fork and signing generation
+tags remain provenance work before later release stages.
 
 ## Rebuild
 

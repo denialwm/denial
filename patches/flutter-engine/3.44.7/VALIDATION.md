@@ -39,23 +39,31 @@ their reviewed logical order.
 The generated files have these SHA-256 values:
 
 ```text
-ea7c3dfdaf58230d0d5b47d04e64b22d3ff8b16841f6e4b4ba35870fc8e6565d  0001-query-embedder-fbo-capabilities.patch
-9765a2521abee1187c0e1b1e4178fca4d4dffeb487b50fce9a336392156535e3  0002-enable-stencil-for-gl-surfaces.patch
-d3bee059f073fa7b6d1049d05df40177605350fe03252cf531cc1786d5859d74  0003-fix-dmsaa-wrapped-fbo-lifetime-and-stencil.patch
-4f023b894db1b64d2814b6510d69b6995a3a287526c74c418ff69d5d4cbe7735  0004-wrap-texture-backed-fbos-for-dmsaa-load.patch
-4baa88346d48979449d91249580f79aceb00a1e09d4563d652080324a5ccf9bf  0005-describe-xrgb-scanout-as-rgb8.patch
-97436b657733e2228e81cce3d8dd989f3896a2ef130966cb1484e3d2c77d098c  0006-use-highp-for-partial-dmsaa-load.patch
-7693823a1e9b61449a492430fcab134e4f2326c5491560c66772b93edde7d02f  0008-preserve-partial-damage-for-reused-layer-trees.patch
-0e2a91e4eda4eaf5375b7346a880d910f6705c7260ae3c7a13aff01f57ebc598  0009-damage-only-marked-external-textures.patch
-691fdae5b74c73b1f3c5a1deb9183144baba1d2a52abab9d89ea1e6becffe1ec  0010-decouple-autonomous-damage-from-raster-clip.patch
-38636c7bd941f744419f522a1f0f1f1cc50489820850b04bc3a91552d315cfe9  0011-schedule-batched-external-texture-frames.patch
+cea48de505b4997b12dd4e0ff356b37791da6df3514aae08c3848e9dc0561ee2  0001-query-embedder-fbo-capabilities.patch
+f9c83149a36f7e1e516d69f5d7750b7190eb6eadac8998b1112584b78440132a  0002-enable-stencil-for-gl-surfaces.patch
+7c9fbc369443c7c49c9ac36e36d4eff34d25f82811a982461850ecd6a6b2a3cf  0003-fix-dmsaa-wrapped-fbo-lifetime-and-stencil.patch
+d5ce934e52a4ce6975591c584daa3b689287a660899f758bf4ee4ffcf64a9770  0004-wrap-texture-backed-fbos-for-dmsaa-load.patch
+a8c1db02b4ead8ced1fcb37d22480645fcce1df24c9e9707791da14cf7ec31d4  0005-describe-xrgb-scanout-as-rgb8.patch
+f46588fb2a6acb7507ddf26a72bcc7db6087f80a4c5e577a8e692d781a88960c  0006-use-highp-for-partial-dmsaa-load.patch
+8fedf41d4faa0a7f93605eab457214519084ac556bd056a6492cbb952d58ded4  0007-cache-rotating-embedder-gl-surfaces.patch
+473854ccc931d29858ca699e373a419b37161ed6cc464a4631cf05c45dd9931a  0008-preserve-partial-damage-for-reused-layer-trees.patch
+34845352f7fb4fbfe98771439f15e1f9e6e6de4d12523157295ed044f23ae4b9  0009-damage-only-marked-external-textures.patch
+b499d85349229655a1120689e16958d439073a5c91cd6c2794159904f0f4c6ea  0010-decouple-autonomous-damage-from-raster-clip.patch
+d60912e35c5370f0997899f6a36617e8301a06151498af03b14a658d366dec7f  0011-schedule-batched-external-texture-frames.patch
 ```
 
 The SHA-256 of the relative `sha256sum *.patch` manifest is:
 
 ```text
-ae429d568466e528e7b2a83e3a2597ad819855a780288b362304c2dbb265ff81
+e0b3146041cec016b42da18bfd54a76a8f5e94ecca5200c327c5791b1402131d
 ```
+
+On 2026-07-28, the mail-format `From:` headers were normalized to the
+repository identity, `Doctor Logix <doctor.logix@gmail.com>`. This
+metadata-only normalization changed the fork-derived patch-file hashes.
+Patch 0007 is the later source change validated in the 2026-07-29 addendum
+below. The reconstruction proof applies to the fork-derived patches; the
+current complete manifest covers those patches plus 0007.
 
 The validation copy was generated in
 `/tmp/denial-engine-patches-3.44.7.Q2Q7vZ/combined`. After the build and
@@ -186,8 +194,8 @@ is not a candidate regression.
 
 After the hardware result:
 
-1. the exact normalized patch files listed above were promoted into this
-   directory;
+1. the source-equivalent normalized patch series listed above was promoted
+   into this directory;
 2. the exact tested engine replaced the former bootstrap engine;
 3. `libflutter_engine.so.sha256` was updated to the tested artifact hash;
 4. the ordinary development bundle retained that same tested artifact;
@@ -212,3 +220,77 @@ the exact hardware-tested engine SHA-256. The
 records the package split, transaction tests, and routine-engine-reuse proof.
 It also records the successful live package-installed session using this exact
 engine.
+
+## 2026-07-29 rotating-FBO cache addendum
+
+Patch 0007 fixes an additional performance defect found on NVIDIA hardware.
+Denial rotates a persistent pool of embedder-owned atlas FBOs, but
+`GPUSurfaceGLSkia` retained only the current `SkSurface`. Every present
+therefore destroyed the old wrapper and recreated its full-atlas stencil and
+dynamic-MSAA resources when the next FBO was selected. The patch retains one
+wrapper per stable FBO and clears the cache on a surface-size change or engine
+teardown.
+
+The ownership contract was audited against Denial's compositor:
+
+- atlas FBO IDs are nonzero and unique within a runtime;
+- the pool is fixed and bounded by `MAX_ATLAS_BUFFERS`;
+- topology and atlas-size changes create a new Flutter runtime;
+- the engine shuts down before `destroy_targets` releases the FBOs;
+- external window images already retain their last resolved Flutter image,
+  mark only changed texture IDs, and use bounded DMA-BUF/SHM binding caches;
+- the remaining native render fence is intentionally one-shot for KMS and
+  client-buffer synchronization.
+
+The same patched source overlay produced both runtime modes with their tracked
+GN arguments:
+
+| Artifact | SHA-256 | Size |
+|---|---|---:|
+| Linux x64 profile | `465a0b6c76d9f8561c177db4a76a267527fa2a411ed5d9f34f61739844000bce` | 18,752,880 bytes |
+| Linux x64 release | `6e884cbed86f1a60431f8755f1137516610f02d5daf3dd55682b9986d59032f7` | 17,568,592 bytes |
+
+The release artifact has GNU build ID
+`453bfc3429c171fbe36d71719dd71ddef05948bc`. Both artifacts retain
+`FlutterEngineGetProcAddresses` and
+`DenialFlutterEngineScheduleFrameForExternalTextures`. The rebuilt release
+`args.gn` is byte-identical to the tracked file with SHA-256
+`2510d311b93f02a6738cd129efae5d2d0ef15938b3b21c7cc318d43a1e4c228e`.
+
+The post-patch release source passed:
+
+| Suite | Result |
+|---|---|
+| `shell_unittests` | 193 passed, 5 skipped, 4 disabled |
+| `embedder_unittests` | 179 passed, 6 skipped, 1 disabled |
+
+Hardware validation used the optimized AOT profile runtime on an RTX 4060
+Mobile driving 1920×1200 at 144 Hz. Both traces toggled the launcher 14 times
+over a representative desktop containing Kitty and Chromium windows:
+
+| Metric | Before 0007 | With 0007 |
+|---|---:|---:|
+| `GPURasterizer::Draw` p50 | 4.546 ms | 1.517 ms |
+| `GPURasterizer::Draw` p95 | 8.595 ms | 2.137 ms |
+| `CompositorContext::ScopedFrame::Raster` p50 | 1.717 ms | 0.623 ms |
+| `GrDirectContext::flushAndSubmit` p50 | 2.228 ms | 0.713 ms |
+| Effective Flutter cadence | 120.20 Hz | 143.81 Hz |
+| Scene/display lag events | 75 | 0 |
+| Maximum pipeline depth | 2 | 1 |
+
+The final trace contains 320 raster frames. Its maximum total raster time is
+4.845 ms against the 6.944 ms display budget, and every in-trace Flutter and
+DRM delivery interval remains in the 144 Hz cadence bin.
+
+A six-second raster-thread `perf trace` also separates the fixed churn from
+ordinary presentation. NVIDIA `NV_ESC_RM_FREE` time fell from 18.433 ms to
+3.497 ms, and `NV_ESC_RM_UNMAP_MEMORY_DMA` time fell from 40.272 ms to
+4.170 ms. An idle control recorded only 8–9 calls of each relevant opcode;
+the approximately one-per-rendered-frame operations during animation are
+consistent with the required native-fence path.
+
+An exact old/new VRAM delta is intentionally not claimed. The native Flutter
+library remains resident when only the UI runtime is reloaded, so a hot
+profile-mode switch cannot replace the mapped engine for a valid memory A/B.
+The patched process fluctuated between 203 and 296 MiB of resident framebuffer
+memory under NVIDIA's accounting while composing the representative desktop.

@@ -1,6 +1,7 @@
 import 'package:denial_dart_shell/src/local_apps/local_flutter_application.dart';
 import 'package:denial_dart_shell/src/local_apps/local_flutter_window_host.dart';
 import 'package:denial_dart_shell/src/models/denial_window.dart';
+import 'package:denial_dart_shell/src/widgets/desktop_window_snapshot.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -44,12 +45,15 @@ void main() {
               <LocalFlutterApplication>[application],
             ),
           ],
-          child: Directionality(
-            textDirection: TextDirection.ltr,
-            child: LocalFlutterWindowHost(
-              key: const ValueKey<int>(91),
-              window: window,
-              active: false,
+          child: MediaQuery(
+            data: const MediaQueryData(size: Size(800, 600)),
+            child: Directionality(
+              textDirection: TextDirection.ltr,
+              child: LocalFlutterWindowHost(
+                key: const ValueKey<int>(91),
+                window: window,
+                active: false,
+              ),
             ),
           ),
         ),
@@ -65,6 +69,73 @@ void main() {
     await pump(_localWindow(title: 'Renamed'));
     expect(find.text('Renamed: 1'), findsOneWidget);
   });
+
+  testWidgets(
+    'local host keeps application state and snapshots when moved to close layer',
+    (tester) async {
+      final application = LocalFlutterApplication(
+        id: 'dev.denial.counter',
+        title: 'Counter',
+        builder: (_, handle) =>
+            _CounterApplication(metadataTitle: handle.window.title),
+      );
+
+      Future<void> pump({required bool closing}) {
+        final host = LocalFlutterWindowHost(
+          key: const LocalFlutterWindowHostKey(91),
+          window: _localWindow(title: 'Counter'),
+          active: false,
+        );
+        return tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              localFlutterApplicationsProvider.overrideWithValue(
+                <LocalFlutterApplication>[application],
+              ),
+            ],
+            child: MediaQuery(
+              data: const MediaQueryData(size: Size(800, 600)),
+              child: Directionality(
+                textDirection: TextDirection.ltr,
+                child: SizedBox(
+                  width: 800,
+                  height: 600,
+                  child: Stack(
+                    children: [
+                      if (!closing) Align(child: host),
+                      if (closing)
+                        Positioned.fill(
+                          child: DesktopWindowSnapshotScope(
+                            snapshotting: true,
+                            child: host,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      await pump(closing: false);
+      await tester.tap(find.text('Counter: 0'));
+      await tester.pump();
+      expect(find.text('Counter: 1'), findsOneWidget);
+      expect(_snapshotController(tester).allowSnapshotting, isFalse);
+
+      await pump(closing: true);
+
+      expect(find.text('Counter: 1'), findsOneWidget);
+      expect(_snapshotController(tester).allowSnapshotting, isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
+}
+
+SnapshotController _snapshotController(WidgetTester tester) {
+  return tester.widget<SnapshotWidget>(find.byType(SnapshotWidget)).controller;
 }
 
 LocalFlutterApplication _application(String id, String title) {

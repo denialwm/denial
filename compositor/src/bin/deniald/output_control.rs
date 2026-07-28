@@ -329,6 +329,7 @@ impl OutputControlServer {
         let worker = thread::Builder::new()
             .name("denial-control".into())
             .spawn(move || {
+                crate::cpu_scheduling::normalize_current_worker("output-control");
                 serve(
                     listener,
                     worker_shutdown,

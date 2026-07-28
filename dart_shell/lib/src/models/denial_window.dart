@@ -301,15 +301,36 @@ class DenialWindow {
     return windowId.toString();
   }
 
-  @override
-  bool operator ==(Object other) {
-    return other is DenialWindow &&
-        other.objectId == objectId &&
+  /// Whether this window keeps the same role in the static desktop scene.
+  ///
+  /// During a native move/resize grab, the keyed window and popup consumers
+  /// sample live placement and texture metadata independently. Buffer size,
+  /// crop, opacity, and surface-tree updates therefore do not require the
+  /// surrounding wallpaper, bars, panels, or other windows to rebuild.
+  bool hasSameStaticSceneRoleAs(DenialWindow other) {
+    return other.objectId == objectId &&
+        other.objectKind == objectKind &&
+        other.surfaceId == surfaceId &&
+        other.windowId == windowId &&
+        other.appId == appId &&
+        other.monitorId == monitorId &&
+        other.pinned == pinned &&
+        other.suppressAnimations == suppressAnimations &&
+        other.serverSideDecorated == serverSideDecorated &&
+        other.contentKind == contentKind;
+  }
+
+  /// Whether every field that can change the composed desktop scene matches.
+  ///
+  /// A title update only changes presentation metadata such as accessibility
+  /// labels and switcher text. Keyed consumers can update that one window
+  /// without invalidating geometry, textures, or the other scene windows.
+  bool hasSameSceneDescriptionAs(DenialWindow other) {
+    return other.objectId == objectId &&
         other.objectKind == objectKind &&
         other.surfaceId == surfaceId &&
         other.windowId == windowId &&
         other.textureId == textureId &&
-        other.title == title &&
         other.appId == appId &&
         other.width == width &&
         other.height == height &&
@@ -339,6 +360,13 @@ class DenialWindow {
         other.contentHeight == contentHeight &&
         other.contentKind == contentKind &&
         listEquals(other.surfaceLayers, surfaceLayers);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is DenialWindow &&
+        other.title == title &&
+        hasSameSceneDescriptionAs(other);
   }
 
   @override

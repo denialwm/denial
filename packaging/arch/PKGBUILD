@@ -28,6 +28,7 @@ depends=(
   'libxkbcommon'
   'mesa'
   'pam'
+  'rtkit'
   'seatd'
   'systemd-libs'
   'uwsm'
@@ -67,7 +68,7 @@ sha256sums=(
   'aa35c7e222fc814b9b48599176794db375885f444f0d03fb1b1a3fcad118fbe1'
   '92d54e0cce7ef20febd0dcbfdd2fd8578aa0996e50a78ac0160e3b8fcaa6c99f'
   '4e94352954d9c60ebc27ff5f544380f3a23fa100675511ca41323d633c806da5'
-  '7b4ceb13fd5d35f3679445b0161bca5b78d296045028869f65ffd413656d1b5e'
+  'e7489e03539798166e2e06ed20a2c0efd2ef6f0de4b52ffaea7c5cd83946687d'
   '3b4e3a52dff1a2ece31d122bd7220ddee2bdbaeb73ebe24ed9bd8c350580cd30'
 )
 

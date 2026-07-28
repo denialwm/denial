@@ -27,6 +27,8 @@
   "artifacts": {
     "debug_engine_sha256": "c5eb1a110887ca2a6b6ae6f98dfaeb609614e5f204bdf731164dc12ae5ed0729",
     "debug_engine_args_sha256": "07acf85f399ce9252589b80fd102fa9ffd0127938bb913d47ba1339eb78f8930",
+    "profile_engine_sha256": "465a0b6c76d9f8561c177db4a76a267527fa2a411ed5d9f34f61739844000bce",
+    "profile_engine_args_sha256": "06fff1cfc0359c4b67cb2586ce34a252709b021585b7f9a8c58dec09e6ddbb15",
     "flutter_tool_sha256": "e9bafdf002e980c7f239e68b2f2448e54f3641ce245803152c0cbdd3222db38f",
     "dart_executable_sha256": "c03ad868b5c53e31461b0fef22dc6eb6aeb56b7567efff6ca488ce9c4a6f8a6a",
     "dartaotruntime_sha256": "297f6b68adf22140d0bfc92cf974dc0e22bd54be6e15d730b911ad5b661d6a89",
@@ -34,6 +36,7 @@
   },
   "runtime": {
     "engine_mode": "debug-jit",
+    "profile_engine_mode": "profile-aot",
     "native_engine_optimization": "release-lto",
     "flutter_tool_snapshot_kind": "app-aot-elf",
     "flutter_tool_runtime": "dartaotruntime",
@@ -42,12 +45,14 @@
     "vm_service_bind": "127.0.0.1",
     "vm_service_authentication_codes": true,
     "mdns_publication": false,
-    "browser_devtools_assets": false,
+    "browser_devtools_assets": true,
     "editor_analysis": "pinned-aot-and-jit",
     "editor_attach_mode": "non-pausing",
     "dap_debugger_control": false,
     "hot_reload": true,
     "flutter_inspector": true,
+    "performance_profiling": true,
+    "aot_performance_profiling": true,
     "scope": "denial-shell-assembly-and-editor-attach"
   },
   "workspace": {
@@ -65,6 +70,7 @@
   "assurances": {
     "pinned_source_identity": true,
     "debug_engine_checksum_verified": true,
+    "profile_engine_checksum_verified": true,
     "offline_shell_preparation_verified": true,
     "non_pausing_editor_attach_tested": true,
     "offline_source_closure": false,
