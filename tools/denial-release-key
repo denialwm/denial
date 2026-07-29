@@ -612,7 +612,7 @@ sign_release_tag() {
     tag \
     --sign \
     --local-user "$expected_fingerprint" \
-    --message "Denial ${version}" \
+    --message "Denial ${tag_name#v}" \
     "$tag_name"
   tag_created=1
   git -C "$ROOT" -c gpg.program=gpg verify-tag "$tag_name"
