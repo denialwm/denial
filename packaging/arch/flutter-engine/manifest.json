@@ -4,9 +4,12 @@
   "generation": "flutter-3.44.7-engine-69c8c617-denial-r1",
   "package": {
     "name": "denial-flutter-engine",
-    "version": "3.44.7.denial1",
-    "release": 1,
+    "version_source": "denial-release-tag",
+    "epoch": 1,
     "architecture": "x86_64"
+  },
+  "compatibility": {
+    "flutter_engine_abi": "3.44.7.denial1"
   },
   "sources": {
     "flutter_version": "3.44.7",

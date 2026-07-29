@@ -1,7 +1,7 @@
 # Maintainer: Doctor Logix <doctor.logix@gmail.com>
 
 pkgname=denial
-pkgver="${DENIAL_PACKAGE_VERSION:-0.2.0}"
+pkgver="${DENIAL_PACKAGE_VERSION:-0.2.1}"
 pkgrel="${DENIAL_PACKAGE_RELEASE:-1}"
 pkgdesc='Flutter-native Wayland compositor and desktop shell'
 arch=('x86_64')

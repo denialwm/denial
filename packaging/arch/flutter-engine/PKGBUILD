@@ -1,18 +1,20 @@
 # Maintainer: Doctor Logix <doctor.logix@gmail.com>
 
 pkgname=denial-flutter-engine
-pkgver=3.44.7.denial1
+pkgver="${DENIAL_PACKAGE_VERSION:-0.2.1}"
 pkgrel="${DENIAL_PACKAGE_RELEASE:-1}"
+epoch=1
 pkgdesc='Pinned source-built Flutter Engine runtime for Denial'
 arch=('x86_64')
 url='https://github.com/denialwm/denial'
 license=('BSD-3-Clause')
 depends=('glibc')
-provides=("denial-flutter-engine-abi=${pkgver}")
+_flutter_generation='3.44.7.denial1'
+provides=("denial-flutter-engine-abi=${_flutter_generation}")
 conflicts=('denial-flutter-engine-git')
 options=('!strip' '!debug')
 source=('manifest.json')
-sha256sums=('5084cb482c75bb135dbbe55016d9e9de94c97111352ba547d933fe1aae9432f6')
+sha256sums=('94bb1fe98d8e706d4ebd67c7849ca3d1485334b1c5cd7334b71019cc774e4660')
 
 _engine_sha256='6e884cbed86f1a60431f8755f1137516610f02d5daf3dd55682b9986d59032f7'
 _icu_sha256='998367809a821d595928089c197b3f7959f0420f81f79d4d0daee53378492ed5'

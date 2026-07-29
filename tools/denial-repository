@@ -157,6 +157,7 @@ engine_packages=0
 denial_packages=0
 ui_development_packages=0
 for package in "${package_inputs[@]}"; do
+  package_filename="$(basename -- "$package")"
   package_info="$(bsdtar -xOf "$package" .PKGINFO)"
   package_name="$(
     sed -n 's/^pkgname = //p' <<<"$package_info" | head -n 1
@@ -174,11 +175,21 @@ for package in "${package_inputs[@]}"; do
 
   case "$package_name" in
     denial-flutter-engine)
-      [[ "$package_version" == 3.44.7.denial1-1 ]] \
+      [[ "$package_filename" == \
+        "denial-flutter-engine-1:${release_version}-1-x86_64.pkg.tar.zst" ]] \
+        || fail "unexpected engine package filename: $package_filename"
+      [[ "$package_version" == "1:${release_version}-1" ]] \
         || fail "unexpected engine package version: $package_version"
+      grep -Fqx \
+        'provides = denial-flutter-engine-abi=3.44.7.denial1' \
+        <<<"$package_info" \
+        || fail 'engine package does not provide the expected Flutter ABI'
       engine_packages=$((engine_packages + 1))
       ;;
     denial)
+      [[ "$package_filename" == \
+        "denial-${release_version}-1-x86_64.pkg.tar.zst" ]] \
+        || fail "unexpected Denial package filename: $package_filename"
       [[ "$package_version" == "${release_version}-1" ]] \
         || fail \
           "Denial package version is $package_version, expected ${release_version}-1"
@@ -195,6 +206,10 @@ for package in "${package_inputs[@]}"; do
       denial_packages=$((denial_packages + 1))
       ;;
     denial-ui-development)
+      [[ "$package_filename" == \
+        "denial-ui-development-${release_version}-1-x86_64.pkg.tar.zst" ]] \
+        || fail \
+          "unexpected UI-development package filename: $package_filename"
       [[ "$package_version" == "${release_version}-1" ]] \
         || fail \
           "UI-development package version is $package_version, expected ${release_version}-1"

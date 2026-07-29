@@ -99,6 +99,10 @@ Beginning with v0.2.0, the signed package set contains exactly one
 `denial-flutter-engine`, one `denial`, and one optional
 `denial-ui-development` archive. The latter is not installed by default, but
 it is built and verified in the same release run as the runtime pair.
+Every archive takes its `pkgver` directly from the verified signed tag. The
+engine's `denial-flutter-engine-abi` capability is an independent
+compatibility contract; its one-time epoch only preserves Pacman ordering
+across the transition from the former Flutter-numbered package.
 
 Stage 2 and Stage 3 later add immutable source/tool closures, generated
 `.SRCINFO`, normalized compiler and linker manifests, SBOMs, attestations,

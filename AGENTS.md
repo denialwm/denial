@@ -16,7 +16,9 @@ pushing so `.github/workflows/branch-validation.yml` can build, package, and
 independently verify that exact commit. Do not repair pipeline failures
 directly on `main`; fix and prove them on `dev`, then promote the green commit
 to `main` through a pull request. Signed public releases remain restricted to
-separately signed version tags.
+separately signed version tags. The verified `vMAJOR.MINOR.PATCH` tag is the
+sole source of every release package version and filename; Flutter generation
+identifiers remain compatibility metadata, not release names.
 
 ## Graphical session control
 

@@ -109,6 +109,6 @@ path. It does not authorize publication and never receives a signing secret.
 
 Production signing remains exclusive to `.github/workflows/release.yml`. That
 workflow accepts only a clean signed `vMAJOR.MINOR.PATCH` tag contained in
-`main`, signs in the protected `release-signing` environment, independently
-verifies the signed repository, and publishes only after all release gates
-pass.
+`main`, uses that verified tag as the sole `pkgver` source for every archive,
+signs in the protected `release-signing` environment, independently verifies
+the signed repository, and publishes only after all release gates pass.

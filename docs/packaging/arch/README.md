@@ -19,14 +19,15 @@ Install both in one transaction, with the engine package first:
 
 ```sh
 sudo pacman -U \
-  /path/to/denial-flutter-engine-3.44.7.denial1-1-x86_64.pkg.tar.zst \
+  /path/to/denial-flutter-engine-1:*-1-x86_64.pkg.tar.zst \
   /path/to/denial-*.pkg.tar.zst
 ```
 
-The `denial` package requires the exact virtual capability
-`denial-flutter-engine-abi=3.44.7.denial1`. A routine Denial rebuild can
-therefore reuse this engine package, while a Flutter-generation change must
-produce a new compatible pair.
+All public archives take their version directly from the verified signed
+Denial tag. The engine uses a one-time epoch so tag-derived versions upgrade
+from the former Flutter-numbered package. Its independent virtual capability,
+`denial-flutter-engine-abi=3.44.7.denial1`, still enforces runtime
+compatibility.
 
 Live Flutter UI editing is provided separately so normal installations do not
 carry a development toolchain. Build the optional package with:
@@ -53,7 +54,8 @@ workflow is documented in [UI development](../../UI_DEVELOPMENT.md).
 
 Development packages use a VCS-derived version. The public release workflow
 accepts only a clean signed `vMAJOR.MINOR.PATCH` tag matching both project
-version files and emits `pkgrel=1`.
+version files, derives all three archive names from that tag, and emits
+`pkgrel=1`.
 
 Pacman owns the compositor, native control client, Flutter bundle, Wayland
 session, and portal configuration. `/etc/denial/outputs.conf` is the

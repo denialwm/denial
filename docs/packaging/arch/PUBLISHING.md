@@ -141,9 +141,11 @@ This is the small runtime portion of a Denial Flutter generation. It contains:
 /usr/share/licenses/denial-flutter-engine/LICENSE.third_party
 ```
 
-It is built only when the pinned Flutter generation changes, an engine patch
-changes, a relevant security fix is required, or a target ABI must be rebuilt.
-It must not expose itself as a general system Flutter Engine: Denial makes
+The engine binary is rebuilt only when the pinned Flutter inputs or engine
+patches change, a relevant security fix is required, or a target ABI must be
+rebuilt. Each signed Denial tag packages the verified binary under that tag's
+version, so a release never replaces an older archive identity. The package
+must not expose itself as a general system Flutter Engine: Denial makes
 stronger compatibility assumptions than the public C symbol names alone
 express.
 
@@ -238,8 +240,8 @@ runtime-mode artifact, not a substitute for separate native debug symbols.
 ## Flutter generation and compatibility
 
 Denial uses a named Flutter generation rather than treating
-`libflutter_engine.so` as an interchangeable library. A suggested package
-version for the current generation is:
+`libflutter_engine.so` as an interchangeable library. The current virtual
+compatibility capability is:
 
 ```text
 3.44.7.denial1
@@ -266,15 +268,20 @@ Engine patch series:         patches/flutter-engine/3.44.7/
 Embedder header checksum:    recorded in compositor/flutter-engine/src/sys.rs
 ```
 
-Any change to a Flutter, Dart, or Skia revision, either fork history, an engine
-behavior patch, framework patch, AOT compiler input, embedder header, or
-compatibility-relevant GN configuration creates a new generation. A `pkgrel`
-bump is reserved for a packaging-only correction that does not alter
-compatibility.
+Every change to a Flutter, Dart, or Skia revision, either fork history, an
+engine behavior patch, framework patch, AOT compiler input, embedder header,
+or compatibility-relevant GN configuration creates a new checksummed engine
+artifact identity. The next signed Denial tag gives that artifact a fresh
+package version automatically. Increment the virtual ABI only when Denial and
+the engine are no longer runtime-compatible; reserve `pkgrel` for a
+packaging-only correction to one tagged release.
 
-The runtime package advertises a versioned virtual capability:
+The runtime package takes its release identity from the tag while advertising
+the versioned virtual capability separately:
 
 ```bash
+pkgver="${DENIAL_PACKAGE_VERSION}"
+epoch=1
 _flutter_generation=3.44.7.denial1
 
 provides=("denial-flutter-engine-abi=${_flutter_generation}")
@@ -344,9 +351,10 @@ Flutter generation 3.44.7.denial1
 └── Denial 0.4.0
 ```
 
-All four Denial releases reuse the same engine package. They produce new
-`libapp.so` files with the same pinned AOT toolchain and new `deniald`
-binaries, but they do not compile Flutter Engine again.
+All four Denial releases may reuse the same verified engine binary. Each
+signed tag still emits a uniquely versioned runtime archive alongside its new
+`libapp.so` and `deniald`; routine releases do not compile Flutter Engine
+again.
 
 A planned production Flutter upgrade happens only after the new generation
 has passed patch review, offline builds, reproducibility checks, and hardware
@@ -1013,7 +1021,9 @@ This is the normal, inexpensive path:
 9. publish each database only after all package files it references are
    available.
 
-The Flutter Engine is not rebuilt in this pipeline.
+The Flutter Engine binary is not rebuilt in this pipeline. Its checksum-pinned
+runtime archive is emitted with the same tag-derived package version as the
+rest of the release set.
 
 Architecture lanes may be promoted independently. A routine x86_64 release
 does not wait for an AArch64 builder unless the release explicitly changes a
@@ -1064,9 +1074,9 @@ repo-add \
   --include-sigs \
   --prevent-downgrade \
   public/x86_64/denial.db.tar.zst \
-  public/x86_64/denial-flutter-engine-3.44.7.denial1-1-x86_64.pkg.tar.zst \
-  public/x86_64/denial-0.2.0-1-x86_64.pkg.tar.zst \
-  public/x86_64/denial-ui-development-0.2.0-1-x86_64.pkg.tar.zst
+  'public/x86_64/denial-flutter-engine-1:0.2.1-1-x86_64.pkg.tar.zst' \
+  public/x86_64/denial-0.2.1-1-x86_64.pkg.tar.zst \
+  public/x86_64/denial-ui-development-0.2.1-1-x86_64.pkg.tar.zst
 ```
 
 Stage 2 adds `denial-flutter-toolchain` to the same compatible set.
@@ -1090,9 +1100,9 @@ public/
 │   ├── denial.db.tar.zst.sig
 │   ├── denial.files
 │   ├── denial.files.sig
-│   ├── denial-flutter-engine-3.44.7.denial1-1-x86_64.pkg.tar.zst
-│   ├── denial-0.2.0-1-x86_64.pkg.tar.zst
-│   └── denial-ui-development-0.2.0-1-x86_64.pkg.tar.zst
+│   ├── denial-flutter-engine-1:0.2.1-1-x86_64.pkg.tar.zst
+│   ├── denial-0.2.1-1-x86_64.pkg.tar.zst
+│   └── denial-ui-development-0.2.1-1-x86_64.pkg.tar.zst
 ```
 
 Every package also has a detached `.sig`. The abbreviated tree omits those
