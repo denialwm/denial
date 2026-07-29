@@ -450,3 +450,4 @@ jobs:
           if [[ "$GNUPGHOME" == \
             "$RUNNER_TEMP/denial-release-verification-gnupg" ]]; then
             rm -rf --one-file-system -- "$GNUPGHOME"
+          fi
