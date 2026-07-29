@@ -57,6 +57,8 @@ jobs:
               "$RUNNER_TEMP/denial-release-evidence"
             printf 'UNSIGNED_ROOT=%s\n' \
               "$RUNNER_TEMP/denial-release-unsigned"
+            printf 'UNSIGNED_ARCHIVE=%s\n' \
+              "$RUNNER_TEMP/denial-release-unsigned.tar"
             printf 'DENIAL_PC_PACKAGE_ROOT=%s\n' \
               "$RUNNER_TEMP/denial-release-packages"
             printf 'DENIAL_PC_MAKEPKG_ROOT=%s\n' \
@@ -297,12 +299,17 @@ jobs:
           )
           namcap "$UNSIGNED_ROOT"/packages/*.pkg.tar.zst \
             2>&1 | tee "$UNSIGNED_ROOT/evidence/namcap.txt"
+          tar \
+            --create \
+            --file="$UNSIGNED_ARCHIVE" \
+            --directory="$UNSIGNED_ROOT" \
+            .
 
       - name: Upload unsigned release handoff
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: denial-release-unsigned-${{ github.run_id }}
-          path: ${{ runner.temp }}/denial-release-unsigned
+          path: ${{ runner.temp }}/denial-release-unsigned.tar
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
@@ -354,7 +361,18 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: denial-release-unsigned-${{ github.run_id }}
-          path: ${{ runner.temp }}/denial-release-unsigned
+          path: ${{ runner.temp }}/denial-release-unsigned-transfer
+
+      - name: Extract unsigned handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 0755 "$UNSIGNED_ROOT"
+          tar \
+            --extract \
+            --file="$RUNNER_TEMP/denial-release-unsigned-transfer/denial-release-unsigned.tar" \
+            --directory="$UNSIGNED_ROOT" \
+            --no-same-owner
 
       - name: Import release-signing subkey
         shell: bash
@@ -393,12 +411,17 @@ jobs:
             "$UNSIGNED_ROOT" \
             "$SIGNED_ROOT" \
             "$EXPECTED_FINGERPRINT"
+          tar \
+            --create \
+            --file="$RUNNER_TEMP/denial-release-signed.tar" \
+            --directory="$SIGNED_ROOT" \
+            .
 
       - name: Upload signed release repository
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: denial-release-signed-${{ github.run_id }}
-          path: ${{ runner.temp }}/denial-release-signed
+          path: ${{ runner.temp }}/denial-release-signed.tar
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
@@ -444,7 +467,18 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: denial-release-signed-${{ github.run_id }}
-          path: ${{ runner.temp }}/denial-release-signed
+          path: ${{ runner.temp }}/denial-release-signed-transfer
+
+      - name: Extract signed repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 0755 "$SIGNED_ROOT"
+          tar \
+            --extract \
+            --file="$RUNNER_TEMP/denial-release-signed-transfer/denial-release-signed.tar" \
+            --directory="$SIGNED_ROOT" \
+            --no-same-owner
 
       - name: Independently verify publication input
         shell: bash
