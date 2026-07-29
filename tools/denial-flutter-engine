@@ -10,6 +10,7 @@ CHECKOUT="$CACHE_ROOT/checkout"
 DEPOT_TOOLS="$CACHE_ROOT/depot_tools"
 ARTIFACT_ROOT="$CACHE_ROOT/artifacts"
 STATE_ROOT="$CACHE_ROOT/state"
+VPYTHON_CACHE_ROOT="$CACHE_ROOT/vpython"
 AVAILABLE_CPUS="$(nproc)"
 if [[ "${GITHUB_ACTIONS:-}" == true \
   || "${DENIAL_FLUTTER_ENGINE_DEDICATED_BUILDER:-0}" == 1 ]]; then
@@ -362,10 +363,12 @@ prepare_checkout() {
 
   printf 'Synchronizing Flutter dependencies for %s\n' \
     "${flutter_revision:0:12}"
+  install -d -m 0700 "$VPYTHON_CACHE_ROOT"
   (
     cd "$CHECKOUT"
     PATH="$DEPOT_TOOLS/.cipd_bin:$DEPOT_TOOLS:$PATH" \
       DEPOT_TOOLS_UPDATE=0 \
+      VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
       gclient sync --no-history --nohooks
   )
 
@@ -375,6 +378,7 @@ prepare_checkout() {
     cd "$CHECKOUT"
     PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
       DEPOT_TOOLS_UPDATE=0 \
+      VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
       gclient runhooks
   )
 
@@ -402,6 +406,8 @@ build_artifacts() {
   checkout_depot="$build_root/flutter/third_party/depot_tools"
   staging="$ARTIFACT_ROOT/.${key}.$$"
 
+  [[ -x "$checkout_depot/vpython3" ]] \
+    || fail "synchronized depot_tools is missing vpython3: $checkout_depot"
   [[ ! -e "$artifact_dir" ]] \
     || fail "invalid cache entry already exists: $artifact_dir"
   [[ ! -e "$staging" ]] \
@@ -420,6 +426,7 @@ build_artifacts() {
       cd "$build_root"
       PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
         DEPOT_TOOLS_UPDATE=0 \
+        VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
         ./flutter/tools/gn \
           --runtime-mode="$mode" \
           --target-dir="$target"
@@ -432,15 +439,19 @@ build_artifacts() {
       cd "$build_root"
       PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
         DEPOT_TOOLS_UPDATE=0 \
+        VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
         ./flutter/third_party/gn/gn \
           gen \
           --check \
           "$output_relative"
     )
-    /usr/bin/ninja \
-      -C "$output" \
-      -j "$BUILD_JOBS" \
-      libflutter_engine.so
+    PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
+      DEPOT_TOOLS_UPDATE=0 \
+      VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
+      /usr/bin/ninja \
+        -C "$output" \
+        -j "$BUILD_JOBS" \
+        libflutter_engine.so
     [[ "$(file_sha256 "$output/libflutter_engine.so")" \
       == "$(expected_engine_sha256 "$mode")" ]] \
       || fail "$mode engine checksum differs from committed metadata"
