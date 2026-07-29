@@ -26,7 +26,17 @@ package() {
   local source_lock="$repository_root/prebuilt/flutter-engine/SOURCE_LOCK.json"
   local engine="${DENIAL_PACKAGE_ENGINE_SOURCE:-$engine_root/libflutter_engine.so}"
   local icu="$bundle/data/icudtl.dat"
+  local payload_root="${DENIAL_PACKAGE_PAYLOAD_ROOT:-}"
   local actual
+
+  if [[ -n "$payload_root" ]]; then
+    if [[ ! -d "$payload_root" ]]; then
+      error "Flutter Engine promotion payload is missing: $payload_root"
+      return 1
+    fi
+    cp -a --no-preserve=ownership -- "$payload_root/." "$pkgdir/"
+    return
+  fi
 
   for required in \
     "$engine" \

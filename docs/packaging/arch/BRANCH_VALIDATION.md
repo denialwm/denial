@@ -4,26 +4,32 @@ Every trusted push to remote `dev` or `main` runs
 `.github/workflows/branch-validation.yml`. Pull requests and forks never
 trigger the owner-operated builder.
 
-`dev` is the first complete integration gate. It runs the same x86-64 build,
-test, package, artifact, and independent-verification path as `main` before
-changes are promoted. Its three packages are installable for testing, but use
-package release `0` and are explicitly ineligible for release signing or
-publication.
+`dev` is the first complete integration gate. It builds, tests, packages, and
+independently verifies an installable development candidate. That candidate
+uses package release `0` and is explicitly ineligible for signing or
+publication. Its build policy may intentionally diverge from production in
+the future, for example by enabling additional diagnostics.
 
-`main` is an unchanged-promotion gate on a GitHub-hosted runner. It accepts
-only a two-parent merge whose tree is exactly its validated `dev` parent,
-whose first parent is the previous `main`, and whose `dev` commit has a
-successful build plus independent-verification run. It does not compile the
-same tree a second time. A public release is rebuilt from a separately signed
-version tag by the release workflow.
+`main` has two gates. A GitHub-hosted authorization job first accepts only a
+two-parent merge whose tree is exactly its validated `dev` parent, whose
+first parent is the previous `main`, and whose `dev` commit has a successful
+push validation. The owner-operated runner then independently performs the
+production build from that exact `main` commit, with release-mode Flutter AOT
+and Rust artifacts. A separate hosted job verifies the resulting unsigned
+production candidate.
+
+The version is deliberately still undecided at this point. Only after the
+production candidate is green may a maintainer choose and sign a
+`vMAJOR.MINOR.PATCH` tag on that exact commit. The tag workflow downloads the
+retained `main` candidate, changes only tag-derived package metadata, installs
+the tag-derived runtime version file, proves that every compiled payload is
+unchanged, and then signs and publishes it. It performs no compilation.
 
 ## Build boundary
 
-The owner-operated x86-64 runner:
+For either trusted branch, the owner-operated x86-64 runner:
 
-1. checks out the exact pushed commit as a local `dev` or `main` branch in a
-   fresh ephemeral workspace, allowing the development package to record both
-   that verified revision and its cloneable upstream branch;
+1. checks out the exact pushed commit in a fresh ephemeral workspace;
 2. builds or reuses optimized, profile, and JIT Flutter Engine artifacts from
    the exact locked Denial Flutter and Skia fork commits;
 3. audits committed inputs and qualifies the builder;
@@ -33,44 +39,47 @@ The owner-operated x86-64 runner:
 7. builds and internally validates the two required runtime packages and the
    optional UI-development package;
 8. records package metadata, host inputs, checksums, toolchain versions, and
-   build logs;
-9. uploads one seven-day candidate artifact.
+   build logs; and
+9. uploads the unsigned candidate artifact.
 
 A separate GitHub-hosted Arch job downloads that artifact and independently
-checks its source identity, checksums, architecture, three-package set, package
-ownership metadata, engine ABI dependencies, version bounds, and required
-runtime and development payloads.
+checks its source identity, checksums, architecture, three-package set,
+package ownership metadata, engine ABI dependencies, version bounds, and
+required runtime and development payloads.
 
-The development artifact is named:
+The artifacts are named:
 
 ```text
 denial-dev-validated-candidate-RUN_ID
+denial-main-validated-candidate-RUN_ID
 ```
 
 Their policy fields are:
 
-| Branch | Artifact class | Package release | Release signing |
-| --- | --- | ---: | --- |
-| `dev` | `development-test-candidate` | `0` | Ineligible |
+| Branch | Artifact class | Build policy | Package release | Signing |
+| --- | --- | --- | ---: | --- |
+| `dev` | `development-test-candidate` | Development | `0` | Ineligible |
+| `main` | `production-release-candidate` | Production | `0` | Eligible only after signed-tag promotion |
 
-It records `publication_authorized=false`,
-`release_signing_eligible=false`, and `signature_status=unsigned`.
+Both record `publication_authorized=false`,
+`signature_status=unsigned`, and the exact source and workflow identity.
+Only `main` records `release_signing_eligible=true`. The release workflow
+refuses a `dev` artifact even when it was built from an identical source tree.
 
-Any byte sequence can technically be signed outside this project. Denial's
-enforced boundary is that the release workflow never consumes a branch
-artifact: it accepts only a signed version tag, verifies that tag against
-`main`, and rebuilds the packages under a separate artifact name before the
-protected signing job can start.
+## Development and main flow
 
-## Development and promotion flow
-
-The self-hosted runner is ephemeral. Arm it immediately before pushing trusted
-development work:
+The self-hosted runner is ephemeral. Arm one job immediately before each
+trusted branch push:
 
 ```sh
 tools/denial-builder install
+
 tools/denial-builder arm
 git push origin dev
+
+# After dev is green, arm a new one-job runner immediately before merging.
+tools/denial-builder arm
+# Merge the exact validated dev tree into main without squashing or rebasing.
 ```
 
 `install` creates the credential-free persistent engine cache under
@@ -78,34 +87,37 @@ git push origin dev
 committed fork source lock. Exact hits are checksum-verified no-ops; source or
 GN changes reuse the retained checkout and Ninja object graph.
 
-Wait for the `dev` workflow and its independent verifier to pass. Test its
-downloadable package-release-`0` artifact when the change warrants a live
-session check. Only then promote the same commit from `dev` to `main` using a
-merge commit, never squash or rebase. The `main` push needs no self-hosted
-runner; its hosted provenance gate rejects any tree change or missing
-successful `dev` validation. Do not repair a failed promotion directly on
-`main`; fix it on `dev`, prove it there, and promote it again.
+Test the downloadable development artifact when a change warrants a live
+session check. Do not repair a failed `main` production build directly on
+`main`; fix it on `dev`, prove the fix there, and promote it again.
 
-After either workflow finishes, remove any remaining runner registration with:
-
-```sh
-tools/denial-builder cancel
-```
-
-Either branch can also be validated manually:
+Either branch can also be built and watched through the controller. Both
+commands arm a fresh one-job runner:
 
 ```sh
 tools/denial-builder validate-dev
 tools/denial-builder validate
 ```
 
+After a workflow finishes, remove any unexpected remaining registration with:
+
+```sh
+tools/denial-builder cancel
+```
+
 ## Release boundary
 
-A successful branch candidate validates the source and package construction
-path. It does not authorize publication and never receives a signing secret.
+Do not choose a public version merely to obtain a production build. A green
+`main` production candidate is the versionless release decision point.
 
-Production signing remains exclusive to `.github/workflows/release.yml`. That
-workflow accepts only a clean signed `vMAJOR.MINOR.PATCH` tag contained in
-`main`, uses that verified tag as the sole `pkgver` source for every archive,
+After choosing and pushing a clean signed tag on that exact commit, run:
+
+```sh
+tools/denial-builder release vMAJOR.MINOR.PATCH
+```
+
+This controller does not arm the builder. `.github/workflows/release.yml`
+resolves the successful exact-commit `main` push run, promotes its retained
+payloads to tag-derived `pkgver`/`pkgrel` metadata, verifies payload identity,
 signs in the protected `release-signing` environment, independently verifies
-the signed repository, and publishes only after all release gates pass.
+the signed repository, and publishes only after every release gate passes.

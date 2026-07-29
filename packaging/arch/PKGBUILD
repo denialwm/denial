@@ -78,6 +78,34 @@ package() {
   local binary="${DENIAL_PACKAGE_BINARY:-$cache_root/denial/pc-build/rust/release/deniald}"
   local control_binary="${DENIAL_PACKAGE_CONTROL_BINARY:-$cache_root/denial/pc-build/rust/release/denialctl}"
   local bundle="${DENIAL_PACKAGE_BUNDLE:-$repository_root/dart_shell/build/linux/x64/release/bundle}"
+  local payload_root="${DENIAL_PACKAGE_PAYLOAD_ROOT:-}"
+  local runtime_version_file="${DENIAL_PACKAGE_RUNTIME_VERSION_FILE:-}"
+  local runtime_version
+
+  install_runtime_version() {
+    [[ -n "$runtime_version_file" ]] || return 0
+    if [[ ! -f "$runtime_version_file" ]]; then
+      error "Denial runtime-version file is missing: $runtime_version_file"
+      return 1
+    fi
+    runtime_version="$(<"$runtime_version_file")"
+    if [[ ! "$runtime_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      error "Denial runtime version is invalid: $runtime_version"
+      return 1
+    fi
+    install -Dm644 "$runtime_version_file" \
+      "$pkgdir/usr/share/denial/version"
+  }
+
+  if [[ -n "$payload_root" ]]; then
+    if [[ ! -d "$payload_root" ]]; then
+      error "Denial promotion payload is missing: $payload_root"
+      return 1
+    fi
+    cp -a --no-preserve=ownership -- "$payload_root/." "$pkgdir/"
+    install_runtime_version
+    return
+  fi
 
   if [[ ! -x "$binary" ]]; then
     error "Denial compositor is missing: $binary"
@@ -151,4 +179,5 @@ package() {
     "$pkgdir/usr/share/licenses/denial/OFL-1.1.txt"
   install -Dm644 "$repository_root/LICENSE" \
     "$pkgdir/usr/share/licenses/denial/LICENSE"
+  install_runtime_version
 }

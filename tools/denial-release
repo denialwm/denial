@@ -585,14 +585,36 @@ source_audit() {
   fi
   for workflow_file in \
     "$ROOT/.github/workflows/branch-validation.yml" \
-    "$ROOT/.github/workflows/builder-qualification.yml" \
-    "$ROOT/.github/workflows/release.yml"; do
+    "$ROOT/.github/workflows/builder-qualification.yml"; do
     if grep -Fq 'tools/denial-flutter-engine build' "$workflow_file"; then
       pass "$(basename -- "$workflow_file") builds or reuses the fork engine"
     else
       fail "$(basename -- "$workflow_file") bypasses the fork engine builder"
     fi
   done
+  if ! grep -Eq \
+      'tools/(denial-flutter-engine build|denial-pc (build|bundle|test|arch-package))|cargo (build|xtask)' \
+      "$ROOT/.github/workflows/release.yml" \
+    && ! grep -Fq \
+      'self-hosted' \
+      "$ROOT/.github/workflows/release.yml" \
+    && grep -Fq \
+      'tools/promote-denial-arch-candidate' \
+      "$ROOT/.github/workflows/release.yml"; then
+    pass 'signed-tag workflow promotes a main candidate without compiling'
+  else
+    fail 'signed-tag workflow rebuilds instead of promoting the main candidate'
+  fi
+  if grep -Fq \
+      "candidate_class='production-release-candidate'" \
+      "$ROOT/.github/workflows/branch-validation.yml" \
+    && grep -Fq \
+      "build_mode='production'" \
+      "$ROOT/.github/workflows/branch-validation.yml"; then
+    pass 'main validation produces an explicit production release candidate'
+  else
+    fail 'main validation does not identify its production candidate'
+  fi
   if grep -R -Fq \
       '/srv/denial-builder/artifacts/flutter-engine/' \
       "$ROOT/.github/workflows" \
@@ -813,6 +835,7 @@ source_audit() {
     "$ROOT/tools/denial-release" \
     "$ROOT/tools/generate-denial-wire" \
     "$ROOT/tools/package-denial-arch" \
+    "$ROOT/tools/promote-denial-arch-candidate" \
     "$ROOT/tools/import-bibata-cursor" \
     "$ROOT/tools/notification-test-client" \
     "$ROOT/packaging/arch/denial-session" \
@@ -837,6 +860,8 @@ source_audit() {
   )"
   package_version="$(
     (
+      # Each PKGBUILD load is deliberately isolated.
+      # shellcheck disable=SC2030,SC2031
       export DENIAL_PACKAGE_VERSION="$audit_package_version"
       # PKGBUILD is executable Bash and is intentionally loaded to inspect its
       # effective default metadata.
@@ -849,6 +874,7 @@ source_audit() {
   )"
   ui_package_version="$(
     (
+      # shellcheck disable=SC2030,SC2031
       export DENIAL_PACKAGE_VERSION="$audit_package_version"
       # shellcheck disable=SC1091
       source "$ROOT/packaging/arch/ui-development/PKGBUILD"
@@ -858,6 +884,7 @@ source_audit() {
   )"
   read -r engine_package_version engine_package_epoch < <(
     (
+      # shellcheck disable=SC2030,SC2031
       export DENIAL_PACKAGE_VERSION="$audit_package_version"
       # shellcheck disable=SC1091
       source "$ROOT/packaging/arch/flutter-engine/PKGBUILD"
@@ -908,6 +935,7 @@ source_audit() {
     pass 'Cargo and Dart source-manifest versions are valid metadata'
     ui_dependency_bounds="$(
       (
+        # shellcheck disable=SC2030,SC2031
         export DENIAL_PACKAGE_VERSION="$audit_package_version"
         # shellcheck disable=SC1091
         source "$ROOT/packaging/arch/ui-development/PKGBUILD"

@@ -83,7 +83,7 @@ fn run() -> Result<(), CliError> {
             expect_no_arguments(&remainder)?;
             println!(
                 "denial-ui {} (Flutter generation {FLUTTER_GENERATION})",
-                denial_core::VERSION
+                denial_core::version()
             );
             Ok(())
         }

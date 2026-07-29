@@ -39,8 +39,8 @@ work and release gates are in
 The initial x86-64 release builder is a dedicated CachyOS laptop owned and
 operated by the Denial maintainer. CachyOS is the host; a recreated clean Arch
 environment must become the Stage 2 package build authority. The machine is
-manually armed for one trusted `main` or signed-tag job at a time. It never
-executes pull-request or fork code.
+manually armed for one trusted `dev` or `main` build at a time. It never
+executes pull-request, fork, signing, or publication jobs.
 
 Machine ownership is disclosed rather than presented as an assurance. The
 builder is one trust domain, so two builds on that machine can demonstrate
@@ -52,8 +52,8 @@ For the public alpha, the builder must:
 - receive no production signing key;
 - be registered as an ephemeral one-job GitHub runner;
 - retain no credentials or writable build environment after the job;
-- accept only a reviewed `main` revision or manually dispatched signed version
-  tag after the operator explicitly arms it;
+- accept only a reviewed trusted-branch revision after the operator explicitly
+  arms it;
 - run the compositor and Flutter tests before packaging;
 - publish the exact source revision, host package inventory, logs, manifests,
   `.BUILDINFO`, and artifact hashes.
@@ -143,8 +143,12 @@ The public GitHub workflows are part of the reviewable build instructions:
 
 - no `pull_request` trigger targets a Denial-owned runner;
 - manual builder qualification runs only from `main`;
+- `dev` candidates are never releasable;
+- `main` independently builds and verifies the production candidate before a
+  public version is chosen;
 - release jobs require a clean signed `vMAJOR.MINOR.PATCH` tag contained in
-  public `main`;
+  public `main` and promote only the retained exact-commit production payload;
+- signed-tag jobs perform no compilation;
 - workflow permissions default to read-only;
 - build jobs have no signing or repository-publication secret;
 - a separate `release-signing` environment receives only the secret subkey;

@@ -64,8 +64,7 @@ Jobs accepted by this machine are deliberately narrow:
 
 - owner-pushed `dev` and trusted `main` pushes, or explicit manual dispatch,
   during branch validation;
-- manual dispatch only for builder qualification and clean signed
-  `vMAJOR.MINOR.PATCH` public-alpha tags;
+- manual dispatch for builder qualification;
 - never `pull_request`, `pull_request_target`, or fork code;
 - never a job whose workflow revision has not been reviewed by the operator.
 
@@ -108,8 +107,10 @@ shellcheck
 nvme-cli
 ```
 
-These host packages qualify the builder and produce trusted-branch candidates
-and public-alpha packages. They are not the Stage 2 dependency closure.
+These host packages qualify the builder and produce trusted-branch
+candidates. The `main` candidate supplies the exact compiled payloads later
+promoted into public-alpha packages. They are not the Stage 2 dependency
+closure.
 Compositor and Flutter build dependencies ultimately belong in the recreated
 clean environment, not in undocumented ambient host state.
 
@@ -147,16 +148,19 @@ arm one runner, dispatch the workflow, and watch it to completion:
 tools/denial-builder qualify
 ```
 
-Every trusted push starts the branch-validation workflow. Only `dev` uses the
-owner-operated builder; development work is proven first:
+Every trusted push starts the branch-validation workflow. Development work is
+proven first:
 
 ```sh
 tools/denial-builder arm
 git push origin dev
 ```
 
-The development build and hosted `main` promotion check can be dispatched and
-watched manually:
+After that exact `dev` tree is green, arm a new one-job runner immediately
+before merging it into `main`. The hosted authorization gate checks the merge,
+then the runner performs a fresh production build from `main`.
+
+Either branch build can also be dispatched and watched manually:
 
 ```sh
 tools/denial-builder validate-dev
@@ -166,15 +170,17 @@ tools/denial-builder validate
 Its unsigned artifact and independent verification boundary are documented in
 [`BRANCH_VALIDATION.md`](BRANCH_VALIDATION.md).
 
-After a release commit and tag have been reviewed, the public-alpha release
-controller is:
+Only after the `main` production candidate has passed may a version be chosen
+and signed. The public-alpha release controller is:
 
 ```sh
 tools/denial-builder release v0.2.0
 ```
 
 It refuses a missing tag, missing release-signing environment secret, or a
-fingerprint mismatch before arming the one-job runner.
+fingerprint mismatch. It does not arm or use this machine: the hosted release
+workflow promotes the retained exact-commit `main` payload, then signs and
+publishes it without compilation.
 
 The lower-level lifecycle commands are:
 
@@ -215,13 +221,15 @@ attest, or publish a package.
 
 Run `tools/denial-builder qualify` after any material builder or workflow
 change. Run `tools/denial-builder validate-dev` for an explicit candidate
-rebuild, or `tools/denial-builder validate` to recheck the unchanged `main`
-promotion without arming the builder. A failed promotion is repaired and
-proven on `dev` before another merge.
+build, or `tools/denial-builder validate` for an explicit `main` production
+candidate build. Both validation commands arm a fresh runner. A failed
+production candidate is repaired and proven on `dev` before another merge.
 
 Neither command authorizes publication. `tools/denial-builder release` still
 requires a clean signed version tag contained in `main` and the protected
-signing environment. Stage 2 and Stage 3 harden that same release channel
-later; they are not prerequisites for the explicitly limited alpha.
+signing environment, but it consumes only the retained successful `main`
+candidate and never invokes the builder. Stage 2 and Stage 3 harden that same
+release channel later; they are not prerequisites for the explicitly limited
+alpha.
 
 [runner-false-offline]: https://github.com/actions/runner/issues/3892

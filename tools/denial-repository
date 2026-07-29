@@ -20,6 +20,7 @@ x86-64 public-alpha package set and creates a complete static Pacman
 repository below OUTPUT_ROOT.
 
 Required environment:
+  DENIAL_RELEASE_BUILD_RUN
   DENIAL_RELEASE_SOURCE_SHA
   DENIAL_RELEASE_TAG
   DENIAL_RELEASE_WORKFLOW_RUN
@@ -55,6 +56,7 @@ readonly FINGERPRINT
 readonly SOURCE_SHA="${DENIAL_RELEASE_SOURCE_SHA:-}"
 readonly RELEASE_TAG="${DENIAL_RELEASE_TAG:-}"
 readonly WORKFLOW_RUN="${DENIAL_RELEASE_WORKFLOW_RUN:-}"
+readonly BUILD_RUN="${DENIAL_RELEASE_BUILD_RUN:-}"
 readonly TOOLING_SHA="${DENIAL_RELEASE_TOOLING_SHA:-$SOURCE_SHA}"
 
 [[ -d "$PACKAGE_INPUT" ]] \
@@ -69,12 +71,26 @@ readonly TOOLING_SHA="${DENIAL_RELEASE_TOOLING_SHA:-$SOURCE_SHA}"
   || fail 'DENIAL_RELEASE_TAG must have the form vMAJOR.MINOR.PATCH'
 [[ "$WORKFLOW_RUN" =~ ^[0-9]+$ ]] \
   || fail 'DENIAL_RELEASE_WORKFLOW_RUN must be numeric'
+[[ "$BUILD_RUN" =~ ^[0-9]+$ ]] \
+  || fail 'DENIAL_RELEASE_BUILD_RUN must be numeric'
 [[ "$TOOLING_SHA" =~ ^[0-9a-f]{40}$ ]] \
   || fail 'DENIAL_RELEASE_TOOLING_SHA must be a complete Git commit ID'
 [[ -n "${DENIAL_RELEASE_SIGNING_PASSPHRASE:-}" ]] \
   || fail 'DENIAL_RELEASE_SIGNING_PASSPHRASE is required'
 [[ -n "${GNUPGHOME:-}" && -d "$GNUPGHOME" ]] \
   || fail 'GNUPGHOME must identify the imported release-signing keyring'
+
+for expected in \
+  'public_alpha=true' \
+  'artifact_class=tag-promoted-main-candidate' \
+  "release_tag=$RELEASE_TAG" \
+  "source_commit=$SOURCE_SHA" \
+  "main_candidate_run=$BUILD_RUN" \
+  "promotion_workflow_run=$WORKFLOW_RUN" \
+  'compiled_payloads_changed=false'; do
+  grep -Fxq "$expected" "$EVIDENCE_INPUT/provenance.txt" \
+    || fail "unsigned promotion provenance is missing: $expected"
+done
 
 if [[ -e "$OUTPUT_ROOT" ]] \
   && find "$OUTPUT_ROOT" -mindepth 1 -print -quit | grep -q .; then
@@ -206,6 +222,10 @@ for package in "${package_inputs[@]}"; do
         'optdepend = denial-ui-development: live Flutter UI editing and hot reload' \
         <<<"$package_info" \
         || fail 'Denial package does not advertise its optional development package'
+      [[ "$(
+        bsdtar -xOf "$package" usr/share/denial/version
+      )" == "$release_version" ]] \
+        || fail 'Denial package runtime version does not match its signed tag'
       denial_packages=$((denial_packages + 1))
       ;;
     denial-ui-development)
@@ -407,14 +427,17 @@ DENIAL PUBLIC-ALPHA PACMAN REPOSITORY
 
 Release tag:         $RELEASE_TAG
 Source commit:       $SOURCE_SHA
-Workflow run:        $WORKFLOW_RUN
+Main candidate run:  $BUILD_RUN
+Promotion run:       $WORKFLOW_RUN
 Release tooling:     $TOOLING_SHA
 Architecture:        x86_64
 Signing fingerprint: $FINGERPRINT
 Created UTC:         $(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 Build disclosure:
-  Built on Denial's owner-operated x86-64 runner.
+  Production binaries were built and independently checked from main on
+  Denial's owner-operated x86-64 runner. The signed tag assigned package and
+  runtime versions while preserving those exact compiled payloads.
   Packages and repository databases are signed by the Denial release key.
   This release does not claim an offline dependency closure, reproducible
   packages, independent rebuilding, an SBOM, or AArch64 support.
@@ -450,10 +473,12 @@ This is a signed x86-64 public-alpha release of Denial.
 
 ${release_changes}
 
-The packages were built on Denial's owner-operated x86-64 runner, then signed
-and independently re-verified in a GitHub-hosted signing job. This release
-does not yet claim an offline dependency closure, reproducible packages,
-independent rebuilding, an SBOM, or AArch64 support.
+The production binaries were built and independently checked from \`main\` on
+Denial's owner-operated x86-64 runner. This signed tag promoted those exact
+compiled payloads, assigned their package and runtime versions, and signed and
+re-verified the repository in GitHub-hosted jobs. This release does not yet
+claim an offline dependency closure, reproducible packages, independent
+rebuilding, an SBOM, or AArch64 support.
 
 Installation instructions are in
 [\`docs/packaging/arch/INSTALL.md\`](https://github.com/denialwm/denial/blob/${RELEASE_TAG}/docs/packaging/arch/INSTALL.md).

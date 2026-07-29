@@ -1,10 +1,11 @@
 name: Publish signed Denial public alpha
-run-name: Publish ${{ github.ref_name }} from ${{ github.sha }}
+run-name: Promote ${{ github.ref_name }} from validated main candidate
 
 on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -12,63 +13,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build unsigned x86-64 release
+  resolve:
+    name: Verify tag and resolve exact main candidate
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on:
-      - self-hosted
-      - linux
-      - x64
-      - denial-builder
-    timeout-minutes: 240
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     outputs:
+      candidate_artifact: ${{ steps.resolve.outputs.candidate_artifact }}
+      candidate_run_id: ${{ steps.resolve.outputs.candidate_run_id }}
       release_tag: ${{ steps.resolve.outputs.release_tag }}
       release_version: ${{ steps.resolve.outputs.release_version }}
       source_sha: ${{ steps.resolve.outputs.source_sha }}
 
     steps:
-      - name: Require a fresh runner workspace
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s dotglob nullglob
-          entries=(*)
-          if ((${#entries[@]} != 0)); then
-            printf 'Refusing reused workspace: %s\n' "$GITHUB_WORKSPACE" >&2
-            exit 1
-          fi
-
-      - name: Define isolated build paths
-        shell: bash
-        run: |
-          set -euo pipefail
-          {
-            printf 'CARGO_HOME=%s\n' \
-              '/srv/denial-builder/cache/cargo'
-            printf 'PUB_CACHE=%s\n' \
-              '/srv/denial-builder/cache/pub'
-            printf 'DENIAL_PC_DEPENDENCY_ROOT=%s\n' \
-              '/srv/denial-builder/cache/dependencies'
-            printf 'DENIAL_PC_RUST_TARGET=%s\n' \
-              '/srv/denial-builder/cache/rust-target'
-            printf 'DENIAL_FLUTTER_ENGINE_CACHE_ROOT=%s\n' \
-              '/srv/denial-builder/cache/flutter-engine'
-            printf 'DENIAL_FLUTTER_ENGINE_JOBS=%s\n' '16'
-            printf 'EVIDENCE_ROOT=%s\n' \
-              "$RUNNER_TEMP/denial-release-evidence"
-            printf 'UNSIGNED_ROOT=%s\n' \
-              "$RUNNER_TEMP/denial-release-unsigned"
-            printf 'UNSIGNED_ARCHIVE=%s\n' \
-              "$RUNNER_TEMP/denial-release-unsigned.tar"
-            printf 'DENIAL_PC_PACKAGE_ROOT=%s\n' \
-              "$RUNNER_TEMP/denial-release-packages"
-            printf 'DENIAL_PC_MAKEPKG_ROOT=%s\n' \
-              "$RUNNER_TEMP/denial-release-makepkg"
-            printf 'DENIAL_PC_PACKAGE_INPUT_ROOT=%s\n' \
-              "$RUNNER_TEMP/denial-release-package-input"
-          } >>"$GITHUB_ENV"
-
-      - name: Check out and verify the signed version tag
+      - name: Verify signed tag and main candidate provenance
         id: resolve
         shell: bash
         env:
@@ -97,7 +55,8 @@ jobs:
           cleanup() {
             gpgconf --homedir "$tag_gnupg" --kill all >/dev/null 2>&1 || true
             rm -f -- "$askpass"
-            if [[ "$tag_gnupg" == "$RUNNER_TEMP/denial-release-tag-gnupg" ]]; then
+            if [[ "$tag_gnupg" == \
+              "$RUNNER_TEMP/denial-release-tag-gnupg" ]]; then
               rm -rf --one-file-system -- "$tag_gnupg"
             fi
           }
@@ -137,7 +96,8 @@ jobs:
               "$EXPECTED_GITHUB_SHA" "$tag_object" "$source_sha" >&2
             exit 1
           fi
-          git merge-base --is-ancestor "$source_sha" refs/remotes/origin/main
+          git merge-base --is-ancestor \
+            "$source_sha" refs/remotes/origin/main
           git checkout --detach "$source_sha"
 
           install -d -m 0700 "$tag_gnupg"
@@ -157,97 +117,211 @@ jobs:
           GNUPGHOME="$tag_gnupg" \
             git -c gpg.program=gpg verify-tag "$RELEASE_TAG"
 
+          workflow_runs="$(
+            gh api \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${REPOSITORY_NAME}/actions/workflows/branch-validation.yml/runs?branch=main&event=push&status=completed&per_page=100"
+          )"
+          candidate_run_id="$(
+            jq -er \
+              --arg source "$source_sha" \
+              "[
+                .workflow_runs[]
+                | select(
+                    .head_sha == \$source
+                    and .head_branch == \"main\"
+                    and .event == \"push\"
+                    and .conclusion == \"success\"
+                  )
+              ]
+              | first
+              | .id" \
+              <<<"$workflow_runs"
+          )"
+          candidate_artifact="denial-main-validated-candidate-${candidate_run_id}"
+          artifact_record="$(
+            gh api \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${REPOSITORY_NAME}/actions/runs/${candidate_run_id}/artifacts?per_page=100" \
+              | jq -er \
+                --arg name "$candidate_artifact" \
+                "[
+                  .artifacts[]
+                  | select(.name == \$name and .expired == false)
+                ]
+                | if length == 1 then first else error(
+                    \"expected one unexpired main candidate artifact\"
+                  ) end"
+          )"
+          jq -e '.size_in_bytes > 0' <<<"$artifact_record" >/dev/null
+
           release_version="${RELEASE_TAG#v}"
           {
-            printf 'DENIAL_RELEASE_TAG=%s\n' "$RELEASE_TAG"
-            printf 'RELEASE_TAG=%s\n' "$RELEASE_TAG"
-            printf 'RELEASE_VERSION=%s\n' "$release_version"
-            printf 'SOURCE_SHA=%s\n' "$source_sha"
-          } >>"$GITHUB_ENV"
-          {
+            printf 'candidate_artifact=%s\n' "$candidate_artifact"
+            printf 'candidate_run_id=%s\n' "$candidate_run_id"
             printf 'release_tag=%s\n' "$RELEASE_TAG"
             printf 'release_version=%s\n' "$release_version"
             printf 'source_sha=%s\n' "$source_sha"
           } >>"$GITHUB_OUTPUT"
+          {
+            printf '### Signed-tag promotion authorized\n\n'
+            printf -- "- Tag: \`%s\`\n" "$RELEASE_TAG"
+            printf -- \
+              "- Source/main candidate commit: \`%s\`\n" \
+              "$source_sha"
+            printf -- '- Main candidate workflow: [%s](https://github.com/%s/actions/runs/%s)\n' \
+              "$candidate_run_id" "$REPOSITORY_NAME" "$candidate_run_id"
+            printf -- \
+              "- Candidate artifact: \`%s\`\n" \
+              "$candidate_artifact"
+            printf -- '- Compilation requested by this workflow: **no**\n'
+          } >>"$GITHUB_STEP_SUMMARY"
 
-      - name: Audit source and builder
+  promote:
+    name: Promote exact main payloads to tag-derived packages
+    needs: resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    container:
+      image: archlinux:base-devel
+
+    steps:
+      - name: Install promotion verification tools
         shell: bash
-        run: |
-          set -euo pipefail
-          install -d -m 0755 "$EVIDENCE_ROOT"
-          actionlint 2>&1 | tee "$EVIDENCE_ROOT/actionlint.txt"
-          tools/denial-release source-audit \
-            --public-alpha "$RELEASE_TAG" \
-            2>&1 | tee "$EVIDENCE_ROOT/source-audit.txt"
-          tools/denial-release doctor \
-            --ci \
-            --release-tag "$RELEASE_TAG" \
-            2>&1 | tee "$EVIDENCE_ROOT/builder-doctor.txt"
+        run: pacman -Syu --needed --noconfirm git jq namcap
 
-      - name: Bootstrap pinned development toolchains
-        shell: bash
-        run: |
-          set -euo pipefail
-          tools/denial-pc bootstrap \
-            2>&1 | tee "$EVIDENCE_ROOT/bootstrap.txt"
+      - name: Check out the exact signed source tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.release_tag }}
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Build or reuse the locked Flutter engine
-        shell: bash
-        run: |
-          set -euo pipefail
-          tools/denial-flutter-engine build \
-            --github-env "$GITHUB_ENV" \
-            2>&1 | tee "$EVIDENCE_ROOT/flutter-engine.txt"
-
-      - name: Build Flutter integration-test bundle
-        shell: bash
-        run: |
-          set -euo pipefail
-          tools/denial-pc bundle \
-            2>&1 | tee "$EVIDENCE_ROOT/integration-test-bundle.txt"
-
-      - name: Run compositor and Flutter tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          tools/denial-pc test \
-            2>&1 | tee "$EVIDENCE_ROOT/compositor-tests.txt"
-          (
-            cd dart_shell
-            "$DENIAL_PC_DEPENDENCY_ROOT/flutter/bin/flutter" test
-          ) 2>&1 | tee "$EVIDENCE_ROOT/flutter-tests.txt"
-          (
-            cd "$DENIAL_PC_DEPENDENCY_ROOT/flutter/packages/flutter_tools"
-            ../../bin/flutter test \
-              test/general.shard/dap/flutter_adapter_test.dart
-          ) 2>&1 | tee "$EVIDENCE_ROOT/flutter-tool-tests.txt"
-
-      - name: Build versioned release packages
+      - name: Verify promotion checkout
         shell: bash
         env:
-          DENIAL_PACKAGE_PACKAGER: Doctor Logix <doctor.logix@gmail.com>
-          DENIAL_PACKAGE_RELEASE: "1"
-          DENIAL_REBUILD_ENGINE_PACKAGE: "1"
+          EXPECTED_SHA: ${{ needs.resolve.outputs.source_sha }}
         run: |
-          set -euo pipefail
-          TIMEFORMAT=$'real_seconds=%3R\nuser_seconds=%3U\nsystem_seconds=%3S\ncpu_percent=%P'
-          {
-            time tools/denial-pc arch-package
-            time cargo xtask ui-development-package
-          } 2>&1 | tee "$EVIDENCE_ROOT/package-build.txt"
+          test "$(
+            git -c safe.directory="$GITHUB_WORKSPACE" rev-parse HEAD
+          )" = "$EXPECTED_SHA"
 
-      - name: Assemble unsigned build evidence
+      - name: Download independently verified main candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.resolve.outputs.candidate_artifact }}
+          path: ${{ runner.temp }}/denial-main-candidate-transfer
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.resolve.outputs.candidate_run_id }}
+
+      - name: Define isolated promotion paths
         shell: bash
         run: |
           set -euo pipefail
-          package_root="$DENIAL_PC_PACKAGE_ROOT"
+          {
+            printf 'CANDIDATE_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-main-candidate"
+            printf 'PROMOTED_PACKAGE_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-promoted-packages"
+            printf 'UNSIGNED_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-release-unsigned"
+            printf 'UNSIGNED_ARCHIVE=%s\n' \
+              "$RUNNER_TEMP/denial-release-unsigned.tar"
+            printf 'PROMOTION_WORK_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-promotion-work"
+            printf 'PROMOTION_EVIDENCE=%s\n' \
+              "$RUNNER_TEMP/denial-promotion-work/evidence.txt"
+          } >>"$GITHUB_ENV"
+
+      - name: Extract and verify main candidate handoff
+        shell: bash
+        env:
+          CANDIDATE_ARTIFACT: ${{ needs.resolve.outputs.candidate_artifact }}
+          CANDIDATE_RUN_ID: ${{ needs.resolve.outputs.candidate_run_id }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          candidate_archive="$RUNNER_TEMP/denial-main-candidate-transfer/denial-main-candidate.tar"
+          test -f "$candidate_archive"
+          install -d -m 0755 "$CANDIDATE_ROOT"
+          tar \
+            --extract \
+            --file="$candidate_archive" \
+            --directory="$CANDIDATE_ROOT" \
+            --no-same-owner
+
+          provenance="$CANDIDATE_ROOT/evidence/provenance.txt"
+          for expected in \
+            'artifact_class=production-release-candidate' \
+            'publication_authorized=false' \
+            'release_signing_eligible=true' \
+            'signature_status=unsigned' \
+            'package_release=0' \
+            'build_mode=production' \
+            "source_commit=$SOURCE_SHA" \
+            'source_ref=refs/heads/main' \
+            "workflow_run=$CANDIDATE_RUN_ID" \
+            'workflow_event=push'; do
+            grep -Fxq "$expected" "$provenance"
+          done
+          (
+            cd "$CANDIDATE_ROOT/packages"
+            sha256sum --check --strict SHA256SUMS
+          )
+          printf 'Resolved retained artifact: %s\n' "$CANDIDATE_ARTIFACT"
+
+      - name: Repackage exact payloads with signed-tag identity
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          useradd --create-home --user-group denial-promoter
+          install -d -m 0755 \
+            "$PROMOTED_PACKAGE_ROOT" \
+            "$PROMOTION_WORK_ROOT"
+          chown -R denial-promoter:denial-promoter \
+            "$GITHUB_WORKSPACE" \
+            "$CANDIDATE_ROOT" \
+            "$PROMOTED_PACKAGE_ROOT" \
+            "$PROMOTION_WORK_ROOT"
+          runuser -u denial-promoter -- \
+            env \
+              DENIAL_PACKAGE_PACKAGER='Doctor Logix <doctor.logix@gmail.com>' \
+              tools/promote-denial-arch-candidate \
+                "$CANDIDATE_ROOT" \
+                "$PROMOTED_PACKAGE_ROOT" \
+                "$RELEASE_TAG" \
+                "$SOURCE_SHA" \
+                "$PROMOTION_EVIDENCE"
+
+      - name: Assemble unsigned promoted release
+        shell: bash
+        env:
+          CANDIDATE_ARTIFACT: ${{ needs.resolve.outputs.candidate_artifact }}
+          CANDIDATE_RUN_ID: ${{ needs.resolve.outputs.candidate_run_id }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.release_version }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+        run: |
+          set -euo pipefail
           install -d -m 0755 \
             "$UNSIGNED_ROOT/packages" \
+            "$UNSIGNED_ROOT/evidence/main-candidate" \
             "$UNSIGNED_ROOT/evidence/package-metadata"
-          cp -a -- "$EVIDENCE_ROOT/." "$UNSIGNED_ROOT/evidence/"
+          cp -a -- \
+            "$CANDIDATE_ROOT/evidence/." \
+            "$UNSIGNED_ROOT/evidence/main-candidate/"
+          install -m 0644 \
+            "$PROMOTION_EVIDENCE" \
+            "$UNSIGNED_ROOT/evidence/promotion.txt"
 
           mapfile -d '' packages < <(
-            find "$package_root" \
+            find "$PROMOTED_PACKAGE_ROOT" \
               -maxdepth 1 \
               -type f \
               -name '*.pkg.tar.zst' \
@@ -255,18 +329,15 @@ jobs:
               | sort -z
           )
           if ((${#packages[@]} != 3)); then
-            printf 'Expected three packages, found %d\n' "${#packages[@]}" >&2
+            printf 'Expected three promoted packages, found %d\n' \
+              "${#packages[@]}" >&2
             exit 1
           fi
           for expected_package in \
             "denial-${RELEASE_VERSION}-1-x86_64.pkg.tar.zst" \
             "denial-flutter-engine-1:${RELEASE_VERSION}-1-x86_64.pkg.tar.zst" \
             "denial-ui-development-${RELEASE_VERSION}-1-x86_64.pkg.tar.zst"; do
-            test -f "$package_root/$expected_package" || {
-              printf 'Missing tag-derived package: %s\n' \
-                "$expected_package" >&2
-              exit 1
-            }
+            test -f "$PROMOTED_PACKAGE_ROOT/$expected_package"
           done
           cp --reflink=auto -- "${packages[@]}" "$UNSIGNED_ROOT/packages/"
 
@@ -280,26 +351,18 @@ jobs:
 
           {
             printf 'public_alpha=true\n'
+            printf 'artifact_class=tag-promoted-main-candidate\n'
             printf 'release_tag=%s\n' "$RELEASE_TAG"
             printf 'source_commit=%s\n' "$SOURCE_SHA"
-            printf 'workflow_run=%s\n' "$GITHUB_RUN_ID"
-            printf 'workflow_attempt=%s\n' "$GITHUB_RUN_ATTEMPT"
-            printf 'runner_name=%s\n' "$RUNNER_NAME"
-            printf 'runner_os=%s\n' "$RUNNER_OS"
-            printf 'runner_arch=%s\n' "$RUNNER_ARCH"
-            printf 'logical_cpus=%s\n' "$(nproc)"
-            printf 'rust_build_jobs=%s\n' "${DENIAL_BUILD_JOBS:-$(nproc)}"
-            printf 'created_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            uname -a
+            printf 'main_candidate_run=%s\n' "$CANDIDATE_RUN_ID"
+            printf 'main_candidate_artifact=%s\n' "$CANDIDATE_ARTIFACT"
+            printf 'promotion_workflow_run=%s\n' "$GITHUB_RUN_ID"
+            printf 'promotion_workflow_attempt=%s\n' "$GITHUB_RUN_ATTEMPT"
+            printf 'compiled_payloads_changed=false\n'
+            printf 'promotion_runner_os=%s\n' "$RUNNER_OS"
+            printf 'promotion_runner_arch=%s\n' "$RUNNER_ARCH"
+            printf 'promoted_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } >"$UNSIGNED_ROOT/evidence/provenance.txt"
-          pacman -Q >"$UNSIGNED_ROOT/evidence/host-packages.txt"
-          (
-            cd compositor
-            rustc -vV
-          ) >"$UNSIGNED_ROOT/evidence/rustc.txt"
-          "$DENIAL_PC_DEPENDENCY_ROOT/flutter/bin/flutter" \
-            --version \
-            >"$UNSIGNED_ROOT/evidence/flutter.txt"
 
           (
             cd "$UNSIGNED_ROOT/packages"
@@ -314,7 +377,7 @@ jobs:
             --directory="$UNSIGNED_ROOT" \
             .
 
-      - name: Upload unsigned release handoff
+      - name: Upload unsigned promoted release
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: denial-release-unsigned-${{ github.run_id }}
@@ -325,7 +388,9 @@ jobs:
 
   sign:
     name: Sign and verify release repository
-    needs: build
+    needs:
+      - resolve
+      - promote
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: release-signing
@@ -350,30 +415,34 @@ jobs:
         shell: bash
         run: pacman -Syu --needed --noconfirm git gnupg
 
-      - name: Check out the exact signed source commit
+      - name: Check out the exact signed source tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.build.outputs.source_sha }}
+          ref: ${{ needs.resolve.outputs.release_tag }}
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Verify signing checkout
+      - name: Verify signing checkout and promotion provenance
         shell: bash
         env:
-          EXPECTED_SHA: ${{ needs.build.outputs.source_sha }}
+          EXPECTED_SHA: ${{ needs.resolve.outputs.source_sha }}
         run: |
           test "$(
             git -c safe.directory="$GITHUB_WORKSPACE" rev-parse HEAD
           )" = "$EXPECTED_SHA"
 
-      - name: Download unsigned handoff
+      - name: Download unsigned promoted release
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: denial-release-unsigned-${{ github.run_id }}
           path: ${{ runner.temp }}/denial-release-unsigned-transfer
 
-      - name: Extract unsigned handoff
+      - name: Extract and verify unsigned promoted release
         shell: bash
+        env:
+          CANDIDATE_RUN_ID: ${{ needs.resolve.outputs.candidate_run_id }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
         run: |
           set -euo pipefail
           install -d -m 0755 "$UNSIGNED_ROOT"
@@ -382,6 +451,23 @@ jobs:
             --file="$RUNNER_TEMP/denial-release-unsigned-transfer/denial-release-unsigned.tar" \
             --directory="$UNSIGNED_ROOT" \
             --no-same-owner
+          provenance="$UNSIGNED_ROOT/evidence/provenance.txt"
+          for expected in \
+            'public_alpha=true' \
+            'artifact_class=tag-promoted-main-candidate' \
+            "release_tag=$RELEASE_TAG" \
+            "source_commit=$SOURCE_SHA" \
+            "main_candidate_run=$CANDIDATE_RUN_ID" \
+            "promotion_workflow_run=$GITHUB_RUN_ID" \
+            'compiled_payloads_changed=false'; do
+            grep -Fxq "$expected" "$provenance"
+          done
+          grep -Fxq 'compiled_payloads_changed=false' \
+            "$UNSIGNED_ROOT/evidence/promotion.txt"
+          (
+            cd "$UNSIGNED_ROOT/packages"
+            sha256sum --check --strict SHA256SUMS
+          )
 
       - name: Import release-signing subkey
         shell: bash
@@ -409,9 +495,11 @@ jobs:
       - name: Sign packages and repository databases
         shell: bash
         env:
+          DENIAL_RELEASE_BUILD_RUN: ${{ needs.resolve.outputs.candidate_run_id }}
           DENIAL_RELEASE_SIGNING_PASSPHRASE: ${{ secrets.DENIAL_RELEASE_SIGNING_PASSPHRASE }}
-          DENIAL_RELEASE_SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
-          DENIAL_RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+          DENIAL_RELEASE_SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+          DENIAL_RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+          DENIAL_RELEASE_TOOLING_SHA: ${{ needs.resolve.outputs.source_sha }}
           DENIAL_RELEASE_WORKFLOW_RUN: ${{ github.run_id }}
           EXPECTED_FINGERPRINT: ${{ vars.DENIAL_RELEASE_SIGNING_FINGERPRINT }}
         run: |
@@ -448,7 +536,7 @@ jobs:
   publish:
     name: Publish GitHub Release and Pacman repository
     needs:
-      - build
+      - resolve
       - sign
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -538,8 +626,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
-          RELEASE_VERSION: ${{ needs.build.outputs.release_version }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.release_version }}
           REPOSITORY_NAME: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -583,7 +671,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
           REPOSITORY_NAME: ${{ github.repository }}
         run: |
           set -euo pipefail
