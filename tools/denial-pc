@@ -21,6 +21,7 @@ RUST_TARGET="${DENIAL_PC_RUST_TARGET:-$BUILD_ROOT/rust}"
 DEPENDENCY_ROOT="${DENIAL_PC_DEPENDENCY_ROOT:-$CACHE_HOME/denial/pc-dependencies}"
 
 FLUTTER_SDK_REPOSITORY="$(jq -er '.flutter.repository' "$FLUTTER_SOURCE_LOCK")"
+FLUTTER_SDK_VERSION="3.44.7"
 FLUTTER_SDK_REVISION="$(jq -er '.flutter.revision' "$FLUTTER_SOURCE_LOCK")"
 FLUTTER_UPSTREAM_REVISION="$(
     jq -er '.flutter.upstream_revision' "$FLUTTER_SOURCE_LOCK"
@@ -246,8 +247,39 @@ require_revision() {
         || die "$label revision is $current, expected $revision: $source"
 }
 
+prepare_flutter_version_metadata() {
+    local version_ref="refs/tags/$FLUTTER_SDK_VERSION"
+    local tagged_revision
+    tagged_revision="$(
+        git -C "$FLUTTER_SDK_ROOT" rev-parse \
+            --verify "$version_ref^{commit}" 2>/dev/null || true
+    )"
+    if [[ "$tagged_revision" != "$FLUTTER_SDK_REVISION" ]]; then
+        git -C "$FLUTTER_SDK_ROOT" tag --force \
+            "$FLUTTER_SDK_VERSION" "$FLUTTER_SDK_REVISION" >/dev/null
+    fi
+
+    local version_file="$FLUTTER_SDK_ROOT/bin/cache/flutter.version.json"
+    if [[ -f "$version_file" ]] \
+        && ! jq -e \
+            --arg version "$FLUTTER_SDK_VERSION" \
+            --arg revision "$FLUTTER_SDK_REVISION" \
+            '.frameworkVersion == $version
+                and .frameworkRevision == $revision' \
+            "$version_file" >/dev/null; then
+        rm -f -- "$version_file"
+    fi
+
+    local legacy_version_file="$FLUTTER_SDK_ROOT/version"
+    if [[ -f "$legacy_version_file" ]] \
+        && [[ "$(< "$legacy_version_file")" != "$FLUTTER_SDK_VERSION" ]]; then
+        rm -f -- "$legacy_version_file"
+    fi
+}
+
 prepare_flutter_toolchain() {
     require_revision "Flutter SDK" "$FLUTTER_SDK_ROOT" "$FLUTTER_SDK_REVISION"
+    prepare_flutter_version_metadata
     [[ -x "$FLUTTER" ]] || die "Flutter launcher not found: $FLUTTER"
     git -C "$FLUTTER_SDK_ROOT" diff --quiet \
         || die "Flutter fork checkout has tracked modifications: $FLUTTER_SDK_ROOT"
