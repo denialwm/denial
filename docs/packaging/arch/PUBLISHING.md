@@ -1305,6 +1305,15 @@ The workflow itself:
 - creates a draft GitHub prerelease, deploys the Pages artifact, and publishes
   the prerelease only after the deployment succeeds.
 
+If the owner-operated build completes but a later hosted signing or
+publication stage fails, do not rebuild the package set. After repairing and
+validating release-only tooling on `dev`, dispatch
+`.github/workflows/release-resume.yml` on `main` with the signed tag and failed
+build run ID. The recovery workflow accepts only the retained immutable
+unsigned handoff whose provenance matches that tag and run, restricts all
+post-tag source differences to reviewed release tooling, and repeats signing,
+independent verification, and atomic publication without using `.18`.
+
 Stage 1.5 explicitly does not claim:
 
 - a clean-chroot or network-disabled compilation;

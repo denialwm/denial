@@ -55,6 +55,7 @@ readonly FINGERPRINT
 readonly SOURCE_SHA="${DENIAL_RELEASE_SOURCE_SHA:-}"
 readonly RELEASE_TAG="${DENIAL_RELEASE_TAG:-}"
 readonly WORKFLOW_RUN="${DENIAL_RELEASE_WORKFLOW_RUN:-}"
+readonly TOOLING_SHA="${DENIAL_RELEASE_TOOLING_SHA:-$SOURCE_SHA}"
 
 [[ -d "$PACKAGE_INPUT" ]] \
   || fail "unsigned package directory is missing: $PACKAGE_INPUT"
@@ -68,6 +69,8 @@ readonly WORKFLOW_RUN="${DENIAL_RELEASE_WORKFLOW_RUN:-}"
   || fail 'DENIAL_RELEASE_TAG must have the form vMAJOR.MINOR.PATCH'
 [[ "$WORKFLOW_RUN" =~ ^[0-9]+$ ]] \
   || fail 'DENIAL_RELEASE_WORKFLOW_RUN must be numeric'
+[[ "$TOOLING_SHA" =~ ^[0-9a-f]{40}$ ]] \
+  || fail 'DENIAL_RELEASE_TOOLING_SHA must be a complete Git commit ID'
 [[ -n "${DENIAL_RELEASE_SIGNING_PASSPHRASE:-}" ]] \
   || fail 'DENIAL_RELEASE_SIGNING_PASSPHRASE is required'
 [[ -n "${GNUPGHOME:-}" && -d "$GNUPGHOME" ]] \
@@ -405,6 +408,7 @@ DENIAL PUBLIC-ALPHA PACMAN REPOSITORY
 Release tag:         $RELEASE_TAG
 Source commit:       $SOURCE_SHA
 Workflow run:        $WORKFLOW_RUN
+Release tooling:     $TOOLING_SHA
 Architecture:        x86_64
 Signing fingerprint: $FINGERPRINT
 Created UTC:         $(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -417,8 +421,8 @@ Build disclosure:
 EOF
 
 release_changes="$(
-  awk -v heading="## [${release_version}]" '
-    index($0, heading) == 1 {
+  awk '
+    $0 == "## [Unreleased]" {
       found = 1
       next
     }
