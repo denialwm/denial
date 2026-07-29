@@ -100,7 +100,7 @@ fn build_ui_development_package() -> Result<(), ToolError> {
     fs::create_dir_all(&paths.package_root).map_err(ToolError::io)?;
     fs::create_dir_all(&paths.makepkg_root).map_err(ToolError::io)?;
 
-    build_development_client(&paths)?;
+    build_development_client(&paths, &identity)?;
     build_flutter_tool_snapshot(&paths)?;
     resolve_ui_dependencies(&paths)?;
     build_flutter_tool_runtime(&paths)?;
@@ -251,7 +251,6 @@ struct PackageIdentity {
 
 impl PackageIdentity {
     fn resolve(repository: &Path) -> Result<Self, ToolError> {
-        let base_version = cargo_package_version(&repository.join("compositor/Cargo.toml"))?;
         let release = env::var("DENIAL_PACKAGE_RELEASE").unwrap_or_else(|_| String::from("1"));
         if release.is_empty() || !release.bytes().all(|byte| byte.is_ascii_digit()) {
             return Err(ToolError::new(
@@ -271,7 +270,7 @@ impl PackageIdentity {
         if let Ok(tag) = env::var("DENIAL_RELEASE_TAG")
             && !tag.is_empty()
         {
-            validate_release_tag(&tag)?;
+            let version = release_version_from_tag(&tag)?;
             let head = git_output(repository, &["rev-parse", "HEAD"])?;
             let tagged = git_output(repository, &["rev-parse", &format!("{tag}^{{commit}}")])?;
             if head != tagged {
@@ -289,21 +288,13 @@ impl PackageIdentity {
                     "a tagged release must be built from a clean checkout",
                 ));
             }
-            let version = tag
-                .strip_prefix('v')
-                .ok_or_else(|| ToolError::new("release tag must begin with v"))?;
-            if version != base_version {
-                return Err(ToolError::new(format!(
-                    "release tag {tag} does not match Cargo version {base_version}"
-                )));
-            }
             if release != "1" {
                 return Err(ToolError::new(
                     "a tagged release must use package release 1",
                 ));
             }
             return Ok(Self {
-                version: version.to_owned(),
+                version,
                 release,
                 source_date_epoch,
                 source_ref: tag,
@@ -312,14 +303,40 @@ impl PackageIdentity {
 
         let source_ref = git_output(repository, &["branch", "--show-current"])?;
         validate_source_ref(&source_ref)?;
-        let revision_count = git_output(repository, &["rev-list", "--count", "HEAD"])?;
+        let latest_release_tag = git_output(
+            repository,
+            &[
+                "tag",
+                "--merged",
+                "HEAD",
+                "--list",
+                "v*",
+                "--sort=-v:refname",
+            ],
+        )?
+        .lines()
+        .find(|tag| validate_release_tag(tag).is_ok())
+        .map(str::to_owned);
+        let (development_base, revision_count) = if let Some(latest_release_tag) =
+            latest_release_tag
+        {
+            let development_base = release_version_from_tag(&latest_release_tag)?;
+            let revision_range = format!("{latest_release_tag}..HEAD");
+            let revision_count = git_output(repository, &["rev-list", "--count", &revision_range])?;
+            (development_base, revision_count)
+        } else {
+            (
+                String::from("0.0.0"),
+                git_output(repository, &["rev-list", "--count", "HEAD"])?,
+            )
+        };
         let revision = git_output(repository, &["rev-parse", "--short=8", "HEAD"])?;
         let dirty = !git_output(
             repository,
             &["status", "--porcelain", "--untracked-files=normal"],
         )?
         .is_empty();
-        let mut version = format!("{base_version}.r{revision_count}.g{revision}");
+        let mut version = format!("{development_base}.r{revision_count}.g{revision}");
         if dirty {
             version.push_str(".dirty");
         }
@@ -332,7 +349,10 @@ impl PackageIdentity {
     }
 }
 
-fn build_development_client(paths: &BuildPaths) -> Result<(), ToolError> {
+fn build_development_client(
+    paths: &BuildPaths,
+    identity: &PackageIdentity,
+) -> Result<(), ToolError> {
     let jobs = build_parallelism()?.to_string();
     let rustflags = package_rustflags(&paths.repository)?;
     let mut cargo = Command::new("cargo");
@@ -341,6 +361,7 @@ fn build_development_client(paths: &BuildPaths) -> Result<(), ToolError> {
         .env("CARGO_TARGET_DIR", &paths.rust_target)
         .env("CARGO_INCREMENTAL", "0")
         .env("CARGO_PROFILE_RELEASE_STRIP", "symbols")
+        .env("DENIAL_BUILD_VERSION", &identity.version)
         .env_remove("RUSTFLAGS")
         .env("CARGO_ENCODED_RUSTFLAGS", rustflags)
         .args([
@@ -1485,7 +1506,7 @@ fn validate_package(
         String::from("arch = x86_64"),
         format!("provides = denial-ui-development-engine={FLUTTER_ENGINE_ABI}"),
         format!("depend = denial-flutter-engine-abi={FLUTTER_ENGINE_ABI}"),
-        format!("depend = denial>={UI_DENIAL_MINIMUM_VERSION}"),
+        format!("depend = denial>={}", identity.version),
         format!("depend = denial<{UI_DENIAL_VERSION_BEFORE}"),
         String::from("depend = git"),
         String::from("depend = glibc"),
@@ -2323,24 +2344,6 @@ fn validate_sha256(value: &str) -> Result<(), ToolError> {
     }
 }
 
-fn cargo_package_version(manifest: &Path) -> Result<String, ToolError> {
-    let contents = fs::read_to_string(manifest).map_err(ToolError::io)?;
-    contents
-        .lines()
-        .find_map(|line| {
-            line.trim()
-                .strip_prefix("version = \"")
-                .and_then(|value| value.strip_suffix('"'))
-                .map(str::to_owned)
-        })
-        .ok_or_else(|| {
-            ToolError::new(format!(
-                "could not read the package version from {}",
-                manifest.display()
-            ))
-        })
-}
-
 fn validate_release_tag(tag: &str) -> Result<(), ToolError> {
     let Some(version) = tag.strip_prefix('v') else {
         return Err(ToolError::new(
@@ -2359,6 +2362,14 @@ fn validate_release_tag(tag: &str) -> Result<(), ToolError> {
             "DENIAL_RELEASE_TAG must have the form vMAJOR.MINOR.PATCH",
         ))
     }
+}
+
+fn release_version_from_tag(tag: &str) -> Result<String, ToolError> {
+    validate_release_tag(tag)?;
+    Ok(tag
+        .strip_prefix('v')
+        .expect("validated release tags begin with v")
+        .to_owned())
 }
 
 fn validate_source_ref(source_ref: &str) -> Result<(), ToolError> {
@@ -2520,6 +2531,13 @@ impl Error for ToolError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn release_version_comes_only_from_the_tag() {
+        assert_eq!(release_version_from_tag("v9.8.7").unwrap(), "9.8.7");
+        assert!(release_version_from_tag("9.8.7").is_err());
+        assert!(release_version_from_tag("v9.8").is_err());
+    }
 
     #[test]
     fn canonical_package_config_normalizes_optional_flutter_version() {

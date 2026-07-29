@@ -36,16 +36,6 @@ done
     exit 1
   }
 
-base_version="$(
-  sed -n 's/^version = "\([^"]*\)"/\1/p' "$ROOT/compositor/Cargo.toml" \
-    | head -n 1
-)"
-[[ -n "$base_version" ]] \
-  || {
-    printf 'package-denial-arch: could not read the compositor version\n' >&2
-    exit 1
-  }
-
 if [[ -n "$RELEASE_TAG" ]]; then
   [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
     || {
@@ -74,24 +64,6 @@ if [[ -n "$RELEASE_TAG" ]]; then
       "$REQUESTED_PACKAGE_VERSION" "$package_version" >&2
     exit 1
   fi
-  [[ "$package_version" == "$base_version" ]] \
-    || {
-      printf \
-        'package-denial-arch: tag version %s does not match Cargo version %s\n' \
-        "$package_version" "$base_version" >&2
-      exit 1
-    }
-  dart_version="$(
-    sed -n 's/^version: *//p' "$ROOT/dart_shell/pubspec.yaml" \
-      | head -n 1
-  )"
-  [[ "$package_version" == "$dart_version" ]] \
-    || {
-      printf \
-        'package-denial-arch: tag version %s does not match Dart version %s\n' \
-        "$package_version" "$dart_version" >&2
-      exit 1
-    }
   [[ "$PACKAGE_RELEASE" == 1 ]] \
     || {
       printf \
@@ -100,14 +72,35 @@ if [[ -n "$RELEASE_TAG" ]]; then
       exit 1
     }
 else
-  revision_count="$(git -C "$ROOT" rev-list --count HEAD)"
+  latest_release_tag=''
+  while IFS= read -r candidate; do
+    if [[ "$candidate" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      latest_release_tag="$candidate"
+      break
+    fi
+  done < <(
+    git -C "$ROOT" tag \
+      --merged HEAD \
+      --list 'v*' \
+      --sort=-v:refname
+  )
+  if [[ -n "$latest_release_tag" ]]; then
+    development_base="${latest_release_tag#v}"
+    revision_count="$(
+      git -C "$ROOT" rev-list --count "${latest_release_tag}..HEAD"
+    )"
+  else
+    development_base='0.0.0'
+    revision_count="$(git -C "$ROOT" rev-list --count HEAD)"
+  fi
   revision="$(git -C "$ROOT" rev-parse --short=8 HEAD)"
-  package_version="$base_version.r$revision_count.g$revision"
+  package_version="$development_base.r$revision_count.g$revision"
   if [[ -n "$(git -C "$ROOT" status --porcelain --untracked-files=normal)" ]]; then
     package_version="$package_version.dirty"
   fi
 fi
 
+DENIAL_BUILD_VERSION="$package_version" \
 DENIAL_PC_BUNDLE="$BUNDLE" \
 DENIAL_PC_BUNDLE_ASSEMBLY="$BUNDLE_ASSEMBLY" \
   "$ROOT/tools/denial-pc" build

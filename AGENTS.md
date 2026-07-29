@@ -15,10 +15,14 @@ Trusted development lands on `dev` first. Arm the ephemeral builder before
 pushing so `.github/workflows/branch-validation.yml` can build, package, and
 independently verify that exact commit. Do not repair pipeline failures
 directly on `main`; fix and prove them on `dev`, then promote the green commit
-to `main` through a pull request. Signed public releases remain restricted to
-separately signed version tags. The verified `vMAJOR.MINOR.PATCH` tag is the
-sole source of every release package version and filename; Flutter generation
-identifiers remain compatibility metadata, not release names.
+through a merge-commit pull request whose tree is exactly the validated
+`dev` tree. Never squash or alter a validated promotion: the hosted `main`
+gate verifies its successful `dev` run instead of compiling the same tree
+again. Signed public releases remain restricted to separately signed version
+tags. The verified `vMAJOR.MINOR.PATCH` tag is the sole source of every
+release package and runtime version; Cargo and Dart manifest versions are
+source metadata, and Flutter generation identifiers are compatibility
+metadata.
 
 ## Graphical session control
 

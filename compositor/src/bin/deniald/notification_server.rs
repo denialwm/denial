@@ -271,7 +271,7 @@ impl NotificationsInterface {
         out_args("name", "vendor", "version", "spec_version")
     )]
     fn get_server_information(&self) -> (&'static str, &'static str, &'static str, &'static str) {
-        ("Denial", "Denial", env!("CARGO_PKG_VERSION"), "1.3")
+        ("Denial", "Denial", denial_core::VERSION, "1.3")
     }
 
     #[zbus(name = "Notify", out_args("id"))]
@@ -1091,7 +1091,7 @@ mod tests {
             (
                 "Denial".into(),
                 "Denial".into(),
-                env!("CARGO_PKG_VERSION").into(),
+                denial_core::VERSION.into(),
                 "1.3".into(),
             )
         );

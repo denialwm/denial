@@ -9,6 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -18,7 +19,7 @@ concurrency:
 jobs:
   build:
     name: Build and test ${{ github.ref_name }} x86-64 candidate
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
+    if: github.ref == 'refs/heads/dev'
     runs-on:
       - self-hosted
       - linux
@@ -42,27 +43,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          case "$GITHUB_REF" in
-            refs/heads/dev)
-              candidate_class='development-test-candidate'
-              package_release='0'
-              validation_branch='dev'
-              ;;
-            refs/heads/main)
-              candidate_class='main-production-candidate'
-              package_release='1'
-              validation_branch='main'
-              ;;
-            *)
-              printf 'Unsupported validation ref: %s\n' "$GITHUB_REF" >&2
-              exit 1
-              ;;
-          esac
+          test "$GITHUB_REF" = refs/heads/dev
           {
-            printf 'CANDIDATE_CLASS=%s\n' "$candidate_class"
-            printf 'DENIAL_PACKAGE_RELEASE=%s\n' "$package_release"
+            printf 'CANDIDATE_CLASS=%s\n' \
+              'development-test-candidate'
+            printf 'DENIAL_PACKAGE_RELEASE=%s\n' '0'
             printf 'RELEASE_SIGNING_ELIGIBLE=false\n'
-            printf 'VALIDATION_BRANCH=%s\n' "$validation_branch"
+            printf 'VALIDATION_BRANCH=%s\n' 'dev'
           } >>"$GITHUB_ENV"
 
       - name: Define isolated build paths
@@ -128,7 +115,8 @@ jobs:
           git -c protocol.version=2 fetch \
             --no-tags \
             origin \
-            "$EXPECTED_SHA"
+            "$EXPECTED_SHA" \
+            '+refs/tags/v*:refs/tags/v*'
           git checkout -B "$VALIDATION_BRANCH" FETCH_HEAD
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           test "$(git branch --show-current)" = "$VALIDATION_BRANCH"
@@ -279,19 +267,11 @@ jobs:
             printf 'created_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             uname -a
           } >"$CANDIDATE_ROOT/evidence/provenance.txt"
-          if [[ "$VALIDATION_BRANCH" == dev ]]; then
-            printf '%s\n' \
-              'This is an installable development test candidate built from dev.' \
-              'Its package release is 0 and it is ineligible for release signing or publication.' \
-              'A release must be rebuilt from a separately signed version tag.' \
-              >"$CANDIDATE_ROOT/NOTICE.txt"
-          else
-            printf '%s\n' \
-              'This is an unsigned production candidate built from remote main.' \
-              'It is a validation artifact, not a published Denial release.' \
-              'A release must be rebuilt from a separately signed version tag.' \
-              >"$CANDIDATE_ROOT/NOTICE.txt"
-          fi
+          printf '%s\n' \
+            'This is an installable development test candidate built from dev.' \
+            'Its package release is 0 and it is ineligible for release signing or publication.' \
+            'A release must be rebuilt from a separately signed version tag.' \
+            >"$CANDIDATE_ROOT/NOTICE.txt"
           pacman -Q >"$CANDIDATE_ROOT/evidence/host-packages.txt"
           (
             cd compositor
@@ -325,6 +305,7 @@ jobs:
 
   verify:
     name: Independently verify candidate artifact
+    if: github.ref == 'refs/heads/dev'
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -334,7 +315,7 @@ jobs:
     steps:
       - name: Install verification tools
         shell: bash
-        run: pacman -Syu --needed --noconfirm git
+        run: pacman -Syu --needed --noconfirm git jq
 
       - name: Check out the exact candidate source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -375,20 +356,9 @@ jobs:
           CANDIDATE_ROOT: ${{ runner.temp }}/denial-${{ github.ref_name }}-candidate
         run: |
           set -euo pipefail
-          case "$GITHUB_REF" in
-            refs/heads/dev)
-              expected_class='development-test-candidate'
-              expected_package_release='0'
-              ;;
-            refs/heads/main)
-              expected_class='main-production-candidate'
-              expected_package_release='1'
-              ;;
-            *)
-              printf 'Unsupported validation ref: %s\n' "$GITHUB_REF" >&2
-              exit 1
-              ;;
-          esac
+          test "$GITHUB_REF" = refs/heads/dev
+          expected_class='development-test-candidate'
+          expected_package_release='0'
           provenance="$CANDIDATE_ROOT/evidence/provenance.txt"
           test -f "$CANDIDATE_ROOT/NOTICE.txt"
           grep -Fxq "artifact_class=$expected_class" "$provenance"
@@ -425,16 +395,11 @@ jobs:
           denial_version=''
           engine_version=''
           ui_development_version=''
-          project_version="$(
-            sed -n 's/^version = "\([^"]*\)"/\1/p' compositor/Cargo.toml \
-              | head -n 1
+          ui_denial_before="$(
+            jq -er \
+              '.compatibility.denial_version_before' \
+              packaging/arch/ui-development/manifest.json
           )"
-          IFS=. read -r project_major project_minor project_patch \
-            <<<"$project_version"
-          [[ "$project_major" =~ ^[0-9]+$ ]]
-          [[ "$project_minor" =~ ^[0-9]+$ ]]
-          [[ "$project_patch" =~ ^[0-9]+$ ]]
-          ui_denial_before="${project_major}.$((project_minor + 1)).0"
           expected_debug_engine_sha="$(
             awk 'NR == 1 { print $1 }' \
               prebuilt/flutter-engine/linux-x64-debug/libflutter_engine.so.sha256
@@ -522,13 +487,14 @@ jobs:
               denial-ui-development)
                 ui_development_packages=$((ui_development_packages + 1))
                 ui_development_version="$package_version"
+                ui_package_identity="${package_version%-*}"
                 test "$package_filename" = \
                   "denial-ui-development-${package_version}-x86_64.pkg.tar.zst"
                 grep -Fxq \
                   'depend = denial-flutter-engine-abi=3.44.7.denial1' \
                   <<<"$package_info"
                 grep -Fxq \
-                  "depend = denial>=${project_version}" \
+                  "depend = denial>=${ui_package_identity}" \
                   <<<"$package_info"
                 grep -Fxq \
                   "depend = denial<${ui_denial_before}" \
@@ -598,12 +564,88 @@ jobs:
       - name: Record validation result
         shell: bash
         run: |
-          if [[ "$GITHUB_REF" == refs/heads/dev ]]; then
-            printf '%s\n' \
-              'The installable dev candidate passed independent verification.' \
-              'Package release 0 is ineligible for release signing or publication.'
-          else
-            printf '%s\n' \
-              'The main production candidate passed independent verification.' \
-              'It remains unsigned and cannot be published as a release.'
+          printf '%s\n' \
+            'The installable dev candidate passed independent verification.' \
+            'Package release 0 is ineligible for release signing or publication.'
+
+  promote:
+    name: Verify unchanged promotion from validated dev
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out main with promotion history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact validated dev promotion
+        shell: bash
+        env:
+          EXPECTED_MAIN_SHA: ${{ github.sha }}
+          PREVIOUS_MAIN_SHA: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY_NAME: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          mapfile -t commit_and_parents < <(
+            git rev-list --parents -n 1 HEAD
+          )
+          read -r -a revision <<<"${commit_and_parents[0]}"
+          if ((${#revision[@]} != 3)); then
+            printf \
+              'Main promotion must be one merge commit with two parents; found %d parents\n' \
+              "$((${#revision[@]} - 1))" >&2
+            exit 1
           fi
+
+          previous_main="${revision[1]}"
+          validated_dev="${revision[2]}"
+          if [[ -n "$PREVIOUS_MAIN_SHA" \
+            && "$PREVIOUS_MAIN_SHA" != 0000000000000000000000000000000000000000 ]]; then
+            test "$previous_main" = "$PREVIOUS_MAIN_SHA"
+          fi
+          test "$(git rev-parse 'HEAD^{tree}')" = \
+            "$(git rev-parse "${validated_dev}^{tree}")"
+
+          git fetch --no-tags origin \
+            '+refs/heads/dev:refs/remotes/origin/dev'
+          git merge-base --is-ancestor \
+            "$validated_dev" refs/remotes/origin/dev
+
+          workflow_runs="$(
+            gh api \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${REPOSITORY_NAME}/actions/workflows/branch-validation.yml/runs?branch=dev&event=push&status=completed&per_page=100"
+          )"
+          validation_run="$(
+            jq -er \
+              --arg source "$validated_dev" \
+              '[
+                .workflow_runs[]
+                | select(
+                    .head_sha == $source
+                    and .head_branch == "dev"
+                    and .event == "push"
+                    and .conclusion == "success"
+                  )
+              ]
+              | first
+              | .id' \
+              <<<"$workflow_runs"
+          )"
+
+          {
+            printf '### Exact dev promotion verified\n\n'
+            printf -- '- Main merge: %s\n' "$EXPECTED_MAIN_SHA"
+            printf -- '- Validated dev commit: %s\n' "$validated_dev"
+            printf -- '- Successful dev workflow: [%s](https://github.com/%s/actions/runs/%s)\n' \
+              "$validation_run" "$REPOSITORY_NAME" "$validation_run"
+            printf -- '- Main and validated dev tree: %s\n' \
+              "$(git rev-parse 'HEAD^{tree}')"
+          } >>"$GITHUB_STEP_SUMMARY"
