@@ -394,6 +394,7 @@ jobs:
           engine_packages=0
           ui_development_packages=0
           denial_version=''
+          engine_version=''
           ui_development_version=''
           project_version="$(
             sed -n 's/^version = "\([^"]*\)"/\1/p' compositor/Cargo.toml \
@@ -422,6 +423,7 @@ jobs:
               | awk '{ print $1 }'
           )"
           for package in "${packages[@]}"; do
+            package_filename="$(basename -- "$package")"
             package_info="$(bsdtar -xOf "$package" .PKGINFO)"
             package_name="$(
               sed -n 's/^pkgname = //p' <<<"$package_info"
@@ -448,6 +450,8 @@ jobs:
               denial)
                 denial_packages=$((denial_packages + 1))
                 denial_version="$package_version"
+                test "$package_filename" = \
+                  "denial-${package_version}-x86_64.pkg.tar.zst"
                 grep -Fxq \
                   'depend = denial-flutter-engine-abi=3.44.7.denial1' \
                   <<<"$package_info"
@@ -463,8 +467,12 @@ jobs:
                 ;;
               denial-flutter-engine)
                 engine_packages=$((engine_packages + 1))
-                test "$package_version" = \
-                  "3.44.7.denial1-${expected_package_release}"
+                engine_version="$package_version"
+                test "$package_filename" = \
+                  "denial-flutter-engine-${package_version}-x86_64.pkg.tar.zst"
+                grep -Fxq \
+                  'provides = denial-flutter-engine-abi=3.44.7.denial1' \
+                  <<<"$package_info"
                 bsdtar -tf "$package" \
                   | grep -Fxq \
                     usr/lib/denial/flutter/lib/libflutter_engine.so
@@ -474,6 +482,8 @@ jobs:
               denial-ui-development)
                 ui_development_packages=$((ui_development_packages + 1))
                 ui_development_version="$package_version"
+                test "$package_filename" = \
+                  "denial-ui-development-${package_version}-x86_64.pkg.tar.zst"
                 grep -Fxq \
                   'depend = denial-flutter-engine-abi=3.44.7.denial1' \
                   <<<"$package_info"
@@ -535,6 +545,7 @@ jobs:
           test "$denial_packages" -eq 1
           test "$engine_packages" -eq 1
           test "$ui_development_packages" -eq 1
+          test "$engine_version" = "1:${denial_version}"
           test "$ui_development_version" = "$denial_version"
 
       - name: Record validation result

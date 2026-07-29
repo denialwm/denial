@@ -1,14 +1,14 @@
 # Maintainer: Doctor Logix <doctor.logix@gmail.com>
 
 pkgname=denial-ui-development
-pkgver="${DENIAL_PACKAGE_VERSION:-0.2.0}"
+pkgver="${DENIAL_PACKAGE_VERSION:-0.2.1}"
 pkgrel="${DENIAL_PACKAGE_RELEASE:-1}"
 pkgdesc='Pinned live Flutter UI development environment for Denial'
 arch=('x86_64')
 url='https://github.com/denialwm/denial'
 license=('BSD-3-Clause' 'GPL-3.0-or-later')
 depends=(
-  'denial>=0.2.0'
+  'denial>=0.2.1'
   'denial<0.3.0'
   'denial-flutter-engine-abi=3.44.7.denial1'
   'git'
@@ -19,7 +19,7 @@ provides=('denial-ui-development-engine=3.44.7.denial1')
 conflicts=('denial-ui-development-git')
 options=('!strip' '!debug')
 source=('manifest.json')
-sha256sums=('87b5181bd191eec93fb2175e64fa7571a043d9bb4662a17bdf7ef3daee7191df')
+sha256sums=('a06ee4b9b7202fe2b23807e3ef186e20e57a01e77566e1453f7b35397d5550aa')
 
 _flutter_revision='84fc5cbb223bc12f83d65b647ff8a56caf779ffd'
 _dart_revision='d684a576a6aa954ae107a03b2b4e1d61c3bebe93'

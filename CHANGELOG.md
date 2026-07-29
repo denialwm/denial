@@ -6,6 +6,8 @@ boundaries may change before 1.0.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-29
+
 ### Added
 
 - The optional UI development package now includes and enables the
@@ -19,6 +21,9 @@ boundaries may change before 1.0.
   RTKit-backed high-priority normal scheduling as the fallback. Realtime
   overruns demote Denial instead of terminating the graphical session;
   background workers and launched applications remain ordinary tasks.
+- Signed release tags now directly version the Denial, Flutter Engine, and UI
+  development archives. The engine's Flutter ABI remains separate metadata,
+  and a Pacman epoch safely migrates from its former Flutter-numbered package.
 
 ### Fixed
 
@@ -116,4 +121,6 @@ boundaries may change before 1.0.
 - A custom Flutter shell and direct VM-service access are trusted local-user
   capabilities, not a sandbox for untrusted code.
 
+[Unreleased]: https://github.com/denialwm/denial/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/denialwm/denial/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/denialwm/denial/compare/v0.1.0...v0.2.0

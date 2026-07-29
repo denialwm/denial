@@ -72,6 +72,7 @@ jobs:
           DENIAL_CHECKOUT_TOKEN: ${{ github.token }}
           EXPECTED_FINGERPRINT: ${{ vars.DENIAL_RELEASE_SIGNING_FINGERPRINT }}
           EXPECTED_GITHUB_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
           RELEASE_REF: ${{ github.ref }}
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY_NAME: ${{ github.repository }}
@@ -80,6 +81,13 @@ jobs:
           [[ "$RELEASE_REF" == "refs/tags/$RELEASE_TAG" ]]
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$EXPECTED_FINGERPRINT" =~ ^[0-9A-F]{40,64}$ ]]
+          if gh release view \
+            "$RELEASE_TAG" \
+            --repo "$REPOSITORY_NAME" \
+            >/dev/null 2>&1; then
+            printf 'Release already exists: %s\n' "$RELEASE_TAG" >&2
+            exit 1
+          fi
 
           askpass="$RUNNER_TEMP/denial-git-askpass"
           tag_gnupg="$RUNNER_TEMP/denial-release-tag-gnupg"
@@ -239,6 +247,16 @@ jobs:
             printf 'Expected three packages, found %d\n' "${#packages[@]}" >&2
             exit 1
           fi
+          for expected_package in \
+            "denial-${RELEASE_VERSION}-1-x86_64.pkg.tar.zst" \
+            "denial-flutter-engine-1:${RELEASE_VERSION}-1-x86_64.pkg.tar.zst" \
+            "denial-ui-development-${RELEASE_VERSION}-1-x86_64.pkg.tar.zst"; do
+            test -f "$package_root/$expected_package" || {
+              printf 'Missing tag-derived package: %s\n' \
+                "$expected_package" >&2
+              exit 1
+            }
+          done
           cp --reflink=auto -- "${packages[@]}" "$UNSIGNED_ROOT/packages/"
 
           for package in "${packages[@]}"; do
@@ -505,7 +523,7 @@ jobs:
             --verify-tag \
             --draft \
             --prerelease \
-            --title "Denial ${RELEASE_VERSION} public alpha" \
+            --title "$RELEASE_TAG" \
             --notes-file "$SIGNED_ROOT/RELEASE-NOTES.md" \
             "${repository_assets[@]}" \
             "$SIGNED_ROOT/denial-repo-key.asc" \

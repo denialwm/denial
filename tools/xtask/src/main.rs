@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 const FLUTTER_ENGINE_ABI: &str = "3.44.7.denial1";
 const FLUTTER_SDK_VERSION: &str = "3.44.7";
 const UI_PACKAGE_NAME: &str = "denial-ui-development";
-const UI_DENIAL_MINIMUM_VERSION: &str = "0.2.0";
+const UI_DENIAL_MINIMUM_VERSION: &str = "0.2.1";
 const UI_DENIAL_VERSION_BEFORE: &str = "0.3.0";
 const CANONICAL_TOOLCHAIN_ROOT: &str = "/opt/denial-build/ui-development";
 const DENIAL_GIT_REMOTE: &str = "https://github.com/denialwm/denial.git";

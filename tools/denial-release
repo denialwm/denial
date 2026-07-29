@@ -335,6 +335,8 @@ source_audit() {
   local dart_version
   local debug_engine_dir="$ROOT/prebuilt/flutter-engine/linux-x64-debug"
   local engine_dir="$ROOT/prebuilt/flutter-engine/linux-x64-release"
+  local engine_package_epoch
+  local engine_package_version
   local engine_patch_author='From: Doctor Logix <doctor.logix@gmail.com>'
   local engine_patch_author_ok
   local flutter_patch_dir="$ROOT/patches/flutter"
@@ -506,7 +508,11 @@ source_audit() {
   if jq -e '
       .schema_version == 1
       and .stage == "public-alpha"
+      and .package.name == "denial-flutter-engine"
+      and .package.version_source == "denial-release-tag"
+      and .package.epoch == 1
       and .package.architecture == "x86_64"
+      and .compatibility.flutter_engine_abi == "3.44.7.denial1"
       and .assurances.offline_source_closure == false
       and .assurances.reproducible_package == false
       and .assurances.signed_generation_tags == false
@@ -783,8 +789,22 @@ source_audit() {
       printf '%s\n' "$pkgver"
     )
   )"
+  read -r engine_package_version engine_package_epoch < <(
+    (
+      unset DENIAL_PACKAGE_VERSION
+      # shellcheck disable=SC1091
+      source "$ROOT/packaging/arch/flutter-engine/PKGBUILD"
+      # shellcheck disable=SC2154
+      printf '%s %s\n' "$pkgver" "$epoch"
+    )
+  )
   check_equal 'Cargo and Dart versions agree' "$cargo_version" "$dart_version"
   check_equal 'Cargo and package versions agree' "$cargo_version" "$package_version"
+  check_equal \
+    'Cargo and engine package versions agree' \
+    "$cargo_version" \
+    "$engine_package_version"
+  check_equal 'engine package uses the tag-version epoch' 1 "$engine_package_epoch"
   cargo_lock_version="$(
     awk '
       $0 == "name = \"denial\"" {

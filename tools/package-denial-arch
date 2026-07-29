@@ -18,6 +18,7 @@ PACKAGE_RELEASE="${DENIAL_PACKAGE_RELEASE:-1}"
 PACKAGE_PACKAGER="${DENIAL_PACKAGE_PACKAGER:-Doctor Logix <doctor.logix@gmail.com>}"
 REBUILD_ENGINE_PACKAGE="${DENIAL_REBUILD_ENGINE_PACKAGE:-0}"
 RELEASE_TAG="${DENIAL_RELEASE_TAG:-}"
+REQUESTED_PACKAGE_VERSION="${DENIAL_PACKAGE_VERSION:-}"
 ENGINE_PACKAGE_DIR="$ROOT/packaging/arch/flutter-engine"
 DENIAL_PACKAGE_DIR="$ROOT/packaging/arch"
 
@@ -66,6 +67,13 @@ if [[ -n "$RELEASE_TAG" ]]; then
       exit 1
     }
   package_version="${RELEASE_TAG#v}"
+  if [[ -n "$REQUESTED_PACKAGE_VERSION" \
+    && "$REQUESTED_PACKAGE_VERSION" != "$package_version" ]]; then
+    printf \
+      'package-denial-arch: requested package version %s does not match tag version %s\n' \
+      "$REQUESTED_PACKAGE_VERSION" "$package_version" >&2
+    exit 1
+  fi
   [[ "$package_version" == "$base_version" ]] \
     || {
       printf \
@@ -141,6 +149,7 @@ expected_engine_sha256="$(
   cut -d' ' -f1 \
     < "$ROOT/prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so.sha256"
 )"
+expected_engine_package_version="1:${package_version}-${PACKAGE_RELEASE}"
 
 validate_engine_package() {
   local package="$1"
@@ -149,6 +158,14 @@ validate_engine_package() {
   [[ -f "$package" ]] \
     || {
       printf 'package-denial-arch: engine package is missing: %s\n' "$package" >&2
+      return 1
+    }
+  bsdtar -xOf "$package" .PKGINFO \
+    | grep -Fqx "pkgver = $expected_engine_package_version" \
+    || {
+      printf \
+        'package-denial-arch: engine package version does not match %s\n' \
+        "$expected_engine_package_version" >&2
       return 1
     }
   packaged_engine_sha256="$(
