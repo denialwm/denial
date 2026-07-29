@@ -3,22 +3,31 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+FLUTTER_SOURCE_LOCK="$ROOT/prebuilt/flutter-engine/SOURCE_LOCK.json"
+
+command -v jq >/dev/null 2>&1 || {
+    printf 'denial-pc: missing required command: jq\n' >&2
+    exit 1
+}
+[[ -f "$FLUTTER_SOURCE_LOCK" ]] || {
+    printf 'denial-pc: missing Flutter source lock: %s\n' \
+        "$FLUTTER_SOURCE_LOCK" >&2
+    exit 1
+}
 
 CACHE_HOME="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
 BUILD_ROOT="${DENIAL_PC_BUILD_ROOT:-$CACHE_HOME/denial/pc-build}"
 RUST_TARGET="${DENIAL_PC_RUST_TARGET:-$BUILD_ROOT/rust}"
 DEPENDENCY_ROOT="${DENIAL_PC_DEPENDENCY_ROOT:-$CACHE_HOME/denial/pc-dependencies}"
 
-FLUTTER_SDK_REPOSITORY="https://github.com/flutter/flutter.git"
+FLUTTER_SDK_REPOSITORY="$(jq -er '.flutter.repository' "$FLUTTER_SOURCE_LOCK")"
 FLUTTER_SDK_VERSION="3.44.7"
-FLUTTER_SDK_REVISION="84fc5cbb223bc12f83d65b647ff8a56caf779ffd"
+FLUTTER_SDK_REVISION="$(jq -er '.flutter.revision' "$FLUTTER_SOURCE_LOCK")"
+FLUTTER_UPSTREAM_REVISION="$(
+    jq -er '.flutter.upstream_revision' "$FLUTTER_SOURCE_LOCK"
+)"
 FLUTTER_SDK_ROOT="${DENIAL_FLUTTER_SDK_ROOT:-$DEPENDENCY_ROOT/flutter}"
 FLUTTER="${DENIAL_FLUTTER:-$FLUTTER_SDK_ROOT/bin/flutter}"
-FLUTTER_PATCHES=(
-    "$ROOT/patches/flutter/0001-enable-120hz-touch-resampling.patch"
-    "$ROOT/patches/flutter/0002-allow-explicit-attach-without-platform-runner.patch"
-    "$ROOT/patches/flutter/0003-keep-denial-attach-runnable-during-hot-reload.patch"
-)
 
 COMPOSITOR_ROOT="$ROOT/compositor"
 MANIFEST="$COMPOSITOR_ROOT/Cargo.toml"
@@ -44,14 +53,23 @@ WLR_PORTAL_DESCRIPTOR="${DENIAL_WLR_PORTAL_DESCRIPTOR:-/usr/share/xdg-desktop-po
 WLR_PORTAL_CONFIG_TEMPLATE="$ROOT/dev/xdg-desktop-portal-wlr-Denial.in"
 WLR_PORTAL_CONFIG="${DENIAL_WLR_PORTAL_CONFIG:-/etc/xdg/xdg-desktop-portal-wlr/Denial}"
 LEGACY_SESSION_FILE="${DENIAL_LEGACY_SESSION_FILE:-/usr/share/wayland-sessions/denial-rs.desktop}"
-BUILD_JOBS="${DENIAL_BUILD_JOBS:-$(nproc)}"
+AVAILABLE_CPUS="$(nproc)"
+if [[ "${GITHUB_ACTIONS:-}" == true \
+    || "${DENIAL_PC_DEDICATED_BUILDER:-0}" == 1 ]]; then
+    DEFAULT_BUILD_JOBS="$AVAILABLE_CPUS"
+elif ((AVAILABLE_CPUS > 2)); then
+    DEFAULT_BUILD_JOBS=$((AVAILABLE_CPUS - 2))
+else
+    DEFAULT_BUILD_JOBS=1
+fi
+BUILD_JOBS="${DENIAL_BUILD_JOBS:-$DEFAULT_BUILD_JOBS}"
 
 usage() {
     cat <<'EOF'
 Usage: tools/denial-pc COMMAND
 
 Commands:
-  bootstrap         Fetch and patch the pinned Flutter toolchain and Rust crates
+  bootstrap         Fetch the pinned Denial Flutter fork and Rust crates
   bundle            Build only the x64 Dart/Flutter bundle
   refresh           Build the bundle and reload its Flutter runtime in this session
   kms-refresh       Re-evaluate the live KMS topology without ending the session
@@ -64,6 +82,11 @@ Commands:
   install-session   Add the SDDM entry and Denial portal routing
   remove-session    Remove that session and portal configuration
 
+Environment:
+  DENIAL_BUILD_JOBS  Explicit Cargo and Flutter build parallelism
+  DENIAL_PC_DEDICATED_BUILDER
+                     Set to 1 to use every CPU by default
+
 The production compositor is deniald and its native client is denialctl. The
 denial-nested binary is a separate visual topology harness and never acquires
 DRM or input devices.
@@ -74,6 +97,9 @@ die() {
     printf 'denial-pc: %s\n' "$*" >&2
     exit 1
 }
+
+[[ "$BUILD_JOBS" =~ ^[1-9][0-9]*$ ]] \
+    || die "DENIAL_BUILD_JOBS must be a positive integer"
 
 run_pinned_cargo() (
     cd -- "$COMPOSITOR_ROOT"
@@ -93,6 +119,22 @@ require_managed_config_or_absent() {
     fi
 }
 
+tracked_changes_match_revision() {
+    local source="$1"
+    local revision="$2"
+    local changed_path
+    local changed_paths=()
+
+    mapfile -d '' changed_paths < <(
+        git -C "$source" diff --name-only -z HEAD --
+    )
+    ((${#changed_paths[@]})) || return 1
+    for changed_path in "${changed_paths[@]}"; do
+        git -C "$source" diff --quiet "$revision" -- "$changed_path" \
+            || return 1
+    done
+}
+
 checkout_revision() {
     local label="$1"
     local repository="$2"
@@ -105,6 +147,29 @@ checkout_revision() {
         git -C "$destination" remote add origin "$repository"
     elif [[ ! -d "$destination/.git" ]]; then
         die "$label path exists but is not a Git checkout: $destination"
+    fi
+
+    local actual_origin
+    actual_origin="$(git -C "$destination" remote get-url origin)"
+    if [[ "$actual_origin" != "$repository" ]]; then
+        if [[ -n "$(git -C "$destination" status --porcelain --untracked-files=no)" ]]; then
+            if ! git -C "$destination" cat-file -e "$revision^{commit}" \
+                2>/dev/null; then
+                printf 'Fetching %s migration target %s...\n' \
+                    "$label" "$revision"
+                git -C "$destination" fetch --depth=1 "$repository" "$revision"
+            fi
+            if tracked_changes_match_revision "$destination" "$revision"; then
+                printf 'Migrating source-equivalent %s cache to %s...\n' \
+                    "$label" "$repository"
+                git -C "$destination" remote set-url origin "$repository"
+                git -C "$destination" checkout --quiet --detach --force \
+                    "$revision"
+                return
+            fi
+            die "$label uses $actual_origin and has tracked changes that do not match $revision; refusing to overwrite them"
+        fi
+        git -C "$destination" remote set-url origin "$repository"
     fi
 
     if ! git -C "$destination" cat-file -e "$revision^{commit}" 2>/dev/null; then
@@ -121,38 +186,6 @@ checkout_revision() {
         die "$label has tracked changes and cannot switch to $revision: $destination"
     fi
     git -C "$destination" checkout --quiet --detach "$revision"
-}
-
-fetch_revision_tag() {
-    local label="$1"
-    local source="$2"
-    local tag="$3"
-    local revision="$4"
-
-    if ! git -C "$source" cat-file -e "$tag^{commit}" 2>/dev/null; then
-        printf 'Fetching %s tag %s...\n' "$label" "$tag"
-        git -C "$source" fetch --depth=1 origin \
-            "refs/tags/$tag:refs/tags/$tag"
-    fi
-    [[ "$(git -C "$source" rev-parse "$tag^{commit}")" == "$revision" ]] \
-        || die "$label tag $tag does not identify pinned revision $revision"
-}
-
-apply_dependency_patch() {
-    local label="$1"
-    local source="$2"
-    local patch="$3"
-
-    require_file "$patch"
-    if git -C "$source" apply --reverse --check "$patch" >/dev/null 2>&1; then
-        return
-    fi
-    if git -C "$source" apply --check "$patch"; then
-        git -C "$source" apply "$patch"
-        printf 'Applied %s patch: %s\n' "$label" "$(basename -- "$patch")"
-        return
-    fi
-    die "$label patch does not apply cleanly: $patch"
 }
 
 file_sha256() {
@@ -192,8 +225,8 @@ require_flutter_bindings() {
     local engine_revision flutter_revision
     engine_revision="$(tr -d '[:space:]' < "$PREBUILT_ENGINE_REVISION")"
     flutter_revision="$(tr -d '[:space:]' < "$PREBUILT_FLUTTER_REVISION")"
-    [[ "$flutter_revision" == "$FLUTTER_SDK_REVISION" ]] \
-        || die "prebuilt engine targets Flutter $flutter_revision, but the SDK pin is $FLUTTER_SDK_REVISION"
+    [[ "$flutter_revision" == "$FLUTTER_UPSTREAM_REVISION" ]] \
+        || die "prebuilt engine targets upstream Flutter $flutter_revision, but the source lock expects $FLUTTER_UPSTREAM_REVISION"
     if ! grep -Fqx \
         "// Flutter engine revision: $engine_revision" "$EMBEDDER_BINDINGS" \
         || ! grep -Fqx \
@@ -214,35 +247,44 @@ require_revision() {
         || die "$label revision is $current, expected $revision: $source"
 }
 
-require_only_changes() {
-    local label="$1"
-    local source="$2"
-    local expected="$3"
-    local actual
-    actual="$(git -C "$source" diff --name-only | LC_ALL=C sort)"
-    [[ "$actual" == "$expected" ]] || {
-        printf 'denial-pc: unexpected tracked changes in %s:\n%s\n' \
-            "$label" "${actual:-<none>}" >&2
-        die "restore the pinned checkout and re-run '$0 bootstrap'"
-    }
-    git -C "$source" diff --check
+prepare_flutter_version_metadata() {
+    local version_ref="refs/tags/$FLUTTER_SDK_VERSION"
+    local tagged_revision
+    tagged_revision="$(
+        git -C "$FLUTTER_SDK_ROOT" rev-parse \
+            --verify "$version_ref^{commit}" 2>/dev/null || true
+    )"
+    if [[ "$tagged_revision" != "$FLUTTER_SDK_REVISION" ]]; then
+        git -C "$FLUTTER_SDK_ROOT" tag --force \
+            "$FLUTTER_SDK_VERSION" "$FLUTTER_SDK_REVISION" >/dev/null
+    fi
+
+    local version_file="$FLUTTER_SDK_ROOT/bin/cache/flutter.version.json"
+    if [[ -f "$version_file" ]] \
+        && ! jq -e \
+            --arg version "$FLUTTER_SDK_VERSION" \
+            --arg revision "$FLUTTER_SDK_REVISION" \
+            '.frameworkVersion == $version
+                and .frameworkRevision == $revision' \
+            "$version_file" >/dev/null; then
+        rm -f -- "$version_file"
+    fi
+
+    local legacy_version_file="$FLUTTER_SDK_ROOT/version"
+    if [[ -f "$legacy_version_file" ]] \
+        && [[ "$(< "$legacy_version_file")" != "$FLUTTER_SDK_VERSION" ]]; then
+        rm -f -- "$legacy_version_file"
+    fi
 }
 
 prepare_flutter_toolchain() {
     require_revision "Flutter SDK" "$FLUTTER_SDK_ROOT" "$FLUTTER_SDK_REVISION"
-    [[ "$(git -C "$FLUTTER_SDK_ROOT" rev-parse "$FLUTTER_SDK_VERSION^{commit}" 2>/dev/null || true)" \
-        == "$FLUTTER_SDK_REVISION" ]] \
-        || die "Flutter SDK tag $FLUTTER_SDK_VERSION is missing or stale; run '$0 bootstrap'"
+    prepare_flutter_version_metadata
     [[ -x "$FLUTTER" ]] || die "Flutter launcher not found: $FLUTTER"
-
-    local flutter_patch
-    for flutter_patch in "${FLUTTER_PATCHES[@]}"; do
-        apply_dependency_patch "Flutter SDK" "$FLUTTER_SDK_ROOT" "$flutter_patch"
-    done
-    require_only_changes \
-        "Flutter SDK" \
-        "$FLUTTER_SDK_ROOT" \
-        $'packages/flutter/lib/src/gestures/binding.dart\npackages/flutter_tools/lib/src/commands/attach.dart\npackages/flutter_tools/lib/src/debug_adapters/flutter_adapter.dart\npackages/flutter_tools/test/general.shard/dap/flutter_adapter_test.dart'
+    git -C "$FLUTTER_SDK_ROOT" diff --quiet \
+        || die "Flutter fork checkout has tracked modifications: $FLUTTER_SDK_ROOT"
+    git -C "$FLUTTER_SDK_ROOT" diff --cached --quiet \
+        || die "Flutter fork checkout has staged modifications: $FLUTTER_SDK_ROOT"
 }
 
 bootstrap_dependencies() {
@@ -251,11 +293,6 @@ bootstrap_dependencies() {
         "$FLUTTER_SDK_REPOSITORY" \
         "$FLUTTER_SDK_REVISION" \
         "$FLUTTER_SDK_ROOT"
-    fetch_revision_tag \
-        "Flutter SDK" \
-        "$FLUTTER_SDK_ROOT" \
-        "$FLUTTER_SDK_VERSION" \
-        "$FLUTTER_SDK_REVISION"
     prepare_flutter_toolchain
     "$FLUTTER" precache --linux
     run_pinned_cargo fetch --locked
@@ -273,6 +310,7 @@ build_bundle() (
         "$FLUTTER" pub get
         "$FLUTTER" assemble \
             --suppress-analytics \
+            --resource-pool-size="$BUILD_JOBS" \
             --output="$assembly" \
             -dTargetFile=lib/main.dart \
             -dBuildMode=release \
@@ -543,10 +581,7 @@ show_session_state() {
 doctor() {
     show_path_state "dependency cache" "$DEPENDENCY_ROOT"
     show_path_state "Flutter SDK" "$FLUTTER"
-    local flutter_patch
-    for flutter_patch in "${FLUTTER_PATCHES[@]}"; do
-        show_path_state "Flutter patch" "$flutter_patch"
-    done
+    show_path_state "Flutter source lock" "$FLUTTER_SOURCE_LOCK"
     show_path_state "Rust manifest" "$MANIFEST"
     show_flutter_bindings_state
     show_path_state "Dart bundle" "$BUNDLE/lib/libapp.so"

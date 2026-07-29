@@ -141,20 +141,19 @@ This is the small runtime portion of a Denial Flutter generation. It contains:
 /usr/share/licenses/denial-flutter-engine/LICENSE.third_party
 ```
 
-The engine binary is rebuilt only when the pinned Flutter inputs or engine
-patches change, a relevant security fix is required, or a target ABI must be
-rebuilt. Each signed Denial tag packages the verified binary under that tag's
-version, so a release never replaces an older archive identity. The package
-must not expose itself as a general system Flutter Engine: Denial makes
-stronger compatibility assumptions than the public C symbol names alone
-express.
+The engine binary is rebuilt only when the locked Flutter/Skia source,
+configuration, a relevant security fix, or a target ABI changes. Each signed
+Denial tag packages the verified binary under that tag's version, so a release
+never replaces an older archive identity. The package must not expose itself
+as a general system Flutter Engine: Denial makes stronger compatibility
+assumptions than the public C symbol names alone express.
 
 ### `denial-flutter-toolchain`
 
 This is a build-only package from the same Flutter generation. It supplies the
 matching:
 
-- Flutter framework and Denial framework patch;
+- the locked Denial Flutter framework;
 - Dart SDK and frontend tools;
 - target `gen_snapshot`;
 - Flutter assembly targets;
@@ -207,7 +206,7 @@ cannot be expressed through ordinary package ownership.
 This is an optional, user-facing development package for live editing and
 profile-mode analysis of the Flutter shell. It contains the matching
 JIT-capable and optimized AOT profile engines, a curated Flutter and Dart
-runtime, the patched Flutter tool snapshot, matching browser DevTools assets,
+runtime, the fork-built Flutter tool snapshot, matching browser DevTools assets,
 locked shell dependency sources, the native `denial-ui` client, a
 version-matched source snapshot, and the editor configuration exercised by
 Denial.
@@ -261,16 +260,15 @@ Flutter source revision:     84fc5cbb223bc12f83d65b647ff8a56caf779ffd
 Engine artifact revision:    69c8c61792f04cc809dfef0c910414fb9afc06cd
 Dart source revision:        d684a576a6aa954ae107a03b2b4e1d61c3bebe93
 Skia upstream revision:      e9ed4fc9f1544c58d8a9347c1fc9471d8dd7c465
-Flutter fork tag:            denial-engine-3.44.7-r1
-Skia fork tag:               denial-skia-3.44.7-r1
-Framework patch series:      patches/flutter/
-Engine patch series:         patches/flutter-engine/3.44.7/
+Flutter fork revision:       af53fe6dc91e13ea1d2da9103d7d88fc202dd052
+Skia fork revision:          5097a648e9bbb1d4a7fdf06a2a6d7bef3c9dd414
+Fork source lock:             prebuilt/flutter-engine/SOURCE_LOCK.json
 Embedder header checksum:    recorded in compositor/flutter-engine/src/sys.rs
 ```
 
-Every change to a Flutter, Dart, or Skia revision, either fork history, an
-engine behavior patch, framework patch, AOT compiler input, embedder header,
-or compatibility-relevant GN configuration creates a new checksummed engine
+Every change to a Flutter, Dart, or Skia revision, either fork history, engine
+or framework/tool behavior, an AOT compiler input, embedder header, or
+compatibility-relevant GN configuration creates a new checksummed engine
 artifact identity. The next signed Denial tag gives that artifact a fresh
 package version automatically. Increment the virtual ABI only when Denial and
 the engine are no longer runtime-compatible; reserve `pkgrel` for a
@@ -326,8 +324,8 @@ The manifest installed by `denial-flutter-engine` should contain:
 - schema version;
 - package version and release;
 - Flutter, engine, Dart, and Skia revisions;
-- Flutter and Skia fork tags and patch-series hashes;
-- framework patch hash;
+- Flutter and Skia fork repositories and exact commits;
+- the immutable source-lock hash;
 - embedder-header SHA-256;
 - target architecture;
 - normalized GN arguments;
@@ -357,8 +355,9 @@ signed tag still emits a uniquely versioned runtime archive alongside its new
 again.
 
 A planned production Flutter upgrade happens only after the new generation
-has passed patch review, offline builds, reproducibility checks, and hardware
-validation. Once both architecture lanes are supported, it looks like:
+has passed fork-commit review, offline builds, reproducibility checks, and
+hardware validation. Once both architecture lanes are supported, it looks
+like:
 
 ```text
 Flutter generation 3.45.x.denial1
@@ -373,7 +372,7 @@ Unscheduled releases remain possible for:
 
 - a relevant Flutter, Dart, Skia, ICU, or toolchain security issue;
 - a system-library ABI or SONAME transition;
-- a correctness bug in the patched engine;
+- a correctness bug in the Denial engine fork;
 - an architecture-specific engine failure;
 - a required embedder ABI change.
 
@@ -385,24 +384,24 @@ calendar pin is safe indefinitely.
 Flutter checks out Skia as a separate Git dependency. Denial modifies both
 histories, so one Flutter fork cannot honestly contain the complete source
 delta. The paired public Flutter and Skia forks are the development and CI
-sources of truth. The versioned patch directory is their normalized release
-representation:
+sources of truth. The exact release inputs are the immutable commits in
+`prebuilt/flutter-engine/SOURCE_LOCK.json`:
 
 - Flutter: [`denialwm/flutter`](https://github.com/denialwm/flutter),
   branch `denial/3.44.7-r1`, currently
-  `5498828ee023a05ae2c6677a1dee3eae7007eebc`;
+  `af53fe6dc91e13ea1d2da9103d7d88fc202dd052`;
 - Skia: [`denialwm/skia`](https://github.com/denialwm/skia),
   branch `denial/3.44.7-r1`, currently
   `5097a648e9bbb1d4a7fdf06a2a6d7bef3c9dd414`.
 
-These review branches were published and independently verified on
-2026-07-25. They are movable development references. Release inputs must use
-the planned signed tags or the immutable commit IDs above, never an unpinned
-branch name.
+The engine portions of these histories were independently verified on
+2026-07-25; the three Flutter framework/tool commits were migrated and tested
+on 2026-07-29. The branches are movable review references. Build and release
+inputs use the immutable commit IDs above, never an unpinned branch name.
 
 The
-[engine validation report](../../../patches/flutter-engine/3.44.7/VALIDATION.md)
-records the normalized candidate manifest, exact fork-tree reconstruction,
+[engine validation report](../../flutter-engine/3.44.7/VALIDATION.md)
+records the historical reconstruction, exact fork-tree comparison,
 x86_64 source build, artifact comparison, and engine unit-test results.
 
 ```text
@@ -410,17 +409,15 @@ upstream flutter/flutter                 upstream google/skia
           │                                       │
           ▼                                       ▼
 Denial Flutter branch                     Denial Skia branch
-  - eight logical commits                   - two logical commits
+  - fourteen logical commits                - two logical commits
           │                                       │
           ▼                                       ▼
-signed Flutter tag                        signed Skia tag
+immutable Flutter commit                 immutable Skia commit
           └──────────┬────────────────────────────┘
                      ▼
-             generation manifest
+         immutable SOURCE_LOCK.json
                      ▼
-       normalized git format-patch output
-                     ▼
-         patches/flutter-engine/3.44.7/
+        verified incremental engine build
 ```
 
 The branches start at their exact upstream revisions:
@@ -435,7 +432,13 @@ flutter/flutter @ 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
     ├── Preserve partial damage for reused layer trees
     ├── Damage only marked external textures
     ├── Decouple autonomous damage from the raster clip
-    └── Schedule batched external-texture frames
+    ├── Schedule batched external-texture frames
+    ├── Cache rotating embedder GL surfaces
+    ├── Pin the Denial Skia fork
+    ├── Format the rotating surface cache
+    ├── Tune pointer resampling for 120 Hz shells
+    ├── Allow explicit attach for raw embedder projects
+    └── Keep Denial attach sessions non-pausing
 
 google/skia @ e9ed4fc9f1544c58d8a9347c1fc9471d8dd7c465
 └── denial/3.44.7-r1
@@ -447,10 +450,8 @@ Keep one reviewable change in each commit. Commit messages must describe the
 problem, Denial's dependency on the behavior, validation evidence, and any
 corresponding upstream issue or pull request.
 
-`git format-patch` preserves the author stored in each source commit. Do not
-let Flutter, Skia, or temporary patch repositories inherit an unrelated
-machine-wide identity. Before creating Denial-owned engine commits, configure
-both fork checkouts explicitly:
+Do not let Flutter or Skia inherit an unrelated machine-wide identity. Before
+creating Denial-owned commits, configure both fork checkouts explicitly:
 
 ```sh
 git -C /path/to/flutter-fork config --local user.name 'Doctor Logix'
@@ -460,69 +461,19 @@ git -C /path/to/skia-fork config --local user.email 'doctor.logix@gmail.com'
 ```
 
 This configuration affects only new commits. If a commit already has the
-wrong author, amend or rebase it before publishing the review branch or
-generating patches. `tools/denial-release source-audit` rejects engine patch
-headers that do not use the repository identity.
+wrong author, amend or rebase it before publishing the review branch.
 
-Generate both patch streams from explicit endpoints. The generation tool
-retains their reviewed interleaving and rewrites paths relative to the Flutter
-monorepo checkout:
+For every generation, update `SOURCE_LOCK.json` with exact Flutter, Skia, and
+bootstrap depot_tools commits. Flutter DEPS must select the locked Skia
+repository and commit. `tools/denial-release source-audit` verifies that the
+engine and UI manifests agree with this lock and rejects a downstream patch
+directory.
 
-```sh
-flutter_base=84fc5cbb223bc12f83d65b647ff8a56caf779ffd
-flutter_tip=denial-engine-3.44.7-r1
-
-git -C /path/to/flutter-fork format-patch \
-  --output-directory /tmp/denial-flutter-patches \
-  "$flutter_base..$flutter_tip" \
-  -- engine/src/flutter
-
-skia_base=e9ed4fc9f1544c58d8a9347c1fc9471d8dd7c465
-skia_tip=denial-skia-3.44.7-r1
-
-git -C /path/to/skia-fork format-patch \
-  --output-directory /tmp/denial-skia-patches \
-  "$skia_base..$skia_tip" \
-  -- src/gpu/ganesh
-```
-
-Normalized Flutter patches use paths such as
-`engine/src/flutter/shell/...`. Normalized Skia patches use paths such as
-`engine/src/flutter/third_party/skia/src/...`. The combined series is applied
-from the Flutter monorepo root:
-
-```sh
-for patch_file in patches/flutter-engine/3.44.7/*.patch; do
-  git apply --check "$patch_file"
-  git apply "$patch_file"
-done
-```
-
-The 3.44.7 series was migrated from the former relative
-`flutter/shell/...` and `--directory=engine/src` convention when the validated
-fork-derived patches were promoted.
-
-Every patch directory records both histories:
-
-```text
-FLUTTER_UPSTREAM_REVISION = 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
-FLUTTER_FORK_REVISION     = commit identified by denial-engine-3.44.7-r1
-SKIA_UPSTREAM_REVISION    = e9ed4fc9f1544c58d8a9347c1fc9471d8dd7c465
-SKIA_FORK_REVISION        = commit identified by denial-skia-3.44.7-r1
-```
-
-Generated patches must never be edited independently of the forks. A future
-`tools/update-flutter-engine-patches` command must:
-
-1. require clean Denial, Flutter, and Skia worktrees;
-2. verify both explicit upstream and fork revision pairs;
-3. generate and normalize both patch streams into a temporary directory;
-4. check out the upstream base in a disposable worktree;
-5. apply every generated patch with `git apply --check`;
-6. confirm that patched Flutter and Skia files equal both fork tags;
-7. build and test the engine on every architecture supported by that
-   generation;
-8. replace the committed patch directory only after all checks pass.
+`tools/denial-flutter-engine build` is the canonical source-to-artifact path.
+It verifies the locked checkout, compares generated GN arguments with the
+committed configuration, and verifies all three engine checksums. An unchanged
+lock is an artifact-cache hit; a changed lock retains the checkout and Ninja
+outputs for an incremental rebuild.
 
 For an upgrade, rebase the logical commits and review semantic drift with
 `git range-diff`:
@@ -535,9 +486,9 @@ git range-diff \
 
 Run the same review independently for the paired Skia branch.
 
-Create a new versioned patch directory for every Flutter generation. Keep old
-release series immutable. Generally useful fixes should be proposed upstream
-so accepted changes can disappear naturally from future Denial patch sets.
+Keep old release source locks immutable. Generally useful fixes should be
+proposed upstream so accepted changes can disappear naturally from future
+Denial fork branches.
 
 ## Offline source closure
 
@@ -550,8 +501,7 @@ The common source closure contains:
 - the exact Flutter monorepo revision;
 - all Git repositories selected by Flutter `DEPS`;
 - exact Dart, Skia, ICU, Vulkan, and other third-party sources;
-- the generated Denial engine patch series;
-- the Flutter framework patch series;
+- the immutable Denial Flutter and Skia fork commits;
 - locked Rust crate sources required by the Flutter/engine build;
 - locked Dart and Pub sources required to construct the framework and
   toolchain;
@@ -591,8 +541,7 @@ checksum; both are kept.
 A future `tools/prepare-flutter-source-closure` command runs online in a
 controlled environment and must:
 
-1. verify the signed Flutter and Skia fork tags and Denial generation
-   manifest;
+1. verify the locked Flutter and Skia commits and Denial generation manifest;
 2. fetch the exact upstream Flutter revision;
 3. resolve `DEPS` without floating branches;
 4. pin and disable `depot_tools` self-update;
@@ -607,7 +556,7 @@ controlled environment and must:
 13. complete an engine/toolchain build before signing the closure.
 
 Some Flutter scripts derive version data with `git rev-parse`. The closure must
-either retain minimal local repository metadata or patch those scripts to read
+either retain minimal local repository metadata or modify those scripts to read
 the immutable generation manifest. A package build must never infer release
 identity from an arbitrary checkout state.
 
@@ -659,7 +608,7 @@ source_aarch64=(
 
 prepare() {
   # Verify the closure manifest.
-  # Apply the generated framework and engine series.
+  # Verify the locked Flutter and Skia source trees.
   # Configure Cargo and Pub to use only vendored sources.
 }
 
@@ -670,7 +619,7 @@ build() {
 }
 
 check() {
-  # Verify patch identity, engine exports, bindings, architecture, tests,
+  # Verify source identity, engine exports, bindings, architecture, tests,
   # licenses, manifests, and absence of undeclared network inputs.
 }
 
@@ -907,10 +856,10 @@ fail before packaging.
 Every build must:
 
 1. verify source hashes and available signatures;
-2. verify the generation manifest and patch endpoints;
-3. apply all patches with a prior `git apply --check`;
+2. verify the generation manifest and exact fork source lock;
+3. verify that Flutter DEPS resolves the locked Skia fork commit;
 4. use only locked Cargo and Pub dependencies;
-5. run with the network namespace disabled;
+5. run the package compilation phase with the network namespace disabled;
 6. fail if a tool attempts to modify an installed system package;
 7. record the complete package `.BUILDINFO`.
 
@@ -978,7 +927,7 @@ exercise at least:
 - Xwayland startup;
 - input and seat handling;
 - external textures and partial damage;
-- dynamic-MSAA and stencil behavior touched by the engine patches.
+- dynamic-MSAA and stencil behavior maintained by the engine fork.
 
 Run the relevant subset on real x86-64 and ARM64 GPU hardware. QEMU can verify
 userspace execution but cannot replace real display and driver tests.
@@ -991,7 +940,7 @@ This heavy pipeline runs rarely:
 
 1. approve the new generation manifest;
 2. tag the tested Flutter and Skia forks;
-3. regenerate and review the patch series;
+3. update and review the immutable fork source lock;
 4. create the signed offline source closure;
 5. build `denial-flutter-engine` and `denial-flutter-toolchain` for every
    architecture in this promotion without network access;
@@ -1196,7 +1145,7 @@ is not a prerequisite for official Arch inclusion.
 
 Official adoption remains a maintainer and project-maturity decision, not a
 technical requirement for this design. The same source closures, PKGBUILDs,
-reproducibility evidence, and patch provenance would make later adoption much
+reproducibility evidence, and fork provenance would make later adoption much
 less burdensome.
 
 ## Current implementation gap
@@ -1206,10 +1155,9 @@ The repository has not yet implemented the complete production design:
 - the complete source delta of the working prebuilt engine has been recovered,
   including `DenialFlutterEngineScheduleFrameForExternalTextures`, separated
   into logical commits, and published on the paired `denialwm/flutter` and
-  `denialwm/skia` branches; the mechanically regenerated series exactly
-  reconstructs both branch-tip trees and its promoted engine passes the
-  x86_64 source build, engine unit tests, and real-hardware validation, while
-  signed tags remain pending;
+  `denialwm/skia` branches; the exact commits are locked directly and their
+  promoted engine passes the x86_64 source build, engine unit tests, and
+  real-hardware validation;
 - the two Stage 1 PKGBUILDs are `x86_64`-only and package artifacts produced
   by the cache-backed prototype build rather than compiling their complete
   source closure inside `build()`;
@@ -1239,18 +1187,18 @@ The repository has not yet implemented the complete production design:
 - hardened atomic multi-architecture publication, offline closure, and
   independent reproduction remain unimplemented.
 
-The legacy `prebuilt/` handoff now defines an ignored working-tree staging
-location for a locally rebuilt engine. The tracked checksum and metadata
-identify the validated reference build. The Stage 1 package prototype can
-consume a verified local rebuild from that location, but the release pipeline
-must populate it before packaging. Retire the handoff after the Stage 2
-toolchain/source packages can build and package the engine directly.
+The `prebuilt/` handoff remains an ignored working-tree staging location for a
+local engine rebuild. Tracked checksums and metadata identify the validated
+reference build. CI instead supplies checksum-verified artifacts from the
+revision-keyed builder cache through explicit package inputs. Retire the local
+handoff after the Stage 2 toolchain/source packages build and package the
+engine directly.
 
 ## Staged implementation plan
 
 ### Stage 1 — prototype build
 
-Goal: prove on x86_64 that the patched Flutter Engine, Dart AOT bundle, Rust
+Goal: prove on x86_64 that the fork-built Flutter Engine, Dart AOT bundle, Rust
 compositor, and Pacman package split can be built and installed as one working
 system.
 
@@ -1259,16 +1207,14 @@ pre-populated development caches. Its top-level Flutter and Rust revisions
 remain pinned, but it makes no claim yet that all transitive inputs are
 captured or that another machine can reproduce the result.
 
-Completed checkpoint, 2026-07-25: items 1 through 9 are complete. Patch 0011
-captures the previously undocumented eight-file delta. The normalized series
-generated from the published eight-commit Flutter and two-commit Skia
-histories reconstructs both branch-tip Git trees exactly, builds all 3,893
-engine actions, has the same complete dynamic export and ELF section tables
-as the former bootstrap engine, passes all 642 tests in the three complete
-engine suites, and runs cleanly in Denial on dual-output x86_64 GPU hardware.
-The
-[validation report](../../../patches/flutter-engine/3.44.7/VALIDATION.md) records
-the evidence and explains the source-built library's 29 differing bytes.
+Completed checkpoint, 2026-07-25: items 1 through 9 are complete. The
+published Flutter and Skia histories were reconstructed exactly, built through
+all 3,893 engine actions, matched the former bootstrap engine's complete
+dynamic export and ELF section tables, passed all 642 tests in the three
+complete engine suites, and ran cleanly in Denial on dual-output x86_64 GPU
+hardware. The
+[validation report](../../flutter-engine/3.44.7/VALIDATION.md) records the
+evidence and explains the source-built library's 29 differing bytes.
 The [package validation report](VALIDATION.md) records the two-package build,
 exact generation dependency, artifact identity, Pacman install/upgrade/remove
 tests, and proof that a second Denial package release reused the unchanged
@@ -1283,11 +1229,10 @@ It was implemented and validated in this order:
 2. Separate that delta into reviewable commits on the paired Flutter and Skia
    forks, including the custom external-texture scheduling API and its
    export-list change.
-3. Regenerate `patches/flutter-engine/3.44.7/` from both histories and prove
-   that the normalized series applies to pristine checkouts of both pinned
-   upstream revisions.
-4. Build the x86_64 engine from that patched source using the current online
-   `gclient` workflow and available tool caches.
+3. Pin both reviewed fork commits in `SOURCE_LOCK.json` and prove Flutter DEPS
+   resolves the exact Skia fork commit.
+4. Build the x86_64 engine from that locked source using the current online
+   `gclient` workflow and persistent incremental caches.
 5. Compare its symbols and behavior with the validated bootstrap reference;
    investigate any difference before using it as the prototype runtime.
 6. Build the Dart shell bundle with the pinned Flutter SDK and build
@@ -1310,8 +1255,7 @@ Stage 1 explicitly excludes:
 
 Stage 1 passes when:
 
-- pristine upstream source plus the committed patches reconstructs every
-  required engine source change;
+- the exact locked fork commits contain every required engine source change;
 - the source-built engine provides all symbols Denial loads and renders the
   tested scene correctly;
 - no undocumented working-tree delta is needed;
@@ -1381,8 +1325,8 @@ that can be reviewed and exercised in clean infrastructure.
 Implement it in this order:
 
 1. Define the Flutter generation manifest and compatibility identifier.
-2. Add `tools/update-flutter-engine-patches` so both fork tags and the
-   committed patch streams are mechanically checked for equality.
+2. Keep `SOURCE_LOCK.json`, Flutter DEPS, and the paired fork revisions
+   mechanically checked for exact agreement.
 3. Record every effective Flutter, engine, Dart, Skia, `depot_tools`, CIPD,
    Cargo, and Pub input by immutable revision or content hash.
 4. Export or cache the exact locked Rust and Dart dependencies required by
@@ -1404,7 +1348,7 @@ Stage 2 passes when:
 
 - the manifest identifies all inputs that affect shipped artifacts;
 - no dependency is selected by a moving branch, tag, URL, or unlocked solver;
-- a manifest mismatch or patch mismatch fails the build;
+- a manifest, source-lock, or checked-out revision mismatch fails the build;
 - clean builders can repeatedly produce functional packages without relying
   on a developer's undocumented caches;
 - install, upgrade, downgrade, and removal work through the testing
@@ -1442,8 +1386,8 @@ An architecture is ready for hardened-release status when:
 - both PKGBUILDs build for it in fresh chroots with networking disabled;
 - all sources and tool inputs are immutable, hashed, and signed;
 - no runtime binary is copied from a working-tree artifact staging directory;
-- the Flutter and Skia fork tags are mechanically identical to their generated
-  patch streams;
+- the Flutter and Skia checkouts exactly match the immutable commits and DEPS
+  relationship recorded by the source lock;
 - engine, toolchain, app, bindings, and manifests share one generation;
 - its packages pass ELF and dependency checks;
 - real hardware renders the Denial scene and Wayland clients on that target;

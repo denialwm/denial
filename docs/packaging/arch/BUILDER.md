@@ -45,7 +45,8 @@ The installed boundary is:
   `denial-builder`;
 - a service sandbox with no capabilities, no privilege escalation, no host
   home-directory access, a read-only host filesystem, private devices and
-  temporary storage, and one writable runner directory;
+  temporary storage, one disposable writable runner directory, and one
+  credential-free persistent build-cache root;
 - automatic deletion of the writable instance when the one job exits.
 
 The production package-signing key must never be copied to this laptop.
@@ -124,12 +125,14 @@ Install or update the pinned host configuration:
 tools/denial-builder install
 ```
 
-The installer also verifies all three locally rebuilt Flutter engines against
-their tracked checksums. It installs the optimized AOT engine at
-`/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/`, the optimized
-AOT profiling engine below `profile/`, and the JIT-capable engine below
-`debug/` as root-owned, runner-readable artifacts. The ephemeral runner can
-consume these rare generation inputs but cannot modify them.
+The installer creates `/srv/denial-builder/cache` for the locked builder
+account and confines the service so this credential-free cache root is its
+only persistent writable state outside the disposable runner. Flutter,
+Cargo/Pub dependency, Rust-target, and engine object caches survive jobs.
+The workflow builds from the exact Denial Flutter and Skia fork commits in
+`SOURCE_LOCK.json`. A matching verified artifact cache entry skips the engine
+build entirely; a changed lock retains the same checkout and mode-specific
+Ninja outputs for an incremental rebuild.
 
 Audit the machine as the unprivileged runner account:
 
@@ -193,9 +196,9 @@ REST status to report that exact registration online. GitHub has a documented
 [false-offline runner status bug][runner-false-offline], so after the normal
 status wait it may continue only when all three local checks agree: the exact
 fresh registration still exists, the broker session was established, and the
-confined service remains active. A 30-minute controller timeout prevents a
-dispatched workflow from waiting indefinitely if the status inconsistency
-masks a real scheduling failure.
+confined service remains active. A 250-minute controller timeout covers the
+four-hour workflow limit while preventing a dispatched workflow from waiting
+indefinitely if the status inconsistency masks a real scheduling failure.
 
 From a clean checkout, the qualification workflow executes:
 
@@ -205,8 +208,9 @@ tools/denial-release doctor --ci
 ```
 
 It checks the exact source revision, committed manifests and hashes, host
-capacity, required tools, architecture, event, ref, and GitHub runner context.
-It does not build, sign, attest, or publish a package.
+capacity, required tools, architecture, event, ref, and GitHub runner context,
+then builds or verifies the locked Flutter Engine cache. It does not sign,
+attest, or publish a package.
 
 ## Recurring release gate
 

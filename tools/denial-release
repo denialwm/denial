@@ -123,6 +123,7 @@ doctor() {
     clang
     cmake
     diffoscope
+    flock
     git
     gn
     gpg
@@ -337,9 +338,6 @@ source_audit() {
   local engine_dir="$ROOT/prebuilt/flutter-engine/linux-x64-release"
   local engine_package_epoch
   local engine_package_version
-  local engine_patch_author='From: Doctor Logix <doctor.logix@gmail.com>'
-  local engine_patch_author_ok
-  local flutter_patch_dir="$ROOT/patches/flutter"
   local flutter_tool_dir="$ROOT/prebuilt/flutter-tools/3.44.7"
   local github_sha
   local installer_fingerprint
@@ -347,8 +345,6 @@ source_audit() {
   local makepkg_audit_root
   local manifest="$ROOT/packaging/arch/flutter-engine/manifest.json"
   local package_version
-  local patch_dir="$ROOT/patches/flutter-engine/3.44.7"
-  local patch_file
   local profile_engine_dir="$ROOT/prebuilt/flutter-engine/linux-x64-profile"
   local public_alpha_tag=''
   local public_key="$ROOT/packaging/arch/denial-repo-key.asc"
@@ -357,6 +353,7 @@ source_audit() {
   local rust_toolchain="$ROOT/rust-toolchain.toml"
   local rust_toolchain_channel
   local status
+  local source_lock="$ROOT/prebuilt/flutter-engine/SOURCE_LOCK.json"
   local ui_dependency_bounds
   local ui_manifest="$ROOT/packaging/arch/ui-development/manifest.json"
   local ui_package_version
@@ -364,6 +361,7 @@ source_audit() {
   local version_major
   local version_minor
   local version_patch
+  local workflow_file
 
   while (($#)); do
     case "$1" in
@@ -407,7 +405,7 @@ source_audit() {
 
   printf 'Denial committed-source audit\n\n'
 
-  for command_name in bash git gpg jq makepkg sha256sum; do
+  for command_name in bash find git gpg jq makepkg sha256sum; do
     if ! command_exists "$command_name"; then
       fail "missing required command: $command_name"
     fi
@@ -545,34 +543,58 @@ source_audit() {
     fail 'UI-development manifest schema, runtime, or assurance state is invalid'
   fi
 
-  if (
-    cd "$patch_dir"
-    sha256sum --check --strict series.sha256
-  ) >/dev/null; then
-    pass 'Flutter Engine patch series matches series.sha256'
+  if jq -e '
+      .schema_version == 1
+      and .flutter.repository == "https://github.com/denialwm/flutter.git"
+      and .flutter.branch == "denial/3.44.7-r1"
+      and (.flutter.revision | test("^[0-9a-f]{40}$"))
+      and (.flutter.upstream_revision | test("^[0-9a-f]{40}$"))
+      and .skia.repository == "https://github.com/denialwm/skia.git"
+      and .skia.branch == "denial/3.44.7-r1"
+      and (.skia.revision | test("^[0-9a-f]{40}$"))
+      and (.skia.upstream_revision | test("^[0-9a-f]{40}$"))
+      and .depot_tools.repository ==
+        "https://chromium.googlesource.com/chromium/tools/depot_tools.git"
+      and (.depot_tools.revision | test("^[0-9a-f]{40}$"))
+    ' "$source_lock" >/dev/null; then
+    pass 'Flutter and Skia fork source lock is valid'
   else
-    fail 'Flutter Engine patch series does not match series.sha256'
+    fail 'Flutter and Skia fork source lock is invalid'
   fi
-  engine_patch_author_ok=1
-  for patch_file in "$patch_dir"/*.patch; do
-    if [[ "$(sed -n '2p' "$patch_file")" != "$engine_patch_author" ]]; then
-      engine_patch_author_ok=0
-      printf 'INFO  unexpected engine patch author: %s\n' \
-        "${patch_file#"$ROOT/"}"
+  if [[ ! -d "$ROOT/patches" ]] \
+    && [[ -z "$(
+      find "$ROOT" \
+        -path "$ROOT/.git" -prune \
+        -o -type f -name '*.patch' -print -quit
+    )" ]]; then
+    pass 'repository contains no downstream patch series'
+  else
+    fail 'downstream patches must live as commits in the Flutter or Skia fork'
+  fi
+  if [[ -x "$ROOT/tools/denial-flutter-engine" ]] \
+    && [[ "$("$ROOT/tools/denial-flutter-engine" cache-key)" \
+      =~ ^[0-9a-f]{64}$ ]]; then
+    pass 'Flutter Engine fork builder has a valid immutable cache key'
+  else
+    fail 'Flutter Engine fork builder or its cache key is invalid'
+  fi
+  for workflow_file in \
+    "$ROOT/.github/workflows/branch-validation.yml" \
+    "$ROOT/.github/workflows/builder-qualification.yml" \
+    "$ROOT/.github/workflows/release.yml"; do
+    if grep -Fq 'tools/denial-flutter-engine build' "$workflow_file"; then
+      pass "$(basename -- "$workflow_file") builds or reuses the fork engine"
+    else
+      fail "$(basename -- "$workflow_file") bypasses the fork engine builder"
     fi
   done
-  if ((engine_patch_author_ok)); then
-    pass 'Flutter Engine patch authors use the repository identity'
+  if grep -R -Fq \
+      '/srv/denial-builder/artifacts/flutter-engine/' \
+      "$ROOT/.github/workflows" \
+      "$ROOT/packaging/arch/runner"; then
+    fail 'pipeline still consumes manually staged Flutter Engine artifacts'
   else
-    fail 'Flutter Engine patch author metadata is not normalized'
-  fi
-  if (
-    cd "$flutter_patch_dir"
-    sha256sum --check --strict series.sha256
-  ) >/dev/null; then
-    pass 'Flutter framework and tool patch series matches series.sha256'
-  else
-    fail 'Flutter framework and tool patch series does not match series.sha256'
+    pass 'pipeline does not consume manually staged Flutter Engine artifacts'
   fi
   if (
     cd "$ROOT/dart_shell/assets/fonts"
@@ -593,17 +615,57 @@ source_audit() {
   fi
 
   check_equal \
-    'engine patch manifest hash matches generation manifest' \
-    "$(jq -r '.patches.engine_series_manifest_sha256' "$manifest")" \
-    "$(file_sha256 "$patch_dir/series.sha256")"
+    'engine manifest identifies the source lock' \
+    "$(jq -r '.source_lock.sha256' "$manifest")" \
+    "$(file_sha256 "$source_lock")"
   check_equal \
-    'framework patch hash matches generation manifest' \
-    "$(jq -r '.patches.framework_patch_sha256' "$manifest")" \
-    "$(file_sha256 "$ROOT/patches/flutter/0001-enable-120hz-touch-resampling.patch")"
+    'engine manifest uses the canonical source-lock path' \
+    'prebuilt/flutter-engine/SOURCE_LOCK.json' \
+    "$(jq -r '.source_lock.path' "$manifest")"
   check_equal \
-    'UI manifest identifies the complete Flutter patch series' \
-    "$(jq -r '.patches.flutter_series_manifest_sha256' "$ui_manifest")" \
-    "$(file_sha256 "$flutter_patch_dir/series.sha256")"
+    'UI manifest uses the canonical source-lock path' \
+    'prebuilt/flutter-engine/SOURCE_LOCK.json' \
+    "$(jq -r '.source_lock.path' "$ui_manifest")"
+  check_equal \
+    'UI manifest identifies the source lock' \
+    "$(jq -r '.source_lock.sha256' "$ui_manifest")" \
+    "$(file_sha256 "$source_lock")"
+  check_equal \
+    'engine manifest identifies the Flutter fork commit' \
+    "$(jq -r '.sources.flutter_fork_revision' "$manifest")" \
+    "$(jq -r '.flutter.revision' "$source_lock")"
+  check_equal \
+    'engine manifest identifies the Skia fork commit' \
+    "$(jq -r '.sources.skia_fork_revision' "$manifest")" \
+    "$(jq -r '.skia.revision' "$source_lock")"
+  check_equal \
+    'UI manifest identifies the Flutter fork commit' \
+    "$(jq -r '.sources.flutter_fork_revision' "$ui_manifest")" \
+    "$(jq -r '.flutter.revision' "$source_lock")"
+  check_equal \
+    'UI manifest identifies the Skia fork commit' \
+    "$(jq -r '.sources.skia_fork_revision' "$ui_manifest")" \
+    "$(jq -r '.skia.revision' "$source_lock")"
+  check_equal \
+    'engine manifest identifies the Flutter fork repository' \
+    "$(jq -r '.sources.flutter_repository' "$manifest")" \
+    "$(jq -r '.flutter.repository' "$source_lock")"
+  check_equal \
+    'engine manifest identifies the Skia fork repository' \
+    "$(jq -r '.sources.skia_repository' "$manifest")" \
+    "$(jq -r '.skia.repository' "$source_lock")"
+  check_equal \
+    'engine manifest identifies the upstream Flutter compatibility revision' \
+    "$(jq -r '.sources.flutter_revision' "$manifest")" \
+    "$(jq -r '.flutter.upstream_revision' "$source_lock")"
+  check_equal \
+    'engine manifest identifies the upstream Skia compatibility revision' \
+    "$(jq -r '.sources.skia_revision' "$manifest")" \
+    "$(jq -r '.skia.upstream_revision' "$source_lock")"
+  check_equal \
+    'UI manifest identifies the upstream Flutter compatibility revision' \
+    "$(jq -r '.sources.flutter_revision' "$ui_manifest")" \
+    "$(jq -r '.flutter.upstream_revision' "$source_lock")"
   check_equal \
     'UI manifest identifies the debug-engine arguments' \
     "$(jq -r '.artifacts.debug_engine_args_sha256' "$ui_manifest")" \
@@ -904,6 +966,18 @@ source_audit() {
     'guided installer uses the published release-key URL' \
     'https://denialwm.github.io/denial/denial-repo-key.asc' \
     "$installer_key_url"
+  if grep -Eq \
+      '^[[:space:]]*(if[[:space:]]+![[:space:]]+)?sudo[[:space:]]+pacman[[:space:]]+-S' \
+      "$ROOT/install.sh"; then
+    fail 'guided repository setup installs packages instead of stopping after configuration'
+  else
+    pass 'guided repository setup leaves package installation explicit'
+  fi
+  if grep -Fq 'sudo pacman -Syu denial' "$ROOT/install.sh"; then
+    pass 'guided repository setup prints the explicit install command'
+  else
+    fail 'guided repository setup does not print the explicit install command'
+  fi
   for install_document in \
     "$ROOT/README.md" \
     "$ROOT/docs/packaging/arch/INSTALL.md"; do
@@ -913,6 +987,13 @@ source_audit() {
       pass "$(realpath --relative-to="$ROOT" "$install_document") uses the canonical guided-install command"
     else
       fail "$(realpath --relative-to="$ROOT" "$install_document") does not use the canonical guided-install command"
+    fi
+    if grep -Fqx \
+      'sudo pacman -Syu denial' \
+      "$install_document"; then
+      pass "$(realpath --relative-to="$ROOT" "$install_document") keeps package installation explicit"
+    else
+      fail "$(realpath --relative-to="$ROOT" "$install_document") does not show the explicit install command"
     fi
   done
 

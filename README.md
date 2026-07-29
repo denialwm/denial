@@ -117,9 +117,16 @@ curl -fsSL https://install.denialwm.org | sh
 ```
 
 It verifies the complete release-key fingerprint, rejects conflicting Pacman
-configuration, adds the signed repository when needed, and asks Pacman to
-perform a normal full upgrade and install Denial. It shows the complete plan
-and asks for confirmation before using `sudo`.
+configuration, and adds the signed repository when needed. It does not install
+packages. When setup completes, install Denial explicitly:
+
+```sh
+sudo pacman -Syu denial
+```
+
+Pacman pulls in the matching `denial-flutter-engine` package automatically.
+The setup script shows its complete plan and asks for confirmation before using
+`sudo`.
 
 See the [complete installation guide](docs/packaging/arch/INSTALL.md) for
 manual setup, keyring initialization, verification, updates, and removal.

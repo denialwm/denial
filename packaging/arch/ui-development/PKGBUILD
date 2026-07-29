@@ -19,12 +19,12 @@ provides=('denial-ui-development-engine=3.44.7.denial1')
 conflicts=('denial-ui-development-git')
 options=('!strip' '!debug')
 source=('manifest.json')
-sha256sums=('a06ee4b9b7202fe2b23807e3ef186e20e57a01e77566e1453f7b35397d5550aa')
+sha256sums=('f255b51db4fb8ab0dcf56c2140ee77224d894392aa5cd90739afa665f8173ef6')
 
-_flutter_revision='84fc5cbb223bc12f83d65b647ff8a56caf779ffd'
+_flutter_revision='af53fe6dc91e13ea1d2da9103d7d88fc202dd052'
 _dart_revision='d684a576a6aa954ae107a03b2b4e1d61c3bebe93'
-_engine_sha256='c5eb1a110887ca2a6b6ae6f98dfaeb609614e5f204bdf731164dc12ae5ed0729'
-_profile_engine_sha256='465a0b6c76d9f8561c177db4a76a267527fa2a411ed5d9f34f61739844000bce'
+_engine_sha256='bbfaff39b5c8b3eb16c25e7041efc7129c0c72b8a41cdd63b9da9c785caf6601'
+_profile_engine_sha256='64b360a0df184d1baa7541c0817b3b98189fc912805163fb113940c3d5a1602e'
 _flutter_binding_sha256='387b0b92fab3db5ed2d072b9bcd9797d960a983236d4ce07cda628bb20bfda89'
 _flutter_tool_sha256='e9bafdf002e980c7f239e68b2f2448e54f3641ce245803152c0cbdd3222db38f'
 _dart_sha256='c03ad868b5c53e31461b0fef22dc6eb6aeb56b7567efff6ca488ce9c4a6f8a6a'
@@ -41,6 +41,7 @@ package() {
   local flutter_sdk_runtime="${DENIAL_PACKAGE_FLUTTER_SDK_RUNTIME:-$cache_root/denial/pc-build/ui-development/flutter-sdk-runtime}"
   local workspace_template="${DENIAL_PACKAGE_UI_WORKSPACE_TEMPLATE:-$cache_root/denial/pc-build/ui-development/workspace-template}"
   local flutter_tool_root="$repository_root/prebuilt/flutter-tools/3.44.7"
+  local source_lock="$repository_root/prebuilt/flutter-engine/SOURCE_LOCK.json"
   local engine_root="$repository_root/prebuilt/flutter-engine/linux-x64-debug"
   local engine="${DENIAL_PACKAGE_DEBUG_ENGINE_SOURCE:-$engine_root/libflutter_engine.so}"
   local profile_engine_root="$repository_root/prebuilt/flutter-engine/linux-x64-profile"
@@ -48,7 +49,6 @@ package() {
   local icu="$flutter_sdk/bin/cache/artifacts/engine/linux-x64/icudtl.dat"
   local destination="$pkgdir/usr/lib/denial/ui-development"
   local actual
-  local changes
 
   for required in \
     "$development_binary" \
@@ -98,6 +98,7 @@ package() {
     "$profile_engine_root/ENGINE_REVISION" \
     "$profile_engine_root/FLUTTER_REVISION" \
     "$profile_engine_root/args.gn" \
+    "$source_lock" \
     "$flutter_sdk/.git" \
     "$flutter_sdk/LICENSE" \
     "$flutter_sdk/PATENT_GRANT" \
@@ -116,15 +117,10 @@ package() {
       error "Flutter SDK does not identify the pinned source revision"
       return 1
     }
-  changes="$(git -C "$flutter_sdk" diff --name-only)"
-  [[ "$changes" == $'packages/flutter/lib/src/gestures/binding.dart\npackages/flutter_tools/lib/src/commands/attach.dart\npackages/flutter_tools/lib/src/debug_adapters/flutter_adapter.dart\npackages/flutter_tools/test/general.shard/dap/flutter_adapter_test.dart' ]] \
+  git -C "$flutter_sdk" diff --quiet \
+    && git -C "$flutter_sdk" diff --cached --quiet \
     || {
-      error "Flutter SDK contains unexpected tracked changes: ${changes:-<none>}"
-      return 1
-    }
-  git -C "$flutter_sdk" diff --check \
-    || {
-      error "Flutter SDK patch does not pass git diff --check"
+      error "Flutter SDK fork contains tracked changes"
       return 1
     }
   [[ "$(<"$flutter_sdk/bin/cache/dart-sdk/revision")" == "$_dart_revision" ]] \
@@ -183,6 +179,8 @@ package() {
 
   install -Dm644 "$srcdir/manifest.json" \
     "$pkgdir/usr/share/denial/ui-development/manifest.json"
+  install -Dm644 "$source_lock" \
+    "$pkgdir/usr/share/denial/ui-development/SOURCE_LOCK.json"
   install -Dm644 "$engine_root/libflutter_engine.so.sha256" \
     "$pkgdir/usr/share/denial/ui-development/libflutter_engine.so.sha256"
   install -Dm644 "$engine_root/ENGINE_REVISION" \

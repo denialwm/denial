@@ -3,15 +3,18 @@
 `denial-ui-development` runs Flutter's own tool snapshot for project
 resolution, kernel assembly, debug-adapter integration, and `flutter attach`.
 The snapshot is rebuilt from the pinned Flutter SDK rather than committed as a
-binary. Before snapshotting, Denial applies the ordered SDK patch series in
-`patches/flutter/`. The tooling patches permit an explicit VM-service attach
-to a raw-embedder Flutter project without fabricating a generated Linux runner
-and make Denial's supported editor connection non-pausing. Hot reload and
-DevTools remain available, while DAP cannot freeze the complete desktop with a
-breakpoint or step operation.
+binary. The SDK is the exact Denial Flutter fork commit recorded in
+`prebuilt/flutter-engine/SOURCE_LOCK.json`. Its tool commits permit an explicit
+VM-service attach to a raw-embedder Flutter project without fabricating a
+generated Linux runner and make Denial's supported editor connection
+non-pausing. Hot reload and DevTools remain available, while DAP cannot freeze
+the complete desktop with a breakpoint or step operation.
 
 - Flutter: `3.44.7`
-- Flutter revision: `84fc5cbb223bc12f83d65b647ff8a56caf779ffd`
+- Denial Flutter revision:
+  `af53fe6dc91e13ea1d2da9103d7d88fc202dd052`
+- Upstream compatibility revision:
+  `84fc5cbb223bc12f83d65b647ff8a56caf779ffd`
 - Dart: `3.12.2`
 - Dart revision: `d684a576a6aa954ae107a03b2b4e1d61c3bebe93`
 - Flutter tool lockfile:

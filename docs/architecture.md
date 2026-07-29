@@ -123,10 +123,10 @@ reference.
 ## Source and build boundaries
 
 Project-owned native code lives in `compositor/`; the shell lives in
-`dart_shell/`; and the shared ABI lives in `protocol/`. Flutter Engine changes
-required by Denial are retained as patches under `patches/flutter-engine/`.
-Build output and fetched toolchains live outside the checkout when using
-`tools/denial-pc`.
+`dart_shell/`; and the shared ABI lives in `protocol/`. Flutter and Skia
+changes required by Denial live in the exact fork commits recorded by
+`prebuilt/flutter-engine/SOURCE_LOCK.json`. Build output and fetched
+toolchains live outside the checkout when using `tools/denial-pc`.
 
 ## Invariants
 

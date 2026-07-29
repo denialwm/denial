@@ -1,5 +1,10 @@
 # Denial Flutter Engine 3.44.7 validation
 
+> Historical note: this report records the temporary reconstruction series
+> used during initial validation. Denial no longer stores or applies those
+> files. Current builds use the exact Flutter and Skia fork commits in
+> `prebuilt/flutter-engine/SOURCE_LOCK.json`.
+
 ## Checkpoint
 
 This report records the x86_64 Stage 1 source-reconstruction and build

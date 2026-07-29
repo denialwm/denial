@@ -52,24 +52,31 @@ Set `DENIAL_PC_DEPENDENCY_ROOT`, `DENIAL_PC_BUILD_ROOT`, or
 The current development generation couples:
 
 - Flutter `3.44.7`;
-- Flutter revision `84fc5cbb223bc12f83d65b647ff8a56caf779ffd`;
+- the exact Denial Flutter and Skia fork commits in
+  `prebuilt/flutter-engine/SOURCE_LOCK.json`;
+- upstream Flutter compatibility revision
+  `84fc5cbb223bc12f83d65b647ff8a56caf779ffd`;
 - Dart `3.12.2`;
 - engine artifact revision `69c8c61792f04cc809dfef0c910414fb9afc06cd`;
-- the ordered engine series in `patches/flutter-engine/3.44.7/`;
-- the ordered framework and Flutter-tool patches in `patches/flutter/`;
 - the generated Rust embedder ABI in
   `compositor/flutter-engine/src/sys.rs`.
+
+All downstream Flutter, engine, and Skia changes are commits in the locked
+forks. The repository does not reconstruct them from patches.
 
 Normal builds consume a locally rebuilt engine staged as
 `prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so`. The library
 is ignored by Git; its expected checksum, source revisions, build arguments,
 licenses, and rebuild instructions remain tracked beside it in
 [`BUILD_INFO.md`](../prebuilt/flutter-engine/linux-x64-release/BUILD_INFO.md).
-Routine Dart and Rust builds do not rebuild the engine or run `bindgen`.
-Set `DENIAL_PC_ENGINE_SOURCE` to consume the same checksum-pinned engine from
-an explicit external path, as the ephemeral release builder does. Arch
-packaging uses the verified copy in the assembled bundle, so the engine
-package and Denial package always derive from the same checked input.
+`tools/denial-flutter-engine build` reuses an exact artifact cache hit without
+running GN or Ninja. When the source lock or GN arguments change, it retains
+the synchronized checkout and mode-specific Ninja outputs for an incremental
+rebuild. Its only host normalization fixes Flutter's generated toolchain-job
+count to the committed value before regenerating and comparing the complete
+GN graph. Routine Dart and Rust builds do not run `bindgen`. Arch packaging
+uses the verified output selected by that tool, so the engine package and
+Denial package always derive from the same checked input.
 
 During a controlled engine upgrade, regenerate and check the committed
 bindings with:

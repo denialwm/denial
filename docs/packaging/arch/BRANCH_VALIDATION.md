@@ -22,8 +22,8 @@ The owner-operated x86-64 runner:
 1. checks out the exact pushed commit as a local `dev` or `main` branch in a
    fresh ephemeral workspace, allowing the development package to record both
    that verified revision and its cloneable upstream branch;
-2. verifies and consumes the root-owned pinned optimized, profile, and JIT
-   Flutter Engine artifacts installed separately on the builder host;
+2. builds or reuses optimized, profile, and JIT Flutter Engine artifacts from
+   the exact locked Denial Flutter and Skia fork commits;
 3. audits committed inputs and qualifies the builder;
 4. bootstraps the pinned Flutter and Rust toolchains;
 5. builds the Flutter integration bundle;
@@ -73,12 +73,10 @@ tools/denial-builder arm
 git push origin dev
 ```
 
-`install` verifies the ignored local optimized, profile, and JIT
-`libflutter_engine.so` files against their tracked checksums. It places them
-under `/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/` and its
-`profile/` and `debug/` subdirectories as root-owned, read-only build inputs.
-Routine runner instances can read but cannot replace them. Update a host
-artifact only as part of a controlled Flutter generation change.
+`install` creates the credential-free persistent engine cache under
+`/srv/denial-builder/cache/flutter-engine`. The workflow populates it from the
+committed fork source lock. Exact hits are checksum-verified no-ops; source or
+GN changes reuse the retained checkout and Ninja object graph.
 
 Wait for the `dev` workflow and its independent verifier to pass. Test its
 downloadable package-release-`0` artifact when the change warrants a live

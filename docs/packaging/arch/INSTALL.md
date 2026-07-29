@@ -11,7 +11,7 @@ contains three packages:
 Installing `denial` pulls in the required engine automatically. The
 development package is installed only when requested.
 
-## Guided installation
+## Guided repository setup
 
 Review the repository-owned [`install.sh`](../../../install.sh), then run:
 
@@ -24,8 +24,16 @@ derives its full fingerprint locally, and refuses to continue unless it equals
 `AE4108FA5E91E26BE0EE331E0F5B3AD16E023091`. It also rejects an existing
 `[denial]` section unless its signature policy and server exactly match the
 configuration below. After showing its plan and receiving confirmation, it
-uses `sudo` to trust the verified key, add the repository when necessary, and
-run `pacman -Syu --needed denial`.
+uses `sudo` only to trust the verified key and add the repository when
+necessary. It deliberately does not install packages. When setup completes,
+install Denial explicitly:
+
+```sh
+sudo pacman -Syu denial
+```
+
+Pacman installs the matching `denial-flutter-engine` package as a required
+dependency.
 
 The following sections document the same process for users who prefer to
 perform every step manually.

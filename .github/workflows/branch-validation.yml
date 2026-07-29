@@ -69,17 +69,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
           {
-            printf 'XDG_CACHE_HOME=%s\n' "$cache_home"
+            printf 'CARGO_HOME=%s\n' \
+              '/srv/denial-builder/cache/cargo'
+            printf 'PUB_CACHE=%s\n' \
+              '/srv/denial-builder/cache/pub'
             printf 'DENIAL_PC_DEPENDENCY_ROOT=%s\n' \
-              "$cache_home/denial/pc-dependencies"
-            printf 'DENIAL_PC_ENGINE_SOURCE=%s\n' \
-              '/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/libflutter_engine.so'
-            printf 'DENIAL_PACKAGE_DEBUG_ENGINE_SOURCE=%s\n' \
-              '/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/debug/libflutter_engine.so'
-            printf 'DENIAL_PACKAGE_PROFILE_ENGINE_SOURCE=%s\n' \
-              '/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1/profile/libflutter_engine.so'
+              '/srv/denial-builder/cache/dependencies'
+            printf 'DENIAL_PC_RUST_TARGET=%s\n' \
+              '/srv/denial-builder/cache/rust-target'
+            printf 'DENIAL_FLUTTER_ENGINE_CACHE_ROOT=%s\n' \
+              '/srv/denial-builder/cache/flutter-engine'
+            printf 'DENIAL_FLUTTER_ENGINE_JOBS=%s\n' '16'
             printf 'EVIDENCE_ROOT=%s\n' \
               "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-evidence"
             printf 'CANDIDATE_ROOT=%s\n' \
@@ -149,6 +150,14 @@ jobs:
           set -euo pipefail
           tools/denial-pc bootstrap \
             2>&1 | tee "$EVIDENCE_ROOT/bootstrap.txt"
+
+      - name: Build or reuse the locked Flutter engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/denial-flutter-engine build \
+            --github-env "$GITHUB_ENV" \
+            2>&1 | tee "$EVIDENCE_ROOT/flutter-engine.txt"
 
       - name: Verify packaged Flutter tool snapshot
         shell: bash
@@ -438,6 +447,10 @@ jobs:
             awk 'NR == 1 { print $1 }' \
               prebuilt/flutter-tools/3.44.7/flutter_tools.snapshot.sha256
           )"
+          expected_source_lock_sha="$(
+            sha256sum prebuilt/flutter-engine/SOURCE_LOCK.json \
+              | awk '{ print $1 }'
+          )"
           expected_ui_manifest_sha="$(
             sha256sum packaging/arch/ui-development/manifest.json \
               | awk '{ print $1 }'
@@ -498,6 +511,13 @@ jobs:
                     usr/lib/denial/flutter/lib/libflutter_engine.so
                 bsdtar -tf "$package" \
                   | grep -Fxq usr/lib/denial/flutter/data/icudtl.dat
+                test "$(
+                  bsdtar -xOf \
+                    "$package" \
+                    usr/share/denial/flutter-engine/SOURCE_LOCK.json \
+                    | sha256sum \
+                    | awk '{ print $1 }'
+                )" = "$expected_source_lock_sha"
                 ;;
               denial-ui-development)
                 ui_development_packages=$((ui_development_packages + 1))
@@ -553,8 +573,15 @@ jobs:
                     "$package" \
                     usr/share/denial/ui-development/manifest.json \
                     | sha256sum \
-                    | awk '{ print $1 }'
+                  | awk '{ print $1 }'
                 )" = "$expected_ui_manifest_sha"
+                test "$(
+                  bsdtar -xOf \
+                    "$package" \
+                    usr/share/denial/ui-development/SOURCE_LOCK.json \
+                    | sha256sum \
+                    | awk '{ print $1 }'
+                )" = "$expected_source_lock_sha"
                 ;;
               *)
                 printf 'Unexpected package name: %s\n' "$package_name" >&2

@@ -69,33 +69,36 @@ tools/denial-pc test
 The compositor binary is written to
 `$XDG_CACHE_HOME/denial/pc-build/rust/release/deniald` by default. The Flutter
 bundle is written to `dart_shell/build/linux/x64/release/bundle`.
-`tools/denial-pc` builds its AOT assets directly with the official Flutter
-tool and packages the locally rebuilt raw embedder library; normal builds do
+`tools/denial-pc` builds its AOT assets directly with the locked Denial Flutter
+fork and packages the locally rebuilt raw embedder library; normal builds do
 not use a third-party platform runner or a C++ Linux runner.
 
-The bootstrap pins Flutter `3.44.7` at
-`84fc5cbb223bc12f83d65b647ff8a56caf779ffd`, coupled to Dart `3.12.2` and
-engine artifact `69c8c61792f04cc809dfef0c910414fb9afc06cd`. Cargo resolves the
-exact crate and Smithay revisions in `compositor/Cargo.lock`. The pinned
-upstream-derived `libflutter_engine.so` is generated locally and ignored by
-Git. Its expected checksum, source/build metadata, and licenses live in
-`prebuilt/flutter-engine/linux-x64-release/`. Rebuild it using that
-directory's `BUILD_INFO.md` before creating a bundle. It applies the versioned
-engine series in `patches/flutter-engine/3.44.7/`: six coupled OpenGL
-stencil/dynamic-MSAA correctness patches, one rotating-atlas surface-cache
-fix, and four autonomous-texture damage, raster, and scheduling fixes. The
-separate, compatible SDK series in
-`patches/flutter/` remains part of bootstrap: it raises touch resampling from
-60 Hz to 120 Hz and permits explicit VM-service attachment to Denial's raw
-embedder project without a generated platform runner.
+The source lock in `prebuilt/flutter-engine/SOURCE_LOCK.json` pins Denial's
+Flutter and Skia forks at exact commits. Their upstream compatibility base is
+Flutter `3.44.7`
+(`84fc5cbb223bc12f83d65b647ff8a56caf779ffd`), coupled to Dart `3.12.2` and
+engine artifact `69c8c61792f04cc809dfef0c910414fb9afc06cd`. All Denial engine,
+framework, and Flutter-tool changes live as normal commits in those forks;
+this repository must not carry a downstream patch series. Cargo resolves the
+exact crate and Smithay revisions in `compositor/Cargo.lock`.
 
-Denial-owned Flutter and Skia commits and mail patches use
+The generated `libflutter_engine.so` files are ignored by Git. Their expected
+checksums, build metadata, and licenses live below `prebuilt/flutter-engine/`.
+`tools/denial-flutter-engine build` consumes the source lock, verifies exact
+fork checkouts, and keeps a revision-keyed artifact cache plus stable
+mode-specific Ninja outputs. An unchanged lock and build configuration is a
+verified no-op; changed commits rebuild only targets invalidated by Ninja.
+
+Denial-owned Flutter and Skia commits use
 `Doctor Logix <doctor.logix@gmail.com>`. Set that identity locally in source
 forks and temporary repositories; never rely on the host's global Git config.
-The release source audit enforces the committed patch headers.
 
 For direct engine builds, put `flutter/third_party/depot_tools` on `PATH` for
 `vpython3`, but invoke `/usr/bin/ninja` explicitly to bypass its Python wrapper.
+On an interactive or otherwise non-dedicated machine, leave at least one and
+preferably two logical CPUs free while compiling (normally use at most
+`nproc - 2`). Using every available CPU is reserved for a dedicated build
+machine.
 
 The Flutter embedder ABI is committed as generated Rust in
 `compositor/flutter-engine/src/sys.rs`, stamped with the coupled revisions from

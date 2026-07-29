@@ -5,10 +5,8 @@ readonly RUNNER_USER='denial-builder'
 readonly RUNNER_GROUP='denial-builder'
 readonly RUNNER_HOME='/var/lib/denial-builder'
 readonly RUNNER_STATE='/srv/denial-builder'
+readonly BUILD_CACHE_ROOT="${RUNNER_STATE}/cache"
 readonly RUNNER_RELEASE_ROOT='/opt/denial-actions-runner'
-readonly ENGINE_ARTIFACT_ROOT='/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1'
-readonly DEBUG_ENGINE_ARTIFACT_ROOT="${ENGINE_ARTIFACT_ROOT}/debug"
-readonly PROFILE_ENGINE_ARTIFACT_ROOT="${ENGINE_ARTIFACT_ROOT}/profile"
 
 fail() {
   printf 'install-host: %s\n' "$*" >&2
@@ -30,13 +28,7 @@ for source_file in \
   runner.env \
   denial-actions-runner-arm \
   denial-actions-runner-cleanup \
-  denial-actions-runner.service \
-  libflutter_engine.so \
-  libflutter_engine.so.sha256 \
-  debug/libflutter_engine.so \
-  debug/libflutter_engine.so.sha256 \
-  profile/libflutter_engine.so \
-  profile/libflutter_engine.so.sha256; do
+  denial-actions-runner.service; do
   [[ -f "${source_dir}/${source_file}" ]] \
     || fail "missing installer input: $source_file"
 done
@@ -56,19 +48,6 @@ source "${source_dir}/runner.env"
 [[ "$DENIAL_ACTIONS_RUNNER_URL" == \
   "https://github.com/actions/runner/releases/download/v${DENIAL_ACTIONS_RUNNER_VERSION}/${DENIAL_ACTIONS_RUNNER_FILENAME}" ]] \
   || fail 'runner URL is not the expected official release URL'
-(
-  cd "$source_dir"
-  sha256sum --check --strict libflutter_engine.so.sha256
-) || fail 'staged Flutter Engine does not match its pinned checksum'
-(
-  cd "${source_dir}/debug"
-  sha256sum --check --strict libflutter_engine.so.sha256
-) || fail 'staged debug Flutter Engine does not match its pinned checksum'
-(
-  cd "${source_dir}/profile"
-  sha256sum --check --strict libflutter_engine.so.sha256
-) || fail 'staged profile Flutter Engine does not match its pinned checksum'
-
 for required_command in \
   awk bsdtar cmp curl getent install mktemp mv readlink runuser sha256sum \
   systemctl useradd usermod; do
@@ -100,12 +79,14 @@ fi
 
 install -d -m 0755 -o root -g root \
   "$RUNNER_STATE" \
-  "${RUNNER_STATE}/artifacts" \
-  "${RUNNER_STATE}/artifacts/flutter-engine" \
   "${RUNNER_STATE}/runner"
-install -d -m 0750 -o root -g "$RUNNER_GROUP" "$ENGINE_ARTIFACT_ROOT"
-install -d -m 0750 -o root -g "$RUNNER_GROUP" "$DEBUG_ENGINE_ARTIFACT_ROOT"
-install -d -m 0750 -o root -g "$RUNNER_GROUP" "$PROFILE_ENGINE_ARTIFACT_ROOT"
+install -d -m 0700 -o "$RUNNER_USER" -g "$RUNNER_GROUP" \
+  "$BUILD_CACHE_ROOT" \
+  "${BUILD_CACHE_ROOT}/cargo" \
+  "${BUILD_CACHE_ROOT}/dependencies" \
+  "${BUILD_CACHE_ROOT}/flutter-engine" \
+  "${BUILD_CACHE_ROOT}/pub" \
+  "${BUILD_CACHE_ROOT}/rust-target"
 install -d -m 0755 -o root -g root \
   /etc/denial-builder \
   /usr/local/libexec \
@@ -124,19 +105,6 @@ install -m 0755 -o root -g root \
 install -m 0644 -o root -g root \
   "${source_dir}/denial-actions-runner.service" \
   /etc/systemd/system/denial-actions-runner.service
-install -m 0640 -o root -g "$RUNNER_GROUP" \
-  "${source_dir}/libflutter_engine.so" \
-  "${source_dir}/libflutter_engine.so.sha256" \
-  "$ENGINE_ARTIFACT_ROOT/"
-install -m 0640 -o root -g "$RUNNER_GROUP" \
-  "${source_dir}/debug/libflutter_engine.so" \
-  "${source_dir}/debug/libflutter_engine.so.sha256" \
-  "$DEBUG_ENGINE_ARTIFACT_ROOT/"
-install -m 0640 -o root -g "$RUNNER_GROUP" \
-  "${source_dir}/profile/libflutter_engine.so" \
-  "${source_dir}/profile/libflutter_engine.so.sha256" \
-  "$PROFILE_ENGINE_ARTIFACT_ROOT/"
-
 release_dir="${RUNNER_RELEASE_ROOT}/${DENIAL_ACTIONS_RUNNER_VERSION}"
 source_record="${release_dir}/DENIAL_RUNNER_SOURCE.env"
 

@@ -1,0 +1,649 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+SOURCE_LOCK="$ROOT/prebuilt/flutter-engine/SOURCE_LOCK.json"
+CACHE_SCHEMA='2'
+CACHE_ROOT="${DENIAL_FLUTTER_ENGINE_CACHE_ROOT:-${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}/denial/flutter-engine}"
+CHECKOUT="$CACHE_ROOT/checkout"
+DEPOT_TOOLS="$CACHE_ROOT/depot_tools"
+ARTIFACT_ROOT="$CACHE_ROOT/artifacts"
+STATE_ROOT="$CACHE_ROOT/state"
+VPYTHON_CACHE_ROOT="$CACHE_ROOT/vpython"
+AVAILABLE_CPUS="$(nproc)"
+if [[ "${GITHUB_ACTIONS:-}" == true \
+  || "${DENIAL_FLUTTER_ENGINE_DEDICATED_BUILDER:-0}" == 1 ]]; then
+  DEFAULT_BUILD_JOBS="$AVAILABLE_CPUS"
+elif ((AVAILABLE_CPUS > 2)); then
+  DEFAULT_BUILD_JOBS=$((AVAILABLE_CPUS - 2))
+else
+  DEFAULT_BUILD_JOBS=1
+fi
+BUILD_JOBS="${DENIAL_FLUTTER_ENGINE_JOBS:-$DEFAULT_BUILD_JOBS}"
+MODES=(release debug profile)
+ARTIFACT_STAGING=''
+
+fail() {
+  printf 'denial-flutter-engine: %s\n' "$*" >&2
+  exit 1
+}
+
+cleanup_artifact_staging() {
+  [[ -n "$ARTIFACT_STAGING" ]] || return 0
+  if [[ "$ARTIFACT_STAGING" == "$ARTIFACT_ROOT/."* ]]; then
+    rm -rf --one-file-system -- "$ARTIFACT_STAGING"
+  else
+    printf 'denial-flutter-engine: refusing unexpected cleanup path: %s\n' \
+      "$ARTIFACT_STAGING" >&2
+  fi
+}
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tools/denial-flutter-engine cache-key
+  tools/denial-flutter-engine build [--github-env FILE]
+  tools/denial-flutter-engine verify [--github-env FILE]
+
+Commands:
+  cache-key  Print the immutable cache key for the locked source and GN args.
+  build      Reuse an exact artifact hit, or incrementally build all modes.
+  verify     Require and verify an existing exact artifact hit.
+
+Environment:
+  DENIAL_FLUTTER_ENGINE_CACHE_ROOT  Persistent checkout/build/artifact cache.
+  DENIAL_FLUTTER_ENGINE_JOBS        Explicit Ninja parallelism.
+  DENIAL_FLUTTER_ENGINE_DEDICATED_BUILDER
+                                      Set to 1 to use every CPU by default.
+
+The source lock contains exact Denial Flutter and Skia fork commits. Artifact
+hits skip checkout synchronization, GN, Ninja, and linking. On a source or
+configuration change, the stable checkout and mode-specific Ninja output
+directories are retained so only invalidated targets rebuild.
+
+Interactive machines leave two logical CPUs free by default. GitHub Actions
+and explicitly dedicated builders may use every available CPU.
+EOF
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 \
+    || fail "missing required command: $1"
+}
+
+lock_value() {
+  jq -er "$1" "$SOURCE_LOCK"
+}
+
+file_sha256() {
+  sha256sum "$1" | awk '{ print $1 }'
+}
+
+write_build_id_note() {
+  local destination="$1"
+  local build_id="$2"
+  local offset
+
+  [[ "$build_id" =~ ^[0-9a-f]{40}$ ]] \
+    || fail "invalid canonical GNU build ID: $build_id"
+  printf '\004\000\000\000\024\000\000\000\003\000\000\000GNU\000' \
+    >"$destination"
+  for ((offset = 0; offset < 40; offset += 2)); do
+    printf '%b' "\\x${build_id:offset:2}" >>"$destination"
+  done
+  [[ "$(stat -c '%s' "$destination")" == 36 ]] \
+    || fail "generated GNU build-ID note has the wrong size: $destination"
+}
+
+canonicalize_engine_build_id() (
+  local mode="$1"
+  local engine="$2"
+  local llvm_objcopy="$3"
+  local build_id
+  local canonical_note
+  local dumped_note
+  local normalized
+  local scratch
+  local zero_note
+  local zeroed
+
+  scratch="$(mktemp -d -- "$(dirname -- "$engine")/.denial-build-id.XXXXXX")"
+  trap 'rm -rf --one-file-system -- "$scratch"' EXIT
+  zero_note="$scratch/zero.note"
+  zeroed="$scratch/zeroed.so"
+  canonical_note="$scratch/canonical.note"
+  dumped_note="$scratch/dumped.note"
+  normalized="$scratch/normalized.so"
+
+  write_build_id_note \
+    "$zero_note" \
+    '0000000000000000000000000000000000000000'
+  "$llvm_objcopy" \
+    --update-section ".note.gnu.build-id=$zero_note" \
+    "$engine" \
+    "$zeroed"
+  build_id="$(sha1sum "$zeroed" | awk '{ print $1 }')"
+  write_build_id_note "$canonical_note" "$build_id"
+  "$llvm_objcopy" \
+    --update-section ".note.gnu.build-id=$canonical_note" \
+    "$engine" \
+    "$normalized"
+  "$llvm_objcopy" \
+    --dump-section ".note.gnu.build-id=$dumped_note" \
+    "$normalized"
+  cmp -s "$canonical_note" "$dumped_note" \
+    || fail "$mode engine GNU build-ID normalization failed"
+  chmod --reference="$engine" "$normalized"
+  mv -- "$normalized" "$engine"
+  printf 'Canonicalized %s engine GNU build ID: %s\n' "$mode" "$build_id"
+)
+
+expected_engine_sha256() {
+  local mode="$1"
+  awk 'NR == 1 { print $1 }' \
+    "$ROOT/prebuilt/flutter-engine/linux-x64-$mode/libflutter_engine.so.sha256"
+}
+
+verify_engine_exports() {
+  local engine="$1"
+  local symbol
+
+  for symbol in \
+    DenialFlutterEngineScheduleFrameForExternalTextures \
+    FlutterEngineGetProcAddresses \
+    FlutterEngineRunsAOTCompiledDartCode; do
+    nm -D --defined-only "$engine" \
+      | awk -v expected="$symbol" \
+        '$3 == expected { found = 1 } END { exit !found }' \
+      || return 1
+  done
+}
+
+normalize_generated_args() {
+  local mode="$1"
+  local generated="$2"
+  local expected="$3"
+  local expected_jobs
+  local generated_job_count
+  local normalized="${generated}.denial-normalized.$$"
+
+  expected_jobs="$(
+    awk '$1 == "concurrent_toolchain_jobs" && $2 == "=" { print $3 }' \
+      "$expected"
+  )"
+  [[ "$expected_jobs" =~ ^[1-9][0-9]*$ ]] \
+    || fail "$mode expected args have no canonical toolchain job count"
+  generated_job_count="$(
+    awk '
+      $1 == "concurrent_toolchain_jobs" && $2 == "=" { count++ }
+      END { print count + 0 }
+    ' "$generated"
+  )"
+  [[ "$generated_job_count" == 1 ]] \
+    || fail "$mode generated args have $generated_job_count toolchain job counts"
+
+  if ! awk -v jobs="$expected_jobs" '
+      $1 == "concurrent_toolchain_jobs" && $2 == "=" { $3 = jobs }
+      { print }
+    ' "$generated" >"$normalized"; then
+    rm -f -- "$normalized"
+    fail "could not normalize $mode GN arguments"
+  fi
+  if ! cmp -s "$normalized" "$expected"; then
+    rm -f -- "$normalized"
+    fail "$mode GN arguments differ from $expected"
+  fi
+  mv -- "$normalized" "$generated"
+}
+
+validate_source_lock() {
+  [[ -f "$SOURCE_LOCK" ]] || fail "missing source lock: $SOURCE_LOCK"
+  jq -e '
+    .schema_version == 1
+    and .flutter.repository == "https://github.com/denialwm/flutter.git"
+    and .flutter.branch == "denial/3.44.7-r1"
+    and (.flutter.revision | test("^[0-9a-f]{40}$"))
+    and (.flutter.upstream_revision | test("^[0-9a-f]{40}$"))
+    and .skia.repository == "https://github.com/denialwm/skia.git"
+    and .skia.branch == "denial/3.44.7-r1"
+    and (.skia.revision | test("^[0-9a-f]{40}$"))
+    and (.skia.upstream_revision | test("^[0-9a-f]{40}$"))
+    and .depot_tools.repository ==
+      "https://chromium.googlesource.com/chromium/tools/depot_tools.git"
+    and (.depot_tools.revision | test("^[0-9a-f]{40}$"))
+  ' "$SOURCE_LOCK" >/dev/null \
+    || fail "invalid source lock: $SOURCE_LOCK"
+}
+
+cache_key() {
+  {
+    printf 'cache-schema=%s\n' "$CACHE_SCHEMA"
+    printf 'target=linux-x64\n'
+    printf 'source-lock=%s\n' "$(file_sha256 "$SOURCE_LOCK")"
+    local mode
+    for mode in "${MODES[@]}"; do
+      printf '%s-args=%s\n' \
+        "$mode" \
+        "$(file_sha256 \
+          "$ROOT/prebuilt/flutter-engine/linux-x64-$mode/args.gn")"
+      printf '%s-expected=%s\n' \
+        "$mode" \
+        "$(expected_engine_sha256 "$mode")"
+    done
+  } | sha256sum | awk '{ print $1 }'
+}
+
+artifact_dir_for_key() {
+  printf '%s/%s\n' "$ARTIFACT_ROOT" "$1"
+}
+
+verify_artifacts() {
+  local key="$1"
+  local artifact_dir
+  local actual
+  local expected
+  local mode
+
+  artifact_dir="$(artifact_dir_for_key "$key")"
+  [[ -f "$artifact_dir/manifest.json" ]] || return 1
+  jq -e \
+    --arg cache_key "$key" \
+    --arg source_lock_sha256 "$(file_sha256 "$SOURCE_LOCK")" \
+    --arg flutter_revision "$(lock_value '.flutter.revision')" \
+    --arg skia_revision "$(lock_value '.skia.revision')" \
+    '.schema_version == 1
+      and .cache_key == $cache_key
+      and .source_lock_sha256 == $source_lock_sha256
+      and .sources.flutter_revision == $flutter_revision
+      and .sources.skia_revision == $skia_revision' \
+    "$artifact_dir/manifest.json" >/dev/null \
+    || return 1
+
+  for mode in "${MODES[@]}"; do
+    [[ -f "$artifact_dir/$mode/libflutter_engine.so" ]] || return 1
+    expected="$(expected_engine_sha256 "$mode")"
+    actual="$(file_sha256 "$artifact_dir/$mode/libflutter_engine.so")"
+    [[ "$actual" == "$expected" ]] || return 1
+    verify_engine_exports "$artifact_dir/$mode/libflutter_engine.so" \
+      || return 1
+    [[ "$(jq -er --arg mode "$mode" '.artifacts[$mode].sha256' \
+      "$artifact_dir/manifest.json")" == "$expected" ]] || return 1
+  done
+}
+
+write_github_env() {
+  local destination="$1"
+  local key="$2"
+  local artifact_dir
+
+  [[ -n "$destination" ]] || return 0
+  [[ "$destination" == /* ]] \
+    || fail "--github-env must identify an absolute path"
+  artifact_dir="$(artifact_dir_for_key "$key")"
+  {
+    printf 'DENIAL_ENGINE_CACHE_KEY=%s\n' "$key"
+    printf 'DENIAL_PC_ENGINE_SOURCE=%s\n' \
+      "$artifact_dir/release/libflutter_engine.so"
+    printf 'DENIAL_PACKAGE_DEBUG_ENGINE_SOURCE=%s\n' \
+      "$artifact_dir/debug/libflutter_engine.so"
+    printf 'DENIAL_PACKAGE_PROFILE_ENGINE_SOURCE=%s\n' \
+      "$artifact_dir/profile/libflutter_engine.so"
+  } >>"$destination"
+}
+
+require_clean_checkout() {
+  local label="$1"
+  local checkout="$2"
+
+  [[ -d "$checkout/.git" ]] \
+    || fail "$label cache is not a Git checkout: $checkout"
+  git -C "$checkout" diff --quiet --ignore-submodules=all \
+    || fail "$label cache has tracked modifications: $checkout"
+  git -C "$checkout" diff --cached --quiet --ignore-submodules=all \
+    || fail "$label cache has staged modifications: $checkout"
+}
+
+ensure_repository() {
+  local label="$1"
+  local repository="$2"
+  local revision="$3"
+  local destination="$4"
+  local actual_origin
+
+  if [[ ! -e "$destination" ]]; then
+    install -d -m 0700 "$(dirname -- "$destination")"
+    git init --quiet "$destination"
+    git -C "$destination" remote add origin "$repository"
+  fi
+  require_clean_checkout "$label" "$destination"
+
+  actual_origin="$(git -C "$destination" remote get-url origin)"
+  [[ "$actual_origin" == "$repository" ]] \
+    || fail "$label cache origin is $actual_origin, expected $repository"
+
+  if ! git -C "$destination" cat-file -e "$revision^{commit}" 2>/dev/null; then
+    printf 'Fetching %s %s\n' "$label" "$revision"
+    git -C "$destination" fetch \
+      --no-tags \
+      --depth=1 \
+      --filter=blob:none \
+      origin \
+      "$revision"
+  fi
+  git -C "$destination" checkout --quiet --detach "$revision"
+  [[ "$(git -C "$destination" rev-parse HEAD)" == "$revision" ]] \
+    || fail "$label checkout did not reach $revision"
+}
+
+write_gclient_config() {
+  local repository="$1"
+
+  {
+    printf '%s\n' \
+      'solutions = [' \
+      '  {' \
+      '    "custom_deps": {},' \
+      '    "deps_file": "DEPS",' \
+      '    "managed": False,' \
+      '    "name": ".",' \
+      '    "safesync_url": "",'
+    printf '    "url": "%s",\n' "$repository"
+    printf '%s\n' \
+      '  },' \
+      ']'
+  } >"$CHECKOUT/.gclient"
+}
+
+checkout_matches_lock() {
+  local flutter_revision="$1"
+  local skia_revision="$2"
+  local checkout_depot_revision="$3"
+  local flutter_repository
+  local skia_repository
+  local skia_checkout="$CHECKOUT/engine/src/flutter/third_party/skia"
+  local checkout_depot="$CHECKOUT/engine/src/flutter/third_party/depot_tools"
+
+  flutter_repository="$(lock_value '.flutter.repository')"
+  skia_repository="$(lock_value '.skia.repository')"
+  [[ -d "$CHECKOUT/.git" ]] || return 1
+  [[ "$(git -C "$CHECKOUT" rev-parse HEAD 2>/dev/null || true)" \
+    == "$flutter_revision" ]] || return 1
+  [[ "$(git -C "$CHECKOUT" remote get-url origin 2>/dev/null || true)" \
+    == "$flutter_repository" ]] || return 1
+  require_clean_checkout 'Flutter' "$CHECKOUT"
+  [[ -d "$skia_checkout/.git" ]] || return 1
+  [[ "$(git -C "$skia_checkout" rev-parse HEAD 2>/dev/null || true)" \
+    == "$skia_revision" ]] || return 1
+  [[ "$(git -C "$skia_checkout" remote get-url origin 2>/dev/null || true)" \
+    == "$skia_repository" ]] || return 1
+  require_clean_checkout 'Skia' "$skia_checkout"
+  [[ -d "$checkout_depot/.git" ]] || return 1
+  [[ "$(git -C "$checkout_depot" rev-parse HEAD 2>/dev/null || true)" \
+    == "$checkout_depot_revision" ]] || return 1
+}
+
+prepare_checkout() {
+  local source_state="$1"
+  local flutter_repository
+  local flutter_revision
+  local skia_revision
+  local depot_repository
+  local depot_revision
+  local checkout_depot
+
+  flutter_repository="$(lock_value '.flutter.repository')"
+  flutter_revision="$(lock_value '.flutter.revision')"
+  skia_revision="$(lock_value '.skia.revision')"
+  depot_repository="$(lock_value '.depot_tools.repository')"
+  depot_revision="$(lock_value '.depot_tools.revision')"
+  checkout_depot="$CHECKOUT/engine/src/flutter/third_party/depot_tools"
+
+  if [[ -f "$STATE_ROOT/source-lock.sha256" ]] \
+    && [[ "$(<"$STATE_ROOT/source-lock.sha256")" == "$source_state" ]] \
+    && checkout_matches_lock \
+      "$flutter_revision" "$skia_revision" "$depot_revision"; then
+    printf 'Reusing synchronized Flutter/Skia checkout %s\n' \
+      "${flutter_revision:0:12}"
+    return
+  fi
+
+  ensure_repository \
+    'bootstrap depot_tools' \
+    "$depot_repository" \
+    "$depot_revision" \
+    "$DEPOT_TOOLS"
+  ensure_repository \
+    'Flutter' \
+    "$flutter_repository" \
+    "$flutter_revision" \
+    "$CHECKOUT"
+  write_gclient_config "$flutter_repository"
+
+  printf 'Synchronizing Flutter dependencies for %s\n' \
+    "${flutter_revision:0:12}"
+  install -d -m 0700 "$VPYTHON_CACHE_ROOT"
+  (
+    cd "$CHECKOUT"
+    PATH="$DEPOT_TOOLS/.cipd_bin:$DEPOT_TOOLS:$PATH" \
+      DEPOT_TOOLS_UPDATE=0 \
+      VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
+      gclient sync --no-history --nohooks
+  )
+
+  [[ -x "$checkout_depot/gclient" ]] \
+    || fail "synchronized depot_tools is missing: $checkout_depot"
+  (
+    cd "$CHECKOUT"
+    PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
+      DEPOT_TOOLS_UPDATE=0 \
+      VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
+      gclient runhooks
+  )
+
+  checkout_matches_lock \
+    "$flutter_revision" "$skia_revision" "$depot_revision" \
+    || fail 'synchronized checkout does not match SOURCE_LOCK.json'
+  install -d -m 0700 "$STATE_ROOT"
+  printf '%s\n' "$source_state" >"$STATE_ROOT/source-lock.sha256"
+}
+
+build_artifacts() {
+  local key="$1"
+  local artifact_dir
+  local build_root
+  local checkout_depot
+  local expected_args
+  local mode
+  local output
+  local output_relative
+  local staging
+  local target
+  local llvm_objcopy
+
+  artifact_dir="$(artifact_dir_for_key "$key")"
+  build_root="$CHECKOUT/engine/src"
+  checkout_depot="$build_root/flutter/third_party/depot_tools"
+  llvm_objcopy="$build_root/flutter/buildtools/linux-x64/clang/bin/llvm-objcopy"
+  staging="$ARTIFACT_ROOT/.${key}.$$"
+
+  [[ -x "$checkout_depot/vpython3" ]] \
+    || fail "synchronized depot_tools is missing vpython3: $checkout_depot"
+  [[ -x "$llvm_objcopy" ]] \
+    || fail "synchronized Flutter buildtools are missing llvm-objcopy: $llvm_objcopy"
+  [[ ! -e "$artifact_dir" ]] \
+    || fail "invalid cache entry already exists: $artifact_dir"
+  [[ ! -e "$staging" ]] \
+    || fail "temporary cache path already exists: $staging"
+  install -d -m 0700 "$staging"
+  ARTIFACT_STAGING="$staging"
+  trap cleanup_artifact_staging EXIT
+
+  for mode in "${MODES[@]}"; do
+    target="denial_host_$mode"
+    output="$build_root/out/$target"
+    output_relative="out/$target"
+    expected_args="$ROOT/prebuilt/flutter-engine/linux-x64-$mode/args.gn"
+    printf 'Generating %s engine build graph\n' "$mode"
+    (
+      cd "$build_root"
+      PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
+        DEPOT_TOOLS_UPDATE=0 \
+        VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
+        ./flutter/tools/gn \
+          --runtime-mode="$mode" \
+          --target-dir="$target"
+    )
+    normalize_generated_args \
+      "$mode" \
+      "$output/args.gn" \
+      "$expected_args"
+    (
+      cd "$build_root"
+      PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
+        DEPOT_TOOLS_UPDATE=0 \
+        VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
+        ./flutter/third_party/gn/gn \
+          gen \
+          --check \
+          "$output_relative"
+    )
+    PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
+      DEPOT_TOOLS_UPDATE=0 \
+      VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
+      /usr/bin/ninja \
+        -C "$output" \
+        -j "$BUILD_JOBS" \
+        libflutter_engine.so
+    canonicalize_engine_build_id \
+      "$mode" \
+      "$output/libflutter_engine.so" \
+      "$llvm_objcopy"
+    [[ "$(file_sha256 "$output/libflutter_engine.so")" \
+      == "$(expected_engine_sha256 "$mode")" ]] \
+      || fail "$mode engine checksum differs from committed metadata"
+    verify_engine_exports "$output/libflutter_engine.so" \
+      || fail "$mode engine is missing a required embedder export"
+    install -d -m 0700 "$staging/$mode"
+    install -m 0755 \
+      "$output/libflutter_engine.so" \
+      "$staging/$mode/libflutter_engine.so"
+  done
+
+  jq -n \
+    --arg cache_key "$key" \
+    --arg source_lock_sha256 "$(file_sha256 "$SOURCE_LOCK")" \
+    --arg flutter_revision "$(lock_value '.flutter.revision')" \
+    --arg skia_revision "$(lock_value '.skia.revision')" \
+    --arg release_sha256 "$(expected_engine_sha256 release)" \
+    --arg debug_sha256 "$(expected_engine_sha256 debug)" \
+    --arg profile_sha256 "$(expected_engine_sha256 profile)" \
+    '{
+      schema_version: 1,
+      cache_key: $cache_key,
+      source_lock_sha256: $source_lock_sha256,
+      sources: {
+        flutter_revision: $flutter_revision,
+        skia_revision: $skia_revision
+      },
+      artifacts: {
+        release: {sha256: $release_sha256},
+        debug: {sha256: $debug_sha256},
+        profile: {sha256: $profile_sha256}
+      }
+    }' >"$staging/manifest.json"
+  chmod 0600 "$staging/manifest.json"
+  mv -- "$staging" "$artifact_dir"
+  ARTIFACT_STAGING=''
+  trap - EXIT
+}
+
+resolve_artifacts() {
+  local allow_build="$1"
+  local github_env="$2"
+  local key
+  local source_state
+
+  key="$(cache_key)"
+  if verify_artifacts "$key"; then
+    printf 'Flutter engine cache hit: %s\n' "$key"
+    write_github_env "$github_env" "$key"
+    return
+  fi
+  ((allow_build)) || fail "Flutter engine cache miss: $key"
+
+  install -d -m 0700 "$CACHE_ROOT" "$ARTIFACT_ROOT" "$STATE_ROOT"
+  exec 9>"$CACHE_ROOT/build.lock"
+  flock 9
+  if verify_artifacts "$key"; then
+    printf 'Flutter engine cache hit after lock: %s\n' "$key"
+    write_github_env "$github_env" "$key"
+    return
+  fi
+
+  printf 'Flutter engine cache miss: %s\n' "$key"
+  source_state="$(file_sha256 "$SOURCE_LOCK")"
+  prepare_checkout "$source_state"
+  build_artifacts "$key"
+  verify_artifacts "$key" \
+    || fail 'new Flutter engine cache entry failed verification'
+  printf 'Flutter engine cache populated: %s\n' "$key"
+  write_github_env "$github_env" "$key"
+}
+
+main() {
+  local command_name="${1:-}"
+  local github_env=''
+
+  for command in \
+    awk chmod cmp flock git install jq mktemp mv ninja nm rm sha1sum sha256sum stat; do
+    require_command "$command"
+  done
+  [[ "$BUILD_JOBS" =~ ^[1-9][0-9]*$ ]] \
+    || fail 'DENIAL_FLUTTER_ENGINE_JOBS must be a positive integer'
+  validate_source_lock
+
+  shift || true
+  while (($#)); do
+    case "$1" in
+      --github-env)
+        (($# >= 2)) || fail '--github-env requires a path'
+        github_env="$2"
+        shift
+        ;;
+      -h | --help)
+        usage
+        return
+        ;;
+      *)
+        fail "unknown option: $1"
+        ;;
+    esac
+    shift
+  done
+
+  case "$command_name" in
+    cache-key)
+      [[ -z "$github_env" ]] || fail 'cache-key does not accept --github-env'
+      cache_key
+      ;;
+    build)
+      resolve_artifacts 1 "$github_env"
+      ;;
+    verify)
+      resolve_artifacts 0 "$github_env"
+      ;;
+    -h | --help | help)
+      usage
+      ;;
+    '')
+      usage >&2
+      return 2
+      ;;
+    *)
+      fail "unknown command: $command_name"
+      ;;
+  esac
+}
+
+main "$@"

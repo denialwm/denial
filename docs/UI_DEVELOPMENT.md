@@ -93,9 +93,9 @@ isolate can freeze the interactive desktop until it is resumed.
 
 Live development is intentionally optional. The normal `denial` package keeps
 shipping only the optimized runtime; the version-coupled
-`denial-ui-development` package owns the patched JIT and AOT profile engines,
-pinned Flutter and Dart toolchain, native development client, metadata, and
-licenses.
+`denial-ui-development` package owns the fork-built JIT and AOT profile
+engines, pinned Flutter and Dart toolchain, native development client,
+metadata, and licenses.
 
 Install it from the Denial repository:
 

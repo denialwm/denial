@@ -18,7 +18,7 @@ jobs:
       - linux
       - x64
       - denial-builder
-    timeout-minutes: 30
+    timeout-minutes: 240
 
     steps:
       - name: Require a fresh runner workspace
@@ -81,36 +81,14 @@ jobs:
         shell: bash
         run: tools/denial-release doctor --ci
 
-      - name: Verify the staged Flutter Engine generation
+      - name: Build or reuse the locked Flutter engine
         shell: bash
+        env:
+          DENIAL_FLUTTER_ENGINE_CACHE_ROOT: /srv/denial-builder/cache/flutter-engine
+          DENIAL_FLUTTER_ENGINE_JOBS: "16"
         run: |
           set -euo pipefail
-          engine_root='/srv/denial-builder/artifacts/flutter-engine/3.44.7.denial1'
-          release_expected="$(
-            cut -d' ' -f1 \
-              <prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so.sha256
-          )"
-          release_actual="$(
-            sha256sum "$engine_root/libflutter_engine.so" | cut -d' ' -f1
-          )"
-          test "$release_actual" = "$release_expected"
-          debug_expected="$(
-            cut -d' ' -f1 \
-              <prebuilt/flutter-engine/linux-x64-debug/libflutter_engine.so.sha256
-          )"
-          debug_actual="$(
-            sha256sum "$engine_root/debug/libflutter_engine.so" | cut -d' ' -f1
-          )"
-          test "$debug_actual" = "$debug_expected"
-          profile_expected="$(
-            cut -d' ' -f1 \
-              <prebuilt/flutter-engine/linux-x64-profile/libflutter_engine.so.sha256
-          )"
-          profile_actual="$(
-            sha256sum "$engine_root/profile/libflutter_engine.so" \
-              | cut -d' ' -f1
-          )"
-          test "$profile_actual" = "$profile_expected"
+          tools/denial-flutter-engine build
 
       - name: State the boundary
         shell: bash

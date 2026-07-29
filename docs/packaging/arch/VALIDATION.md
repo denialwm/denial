@@ -21,7 +21,7 @@ denial-flutter-engine-abi=3.44.7.denial1
 
 The engine's source reconstruction, compilation, unit tests, binary comparison,
 and real-hardware validation are recorded in the
-[engine validation report](../../../patches/flutter-engine/3.44.7/VALIDATION.md).
+[engine validation report](../../flutter-engine/3.44.7/VALIDATION.md).
 
 ## Package artifacts
 
@@ -194,7 +194,7 @@ development sessions.
 
 All Stage 1 gates now pass:
 
-- pristine source plus the committed patches reconstructs the required engine;
+- the exact reviewed Flutter and Skia fork commits provide the required engine;
 - the source-built engine compiles, passes unit tests, and renders correctly;
 - the exact engine/app generation is enforced across two packages;
 - install, ownership, startup, upgrade, removal, and cleanup are validated;

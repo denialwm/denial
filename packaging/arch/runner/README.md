@@ -7,7 +7,8 @@ separate reusable host installation from per-job GitHub registration.
 
 - `runner.env` pins the official runner archive, URL, and SHA-256.
 - `install-host` creates the locked account, installs the root-owned runner
-  release, installs the systemd unit and helpers, and validates the unit.
+  release, creates the persistent engine build cache, installs the systemd
+  unit and helpers, and validates the unit.
 - `denial-actions-runner-arm` creates a fresh writable instance, registers it
   for one repository job, and starts the static service.
 - `denial-actions-runner-cleanup` removes only the fixed disposable instance.
@@ -42,6 +43,12 @@ When a job exits, the service first erases every credential-bearing file from
 its disposable instance. If systemd still holds the empty instance root as a
 temporary bind mount, the operator-side cleanup removes that directory after
 the service namespace has disappeared.
+
+The only persistent runner-writable state is `/srv/denial-builder/cache`. It
+contains dependency, Cargo, Pub, Rust-target, and Flutter Engine build caches,
+but no credentials. Engine entries are addressed by the committed source
+lock, GN arguments, and expected checksums; every reuse verifies the engine
+bytes before packaging.
 
 ## Updating the runner
 

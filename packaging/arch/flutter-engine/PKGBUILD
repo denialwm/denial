@@ -14,15 +14,16 @@ provides=("denial-flutter-engine-abi=${_flutter_generation}")
 conflicts=('denial-flutter-engine-git')
 options=('!strip' '!debug')
 source=('manifest.json')
-sha256sums=('94bb1fe98d8e706d4ebd67c7849ca3d1485334b1c5cd7334b71019cc774e4660')
+sha256sums=('e5fb18cb91f4189bd69f1990a020e3fad7a2cb1f3c25b09432574e3231c45066')
 
-_engine_sha256='6e884cbed86f1a60431f8755f1137516610f02d5daf3dd55682b9986d59032f7'
+_engine_sha256='f73d0102833d36c8b496c1cac44b268eacab0d7b50180ebe755d3a99c52ff15f'
 _icu_sha256='998367809a821d595928089c197b3f7959f0420f81f79d4d0daee53378492ed5'
 
 package() {
   local repository_root="${DENIAL_PACKAGE_SOURCE_ROOT:-$(realpath "$startdir/../../..")}"
   local bundle="${DENIAL_PACKAGE_BUNDLE:-$repository_root/dart_shell/build/linux/x64/release/bundle}"
   local engine_root="$repository_root/prebuilt/flutter-engine/linux-x64-release"
+  local source_lock="$repository_root/prebuilt/flutter-engine/SOURCE_LOCK.json"
   local engine="${DENIAL_PACKAGE_ENGINE_SOURCE:-$engine_root/libflutter_engine.so}"
   local icu="$bundle/data/icudtl.dat"
   local actual
@@ -36,6 +37,7 @@ package() {
     "$engine_root/LICENSE.flutter" \
     "$engine_root/LICENSE.third_party" \
     "$engine_root/args.gn" \
+    "$source_lock" \
     "$icu"; do
     if [[ ! -f "$required" ]]; then
       error "Flutter generation input is missing: $required"
@@ -61,6 +63,8 @@ package() {
 
   install -Dm644 "$srcdir/manifest.json" \
     "$pkgdir/usr/share/denial/flutter-engine/manifest.json"
+  install -Dm644 "$source_lock" \
+    "$pkgdir/usr/share/denial/flutter-engine/SOURCE_LOCK.json"
   install -Dm644 "$engine_root/libflutter_engine.so.sha256" \
     "$pkgdir/usr/share/denial/flutter-engine/libflutter_engine.so.sha256"
   install -Dm644 "$engine_root/ENGINE_REVISION" \
