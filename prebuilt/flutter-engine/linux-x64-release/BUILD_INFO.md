@@ -45,6 +45,10 @@ Ninja perform an incremental rebuild rather than recreating the engine.
 Flutter derives `concurrent_toolchain_jobs` from host capacity; the builder
 normalizes only that field to the committed value and regenerates the graph
 before comparing the complete arguments, keeping x86-64 builders identical.
+After Flutter strips each library, the builder canonicalizes its GNU build ID
+to the SHA-1 of the shipped ELF with that note zeroed. This removes build-ID
+drift caused solely by discarded debug metadata while preserving a
+content-derived identifier and the strict full-file SHA-256 gate.
 
 The equivalent direct release commands are:
 

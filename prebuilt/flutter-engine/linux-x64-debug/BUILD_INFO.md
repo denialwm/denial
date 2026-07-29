@@ -36,6 +36,9 @@ locked Skia fork, compares generated GN arguments with `args.gn`, and verifies
 the resulting library against `libflutter_engine.so.sha256`. Exact cache hits
 skip synchronization, GN, Ninja, and linking. Source changes retain
 `out/denial_host_debug`, allowing Ninja to rebuild only invalidated targets.
+The builder canonicalizes the stripped library's GNU build ID from its shipped
+content before applying the strict SHA-256 check, so discarded debug metadata
+cannot make otherwise identical artifacts differ between build paths.
 
 The equivalent direct engine commands are:
 

@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 SOURCE_LOCK="$ROOT/prebuilt/flutter-engine/SOURCE_LOCK.json"
-CACHE_SCHEMA='1'
+CACHE_SCHEMA='2'
 CACHE_ROOT="${DENIAL_FLUTTER_ENGINE_CACHE_ROOT:-${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}/denial/flutter-engine}"
 CHECKOUT="$CACHE_ROOT/checkout"
 DEPOT_TOOLS="$CACHE_ROOT/depot_tools"
@@ -79,6 +79,65 @@ lock_value() {
 file_sha256() {
   sha256sum "$1" | awk '{ print $1 }'
 }
+
+write_build_id_note() {
+  local destination="$1"
+  local build_id="$2"
+  local offset
+
+  [[ "$build_id" =~ ^[0-9a-f]{40}$ ]] \
+    || fail "invalid canonical GNU build ID: $build_id"
+  printf '\004\000\000\000\024\000\000\000\003\000\000\000GNU\000' \
+    >"$destination"
+  for ((offset = 0; offset < 40; offset += 2)); do
+    printf '%b' "\\x${build_id:offset:2}" >>"$destination"
+  done
+  [[ "$(stat -c '%s' "$destination")" == 36 ]] \
+    || fail "generated GNU build-ID note has the wrong size: $destination"
+}
+
+canonicalize_engine_build_id() (
+  local mode="$1"
+  local engine="$2"
+  local llvm_objcopy="$3"
+  local build_id
+  local canonical_note
+  local dumped_note
+  local normalized
+  local scratch
+  local zero_note
+  local zeroed
+
+  scratch="$(mktemp -d -- "$(dirname -- "$engine")/.denial-build-id.XXXXXX")"
+  trap 'rm -rf --one-file-system -- "$scratch"' EXIT
+  zero_note="$scratch/zero.note"
+  zeroed="$scratch/zeroed.so"
+  canonical_note="$scratch/canonical.note"
+  dumped_note="$scratch/dumped.note"
+  normalized="$scratch/normalized.so"
+
+  write_build_id_note \
+    "$zero_note" \
+    '0000000000000000000000000000000000000000'
+  "$llvm_objcopy" \
+    --update-section ".note.gnu.build-id=$zero_note" \
+    "$engine" \
+    "$zeroed"
+  build_id="$(sha1sum "$zeroed" | awk '{ print $1 }')"
+  write_build_id_note "$canonical_note" "$build_id"
+  "$llvm_objcopy" \
+    --update-section ".note.gnu.build-id=$canonical_note" \
+    "$engine" \
+    "$normalized"
+  "$llvm_objcopy" \
+    --dump-section ".note.gnu.build-id=$dumped_note" \
+    "$normalized"
+  cmp -s "$canonical_note" "$dumped_note" \
+    || fail "$mode engine GNU build-ID normalization failed"
+  chmod --reference="$engine" "$normalized"
+  mv -- "$normalized" "$engine"
+  printf 'Canonicalized %s engine GNU build ID: %s\n' "$mode" "$build_id"
+)
 
 expected_engine_sha256() {
   local mode="$1"
@@ -400,14 +459,18 @@ build_artifacts() {
   local output_relative
   local staging
   local target
+  local llvm_objcopy
 
   artifact_dir="$(artifact_dir_for_key "$key")"
   build_root="$CHECKOUT/engine/src"
   checkout_depot="$build_root/flutter/third_party/depot_tools"
+  llvm_objcopy="$build_root/flutter/buildtools/linux-x64/clang/bin/llvm-objcopy"
   staging="$ARTIFACT_ROOT/.${key}.$$"
 
   [[ -x "$checkout_depot/vpython3" ]] \
     || fail "synchronized depot_tools is missing vpython3: $checkout_depot"
+  [[ -x "$llvm_objcopy" ]] \
+    || fail "synchronized Flutter buildtools are missing llvm-objcopy: $llvm_objcopy"
   [[ ! -e "$artifact_dir" ]] \
     || fail "invalid cache entry already exists: $artifact_dir"
   [[ ! -e "$staging" ]] \
@@ -452,6 +515,10 @@ build_artifacts() {
         -C "$output" \
         -j "$BUILD_JOBS" \
         libflutter_engine.so
+    canonicalize_engine_build_id \
+      "$mode" \
+      "$output/libflutter_engine.so" \
+      "$llvm_objcopy"
     [[ "$(file_sha256 "$output/libflutter_engine.so")" \
       == "$(expected_engine_sha256 "$mode")" ]] \
       || fail "$mode engine checksum differs from committed metadata"
@@ -528,7 +595,8 @@ main() {
   local command_name="${1:-}"
   local github_env=''
 
-  for command in awk cmp flock git install jq mv ninja nm rm sha256sum; do
+  for command in \
+    awk chmod cmp flock git install jq mktemp mv ninja nm rm sha1sum sha256sum stat; do
     require_command "$command"
   done
   [[ "$BUILD_JOBS" =~ ^[1-9][0-9]*$ ]] \

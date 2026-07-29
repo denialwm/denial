@@ -44,6 +44,9 @@ Generated arguments must match `args.gn`; the result must match
 `libflutter_engine.so.sha256`, report AOT mode, and export
 `FlutterEngineGetProcAddresses`, `FlutterEngineRunsAOTCompiledDartCode`, and
 `DenialFlutterEngineScheduleFrameForExternalTextures`.
+Before checksum verification, the builder canonicalizes the stripped
+library's GNU build ID from the shipped ELF content. Full-file SHA-256
+verification therefore remains exact across independent build paths.
 
 ## Licensing
 
