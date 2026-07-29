@@ -83,6 +83,8 @@ Environment:
   DENIAL_FLUTTER_SDK_ROOT
   DENIAL_PC_PACKAGE_ROOT
   DENIAL_PC_MAKEPKG_ROOT
+  DENIAL_BUILD_JOBS
+  DENIAL_PC_DEDICATED_BUILDER
   DENIAL_PACKAGE_RELEASE
   DENIAL_PACKAGE_PACKAGER
   DENIAL_RELEASE_TAG"
@@ -331,10 +333,7 @@ impl PackageIdentity {
 }
 
 fn build_development_client(paths: &BuildPaths) -> Result<(), ToolError> {
-    let jobs = std::thread::available_parallelism()
-        .map(usize::from)
-        .unwrap_or(1)
-        .to_string();
+    let jobs = build_parallelism()?.to_string();
     let rustflags = package_rustflags(&paths.repository)?;
     let mut cargo = Command::new("cargo");
     cargo
@@ -357,6 +356,31 @@ fn build_development_client(paths: &BuildPaths) -> Result<(), ToolError> {
         ]);
     checked_status(&mut cargo, "could not build denial-ui")?;
     require_executable(&paths.development_binary)
+}
+
+fn build_parallelism() -> Result<usize, ToolError> {
+    if let Ok(value) = env::var("DENIAL_BUILD_JOBS") {
+        let jobs = value
+            .parse::<usize>()
+            .map_err(|_| ToolError::new("DENIAL_BUILD_JOBS must be a positive integer"))?;
+        if jobs == 0 {
+            return Err(ToolError::new(
+                "DENIAL_BUILD_JOBS must be a positive integer",
+            ));
+        }
+        return Ok(jobs);
+    }
+
+    let available = std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(1);
+    let dedicated = env::var("GITHUB_ACTIONS").as_deref() == Ok("true")
+        || env::var("DENIAL_PC_DEDICATED_BUILDER").as_deref() == Ok("1");
+    if dedicated {
+        Ok(available)
+    } else {
+        Ok(available.saturating_sub(2).max(1))
+    }
 }
 
 fn build_flutter_tool_snapshot(paths: &BuildPaths) -> Result<(), ToolError> {
@@ -1699,8 +1723,18 @@ fn validate_package(
 
     let manifest = fs::read_to_string(root.join("usr/share/denial/ui-development/manifest.json"))
         .map_err(ToolError::io)?;
-    let expected_flutter_patch_series_sha256 =
-        sha256(&paths.repository.join("patches/flutter/series.sha256"))?;
+    let expected_source_lock_sha256 = sha256(
+        &paths
+            .repository
+            .join("prebuilt/flutter-engine/SOURCE_LOCK.json"),
+    )?;
+    let packaged_source_lock_sha256 =
+        sha256(&root.join("usr/share/denial/ui-development/SOURCE_LOCK.json"))?;
+    if packaged_source_lock_sha256 != expected_source_lock_sha256 {
+        return Err(ToolError::new(
+            "development package contains the wrong Flutter/Skia source lock",
+        ));
+    }
     let expected_debug_engine_args_sha256 = sha256(
         &paths
             .repository
@@ -1720,9 +1754,7 @@ fn validate_package(
     )) || !manifest.contains(&format!(
         "\"dartaotruntime_sha256\": \"{expected_flutter_tool_runtime_sha256}\""
     )) || !manifest.contains("\"stage\": \"public-alpha\"")
-        || !manifest.contains(&format!(
-            "\"flutter_series_manifest_sha256\": \"{expected_flutter_patch_series_sha256}\""
-        ))
+        || !manifest.contains(&format!("\"sha256\": \"{expected_source_lock_sha256}\""))
         || !manifest.contains(&format!(
             "\"debug_engine_args_sha256\": \"{expected_debug_engine_args_sha256}\""
         ))

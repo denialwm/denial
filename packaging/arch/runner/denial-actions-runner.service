@@ -42,7 +42,7 @@ RestrictRealtime=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallArchitectures=native
 LockPersonality=yes
-ReadWritePaths=/srv/denial-builder/runner/current
+ReadWritePaths=/srv/denial-builder/runner/current /srv/denial-builder/cache
 
 [Install]
 # Deliberately no WantedBy: this one-job runner must be armed manually.

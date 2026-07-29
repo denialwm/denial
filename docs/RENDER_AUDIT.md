@@ -10,7 +10,7 @@ a single GPU-utilization number:
 4. The output scheduler publishes the completed atlas generation to KMS.
 
 Engine-internal raster-cache telemetry is not part of the current release
-patch series. Inspecting Flutter's rasterization and cache decisions therefore
+engine. Inspecting Flutter's rasterization and cache decisions therefore
 requires external profiling or an explicitly instrumented development engine.
 
 The audit is compiled into release builds but is opt-in. Start a development
@@ -88,8 +88,8 @@ calculation looked up the previous tree. The lookup was consequently null and
 Flutter treated every autonomous texture frame as a first frame, damaging the
 entire view.
 
-The versioned
-[`0008-preserve-partial-damage-for-reused-layer-trees.patch`](../patches/flutter-engine/3.44.7/0008-preserve-partial-damage-for-reused-layer-trees.patch)
+The locked Flutter fork commit
+[`ef8d243f38b`](https://github.com/denialwm/flutter/commit/ef8d243f38b)
 marks these reused tasks and compares the in-flight tree against itself. This is intentional:
 `TextureLayer::Diff` always marks the texture bounds dirty, while retained
 static siblings preserve their paint regions. Thus a 200 fps client can update

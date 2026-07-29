@@ -17,18 +17,21 @@
     "flutter_revision": "84fc5cbb223bc12f83d65b647ff8a56caf779ffd",
     "engine_artifact_revision": "69c8c61792f04cc809dfef0c910414fb9afc06cd",
     "dart_version": "3.12.2",
-    "dart_revision": "d684a576a6aa954ae107a03b2b4e1d61c3bebe93"
+    "dart_revision": "d684a576a6aa954ae107a03b2b4e1d61c3bebe93",
+    "flutter_repository": "https://github.com/denialwm/flutter.git",
+    "flutter_fork_revision": "af53fe6dc91e13ea1d2da9103d7d88fc202dd052",
+    "skia_repository": "https://github.com/denialwm/skia.git",
+    "skia_fork_revision": "5097a648e9bbb1d4a7fdf06a2a6d7bef3c9dd414"
   },
-  "patches": {
-    "flutter_series": "patches/flutter/",
-    "flutter_series_manifest_sha256": "666fa331debacce3bce7de8bdb977138c4a11a4b55942b4e4beb489ad9661cd4",
-    "engine_series": "patches/flutter-engine/3.44.7/"
+  "source_lock": {
+    "path": "prebuilt/flutter-engine/SOURCE_LOCK.json",
+    "sha256": "f232360f089d2bb6ff06a555067859dc531a8a0a8356e3a82e06dc4131e3eaa2"
   },
   "artifacts": {
-    "debug_engine_sha256": "c5eb1a110887ca2a6b6ae6f98dfaeb609614e5f204bdf731164dc12ae5ed0729",
-    "debug_engine_args_sha256": "07acf85f399ce9252589b80fd102fa9ffd0127938bb913d47ba1339eb78f8930",
-    "profile_engine_sha256": "465a0b6c76d9f8561c177db4a76a267527fa2a411ed5d9f34f61739844000bce",
-    "profile_engine_args_sha256": "06fff1cfc0359c4b67cb2586ce34a252709b021585b7f9a8c58dec09e6ddbb15",
+    "debug_engine_sha256": "c840d5d4442d8e8cd1ac007b000e29f5f84a7ac98c08bd0fd558d473813a6c63",
+    "debug_engine_args_sha256": "2533a84e5fd2eaf10794f531ee89dfab6e8686040b1a56097e44d45382e00fa7",
+    "profile_engine_sha256": "da1f4e6765c3da97e48f38bd286cb3382779f77983ad3d980071a408fc4514f8",
+    "profile_engine_args_sha256": "9c4408ea26af01ac5f7f759bb55355c9f4577de4c25b0df966535f0791170873",
     "flutter_tool_sha256": "e9bafdf002e980c7f239e68b2f2448e54f3641ce245803152c0cbdd3222db38f",
     "dart_executable_sha256": "c03ad868b5c53e31461b0fef22dc6eb6aeb56b7567efff6ca488ce9c4a6f8a6a",
     "dartaotruntime_sha256": "297f6b68adf22140d0bfc92cf974dc0e22bd54be6e15d730b911ad5b661d6a89",
