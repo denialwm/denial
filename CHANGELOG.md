@@ -21,6 +21,8 @@ boundaries may change before 1.0.
 
 - Failed local tag-signing attempts now reliably erase the decrypted recovery
   kit and temporary keyring after function scope unwinds.
+- Arch packages now disable host-default debug-package rewriting explicitly,
+  keeping tag-promoted payloads independent of the build host.
 
 ## [0.2.1] - 2026-07-29
 

@@ -51,13 +51,13 @@ jobs:
               candidate_class='development-test-candidate'
               release_signing_eligible='false'
               validation_branch='dev'
-              build_mode='development'
+              compile_mode='release'
               ;;
             refs/heads/main)
               candidate_class='production-release-candidate'
               release_signing_eligible='true'
               validation_branch='main'
-              build_mode='production'
+              compile_mode='release'
               ;;
             *)
               printf 'Unsupported validation ref: %s\n' "$GITHUB_REF" >&2
@@ -70,7 +70,7 @@ jobs:
             printf 'RELEASE_SIGNING_ELIGIBLE=%s\n' \
               "$release_signing_eligible"
             printf 'VALIDATION_BRANCH=%s\n' "$validation_branch"
-            printf 'CANDIDATE_BUILD_MODE=%s\n' "$build_mode"
+            printf 'CANDIDATE_COMPILE_MODE=%s\n' "$compile_mode"
             printf 'DENIAL_BUILD_IDENTITY=%s.g%s\n' \
               "$validation_branch" "$GITHUB_SHA"
           } >>"$GITHUB_ENV"
@@ -277,7 +277,7 @@ jobs:
               "$RELEASE_SIGNING_ELIGIBLE"
             printf 'signature_status=unsigned\n'
             printf 'package_release=%s\n' "$DENIAL_PACKAGE_RELEASE"
-            printf 'build_mode=%s\n' "$CANDIDATE_BUILD_MODE"
+            printf 'compile_mode=%s\n' "$CANDIDATE_COMPILE_MODE"
             printf 'build_identity=%s\n' "$DENIAL_BUILD_IDENTITY"
             printf 'source_commit=%s\n' "$GITHUB_SHA"
             printf 'source_ref=%s\n' "$GITHUB_REF"
@@ -391,12 +391,12 @@ jobs:
             refs/heads/dev)
               expected_class='development-test-candidate'
               expected_signing_eligibility='false'
-              expected_build_mode='development'
+              expected_compile_mode='release'
               ;;
             refs/heads/main)
               expected_class='production-release-candidate'
               expected_signing_eligibility='true'
-              expected_build_mode='production'
+              expected_compile_mode='release'
               ;;
             *)
               printf 'Unsupported validation ref: %s\n' "$GITHUB_REF" >&2
@@ -415,7 +415,7 @@ jobs:
           grep -Fxq \
             "package_release=$expected_package_release" \
             "$provenance"
-          grep -Fxq "build_mode=$expected_build_mode" "$provenance"
+          grep -Fxq "compile_mode=$expected_compile_mode" "$provenance"
           grep -Fxq "source_commit=$GITHUB_SHA" "$provenance"
           grep -Fxq "source_ref=$GITHUB_REF" "$provenance"
 

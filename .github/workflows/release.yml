@@ -260,7 +260,7 @@ jobs:
             'release_signing_eligible=true' \
             'signature_status=unsigned' \
             'package_release=0' \
-            'build_mode=production' \
+            'compile_mode=release' \
             "source_commit=$SOURCE_SHA" \
             'source_ref=refs/heads/main' \
             "workflow_run=$CANDIDATE_RUN_ID" \

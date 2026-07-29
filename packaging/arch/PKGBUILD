@@ -54,7 +54,7 @@ backup=(
   'etc/denial/session.conf'
   'etc/xdg/xdg-desktop-portal-wlr/Denial'
 )
-options=('!strip')
+options=('!strip' '!debug')
 source=(
   'denial-session'
   'denial.desktop'
