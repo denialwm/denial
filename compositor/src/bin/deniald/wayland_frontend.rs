@@ -79,6 +79,7 @@ use smithay::wayland::shell::xdg::decoration::{XdgDecorationHandler, XdgDecorati
 use smithay::wayland::shm::{ShmHandler, ShmState};
 use smithay::wayland::socket::ListeningSocketSource;
 use smithay::wayland::tablet_manager::TabletSeatHandler;
+use smithay::wayland::viewporter::ViewporterState;
 use smithay::wayland::xwayland_shell::XWaylandShellState;
 use smithay::wayland::xwayland_keyboard_grab::XWaylandKeyboardGrabState;
 use smithay::xwayland::{X11Wm, XWayland, XWaylandClientData, XWaylandEvent};
@@ -205,6 +206,7 @@ pub(super) struct WaylandFrontend {
     pub _xwayland_keyboard_grab_state: XWaylandKeyboardGrabState,
     pub _relative_pointer_manager_state: RelativePointerManagerState,
     pub _pointer_constraints_state: PointerConstraintsState,
+    _viewporter_state: ViewporterState,
     pub xwm: Option<X11Wm>,
     xdisplay: u32,
     _xdg_decoration_state: XdgDecorationState,
@@ -515,6 +517,7 @@ impl WaylandFrontend {
             RelativePointerManagerState::new::<RuntimeState>(&display_handle);
         let pointer_constraints_state =
             PointerConstraintsState::new::<RuntimeState>(&display_handle);
+        let viewporter_state = ViewporterState::new::<RuntimeState>(&display_handle);
         let xdg_decoration_state = XdgDecorationState::new::<RuntimeState>(&display_handle);
         let cursor_shape_state = CursorShapeManagerState::new::<RuntimeState>(&display_handle);
         let presentation = presentation::PresentationTracker::new(&display_handle);
@@ -779,6 +782,7 @@ impl WaylandFrontend {
             _xwayland_keyboard_grab_state: xwayland_keyboard_grab_state,
             _relative_pointer_manager_state: relative_pointer_manager_state,
             _pointer_constraints_state: pointer_constraints_state,
+            _viewporter_state: viewporter_state,
             xwm: None,
             xdisplay,
             _xdg_decoration_state: xdg_decoration_state,
@@ -3215,13 +3219,30 @@ mod tests {
         InitialXdgPlacementPolicy, MAX_PENDING_DMABUF_IMPORTS, dmabuf_import_queue_has_capacity,
         initial_xdg_placement_policy,
     };
+    use super::{RuntimeState, ViewporterState};
     use crate::window_placement_store::WindowPlacementState;
     #[cfg(feature = "flutter")]
     use crate::wire::{InputLayoutSnapshot, InputRect};
     #[cfg(feature = "flutter")]
     use smithay::input::pointer::CursorIcon;
+    use smithay::reexports::wayland_server::Display;
     #[cfg(feature = "flutter")]
     use std::collections::HashSet;
+
+    #[test]
+    fn advertises_wp_viewporter_version_one() {
+        let display = Display::<RuntimeState>::new().expect("Wayland display should initialize");
+        let display_handle = display.handle();
+        let viewporter = ViewporterState::new::<RuntimeState>(&display_handle);
+        let global = display_handle
+            .backend_handle()
+            .global_info(viewporter.global())
+            .expect("wp_viewporter global should remain registered");
+
+        assert_eq!(global.interface.name, "wp_viewporter");
+        assert_eq!(global.version, 1);
+        assert!(!global.disabled);
+    }
 
     #[test]
     fn dmabuf_import_queue_enforces_its_exact_boundary() {

@@ -159,8 +159,8 @@ LIBSEAT_BACKEND=logind compositor/target/release/deniald \
 ```
 
 With `--wayland`, the process advertises physical `wl_output` globals, XDG
-shell, SHM, `linux-dmabuf` v4 feedback for the EGL render node, and
-`zwlr-output-power-management-v1`. It also advertises
+shell, SHM, `wp_viewporter` crop-and-scale support, `linux-dmabuf` v4 feedback
+for the EGL render node, and `zwlr-output-power-management-v1`. It also advertises
 `zwlr-screencopy-unstable-v1` version 3 with SHM and XRGB8888 DMA-BUF capture;
 the latter keeps the frame transfer on the GPU for compatible screen recorders
 and PipeWire portal backends. The Flutter Settings app also configures a
