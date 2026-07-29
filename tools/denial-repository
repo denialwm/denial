@@ -304,6 +304,13 @@ installer_fingerprint="$(
 )"
 [[ "$installer_fingerprint" == "$FINGERPRINT" ]] \
   || fail 'guided installer fingerprint does not match the release key'
+if grep -Eq \
+    '^[[:space:]]*(if[[:space:]]+![[:space:]]+)?sudo[[:space:]]+pacman[[:space:]]+-S' \
+    "$INSTALLER"; then
+  fail 'guided repository setup must not install packages'
+fi
+grep -Fq 'sudo pacman -Syu denial' "$INSTALLER" \
+  || fail 'guided repository setup does not print the explicit install command'
 
 install -d -m 0755 "$REPOSITORY_ROOT"
 cp -a -- "$EVIDENCE_INPUT" "${OUTPUT_ROOT}/evidence"
@@ -461,10 +468,13 @@ cat >"${OUTPUT_ROOT}/index.html" <<EOF
     <h1>Denial Pacman repository</h1>
     <p>Signed x86-64 packages for Denial ${release_version}.</p>
     <p>Signing fingerprint: <code>${FINGERPRINT}</code></p>
+    <p>Set up the signed repository:</p>
+    <pre><code>curl -fsSL https://install.denialwm.org | sh</code></pre>
     <p>
-      Guided installer:
-      <a href="install.sh"><code>install.sh</code></a>
+      The <a href="install.sh">setup script</a> does not install packages.
+      Install Denial explicitly afterward:
     </p>
+    <pre><code>sudo pacman -Syu denial</code></pre>
     <p>
       <a href="https://github.com/denialwm/denial/blob/${RELEASE_TAG}/docs/packaging/arch/INSTALL.md">
         Installation instructions

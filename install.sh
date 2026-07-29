@@ -129,9 +129,9 @@ case "$repository_state" in
     ;;
 esac
 
-printf '\nDenial installation\n'
-printf '===================\n\n'
-printf 'This installer will:\n'
+printf '\nDenial repository setup\n'
+printf '=======================\n\n'
+printf 'This setup will:\n'
 printf '  1. Download the Denial public key and require this full fingerprint:\n'
 printf '     %s\n' "$SIGNING_KEY"
 
@@ -141,8 +141,9 @@ else
   printf '  2. Add the signed [denial] repository to %s.\n' "$PACMAN_CONFIG"
 fi
 
-printf '  3. Run a normal full system upgrade and install Denial with Pacman.\n'
-printf '\nThe script uses sudo only for Pacman, its keyring, and pacman.conf.\n\n'
+printf '\nNo packages will be installed. After setup, run this yourself:\n'
+printf '\n  sudo pacman -Syu denial\n'
+printf '\nThe script uses sudo only for Pacman'\''s keyring and pacman.conf.\n\n'
 
 if ! confirm 'Continue?'; then
   printf '\nCancelled. No system changes were made.\n'
@@ -167,7 +168,7 @@ trap 'exit 143' TERM
 
 key_file="$key_tmp/denial-repo-key.asc"
 
-printf '\n1/3  Downloading and verifying the Denial signing key...\n'
+printf '\n1/2  Downloading and verifying the Denial signing key...\n'
 if ! curl \
   --proto '=https' \
   --tlsv1.2 \
@@ -216,9 +217,9 @@ if ! sudo pacman-key --lsign-key "$SIGNING_KEY"; then
 fi
 
 if [ "$repository_state" = 'valid' ]; then
-  printf '\n2/3  The signed Denial repository is already configured.\n'
+  printf '\n2/2  The signed Denial repository is already configured.\n'
 else
-  printf '\n2/3  Adding the signed Denial repository to %s...\n' "$PACMAN_CONFIG"
+  printf '\n2/2  Adding the signed Denial repository to %s...\n' "$PACMAN_CONFIG"
   {
     printf '\n'
     printf '[denial]\n'
@@ -227,10 +228,7 @@ else
   } | sudo tee -a "$PACMAN_CONFIG" >/dev/null
 fi
 
-printf '\n3/3  Upgrading the system and installing Denial...\n'
-if ! sudo pacman -Syu --needed denial; then
-  fail 'Pacman could not complete the Denial installation. The signed repository remains configured.'
-fi
-
-printf '\nDenial is installed.\n'
-printf 'Log out, choose Denial in your display manager, and sign in.\n\n'
+printf '\nDenial repository setup is complete. No packages were installed.\n'
+printf '\nInstall Denial when ready:\n'
+printf '\n  sudo pacman -Syu denial\n\n'
+printf 'Pacman will install denial-flutter-engine as a required dependency.\n\n'

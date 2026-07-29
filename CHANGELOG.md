@@ -6,6 +6,12 @@ boundaries may change before 1.0.
 
 ## [Unreleased]
 
+### Changed
+
+- The guided Arch setup now stops after trusting the release key and adding
+  the signed repository. Package installation remains an explicit
+  `sudo pacman -Syu denial` command.
+
 ## [0.2.1] - 2026-07-29
 
 ### Added
