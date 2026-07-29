@@ -490,7 +490,6 @@ sign_release_tag() {
   local signing_root
   local tag_created=0
   local tag_name
-  local version
 
   (($# == 3)) \
     || fail 'sign-tag requires TAG, BACKUP_ARCHIVE, and RECOVERY_FILE'
@@ -516,16 +515,6 @@ sign_release_tag() {
   if git -C "$ROOT" show-ref --verify --quiet "refs/tags/${tag_name}"; then
     fail "tag already exists: $tag_name"
   fi
-
-  version="${tag_name#v}"
-  [[ "$version" == "$(
-    sed -n 's/^version = "\([^"]*\)"/\1/p' "$ROOT/compositor/Cargo.toml" \
-      | head -n 1
-  )" ]] || fail 'tag does not match the Cargo project version'
-  [[ "$version" == "$(
-    sed -n 's/^version: *//p' "$ROOT/dart_shell/pubspec.yaml" \
-      | head -n 1
-  )" ]] || fail 'tag does not match the Dart project version'
 
   expected_fingerprint="$(
     read_recovery_value DENIAL_RELEASE_KEY_FINGERPRINT "$recovery_file"

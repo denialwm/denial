@@ -1,7 +1,7 @@
 # Maintainer: Doctor Logix <doctor.logix@gmail.com>
 
 pkgname=denial-flutter-engine
-pkgver="${DENIAL_PACKAGE_VERSION:-0.2.1}"
+pkgver="${DENIAL_PACKAGE_VERSION:-0}"
 pkgrel="${DENIAL_PACKAGE_RELEASE:-1}"
 epoch=1
 pkgdesc='Pinned source-built Flutter Engine runtime for Denial'

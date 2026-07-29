@@ -48,7 +48,7 @@ fn run() -> Result<(), CliError> {
         return Ok(());
     }
     if matches!(options.command, Command::Version) {
-        println!("denialctl {}", env!("CARGO_PKG_VERSION"));
+        println!("denialctl {}", denial_core::VERSION);
         return Ok(());
     }
 

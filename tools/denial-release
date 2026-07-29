@@ -331,6 +331,7 @@ file_sha256() {
 source_audit() {
   local allow_dirty=0
   local actual
+  local audit_package_version
   local cargo_lock_version
   local cargo_version
   local dart_version
@@ -358,9 +359,6 @@ source_audit() {
   local ui_manifest="$ROOT/packaging/arch/ui-development/manifest.json"
   local ui_package_version
   local validation_branch='main'
-  local version_major
-  local version_minor
-  local version_patch
   local workflow_file
 
   while (($#)); do
@@ -402,6 +400,13 @@ source_audit() {
       return 2
       ;;
   esac
+  if [[ -n "$public_alpha_tag" ]]; then
+    audit_package_version="${public_alpha_tag#v}"
+  else
+    # Deliberately differs from the source-manifest version. This proves that
+    # package metadata is supplied externally instead of predicting a release.
+    audit_package_version='0.0.0.audit'
+  fi
 
   printf 'Denial committed-source audit\n\n'
 
@@ -832,7 +837,7 @@ source_audit() {
   )"
   package_version="$(
     (
-      unset DENIAL_PACKAGE_VERSION
+      export DENIAL_PACKAGE_VERSION="$audit_package_version"
       # PKGBUILD is executable Bash and is intentionally loaded to inspect its
       # effective default metadata.
       # shellcheck disable=SC1091
@@ -844,7 +849,7 @@ source_audit() {
   )"
   ui_package_version="$(
     (
-      unset DENIAL_PACKAGE_VERSION
+      export DENIAL_PACKAGE_VERSION="$audit_package_version"
       # shellcheck disable=SC1091
       source "$ROOT/packaging/arch/ui-development/PKGBUILD"
       # shellcheck disable=SC2154
@@ -853,18 +858,28 @@ source_audit() {
   )"
   read -r engine_package_version engine_package_epoch < <(
     (
-      unset DENIAL_PACKAGE_VERSION
+      export DENIAL_PACKAGE_VERSION="$audit_package_version"
       # shellcheck disable=SC1091
       source "$ROOT/packaging/arch/flutter-engine/PKGBUILD"
       # shellcheck disable=SC2154
       printf '%s %s\n' "$pkgver" "$epoch"
     )
   )
-  check_equal 'Cargo and Dart versions agree' "$cargo_version" "$dart_version"
-  check_equal 'Cargo and package versions agree' "$cargo_version" "$package_version"
   check_equal \
-    'Cargo and engine package versions agree' \
-    "$cargo_version" \
+    'Cargo uses the non-release source-version sentinel' \
+    '0.0.0' \
+    "$cargo_version"
+  check_equal \
+    'Dart uses the non-release source-version sentinel' \
+    '0.0.0' \
+    "$dart_version"
+  check_equal \
+    'Denial package accepts the externally supplied version' \
+    "$audit_package_version" \
+    "$package_version"
+  check_equal \
+    'engine package accepts the externally supplied version' \
+    "$audit_package_version" \
     "$engine_package_version"
   check_equal 'engine package uses the tag-version epoch' 1 "$engine_package_epoch"
   cargo_lock_version="$(
@@ -885,15 +900,15 @@ source_audit() {
     "$cargo_version" \
     "$cargo_lock_version"
   check_equal \
-    'Cargo and UI-development package versions agree' \
-    "$cargo_version" \
+    'UI-development package accepts the externally supplied version' \
+    "$audit_package_version" \
     "$ui_package_version"
-  IFS=. read -r version_major version_minor version_patch <<<"$cargo_version"
-  if [[ "$version_major" =~ ^[0-9]+$ \
-    && "$version_minor" =~ ^[0-9]+$ \
-    && "$version_patch" =~ ^[0-9]+$ ]]; then
+  if [[ "$cargo_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ \
+    && "$dart_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    pass 'Cargo and Dart source-manifest versions are valid metadata'
     ui_dependency_bounds="$(
       (
+        export DENIAL_PACKAGE_VERSION="$audit_package_version"
         # shellcheck disable=SC1091
         source "$ROOT/packaging/arch/ui-development/PKGBUILD"
         # shellcheck disable=SC2154
@@ -901,33 +916,26 @@ source_audit() {
       )
     )"
     check_equal \
-      'UI-development package has the expected Denial compatibility range' \
-      "$(printf 'denial>=%s\ndenial<%s.%s.0' \
-        "$cargo_version" "$version_major" "$((version_minor + 1))")" \
+      'UI-development package follows its package identity and compatibility ceiling' \
+      "$(printf 'denial>=%s\ndenial<%s' \
+        "$audit_package_version" \
+        "$(jq -r '.compatibility.denial_version_before' "$ui_manifest")")" \
       "$ui_dependency_bounds"
-    check_equal \
-      'UI-development manifest has the expected minimum Denial version' \
-      "$cargo_version" \
-      "$(jq -r '.compatibility.denial_minimum_version' "$ui_manifest")"
-    check_equal \
-      'UI-development manifest has the expected upper Denial boundary' \
-      "${version_major}.$((version_minor + 1)).0" \
-      "$(jq -r '.compatibility.denial_version_before' "$ui_manifest")"
   else
-    fail "project version is not numeric semantic versioning: $cargo_version"
+    fail \
+      "source-manifest versions are not numeric semantic versions: Cargo $cargo_version, Dart $dart_version"
   fi
-  if grep -Eq \
-      "^## \\[${cargo_version//./\\.}\\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$" \
-      "$ROOT/CHANGELOG.md"; then
-    pass "changelog contains release $cargo_version"
+  if grep -Fqx '## [Unreleased]' "$ROOT/CHANGELOG.md"; then
+    pass 'changelog has an Unreleased section for the eventual tag'
   else
-    fail "changelog has no dated entry for release $cargo_version"
+    fail 'changelog has no Unreleased section'
   fi
   for manual in denialctl denial-ui; do
-    if grep -Fq "Denial $cargo_version" "$ROOT/docs/man/${manual}.1"; then
-      pass "$manual manual identifies Denial $cargo_version"
+    if grep -Eq '^\.TH .* "Denial" "User Commands"$' \
+      "$ROOT/docs/man/${manual}.1"; then
+      pass "$manual manual is independent of a predicted release version"
     else
-      fail "$manual manual does not identify Denial $cargo_version"
+      fail "$manual manual embeds a release version"
     fi
   done
 
@@ -1013,9 +1021,9 @@ source_audit() {
       fail "public-alpha tag is unavailable: $public_alpha_tag"
     fi
     check_equal \
-      'public-alpha tag and project version agree' \
-      "$cargo_version" \
-      "${public_alpha_tag#v}"
+      'public-alpha tag supplies the audited package version' \
+      "${public_alpha_tag#v}" \
+      "$audit_package_version"
   fi
 
   if [[ -f "$ROOT/compositor/Cargo.lock" ]]; then

@@ -1,6 +1,8 @@
 [package]
 name = "denial"
-version = "0.2.1"
+# Releases are versioned exclusively by signed Git tags. Cargo still requires
+# package metadata for this unpublished workspace.
+version = "0.0.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
 publish = false
