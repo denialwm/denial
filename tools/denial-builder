@@ -35,7 +35,7 @@ Commands:
   qualify  Arm a runner, dispatch the main-only qualification, and watch it.
   validate-dev
            Arm a runner, build and independently verify a dev candidate.
-  validate Arm a runner, build and independently verify a main candidate.
+  validate Verify that main is an unchanged, previously validated dev promotion.
   release TAG
            Build, sign, verify, and publish one signed version tag.
   status   Show the local service and GitHub runner registration.
@@ -266,6 +266,7 @@ run_manual_workflow() (
   local workflow="$1"
   local run_label="$2"
   local workflow_ref="$3"
+  local requires_runner="${4:-1}"
   local armed=0
   local dispatched_at
   local run_id=''
@@ -287,8 +288,12 @@ run_manual_workflow() (
     --silent \
     || fail "$workflow is not present on the remote default branch"
 
-  arm_runner
-  armed=1
+  if [[ "$requires_runner" == 1 ]]; then
+    arm_runner
+    armed=1
+  elif [[ "$requires_runner" != 0 ]]; then
+    fail 'internal error: workflow runner policy must be 0 or 1'
+  fi
   dispatched_at="$(date -u +%s)"
   gh workflow run \
     "$workflow" \
@@ -336,8 +341,9 @@ qualify_builder() {
 validate_builder() {
   run_manual_workflow \
     branch-validation.yml \
-    'Main validation' \
-    main
+    'Main promotion verification' \
+    main \
+    0
 }
 
 validate_dev_builder() {

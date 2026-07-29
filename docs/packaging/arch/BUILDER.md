@@ -147,17 +147,16 @@ arm one runner, dispatch the workflow, and watch it to completion:
 tools/denial-builder qualify
 ```
 
-Every trusted push to remote `dev` or `main` starts the branch-candidate
-workflow when a runner has been armed before the push. Development work is
-proven first:
+Every trusted push starts the branch-validation workflow. Only `dev` uses the
+owner-operated builder; development work is proven first:
 
 ```sh
 tools/denial-builder arm
 git push origin dev
 ```
 
-The same validation lane can be dispatched and watched manually for either
-branch:
+The development build and hosted `main` promotion check can be dispatched and
+watched manually:
 
 ```sh
 tools/denial-builder validate-dev
@@ -215,11 +214,10 @@ attest, or publish a package.
 ## Recurring release gate
 
 Run `tools/denial-builder qualify` after any material builder or workflow
-change. Run `tools/denial-builder validate-dev` or
-`tools/denial-builder validate` for an explicit candidate rebuild; trusted
-pushes to `dev` and `main` run the same lane automatically when the ephemeral
-runner is armed. A failed `main` candidate is repaired and proven on `dev`
-before another promotion.
+change. Run `tools/denial-builder validate-dev` for an explicit candidate
+rebuild, or `tools/denial-builder validate` to recheck the unchanged `main`
+promotion without arming the builder. A failed promotion is repaired and
+proven on `dev` before another merge.
 
 Neither command authorizes publication. `tools/denial-builder release` still
 requires a clean signed version tag contained in `main` and the protected

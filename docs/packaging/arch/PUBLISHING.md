@@ -668,7 +668,7 @@ The conceptual recipe is:
 
 ```bash
 pkgname=denial
-pkgver=0.1.0
+pkgver="${DENIAL_PACKAGE_VERSION:?verified tag version is required}"
 pkgrel=1
 arch=(x86_64 aarch64)
 
@@ -707,9 +707,11 @@ package() {
 }
 ```
 
-The release tag, `compositor/Cargo.toml`, `dart_shell/pubspec.yaml`, PKGBUILD
-`pkgver`, and generated version output must agree. Reject a dirty worktree.
-Set `SOURCE_DATE_EPOCH` from the release-tag commit timestamp.
+The verified release tag is the sole input to PKGBUILD `pkgver` and generated
+runtime version output. Cargo and Dart retain `0.0.0` only because their
+unpublished source manifests require a version field; they are not release
+inputs. Reject a dirty worktree. Set `SOURCE_DATE_EPOCH` from the release-tag
+commit timestamp.
 
 No compilation belongs in `post_install()` or another Pacman transaction
 hook. Installation only verifies signatures, resolves dependencies, and
@@ -719,13 +721,13 @@ extracts package-owned files.
 
 The stable PKGBUILD must:
 
-- use literal release values such as `pkgver=0.1.0` and `pkgrel=1`;
+- materialize `pkgver` from the verified signed tag and use `pkgrel=1`;
 - declare the immutable Denial source and vendor closure in `source=()`;
 - use checksums for every source and signatures where available;
 - package only files produced below `$srcdir` and `$pkgdir`;
-- reject environment-variable overrides that replace release identity or
-  inject externally built binaries;
-- generate `.SRCINFO` from the final literal metadata;
+- accept release identity only from the tag-verifying release controller and
+  reject unrelated environment overrides or externally injected binaries;
+- generate `.SRCINFO` from the final tag-derived metadata;
 - reset `pkgrel` to `1` for each new Denial version and increment it only for
   packaging changes;
 - install a project-level `LICENSE` under
@@ -960,7 +962,7 @@ Denial package requires a different generation.
 This is the normal, inexpensive path:
 
 1. create and sign a clean `vX.Y.Z` tag;
-2. verify all project versions;
+2. verify that the tag alone supplies all package and runtime versions;
 3. use the already published matching Flutter toolchain;
 4. build `libapp.so` and `deniald` offline for each released architecture;
 5. run tests, package checks, and available hardware smoke tests;
@@ -1162,8 +1164,8 @@ The repository has not yet implemented the complete production design:
   by the cache-backed prototype build rather than compiling their complete
   source closure inside `build()`;
 - development builds still use VCS-derived package versions, while the
-  public-alpha path accepts only a clean `vMAJOR.MINOR.PATCH` tag matching the
-  Cargo and Dart versions and fixes `pkgrel=1`;
+  public-alpha path accepts only a clean `vMAJOR.MINOR.PATCH` tag, derives all
+  release versions from it, and fixes `pkgrel=1`;
 - the project-level GPL-3.0-or-later grant now exists, while a generated
   third-party license inventory remains pending;
 - the prototype `denial` package retains production symbols with
@@ -1281,8 +1283,10 @@ gates apply to every later release:
 
 1. review a clean release commit and its resource, attribution, documentation,
    package, and workflow changes;
-2. validate the exact commit through the unsigned main-candidate lane;
-3. create and push a signed `vMAJOR.MINOR.PATCH` tag contained in `main`;
+2. validate the exact commit through the unsigned `dev` candidate lane and
+   promote it unchanged to `main`;
+3. choose the version, then create and push a signed
+   `vMAJOR.MINOR.PATCH` tag on that validated commit now contained in `main`;
 4. manually run `.github/workflows/release.yml` for that tag;
 5. verify the Pages repository and GitHub Release produced by the workflow;
 6. install or upgrade through `pacman -Syu` on a real Arch system; and

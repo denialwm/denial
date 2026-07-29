@@ -10,10 +10,12 @@ changes are promoted. Its three packages are installable for testing, but use
 package release `0` and are explicitly ineligible for release signing or
 publication.
 
-`main` is the production-candidate gate. It repeats the proven path with
-package release `1`, but its artifact also remains unsigned and unpublished.
-A public release is always rebuilt from a separately signed version tag by the
-release workflow.
+`main` is an unchanged-promotion gate on a GitHub-hosted runner. It accepts
+only a two-parent merge whose tree is exactly its validated `dev` parent,
+whose first parent is the previous `main`, and whose `dev` commit has a
+successful build plus independent-verification run. It does not compile the
+same tree a second time. A public release is rebuilt from a separately signed
+version tag by the release workflow.
 
 ## Build boundary
 
@@ -39,11 +41,10 @@ checks its source identity, checksums, architecture, three-package set, package
 ownership metadata, engine ABI dependencies, version bounds, and required
 runtime and development payloads.
 
-Artifacts are named:
+The development artifact is named:
 
 ```text
 denial-dev-validated-candidate-RUN_ID
-denial-main-validated-candidate-RUN_ID
 ```
 
 Their policy fields are:
@@ -51,9 +52,8 @@ Their policy fields are:
 | Branch | Artifact class | Package release | Release signing |
 | --- | --- | ---: | --- |
 | `dev` | `development-test-candidate` | `0` | Ineligible |
-| `main` | `main-production-candidate` | `1` | Ineligible |
 
-Both record `publication_authorized=false`,
+It records `publication_authorized=false`,
 `release_signing_eligible=false`, and `signature_status=unsigned`.
 
 Any byte sequence can technically be signed outside this project. Denial's
@@ -80,12 +80,11 @@ GN changes reuse the retained checkout and Ninja object graph.
 
 Wait for the `dev` workflow and its independent verifier to pass. Test its
 downloadable package-release-`0` artifact when the change warrants a live
-session check. Only then promote the same commit from `dev` to `main`.
-
-Arm a fresh runner immediately before merging the promotion pull request so
-the resulting `main` push repeats the gate. Do not repair a failed production
-candidate directly on `main`; fix it on `dev`, prove it there, and promote it
-again.
+session check. Only then promote the same commit from `dev` to `main` using a
+merge commit, never squash or rebase. The `main` push needs no self-hosted
+runner; its hosted provenance gate rejects any tree change or missing
+successful `dev` validation. Do not repair a failed promotion directly on
+`main`; fix it on `dev`, prove it there, and promote it again.
 
 After either workflow finishes, remove any remaining runner registration with:
 

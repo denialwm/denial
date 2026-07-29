@@ -11,6 +11,11 @@ boundaries may change before 1.0.
 - The guided Arch setup now stops after trusting the release key and adding
   the signed repository. Package installation remains an explicit
   `sudo pacman -Syu denial` command.
+- Signed tags now provide package and user-visible runtime versions without a
+  predictive Cargo, Dart, PKGBUILD, manual-page, or changelog version bump.
+- Promotion preserves the exact green `dev` commit. The `main` gate verifies
+  that unchanged merge and its successful independent validation instead of
+  rebuilding an identical source tree.
 
 ## [0.2.1] - 2026-07-29
 
