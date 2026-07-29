@@ -18,6 +18,9 @@ created_backup_dir=''
 created_backup_archive=''
 created_recovery_file=''
 created_public_key=0
+signing_cleanup_root=''
+signing_cleanup_tag=''
+signing_cleanup_tag_created=0
 
 fail() {
   printf 'denial-release-key: %s\n' "$*" >&2
@@ -488,7 +491,6 @@ sign_release_tag() {
   local preset_passphrase=''
   local recovery_file
   local signing_root
-  local tag_created=0
   local tag_name
 
   (($# == 3)) \
@@ -540,15 +542,22 @@ sign_release_tag() {
   chmod 0600 \
     "${signing_root}/archive-passphrase" \
     "${signing_root}/key-passphrase"
+  signing_cleanup_root="$signing_root"
+  signing_cleanup_tag="$tag_name"
+  signing_cleanup_tag_created=0
 
   cleanup_signing() {
     local exit_status=$?
+    local cleanup_root="${signing_cleanup_root:-}"
+    local cleanup_tag="${signing_cleanup_tag:-}"
+    local cleanup_tag_created="${signing_cleanup_tag_created:-0}"
+
     gpgconf --kill all >/dev/null 2>&1 || true
-    if ((exit_status != 0 && tag_created)); then
-      git -C "$ROOT" tag --delete "$tag_name" >/dev/null 2>&1 || true
+    if ((exit_status != 0 && cleanup_tag_created)); then
+      git -C "$ROOT" tag --delete "$cleanup_tag" >/dev/null 2>&1 || true
     fi
-    if [[ "$signing_root" == /tmp/denial-release-tag.* ]]; then
-      rm -rf --one-file-system -- "$signing_root"
+    if [[ "$cleanup_root" == /tmp/denial-release-tag.* ]]; then
+      rm -rf --one-file-system -- "$cleanup_root"
     fi
     return "$exit_status"
   }
@@ -614,13 +623,15 @@ sign_release_tag() {
     --local-user "$expected_fingerprint" \
     --message "Denial ${tag_name#v}" \
     "$tag_name"
-  tag_created=1
+  signing_cleanup_tag_created=1
   git -C "$ROOT" -c gpg.program=gpg verify-tag "$tag_name"
 
-  tag_created=0
+  signing_cleanup_tag_created=0
   cleanup_signing
   trap - EXIT
   signing_root=''
+  signing_cleanup_root=''
+  signing_cleanup_tag=''
   archive_passphrase=''
   key_passphrase=''
   unset archive_passphrase key_passphrase

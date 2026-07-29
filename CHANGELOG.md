@@ -17,6 +17,11 @@ boundaries may change before 1.0.
   `main` independently builds the production candidate; a later signed tag
   versions and publishes those exact compiled payloads without rebuilding.
 
+### Fixed
+
+- Failed local tag-signing attempts now reliably erase the decrypted recovery
+  kit and temporary keyring after function scope unwinds.
+
 ## [0.2.1] - 2026-07-29
 
 ### Added
