@@ -21,7 +21,6 @@ RUST_TARGET="${DENIAL_PC_RUST_TARGET:-$BUILD_ROOT/rust}"
 DEPENDENCY_ROOT="${DENIAL_PC_DEPENDENCY_ROOT:-$CACHE_HOME/denial/pc-dependencies}"
 
 FLUTTER_SDK_REPOSITORY="$(jq -er '.flutter.repository' "$FLUTTER_SOURCE_LOCK")"
-FLUTTER_SDK_VERSION="3.44.7"
 FLUTTER_SDK_REVISION="$(jq -er '.flutter.revision' "$FLUTTER_SOURCE_LOCK")"
 FLUTTER_UPSTREAM_REVISION="$(
     jq -er '.flutter.upstream_revision' "$FLUTTER_SOURCE_LOCK"
@@ -188,21 +187,6 @@ checkout_revision() {
     git -C "$destination" checkout --quiet --detach "$revision"
 }
 
-fetch_revision_tag() {
-    local label="$1"
-    local source="$2"
-    local tag="$3"
-    local revision="$4"
-
-    if ! git -C "$source" cat-file -e "$tag^{commit}" 2>/dev/null; then
-        printf 'Fetching %s tag %s...\n' "$label" "$tag"
-        git -C "$source" fetch --depth=1 origin \
-            "refs/tags/$tag:refs/tags/$tag"
-    fi
-    [[ "$(git -C "$source" rev-parse "$tag^{commit}")" == "$revision" ]] \
-        || die "$label tag $tag does not identify pinned revision $revision"
-}
-
 file_sha256() {
     sha256sum -- "$1" | cut -d' ' -f1
 }
@@ -264,9 +248,6 @@ require_revision() {
 
 prepare_flutter_toolchain() {
     require_revision "Flutter SDK" "$FLUTTER_SDK_ROOT" "$FLUTTER_SDK_REVISION"
-    [[ "$(git -C "$FLUTTER_SDK_ROOT" rev-parse "$FLUTTER_SDK_VERSION^{commit}" 2>/dev/null || true)" \
-        == "$FLUTTER_UPSTREAM_REVISION" ]] \
-        || die "Flutter SDK tag $FLUTTER_SDK_VERSION is missing or stale; run '$0 bootstrap'"
     [[ -x "$FLUTTER" ]] || die "Flutter launcher not found: $FLUTTER"
     git -C "$FLUTTER_SDK_ROOT" diff --quiet \
         || die "Flutter fork checkout has tracked modifications: $FLUTTER_SDK_ROOT"
@@ -280,11 +261,6 @@ bootstrap_dependencies() {
         "$FLUTTER_SDK_REPOSITORY" \
         "$FLUTTER_SDK_REVISION" \
         "$FLUTTER_SDK_ROOT"
-    fetch_revision_tag \
-        "Flutter SDK" \
-        "$FLUTTER_SDK_ROOT" \
-        "$FLUTTER_SDK_VERSION" \
-        "$FLUTTER_UPSTREAM_REVISION"
     prepare_flutter_toolchain
     "$FLUTTER" precache --linux
     run_pinned_cargo fetch --locked
