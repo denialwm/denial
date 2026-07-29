@@ -291,9 +291,8 @@ write_gclient_config() {
     printf '    "url": "%s",\n' "$repository"
     printf '%s\n' \
       '  },' \
-      ']' \
-      >"$CHECKOUT/.gclient"
-  }
+      ']'
+  } >"$CHECKOUT/.gclient"
 }
 
 checkout_matches_lock() {
