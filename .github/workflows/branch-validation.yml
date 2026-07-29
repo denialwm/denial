@@ -609,7 +609,7 @@ jobs:
             && "$PREVIOUS_MAIN_SHA" != 0000000000000000000000000000000000000000 ]]; then
             test "$previous_main" = "$PREVIOUS_MAIN_SHA"
           fi
-          test "$(git rev-parse HEAD^{tree})" = \
+          test "$(git rev-parse 'HEAD^{tree}')" = \
             "$(git rev-parse "${validated_dev}^{tree}")"
 
           git fetch --no-tags origin \
@@ -642,10 +642,10 @@ jobs:
 
           {
             printf '### Exact dev promotion verified\n\n'
-            printf -- '- Main merge: `%s`\n' "$EXPECTED_MAIN_SHA"
-            printf -- '- Validated dev commit: `%s`\n' "$validated_dev"
+            printf -- '- Main merge: %s\n' "$EXPECTED_MAIN_SHA"
+            printf -- '- Validated dev commit: %s\n' "$validated_dev"
             printf -- '- Successful dev workflow: [%s](https://github.com/%s/actions/runs/%s)\n' \
               "$validation_run" "$REPOSITORY_NAME" "$validation_run"
-            printf -- '- Main and validated dev tree: `%s`\n' \
-              "$(git rev-parse HEAD^{tree})"
+            printf -- '- Main and validated dev tree: %s\n' \
+              "$(git rev-parse 'HEAD^{tree}')"
           } >>"$GITHUB_STEP_SUMMARY"
