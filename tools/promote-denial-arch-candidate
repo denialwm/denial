@@ -75,7 +75,7 @@ for expected in \
   "source_commit=$SOURCE_SHA" \
   'source_ref=refs/heads/main' \
   'workflow_event=push' \
-  'build_mode=production'; do
+  'compile_mode=release'; do
   grep -Fxq "$expected" "$CANDIDATE_PROVENANCE" \
     || fail "candidate provenance is missing: $expected"
 done

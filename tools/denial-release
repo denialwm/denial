@@ -609,7 +609,7 @@ source_audit() {
       "candidate_class='production-release-candidate'" \
       "$ROOT/.github/workflows/branch-validation.yml" \
     && grep -Fq \
-      "build_mode='production'" \
+      "compile_mode='release'" \
       "$ROOT/.github/workflows/branch-validation.yml"; then
     pass 'main validation produces an explicit production release candidate'
   else
