@@ -48,7 +48,17 @@ package() {
   local profile_engine="${DENIAL_PACKAGE_PROFILE_ENGINE_SOURCE:-$profile_engine_root/libflutter_engine.so}"
   local icu="$flutter_sdk/bin/cache/artifacts/engine/linux-x64/icudtl.dat"
   local destination="$pkgdir/usr/lib/denial/ui-development"
+  local payload_root="${DENIAL_PACKAGE_PAYLOAD_ROOT:-}"
   local actual
+
+  if [[ -n "$payload_root" ]]; then
+    if [[ ! -d "$payload_root" ]]; then
+      error "UI-development promotion payload is missing: $payload_root"
+      return 1
+    fi
+    cp -a --no-preserve=ownership -- "$payload_root/." "$pkgdir/"
+    return
+  fi
 
   for required in \
     "$development_binary" \

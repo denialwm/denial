@@ -3,12 +3,13 @@
 > Status: Stage 1, the private pipeline rehearsal, the resource and structure
 > review, and the clean repository root completed on 2026-07-25. Denial 0.1.0
 > activated the signed public-alpha repository on 2026-07-26. Every trusted
-> `main` push can produce an unsigned, independently checked candidate when the
-> ephemeral runner is armed; clean signed tags use the separate release,
-> signing, verification, and Pages path. Denial 0.2.0 extends that path with
-> the optional, version-coupled `denial-ui-development` package. Stage 2 and
-> Stage 3 remain later hardening work rather than prerequisites for an honest
-> alpha.
+> `main` push can produce an unsigned, independently checked production
+> candidate when the ephemeral runner is armed. Only after that candidate is
+> green is a version chosen; the clean signed tag promotes its exact compiled
+> payloads through the separate hosted release, signing, verification, and
+> Pages path without rebuilding them. Denial 0.2.0 extends that path with the
+> optional, version-coupled `denial-ui-development` package. Stage 2 and Stage
+> 3 remain later hardening work rather than prerequisites for an honest alpha.
 
 This document defines both the intended production packaging model for Denial
 and the gates used to reach it. It supersedes the earlier monolithic
@@ -75,10 +76,14 @@ The initial public repository deliberately makes a smaller, testable promise:
 
 - every release is manually dispatched from a clean `vMAJOR.MINOR.PATCH`
   tag signed by the Denial release identity;
-- the tag commit must be contained in public `main`;
+- the tag commit must have a successful exact-commit production candidate
+  built and independently verified from public `main`;
 - the owner-operated x86_64 builder receives no signing secret and never runs
   pull-request or fork code;
-- the existing compositor and Flutter test suites run before packaging;
+- the existing compositor and Flutter test suites run while producing the
+  `main` candidate, before a version is chosen;
+- the tag workflow does no compilation and proves that promoted compiled
+  payloads are byte-identical to that candidate;
 - exactly one compatible `denial` and `denial-flutter-engine` pair, plus the
   optional version-matched `denial-ui-development` package when present in the
   release contract, is handed to a separate GitHub-hosted signing job;
@@ -707,11 +712,12 @@ package() {
 }
 ```
 
-The verified release tag is the sole input to PKGBUILD `pkgver` and generated
-runtime version output. Cargo and Dart retain `0.0.0` only because their
-unpublished source manifests require a version field; they are not release
-inputs. Reject a dirty worktree. Set `SOURCE_DATE_EPOCH` from the release-tag
-commit timestamp.
+The verified release tag is the sole input to the final PKGBUILD `pkgver` and
+generated runtime version output. The production candidate is intentionally
+version-neutral and identifies its source commit instead. Cargo and Dart
+retain `0.0.0` only because their unpublished source manifests require a
+version field; they are not release inputs. Reject a dirty worktree. Set
+`SOURCE_DATE_EPOCH` from the release-tag commit timestamp.
 
 No compilation belongs in `post_install()` or another Pacman transaction
 hook. Installation only verifies signatures, resolves dependencies, and
@@ -725,8 +731,9 @@ The stable PKGBUILD must:
 - declare the immutable Denial source and vendor closure in `source=()`;
 - use checksums for every source and signatures where available;
 - package only files produced below `$srcdir` and `$pkgdir`;
-- accept release identity only from the tag-verifying release controller and
-  reject unrelated environment overrides or externally injected binaries;
+- accept release identity only from the tag-verifying release controller;
+- accept compiled payloads only from the independently verified exact-commit
+  `main` production candidate and prove them unchanged after repackaging;
 - generate `.SRCINFO` from the final tag-derived metadata;
 - reset `pkgrel` to `1` for each new Denial version and increment it only for
   packaging changes;
@@ -825,11 +832,11 @@ The release authority should use:
 
 The initial x86-64 authority is a dedicated, maintainer-owned Arch Linux
 laptop. Ownership is disclosed and is not presented as an independent trust
-domain. It accepts only explicitly armed trusted-`main` jobs and manually
-dispatched signed-tag release jobs. It never runs pull-request or fork code,
-contains no production signing key, and registers as an ephemeral one-job
-runner. The public operating contract and bring-up procedure are recorded in
-[BUILDER.md](BUILDER.md).
+domain. It accepts only explicitly armed trusted `dev` and `main` build jobs.
+Signed-tag promotion, signing, and publication use hosted jobs instead. The
+laptop never runs pull-request or fork code, contains no production signing
+key, and registers as an ephemeral one-job runner. The public operating
+contract and bring-up procedure are recorded in [BUILDER.md](BUILDER.md).
 
 Two clean builds on that laptop test determinism but are reported as
 same-builder reproduction. Only a byte-identical result from infrastructure
@@ -1163,9 +1170,11 @@ The repository has not yet implemented the complete production design:
 - the two Stage 1 PKGBUILDs are `x86_64`-only and package artifacts produced
   by the cache-backed prototype build rather than compiling their complete
   source closure inside `build()`;
-- development builds still use VCS-derived package versions, while the
-  public-alpha path accepts only a clean `vMAJOR.MINOR.PATCH` tag, derives all
-  release versions from it, and fixes `pkgrel=1`;
+- development candidates still use VCS-derived package versions. The
+  production `main` candidate is built before a public version is chosen; the
+  public-alpha path accepts only a clean `vMAJOR.MINOR.PATCH` tag on that exact
+  commit, derives all final package and runtime versions from it, fixes
+  `pkgrel=1`, and promotes the candidate's compiled payloads unchanged;
 - the project-level GPL-3.0-or-later grant now exists, while a generated
   third-party license inventory remains pending;
 - the prototype `denial` package retains production symbols with
@@ -1283,19 +1292,25 @@ gates apply to every later release:
 
 1. review a clean release commit and its resource, attribution, documentation,
    package, and workflow changes;
-2. validate the exact commit through the unsigned `dev` candidate lane and
-   promote it unchanged to `main`;
-3. choose the version, then create and push a signed
-   `vMAJOR.MINOR.PATCH` tag on that validated commit now contained in `main`;
-4. manually run `.github/workflows/release.yml` for that tag;
-5. verify the Pages repository and GitHub Release produced by the workflow;
-6. install or upgrade through `pacman -Syu` on a real Arch system; and
-7. retain the package, database, signature, checksum, and build evidence.
+2. validate the exact commit through the unsigned, non-releasable `dev`
+   candidate lane;
+3. merge that exact tree to `main`, then build and independently verify a new
+   production-mode candidate from the `main` commit;
+4. only after that candidate is green, choose the version and create and push
+   a signed `vMAJOR.MINOR.PATCH` tag on the exact candidate commit;
+5. manually run `.github/workflows/release.yml` for that tag;
+6. verify the Pages repository and GitHub Release produced by the workflow;
+7. install or upgrade through `pacman -Syu` on a real Arch system; and
+8. retain the package, database, signature, checksum, and build evidence.
 
 The workflow itself:
 
-- rebuilds and tests only on the ephemeral owner-operated x86-64 runner;
-- transfers unsigned packages and evidence to a GitHub-hosted signing job;
+- resolves the successful exact-commit `main` production-candidate run;
+- downloads its retained unsigned packages and evidence without using the
+  owner-operated runner;
+- repackages only to apply tag-derived Pacman metadata and the installed
+  runtime version, while comparing full payload manifests and refusing any
+  compiled-file change;
 - signs exactly one `denial`, one compatible `denial-flutter-engine`, and,
   beginning with 0.2.0, one optional version-matched
   `denial-ui-development`;
@@ -1305,14 +1320,9 @@ The workflow itself:
 - creates a draft GitHub prerelease, deploys the Pages artifact, and publishes
   the prerelease only after the deployment succeeds.
 
-If the owner-operated build completes but a later hosted signing or
-publication stage fails, do not rebuild the package set. After repairing and
-validating release-only tooling on `dev`, dispatch
-`.github/workflows/release-resume.yml` on `main` with the signed tag and failed
-build run ID. The recovery workflow accepts only the retained immutable
-unsigned handoff whose provenance matches that tag and run, restricts all
-post-tag source differences to reviewed release tooling, and repeats signing,
-independent verification, and atomic publication without using `.18`.
+The retained `main` artifact is the source for every attempt to publish that
+tag. Retrying hosted promotion, signing, or publication must not compile or
+substitute another branch artifact.
 
 Stage 1.5 explicitly does not claim:
 

@@ -355,13 +355,15 @@ fn build_development_client(
 ) -> Result<(), ToolError> {
     let jobs = build_parallelism()?.to_string();
     let rustflags = package_rustflags(&paths.repository)?;
+    let build_identity =
+        env::var("DENIAL_BUILD_IDENTITY").unwrap_or_else(|_| identity.version.clone());
     let mut cargo = Command::new("cargo");
     cargo
         .current_dir(&paths.compositor)
         .env("CARGO_TARGET_DIR", &paths.rust_target)
         .env("CARGO_INCREMENTAL", "0")
         .env("CARGO_PROFILE_RELEASE_STRIP", "symbols")
-        .env("DENIAL_BUILD_VERSION", &identity.version)
+        .env("DENIAL_BUILD_VERSION", build_identity)
         .env_remove("RUSTFLAGS")
         .env("CARGO_ENCODED_RUSTFLAGS", rustflags)
         .args([

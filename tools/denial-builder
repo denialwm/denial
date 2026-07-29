@@ -35,9 +35,9 @@ Commands:
   qualify  Arm a runner, dispatch the main-only qualification, and watch it.
   validate-dev
            Arm a runner, build and independently verify a dev candidate.
-  validate Verify that main is an unchanged, previously validated dev promotion.
+  validate Arm a runner, build and independently verify a main production candidate.
   release TAG
-           Build, sign, verify, and publish one signed version tag.
+           Promote, sign, verify, and publish an existing main candidate.
   status   Show the local service and GitHub runner registration.
   logs     Show recent runner service logs.
   cancel   Stop the runner, wipe its instance, and delete its registration.
@@ -326,8 +326,10 @@ run_manual_workflow() (
   ((watch_status == 0)) \
     || fail "$run_label failed with status $watch_status"
 
-  cancel_runner
-  armed=0
+  if ((armed)); then
+    cancel_runner
+    armed=0
+  fi
   trap - EXIT
 )
 
@@ -341,9 +343,8 @@ qualify_builder() {
 validate_builder() {
   run_manual_workflow \
     branch-validation.yml \
-    'Main promotion verification' \
-    main \
-    0
+    'Main production validation' \
+    main
 }
 
 validate_dev_builder() {
@@ -409,7 +410,8 @@ release_builder() {
   run_manual_workflow \
     release.yml \
     "Public release $release_tag" \
-    "$release_tag"
+    "$release_tag" \
+    0
 }
 
 show_status() {

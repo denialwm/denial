@@ -48,7 +48,7 @@ fn run() -> Result<(), CliError> {
         return Ok(());
     }
     if matches!(options.command, Command::Version) {
-        println!("denialctl {}", denial_core::VERSION);
+        println!("denialctl {}", denial_core::version());
         return Ok(());
     }
 

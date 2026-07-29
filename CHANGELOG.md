@@ -13,9 +13,9 @@ boundaries may change before 1.0.
   `sudo pacman -Syu denial` command.
 - Signed tags now provide package and user-visible runtime versions without a
   predictive Cargo, Dart, PKGBUILD, manual-page, or changelog version bump.
-- Promotion preserves the exact green `dev` commit. The `main` gate verifies
-  that unchanged merge and its successful independent validation instead of
-  rebuilding an identical source tree.
+- `dev` candidates are never published. After an exact validated merge,
+  `main` independently builds the production candidate; a later signed tag
+  versions and publishes those exact compiled payloads without rebuilding.
 
 ## [0.2.1] - 2026-07-29
 

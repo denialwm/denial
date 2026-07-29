@@ -1,0 +1,359 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+readonly ROOT
+
+fail() {
+  printf 'promote-denial-arch-candidate: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tools/promote-denial-arch-candidate \
+    CANDIDATE_ROOT OUTPUT_ROOT RELEASE_TAG SOURCE_SHA EVIDENCE_FILE
+
+Repackage the exact payloads from an independently verified main candidate.
+The signed tag supplies package metadata and the installed runtime version;
+this command never compiles source code.
+EOF
+}
+
+if (($# != 5)); then
+  usage >&2
+  exit 2
+fi
+
+for required_command in \
+  awk basename bsdtar cmp cp diff dirname env find git grep head install makepkg \
+  mktemp readlink realpath rm rmdir sed sha256sum sort stat; do
+  command -v "$required_command" >/dev/null 2>&1 \
+    || fail "missing command: $required_command"
+done
+
+((EUID != 0)) || fail 'makepkg promotion must run as an unprivileged user'
+
+CANDIDATE_ROOT="$(realpath -e -- "$1")"
+readonly CANDIDATE_ROOT
+OUTPUT_ROOT="$(realpath -m -- "$2")"
+readonly OUTPUT_ROOT
+RELEASE_TAG="$3"
+readonly RELEASE_TAG
+SOURCE_SHA="$4"
+readonly SOURCE_SHA
+EVIDENCE_FILE="$(realpath -m -- "$5")"
+readonly EVIDENCE_FILE
+readonly CANDIDATE_PACKAGES="${CANDIDATE_ROOT}/packages"
+readonly CANDIDATE_PROVENANCE="${CANDIDATE_ROOT}/evidence/provenance.txt"
+
+[[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+  || fail 'release tag must have the form vMAJOR.MINOR.PATCH'
+[[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] \
+  || fail 'source commit must be a complete Git commit ID'
+[[ -d "$CANDIDATE_PACKAGES" ]] \
+  || fail "candidate package directory is missing: $CANDIDATE_PACKAGES"
+[[ -f "$CANDIDATE_PROVENANCE" ]] \
+  || fail "candidate provenance is missing: $CANDIDATE_PROVENANCE"
+[[ "$(git -C "$ROOT" rev-parse HEAD)" == "$SOURCE_SHA" ]] \
+  || fail 'checked-out source does not match the candidate commit'
+[[ "$(git -C "$ROOT" rev-parse "${RELEASE_TAG}^{commit}")" == "$SOURCE_SHA" ]] \
+  || fail 'signed release tag does not identify the candidate commit'
+if ! git -C "$ROOT" diff --quiet \
+  || ! git -C "$ROOT" diff --cached --quiet; then
+  fail 'tracked release source contains changes'
+fi
+
+for expected in \
+  'artifact_class=production-release-candidate' \
+  'publication_authorized=false' \
+  'release_signing_eligible=true' \
+  'signature_status=unsigned' \
+  'package_release=0' \
+  "source_commit=$SOURCE_SHA" \
+  'source_ref=refs/heads/main' \
+  'workflow_event=push' \
+  'build_mode=production'; do
+  grep -Fxq "$expected" "$CANDIDATE_PROVENANCE" \
+    || fail "candidate provenance is missing: $expected"
+done
+
+(
+  cd "$CANDIDATE_PACKAGES"
+  sha256sum --check --strict SHA256SUMS
+) || fail 'candidate package checksums failed'
+
+if [[ -e "$OUTPUT_ROOT" ]] \
+  && find "$OUTPUT_ROOT" -mindepth 1 -print -quit | grep -q .; then
+  fail "output directory is not empty: $OUTPUT_ROOT"
+fi
+if [[ -e "$EVIDENCE_FILE" ]]; then
+  fail "evidence output already exists: $EVIDENCE_FILE"
+fi
+install -d -m 0755 "$OUTPUT_ROOT" "$(dirname -- "$EVIDENCE_FILE")"
+
+work_root="$(mktemp -d "${TMPDIR:-/tmp}/denial-promotion.XXXXXX")"
+readonly work_root
+cleanup() {
+  if [[ "$work_root" == "${TMPDIR:-/tmp}"/denial-promotion.* ]]; then
+    rm -rf --one-file-system -- "$work_root"
+  fi
+}
+trap cleanup EXIT
+
+release_version="${RELEASE_TAG#v}"
+readonly release_version
+source_date_epoch="$(git -C "$ROOT" show -s --format=%ct "$SOURCE_SHA")"
+readonly source_date_epoch
+packager="${DENIAL_PACKAGE_PACKAGER:-Doctor Logix <doctor.logix@gmail.com>}"
+readonly packager
+runtime_version_file="$work_root/release-version"
+printf '%s\n' "$release_version" >"$runtime_version_file"
+readonly runtime_version_file
+
+declare -A candidate_package_by_name=()
+mapfile -d '' candidate_packages < <(
+  find "$CANDIDATE_PACKAGES" \
+    -maxdepth 1 \
+    -type f \
+    -name '*.pkg.tar.zst' \
+    -print0 \
+    | sort -z
+)
+((${#candidate_packages[@]} == 3)) \
+  || fail "expected three candidate packages, found ${#candidate_packages[@]}"
+
+for package in "${candidate_packages[@]}"; do
+  package_info="$(bsdtar -xOf "$package" .PKGINFO)"
+  package_name="$(
+    sed -n 's/^pkgname = //p' <<<"$package_info" | head -n 1
+  )"
+  package_version="$(
+    sed -n 's/^pkgver = //p' <<<"$package_info" | head -n 1
+  )"
+  package_arch="$(
+    sed -n 's/^arch = //p' <<<"$package_info" | head -n 1
+  )"
+  [[ "$package_arch" == x86_64 ]] \
+    || fail "$(basename -- "$package") is not an x86-64 package"
+  [[ "$package_version" == *-0 ]] \
+    || fail "$(basename -- "$package") is not a package-release 0 candidate"
+  case "$package_name" in
+    denial | denial-flutter-engine | denial-ui-development) ;;
+    *) fail "unexpected candidate package: ${package_name:-unset}" ;;
+  esac
+  [[ -z "${candidate_package_by_name[$package_name]:-}" ]] \
+    || fail "duplicate candidate package: $package_name"
+  candidate_package_by_name[$package_name]="$package"
+done
+for package_name in \
+  denial \
+  denial-flutter-engine \
+  denial-ui-development; do
+  [[ -n "${candidate_package_by_name[$package_name]:-}" ]] \
+    || fail "candidate package is missing: $package_name"
+done
+
+payload_manifest() (
+  local path
+  local relative
+  local type
+  local mode
+  local digest
+  local target
+  local payload_root="$1"
+
+  cd "$payload_root"
+  while IFS= read -r -d '' path; do
+    relative="${path#./}"
+    mode="$(stat -c '%a' -- "$path")"
+    if [[ -L "$path" ]]; then
+      type=l
+      target="$(readlink -- "$path")"
+      printf '%s\t%s\t%s\t%s\n' "$type" "$mode" "$target" "$relative"
+    elif [[ -d "$path" ]]; then
+      type=d
+      printf '%s\t%s\t%s\n' "$type" "$mode" "$relative"
+    elif [[ -f "$path" ]]; then
+      type=f
+      digest="$(sha256sum -- "$path" | awk '{ print $1 }')"
+      printf '%s\t%s\t%s\t%s\n' "$type" "$mode" "$digest" "$relative"
+    else
+      fail "payload contains an unsupported entry: $relative"
+    fi
+  done < <(find . -mindepth 1 -print0 | sort -z)
+)
+
+extract_payload() {
+  local package="$1"
+  local destination="$2"
+  local metadata
+
+  install -d -m 0755 "$destination"
+  bsdtar -xpf "$package" -C "$destination"
+  for metadata in .BUILDINFO .CHANGELOG .INSTALL .MTREE .PKGINFO; do
+    rm -f -- "$destination/$metadata"
+  done
+  if find "$destination" -mindepth 1 -maxdepth 1 -name '.*' \
+    -print -quit | grep -q .; then
+    fail "$(basename -- "$package") contains unexpected root metadata"
+  fi
+}
+
+package_directory() {
+  case "$1" in
+    denial) printf '%s\n' "$ROOT/packaging/arch" ;;
+    denial-flutter-engine)
+      printf '%s\n' "$ROOT/packaging/arch/flutter-engine"
+      ;;
+    denial-ui-development)
+      printf '%s\n' "$ROOT/packaging/arch/ui-development"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+expected_release_package() {
+  case "$1" in
+    denial)
+      printf '%s\n' \
+        "$OUTPUT_ROOT/denial-${release_version}-1-x86_64.pkg.tar.zst"
+      ;;
+    denial-flutter-engine)
+      printf '%s\n' \
+        "$OUTPUT_ROOT/denial-flutter-engine-1:${release_version}-1-x86_64.pkg.tar.zst"
+      ;;
+    denial-ui-development)
+      printf '%s\n' \
+        "$OUTPUT_ROOT/denial-ui-development-${release_version}-1-x86_64.pkg.tar.zst"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+{
+  printf 'promotion_schema=1\n'
+  printf 'release_tag=%s\n' "$RELEASE_TAG"
+  printf 'release_version=%s\n' "$release_version"
+  printf 'source_commit=%s\n' "$SOURCE_SHA"
+  printf 'candidate_workflow_run=%s\n' \
+    "$(sed -n 's/^workflow_run=//p' "$CANDIDATE_PROVENANCE")"
+  printf 'candidate_artifact_class=production-release-candidate\n'
+  printf 'compiled_payloads_changed=false\n'
+} >"$EVIDENCE_FILE"
+
+for package_name in \
+  denial-flutter-engine \
+  denial \
+  denial-ui-development; do
+  candidate_package="${candidate_package_by_name[$package_name]}"
+  candidate_payload="$work_root/candidate-payload/$package_name"
+  candidate_manifest="$work_root/candidate-$package_name.manifest"
+  final_payload="$work_root/final-payload/$package_name"
+  final_manifest="$work_root/final-$package_name.manifest"
+  build_root="$work_root/makepkg/$package_name"
+  package_dir="$(package_directory "$package_name")"
+  final_package="$(expected_release_package "$package_name")"
+
+  extract_payload "$candidate_package" "$candidate_payload"
+  payload_manifest "$candidate_payload" >"$candidate_manifest"
+  makepkg_environment=(
+    env
+    LC_ALL=C
+    "SOURCE_DATE_EPOCH=$source_date_epoch"
+    "DENIAL_PACKAGE_SOURCE_ROOT=$ROOT"
+    "DENIAL_PACKAGE_PAYLOAD_ROOT=$candidate_payload"
+    "DENIAL_PACKAGE_VERSION=$release_version"
+    'DENIAL_PACKAGE_RELEASE=1'
+    "PKGDEST=$OUTPUT_ROOT"
+    "BUILDDIR=$build_root"
+    "PACKAGER=$packager"
+  )
+  if [[ "$package_name" == denial ]]; then
+    makepkg_environment+=(
+      "DENIAL_PACKAGE_RUNTIME_VERSION_FILE=$runtime_version_file"
+    )
+  else
+    makepkg_environment+=('DENIAL_PACKAGE_RUNTIME_VERSION_FILE=')
+  fi
+  "${makepkg_environment[@]}" \
+    makepkg \
+      --dir "$package_dir" \
+      --force \
+      --nodeps \
+      --noconfirm \
+      --repackage
+
+  [[ -f "$final_package" ]] \
+    || fail "promoted package is missing: $final_package"
+  extract_payload "$final_package" "$final_payload"
+  if [[ "$package_name" == denial ]]; then
+    [[ "$(<"$final_payload/usr/share/denial/version")" == "$release_version" ]] \
+      || fail 'promoted Denial payload has the wrong runtime version'
+    rm -- "$final_payload/usr/share/denial/version"
+    rmdir --ignore-fail-on-non-empty \
+      "$final_payload/usr/share/denial"
+  fi
+  payload_manifest "$final_payload" >"$final_manifest"
+  if ! cmp -- "$candidate_manifest" "$final_manifest"; then
+    diff -u -- "$candidate_manifest" "$final_manifest" >&2 || true
+    fail "$package_name payload changed during promotion"
+  fi
+
+  {
+    printf '\npackage=%s\n' "$package_name"
+    printf 'candidate_file=%s\n' "$(basename -- "$candidate_package")"
+    printf 'candidate_sha256=%s\n' \
+      "$(sha256sum "$candidate_package" | awk '{ print $1 }')"
+    printf 'release_file=%s\n' "$(basename -- "$final_package")"
+    printf 'release_sha256=%s\n' \
+      "$(sha256sum "$final_package" | awk '{ print $1 }')"
+    printf 'payload_manifest_sha256=%s\n' \
+      "$(sha256sum "$candidate_manifest" | awk '{ print $1 }')"
+  } >>"$EVIDENCE_FILE"
+done
+
+mapfile -d '' release_packages < <(
+  find "$OUTPUT_ROOT" \
+    -maxdepth 1 \
+    -type f \
+    -name '*.pkg.tar.zst' \
+    -print0 \
+    | sort -z
+)
+((${#release_packages[@]} == 3)) \
+  || fail "expected three promoted packages, found ${#release_packages[@]}"
+
+denial_package="$(expected_release_package denial)"
+engine_package="$(expected_release_package denial-flutter-engine)"
+ui_package="$(expected_release_package denial-ui-development)"
+grep -Fqx "pkgver = ${release_version}-1" \
+  < <(bsdtar -xOf "$denial_package" .PKGINFO) \
+  || fail 'promoted Denial package has the wrong version'
+grep -Fqx "pkgver = 1:${release_version}-1" \
+  < <(bsdtar -xOf "$engine_package" .PKGINFO) \
+  || fail 'promoted engine package has the wrong version'
+ui_package_info="$(bsdtar -xOf "$ui_package" .PKGINFO)"
+grep -Fqx "pkgver = ${release_version}-1" <<<"$ui_package_info" \
+  || fail 'promoted UI-development package has the wrong version'
+grep -Fqx "depend = denial>=${release_version}" <<<"$ui_package_info" \
+  || fail 'promoted UI-development package has the wrong Denial minimum'
+
+verification_root="$work_root/runtime-version-verification"
+extract_payload "$denial_package" "$verification_root"
+[[ "$("$verification_root/usr/bin/denialctl" --version)" == \
+  "denialctl $release_version" ]] \
+  || fail 'promoted denialctl does not resolve the tag-derived runtime version'
+
+(
+  cd "$OUTPUT_ROOT"
+  sha256sum -- *.pkg.tar.zst >SHA256SUMS
+  sha256sum --check --strict SHA256SUMS
+)
+
+printf '%s\n' \
+  "Promoted exact main candidate payloads for $RELEASE_TAG" \
+  "Packages: $OUTPUT_ROOT" \
+  "Evidence: $EVIDENCE_FILE"

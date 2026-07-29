@@ -16,13 +16,16 @@ pushing so `.github/workflows/branch-validation.yml` can build, package, and
 independently verify that exact commit. Do not repair pipeline failures
 directly on `main`; fix and prove them on `dev`, then promote the green commit
 through a merge-commit pull request whose tree is exactly the validated
-`dev` tree. Never squash or alter a validated promotion: the hosted `main`
-gate verifies its successful `dev` run instead of compiling the same tree
-again. Signed public releases remain restricted to separately signed version
-tags. The verified `vMAJOR.MINOR.PATCH` tag is the sole source of every
-release package and runtime version; Cargo and Dart manifest versions are
-source metadata, and Flutter generation identifiers are compatibility
-metadata.
+`dev` tree. Never squash or alter a validated promotion. After verifying that
+provenance, `main` independently builds and checks a production-mode,
+version-neutral release candidate; never promote a `dev` binary as a release.
+Choose and sign `vMAJOR.MINOR.PATCH` only after that exact `main` candidate is
+green. The tag workflow must promote the retained `main` payloads without
+compiling them again: the verified tag supplies package metadata and the
+installed runtime version, then the workflow signs and publishes the
+repository. The tag is the sole source of every release package and runtime
+version; Cargo and Dart manifest versions are source metadata, and Flutter
+generation identifiers are compatibility metadata.
 
 ## Graphical session control
 

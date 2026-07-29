@@ -19,7 +19,10 @@ concurrency:
 jobs:
   build:
     name: Build and test ${{ github.ref_name }} x86-64 candidate
-    if: github.ref == 'refs/heads/dev'
+    needs: authorize
+    if: >-
+      github.ref == 'refs/heads/dev'
+      || github.ref == 'refs/heads/main'
     runs-on:
       - self-hosted
       - linux
@@ -43,13 +46,33 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = refs/heads/dev
+          case "$GITHUB_REF" in
+            refs/heads/dev)
+              candidate_class='development-test-candidate'
+              release_signing_eligible='false'
+              validation_branch='dev'
+              build_mode='development'
+              ;;
+            refs/heads/main)
+              candidate_class='production-release-candidate'
+              release_signing_eligible='true'
+              validation_branch='main'
+              build_mode='production'
+              ;;
+            *)
+              printf 'Unsupported validation ref: %s\n' "$GITHUB_REF" >&2
+              exit 1
+              ;;
+          esac
           {
-            printf 'CANDIDATE_CLASS=%s\n' \
-              'development-test-candidate'
+            printf 'CANDIDATE_CLASS=%s\n' "$candidate_class"
             printf 'DENIAL_PACKAGE_RELEASE=%s\n' '0'
-            printf 'RELEASE_SIGNING_ELIGIBLE=false\n'
-            printf 'VALIDATION_BRANCH=%s\n' 'dev'
+            printf 'RELEASE_SIGNING_ELIGIBLE=%s\n' \
+              "$release_signing_eligible"
+            printf 'VALIDATION_BRANCH=%s\n' "$validation_branch"
+            printf 'CANDIDATE_BUILD_MODE=%s\n' "$build_mode"
+            printf 'DENIAL_BUILD_IDENTITY=%s.g%s\n' \
+              "$validation_branch" "$GITHUB_SHA"
           } >>"$GITHUB_ENV"
 
       - name: Define isolated build paths
@@ -254,6 +277,8 @@ jobs:
               "$RELEASE_SIGNING_ELIGIBLE"
             printf 'signature_status=unsigned\n'
             printf 'package_release=%s\n' "$DENIAL_PACKAGE_RELEASE"
+            printf 'build_mode=%s\n' "$CANDIDATE_BUILD_MODE"
+            printf 'build_identity=%s\n' "$DENIAL_BUILD_IDENTITY"
             printf 'source_commit=%s\n' "$GITHUB_SHA"
             printf 'source_ref=%s\n' "$GITHUB_REF"
             printf 'workflow_run=%s\n' "$GITHUB_RUN_ID"
@@ -267,11 +292,18 @@ jobs:
             printf 'created_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             uname -a
           } >"$CANDIDATE_ROOT/evidence/provenance.txt"
-          printf '%s\n' \
-            'This is an installable development test candidate built from dev.' \
-            'Its package release is 0 and it is ineligible for release signing or publication.' \
-            'A release must be rebuilt from a separately signed version tag.' \
-            >"$CANDIDATE_ROOT/NOTICE.txt"
+          if [[ "$VALIDATION_BRANCH" == dev ]]; then
+            printf '%s\n' \
+              'This is an installable development test candidate built from dev.' \
+              'Its package release is 0 and it is ineligible for release signing or publication.' \
+              >"$CANDIDATE_ROOT/NOTICE.txt"
+          else
+            printf '%s\n' \
+              'This is an unsigned production candidate built from main.' \
+              'Its package release is 0; publication remains forbidden until a signed tag promotes these exact payloads.' \
+              'Promotion may change package metadata and install the tag-derived runtime version, but must not rebuild or alter compiled files.' \
+              >"$CANDIDATE_ROOT/NOTICE.txt"
+          fi
           pacman -Q >"$CANDIDATE_ROOT/evidence/host-packages.txt"
           (
             cd compositor
@@ -300,12 +332,11 @@ jobs:
           name: denial-${{ github.ref_name }}-validated-candidate-${{ github.run_id }}
           path: ${{ runner.temp }}/denial-${{ github.ref_name }}-candidate.tar
           if-no-files-found: error
-          retention-days: 7
+          retention-days: ${{ github.ref == 'refs/heads/main' && 90 || 7 }}
           compression-level: 0
 
   verify:
     name: Independently verify candidate artifact
-    if: github.ref == 'refs/heads/dev'
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -356,18 +387,35 @@ jobs:
           CANDIDATE_ROOT: ${{ runner.temp }}/denial-${{ github.ref_name }}-candidate
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = refs/heads/dev
-          expected_class='development-test-candidate'
+          case "$GITHUB_REF" in
+            refs/heads/dev)
+              expected_class='development-test-candidate'
+              expected_signing_eligibility='false'
+              expected_build_mode='development'
+              ;;
+            refs/heads/main)
+              expected_class='production-release-candidate'
+              expected_signing_eligibility='true'
+              expected_build_mode='production'
+              ;;
+            *)
+              printf 'Unsupported validation ref: %s\n' "$GITHUB_REF" >&2
+              exit 1
+              ;;
+          esac
           expected_package_release='0'
           provenance="$CANDIDATE_ROOT/evidence/provenance.txt"
           test -f "$CANDIDATE_ROOT/NOTICE.txt"
           grep -Fxq "artifact_class=$expected_class" "$provenance"
           grep -Fxq 'publication_authorized=false' "$provenance"
-          grep -Fxq 'release_signing_eligible=false' "$provenance"
+          grep -Fxq \
+            "release_signing_eligible=$expected_signing_eligibility" \
+            "$provenance"
           grep -Fxq 'signature_status=unsigned' "$provenance"
           grep -Fxq \
             "package_release=$expected_package_release" \
             "$provenance"
+          grep -Fxq "build_mode=$expected_build_mode" "$provenance"
           grep -Fxq "source_commit=$GITHUB_SHA" "$provenance"
           grep -Fxq "source_ref=$GITHUB_REF" "$provenance"
 
@@ -462,6 +510,13 @@ jobs:
                   | grep -Fxq usr/bin/denialctl
                 bsdtar -tf "$package" \
                   | grep -Fxq usr/lib/denial/flutter/lib/libapp.so
+                if bsdtar -tf "$package" \
+                  | grep -Fxq usr/share/denial/version; then
+                  printf \
+                    'Candidate package predicts a public runtime version: %s\n' \
+                    "$package" >&2
+                  exit 1
+                fi
                 ;;
               denial-flutter-engine)
                 engine_packages=$((engine_packages + 1))
@@ -564,24 +619,31 @@ jobs:
       - name: Record validation result
         shell: bash
         run: |
-          printf '%s\n' \
-            'The installable dev candidate passed independent verification.' \
-            'Package release 0 is ineligible for release signing or publication.'
+          if [[ "$GITHUB_REF" == refs/heads/main ]]; then
+            printf '%s\n' \
+              'The production-mode main candidate passed independent verification.' \
+              'Its exact compiled payloads are eligible for later signed-tag promotion.'
+          else
+            printf '%s\n' \
+              'The installable dev candidate passed independent verification.' \
+              'Package release 0 is ineligible for release signing or publication.'
+          fi
 
-  promote:
-    name: Verify unchanged promotion from validated dev
-    if: github.ref == 'refs/heads/main'
+  authorize:
+    name: Authorize branch candidate build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     steps:
       - name: Check out main with promotion history
+        if: github.ref == 'refs/heads/main'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Verify exact validated dev promotion
+        if: github.ref == 'refs/heads/main'
         shell: bash
         env:
           EXPECTED_MAIN_SHA: ${{ github.sha }}
@@ -649,3 +711,13 @@ jobs:
             printf -- '- Main and validated dev tree: %s\n' \
               "$(git rev-parse 'HEAD^{tree}')"
           } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Authorize development candidate
+        if: github.ref == 'refs/heads/dev'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/dev
+          printf '%s\n' \
+            'Development source accepted for independent candidate validation.' \
+            >>"$GITHUB_STEP_SUMMARY"

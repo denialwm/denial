@@ -52,10 +52,12 @@ metadata, native `denial-ui` client, browser DevTools for Inspector and
 performance profiling, metadata, and licenses. Its build and validation
 workflow is documented in [UI development](../../UI_DEVELOPMENT.md).
 
-Development packages use a VCS-derived version. The public release workflow
-accepts only a clean signed `vMAJOR.MINOR.PATCH` tag matching both project
-version files, derives all three archive names from that tag, and emits
-`pkgrel=1`.
+Development candidates use a VCS-derived version. A separately built,
+version-neutral `main` production candidate is the only releasable payload.
+After it passes, the public release workflow accepts a clean signed
+`vMAJOR.MINOR.PATCH` tag on that exact commit, derives all three archive names
+from the tag, emits `pkgrel=1`, and verifies that repackaging did not alter any
+compiled file.
 
 Pacman owns the compositor, native control client, Flutter bundle, Wayland
 session, and portal configuration. `/etc/denial/outputs.conf` is the
@@ -102,6 +104,7 @@ rotation, and revocation procedure is in [SIGNING.md](SIGNING.md).
 The completed local package validation is recorded in
 [VALIDATION.md](VALIDATION.md). The public-alpha contract and later hardening
 stages are defined in [PUBLISHING.md](PUBLISHING.md). Trusted `dev` pushes
-produce the unsigned, independently checked candidate; `main` accepts only an
-unchanged promotion of one such candidate, as documented in
+produce non-releasable development candidates. An exact merge into `main`
+authorizes a fresh production build, whose independently checked payload is
+later promoted by a signed tag, as documented in
 [BRANCH_VALIDATION.md](BRANCH_VALIDATION.md).
