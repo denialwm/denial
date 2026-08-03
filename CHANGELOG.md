@@ -30,6 +30,9 @@ boundaries may change before 1.0.
 
 ### Fixed
 
+- DPMS wake now absorbs transient connector disconnects while monitors retrain
+  their links, preserving Wayland outputs and client windows across display
+  power cycles.
 - Fully opaque client content no longer requests backdrop blur merely because
   its shadow, rounded corners, or antialiased border carries alpha.
 - Complex Flutter damage regions no longer collapse touching L-shaped output
