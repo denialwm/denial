@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
+#[cfg(feature = "flutter")]
+use std::hash::Hash;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Instant;
@@ -107,8 +109,8 @@ use super::window_placement_store::{
 #[cfg(feature = "flutter")]
 use super::wire::{
     InputLayoutSnapshot, SurfaceLayerDescription, SurfaceRoleDescription, WindowAction,
-    WindowContentKind, WindowDescription, WindowGeometry, WindowPlacement, WindowPlacementChange,
-    WindowPlacementPhase,
+    WindowContentKind, WindowDescription, WindowGeometry, WindowOpacityClass, WindowPlacement,
+    WindowPlacementChange, WindowPlacementPhase,
 };
 
 #[path = "wayland_frontend/clipboard.rs"]
@@ -171,6 +173,72 @@ const MAX_PENDING_DMABUF_IMPORTS: usize = 128;
 
 fn dmabuf_import_queue_has_capacity(pending: usize) -> bool {
     pending < MAX_PENDING_DMABUF_IMPORTS
+}
+
+#[cfg(feature = "flutter")]
+#[derive(Debug)]
+struct OutputWindowMembership<K, V> {
+    output_by_window: HashMap<K, OutputId>,
+    windows_by_output: HashMap<OutputId, Vec<(K, V)>>,
+}
+
+#[cfg(feature = "flutter")]
+impl<K, V> Default for OutputWindowMembership<K, V> {
+    fn default() -> Self {
+        Self {
+            output_by_window: HashMap::new(),
+            windows_by_output: HashMap::new(),
+        }
+    }
+}
+
+#[cfg(feature = "flutter")]
+impl<K: Clone + Eq + Hash, V> OutputWindowMembership<K, V> {
+    fn update(&mut self, key: K, value: V, output: Option<OutputId>) -> bool {
+        if self.output_by_window.get(&key).copied() == output {
+            return false;
+        }
+        self.remove(&key);
+        let Some(output) = output else {
+            return true;
+        };
+        self.output_by_window.insert(key.clone(), output);
+        self.windows_by_output
+            .entry(output)
+            .or_default()
+            .push((key, value));
+        true
+    }
+
+    fn remove(&mut self, key: &K) -> Option<V> {
+        let output = self.output_by_window.remove(key)?;
+        let windows = self
+            .windows_by_output
+            .get_mut(&output)
+            .expect("window output index lost its output bucket");
+        let index = windows
+            .iter()
+            .position(|(candidate, _)| candidate == key)
+            .expect("window output index lost its window entry");
+        let (_, value) = windows.swap_remove(index);
+        if windows.is_empty() {
+            self.windows_by_output.remove(&output);
+        }
+        Some(value)
+    }
+
+    fn clear(&mut self) {
+        self.output_by_window.clear();
+        self.windows_by_output.clear();
+    }
+
+    fn windows(&self, output: OutputId) -> impl Iterator<Item = &V> {
+        self.windows_by_output
+            .get(&output)
+            .into_iter()
+            .flatten()
+            .map(|(_, window)| window)
+    }
 }
 
 #[cfg(feature = "flutter")]
@@ -249,6 +317,8 @@ pub(super) struct WaylandFrontend {
     scene_complex_windows: HashSet<u64>,
     #[cfg(feature = "flutter")]
     scene_complex_windows_scratch: HashSet<u64>,
+    #[cfg(feature = "flutter")]
+    output_window_membership: OutputWindowMembership<ObjectId, Window>,
     #[cfg(feature = "flutter")]
     local_windows: LocalFlutterWindows,
     #[cfg(feature = "flutter")]
@@ -448,6 +518,68 @@ struct SurfaceTreeContext {
 enum SurfaceCommitKind {
     BufferOnly,
     Metadata,
+}
+
+#[cfg(feature = "flutter")]
+const BORDER_ALPHA_MAX_INSET: i32 = 16;
+#[cfg(feature = "flutter")]
+const BORDER_ALPHA_MIN_COVERAGE_PERCENT: i64 = 90;
+
+#[cfg(feature = "flutter")]
+fn classify_window_opacity(
+    surface_bounds: Rectangle<i32, Logical>,
+    content: Rectangle<i32, Logical>,
+    opaque_regions: Option<&[Rectangle<i32, Logical>]>,
+    opacity: f32,
+) -> WindowOpacityClass {
+    if opacity < 1.0 || content.size.w <= 0 || content.size.h <= 0 {
+        return WindowOpacityClass::ContentTranslucent;
+    }
+    if !surface_bounds.contains_rect(content) {
+        return WindowOpacityClass::ContentTranslucent;
+    }
+    let Some(opaque_regions) = opaque_regions else {
+        return WindowOpacityClass::ContentTranslucent;
+    };
+
+    let missing = content.subtract_rects(opaque_regions.iter().copied());
+    if missing.is_empty() {
+        return WindowOpacityClass::FullyOpaque;
+    }
+
+    let content_area = i64::from(content.size.w) * i64::from(content.size.h);
+    let missing_area = missing
+        .iter()
+        .map(|rect| i64::from(rect.size.w) * i64::from(rect.size.h))
+        .sum::<i64>();
+    let opaque_area = content_area.saturating_sub(missing_area);
+    if opaque_area.saturating_mul(100)
+        < content_area.saturating_mul(BORDER_ALPHA_MIN_COVERAGE_PERCENT)
+    {
+        return WindowOpacityClass::ContentTranslucent;
+    }
+
+    // XDG window geometry already removes client-side shadow padding. Permit
+    // only a narrow residual edge band for rounded corners and decoration
+    // antialiasing; any unknown alpha reaching the interior remains genuinely
+    // content-translucent.
+    let inset = (content.size.w.min(content.size.h) / 10).clamp(1, BORDER_ALPHA_MAX_INSET);
+    let interior_size = (content.size.w - inset * 2, content.size.h - inset * 2);
+    if interior_size.0 <= 0 || interior_size.1 <= 0 {
+        return WindowOpacityClass::ContentTranslucent;
+    }
+    let interior = Rectangle::new(
+        (content.loc.x + inset, content.loc.y + inset).into(),
+        interior_size.into(),
+    );
+    if interior
+        .subtract_rects(opaque_regions.iter().copied())
+        .is_empty()
+    {
+        WindowOpacityClass::BorderAlphaOnly
+    } else {
+        WindowOpacityClass::ContentTranslucent
+    }
 }
 
 #[cfg(feature = "flutter")]
@@ -825,6 +957,8 @@ impl WaylandFrontend {
             scene_complex_windows: HashSet::new(),
             #[cfg(feature = "flutter")]
             scene_complex_windows_scratch: HashSet::new(),
+            #[cfg(feature = "flutter")]
+            output_window_membership: OutputWindowMembership::default(),
             #[cfg(feature = "flutter")]
             local_windows: LocalFlutterWindows::default(),
             #[cfg(feature = "flutter")]
@@ -1317,6 +1451,8 @@ impl WaylandFrontend {
             // stretches independent auxiliary toplevels to the main window.
             toplevel.with_pending_state(|pending| pending.size = None);
             self.space.relocate_element(window, restored.geometry.loc);
+            #[cfg(feature = "flutter")]
+            self.update_window_output_membership(window);
             self.pending_client_sized_placements.insert(
                 object_id.clone(),
                 PendingClientSizedPlacement {
@@ -1417,6 +1553,8 @@ impl WaylandFrontend {
             output_geometry,
         );
         self.space.relocate_element(window, target.loc);
+        #[cfg(feature = "flutter")]
+        self.update_window_output_membership(window);
         self.pending_client_sized_placements.remove(&object_id);
         info!(
             x = target.loc.x,
@@ -1498,6 +1636,32 @@ impl WaylandFrontend {
             .unwrap_or_else(|| window.bbox())
     }
 
+    #[cfg(feature = "flutter")]
+    pub(super) fn update_window_output_membership(&mut self, window: &Window) {
+        let Some(root_surface) = self.window_root_surface(window) else {
+            return;
+        };
+        let output = self
+            .output_index_for_geometry(self.window_geometry_target(window))
+            .map(|index| self.outputs[index].id);
+        self.output_window_membership
+            .update(root_surface.id(), window.clone(), output);
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn remove_window_output_membership(&mut self, surface: &WlSurface) {
+        self.output_window_membership.remove(&surface.id());
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn rebuild_window_output_membership(&mut self) {
+        self.output_window_membership.clear();
+        let windows = self.space.elements().cloned().collect::<Vec<_>>();
+        for window in windows {
+            self.update_window_output_membership(&window);
+        }
+    }
+
     pub(super) fn set_window_geometry_target(
         &mut self,
         window: &Window,
@@ -1532,6 +1696,8 @@ impl WaylandFrontend {
             self.configured_window_geometries
                 .insert(root_surface.id(), target);
         }
+        #[cfg(feature = "flutter")]
+        self.update_window_output_membership(window);
     }
 
     fn reconcile_committed_window_geometry(&mut self, window: &Window) {
@@ -1821,6 +1987,8 @@ impl WaylandFrontend {
 
     fn remove_surface_state(&mut self, surface: &WlSurface, remove_identity: bool) {
         let object_id = surface.id();
+        #[cfg(feature = "flutter")]
+        self.remove_window_output_membership(surface);
         #[cfg(feature = "flutter")]
         self.idle_inhibitors.remove_surface(surface);
         #[cfg(feature = "flutter")]
@@ -2642,6 +2810,18 @@ impl WaylandFrontend {
                     layer.opaque = false;
                 }
             }
+            let opacity_class = with_renderer_surface_state(&surface, |state| {
+                let Some(view) = state.view() else {
+                    return WindowOpacityClass::ContentTranslucent;
+                };
+                classify_window_opacity(
+                    Rectangle::from_size(view.dst),
+                    content,
+                    state.opaque_regions(),
+                    opacity * window_opacity,
+                )
+            })
+            .unwrap_or(WindowOpacityClass::ContentTranslucent);
             let description = WindowDescription {
                 object_id: stable_id,
                 surface_id: stable_id,
@@ -2675,6 +2855,7 @@ impl WaylandFrontend {
                 opacity: opacity * window_opacity,
                 surfaces: layers,
                 content_kind: WindowContentKind::SurfaceTree,
+                opacity_class,
             };
             if let Some(previous) = windows.get_mut(window_count) {
                 *previous = description;
@@ -2764,6 +2945,7 @@ impl WaylandFrontend {
                 opacity: 1.0,
                 surfaces,
                 content_kind: WindowContentKind::LocalFlutter,
+                opacity_class: WindowOpacityClass::FullyOpaque,
             };
             if let Some(previous) = windows.get_mut(window_count) {
                 *previous = description;
@@ -3005,18 +3187,11 @@ impl WaylandFrontend {
             entry.submitted_this_batch = output_ids.contains(&entry.id);
             if entry.submitted_this_batch {
                 entry.presentation_batch.begin(&entry.output);
-            }
-        }
-        for window in self.space.elements() {
-            let geometry = self.window_geometry_target(window);
-            let Some(output_index) = self.output_index_for_geometry(geometry) else {
-                continue;
-            };
-            if self.outputs[output_index].submitted_this_batch {
-                let entry = &mut self.outputs[output_index];
-                entry
-                    .presentation_batch
-                    .submit_window(&entry.output, window);
+                for window in self.output_window_membership.windows(entry.id) {
+                    entry
+                        .presentation_batch
+                        .submit_window(&entry.output, window);
+                }
             }
         }
         self.display_handle.flush_clients()?;
@@ -3060,23 +3235,15 @@ impl WaylandFrontend {
             .presented_at
             .unwrap_or_else(|| self.presentation.monotonic_now());
         let mut sent = 0usize;
-        for window in self.space.elements() {
-            let geometry = self.window_geometry_target(window);
-            let Some(output_index) = self.output_index_for_geometry(geometry) else {
-                continue;
-            };
-            if self.outputs[output_index].id == tick.output {
-                sent = sent.saturating_add(presentation::send_window_frame_callbacks(
-                    window,
-                    callback_time,
-                ));
-            }
+        for window in self.output_window_membership.windows(tick.output) {
+            sent = sent.saturating_add(presentation::send_window_frame_callbacks(
+                window,
+                callback_time,
+            ));
         }
         if sent == 0 {
             return Ok(());
         }
-        self.space.refresh();
-        self.popups.cleanup();
         self.display_handle.flush_clients()?;
         Ok(())
     }
@@ -3210,10 +3377,13 @@ smithay::delegate_dispatch2!(RuntimeState);
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "flutter")]
+    use super::OutputWindowMembership;
+    #[cfg(feature = "flutter")]
     use super::{
         CursorImageStatus, RoutedPointerTarget, ShellFullscreenTransition,
-        accepted_flutter_cursor_shape, input_routing_changed, input_visibility_changed,
-        shell_fullscreen_transition, software_cursor_shape, window_expects_sample,
+        accepted_flutter_cursor_shape, classify_window_opacity, input_routing_changed,
+        input_visibility_changed, shell_fullscreen_transition, software_cursor_shape,
+        window_expects_sample,
     };
     use super::{
         InitialXdgPlacementPolicy, MAX_PENDING_DMABUF_IMPORTS, dmabuf_import_queue_has_capacity,
@@ -3222,12 +3392,56 @@ mod tests {
     use super::{RuntimeState, ViewporterState};
     use crate::window_placement_store::WindowPlacementState;
     #[cfg(feature = "flutter")]
-    use crate::wire::{InputLayoutSnapshot, InputRect};
+    use crate::wire::{InputLayoutSnapshot, InputRect, WindowOpacityClass};
+    #[cfg(feature = "flutter")]
+    use denial_core::topology::OutputId;
     #[cfg(feature = "flutter")]
     use smithay::input::pointer::CursorIcon;
     use smithay::reexports::wayland_server::Display;
     #[cfg(feature = "flutter")]
+    use smithay::utils::{Logical, Rectangle};
+    #[cfg(feature = "flutter")]
     use std::collections::HashSet;
+
+    #[cfg(feature = "flutter")]
+    #[test]
+    fn window_opacity_distinguishes_content_from_client_decoration_alpha() {
+        let surface = Rectangle::<i32, Logical>::from_size((2572, 1438).into());
+        let content = Rectangle::<i32, Logical>::new((16, 18).into(), (2540, 1396).into());
+        let chromium_regions = [
+            Rectangle::new((24, 10).into(), (2524, 8).into()),
+            Rectangle::new((16, 18).into(), (2540, 1388).into()),
+        ];
+
+        assert_eq!(
+            classify_window_opacity(surface, content, Some(&chromium_regions), 1.0),
+            WindowOpacityClass::BorderAlphaOnly
+        );
+        assert_eq!(
+            classify_window_opacity(surface, content, Some(&[content]), 1.0),
+            WindowOpacityClass::FullyOpaque
+        );
+        assert_eq!(
+            classify_window_opacity(surface, content, Some(&chromium_regions), 0.0),
+            WindowOpacityClass::ContentTranslucent
+        );
+    }
+
+    #[cfg(feature = "flutter")]
+    #[test]
+    fn alpha_reaching_the_window_interior_remains_content_translucent() {
+        let surface = Rectangle::<i32, Logical>::from_size((1000, 1000).into());
+        let opaque = [Rectangle::new((0, 0).into(), (1000, 940).into())];
+
+        assert_eq!(
+            classify_window_opacity(surface, surface, Some(&opaque), 1.0),
+            WindowOpacityClass::ContentTranslucent
+        );
+        assert_eq!(
+            classify_window_opacity(surface, surface, None, 1.0),
+            WindowOpacityClass::ContentTranslucent
+        );
+    }
 
     #[test]
     fn advertises_wp_viewporter_version_one() {
@@ -3253,6 +3467,38 @@ mod tests {
             MAX_PENDING_DMABUF_IMPORTS
         ));
         assert!(!dmabuf_import_queue_has_capacity(usize::MAX));
+    }
+
+    #[cfg(feature = "flutter")]
+    #[test]
+    fn output_window_membership_moves_without_duplicates_and_removes_cleanly() {
+        let first = OutputId(1);
+        let second = OutputId(2);
+        let mut membership = OutputWindowMembership::<u64, &'static str>::default();
+
+        assert!(membership.update(10, "first", Some(first)));
+        assert!(membership.update(20, "second", Some(first)));
+        assert!(!membership.update(10, "first", Some(first)));
+        assert_eq!(
+            membership.windows(first).copied().collect::<Vec<_>>(),
+            vec!["first", "second"]
+        );
+
+        assert!(membership.update(10, "first", Some(second)));
+        assert_eq!(
+            membership.windows(first).copied().collect::<Vec<_>>(),
+            vec!["second"]
+        );
+        assert_eq!(
+            membership.windows(second).copied().collect::<Vec<_>>(),
+            vec!["first"]
+        );
+
+        assert_eq!(membership.remove(&10), Some("first"));
+        assert_eq!(membership.remove(&10), None);
+        assert_eq!(membership.windows(second).count(), 0);
+        membership.clear();
+        assert_eq!(membership.windows(first).count(), 0);
     }
 
     #[test]

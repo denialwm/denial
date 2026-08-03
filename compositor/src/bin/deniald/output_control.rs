@@ -199,6 +199,19 @@ impl OutputControlPublisher {
         }
         snapshot.clone()
     }
+
+    pub(super) fn publish_if_dirty<E>(
+        &self,
+        dirty: &mut bool,
+        build_state: impl FnOnce() -> Result<OutputControlState, E>,
+    ) -> Result<Option<OutputControlSnapshot>, E> {
+        if !*dirty {
+            return Ok(None);
+        }
+        let snapshot = self.publish(build_state()?);
+        *dirty = false;
+        Ok(Some(snapshot))
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -863,6 +876,64 @@ mod tests {
             publisher.publish(state("DP-2")).serial,
             initial.wrapping_add(1).max(1)
         );
+    }
+
+    #[test]
+    fn dirty_publication_builds_once_and_clean_iterations_do_no_work() {
+        let publisher = OutputControlPublisher::new(state("DP-1"));
+        let mut dirty = false;
+        let mut builds = 0;
+
+        let clean = publisher
+            .publish_if_dirty(&mut dirty, || {
+                builds += 1;
+                Ok::<_, ()>(state("DP-2"))
+            })
+            .expect("clean publication");
+        assert!(clean.is_none());
+        assert_eq!(builds, 0);
+
+        let mark_dirty = |dirty: &mut bool| *dirty = true;
+        // Repeated mutations before the publication boundary coalesce into
+        // the same flag.
+        mark_dirty(&mut dirty);
+        mark_dirty(&mut dirty);
+        let published = publisher
+            .publish_if_dirty(&mut dirty, || {
+                builds += 1;
+                Ok::<_, ()>(state("DP-2"))
+            })
+            .expect("dirty publication")
+            .expect("dirty state must publish");
+        assert_eq!(published.outputs[0].name, "DP-2");
+        assert_eq!(builds, 1);
+        assert!(!dirty);
+
+        assert!(
+            publisher
+                .publish_if_dirty(&mut dirty, || {
+                    builds += 1;
+                    Ok::<_, ()>(state("DP-3"))
+                })
+                .expect("second clean publication")
+                .is_none()
+        );
+        assert_eq!(builds, 1);
+    }
+
+    #[test]
+    fn failed_dirty_publication_remains_dirty_for_retry() {
+        let publisher = OutputControlPublisher::new(state("DP-1"));
+        let mut dirty = true;
+        let result = publisher.publish_if_dirty(&mut dirty, || {
+            Err::<OutputControlState, _>("snapshot failed")
+        });
+
+        assert_eq!(
+            result.expect_err("publication must fail"),
+            "snapshot failed"
+        );
+        assert!(dirty);
     }
 
     #[test]

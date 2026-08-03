@@ -11,9 +11,9 @@ The authoritative source input is
 [`SOURCE_LOCK.json`](../SOURCE_LOCK.json):
 
 - Denial Flutter fork:
-  `af53fe6dc91e13ea1d2da9103d7d88fc202dd052`
+  `38724af712979f95c4fdc264148fa032e8ca223f`
 - Denial Skia fork:
-  `5097a648e9bbb1d4a7fdf06a2a6d7bef3c9dd414`
+  `0ee042f542b3e79f5ac49115387718c6bb3d7d34`
 - Upstream Flutter compatibility base:
   `84fc5cbb223bc12f83d65b647ff8a56caf779ffd` (Flutter `3.44.7`)
 - Engine artifact revision:

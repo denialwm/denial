@@ -395,6 +395,8 @@ impl WaylandFrontend {
                 shm_cache_budget_for_atlas(atlas.pixel_size.width, atlas.pixel_size.height);
         }
         self.pointer_location = self.clamp_pointer(self.pointer_location);
+        #[cfg(feature = "flutter")]
+        self.rebuild_window_output_membership();
         self.space.refresh();
         info!(
             epoch = snapshot.epoch,

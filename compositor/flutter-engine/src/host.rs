@@ -97,6 +97,13 @@ pub trait OpenGlHandler: Send + Sync + 'static {
         false
     }
 
+    /// Runs immediately before Flutter resolves an external texture. Return
+    /// `false` only when the following `populate_external_texture` call is
+    /// guaranteed not to issue any GL calls or destroy GL/EGL objects.
+    fn external_texture_callback_may_modify_gl(&self, _texture_id: i64) -> bool {
+        true
+    }
+
     fn surface_transformation(&self) -> sys::FlutterTransformation {
         sys::FlutterTransformation {
             scaleX: 1.0,
@@ -498,6 +505,14 @@ impl EngineHost {
         // SAFETY: every callback pointer references `callback_state`, whose
         // allocation is retained by the returned host until after shutdown.
         let engine = unsafe { library.run(&renderer, &project_args, state, aot_data)? };
+        // SAFETY: `state` is retained by EngineHost until after Flutter shuts
+        // down, and the trampoline contains panics before returning to C++.
+        unsafe {
+            engine.set_external_texture_gl_state_callback(
+                Some(external_texture_callback_may_modify_gl),
+                state,
+            )?;
+        }
         callback_state
             .engine_handle
             .store(engine.raw_handle() as usize, Ordering::Release);
@@ -847,6 +862,17 @@ unsafe extern "C" fn populate_external_texture(
         state
             .handler
             .populate_external_texture(texture_id, width, height, texture)
+    })
+}
+
+unsafe extern "C" fn external_texture_callback_may_modify_gl(
+    data: *mut c_void,
+    texture_id: i64,
+) -> bool {
+    dispatch(data, true, |state| {
+        state
+            .handler
+            .external_texture_callback_may_modify_gl(texture_id)
     })
 }
 

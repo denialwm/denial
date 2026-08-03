@@ -981,6 +981,8 @@ struct RuntimeState {
     #[cfg(feature = "flutter")]
     pending_output_applies: VecDeque<PendingOutputApply>,
     #[cfg(feature = "flutter")]
+    output_control_dirty: bool,
+    #[cfg(feature = "flutter")]
     pending_ui_development: VecDeque<PendingUiDevelopment>,
     #[cfg(feature = "flutter")]
     idle_dpms: idle_policy::IdleDpmsPolicy,
@@ -1230,6 +1232,7 @@ fn apply_output_power_requests(
             }
             scheduler.power_off(runtime, output, scanouts)?;
             scanouts[scanout_index].powered = false;
+            events.output_control_dirty = true;
             swapchain.present(scheduler.stable_framebuffer_index());
             events.pending.remove(&scanouts[scanout_index].output.crtc);
             info!(
@@ -1264,6 +1267,7 @@ fn apply_output_power_requests(
                 continue;
             }
             scanouts[scanout_index].powered = true;
+            events.output_control_dirty = true;
             scheduler.power_on(runtime, scanout_index, framebuffer_index, scanouts)?;
             swapchain.present(framebuffer_index);
             info!(
@@ -1895,6 +1899,8 @@ fn run_flutter_event_loop(
         &mut events,
     )?;
     let mut frame_scheduler = frame_scheduler::FrameScheduler::new(scanouts, Instant::now());
+    let mut ready_output_apply: Option<(PendingOutputApply, Vec<ConnectedConnector>)> = None;
+    let mut pending_output_success: Option<PendingOutputApply> = None;
 
     // Any native helper inadvertently created by an elevated Flutter thread
     // is normalized before the compositor itself becomes realtime.
@@ -1917,6 +1923,27 @@ fn run_flutter_event_loop(
                 .ok_or("Flutter runtime disappeared during fence acknowledgement")?,
             events.ready_fence_signals.drain(..),
         )?;
+        let needs_output_snapshot =
+            ready_output_apply.is_some() || pending_output_success.is_some();
+        let mut current_output_snapshot =
+            output_control.publish_if_dirty(&mut events.output_control_dirty, || {
+                output_control_state(
+                    drm_scanner,
+                    scanouts,
+                    topology,
+                    &output_configuration,
+                    persistence_available,
+                )
+            })?;
+        if needs_output_snapshot && current_output_snapshot.is_none() {
+            current_output_snapshot = Some(output_control.snapshot());
+        }
+        if let Some(request) = pending_output_success.take() {
+            request.reply(Ok(current_output_snapshot
+                .as_ref()
+                .expect("successful output apply has a publication snapshot")
+                .clone()));
+        }
         if let Some(reason) = events.lifecycle.shutdown_reason() {
             log_shutdown(reason);
             break;
@@ -1964,13 +1991,11 @@ fn run_flutter_event_loop(
             )?;
             frame_scheduler.reconfigure(scanouts, Instant::now());
         }
-        output_control.publish(output_control_state(
-            drm_scanner,
-            scanouts,
-            topology,
-            &output_configuration,
-            persistence_available,
-        )?);
+        if events.output_control_dirty {
+            // Publish DPMS changes at the single loop-boundary gate above
+            // before processing more compositor or Flutter work.
+            continue;
+        }
 
         while let Some(request) = events.pending_ui_development.pop_front() {
             let Some(runtime) = flutter.as_mut() else {
@@ -1995,8 +2020,17 @@ fn run_flutter_event_loop(
             }
         }
 
-        if let Some(request) = events.pending_output_applies.pop_front() {
-            if !scanout_rebased && scheduler.has_pending_scanout_work() {
+        if scanout_rebased && let Some((request, _)) = ready_output_apply.take() {
+            // A VT resume invalidates the scheduler and any connector view
+            // prepared against it. Re-scan the request after topology repair.
+            events.pending_output_applies.push_front(request);
+        }
+
+        if !scanout_rebased
+            && ready_output_apply.is_none()
+            && let Some(request) = events.pending_output_applies.pop_front()
+        {
+            if scheduler.has_pending_scanout_work() {
                 scheduler.submit_ready(drm, swapchain, scanouts, &mut events)?;
                 events.pending_output_applies.push_front(request);
                 let now = Instant::now();
@@ -2018,13 +2052,18 @@ fn run_flutter_event_loop(
                     continue;
                 }
             };
-            let current_snapshot = output_control.publish(output_control_state(
-                drm_scanner,
-                scanouts,
-                topology,
-                &output_configuration,
-                persistence_available,
-            )?);
+            // A direct apply request performs a fresh connector scan. Route
+            // that observation through the same boundary publication as udev
+            // topology and mode changes before validating its serial.
+            events.output_control_dirty = true;
+            ready_output_apply = Some((request, connectors));
+            continue;
+        }
+
+        if !scanout_rebased && let Some((request, connectors)) = ready_output_apply.take() {
+            let current_snapshot = current_output_snapshot
+                .as_ref()
+                .expect("prepared output apply has a publication snapshot");
             if request.configuration.serial != current_snapshot.serial {
                 let message = format!(
                     "configuration serial {} is stale; current serial is {}",
@@ -2130,6 +2169,7 @@ fn run_flutter_event_loop(
             let topology_changed = preview.outputs != topology.snapshot().outputs;
             if !scanout_rebased && !hardware_changed && !topology_changed {
                 output_configuration = staged_configuration;
+                events.output_control_dirty = true;
                 events.output_power_requests.extend(desired_power);
                 apply_output_power_requests(
                     flutter
@@ -2141,31 +2181,18 @@ fn run_flutter_event_loop(
                     &mut events,
                 )?;
                 frame_scheduler.reconfigure(scanouts, Instant::now());
-                if let Some(prepared) = prepared_persistence
-                    && let Err(error) = prepared.commit()
-                {
-                    output_control.publish(output_control_state(
-                        drm_scanner,
-                        scanouts,
-                        topology,
-                        &output_configuration,
-                        persistence_available,
-                    )?);
-                    request.reply(Err(output_control::OutputControlFailure::new(
-                        "persistence_failed",
-                        &error,
-                    )));
-                    warn!(%error, "output configuration applied but could not be persisted");
-                    continue;
+                if let Some(prepared) = prepared_persistence {
+                    events.output_control_dirty = true;
+                    if let Err(error) = prepared.commit() {
+                        request.reply(Err(output_control::OutputControlFailure::new(
+                            "persistence_failed",
+                            &error,
+                        )));
+                        warn!(%error, "output configuration applied but could not be persisted");
+                        continue;
+                    }
                 }
-                let snapshot = output_control.publish(output_control_state(
-                    drm_scanner,
-                    scanouts,
-                    topology,
-                    &output_configuration,
-                    persistence_available,
-                )?);
-                request.reply(Ok(snapshot));
+                pending_output_success = Some(request);
                 continue;
             }
 
@@ -2199,6 +2226,7 @@ fn run_flutter_event_loop(
             );
             if let Err(error) = apply {
                 let message = error.to_string();
+                events.output_control_dirty = true;
                 request.reply(Err(output_control::OutputControlFailure::new(
                     "apply_failed",
                     &message,
@@ -2209,13 +2237,6 @@ fn run_flutter_event_loop(
                     )
                     .into());
                 }
-                output_control.publish(output_control_state(
-                    drm_scanner,
-                    scanouts,
-                    topology,
-                    &output_configuration,
-                    persistence_available,
-                )?);
                 warn!(%message, "rejected output-control transaction");
                 continue;
             }
@@ -2225,6 +2246,7 @@ fn run_flutter_event_loop(
             retired_superseded_ready_frames =
                 retired_superseded_ready_frames.saturating_add(scheduler.superseded_ready_frames());
             output_configuration = staged_configuration;
+            events.output_control_dirty = true;
             scheduler = output_scheduler::OutputScheduler::new(
                 scanouts,
                 swapchain.current,
@@ -2246,32 +2268,19 @@ fn run_flutter_event_loop(
                 &mut events,
             )?;
             frame_scheduler.reconfigure(scanouts, Instant::now());
-            if let Some(prepared) = prepared_persistence
-                && let Err(error) = prepared.commit()
-            {
-                output_control.publish(output_control_state(
-                    drm_scanner,
-                    scanouts,
-                    topology,
-                    &output_configuration,
-                    persistence_available,
-                )?);
-                request.reply(Err(output_control::OutputControlFailure::new(
-                    "persistence_failed",
-                    &error,
-                )));
-                warn!(%error, "output configuration applied but could not be persisted");
-                events.scanout_rebased = false;
-                continue;
+            if let Some(prepared) = prepared_persistence {
+                events.output_control_dirty = true;
+                if let Err(error) = prepared.commit() {
+                    request.reply(Err(output_control::OutputControlFailure::new(
+                        "persistence_failed",
+                        &error,
+                    )));
+                    warn!(%error, "output configuration applied but could not be persisted");
+                    events.scanout_rebased = false;
+                    continue;
+                }
             }
-            let snapshot = output_control.publish(output_control_state(
-                drm_scanner,
-                scanouts,
-                topology,
-                &output_configuration,
-                persistence_available,
-            )?);
-            request.reply(Ok(snapshot));
+            pending_output_success = Some(request);
             events.scanout_rebased = false;
             continue;
         }
@@ -2281,6 +2290,7 @@ fn run_flutter_event_loop(
         if events.topology_dirty || scanout_rebased || kms_reconfigure_requested {
             events.topology_dirty = false;
             let outputs = connected_outputs(drm_scanner, drm, max_outputs, &output_configuration)?;
+            events.output_control_dirty = true;
             let changed = outputs.len() != scanouts.len()
                 || outputs.iter().any(|output| {
                     scanouts
@@ -2371,6 +2381,9 @@ fn run_flutter_event_loop(
                 events.scanout_rebased = false;
                 continue;
             }
+        }
+        if events.output_control_dirty {
+            continue;
         }
 
         if events.flutter_reload_requested {
@@ -3376,6 +3389,10 @@ fn apply_hotplug_topology(
 
     let retired_scanouts = reconciliation.commit();
     *topology = staged_topology;
+    #[cfg(feature = "flutter")]
+    {
+        events.output_control_dirty = true;
+    }
     let retired = std::mem::replace(swapchain, staged);
     progress.mark_finalized();
     drop(retired_scanouts);

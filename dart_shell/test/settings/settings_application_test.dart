@@ -152,6 +152,14 @@ void main() {
           .enabled,
       isFalse,
     );
+    expect(
+      tester
+          .widget<SettingsSlider>(
+            find.byKey(settingsBackdropBlurOpacityThresholdKey),
+          )
+          .enabled,
+      isFalse,
+    );
 
     await tester.tap(find.byKey(settingsBackdropBlurToggleKey));
     await tester.pump();
@@ -159,11 +167,17 @@ void main() {
       find.byKey(settingsBackdropBlurSliderKey),
     );
     slider.onChanged(26);
+    tester
+        .widget<SettingsSlider>(
+          find.byKey(settingsBackdropBlurOpacityThresholdKey),
+        )
+        .onChanged(0.12);
     await tester.pump();
 
     final appearance = container.read(shellSettingsProvider).appearance;
     expect(appearance.backdropBlurEnabled, isTrue);
     expect(appearance.backdropBlurSigma, 26);
+    expect(appearance.backdropBlurOpacityThreshold, 0.12);
     await container.read(shellSettingsProvider.notifier).flush();
   });
 

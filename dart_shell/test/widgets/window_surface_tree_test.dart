@@ -19,18 +19,27 @@ void main() {
     expect(window.visibleSurfaceIds, <int>[1, 2]);
   });
 
-  test('only a fully covering opaque root skips backdrop blur', () {
+  test('window opacity class distinguishes content from border alpha', () {
     final opaqueWindow = _window(
       serverSideDecorated: true,
       surfaceLayers: <DenialSurfaceLayer>[_layer(surfaceId: 1, opaque: true)],
+      opacityClass: DenialWindowOpacityClass.fullyOpaque,
     );
     final transparentWindow = _window(
       serverSideDecorated: true,
       surfaceLayers: <DenialSurfaceLayer>[_layer(surfaceId: 1)],
     );
+    final borderAlphaWindow = _window(
+      serverSideDecorated: false,
+      surfaceLayers: <DenialSurfaceLayer>[_layer(surfaceId: 1)],
+      opacityClass: DenialWindowOpacityClass.borderAlphaOnly,
+    );
 
     expect(opaqueWindow.isOpaque, isTrue);
     expect(transparentWindow.isOpaque, isFalse);
+    expect(transparentWindow.isContentTranslucent, isTrue);
+    expect(borderAlphaWindow.isOpaque, isFalse);
+    expect(borderAlphaWindow.isContentTranslucent, isFalse);
   });
 
   testWidgets('surface opacity is applied to the complete texture layer', (
@@ -104,6 +113,8 @@ void main() {
 DenialWindow _window({
   required bool serverSideDecorated,
   List<DenialSurfaceLayer> surfaceLayers = const <DenialSurfaceLayer>[],
+  DenialWindowOpacityClass opacityClass =
+      DenialWindowOpacityClass.contentTranslucent,
 }) {
   return DenialWindow(
     objectId: 1,
@@ -132,6 +143,7 @@ DenialWindow _window({
     scale120: 120,
     serverSideDecorated: serverSideDecorated,
     surfaceLayers: surfaceLayers,
+    opacityClass: opacityClass,
   );
 }
 

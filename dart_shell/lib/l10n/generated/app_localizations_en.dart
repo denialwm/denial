@@ -1242,6 +1242,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsBackdropBlurIntensity => 'Blur intensity';
 
   @override
+  String get settingsBackdropBlurOpacityThreshold =>
+      'Minimum window opacity for blur';
+
+  @override
   String get settingsBackdropDimming => 'Backdrop dimming';
 
   @override

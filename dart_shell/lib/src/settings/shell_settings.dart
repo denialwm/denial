@@ -23,6 +23,7 @@ class ShellAppearanceSettings {
     this.panelOpacity = 0.93,
     this.backdropBlurEnabled = true,
     this.backdropBlurSigma = 18,
+    this.backdropBlurOpacityThreshold = 0.05,
     this.focusedWindowOpacity = 1,
     this.unfocusedWindowOpacity = 1,
   });
@@ -34,6 +35,7 @@ class ShellAppearanceSettings {
   final double panelOpacity;
   final bool backdropBlurEnabled;
   final double backdropBlurSigma;
+  final double backdropBlurOpacityThreshold;
   final double focusedWindowOpacity;
   final double unfocusedWindowOpacity;
 
@@ -45,6 +47,7 @@ class ShellAppearanceSettings {
     double? panelOpacity,
     bool? backdropBlurEnabled,
     double? backdropBlurSigma,
+    double? backdropBlurOpacityThreshold,
     double? focusedWindowOpacity,
     double? unfocusedWindowOpacity,
   }) {
@@ -56,6 +59,8 @@ class ShellAppearanceSettings {
       panelOpacity: panelOpacity ?? this.panelOpacity,
       backdropBlurEnabled: backdropBlurEnabled ?? this.backdropBlurEnabled,
       backdropBlurSigma: backdropBlurSigma ?? this.backdropBlurSigma,
+      backdropBlurOpacityThreshold:
+          backdropBlurOpacityThreshold ?? this.backdropBlurOpacityThreshold,
       focusedWindowOpacity: focusedWindowOpacity ?? this.focusedWindowOpacity,
       unfocusedWindowOpacity:
           unfocusedWindowOpacity ?? this.unfocusedWindowOpacity,
@@ -72,6 +77,7 @@ class ShellAppearanceSettings {
         other.panelOpacity == panelOpacity &&
         other.backdropBlurEnabled == backdropBlurEnabled &&
         other.backdropBlurSigma == backdropBlurSigma &&
+        other.backdropBlurOpacityThreshold == backdropBlurOpacityThreshold &&
         other.focusedWindowOpacity == focusedWindowOpacity &&
         other.unfocusedWindowOpacity == unfocusedWindowOpacity;
   }
@@ -85,6 +91,7 @@ class ShellAppearanceSettings {
     panelOpacity,
     backdropBlurEnabled,
     backdropBlurSigma,
+    backdropBlurOpacityThreshold,
     focusedWindowOpacity,
     unfocusedWindowOpacity,
   );
@@ -410,6 +417,7 @@ class ShellSettings {
         'panelOpacity': appearance.panelOpacity,
         'backdropBlurEnabled': appearance.backdropBlurEnabled,
         'backdropBlurSigma': appearance.backdropBlurSigma,
+        'backdropBlurOpacityThreshold': appearance.backdropBlurOpacityThreshold,
         'focusedWindowOpacity': appearance.focusedWindowOpacity,
         'unfocusedWindowOpacity': appearance.unfocusedWindowOpacity,
       },
@@ -496,6 +504,12 @@ class ShellSettings {
           defaults.appearance.backdropBlurSigma,
           4,
           32,
+        ),
+        backdropBlurOpacityThreshold: _number(
+          appearanceJson['backdropBlurOpacityThreshold'],
+          defaults.appearance.backdropBlurOpacityThreshold,
+          0,
+          1,
         ),
         focusedWindowOpacity: _number(
           appearanceJson['focusedWindowOpacity'],

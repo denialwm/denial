@@ -265,8 +265,8 @@ Flutter source revision:     84fc5cbb223bc12f83d65b647ff8a56caf779ffd
 Engine artifact revision:    69c8c61792f04cc809dfef0c910414fb9afc06cd
 Dart source revision:        d684a576a6aa954ae107a03b2b4e1d61c3bebe93
 Skia upstream revision:      e9ed4fc9f1544c58d8a9347c1fc9471d8dd7c465
-Flutter fork revision:       af53fe6dc91e13ea1d2da9103d7d88fc202dd052
-Skia fork revision:          5097a648e9bbb1d4a7fdf06a2a6d7bef3c9dd414
+Flutter fork revision:       38724af712979f95c4fdc264148fa032e8ca223f
+Skia fork revision:          0ee042f542b3e79f5ac49115387718c6bb3d7d34
 Fork source lock:             prebuilt/flutter-engine/SOURCE_LOCK.json
 Embedder header checksum:    recorded in compositor/flutter-engine/src/sys.rs
 ```
@@ -394,10 +394,10 @@ sources of truth. The exact release inputs are the immutable commits in
 
 - Flutter: [`denialwm/flutter`](https://github.com/denialwm/flutter),
   branch `denial/3.44.7-r1`, currently
-  `af53fe6dc91e13ea1d2da9103d7d88fc202dd052`;
+  `38724af712979f95c4fdc264148fa032e8ca223f`;
 - Skia: [`denialwm/skia`](https://github.com/denialwm/skia),
   branch `denial/3.44.7-r1`, currently
-  `5097a648e9bbb1d4a7fdf06a2a6d7bef3c9dd414`.
+  `0ee042f542b3e79f5ac49115387718c6bb3d7d34`.
 
 The engine portions of these histories were independently verified on
 2026-07-25; the three Flutter framework/tool commits were migrated and tested

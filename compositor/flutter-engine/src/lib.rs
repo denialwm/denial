@@ -104,6 +104,11 @@ pub struct EngineLibrary {
     table: sys::FlutterEngineProcTable,
     schedule_frame_for_external_textures:
         unsafe extern "C" fn(sys::FlutterEngine, *const i64, usize) -> sys::FlutterEngineResult,
+    set_external_texture_gl_state_callback: unsafe extern "C" fn(
+        sys::FlutterEngine,
+        Option<unsafe extern "C" fn(*mut c_void, i64) -> bool>,
+        *mut c_void,
+    ) -> sys::FlutterEngineResult,
     _library: Library,
 }
 
@@ -133,6 +138,21 @@ impl EngineLibrary {
             *library
                 .get::<ScheduleFrameForExternalTextures>(
                     b"DenialFlutterEngineScheduleFrameForExternalTextures\0",
+                )
+                .map_err(LoadError::Symbol)?
+        };
+        type SetExternalTextureGlStateCallback = unsafe extern "C" fn(
+            sys::FlutterEngine,
+            Option<unsafe extern "C" fn(*mut c_void, i64) -> bool>,
+            *mut c_void,
+        )
+            -> sys::FlutterEngineResult;
+        // SAFETY: this callback registration is part of Denial's versioned
+        // engine extension and is loaded from the same retained library.
+        let set_external_texture_gl_state_callback = unsafe {
+            *library
+                .get::<SetExternalTextureGlStateCallback>(
+                    b"DenialFlutterEngineSetExternalTextureGlStateCallback\0",
                 )
                 .map_err(LoadError::Symbol)?
         };
@@ -174,6 +194,7 @@ impl EngineLibrary {
         Ok(Self {
             table,
             schedule_frame_for_external_textures,
+            set_external_texture_gl_state_callback,
             _library: library,
         })
     }
@@ -300,6 +321,28 @@ pub struct RunningEngine {
 impl RunningEngine {
     pub(crate) fn raw_handle(&self) -> sys::FlutterEngine {
         self.handle
+    }
+
+    /// Installs Denial's synchronous preflight for external-texture resolves.
+    /// Returning `false` promises that the immediately following standard
+    /// texture callback will not issue GL calls, allowing the engine to retain
+    /// Ganesh's command batch and state cache.
+    ///
+    /// # Safety
+    ///
+    /// `user_data` must remain valid until engine shutdown and the callback
+    /// must not unwind across the C ABI.
+    pub(crate) unsafe fn set_external_texture_gl_state_callback(
+        &self,
+        callback: Option<unsafe extern "C" fn(*mut c_void, i64) -> bool>,
+        user_data: *mut c_void,
+    ) -> Result<(), EngineError> {
+        let function = self.library.set_external_texture_gl_state_callback;
+        // SAFETY: upheld by this method's caller; the engine synchronously
+        // copies the function and opaque pointer into its retained resolver.
+        check_result("SetExternalTextureGlStateCallback", unsafe {
+            function(self.handle, callback, user_data)
+        })
     }
 
     pub fn current_time_nanos(&self) -> u64 {

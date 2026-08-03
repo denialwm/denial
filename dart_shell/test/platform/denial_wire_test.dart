@@ -290,6 +290,7 @@ void main() {
             suppressAnimations: true,
             serverSideDecorated: false,
             opacity: 0.75,
+            opacityClass: WindowOpacityClass.BorderAlphaOnly,
           ),
         ],
       ),
@@ -306,6 +307,10 @@ void main() {
     expect(windows.single.surfaceLayers.single.opacity, closeTo(0.5, 0.0001));
     expect(windows.single.surfaceLayers.single.opaque, isTrue);
     expect(windows.single.isOpaque, isFalse);
+    expect(
+      windows.single.opacityClass,
+      DenialWindowOpacityClass.borderAlphaOnly,
+    );
   });
 
   test('local Flutter window creation carries a generic app identity', () {

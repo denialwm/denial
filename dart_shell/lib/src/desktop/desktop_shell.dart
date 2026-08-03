@@ -49,6 +49,7 @@ import '../widgets/main_output_centered_surface.dart';
 import '../widgets/notification_center.dart';
 import '../widgets/session/power_session_surface.dart';
 import '../widgets/shell_backdrop_blur.dart';
+import 'window_backdrop_blur_policy.dart';
 import '../widgets/shell_cursor.dart';
 import '../widgets/shell_frame_time_overlay.dart';
 import '../widgets/shell_surface_host.dart';
@@ -2817,11 +2818,13 @@ class _DesktopWindowContent extends ConsumerWidget {
         ? ref.watch(localFlutterApplicationRegistryProvider)[window.appId]
         : null;
     return ShellBackdropBlur(
-      blur:
-          forceBackdropBlur ||
-          (localApplication?.translucent ?? false) ||
-          (!window.isLocalFlutter && !window.isOpaque) ||
-          windowOpacity < 1.0,
+      blur: desktopWindowBackdropBlurEnabled(
+        window: window,
+        shellOpacity: windowOpacity,
+        opacityThreshold: theme.backdropBlurOpacityThreshold,
+        forceBackdropBlur: forceBackdropBlur,
+        localContentTranslucent: localApplication?.translucent ?? false,
+      ),
       child: content,
     );
   }

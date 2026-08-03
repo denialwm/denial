@@ -2215,6 +2215,12 @@ abstract class AppLocalizations {
   /// **'Blur intensity'**
   String get settingsBackdropBlurIntensity;
 
+  /// Slider label for the minimum effective window opacity at which backdrop blur is rendered.
+  ///
+  /// In en, this message translates to:
+  /// **'Minimum window opacity for blur'**
+  String get settingsBackdropBlurOpacityThreshold;
+
   /// English UI text for settingsBackdropDimming.
   ///
   /// In en, this message translates to:

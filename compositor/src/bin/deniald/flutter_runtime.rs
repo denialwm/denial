@@ -1472,6 +1472,16 @@ enum ExternalTextureLeaseResource {
     },
 }
 
+struct PreparedExternalTexture {
+    texture_id: i64,
+    source_generation: u64,
+    width: usize,
+    height: usize,
+    name: u32,
+    resource: ExternalTextureLeaseResource,
+    sampled_buffer: Option<RendererBufferGuard>,
+}
+
 type ExternalTextureLeasePool = Mutex<Vec<Box<ExternalTextureLease>>>;
 
 struct ExternalTextureLease {
@@ -2009,6 +2019,7 @@ struct FlutterGlHandler {
     retired_external_bindings: Arc<RetiredExternalBindingQueue>,
     retired_external_binding_scratch: Mutex<Vec<ExternalTextureBinding>>,
     external_texture_lease_pool: Arc<ExternalTextureLeasePool>,
+    prepared_external_texture: Mutex<Option<PreparedExternalTexture>>,
     external_texture_resource_budget: Arc<ExternalTextureResourceBudget>,
     pending_vsync_batons: Mutex<PendingVsyncBatons>,
     platform_task_budget: Arc<PlatformTaskBudget>,
@@ -2175,6 +2186,7 @@ impl FlutterGlHandler {
             external_texture_lease_pool: Arc::new(Mutex::new(Vec::with_capacity(
                 MAX_CACHED_EXTERNAL_TEXTURE_LEASES,
             ))),
+            prepared_external_texture: Mutex::new(None),
             external_texture_resource_budget: Arc::new(ExternalTextureResourceBudget::default()),
             pending_vsync_batons: Mutex::new(PendingVsyncBatons::default()),
             platform_task_budget: Arc::new(PlatformTaskBudget::default()),
@@ -2591,6 +2603,76 @@ impl FlutterGlHandler {
         }
     }
 
+    /// Reserves a cache hit for the immediately following Flutter texture
+    /// callback without issuing GL calls. Holding the binding and Wayland
+    /// guard here closes the race between the engine's preflight and callback.
+    fn prepare_external_texture_without_gl(&self, texture_id: i64) -> bool {
+        let mut prepared_slot = lock(&self.prepared_external_texture);
+        if prepared_slot.take().is_some() {
+            return false;
+        }
+        if self
+            .retired_external_bindings
+            .pending
+            .load(Ordering::Relaxed)
+        {
+            return false;
+        }
+        let Some(source) = self.current_external_texture(texture_id) else {
+            return false;
+        };
+        let source_generation = source.generation();
+        let Some(lease_permit) = self.external_texture_resource_budget.try_acquire() else {
+            return false;
+        };
+        let (width, height, binding, resource, sampled_buffer) = match source {
+            ExternalTextureSource::Dmabuf {
+                dmabuf,
+                buffer_guard,
+                revision: _,
+            } => {
+                let width = usize::try_from(dmabuf.width()).unwrap_or_default();
+                let height = usize::try_from(dmabuf.height()).unwrap_or_default();
+                let Some(binding) = self.cached_dmabuf_binding(texture_id, &dmabuf) else {
+                    return false;
+                };
+                let sampled_buffer = buffer_guard.clone();
+                let resource = ExternalTextureLeaseResource::Dmabuf {
+                    _binding: Arc::clone(&binding),
+                    _wayland_buffer_guard: buffer_guard,
+                    _resource_permit: lease_permit,
+                };
+                (width, height, binding, resource, Some(sampled_buffer))
+            }
+            ExternalTextureSource::Shm(frame) => {
+                let width = usize::try_from(frame.width).unwrap_or_default();
+                let height = usize::try_from(frame.height).unwrap_or_default();
+                let Some(binding) = self.cached_shm_binding(texture_id, frame.revision) else {
+                    return false;
+                };
+                let resource = ExternalTextureLeaseResource::Shm {
+                    _binding: Arc::clone(&binding),
+                    _resource_permit: lease_permit,
+                };
+                (width, height, binding, resource, None)
+            }
+        };
+        let name = binding.texture();
+        if width == 0 || height == 0 || name == 0 {
+            return false;
+        }
+        *prepared_slot = Some(PreparedExternalTexture {
+            texture_id,
+            source_generation,
+            width,
+            height,
+            name,
+            resource,
+            sampled_buffer,
+        });
+        true
+    }
+
     /// Drain the bounded GLES error queue while the Flutter render context is
     /// current. Returning the first error lets callers reject a partially
     /// created texture without caching or publishing it to Flutter.
@@ -2843,6 +2925,10 @@ impl OpenGlHandler for FlutterGlHandler {
         unsafe { get_proc_address(name).cast_mut() }
     }
 
+    fn external_texture_callback_may_modify_gl(&self, texture_id: i64) -> bool {
+        !self.prepare_external_texture_without_gl(texture_id)
+    }
+
     fn populate_external_texture(
         &self,
         texture_id: i64,
@@ -2850,6 +2936,35 @@ impl OpenGlHandler for FlutterGlHandler {
         _height: usize,
         texture: &mut sys::FlutterOpenGLTexture,
     ) -> bool {
+        let prepared = lock(&self.prepared_external_texture).take();
+        if let Some(prepared) = prepared {
+            if prepared.texture_id != texture_id {
+                // The engine extension promises that this callback immediately
+                // follows the preflight for the same texture. Refuse the frame
+                // without touching GL if a mismatched engine violates it.
+                error!(
+                    texture_id,
+                    prepared_texture_id = prepared.texture_id,
+                    "external texture preflight did not match Flutter callback"
+                );
+                return false;
+            }
+            let lease = self.lease_external_texture(prepared.resource);
+            *texture = sys::FlutterOpenGLTexture {
+                target: gl::TEXTURE_2D,
+                name: prepared.name,
+                format: gl::RGBA8,
+                user_data: Box::into_raw(lease).cast(),
+                destruction_callback: Some(retire_external_texture),
+                width: prepared.width,
+                height: prepared.height,
+            };
+            if let Some(buffer_guard) = prepared.sampled_buffer {
+                self.record_sampled_buffer(texture_id, prepared.source_generation, buffer_guard);
+            }
+            self.mark_external_texture_sampled(texture_id, prepared.source_generation);
+            return true;
+        }
         // Flutter invokes this callback with the render context current. Drain
         // leases released by earlier engine frames before allocating the next
         // direct EGLImage binding.

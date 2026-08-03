@@ -15,6 +15,7 @@ void main() {
         panelOpacity: 0.78,
         backdropBlurEnabled: false,
         backdropBlurSigma: 27,
+        backdropBlurOpacityThreshold: 0.18,
         focusedWindowOpacity: 0.96,
         unfocusedWindowOpacity: 0.72,
       ),
@@ -60,6 +61,7 @@ void main() {
         'panelOpacity': 0.01,
         'backdropBlurEnabled': 'sometimes',
         'backdropBlurSigma': 400,
+        'backdropBlurOpacityThreshold': 4,
       },
       'layout': <String, dynamic>{
         'systemBarSide': 'diagonal',
@@ -97,6 +99,7 @@ void main() {
     expect(settings.appearance.panelOpacity, 0.35);
     expect(settings.appearance.backdropBlurEnabled, isTrue);
     expect(settings.appearance.backdropBlurSigma, 32);
+    expect(settings.appearance.backdropBlurOpacityThreshold, 1);
     expect(settings.layout.systemBarSide, isNull);
     expect(settings.layout.systemBarOutputNames, <String>['DP-1']);
     expect(settings.layout.systemBarThickness, 32);

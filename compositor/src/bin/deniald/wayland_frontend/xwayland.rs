@@ -211,6 +211,8 @@ fn map_x11_window(state: &mut RuntimeState, surface: X11Surface, override_redire
         frontend
             .space
             .map_element(window.clone(), configured.loc, true);
+        #[cfg(feature = "flutter")]
+        frontend.update_window_output_membership(&window);
         if !override_redirect {
             for candidate in frontend.space.elements() {
                 let changed = candidate.set_activated(candidate == &window);
@@ -309,6 +311,10 @@ fn unmap_x11_window(state: &mut RuntimeState, surface: &X11Surface) {
         #[cfg(feature = "flutter")]
         frontend.invalidate_window_input_routes(&window);
         frontend.remember_window_placement(&window);
+        #[cfg(feature = "flutter")]
+        if let Some(root) = frontend.window_root_surface(&window) {
+            frontend.remove_window_output_membership(&root);
+        }
         frontend.space.unmap_elem(&window);
         if was_focused {
             let next = frontend
@@ -452,6 +458,21 @@ impl XWaylandShellHandler for RuntimeState {
     fn surface_associated(&mut self, _xwm: XwmId, wl_surface: WlSurface, surface: X11Surface) {
         let frontend = self.wayland.as_mut().expect("missing Wayland frontend");
         let stable_id = frontend.register_surface(&wl_surface);
+        #[cfg(feature = "flutter")]
+        let mapped_window = {
+            frontend
+                .space
+                .elements()
+                .find(|window| window.x11_surface() == Some(&surface))
+                .cloned()
+        };
+        #[cfg(feature = "flutter")]
+        if let Some(window) = mapped_window {
+            // Xwayland may map the X11 window before its wl_surface becomes
+            // associated. The initial map cannot index a root surface in that
+            // ordering, so finish the one-time membership update here.
+            frontend.update_window_output_membership(&window);
+        }
         #[cfg(feature = "flutter")]
         let focused = matches!(
             frontend
@@ -608,7 +629,9 @@ impl XwmHandler for RuntimeState {
         if window.is_override_redirect() {
             // Override-redirect geometry belongs to the client. Menus, combo
             // boxes and other popup surfaces must follow it exactly.
-            frontend.space.map_element(element, geometry.loc, false);
+            frontend
+                .space
+                .map_element(element.clone(), geometry.loc, false);
         } else {
             // ConfigureNotify also follows compositor-issued X11 configures.
             // Feeding that notification back into Space gives the client a
@@ -618,6 +641,8 @@ impl XwmHandler for RuntimeState {
             let target = frontend.window_geometry_target(&element);
             frontend.space.relocate_element(&element, target.loc);
         }
+        #[cfg(feature = "flutter")]
+        frontend.update_window_output_membership(&element);
         self.scene_sync.mark_dirty();
     }
 

@@ -111,6 +111,42 @@ class _SurfaceRoleReader extends fb.Reader<SurfaceRole> {
       SurfaceRole.fromValue(const fb.Uint8Reader().read(bc, offset));
 }
 
+enum WindowOpacityClass {
+  ContentTranslucent(0),
+  BorderAlphaOnly(1),
+  FullyOpaque(2);
+
+  final int value;
+  const WindowOpacityClass(this.value);
+
+  factory WindowOpacityClass.fromValue(int value) {
+    switch (value) {
+      case 0: return WindowOpacityClass.ContentTranslucent;
+      case 1: return WindowOpacityClass.BorderAlphaOnly;
+      case 2: return WindowOpacityClass.FullyOpaque;
+      default: throw StateError('Invalid value $value for bit flag enum');
+    }
+  }
+
+  static WindowOpacityClass? _createOrNull(int? value) =>
+      value == null ? null : WindowOpacityClass.fromValue(value);
+
+  static const int minValue = 0;
+  static const int maxValue = 2;
+  static const fb.Reader<WindowOpacityClass> reader = _WindowOpacityClassReader();
+}
+
+class _WindowOpacityClassReader extends fb.Reader<WindowOpacityClass> {
+  const _WindowOpacityClassReader();
+
+  @override
+  int get size => 1;
+
+  @override
+  WindowOpacityClass read(fb.BufferContext bc, int offset) =>
+      WindowOpacityClass.fromValue(const fb.Uint8Reader().read(bc, offset));
+}
+
 enum WindowRequestKind {
   ListWindows(0),
   GetDisplayLayout(1),
@@ -1260,10 +1296,11 @@ class Window {
   bool get serverSideDecorated => const fb.BoolReader().vTableGet(_bc, _bcOffset, 70, true);
   double get opacity => const fb.Float32Reader().vTableGet(_bc, _bcOffset, 72, 1.0);
   WindowContentKind get contentKind => WindowContentKind.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 74, 0));
+  WindowOpacityClass get opacityClass => WindowOpacityClass.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 76, 0));
 
   @override
   String toString() {
-    return 'Window{objectId: ${objectId}, objectKind: ${objectKind}, surfaceId: ${surfaceId}, windowId: ${windowId}, textureId: ${textureId}, title: ${title}, appId: ${appId}, width: ${width}, height: ${height}, surfaceX: ${surfaceX}, surfaceY: ${surfaceY}, surfaceWidth: ${surfaceWidth}, surfaceHeight: ${surfaceHeight}, textureSourceX: ${textureSourceX}, textureSourceY: ${textureSourceY}, textureSourceWidth: ${textureSourceWidth}, textureSourceHeight: ${textureSourceHeight}, geometryX: ${geometryX}, geometryY: ${geometryY}, geometryWidth: ${geometryWidth}, geometryHeight: ${geometryHeight}, monitorId: ${monitorId}, transform: ${transform}, scale120: ${scale120}, statusColorArgb: ${statusColorArgb}, hasStatusColor: ${hasStatusColor}, contentX: ${contentX}, contentY: ${contentY}, contentWidth: ${contentWidth}, contentHeight: ${contentHeight}, surfaces: ${surfaces}, pinned: ${pinned}, suppressAnimations: ${suppressAnimations}, serverSideDecorated: ${serverSideDecorated}, opacity: ${opacity}, contentKind: ${contentKind}}';
+    return 'Window{objectId: ${objectId}, objectKind: ${objectKind}, surfaceId: ${surfaceId}, windowId: ${windowId}, textureId: ${textureId}, title: ${title}, appId: ${appId}, width: ${width}, height: ${height}, surfaceX: ${surfaceX}, surfaceY: ${surfaceY}, surfaceWidth: ${surfaceWidth}, surfaceHeight: ${surfaceHeight}, textureSourceX: ${textureSourceX}, textureSourceY: ${textureSourceY}, textureSourceWidth: ${textureSourceWidth}, textureSourceHeight: ${textureSourceHeight}, geometryX: ${geometryX}, geometryY: ${geometryY}, geometryWidth: ${geometryWidth}, geometryHeight: ${geometryHeight}, monitorId: ${monitorId}, transform: ${transform}, scale120: ${scale120}, statusColorArgb: ${statusColorArgb}, hasStatusColor: ${hasStatusColor}, contentX: ${contentX}, contentY: ${contentY}, contentWidth: ${contentWidth}, contentHeight: ${contentHeight}, surfaces: ${surfaces}, pinned: ${pinned}, suppressAnimations: ${suppressAnimations}, serverSideDecorated: ${serverSideDecorated}, opacity: ${opacity}, contentKind: ${contentKind}, opacityClass: ${opacityClass}}';
   }
 }
 
@@ -1281,7 +1318,7 @@ class WindowBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(36);
+    fbBuilder.startTable(37);
   }
 
   int addObjectId(int? objectId) {
@@ -1428,6 +1465,10 @@ class WindowBuilder {
     fbBuilder.addUint8(35, contentKind?.value);
     return fbBuilder.offset;
   }
+  int addOpacityClass(WindowOpacityClass? opacityClass) {
+    fbBuilder.addUint8(36, opacityClass?.value);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -1471,6 +1512,7 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
   final bool? _serverSideDecorated;
   final double? _opacity;
   final WindowContentKind? _contentKind;
+  final WindowOpacityClass? _opacityClass;
 
   WindowObjectBuilder({
     int? objectId,
@@ -1509,6 +1551,7 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
     bool? serverSideDecorated,
     double? opacity,
     WindowContentKind? contentKind,
+    WindowOpacityClass? opacityClass,
   })
       : _objectId = objectId,
         _objectKind = objectKind,
@@ -1545,7 +1588,8 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
         _suppressAnimations = suppressAnimations,
         _serverSideDecorated = serverSideDecorated,
         _opacity = opacity,
-        _contentKind = contentKind;
+        _contentKind = contentKind,
+        _opacityClass = opacityClass;
 
   /// Finish building, and store into the [fbBuilder].
   @override
@@ -1556,7 +1600,7 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
         : fbBuilder.writeString(_appId!);
     final int? surfacesOffset = _surfaces == null ? null
         : fbBuilder.writeList(_surfaces!.map((b) => b.getOrCreateOffset(fbBuilder)).toList());
-    fbBuilder.startTable(36);
+    fbBuilder.startTable(37);
     fbBuilder.addUint64(0, _objectId);
     fbBuilder.addUint8(1, _objectKind?.value);
     fbBuilder.addUint64(2, _surfaceId);
@@ -1593,6 +1637,7 @@ class WindowObjectBuilder extends fb.ObjectBuilder {
     fbBuilder.addBool(33, _serverSideDecorated);
     fbBuilder.addFloat32(34, _opacity);
     fbBuilder.addUint8(35, _contentKind?.value);
+    fbBuilder.addUint8(36, _opacityClass?.value);
     return fbBuilder.endTable();
   }
 

@@ -293,11 +293,28 @@ pub enum WindowContentKind {
     LocalFlutter,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WindowOpacityClass {
+    ContentTranslucent,
+    BorderAlphaOnly,
+    FullyOpaque,
+}
+
 impl WindowContentKind {
     fn wire(self) -> fb::WindowContentKind {
         match self {
             Self::SurfaceTree => fb::WindowContentKind::SurfaceTree,
             Self::LocalFlutter => fb::WindowContentKind::LocalFlutter,
+        }
+    }
+}
+
+impl WindowOpacityClass {
+    fn wire(self) -> fb::WindowOpacityClass {
+        match self {
+            Self::ContentTranslucent => fb::WindowOpacityClass::ContentTranslucent,
+            Self::BorderAlphaOnly => fb::WindowOpacityClass::BorderAlphaOnly,
+            Self::FullyOpaque => fb::WindowOpacityClass::FullyOpaque,
         }
     }
 }
@@ -346,6 +363,7 @@ pub struct WindowDescription {
     pub server_side_decorated: bool,
     pub opacity: f32,
     pub content_kind: WindowContentKind,
+    pub opacity_class: WindowOpacityClass,
 }
 
 #[derive(Debug)]
@@ -1319,6 +1337,7 @@ fn create_window_snapshot<'a>(
                 server_side_decorated: description.server_side_decorated,
                 opacity: description.opacity,
                 content_kind: description.content_kind.wire(),
+                opacity_class: description.opacity_class.wire(),
                 ..Default::default()
             },
         ));
@@ -2148,6 +2167,7 @@ mod tests {
             server_side_decorated: true,
             opacity: 1.0,
             content_kind: WindowContentKind::SurfaceTree,
+            opacity_class: WindowOpacityClass::FullyOpaque,
         };
         let mut bridge = bridge();
         let (update, recycled) = bridge.update_windows(vec![window.clone()]).unwrap();
@@ -2166,6 +2186,7 @@ mod tests {
         assert_eq!(encoded.geometry_x(), 96.0);
         assert!(!encoded.suppress_animations());
         assert!(encoded.server_side_decorated());
+        assert_eq!(encoded.opacity_class(), fb::WindowOpacityClass::FullyOpaque);
         let surfaces = encoded.surfaces().unwrap();
         assert_eq!(surfaces.len(), 2);
         assert_eq!(surfaces.get(0).role(), fb::SurfaceRole::Root);

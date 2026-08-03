@@ -82,18 +82,42 @@ scheduling a Flutter frame. Counts are grouped by Wayland object ID:
 
 An external texture update schedules a frame with
 `Engine::ScheduleFrame(false)`: Dart does not construct a new layer tree and
-the rasterizer calls `DrawLastLayerTrees()`. At the pinned upstream revision,
-that path moved the cached task out of the view record before frame-damage
-calculation looked up the previous tree. The lookup was consequently null and
-Flutter treated every autonomous texture frame as a first frame, damaging the
-entire view.
+the rasterizer calls `DrawLastLayerTrees()`.
 
-The locked Flutter fork commit
+The earlier fork commit
 [`ef8d243f38b`](https://github.com/denialwm/flutter/commit/ef8d243f38b)
-marks these reused tasks and compares the in-flight tree against itself. This is intentional:
-`TextureLayer::Diff` always marks the texture bounds dirty, while retained
-static siblings preserve their paint regions. Thus a 200 fps client can update
-at 200 fps without turning every update into a full-atlas repaint.
+made reused tasks compare the in-flight tree against itself. A later branch
+temporarily coupled every reused tree to a full raster repaint even though its
+reported frame damage stayed precise.
+
+Flutter fork commit `c3ee9167475bb06d20abb689dc37f2c462909ba1`
+removes that coupling. `TextureLayer::Diff` limits autonomous damage to the
+texture IDs that requested the frame. Flutter keeps actual `frame_damage`
+separate from the selected rotating FBO's historical repair region and unions
+them only for `buffer_damage`. Unknown target contents, first frames and
+unsupported partial paths still repaint fully.
+
+Follow-up commit `fc290f44fbcf39f272f270fd93c5517aed6cccd0` plans the
+physical repaint for the selected backend. Skia software and Impeller retain
+an exact complex region (subject to Impeller's existing area economics).
+Ganesh uses a conservative rectangular bound so it stays on the hardware
+scissor path; if that rectangle covers the target, it omits the root clip and
+repaints the target. This avoids turning a union of rectangles into a path that
+Ganesh must analyze and apply to every draw. Reported `buffer_damage` is
+widened to the pixels that the selected plan can actually modify, while
+logical `frame_damage` remains exact.
+
+The compositor preserves the same region topology while accumulating rotating
+buffer history. Its normalizer coalesces rectangles only when their union is
+itself exactly rectangular; merely touching pieces of an L-shaped region must
+not become their bounding box. Storage is capped at 32 rectangles, after which
+only the pair with the least added bounding-box area is compacted. This keeps
+the callback bounded and conservative without turning a cross-output gap into
+damage.
+
+Thus a 200 fps client can update at 200 fps without turning every update into
+a full-atlas repaint or leaving stale pixels when an older atlas buffer rotates
+back into use.
 
 ## Expected 200 fps window result
 

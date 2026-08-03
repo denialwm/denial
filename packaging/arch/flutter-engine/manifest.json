@@ -15,28 +15,28 @@
     "flutter_version": "3.44.7",
     "flutter_revision": "84fc5cbb223bc12f83d65b647ff8a56caf779ffd",
     "engine_artifact_revision": "69c8c61792f04cc809dfef0c910414fb9afc06cd",
-    "engine_content_hash": "f4cde4ea83f811f4031367a0ee30332f3ec1b53a",
+    "engine_content_hash": "66c98ad6cba21e2c9b2062123a41d5a8edb2fe70",
     "dart_version": "3.12.2",
     "dart_revision": "d684a576a6aa954ae107a03b2b4e1d61c3bebe93",
     "skia_revision": "e9ed4fc9f1544c58d8a9347c1fc9471d8dd7c465",
     "flutter_repository": "https://github.com/denialwm/flutter.git",
-    "flutter_fork_revision": "af53fe6dc91e13ea1d2da9103d7d88fc202dd052",
+    "flutter_fork_revision": "38724af712979f95c4fdc264148fa032e8ca223f",
     "skia_repository": "https://github.com/denialwm/skia.git",
-    "skia_fork_revision": "5097a648e9bbb1d4a7fdf06a2a6d7bef3c9dd414"
+    "skia_fork_revision": "0ee042f542b3e79f5ac49115387718c6bb3d7d34"
   },
   "source_lock": {
     "path": "prebuilt/flutter-engine/SOURCE_LOCK.json",
-    "sha256": "f232360f089d2bb6ff06a555067859dc531a8a0a8356e3a82e06dc4131e3eaa2"
+    "sha256": "19858826dcbb272f34cf2037e1387a0d4d42f0188b2a5ff22d7fdfd1ab5695c4"
   },
   "abi": {
     "official_embedder_header_sha256": "166626fb689d4e77e720c925f18e814a3cd55280999a443d9d1cc244384e37af",
-    "denial_embedder_header_sha256": "a4760b81a90ee44dc1a10199042129073a0087394b51acd9b5cf037793c4b9f8",
+    "denial_embedder_header_sha256": "25c560f1923fbd055aca33a141d4d01ef13a27a46362c82e7d9e3ceec058439f",
     "generated_rust_bindings_sha256": "d35c52f8f844e378e320c50eb3fb126a85f33c0a0b28815675bde4d52396b6a7"
   },
   "artifacts": {
-    "gn_args_sha256": "1a1822b7eb162cb6528a365bdc90fddbca3e90604ebc997f45c2c65d9eea254f",
-    "libflutter_engine_sha256": "f73d0102833d36c8b496c1cac44b268eacab0d7b50180ebe755d3a99c52ff15f",
-    "libflutter_engine_build_id": "885f94d5b926559e580cc895caa7a2600e2f12cb",
+    "gn_args_sha256": "fdf1ba9e92aa0c4f75ad524c286896da1e4f6f9b5b8d078e1ac3db47d266cab2",
+    "libflutter_engine_sha256": "9495fa2ed86f4729f0ea1009ed4c073c9f63918efbbeabeaa420a81a69d77f33",
+    "libflutter_engine_build_id": "7dedba2a735033d7dbdcdbaa9696a9814c13c1c8",
     "icudtl_sha256": "998367809a821d595928089c197b3f7959f0420f81f79d4d0daee53378492ed5"
   },
   "assurances": {

@@ -219,6 +219,8 @@ class _DenialShellAppState extends ConsumerState<DenialShellApp> {
         panelOpacity: settings.appearance.panelOpacity,
         backdropBlurEnabled: settings.appearance.backdropBlurEnabled,
         backdropBlurSigma: settings.appearance.backdropBlurSigma,
+        backdropBlurOpacityThreshold:
+            settings.appearance.backdropBlurOpacityThreshold,
         focusedWindowOpacity: settings.appearance.focusedWindowOpacity,
         unfocusedWindowOpacity: settings.appearance.unfocusedWindowOpacity,
       ),

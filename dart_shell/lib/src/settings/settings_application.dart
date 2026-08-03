@@ -196,6 +196,8 @@ class _DenialSettingsApplicationState
         onPanelOpacityChanged: controller.setPanelOpacity,
         onBackdropBlurEnabledChanged: controller.setBackdropBlurEnabled,
         onBackdropBlurSigmaChanged: controller.setBackdropBlurSigma,
+        onBackdropBlurOpacityThresholdChanged:
+            controller.setBackdropBlurOpacityThreshold,
         onFocusedOpacityChanged: controller.setFocusedWindowOpacity,
         onUnfocusedOpacityChanged: controller.setUnfocusedWindowOpacity,
         onReset: controller.resetAppearance,

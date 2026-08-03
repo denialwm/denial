@@ -236,6 +236,24 @@ const fn surface_commit_kind(
     }
 }
 
+#[cfg(feature = "flutter")]
+fn opaque_regions_signature(regions: Option<&[Rectangle<i32, Logical>]>) -> (usize, u64) {
+    let Some(regions) = regions else {
+        return (0, 0);
+    };
+    // Stable, allocation-free FNV-1a over the normalized renderer regions.
+    // This runs on the compositor thread, including Chromium's 240 Hz buffer
+    // path, so keep it proportional only to the usually tiny region list.
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for rect in regions {
+        for value in [rect.loc.x, rect.loc.y, rect.size.w, rect.size.h] {
+            hash ^= u64::from(value as u32);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    (regions.len(), hash)
+}
+
 pub(super) struct DenialClientState {
     compositor_state: CompositorClientState,
     budget: Option<Arc<WaylandClientBudget>>,
@@ -622,6 +640,7 @@ impl CompositorHandler for RuntimeState {
                 state.buffer_size(),
                 state.buffer_scale(),
                 state.buffer_transform(),
+                opaque_regions_signature(state.opaque_regions()),
             )
         });
         #[cfg(feature = "flutter")]
@@ -666,6 +685,7 @@ impl CompositorHandler for RuntimeState {
                     state.buffer_size(),
                     state.buffer_scale(),
                     state.buffer_transform(),
+                    opaque_regions_signature(state.opaque_regions()),
                 )
             });
         #[cfg(feature = "flutter")]
@@ -733,9 +753,13 @@ impl CompositorHandler for RuntimeState {
                 let client_sized_target = frontend.reconcile_client_sized_window_placement(&window);
                 #[cfg(feature = "flutter")]
                 {
+                    let current_target_geometry = frontend.window_geometry_target(&window);
+                    if previous_target_geometry != current_target_geometry {
+                        frontend.update_window_output_membership(&window);
+                    }
                     committed_window_metadata_changed |= previous_content_geometry
                         != window.geometry()
-                        || previous_target_geometry != frontend.window_geometry_target(&window);
+                        || previous_target_geometry != current_target_geometry;
                 }
                 #[cfg(feature = "flutter")]
                 if let Some(target) = client_sized_target {
@@ -1108,6 +1132,8 @@ impl XdgShellHandler for RuntimeState {
             frontend
                 .space
                 .map_element(window.clone(), (offset, offset), true);
+            #[cfg(feature = "flutter")]
+            frontend.update_window_output_membership(&window);
             for candidate in frontend.space.elements() {
                 let changed = candidate.set_activated(candidate == &window);
                 if changed && let Some(toplevel) = candidate.toplevel() {

@@ -14,6 +14,9 @@ const settingsBackdropBlurToggleKey = ValueKey<String>(
 const settingsBackdropBlurSliderKey = ValueKey<String>(
   'settings-backdrop-blur-slider',
 );
+const settingsBackdropBlurOpacityThresholdKey = ValueKey<String>(
+  'settings-backdrop-blur-opacity-threshold',
+);
 
 class SettingsAppearancePage extends StatelessWidget {
   const SettingsAppearancePage({
@@ -26,6 +29,7 @@ class SettingsAppearancePage extends StatelessWidget {
     required this.onPanelOpacityChanged,
     required this.onBackdropBlurEnabledChanged,
     required this.onBackdropBlurSigmaChanged,
+    required this.onBackdropBlurOpacityThresholdChanged,
     required this.onFocusedOpacityChanged,
     required this.onUnfocusedOpacityChanged,
     required this.onReset,
@@ -41,6 +45,7 @@ class SettingsAppearancePage extends StatelessWidget {
   final ValueChanged<double> onPanelOpacityChanged;
   final ValueChanged<bool> onBackdropBlurEnabledChanged;
   final ValueChanged<double> onBackdropBlurSigmaChanged;
+  final ValueChanged<double> onBackdropBlurOpacityThresholdChanged;
   final ValueChanged<double> onFocusedOpacityChanged;
   final ValueChanged<double> onUnfocusedOpacityChanged;
   final VoidCallback onReset;
@@ -109,6 +114,20 @@ class SettingsAppearancePage extends StatelessWidget {
                       settings.backdropBlurSigma.round(),
                     ),
                     onChanged: onBackdropBlurSigmaChanged,
+                  ),
+                  const SizedBox(height: 8),
+                  SettingsSlider(
+                    key: settingsBackdropBlurOpacityThresholdKey,
+                    label: l10n.settingsBackdropBlurOpacityThreshold,
+                    value: settings.backdropBlurOpacityThreshold,
+                    minimum: 0,
+                    maximum: 1,
+                    divisions: 100,
+                    enabled: settings.backdropBlurEnabled,
+                    valueLabel: l10n.settingsPercent(
+                      (settings.backdropBlurOpacityThreshold * 100).round(),
+                    ),
+                    onChanged: onBackdropBlurOpacityThresholdChanged,
                   ),
                 ],
               ),
