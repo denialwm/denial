@@ -30,6 +30,9 @@ boundaries may change before 1.0.
 
 ### Fixed
 
+- Retained builder checkouts now run Flutter revision-transition hooks with
+  the pinned depot_tools environment instead of depending on a host-global
+  `vpython3` command.
 - DPMS wake now absorbs transient connector disconnects while monitors retrain
   their links, preserving Wayland outputs and client windows across display
   power cycles.
