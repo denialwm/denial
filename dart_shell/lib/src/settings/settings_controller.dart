@@ -92,6 +92,12 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     _updateAppearance(backdropBlurSigma: value.clamp(4, 32).toDouble());
   }
 
+  void setBackdropBlurOpacityThreshold(double value) {
+    _updateAppearance(
+      backdropBlurOpacityThreshold: value.clamp(0, 1).toDouble(),
+    );
+  }
+
   void setFocusedWindowOpacity(double value) {
     _updateAppearance(focusedWindowOpacity: value.clamp(0.35, 1).toDouble());
   }
@@ -274,6 +280,7 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     double? panelOpacity,
     bool? backdropBlurEnabled,
     double? backdropBlurSigma,
+    double? backdropBlurOpacityThreshold,
     double? focusedWindowOpacity,
     double? unfocusedWindowOpacity,
   }) {
@@ -285,6 +292,7 @@ class ShellSettingsController extends Notifier<ShellSettings> {
           panelOpacity: panelOpacity,
           backdropBlurEnabled: backdropBlurEnabled,
           backdropBlurSigma: backdropBlurSigma,
+          backdropBlurOpacityThreshold: backdropBlurOpacityThreshold,
           focusedWindowOpacity: focusedWindowOpacity,
           unfocusedWindowOpacity: unfocusedWindowOpacity,
         ),

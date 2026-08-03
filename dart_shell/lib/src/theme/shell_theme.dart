@@ -57,6 +57,7 @@ class ShellThemeData {
     this.panelOpacity = 0.93,
     this.backdropBlurEnabled = true,
     this.backdropBlurSigma = 18,
+    this.backdropBlurOpacityThreshold = 0.05,
     this.focusedWindowOpacity = 1,
     this.unfocusedWindowOpacity = 1,
   });
@@ -67,6 +68,7 @@ class ShellThemeData {
   final double panelOpacity;
   final bool backdropBlurEnabled;
   final double backdropBlurSigma;
+  final double backdropBlurOpacityThreshold;
   final double focusedWindowOpacity;
   final double unfocusedWindowOpacity;
 
@@ -83,6 +85,7 @@ class ShellThemeData {
         other.panelOpacity == panelOpacity &&
         other.backdropBlurEnabled == backdropBlurEnabled &&
         other.backdropBlurSigma == backdropBlurSigma &&
+        other.backdropBlurOpacityThreshold == backdropBlurOpacityThreshold &&
         other.focusedWindowOpacity == focusedWindowOpacity &&
         other.unfocusedWindowOpacity == unfocusedWindowOpacity;
   }
@@ -95,6 +98,7 @@ class ShellThemeData {
     panelOpacity,
     backdropBlurEnabled,
     backdropBlurSigma,
+    backdropBlurOpacityThreshold,
     focusedWindowOpacity,
     unfocusedWindowOpacity,
   );

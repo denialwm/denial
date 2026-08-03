@@ -154,6 +154,8 @@ const COLORS: [Color32F; 4] = [
 
 #[cfg(feature = "flutter")]
 const NOTIFICATION_EVENT_QUEUE_CAPACITY: usize = 512;
+#[cfg(feature = "flutter")]
+const DPMS_WAKE_TOPOLOGY_GRACE: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct OutputModePreference {
@@ -981,6 +983,12 @@ struct RuntimeState {
     #[cfg(feature = "flutter")]
     pending_output_applies: VecDeque<PendingOutputApply>,
     #[cfg(feature = "flutter")]
+    output_control_dirty: bool,
+    #[cfg(feature = "flutter")]
+    dpms_wake_topology_grace_until: Option<Instant>,
+    #[cfg(feature = "flutter")]
+    topology_recheck_at: Option<Instant>,
+    #[cfg(feature = "flutter")]
     pending_ui_development: VecDeque<PendingUiDevelopment>,
     #[cfg(feature = "flutter")]
     idle_dpms: idle_policy::IdleDpmsPolicy,
@@ -1026,6 +1034,26 @@ impl RuntimeState {
     fn note_user_activity(&mut self) {
         let requests = self.idle_dpms.note_activity(Instant::now());
         self.queue_idle_power_requests(requests);
+    }
+
+    fn note_dpms_wake(&mut self, now: Instant) {
+        self.dpms_wake_topology_grace_until = Some(now + DPMS_WAKE_TOPOLOGY_GRACE);
+    }
+
+    fn service_topology_recheck_deadline(&mut self, now: Instant) {
+        if self
+            .topology_recheck_at
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.topology_recheck_at = None;
+            self.topology_dirty = true;
+        }
+        if self
+            .dpms_wake_topology_grace_until
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.dpms_wake_topology_grace_until = None;
+        }
     }
 
     fn queue_idle_power_requests(
@@ -1142,6 +1170,23 @@ fn collect_output_power_requests(events: &mut RuntimeState) {
 }
 
 #[cfg(feature = "flutter")]
+fn transient_dpms_output_removal_count(
+    grace_until: Option<Instant>,
+    now: Instant,
+    current: impl IntoIterator<Item = OutputId>,
+    observed: impl IntoIterator<Item = OutputId>,
+) -> usize {
+    if grace_until.is_none_or(|deadline| now >= deadline) {
+        return 0;
+    }
+    let observed = observed.into_iter().collect::<HashSet<_>>();
+    current
+        .into_iter()
+        .filter(|output| !observed.contains(output))
+        .count()
+}
+
+#[cfg(feature = "flutter")]
 fn synchronize_idle_dpms(scanouts: &[Scanout], events: &mut RuntimeState) {
     let inhibited = events
         .wayland
@@ -1230,6 +1275,7 @@ fn apply_output_power_requests(
             }
             scheduler.power_off(runtime, output, scanouts)?;
             scanouts[scanout_index].powered = false;
+            events.output_control_dirty = true;
             swapchain.present(scheduler.stable_framebuffer_index());
             events.pending.remove(&scanouts[scanout_index].output.crtc);
             info!(
@@ -1264,6 +1310,8 @@ fn apply_output_power_requests(
                 continue;
             }
             scanouts[scanout_index].powered = true;
+            events.output_control_dirty = true;
+            events.note_dpms_wake(Instant::now());
             scheduler.power_on(runtime, scanout_index, framebuffer_index, scanouts)?;
             swapchain.present(framebuffer_index);
             info!(
@@ -1895,6 +1943,8 @@ fn run_flutter_event_loop(
         &mut events,
     )?;
     let mut frame_scheduler = frame_scheduler::FrameScheduler::new(scanouts, Instant::now());
+    let mut ready_output_apply: Option<(PendingOutputApply, Vec<ConnectedConnector>)> = None;
+    let mut pending_output_success: Option<PendingOutputApply> = None;
 
     // Any native helper inadvertently created by an elevated Flutter thread
     // is normalized before the compositor itself becomes realtime.
@@ -1910,6 +1960,7 @@ fn run_flutter_event_loop(
             &mut events,
             deadline,
         )?;
+        events.service_topology_recheck_deadline(Instant::now());
         install_sampled_buffer_releases(event_loop, &mut events)?;
         scheduler.acknowledge_ready_fences(
             flutter
@@ -1917,6 +1968,27 @@ fn run_flutter_event_loop(
                 .ok_or("Flutter runtime disappeared during fence acknowledgement")?,
             events.ready_fence_signals.drain(..),
         )?;
+        let needs_output_snapshot =
+            ready_output_apply.is_some() || pending_output_success.is_some();
+        let mut current_output_snapshot =
+            output_control.publish_if_dirty(&mut events.output_control_dirty, || {
+                output_control_state(
+                    drm_scanner,
+                    scanouts,
+                    topology,
+                    &output_configuration,
+                    persistence_available,
+                )
+            })?;
+        if needs_output_snapshot && current_output_snapshot.is_none() {
+            current_output_snapshot = Some(output_control.snapshot());
+        }
+        if let Some(request) = pending_output_success.take() {
+            request.reply(Ok(current_output_snapshot
+                .as_ref()
+                .expect("successful output apply has a publication snapshot")
+                .clone()));
+        }
         if let Some(reason) = events.lifecycle.shutdown_reason() {
             log_shutdown(reason);
             break;
@@ -1964,13 +2036,11 @@ fn run_flutter_event_loop(
             )?;
             frame_scheduler.reconfigure(scanouts, Instant::now());
         }
-        output_control.publish(output_control_state(
-            drm_scanner,
-            scanouts,
-            topology,
-            &output_configuration,
-            persistence_available,
-        )?);
+        if events.output_control_dirty {
+            // Publish DPMS changes at the single loop-boundary gate above
+            // before processing more compositor or Flutter work.
+            continue;
+        }
 
         while let Some(request) = events.pending_ui_development.pop_front() {
             let Some(runtime) = flutter.as_mut() else {
@@ -1995,8 +2065,17 @@ fn run_flutter_event_loop(
             }
         }
 
-        if let Some(request) = events.pending_output_applies.pop_front() {
-            if !scanout_rebased && scheduler.has_pending_scanout_work() {
+        if scanout_rebased && let Some((request, _)) = ready_output_apply.take() {
+            // A VT resume invalidates the scheduler and any connector view
+            // prepared against it. Re-scan the request after topology repair.
+            events.pending_output_applies.push_front(request);
+        }
+
+        if !scanout_rebased
+            && ready_output_apply.is_none()
+            && let Some(request) = events.pending_output_applies.pop_front()
+        {
+            if scheduler.has_pending_scanout_work() {
                 scheduler.submit_ready(drm, swapchain, scanouts, &mut events)?;
                 events.pending_output_applies.push_front(request);
                 let now = Instant::now();
@@ -2018,13 +2097,18 @@ fn run_flutter_event_loop(
                     continue;
                 }
             };
-            let current_snapshot = output_control.publish(output_control_state(
-                drm_scanner,
-                scanouts,
-                topology,
-                &output_configuration,
-                persistence_available,
-            )?);
+            // A direct apply request performs a fresh connector scan. Route
+            // that observation through the same boundary publication as udev
+            // topology and mode changes before validating its serial.
+            events.output_control_dirty = true;
+            ready_output_apply = Some((request, connectors));
+            continue;
+        }
+
+        if !scanout_rebased && let Some((request, connectors)) = ready_output_apply.take() {
+            let current_snapshot = current_output_snapshot
+                .as_ref()
+                .expect("prepared output apply has a publication snapshot");
             if request.configuration.serial != current_snapshot.serial {
                 let message = format!(
                     "configuration serial {} is stale; current serial is {}",
@@ -2130,6 +2214,7 @@ fn run_flutter_event_loop(
             let topology_changed = preview.outputs != topology.snapshot().outputs;
             if !scanout_rebased && !hardware_changed && !topology_changed {
                 output_configuration = staged_configuration;
+                events.output_control_dirty = true;
                 events.output_power_requests.extend(desired_power);
                 apply_output_power_requests(
                     flutter
@@ -2141,31 +2226,18 @@ fn run_flutter_event_loop(
                     &mut events,
                 )?;
                 frame_scheduler.reconfigure(scanouts, Instant::now());
-                if let Some(prepared) = prepared_persistence
-                    && let Err(error) = prepared.commit()
-                {
-                    output_control.publish(output_control_state(
-                        drm_scanner,
-                        scanouts,
-                        topology,
-                        &output_configuration,
-                        persistence_available,
-                    )?);
-                    request.reply(Err(output_control::OutputControlFailure::new(
-                        "persistence_failed",
-                        &error,
-                    )));
-                    warn!(%error, "output configuration applied but could not be persisted");
-                    continue;
+                if let Some(prepared) = prepared_persistence {
+                    events.output_control_dirty = true;
+                    if let Err(error) = prepared.commit() {
+                        request.reply(Err(output_control::OutputControlFailure::new(
+                            "persistence_failed",
+                            &error,
+                        )));
+                        warn!(%error, "output configuration applied but could not be persisted");
+                        continue;
+                    }
                 }
-                let snapshot = output_control.publish(output_control_state(
-                    drm_scanner,
-                    scanouts,
-                    topology,
-                    &output_configuration,
-                    persistence_available,
-                )?);
-                request.reply(Ok(snapshot));
+                pending_output_success = Some(request);
                 continue;
             }
 
@@ -2199,6 +2271,7 @@ fn run_flutter_event_loop(
             );
             if let Err(error) = apply {
                 let message = error.to_string();
+                events.output_control_dirty = true;
                 request.reply(Err(output_control::OutputControlFailure::new(
                     "apply_failed",
                     &message,
@@ -2209,13 +2282,6 @@ fn run_flutter_event_loop(
                     )
                     .into());
                 }
-                output_control.publish(output_control_state(
-                    drm_scanner,
-                    scanouts,
-                    topology,
-                    &output_configuration,
-                    persistence_available,
-                )?);
                 warn!(%message, "rejected output-control transaction");
                 continue;
             }
@@ -2225,6 +2291,7 @@ fn run_flutter_event_loop(
             retired_superseded_ready_frames =
                 retired_superseded_ready_frames.saturating_add(scheduler.superseded_ready_frames());
             output_configuration = staged_configuration;
+            events.output_control_dirty = true;
             scheduler = output_scheduler::OutputScheduler::new(
                 scanouts,
                 swapchain.current,
@@ -2246,32 +2313,19 @@ fn run_flutter_event_loop(
                 &mut events,
             )?;
             frame_scheduler.reconfigure(scanouts, Instant::now());
-            if let Some(prepared) = prepared_persistence
-                && let Err(error) = prepared.commit()
-            {
-                output_control.publish(output_control_state(
-                    drm_scanner,
-                    scanouts,
-                    topology,
-                    &output_configuration,
-                    persistence_available,
-                )?);
-                request.reply(Err(output_control::OutputControlFailure::new(
-                    "persistence_failed",
-                    &error,
-                )));
-                warn!(%error, "output configuration applied but could not be persisted");
-                events.scanout_rebased = false;
-                continue;
+            if let Some(prepared) = prepared_persistence {
+                events.output_control_dirty = true;
+                if let Err(error) = prepared.commit() {
+                    request.reply(Err(output_control::OutputControlFailure::new(
+                        "persistence_failed",
+                        &error,
+                    )));
+                    warn!(%error, "output configuration applied but could not be persisted");
+                    events.scanout_rebased = false;
+                    continue;
+                }
             }
-            let snapshot = output_control.publish(output_control_state(
-                drm_scanner,
-                scanouts,
-                topology,
-                &output_configuration,
-                persistence_available,
-            )?);
-            request.reply(Ok(snapshot));
+            pending_output_success = Some(request);
             events.scanout_rebased = false;
             continue;
         }
@@ -2281,96 +2335,129 @@ fn run_flutter_event_loop(
         if events.topology_dirty || scanout_rebased || kms_reconfigure_requested {
             events.topology_dirty = false;
             let outputs = connected_outputs(drm_scanner, drm, max_outputs, &output_configuration)?;
-            let changed = outputs.len() != scanouts.len()
-                || outputs.iter().any(|output| {
-                    scanouts
-                        .iter()
-                        .find(|scanout| scanout.output.id == output.id)
-                        .is_none_or(|scanout| {
-                            scanout.output.crtc != output.crtc
-                                || scanout.output.mode != output.mode
-                                || scanout.output.connector != output.connector
-                                || scanout.output.vrr_enabled != output.vrr_enabled
-                        })
-                });
-            info!(
-                connected_outputs = outputs.len(),
-                changed,
-                resumed = scanout_rebased,
-                forced = kms_reconfigure_requested,
-                "completed event-driven DRM topology rescan"
-            );
-            if changed || scanout_rebased || kms_reconfigure_requested {
-                if !scanout_rebased && scheduler.has_pending_scanout_work() {
-                    // Finish any ready old-topology atlas before creating the
-                    // common rollback point used by the hotplug transaction.
-                    // A signalled userspace fence can be submitted now; an
-                    // unfinished one will wake this loop through calloop.
-                    scheduler.submit_ready(drm, swapchain, scanouts, &mut events)?;
-                    events.topology_dirty = true;
-                    events.kms_reconfigure_requested = kms_reconfigure_requested;
-                    let now = Instant::now();
-                    let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
-                        Duration::from_millis(50).min(deadline.saturating_duration_since(now))
-                    });
-                    event_loop.dispatch(timeout, &mut events)?;
-                    continue;
+            let now = Instant::now();
+            let transient_removals = (!scanout_rebased && !kms_reconfigure_requested)
+                .then(|| {
+                    transient_dpms_output_removal_count(
+                        events.dpms_wake_topology_grace_until,
+                        now,
+                        scanouts.iter().map(|scanout| scanout.output.id),
+                        outputs.iter().map(|output| output.id),
+                    )
+                })
+                .unwrap_or(0);
+            if transient_removals > 0 {
+                let recheck_at = events
+                    .dpms_wake_topology_grace_until
+                    .expect("transient DPMS removal has an active grace deadline");
+                let first_observation = events.topology_recheck_at.replace(recheck_at).is_none();
+                if first_observation {
+                    info!(
+                        missing_outputs = transient_removals,
+                        grace_ms = recheck_at.saturating_duration_since(now).as_millis(),
+                        "deferred transient connector removal during DPMS wake"
+                    );
                 }
-                if !scanout_rebased {
-                    scheduler.converge_for_topology(
-                        flutter
-                            .as_ref()
-                            .ok_or("Flutter runtime disappeared before topology convergence")?,
+            } else {
+                if events.topology_recheck_at.take().is_some() {
+                    info!("cancelled deferred connector removal after DPMS topology recovered");
+                }
+                events.output_control_dirty = true;
+                let changed = outputs.len() != scanouts.len()
+                    || outputs.iter().any(|output| {
+                        scanouts
+                            .iter()
+                            .find(|scanout| scanout.output.id == output.id)
+                            .is_none_or(|scanout| {
+                                scanout.output.crtc != output.crtc
+                                    || scanout.output.mode != output.mode
+                                    || scanout.output.connector != output.connector
+                                    || scanout.output.vrr_enabled != output.vrr_enabled
+                            })
+                    });
+                info!(
+                    connected_outputs = outputs.len(),
+                    changed,
+                    resumed = scanout_rebased,
+                    forced = kms_reconfigure_requested,
+                    "completed event-driven DRM topology rescan"
+                );
+                if changed || scanout_rebased || kms_reconfigure_requested {
+                    if !scanout_rebased && scheduler.has_pending_scanout_work() {
+                        // Finish any ready old-topology atlas before creating the
+                        // common rollback point used by the hotplug transaction.
+                        // A signalled userspace fence can be submitted now; an
+                        // unfinished one will wake this loop through calloop.
+                        scheduler.submit_ready(drm, swapchain, scanouts, &mut events)?;
+                        events.topology_dirty = true;
+                        events.kms_reconfigure_requested = kms_reconfigure_requested;
+                        let now = Instant::now();
+                        let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
+                            Duration::from_millis(50).min(deadline.saturating_duration_since(now))
+                        });
+                        event_loop.dispatch(timeout, &mut events)?;
+                        continue;
+                    }
+                    if !scanout_rebased {
+                        scheduler.converge_for_topology(
+                            flutter
+                                .as_ref()
+                                .ok_or("Flutter runtime disappeared before topology convergence")?,
+                            drm,
+                            swapchain,
+                            scanouts,
+                            &mut events,
+                        )?;
+                    }
+                    retired_output_flips =
+                        retired_output_flips.saturating_add(scheduler.presented_frames());
+                    retired_superseded_ready_frames = retired_superseded_ready_frames
+                        .saturating_add(scheduler.superseded_ready_frames());
+                    apply_hotplug_topology(
+                        renderer,
+                        allocator,
+                        drm_fd,
                         drm,
                         swapchain,
                         scanouts,
+                        restore_state,
+                        topology,
+                        outputs,
+                        &output_configuration,
+                        raster_frames,
+                        event_loop,
+                        &mut events,
+                        &mut flutter,
+                        Some(flutter_launcher),
+                    )?;
+                    scheduler = output_scheduler::OutputScheduler::new(
+                        scanouts,
+                        swapchain.current,
+                        swapchain.buffers.len(),
+                        flutter
+                            .as_mut()
+                            .ok_or("Flutter runtime was not restarted after topology change")?,
                         &mut events,
                     )?;
+                    frame_scheduler =
+                        frame_scheduler::FrameScheduler::new(scanouts, Instant::now());
+                    if events.flutter_reload_requested {
+                        events.flutter_reload_requested = false;
+                        info!(
+                            generation = flutter_launcher.generation,
+                            "loaded the refreshed Flutter bundle during topology restart"
+                        );
+                    }
+                    // A pause/resume serviced inside the topology transaction was
+                    // already absorbed by its synchronous candidate commit and the
+                    // freshly created scheduler.
+                    events.scanout_rebased = false;
+                    continue;
                 }
-                retired_output_flips =
-                    retired_output_flips.saturating_add(scheduler.presented_frames());
-                retired_superseded_ready_frames = retired_superseded_ready_frames
-                    .saturating_add(scheduler.superseded_ready_frames());
-                apply_hotplug_topology(
-                    renderer,
-                    allocator,
-                    drm_fd,
-                    drm,
-                    swapchain,
-                    scanouts,
-                    restore_state,
-                    topology,
-                    outputs,
-                    &output_configuration,
-                    raster_frames,
-                    event_loop,
-                    &mut events,
-                    &mut flutter,
-                    Some(flutter_launcher),
-                )?;
-                scheduler = output_scheduler::OutputScheduler::new(
-                    scanouts,
-                    swapchain.current,
-                    swapchain.buffers.len(),
-                    flutter
-                        .as_mut()
-                        .ok_or("Flutter runtime was not restarted after topology change")?,
-                    &mut events,
-                )?;
-                frame_scheduler = frame_scheduler::FrameScheduler::new(scanouts, Instant::now());
-                if events.flutter_reload_requested {
-                    events.flutter_reload_requested = false;
-                    info!(
-                        generation = flutter_launcher.generation,
-                        "loaded the refreshed Flutter bundle during topology restart"
-                    );
-                }
-                // A pause/resume serviced inside the topology transaction was
-                // already absorbed by its synchronous candidate commit and the
-                // freshly created scheduler.
-                events.scanout_rebased = false;
-                continue;
             }
+        }
+        if events.output_control_dirty {
+            continue;
         }
 
         if events.flutter_reload_requested {
@@ -2495,8 +2582,12 @@ fn run_flutter_event_loop(
         }
 
         let now = Instant::now();
-        let next_dispatch_timeout =
+        let mut next_dispatch_timeout =
             frame_scheduler.limit_dispatch_timeout(now, runtime.next_dispatch_timeout());
+        if let Some(recheck_at) = events.topology_recheck_at {
+            next_dispatch_timeout =
+                next_dispatch_timeout.min(recheck_at.saturating_duration_since(now));
+        }
         let dispatch_timeout = if let Some(deadline) = deadline {
             if now >= deadline {
                 break;
@@ -3376,6 +3467,10 @@ fn apply_hotplug_topology(
 
     let retired_scanouts = reconciliation.commit();
     *topology = staged_topology;
+    #[cfg(feature = "flutter")]
+    {
+        events.output_control_dirty = true;
+    }
     let retired = std::mem::replace(swapchain, staged);
     progress.mark_finalized();
     drop(retired_scanouts);
@@ -4348,6 +4443,63 @@ fn select_refresh_millihz(
             .min_by_key(|refresh| (refresh.abs_diff(configured), std::cmp::Reverse(*refresh)))
             .filter(|refresh| refresh.abs_diff(configured) <= CONFIGURED_REFRESH_TOLERANCE_MILLIHZ),
         None => refreshes.max(),
+    }
+}
+
+#[cfg(all(test, feature = "flutter"))]
+mod dpms_topology_tests {
+    use super::{DPMS_WAKE_TOPOLOGY_GRACE, transient_dpms_output_removal_count};
+    use denial_core::topology::OutputId;
+    use std::time::Instant;
+
+    #[test]
+    fn missing_output_is_deferred_only_inside_dpms_wake_grace() {
+        let now = Instant::now();
+        let grace_until = now + DPMS_WAKE_TOPOLOGY_GRACE;
+        let current = [OutputId(4), OutputId(5)];
+
+        assert_eq!(
+            transient_dpms_output_removal_count(Some(grace_until), now, current, [OutputId(5)]),
+            1
+        );
+        assert_eq!(
+            transient_dpms_output_removal_count(
+                Some(grace_until),
+                grace_until,
+                current,
+                [OutputId(5)]
+            ),
+            0
+        );
+        assert_eq!(
+            transient_dpms_output_removal_count(None, now, current, [OutputId(5)]),
+            0
+        );
+    }
+
+    #[test]
+    fn recovered_or_additive_topology_is_never_deferred() {
+        let now = Instant::now();
+        let grace_until = now + DPMS_WAKE_TOPOLOGY_GRACE;
+
+        assert_eq!(
+            transient_dpms_output_removal_count(
+                Some(grace_until),
+                now,
+                [OutputId(4), OutputId(5)],
+                [OutputId(4), OutputId(5)]
+            ),
+            0
+        );
+        assert_eq!(
+            transient_dpms_output_removal_count(
+                Some(grace_until),
+                now,
+                [OutputId(5)],
+                [OutputId(4), OutputId(5)]
+            ),
+            0
+        );
     }
 }
 

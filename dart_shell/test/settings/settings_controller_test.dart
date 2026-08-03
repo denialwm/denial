@@ -56,11 +56,13 @@ void main() {
 
     controller
       ..setBackdropBlurEnabled(false)
-      ..setBackdropBlurSigma(200);
+      ..setBackdropBlurSigma(200)
+      ..setBackdropBlurOpacityThreshold(-2);
 
     final appearance = container.read(shellSettingsProvider).appearance;
     expect(appearance.backdropBlurEnabled, isFalse);
     expect(appearance.backdropBlurSigma, 32);
+    expect(appearance.backdropBlurOpacityThreshold, 0);
     await controller.flush();
     expect(store.writes.single.appearance, appearance);
   });

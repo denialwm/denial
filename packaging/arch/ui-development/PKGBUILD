@@ -19,12 +19,12 @@ provides=('denial-ui-development-engine=3.44.7.denial1')
 conflicts=('denial-ui-development-git')
 options=('!strip' '!debug')
 source=('manifest.json')
-sha256sums=('f255b51db4fb8ab0dcf56c2140ee77224d894392aa5cd90739afa665f8173ef6')
+sha256sums=('45f0eb61a2264bae27359ee03962676b0dbcc18badcefa3d3043ae7879c856ac')
 
-_flutter_revision='af53fe6dc91e13ea1d2da9103d7d88fc202dd052'
+_flutter_revision='38724af712979f95c4fdc264148fa032e8ca223f'
 _dart_revision='d684a576a6aa954ae107a03b2b4e1d61c3bebe93'
-_engine_sha256='bbfaff39b5c8b3eb16c25e7041efc7129c0c72b8a41cdd63b9da9c785caf6601'
-_profile_engine_sha256='64b360a0df184d1baa7541c0817b3b98189fc912805163fb113940c3d5a1602e'
+_engine_sha256='68484e46effe96ececbaf24e0dcd861405695e517c120c51a9d3e1c21129c774'
+_profile_engine_sha256='a0030ac8fa7437c70140240064ea84712259b29b228a0a61471ee96e99c7a022'
 _flutter_binding_sha256='387b0b92fab3db5ed2d072b9bcd9797d960a983236d4ce07cda628bb20bfda89'
 _flutter_tool_sha256='e9bafdf002e980c7f239e68b2f2448e54f3641ce245803152c0cbdd3222db38f'
 _dart_sha256='c03ad868b5c53e31461b0fef22dc6eb6aeb56b7567efff6ca488ce9c4a6f8a6a'

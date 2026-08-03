@@ -6,8 +6,19 @@ boundaries may change before 1.0.
 
 ## [Unreleased]
 
+### Added
+
+- Backdrop blur now has a configurable minimum effective window-opacity
+  threshold, including an unconditional no-blur path for fully invisible
+  windows.
+
 ### Changed
 
+- High-rate external-texture frames now preserve precise rotating-atlas
+  damage, reuse cached layer-diff metadata for only the dirty textures, and
+  avoid redundant Ganesh flushes when cached texture bindings need no GL work.
+- Output ticks use maintained per-output window membership, and output-control
+  snapshots are rebuilt only after state changes.
 - The guided Arch setup now stops after trusting the release key and adding
   the signed repository. Package installation remains an explicit
   `sudo pacman -Syu denial` command.
@@ -19,6 +30,16 @@ boundaries may change before 1.0.
 
 ### Fixed
 
+- Retained builder checkouts now run Flutter revision-transition hooks with
+  the pinned depot_tools environment instead of depending on a host-global
+  `vpython3` command.
+- DPMS wake now absorbs transient connector disconnects while monitors retrain
+  their links, preserving Wayland outputs and client windows across display
+  power cycles.
+- Fully opaque client content no longer requests backdrop blur merely because
+  its shadow, rounded corners, or antialiased border carries alpha.
+- Complex Flutter damage regions no longer collapse touching L-shaped output
+  repairs into a full-atlas repaint.
 - Failed local tag-signing attempts now reliably erase the decrypted recovery
   kit and temporary keyring after function scope unwinds.
 - Arch packages now disable host-default debug-package rewriting explicitly,

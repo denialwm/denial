@@ -413,11 +413,17 @@ prepare_checkout() {
     "$depot_repository" \
     "$depot_revision" \
     "$DEPOT_TOOLS"
-  ensure_repository \
-    'Flutter' \
-    "$flutter_repository" \
-    "$flutter_revision" \
-    "$CHECKOUT"
+  # A retained Flutter checkout has source-owned post-checkout hooks. Keep the
+  # pinned bootstrap depot_tools available while moving it to a new lock so
+  # those hooks resolve vpython3 without depending on the runner's host PATH.
+  PATH="$DEPOT_TOOLS/.cipd_bin:$DEPOT_TOOLS:$PATH" \
+    DEPOT_TOOLS_UPDATE=0 \
+    VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
+    ensure_repository \
+      'Flutter' \
+      "$flutter_repository" \
+      "$flutter_revision" \
+      "$CHECKOUT"
   write_gclient_config "$flutter_repository"
 
   printf 'Synchronizing Flutter dependencies for %s\n' \

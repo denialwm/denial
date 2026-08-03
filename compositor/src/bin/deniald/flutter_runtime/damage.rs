@@ -1,8 +1,9 @@
 use denial_flutter_engine::sys;
 
 // Flutter normally emits a small damage list. Keep callback work and storage
-// bounded if a pathological sequence produces many disjoint rectangles. A
-// bounding-box collapse can repaint more pixels, but can never miss damage.
+// bounded if a pathological sequence produces many disjoint rectangles. Once
+// the cap is reached, pairwise compaction may repaint extra pixels but can
+// never miss damage.
 const MAX_DAMAGE_RECTS: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -30,11 +31,44 @@ impl DamageRect {
         }
     }
 
-    fn touches(self, other: Self) -> bool {
-        self.left <= other.right
-            && self.right >= other.left
-            && self.top <= other.bottom
-            && self.bottom >= other.top
+    fn contains(self, other: Self) -> bool {
+        self.left <= other.left
+            && self.top <= other.top
+            && self.right >= other.right
+            && self.bottom >= other.bottom
+    }
+
+    fn area(self) -> f64 {
+        (self.right - self.left) * (self.bottom - self.top)
+    }
+
+    fn intersection_area(self, other: Self) -> f64 {
+        let width = self.right.min(other.right) - self.left.max(other.left);
+        let height = self.bottom.min(other.bottom) - self.top.max(other.top);
+        width.max(0.0) * height.max(0.0)
+    }
+
+    fn merge_without_overdraw(self, other: Self) -> Option<Self> {
+        if self.contains(other) {
+            return Some(self);
+        }
+        if other.contains(self) {
+            return Some(other);
+        }
+
+        let same_vertical_span = self.top == other.top && self.bottom == other.bottom;
+        let horizontal_intervals_touch = self.left <= other.right && other.left <= self.right;
+        if same_vertical_span && horizontal_intervals_touch {
+            return Some(self.bounding(other));
+        }
+
+        let same_horizontal_span = self.left == other.left && self.right == other.right;
+        let vertical_intervals_touch = self.top <= other.bottom && other.top <= self.bottom;
+        (same_horizontal_span && vertical_intervals_touch).then(|| self.bounding(other))
+    }
+
+    fn merge_overdraw(self, other: Self) -> f64 {
+        self.bounding(other).area() - (self.area() + other.area() - self.intersection_area(other))
     }
 
     fn as_flutter(self) -> sys::FlutterRect {
@@ -143,10 +177,17 @@ impl DamageRegion {
     /// normalized region. Coalescing can include undamaged pixels, but never
     /// excludes pixels Flutter asked the embedder to repair.
     pub(super) fn damaged_area(&self) -> f64 {
-        self.as_slice()
+        let represented = self
+            .as_slice()
             .iter()
-            .map(|rect| (rect.right - rect.left) * (rect.bottom - rect.top))
-            .sum()
+            .copied()
+            .map(DamageRect::area)
+            .sum::<f64>();
+        // Rectangles remain exact until the fixed-capacity compactor is
+        // needed. Its conservative pair merges can overlap other entries, so
+        // the sum is an upper bound and must not exceed the atlas area in
+        // audit output.
+        represented.min(self.bounds.area())
     }
 
     pub(super) fn compact_description(&self) -> String {
@@ -208,34 +249,79 @@ impl DamageRegion {
             return;
         }
 
-        // Merge transitively: growing the bounding rectangle can make it touch
-        // rectangles examined earlier. The resulting superset is conservative.
-        let mut index = 0;
-        while index < self.len {
-            if incoming.touches(self.rects[index]) {
-                incoming = incoming.bounding(self.rects[index]);
-                self.len -= 1;
-                self.rects[index] = self.rects[self.len];
-                index = 0;
+        // Coalesce only when the union is exactly rectangular. Bounding two
+        // merely touching or overlapping rectangles can fill an L-shaped gap;
+        // on a multi-output atlas that gap can be most of the desktop.
+        loop {
+            let Some((index, merged)) =
+                self.as_slice()
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, rect)| {
+                        incoming
+                            .merge_without_overdraw(*rect)
+                            .map(|merged| (index, merged))
+                    })
+            else {
+                break;
+            };
+            incoming = merged;
+            self.remove(index);
+        }
+
+        if incoming == self.bounds {
+            self.set_full();
+            return;
+        }
+
+        if self.len < MAX_DAMAGE_RECTS {
+            self.rects[self.len] = incoming;
+            self.len += 1;
+            return;
+        }
+
+        // Keep callback storage bounded without collapsing the entire region
+        // to one bounding box. Select the pair whose bounding rectangle adds
+        // the fewest undamaged pixels. The extra candidate at index `len` is
+        // `incoming`; all other candidates live in the fixed array.
+        let candidate = |index: usize| {
+            if index == self.len {
+                incoming
             } else {
-                index += 1;
+                self.rects[index]
+            }
+        };
+        let mut best = (f64::INFINITY, f64::INFINITY, 0, self.len);
+        for first in 0..self.len {
+            for second in (first + 1)..=self.len {
+                let a = candidate(first);
+                let b = candidate(second);
+                let merged = a.bounding(b);
+                let choice = (a.merge_overdraw(b), merged.area(), first, second);
+                if choice < best {
+                    best = choice;
+                }
             }
         }
 
-        if self.len == MAX_DAMAGE_RECTS {
-            // Equivalent to pushing a 33rd rectangle and bounding the whole
-            // vector, without ever spilling the fixed-capacity hot storage.
-            let bounding = self
-                .as_slice()
-                .iter()
-                .copied()
-                .fold(incoming, DamageRect::bounding);
-            self.rects[0] = bounding;
-            self.len = 1;
+        let (_, _, first, second) = best;
+        let merged = candidate(first).bounding(candidate(second));
+        if merged == self.bounds {
+            self.set_full();
+        } else if second == self.len {
+            self.rects[first] = merged;
         } else {
+            self.rects[first] = merged;
+            self.remove(second);
             self.rects[self.len] = incoming;
             self.len += 1;
         }
+    }
+
+    fn remove(&mut self, index: usize) {
+        debug_assert!(index < self.len);
+        self.len -= 1;
+        self.rects[index] = self.rects[self.len];
     }
 
     pub(super) fn is_full(&self) -> bool {
@@ -344,7 +430,10 @@ mod tests {
         let bounded = DamageRegion::from_flutter(40, 20, &islands);
         let mut bounded_rects = Vec::new();
         bounded.write_flutter(&mut bounded_rects);
-        assert_eq!(bounded_rects.len(), 1);
+        assert_eq!(bounded_rects.len(), MAX_DAMAGE_RECTS);
+        assert!(!bounded.is_full());
+        assert_eq!(bounded.damaged_area(), 35.0);
+        assert!(!bounded.intersects_pixel_rect(4, 0, 1, 1));
 
         let invalid = DamageRegion::from_flutter(
             WIDTH as u32,
@@ -387,6 +476,103 @@ mod tests {
         expect_damage_summary(&region, 1, 800.0, "10,12-50,32");
         assert!(!region.is_full());
         assert!(!region.is_empty());
+    }
+
+    #[test]
+    fn touching_l_shape_does_not_fill_its_bounding_box() {
+        let region = DamageRegion::from_flutter(
+            100,
+            80,
+            &[
+                sys::FlutterRect {
+                    left: 0.0,
+                    top: 0.0,
+                    right: 40.0,
+                    bottom: 80.0,
+                },
+                sys::FlutterRect {
+                    left: 40.0,
+                    top: 0.0,
+                    right: 100.0,
+                    bottom: 30.0,
+                },
+                sys::FlutterRect {
+                    left: 40.0,
+                    top: 50.0,
+                    right: 100.0,
+                    bottom: 80.0,
+                },
+            ],
+        );
+
+        assert_eq!(region.rect_count(), 3);
+        assert!(!region.is_full());
+        assert!(region.intersects_pixel_rect(5, 35, 1, 1));
+        assert!(!region.intersects_pixel_rect(50, 35, 1, 1));
+    }
+
+    #[test]
+    fn complex_frame_region_stays_partial_when_added_to_buffer_history() {
+        let frame = DamageRegion::from_flutter(
+            100,
+            80,
+            &[
+                sys::FlutterRect {
+                    left: 0.0,
+                    top: 0.0,
+                    right: 40.0,
+                    bottom: 80.0,
+                },
+                sys::FlutterRect {
+                    left: 40.0,
+                    top: 0.0,
+                    right: 100.0,
+                    bottom: 30.0,
+                },
+                sys::FlutterRect {
+                    left: 40.0,
+                    top: 50.0,
+                    right: 100.0,
+                    bottom: 80.0,
+                },
+            ],
+        );
+        let mut history = DamageRegion::empty(100, 80);
+
+        history.union(&frame);
+
+        assert_eq!(history.rect_count(), 3);
+        assert!(!history.is_full());
+        assert!(!history.intersects_pixel_rect(50, 35, 1, 1));
+    }
+
+    #[test]
+    fn identical_and_rectangular_neighbors_coalesce_without_growth() {
+        let mut region = DamageRegion::from_flutter(
+            100,
+            80,
+            &[
+                sys::FlutterRect {
+                    left: 10.0,
+                    top: 12.0,
+                    right: 30.0,
+                    bottom: 32.0,
+                },
+                sys::FlutterRect {
+                    left: 30.0,
+                    top: 12.0,
+                    right: 50.0,
+                    bottom: 32.0,
+                },
+            ],
+        );
+        let identical = region.clone();
+
+        for _ in 0..100 {
+            region.union(&identical);
+        }
+
+        expect_damage_summary(&region, 1, 800.0, "10,12-50,32");
     }
 
     fn expect_damage_summary(

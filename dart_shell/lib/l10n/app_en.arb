@@ -1794,6 +1794,10 @@
   "@settingsBackdropBlurIntensity": {
     "description": "Slider label for the compositor backdrop blur radius."
   },
+  "settingsBackdropBlurOpacityThreshold": "Minimum window opacity for blur",
+  "@settingsBackdropBlurOpacityThreshold": {
+    "description": "Slider label for the minimum effective window opacity at which backdrop blur is rendered."
+  },
   "settingsBackdropDimming": "Backdrop dimming",
   "@settingsBackdropDimming": {
     "description": "English UI text for settingsBackdropDimming."

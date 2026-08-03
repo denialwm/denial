@@ -5,6 +5,12 @@ enum DenialWindowContentKind { surfaceTree, localFlutter }
 
 enum DenialSurfaceRole { root, subsurface, popup }
 
+enum DenialWindowOpacityClass {
+  contentTranslucent,
+  borderAlphaOnly,
+  fullyOpaque,
+}
+
 @immutable
 class DenialSurfaceLayer {
   const DenialSurfaceLayer({
@@ -143,6 +149,7 @@ class DenialWindow {
     this.contentHeight = 0.0,
     this.surfaceLayers = const <DenialSurfaceLayer>[],
     this.contentKind = DenialWindowContentKind.surfaceTree,
+    this.opacityClass = DenialWindowOpacityClass.contentTranslucent,
   });
 
   final int objectId;
@@ -180,6 +187,7 @@ class DenialWindow {
   final double contentHeight;
   final List<DenialSurfaceLayer> surfaceLayers;
   final DenialWindowContentKind contentKind;
+  final DenialWindowOpacityClass opacityClass;
 
   bool get isLocalFlutter =>
       contentKind == DenialWindowContentKind.localFlutter;
@@ -216,29 +224,15 @@ class DenialWindow {
       surfaceLayers.where((layer) => layer.role == DenialSurfaceRole.popup);
 
   /// Whether the root surface fully hides every pixel behind this window.
-  ///
-  /// A missing legacy surface tree remains conservative. An opaque root is
-  /// sufficient even when translucent subsurfaces are layered over it.
-  bool get isOpaque {
-    if (isLocalFlutter || surfaceLayers.isEmpty || opacity < 1.0) {
-      return false;
-    }
-    for (final layer in mainSurfaceLayers) {
-      if (layer.role != DenialSurfaceRole.root ||
-          !layer.opaque ||
-          layer.opacity < 1.0) {
-        continue;
-      }
-      final root = layer.logicalRect;
-      final content = contentCoordinateRect;
-      const epsilon = 0.001;
-      return root.left <= content.left + epsilon &&
-          root.top <= content.top + epsilon &&
-          root.right >= content.right - epsilon &&
-          root.bottom >= content.bottom - epsilon;
-    }
-    return false;
-  }
+  bool get isOpaque =>
+      !isLocalFlutter &&
+      opacity >= 1.0 &&
+      opacityClass == DenialWindowOpacityClass.fullyOpaque;
+
+  /// Whether transparency reaches meaningful application content rather than
+  /// being confined to client-side shadows or antialiased window borders.
+  bool get isContentTranslucent =>
+      opacityClass == DenialWindowOpacityClass.contentTranslucent;
 
   /// Texture-backed surfaces drawn inside the toplevel frame itself.
   ///

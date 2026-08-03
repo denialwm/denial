@@ -756,6 +756,14 @@ class DenialWireCodec {
           contentHeight: window.contentHeight,
           surfaceLayers: List<DenialSurfaceLayer>.unmodifiable(layers),
           contentKind: contentKind,
+          opacityClass: switch (window.opacityClass) {
+            generated.WindowOpacityClass.BorderAlphaOnly =>
+              DenialWindowOpacityClass.borderAlphaOnly,
+            generated.WindowOpacityClass.FullyOpaque =>
+              DenialWindowOpacityClass.fullyOpaque,
+            generated.WindowOpacityClass.ContentTranslucent =>
+              DenialWindowOpacityClass.contentTranslucent,
+          },
         ),
       );
     }

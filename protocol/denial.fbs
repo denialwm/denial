@@ -27,6 +27,16 @@ enum SurfaceRole : ubyte {
   Popup = 2
 }
 
+// A window can carry alpha outside its visible content (for example client-side
+// shadows) without being meaningfully translucent. Keep that distinct from
+// content translucency so the shell does not allocate a full-window backdrop
+// filter for decoration-only alpha.
+enum WindowOpacityClass : ubyte {
+  ContentTranslucent = 0,
+  BorderAlphaOnly = 1,
+  FullyOpaque = 2
+}
+
 enum WindowRequestKind : ubyte {
   ListWindows = 0,
   GetDisplayLayout = 1,
@@ -222,6 +232,9 @@ table Window {
   // Wayland/X11 behavior; LocalFlutter selects a trusted in-bundle app by
   // app_id and never treats texture_id == 0 as its discriminator.
   content_kind:WindowContentKind = SurfaceTree;
+  // Appended for wire compatibility. Older senders conservatively default to
+  // content translucency, preserving the previous blur behavior.
+  opacity_class:WindowOpacityClass = ContentTranslucent;
 }
 
 table WindowSnapshot {

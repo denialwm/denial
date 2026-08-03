@@ -286,6 +286,95 @@ impl<'a> flatbuffers::Verifiable for SurfaceRole {
 
 impl flatbuffers::SimpleToVerifyInSlice for SurfaceRole {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_WINDOW_OPACITY_CLASS: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_WINDOW_OPACITY_CLASS: u8 = 2;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_WINDOW_OPACITY_CLASS: [WindowOpacityClass; 3] = [
+  WindowOpacityClass::ContentTranslucent,
+  WindowOpacityClass::BorderAlphaOnly,
+  WindowOpacityClass::FullyOpaque,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct WindowOpacityClass(pub u8);
+#[allow(non_upper_case_globals)]
+impl WindowOpacityClass {
+  pub const ContentTranslucent: Self = Self(0);
+  pub const BorderAlphaOnly: Self = Self(1);
+  pub const FullyOpaque: Self = Self(2);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::ContentTranslucent,
+    Self::BorderAlphaOnly,
+    Self::FullyOpaque,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::ContentTranslucent => Some("ContentTranslucent"),
+      Self::BorderAlphaOnly => Some("BorderAlphaOnly"),
+      Self::FullyOpaque => Some("FullyOpaque"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for WindowOpacityClass {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for WindowOpacityClass {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for WindowOpacityClass {
+    type Output = WindowOpacityClass;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { flatbuffers::emplace_scalar::<u8>(dst, self.0); }
+    }
+}
+
+impl flatbuffers::EndianScalar for WindowOpacityClass {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for WindowOpacityClass {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for WindowOpacityClass {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_WINDOW_REQUEST_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MAX_WINDOW_REQUEST_KIND: u8 = 6;
@@ -2677,6 +2766,7 @@ impl<'a> Window<'a> {
   pub const VT_SERVER_SIDE_DECORATED: flatbuffers::VOffsetT = 70;
   pub const VT_OPACITY: flatbuffers::VOffsetT = 72;
   pub const VT_CONTENT_KIND: flatbuffers::VOffsetT = 74;
+  pub const VT_OPACITY_CLASS: flatbuffers::VOffsetT = 76;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -2718,6 +2808,7 @@ impl<'a> Window<'a> {
     builder.add_width(args.width);
     if let Some(x) = args.app_id { builder.add_app_id(x); }
     if let Some(x) = args.title { builder.add_title(x); }
+    builder.add_opacity_class(args.opacity_class);
     builder.add_content_kind(args.content_kind);
     builder.add_server_side_decorated(args.server_side_decorated);
     builder.add_suppress_animations(args.suppress_animations);
@@ -2980,6 +3071,13 @@ impl<'a> Window<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<WindowContentKind>(Window::VT_CONTENT_KIND, Some(WindowContentKind::SurfaceTree)).unwrap()}
   }
+  #[inline]
+  pub fn opacity_class(&self) -> WindowOpacityClass {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<WindowOpacityClass>(Window::VT_OPACITY_CLASS, Some(WindowOpacityClass::ContentTranslucent)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for Window<'_> {
@@ -3025,6 +3123,7 @@ impl flatbuffers::Verifiable for Window<'_> {
      .visit_field::<bool>("server_side_decorated", Self::VT_SERVER_SIDE_DECORATED, false)?
      .visit_field::<f32>("opacity", Self::VT_OPACITY, false)?
      .visit_field::<WindowContentKind>("content_kind", Self::VT_CONTENT_KIND, false)?
+     .visit_field::<WindowOpacityClass>("opacity_class", Self::VT_OPACITY_CLASS, false)?
      .finish();
     Ok(())
   }
@@ -3066,6 +3165,7 @@ pub struct WindowArgs<'a> {
     pub server_side_decorated: bool,
     pub opacity: f32,
     pub content_kind: WindowContentKind,
+    pub opacity_class: WindowOpacityClass,
 }
 impl<'a> Default for WindowArgs<'a> {
   #[inline]
@@ -3107,6 +3207,7 @@ impl<'a> Default for WindowArgs<'a> {
       server_side_decorated: true,
       opacity: 1.0,
       content_kind: WindowContentKind::SurfaceTree,
+      opacity_class: WindowOpacityClass::ContentTranslucent,
     }
   }
 }
@@ -3261,6 +3362,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WindowBuilder<'a, 'b, A> {
     self.fbb_.push_slot::<WindowContentKind>(Window::VT_CONTENT_KIND, content_kind, WindowContentKind::SurfaceTree);
   }
   #[inline]
+  pub fn add_opacity_class(&mut self, opacity_class: WindowOpacityClass) {
+    self.fbb_.push_slot::<WindowOpacityClass>(Window::VT_OPACITY_CLASS, opacity_class, WindowOpacityClass::ContentTranslucent);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WindowBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     WindowBuilder {
@@ -3314,6 +3419,7 @@ impl core::fmt::Debug for Window<'_> {
       ds.field("server_side_decorated", &self.server_side_decorated());
       ds.field("opacity", &self.opacity());
       ds.field("content_kind", &self.content_kind());
+      ds.field("opacity_class", &self.opacity_class());
       ds.finish()
   }
 }

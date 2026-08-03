@@ -14,11 +14,13 @@ void main() {
 
       controller
         ..setBackdropBlurEnabled(false)
-        ..setBackdropBlurSigma(-20);
+        ..setBackdropBlurSigma(-20)
+        ..setBackdropBlurOpacityThreshold(4);
 
       final appearance = container.read(shellSettingsProvider).appearance;
       expect(appearance.backdropBlurEnabled, isFalse);
       expect(appearance.backdropBlurSigma, 4);
+      expect(appearance.backdropBlurOpacityThreshold, 1);
     },
   );
 
