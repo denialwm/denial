@@ -77,6 +77,11 @@ abstract final class ShellColors {
   static const Color glyphInactive = Color(0x66f7f7f8);
 }
 
+/// Default opacity for the shell's frosted surfaces.
+abstract final class ShellOpacity {
+  static const double panel = 0.75;
+}
+
 /// Corner radii used throughout the shell.
 abstract final class ShellRadii {
   static const double window = 8.0;

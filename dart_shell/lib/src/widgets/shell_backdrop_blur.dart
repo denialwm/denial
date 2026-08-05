@@ -36,7 +36,6 @@ class ShellBackdropBlur extends StatelessWidget {
         sigmaX: theme.backdropBlurSigma,
         sigmaY: theme.backdropBlurSigma,
         tileMode: ui.TileMode.clamp,
-        bounded: true,
       );
       filtered = grouped
           ? BackdropFilter.grouped(

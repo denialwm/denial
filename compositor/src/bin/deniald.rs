@@ -110,7 +110,7 @@ use smithay::reexports::drm::buffer::{
     DrmFourcc, DrmModifier, Handle as BufferHandle, PlanarBuffer,
 };
 use smithay::reexports::drm::control::{
-    AtomicCommitFlags, Device as ControlDevice, Mode, ModeTypeFlags, RawResourceHandle,
+    AtomicCommitFlags, Device as ControlDevice, Mode, ModeTypeFlags, PlaneType, RawResourceHandle,
     ResourceHandle, atomic::AtomicModeReq, connector, crtc, framebuffer, from_u32, plane, property,
 };
 use smithay::reexports::rustix::fs::OFlags;
@@ -274,6 +274,14 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     let (drm, drm_notifier) = DrmDevice::new(drm_fd.clone(), false)?;
     if !drm.is_atomic() {
         return Err("the selected DRM device does not expose atomic modesetting".into());
+    }
+    if !preserves_predecessor_kms_state(runtime_limit) {
+        // A display manager can leave cursor or overlay planes latched when it
+        // releases DRM master. Denial composites its cursor into the Flutter
+        // scene, so take ownership of those planes before the first atlas
+        // commit. Bounded diagnostics keep every predecessor plane untouched
+        // because their restore snapshot owns primary planes only.
+        kms_state::release_inherited_planes(&drm);
     }
     let mut kms = KmsContext::new(drm);
     let mut frame_event_loop = if runtime_limit != RuntimeLimit::TestOnly {
@@ -613,6 +621,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         Some(FlutterLauncher::new(
             FlutterLaunchConfiguration {
                 bundle,
+                renderer_backend: options.flutter_renderer,
                 debug_bundle: options.flutter_debug_bundle.clone(),
                 ui_workspace: options.flutter_ui_workspace.clone(),
             },

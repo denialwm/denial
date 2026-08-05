@@ -311,6 +311,7 @@ pub(super) struct LayoutTransition {
 #[cfg(feature = "flutter")]
 pub(super) struct FlutterLauncher {
     factory: Option<flutter_runtime::FlutterRuntimeFactory>,
+    renderer_backend: denial_flutter_engine::RendererBackend,
     active_mode: ui_development::UiRuntimeMode,
     resident_jit_engine_fingerprint: Option<[u8; 32]>,
     ui_development: ui_development::UiDevelopmentController,
@@ -327,6 +328,7 @@ pub(super) struct FlutterLauncher {
 #[cfg(feature = "flutter")]
 pub(super) struct FlutterLaunchConfiguration<'a> {
     pub(super) bundle: &'a Path,
+    pub(super) renderer_backend: denial_flutter_engine::RendererBackend,
     pub(super) debug_bundle: Option<PathBuf>,
     pub(super) ui_workspace: Option<PathBuf>,
 }
@@ -351,7 +353,9 @@ impl FlutterLauncher {
             factory: Some(flutter_runtime::FlutterRuntimeFactory::new(
                 configuration.bundle,
                 denial_flutter_engine::DartRuntimeMode::Aot,
+                configuration.renderer_backend,
             )?),
+            renderer_backend: configuration.renderer_backend,
             active_mode: ui_development::UiRuntimeMode::OfficialOptimized,
             resident_jit_engine_fingerprint: None,
             ui_development,
@@ -529,7 +533,9 @@ impl FlutterLauncher {
         // its library before loading the other runtime mode.
         self.factory = None;
         self.factory = Some(flutter_runtime::FlutterRuntimeFactory::new(
-            &bundle, runtime,
+            &bundle,
+            runtime,
+            self.renderer_backend,
         )?);
         if let Some(fingerprint) = jit_engine_fingerprint {
             self.resident_jit_engine_fingerprint = Some(fingerprint);
@@ -1340,6 +1346,102 @@ where
     Ok(None)
 }
 
+/// Release non-primary planes left latched by the previous DRM master.
+///
+/// Denial composites its pointer into the Flutter scene and never programs a
+/// hardware cursor plane. A display manager such as SDDM can nevertheless
+/// leave a cursor or overlay plane bound when it releases DRM master, causing
+/// the kernel to scan that stale image out above every Denial frame. Refusing
+/// this best-effort cleanup must not prevent the session from starting.
+pub(super) fn release_inherited_planes(drm: &DrmDevice) {
+    let inherited = match inherited_plane_request(drm) {
+        Ok(Some(inherited)) => inherited,
+        Ok(None) => return,
+        Err(error) => {
+            warn!("could not inspect planes inherited from the previous DRM master: {error}");
+            return;
+        }
+    };
+
+    if let Err(error) = drm.atomic_commit(
+        AtomicCommitFlags::ALLOW_MODESET | AtomicCommitFlags::TEST_ONLY,
+        inherited.request.clone(),
+    ) {
+        warn!(
+            planes = ?inherited.planes,
+            "inherited plane release rejected by TEST_ONLY: {error}"
+        );
+        return;
+    }
+    if let Err(error) = drm.atomic_commit(AtomicCommitFlags::ALLOW_MODESET, inherited.request) {
+        warn!(
+            planes = ?inherited.planes,
+            "inherited plane release failed: {error}"
+        );
+        return;
+    }
+    info!(
+        planes = ?inherited.planes,
+        "released planes inherited from the previous DRM master"
+    );
+}
+
+struct InheritedPlaneRequest {
+    request: AtomicModeReq,
+    planes: Vec<u32>,
+}
+
+fn inherited_plane_request(
+    drm: &DrmDevice,
+) -> Result<Option<InheritedPlaneRequest>, Box<dyn Error>> {
+    let mut request = AtomicModeReq::new();
+    let mut planes = Vec::new();
+    for plane in drm.plane_handles()? {
+        let properties = drm.get_properties(plane)?.into_iter().collect::<Vec<_>>();
+
+        // If a driver does not expose the standardized plane type, leave the
+        // plane alone rather than risking Denial's future primary scanout.
+        let Some(type_property) = optional_named_property(drm, plane, "type")? else {
+            continue;
+        };
+        let Some(plane_type) = property_value(&properties, type_property) else {
+            continue;
+        };
+        let Some(framebuffer_property) = optional_named_property(drm, plane, "FB_ID")? else {
+            continue;
+        };
+        let framebuffer = property_value(&properties, framebuffer_property).unwrap_or(0);
+        if !inherited_plane_needs_release(plane_type, framebuffer) {
+            continue;
+        }
+        let Some(crtc_property) = optional_named_property(drm, plane, "CRTC_ID")? else {
+            continue;
+        };
+
+        request.add_raw_property(plane.into(), framebuffer_property, 0);
+        request.add_raw_property(plane.into(), crtc_property, 0);
+        planes.push(u32::from(plane));
+    }
+
+    Ok((!planes.is_empty()).then_some(InheritedPlaneRequest { request, planes }))
+}
+
+fn property_value(
+    properties: &[(property::Handle, property::RawValue)],
+    wanted: property::Handle,
+) -> Option<property::RawValue> {
+    properties
+        .iter()
+        .find_map(|(handle, value)| (*handle == wanted).then_some(*value))
+}
+
+fn inherited_plane_needs_release(
+    plane_type: property::RawValue,
+    framebuffer: property::RawValue,
+) -> bool {
+    plane_type != PlaneType::Primary as property::RawValue && framebuffer != 0
+}
+
 fn original_plane_state(
     scanout: &Scanout,
     framebuffer: framebuffer::Handle,
@@ -1416,7 +1518,8 @@ fn restore_original_modes_with_atlas(
 mod tests {
     use super::{
         Format, FormatSet, Fourcc, Modifier, PixelSize, ScanoutIdentity, ScanoutIdentityError,
-        common_xrgb8888_modifiers, validate_atlas_allocation, validate_scanout_identities,
+        common_xrgb8888_modifiers, inherited_plane_needs_release, validate_atlas_allocation,
+        validate_scanout_identities,
     };
     #[cfg(feature = "flutter")]
     use super::{ensure_resident_jit_engine_matches, flutter_pool_length};
@@ -1500,6 +1603,18 @@ mod tests {
             common_xrgb8888_modifiers([&first, &second]),
             vec![preferred, Modifier::Linear]
         );
+    }
+
+    #[test]
+    fn inherited_plane_release_selects_only_bound_non_primary_planes() {
+        const OVERLAY: u64 = 0;
+        const PRIMARY: u64 = 1;
+        const CURSOR: u64 = 2;
+
+        assert!(!inherited_plane_needs_release(PRIMARY, 41));
+        assert!(!inherited_plane_needs_release(CURSOR, 0));
+        assert!(inherited_plane_needs_release(CURSOR, 41));
+        assert!(inherited_plane_needs_release(OVERLAY, 42));
     }
 
     #[test]

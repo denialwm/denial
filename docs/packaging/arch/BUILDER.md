@@ -128,12 +128,12 @@ tools/denial-builder install
 
 The installer creates `/srv/denial-builder/cache` for the locked builder
 account and confines the service so this credential-free cache root is its
-only persistent writable state outside the disposable runner. Flutter,
-Cargo/Pub dependency, Rust-target, and engine object caches survive jobs.
-The workflow builds from the exact Denial Flutter and Skia fork commits in
-`SOURCE_LOCK.json`. A matching verified artifact cache entry skips the engine
-build entirely; a changed lock retains the same checkout and mode-specific
-Ninja outputs for an incremental rebuild.
+only persistent writable state outside the disposable runner. Verified
+Flutter artifacts, Cargo/Pub dependencies, Rust targets, and compatible engine
+build outputs may survive jobs. Each ephemeral job resolves Flutter and Skia
+from the exact commits in `SOURCE_LOCK.json`, validating any retained detached
+projection before use; no cached source checkout is editable or authoritative.
+A matching verified artifact entry skips the engine build entirely.
 
 Audit the machine as the unprivileged runner account:
 

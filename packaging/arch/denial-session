@@ -143,6 +143,12 @@ case "$shell_profile" in
 esac
 export DENIA_SHELL_PROFILE="$shell_profile"
 
+flutter_renderer="${DENIA_FLUTTER_RENDERER:-}"
+case "$flutter_renderer" in
+  '' | skia | impeller) ;;
+  *) die "DENIA_FLUTTER_RENDERER must be skia or impeller, got: $flutter_renderer" ;;
+esac
+
 bundle="${DENIAL_FLUTTER_BUNDLE:-$DEFAULT_BUNDLE}"
 if [[ -n "${DENIAL_OUTPUT_CONFIG:-}" ]]; then
   output_config="$DENIAL_OUTPUT_CONFIG"
@@ -171,6 +177,7 @@ if [[ "${1:-}" == --check ]]; then
   printf 'ok  %-16s %s\n' 'output config' "$output_config"
   printf 'ok  %-16s %s\n' 'DRM device' "$drm_device"
   printf 'ok  %-16s %s\n' 'shell profile' "$DENIA_SHELL_PROFILE"
+  printf 'ok  %-16s %s\n' 'Flutter renderer' "${flutter_renderer:-impeller (default)}"
   printf 'ok  %-16s %s\n' 'Xwayland' "$(command -v Xwayland)"
   printf 'ok  %-16s %s\n' 'UWSM' "$(command -v uwsm)"
   exit 0
@@ -185,6 +192,9 @@ denial_args=(
   --wayland
   --flutter-bundle "$bundle"
 )
+if [[ -n "$flutter_renderer" ]]; then
+  denial_args+=(--flutter-renderer "$flutter_renderer")
+fi
 if [[ -n "${DENIAL_FLUTTER_DEBUG_BUNDLE:-}" ]]; then
   [[ "$DENIAL_FLUTTER_DEBUG_BUNDLE" == /* ]] \
     || die "DENIAL_FLUTTER_DEBUG_BUNDLE must be absolute: $DENIAL_FLUTTER_DEBUG_BUNDLE"

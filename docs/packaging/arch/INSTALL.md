@@ -129,6 +129,11 @@ and hardware preflight without starting the compositor. Inside a running
 Denial session, `denialctl status` verifies the native control connection and
 reports the compositor, output, and Flutter UI state.
 
+Denial renders through its compositor-integrated Impeller GLES backend by
+default. If a GPU-driver issue requires the retained Skia/Ganesh fallback, add
+`DENIA_FLUTTER_RENDERER=skia` to `/etc/denial/session.conf` and restart the
+Denial session. Removing the override returns to Impeller.
+
 The standard display-manager entry starts unlocked because the display manager
 has already authenticated the user. An autologin or other direct boot path
 which does not authenticate first should launch

@@ -54,7 +54,7 @@ class ShellThemeData {
     this.accent = ShellColors.accent,
     this.windowRadius = ShellRadii.window,
     this.panelRadius = ShellRadii.panel,
-    this.panelOpacity = 0.93,
+    this.panelOpacity = ShellOpacity.panel,
     this.backdropBlurEnabled = true,
     this.backdropBlurSigma = 18,
     this.backdropBlurOpacityThreshold = 0.05,

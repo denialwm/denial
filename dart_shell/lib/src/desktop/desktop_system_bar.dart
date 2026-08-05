@@ -423,6 +423,7 @@ class _MediaPlaybackPopup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const radius = BorderRadius.all(Radius.circular(24));
+    final theme = ShellTheme.of(context);
     final position = playback.positionAt(now);
     final length = playback.length;
     final progress = length > Duration.zero
@@ -448,11 +449,13 @@ class _MediaPlaybackPopup extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                Color.alphaBlend(
-                  accent.color.withValues(alpha: 0.13),
-                  ShellColors.panelBackground.withValues(alpha: 0.96),
+                theme.panelColor(
+                  Color.alphaBlend(
+                    accent.color.withValues(alpha: 0.13),
+                    ShellColors.panelBackground.withValues(alpha: 1),
+                  ),
                 ),
-                ShellColors.surfaceContainerLow.withValues(alpha: 0.93),
+                theme.panelColor(ShellColors.surfaceContainerLow),
               ],
             ),
             borderRadius: radius,
@@ -916,6 +919,7 @@ class _SystemBarCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const radius = BorderRadius.all(Radius.circular(999));
+    final theme = ShellTheme.of(context);
     return ShellBackdropBlur(
       borderRadius: radius,
       child: AnimatedContainer(
@@ -926,7 +930,10 @@ class _SystemBarCard extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [accent.cardFillTop, accent.cardFill],
+            colors: [
+              theme.panelColor(accent.cardFillTop),
+              theme.panelColor(accent.cardFill),
+            ],
           ),
           borderRadius: radius,
         ),

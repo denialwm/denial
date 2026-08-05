@@ -84,8 +84,10 @@ tools/denial-builder arm
 
 `install` creates the credential-free persistent engine cache under
 `/srv/denial-builder/cache/flutter-engine`. The workflow populates it from the
-committed fork source lock. Exact hits are checksum-verified no-ops; source or
-GN changes reuse the retained checkout and Ninja object graph.
+committed fork source lock. The runner validates or provisions an exact,
+detached Flutter/Skia projection; it never inherits an editable source
+checkout. Exact artifact hits are checksum-verified no-ops, while compatible
+build outputs and locked projections may still be reused.
 
 Test the downloadable development artifact when a change warrants a live
 session check. Do not repair a failed `main` production build directly on

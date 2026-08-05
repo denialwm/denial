@@ -38,6 +38,12 @@ SDDM themselves. Continue only after the user confirms that they have logged
 back in. Perform session-control actions only when the user explicitly asks
 for that exact action.
 
+This restriction does not apply to the dedicated unattended test host
+`192.168.1.18` (`.18`). For Denial validation, agents may autonomously stop or
+restart its compositor, greetd/login session, launch test applications, and
+reboot it when required. Treat `.18` as a disposable lab host, not as the
+user's active graphical session.
+
 ## Why Denial
 
 **Denial** is an English word. The name contains **Denia**, followed by one
@@ -88,6 +94,27 @@ engine artifact `69c8c61792f04cc809dfef0c910414fb9afc06cd`. All Denial engine,
 framework, and Flutter-tool changes live as normal commits in those forks;
 this repository must not carry a downstream patch series. Cargo resolves the
 exact crate and Smithay revisions in `compositor/Cargo.lock`.
+
+The only editable local engine source roots are:
+
+- Flutter: `/mnt/exty/denial-flutter-fork-3.44.7`;
+- Skia: `/mnt/exty/denial-skia-fork-3.44.7`.
+
+The Flutter tree's `engine/src/flutter/third_party/skia` resolves to that Skia
+root. Make source changes, run source-formatting work, and create commits only
+in these canonical roots. `DENIAL_FLUTTER_SOURCE_ROOT` and
+`DENIAL_SKIA_SOURCE_ROOT` may relocate the pair, but both must be set together.
+The local cache contains build output and artifacts, not another source tree.
+An isolated builder without the canonical pair may retain a detached,
+lock-pinned source projection; never edit it because tooling may replace it.
+
+`prebuilt/flutter-engine/SOURCE_LOCK.json` is the sole source authority for an
+engine build. Treat it as immutable for that build: dirty canonical worktrees
+and arbitrary local revisions are not inputs. Commit changes in the canonical
+forks, then deliberately advance the lock to their exact commits. CI has no
+editable persistent fork. Verified artifacts, dependencies, compatible build
+outputs, and detached locked projections may be cached, but cached source is
+never authoritative.
 
 The generated `libflutter_engine.so` files are ignored by Git. Their expected
 checksums, build metadata, and licenses live below `prebuilt/flutter-engine/`.

@@ -8,12 +8,19 @@ boundaries may change before 1.0.
 
 ### Added
 
+- A compositor-integrated Impeller GLES path for Flutter's desktop-wide GBM
+  atlas, including exact embedder FBO presentation, preserved partial damage,
+  backdrop-filter support, native synchronization, and external-texture
+  lifetime.
 - Backdrop blur now has a configurable minimum effective window-opacity
   threshold, including an unconditional no-blur path for fully invisible
   windows.
 
 ### Changed
 
+- Impeller is now Denial's default Flutter renderer. The retained Skia/Ganesh
+  path remains available through `--flutter-renderer skia` or the packaged
+  `DENIA_FLUTTER_RENDERER=skia` session override.
 - High-rate external-texture frames now preserve precise rotating-atlas
   damage, reuse cached layer-diff metadata for only the dirty textures, and
   avoid redundant Ganesh flushes when cached texture bindings need no GL work.
@@ -30,6 +37,9 @@ boundaries may change before 1.0.
 
 ### Fixed
 
+- Denial now clears non-primary DRM planes inherited from the display manager
+  before its first compositor frame, preventing a stale hardware cursor or
+  overlay image from remaining latched above the Flutter desktop.
 - Retained builder checkouts now run Flutter revision-transition hooks with
   the pinned depot_tools environment instead of depending on a host-global
   `vpython3` command.

@@ -6,11 +6,17 @@ ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 SOURCE_LOCK="$ROOT/prebuilt/flutter-engine/SOURCE_LOCK.json"
 CACHE_SCHEMA='2'
 CACHE_ROOT="${DENIAL_FLUTTER_ENGINE_CACHE_ROOT:-${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}/denial/flutter-engine}"
-CHECKOUT="$CACHE_ROOT/checkout"
+CANONICAL_FLUTTER_SOURCE='/mnt/exty/denial-flutter-fork-3.44.7'
+CANONICAL_SKIA_SOURCE='/mnt/exty/denial-skia-fork-3.44.7'
+MANAGED_CHECKOUT="$CACHE_ROOT/checkout"
+BUILD_ROOT="$CACHE_ROOT/build"
 DEPOT_TOOLS="$CACHE_ROOT/depot_tools"
 ARTIFACT_ROOT="$CACHE_ROOT/artifacts"
 STATE_ROOT="$CACHE_ROOT/state"
 VPYTHON_CACHE_ROOT="$CACHE_ROOT/vpython"
+CHECKOUT=''
+SKIA_CHECKOUT=''
+SOURCE_MODE=''
 AVAILABLE_CPUS="$(nproc)"
 if [[ "${GITHUB_ACTIONS:-}" == true \
   || "${DENIAL_FLUTTER_ENGINE_DEDICATED_BUILDER:-0}" == 1 ]]; then
@@ -52,15 +58,24 @@ Commands:
   verify     Require and verify an existing exact artifact hit.
 
 Environment:
-  DENIAL_FLUTTER_ENGINE_CACHE_ROOT  Persistent checkout/build/artifact cache.
+  DENIAL_FLUTTER_SOURCE_ROOT        Prepared Flutter source tree override.
+  DENIAL_SKIA_SOURCE_ROOT           Prepared Skia source tree override.
+                                      Set both or neither.
+  DENIAL_FLUTTER_ENGINE_CACHE_ROOT  Persistent build and artifact cache.
   DENIAL_FLUTTER_ENGINE_JOBS        Explicit Ninja parallelism.
   DENIAL_FLUTTER_ENGINE_DEDICATED_BUILDER
                                       Set to 1 to use every CPU by default.
 
 The source lock contains exact Denial Flutter and Skia fork commits. Artifact
 hits skip checkout synchronization, GN, Ninja, and linking. On a source or
-configuration change, the stable checkout and mode-specific Ninja output
-directories are retained so only invalidated targets rebuild.
+configuration change, mode-specific Ninja output directories are retained so
+only invalidated targets rebuild.
+
+When both canonical local trees exist below /mnt/exty, they are used as
+read-only source inputs. Explicit source overrides select another prepared
+pair. The builder validates these trees but never fetches, checks out, or
+synchronizes them. When neither canonical tree exists, the builder retains its
+managed checkout fallback for isolated CI builders.
 
 Interactive machines leave two logical CPUs free by default. GitHub Actions
 and explicitly dedicated builders may use every available CPU.
@@ -295,13 +310,90 @@ write_github_env() {
 require_clean_checkout() {
   local label="$1"
   local checkout="$2"
+  local status
 
-  [[ -d "$checkout/.git" ]] \
-    || fail "$label cache is not a Git checkout: $checkout"
+  [[ "$(git -C "$checkout" rev-parse --is-inside-work-tree 2>/dev/null || true)" \
+    == true ]] \
+    || fail "$label source is not a Git checkout: $checkout"
   git -C "$checkout" diff --quiet --ignore-submodules=all \
-    || fail "$label cache has tracked modifications: $checkout"
+    || fail "$label source has tracked modifications: $checkout"
   git -C "$checkout" diff --cached --quiet --ignore-submodules=all \
-    || fail "$label cache has staged modifications: $checkout"
+    || fail "$label source has staged modifications: $checkout"
+  status="$(
+    git -C "$checkout" status \
+      --porcelain=v1 \
+      --untracked-files=normal \
+      --ignore-submodules=all
+  )"
+  [[ -z "$status" ]] \
+    || fail "$label source has untracked modifications: $checkout"
+}
+
+resolve_source_roots() {
+  local flutter_override="${DENIAL_FLUTTER_SOURCE_ROOT:-}"
+  local skia_override="${DENIAL_SKIA_SOURCE_ROOT:-}"
+
+  if [[ -n "$flutter_override" || -n "$skia_override" ]]; then
+    [[ -n "$flutter_override" && -n "$skia_override" ]] \
+      || fail 'DENIAL_FLUTTER_SOURCE_ROOT and DENIAL_SKIA_SOURCE_ROOT must be set together'
+    [[ "$flutter_override" == /* && "$skia_override" == /* ]] \
+      || fail 'source-root overrides must be absolute paths'
+    CHECKOUT="$flutter_override"
+    SKIA_CHECKOUT="$skia_override"
+    SOURCE_MODE='external'
+    return
+  fi
+
+  if [[ -e "$CANONICAL_FLUTTER_SOURCE" \
+    || -e "$CANONICAL_SKIA_SOURCE" ]]; then
+    [[ -d "$CANONICAL_FLUTTER_SOURCE" \
+      && -d "$CANONICAL_SKIA_SOURCE" ]] \
+      || fail 'canonical Flutter and Skia source trees must either both exist or both be absent'
+    CHECKOUT="$CANONICAL_FLUTTER_SOURCE"
+    SKIA_CHECKOUT="$CANONICAL_SKIA_SOURCE"
+    SOURCE_MODE='external'
+    return
+  fi
+
+  CHECKOUT="$MANAGED_CHECKOUT"
+  SKIA_CHECKOUT="$CHECKOUT/engine/src/flutter/third_party/skia"
+  SOURCE_MODE='managed'
+}
+
+validate_external_sources() {
+  local checkout_depot="$CHECKOUT/engine/src/flutter/third_party/depot_tools"
+  local flutter_revision
+  local nested_skia="$CHECKOUT/engine/src/flutter/third_party/skia"
+  local nested_skia_real
+  local skia_real
+  local skia_revision
+  local depot_revision
+
+  flutter_revision="$(lock_value '.flutter.revision')"
+  skia_revision="$(lock_value '.skia.revision')"
+  depot_revision="$(lock_value '.depot_tools.revision')"
+
+  require_clean_checkout 'Flutter' "$CHECKOUT"
+  [[ "$(git -C "$CHECKOUT" rev-parse HEAD)" == "$flutter_revision" ]] \
+    || fail "Flutter source does not match SOURCE_LOCK.json: $CHECKOUT"
+  require_clean_checkout 'Skia' "$SKIA_CHECKOUT"
+  [[ "$(git -C "$SKIA_CHECKOUT" rev-parse HEAD)" == "$skia_revision" ]] \
+    || fail "Skia source does not match SOURCE_LOCK.json: $SKIA_CHECKOUT"
+
+  [[ -L "$nested_skia" ]] \
+    || fail "Flutter's nested Skia path is not a symlink: $nested_skia"
+  nested_skia_real="$(readlink -f -- "$nested_skia")" \
+    || fail "could not resolve Flutter's nested Skia path: $nested_skia"
+  skia_real="$(readlink -f -- "$SKIA_CHECKOUT")" \
+    || fail "could not resolve Skia source path: $SKIA_CHECKOUT"
+  [[ "$nested_skia_real" == "$skia_real" ]] \
+    || fail "Flutter's nested Skia resolves to $nested_skia_real, expected $skia_real"
+
+  [[ "$(git -C "$checkout_depot" rev-parse HEAD 2>/dev/null || true)" \
+    == "$depot_revision" ]] \
+    || fail "Flutter's synchronized depot_tools does not match SOURCE_LOCK.json: $checkout_depot"
+  printf 'Using validated Flutter and Skia source trees at %s and %s\n' \
+    "$CHECKOUT" "$SKIA_CHECKOUT"
 }
 
 ensure_repository() {
@@ -361,24 +453,27 @@ checkout_matches_lock() {
   local checkout_depot_revision="$3"
   local flutter_repository
   local skia_repository
-  local skia_checkout="$CHECKOUT/engine/src/flutter/third_party/skia"
+  local skia_checkout="$SKIA_CHECKOUT"
   local checkout_depot="$CHECKOUT/engine/src/flutter/third_party/depot_tools"
 
   flutter_repository="$(lock_value '.flutter.repository')"
   skia_repository="$(lock_value '.skia.repository')"
-  [[ -d "$CHECKOUT/.git" ]] || return 1
+  [[ "$(git -C "$CHECKOUT" rev-parse --is-inside-work-tree 2>/dev/null || true)" \
+    == true ]] || return 1
   [[ "$(git -C "$CHECKOUT" rev-parse HEAD 2>/dev/null || true)" \
     == "$flutter_revision" ]] || return 1
   [[ "$(git -C "$CHECKOUT" remote get-url origin 2>/dev/null || true)" \
     == "$flutter_repository" ]] || return 1
   require_clean_checkout 'Flutter' "$CHECKOUT"
-  [[ -d "$skia_checkout/.git" ]] || return 1
+  [[ "$(git -C "$skia_checkout" rev-parse --is-inside-work-tree 2>/dev/null || true)" \
+    == true ]] || return 1
   [[ "$(git -C "$skia_checkout" rev-parse HEAD 2>/dev/null || true)" \
     == "$skia_revision" ]] || return 1
   [[ "$(git -C "$skia_checkout" remote get-url origin 2>/dev/null || true)" \
     == "$skia_repository" ]] || return 1
   require_clean_checkout 'Skia' "$skia_checkout"
-  [[ -d "$checkout_depot/.git" ]] || return 1
+  [[ "$(git -C "$checkout_depot" rev-parse --is-inside-work-tree 2>/dev/null || true)" \
+    == true ]] || return 1
   [[ "$(git -C "$checkout_depot" rev-parse HEAD 2>/dev/null || true)" \
     == "$checkout_depot_revision" ]] || return 1
 }
@@ -391,6 +486,12 @@ prepare_checkout() {
   local depot_repository
   local depot_revision
   local checkout_depot
+
+  resolve_source_roots
+  if [[ "$SOURCE_MODE" == external ]]; then
+    validate_external_sources
+    return
+  fi
 
   flutter_repository="$(lock_value '.flutter.repository')"
   flutter_revision="$(lock_value '.flutter.revision')"
@@ -462,7 +563,6 @@ build_artifacts() {
   local expected_args
   local mode
   local output
-  local output_relative
   local staging
   local target
   local llvm_objcopy
@@ -481,14 +581,14 @@ build_artifacts() {
     || fail "invalid cache entry already exists: $artifact_dir"
   [[ ! -e "$staging" ]] \
     || fail "temporary cache path already exists: $staging"
+  install -d -m 0700 "$BUILD_ROOT"
   install -d -m 0700 "$staging"
   ARTIFACT_STAGING="$staging"
   trap cleanup_artifact_staging EXIT
 
   for mode in "${MODES[@]}"; do
     target="denial_host_$mode"
-    output="$build_root/out/$target"
-    output_relative="out/$target"
+    output="$BUILD_ROOT/out/$target"
     expected_args="$ROOT/prebuilt/flutter-engine/linux-x64-$mode/args.gn"
     printf 'Generating %s engine build graph\n' "$mode"
     (
@@ -498,6 +598,7 @@ build_artifacts() {
         VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
         ./flutter/tools/gn \
           --runtime-mode="$mode" \
+          --out-dir="$BUILD_ROOT" \
           --target-dir="$target"
     )
     normalize_generated_args \
@@ -512,7 +613,7 @@ build_artifacts() {
         ./flutter/third_party/gn/gn \
           gen \
           --check \
-          "$output_relative"
+          "$output"
     )
     PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
       DEPOT_TOOLS_UPDATE=0 \
@@ -602,7 +703,7 @@ main() {
   local github_env=''
 
   for command in \
-    awk chmod cmp flock git install jq mktemp mv ninja nm rm sha1sum sha256sum stat; do
+    awk chmod cmp flock git install jq mktemp mv ninja nm readlink rm sha1sum sha256sum stat; do
     require_command "$command"
   done
   [[ "$BUILD_JOBS" =~ ^[1-9][0-9]*$ ]] \
@@ -652,4 +753,6 @@ main() {
   esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

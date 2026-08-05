@@ -19,6 +19,7 @@ CACHE_HOME="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
 BUILD_ROOT="${DENIAL_PC_BUILD_ROOT:-$CACHE_HOME/denial/pc-build}"
 RUST_TARGET="${DENIAL_PC_RUST_TARGET:-$BUILD_ROOT/rust}"
 DEPENDENCY_ROOT="${DENIAL_PC_DEPENDENCY_ROOT:-$CACHE_HOME/denial/pc-dependencies}"
+CANONICAL_FLUTTER_SOURCE="/mnt/exty/denial-flutter-fork-3.44.7"
 
 FLUTTER_SDK_REPOSITORY="$(jq -er '.flutter.repository' "$FLUTTER_SOURCE_LOCK")"
 FLUTTER_SDK_VERSION="3.44.7"
@@ -26,7 +27,27 @@ FLUTTER_SDK_REVISION="$(jq -er '.flutter.revision' "$FLUTTER_SOURCE_LOCK")"
 FLUTTER_UPSTREAM_REVISION="$(
     jq -er '.flutter.upstream_revision' "$FLUTTER_SOURCE_LOCK"
 )"
-FLUTTER_SDK_ROOT="${DENIAL_FLUTTER_SDK_ROOT:-$DEPENDENCY_ROOT/flutter}"
+if [[ -n "${DENIAL_FLUTTER_SOURCE_ROOT:-}" \
+    && -n "${DENIAL_FLUTTER_SDK_ROOT:-}" \
+    && "${DENIAL_FLUTTER_SOURCE_ROOT:-}" != "${DENIAL_FLUTTER_SDK_ROOT:-}" ]]; then
+    printf 'denial-pc: DENIAL_FLUTTER_SOURCE_ROOT conflicts with DENIAL_FLUTTER_SDK_ROOT\n' >&2
+    exit 1
+fi
+FLUTTER_SOURCE_OVERRIDE="${DENIAL_FLUTTER_SOURCE_ROOT:-${DENIAL_FLUTTER_SDK_ROOT:-}}"
+if [[ -n "$FLUTTER_SOURCE_OVERRIDE" && "$FLUTTER_SOURCE_OVERRIDE" != /* ]]; then
+    printf 'denial-pc: Flutter source-root override must be an absolute path\n' >&2
+    exit 1
+fi
+FLUTTER_SDK_MANAGED=0
+if [[ -n "$FLUTTER_SOURCE_OVERRIDE" ]]; then
+    FLUTTER_SDK_ROOT="$FLUTTER_SOURCE_OVERRIDE"
+elif [[ -e "$CANONICAL_FLUTTER_SOURCE" ]]; then
+    FLUTTER_SDK_ROOT="$CANONICAL_FLUTTER_SOURCE"
+    FLUTTER_SDK_MANAGED=0
+else
+    FLUTTER_SDK_ROOT="$DEPENDENCY_ROOT/flutter"
+    FLUTTER_SDK_MANAGED=1
+fi
 FLUTTER="${DENIAL_FLUTTER:-$FLUTTER_SDK_ROOT/bin/flutter}"
 
 COMPOSITOR_ROOT="$ROOT/compositor"
@@ -69,7 +90,7 @@ usage() {
 Usage: tools/denial-pc COMMAND
 
 Commands:
-  bootstrap         Fetch the pinned Denial Flutter fork and Rust crates
+  bootstrap         Validate or provision Flutter, then fetch Rust crates
   bundle            Build only the x64 Dart/Flutter bundle
   refresh           Build the bundle and reload its Flutter runtime in this session
   kms-refresh       Re-evaluate the live KMS topology without ending the session
@@ -83,9 +104,15 @@ Commands:
   remove-session    Remove that session and portal configuration
 
 Environment:
+  DENIAL_FLUTTER_SOURCE_ROOT
+                     Prepared Flutter source tree override
+  DENIAL_FLUTTER_SDK_ROOT
+                     Compatibility alias for DENIAL_FLUTTER_SOURCE_ROOT
   DENIAL_BUILD_JOBS  Explicit Cargo and Flutter build parallelism
   DENIAL_PC_DEDICATED_BUILDER
                      Set to 1 to use every CPU by default
+  DENIA_FLUTTER_RENDERER
+                     Development-session renderer: skia or impeller (default: impeller)
 
 The production compositor is deniald and its native client is denialctl. The
 denial-nested binary is a separate visual topology harness and never acquires
@@ -110,13 +137,54 @@ require_file() {
     [[ -f "$1" ]] || die "missing $1; run '$0 build' first"
 }
 
+config_active_lines_equal() {
+    local path="$1"
+    shift
+    local -a actual=()
+    local -a expected=("$@")
+    local index
+
+    mapfile -t actual < <(
+        sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$path"
+    )
+    ((${#actual[@]} == ${#expected[@]})) || return 1
+    for ((index = 0; index < ${#actual[@]}; index++)); do
+        [[ "${actual[index]}" == "${expected[index]}" ]] || return 1
+    done
+}
+
+is_compatible_legacy_config() {
+    local label="$1"
+    local path="$2"
+
+    case "$label" in
+        "portal routing")
+            config_active_lines_equal "$path" \
+                '[preferred]' \
+                'default=gtk' \
+                'org.freedesktop.impl.portal.ScreenCast=wlr' \
+                'org.freedesktop.impl.portal.Screenshot=wlr'
+            ;;
+        "wlr portal config")
+            config_active_lines_equal "$path" \
+                '[screencast]' \
+                'chooser_type=dmenu' \
+                "chooser_cmd=zenity --list --title='Share your screen' --text='Choose a source to share' --column='Source' --width=520 --height=320"
+            ;;
+        *) return 1 ;;
+    esac
+}
+
 require_managed_config_or_absent() {
     local label="$1"
     local path="$2"
-    if [[ -e "$path" || -L "$path" ]] \
-        && ! grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" "$path"; then
-        die "refusing to replace unrecognized $label: $path"
+    [[ -e "$path" || -L "$path" ]] || return
+    grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" "$path" && return
+    if is_compatible_legacy_config "$label" "$path"; then
+        printf 'Adopting compatible legacy %s: %s\n' "$label" "$path"
+        return
     fi
+    die "refusing to replace unrecognized $label: $path"
 }
 
 tracked_changes_match_revision() {
@@ -135,6 +203,11 @@ tracked_changes_match_revision() {
     done
 }
 
+is_git_checkout() {
+    [[ -d "$1" ]] \
+        && [[ "$(git -C "$1" rev-parse --is-inside-work-tree 2>/dev/null || true)" == true ]]
+}
+
 checkout_revision() {
     local label="$1"
     local repository="$2"
@@ -145,7 +218,7 @@ checkout_revision() {
         mkdir -p -- "$(dirname -- "$destination")"
         git init --quiet "$destination"
         git -C "$destination" remote add origin "$repository"
-    elif [[ ! -d "$destination/.git" ]]; then
+    elif ! is_git_checkout "$destination"; then
         die "$label path exists but is not a Git checkout: $destination"
     fi
 
@@ -240,7 +313,8 @@ require_revision() {
     local source="$2"
     local revision="$3"
 
-    [[ -d "$source/.git" ]] || die "$label checkout not found: $source (run '$0 bootstrap')"
+    is_git_checkout "$source" \
+        || die "$label checkout not found: $source (run '$0 bootstrap')"
     local current
     current="$(git -C "$source" rev-parse HEAD)"
     [[ "$current" == "$revision" ]] \
@@ -250,24 +324,42 @@ require_revision() {
 prepare_flutter_version_metadata() {
     local version_ref="refs/tags/$FLUTTER_SDK_VERSION"
     local tagged_revision
-    tagged_revision="$(
-        git -C "$FLUTTER_SDK_ROOT" rev-parse \
-            --verify "$version_ref^{commit}" 2>/dev/null || true
-    )"
-    if [[ "$tagged_revision" != "$FLUTTER_SDK_REVISION" ]]; then
-        git -C "$FLUTTER_SDK_ROOT" tag --force \
-            "$FLUTTER_SDK_VERSION" "$FLUTTER_SDK_REVISION" >/dev/null
+    if ((FLUTTER_SDK_MANAGED)); then
+        tagged_revision="$(
+            git -C "$FLUTTER_SDK_ROOT" rev-parse \
+                --verify "$version_ref^{commit}" 2>/dev/null || true
+        )"
+        if [[ "$tagged_revision" != "$FLUTTER_SDK_REVISION" ]]; then
+            git -C "$FLUTTER_SDK_ROOT" tag --force \
+                "$FLUTTER_SDK_VERSION" "$FLUTTER_SDK_REVISION" >/dev/null
+        fi
     fi
 
     local version_file="$FLUTTER_SDK_ROOT/bin/cache/flutter.version.json"
-    if [[ -f "$version_file" ]] \
-        && ! jq -e \
+    if ((FLUTTER_SDK_MANAGED)); then
+        if [[ -f "$version_file" ]] \
+            && ! jq -e \
             --arg version "$FLUTTER_SDK_VERSION" \
             --arg revision "$FLUTTER_SDK_REVISION" \
             '.frameworkVersion == $version
                 and .frameworkRevision == $revision' \
             "$version_file" >/dev/null; then
-        rm -f -- "$version_file"
+            rm -f -- "$version_file"
+        fi
+    else
+        if [[ ! -f "$version_file" ]]; then
+            "$FLUTTER" --version --suppress-analytics >/dev/null
+        fi
+        local rendered_version
+        rendered_version="$(mktemp -- "${version_file}.XXXXXX")"
+        jq \
+            --arg version "$FLUTTER_SDK_VERSION" \
+            --arg revision "$FLUTTER_SDK_REVISION" \
+            '.frameworkVersion = $version
+                | .flutterVersion = $version
+                | .frameworkRevision = $revision' \
+            "$version_file" >"$rendered_version"
+        mv -- "$rendered_version" "$version_file"
     fi
 
     local legacy_version_file="$FLUTTER_SDK_ROOT/version"
@@ -279,8 +371,13 @@ prepare_flutter_version_metadata() {
 
 prepare_flutter_toolchain() {
     require_revision "Flutter SDK" "$FLUTTER_SDK_ROOT" "$FLUTTER_SDK_REVISION"
-    prepare_flutter_version_metadata
     [[ -x "$FLUTTER" ]] || die "Flutter launcher not found: $FLUTTER"
+    if ((!FLUTTER_SDK_MANAGED)); then
+        # The launcher may rebuild its tool snapshot and delete version metadata.
+        # Finish that bootstrap before pinning the fork's declared SDK version.
+        "$FLUTTER" --version --suppress-analytics >/dev/null
+    fi
+    prepare_flutter_version_metadata
     git -C "$FLUTTER_SDK_ROOT" diff --quiet \
         || die "Flutter fork checkout has tracked modifications: $FLUTTER_SDK_ROOT"
     git -C "$FLUTTER_SDK_ROOT" diff --cached --quiet \
@@ -288,11 +385,15 @@ prepare_flutter_toolchain() {
 }
 
 bootstrap_dependencies() {
-    checkout_revision \
-        "Flutter SDK" \
-        "$FLUTTER_SDK_REPOSITORY" \
-        "$FLUTTER_SDK_REVISION" \
-        "$FLUTTER_SDK_ROOT"
+    if ((FLUTTER_SDK_MANAGED)); then
+        checkout_revision \
+            "Flutter SDK" \
+            "$FLUTTER_SDK_REPOSITORY" \
+            "$FLUTTER_SDK_REVISION" \
+            "$FLUTTER_SDK_ROOT"
+    else
+        require_revision "Flutter SDK" "$FLUTTER_SDK_ROOT" "$FLUTTER_SDK_REVISION"
+    fi
     prepare_flutter_toolchain
     "$FLUTTER" precache --linux
     run_pinned_cargo fetch --locked
@@ -441,6 +542,11 @@ run_compositor() {
         mobile | desktop) ;;
         *) die "DENIA_SHELL_PROFILE must be mobile or desktop, got: $shell_profile" ;;
     esac
+    local flutter_renderer="${DENIA_FLUTTER_RENDERER:-impeller}"
+    case "$flutter_renderer" in
+        skia | impeller) ;;
+        *) die "DENIA_FLUTTER_RENDERER must be skia or impeller, got: $flutter_renderer" ;;
+    esac
 
     unset DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE SWAYSOCK I3SOCK
     unset NO_COLOR WLR_DRM_DEVICES AQ_DRM_DEVICES
@@ -454,7 +560,8 @@ run_compositor() {
         --device "$drm_device" \
         --output-config "$OUTPUT_CONFIG" \
         --wayland \
-        --flutter-bundle "$BUNDLE"
+        --flutter-bundle "$BUNDLE" \
+        --flutter-renderer "$flutter_renderer"
 }
 
 run_session() {
@@ -544,7 +651,9 @@ show_session_state() {
         printf 'missing  %-18s %s\n' "SDDM entry" "$SESSION_FILE"
     elif grep -Fqx "X-Denial-Launcher=$SCRIPT_DIR/denial-pc" "$SESSION_FILE" \
         && grep -Fqx "DesktopNames=Denial" "$SESSION_FILE" \
-        && grep -Fq " -D Denial " "$SESSION_FILE"; then
+        && grep -Fqx \
+            "Exec=uwsm start -e -D Denial $SCRIPT_DIR/denial-pc session" \
+            "$SESSION_FILE"; then
         printf 'ok       %-18s %s\n' "SDDM entry" "$SESSION_FILE"
     else
         printf 'stale    %-18s %s (run install-session)\n' "SDDM entry" "$SESSION_FILE"

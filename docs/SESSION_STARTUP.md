@@ -43,6 +43,20 @@ user = "alice"
 The regular, authenticated greeter path should continue to launch
 `denial-session` without `--start-locked`.
 
+## Renderer selection
+
+Impeller GLES is the default renderer. A machine that needs the retained
+Skia/Ganesh compatibility path can select it persistently in
+`/etc/denial/session.conf`:
+
+```sh
+DENIA_FLUTTER_RENDERER=skia
+```
+
+For a controlled one-shot session, pass `--flutter-renderer skia` through the
+launcher instead. Renderer changes take effect when the Flutter engine starts,
+so restart the Denial session after changing the machine override.
+
 ## Supported launcher modes
 
 | Invocation | Result |

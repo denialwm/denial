@@ -58,6 +58,12 @@ a distinct source rectangle from the same framebuffer, so output count does
 not introduce a compositor copy. Flutter renders through one shared atlas pool
 whose ownership is synchronized with the independently clocked outputs.
 
+Impeller GLES is the default Flutter renderer. Denial's locked engine fork
+connects it directly to the rotating compositor-owned FBOs, preserves atlas
+damage, and keeps external client textures alive through native GPU fences.
+Skia/Ganesh remains compiled into the same engine as an explicit compatibility
+fallback.
+
 Topology changes are validated atomically before allocation. Atlas axes above
 16,384 pixels and complete pools above 1 GiB are rejected. The compositor
 captures and pins the pre-Denial KMS state before the first modeset and restores
@@ -125,8 +131,16 @@ reference.
 Project-owned native code lives in `compositor/`; the shell lives in
 `dart_shell/`; and the shared ABI lives in `protocol/`. Flutter and Skia
 changes required by Denial live in the exact fork commits recorded by
-`prebuilt/flutter-engine/SOURCE_LOCK.json`. Build output and fetched
-toolchains live outside the checkout when using `tools/denial-pc`.
+`prebuilt/flutter-engine/SOURCE_LOCK.json`.
+
+The canonical editable local forks are
+`/mnt/exty/denial-flutter-fork-3.44.7` and
+`/mnt/exty/denial-skia-fork-3.44.7`; the Flutter tree's nested Skia path
+resolves to the latter. Cache-managed Flutter or Skia checkouts are build-only
+projections of the immutable source lock and must never receive source edits.
+CI validates or provisions the exact locked sources without inheriting a
+developer checkout. Build output, verified caches, and fetched toolchains live
+outside the Denial checkout when using `tools/denial-pc`.
 
 ## Invariants
 

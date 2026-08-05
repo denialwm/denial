@@ -31,15 +31,13 @@ class WallpaperAccent {
 
   final Color color;
 
-  /// Translucent card fill for system bar cards: the dark surface tone tinted
-  /// toward the accent, letting the wallpaper glow through.
-  Color get cardFill =>
-      Color.lerp(_cardBase, color, 0.15)!.withValues(alpha: 0.90);
+  /// Card fill for system bar cards. The shell theme supplies the shared
+  /// frosted-surface opacity at the point of use.
+  Color get cardFill => Color.lerp(_cardBase, color, 0.15)!;
 
   /// Top stop of the card gradient: [cardFill] nudged further toward the
   /// accent so pills read as softly lit from above.
-  Color get cardFillTop =>
-      Color.lerp(_cardBase, color, 0.24)!.withValues(alpha: 0.90);
+  Color get cardFillTop => Color.lerp(_cardBase, color, 0.24)!;
 
   /// Secondary text inside system bar cards, tinted toward the accent so
   /// captions re-theme with the wallpaper without losing legibility.

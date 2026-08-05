@@ -7,6 +7,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::slice;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, ThreadId};
@@ -134,6 +135,59 @@ pub enum DartRuntimeMode {
     Jit,
 }
 
+/// Flutter renderer used with Denial's existing OpenGL embedder surface.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum RendererBackend {
+    SkiaGles,
+    #[default]
+    ImpellerGles,
+}
+
+impl RendererBackend {
+    pub const VALUES: &'static str = "skia or impeller";
+
+    fn uses_impeller(self) -> bool {
+        self == Self::ImpellerGles
+    }
+}
+
+impl fmt::Display for RendererBackend {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::SkiaGles => "skia",
+            Self::ImpellerGles => "impeller",
+        })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ParseRendererBackendError(String);
+
+impl fmt::Display for ParseRendererBackendError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "unknown Flutter renderer {:?}; expected {}",
+            self.0,
+            RendererBackend::VALUES
+        )
+    }
+}
+
+impl Error for ParseRendererBackendError {}
+
+impl FromStr for RendererBackend {
+    type Err = ParseRendererBackendError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "skia" => Ok(Self::SkiaGles),
+            "impeller" => Ok(Self::ImpellerGles),
+            _ => Err(ParseRendererBackendError(value.to_owned())),
+        }
+    }
+}
+
 impl DartRuntimeMode {
     fn runs_aot(self) -> bool {
         matches!(self, Self::Aot | Self::AotProfile)
@@ -151,6 +205,7 @@ pub struct EngineProject {
     pub icu_data: PathBuf,
     pub runtime: DartRuntimeMode,
     pub aot_library: Option<PathBuf>,
+    pub renderer_backend: RendererBackend,
     /// Upper bound for Flutter's viewport-derived Ganesh resource cache.
     /// Zero leaves the engine's calculated limit unchanged.
     pub resource_cache_max_bytes_threshold: usize,
@@ -334,6 +389,15 @@ thread_local! {
 
 fn engine_command_line(project: &EngineProject) -> Vec<CString> {
     let mut arguments = vec![CString::new("deniald").expect("static argv has no NUL")];
+    if project.renderer_backend.uses_impeller() {
+        for argument in [
+            "--enable-impeller=true",
+            "--impeller-use-sdfs",
+            "--denial-gl-fbo-zero-is-no-target",
+        ] {
+            arguments.push(CString::new(argument).expect("static argv has no NUL"));
+        }
+    }
     if project.resource_cache_max_bytes_threshold != 0 {
         arguments.push(
             CString::new(format!(
@@ -1040,6 +1104,7 @@ mod tests {
             icu_data: PathBuf::from("/icudtl.dat"),
             runtime: DartRuntimeMode::Aot,
             aot_library: Some(PathBuf::from("/libapp.so")),
+            renderer_backend: RendererBackend::SkiaGles,
             resource_cache_max_bytes_threshold: 256 * 1024 * 1024,
         };
         let arguments = engine_command_line(&project);
@@ -1061,6 +1126,34 @@ mod tests {
     }
 
     #[test]
+    fn impeller_is_default_and_adds_only_the_gl_atlas_contract() {
+        assert_eq!(RendererBackend::default(), RendererBackend::ImpellerGles);
+        let project = EngineProject {
+            engine_library: PathBuf::from("/engine"),
+            assets: PathBuf::from("/assets"),
+            icu_data: PathBuf::from("/icudtl.dat"),
+            runtime: DartRuntimeMode::Aot,
+            aot_library: Some(PathBuf::from("/libapp.so")),
+            renderer_backend: RendererBackend::ImpellerGles,
+            resource_cache_max_bytes_threshold: 0,
+        };
+        let arguments = engine_command_line(&project);
+        let arguments = arguments
+            .iter()
+            .map(|argument| argument.to_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            arguments,
+            [
+                "deniald",
+                "--enable-impeller=true",
+                "--impeller-use-sdfs",
+                "--denial-gl-fbo-zero-is-no-target"
+            ]
+        );
+    }
+
+    #[test]
     fn jit_command_line_enables_a_loopback_authenticated_vm_service() {
         let arguments = engine_command_line(&EngineProject {
             engine_library: PathBuf::from("/engine"),
@@ -1068,6 +1161,7 @@ mod tests {
             icu_data: PathBuf::from("/icudtl.dat"),
             runtime: DartRuntimeMode::Jit,
             aot_library: None,
+            renderer_backend: RendererBackend::SkiaGles,
             resource_cache_max_bytes_threshold: 0,
         });
         let arguments = arguments
@@ -1089,6 +1183,7 @@ mod tests {
             icu_data: PathBuf::from("/icudtl.dat"),
             runtime: DartRuntimeMode::AotProfile,
             aot_library: Some(PathBuf::from("/libapp.so")),
+            renderer_backend: RendererBackend::SkiaGles,
             resource_cache_max_bytes_threshold: 0,
         });
         let arguments = arguments

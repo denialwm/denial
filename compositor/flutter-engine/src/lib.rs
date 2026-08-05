@@ -17,7 +17,7 @@ mod host;
 
 pub use host::{
     DartRuntimeMode, EngineEvent, EngineHost, EngineProject, HostError, OpenGlHandler,
-    PlatformMessage, PresentFrame, ScheduledTask,
+    ParseRendererBackendError, PlatformMessage, PresentFrame, RendererBackend, ScheduledTask,
 };
 
 #[allow(

@@ -48,6 +48,22 @@ Wayland clients ──> Rust / Smithay ──> external textures ──> Flutter
 Displays <────────────── DRM / KMS <────────────── shared GBM atlas
 ```
 
+### Impeller at desktop scale
+
+Denial renders with Flutter's **Impeller** backend by default. That sentence
+hides the interesting part: Impeller was designed to render an application
+inside a window, while Denial asks it to render the entire desktop into
+compositor-owned, rotating GBM framebuffers. Denial's locked Flutter fork
+integrates Impeller's GLES path directly with the shared KMS atlas, including
+exact embedder FBO presentation, no-target frame handling, preserved partial
+damage, native fences, and external-texture lifetime.
+
+This is not a Flutter app using Impeller inside another compositor. Impeller
+is part of the compositor's own frame path, from the Dart scene to scanout.
+Skia/Ganesh remains in the same engine generation as a compatibility fallback
+and can be selected explicitly with `--flutter-renderer skia` or the packaged
+`DENIA_FLUTTER_RENDERER=skia` session override.
+
 The native compositor and the Flutter shell are built as two versioned parts.
 The current shell lives in `dart_shell/` and is loaded with its AOT library,
 assets, ICU data, and pinned engine generation as one runtime bundle. Their
@@ -127,6 +143,10 @@ sudo pacman -Syu denial
 Pacman pulls in the matching `denial-flutter-engine` package automatically.
 The setup script shows its complete plan and asks for confirmation before using
 `sudo`.
+
+Impeller is the default renderer. If a driver-specific issue requires the
+Skia/Ganesh fallback, set `DENIA_FLUTTER_RENDERER=skia` in
+`/etc/denial/session.conf` and restart the Denial session.
 
 See the [complete installation guide](docs/packaging/arch/INSTALL.md) for
 manual setup, keyring initialization, verification, updates, and removal.
