@@ -37,6 +37,9 @@ boundaries may change before 1.0.
 
 ### Fixed
 
+- Impeller partial repaints now clear their exact repair region before
+  replaying the layer tree, preventing translucent window shadows from briefly
+  accumulating during bursts of scene damage.
 - Denial now clears non-primary DRM planes inherited from the display manager
   before its first compositor frame, preventing a stale hardware cursor or
   overlay image from remaining latched above the Flutter desktop.
