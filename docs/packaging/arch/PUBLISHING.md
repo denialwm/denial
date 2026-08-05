@@ -265,7 +265,7 @@ Flutter source revision:     84fc5cbb223bc12f83d65b647ff8a56caf779ffd
 Engine artifact revision:    69c8c61792f04cc809dfef0c910414fb9afc06cd
 Dart source revision:        d684a576a6aa954ae107a03b2b4e1d61c3bebe93
 Skia upstream revision:      e9ed4fc9f1544c58d8a9347c1fc9471d8dd7c465
-Flutter fork revision:       3ae1084162ee93a90e558b9d93505e799f2feebd
+Flutter fork revision:       4f81dcd7cb3c7d04b586413cf889b68978e3284a
 Skia fork revision:          0ee042f542b3e79f5ac49115387718c6bb3d7d34
 Fork source lock:             prebuilt/flutter-engine/SOURCE_LOCK.json
 Embedder header checksum:    recorded in compositor/flutter-engine/src/sys.rs
