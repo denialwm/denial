@@ -1,5 +1,6 @@
 use std::os::fd::OwnedFd;
 
+use denial_core::topology::SCALE_BASE;
 use smithay::desktop::Window;
 use smithay::input::pointer::Focus;
 use smithay::reexports::wayland_server::Resource;
@@ -13,6 +14,7 @@ use smithay::wayland::selection::data_device::{
 };
 use smithay::wayland::xwayland_keyboard_grab::XWaylandKeyboardGrabHandler;
 use smithay::wayland::xwayland_shell::{XWaylandShellHandler, XWaylandShellState};
+use smithay::xwayland::xwm::settings::Value as XSettingValue;
 use smithay::xwayland::xwm::{Reorder, ResizeEdge, WmWindowProperty, XwmId};
 use smithay::xwayland::{X11Surface, X11Wm, XwmHandler};
 use tracing::{debug, error, info, warn};
@@ -33,6 +35,69 @@ use super::{
     KeyboardFocusTarget, MoveSurfaceGrab, ResizeEdges, WindowIdentity, X11ResizeSurfaceGrab,
     clamp_window_geometry, constrain_dimension,
 };
+
+const XWAYLAND_BASE_DPI: u32 = 96;
+
+pub(super) fn scale_for_engine(engine_scale_120: u32) -> u32 {
+    engine_scale_120.max(SCALE_BASE).div_ceil(SCALE_BASE)
+}
+
+pub(super) fn dpi(scale: u32) -> u32 {
+    XWAYLAND_BASE_DPI.saturating_mul(scale.max(1))
+}
+
+pub(super) fn publish_dpi(
+    xwm: &mut X11Wm,
+    scale: u32,
+) -> Result<(), smithay::xwayland::xwm::SettingsError> {
+    let xft_dpi = i32::try_from(dpi(scale).saturating_mul(1024)).unwrap_or(i32::MAX);
+    let base_dpi = i32::try_from(XWAYLAND_BASE_DPI.saturating_mul(1024)).unwrap_or(i32::MAX);
+    let window_scale = i32::try_from(scale).unwrap_or(i32::MAX);
+    xwm.set_xsettings(
+        [
+            ("Gdk/WindowScalingFactor", window_scale),
+            ("Gdk/UnscaledDPI", base_dpi),
+            ("Xft/DPI", xft_dpi),
+        ]
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), XSettingValue::Integer(value))),
+    )
+}
+
+impl super::WaylandFrontend {
+    pub(super) fn set_xwayland_scale(
+        &mut self,
+        engine_scale_120: u32,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let scale = scale_for_engine(engine_scale_120);
+        if scale == self.xwayland_scale {
+            return Ok(false);
+        }
+
+        self.xwayland_client
+            .get_data::<smithay::xwayland::XWaylandClientData>()
+            .ok_or("Xwayland client is missing compositor state")?
+            .compositor_state
+            .set_client_scale(f64::from(scale));
+        if let Some(xwm) = self.xwm.as_mut() {
+            publish_dpi(xwm, scale)?;
+        }
+        self.xwayland_scale = scale;
+        Ok(true)
+    }
+
+    pub(super) fn reconfigure_x11_for_scale(&self) -> Result<(), Box<dyn std::error::Error>> {
+        for window in self.space.elements() {
+            let Some(surface) = window.x11_surface() else {
+                continue;
+            };
+            if !surface.is_override_redirect() {
+                surface.configure(self.window_geometry_target(window))?;
+            }
+        }
+        Ok(())
+    }
+}
 
 #[cfg(feature = "flutter")]
 fn queue_x11_action(state: &mut RuntimeState, surface: &X11Surface, action: WindowAction) {
@@ -211,7 +276,6 @@ fn map_x11_window(state: &mut RuntimeState, surface: X11Surface, override_redire
         frontend
             .space
             .map_element(window.clone(), configured.loc, true);
-        #[cfg(feature = "flutter")]
         frontend.update_window_output_membership(&window);
         if !override_redirect {
             for candidate in frontend.space.elements() {
@@ -458,7 +522,6 @@ impl XWaylandShellHandler for RuntimeState {
     fn surface_associated(&mut self, _xwm: XwmId, wl_surface: WlSurface, surface: X11Surface) {
         let frontend = self.wayland.as_mut().expect("missing Wayland frontend");
         let stable_id = frontend.register_surface(&wl_surface);
-        #[cfg(feature = "flutter")]
         let mapped_window = {
             frontend
                 .space
@@ -466,7 +529,6 @@ impl XWaylandShellHandler for RuntimeState {
                 .find(|window| window.x11_surface() == Some(&surface))
                 .cloned()
         };
-        #[cfg(feature = "flutter")]
         if let Some(window) = mapped_window {
             // Xwayland may map the X11 window before its wl_surface becomes
             // associated. The initial map cannot index a root surface in that
@@ -641,7 +703,6 @@ impl XwmHandler for RuntimeState {
             let target = frontend.window_geometry_target(&element);
             frontend.space.relocate_element(&element, target.loc);
         }
-        #[cfg(feature = "flutter")]
         frontend.update_window_output_membership(&element);
         self.scene_sync.mark_dirty();
     }

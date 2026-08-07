@@ -1044,7 +1044,7 @@ impl RuntimeState {
     fn compositor_pointer_in_flutter_pixels(&self) -> Option<(f64, f64)> {
         self.wayland
             .as_ref()
-            .map(wayland_frontend::WaylandFrontend::flutter_pointer_position)
+            .map(wayland_frontend::WaylandFrontend::flutter_pointer_position_physical)
     }
 
     /// Makes the Flutter engine's mouse state a projection of the compositor

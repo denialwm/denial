@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::thread::{self, ThreadId};
 use std::time::{Duration, Instant};
 
-use denial_core::topology::{AtlasPlan, PixelSize, TopologySnapshot};
+use denial_core::topology::{AtlasPlan, PixelSize, SCALE_BASE, TopologySnapshot};
 use denial_flutter_engine::{
     DartRuntimeMode, EngineError, EngineEvent, EngineHost, EngineLibrary, EngineProject,
     OpenGlHandler, PlatformMessage, PresentFrame, RendererBackend, ScheduledTask, sys,
@@ -3784,6 +3784,7 @@ impl FlutterRuntime {
             Some(super::cpu_scheduling::set_flutter_thread_priority),
         )?;
         let refresh_hz = f64::from(refresh_millihz) / 1_000.0;
+        let device_pixel_ratio = f64::from(atlas.engine_scale_120) / f64::from(SCALE_BASE);
         host.engine().notify_displays(
             sys::FlutterEngineDisplaysUpdateType_kFlutterEngineDisplaysUpdateTypeStartup,
             &[sys::FlutterEngineDisplay {
@@ -3793,7 +3794,7 @@ impl FlutterRuntime {
                 refresh_rate: refresh_hz,
                 width: size.width as usize,
                 height: size.height as usize,
-                device_pixel_ratio: 1.0,
+                device_pixel_ratio,
             }],
         )?;
         host.engine()
@@ -3801,7 +3802,7 @@ impl FlutterRuntime {
                 struct_size: mem::size_of::<sys::FlutterWindowMetricsEvent>(),
                 width: size.width as usize,
                 height: size.height as usize,
-                pixel_ratio: 1.0,
+                pixel_ratio: device_pixel_ratio,
                 display_id: 0,
                 view_id: 0,
                 ..sys::FlutterWindowMetricsEvent::default()
@@ -3812,6 +3813,7 @@ impl FlutterRuntime {
             refresh_hz,
             width = size.width,
             height = size.height,
+            device_pixel_ratio,
             native_fence = use_native_fence,
             resource_cache_max_mib =
                 factory.project.resource_cache_max_bytes_threshold / (1024 * 1024),

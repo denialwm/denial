@@ -888,6 +888,15 @@ impl DmabufHandler for RuntimeState {
 
 impl OutputHandler for RuntimeState {}
 
+impl smithay::wayland::fractional_scale::FractionalScaleHandler for RuntimeState {
+    fn new_fractional_scale(&mut self, surface: WlSurface) {
+        self.wayland
+            .as_ref()
+            .expect("missing Wayland frontend")
+            .update_surface_fractional_scale(&surface);
+    }
+}
+
 impl SeatHandler for RuntimeState {
     type KeyboardFocus = KeyboardFocusTarget;
     type PointerFocus = WlSurface;
@@ -1118,7 +1127,6 @@ impl XdgShellHandler for RuntimeState {
             frontend
                 .space
                 .map_element(window.clone(), (offset, offset), true);
-            #[cfg(feature = "flutter")]
             frontend.update_window_output_membership(&window);
             for candidate in frontend.space.elements() {
                 let changed = candidate.set_activated(candidate == &window);
@@ -1150,7 +1158,9 @@ impl XdgShellHandler for RuntimeState {
     fn new_popup(&mut self, surface: PopupSurface, _positioner: PositionerState) {
         let frontend = self.wayland.as_mut().expect("missing Wayland frontend");
         frontend.unconstrain_popup(&surface);
+        let wl_surface = surface.wl_surface().clone();
         let _ = frontend.popups.track_popup(PopupKind::Xdg(surface));
+        frontend.update_surface_fractional_scale(&wl_surface);
         self.scene_sync.mark_dirty();
     }
 

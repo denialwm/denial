@@ -65,6 +65,9 @@ use smithay::wayland::dmabuf::{
 use smithay::wayland::drm_syncobj::{
     DrmSyncobjCachedState, DrmSyncobjHandler, DrmSyncobjState, supports_syncobj_eventfd,
 };
+use smithay::wayland::fractional_scale::{
+    FractionalScaleManagerState, with_fractional_scale,
+};
 use smithay::wayland::output::{OutputHandler, OutputManagerState};
 use smithay::wayland::pointer_constraints::{PointerConstraintsHandler, PointerConstraintsState};
 use smithay::wayland::relative_pointer::RelativePointerManagerState;
@@ -275,7 +278,10 @@ pub(super) struct WaylandFrontend {
     pub _relative_pointer_manager_state: RelativePointerManagerState,
     pub _pointer_constraints_state: PointerConstraintsState,
     _viewporter_state: ViewporterState,
+    _fractional_scale_manager_state: FractionalScaleManagerState,
     pub xwm: Option<X11Wm>,
+    xwayland_client: Client,
+    xwayland_scale: u32,
     xdisplay: u32,
     _xdg_decoration_state: XdgDecorationState,
     _cursor_shape_state: CursorShapeManagerState,
@@ -650,6 +656,8 @@ impl WaylandFrontend {
         let pointer_constraints_state =
             PointerConstraintsState::new::<RuntimeState>(&display_handle);
         let viewporter_state = ViewporterState::new::<RuntimeState>(&display_handle);
+        let fractional_scale_manager_state =
+            FractionalScaleManagerState::new::<RuntimeState>(&display_handle);
         let xdg_decoration_state = XdgDecorationState::new::<RuntimeState>(&display_handle);
         let cursor_shape_state = CursorShapeManagerState::new::<RuntimeState>(&display_handle);
         let presentation = presentation::PresentationTracker::new(&display_handle);
@@ -828,16 +836,24 @@ impl WaylandFrontend {
 
         let client_budget = Arc::new(WaylandClientBudget::default());
         let socket_name = init_listener(display, event_loop, client_budget)?;
+        let xwayland_scale = xwayland::scale_for_engine(atlas.engine_scale_120);
+        let xwayland_dpi = xwayland::dpi(xwayland_scale);
+        let xwayland_args = ["-dpi".to_owned(), xwayland_dpi.to_string()];
         let (xwayland, xwayland_client) = XWayland::spawn(
             &display_handle,
             None,
             std::iter::empty::<(String, String)>(),
-            std::iter::empty::<String>(),
+            xwayland_args,
             true,
             Stdio::null(),
             Stdio::null(),
             |_| {},
         )?;
+        xwayland_client
+            .get_data::<XWaylandClientData>()
+            .expect("Xwayland client is missing compositor state")
+            .compositor_state
+            .set_client_scale(f64::from(xwayland_scale));
         let xdisplay = xwayland.display_number();
         let window_placement_path = default_state_path();
         let window_placements = match WindowPlacementStore::load(window_placement_path.clone()) {
@@ -859,6 +875,7 @@ impl WaylandFrontend {
         }
         let xwm_loop_handle = event_loop.handle();
         let xwm_display_handle = display_handle.clone();
+        let xwm_client = xwayland_client.clone();
         event_loop
             .handle()
             .insert_source(xwayland, move |event, _, state| match event {
@@ -869,9 +886,9 @@ impl WaylandFrontend {
                     xwm_loop_handle.clone(),
                     &xwm_display_handle,
                     x11_socket,
-                    xwayland_client.clone(),
+                    xwm_client.clone(),
                 ) {
-                    Ok(xwm) => {
+                    Ok(mut xwm) => {
                         let Some(frontend) = state.wayland.as_mut() else {
                             error!(
                                 display_number,
@@ -879,9 +896,15 @@ impl WaylandFrontend {
                             );
                             return;
                         };
+                        if let Err(error) = xwayland::publish_dpi(&mut xwm, frontend.xwayland_scale)
+                        {
+                            error!(%error, "could not publish Xwayland DPI settings");
+                        }
                         frontend.xwm = Some(xwm);
                         info!(
                             display = %format_args!(":{display_number}"),
+                            scale = frontend.xwayland_scale,
+                            dpi = xwayland::dpi(frontend.xwayland_scale),
                             "Xwayland is ready"
                         );
                         state.scene_sync.mark_dirty();
@@ -915,7 +938,10 @@ impl WaylandFrontend {
             _relative_pointer_manager_state: relative_pointer_manager_state,
             _pointer_constraints_state: pointer_constraints_state,
             _viewporter_state: viewporter_state,
+            _fractional_scale_manager_state: fractional_scale_manager_state,
             xwm: None,
+            xwayland_client,
+            xwayland_scale,
             xdisplay,
             _xdg_decoration_state: xdg_decoration_state,
             _cursor_shape_state: cursor_shape_state,
@@ -1107,7 +1133,7 @@ impl WaylandFrontend {
 
     #[cfg(feature = "flutter")]
     fn queue_cursor_position(&mut self) {
-        self.pending_cursor_position = Some(self.flutter_pointer_position());
+        self.pending_cursor_position = Some(self.flutter_scene_pointer_position());
     }
 
     #[cfg(feature = "flutter")]
@@ -1451,7 +1477,6 @@ impl WaylandFrontend {
             // stretches independent auxiliary toplevels to the main window.
             toplevel.with_pending_state(|pending| pending.size = None);
             self.space.relocate_element(window, restored.geometry.loc);
-            #[cfg(feature = "flutter")]
             self.update_window_output_membership(window);
             self.pending_client_sized_placements.insert(
                 object_id.clone(),
@@ -1553,7 +1578,6 @@ impl WaylandFrontend {
             output_geometry,
         );
         self.space.relocate_element(window, target.loc);
-        #[cfg(feature = "flutter")]
         self.update_window_output_membership(window);
         self.pending_client_sized_placements.remove(&object_id);
         info!(
@@ -1636,16 +1660,28 @@ impl WaylandFrontend {
             .unwrap_or_else(|| window.bbox())
     }
 
-    #[cfg(feature = "flutter")]
     pub(super) fn update_window_output_membership(&mut self, window: &Window) {
-        let Some(root_surface) = self.window_root_surface(window) else {
-            return;
-        };
-        let output = self
-            .output_index_for_geometry(self.window_geometry_target(window))
-            .map(|index| self.outputs[index].id);
-        self.output_window_membership
-            .update(root_surface.id(), window.clone(), output);
+        let output_index = self.output_index_for_geometry(self.window_geometry_target(window));
+        let output = output_index.map(|index| self.outputs[index].id);
+        let output_scale = output_index
+            .map(|index| {
+                self.outputs[index]
+                    .output
+                    .current_scale()
+                    .fractional_scale()
+            })
+            .unwrap_or(1.0);
+        window.with_surfaces(|surface, states| {
+            let preferred_scale = Self::client_preferred_scale(surface, output_scale);
+            with_fractional_scale(states, |fractional_scale| {
+                fractional_scale.set_preferred_scale(preferred_scale);
+            });
+        });
+        #[cfg(feature = "flutter")]
+        if let Some(root_surface) = self.window_root_surface(window) {
+            self.output_window_membership
+                .update(root_surface.id(), window.clone(), output);
+        }
     }
 
     #[cfg(feature = "flutter")]
@@ -1653,8 +1689,8 @@ impl WaylandFrontend {
         self.output_window_membership.remove(&surface.id());
     }
 
-    #[cfg(feature = "flutter")]
     pub(super) fn rebuild_window_output_membership(&mut self) {
+        #[cfg(feature = "flutter")]
         self.output_window_membership.clear();
         let windows = self.space.elements().cloned().collect::<Vec<_>>();
         for window in windows {
@@ -1696,7 +1732,6 @@ impl WaylandFrontend {
             self.configured_window_geometries
                 .insert(root_surface.id(), target);
         }
-        #[cfg(feature = "flutter")]
         self.update_window_output_membership(window);
     }
 
@@ -2103,7 +2138,6 @@ impl WaylandFrontend {
             .collect()
     }
 
-    #[cfg(feature = "flutter")]
     fn toplevel_candidate_surface(&self, surface: &WlSurface) -> WlSurface {
         let mut tree_root = surface.clone();
         while let Some(parent) = get_parent(&tree_root) {
@@ -2114,6 +2148,41 @@ impl WaylandFrontend {
             .find_popup(&tree_root)
             .and_then(|popup| find_popup_root_surface(&popup).ok())
             .unwrap_or(tree_root)
+    }
+
+    pub(super) fn update_surface_fractional_scale(&self, surface: &WlSurface) {
+        let root = self.toplevel_candidate_surface(surface);
+        let preferred_scale = self
+            .window_for_root_surface(&root)
+            .and_then(|window| {
+                self.output_for_geometry(self.window_geometry_target(&window))
+                    .map(|output| output.output.current_scale().fractional_scale())
+            })
+            .or_else(|| {
+                self.outputs
+                    .first()
+                    .map(|output| output.output.current_scale().fractional_scale())
+            })
+            .unwrap_or(1.0);
+        let preferred_scale = Self::client_preferred_scale(surface, preferred_scale);
+        with_states(surface, |states| {
+            with_fractional_scale(states, |fractional_scale| {
+                fractional_scale.set_preferred_scale(preferred_scale);
+            });
+        });
+    }
+
+    fn client_preferred_scale(surface: &WlSurface, output_scale: f64) -> f64 {
+        let client_scale = surface
+            .client()
+            .and_then(|client| {
+                client
+                    .get_data::<XWaylandClientData>()
+                    .map(|data| data.compositor_state.client_scale())
+            })
+            .unwrap_or(1.0)
+            .max(f64::EPSILON);
+        (output_scale / client_scale).max(1.0)
     }
 
     #[cfg(feature = "flutter")]
@@ -3018,7 +3087,7 @@ impl WaylandFrontend {
             }
             RoutedPointerTarget::Client(_) => {
                 self.pending_cursor_shape = Some(software_cursor_shape(&self.cursor_status));
-                self.pending_cursor_position = Some(self.flutter_pointer_position());
+                self.pending_cursor_position = Some(self.flutter_scene_pointer_position());
             }
         }
     }
@@ -3072,14 +3141,24 @@ impl WaylandFrontend {
         ))
     }
 
-    /// Projects the compositor-owned logical pointer into the Flutter atlas.
-    /// Flutter runs at pixel ratio 1, so embedder pointer coordinates are
-    /// physical atlas pixels rather than desktop logical coordinates.
+    /// Projects the compositor-owned logical pointer into Flutter's physical
+    /// atlas pixels, as required by `FlutterPointerEvent`.
     #[cfg(feature = "flutter")]
-    pub(super) fn flutter_pointer_position(&self) -> (f64, f64) {
+    pub(super) fn flutter_pointer_position_physical(&self) -> (f64, f64) {
         (
             (self.pointer_location.x - self.atlas_origin.x) * self.atlas_scale,
             (self.pointer_location.y - self.atlas_origin.y) * self.atlas_scale,
+        )
+    }
+
+    /// Projects the compositor-owned pointer into Flutter framework logical
+    /// coordinates. Structured messages consumed directly by Dart do not pass
+    /// through Flutter's physical-to-logical pointer-event conversion.
+    #[cfg(feature = "flutter")]
+    fn flutter_scene_pointer_position(&self) -> (f64, f64) {
+        (
+            self.pointer_location.x - self.atlas_origin.x,
+            self.pointer_location.y - self.atlas_origin.y,
         )
     }
 
