@@ -1,3 +1,5 @@
+#[cfg(feature = "flutter")]
+use super::super::render_audit_enabled;
 use super::window_management::{
     clear_toplevel_state, configure_toplevel_for_output, toplevel_has_state,
 };
@@ -12,29 +14,13 @@ use smithay::wayland::selection::{SelectionSource, SelectionTarget};
 use std::collections::HashSet;
 use std::os::fd::OwnedFd;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 pub(super) const MAX_WAYLAND_CLIENTS: usize = 128;
 const MAX_SURFACES_PER_CLIENT: usize = 1_024;
 const MAX_WAYLAND_SURFACES: usize = 16_384;
 // Core wayland.xml assigns wl_display.error.no_memory numeric value 2.
 const WL_DISPLAY_NO_MEMORY: u32 = 2;
-
-#[cfg(feature = "flutter")]
-fn wayland_render_audit_enabled() -> bool {
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        matches!(
-            std::env::var("DENIA_RENDER_AUDIT")
-                .ok()
-                .as_deref()
-                .map(str::trim)
-                .map(str::to_ascii_lowercase)
-                .as_deref(),
-            Some("1" | "true" | "yes" | "on")
-        )
-    })
-}
 
 #[cfg(feature = "flutter")]
 struct SurfaceCommitAudit {
@@ -84,7 +70,7 @@ fn record_surface_commit_audit(
     surface: &WlSurface,
     sample: SurfaceCommitAuditSample,
 ) {
-    if !wayland_render_audit_enabled() {
+    if !render_audit_enabled() {
         return;
     }
 

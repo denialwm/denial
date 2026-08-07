@@ -19,9 +19,9 @@ void main() {
 
     const DesktopWindowFramePainter().paint(canvas, logicalSize);
     final image = await recorder.endRecording().toImage(
-          imageWidth,
-          imageHeight,
-        );
+      imageWidth,
+      imageHeight,
+    );
     final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
     image.dispose();
 
@@ -29,18 +29,14 @@ void main() {
     expect(_alphaAt(data!, imageWidth, x: 2, y: imageHeight ~/ 2), 255);
     expect(_alphaAt(data, imageWidth, x: 8, y: imageHeight ~/ 2), 0);
     expect(
-      _alphaAt(
-        data,
-        imageWidth,
-        x: imageWidth ~/ 2,
-        y: imageHeight ~/ 2,
-      ),
+      _alphaAt(data, imageWidth, x: imageWidth ~/ 2, y: imageHeight ~/ 2),
       0,
     );
   });
 
-  testWidgets('only the static frame picture is forced into raster cache',
-      (tester) async {
+  testWidgets('only the static frame picture is forced into raster cache', (
+    tester,
+  ) async {
     const borderPainter = _TestBorderPainter();
     await tester.pumpWidget(
       const Directionality(
@@ -69,29 +65,77 @@ void main() {
     expect(framePaint.willChange, isFalse);
     expect(borderPaint.isComplex, isFalse);
     expect(borderPaint.willChange, isFalse);
+    final frameRenderObject = tester.renderObject(find.byWidget(framePaint));
+    final shadowBoundary = frameRenderObject.parent!.parent! as RenderBox;
+    expect(
+      shadowBoundary.paintBounds,
+      (Offset.zero & shadowBoundary.size).inflate(64),
+      reason: 'the retained layer must include every pixel the shadow paints',
+    );
     expect(
       find.ancestor(
         of: find.byWidget(framePaint),
-        matching: find.byType(RepaintBoundary),
+        matching: find.byWidgetPredicate((widget) => widget is RepaintBoundary),
       ),
       findsOneWidget,
     );
   });
 
-  test(
-      'a retained frame painter repaints only when its window identity changes',
-      () {
-    const original = DesktopWindowFramePainter(windowId: 7);
+  testWidgets('every retained ancestor preserves the frame shadow outset', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const Directionality(
+        textDirection: TextDirection.ltr,
+        child: SizedBox(
+          width: 320,
+          height: 180,
+          child: DesktopWindowRepaintBoundary(
+            outset: DesktopWindowFramePainter.shadowOutset,
+            child: DesktopWindowFrameLayers(
+              windowId: 42,
+              borderPainter: _TestBorderPainter(),
+              child: ColoredBox(color: Color(0xff123456)),
+            ),
+          ),
+        ),
+      ),
+    );
 
-    expect(
-      const DesktopWindowFramePainter(windowId: 7).shouldRepaint(original),
-      isFalse,
-    );
-    expect(
-      const DesktopWindowFramePainter(windowId: 8).shouldRepaint(original),
-      isTrue,
-    );
+    final boundaries = tester
+        .renderObjectList<RenderBox>(
+          find.byWidgetPredicate(
+            (widget) => widget is DesktopWindowRepaintBoundary,
+          ),
+        )
+        .toList();
+    expect(boundaries, hasLength(2));
+    for (final boundary in boundaries) {
+      expect(
+        boundary.paintBounds,
+        (Offset.zero & boundary.size).inflate(
+          DesktopWindowFramePainter.shadowOutset,
+        ),
+        reason: 'an ancestor boundary must not crop descendant shadow damage',
+      );
+    }
   });
+
+  test(
+    'a retained frame painter repaints only when its window identity changes',
+    () {
+      const original = DesktopWindowFramePainter(windowId: 7);
+
+      expect(
+        const DesktopWindowFramePainter(windowId: 7).shouldRepaint(original),
+        isFalse,
+      );
+      expect(
+        const DesktopWindowFramePainter(windowId: 8).shouldRepaint(original),
+        isTrue,
+      );
+    },
+  );
 }
 
 int _alphaAt(ByteData data, int width, {required int x, required int y}) {

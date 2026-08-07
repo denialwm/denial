@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:flutter/widgets.dart';
 
 import '../theme/shell_theme.dart';
@@ -31,7 +32,8 @@ class DesktopWindowFrameLayers extends StatelessWidget {
       fit: StackFit.expand,
       clipBehavior: Clip.none,
       children: [
-        RepaintBoundary(
+        DesktopWindowRepaintBoundary(
+          outset: DesktopWindowFramePainter.shadowOutset,
           child: IgnorePointer(
             child: CustomPaint(
               painter: DesktopWindowFramePainter(
@@ -50,6 +52,52 @@ class DesktopWindowFrameLayers extends StatelessWidget {
   }
 }
 
+/// A retained layer whose damage bounds include deliberate child overdraw.
+///
+/// [DesktopWindowFramePainter] paints its shadow outside the window's layout
+/// rectangle. A normal [RepaintBoundary] would advertise only that rectangle,
+/// leaving the outsetting shadow outside partial-repaint damage.
+class DesktopWindowRepaintBoundary extends RepaintBoundary {
+  const DesktopWindowRepaintBoundary({
+    required this.outset,
+    super.child,
+    super.key,
+  });
+
+  final double outset;
+
+  @override
+  RenderDesktopWindowRepaintBoundary createRenderObject(BuildContext context) {
+    return RenderDesktopWindowRepaintBoundary(outset);
+  }
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    covariant RenderDesktopWindowRepaintBoundary renderObject,
+  ) {
+    renderObject.outset = outset;
+  }
+}
+
+class RenderDesktopWindowRepaintBoundary extends RenderRepaintBoundary {
+  RenderDesktopWindowRepaintBoundary(this._outset) : assert(_outset >= 0);
+
+  double _outset;
+
+  set outset(double value) {
+    assert(value >= 0);
+    if (_outset == value) {
+      return;
+    }
+    _outset = value;
+    markNeedsPaint();
+  }
+
+  @override
+  Rect get paintBounds => super.paintBounds.inflate(_outset);
+}
+
 /// Paints the shadow and opaque frame ring around a decorated client surface.
 ///
 /// The center is deliberately left clear so client-provided per-pixel alpha is
@@ -63,6 +111,8 @@ class DesktopWindowFramePainter extends CustomPainter {
   final int windowId;
   final double radius;
 
+  static const double shadowOutset = 64;
+
   @override
   void paint(Canvas canvas, Size size) {
     DesktopWindowRenderTelemetry.recordShadowPaint(windowId, size);
@@ -74,7 +124,7 @@ class DesktopWindowFramePainter extends CustomPainter {
     final frameShape = RRect.fromRectAndRadius(frame, Radius.circular(radius));
     final outsideFrame = Path()
       ..fillType = PathFillType.evenOdd
-      ..addRect(frame.inflate(64))
+      ..addRect(frame.inflate(shadowOutset))
       ..addRRect(frameShape);
     final shadowRect = frame.shift(const Offset(0, 12)).inflate(2);
     final shadowPaint = Paint()

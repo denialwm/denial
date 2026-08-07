@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 
 const FLUTTER_ENGINE_ABI: &str = "3.44.7.denial1";
 const FLUTTER_SDK_VERSION: &str = "3.44.7";
+const CANONICAL_FLUTTER_SOURCE: &str = "/mnt/exty/denial-flutter-fork-3.44.7";
 const UI_PACKAGE_NAME: &str = "denial-ui-development";
 const UI_DENIAL_MINIMUM_VERSION: &str = "0.2.1";
 const UI_DENIAL_VERSION_BEFORE: &str = "0.3.0";
@@ -80,6 +81,7 @@ Environment:
   DENIAL_PC_BUILD_ROOT
   DENIAL_PC_RUST_TARGET
   DENIAL_PC_DEPENDENCY_ROOT
+  DENIAL_FLUTTER_SOURCE_ROOT
   DENIAL_FLUTTER_SDK_ROOT
   DENIAL_PC_PACKAGE_ROOT
   DENIAL_PC_MAKEPKG_ROOT
@@ -193,7 +195,23 @@ impl BuildPaths {
             .unwrap_or_else(|| build_root.join("packages"));
         let makepkg_root = absolute_environment_path("DENIAL_PC_MAKEPKG_ROOT")?
             .unwrap_or_else(|| build_root.join("makepkg"));
-        let flutter_sdk = absolute_environment_path("DENIAL_FLUTTER_SDK_ROOT")?
+        let flutter_source = absolute_environment_path("DENIAL_FLUTTER_SOURCE_ROOT")?;
+        let flutter_sdk_alias = absolute_environment_path("DENIAL_FLUTTER_SDK_ROOT")?;
+        if flutter_source.is_some()
+            && flutter_sdk_alias.is_some()
+            && flutter_source != flutter_sdk_alias
+        {
+            return Err(ToolError::new(
+                "DENIAL_FLUTTER_SOURCE_ROOT conflicts with DENIAL_FLUTTER_SDK_ROOT",
+            ));
+        }
+        let flutter_sdk = flutter_source
+            .or(flutter_sdk_alias)
+            .or_else(|| {
+                Path::new(CANONICAL_FLUTTER_SOURCE)
+                    .exists()
+                    .then(|| PathBuf::from(CANONICAL_FLUTTER_SOURCE))
+            })
             .unwrap_or_else(|| dependency_root.join("flutter"));
         let pub_cache = absolute_environment_path("PUB_CACHE")?
             .or_else(|| home.map(|path| path.join(".pub-cache")))
@@ -1371,8 +1389,8 @@ fn validate_host(paths: &BuildPaths) -> Result<(), ToolError> {
 fn validate_package_inputs(paths: &BuildPaths) -> Result<(), ToolError> {
     require_executable(&paths.development_binary)?;
     require_executable(&paths.flutter_sdk.join("bin/cache/dart-sdk/bin/dart"))?;
+    require_git_work_tree(&paths.flutter_sdk)?;
     for path in [
-        paths.flutter_sdk.join(".git/HEAD"),
         paths
             .flutter_sdk
             .join("packages/flutter/lib/src/gestures/binding.dart"),
@@ -1920,7 +1938,7 @@ fn validate_packaged_flutter_tool(
         &package_root.join("usr/share/denial/ui-development/workspace"),
         &source_root,
     )?;
-    require_regular_file(&source_root.join(".git/HEAD"))?;
+    require_git_work_tree(&source_root)?;
 
     let development_root = package_root.join("usr/lib/denial/ui-development");
     let denial_ui = package_root.join("usr/bin/denial-ui");
@@ -2165,6 +2183,17 @@ fn require_regular_file(path: &Path) -> Result<(), ToolError> {
     } else {
         Err(ToolError::new(format!(
             "expected a regular file: {}",
+            path.display()
+        )))
+    }
+}
+
+fn require_git_work_tree(path: &Path) -> Result<(), ToolError> {
+    if git_output(path, &["rev-parse", "--is-inside-work-tree"])? == "true" {
+        Ok(())
+    } else {
+        Err(ToolError::new(format!(
+            "expected a Git work tree: {}",
             path.display()
         )))
     }

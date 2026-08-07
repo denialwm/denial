@@ -5,27 +5,28 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('uses a bounded, tightly clipped blur at the configured sigma', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _BlurHarness(
-        theme: const ShellThemeData(backdropBlurSigma: 24),
-        child: ShellBackdropBlur(
-          borderRadius: BorderRadius.circular(18),
-          child: const SizedBox(width: 160, height: 90),
+  testWidgets(
+    'uses a full-backdrop, tightly clipped blur at the configured sigma',
+    (tester) async {
+      await tester.pumpWidget(
+        _BlurHarness(
+          theme: const ShellThemeData(backdropBlurSigma: 24),
+          child: ShellBackdropBlur(
+            borderRadius: BorderRadius.circular(18),
+            child: const SizedBox(width: 160, height: 90),
+          ),
         ),
-      ),
-    );
+      );
 
-    final filter = tester.widget<BackdropFilter>(find.byType(BackdropFilter));
-    expect(
-      filter.filterConfig.toString(),
-      'ImageFilterConfig.blur(24.0, 24.0, clamp, bounded)',
-    );
-    expect(filter.blendMode, BlendMode.src);
-    expect(find.byType(ClipRRect), findsOneWidget);
-  });
+      final filter = tester.widget<BackdropFilter>(find.byType(BackdropFilter));
+      expect(
+        filter.filterConfig.toString(),
+        'ImageFilterConfig.blur(24.0, 24.0, clamp, unbounded)',
+      );
+      expect(filter.blendMode, BlendMode.src);
+      expect(find.byType(ClipRRect), findsOneWidget);
+    },
+  );
 
   testWidgets('disabled blur avoids creating a backdrop filter', (
     tester,
@@ -57,9 +58,7 @@ void main() {
     expect(find.byType(BackdropFilter), findsNothing);
   });
 
-  testWidgets('grouped blur shares the nearest backdrop input', (
-    tester,
-  ) async {
+  testWidgets('grouped blur shares the nearest backdrop input', (tester) async {
     await tester.pumpWidget(
       _BlurHarness(
         theme: const ShellThemeData(),

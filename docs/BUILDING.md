@@ -12,7 +12,7 @@ reuse the pinned cache.
 
 ## Quick start
 
-Bootstrap the pinned Flutter SDK and Rust dependencies:
+Validate or provision the pinned Flutter SDK and fetch Rust dependencies:
 
 ```sh
 tools/denial-pc bootstrap
@@ -64,6 +64,31 @@ The current development generation couples:
 All downstream Flutter, engine, and Skia changes are commits in the locked
 forks. The repository does not reconstruct them from patches.
 
+### Engine source workflow
+
+Local engine development has exactly two editable roots:
+
+```text
+/mnt/exty/denial-flutter-fork-3.44.7
+/mnt/exty/denial-skia-fork-3.44.7
+```
+
+The Flutter tree's `engine/src/flutter/third_party/skia` resolves to the
+second root. Edit, format, test, and commit engine source only in those trees.
+Set `DENIAL_FLUTTER_SOURCE_ROOT` and `DENIAL_SKIA_SOURCE_ROOT` together to
+relocate them. Local GN and Ninja output lives below
+`$DENIAL_FLUTTER_ENGINE_CACHE_ROOT/build`; no second local Flutter or Skia
+source tree belongs in that cache. An isolated builder without the canonical
+pair may retain a detached, lock-pinned source projection. Never patch or
+commit such a projection; tooling may replace it.
+
+The lock's exact Flutter and Skia commits are the immutable authority for one
+build. Canonical working-tree changes do not enter a build until they are
+committed and the lock is deliberately advanced. CI never inherits a
+developer checkout; it validates or provisions a detached projection of the
+lock. Only verified artifacts, dependencies, compatible build outputs, and
+locked projections may be reused across jobs.
+
 Normal builds consume a locally rebuilt engine staged as
 `prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so`. The library
 is ignored by Git; its expected checksum, source revisions, build arguments,
@@ -71,12 +96,13 @@ licenses, and rebuild instructions remain tracked beside it in
 [`BUILD_INFO.md`](../prebuilt/flutter-engine/linux-x64-release/BUILD_INFO.md).
 `tools/denial-flutter-engine build` reuses an exact artifact cache hit without
 running GN or Ninja. When the source lock or GN arguments change, it retains
-the synchronized checkout and mode-specific Ninja outputs for an incremental
-rebuild. Its only host normalization fixes Flutter's generated toolchain-job
-count to the committed value before regenerating and comparing the complete
-GN graph. Routine Dart and Rust builds do not run `bindgen`. Arch packaging
-uses the verified output selected by that tool, so the engine package and
-Denial package always derive from the same checked input.
+compatible mode-specific Ninja outputs for an incremental rebuild. Any
+cache-managed source checkout remains build-only. Its only host normalization
+fixes Flutter's generated toolchain-job count to the committed value before
+regenerating and comparing the complete GN graph. Routine Dart and Rust builds
+do not run `bindgen`. Arch packaging uses the verified output selected by that
+tool, so the engine package and Denial package always derive from the same
+checked input.
 
 During a controlled engine upgrade, regenerate and check the committed
 bindings with:

@@ -85,8 +85,6 @@ use smithay::wayland::viewporter::ViewporterState;
 use smithay::wayland::xwayland_shell::XWaylandShellState;
 use smithay::wayland::xwayland_keyboard_grab::XWaylandKeyboardGrabState;
 use smithay::xwayland::{X11Wm, XWayland, XWaylandClientData, XWaylandEvent};
-#[cfg(feature = "flutter")]
-use smithay::xwayland::xwm::WmWindowType;
 use tracing::{error, info, warn};
 
 #[cfg(feature = "flutter")]
@@ -167,7 +165,9 @@ pub(super) use window_management::{
     apply_window_commands, queue_local_flutter_window_placement, queue_window_placement,
 };
 #[cfg(feature = "flutter")]
-use window_management::{shell_content_geometry, shell_draws_server_frame};
+use window_management::{
+    shell_content_geometry, shell_draws_server_frame, shell_draws_x11_server_frame,
+};
 
 const MAX_PENDING_DMABUF_IMPORTS: usize = 128;
 
@@ -2449,36 +2449,34 @@ impl WaylandFrontend {
                 {
                     let width = dmabuf.width();
                     let height = dmabuf.height();
-                    if let Ok(texture_id) = i64::try_from(surface_id) {
-                        let revision = self
-                            .surface_buffer_revisions
-                            .get(&surface.id())
-                            .copied()
-                            .unwrap_or_default();
-                        textures.push(ExternalTextureFrame::from_dmabuf(
-                            texture_id,
-                            dmabuf,
-                            buffer_guard,
-                            revision,
-                            expects_sample,
-                        ));
-                        (surface_id, width, height)
-                    } else {
-                        (0, width, height)
-                    }
+                    let Ok(texture_id) = i64::try_from(surface_id) else {
+                        return;
+                    };
+                    let revision = self
+                        .surface_buffer_revisions
+                        .get(&surface.id())
+                        .copied()
+                        .unwrap_or_default();
+                    textures.push(ExternalTextureFrame::from_dmabuf(
+                        texture_id,
+                        dmabuf,
+                        buffer_guard,
+                        revision,
+                        expects_sample,
+                    ));
+                    (surface_id, width, height)
                 } else if let Some(frame) = self.surface_shm_frames.get(&surface.id()).cloned() {
                     let width = frame.width();
                     let height = frame.height();
-                    if let Ok(texture_id) = i64::try_from(surface_id) {
-                        textures.push(ExternalTextureFrame::from_shm(
-                            texture_id,
-                            frame,
-                            expects_sample,
-                        ));
-                        (surface_id, width, height)
-                    } else {
-                        (0, width, height)
-                    }
+                    let Ok(texture_id) = i64::try_from(surface_id) else {
+                        return;
+                    };
+                    textures.push(ExternalTextureFrame::from_shm(
+                        texture_id,
+                        frame,
+                        expects_sample,
+                    ));
+                    (surface_id, width, height)
                 } else {
                     (0, 0, 0)
                 };
@@ -2521,7 +2519,6 @@ impl WaylandFrontend {
         surface_id: u64,
         expects_sample: bool,
     ) -> Option<ExternalTextureFrame> {
-        let texture_id = i64::try_from(surface_id).ok()?;
         let surface = self.surfaces_by_id.get(&surface_id)?;
         let (renderable, dmabuf_source) = with_renderer_surface_state(surface, |state| {
             let renderable = state
@@ -2537,6 +2534,7 @@ impl WaylandFrontend {
         if !renderable {
             return None;
         }
+        let texture_id = i64::try_from(surface_id).ok().filter(|id| *id > 0)?;
         if let Some((dmabuf, buffer_guard)) = dmabuf_source {
             let revision = self
                 .surface_buffer_revisions
@@ -2784,22 +2782,10 @@ impl WaylandFrontend {
             let (suppress_animations, server_side_decorated, window_opacity) = x11
                 .as_ref()
                 .map(|x11| {
-                    let popup_like = x11.is_override_redirect()
-                        || matches!(
-                            x11.window_type(),
-                            Some(
-                                WmWindowType::Combo
-                                    | WmWindowType::Dnd
-                                    | WmWindowType::DropdownMenu
-                                    | WmWindowType::Menu
-                                    | WmWindowType::Notification
-                                    | WmWindowType::PopupMenu
-                                    | WmWindowType::Tooltip
-                            )
-                        );
+                    let server_side_decorated = shell_draws_x11_server_frame(x11);
                     (
-                        popup_like,
-                        !popup_like && !x11.is_decorated(),
+                        !server_side_decorated,
+                        server_side_decorated,
                         xwayland::x11_window_opacity(x11),
                     )
                 })

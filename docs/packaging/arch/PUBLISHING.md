@@ -265,7 +265,7 @@ Flutter source revision:     84fc5cbb223bc12f83d65b647ff8a56caf779ffd
 Engine artifact revision:    69c8c61792f04cc809dfef0c910414fb9afc06cd
 Dart source revision:        d684a576a6aa954ae107a03b2b4e1d61c3bebe93
 Skia upstream revision:      e9ed4fc9f1544c58d8a9347c1fc9471d8dd7c465
-Flutter fork revision:       38724af712979f95c4fdc264148fa032e8ca223f
+Flutter fork revision:       b6d610952b3f73388bdcb2b4adbf0bdd0c1ba588
 Skia fork revision:          0ee042f542b3e79f5ac49115387718c6bb3d7d34
 Fork source lock:             prebuilt/flutter-engine/SOURCE_LOCK.json
 Embedder header checksum:    recorded in compositor/flutter-engine/src/sys.rs
@@ -393,16 +393,14 @@ sources of truth. The exact release inputs are the immutable commits in
 `prebuilt/flutter-engine/SOURCE_LOCK.json`:
 
 - Flutter: [`denialwm/flutter`](https://github.com/denialwm/flutter),
-  branch `denial/3.44.7-r1`, currently
-  `38724af712979f95c4fdc264148fa032e8ca223f`;
+  branch `denial/3.44.7-r1`, exact commit in `.flutter.revision`;
 - Skia: [`denialwm/skia`](https://github.com/denialwm/skia),
-  branch `denial/3.44.7-r1`, currently
-  `0ee042f542b3e79f5ac49115387718c6bb3d7d34`.
+  branch `denial/3.44.7-r1`, exact commit in `.skia.revision`.
 
 The engine portions of these histories were independently verified on
 2026-07-25; the three Flutter framework/tool commits were migrated and tested
 on 2026-07-29. The branches are movable review references. Build and release
-inputs use the immutable commit IDs above, never an unpinned branch name.
+inputs use the immutable commit IDs in the lock, never an unpinned branch name.
 
 The
 [engine validation report](../../flutter-engine/3.44.7/VALIDATION.md)
@@ -475,10 +473,14 @@ engine and UI manifests agree with this lock and rejects a downstream patch
 directory.
 
 `tools/denial-flutter-engine build` is the canonical source-to-artifact path.
-It verifies the locked checkout, compares generated GN arguments with the
-committed configuration, and verifies all three engine checksums. An unchanged
-lock is an artifact-cache hit; a changed lock retains the checkout and Ninja
-outputs for an incremental rebuild.
+It provisions and verifies build-only source at the locked revisions, compares
+generated GN arguments with the committed configuration, and verifies all
+three engine checksums. An unchanged lock is an artifact-cache hit; compatible
+Ninja outputs may support an incremental rebuild. Developers edit only
+`/mnt/exty/denial-flutter-fork-3.44.7` and
+`/mnt/exty/denial-skia-fork-3.44.7`; CI validates or provisions a detached
+projection of the lock. Neither local nor CI cache copies are authoritative
+source trees.
 
 For an upgrade, rebase the logical commits and review semantic drift with
 `git range-diff`:
@@ -1236,7 +1238,7 @@ for the transition into Stage 2.
 It was implemented and validated in this order:
 
 1. Recover the complete engine delta from the known working local checkout,
-   currently `/mnt/exty/denial-flutter-engine-3.44.7`.
+   historically `/mnt/exty/denial-flutter-engine-3.44.7`.
 2. Separate that delta into reviewable commits on the paired Flutter and Skia
    forks, including the custom external-texture scheduling API and its
    export-list change.

@@ -9,6 +9,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use denial_core::topology::{LogicalPoint, SCALE_BASE};
+#[cfg(feature = "flutter")]
+use denial_flutter_engine::RendererBackend;
 
 const DEFAULT_DEVICE: &str = "/dev/dri/by-path/pci-0000:0a:00.0-card";
 const MAX_OUTPUT_CONFIG_BYTES: usize = 64 * 1024;
@@ -116,6 +118,8 @@ pub(super) struct Options {
     pub(super) simulate_hotplug_at_frame: Option<u64>,
     pub(super) wayland: bool,
     pub(super) flutter_bundle: Option<PathBuf>,
+    #[cfg(feature = "flutter")]
+    pub(super) flutter_renderer: RendererBackend,
     pub(super) flutter_debug_bundle: Option<PathBuf>,
     pub(super) flutter_ui_workspace: Option<PathBuf>,
     pub(super) start_locked: bool,
@@ -153,6 +157,8 @@ impl Options {
         let mut simulate_hotplug_at_frame = None;
         let mut wayland = false;
         let mut flutter_bundle = None;
+        #[cfg(feature = "flutter")]
+        let mut flutter_renderer = None;
         let mut flutter_debug_bundle = None;
         let mut flutter_ui_workspace = None;
         let mut start_locked = false;
@@ -233,6 +239,17 @@ impl Options {
                         args.next().ok_or("--flutter-bundle needs a path")?,
                     ));
                 }
+                #[cfg(feature = "flutter")]
+                "--flutter-renderer" => {
+                    if flutter_renderer.is_some() {
+                        return Err("--flutter-renderer may only be specified once".into());
+                    }
+                    flutter_renderer = Some(
+                        args.next()
+                            .ok_or("--flutter-renderer needs skia or impeller")?
+                            .parse()?,
+                    );
+                }
                 "--flutter-debug-bundle" => {
                     flutter_debug_bundle = Some(PathBuf::from(
                         args.next().ok_or("--flutter-debug-bundle needs a path")?,
@@ -271,6 +288,7 @@ impl Options {
                          [--simulate-hotplug-at-frame N] \
                          [--wayland] \
                          [--flutter-bundle PATH] \
+                         [--flutter-renderer skia|impeller] \
                          [--flutter-debug-bundle PATH] \
                          [--flutter-ui-workspace PATH] \
                          [--start-locked] \
@@ -298,6 +316,8 @@ impl Options {
                         simulate_hotplug_at_frame,
                         wayland,
                         flutter_bundle,
+                        #[cfg(feature = "flutter")]
+                        flutter_renderer: flutter_renderer.unwrap_or_default(),
                         flutter_debug_bundle,
                         flutter_ui_workspace,
                         start_locked,
@@ -386,6 +406,10 @@ impl Options {
         if flutter_bundle.is_some() && !wayland {
             return Err("--flutter-bundle requires --wayland".into());
         }
+        #[cfg(feature = "flutter")]
+        if flutter_renderer.is_some() && flutter_bundle.is_none() {
+            return Err("--flutter-renderer requires --flutter-bundle".into());
+        }
         if (flutter_debug_bundle.is_some() || flutter_ui_workspace.is_some())
             && flutter_bundle.is_none()
         {
@@ -416,6 +440,8 @@ impl Options {
             simulate_hotplug_at_frame,
             wayland,
             flutter_bundle,
+            #[cfg(feature = "flutter")]
+            flutter_renderer: flutter_renderer.unwrap_or_default(),
             flutter_debug_bundle,
             flutter_ui_workspace,
             start_locked,
@@ -1212,6 +1238,54 @@ mod tests {
     fn flutter_without_a_finite_limit_runs_until_logout() {
         let options = options(&["--wayland", "--flutter-bundle", "/tmp/denial-bundle"]);
         assert_eq!(options.runtime_limit(), RuntimeLimit::UntilLogout);
+        #[cfg(feature = "flutter")]
+        assert_eq!(options.flutter_renderer, RendererBackend::ImpellerGles);
+    }
+
+    #[test]
+    #[cfg(feature = "flutter")]
+    fn flutter_renderers_are_explicit_and_impeller_remains_the_default() {
+        for (name, expected) in [
+            ("skia", RendererBackend::SkiaGles),
+            ("impeller", RendererBackend::ImpellerGles),
+        ] {
+            let configured = options(&[
+                "--wayland",
+                "--flutter-bundle",
+                "/tmp/denial-bundle",
+                "--flutter-renderer",
+                name,
+            ]);
+            assert_eq!(configured.flutter_renderer, expected);
+        }
+
+        let missing_bundle = Options::parse_from(
+            ["--flutter-renderer", "impeller"]
+                .into_iter()
+                .map(str::to_owned),
+        )
+        .expect_err("renderer selection without Flutter must be rejected");
+        assert_eq!(
+            missing_bundle.to_string(),
+            "--flutter-renderer requires --flutter-bundle"
+        );
+
+        let unknown = Options::parse_from(
+            [
+                "--wayland",
+                "--flutter-bundle",
+                "/tmp/denial-bundle",
+                "--flutter-renderer",
+                "ganesh-but-spelled-wrong",
+            ]
+            .into_iter()
+            .map(str::to_owned),
+        )
+        .expect_err("unknown renderer must be rejected");
+        assert_eq!(
+            unknown.to_string(),
+            "unknown Flutter renderer \"ganesh-but-spelled-wrong\"; expected skia or impeller"
+        );
     }
 
     #[test]

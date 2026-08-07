@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 use denial_core::topology::{AtlasPlan, PixelSize, TopologySnapshot};
 use denial_flutter_engine::{
     DartRuntimeMode, EngineError, EngineEvent, EngineHost, EngineLibrary, EngineProject,
-    OpenGlHandler, PlatformMessage, PresentFrame, ScheduledTask, sys,
+    OpenGlHandler, PlatformMessage, PresentFrame, RendererBackend, ScheduledTask, sys,
 };
 use sha2::{Digest, Sha256};
 use smithay::backend::allocator::Buffer as AllocatorBuffer;
@@ -45,6 +45,7 @@ use tracing::{debug, error, info, warn};
 use super::egl_context;
 use super::frame_scheduler::{FrameTick, PendingFrame};
 use super::idle_policy;
+use super::render_audit_enabled;
 use super::wire::{self, WireBridge};
 
 #[path = "flutter_runtime/mouse_cursor.rs"]
@@ -95,18 +96,6 @@ const MAX_PENDING_UI_DEVELOPMENT_COMMANDS: usize = 64;
 const WINDOW_CLOSE_LEASE_TIMEOUT: Duration = Duration::from_secs(5);
 const RENDER_AUDIT_INTERVAL: Duration = Duration::from_secs(1);
 const FLUTTER_RESOURCE_CACHE_MAX_BYTES_THRESHOLD: usize = 256 * 1024 * 1024;
-
-fn render_audit_enabled() -> bool {
-    matches!(
-        std::env::var("DENIA_RENDER_AUDIT")
-            .ok()
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_ascii_lowercase)
-            .as_deref(),
-        Some("1" | "true" | "yes" | "on")
-    )
-}
 
 #[derive(Debug)]
 struct RenderDamageAudit {
@@ -1308,6 +1297,11 @@ struct GlApi {
     framebuffer_texture_2d: unsafe extern "system" fn(u32, u32, u32, u32, i32),
     check_framebuffer_status: unsafe extern "system" fn(u32) -> u32,
     delete_framebuffers: unsafe extern "system" fn(i32, *const u32),
+    gen_renderbuffers: unsafe extern "system" fn(i32, *mut u32),
+    bind_renderbuffer: unsafe extern "system" fn(u32, u32),
+    renderbuffer_storage: unsafe extern "system" fn(u32, u32, i32, i32),
+    framebuffer_renderbuffer: unsafe extern "system" fn(u32, u32, u32, u32),
+    delete_renderbuffers: unsafe extern "system" fn(i32, *const u32),
     get_integer_v: unsafe extern "system" fn(u32, *mut i32),
     viewport: unsafe extern "system" fn(i32, i32, i32, i32),
     get_error: unsafe extern "system" fn() -> u32,
@@ -1361,6 +1355,23 @@ impl GlApi {
             ),
             delete_framebuffers: symbol!(
                 "glDeleteFramebuffers",
+                unsafe extern "system" fn(i32, *const u32)
+            ),
+            gen_renderbuffers: symbol!(
+                "glGenRenderbuffers",
+                unsafe extern "system" fn(i32, *mut u32)
+            ),
+            bind_renderbuffer: symbol!("glBindRenderbuffer", unsafe extern "system" fn(u32, u32)),
+            renderbuffer_storage: symbol!(
+                "glRenderbufferStorage",
+                unsafe extern "system" fn(u32, u32, i32, i32)
+            ),
+            framebuffer_renderbuffer: symbol!(
+                "glFramebufferRenderbuffer",
+                unsafe extern "system" fn(u32, u32, u32, u32)
+            ),
+            delete_renderbuffers: symbol!(
+                "glDeleteRenderbuffers",
                 unsafe extern "system" fn(i32, *const u32)
             ),
             get_integer_v: symbol!("glGetIntegerv", unsafe extern "system" fn(u32, *mut i32)),
@@ -2010,6 +2021,7 @@ struct FlutterGlHandler {
     display: Arc<EGLDisplayHandle>,
     gl: GlApi,
     targets: Mutex<Vec<GlTarget>>,
+    depth_stencil: Mutex<u32>,
     broker: Mutex<BufferBroker>,
     external_texture_sources: Mutex<HashMap<i64, ExternalTextureSlot>>,
     raster_sampled_buffers: Mutex<Vec<SampledBufferHold>>,
@@ -2042,6 +2054,7 @@ impl FlutterGlHandler {
         dmabufs: impl IntoIterator<Item = &'a Dmabuf>,
         initial_scanout: usize,
         size: PixelSize,
+        renderer_backend: RendererBackend,
         events: Sender<RuntimeEvent>,
         generation: u64,
         use_native_fence: bool,
@@ -2051,9 +2064,36 @@ impl FlutterGlHandler {
         // another thread. It is unbound before ownership reaches Flutter.
         unsafe { render_context.make_current()? };
         let gl = GlApi::load()?;
-        let _: i32 = i32::try_from(size.width).map_err(|_| "Flutter atlas width exceeds GLES")?;
-        let _: i32 = i32::try_from(size.height).map_err(|_| "Flutter atlas height exceeds GLES")?;
-        info!("creating direct Flutter atlas texture targets");
+        let width = i32::try_from(size.width).map_err(|_| "Flutter atlas width exceeds GLES")?;
+        let height = i32::try_from(size.height).map_err(|_| "Flutter atlas height exceeds GLES")?;
+        let needs_depth_stencil = renderer_backend == RendererBackend::ImpellerGles;
+        let mut depth_stencil = 0;
+        if needs_depth_stencil {
+            // Impeller wraps Denial's supplied FBO. One packed attachment can
+            // be shared by the rotating FBOs because its raster runner is
+            // serial and clears the attachment for each render pass.
+            // SAFETY: this new GLES context is current and the arguments and
+            // output pointer are valid.
+            unsafe {
+                let _ = (gl.get_error)();
+                (gl.gen_renderbuffers)(1, &mut depth_stencil);
+                (gl.bind_renderbuffer)(gl::RENDERBUFFER, depth_stencil);
+                (gl.renderbuffer_storage)(gl::RENDERBUFFER, gl::DEPTH24_STENCIL8, width, height);
+            }
+            // SAFETY: the same GLES context remains current.
+            let allocation_error = unsafe { (gl.get_error)() };
+            if depth_stencil == 0 || allocation_error != gl::NO_ERROR {
+                warn!(
+                    renderbuffer = depth_stencil,
+                    error = format_args!("{allocation_error:#x}"),
+                    "Impeller GLES depth/stencil allocation failed"
+                );
+                destroy_depth_stencil(gl, &mut depth_stencil);
+                render_context.unbind()?;
+                return Err("could not allocate Impeller GLES depth/stencil storage".into());
+            }
+        }
+        info!(%renderer_backend, "creating direct Flutter atlas texture targets");
         let mut targets = Vec::new();
 
         for dmabuf in dmabufs {
@@ -2061,6 +2101,7 @@ impl FlutterGlHandler {
                 Ok(image) => image,
                 Err(error) => {
                     destroy_targets(gl, &display, &mut targets);
+                    destroy_depth_stencil(gl, &mut depth_stencil);
                     render_context.unbind()?;
                     return Err(error.into());
                 }
@@ -2089,36 +2130,50 @@ impl FlutterGlHandler {
                     target.texture,
                     0,
                 );
+                if depth_stencil != 0 {
+                    (gl.framebuffer_renderbuffer)(
+                        gl::FRAMEBUFFER,
+                        gl::DEPTH_STENCIL_ATTACHMENT,
+                        gl::RENDERBUFFER,
+                        depth_stencil,
+                    );
+                }
             }
             // Flutter draws directly into the imported scanout DMA-BUF. The
-            // versioned engine wraps the attached level-zero texture. Skia
-            // owns the FBO, stencil, and dynamic-MSAA resources around that
-            // borrowed storage; an embedder stencil here would allocate one
-            // unused full-atlas renderbuffer for every pool entry.
+            // versioned engine wraps the attached level-zero texture. Ganesh
+            // allocates its own stencil and dynamic-MSAA resources, so the
+            // embedder attachment remains absent on the Skia path.
             let mut actual_samples = 0;
+            let mut actual_stencil_bits = 0;
             // SAFETY: the same compatible GLES context remains current, the
             // newly created framebuffer is still bound, and the output
             // pointer references a live local integer.
             let framebuffer_status = unsafe {
                 let status = (gl.check_framebuffer_status)(gl::FRAMEBUFFER);
                 (gl.get_integer_v)(gl::SAMPLES, &mut actual_samples);
+                if needs_depth_stencil {
+                    (gl.get_integer_v)(gl::STENCIL_BITS, &mut actual_stencil_bits);
+                }
                 status
             };
             if target.texture == 0
                 || target.framebuffer == 0
                 || framebuffer_status != gl::FRAMEBUFFER_COMPLETE
                 || actual_samples > 1
+                || (needs_depth_stencil && actual_stencil_bits < 8)
             {
                 warn!(
                     texture = target.texture,
                     framebuffer = target.framebuffer,
                     status = framebuffer_status,
                     actual_samples,
+                    actual_stencil_bits,
                     "Flutter direct atlas FBO creation failed"
                 );
                 let mut failed = vec![target];
                 destroy_targets(gl, &display, &mut failed);
                 destroy_targets(gl, &display, &mut targets);
+                destroy_depth_stencil(gl, &mut depth_stencil);
                 render_context.unbind()?;
                 return Err("a Flutter direct atlas framebuffer is incomplete".into());
             }
@@ -2128,10 +2183,16 @@ impl FlutterGlHandler {
         unsafe {
             (gl.bind_framebuffer)(gl::FRAMEBUFFER, 0);
             (gl.bind_texture)(gl::TEXTURE_2D, 0);
+            (gl.bind_renderbuffer)(gl::RENDERBUFFER, 0);
         }
         render_context.unbind()?;
 
         if targets.len() < 3 {
+            // SAFETY: Flutter does not own this context yet.
+            unsafe { render_context.make_current()? };
+            destroy_targets(gl, &display, &mut targets);
+            destroy_depth_stencil(gl, &mut depth_stencil);
+            render_context.unbind()?;
             return Err("Flutter direct scanout needs at least three atlas buffers".into());
         }
         let broker = match BufferBroker::new(
@@ -2147,6 +2208,7 @@ impl FlutterGlHandler {
                 // context is unbound, and Flutter does not own it yet.
                 unsafe { render_context.make_current()? };
                 destroy_targets(gl, &display, &mut targets);
+                destroy_depth_stencil(gl, &mut depth_stencil);
                 render_context.unbind()?;
                 return Err(error.into());
             }
@@ -2173,6 +2235,7 @@ impl FlutterGlHandler {
             display,
             gl,
             targets: Mutex::new(targets),
+            depth_stencil: Mutex::new(depth_stencil),
             broker: Mutex::new(broker),
             external_texture_sources: Mutex::new(HashMap::new()),
             raster_sampled_buffers: Mutex::new(Vec::new()),
@@ -2541,7 +2604,8 @@ impl FlutterGlHandler {
 
     fn destroy_targets(&self) {
         let mut targets = lock(&self.targets);
-        if targets.is_empty() {
+        let mut depth_stencil = lock(&self.depth_stencil);
+        if targets.is_empty() && *depth_stencil == 0 {
             return;
         }
         let mut context = lock(&self.render_context);
@@ -2557,6 +2621,7 @@ impl FlutterGlHandler {
         drop((cached_dmabufs, cached_shm));
         self.destroy_retired_external_bindings();
         destroy_targets(self.gl, &self.display, &mut targets);
+        destroy_depth_stencil(self.gl, &mut depth_stencil);
         let _ = context.clear_current();
     }
 
@@ -3369,6 +3434,16 @@ fn destroy_targets(gl: GlApi, display: &EGLDisplayHandle, targets: &mut Vec<GlTa
     }
 }
 
+fn destroy_depth_stencil(gl: GlApi, renderbuffer: &mut u32) {
+    if *renderbuffer == 0 {
+        return;
+    }
+    // SAFETY: cleanup runs with the owning shared GLES context current and
+    // this renderbuffer was created exactly once by the handler.
+    unsafe { (gl.delete_renderbuffers)(1, renderbuffer) };
+    *renderbuffer = 0;
+}
+
 pub struct FlutterRuntimeFactory {
     bundle: PathBuf,
     project: EngineProject,
@@ -3376,8 +3451,12 @@ pub struct FlutterRuntimeFactory {
 }
 
 impl FlutterRuntimeFactory {
-    pub fn new(bundle: &Path, runtime: DartRuntimeMode) -> Result<Self, Box<dyn Error>> {
-        let project = project_from_bundle(bundle, runtime)?;
+    pub fn new(
+        bundle: &Path,
+        runtime: DartRuntimeMode,
+        renderer_backend: RendererBackend,
+    ) -> Result<Self, Box<dyn Error>> {
+        let project = project_from_bundle(bundle, runtime, renderer_backend)?;
         let library = Arc::new(EngineLibrary::load(&project.engine_library)?);
         Ok(Self {
             bundle: bundle.to_owned(),
@@ -3693,6 +3772,7 @@ impl FlutterRuntime {
             dmabufs,
             initial_scanout,
             size,
+            factory.project.renderer_backend,
             events,
             generation,
             use_native_fence,
@@ -4756,6 +4836,7 @@ impl Drop for FlutterRuntime {
 fn project_from_bundle(
     bundle: &Path,
     runtime: DartRuntimeMode,
+    renderer_backend: RendererBackend,
 ) -> Result<EngineProject, Box<dyn Error>> {
     let engine_library = first_file(&[
         bundle.join("lib/libflutter_engine.so"),
@@ -4790,6 +4871,7 @@ fn project_from_bundle(
         icu_data,
         runtime,
         aot_library,
+        renderer_backend,
         // Flutter derives 48 bytes per physical viewport pixel, which gives
         // this 5120x1440 atlas a 337.5 MiB cache. Keep the official adaptive
         // behavior below the cap while preventing large multi-output atlases

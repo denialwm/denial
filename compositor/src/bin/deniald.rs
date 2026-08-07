@@ -76,9 +76,9 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 #[cfg(feature = "flutter")]
-use std::sync::Arc;
-#[cfg(feature = "flutter")]
 use std::sync::atomic::Ordering;
+#[cfg(feature = "flutter")]
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use calloop::signals::{Signal, Signals};
@@ -110,7 +110,7 @@ use smithay::reexports::drm::buffer::{
     DrmFourcc, DrmModifier, Handle as BufferHandle, PlanarBuffer,
 };
 use smithay::reexports::drm::control::{
-    AtomicCommitFlags, Device as ControlDevice, Mode, ModeTypeFlags, RawResourceHandle,
+    AtomicCommitFlags, Device as ControlDevice, Mode, ModeTypeFlags, PlaneType, RawResourceHandle,
     ResourceHandle, atomic::AtomicModeReq, connector, crtc, framebuffer, from_u32, plane, property,
 };
 use smithay::reexports::rustix::fs::OFlags;
@@ -216,6 +216,22 @@ impl RuntimeOutputConfiguration {
     }
 }
 
+#[cfg(feature = "flutter")]
+fn render_audit_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        matches!(
+            std::env::var("DENIA_RENDER_AUDIT")
+                .ok()
+                .as_deref()
+                .map(str::trim)
+                .map(str::to_ascii_lowercase)
+                .as_deref(),
+            Some("1" | "true" | "yes" | "on")
+        )
+    })
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let options = Options::parse()?;
     if options.start_locked {
@@ -274,6 +290,14 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     let (drm, drm_notifier) = DrmDevice::new(drm_fd.clone(), false)?;
     if !drm.is_atomic() {
         return Err("the selected DRM device does not expose atomic modesetting".into());
+    }
+    if !preserves_predecessor_kms_state(runtime_limit) {
+        // A display manager can leave cursor or overlay planes latched when it
+        // releases DRM master. Denial composites its cursor into the Flutter
+        // scene, so take ownership of those planes before the first atlas
+        // commit. Bounded diagnostics keep every predecessor plane untouched
+        // because their restore snapshot owns primary planes only.
+        kms_state::release_inherited_planes(&drm);
     }
     let mut kms = KmsContext::new(drm);
     let mut frame_event_loop = if runtime_limit != RuntimeLimit::TestOnly {
@@ -613,6 +637,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         Some(FlutterLauncher::new(
             FlutterLaunchConfiguration {
                 bundle,
+                renderer_backend: options.flutter_renderer,
                 debug_bundle: options.flutter_debug_bundle.clone(),
                 ui_workspace: options.flutter_ui_workspace.clone(),
             },

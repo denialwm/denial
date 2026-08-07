@@ -14,6 +14,8 @@ use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 use smithay::wayland::shell::xdg::{ToplevelSurface, XdgToplevelSurfaceData};
 #[cfg(feature = "flutter")]
+use smithay::xwayland::xwm::{WmWindowType, X11Surface};
+#[cfg(feature = "flutter")]
 use tracing::warn;
 
 #[cfg(feature = "flutter")]
@@ -54,7 +56,26 @@ pub(super) fn shell_draws_server_frame(window: &Window) -> bool {
     }
     window
         .x11_surface()
-        .is_some_and(|x11| !x11.is_override_redirect() && !x11.is_decorated())
+        .is_some_and(shell_draws_x11_server_frame)
+}
+
+#[cfg(feature = "flutter")]
+pub(super) fn shell_draws_x11_server_frame(x11: &X11Surface) -> bool {
+    // Denial owns the frame for managed X11 toplevels regardless of client
+    // decoration hints. Protocol-level popups remain unframed.
+    !x11.is_override_redirect()
+        && !matches!(
+            x11.window_type(),
+            Some(
+                WmWindowType::Combo
+                    | WmWindowType::Dnd
+                    | WmWindowType::DropdownMenu
+                    | WmWindowType::Menu
+                    | WmWindowType::Notification
+                    | WmWindowType::PopupMenu
+                    | WmWindowType::Tooltip
+            )
+        )
 }
 
 #[cfg(feature = "flutter")]

@@ -5,6 +5,10 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('fresh shell surfaces use the shared 75% opacity', () {
+    expect(const ShellSettings().appearance.panelOpacity, 0.75);
+  });
+
   test('settings survive a complete JSON round trip', () {
     const settings = ShellSettings(
       appearance: ShellAppearanceSettings(
