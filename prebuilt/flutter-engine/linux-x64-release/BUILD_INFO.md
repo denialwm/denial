@@ -13,7 +13,7 @@ checksum, GN configuration, upstream compatibility revisions, and licenses.
 engine source:
 
 - Denial Flutter fork:
-  `c21c89b10d8a9ba7f2984ec950b1170a340acde6`
+  `b6d610952b3f73388bdcb2b4adbf0bdd0c1ba588`
 - Denial Skia fork:
   `0ee042f542b3e79f5ac49115387718c6bb3d7d34`
 - Upstream Flutter compatibility base:
@@ -21,7 +21,7 @@ engine source:
 - Engine artifact revision:
   `69c8c61792f04cc809dfef0c910414fb9afc06cd`
 - Engine content hash:
-  `e79be0cf1c835ee822b9047abc602266fcbe6cf4`
+  `b5226e6abf6e75cfbe9c4f7ced8afb40fb3b0deb`
 - Dart:
   `d684a576a6aa954ae107a03b2b4e1d61c3bebe93` (Dart SDK `3.12.2`)
 
