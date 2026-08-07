@@ -12,23 +12,11 @@ use tracing::info;
 use super::flutter_runtime::{FlutterRuntime, ReadyFrame};
 use super::frame_scheduler::FrameTick;
 use super::kms_state::{AtlasSwapchain, Scanout};
-use super::{PresentedOutput, RuntimeState};
+use super::{PresentedOutput, RuntimeState, render_audit_enabled};
 
 const MAX_ATOMIC_PLANE_PROPERTIES: usize = 6;
 const OUTPUT_SCHEDULER_AUDIT_INTERVAL: Duration = Duration::from_secs(1);
 static NEXT_READY_FENCE_TOKEN: AtomicU64 = AtomicU64::new(1);
-
-fn output_scheduler_audit_enabled() -> bool {
-    matches!(
-        std::env::var("DENIA_RENDER_AUDIT")
-            .ok()
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_ascii_lowercase)
-            .as_deref(),
-        Some("1" | "true" | "yes" | "on")
-    )
-}
 
 fn next_ready_fence_token() -> u64 {
     loop {
@@ -356,8 +344,7 @@ impl OutputScheduler {
             ready_fences: std::iter::repeat_with(ReadyFenceSlot::default)
                 .take(buffer_count)
                 .collect(),
-            audit: output_scheduler_audit_enabled()
-                .then(|| OutputSchedulerAudit::new(buffer_count)),
+            audit: render_audit_enabled().then(|| OutputSchedulerAudit::new(buffer_count)),
             parked: (powered_outputs == 0).then_some(initial_index),
             latest_index: initial_index,
             presented_frames: 0,

@@ -37,9 +37,11 @@ boundaries may change before 1.0.
 
 ### Fixed
 
-- Impeller partial repaints now clear their exact repair region before
-  replaying the layer tree, preventing translucent window shadows from briefly
-  accumulating during bursts of scene damage.
+- Managed X11 toplevels now always receive Denial's frame, rounded corners,
+  and shadow, preventing decoration-free Xwayland windows from corrupting
+  Impeller backdrop blur and shadow damage when minimized.
+- Retained window-frame layers now include their shadow outset in partial
+  repaint damage instead of clipping repair to the window's layout bounds.
 - Denial now clears non-primary DRM planes inherited from the display manager
   before its first compositor frame, preventing a stale hardware cursor or
   overlay image from remaining latched above the Flutter desktop.

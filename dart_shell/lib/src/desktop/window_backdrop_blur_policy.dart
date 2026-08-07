@@ -4,7 +4,6 @@ bool desktopWindowBackdropBlurEnabled({
   required DenialWindow window,
   required double shellOpacity,
   required double opacityThreshold,
-  bool forceBackdropBlur = false,
   bool localContentTranslucent = false,
 }) {
   final effectiveOpacity = (shellOpacity * window.opacity).clamp(0.0, 1.0);
@@ -13,8 +12,7 @@ bool desktopWindowBackdropBlurEnabled({
     return false;
   }
 
-  return forceBackdropBlur ||
-      localContentTranslucent ||
+  return localContentTranslucent ||
       (!window.isLocalFlutter && window.isContentTranslucent) ||
       shellOpacity < 1.0;
 }

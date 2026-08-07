@@ -45,6 +45,7 @@ use tracing::{debug, error, info, warn};
 use super::egl_context;
 use super::frame_scheduler::{FrameTick, PendingFrame};
 use super::idle_policy;
+use super::render_audit_enabled;
 use super::wire::{self, WireBridge};
 
 #[path = "flutter_runtime/mouse_cursor.rs"]
@@ -95,18 +96,6 @@ const MAX_PENDING_UI_DEVELOPMENT_COMMANDS: usize = 64;
 const WINDOW_CLOSE_LEASE_TIMEOUT: Duration = Duration::from_secs(5);
 const RENDER_AUDIT_INTERVAL: Duration = Duration::from_secs(1);
 const FLUTTER_RESOURCE_CACHE_MAX_BYTES_THRESHOLD: usize = 256 * 1024 * 1024;
-
-fn render_audit_enabled() -> bool {
-    matches!(
-        std::env::var("DENIA_RENDER_AUDIT")
-            .ok()
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_ascii_lowercase)
-            .as_deref(),
-        Some("1" | "true" | "yes" | "on")
-    )
-}
 
 #[derive(Debug)]
 struct RenderDamageAudit {

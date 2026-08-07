@@ -2487,7 +2487,10 @@ class _DesktopWindowFrame extends ConsumerWidget {
                     : desktopWidget
                     ? 0.86 * windowOpacity
                     : windowOpacity,
-                child: RepaintBoundary(
+                child: DesktopWindowRepaintBoundary(
+                  outset: drawsServerFrame
+                      ? DesktopWindowFramePainter.shadowOutset
+                      : 0,
                   child: _DesktopOverviewPreviewInteraction(
                     overviewActive: overviewActive,
                     overview: overview,
@@ -2527,7 +2530,6 @@ class _DesktopWindowFrame extends ConsumerWidget {
                                     resizing ||
                                     placement.dragging,
                                 active: active && !minimized,
-                                forceBackdropBlur: desktopWidget,
                                 localLayoutSize: window.isLocalFlutter
                                     ? placement.contentRect.size
                                     : null,
@@ -2797,14 +2799,12 @@ class _DesktopWindowContent extends ConsumerWidget {
     required this.window,
     required this.smooth,
     required this.active,
-    this.forceBackdropBlur = false,
     this.localLayoutSize,
   });
 
   final DenialWindow window;
   final bool smooth;
   final bool active;
-  final bool forceBackdropBlur;
   final Size? localLayoutSize;
 
   @override
@@ -2822,7 +2822,6 @@ class _DesktopWindowContent extends ConsumerWidget {
         window: window,
         shellOpacity: windowOpacity,
         opacityThreshold: theme.backdropBlurOpacityThreshold,
-        forceBackdropBlur: forceBackdropBlur,
         localContentTranslucent: localApplication?.translucent ?? false,
       ),
       child: content,

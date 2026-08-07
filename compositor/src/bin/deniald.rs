@@ -76,9 +76,9 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 #[cfg(feature = "flutter")]
-use std::sync::Arc;
-#[cfg(feature = "flutter")]
 use std::sync::atomic::Ordering;
+#[cfg(feature = "flutter")]
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use calloop::signals::{Signal, Signals};
@@ -214,6 +214,22 @@ impl RuntimeOutputConfiguration {
             disabled_outputs: options.disabled_outputs.clone(),
         }
     }
+}
+
+#[cfg(feature = "flutter")]
+fn render_audit_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        matches!(
+            std::env::var("DENIA_RENDER_AUDIT")
+                .ok()
+                .as_deref()
+                .map(str::trim)
+                .map(str::to_ascii_lowercase)
+                .as_deref(),
+            Some("1" | "true" | "yes" | "on")
+        )
+    })
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
