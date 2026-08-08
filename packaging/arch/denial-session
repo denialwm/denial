@@ -130,6 +130,17 @@ resolve_drm_device() {
     || die 'no usable DRM card was found below /sys/class/drm'
 }
 
+resolve_render_device() {
+  local configured="${DENIAL_RENDER_DEVICE:-}"
+  local resolved
+  [[ -n "$configured" ]] || return 0
+  resolved="$(readlink -f -- "$configured")" \
+    || die "configured render device does not exist: $configured"
+  [[ -c "$resolved" ]] \
+    || die "configured render device is not a character device: $resolved"
+  printf '%s\n' "$resolved"
+}
+
 if [[ -r "$CONFIG_FILE" ]]; then
   # This is a root-owned, shell-compatible machine configuration.
   # shellcheck source=/dev/null
@@ -158,6 +169,7 @@ else
 fi
 validate_output_config "$output_config"
 drm_device="$(resolve_drm_device)"
+render_device="$(resolve_render_device)"
 
 [[ -x /usr/bin/deniald ]] || die 'missing /usr/bin/deniald'
 [[ -x /usr/bin/denialctl ]] || die 'missing /usr/bin/denialctl'
@@ -176,6 +188,7 @@ if [[ "${1:-}" == --check ]]; then
   printf 'ok  %-16s %s\n' 'Flutter bundle' "$bundle"
   printf 'ok  %-16s %s\n' 'output config' "$output_config"
   printf 'ok  %-16s %s\n' 'DRM device' "$drm_device"
+  printf 'ok  %-16s %s\n' 'render device' "${render_device:-$drm_device}"
   printf 'ok  %-16s %s\n' 'shell profile' "$DENIA_SHELL_PROFILE"
   printf 'ok  %-16s %s\n' 'Flutter renderer' "${flutter_renderer:-impeller (default)}"
   printf 'ok  %-16s %s\n' 'Xwayland' "$(command -v Xwayland)"
@@ -192,6 +205,9 @@ denial_args=(
   --wayland
   --flutter-bundle "$bundle"
 )
+if [[ -n "$render_device" ]]; then
+  denial_args+=(--render-device "$render_device")
+fi
 if [[ -n "$flutter_renderer" ]]; then
   denial_args+=(--flutter-renderer "$flutter_renderer")
 fi

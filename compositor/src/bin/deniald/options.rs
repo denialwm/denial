@@ -104,6 +104,7 @@ fn parse_maximize_padding(value: &str) -> Result<f64, Box<dyn Error>> {
 #[derive(Debug)]
 pub(super) struct Options {
     pub(super) device: PathBuf,
+    pub(super) render_device: Option<PathBuf>,
     commit_seconds: u64,
     pub(super) max_outputs: usize,
     pub(super) output_config: Option<PathBuf>,
@@ -143,6 +144,7 @@ impl Options {
 
     fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Self, Box<dyn Error>> {
         let mut device = PathBuf::from(DEFAULT_DEVICE);
+        let mut render_device = None;
         let mut commit_seconds = 0;
         let mut max_outputs = usize::MAX;
         let mut output_config = None;
@@ -171,6 +173,11 @@ impl Options {
         while let Some(argument) = args.next() {
             match argument.as_str() {
                 "--device" => device = PathBuf::from(args.next().ok_or("--device needs a path")?),
+                "--render-device" => {
+                    render_device = Some(PathBuf::from(
+                        args.next().ok_or("--render-device needs a path")?,
+                    ));
+                }
                 "--commit-seconds" => {
                     commit_seconds = args
                         .next()
@@ -281,7 +288,7 @@ impl Options {
                 }
                 "--help" | "-h" => {
                     println!(
-                        "Usage: deniald [--device PATH] [--max-outputs N] \
+                        "Usage: deniald [--device PATH] [--render-device PATH] [--max-outputs N] \
                          [--output-config PATH] \
                          [--output-position NAME=X,Y] \
                          [--next-output-position NAME=X,Y --reconfigure-at-frame N] \
@@ -302,6 +309,7 @@ impl Options {
                     );
                     return Ok(Self {
                         device,
+                        render_device,
                         commit_seconds,
                         max_outputs: 0,
                         output_config,
@@ -426,6 +434,7 @@ impl Options {
         }
         Ok(Self {
             device,
+            render_device,
             commit_seconds,
             max_outputs,
             output_config,
@@ -1249,8 +1258,24 @@ mod tests {
     fn flutter_without_a_finite_limit_runs_until_logout() {
         let options = options(&["--wayland", "--flutter-bundle", "/tmp/denial-bundle"]);
         assert_eq!(options.runtime_limit(), RuntimeLimit::UntilLogout);
+        assert_eq!(options.render_device, None);
         #[cfg(feature = "flutter")]
         assert_eq!(options.flutter_renderer, RendererBackend::ImpellerGles);
+    }
+
+    #[test]
+    fn render_device_can_differ_from_the_kms_device() {
+        let options = options(&[
+            "--device",
+            "/dev/dri/card0",
+            "--render-device",
+            "/dev/dri/renderD128",
+        ]);
+        assert_eq!(options.device, PathBuf::from("/dev/dri/card0"));
+        assert_eq!(
+            options.render_device,
+            Some(PathBuf::from("/dev/dri/renderD128"))
+        );
     }
 
     #[test]

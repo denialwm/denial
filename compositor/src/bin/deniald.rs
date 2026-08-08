@@ -307,6 +307,16 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK,
     )?;
     let drm_fd = DrmDeviceFd::new(DeviceFd::from(owned_fd));
+    let render_device = options.render_device.as_deref().unwrap_or(&options.device);
+    let render_fd = if render_device == options.device {
+        drm_fd.clone()
+    } else {
+        let owned_fd = session.open(
+            Path::new(render_device),
+            OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK,
+        )?;
+        DrmDeviceFd::new(DeviceFd::from(owned_fd))
+    };
     let (drm, drm_notifier) = DrmDevice::new(drm_fd.clone(), false)?;
     if !drm.is_atomic() {
         return Err("the selected DRM device does not expose atomic modesetting".into());
@@ -492,14 +502,14 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         });
     }
 
-    let gbm = GbmDevice::new(drm_fd.clone())?;
+    let gbm = GbmDevice::new(render_fd.clone())?;
     let mut allocator = GbmAllocator::new(
         gbm.clone(),
         GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
     );
     // SAFETY: the GBM device outlives the EGL display, context, renderer and
     // every imported dmabuf created below. All of them are dropped in this
-    // function before `gbm` and `drm_fd`.
+    // function before `gbm`, `render_fd`, and `drm_fd`.
     let egl_display = unsafe { EGLDisplay::new(gbm.clone())? };
     let atlas_modifiers =
         shared_atlas_modifiers(&kms.scanouts, egl_display.dmabuf_render_formats())?;
@@ -549,6 +559,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
 
     info!(
         device = %options.device.display(),
+        render_device = %render_device.display(),
         outputs = kms.scanouts.len(),
         atlas_width = atlas.pixel_size.width,
         atlas_height = atlas.pixel_size.height,
