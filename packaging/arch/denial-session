@@ -170,6 +170,15 @@ fi
 validate_output_config "$output_config"
 drm_device="$(resolve_drm_device)"
 render_device="$(resolve_render_device)"
+dumb_scanout_modifier="${DENIAL_DUMB_SCANOUT_MODIFIER:-}"
+dumb_scanout_extra_rows="${DENIAL_DUMB_SCANOUT_EXTRA_ROWS:-0}"
+if [[ -z "$dumb_scanout_modifier" && "$dumb_scanout_extra_rows" != 0 ]]; then
+  die 'DENIAL_DUMB_SCANOUT_EXTRA_ROWS requires DENIAL_DUMB_SCANOUT_MODIFIER'
+fi
+scanout_allocator=GBM
+if [[ -n "$dumb_scanout_modifier" ]]; then
+  scanout_allocator="dumb modifier $dumb_scanout_modifier, extra rows $dumb_scanout_extra_rows"
+fi
 
 [[ -x /usr/bin/deniald ]] || die 'missing /usr/bin/deniald'
 [[ -x /usr/bin/denialctl ]] || die 'missing /usr/bin/denialctl'
@@ -189,6 +198,7 @@ if [[ "${1:-}" == --check ]]; then
   printf 'ok  %-16s %s\n' 'output config' "$output_config"
   printf 'ok  %-16s %s\n' 'DRM device' "$drm_device"
   printf 'ok  %-16s %s\n' 'render device' "${render_device:-$drm_device}"
+  printf 'ok  %-16s %s\n' 'scanout allocator' "$scanout_allocator"
   printf 'ok  %-16s %s\n' 'shell profile' "$DENIA_SHELL_PROFILE"
   printf 'ok  %-16s %s\n' 'Flutter renderer' "${flutter_renderer:-impeller (default)}"
   printf 'ok  %-16s %s\n' 'Xwayland' "$(command -v Xwayland)"
@@ -207,6 +217,12 @@ denial_args=(
 )
 if [[ -n "$render_device" ]]; then
   denial_args+=(--render-device "$render_device")
+fi
+if [[ -n "$dumb_scanout_modifier" ]]; then
+  denial_args+=(--dumb-scanout-modifier "$dumb_scanout_modifier")
+  if [[ "$dumb_scanout_extra_rows" != 0 ]]; then
+    denial_args+=(--dumb-scanout-extra-rows "$dumb_scanout_extra_rows")
+  fi
 fi
 if [[ -n "$flutter_renderer" ]]; then
   denial_args+=(--flutter-renderer "$flutter_renderer")

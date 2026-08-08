@@ -260,18 +260,162 @@ pub(super) struct RestoreAttempt {
     pub(super) failures: Vec<String>,
 }
 
+enum AtlasFramebuffer {
+    Gbm(GbmFramebuffer),
+    Dumb(DumbFramebuffer),
+}
+
+impl AtlasFramebuffer {
+    fn handle(&self) -> framebuffer::Handle {
+        match self {
+            Self::Gbm(framebuffer) => *framebuffer.as_ref(),
+            Self::Dumb(framebuffer) => framebuffer.handle,
+        }
+    }
+}
+
+struct DumbFramebuffer {
+    handle: framebuffer::Handle,
+    drm: DrmDeviceFd,
+}
+
+impl Drop for DumbFramebuffer {
+    fn drop(&mut self) {
+        if let Err(error) = self.drm.destroy_framebuffer(self.handle) {
+            warn!(framebuffer = ?self.handle, %error, "failed to destroy dumb scanout framebuffer");
+        }
+    }
+}
+
+enum AtlasBacking {
+    Gbm { _buffer: GbmBuffer },
+    Dumb { _buffer: DumbBuffer },
+}
+
+enum AtlasAllocationStrategy {
+    Gbm {
+        allocator: GbmAllocator<DrmDeviceFd>,
+        drm_fd: DrmDeviceFd,
+        scanout_gbm: Option<GbmDevice<DrmDeviceFd>>,
+    },
+    Dumb {
+        allocator: DumbAllocator,
+        drm_fd: DrmDeviceFd,
+        modifier: Modifier,
+        extra_rows: u32,
+    },
+}
+
+pub(super) struct AtlasAllocator {
+    strategy: AtlasAllocationStrategy,
+}
+
+impl AtlasAllocator {
+    pub(super) fn gbm(
+        allocator: GbmAllocator<DrmDeviceFd>,
+        drm_fd: DrmDeviceFd,
+        scanout_gbm: Option<GbmDevice<DrmDeviceFd>>,
+    ) -> Self {
+        Self {
+            strategy: AtlasAllocationStrategy::Gbm {
+                allocator,
+                drm_fd,
+                scanout_gbm,
+            },
+        }
+    }
+
+    pub(super) fn dumb(drm_fd: DrmDeviceFd, modifier: Modifier, extra_rows: u32) -> Self {
+        Self {
+            strategy: AtlasAllocationStrategy::Dumb {
+                allocator: DumbAllocator::new(drm_fd.clone()),
+                drm_fd,
+                modifier,
+                extra_rows,
+            },
+        }
+    }
+
+    fn allocate(
+        &mut self,
+        size: PixelSize,
+        modifiers: &[Modifier],
+    ) -> Result<AtlasBuffer, Box<dyn Error>> {
+        match &mut self.strategy {
+            AtlasAllocationStrategy::Gbm {
+                allocator,
+                drm_fd,
+                scanout_gbm,
+            } => {
+                AtlasBuffer::allocate_gbm(allocator, drm_fd, scanout_gbm.as_ref(), size, modifiers)
+            }
+            AtlasAllocationStrategy::Dumb {
+                allocator,
+                drm_fd,
+                modifier,
+                extra_rows,
+            } => AtlasBuffer::allocate_dumb(
+                allocator,
+                drm_fd,
+                size,
+                *modifier,
+                *extra_rows,
+                modifiers,
+            ),
+        }
+    }
+}
+
+struct DumbScanoutPlanar<'a> {
+    buffer: &'a DumbBuffer,
+    visible_size: PixelSize,
+    modifier: Modifier,
+}
+
+impl PlanarBuffer for DumbScanoutPlanar<'_> {
+    fn size(&self) -> (u32, u32) {
+        (self.visible_size.width, self.visible_size.height)
+    }
+
+    fn format(&self) -> DrmFourcc {
+        DrmFourcc::Xrgb8888
+    }
+
+    fn modifier(&self) -> Option<DrmModifier> {
+        Some(self.modifier)
+    }
+
+    fn pitches(&self) -> [u32; 4] {
+        [DrmBuffer::pitch(self.buffer.handle()), 0, 0, 0]
+    }
+
+    fn handles(&self) -> [Option<BufferHandle>; 4] {
+        [
+            Some(DrmBuffer::handle(self.buffer.handle())),
+            None,
+            None,
+            None,
+        ]
+    }
+
+    fn offsets(&self) -> [u32; 4] {
+        [0; 4]
+    }
+}
+
 pub(super) struct AtlasBuffer {
-    // The framebuffer must be destroyed before its backing GBM object.
-    framebuffer: GbmFramebuffer,
+    // The framebuffer must be destroyed before its backing allocation.
+    framebuffer: AtlasFramebuffer,
     pub(super) dmabuf: Dmabuf,
     format: Format,
-    _buffer: GbmBuffer,
+    _buffer: AtlasBacking,
 }
 
 impl AtlasBuffer {
-    fn allocate(
+    fn allocate_gbm(
         allocator: &mut GbmAllocator<DrmDeviceFd>,
         drm_fd: &DrmDeviceFd,
+        scanout_gbm: Option<&GbmDevice<DrmDeviceFd>>,
         size: PixelSize,
         modifiers: &[Modifier],
     ) -> Result<Self, Box<dyn Error>> {
@@ -279,17 +423,92 @@ impl AtlasBuffer {
             allocator.create_buffer(size.width, size.height, Fourcc::Xrgb8888, modifiers)?;
         let format = smithay::backend::allocator::Buffer::format(&buffer);
         let dmabuf = buffer.export()?;
-        let framebuffer = framebuffer_from_bo(drm_fd, &buffer, true)?;
+        let framebuffer = if let Some(scanout_gbm) = scanout_gbm {
+            framebuffer_from_dmabuf(drm_fd, scanout_gbm, &dmabuf, true, true)?
+        } else {
+            framebuffer_from_bo(drm_fd, &buffer, true)?
+        };
         Ok(Self {
-            framebuffer,
+            framebuffer: AtlasFramebuffer::Gbm(framebuffer),
             dmabuf,
             format,
-            _buffer: buffer,
+            _buffer: AtlasBacking::Gbm { _buffer: buffer },
+        })
+    }
+
+    fn allocate_dumb(
+        allocator: &mut DumbAllocator,
+        drm_fd: &DrmDeviceFd,
+        size: PixelSize,
+        modifier: Modifier,
+        extra_rows: u32,
+        advertised_modifiers: &[Modifier],
+    ) -> Result<Self, Box<dyn Error>> {
+        if !advertised_modifiers.contains(&modifier) {
+            return Err(format!(
+                "configured dumb scanout modifier {modifier:?} is not shared by EGL and KMS"
+            )
+            .into());
+        }
+        let allocation_height = size
+            .height
+            .checked_add(extra_rows)
+            .ok_or("dumb scanout allocation height overflow")?;
+        let buffer = allocator.create_buffer(
+            size.width,
+            allocation_height,
+            Fourcc::Xrgb8888,
+            &[Modifier::Linear],
+        )?;
+        let pitch = DrmBuffer::pitch(buffer.handle());
+        let handle = DrmBuffer::handle(buffer.handle());
+        let prime_fd = drm_fd.buffer_to_prime_fd(
+            handle,
+            smithay::reexports::drm::CLOEXEC | smithay::reexports::drm::RDWR,
+        )?;
+        let mut builder = Dmabuf::builder(
+            (i32::try_from(size.width)?, i32::try_from(size.height)?),
+            Fourcc::Xrgb8888,
+            modifier,
+            DmabufFlags::empty(),
+        );
+        builder.add_plane(prime_fd, 0, pitch);
+        if let Ok(node) = DrmNode::from_file(drm_fd) {
+            builder.set_node(node);
+        }
+        let dmabuf = builder
+            .build()
+            .ok_or("could not describe the dumb scanout allocation as a dma-buf")?;
+        let planar = DumbScanoutPlanar {
+            buffer: &buffer,
+            visible_size: size,
+            modifier,
+        };
+        let framebuffer = drm_fd.add_planar_framebuffer(&planar, FbCmd2Flags::MODIFIERS)?;
+        info!(
+            visible_width = size.width,
+            visible_height = size.height,
+            allocation_height,
+            pitch,
+            modifier = ?modifier,
+            "allocated contiguous dumb scanout atlas"
+        );
+        Ok(Self {
+            framebuffer: AtlasFramebuffer::Dumb(DumbFramebuffer {
+                handle: framebuffer,
+                drm: drm_fd.clone(),
+            }),
+            dmabuf,
+            format: Format {
+                code: Fourcc::Xrgb8888,
+                modifier,
+            },
+            _buffer: AtlasBacking::Dumb { _buffer: buffer },
         })
     }
 
     pub(super) fn framebuffer(&self) -> framebuffer::Handle {
-        *self.framebuffer.as_ref()
+        self.framebuffer.handle()
     }
 
     pub(super) fn format(&self) -> Format {
@@ -724,17 +943,15 @@ pub(super) fn shared_atlas_modifiers(
 
 impl AtlasSwapchain {
     pub(super) fn allocate(
-        allocator: &mut GbmAllocator<DrmDeviceFd>,
-        drm_fd: &DrmDeviceFd,
+        allocator: &mut AtlasAllocator,
         size: PixelSize,
         modifiers: &[Modifier],
     ) -> Result<Self, Box<dyn Error>> {
-        Self::allocate_pool(allocator, drm_fd, size, 2, modifiers)
+        Self::allocate_pool(allocator, size, 2, modifiers)
     }
 
     pub(super) fn allocate_pool(
-        allocator: &mut GbmAllocator<DrmDeviceFd>,
-        drm_fd: &DrmDeviceFd,
+        allocator: &mut AtlasAllocator,
         size: PixelSize,
         length: usize,
         modifiers: &[Modifier],
@@ -753,9 +970,9 @@ impl AtlasSwapchain {
             return Err("atlas allocation received no usable DRM modifier".into());
         }
 
-        let allocate = |allocator: &mut GbmAllocator<DrmDeviceFd>, modifiers: &[Modifier]| {
+        let allocate = |allocator: &mut AtlasAllocator, modifiers: &[Modifier]| {
             (0..length)
-                .map(|_| AtlasBuffer::allocate(allocator, drm_fd, size, modifiers))
+                .map(|_| allocator.allocate(size, modifiers))
                 .collect::<Result<Vec<_>, _>>()
         };
         let buffers = if optimized.is_empty() {

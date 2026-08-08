@@ -25,6 +25,7 @@ const DEFAULT_SYSTEM_BAR_THICKNESS: f64 = 32.0;
 const MAX_SYSTEM_BAR_THICKNESS: f64 = 512.0;
 const DEFAULT_MAXIMIZE_PADDING: f64 = 10.0;
 const MAX_MAXIMIZE_PADDING: f64 = 256.0;
+const MAX_DUMB_SCANOUT_EXTRA_ROWS: u32 = 16_384;
 const SYSTEM_BAR_SPEC_HELP: &str =
     "system bar must use SIDE,THICKNESS[,OUTPUT[+OUTPUT...]] or hidden";
 
@@ -101,10 +102,26 @@ fn parse_maximize_padding(value: &str) -> Result<f64, Box<dyn Error>> {
     Ok(padding)
 }
 
+fn parse_u64_literal(value: &str) -> Result<u64, Box<dyn Error>> {
+    let value = value.trim();
+    if let Some(hex) = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+    {
+        if hex.is_empty() {
+            return Err("hexadecimal value is missing its digits".into());
+        }
+        return Ok(u64::from_str_radix(hex, 16)?);
+    }
+    Ok(value.parse()?)
+}
+
 #[derive(Debug)]
 pub(super) struct Options {
     pub(super) device: PathBuf,
     pub(super) render_device: Option<PathBuf>,
+    pub(super) dumb_scanout_modifier: Option<u64>,
+    pub(super) dumb_scanout_extra_rows: u32,
     commit_seconds: u64,
     pub(super) max_outputs: usize,
     pub(super) output_config: Option<PathBuf>,
@@ -145,6 +162,8 @@ impl Options {
     fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Self, Box<dyn Error>> {
         let mut device = PathBuf::from(DEFAULT_DEVICE);
         let mut render_device = None;
+        let mut dumb_scanout_modifier = None;
+        let mut dumb_scanout_extra_rows = 0;
         let mut commit_seconds = 0;
         let mut max_outputs = usize::MAX;
         let mut output_config = None;
@@ -177,6 +196,33 @@ impl Options {
                     render_device = Some(PathBuf::from(
                         args.next().ok_or("--render-device needs a path")?,
                     ));
+                }
+                "--dumb-scanout-modifier" => {
+                    if dumb_scanout_modifier.is_some() {
+                        return Err("--dumb-scanout-modifier may only be specified once".into());
+                    }
+                    let value = args
+                        .next()
+                        .ok_or("--dumb-scanout-modifier needs an integer or 0x-prefixed value")?;
+                    let modifier = parse_u64_literal(&value)?;
+                    if modifier == 0 || modifier == u64::MAX {
+                        return Err(
+                            "--dumb-scanout-modifier needs an explicit non-linear modifier".into(),
+                        );
+                    }
+                    dumb_scanout_modifier = Some(modifier);
+                }
+                "--dumb-scanout-extra-rows" => {
+                    dumb_scanout_extra_rows = args
+                        .next()
+                        .ok_or("--dumb-scanout-extra-rows needs a value")?
+                        .parse()?;
+                    if dumb_scanout_extra_rows > MAX_DUMB_SCANOUT_EXTRA_ROWS {
+                        return Err(format!(
+                            "--dumb-scanout-extra-rows must not exceed {MAX_DUMB_SCANOUT_EXTRA_ROWS}"
+                        )
+                        .into());
+                    }
                 }
                 "--commit-seconds" => {
                     commit_seconds = args
@@ -288,7 +334,9 @@ impl Options {
                 }
                 "--help" | "-h" => {
                     println!(
-                        "Usage: deniald [--device PATH] [--render-device PATH] [--max-outputs N] \
+                        "Usage: deniald [--device PATH] [--render-device PATH] \
+                         [--dumb-scanout-modifier U64 [--dumb-scanout-extra-rows N]] \
+                         [--max-outputs N] \
                          [--output-config PATH] \
                          [--output-position NAME=X,Y] \
                          [--next-output-position NAME=X,Y --reconfigure-at-frame N] \
@@ -310,6 +358,8 @@ impl Options {
                     return Ok(Self {
                         device,
                         render_device,
+                        dumb_scanout_modifier,
+                        dumb_scanout_extra_rows,
                         commit_seconds,
                         max_outputs: 0,
                         output_config,
@@ -375,6 +425,9 @@ impl Options {
         if frames != 0 && commit_seconds != 0 {
             return Err("--frames and --commit-seconds are mutually exclusive".into());
         }
+        if dumb_scanout_modifier.is_none() && dumb_scanout_extra_rows != 0 {
+            return Err("--dumb-scanout-extra-rows requires --dumb-scanout-modifier".into());
+        }
         match (reconfigure_at_frame, next_positions.is_empty()) {
             (Some(_), true) => {
                 return Err(
@@ -435,6 +488,8 @@ impl Options {
         Ok(Self {
             device,
             render_device,
+            dumb_scanout_modifier,
+            dumb_scanout_extra_rows,
             commit_seconds,
             max_outputs,
             output_config,
@@ -1275,6 +1330,30 @@ mod tests {
         assert_eq!(
             options.render_device,
             Some(PathBuf::from("/dev/dri/renderD128"))
+        );
+    }
+
+    #[test]
+    fn dumb_scanout_accepts_hexadecimal_modifier_and_storage_rows() {
+        let options = options(&[
+            "--dumb-scanout-modifier",
+            "0x0800000000000062",
+            "--dumb-scanout-extra-rows",
+            "128",
+        ]);
+        assert_eq!(options.dumb_scanout_modifier, Some(0x0800_0000_0000_0062));
+        assert_eq!(options.dumb_scanout_extra_rows, 128);
+
+        let error = Options::parse_from(
+            ["--dumb-scanout-extra-rows", "1"]
+                .into_iter()
+                .map(str::to_owned),
+        )
+        .expect_err("padding without a dumb modifier must fail");
+        assert!(
+            error
+                .to_string()
+                .contains("requires --dumb-scanout-modifier")
         );
     }
 

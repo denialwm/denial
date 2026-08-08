@@ -89,13 +89,15 @@ use denial_core::topology::{
     AtlasPlan, LogicalPoint, OutputId, OutputSpec, OutputTransform, PixelRect, PixelSize,
     SCALE_BASE, TopologyChange, TopologyManager, TopologySnapshot,
 };
-use smithay::backend::allocator::dmabuf::{AsDmabuf, Dmabuf};
+use smithay::backend::allocator::dmabuf::{AsDmabuf, Dmabuf, DmabufFlags};
+use smithay::backend::allocator::dumb::{DumbAllocator, DumbBuffer};
 use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBuffer, GbmBufferFlags, GbmDevice};
 use smithay::backend::allocator::{Allocator, Format, Fourcc, Modifier};
-use smithay::backend::drm::gbm::{GbmFramebuffer, framebuffer_from_bo};
+use smithay::backend::drm::gbm::{GbmFramebuffer, framebuffer_from_bo, framebuffer_from_dmabuf};
 use smithay::backend::drm::{
-    DrmDevice, DrmDeviceFd, DrmEvent, DrmEventTime, DrmSurface, PlaneConfig, PlaneState, VrrSupport,
+    DrmDevice, DrmDeviceFd, DrmEvent, DrmEventTime, DrmNode, DrmSurface, PlaneConfig, PlaneState,
+    VrrSupport,
 };
 use smithay::backend::egl::EGLDisplay;
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -110,11 +112,12 @@ use smithay::reexports::calloop::{EventLoop, RegistrationToken};
 #[cfg(feature = "flutter")]
 use smithay::reexports::calloop::{Interest, Mode as PollMode, PostAction, generic::Generic};
 use smithay::reexports::drm::buffer::{
-    DrmFourcc, DrmModifier, Handle as BufferHandle, PlanarBuffer,
+    Buffer as DrmBuffer, DrmFourcc, DrmModifier, Handle as BufferHandle, PlanarBuffer,
 };
 use smithay::reexports::drm::control::{
-    AtomicCommitFlags, Device as ControlDevice, Mode, ModeTypeFlags, PlaneType, RawResourceHandle,
-    ResourceHandle, atomic::AtomicModeReq, connector, crtc, framebuffer, from_u32, plane, property,
+    AtomicCommitFlags, Device as ControlDevice, FbCmd2Flags, Mode, ModeTypeFlags, PlaneType,
+    RawResourceHandle, ResourceHandle, atomic::AtomicModeReq, connector, crtc, framebuffer,
+    from_u32, plane, property,
 };
 use smithay::reexports::rustix::fs::OFlags;
 use smithay::utils::{Buffer, DeviceFd, Physical, Rectangle, Transform};
@@ -126,9 +129,9 @@ use hotplug_transaction::{
     plan_reconcile,
 };
 use kms_state::{
-    AtlasPlaneProperties, AtlasSwapchain, ConnectedOutput, KmsContext, LayoutTransition,
-    PreviousScanoutState, ReconciledScanoutOrigin, RestoreState, Scanout, ScanoutReconciliation,
-    shared_atlas_modifiers,
+    AtlasAllocator, AtlasPlaneProperties, AtlasSwapchain, ConnectedOutput, KmsContext,
+    LayoutTransition, PreviousScanoutState, ReconciledScanoutOrigin, RestoreState, Scanout,
+    ScanoutReconciliation, shared_atlas_modifiers,
 };
 #[cfg(feature = "flutter")]
 use kms_state::{FlutterLaunchConfiguration, FlutterLauncher, flutter_pool_length};
@@ -503,10 +506,26 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     }
 
     let gbm = GbmDevice::new(render_fd.clone())?;
-    let mut allocator = GbmAllocator::new(
-        gbm.clone(),
-        GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
-    );
+    let gbm_flags = GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT;
+    let mut allocator = GbmAllocator::new(gbm.clone(), gbm_flags);
+    let mut atlas_allocator = if let Some(modifier) = options.dumb_scanout_modifier {
+        AtlasAllocator::dumb(
+            drm_fd.clone(),
+            Modifier::from(modifier),
+            options.dumb_scanout_extra_rows,
+        )
+    } else {
+        let scanout_gbm = if render_device == options.device {
+            None
+        } else {
+            Some(GbmDevice::new(drm_fd.clone())?)
+        };
+        AtlasAllocator::gbm(
+            GbmAllocator::new(gbm.clone(), gbm_flags),
+            drm_fd.clone(),
+            scanout_gbm,
+        )
+    };
     // SAFETY: the GBM device outlives the EGL display, context, renderer and
     // every imported dmabuf created below. All of them are dropped in this
     // function before `gbm`, `render_fd`, and `drm_fd`.
@@ -526,8 +545,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         2
     };
     let mut atlas_swapchain = AtlasSwapchain::allocate_pool(
-        &mut allocator,
-        &drm_fd,
+        &mut atlas_allocator,
         atlas.pixel_size,
         atlas_pool_length,
         &atlas_modifiers,
@@ -724,8 +742,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         if let RuntimeLimit::Frames(frame_count) = runtime_limit {
             run_frame_loop(
                 &mut renderer,
-                &mut allocator,
-                &drm_fd,
+                &mut atlas_allocator,
                 &mut kms.drm,
                 &mut drm_scanner,
                 &mut atlas_swapchain,
@@ -768,7 +785,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
                     &mut restore_state,
                     &mut drm_scanner,
                     &mut allocator,
-                    &drm_fd,
+                    &mut atlas_allocator,
                     &mut topology,
                     options.max_outputs,
                     output_configuration,
@@ -1447,8 +1464,7 @@ fn hold_static_scanout(
 #[allow(clippy::too_many_arguments)]
 fn run_frame_loop(
     renderer: &mut GlesRenderer,
-    allocator: &mut GbmAllocator<DrmDeviceFd>,
-    drm_fd: &DrmDeviceFd,
+    atlas_allocator: &mut AtlasAllocator,
     drm: &mut DrmDevice,
     drm_scanner: &mut DrmScanner<SimpleCrtcMapper>,
     swapchain: &mut AtlasSwapchain,
@@ -1531,8 +1547,7 @@ fn run_frame_loop(
                     .collect();
                 apply_hotplug_topology(
                     renderer,
-                    allocator,
-                    drm_fd,
+                    atlas_allocator,
                     drm,
                     swapchain,
                     scanouts,
@@ -1610,8 +1625,7 @@ fn run_frame_loop(
             }
 
             let mut staged = match AtlasSwapchain::allocate(
-                allocator,
-                drm_fd,
+                atlas_allocator,
                 transition_atlas.pixel_size,
                 &atlas_modifiers,
             ) {
@@ -1790,8 +1804,7 @@ fn run_frame_loop(
             }
             apply_hotplug_topology(
                 renderer,
-                allocator,
-                drm_fd,
+                atlas_allocator,
                 drm,
                 swapchain,
                 scanouts,
@@ -1837,8 +1850,7 @@ fn run_frame_loop(
             if changed || forced_rescan {
                 apply_hotplug_topology(
                     renderer,
-                    allocator,
-                    drm_fd,
+                    atlas_allocator,
                     drm,
                     swapchain,
                     scanouts,
@@ -1932,7 +1944,7 @@ fn run_flutter_event_loop(
     restore_state: &mut RestoreState,
     drm_scanner: &mut DrmScanner<SimpleCrtcMapper>,
     allocator: &mut GbmAllocator<DrmDeviceFd>,
-    drm_fd: &DrmDeviceFd,
+    atlas_allocator: &mut AtlasAllocator,
     topology: &mut TopologyManager,
     max_outputs: usize,
     mut output_configuration: RuntimeOutputConfiguration,
@@ -2376,8 +2388,7 @@ fn run_flutter_event_loop(
             }
             let apply = apply_hotplug_topology(
                 renderer,
-                allocator,
-                drm_fd,
+                atlas_allocator,
                 drm,
                 swapchain,
                 scanouts,
@@ -2545,8 +2556,7 @@ fn run_flutter_event_loop(
                         .saturating_add(scheduler.superseded_ready_frames());
                     apply_hotplug_topology(
                         renderer,
-                        allocator,
-                        drm_fd,
+                        atlas_allocator,
                         drm,
                         swapchain,
                         scanouts,
@@ -3541,8 +3551,7 @@ fn send_flutter_window_event(
 #[allow(clippy::too_many_arguments)]
 fn apply_hotplug_topology(
     renderer: &mut GlesRenderer,
-    allocator: &mut GbmAllocator<DrmDeviceFd>,
-    drm_fd: &DrmDeviceFd,
+    allocator: &mut AtlasAllocator,
     drm: &mut DrmDevice,
     swapchain: &mut AtlasSwapchain,
     scanouts: &mut Vec<Scanout>,
@@ -3589,7 +3598,6 @@ fn apply_hotplug_topology(
     };
     let mut staged = match AtlasSwapchain::allocate_pool(
         allocator,
-        drm_fd,
         atlas.pixel_size,
         pool_length,
         &atlas_modifiers,
