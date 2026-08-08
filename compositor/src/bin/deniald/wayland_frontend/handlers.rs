@@ -1,7 +1,7 @@
 #[cfg(feature = "flutter")]
 use super::super::render_audit_enabled;
 use super::window_management::{
-    clear_toplevel_state, configure_toplevel_for_output, toplevel_has_state,
+    activate_window, clear_toplevel_state, configure_toplevel_for_output, toplevel_has_state,
 };
 #[cfg(feature = "flutter")]
 use super::window_management::{
@@ -11,10 +11,14 @@ use super::window_management::{
 };
 use super::*;
 use smithay::wayland::selection::{SelectionSource, SelectionTarget};
+use smithay::wayland::xdg_activation::{
+    XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData,
+};
 use std::collections::HashSet;
 use std::os::fd::OwnedFd;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use tracing::debug;
 
 pub(super) const MAX_WAYLAND_CLIENTS: usize = 128;
 const MAX_SURFACES_PER_CLIENT: usize = 1_024;
@@ -938,6 +942,14 @@ impl SeatHandler for RuntimeState {
             .and_then(WaylandFocus::wl_surface)
             .and_then(|surface| display_handle.get_client(surface.id()).ok());
         set_data_device_focus(&display_handle, seat, client);
+        #[cfg(feature = "flutter")]
+        {
+            let focused_surface = focused.and_then(WaylandFocus::wl_surface);
+            super::clipboard_io::release_deferred_clipboard_capture(
+                self,
+                focused_surface.as_deref(),
+            );
+        }
     }
 }
 
@@ -1572,6 +1584,68 @@ impl XdgShellHandler for RuntimeState {
         // here so role churn cannot retain one entry per destroyed popup.
         frontend.popups.cleanup();
         self.scene_sync.mark_dirty();
+    }
+}
+
+impl XdgActivationHandler for RuntimeState {
+    fn activation_state(&mut self) -> &mut XdgActivationState {
+        &mut self
+            .wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .xdg_activation_state
+    }
+
+    fn token_created(&mut self, _token: XdgActivationToken, data: XdgActivationTokenData) -> bool {
+        if !self.client_activation_permitted() {
+            return false;
+        }
+        let Some((serial, seat_resource)) = data.serial else {
+            // Tokens minted by clients must prove recent user interaction.
+            // Shell launch tokens bypass this callback and are trusted by
+            // construction through create_external_token.
+            return false;
+        };
+        let frontend = self.wayland.as_ref().expect("missing Wayland frontend");
+        Seat::from_resource(&seat_resource) == Some(frontend.seat.clone())
+            && frontend
+                .seat
+                .get_keyboard()
+                .and_then(|keyboard| keyboard.last_enter())
+                .is_some_and(|last_enter| serial.is_no_older_than(&last_enter))
+    }
+
+    fn request_activation(
+        &mut self,
+        token: XdgActivationToken,
+        data: XdgActivationTokenData,
+        surface: WlSurface,
+    ) {
+        // Activation tokens are capabilities. Consume every recognized token
+        // exactly once, including rejected or stale requests.
+        self.activation_state().remove_token(&token);
+        if !self.client_activation_permitted()
+            || data.timestamp.elapsed() > XDG_ACTIVATION_TOKEN_LIFETIME
+        {
+            debug!(app_id = ?data.app_id, "rejected stale or locked XDG activation request");
+            return;
+        }
+
+        let mut root = surface;
+        while let Some(parent) = get_parent(&root) {
+            root = parent;
+        }
+        let window = self
+            .wayland
+            .as_ref()
+            .and_then(|frontend| frontend.window_for_root_surface(&root));
+        let Some(window) = window else {
+            debug!(app_id = ?data.app_id, "ignored XDG activation for an unmanaged surface");
+            return;
+        };
+        if activate_window(self, &window, SERIAL_COUNTER.next_serial()) {
+            debug!(app_id = ?data.app_id, "honored XDG activation request");
+        }
     }
 }
 

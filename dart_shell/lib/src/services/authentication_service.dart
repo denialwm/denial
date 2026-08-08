@@ -22,8 +22,8 @@ abstract interface class AuthenticationService {
 
 class NativeAuthenticationService implements AuthenticationService {
   NativeAuthenticationService({BinaryMessenger? messenger})
-      : _messenger =
-            messenger ?? ServicesBinding.instance.defaultBinaryMessenger {
+    : _messenger =
+          messenger ?? ServicesBinding.instance.defaultBinaryMessenger {
     _messenger.setMessageHandler(
       authenticationToFlutterChannel,
       _handleMessage,
@@ -91,14 +91,11 @@ class NativeAuthenticationService implements AuthenticationService {
       return;
     }
     _messenger
-        .send(
-      authenticationToNativeChannel,
-      ByteData.sublistView(packet),
-    )
+        .send(authenticationToNativeChannel, ByteData.sublistView(packet))
         ?.catchError((Object error) {
-      debugPrint('denial authentication bridge unavailable: $error');
-      return null;
-    });
+          debugPrint('denial authentication bridge unavailable: $error');
+          return null;
+        });
   }
 
   Future<ByteData?> _handleMessage(ByteData? data) async {

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart'
 import 'package:flutter/widgets.dart';
 
 import '../models/denial_drag_icon.dart';
+import '../models/display_layout.dart';
 import '../theme/cursor_themes.dart';
 import '../theme/tokens.dart';
 import 'window_surface_tree.dart';
@@ -17,9 +18,7 @@ import 'window_surface_tree.dart';
 abstract final class ShellMouseCursors {
   static const MouseCursor normal = _ShellMouseCursor(ShellCursorKind.normal);
   static const MouseCursor help = _ShellMouseCursor(ShellCursorKind.help);
-  static const MouseCursor working = _ShellMouseCursor(
-    ShellCursorKind.working,
-  );
+  static const MouseCursor working = _ShellMouseCursor(ShellCursorKind.working);
   static const MouseCursor text = _ShellMouseCursor(ShellCursorKind.text);
   static const MouseCursor link = _ShellMouseCursor(ShellCursorKind.link);
   static const MouseCursor busy = _ShellMouseCursor(ShellCursorKind.busy);
@@ -65,8 +64,7 @@ ShellCursorKind shellCursorKindForPlatformShape(String shape) {
     'hand' ||
     'hand1' ||
     'hand2' ||
-    'click' =>
-      ShellCursorKind.link,
+    'click' => ShellCursorKind.link,
     'progress' || 'working' || 'left-ptr-watch' => ShellCursorKind.working,
     'wait' || 'watch' || 'busy' => ShellCursorKind.busy,
     'cell' ||
@@ -76,13 +74,11 @@ ShellCursorKind shellCursorKindForPlatformShape(String shape) {
     'zoom-in' ||
     'zoom-out' ||
     'zoomin' ||
-    'zoomout' =>
-      ShellCursorKind.precision,
+    'zoomout' => ShellCursorKind.precision,
     'text' ||
     'vertical-text' ||
     'verticaltext' ||
-    'xterm' =>
-      ShellCursorKind.text,
+    'xterm' => ShellCursorKind.text,
     'handwriting' || 'pencil' || 'nwpen' => ShellCursorKind.handwriting,
     'invalid' ||
     'no-drop' ||
@@ -90,8 +86,7 @@ ShellCursorKind shellCursorKindForPlatformShape(String shape) {
     'not-allowed' ||
     'notallowed' ||
     'forbidden' ||
-    'unavailable' =>
-      ShellCursorKind.unavailable,
+    'unavailable' => ShellCursorKind.unavailable,
     'n-resize' ||
     's-resize' ||
     'ns-resize' ||
@@ -101,8 +96,7 @@ ShellCursorKind shellCursorKindForPlatformShape(String shape) {
     'resizeupdown' ||
     'resizeup' ||
     'resizedown' ||
-    'resizerow' =>
-      ShellCursorKind.verticalResize,
+    'resizerow' => ShellCursorKind.verticalResize,
     'e-resize' ||
     'w-resize' ||
     'ew-resize' ||
@@ -112,8 +106,7 @@ ShellCursorKind shellCursorKindForPlatformShape(String shape) {
     'resizeleftright' ||
     'resizeleft' ||
     'resizeright' ||
-    'resizecolumn' =>
-      ShellCursorKind.horizontalResize,
+    'resizecolumn' => ShellCursorKind.horizontalResize,
     'nw-resize' ||
     'se-resize' ||
     'nwse-resize' ||
@@ -121,8 +114,7 @@ ShellCursorKind shellCursorKindForPlatformShape(String shape) {
     'bottom-right-corner' ||
     'resizeupleftdownright' ||
     'resizeupleft' ||
-    'resizedownright' =>
-      ShellCursorKind.diagonalNwSeResize,
+    'resizedownright' => ShellCursorKind.diagonalNwSeResize,
     'ne-resize' ||
     'sw-resize' ||
     'nesw-resize' ||
@@ -130,22 +122,19 @@ ShellCursorKind shellCursorKindForPlatformShape(String shape) {
     'bottom-left-corner' ||
     'resizeuprightdownleft' ||
     'resizeupright' ||
-    'resizedownleft' =>
-      ShellCursorKind.diagonalNeSwResize,
+    'resizedownleft' => ShellCursorKind.diagonalNeSwResize,
     'move' ||
     'grab' ||
     'grabbing' ||
     'all-scroll' ||
     'allscroll' ||
     'all-resize' ||
-    'allresize' =>
-      ShellCursorKind.move,
+    'allresize' => ShellCursorKind.move,
     'alias' ||
     'copy' ||
     'alternate' ||
     'up-arrow' ||
-    'uparrow' =>
-      ShellCursorKind.alternate,
+    'uparrow' => ShellCursorKind.alternate,
     'person' => ShellCursorKind.person,
     'pin' || 'location' || 'loc' => ShellCursorKind.pin,
     _ => ShellCursorKind.normal,
@@ -160,6 +149,9 @@ class ShellCursorHost extends StatefulWidget {
     this.platformCursorShapes,
     this.platformCursorPositions,
     this.platformDragIcons,
+    this.hideCursor = false,
+    this.displayLayout,
+    this.cursorSize = shellCursorDefaultSize,
   });
 
   final Widget child;
@@ -167,6 +159,11 @@ class ShellCursorHost extends StatefulWidget {
   final Stream<String>? platformCursorShapes;
   final Stream<Offset>? platformCursorPositions;
   final Stream<DenialDragIcon?>? platformDragIcons;
+  final bool hideCursor;
+  final DisplayLayout? displayLayout;
+
+  /// Target size of the longest cursor-artwork edge in physical pixels.
+  final double cursorSize;
 
   @override
   State<ShellCursorHost> createState() => _ShellCursorHostState();
@@ -339,12 +336,10 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
   }
 
   void _syncFrameTimer() {
-    final role =
-        widget.theme.usesAssetFrames ? widget.theme.roleFor(_kind) : null;
-    if (_position == null ||
-        !_visible ||
-        role == null ||
-        !role.isAnimated) {
+    final role = widget.theme.usesAssetFrames
+        ? widget.theme.roleFor(_kind)
+        : null;
+    if (_position == null || !_visible || role == null || !role.isAnimated) {
       _frameTimer?.cancel();
       _frameTimer = null;
       return;
@@ -362,9 +357,25 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
   Widget build(BuildContext context) {
     final position = _position;
     final dragIcon = _dragIcon;
-    final assetRole =
-        widget.theme.usesAssetFrames ? widget.theme.roleFor(_kind) : null;
-    final hotspot = assetRole?.hotspot ?? Offset.zero;
+    final assetRole = widget.theme.usesAssetFrames
+        ? widget.theme.roleFor(_kind)
+        : null;
+    final nativeSize = assetRole?.size ?? _ShellCursorPainter.size;
+    final nativeExtent = nativeSize.width > nativeSize.height
+        ? nativeSize.width
+        : nativeSize.height;
+    final fallbackScale = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0;
+    final outputScale = _cursorOutputScale(
+      widget.displayLayout,
+      position ?? Offset.zero,
+      fallbackScale,
+    );
+    final configuredSize = widget.cursorSize.isFinite && widget.cursorSize > 0
+        ? widget.cursorSize
+        : shellCursorDefaultSize;
+    final artworkScale = configuredSize / nativeExtent / outputScale;
+    final artworkSize = nativeSize * artworkScale;
+    final hotspot = (assetRole?.hotspot ?? Offset.zero) * artworkScale;
     return MouseRegion(
       opaque: false,
       cursor: ShellMouseCursors.normal,
@@ -393,7 +404,7 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
                   ),
                 ),
               ),
-            if (position != null && _visible)
+            if (position != null && _visible && !widget.hideCursor)
               Positioned(
                 left: position.dx - hotspot.dx,
                 top: position.dy - hotspot.dy,
@@ -403,15 +414,15 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
                       child: assetRole != null
                           ? Image.asset(
                               widget.theme.assetPath(_kind, _frame),
-                              width: assetRole.size.width,
-                              height: assetRole.size.height,
+                              width: artworkSize.width,
+                              height: artworkSize.height,
                               filterQuality: FilterQuality.none,
                               gaplessPlayback: true,
                               excludeFromSemantics: true,
                             )
-                          : const CustomPaint(
-                              size: _ShellCursorPainter.size,
-                              painter: _ShellCursorPainter(),
+                          : CustomPaint(
+                              size: artworkSize,
+                              painter: const _ShellCursorPainter(),
                             ),
                     ),
                   ),
@@ -422,6 +433,54 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
       ),
     );
   }
+}
+
+double _cursorOutputScale(
+  DisplayLayout? layout,
+  Offset position,
+  double fallback,
+) {
+  final outputs = layout?.outputs ?? const <DisplayOutput>[];
+  for (final output in outputs) {
+    if (output.logicalRect.contains(position)) {
+      return _validDisplayScale(output.scale, fallback);
+    }
+  }
+
+  DisplayOutput? nearest;
+  var nearestDistanceSquared = double.infinity;
+  for (final output in outputs) {
+    final distanceSquared = _distanceSquaredToRect(
+      position,
+      output.logicalRect,
+    );
+    if (distanceSquared < nearestDistanceSquared) {
+      nearest = output;
+      nearestDistanceSquared = distanceSquared;
+    }
+  }
+  return _validDisplayScale(nearest?.scale, fallback);
+}
+
+double _validDisplayScale(double? scale, double fallback) {
+  if (scale != null && scale.isFinite && scale > 0) {
+    return scale;
+  }
+  return fallback.isFinite && fallback > 0 ? fallback : 1.0;
+}
+
+double _distanceSquaredToRect(Offset point, Rect rect) {
+  final dx = point.dx < rect.left
+      ? rect.left - point.dx
+      : point.dx > rect.right
+      ? point.dx - rect.right
+      : 0.0;
+  final dy = point.dy < rect.top
+      ? rect.top - point.dy
+      : point.dy > rect.bottom
+      ? point.dy - rect.bottom
+      : 0.0;
+  return dx * dx + dy * dy;
 }
 
 class _ShellCursorController extends ChangeNotifier {
@@ -512,6 +571,12 @@ class _ShellCursorPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) {
+      return;
+    }
+    canvas
+      ..save()
+      ..scale(size.width / _ShellCursorPainter.size.width);
     final path = Path()
       ..moveTo(1.5, 1.0)
       ..lineTo(1.5, 24.5)
@@ -537,6 +602,7 @@ class _ShellCursorPainter extends CustomPainter {
         ..strokeWidth = 1.5
         ..strokeJoin = StrokeJoin.round,
     );
+    canvas.restore();
   }
 
   @override

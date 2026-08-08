@@ -16,3 +16,10 @@ Verify the retained files from this directory with:
 ```sh
 sha256sum --check --strict JetBrainsMono.sha256
 ```
+
+Denial's Linux engine scans `/usr/share/fonts` recursively. Its directory font
+manager can match named families but cannot discover a family from a missing
+character, so `ShellText.fallbackFontFamilies` explicitly requests Source Han
+Sans CN and then Noto Sans CJK SC. The Arch package depends on Source Han Sans
+CN so the Simplified Chinese shell catalog has a deterministic fallback even
+on a minimal installation.

@@ -753,15 +753,18 @@ impl flatbuffers::SimpleToVerifyInSlice for WindowActionKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SHELL_ACTION_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 4;
+pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 7;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 5] = [
+pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 8] = [
   ShellActionKind::Applications,
   ShellActionKind::Overview,
   ShellActionKind::WindowSwitcherNext,
   ShellActionKind::WindowSwitcherEnd,
   ShellActionKind::Clipboard,
+  ShellActionKind::ScreenshotRegion,
+  ShellActionKind::ScreenshotTextureReady,
+  ShellActionKind::ScreenshotDone,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -774,15 +777,21 @@ impl ShellActionKind {
   pub const WindowSwitcherNext: Self = Self(2);
   pub const WindowSwitcherEnd: Self = Self(3);
   pub const Clipboard: Self = Self(4);
+  pub const ScreenshotRegion: Self = Self(5);
+  pub const ScreenshotTextureReady: Self = Self(6);
+  pub const ScreenshotDone: Self = Self(7);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 4;
+  pub const ENUM_MAX: u8 = 7;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Applications,
     Self::Overview,
     Self::WindowSwitcherNext,
     Self::WindowSwitcherEnd,
     Self::Clipboard,
+    Self::ScreenshotRegion,
+    Self::ScreenshotTextureReady,
+    Self::ScreenshotDone,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -792,6 +801,9 @@ impl ShellActionKind {
       Self::WindowSwitcherNext => Some("WindowSwitcherNext"),
       Self::WindowSwitcherEnd => Some("WindowSwitcherEnd"),
       Self::Clipboard => Some("Clipboard"),
+      Self::ScreenshotRegion => Some("ScreenshotRegion"),
+      Self::ScreenshotTextureReady => Some("ScreenshotTextureReady"),
+      Self::ScreenshotDone => Some("ScreenshotDone"),
       _ => None,
     }
   }
@@ -4517,6 +4529,7 @@ impl<'a> ShellAction<'a> {
   pub const VT_ACTION: flatbuffers::VOffsetT = 4;
   pub const VT_MONITOR_ID: flatbuffers::VOffsetT = 6;
   pub const VT_HAS_MONITOR_ID: flatbuffers::VOffsetT = 8;
+  pub const VT_TEXTURE_ID: flatbuffers::VOffsetT = 10;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -4528,6 +4541,7 @@ impl<'a> ShellAction<'a> {
     args: &'args ShellActionArgs
   ) -> flatbuffers::WIPOffset<ShellAction<'bldr>> {
     let mut builder = ShellActionBuilder::new(_fbb);
+    builder.add_texture_id(args.texture_id);
     builder.add_monitor_id(args.monitor_id);
     builder.add_has_monitor_id(args.has_monitor_id);
     builder.add_action(args.action);
@@ -4556,6 +4570,13 @@ impl<'a> ShellAction<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<bool>(ShellAction::VT_HAS_MONITOR_ID, Some(false)).unwrap()}
   }
+  #[inline]
+  pub fn texture_id(&self) -> i64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<i64>(ShellAction::VT_TEXTURE_ID, Some(0)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for ShellAction<'_> {
@@ -4568,6 +4589,7 @@ impl flatbuffers::Verifiable for ShellAction<'_> {
      .visit_field::<ShellActionKind>("action", Self::VT_ACTION, false)?
      .visit_field::<i64>("monitor_id", Self::VT_MONITOR_ID, false)?
      .visit_field::<bool>("has_monitor_id", Self::VT_HAS_MONITOR_ID, false)?
+     .visit_field::<i64>("texture_id", Self::VT_TEXTURE_ID, false)?
      .finish();
     Ok(())
   }
@@ -4576,6 +4598,7 @@ pub struct ShellActionArgs {
     pub action: ShellActionKind,
     pub monitor_id: i64,
     pub has_monitor_id: bool,
+    pub texture_id: i64,
 }
 impl<'a> Default for ShellActionArgs {
   #[inline]
@@ -4584,6 +4607,7 @@ impl<'a> Default for ShellActionArgs {
       action: ShellActionKind::Applications,
       monitor_id: -1,
       has_monitor_id: false,
+      texture_id: 0,
     }
   }
 }
@@ -4606,6 +4630,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ShellActionBuilder<'a, 'b, A> {
     self.fbb_.push_slot::<bool>(ShellAction::VT_HAS_MONITOR_ID, has_monitor_id, false);
   }
   #[inline]
+  pub fn add_texture_id(&mut self, texture_id: i64) {
+    self.fbb_.push_slot::<i64>(ShellAction::VT_TEXTURE_ID, texture_id, 0);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ShellActionBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     ShellActionBuilder {
@@ -4626,6 +4654,7 @@ impl core::fmt::Debug for ShellAction<'_> {
       ds.field("action", &self.action());
       ds.field("monitor_id", &self.monitor_id());
       ds.field("has_monitor_id", &self.has_monitor_id());
+      ds.field("texture_id", &self.texture_id());
       ds.finish()
   }
 }

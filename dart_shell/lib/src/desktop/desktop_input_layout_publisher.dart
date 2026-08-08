@@ -6,10 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../input/input_layout.dart';
 import '../input/shell_interaction_registry.dart';
 import '../models/denial_window.dart';
-import '../settings/settings_controller.dart';
-import '../state/clipboard_tray.dart';
 import '../state/desktop_window_switcher.dart';
-import '../state/display_layout.dart';
 import '../state/shell_controller.dart';
 import 'desktop_workspace.dart';
 
@@ -41,9 +38,6 @@ class _DesktopInputLayoutPublisherState
     ref.watch(desktopWorkspaceProvider);
     ref.watch(desktopWindowSwitcherProvider);
     ref.watch(shellInteractionRegistryProvider);
-    ref.watch(clipboardTrayProvider);
-    ref.watch(shellSettingsProvider.select((settings) => settings.layout));
-    ref.watch(displayLayoutProvider);
     _schedulePublish(
       MediaQuery.sizeOf(context),
       MediaQuery.devicePixelRatioOf(context),
@@ -95,16 +89,6 @@ class _DesktopInputLayoutPublisherState
       for (final window in windows)
         if (window.isUserApp) window.objectId: window,
     };
-    final clipboardTray = ref.read(clipboardTrayProvider);
-    final layoutSettings = ref.read(shellSettingsProvider).layout;
-    final displayLayout = ref.read(displayLayoutProvider);
-    Offset clipboardWindowOffsetFor(DesktopWindowPlacement placement) =>
-        clipboardTrayWindowOffset(
-          clipboardTray,
-          layoutSettings,
-          monitorId: placement.monitorId,
-          displayLayout: displayLayout,
-        );
     final switcher = ref.read(desktopWindowSwitcherProvider);
     final sampledSwitcherIds =
         interactions.capturesFullScene && (switcher?.isSelecting ?? false)
@@ -129,10 +113,7 @@ class _DesktopInputLayoutPublisherState
     // make the launcher repeatedly open and close over client windows.
     if (!interactions.capturesFullScene) {
       for (final placement in placements) {
-        final clipboardWindowOffset = clipboardWindowOffsetFor(placement);
-        final visualContentRect = placement.contentRect.shift(
-          clipboardWindowOffset,
-        );
+        final visualContentRect = placement.contentRect;
         shellRegions = _subtractFromAll(shellRegions, visualContentRect);
         final window = windowsById[placement.objectId]!;
         for (final popup in window.popupRoots) {
@@ -189,10 +170,7 @@ class _DesktopInputLayoutPublisherState
       }
       final window = windowsById[placement.objectId]!;
       visibleSurfaceIds.addAll(window.visibleSurfaceIds);
-      final clipboardWindowOffset = clipboardWindowOffsetFor(placement);
-      final visualContentRect = placement.contentRect.shift(
-        clipboardWindowOffset,
-      );
+      final visualContentRect = placement.contentRect;
       final sourceRect = window.contentCoordinateRect;
       final baseZ = placementOrder[placement.objectId]! * zStride;
       final popupRoots = window.popupRoots.toList(growable: false).reversed;

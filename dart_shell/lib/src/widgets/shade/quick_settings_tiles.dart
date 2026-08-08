@@ -238,10 +238,7 @@ class _QuickTileState extends State<QuickTile> {
       toggled: widget.active,
       label: widget.subtitle == null
           ? widget.title
-          : context.l10n.commonTitleAndSubtitle(
-              widget.title,
-              widget.subtitle!,
-            ),
+          : context.l10n.commonTitleAndSubtitle(widget.title, widget.subtitle!),
       child: FocusableActionDetector(
         enabled: widget.enabled,
         mouseCursor: widget.enabled
@@ -645,8 +642,9 @@ IconData _profileIcon(String profile) => switch (profile) {
   _ => Icons.balance_rounded,
 };
 
-String _profileLabel(String profile, AppLocalizations l10n) => switch (profile) {
-  PowerProfile.powerSave => l10n.quickSettingsBatterySaver,
-  PowerProfile.performance => l10n.quickSettingsHighPerformance,
-  _ => l10n.quickSettingsBalanced,
-};
+String _profileLabel(String profile, AppLocalizations l10n) =>
+    switch (profile) {
+      PowerProfile.powerSave => l10n.quickSettingsBatterySaver,
+      PowerProfile.performance => l10n.quickSettingsHighPerformance,
+      _ => l10n.quickSettingsBalanced,
+    };

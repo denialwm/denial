@@ -15,10 +15,10 @@ class WallpaperCarouselPhysics extends ScrollPhysics {
 
   @override
   SpringDescription get spring => SpringDescription.withDampingRatio(
-        mass: 0.6,
-        stiffness: 120,
-        ratio: 1.08,
-      );
+    mass: 0.6,
+    stiffness: 120,
+    ratio: 1.08,
+  );
 
   @override
   double get minFlingVelocity => 110;
@@ -44,8 +44,10 @@ class WallpaperCarouselPhysics extends ScrollPhysics {
     var targetPage = currentPage.round();
     if (velocity.abs() >= minFlingVelocity) {
       final projectedPages = velocity.abs() / pageExtent * _projectionSeconds;
-      final travelPages =
-          projectedPages.ceil().clamp(1, _maximumFlingPages).toInt();
+      final travelPages = projectedPages
+          .ceil()
+          .clamp(1, _maximumFlingPages)
+          .toInt();
       targetPage += velocity.sign.toInt() * travelPages;
     }
 

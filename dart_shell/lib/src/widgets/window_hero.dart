@@ -103,11 +103,7 @@ class WindowHero extends StatelessWidget {
 
     return Positioned.fromRect(
       rect: rect,
-      child: WindowSurface(
-        window: window,
-        radius: radius,
-        borderColor: border,
-      ),
+      child: WindowSurface(window: window, radius: radius, borderColor: border),
     );
   }
 }

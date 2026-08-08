@@ -17,6 +17,7 @@ flutter = [
     "kms",
     "control",
     "dep:denial-flutter-engine",
+    "dep:png",
     "dep:sha2",
     "wire",
 ]
@@ -72,6 +73,7 @@ drm-ffi = { version = "=0.9.1", optional = true }
 flatbuffers = { version = "=25.9.23", optional = true }
 libc = { version = "0.2", optional = true }
 libloading = { version = "0.9", optional = true }
+png = { version = "=0.18.1", optional = true }
 serde = { version = "=1.0.229", features = ["derive"], optional = true }
 serde_json = { version = "=1.0.151", features = ["raw_value"], optional = true }
 sha2 = { version = "=0.10.9", optional = true }

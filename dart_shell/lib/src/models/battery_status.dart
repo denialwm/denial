@@ -5,8 +5,10 @@ import 'package:flutter/foundation.dart';
 class BatteryStatus {
   const BatteryStatus({required this.capacity, required this.charging});
 
-  static const BatteryStatus unknown =
-      BatteryStatus(capacity: null, charging: false);
+  static const BatteryStatus unknown = BatteryStatus(
+    capacity: null,
+    charging: false,
+  );
 
   /// Percentage in `[0, 100]`, or null when unavailable.
   final int? capacity;

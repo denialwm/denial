@@ -44,9 +44,9 @@ class BrightnessService {
         return null;
       }
       try {
-        return (await update.timeout(const Duration(seconds: 2))).level
-            .clamp(0.01, 1.0)
-            .toDouble();
+        return (await update.timeout(
+          const Duration(seconds: 2),
+        )).level.clamp(0.01, 1.0).toDouble();
       } on TimeoutException {
         return null;
       }

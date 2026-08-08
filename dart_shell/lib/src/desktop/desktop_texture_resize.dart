@@ -14,8 +14,10 @@ bool desktopTextureNeedsResizeSmoothing({
   }
 
   bool differs(double target, double source) {
-    final tolerance =
-        math.max(1.0, math.max(target.abs(), source.abs()) * 0.001);
+    final tolerance = math.max(
+      1.0,
+      math.max(target.abs(), source.abs()) * 0.001,
+    );
     return (target - source).abs() > tolerance;
   }
 

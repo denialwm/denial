@@ -6,6 +6,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart' as intl;
 
 import 'app_localizations_en.dart';
+import 'app_localizations_zh.dart';
 
 // ignore_for_file: type=lint
 
@@ -92,7 +93,10 @@ abstract class AppLocalizations {
       ];
 
   /// A list of this localizations delegate's supported locales.
-  static const List<Locale> supportedLocales = <Locale>[Locale('en')];
+  static const List<Locale> supportedLocales = <Locale>[
+    Locale('en'),
+    Locale('zh'),
+  ];
 
   /// English UI text for actionCancel.
   ///
@@ -105,6 +109,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Dismiss'**
   String get actionDismiss;
+
+  /// Instruction shown while selecting a desktop screenshot region.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag to select an area · Esc to cancel'**
+  String get screenshotSelectionHint;
 
   /// English UI text for anchorBottomCenter.
   ///
@@ -531,6 +541,132 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'VOOC'**
   String get chargeProtocolVooc;
+
+  /// Accessible label for the barrier that closes clipboard history.
+  ///
+  /// In en, this message translates to:
+  /// **'Close clipboard history'**
+  String get clipboardCloseHistory;
+
+  /// Tooltip for deleting a clipboard-history entry.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get clipboardDelete;
+
+  /// Accessible label for deleting a clipboard-history entry.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete clipboard item'**
+  String get clipboardDeleteItem;
+
+  /// Accessible instruction for the clipboard tray drag handle.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag clipboard tray toward its edge to close'**
+  String get clipboardDragToClose;
+
+  /// Clipboard-history empty-state guidance.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy text, an image, or files and they will appear here.'**
+  String get clipboardEmptyDescription;
+
+  /// Title shown when clipboard history has no entries.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing captured yet'**
+  String get clipboardEmptyTitle;
+
+  /// Fallback label for a clipboard entry containing selected files.
+  ///
+  /// In en, this message translates to:
+  /// **'File selection'**
+  String get clipboardFileSelection;
+
+  /// Explanation shown when clipboard history is hidden on the lock screen.
+  ///
+  /// In en, this message translates to:
+  /// **'Clipboard contents stay hidden while the session is locked.'**
+  String get clipboardHistoryLockedDescription;
+
+  /// Title shown when clipboard history is hidden on the lock screen.
+  ///
+  /// In en, this message translates to:
+  /// **'History is sealed'**
+  String get clipboardHistoryLockedTitle;
+
+  /// Accessible label for an image-file thumbnail in clipboard history.
+  ///
+  /// In en, this message translates to:
+  /// **'Image file thumbnail'**
+  String get clipboardImageFileThumbnail;
+
+  /// Accessible label for an image preview in clipboard history.
+  ///
+  /// In en, this message translates to:
+  /// **'Clipboard image preview'**
+  String get clipboardImagePreview;
+
+  /// Accessible interaction hint for a clipboard-history entry.
+  ///
+  /// In en, this message translates to:
+  /// **'Activate to paste it into the focused app. Drag it to drop it.'**
+  String get clipboardItemHint;
+
+  /// Accessible summary of a clipboard-history entry.
+  ///
+  /// In en, this message translates to:
+  /// **'{type} clipboard item. {preview}'**
+  String clipboardItemSemantics(String type, String preview);
+
+  /// Guidance shown when clipboard search has no results.
+  ///
+  /// In en, this message translates to:
+  /// **'Try a different word, file type, or application.'**
+  String get clipboardNoSearchResultsDescription;
+
+  /// Title shown when clipboard search has no results.
+  ///
+  /// In en, this message translates to:
+  /// **'No echoes found'**
+  String get clipboardNoSearchResultsTitle;
+
+  /// Fallback label when a clipboard image preview cannot be rendered.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview unavailable'**
+  String get clipboardPreviewUnavailable;
+
+  /// Accessible clipboard-entry type label for files.
+  ///
+  /// In en, this message translates to:
+  /// **'FILES'**
+  String get clipboardTypeFiles;
+
+  /// Accessible clipboard-entry type label for an image.
+  ///
+  /// In en, this message translates to:
+  /// **'IMAGE'**
+  String get clipboardTypeImage;
+
+  /// Accessible clipboard-entry type label for text.
+  ///
+  /// In en, this message translates to:
+  /// **'TEXT'**
+  String get clipboardTypeText;
+
+  /// Explanation shown when the native clipboard-history service is unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'The native history service did not answer.'**
+  String get clipboardUnavailableDescription;
+
+  /// Title shown when the native clipboard-history service is unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Clipboard bridge unavailable'**
+  String get clipboardUnavailableTitle;
 
   /// English UI text for commonBluetooth.
   ///
@@ -2419,6 +2555,18 @@ abstract class AppLocalizations {
   /// **'Connected displays'**
   String get settingsConnectedDisplaysTitle;
 
+  /// Label for the physical cursor-size slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Cursor size'**
+  String get settingsCursorSize;
+
+  /// Heading for cursor appearance settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Cursor'**
+  String get settingsCursorTitle;
+
   /// English UI text for settingsDashboardOverlayDescription.
   ///
   /// In en, this message translates to:
@@ -2555,6 +2703,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Applications'**
   String get settingsLauncherOverlayTitle;
+
+  /// Explanation shown beside the Settings language selector.
+  ///
+  /// In en, this message translates to:
+  /// **'System default follows your desktop language. Changes apply immediately.'**
+  String get settingsLanguageDescription;
+
+  /// Self-name for the English language option.
+  ///
+  /// In en, this message translates to:
+  /// **'English'**
+  String get settingsLanguageEnglish;
+
+  /// Heading for the interface language setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Interface language'**
+  String get settingsLanguageInterfaceTitle;
+
+  /// Eyebrow label for the Settings language page.
+  ///
+  /// In en, this message translates to:
+  /// **'LANGUAGE'**
+  String get settingsLanguageSection;
+
+  /// Accessibility label for the interface language choices.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial interface language'**
+  String get settingsLanguageSelectorSemantics;
+
+  /// Self-name for the Simplified Chinese language option.
+  ///
+  /// In en, this message translates to:
+  /// **'简体中文'**
+  String get settingsLanguageSimplifiedChinese;
+
+  /// Language option that follows the operating system locale.
+  ///
+  /// In en, this message translates to:
+  /// **'System default'**
+  String get settingsLanguageSystemDefault;
+
+  /// Title text for the Settings language page.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose the language Denial uses.'**
+  String get settingsLanguageTitle;
 
   /// English UI text for settingsLayoutDescription.
   ///
@@ -2975,6 +3171,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Displays & video'**
   String get settingsNavigationDisplays;
+
+  /// Label for the Language destination in Settings navigation.
+  ///
+  /// In en, this message translates to:
+  /// **'Language'**
+  String get settingsNavigationLanguage;
 
   /// English UI text for settingsNavigationLockScreen.
   ///
@@ -4038,7 +4240,7 @@ class _AppLocalizationsDelegate
 
   @override
   bool isSupported(Locale locale) =>
-      <String>['en'].contains(locale.languageCode);
+      <String>['en', 'zh'].contains(locale.languageCode);
 
   @override
   bool shouldReload(_AppLocalizationsDelegate old) => false;
@@ -4049,6 +4251,8 @@ AppLocalizations lookupAppLocalizations(Locale locale) {
   switch (locale.languageCode) {
     case 'en':
       return AppLocalizationsEn();
+    case 'zh':
+      return AppLocalizationsZh();
   }
 
   throw FlutterError(

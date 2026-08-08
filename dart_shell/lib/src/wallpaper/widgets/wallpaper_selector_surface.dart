@@ -38,8 +38,9 @@ class WallpaperSelectorOverlay extends StatelessWidget {
       ignoring: !visible,
       child: AnimatedSwitcher(
         duration: reduceMotion ? Duration.zero : Motion.wallpaperSelector,
-        reverseDuration:
-            reduceMotion ? Duration.zero : Motion.wallpaperSelector,
+        reverseDuration: reduceMotion
+            ? Duration.zero
+            : Motion.wallpaperSelector,
         switchInCurve: Motion.md3EmphasizedDecelerate,
         switchOutCurve: Motion.md3EmphasizedAccelerate,
         transitionBuilder: (child, animation) {
@@ -227,10 +228,9 @@ class _WallpaperSelectorSurfaceState
       fallbackSize,
       allPixelSize,
     );
-    ref.read(wallpaperControllerProvider.notifier).selectTarget(
-          target: target,
-          targetPixelSize: targetPixelSize,
-        );
+    ref
+        .read(wallpaperControllerProvider.notifier)
+        .selectTarget(target: target, targetPixelSize: targetPixelSize);
   }
 
   Size _targetPixelSize(
@@ -316,9 +316,7 @@ class _WallpaperSelectorSurfaceState
           Positioned(
             top: 28,
             right: 28,
-            child: WallpaperSelectorCloseButton(
-              onPressed: widget.onDismiss,
-            ),
+            child: WallpaperSelectorCloseButton(onPressed: widget.onDismiss),
           ),
           Positioned(
             left: 0,

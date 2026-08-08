@@ -15,6 +15,7 @@ use denial_flutter_engine::RendererBackend;
 const DEFAULT_DEVICE: &str = "/dev/dri/by-path/pci-0000:0a:00.0-card";
 const MAX_OUTPUT_CONFIG_BYTES: usize = 64 * 1024;
 const MAX_CONFIGURED_OUTPUTS: usize = 128;
+const REFRESH_MILLIHERTZ_LITERAL_THRESHOLD: u32 = 10_000;
 const MIN_OUTPUT_SCALE: f64 = 0.25;
 const MAX_OUTPUT_SCALE: f64 = 8.0;
 const MANAGED_OUTPUT_CONFIG_HEADER: &str = "# Output settings managed by Denial output control.";
@@ -297,7 +298,7 @@ impl Options {
                          [--commit-seconds N | --frames N]\n\
                          With --flutter-bundle, omitting both limits runs until logout.\n\
                          Without Flutter, N=0 performs atomic TEST_ONLY without changing scanout.\n\
-                         Control: SIGUSR1 refreshes the embedded Flutter bundle in process."
+                         Control: SIGUSR1 safely refreshes the embedded Flutter bundle in process."
                     );
                     return Ok(Self {
                         device,
@@ -643,16 +644,26 @@ fn parse_output_mode_entry(value: &str) -> Result<(String, u32, u32, u32), Box<d
         .next()
         .ok_or("output mode must use mode=NAME,WIDTH,HEIGHT,REFRESH_MILLIHZ")?
         .parse()?;
-    let refresh_millihz: u32 = fields
+    let refresh: u32 = fields
         .next()
         .ok_or("output mode must use mode=NAME,WIDTH,HEIGHT,REFRESH_MILLIHZ")?
         .parse()?;
     if fields.next().is_some() {
         return Err("output mode must use mode=NAME,WIDTH,HEIGHT,REFRESH_MILLIHZ".into());
     }
-    if width == 0 || height == 0 || refresh_millihz == 0 {
+    if width == 0 || height == 0 || refresh == 0 {
         return Err("output mode dimensions and refresh must be greater than zero".into());
     }
+    // Persisted mode directives use millihertz. Small hand-written values are
+    // unambiguously human-scale hertz and accepting them avoids turning a
+    // harmless unit mistake into a failed graphical session.
+    let refresh_millihz = if refresh < REFRESH_MILLIHERTZ_LITERAL_THRESHOLD {
+        refresh
+            .checked_mul(1_000)
+            .ok_or("output refresh is too large")?
+    } else {
+        refresh
+    };
     Ok((name.to_owned(), width, height, refresh_millihz))
 }
 
@@ -1402,12 +1413,15 @@ mod tests {
 
     #[test]
     fn output_config_accepts_exact_modes_and_fractional_scales() {
-        let config = parse_output_config("DP-5=0,0\nmode=DP-5,2560,1440,199998\nscale=DP-5,1.25\n")
-            .expect("valid exact output config");
+        let config = parse_output_config(
+            "DP-5=0,0\nmode=DP-5,2560,1440,199998\nscale=DP-5,1.25\nmode=DP-4,1920,1080,60\n",
+        )
+        .expect("valid exact output config");
 
         assert_eq!(config.mode_sizes["DP-5"], (2560, 1440));
         assert_eq!(config.refresh_millihz["DP-5"], 199_998);
         assert_eq!(config.scales_120["DP-5"], 150);
+        assert_eq!(config.refresh_millihz["DP-4"], 60_000);
     }
 
     #[test]

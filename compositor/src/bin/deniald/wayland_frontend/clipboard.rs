@@ -16,7 +16,10 @@ use smithay::reexports::calloop::{
 };
 use smithay::reexports::rustix::fs::{OFlags, fcntl_getfl, fcntl_setfl};
 use smithay::reexports::rustix::io::{Errno, read, write};
+use smithay::reexports::wayland_server::Resource;
+use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{IsAlive, SERIAL_COUNTER};
+use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::selection::SelectionTarget;
 use smithay::wayland::selection::data_device::{
     clear_data_device_selection, current_data_device_selection_userdata,
@@ -159,6 +162,12 @@ pub(super) enum CaptureOwner {
     Xwayland,
 }
 
+pub(crate) struct DeferredClipboardCapture {
+    owner: CaptureOwner,
+    plan: ClipboardCapturePlan,
+    source_surface: WlSurface,
+}
+
 impl CaptureOwner {
     fn origin(self) -> ClipboardOrigin {
         match self {
@@ -174,13 +183,39 @@ pub(super) fn observe_selection(
     mime_types: &[String],
 ) {
     cancel_clipboard_captures(state);
-    let identity = state.wayland.as_ref().and_then(focused_source_identity);
+    let (identity, source_surface) = state
+        .wayland
+        .as_ref()
+        .map(focused_source)
+        .unwrap_or_default();
+    let defer_telegram_image = owner == CaptureOwner::Wayland
+        && identity.as_ref().is_some_and(telegram_source)
+        && source_surface.is_some()
+        && mime_types.iter().any(|mime_type| {
+            matches!(
+                mime_type.to_ascii_lowercase().as_str(),
+                "image/png" | "image/webp" | "image/jpeg" | "image/jpg"
+            )
+        });
     let plan = state
         .clipboard
         .observe_external_selection(owner.origin(), mime_types, identity);
     let Some(plan) = plan else {
         return;
     };
+    if defer_telegram_image {
+        state.clipboard_deferred_capture = Some(DeferredClipboardCapture {
+            owner,
+            plan,
+            source_surface: source_surface.expect("checked Telegram source surface"),
+        });
+        debug!("deferred Telegram image capture until pointer or focus leaves the client");
+        return;
+    }
+    schedule_capture(state, owner, plan);
+}
+
+fn schedule_capture(state: &mut RuntimeState, owner: CaptureOwner, plan: ClipboardCapturePlan) {
     let handle = state
         .wayland
         .as_ref()
@@ -190,7 +225,30 @@ pub(super) fn observe_selection(
     handle.insert_idle(move |state| start_capture(state, owner, plan));
 }
 
+pub(super) fn release_deferred_clipboard_capture(
+    state: &mut RuntimeState,
+    target_surface: Option<&WlSurface>,
+) {
+    let should_release = state
+        .clipboard_deferred_capture
+        .as_ref()
+        .is_some_and(|capture| {
+            !target_surface
+                .is_some_and(|target| capture.source_surface.id().same_client_as(&target.id()))
+        });
+    if !should_release {
+        return;
+    }
+    let capture = state
+        .clipboard_deferred_capture
+        .take()
+        .expect("checked deferred clipboard capture");
+    debug!("starting deferred Telegram image capture outside its active client");
+    schedule_capture(state, capture.owner, capture.plan);
+}
+
 pub(crate) fn cancel_clipboard_captures(state: &mut RuntimeState) {
+    state.clipboard_deferred_capture = None;
     let Some(handle) = state
         .wayland
         .as_ref()
@@ -599,7 +657,7 @@ fn start_retained_drag(state: &mut RuntimeState, item_id: u64) {
         .wayland
         .as_mut()
         .expect("missing Wayland frontend")
-        .clipboard_drag_active = true;
+        .set_clipboard_drag_active(true);
     let source = ClipboardDndSource::new(payload);
     let grab = DnDGrab::new_pointer(&display_handle, start_data, source, seat);
     pointer.set_grab(state, grab, press.serial, Focus::Keep);
@@ -625,4 +683,22 @@ fn focused_source_identity(frontend: &WaylandFrontend) -> Option<ClipboardSource
             )
         }),
     }
+}
+
+fn focused_source(
+    frontend: &WaylandFrontend,
+) -> (Option<ClipboardSourceIdentity>, Option<WlSurface>) {
+    let surface = frontend
+        .seat
+        .get_keyboard()
+        .and_then(|keyboard| keyboard.current_focus())
+        .and_then(|focus| focus.wl_surface().map(|surface| surface.into_owned()));
+    (focused_source_identity(frontend), surface)
+}
+
+fn telegram_source(source: &ClipboardSourceIdentity) -> bool {
+    matches!(
+        source.app_id.trim().to_ascii_lowercase().as_str(),
+        "org.telegram.desktop" | "telegramdesktop" | "telegram-desktop"
+    )
 }

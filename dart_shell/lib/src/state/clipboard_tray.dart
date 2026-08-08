@@ -132,8 +132,13 @@ double clipboardTrayExtentForSize(ShellLayoutSettings layout, Size outputSize) {
       layout.clipboardTrayEdge == ClipboardTrayEdge.left ||
       layout.clipboardTrayEdge == ClipboardTrayEdge.right;
   final available = vertical ? outputSize.width : outputSize.height;
-  final limit = math.max(280.0, available - 96.0);
-  return layout.clipboardTrayExtent.clamp(280.0, limit).toDouble();
+  final limit = math.max(
+    clipboardTrayMinimumExtent,
+    math.min(clipboardTrayMaximumExtent, available - 96.0),
+  );
+  return layout.clipboardTrayExtent
+      .clamp(clipboardTrayMinimumExtent, limit)
+      .toDouble();
 }
 
 final clipboardHistoryProvider =

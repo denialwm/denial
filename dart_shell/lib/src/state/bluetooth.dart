@@ -95,6 +95,7 @@ class BluetoothState {
     );
   }
 }
+
 final bluetoothProvider = NotifierProvider<BluetoothController, BluetoothState>(
   BluetoothController.new,
 );

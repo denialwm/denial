@@ -130,6 +130,9 @@ pub enum ShellAction {
     #[allow(dead_code)]
     WindowSwitcherEnd,
     Clipboard,
+    ScreenshotRegion,
+    ScreenshotTextureReady,
+    ScreenshotDone,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -154,6 +157,9 @@ impl ShellAction {
             Self::WindowSwitcherNext => fb::ShellActionKind::WindowSwitcherNext,
             Self::WindowSwitcherEnd => fb::ShellActionKind::WindowSwitcherEnd,
             Self::Clipboard => fb::ShellActionKind::Clipboard,
+            Self::ScreenshotRegion => fb::ShellActionKind::ScreenshotRegion,
+            Self::ScreenshotTextureReady => fb::ShellActionKind::ScreenshotTextureReady,
+            Self::ScreenshotDone => fb::ShellActionKind::ScreenshotDone,
         }
     }
 }
@@ -590,7 +596,46 @@ impl WireBridge {
         }
         let sequence = self.take_sequence();
         self.outbound_builder.reset();
-        encode_shell_action(&mut self.outbound_builder, sequence, action, monitor_id)?;
+        encode_shell_action(
+            &mut self.outbound_builder,
+            sequence,
+            action,
+            monitor_id,
+            0,
+            None,
+        )?;
+        Ok(self.outbound_builder.finished_data())
+    }
+
+    pub fn encode_screenshot_action(
+        &mut self,
+        action: ShellAction,
+        request_id: u64,
+        texture_id: Option<i64>,
+    ) -> Result<&[u8], WireError> {
+        let valid_action = matches!(
+            action,
+            ShellAction::ScreenshotRegion
+                | ShellAction::ScreenshotTextureReady
+                | ShellAction::ScreenshotDone
+        );
+        if !valid_action
+            || request_id == 0
+            || texture_id.is_some_and(|texture_id| texture_id <= 0)
+            || (action == ShellAction::ScreenshotTextureReady) != texture_id.is_some()
+        {
+            return Err(WireError::Identity);
+        }
+        let sequence = self.take_sequence();
+        self.outbound_builder.reset();
+        encode_shell_action(
+            &mut self.outbound_builder,
+            sequence,
+            action,
+            None,
+            request_id,
+            texture_id,
+        )?;
         Ok(self.outbound_builder.finished_data())
     }
 
@@ -1461,6 +1506,8 @@ fn encode_shell_action(
     sequence: u64,
     action: ShellAction,
     monitor_id: Option<i64>,
+    request_id: u64,
+    texture_id: Option<i64>,
 ) -> Result<(), WireError> {
     let action = fb::ShellAction::create(
         builder,
@@ -1468,6 +1515,7 @@ fn encode_shell_action(
             action: action.wire(),
             monitor_id: monitor_id.unwrap_or(-1),
             has_monitor_id: monitor_id.is_some(),
+            texture_id: texture_id.unwrap_or(0),
         },
     );
     let envelope = fb::Envelope::create(
@@ -1475,7 +1523,7 @@ fn encode_shell_action(
         &fb::EnvelopeArgs {
             protocol_version: PROTOCOL_VERSION,
             sequence,
-            request_id: 0,
+            request_id,
             payload_type: fb::Payload::ShellAction,
             payload: Some(action.as_union_value()),
         },
@@ -2893,6 +2941,39 @@ mod tests {
         assert_eq!(action.action(), fb::ShellActionKind::Overview);
         assert!(action.has_monitor_id());
         assert_eq!(action.monitor_id(), 9);
+
+        let bytes = bridge
+            .encode_shell_action(ShellAction::ScreenshotRegion, None)
+            .unwrap();
+        let envelope = fb::root_as_envelope(bytes).unwrap();
+        let action = envelope.payload_as_shell_action().unwrap();
+        assert_eq!(envelope.sequence(), 3);
+        assert_eq!(action.action(), fb::ShellActionKind::ScreenshotRegion);
+        assert!(!action.has_monitor_id());
+    }
+
+    #[test]
+    fn screenshot_actions_carry_the_workflow_identity_and_texture() {
+        let mut bridge = bridge();
+        let bytes = bridge
+            .encode_screenshot_action(ShellAction::ScreenshotTextureReady, 41, Some(9001))
+            .unwrap();
+        let envelope = fb::root_as_envelope(bytes).unwrap();
+        let action = envelope.payload_as_shell_action().unwrap();
+        assert_eq!(envelope.request_id(), 41);
+        assert_eq!(action.action(), fb::ShellActionKind::ScreenshotTextureReady);
+        assert_eq!(action.texture_id(), 9001);
+
+        assert!(
+            bridge
+                .encode_screenshot_action(ShellAction::ScreenshotTextureReady, 41, None)
+                .is_err()
+        );
+        assert!(
+            bridge
+                .encode_screenshot_action(ShellAction::ScreenshotDone, 0, None)
+                .is_err()
+        );
     }
 
     #[test]

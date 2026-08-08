@@ -18,6 +18,7 @@ import 'state/desktop_notifications.dart';
 import 'state/display_layout.dart';
 import 'state/shell_controller.dart';
 import 'state/shell_profile.dart';
+import 'state/screenshot_selection.dart';
 import 'theme/cursor_themes.dart';
 import 'theme/motion.dart';
 import 'theme/shell_theme.dart';
@@ -34,6 +35,7 @@ import 'widgets/overview/overview_layer.dart';
 import 'widgets/shade/system_shade_layer.dart';
 import 'widgets/shell_cursor.dart';
 import 'widgets/shell_frame_time_overlay.dart';
+import 'widgets/screenshot_selection_layer.dart';
 import 'widgets/shell_surface_host.dart';
 import 'widgets/shell_wallpaper.dart';
 import 'widgets/system_level_hud.dart';
@@ -171,6 +173,11 @@ class _DenialShellAppState extends ConsumerState<DenialShellApp> {
     final cursorShapes = bridge.cursorShapes;
     final cursorPositions = bridge.cursorPositions;
     final dragIcons = bridge.dragIcons;
+    final hideCursor = ref.watch(
+      screenshotSelectionProvider.select(
+        (session) => session?.hidesCursor ?? false,
+      ),
+    );
     final scene = switch (effectiveProfile) {
       ShellProfile.mobile => InputLayoutPublisher(
         child: const ShellSurfaceHost(
@@ -186,15 +193,21 @@ class _DenialShellAppState extends ConsumerState<DenialShellApp> {
       ),
       ShellProfile.desktop => DesktopInputLayoutPublisher(
         child: const _DesktopSecureStage(
-          child: ShellSurfaceHost(
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                DesktopShell(),
-                SystemLevelHudLayer(),
-                NotificationBannerLayer(),
-              ],
-            ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              ShellSurfaceHost(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    DesktopShell(),
+                    SystemLevelHudLayer(),
+                    NotificationBannerLayer(),
+                  ],
+                ),
+              ),
+              ScreenshotSelectionLayer(),
+            ],
           ),
         ),
       ),
@@ -208,6 +221,9 @@ class _DenialShellAppState extends ConsumerState<DenialShellApp> {
           : null,
       platformCursorPositions: cursorPositions,
       platformDragIcons: dragIcons,
+      hideCursor: hideCursor,
+      displayLayout: displayLayout,
+      cursorSize: settings.appearance.cursorSize,
       child: _ShellOverlayHost(child: scene),
     );
 
@@ -225,11 +241,12 @@ class _DenialShellAppState extends ConsumerState<DenialShellApp> {
         unfocusedWindowOpacity: settings.appearance.unfocusedWindowOpacity,
       ),
       child: DenialLocalizationScope(
+        locale: settings.localization.localeOverride,
         child: MediaQuery.fromView(
           view: View.of(context),
           child: ScrollConfiguration(
             behavior: const _ShellScrollBehavior(),
-            child: content,
+            child: DefaultTextStyle(style: ShellText.base, child: content),
           ),
         ),
       ),

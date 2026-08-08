@@ -20,12 +20,7 @@ void main() {
   group('disambiguateGpuLabels', () {
     test('suffixes duplicated vendor tags in order', () {
       final samples = disambiguateGpuLabels(const [
-        GpuSample(
-          id: 'card0',
-          label: 'NV',
-          usage: 0.1,
-          temperatureC: 51,
-        ),
+        GpuSample(id: 'card0', label: 'NV', usage: 0.1, temperatureC: 51),
         GpuSample(id: 'card1', label: 'AMD', usage: 0.2),
         GpuSample(id: 'card2', label: 'NV', usage: 0.3),
       ]);

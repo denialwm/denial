@@ -16,9 +16,9 @@ class LockStateRepository {
     Map<String, String> environment = const <String, String>{},
     String? requestPath,
     String? secureStatePath,
-  })  : requestPath = requestPath ?? _defaultRequestPath(environment),
-        secureStatePath =
-            secureStatePath ?? _defaultSecureStatePath(environment);
+  }) : requestPath = requestPath ?? _defaultRequestPath(environment),
+       secureStatePath =
+           secureStatePath ?? _defaultSecureStatePath(environment);
 
   final String requestPath;
   final String secureStatePath;

@@ -6,6 +6,7 @@ import 'package:denial_dart_shell/src/settings/widgets/settings_about_page.dart'
 import 'package:denial_dart_shell/src/settings/widgets/settings_appearance_page.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_controls.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_developer_page.dart';
+import 'package:denial_dart_shell/src/settings/widgets/settings_language_page.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_power_page.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_navigation.dart';
 import 'package:denial_dart_shell/src/settings/widgets/system_bar_placement_card.dart';
@@ -50,6 +51,7 @@ void main() {
     expect(find.text('Shell accent'), findsOneWidget);
     expect(find.text('Backdrop blur'), findsOneWidget);
     expect(find.text('Shape'), findsOneWidget);
+    expect(find.text('Cursor'), findsOneWidget);
     expect(find.text('Window opacity'), findsOneWidget);
     expect(
       find.text(
@@ -65,7 +67,7 @@ void main() {
       findsNothing,
     );
     expect(find.byType(SettingsCardGroup), findsOneWidget);
-    expect(find.byType(SettingsSection), findsNWidgets(4));
+    expect(find.byType(SettingsSection), findsNWidgets(5));
 
     final pageTitle = tester.widget<Text>(
       find.text('Make the desktop feel like yours.'),
@@ -94,8 +96,9 @@ void main() {
     await _pumpSettings(tester, container, size: const Size(980, 700));
 
     final appearanceTop = tester.getTopLeft(find.text('APPEARANCE')).dy;
-    await tester.ensureVisible(find.text('Power'));
-    await tester.tap(find.text('Power'));
+    tester
+        .widget<SettingsNavigation>(find.byType(SettingsNavigation))
+        .onSelected(SettingsPageId.power);
     await tester.pumpAndSettle();
 
     final powerTop = tester.getTopLeft(find.text('POWER')).dy;
@@ -105,15 +108,12 @@ void main() {
     expect(find.byType(SettingsSection), findsOneWidget);
   });
 
-  testWidgets('local settings tabs fit the minimum application size', (
+  testWidgets('localized settings tabs fit the minimum application size', (
     tester,
   ) async {
-    final container = _settingsContainer();
-    addTearDown(container.dispose);
-    await _pumpSettings(tester, container, size: const Size(560, 440));
-
     const pages = <SettingsPageId>[
       SettingsPageId.appearance,
+      SettingsPageId.language,
       SettingsPageId.animations,
       SettingsPageId.layout,
       SettingsPageId.overlays,
@@ -122,13 +122,66 @@ void main() {
       SettingsPageId.developer,
       SettingsPageId.about,
     ];
-    for (final page in pages) {
-      tester
-          .widget<SettingsNavigation>(find.byType(SettingsNavigation))
-          .onSelected(page);
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull, reason: page.name);
+    for (final locale in const <Locale>[Locale('en'), Locale('zh')]) {
+      final container = _settingsContainer();
+      addTearDown(container.dispose);
+      await _pumpSettings(
+        tester,
+        container,
+        size: const Size(560, 440),
+        locale: locale,
+      );
+
+      for (final page in pages) {
+        tester
+            .widget<SettingsNavigation>(find.byType(SettingsNavigation))
+            .onSelected(page);
+        await tester.pumpAndSettle();
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: '${locale.languageCode}/${page.name}',
+        );
+      }
     }
+  });
+
+  testWidgets('language selector applies and resets the locale live', (
+    tester,
+  ) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container, size: const Size(980, 700));
+
+    await tester.tap(find.text('Language'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(settingsLanguageSelectorKey), findsOneWidget);
+    expect(find.text('Choose the language Denial uses.'), findsOneWidget);
+
+    await tester.tap(find.text('简体中文'));
+    await tester.pumpAndSettle();
+    expect(
+      container.read(shellSettingsProvider).localization.locale,
+      ShellLocalePreference.simplifiedChinese,
+    );
+    expect(find.text('选择 Denial 使用的语言。'), findsOneWidget);
+    expect(find.bySemanticsLabel('Denial 界面语言'), findsOneWidget);
+
+    await tester.tap(find.text('English'));
+    await tester.pumpAndSettle();
+    expect(
+      container.read(shellSettingsProvider).localization.locale,
+      ShellLocalePreference.english,
+    );
+    expect(find.text('Choose the language Denial uses.'), findsOneWidget);
+
+    await tester.tap(find.text('Reset page'));
+    await tester.pumpAndSettle();
+    expect(
+      container.read(shellSettingsProvider).localization.locale,
+      ShellLocalePreference.system,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('backdrop blur enablement and intensity update live', (
@@ -178,6 +231,31 @@ void main() {
     expect(appearance.backdropBlurEnabled, isTrue);
     expect(appearance.backdropBlurSigma, 26);
     expect(appearance.backdropBlurOpacityThreshold, 0.12);
+    await container.read(shellSettingsProvider.notifier).flush();
+  });
+
+  testWidgets('cursor size updates live from appearance settings', (
+    tester,
+  ) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container);
+
+    await tester.ensureVisible(find.byKey(settingsCursorSizeSliderKey));
+    final slider = tester.widget<SettingsSlider>(
+      find.byKey(settingsCursorSizeSliderKey),
+    );
+    expect(slider.valueLabel, '32 px');
+    slider.onChanged(48);
+    await tester.pump();
+
+    expect(container.read(shellSettingsProvider).appearance.cursorSize, 48);
+    expect(
+      tester
+          .widget<SettingsSlider>(find.byKey(settingsCursorSizeSliderKey))
+          .valueLabel,
+      '48 px',
+    );
     await container.read(shellSettingsProvider.notifier).flush();
   });
 
@@ -389,15 +467,9 @@ void main() {
     addTearDown(container.dispose);
     await _pumpSettings(tester, container);
 
-    await tester.scrollUntilVisible(
-      find.text('Power'),
-      180,
-      scrollable: find.descendant(
-        of: find.byKey(settingsNavigationListKey),
-        matching: find.byType(Scrollable),
-      ),
-    );
-    await tester.tap(find.text('Power'));
+    tester
+        .widget<SettingsNavigation>(find.byType(SettingsNavigation))
+        .onSelected(SettingsPageId.power);
     await tester.pumpAndSettle();
 
     expect(find.text('Automatic display power'), findsOneWidget);
@@ -483,12 +555,23 @@ Future<void> _pumpSettings(
   WidgetTester tester,
   ProviderContainer container, {
   Size size = const Size(760, 540),
+  Locale locale = const Locale('en'),
 }) {
   return tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
-      child: DenialLocalizationScope(
-        locale: const Locale('en'),
+      child: Consumer(
+        builder: (context, ref, child) {
+          final localeOverride = ref.watch(
+            shellSettingsProvider.select(
+              (settings) => settings.localization.localeOverride,
+            ),
+          );
+          return DenialLocalizationScope(
+            locale: localeOverride ?? locale,
+            child: child!,
+          );
+        },
         child: MediaQuery(
           data: MediaQueryData(size: size),
           child: Overlay(

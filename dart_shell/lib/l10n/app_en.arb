@@ -8,6 +8,10 @@
   "@actionDismiss": {
     "description": "English UI text for actionDismiss."
   },
+  "screenshotSelectionHint": "Drag to select an area · Esc to cancel",
+  "@screenshotSelectionHint": {
+    "description": "Instruction shown while selecting a desktop screenshot region."
+  },
   "anchorBottomCenter": "Bottom center",
   "@anchorBottomCenter": {
     "description": "English UI text for anchorBottomCenter."
@@ -398,6 +402,98 @@
   "chargeProtocolVooc": "VOOC",
   "@chargeProtocolVooc": {
     "description": "English UI text for chargeProtocolVooc."
+  },
+  "clipboardCloseHistory": "Close clipboard history",
+  "@clipboardCloseHistory": {
+    "description": "Accessible label for the barrier that closes clipboard history."
+  },
+  "clipboardDelete": "Delete",
+  "@clipboardDelete": {
+    "description": "Tooltip for deleting a clipboard-history entry."
+  },
+  "clipboardDeleteItem": "Delete clipboard item",
+  "@clipboardDeleteItem": {
+    "description": "Accessible label for deleting a clipboard-history entry."
+  },
+  "clipboardDragToClose": "Drag clipboard tray toward its edge to close",
+  "@clipboardDragToClose": {
+    "description": "Accessible instruction for the clipboard tray drag handle."
+  },
+  "clipboardEmptyDescription": "Copy text, an image, or files and they will appear here.",
+  "@clipboardEmptyDescription": {
+    "description": "Clipboard-history empty-state guidance."
+  },
+  "clipboardEmptyTitle": "Nothing captured yet",
+  "@clipboardEmptyTitle": {
+    "description": "Title shown when clipboard history has no entries."
+  },
+  "clipboardFileSelection": "File selection",
+  "@clipboardFileSelection": {
+    "description": "Fallback label for a clipboard entry containing selected files."
+  },
+  "clipboardHistoryLockedDescription": "Clipboard contents stay hidden while the session is locked.",
+  "@clipboardHistoryLockedDescription": {
+    "description": "Explanation shown when clipboard history is hidden on the lock screen."
+  },
+  "clipboardHistoryLockedTitle": "History is sealed",
+  "@clipboardHistoryLockedTitle": {
+    "description": "Title shown when clipboard history is hidden on the lock screen."
+  },
+  "clipboardImageFileThumbnail": "Image file thumbnail",
+  "@clipboardImageFileThumbnail": {
+    "description": "Accessible label for an image-file thumbnail in clipboard history."
+  },
+  "clipboardImagePreview": "Clipboard image preview",
+  "@clipboardImagePreview": {
+    "description": "Accessible label for an image preview in clipboard history."
+  },
+  "clipboardItemHint": "Activate to paste it into the focused app. Drag it to drop it.",
+  "@clipboardItemHint": {
+    "description": "Accessible interaction hint for a clipboard-history entry."
+  },
+  "clipboardItemSemantics": "{type} clipboard item. {preview}",
+  "@clipboardItemSemantics": {
+    "description": "Accessible summary of a clipboard-history entry.",
+    "placeholders": {
+      "type": {
+        "type": "String"
+      },
+      "preview": {
+        "type": "String"
+      }
+    }
+  },
+  "clipboardNoSearchResultsDescription": "Try a different word, file type, or application.",
+  "@clipboardNoSearchResultsDescription": {
+    "description": "Guidance shown when clipboard search has no results."
+  },
+  "clipboardNoSearchResultsTitle": "No echoes found",
+  "@clipboardNoSearchResultsTitle": {
+    "description": "Title shown when clipboard search has no results."
+  },
+  "clipboardPreviewUnavailable": "Preview unavailable",
+  "@clipboardPreviewUnavailable": {
+    "description": "Fallback label when a clipboard image preview cannot be rendered."
+  },
+  "clipboardTypeFiles": "FILES",
+  "@clipboardTypeFiles": {
+    "description": "Accessible clipboard-entry type label for files."
+  },
+  "clipboardTypeImage": "IMAGE",
+  "@clipboardTypeImage": {
+    "description": "Accessible clipboard-entry type label for an image."
+  },
+  "clipboardTypeText": "TEXT",
+  "@clipboardTypeText": {
+    "description": "Accessible clipboard-entry type label for text."
+  },
+  "clipboardUnavailableDescription": "The native history service did not answer.",
+  "@clipboardUnavailableDescription": {
+    "description": "Explanation shown when the native clipboard-history service is unavailable."
+  },
+  "clipboardUnavailableTitle": "Clipboard bridge unavailable",
+  "@clipboardUnavailableTitle": {
+    "description": "Title shown when the native clipboard-history service is unavailable."
   },
   "commonBluetooth": "Bluetooth",
   "@commonBluetooth": {
@@ -1930,6 +2026,14 @@
   "@settingsConnectedDisplaysTitle": {
     "description": "English UI text for settingsConnectedDisplaysTitle."
   },
+  "settingsCursorSize": "Cursor size",
+  "@settingsCursorSize": {
+    "description": "Label for the physical cursor-size slider."
+  },
+  "settingsCursorTitle": "Cursor",
+  "@settingsCursorTitle": {
+    "description": "Heading for cursor appearance settings."
+  },
   "settingsDashboardOverlayDescription": "Position the desktop dashboard.",
   "@settingsDashboardOverlayDescription": {
     "description": "English UI text for settingsDashboardOverlayDescription."
@@ -2031,6 +2135,38 @@
   "settingsLauncherOverlayTitle": "Applications",
   "@settingsLauncherOverlayTitle": {
     "description": "English UI text for settingsLauncherOverlayTitle."
+  },
+  "settingsLanguageDescription": "System default follows your desktop language. Changes apply immediately.",
+  "@settingsLanguageDescription": {
+    "description": "Explanation shown beside the Settings language selector."
+  },
+  "settingsLanguageEnglish": "English",
+  "@settingsLanguageEnglish": {
+    "description": "Self-name for the English language option."
+  },
+  "settingsLanguageInterfaceTitle": "Interface language",
+  "@settingsLanguageInterfaceTitle": {
+    "description": "Heading for the interface language setting."
+  },
+  "settingsLanguageSection": "LANGUAGE",
+  "@settingsLanguageSection": {
+    "description": "Eyebrow label for the Settings language page."
+  },
+  "settingsLanguageSelectorSemantics": "Denial interface language",
+  "@settingsLanguageSelectorSemantics": {
+    "description": "Accessibility label for the interface language choices."
+  },
+  "settingsLanguageSimplifiedChinese": "简体中文",
+  "@settingsLanguageSimplifiedChinese": {
+    "description": "Self-name for the Simplified Chinese language option."
+  },
+  "settingsLanguageSystemDefault": "System default",
+  "@settingsLanguageSystemDefault": {
+    "description": "Language option that follows the operating system locale."
+  },
+  "settingsLanguageTitle": "Choose the language Denial uses.",
+  "@settingsLanguageTitle": {
+    "description": "Title text for the Settings language page."
   },
   "settingsLayoutDescription": "Control the spacing reserved around ordinary and maximized windows.",
   "@settingsLayoutDescription": {
@@ -2316,6 +2452,10 @@
   "settingsNavigationDisplays": "Displays & video",
   "@settingsNavigationDisplays": {
     "description": "English UI text for settingsNavigationDisplays."
+  },
+  "settingsNavigationLanguage": "Language",
+  "@settingsNavigationLanguage": {
+    "description": "Label for the Language destination in Settings navigation."
   },
   "settingsNavigationLockScreen": "Lock screen",
   "@settingsNavigationLockScreen": {

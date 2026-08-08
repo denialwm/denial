@@ -5,20 +5,14 @@ import '../models/desktop_app.dart';
 import '../models/home_grid_item.dart';
 
 class HomeGridMoveResult {
-  const HomeGridMoveResult({
-    required this.slots,
-    required this.movedToIndex,
-  });
+  const HomeGridMoveResult({required this.slots, required this.movedToIndex});
 
   final List<HomeGridItem?> slots;
   final int movedToIndex;
 }
 
 class HomeGridResizeResult {
-  const HomeGridResizeResult({
-    required this.slots,
-    required this.resizedIndex,
-  });
+  const HomeGridResizeResult({required this.slots, required this.resizedIndex});
 
   final List<HomeGridItem?> slots;
   final int resizedIndex;
@@ -76,10 +70,7 @@ class HomeGridLayout {
       return slots;
     }
 
-    return [
-      ...slots,
-      for (var i = slots.length; i < wantedSlots; i += 1) null,
-    ];
+    return [...slots, for (var i = slots.length; i < wantedSlots; i += 1) null];
   }
 
   static List<HomeGridItem?> initialSlotsForApps(
@@ -207,7 +198,7 @@ class HomeGridLayout {
     HomeGridItem item,
   ) {
     var next = [...slots];
-    for (var index = math.max(0, startIndex);; index += 1) {
+    for (var index = math.max(0, startIndex); ; index += 1) {
       if (!itemFitsAtColumn(item, index)) {
         continue;
       }
@@ -227,25 +218,19 @@ class HomeGridLayout {
     return column + item.colSpan <= columns;
   }
 
-  static bool itemFitsInPage(
-    int index,
-    HomeGridItem item,
-    int pageSize,
-  ) {
+  static bool itemFitsInPage(int index, HomeGridItem item, int pageSize) {
     if (pageSize <= 0 || !itemFitsAtColumn(item, index)) {
       return false;
     }
     final pageStart = (index ~/ pageSize) * pageSize;
     final pageEnd = pageStart + pageSize;
-    return cellsFor(index, item)
-        .every((cell) => cell >= pageStart && cell < pageEnd);
+    return cellsFor(
+      index,
+      item,
+    ).every((cell) => cell >= pageStart && cell < pageEnd);
   }
 
-  static List<int> cellsFor(
-    int index,
-    HomeGridItem item, {
-    int? columns,
-  }) {
+  static List<int> cellsFor(int index, HomeGridItem item, {int? columns}) {
     columns ??= HomeGridLayout.columns;
     final baseRow = index ~/ columns;
     final baseColumn = index % columns;
@@ -276,10 +261,7 @@ class HomeGridLayout {
     if (slots.length >= length) {
       return slots;
     }
-    return [
-      ...slots,
-      for (var i = slots.length; i < length; i += 1) null,
-    ];
+    return [...slots, for (var i = slots.length; i < length; i += 1) null];
   }
 
   static bool canPlaceAt(
@@ -396,13 +378,7 @@ class HomeGridLayout {
     }
 
     final resized = source.resize(colSpan: colSpan, rowSpan: rowSpan);
-    return canPlaceAt(
-      slots,
-      index,
-      resized,
-      pageSize,
-      ignoreAnchors: {index},
-    );
+    return canPlaceAt(slots, index, resized, pageSize, ignoreAnchors: {index});
   }
 
   static HomeGridResizeResult? resizeSlot(

@@ -26,13 +26,15 @@ class ShellFrameTimingOptions {
   final bool showImportedTextureCharts;
 }
 
-final shellFrameTimingOptionsProvider =
-    Provider<ShellFrameTimingOptions>((ref) {
+final shellFrameTimingOptionsProvider = Provider<ShellFrameTimingOptions>((
+  ref,
+) {
   final environment = ref.watch(startupEnvironmentProvider);
   final showOverlay = environment.flag('DENIA_FRAME_TIMING_OVERLAY');
   return ShellFrameTimingOptions(
     showOverlay: showOverlay,
-    showImportedTextureCharts: showOverlay &&
+    showImportedTextureCharts:
+        showOverlay &&
         environment.flag(
           'DENIA_IMPORTED_FRAME_TIMING_OVERLAY',
           defaultValue: true,
@@ -65,8 +67,9 @@ class _ShellFrameTimingOverlayStackState
   static const String _timingChannel = 'denial/imported_frame_timing';
   static const String _controlChannel = 'denial/imported_frame_timing_control';
   static const int _messageBytes = 7 * 8;
-  static final Future<ByteData?> _emptyResponse =
-      SynchronousFuture<ByteData?>(null);
+  static final Future<ByteData?> _emptyResponse = SynchronousFuture<ByteData?>(
+    null,
+  );
 
   final Map<int, _ImportedFrameTimingSampler> _samplers = {};
   bool _channelStarted = false;
@@ -86,8 +89,9 @@ class _ShellFrameTimingOverlayStackState
     }
 
     final reportedRate = View.of(context).display.refreshRate;
-    final refreshRate =
-        reportedRate.isFinite && reportedRate > 0 ? reportedRate : 60.0;
+    final refreshRate = reportedRate.isFinite && reportedRate > 0
+        ? reportedRate
+        : 60.0;
     final nextBudgetUs = (1000000 / refreshRate).round();
     final budgetChanged = nextBudgetUs != _budgetUs;
     _budgetUs = nextBudgetUs;
@@ -136,8 +140,9 @@ class _ShellFrameTimingOverlayStackState
       return;
     }
 
-    final activeSurfaceIds =
-        widget.windows.map((window) => window.surfaceId).toSet();
+    final activeSurfaceIds = widget.windows
+        .map((window) => window.surfaceId)
+        .toSet();
     final removedSurfaceIds = _samplers.keys
         .where((surfaceId) => !activeSurfaceIds.contains(surfaceId))
         .toList(growable: false);
@@ -267,8 +272,9 @@ class _ShellFrameTimeOverlayState extends State<ShellFrameTimeOverlay> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final reportedRate = View.of(context).display.refreshRate;
-    _refreshRate =
-        reportedRate.isFinite && reportedRate > 0 ? reportedRate : 60;
+    _refreshRate = reportedRate.isFinite && reportedRate > 0
+        ? reportedRate
+        : 60;
     _budgetMs = 1000 / _refreshRate;
   }
 
@@ -291,8 +297,9 @@ class _ShellFrameTimeOverlayState extends State<ShellFrameTimeOverlay> {
         // overhead, not application work. Ignoring it also prevents a delayed
         // timing report from turning the overlay into a self-driving loop.
         _ignoreNextTiming = false;
-        _previousVsyncUs =
-            timing.timestampInMicroseconds(FramePhase.vsyncStart);
+        _previousVsyncUs = timing.timestampInMicroseconds(
+          FramePhase.vsyncStart,
+        );
         continue;
       }
       observedFrame = true;
@@ -356,8 +363,9 @@ class _ShellFrameTimeOverlayState extends State<ShellFrameTimeOverlay> {
     _smoothedBuildMs = _smooth(_smoothedBuildMs, bucket.buildMs);
     _smoothedRasterMs = _smooth(_smoothedRasterMs, bucket.rasterMs);
     if (bucket.gapMs case final gapMs?) {
-      _smoothedGapMs =
-          _smoothedGapMs == null ? gapMs : _smooth(_smoothedGapMs!, gapMs);
+      _smoothedGapMs = _smoothedGapMs == null
+          ? gapMs
+          : _smooth(_smoothedGapMs!, gapMs);
     }
 
     _bucketFrameTotalMs = 0;
@@ -495,17 +503,17 @@ class _ImportedTextureFrameTimeOverlay extends StatelessWidget {
 
 class _ImportedFrameTimingSampler extends ChangeNotifier {
   _ImportedFrameTimingSampler(double budgetMs)
-      : _budgetMs = budgetMs,
-        _stats = _ImportedFrameStats.empty(budgetMs);
+    : _budgetMs = budgetMs,
+      _stats = _ImportedFrameStats.empty(budgetMs);
 
   static const int historySize = 60;
   static const double _smoothingAlpha = 0.24;
 
   final List<_ImportedFrameTimeBucket> _history =
       List<_ImportedFrameTimeBucket>.filled(
-    historySize,
-    const _ImportedFrameTimeBucket.empty(),
-  );
+        historySize,
+        const _ImportedFrameTimeBucket.empty(),
+      );
 
   double _budgetMs;
   _ImportedFrameStats _stats;
@@ -534,7 +542,7 @@ class _ImportedFrameTimingSampler extends ChangeNotifier {
     _smoothedFrameMs = _smoothedFrameMs <= 0
         ? bucket.averageMs
         : _smoothedFrameMs +
-            (bucket.averageMs - _smoothedFrameMs) * _smoothingAlpha;
+              (bucket.averageMs - _smoothedFrameMs) * _smoothingAlpha;
     _publish();
   }
 
@@ -582,10 +590,10 @@ class _ImportedFrameTimeBucket {
   });
 
   const _ImportedFrameTimeBucket.empty()
-      : averageMs = 0,
-        peakMs = 0,
-        frameCount = 0,
-        overBudgetFrames = 0;
+    : averageMs = 0,
+      peakMs = 0,
+      frameCount = 0,
+      overBudgetFrames = 0;
 
   final double averageMs;
   final double peakMs;
@@ -605,12 +613,12 @@ class _ImportedFrameStats {
   });
 
   const _ImportedFrameStats.empty(this.budgetMs)
-      : samples = const <_ImportedFrameTimeBucket>[],
-        frameMs = 0,
-        averageMs = 0,
-        maxMs = 0,
-        sampleCount = 0,
-        overBudgetFrames = 0;
+    : samples = const <_ImportedFrameTimeBucket>[],
+      frameMs = 0,
+      averageMs = 0,
+      maxMs = 0,
+      sampleCount = 0,
+      overBudgetFrames = 0;
 
   final List<_ImportedFrameTimeBucket> samples;
   final double budgetMs;
@@ -651,14 +659,8 @@ class _ImportedFrameTimePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final bounds = Offset.zero & size;
-    final panel = RRect.fromRectAndRadius(
-      bounds,
-      const Radius.circular(10),
-    );
-    canvas.drawRRect(
-      panel,
-      Paint()..color = ShellColors.panelBackground,
-    );
+    final panel = RRect.fromRectAndRadius(bounds, const Radius.circular(10));
+    canvas.drawRRect(panel, Paint()..color = ShellColors.panelBackground);
     canvas.drawRRect(
       panel.deflate(0.5),
       Paint()
@@ -737,7 +739,8 @@ class _ImportedFrameTimePainter extends CustomPainter {
     );
     for (var i = 0; i < stats.samples.length; i += 1) {
       final sample = stats.samples[i];
-      final x = rect.right -
+      final x =
+          rect.right -
           (stats.samples.length - 1 - i) * rect.width / denominator;
       final y = _graphY(sample.averageMs, rect, scaleMax);
 
@@ -746,8 +749,10 @@ class _ImportedFrameTimePainter extends CustomPainter {
           Offset(x, y),
           Offset(x, _graphY(sample.peakMs, rect, scaleMax)),
           Paint()
-            ..color = _frameColor(sample.peakMs, stats.budgetMs)
-                .withValues(alpha: 0.58)
+            ..color = _frameColor(
+              sample.peakMs,
+              stats.budgetMs,
+            ).withValues(alpha: 0.58)
             ..strokeWidth = 1,
         );
       }
@@ -812,13 +817,13 @@ class _FrameTimeBucket {
   });
 
   const _FrameTimeBucket.empty()
-      : averageMs = 0,
-        peakMs = 0,
-        buildMs = 0,
-        rasterMs = 0,
-        gapMs = null,
-        frameCount = 0,
-        overBudgetFrames = 0;
+    : averageMs = 0,
+      peakMs = 0,
+      buildMs = 0,
+      rasterMs = 0,
+      gapMs = null,
+      frameCount = 0,
+      overBudgetFrames = 0;
 
   final double averageMs;
   final double peakMs;
@@ -844,16 +849,16 @@ class _ShellFrameStats {
   });
 
   const _ShellFrameStats.empty()
-      : samples = const <_FrameTimeBucket>[],
-        refreshRate = 0,
-        budgetMs = 0,
-        frameMs = 0,
-        buildMs = 0,
-        rasterMs = 0,
-        gapMs = null,
-        averageMs = 0,
-        maxMs = 0,
-        overBudgetFrames = 0;
+    : samples = const <_FrameTimeBucket>[],
+      refreshRate = 0,
+      budgetMs = 0,
+      frameMs = 0,
+      buildMs = 0,
+      rasterMs = 0,
+      gapMs = null,
+      averageMs = 0,
+      maxMs = 0,
+      overBudgetFrames = 0;
 
   final List<_FrameTimeBucket> samples;
   final double refreshRate;
@@ -892,14 +897,8 @@ class _ShellFrameTimePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final bounds = Offset.zero & size;
-    final panel = RRect.fromRectAndRadius(
-      bounds,
-      const Radius.circular(10),
-    );
-    canvas.drawRRect(
-      panel,
-      Paint()..color = ShellColors.panelBackground,
-    );
+    final panel = RRect.fromRectAndRadius(bounds, const Radius.circular(10));
+    canvas.drawRRect(panel, Paint()..color = ShellColors.panelBackground);
     canvas.drawRRect(
       panel.deflate(0.5),
       Paint()
@@ -982,11 +981,14 @@ class _ShellFrameTimePainter extends CustomPainter {
     );
 
     final path = Path();
-    final denominator =
-        math.max(1, _ShellFrameTimeOverlayState._historySize - 1);
+    final denominator = math.max(
+      1,
+      _ShellFrameTimeOverlayState._historySize - 1,
+    );
     for (var i = 0; i < stats.samples.length; i += 1) {
       final sample = stats.samples[i];
-      final x = rect.right -
+      final x =
+          rect.right -
           (stats.samples.length - 1 - i) * rect.width / denominator;
       final y = _graphY(sample.averageMs, rect, scaleMax);
 
@@ -997,8 +999,10 @@ class _ShellFrameTimePainter extends CustomPainter {
           Offset(x, y),
           Offset(x, _graphY(sample.peakMs, rect, scaleMax)),
           Paint()
-            ..color = _frameColor(sample.peakMs, stats.budgetMs)
-                .withValues(alpha: 0.58)
+            ..color = _frameColor(
+              sample.peakMs,
+              stats.budgetMs,
+            ).withValues(alpha: 0.58)
             ..strokeWidth = 1,
         );
       }

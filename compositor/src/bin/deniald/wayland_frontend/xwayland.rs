@@ -26,6 +26,7 @@ use super::super::RuntimeState;
 use super::super::wire::WindowAction;
 #[cfg(feature = "flutter")]
 use super::super::wire::{WindowPlacementChange, WindowPlacementPhase};
+use super::window_management::activate_window;
 #[cfg(feature = "flutter")]
 use super::window_management::{
     queue_restored_window_state, queue_window_action_for_window,
@@ -930,6 +931,28 @@ impl XwmHandler for RuntimeState {
             SERIAL_COUNTER.next_serial(),
             Focus::Clear,
         );
+    }
+
+    fn active_window_request(
+        &mut self,
+        _xwm: XwmId,
+        window: X11Surface,
+        _timestamp: u32,
+        _currently_active_window: Option<X11Surface>,
+    ) {
+        if !self.client_activation_permitted() {
+            debug!(
+                window = window.window_id(),
+                "rejected X11 activation while locked"
+            );
+            return;
+        }
+        let Some(window) = window_for_x11(self, &window) else {
+            return;
+        };
+        if activate_window(self, &window, SERIAL_COUNTER.next_serial()) {
+            debug!("honored X11 active-window request");
+        }
     }
 
     fn allow_selection_access(&mut self, xwm: XwmId, selection: SelectionTarget) -> bool {

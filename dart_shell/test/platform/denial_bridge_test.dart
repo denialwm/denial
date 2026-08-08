@@ -49,6 +49,19 @@ void main() {
       );
       expect(bridge.toggleKeyboard(), isTrue);
       expect(bridge.takeScreenshot(), isTrue);
+      expect(bridge.screenshotPrepared(77), isTrue);
+      expect(
+        bridge.finishScreenshotRegion(
+          77,
+          const Rect.fromLTWH(12.5, 24, 640, 480),
+        ),
+        isTrue,
+      );
+      expect(
+        bridge.finishScreenshotRegion(77, const Rect.fromLTWH(-1, 0, 10, 10)),
+        isFalse,
+      );
+      expect(bridge.cancelScreenshot(77), isTrue);
       expect(bridge.requestLogout(), isTrue);
       expect(
         bridge.launchApplication(const <String>['bad\u0000argument']),
@@ -66,7 +79,7 @@ void main() {
       bridge.setIdleDpmsTimeout(const Duration(minutes: 17));
       bridge.setIdleDpmsTimeout(null);
 
-      expect(systemMessages, hasLength(4));
+      expect(systemMessages, hasLength(7));
       final launch = systemMessages[0];
       expect(launch.getUint8(0), 0);
       expect(launch.getUint64(1, Endian.little), 42);
@@ -81,8 +94,22 @@ void main() {
       expect(systemMessages[1].lengthInBytes, 13);
       expect(systemMessages[2].getUint8(0), 2);
       expect(systemMessages[2].lengthInBytes, 13);
-      expect(systemMessages[3].getUint8(0), 3);
+      expect(systemMessages[3].getUint8(0), 4);
+      expect(systemMessages[3].getUint64(1, Endian.little), 77);
       expect(systemMessages[3].lengthInBytes, 13);
+      expect(systemMessages[4].getUint8(0), 2);
+      expect(systemMessages[4].getUint64(1, Endian.little), 77);
+      expect(_decodeSystemArguments(systemMessages[4]), const <String>[
+        '12.500000',
+        '24.000000',
+        '640.000000',
+        '480.000000',
+      ]);
+      expect(systemMessages[5].getUint8(0), 5);
+      expect(systemMessages[5].getUint64(1, Endian.little), 77);
+      expect(systemMessages[5].lengthInBytes, 13);
+      expect(systemMessages[6].getUint8(0), 3);
+      expect(systemMessages[6].lengthInBytes, 13);
 
       expect(brightnessMessages, hasLength(2));
       final brightnessRead = brightnessMessages.first;
@@ -387,6 +414,51 @@ void main() {
       bridge.dispose();
     }
   });
+
+  test(
+    'screenshot lifecycle preserves request and texture identities',
+    () async {
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final bridge = _startedBridge();
+      final events = <DenialShellActionEvent>[];
+      final subscription = bridge.shellActions.listen(events.add);
+      try {
+        for (final (action, textureId) in <(wire.ShellActionKind, int)>[
+          (wire.ShellActionKind.ScreenshotRegion, 0),
+          (wire.ShellActionKind.ScreenshotTextureReady, 9001),
+          (wire.ShellActionKind.ScreenshotDone, 0),
+        ]) {
+          await _sendToFlutter(
+            messenger,
+            _envelope(
+              wire.PayloadTypeId.ShellAction,
+              wire.ShellActionObjectBuilder(
+                action: action,
+                textureId: textureId,
+              ),
+              requestId: 41,
+            ),
+          );
+        }
+
+        expect(events.map((event) => event.action), <DenialShellAction>[
+          DenialShellAction.screenshotPrepare,
+          DenialShellAction.screenshotTextureReady,
+          DenialShellAction.screenshotDone,
+        ]);
+        expect(events.map((event) => event.requestId), everyElement(41));
+        expect(events.map((event) => event.textureId), <int?>[
+          null,
+          9001,
+          null,
+        ]);
+      } finally {
+        await subscription.cancel();
+        bridge.dispose();
+      }
+    },
+  );
 
   test(
     'native cursor positions are forwarded without pointer synthesis',

@@ -172,10 +172,7 @@ class QuickSettingsController extends Notifier<QuickSettingsState>
     }
   }
 
-  void _handleBrightnessState(
-    DenialBrightnessState update,
-    int generation,
-  ) {
+  void _handleBrightnessState(DenialBrightnessState update, int generation) {
     if (!isBuildGenerationActive(generation) ||
         update.monitorId != _brightness.defaultMonitorId) {
       return;

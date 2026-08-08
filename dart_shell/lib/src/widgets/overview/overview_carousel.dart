@@ -70,7 +70,8 @@ class OverviewCarousel extends StatelessWidget {
                           progress: progress,
                           pageOffset: index - _page(pageController),
                           cardSize: cardSize,
-                          hidden: foregroundObjectId == window.objectId &&
+                          hidden:
+                              foregroundObjectId == window.objectId &&
                               progress < 0.995,
                           onDismiss: onDismissWindow,
                           onFocus: onFocusWindow,

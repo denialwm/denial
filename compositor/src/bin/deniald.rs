@@ -43,6 +43,9 @@ mod output_control;
 mod output_scheduler;
 #[path = "deniald/scene_sync.rs"]
 mod scene_sync;
+#[cfg(feature = "flutter")]
+#[path = "deniald/screenshot.rs"]
+mod screenshot;
 #[path = "deniald/system_controls.rs"]
 mod system_controls;
 #[cfg(feature = "flutter")]
@@ -116,7 +119,7 @@ use smithay::reexports::drm::control::{
 use smithay::reexports::rustix::fs::OFlags;
 use smithay::utils::{Buffer, DeviceFd, Physical, Rectangle, Transform};
 use smithay_drm_extras::drm_scanner::{DrmScanEvent, DrmScanner, SimpleCrtcMapper};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use hotplug_transaction::{
     HotplugProgress, ScanoutKey, ScanoutOrigin, append_quarantined, install_candidate,
@@ -271,6 +274,23 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     let runtime_limit = options.runtime_limit();
     let output_configuration = RuntimeOutputConfiguration::from_options(&options);
 
+    // calloop's signal source masks only the thread that creates it. Create it
+    // before libseat, RTKit, graphics drivers, or any Denial worker can spawn
+    // threads so every descendant inherits the mask and process-directed
+    // control signals cannot retain their default terminating behavior.
+    let signal_source = if runtime_limit != RuntimeLimit::TestOnly {
+        Some(Signals::new(&[
+            Signal::SIGINT,
+            Signal::SIGTERM,
+            #[cfg(feature = "flutter")]
+            Signal::SIGUSR1,
+            #[cfg(feature = "flutter")]
+            Signal::SIGUSR2,
+        ])?)
+    } else {
+        None
+    };
+
     let (mut session, session_notifier) = LibSeatSession::new()?;
     if !session.is_active() {
         return Err("libseat did not activate the current TTY session".into());
@@ -341,14 +361,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
                 SessionEvent::ActivateSession => state.lifecycle.activate_session(),
             })?;
         event_loop.handle().insert_source(
-            Signals::new(&[
-                Signal::SIGINT,
-                Signal::SIGTERM,
-                #[cfg(feature = "flutter")]
-                Signal::SIGUSR1,
-                #[cfg(feature = "flutter")]
-                Signal::SIGUSR2,
-            ])?,
+            signal_source.ok_or("signal source was not prepared before worker startup")?,
             |event, _, state| {
                 let reason = match event.signal() {
                     Signal::SIGINT => ShutdownReason::Interrupt,
@@ -972,6 +985,7 @@ struct RuntimeState {
     wayland: Option<wayland_frontend::WaylandFrontend>,
     clipboard: clipboard::ClipboardManager,
     clipboard_capture_tokens: Vec<RegistrationToken>,
+    clipboard_deferred_capture: Option<wayland_frontend::DeferredClipboardCapture>,
     scene_sync: SceneSyncState,
     system_controls: Option<SystemControls>,
     vblank_events: u64,
@@ -999,6 +1013,8 @@ struct RuntimeState {
     pending_unpublished_window_events: PendingWindowEventQueue,
     #[cfg(feature = "flutter")]
     pending_shell_actions: VecDeque<(wire::ShellAction, Option<i64>)>,
+    #[cfg(feature = "flutter")]
+    pending_screenshot_selection: Option<OutputId>,
     #[cfg(feature = "flutter")]
     published_window_ids: HashSet<u64>,
     #[cfg(feature = "flutter")]
@@ -1038,6 +1054,17 @@ impl RuntimeState {
                 limit = MAX_PENDING_SHELL_ACTIONS,
                 "dropping excess native shell shortcut"
             );
+        }
+    }
+
+    fn request_screenshot_selection(&mut self, monitor_id: Option<i64>) {
+        let output = monitor_id
+            .and_then(|monitor_id| u64::try_from(monitor_id).ok())
+            .map(OutputId);
+        if let Some(output) = output {
+            self.pending_screenshot_selection = Some(output);
+        } else {
+            warn!("screenshot shortcut has no output under the pointer");
         }
     }
 
@@ -1088,6 +1115,19 @@ impl RuntimeState {
         for request in requests {
             self.output_power_requests
                 .insert(request.output, request.powered);
+        }
+    }
+}
+
+impl RuntimeState {
+    fn client_activation_permitted(&self) -> bool {
+        #[cfg(feature = "flutter")]
+        {
+            !self.secure_session_locked()
+        }
+        #[cfg(not(feature = "flutter"))]
+        {
+            true
         }
     }
 }
@@ -1968,6 +2008,14 @@ fn run_flutter_event_loop(
         &mut events,
     )?;
     let mut frame_scheduler = frame_scheduler::FrameScheduler::new(scanouts, Instant::now());
+    let mut screenshot_manager = match screenshot::ScreenshotManager::new(events.clipboard.clone())
+    {
+        Ok(manager) => Some(manager),
+        Err(error) => {
+            warn!(%error, "screenshot writer is unavailable");
+            None
+        }
+    };
     let mut ready_output_apply: Option<(PendingOutputApply, Vec<ConnectedConnector>)> = None;
     let mut pending_output_success: Option<PendingOutputApply> = None;
 
@@ -2027,17 +2075,55 @@ fn run_flutter_event_loop(
 
         let scanout_rebased = events.scanout_rebased;
         events.scanout_rebased = false;
-        if !scanout_rebased {
-            scheduler.handle_completions(
-                flutter
-                    .as_mut()
-                    .ok_or("Flutter runtime disappeared during page-flip completion")?,
-                swapchain,
-                scanouts,
-                &mut events,
+        if scanout_rebased && let Some(runtime) = flutter.as_mut() {
+            cancel_active_screenshot(
+                &mut screenshot_manager,
+                runtime,
+                true,
+                "scanout state changed",
             )?;
+        }
+        if !scanout_rebased {
+            let runtime = flutter
+                .as_mut()
+                .ok_or("Flutter runtime disappeared during page-flip completion")?;
+            scheduler.handle_completions(runtime, swapchain, scanouts, &mut events)?;
             for presentation in scheduler.presented_outputs().iter().copied() {
                 frame_scheduler.observe_presentation(presentation);
+            }
+            // Freeze the tagged atlas as part of the page-flip completion that
+            // made it visible. Display-clock ticks may be deduplicated against
+            // that same completion; waiting for a later tick would let another
+            // frame replace the tagged scanout first.
+            if let Some(manager) = screenshot_manager.as_mut()
+                && let Some(target_output) = manager.target_output()
+                && let Some(request_id) = manager.request_id()
+                && let Some(buffer_index) =
+                    scheduler.screenshot_framebuffer_for_output(target_output, request_id, scanouts)
+            {
+                match manager.capture_prepared_frame(
+                    renderer,
+                    runtime,
+                    target_output,
+                    &mut swapchain.buffers[buffer_index].dmabuf,
+                ) {
+                    Ok(Some((request_id, texture_id))) => runtime.send_screenshot_action(
+                        wire::ShellAction::ScreenshotTextureReady,
+                        request_id,
+                        Some(texture_id),
+                    )?,
+                    Ok(None) => {}
+                    Err(error) => {
+                        warn!(%error, "could not freeze the screenshot selection canvas");
+                        if let Some(request_id) = manager.cancel_selection(runtime, None)? {
+                            runtime.send_screenshot_action(
+                                wire::ShellAction::ScreenshotDone,
+                                request_id,
+                                None,
+                            )?;
+                        }
+                    }
+                }
             }
         }
         if let Some(error) = events.error.take() {
@@ -2408,6 +2494,14 @@ fn run_flutter_event_loop(
                     "completed event-driven DRM topology rescan"
                 );
                 if changed || scanout_rebased || kms_reconfigure_requested {
+                    cancel_active_screenshot(
+                        &mut screenshot_manager,
+                        flutter
+                            .as_mut()
+                            .ok_or("Flutter runtime disappeared before topology change")?,
+                        true,
+                        "display topology changed",
+                    )?;
                     if !scanout_rebased && scheduler.has_pending_scanout_work() {
                         // Finish any ready old-topology atlas before creating the
                         // common rollback point used by the hotplug transaction.
@@ -2486,6 +2580,14 @@ fn run_flutter_event_loop(
         }
 
         if events.flutter_reload_requested {
+            cancel_active_screenshot(
+                &mut screenshot_manager,
+                flutter
+                    .as_mut()
+                    .ok_or("Flutter runtime disappeared before bundle refresh")?,
+                true,
+                "Flutter runtime is refreshing",
+            )?;
             if scheduler.has_pending_scanout_work() {
                 // Stop servicing the producer while its last atlas reaches
                 // every affected CRTC. A ready fence or page flip will wake
@@ -2553,6 +2655,23 @@ fn run_flutter_event_loop(
         }
         synchronize_idle_dpms_configuration(runtime, &mut events);
         synchronize_authentication_boundary(&mut events);
+        let screenshot_is_invalid = screenshot_manager.as_ref().is_some_and(|manager| {
+            events.secure_session_locked()
+                || manager.topology_epoch() != Some(topology.snapshot().epoch)
+                || manager.target_output().is_some_and(|output| {
+                    scheduler
+                        .framebuffer_index_for_output(output, scanouts)
+                        .is_none()
+                })
+        });
+        if screenshot_is_invalid {
+            cancel_active_screenshot(
+                &mut screenshot_manager,
+                runtime,
+                true,
+                "screenshot canvas is no longer valid",
+            )?;
+        }
         synchronize_clipboard(runtime, &mut events)?;
         synchronize_system_control_events(runtime, &mut events)?;
         synchronize_notification_events(runtime, &mut events)?;
@@ -2561,6 +2680,9 @@ fn run_flutter_event_loop(
         synchronize_flutter_scene(runtime, &mut events)?;
         synchronize_flutter_input_layout(runtime, &mut events);
         synchronize_wayland_cursor(runtime, &mut events)?;
+        let screenshot_prepared = runtime.take_screenshot_prepared();
+        let screenshot_cancelled = runtime.take_screenshot_cancelled();
+        let screenshot_request = runtime.take_screenshot_requested();
         if runtime.take_logout_requested() {
             info!("Flutter requested session logout");
             break;
@@ -2570,6 +2692,114 @@ fn run_flutter_event_loop(
         }
         if let Some(frontend) = events.wayland.as_mut() {
             frontend.process_pending_dmabufs(renderer)?;
+        }
+
+        if let Some(target_output) = events.pending_screenshot_selection.take() {
+            if let Some(manager) = screenshot_manager.as_mut() {
+                let snapshot = topology.snapshot();
+                let atlas = AtlasPlan::for_snapshot(&snapshot)
+                    .ok_or("screenshot preparation has no atlas")?;
+                let Some(buffer_index) =
+                    scheduler.framebuffer_index_for_output(target_output, scanouts)
+                else {
+                    warn!(?target_output, "screenshot target output is not powered");
+                    continue;
+                };
+                let modifier = swapchain.buffers[buffer_index].format().modifier;
+                match manager.begin_selection(allocator, target_output, atlas, modifier) {
+                    Ok(Some(request_id)) => {
+                        if let Err(error) = runtime.send_screenshot_action(
+                            wire::ShellAction::ScreenshotRegion,
+                            request_id,
+                            None,
+                        ) {
+                            let _ = manager.cancel_selection(runtime, Some(request_id));
+                            return Err(error);
+                        }
+                    }
+                    Ok(None) => debug!("ignored repeated screenshot selection shortcut"),
+                    Err(error) => warn!(%error, "could not allocate screenshot selection buffer"),
+                }
+            } else {
+                warn!("screenshot selection ignored because the writer is unavailable");
+            }
+        }
+
+        if let Some(request_id) = screenshot_prepared
+            && let Some(manager) = screenshot_manager.as_mut()
+            && manager.request_id() == Some(request_id.get())
+        {
+            let Some(target_output) = manager.target_output() else {
+                return Err("prepared screenshot lost its target output".into());
+            };
+            if scheduler
+                .framebuffer_index_for_output(target_output, scanouts)
+                .is_none()
+            {
+                let finished = manager.cancel_selection(runtime, Some(request_id.get()))?;
+                if let Some(request_id) = finished {
+                    runtime.send_screenshot_action(
+                        wire::ShellAction::ScreenshotDone,
+                        request_id,
+                        None,
+                    )?;
+                }
+                continue;
+            }
+            if manager.prepared(request_id.get()) {
+                runtime.arm_screenshot_frame(request_id.get())?;
+            } else {
+                warn!(
+                    request_id = request_id.get(),
+                    "ignored stale screenshot preparation"
+                );
+            }
+        }
+
+        if let Some(request_id) = screenshot_cancelled
+            && let Some(manager) = screenshot_manager.as_mut()
+        {
+            if let Some(request_id) = manager.cancel_selection(runtime, Some(request_id.get()))? {
+                runtime.send_screenshot_action(
+                    wire::ShellAction::ScreenshotDone,
+                    request_id,
+                    None,
+                )?;
+            }
+        }
+
+        if let Some(request) = screenshot_request {
+            if let Some(manager) = screenshot_manager.as_ref() {
+                if request.request_id.is_none() {
+                    let snapshot = topology.snapshot();
+                    if let Some(atlas) = AtlasPlan::for_snapshot(&snapshot) {
+                        let buffer_index = scheduler.stable_framebuffer_index();
+                        if let Err(error) = manager.capture_live(
+                            renderer,
+                            &mut swapchain.buffers[buffer_index].dmabuf,
+                            &atlas,
+                            request,
+                        ) {
+                            warn!(%error, "screenshot capture failed");
+                        }
+                    } else {
+                        warn!("screenshot capture skipped because the atlas is unavailable");
+                    }
+                }
+            } else {
+                warn!("screenshot request ignored because the writer is unavailable");
+            }
+        }
+
+        if let Some(request) = screenshot_request
+            && let Some(request_id) = request.request_id.map(|request_id| request_id.get())
+            && let Some(manager) = screenshot_manager.as_mut()
+            && manager.request_id() == Some(request_id)
+        {
+            if let Err(error) = manager.finish_selection(renderer, runtime, request) {
+                warn!(%error, request_id, "frozen screenshot capture failed");
+            }
+            runtime.send_screenshot_action(wire::ShellAction::ScreenshotDone, request_id, None)?;
         }
 
         if let Some(ready) = runtime.take_ready() {
@@ -2624,6 +2854,14 @@ fn run_flutter_event_loop(
         event_loop.dispatch(dispatch_timeout, &mut events)?;
     }
 
+    cancel_active_screenshot(
+        &mut screenshot_manager,
+        flutter
+            .as_mut()
+            .ok_or("Flutter runtime disappeared before screenshot teardown")?,
+        false,
+        "compositor is shutting down",
+    )?;
     quiesce_flutter_page_flips(
         flutter
             .as_mut()
@@ -2663,6 +2901,26 @@ fn run_flutter_event_loop(
         "independently clocked Flutter KMS session complete"
     );
     Ok(swapchain.current_framebuffer())
+}
+
+#[cfg(feature = "flutter")]
+fn cancel_active_screenshot(
+    manager: &mut Option<screenshot::ScreenshotManager>,
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    notify_flutter: bool,
+    reason: &'static str,
+) -> Result<(), Box<dyn Error>> {
+    let Some(manager) = manager.as_mut() else {
+        return Ok(());
+    };
+    let Some(request_id) = manager.cancel_selection(runtime, None)? else {
+        return Ok(());
+    };
+    if notify_flutter {
+        runtime.send_screenshot_action(wire::ShellAction::ScreenshotDone, request_id, None)?;
+    }
+    info!(request_id, reason, "cancelled screenshot selection");
+    Ok(())
 }
 
 #[cfg(feature = "flutter")]
@@ -3198,8 +3456,18 @@ fn synchronize_flutter_window_management(
 ) -> Result<(), Box<dyn Error>> {
     if events.secure_session_locked() {
         events.pending_shell_actions.clear();
+        while runtime.take_application_launch().is_some() {}
         runtime.drain_window_commands().for_each(drop);
     } else {
+        while let Some(launch) = runtime.take_application_launch() {
+            let activation_token = events
+                .wayland
+                .as_mut()
+                .map(wayland_frontend::WaylandFrontend::create_launch_activation_token);
+            if let Err(error) = runtime.start_application(launch, activation_token.as_deref()) {
+                warn!(%error, "could not launch application requested by Flutter shell");
+            }
+        }
         while let Some((action, monitor_id)) = events.pending_shell_actions.pop_front() {
             runtime.send_shell_action(action, monitor_id)?;
         }
@@ -4026,14 +4294,27 @@ fn configured_outputs(
                 )
             })?;
             let output_mode: OutputMode = mode.into();
+            let configured_refresh_millihz =
+                mode_preference.and_then(|preference| preference.refresh_millihz);
+            if let (Some(configured), Ok(selected)) = (
+                configured_refresh_millihz,
+                u32::try_from(output_mode.refresh),
+            ) && selected.abs_diff(configured) > REFRESH_FALLBACK_WARNING_MILLIHERTZ
+            {
+                warn!(
+                    output = name,
+                    requested_refresh_millihz = configured,
+                    selected_refresh_millihz = selected,
+                    "requested refresh is unavailable; using the closest mode"
+                );
+            }
             info!(
                 output = name,
                 crtc = ?connector.crtc,
                 width = output_mode.size.w,
                 height = output_mode.size.h,
                 refresh_millihz = output_mode.refresh,
-                configured_refresh_millihz = mode_preference
-                    .and_then(|preference| preference.refresh_millihz),
+                configured_refresh_millihz,
                 vrr_enabled,
                 "connected KMS output"
             );
@@ -4413,7 +4694,7 @@ fn stage_output_vrr(surface: &DrmSurface, output: &ConnectedOutput) -> Result<()
         .map_err(|error| format!("{} VRR staging failed: {error}", output.name).into())
 }
 
-const CONFIGURED_REFRESH_TOLERANCE_MILLIHZ: u32 = 1_000;
+const REFRESH_FALLBACK_WARNING_MILLIHERTZ: u32 = 1_000;
 
 fn select_output_mode(
     connector: &connector::Info,
@@ -4465,8 +4746,7 @@ fn select_refresh_millihz(
     let refreshes = refreshes.into_iter();
     match configured_refresh_millihz {
         Some(configured) => refreshes
-            .min_by_key(|refresh| (refresh.abs_diff(configured), std::cmp::Reverse(*refresh)))
-            .filter(|refresh| refresh.abs_diff(configured) <= CONFIGURED_REFRESH_TOLERANCE_MILLIHZ),
+            .min_by_key(|refresh| (refresh.abs_diff(configured), std::cmp::Reverse(*refresh))),
         None => refreshes.max(),
     }
 }
@@ -4548,10 +4828,10 @@ mod output_mode_tests {
     }
 
     #[test]
-    fn configured_refresh_does_not_silently_fall_back_to_another_rate() {
+    fn configured_refresh_falls_back_to_the_nearest_available_rate() {
         assert_eq!(
             select_refresh_millihz([60_000, 180_000, 280_000], Some(200_000)),
-            None
+            Some(180_000)
         );
     }
 }

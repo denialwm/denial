@@ -11,12 +11,12 @@ class AppLaunchRequest {
     required this.iconPath,
     required Iterable<String> expectedAppIds,
     required Iterable<int> existingObjectIds,
-  })  : expectedAppIds = Set<String>.unmodifiable(
-          expectedAppIds
-              .map(normalizeAppId)
-              .where((identity) => identity.isNotEmpty),
-        ),
-        existingObjectIds = Set<int>.unmodifiable(existingObjectIds);
+  }) : expectedAppIds = Set<String>.unmodifiable(
+         expectedAppIds
+             .map(normalizeAppId)
+             .where((identity) => identity.isNotEmpty),
+       ),
+       existingObjectIds = Set<int>.unmodifiable(existingObjectIds);
 
   final int requestId;
   final String appName;

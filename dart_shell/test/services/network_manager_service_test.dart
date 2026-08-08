@@ -98,10 +98,7 @@ void main() {
     expect(normalized, hasLength(64));
     expect(normalized.first.ssid, 'Home');
     expect(normalized.first.savedConnectionPath, '/saved/home');
-    expect(
-      normalized.where((network) => network.ssid == 'Cafe'),
-      hasLength(1),
-    );
+    expect(normalized.where((network) => network.ssid == 'Cafe'), hasLength(1));
     expect(
       normalized.singleWhere((network) => network.ssid == 'Cafe').strength,
       82,
@@ -144,11 +141,7 @@ void main() {
     );
     expect(
       () => buildWifiConnectionSettings(
-        _network(
-          'Company',
-          strength: 60,
-          security: WifiSecurity.enterprise,
-        ),
+        _network('Company', strength: 60, security: WifiSecurity.enterprise),
       ),
       throwsStateError,
     );

@@ -28,10 +28,7 @@ class DesktopWindowRenderTelemetry {
     }
     _enabled = true;
     _clock.start();
-    Timer.periodic(
-      const Duration(seconds: 1),
-      (_) => _report(),
-    );
+    Timer.periodic(const Duration(seconds: 1), (_) => _report());
     _event('start');
   }
 
@@ -55,11 +52,7 @@ class DesktopWindowRenderTelemetry {
     }
     _knownWindows.add(windowId);
     _lastPaintSizes[windowId] = size;
-    _shadowPaints.update(
-      windowId,
-      (count) => count + 1,
-      ifAbsent: () => 1,
-    );
+    _shadowPaints.update(windowId, (count) => count + 1, ifAbsent: () => 1);
   }
 
   static void recordBorderPaint(int windowId, Size size) {
@@ -68,11 +61,7 @@ class DesktopWindowRenderTelemetry {
     }
     _knownWindows.add(windowId);
     _lastPaintSizes[windowId] = size;
-    _borderPaints.update(
-      windowId,
-      (count) => count + 1,
-      ifAbsent: () => 1,
-    );
+    _borderPaints.update(windowId, (count) => count + 1, ifAbsent: () => 1);
   }
 
   static void _report() {

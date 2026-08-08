@@ -7,6 +7,9 @@
 /dart_shell/.flutter-plugins-dependencies
 /.denial-ui-source.json
 
+# Local credentials and environment overrides.
+/.env
+
 # Locally rebuilt Flutter Embedder library. Its sources, build recipe, and
 # expected checksum are tracked; the generated architecture-specific binary
 # is not.
@@ -30,3 +33,8 @@
 
 # Local-only cursor reference; its license prohibits redistribution.
 /dart_shell/assets/cursors/yangyang_xuanling/
+/profiling
+
+# Local profiling bytecode and retained engine comparison artifacts.
+/tools/__pycache__/
+/prebuilt/flutter-engine/*/libflutter_engine.so.before-*

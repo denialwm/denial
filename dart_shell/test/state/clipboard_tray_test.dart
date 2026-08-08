@@ -96,7 +96,7 @@ void main() {
     const tray = ClipboardTrayState(progress: 0.5, monitorId: 7);
     const layout = ShellLayoutSettings(
       clipboardTrayEdge: ClipboardTrayEdge.left,
-      clipboardTrayExtent: 720,
+      clipboardTrayExtent: clipboardTrayMaximumExtent,
     );
 
     expect(
@@ -104,7 +104,7 @@ void main() {
         tray,
         layout,
         monitorId: 8,
-        outputSize: const Size(500, 900),
+        outputSize: const Size(220, 900),
       ),
       Offset.zero,
     );
@@ -113,9 +113,9 @@ void main() {
         tray,
         layout,
         monitorId: 7,
-        outputSize: const Size(500, 900),
+        outputSize: const Size(220, 900),
       ),
-      const Offset(202, 0),
+      const Offset(62, 0),
     );
   });
 

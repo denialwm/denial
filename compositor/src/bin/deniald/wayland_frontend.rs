@@ -5,7 +5,7 @@ use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
 use std::process::Stdio;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use denial_core::topology::{AtlasPlan, OutputId, TopologySnapshot};
 #[cfg(feature = "flutter")]
@@ -87,6 +87,7 @@ use smithay::wayland::tablet_manager::TabletSeatHandler;
 use smithay::wayland::viewporter::ViewporterState;
 use smithay::wayland::xwayland_shell::XWaylandShellState;
 use smithay::wayland::xwayland_keyboard_grab::XWaylandKeyboardGrabState;
+use smithay::wayland::xdg_activation::XdgActivationState;
 use smithay::xwayland::{X11Wm, XWayland, XWaylandClientData, XWaylandEvent};
 use tracing::{error, info, warn};
 
@@ -136,6 +137,8 @@ mod presentation;
 #[path = "wayland_frontend/screencopy.rs"]
 mod screencopy;
 #[cfg(feature = "flutter")]
+pub(crate) use screencopy::{copy_atlas_region_to_memory, copy_atlas_to_dmabuf};
+#[cfg(feature = "flutter")]
 #[path = "wayland_frontend/surface_snapshot.rs"]
 mod surface_snapshot;
 #[path = "wayland_frontend/topology.rs"]
@@ -146,7 +149,9 @@ mod window_management;
 mod xwayland;
 
 #[cfg(feature = "flutter")]
-pub(super) use clipboard_io::{apply_clipboard_actions, cancel_clipboard_captures};
+pub(super) use clipboard_io::{
+    DeferredClipboardCapture, apply_clipboard_actions, cancel_clipboard_captures,
+};
 use focus::KeyboardFocusTarget;
 use handlers::{MAX_WAYLAND_CLIENTS, WaylandClientBudget};
 #[cfg(feature = "flutter")]
@@ -173,6 +178,7 @@ use window_management::{
 };
 
 const MAX_PENDING_DMABUF_IMPORTS: usize = 128;
+const XDG_ACTIVATION_TOKEN_LIFETIME: Duration = Duration::from_secs(10);
 
 fn dmabuf_import_queue_has_capacity(pending: usize) -> bool {
     pending < MAX_PENDING_DMABUF_IMPORTS
@@ -273,6 +279,7 @@ pub(super) struct WaylandFrontend {
     pub space: Space<Window>,
     pub compositor_state: CompositorState,
     pub xdg_shell_state: XdgShellState,
+    pub xdg_activation_state: XdgActivationState,
     pub xwayland_shell_state: XWaylandShellState,
     pub _xwayland_keyboard_grab_state: XWaylandKeyboardGrabState,
     pub _relative_pointer_manager_state: RelativePointerManagerState,
@@ -648,6 +655,7 @@ impl WaylandFrontend {
         let loop_handle = event_loop.handle();
         let compositor_state = CompositorState::new::<RuntimeState>(&display_handle);
         let xdg_shell_state = XdgShellState::new::<RuntimeState>(&display_handle);
+        let xdg_activation_state = XdgActivationState::new::<RuntimeState>(&display_handle);
         let xwayland_shell_state = XWaylandShellState::new::<RuntimeState>(&display_handle);
         let xwayland_keyboard_grab_state =
             XWaylandKeyboardGrabState::new::<RuntimeState>(&display_handle);
@@ -933,6 +941,7 @@ impl WaylandFrontend {
             space,
             compositor_state,
             xdg_shell_state,
+            xdg_activation_state,
             xwayland_shell_state,
             _xwayland_keyboard_grab_state: xwayland_keyboard_grab_state,
             _relative_pointer_manager_state: relative_pointer_manager_state,
@@ -1082,7 +1091,11 @@ impl WaylandFrontend {
 
     #[cfg(feature = "flutter")]
     fn update_cursor_image(&mut self, image: CursorImageStatus) {
-        let shape = software_cursor_shape(&image);
+        let shape = if self.clipboard_drag_active {
+            "default"
+        } else {
+            software_cursor_shape(&image)
+        };
         self.cursor_status = image;
         if matches!(self.routed_pointer_target, RoutedPointerTarget::Client(_)) {
             self.queue_cursor_shape(shape);
@@ -1101,9 +1114,33 @@ impl WaylandFrontend {
 
     #[cfg(feature = "flutter")]
     pub(super) fn request_flutter_cursor_shape(&mut self, shape: &'static str) {
+        if self.clipboard_drag_active {
+            self.queue_cursor_shape("default");
+            return;
+        }
         if let Some(shape) = accepted_flutter_cursor_shape(self.routed_pointer_target, shape) {
             self.queue_cursor_shape(shape);
         }
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn set_clipboard_drag_active(&mut self, active: bool) {
+        if self.clipboard_drag_active == active {
+            if active {
+                self.queue_cursor_shape("default");
+            }
+            return;
+        }
+        self.clipboard_drag_active = active;
+        self.published_cursor_shape = None;
+        self.pending_cursor_shape = if active {
+            Some("default")
+        } else {
+            match self.routed_pointer_target {
+                RoutedPointerTarget::Flutter => None,
+                RoutedPointerTarget::Client(_) => Some(software_cursor_shape(&self.cursor_status)),
+            }
+        };
     }
 
     #[cfg(feature = "flutter")]
@@ -1113,6 +1150,10 @@ impl WaylandFrontend {
         }
         self.routed_pointer_target = target;
         self.published_cursor_shape = None;
+        if self.clipboard_drag_active {
+            self.pending_cursor_shape = Some("default");
+            return;
+        }
         match target {
             // Dart's MouseRegion owns cursor selection again.  Discard a
             // client update which has not crossed the bridge yet so it cannot
@@ -1162,6 +1203,14 @@ impl WaylandFrontend {
         }
         self.window_root_surface(window)
             .map(KeyboardFocusTarget::Wayland)
+    }
+
+    /// Mints a one-shot token for a user launch initiated by Denial's shell.
+    pub(super) fn create_launch_activation_token(&mut self) -> String {
+        self.xdg_activation_state
+            .retain_tokens(|_, data| data.timestamp.elapsed() <= XDG_ACTIVATION_TOKEN_LIFETIME);
+        let (token, _) = self.xdg_activation_state.create_external_token(None);
+        token.to_string()
     }
 
     /// Raises a desktop window in both compositor and X11 stacking state.
@@ -3454,7 +3503,7 @@ mod tests {
         InitialXdgPlacementPolicy, MAX_PENDING_DMABUF_IMPORTS, dmabuf_import_queue_has_capacity,
         initial_xdg_placement_policy,
     };
-    use super::{RuntimeState, ViewporterState};
+    use super::{RuntimeState, ViewporterState, XdgActivationState};
     use crate::window_placement_store::WindowPlacementState;
     #[cfg(feature = "flutter")]
     use crate::wire::{InputLayoutSnapshot, InputRect, WindowOpacityClass};
@@ -3519,6 +3568,21 @@ mod tests {
             .expect("wp_viewporter global should remain registered");
 
         assert_eq!(global.interface.name, "wp_viewporter");
+        assert_eq!(global.version, 1);
+        assert!(!global.disabled);
+    }
+
+    #[test]
+    fn advertises_xdg_activation_version_one() {
+        let display = Display::<RuntimeState>::new().expect("Wayland display should initialize");
+        let display_handle = display.handle();
+        let activation = XdgActivationState::new::<RuntimeState>(&display_handle);
+        let global = display_handle
+            .backend_handle()
+            .global_info(activation.global())
+            .expect("xdg_activation_v1 global should remain registered");
+
+        assert_eq!(global.interface.name, "xdg_activation_v1");
         assert_eq!(global.version, 1);
         assert!(!global.disabled);
     }

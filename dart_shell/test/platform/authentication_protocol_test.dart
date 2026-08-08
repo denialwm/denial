@@ -26,9 +26,7 @@ void main() {
     expect(AuthenticationProtocol.decode(null), isNull);
     expect(AuthenticationProtocol.decode(ByteData(23)), isNull);
     expect(
-      AuthenticationProtocol.decode(
-        ByteData(authenticationMaxPacketBytes + 1),
-      ),
+      AuthenticationProtocol.decode(ByteData(authenticationMaxPacketBytes + 1)),
       isNull,
     );
     expect(

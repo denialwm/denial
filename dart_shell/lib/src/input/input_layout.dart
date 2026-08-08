@@ -92,12 +92,7 @@ class ShellMetrics {
 
   static Rect edgePanelRect(Size viewSize, double progress) {
     final height = edgePanelHeight(viewSize) * progress.clamp(0.0, 1.0);
-    return Rect.fromLTWH(
-      0,
-      viewSize.height - height,
-      viewSize.width,
-      height,
-    );
+    return Rect.fromLTWH(0, viewSize.height - height, viewSize.width, height);
   }
 
   static Rect edgePanelScrollStripRect(Size viewSize) {

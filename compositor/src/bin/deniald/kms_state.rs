@@ -303,6 +303,27 @@ pub(super) struct AtlasSwapchain {
     pub(super) current: usize,
 }
 
+pub(super) struct ScreenshotBuffer {
+    pub(super) dmabuf: Dmabuf,
+    _buffer: GbmBuffer,
+}
+
+impl ScreenshotBuffer {
+    pub(super) fn allocate(
+        allocator: &mut GbmAllocator<DrmDeviceFd>,
+        size: PixelSize,
+        modifier: Modifier,
+    ) -> Result<Self, Box<dyn Error>> {
+        let buffer =
+            allocator.create_buffer(size.width, size.height, Fourcc::Xrgb8888, &[modifier])?;
+        let dmabuf = buffer.export()?;
+        Ok(Self {
+            dmabuf,
+            _buffer: buffer,
+        })
+    }
+}
+
 pub(super) struct LayoutTransition {
     pub(super) at_frame: u64,
     pub(super) positions: BTreeMap<String, LogicalPoint>,

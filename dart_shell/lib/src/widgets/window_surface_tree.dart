@@ -38,9 +38,10 @@ class WindowSurfaceTree extends StatelessWidget {
           child: Stack(
             clipBehavior: Clip.hardEdge,
             children: [
-              for (final layer in includePopups
-                  ? window.surfaceLayers
-                  : window.mainSurfaceLayers)
+              for (final layer
+                  in includePopups
+                      ? window.surfaceLayers
+                      : window.mainSurfaceLayers)
                 if (layer.textureId > 0)
                   Positioned.fromRect(
                     rect: window.mapSurfaceRect(layer, targetRect),
@@ -85,7 +86,8 @@ class SurfaceLayerTexture extends StatelessWidget {
           return const SizedBox.shrink();
         }
 
-        final usesWholeBuffer = layer.textureSourceX.abs() < 0.001 &&
+        final usesWholeBuffer =
+            layer.textureSourceX.abs() < 0.001 &&
             layer.textureSourceY.abs() < 0.001 &&
             (sourceWidth - bufferWidth).abs() < 0.001 &&
             (sourceHeight - bufferHeight).abs() < 0.001;
@@ -158,7 +160,8 @@ class _LegacyWindowTexture extends StatelessWidget {
           return const SizedBox.shrink();
         }
 
-        final usesWholeBuffer = window.textureSourceX.abs() < 0.001 &&
+        final usesWholeBuffer =
+            window.textureSourceX.abs() < 0.001 &&
             window.textureSourceY.abs() < 0.001 &&
             (sourceWidth - bufferWidth).abs() < 0.001 &&
             (sourceHeight - bufferHeight).abs() < 0.001;
@@ -205,10 +208,7 @@ class _LegacyWindowTexture extends StatelessWidget {
 }
 
 class _SurfaceOpacity extends StatelessWidget {
-  const _SurfaceOpacity({
-    required this.opacity,
-    required this.child,
-  });
+  const _SurfaceOpacity({required this.opacity, required this.child});
 
   final double opacity;
   final Widget child;

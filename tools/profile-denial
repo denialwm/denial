@@ -1,0 +1,1525 @@
+#!/usr/bin/env python3
+"""Capture and summarize CPU profiles for a running Denial compositor.
+
+The target process and every mapped object are opened read-only.  The only
+writes are the newly-created capture directory and perf's files inside it.
+"""
+
+from __future__ import annotations
+
+import argparse
+import collections
+import dataclasses
+import datetime as dt
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import struct
+import subprocess
+import sys
+import time
+from typing import Iterable, TextIO
+
+
+DEFAULT_DURATION = 12.0
+DEFAULT_STAT_DURATION = 3.0
+DEFAULT_FREQUENCY = 799
+DEFAULT_TOP = 20
+POLL_INTERVAL = 0.20
+DELETED_DSO_SUFFIX = " (deleted)"
+
+
+class ProfileError(RuntimeError):
+    pass
+
+
+@dataclasses.dataclass
+class ThreadObservation:
+    tid: int
+    name: str
+    first_user_ticks: int
+    first_system_ticks: int
+    last_user_ticks: int
+    last_system_ticks: int
+
+    @property
+    def user_ticks(self) -> int:
+        return max(0, self.last_user_ticks - self.first_user_ticks)
+
+    @property
+    def system_ticks(self) -> int:
+        return max(0, self.last_system_ticks - self.first_system_ticks)
+
+    @property
+    def total_ticks(self) -> int:
+        return self.user_ticks + self.system_ticks
+
+
+@dataclasses.dataclass(frozen=True)
+class SampleLocation:
+    command: str
+    dso: str
+    dso_offset: int | None
+    perf_symbol: str
+
+
+@dataclasses.dataclass(frozen=True)
+class ResolvedLocation:
+    function: str
+    source: str
+
+
+@dataclasses.dataclass(frozen=True)
+class ElfSection:
+    address: int
+    offset: int
+    size: int
+    section_type: int
+
+
+SAMPLE_RE = re.compile(
+    r"^\s*(?P<comm>.*?)\s+"
+    r"(?P<pid>\d+)/(?P<tid>\d+)\s+"
+    r"(?P<period>\d+)\s+"
+    r"(?P<event>\S+):\s+"
+    r"(?P<ip>[0-9a-fA-F]+)\s+"
+    r"(?P<symbol>.*?)\s+"
+    r"\((?P<location>.*)\)$"
+)
+SYMBOL_OFFSET_RE = re.compile(r"\+0x[0-9a-fA-F]+$")
+DSO_OFFSET_RE = re.compile(r"^(?P<dso>.*)\+0x(?P<offset>[0-9a-fA-F]+)$")
+ADDR2LINE_RE = re.compile(
+    r"^0x(?P<address>[0-9a-fA-F]+):\s+(?P<function>.*?)\s+at\s+(?P<source>.*)$"
+)
+
+
+def positive_float(value: str) -> float:
+    parsed = float(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than zero")
+    return parsed
+
+
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than zero")
+    return parsed
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Profile the running Denial compositor without stopping it or "
+            "modifying its binaries."
+        )
+    )
+    parser.add_argument("--pid", type=positive_int, help="explicit deniald PID")
+    parser.add_argument(
+        "--duration",
+        type=positive_float,
+        default=DEFAULT_DURATION,
+        help=f"sampling seconds (default: {DEFAULT_DURATION:g})",
+    )
+    parser.add_argument(
+        "--stat-duration",
+        type=positive_float,
+        default=DEFAULT_STAT_DURATION,
+        help=f"counter seconds after sampling (default: {DEFAULT_STAT_DURATION:g})",
+    )
+    parser.add_argument(
+        "--frequency",
+        type=positive_int,
+        default=DEFAULT_FREQUENCY,
+        help=f"samples per second per event (default: {DEFAULT_FREQUENCY})",
+    )
+    parser.add_argument(
+        "--top",
+        type=positive_int,
+        default=DEFAULT_TOP,
+        help=f"rows in terminal and summary tables (default: {DEFAULT_TOP})",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="new output directory (default: profiling/<timestamp>-denial-cpu)",
+    )
+    parser.add_argument(
+        "--engine-symbols",
+        type=Path,
+        help="unstripped libflutter_engine.so; executable .text must match exactly",
+    )
+    parser.add_argument(
+        "--debug-elf",
+        action="append",
+        default=[],
+        metavar="DSO=ELF",
+        help="matching symbol ELF for another DSO; may be repeated",
+    )
+    return parser.parse_args()
+
+
+def fail(message: str) -> None:
+    raise ProfileError(message)
+
+
+def require_tool(name: str) -> str:
+    path = shutil.which(name)
+    if path is None:
+        fail(f"required tool is missing: {name}")
+    return path
+
+
+def read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def find_denial_pid(explicit_pid: int | None) -> int:
+    if explicit_pid is not None:
+        comm_path = Path(f"/proc/{explicit_pid}/comm")
+        if not comm_path.is_file():
+            fail(f"PID {explicit_pid} does not exist")
+        if read_text(comm_path).strip() != "deniald":
+            fail(f"PID {explicit_pid} is not deniald")
+        return explicit_pid
+
+    candidates: list[int] = []
+    own_uid = os.getuid()
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            if entry.stat().st_uid != own_uid:
+                continue
+            if read_text(entry / "comm").strip() == "deniald":
+                candidates.append(int(entry.name))
+        except (FileNotFoundError, PermissionError, ProcessLookupError):
+            continue
+    if not candidates:
+        fail("no running deniald process was found")
+    if len(candidates) != 1:
+        joined = ", ".join(str(pid) for pid in sorted(candidates))
+        fail(f"multiple deniald processes were found ({joined}); pass --pid")
+    return candidates[0]
+
+
+def process_cmdline(pid: int) -> list[str]:
+    raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    return [part.decode(errors="replace") for part in raw.split(b"\0") if part]
+
+
+def process_maps(pid: int) -> list[Path]:
+    paths: dict[str, Path] = {}
+    for line in read_text(Path(f"/proc/{pid}/maps")).splitlines():
+        fields = line.split(maxsplit=5)
+        if len(fields) != 6 or not fields[5].startswith("/"):
+            continue
+        path_text = fields[5]
+        if path_text.endswith(DELETED_DSO_SUFFIX):
+            path_text = path_text.removesuffix(DELETED_DSO_SUFFIX)
+        paths[path_text] = Path(path_text)
+    return sorted(paths.values(), key=str)
+
+
+def process_deleted_maps(pid: int) -> list[str]:
+    deleted: set[str] = set()
+    for line in read_text(Path(f"/proc/{pid}/maps")).splitlines():
+        fields = line.split(maxsplit=5)
+        if len(fields) != 6 or not fields[5].endswith(DELETED_DSO_SUFFIX):
+            continue
+        path_text = fields[5].removesuffix(DELETED_DSO_SUFFIX)
+        # Anonymous memfds routinely carry Linux's "(deleted)" suffix even
+        # though no on-disk DSO was replaced. Only surface filesystem-backed
+        # mappings here; those are the mappings that can invalidate symbols.
+        if path_text.startswith("/memfd:"):
+            continue
+        deleted.add(fields[5])
+    return sorted(deleted)
+
+
+def parse_proc_stat(path: Path) -> tuple[int, int]:
+    text = read_text(path).strip()
+    close = text.rfind(")")
+    if close < 0:
+        fail(f"malformed proc stat: {path}")
+    fields = text[close + 2 :].split()
+    if len(fields) < 13:
+        fail(f"short proc stat: {path}")
+    return int(fields[11]), int(fields[12])
+
+
+class ThreadTracker:
+    def __init__(self, pid: int) -> None:
+        self.pid = pid
+        self.observations: dict[int, ThreadObservation] = {}
+
+    def observe(self) -> None:
+        task_root = Path(f"/proc/{self.pid}/task")
+        try:
+            tasks = list(task_root.iterdir())
+        except FileNotFoundError:
+            return
+        for task in tasks:
+            if not task.name.isdigit():
+                continue
+            try:
+                tid = int(task.name)
+                name = read_text(task / "comm").strip()
+                user_ticks, system_ticks = parse_proc_stat(task / "stat")
+            except (FileNotFoundError, PermissionError, ProcessLookupError, ValueError):
+                continue
+            current = self.observations.get(tid)
+            if current is None:
+                self.observations[tid] = ThreadObservation(
+                    tid=tid,
+                    name=name,
+                    first_user_ticks=user_ticks,
+                    first_system_ticks=system_ticks,
+                    last_user_ticks=user_ticks,
+                    last_system_ticks=system_ticks,
+                )
+            else:
+                current.name = name
+                current.last_user_ticks = user_ticks
+                current.last_system_ticks = system_ticks
+
+
+def read_elf_sections(path: Path) -> dict[str, ElfSection]:
+    with path.open("rb") as elf:
+        header = elf.read(64)
+        if len(header) != 64 or header[:4] != b"\x7fELF":
+            fail(f"not an ELF file: {path}")
+        if header[4] != 2 or header[5] != 1:
+            fail(f"only little-endian ELF64 is supported: {path}")
+        section_offset = struct.unpack_from("<Q", header, 0x28)[0]
+        section_entry_size = struct.unpack_from("<H", header, 0x3A)[0]
+        section_count = struct.unpack_from("<H", header, 0x3C)[0]
+        strings_index = struct.unpack_from("<H", header, 0x3E)[0]
+        if section_entry_size < 64 or section_count == 0 or strings_index >= section_count:
+            fail(f"unsupported ELF section table: {path}")
+
+        headers: list[tuple[int, int, int, int, int]] = []
+        for index in range(section_count):
+            elf.seek(section_offset + index * section_entry_size)
+            raw = elf.read(64)
+            if len(raw) != 64:
+                fail(f"truncated ELF section table: {path}")
+            name, section_type, _flags, address, offset, size = struct.unpack_from(
+                "<IIQQQQ", raw
+            )
+            headers.append((name, section_type, address, offset, size))
+
+        _, _, _, strings_offset, strings_size = headers[strings_index]
+        elf.seek(strings_offset)
+        strings = elf.read(strings_size)
+        if len(strings) != strings_size:
+            fail(f"truncated ELF section names: {path}")
+
+    sections: dict[str, ElfSection] = {}
+    for name_offset, section_type, address, offset, size in headers:
+        if name_offset >= len(strings):
+            continue
+        end = strings.find(b"\0", name_offset)
+        if end < 0:
+            continue
+        name = strings[name_offset:end].decode(errors="replace")
+        sections[name] = ElfSection(address, offset, size, section_type)
+    return sections
+
+
+def sections_match(first: Path, second: Path, section_name: str = ".text") -> bool:
+    try:
+        first_section = read_elf_sections(first)[section_name]
+        second_section = read_elf_sections(second)[section_name]
+    except (KeyError, OSError, ProfileError):
+        return False
+    if (
+        first_section.address != second_section.address
+        or first_section.size != second_section.size
+    ):
+        return False
+    remaining = first_section.size
+    with first.open("rb") as left, second.open("rb") as right:
+        left.seek(first_section.offset)
+        right.seek(second_section.offset)
+        while remaining:
+            amount = min(1024 * 1024, remaining)
+            if left.read(amount) != right.read(amount):
+                return False
+            remaining -= amount
+    return True
+
+
+def engine_symbol_candidates(explicit: Path | None) -> list[Path]:
+    if explicit is not None:
+        return [explicit.expanduser().resolve()]
+
+    candidates: list[Path] = []
+    environment_path = os.environ.get("DENIAL_FLUTTER_ENGINE_SYMBOLS")
+    if environment_path:
+        candidates.append(Path(environment_path).expanduser())
+
+    cache_root = Path(
+        os.environ.get(
+            "DENIAL_FLUTTER_ENGINE_CACHE_ROOT",
+            Path.home() / ".cache/denial/flutter-engine",
+        )
+    )
+    candidates.append(
+        cache_root
+        / "build/out/denial_host_release/lib.unstripped/libflutter_engine.so"
+    )
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        candidate = candidate.expanduser()
+        if candidate not in seen:
+            seen.add(candidate)
+            unique.append(candidate)
+    return unique
+
+
+def find_engine_symbols(loaded_engine: Path, explicit: Path | None) -> Path | None:
+    for candidate in engine_symbol_candidates(explicit):
+        if candidate.is_file() and sections_match(loaded_engine, candidate):
+            return candidate.resolve()
+    if explicit is not None:
+        fail(
+            "the supplied --engine-symbols ELF does not have byte-identical "
+            f".text: {explicit}"
+        )
+    return None
+
+
+def parse_debug_elf_options(values: list[str]) -> dict[str, Path]:
+    parsed: dict[str, Path] = {}
+    for value in values:
+        if "=" not in value:
+            fail(f"--debug-elf must be DSO=ELF, got: {value}")
+        dso, elf = value.split("=", 1)
+        path = Path(elf).expanduser().resolve()
+        if not dso or not path.is_file():
+            fail(f"invalid --debug-elf value: {value}")
+        parsed[dso] = path
+    return parsed
+
+
+def fetch_hot_debuginfo(
+    debuginfod_find: str | None,
+    output: Path,
+    cpu_total: int,
+    cpu_samples: dict[SampleLocation, int],
+    instruction_total: int,
+    instruction_samples: dict[SampleLocation, int],
+    debug_elfs: dict[str, Path],
+) -> dict[str, Path]:
+    """Fetch debug ELFs for hot stripped system DSOs into the capture directory."""
+    if debuginfod_find is None:
+        return {}
+
+    shares: dict[str, float] = collections.defaultdict(float)
+    paths: dict[str, Path] = {}
+    unresolved: set[str] = set()
+    deleted: set[str] = set()
+    for total, samples in (
+        (cpu_total, cpu_samples),
+        (instruction_total, instruction_samples),
+    ):
+        per_dso: dict[str, int] = collections.defaultdict(int)
+        for location, period in samples.items():
+            key = dso_key(location.dso)
+            per_dso[key] += period
+            if location.perf_symbol == "[unknown]":
+                unresolved.add(key)
+            if location.dso.startswith("/"):
+                if dso_was_deleted(location.dso):
+                    deleted.add(key)
+                else:
+                    paths[key] = Path(normalize_dso_path(location.dso))
+        for key, value in per_dso.items():
+            shares[key] = max(shares[key], percent(value, total))
+
+    cache = output / "debuginfod-cache"
+    errors: list[str] = []
+    fetched: dict[str, Path] = {}
+    candidates = sorted(shares, key=shares.get, reverse=True)
+    for key in candidates:
+        if len(fetched) >= 5 or shares[key] < 0.5:
+            break
+        path = paths.get(key)
+        if (
+            key in debug_elfs
+            or key not in unresolved
+        ):
+            continue
+        if key in deleted:
+            errors.append(
+                f"{key}: mapped file was deleted; refused to use a potentially "
+                "different replacement file"
+            )
+            continue
+        if path is None or not path.is_file() or not str(path).startswith("/usr/"):
+            continue
+        cache.mkdir(parents=True, exist_ok=True)
+        environment = os.environ.copy()
+        environment["DEBUGINFOD_CACHE_PATH"] = str(cache)
+        environment.pop("DEBUGINFOD_PROGRESS", None)
+        try:
+            result = subprocess.run(
+                [debuginfod_find, "debuginfo", str(path)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=300,
+                env=environment,
+            )
+        except subprocess.TimeoutExpired:
+            errors.append(f"{key}: debuginfod timed out after 300 seconds")
+            continue
+        debug_path = Path(result.stdout.strip())
+        if result.returncode == 0 and debug_path.is_file():
+            fetched[key] = debug_path.resolve()
+        else:
+            detail = result.stderr.strip() or "debug information was not found"
+            errors.append(f"{key}: {detail}")
+    if errors:
+        (output / "debuginfod-errors.txt").write_text(
+            "\n".join(errors) + "\n", encoding="utf-8"
+        )
+    return fetched
+
+
+def run_capture(
+    perf: str,
+    pid: int,
+    duration: float,
+    frequency: int,
+    output: Path,
+) -> tuple[ThreadTracker, float]:
+    cpu_data = output / "cpu-time.perf.data"
+    instruction_data = output / "instructions.perf.data"
+    cpu_stderr_path = output / "cpu-time-record.stderr.txt"
+    instruction_stderr_path = output / "instructions-record.stderr.txt"
+
+    common = [
+        perf,
+        "record",
+        "--quiet",
+        "--no-buildid-cache",
+        "--freq",
+        str(frequency),
+        "--pid",
+        str(pid),
+    ]
+    cpu_command = [
+        *common,
+        "--event",
+        "cpu-clock:u",
+        "--call-graph",
+        "dwarf,16384",
+        "--output",
+        str(cpu_data),
+        "--",
+        "sleep",
+        f"{duration:g}",
+    ]
+    instruction_command = [
+        *common,
+        "--event",
+        "instructions:u",
+        "--output",
+        str(instruction_data),
+        "--",
+        "sleep",
+        f"{duration:g}",
+    ]
+
+    tracker = ThreadTracker(pid)
+    tracker.observe()
+    started = time.monotonic()
+    with cpu_stderr_path.open("w", encoding="utf-8") as cpu_stderr, (
+        instruction_stderr_path.open("w", encoding="utf-8")
+    ) as instruction_stderr:
+        cpu_process = subprocess.Popen(
+            cpu_command,
+            stdout=subprocess.DEVNULL,
+            stderr=cpu_stderr,
+            text=True,
+        )
+        instruction_process = subprocess.Popen(
+            instruction_command,
+            stdout=subprocess.DEVNULL,
+            stderr=instruction_stderr,
+            text=True,
+        )
+        while cpu_process.poll() is None or instruction_process.poll() is None:
+            tracker.observe()
+            time.sleep(POLL_INTERVAL)
+        tracker.observe()
+        cpu_status = cpu_process.wait()
+        instruction_status = instruction_process.wait()
+    elapsed = time.monotonic() - started
+
+    failures: list[str] = []
+    if cpu_status != 0:
+        failures.append(
+            read_text(cpu_stderr_path).strip() or "CPU-time perf record failed"
+        )
+    if instruction_status != 0:
+        failures.append(
+            read_text(instruction_stderr_path).strip() or "instructions perf record failed"
+        )
+    if failures:
+        fail("; ".join(failures))
+    return tracker, elapsed
+
+
+def run_perf_stat(
+    perf: str,
+    pid: int,
+    duration: float,
+    output: Path,
+) -> dict[str, float]:
+    stat_path = output / "perf-stat.tsv"
+    command = [
+        perf,
+        "stat",
+        "--no-big-num",
+        "--field-separator",
+        "\t",
+        "--output",
+        str(stat_path),
+        "--event",
+        "task-clock:u,cycles:u,instructions:u,branches:u,branch-misses:u,"
+        "cache-references:u,cache-misses:u",
+        "--pid",
+        str(pid),
+        "--",
+        "sleep",
+        f"{duration:g}",
+    ]
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        (output / "perf-stat.stderr.txt").write_text(result.stderr, encoding="utf-8")
+        fail(result.stderr.strip() or "perf stat failed")
+
+    values: dict[str, float] = {}
+    for line in read_text(stat_path).splitlines():
+        if not line or line.startswith("#"):
+            continue
+        fields = line.split("\t")
+        if len(fields) < 3:
+            continue
+        raw_value = fields[0].strip()
+        event = fields[2].strip()
+        try:
+            values[event] = float(raw_value)
+        except ValueError:
+            continue
+    return values
+
+
+def run_report(command: list[str], destination: Path) -> None:
+    with destination.open("w", encoding="utf-8") as report:
+        result = subprocess.run(
+            command,
+            stdout=report,
+            stderr=subprocess.STDOUT,
+            text=True,
+            check=False,
+        )
+    if result.returncode != 0:
+        fail(f"report command failed; see {destination}")
+
+
+def generate_perf_reports(perf: str, output: Path) -> None:
+    cpu_data = output / "cpu-time.perf.data"
+    instruction_data = output / "instructions.perf.data"
+    run_report(
+        [
+            perf,
+            "report",
+            "--stdio",
+            "--no-children",
+            "--sort",
+            "comm,dso,symbol",
+            "--percent-limit",
+            "0.1",
+            "--input",
+            str(cpu_data),
+        ],
+        output / "cpu-time-direct-perf-report.txt",
+    )
+    run_report(
+        [
+            perf,
+            "report",
+            "--stdio",
+            "--children",
+            "--call-graph",
+            "graph,0.5,caller",
+            "--sort",
+            "comm,dso,symbol",
+            "--percent-limit",
+            "0.1",
+            "--input",
+            str(cpu_data),
+        ],
+        output / "cpu-time-inclusive-callgraph.txt",
+    )
+    run_report(
+        [
+            perf,
+            "report",
+            "--stdio",
+            "--no-children",
+            "--sort",
+            "comm,dso,symbol",
+            "--percent-limit",
+            "0.1",
+            "--input",
+            str(instruction_data),
+        ],
+        output / "instructions-direct-perf-report.txt",
+    )
+    run_report(
+        [perf, "buildid-list", "--input", str(cpu_data)],
+        output / "BUILDIDS",
+    )
+
+
+def parse_perf_samples(perf: str, data: Path) -> tuple[int, dict[SampleLocation, int]]:
+    command = [
+        perf,
+        "script",
+        "--hide-call-graph",
+        "--input",
+        str(data),
+        "--fields",
+        "event,comm,pid,tid,ip,sym,dso,dsoff,period",
+    ]
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if process.stdout is None or process.stderr is None:
+        fail("could not read perf script output")
+
+    total = 0
+    locations: dict[SampleLocation, int] = collections.defaultdict(int)
+    for line in process.stdout:
+        match = SAMPLE_RE.match(line.rstrip("\n"))
+        if match is None:
+            continue
+        period = int(match.group("period"))
+        location_text = match.group("location")
+        dso_match = DSO_OFFSET_RE.match(location_text)
+        if dso_match is None:
+            dso = location_text
+            dso_offset = None
+        else:
+            dso = dso_match.group("dso")
+            dso_offset = int(dso_match.group("offset"), 16)
+        perf_symbol = SYMBOL_OFFSET_RE.sub("", match.group("symbol"))
+        location = SampleLocation(
+            command=match.group("comm").strip(),
+            dso=dso,
+            dso_offset=dso_offset,
+            perf_symbol=perf_symbol,
+        )
+        total += period
+        locations[location] += period
+
+    stderr = process.stderr.read()
+    status = process.wait()
+    if status != 0:
+        fail(stderr.strip() or f"perf script failed for {data}")
+    if total == 0:
+        fail(f"no samples were decoded from {data}")
+    return total, dict(locations)
+
+
+def symbolize_offsets(
+    addr2line: str,
+    elf: Path,
+    offsets: Iterable[int],
+) -> dict[int, ResolvedLocation]:
+    unique = sorted(set(offsets))
+    resolved: dict[int, ResolvedLocation] = {}
+    for start in range(0, len(unique), 256):
+        batch = unique[start : start + 256]
+        command = [
+            addr2line,
+            "--addresses",
+            "--functions",
+            "--demangle",
+            "--pretty-print",
+            "--executable",
+            str(elf),
+            *[f"0x{offset:x}" for offset in batch],
+        ]
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            continue
+        for line in result.stdout.splitlines():
+            match = ADDR2LINE_RE.match(line)
+            if match is None:
+                continue
+            address = int(match.group("address"), 16)
+            function = match.group("function").strip()
+            source = match.group("source").strip()
+            if function != "??":
+                resolved[address] = ResolvedLocation(function, source)
+    return resolved
+
+
+def elf_address_for_file_offset(path: Path, file_offset: int) -> int:
+    """Translate perf's DSO file offset to the address used by ELF symbols."""
+    try:
+        sections = read_elf_sections(path)
+    except (OSError, ProfileError):
+        return file_offset
+    for section in sections.values():
+        # SHT_NOBITS occupies address space but has no corresponding file bytes.
+        if section.section_type == 8 or section.size == 0:
+            continue
+        if section.offset <= file_offset < section.offset + section.size:
+            return section.address + file_offset - section.offset
+    return file_offset
+
+
+def dso_was_deleted(path: str) -> bool:
+    return path.endswith(DELETED_DSO_SUFFIX)
+
+
+def normalize_dso_path(path: str) -> str:
+    return path.removesuffix(DELETED_DSO_SUFFIX)
+
+
+def dso_key(path: str) -> str:
+    if path.startswith("["):
+        return path
+    return Path(normalize_dso_path(path)).name
+
+
+def dso_label(path: str) -> str:
+    key = dso_key(path)
+    if dso_was_deleted(path):
+        return f"{key} (mapped, file deleted)"
+    return key
+
+
+def resolve_sample_locations(
+    addr2line: str,
+    samples: dict[SampleLocation, int],
+    debug_elfs: dict[str, Path],
+) -> dict[tuple[str, int], ResolvedLocation]:
+    requested: dict[str, set[int]] = collections.defaultdict(set)
+    dso_paths: dict[str, str] = {}
+    for location in samples:
+        if location.dso_offset is None:
+            continue
+        key = dso_key(location.dso)
+        if key in debug_elfs:
+            requested[key].add(location.dso_offset)
+            dso_paths[key] = location.dso
+
+    resolved: dict[tuple[str, int], ResolvedLocation] = {}
+    for key, offsets in requested.items():
+        mapped_path = Path(normalize_dso_path(dso_paths[key]))
+        translated = {
+            offset: elf_address_for_file_offset(mapped_path, offset)
+            for offset in offsets
+        }
+        symbolized = symbolize_offsets(
+            addr2line,
+            debug_elfs[key],
+            translated.values(),
+        )
+        for offset, address in translated.items():
+            value = symbolized.get(address)
+            if value is not None:
+                resolved[(key, offset)] = value
+    return resolved
+
+
+def function_for_sample(
+    location: SampleLocation,
+    resolved: dict[tuple[str, int], ResolvedLocation],
+) -> ResolvedLocation:
+    key = dso_key(location.dso)
+    if location.dso_offset is not None:
+        exact = resolved.get((key, location.dso_offset))
+        if exact is not None:
+            return exact
+    if location.perf_symbol and location.perf_symbol != "[unknown]":
+        return ResolvedLocation(location.perf_symbol, "")
+    if location.dso_offset is not None:
+        return ResolvedLocation(f"[unknown] @ +0x{location.dso_offset:x}", "")
+    return ResolvedLocation("[unknown]", "")
+
+
+def write_tsv(path: Path, header: list[str], rows: Iterable[Iterable[object]]) -> None:
+    with path.open("w", encoding="utf-8") as output:
+        output.write("\t".join(header) + "\n")
+        for row in rows:
+            output.write("\t".join(str(value).replace("\t", " ") for value in row) + "\n")
+
+
+def aggregate_samples(
+    total: int,
+    samples: dict[SampleLocation, int],
+    resolved: dict[tuple[str, int], ResolvedLocation],
+) -> tuple[
+    list[tuple[int, str]],
+    list[tuple[int, str]],
+    list[tuple[int, str, str, str, str]],
+    list[tuple[int, str, str, str, str, str]],
+]:
+    threads: dict[str, int] = collections.defaultdict(int)
+    dsos: dict[str, int] = collections.defaultdict(int)
+    methods: dict[tuple[str, str, str, str], int] = collections.defaultdict(int)
+    instructions: list[tuple[int, str, str, str, str, str]] = []
+
+    for location, period in samples.items():
+        dso = dso_label(location.dso)
+        resolved_location = function_for_sample(location, resolved)
+        threads[location.command] += period
+        dsos[dso] += period
+        methods[
+            (
+                location.command,
+                dso,
+                resolved_location.function,
+                resolved_location.source,
+            )
+        ] += period
+        offset = "" if location.dso_offset is None else f"0x{location.dso_offset:x}"
+        instructions.append(
+            (
+                period,
+                location.command,
+                dso,
+                offset,
+                resolved_location.function,
+                resolved_location.source,
+            )
+        )
+
+    thread_rows = sorted(
+        ((period, command) for command, period in threads.items()), reverse=True
+    )
+    dso_rows = sorted(((period, dso) for dso, period in dsos.items()), reverse=True)
+    method_rows = sorted(
+        (
+            (period, command, dso, function, source)
+            for (command, dso, function, source), period in methods.items()
+        ),
+        reverse=True,
+    )
+    instruction_rows = sorted(instructions, reverse=True)
+    return thread_rows, dso_rows, method_rows, instruction_rows
+
+
+def percent(period: int, total: int) -> float:
+    return period * 100.0 / total
+
+
+def write_event_tables(
+    output: Path,
+    event_name: str,
+    total: int,
+    aggregates: tuple[
+        list[tuple[int, str]],
+        list[tuple[int, str]],
+        list[tuple[int, str, str, str, str]],
+        list[tuple[int, str, str, str, str, str]],
+    ],
+) -> None:
+    threads, dsos, methods, instructions = aggregates
+    write_tsv(
+        output / f"{event_name}-threads.tsv",
+        ["percent", "weighted_period", "thread"],
+        ((f"{percent(value, total):.4f}", value, name) for value, name in threads),
+    )
+    write_tsv(
+        output / f"{event_name}-dsos.tsv",
+        ["percent", "weighted_period", "dso"],
+        ((f"{percent(value, total):.4f}", value, name) for value, name in dsos),
+    )
+    write_tsv(
+        output / f"{event_name}-methods.tsv",
+        ["percent", "weighted_period", "thread", "dso", "function", "source"],
+        (
+            (f"{percent(value, total):.4f}", value, command, dso, function, source)
+            for value, command, dso, function, source in methods
+        ),
+    )
+    write_tsv(
+        output / f"{event_name}-instructions.tsv",
+        ["percent", "weighted_period", "thread", "dso", "offset", "function", "source"],
+        (
+            (
+                f"{percent(value, total):.4f}",
+                value,
+                command,
+                dso,
+                offset,
+                function,
+                source,
+            )
+            for value, command, dso, offset, function, source in instructions
+        ),
+    )
+
+
+def markdown_escape(value: str) -> str:
+    return value.replace("|", "\\|").replace("\n", " ")
+
+
+def compact(value: str, limit: int = 120) -> str:
+    value = " ".join(value.split())
+    return value if len(value) <= limit else value[: limit - 1] + "…"
+
+
+def markdown_table(headers: list[str], rows: list[list[str]]) -> str:
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join("---" for _ in headers) + " |",
+    ]
+    lines.extend(
+        "| " + " | ".join(markdown_escape(cell) for cell in row) + " |" for row in rows
+    )
+    return "\n".join(lines)
+
+
+def thread_cpu_rows(
+    tracker: ThreadTracker,
+    elapsed: float,
+) -> list[tuple[float, float, float, int, str]]:
+    ticks_per_second = os.sysconf("SC_CLK_TCK")
+    rows: list[tuple[float, float, float, int, str]] = []
+    for observation in tracker.observations.values():
+        user = observation.user_ticks / ticks_per_second / elapsed * 100.0
+        system = observation.system_ticks / ticks_per_second / elapsed * 100.0
+        rows.append((user + system, user, system, observation.tid, observation.name))
+    return sorted(rows, reverse=True)
+
+
+def write_thread_cpu_table(output: Path, rows: list[tuple[float, float, float, int, str]]) -> None:
+    write_tsv(
+        output / "thread-cpu.tsv",
+        ["cpu_percent", "user_percent", "system_percent", "tid", "thread"],
+        (
+            (f"{total:.4f}", f"{user:.4f}", f"{system:.4f}", tid, name)
+            for total, user, system, tid, name in rows
+        ),
+    )
+
+
+def stat_summary(values: dict[str, float]) -> list[str]:
+    lines: list[str] = []
+    cycles = values.get("cycles:u")
+    instructions = values.get("instructions:u")
+    branches = values.get("branches:u")
+    branch_misses = values.get("branch-misses:u")
+    cache_references = values.get("cache-references:u")
+    cache_misses = values.get("cache-misses:u")
+    if cycles and instructions:
+        lines.append(f"Retired instructions per cycle: {instructions / cycles:.3f}")
+    if branches and branch_misses:
+        lines.append(f"Branch miss rate: {branch_misses * 100.0 / branches:.3f}%")
+    if cache_references and cache_misses:
+        lines.append(f"Cache miss rate: {cache_misses * 100.0 / cache_references:.3f}%")
+    return lines
+
+
+def named_symbol_coverage(
+    total: int,
+    rows: list[tuple[int, str, str, str, str]],
+) -> tuple[float, list[list[str]]]:
+    by_dso: dict[str, list[int]] = collections.defaultdict(lambda: [0, 0])
+    named_total = 0
+    for period, _command, dso, function, _source in rows:
+        by_dso[dso][0] += period
+        if not function.startswith("[unknown]"):
+            by_dso[dso][1] += period
+            named_total += period
+    coverage_rows = [
+        [
+            dso,
+            f"{period * 100.0 / total:.2f}%",
+            f"{named * 100.0 / period:.2f}%",
+        ]
+        for dso, (period, named) in sorted(
+            by_dso.items(), key=lambda item: item[1][0], reverse=True
+        )
+    ]
+    return named_total * 100.0 / total, coverage_rows
+
+
+def build_summary(
+    metadata: dict[str, object],
+    output: Path,
+    top: int,
+    elapsed: float,
+    thread_rows: list[tuple[float, float, float, int, str]],
+    stat_values: dict[str, float],
+    cpu_total: int,
+    cpu_aggregates: tuple[
+        list[tuple[int, str]],
+        list[tuple[int, str]],
+        list[tuple[int, str, str, str, str]],
+        list[tuple[int, str, str, str, str, str]],
+    ],
+    instruction_total: int,
+    instruction_aggregates: tuple[
+        list[tuple[int, str]],
+        list[tuple[int, str]],
+        list[tuple[int, str, str, str, str]],
+        list[tuple[int, str, str, str, str, str]],
+    ],
+) -> str:
+    cpu_threads, cpu_dsos, cpu_methods, cpu_instructions = cpu_aggregates
+    _, _, instruction_methods, instruction_addresses = instruction_aggregates
+    cpu_coverage, cpu_coverage_rows = named_symbol_coverage(
+        cpu_total, cpu_methods
+    )
+    instruction_coverage, _ = named_symbol_coverage(
+        instruction_total, instruction_methods
+    )
+    process_cpu = sum(row[0] for row in thread_rows)
+    process_user = sum(row[1] for row in thread_rows)
+    process_system = sum(row[2] for row in thread_rows)
+
+    sections: list[str] = [
+        "# Denial CPU profile",
+        "",
+        f"PID: {metadata['pid']}",
+        f"Sample wall time: {elapsed:.3f} seconds",
+        (
+            f"Observed process CPU: {process_cpu:.2f}% of one logical CPU "
+            f"({process_user:.2f}% user, {process_system:.2f}% system)"
+        ),
+        f"Rust executable SHA-256: `{metadata['executable_sha256']}`",
+        f"Flutter engine SHA-256: `{metadata.get('engine_sha256', 'unavailable')}`",
+        f"Dart AOT SHA-256: `{metadata.get('app_sha256', 'unavailable')}`",
+        f"Engine symbols: `{metadata.get('engine_symbols', 'not found')}`",
+        "",
+    ]
+    sections.extend(stat_summary(stat_values))
+    if stat_summary(stat_values):
+        sections.append("")
+
+    sections.extend(["## Top threads by measured CPU", ""])
+    sections.append(
+        markdown_table(
+            ["CPU", "User", "System", "TID", "Thread"],
+            [
+                [
+                    f"{total:.2f}%",
+                    f"{user:.2f}%",
+                    f"{system:.2f}%",
+                    str(tid),
+                    name,
+                ]
+                for total, user, system, tid, name in thread_rows[:top]
+                if total > 0
+            ],
+        )
+    )
+
+    sections.extend(["", "## Sampled CPU-time share by thread", ""])
+    sections.append(
+        markdown_table(
+            ["CPU time", "Thread"],
+            [
+                [f"{percent(value, cpu_total):.2f}%", name]
+                for value, name in cpu_threads[:top]
+            ],
+        )
+    )
+
+    sections.extend(["", "## Sampled CPU-time share by object", ""])
+    sections.append(
+        markdown_table(
+            ["CPU time", "Object"],
+            [
+                [f"{percent(value, cpu_total):.2f}%", name]
+                for value, name in cpu_dsos[:top]
+            ],
+        )
+    )
+
+    if cpu_threads:
+        hottest_period, hottest_thread = cpu_threads[0]
+        hottest_methods = [
+            row for row in cpu_methods if row[1] == hottest_thread
+        ]
+        hottest_objects: dict[str, int] = collections.defaultdict(int)
+        for value, _command, dso, _function, _source in hottest_methods:
+            hottest_objects[dso] += value
+        hottest_object_rows = sorted(
+            ((value, dso) for dso, value in hottest_objects.items()),
+            reverse=True,
+        )
+
+        sections.extend(
+            [
+                "",
+                f"## Hottest-thread breakdown: `{hottest_thread}`",
+                "",
+                "Percentages in this section are relative to that thread's sampled user CPU.",
+                "",
+            ]
+        )
+        sections.append(
+            markdown_table(
+                ["Thread CPU time", "Object"],
+                [
+                    [f"{percent(value, hottest_period):.2f}%", dso]
+                    for value, dso in hottest_object_rows[:top]
+                ],
+            )
+        )
+        sections.extend(["", "### Top direct methods in the hottest thread", ""])
+        sections.append(
+            markdown_table(
+                ["Thread CPU time", "Object", "Method"],
+                [
+                    [
+                        f"{percent(value, hottest_period):.2f}%",
+                        dso,
+                        compact(function),
+                    ]
+                    for value, _command, dso, function, _source in hottest_methods[:top]
+                ],
+            )
+        )
+
+    def method_rows(
+        rows: list[tuple[int, str, str, str, str]], total: int
+    ) -> list[list[str]]:
+        return [
+            [
+                f"{percent(value, total):.2f}%",
+                command,
+                dso,
+                compact(function),
+            ]
+            for value, command, dso, function, _source in rows[:top]
+        ]
+
+    sections.extend(["", "## Top direct CPU-time methods", ""])
+    sections.append(
+        markdown_table(
+            ["CPU time", "Thread", "Object", "Method"],
+            method_rows(cpu_methods, cpu_total),
+        )
+    )
+    sections.extend(["", "## Top direct retired-instruction methods", ""])
+    sections.append(
+        markdown_table(
+            ["Instructions", "Thread", "Object", "Method"],
+            method_rows(instruction_methods, instruction_total),
+        )
+    )
+
+    sections.extend(["", "## Native symbol-resolution coverage", ""])
+    sections.append(
+        f"Named symbols cover {cpu_coverage:.2f}% of sampled CPU time and "
+        f"{instruction_coverage:.2f}% of sampled retired instructions."
+    )
+    sections.append("")
+    sections.append(
+        markdown_table(
+            ["Object", "CPU-time share", "Named within object"],
+            cpu_coverage_rows[:top],
+        )
+    )
+
+    def address_rows(
+        rows: list[tuple[int, str, str, str, str, str]], total: int
+    ) -> list[list[str]]:
+        return [
+            [
+                f"{percent(value, total):.2f}%",
+                command,
+                dso,
+                offset or "n/a",
+                compact(function),
+            ]
+            for value, command, dso, offset, function, _source in rows[:top]
+        ]
+
+    sections.extend(["", "## Top sampled CPU-time instruction addresses", ""])
+    sections.append(
+        markdown_table(
+            ["CPU time", "Thread", "Object", "Offset", "Method"],
+            address_rows(cpu_instructions, cpu_total),
+        )
+    )
+    sections.extend(["", "## Top sampled retired-instruction addresses", ""])
+    sections.append(
+        markdown_table(
+            ["Instructions", "Thread", "Object", "Offset", "Method"],
+            address_rows(instruction_addresses, instruction_total),
+        )
+    )
+
+    sections.extend(
+        [
+            "",
+            "## Interpretation notes",
+            "",
+            "- CPU-time percentages are software clock samples; retired-instruction "
+            "percentages are hardware counter samples. Both are weighted by each "
+            "sample period and are statistical estimates, not instrumentation counts.",
+            "- Method tables are direct sampled instruction pointers (self cost). "
+            "`cpu-time-inclusive-callgraph.txt` contains caller/inclusive stacks.",
+            "- Release Dart AOT exposes snapshot offsets but not Dart method symbols. "
+            "Native Flutter/Skia, Rust, libc, and any supplied debug ELFs are resolved.",
+            *(
+                [
+                    "- One or more mapped objects were deleted after Denial started. "
+                    "Their instruction offsets remain exact, but the profiler refuses "
+                    "to symbolize them with replacement files unless an explicit "
+                    "matching ELF is supplied."
+                ]
+                if metadata.get("deleted_mappings")
+                else []
+            ),
+            "- Kernel work is included in `/proc` system CPU but intentionally excluded "
+            "from native instruction sampling (`:u`).",
+            "",
+            f"Full machine-readable tables and raw captures are in `{output}`.",
+            "",
+        ]
+    )
+    return "\n".join(sections)
+
+
+def print_terminal_summary(
+    summary: str,
+    output: Path,
+    top: int,
+    thread_rows: list[tuple[float, float, float, int, str]],
+    cpu_total: int,
+    cpu_methods: list[tuple[int, str, str, str, str]],
+    instruction_total: int,
+    instruction_methods: list[tuple[int, str, str, str, str]],
+) -> None:
+    process_cpu = sum(row[0] for row in thread_rows)
+    print(f"\nDenial CPU profile complete: {output}")
+    print(f"Observed process CPU: {process_cpu:.2f}% of one logical CPU")
+    print("\nTop threads:")
+    for total, user, system, tid, name in thread_rows[: min(top, 10)]:
+        if total > 0:
+            print(
+                f"  {total:6.2f}%  {name:<18} tid={tid} "
+                f"(user {user:.2f}%, system {system:.2f}%)"
+            )
+
+    def print_methods(
+        title: str,
+        total: int,
+        rows: list[tuple[int, str, str, str, str]],
+    ) -> None:
+        print(f"\n{title}:")
+        for value, command, dso, function, _source in rows[: min(top, 10)]:
+            print(
+                f"  {percent(value, total):6.2f}%  {command:<16} "
+                f"{dso}: {compact(function, 100)}"
+            )
+
+    print_methods("Top direct CPU-time methods", cpu_total, cpu_methods)
+    print_methods(
+        "Top direct retired-instruction methods",
+        instruction_total,
+        instruction_methods,
+    )
+    print(f"\nFull summary: {output / 'SUMMARY.md'}")
+
+
+def main() -> int:
+    args = parse_args()
+    if os.geteuid() == 0:
+        fail("do not run this profiler as root or through sudo")
+
+    perf = require_tool("perf")
+    addr2line = require_tool("eu-addr2line")
+    require_tool("sleep")
+    pid = find_denial_pid(args.pid)
+
+    repository = Path(__file__).resolve().parent.parent
+    if args.output is None:
+        timestamp = dt.datetime.now().strftime("%Y-%m-%d-%H%M%S")
+        output = repository / "profiling" / f"{timestamp}-denial-cpu"
+    else:
+        output = args.output.expanduser().resolve()
+    try:
+        output.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        fail(f"output directory already exists: {output}")
+
+    executable = Path(f"/proc/{pid}/exe").resolve()
+    cmdline = process_cmdline(pid)
+    mapped_objects = process_maps(pid)
+    deleted_mappings = process_deleted_maps(pid)
+    loaded_engine = next(
+        (path for path in mapped_objects if path.name == "libflutter_engine.so"), None
+    )
+    loaded_app = next((path for path in mapped_objects if path.name == "libapp.so"), None)
+    if loaded_engine is None:
+        fail("the running deniald process has no mapped libflutter_engine.so")
+
+    engine_symbols = find_engine_symbols(loaded_engine, args.engine_symbols)
+    explicit_debug = parse_debug_elf_options(args.debug_elf)
+    debug_elfs: dict[str, Path] = dict(explicit_debug)
+    if engine_symbols is not None:
+        debug_elfs["libflutter_engine.so"] = engine_symbols
+
+    metadata: dict[str, object] = {
+        "captured_at": dt.datetime.now(dt.timezone.utc).astimezone().isoformat(),
+        "pid": pid,
+        "cmdline": cmdline,
+        "executable": str(executable),
+        "executable_sha256": file_sha256(executable),
+        "engine": str(loaded_engine),
+        "engine_sha256": file_sha256(loaded_engine),
+        "app": str(loaded_app) if loaded_app else None,
+        "app_sha256": file_sha256(loaded_app) if loaded_app else None,
+        "engine_symbols": str(engine_symbols) if engine_symbols else None,
+        "duration_seconds": args.duration,
+        "stat_duration_seconds": args.stat_duration,
+        "frequency_hz": args.frequency,
+        "kernel": dict(
+            zip(
+                ("sysname", "nodename", "release", "version", "machine"),
+                os.uname(),
+                strict=True,
+            )
+        ),
+        "perf_version": subprocess.run(
+            [perf, "--version"], capture_output=True, text=True, check=False
+        ).stdout.strip(),
+        "mapped_objects": [str(path) for path in mapped_objects],
+        "deleted_mappings": deleted_mappings,
+    }
+    (output / "metadata.json").write_text(
+        json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    print(f"Profiling deniald PID {pid} for {args.duration:g} seconds…")
+    if engine_symbols is None:
+        print("Warning: an exact Flutter engine symbol ELF was not found.", file=sys.stderr)
+    else:
+        print(f"Exact Flutter engine symbols: {engine_symbols}")
+
+    tracker, elapsed = run_capture(perf, pid, args.duration, args.frequency, output)
+    if not Path(f"/proc/{pid}").exists():
+        fail("deniald exited during the capture")
+    stat_values = run_perf_stat(perf, pid, args.stat_duration, output)
+    generate_perf_reports(perf, output)
+
+    cpu_total, cpu_samples = parse_perf_samples(perf, output / "cpu-time.perf.data")
+    instruction_total, instruction_samples = parse_perf_samples(
+        perf, output / "instructions.perf.data"
+    )
+    fetched_debug = fetch_hot_debuginfo(
+        shutil.which("debuginfod-find"),
+        output,
+        cpu_total,
+        cpu_samples,
+        instruction_total,
+        instruction_samples,
+        debug_elfs,
+    )
+    debug_elfs.update(fetched_debug)
+    (output / "debug-elfs.json").write_text(
+        json.dumps(
+            {key: str(path) for key, path in sorted(debug_elfs.items())},
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    cpu_resolved = resolve_sample_locations(
+        addr2line, cpu_samples, debug_elfs
+    )
+    instruction_resolved = resolve_sample_locations(
+        addr2line, instruction_samples, debug_elfs
+    )
+    cpu_aggregates = aggregate_samples(cpu_total, cpu_samples, cpu_resolved)
+    instruction_aggregates = aggregate_samples(
+        instruction_total, instruction_samples, instruction_resolved
+    )
+    write_event_tables(output, "cpu-time", cpu_total, cpu_aggregates)
+    write_event_tables(
+        output, "instructions", instruction_total, instruction_aggregates
+    )
+
+    cpu_rows = thread_cpu_rows(tracker, elapsed)
+    write_thread_cpu_table(output, cpu_rows)
+    summary = build_summary(
+        metadata,
+        output,
+        args.top,
+        elapsed,
+        cpu_rows,
+        stat_values,
+        cpu_total,
+        cpu_aggregates,
+        instruction_total,
+        instruction_aggregates,
+    )
+    (output / "SUMMARY.md").write_text(summary, encoding="utf-8")
+
+    final_hashes = {
+        "executable_sha256": file_sha256(executable),
+        "engine_sha256": file_sha256(loaded_engine),
+        "app_sha256": file_sha256(loaded_app) if loaded_app else None,
+    }
+    (output / "final-hashes.json").write_text(
+        json.dumps(final_hashes, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    for key, final_value in final_hashes.items():
+        initial_value = metadata.get(key)
+        if initial_value != final_value:
+            fail(f"{key} changed during profiling; discard this capture")
+
+    print_terminal_summary(
+        summary,
+        output,
+        args.top,
+        cpu_rows,
+        cpu_total,
+        cpu_aggregates[2],
+        instruction_total,
+        instruction_aggregates[2],
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except ProfileError as error:
+        print(f"profile-denial: {error}", file=sys.stderr)
+        raise SystemExit(1)

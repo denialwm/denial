@@ -30,6 +30,7 @@ fn next_ready_fence_token() -> u64 {
 #[derive(Debug)]
 struct OutputFrame {
     index: usize,
+    screenshot_request_id: Option<u64>,
 }
 
 #[derive(Debug, Default)]
@@ -186,6 +187,7 @@ impl AtomicPlaneRequest {
 struct OutputPipeline {
     scanout_index: usize,
     scanning: usize,
+    scanning_screenshot_request_id: Option<u64>,
     ready: Option<OutputFrame>,
     submitted: Option<OutputFrame>,
     powering_off: bool,
@@ -316,6 +318,7 @@ impl OutputScheduler {
             .map(|(scanout_index, scanout)| OutputPipeline {
                 scanout_index,
                 scanning: initial_index,
+                scanning_screenshot_request_id: None,
                 ready: None,
                 submitted: None,
                 powering_off: false,
@@ -362,6 +365,7 @@ impl OutputScheduler {
             index,
             fence,
             damage,
+            screenshot_request_id,
         } = ready;
         if self
             .ready_fences
@@ -419,7 +423,11 @@ impl OutputScheduler {
         self.ready_fences[index].claim(fence, self.affected_pipelines.len(), token)?;
         for pipeline_index in self.affected_pipelines.iter().copied() {
             let pipeline = &mut self.pipelines[pipeline_index];
+            let mut pipeline_screenshot_request_id = screenshot_request_id;
             if let Some(superseded) = pipeline.ready.take() {
+                if pipeline_screenshot_request_id.is_none() {
+                    pipeline_screenshot_request_id = superseded.screenshot_request_id;
+                }
                 self.superseded_ready_frames = self.superseded_ready_frames.saturating_add(1);
                 if let Some(audit) = self.audit.as_mut() {
                     audit.ready_superseded = audit.ready_superseded.saturating_add(1);
@@ -437,7 +445,10 @@ impl OutputScheduler {
                     .ok_or("superseded Flutter fence index exceeds the atlas pool")?;
                 slot.release_user()?;
             }
-            pipeline.ready = Some(OutputFrame { index });
+            pipeline.ready = Some(OutputFrame {
+                index,
+                screenshot_request_id: pipeline_screenshot_request_id,
+            });
         }
         Ok(watch_fence.map(|fence| ReadyFenceWatch {
             fence,
@@ -565,6 +576,7 @@ impl OutputScheduler {
             };
             let previous = pipeline.scanning;
             pipeline.scanning = presented.index;
+            pipeline.scanning_screenshot_request_id = presented.screenshot_request_id;
             if let Err(error) = runtime.release_output(previous) {
                 processing_error = Some(error);
                 break;
@@ -602,14 +614,7 @@ impl OutputScheduler {
         scanouts: &[Scanout],
         events: &mut RuntimeState,
     ) -> Result<(), Box<dyn Error>> {
-        let Some(buffer_index) = self
-            .pipelines
-            .iter()
-            .find(|pipeline| {
-                !pipeline.powering_off && scanouts[pipeline.scanout_index].output.id == tick.output
-            })
-            .map(|pipeline| pipeline.scanning)
-        else {
+        let Some(buffer_index) = self.framebuffer_index_for_output(tick.output, scanouts) else {
             return Ok(());
         };
         let Some(frontend) = events.wayland.as_mut() else {
@@ -627,6 +632,35 @@ impl OutputScheduler {
             tick.output,
             timestamp,
         )
+    }
+
+    pub(super) fn framebuffer_index_for_output(
+        &self,
+        output: OutputId,
+        scanouts: &[Scanout],
+    ) -> Option<usize> {
+        self.pipelines
+            .iter()
+            .find(|pipeline| {
+                !pipeline.powering_off && scanouts[pipeline.scanout_index].output.id == output
+            })
+            .map(|pipeline| pipeline.scanning)
+    }
+
+    pub(super) fn screenshot_framebuffer_for_output(
+        &self,
+        output: OutputId,
+        request_id: u64,
+        scanouts: &[Scanout],
+    ) -> Option<usize> {
+        self.pipelines
+            .iter()
+            .find(|pipeline| {
+                !pipeline.powering_off
+                    && scanouts[pipeline.scanout_index].output.id == output
+                    && pipeline.scanning_screenshot_request_id == Some(request_id)
+            })
+            .map(|pipeline| pipeline.scanning)
     }
 
     pub(super) fn has_submitted(&self) -> bool {
@@ -748,6 +782,7 @@ impl OutputScheduler {
         self.pipelines.push(OutputPipeline {
             scanout_index,
             scanning: framebuffer_index,
+            scanning_screenshot_request_id: None,
             ready: None,
             submitted: None,
             powering_off: false,

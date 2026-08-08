@@ -484,6 +484,23 @@ impl ClipboardManager {
         let representation =
             validate_representation("text/plain;charset=utf-8", text.as_bytes().to_vec())
                 .ok_or(ClipboardError::Unsupported)?;
+        self.set_managed_representation(representation, "Denial shell")
+    }
+
+    pub fn set_image_png(&self, data: Vec<u8>) -> Result<u64, ClipboardError> {
+        if data.len() > MAX_IMAGE_BYTES {
+            return Err(ClipboardError::TooLarge);
+        }
+        let representation =
+            validate_representation("image/png", data).ok_or(ClipboardError::Unsupported)?;
+        self.set_managed_representation(representation, "Denial screenshot")
+    }
+
+    fn set_managed_representation(
+        &self,
+        representation: ClipboardRepresentation,
+        source_title: &str,
+    ) -> Result<u64, ClipboardError> {
         let mut state = self.lock();
         if state.locked {
             return Err(ClipboardError::Locked);
@@ -491,7 +508,7 @@ impl ClipboardManager {
         let item = Arc::new(item_from_representations(
             state.new_item_id(),
             ClipboardOrigin::Flutter,
-            ClipboardSourceIdentity::bounded("denial", "Denial shell"),
+            ClipboardSourceIdentity::bounded("denial", source_title),
             vec![representation],
             false,
         ));
@@ -1653,6 +1670,45 @@ mod tests {
             manager
                 .retained_data(item_id, "text/plain;charset=utf-8")
                 .is_some()
+        );
+    }
+
+    #[test]
+    fn shell_png_becomes_the_managed_image_selection() {
+        let manager = ClipboardManager::default();
+        let mut png = Vec::from(b"\x89PNG\r\n\x1a\n".as_slice());
+        png.extend_from_slice(&13u32.to_be_bytes());
+        png.extend_from_slice(b"IHDR");
+        png.extend_from_slice(&2u32.to_be_bytes());
+        png.extend_from_slice(&3u32.to_be_bytes());
+        png.extend_from_slice(&[8, 6, 0, 0, 0]);
+        png.extend_from_slice(&0u32.to_be_bytes());
+        png.extend_from_slice(&0u32.to_be_bytes());
+        png.extend_from_slice(b"IEND");
+        png.extend_from_slice(&0u32.to_be_bytes());
+
+        let item_id = manager.set_image_png(png.clone()).unwrap();
+        let action = manager.take_actions().pop().unwrap();
+        let ClipboardAction::Publish {
+            epoch,
+            item_id: published,
+            paste,
+        } = action
+        else {
+            panic!("expected clipboard publish");
+        };
+        assert_eq!(published, item_id);
+        assert!(!paste);
+        assert_eq!(
+            manager.retained_mime_types(epoch, item_id).unwrap(),
+            vec!["image/png"]
+        );
+        assert_eq!(
+            manager
+                .retained_data(item_id, "image/png")
+                .unwrap()
+                .as_ref(),
+            png
         );
     }
 

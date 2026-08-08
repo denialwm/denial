@@ -2,6 +2,12 @@ import 'dart:ui' show Offset, Size;
 
 import 'package:flutter/foundation.dart';
 
+/// The saved cursor size is a physical-pixel target. Cursor artwork is drawn
+/// at this size on every output, independent of that output's display scale.
+const double shellCursorMinimumSize = 16;
+const double shellCursorDefaultSize = 32;
+const double shellCursorMaximumSize = 64;
+
 enum ShellCursorKind {
   normal,
   help,
@@ -34,7 +40,7 @@ class ShellCursorRoleData {
 
   final String assetDirectory;
 
-  /// Native artwork dimensions. Frames are displayed at this size unchanged.
+  /// Native artwork dimensions used to preserve shape and hotspot ratios.
   final Size size;
   final Offset hotspot;
 

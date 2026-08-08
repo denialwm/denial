@@ -52,8 +52,10 @@ Size cardSizeFor({
   required EdgeInsets padding,
   required double aspect,
 }) {
-  final availableWidth =
-      math.max(0.0, constraints.maxWidth - padding.horizontal);
+  final availableWidth = math.max(
+    0.0,
+    constraints.maxWidth - padding.horizontal,
+  );
   final availableHeight = math.max(
     260.0,
     constraints.maxHeight - padding.vertical - 210.0,
@@ -90,9 +92,11 @@ LandscapeOverviewLayout landscapeOverviewLayoutFor({
 }) {
   assert(itemCount > 0);
 
-  final horizontalMargin =
-      (viewSize.width * 0.035).clamp(28.0, 56.0).toDouble();
-  final topMargin = ShellMetrics.statusBarHeight +
+  final horizontalMargin = (viewSize.width * 0.035)
+      .clamp(28.0, 56.0)
+      .toDouble();
+  final topMargin =
+      ShellMetrics.statusBarHeight +
       (viewSize.height * 0.02).clamp(12.0, 20.0).toDouble();
   final bottomMargin =
       ShellMetrics.gestureHitHeight + ShellMetrics.gestureBottomInset + 8.0;

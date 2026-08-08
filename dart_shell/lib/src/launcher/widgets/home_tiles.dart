@@ -410,11 +410,7 @@ class _HomeBatteryDischargeTile extends StatelessWidget {
     final capacity = latest?.capacity;
     final stateLabel = latest == null
         ? context.l10n.statusWaiting
-        : localizedBatteryState(
-            context.l10n,
-            latest.state,
-            showUnknown: true,
-          );
+        : localizedBatteryState(context.l10n, latest.state, showUnknown: true);
     final stateLine = capacity == null
         ? stateLabel
         : context.l10n.batteryStateAndPercent(stateLabel, capacity);

@@ -94,9 +94,9 @@ class SettingsLayoutPage extends StatelessWidget {
                   SettingsSlider(
                     label: 'Tray size',
                     value: settings.clipboardTrayExtent,
-                    minimum: 280,
-                    maximum: 720,
-                    divisions: 44,
+                    minimum: clipboardTrayMinimumExtent,
+                    maximum: clipboardTrayMaximumExtent,
+                    divisions: 20,
                     valueLabel: l10n.settingsPixels(
                       settings.clipboardTrayExtent.round(),
                     ),

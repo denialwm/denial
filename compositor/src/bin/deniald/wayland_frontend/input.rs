@@ -646,7 +646,7 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
             frontend.client_pointer_buttons.clear();
             frontend.client_pointer_presses.clear();
             frontend.flutter_pointer_press = None;
-            frontend.clipboard_drag_active = false;
+            frontend.set_clipboard_drag_active(false);
             frontend.retired_pointer_buttons.clear();
             frontend.set_routed_pointer_target(RoutedPointerTarget::Flutter);
         }
@@ -837,6 +837,14 @@ fn intercept_native_escape(
             }
             true
         }
+        ShortcutDisposition::RequestScreenshotRegion => {
+            #[cfg(feature = "flutter")]
+            {
+                let monitor_id = prepare_shell_overlay_action(state);
+                state.request_screenshot_selection(monitor_id);
+            }
+            true
+        }
         ShortcutDisposition::RequestMinimize => {
             #[cfg(feature = "flutter")]
             super::window_management::minimize_focused_toplevel(state);
@@ -933,7 +941,7 @@ fn release_pointer_to_shell(state: &mut RuntimeState) {
         frontend.client_pointer_buttons.clear();
         frontend.client_pointer_presses.clear();
         frontend.flutter_pointer_press = None;
-        frontend.clipboard_drag_active = false;
+        frontend.set_clipboard_drag_active(false);
         let mut pressed_buttons = std::mem::take(&mut frontend.wayland_pointer_buttons)
             .into_iter()
             .collect::<Vec<_>>();
@@ -1285,7 +1293,7 @@ fn process_flutter_input_event(
                     .wayland
                     .as_mut()
                     .expect("missing Wayland frontend")
-                    .clipboard_drag_active = false;
+                    .set_clipboard_drag_active(false);
             }
             match target {
                 InputTarget::Flutter if secure_locked || !pointer_grabbed => {
@@ -1611,6 +1619,10 @@ fn route_pointer_motion(
         routed: routed_target,
         focus: under,
     } = target;
+    super::clipboard_io::release_deferred_clipboard_capture(
+        state,
+        under.as_ref().map(|(surface, _)| surface),
+    );
     let pointer = state
         .wayland
         .as_ref()
@@ -2454,6 +2466,10 @@ mod native_escape_tests {
     #[cfg(feature = "flutter")]
     const XKB_A: u32 = 30 + 8;
     #[cfg(feature = "flutter")]
+    const XKB_S: u32 = 31 + 8;
+    #[cfg(feature = "flutter")]
+    const XKB_LEFT_SHIFT: u32 = 42 + 8;
+    #[cfg(feature = "flutter")]
     const XKB_LEFT_META: u32 = 125 + 8;
 
     fn input(runtime: &mut RuntimeState, keycode: u32, state: KeyState) -> bool {
@@ -2514,6 +2530,21 @@ mod native_escape_tests {
             runtime.pending_shell_actions.pop_front(),
             Some((super::super::super::wire::ShellAction::Overview, None))
         );
+
+        assert!(!input(&mut runtime, XKB_LEFT_SHIFT, KeyState::Pressed));
+        assert!(input(&mut runtime, XKB_LEFT_META, KeyState::Pressed));
+        assert!(input(&mut runtime, XKB_S, KeyState::Pressed));
+        assert!(input(&mut runtime, XKB_S, KeyState::Released));
+        assert!(input(&mut runtime, XKB_LEFT_META, KeyState::Released));
+        assert!(!input(&mut runtime, XKB_LEFT_SHIFT, KeyState::Released));
+        assert!(runtime.pending_shell_actions.is_empty());
+        assert_eq!(runtime.pending_screenshot_selection, None);
+        runtime.request_screenshot_selection(Some(12));
+        assert_eq!(
+            runtime.pending_screenshot_selection,
+            Some(denial_core::topology::OutputId(12))
+        );
+        runtime.pending_screenshot_selection = None;
 
         assert!(input(&mut runtime, XKB_LEFT_META, KeyState::Pressed));
         assert!(input(&mut runtime, XKB_TAB, KeyState::Pressed));

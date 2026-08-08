@@ -15,36 +15,28 @@ void main() {
   });
 
   test('inhibitors are parsed, sanitized, classified, and bounded', () {
-    final value = DBusArray(
-      DBusSignature('(ssssuu)'),
-      <DBusValue>[
+    final value = DBusArray(DBusSignature('(ssssuu)'), <DBusValue>[
+      _inhibitor(
+        what: 'sleep:shutdown',
+        who: 'Game',
+        why: 'Saving\u0000 progress',
+        mode: 'block',
+      ),
+      _inhibitor(
+        what: 'sleep',
+        who: 'Backup',
+        why: 'Finishing archive',
+        mode: 'delay',
+      ),
+      _inhibitor(what: 'sleep', who: 'Broken', why: 'Ignored', mode: 'mystery'),
+      for (var index = 0; index < 80; index += 1)
         _inhibitor(
-          what: 'sleep:shutdown',
-          who: 'Game',
-          why: 'Saving\u0000 progress',
+          what: 'shutdown',
+          who: 'App $index',
+          why: 'Reason $index',
           mode: 'block',
         ),
-        _inhibitor(
-          what: 'sleep',
-          who: 'Backup',
-          why: 'Finishing archive',
-          mode: 'delay',
-        ),
-        _inhibitor(
-          what: 'sleep',
-          who: 'Broken',
-          why: 'Ignored',
-          mode: 'mystery',
-        ),
-        for (var index = 0; index < 80; index += 1)
-          _inhibitor(
-            what: 'shutdown',
-            who: 'App $index',
-            why: 'Reason $index',
-            mode: 'block',
-          ),
-      ],
-    );
+    ]);
 
     final inhibitors = parseLogindInhibitors(value, maximum: 8);
 
@@ -64,15 +56,12 @@ void main() {
     expect(parseLogindInhibitors(const DBusString('wrong type')), isEmpty);
     expect(
       parseLogindInhibitors(
-        DBusArray.unchecked(
-          DBusSignature('(ssssuu)'),
-          <DBusValue>[
-            DBusStruct(<DBusValue>[
-              const DBusString('sleep'),
-              const DBusString('missing fields'),
-            ]),
-          ],
-        ),
+        DBusArray.unchecked(DBusSignature('(ssssuu)'), <DBusValue>[
+          DBusStruct(<DBusValue>[
+            const DBusString('sleep'),
+            const DBusString('missing fields'),
+          ]),
+        ]),
       ),
       isEmpty,
     );

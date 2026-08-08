@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../models/display_layout.dart';
 import '../models/shell_popup_placement.dart';
 import '../state/desktop_window_close_effect.dart';
+import '../theme/cursor_themes.dart';
 import '../theme/tokens.dart';
 
 enum ShellAccentSource { wallpaper, custom }
@@ -12,6 +13,37 @@ enum ShellAccentSource { wallpaper, custom }
 enum ShellOverlaySurface { launcher, dashboard, notifications, systemHud }
 
 enum ClipboardTrayEdge { left, right, top, bottom }
+
+const double clipboardTrayMinimumExtent = 100;
+const double clipboardTrayMaximumExtent = 300;
+const double clipboardTrayDefaultExtent = 250;
+
+enum ShellLocalePreference { system, english, simplifiedChinese }
+
+@immutable
+class ShellLocalizationSettings {
+  const ShellLocalizationSettings({this.locale = ShellLocalePreference.system});
+
+  final ShellLocalePreference locale;
+
+  Locale? get localeOverride => switch (locale) {
+    ShellLocalePreference.system => null,
+    ShellLocalePreference.english => const Locale('en'),
+    ShellLocalePreference.simplifiedChinese => const Locale('zh'),
+  };
+
+  ShellLocalizationSettings copyWith({ShellLocalePreference? locale}) {
+    return ShellLocalizationSettings(locale: locale ?? this.locale);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is ShellLocalizationSettings && other.locale == locale;
+  }
+
+  @override
+  int get hashCode => locale.hashCode;
+}
 
 @immutable
 class ShellAppearanceSettings {
@@ -26,6 +58,7 @@ class ShellAppearanceSettings {
     this.backdropBlurOpacityThreshold = 0.05,
     this.focusedWindowOpacity = 1,
     this.unfocusedWindowOpacity = 1,
+    this.cursorSize = shellCursorDefaultSize,
   });
 
   final ShellAccentSource accentSource;
@@ -38,6 +71,7 @@ class ShellAppearanceSettings {
   final double backdropBlurOpacityThreshold;
   final double focusedWindowOpacity;
   final double unfocusedWindowOpacity;
+  final double cursorSize;
 
   ShellAppearanceSettings copyWith({
     ShellAccentSource? accentSource,
@@ -50,6 +84,7 @@ class ShellAppearanceSettings {
     double? backdropBlurOpacityThreshold,
     double? focusedWindowOpacity,
     double? unfocusedWindowOpacity,
+    double? cursorSize,
   }) {
     return ShellAppearanceSettings(
       accentSource: accentSource ?? this.accentSource,
@@ -64,6 +99,7 @@ class ShellAppearanceSettings {
       focusedWindowOpacity: focusedWindowOpacity ?? this.focusedWindowOpacity,
       unfocusedWindowOpacity:
           unfocusedWindowOpacity ?? this.unfocusedWindowOpacity,
+      cursorSize: cursorSize ?? this.cursorSize,
     );
   }
 
@@ -79,7 +115,8 @@ class ShellAppearanceSettings {
         other.backdropBlurSigma == backdropBlurSigma &&
         other.backdropBlurOpacityThreshold == backdropBlurOpacityThreshold &&
         other.focusedWindowOpacity == focusedWindowOpacity &&
-        other.unfocusedWindowOpacity == unfocusedWindowOpacity;
+        other.unfocusedWindowOpacity == unfocusedWindowOpacity &&
+        other.cursorSize == cursorSize;
   }
 
   @override
@@ -94,6 +131,7 @@ class ShellAppearanceSettings {
     backdropBlurOpacityThreshold,
     focusedWindowOpacity,
     unfocusedWindowOpacity,
+    cursorSize,
   );
 }
 
@@ -151,7 +189,7 @@ class ShellLayoutSettings {
     this.systemBarThickness = 32,
     this.maximizePadding = 10,
     this.clipboardTrayEdge = ClipboardTrayEdge.right,
-    this.clipboardTrayExtent = 420,
+    this.clipboardTrayExtent = clipboardTrayDefaultExtent,
   });
 
   final SystemBarSide? systemBarSide;
@@ -371,6 +409,7 @@ class ShellPowerSettings {
 @immutable
 class ShellSettings {
   const ShellSettings({
+    this.localization = const ShellLocalizationSettings(),
     this.appearance = const ShellAppearanceSettings(),
     this.layout = const ShellLayoutSettings(),
     this.overlays = const ShellOverlaySettings(),
@@ -379,8 +418,9 @@ class ShellSettings {
     this.power = const ShellPowerSettings(),
   });
 
-  static const int schemaVersion = 5;
+  static const int schemaVersion = 7;
 
+  final ShellLocalizationSettings localization;
   final ShellAppearanceSettings appearance;
   final ShellLayoutSettings layout;
   final ShellOverlaySettings overlays;
@@ -389,6 +429,7 @@ class ShellSettings {
   final ShellPowerSettings power;
 
   ShellSettings copyWith({
+    ShellLocalizationSettings? localization,
     ShellAppearanceSettings? appearance,
     ShellLayoutSettings? layout,
     ShellOverlaySettings? overlays,
@@ -397,6 +438,7 @@ class ShellSettings {
     ShellPowerSettings? power,
   }) {
     return ShellSettings(
+      localization: localization ?? this.localization,
       appearance: appearance ?? this.appearance,
       layout: layout ?? this.layout,
       overlays: overlays ?? this.overlays,
@@ -409,6 +451,7 @@ class ShellSettings {
   Map<String, Object> toJson() {
     return <String, Object>{
       'version': schemaVersion,
+      'localization': <String, Object>{'locale': localization.locale.name},
       'appearance': <String, Object>{
         'accentSource': appearance.accentSource.name,
         'customAccentColor': appearance.customAccentColor.toARGB32(),
@@ -420,6 +463,7 @@ class ShellSettings {
         'backdropBlurOpacityThreshold': appearance.backdropBlurOpacityThreshold,
         'focusedWindowOpacity': appearance.focusedWindowOpacity,
         'unfocusedWindowOpacity': appearance.unfocusedWindowOpacity,
+        'cursorSize': appearance.cursorSize,
       },
       'layout': <String, Object>{
         if (layout.systemBarSide case final side?) 'systemBarSide': side.name,
@@ -457,6 +501,7 @@ class ShellSettings {
 
   factory ShellSettings.fromJson(Map<String, dynamic> json) {
     final defaults = const ShellSettings();
+    final localizationJson = _map(json['localization']);
     final appearanceJson = _map(json['appearance']);
     final layoutJson = _map(json['layout']);
     final overlaysJson = _map(json['overlays']);
@@ -468,6 +513,13 @@ class ShellSettings {
         if (value is String && value.trim().isNotEmpty) value.trim(),
     ];
     return ShellSettings(
+      localization: ShellLocalizationSettings(
+        locale: _enumValue(
+          ShellLocalePreference.values,
+          localizationJson['locale'],
+          defaults.localization.locale,
+        ),
+      ),
       appearance: ShellAppearanceSettings(
         accentSource: _enumValue(
           ShellAccentSource.values,
@@ -523,6 +575,12 @@ class ShellSettings {
           0.2,
           1,
         ),
+        cursorSize: _number(
+          appearanceJson['cursorSize'],
+          defaults.appearance.cursorSize,
+          shellCursorMinimumSize,
+          shellCursorMaximumSize,
+        ),
       ),
       layout: ShellLayoutSettings(
         systemBarSide: _nullableEnumValue(
@@ -550,8 +608,8 @@ class ShellSettings {
         clipboardTrayExtent: _number(
           layoutJson['clipboardTrayExtent'],
           defaults.layout.clipboardTrayExtent,
-          280,
-          720,
+          clipboardTrayMinimumExtent,
+          clipboardTrayMaximumExtent,
         ),
       ),
       overlays: ShellOverlaySettings(
@@ -645,6 +703,7 @@ class ShellSettings {
   @override
   bool operator ==(Object other) {
     return other is ShellSettings &&
+        other.localization == localization &&
         other.appearance == appearance &&
         other.layout == layout &&
         other.overlays == overlays &&
@@ -654,8 +713,15 @@ class ShellSettings {
   }
 
   @override
-  int get hashCode =>
-      Object.hash(appearance, layout, overlays, animations, lockScreen, power);
+  int get hashCode => Object.hash(
+    localization,
+    appearance,
+    layout,
+    overlays,
+    animations,
+    lockScreen,
+    power,
+  );
 }
 
 Map<String, Object> _placementToJson(ShellPopupPlacement placement) {

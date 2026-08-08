@@ -22,8 +22,9 @@ void main() {
         },
       },
       for (var index = 0; index < 150; index += 1)
-        DBusObjectPath('/org/bluez/hci1/dev_$index'):
-            <String, Map<String, DBusValue>>{
+        DBusObjectPath(
+          '/org/bluez/hci1/dev_$index',
+        ): <String, Map<String, DBusValue>>{
           'org.bluez.Device1': <String, DBusValue>{
             'Adapter': DBusObjectPath('/org/bluez/hci1'),
             'Address': DBusString('00:00:00:00:00:${index % 100}'),
@@ -67,54 +68,56 @@ void main() {
     expect(snapshot.devices, isEmpty);
   });
 
-  test('Agent1 endpoint only accepts calls from the current BlueZ owner',
-      () async {
-    final endpoint = BluetoothAgentEndpoint();
-    endpoint.owner = () => ':1.42';
-    var calls = 0;
-    endpoint.handler = (call) async {
-      calls += 1;
-      return DBusMethodSuccessResponse();
-    };
+  test(
+    'Agent1 endpoint only accepts calls from the current BlueZ owner',
+    () async {
+      final endpoint = BluetoothAgentEndpoint();
+      endpoint.owner = () => ':1.42';
+      var calls = 0;
+      endpoint.handler = (call) async {
+        calls += 1;
+        return DBusMethodSuccessResponse();
+      };
 
-    final denied = await endpoint.handleMethodCall(
-      DBusMethodCall(
-        sender: ':1.99',
-        interface: 'org.bluez.Agent1',
-        name: 'Cancel',
-      ),
-    );
-    expect(
-      (denied as DBusMethodErrorResponse).errorName,
-      'org.freedesktop.DBus.Error.AccessDenied',
-    );
-    expect(calls, 0);
+      final denied = await endpoint.handleMethodCall(
+        DBusMethodCall(
+          sender: ':1.99',
+          interface: 'org.bluez.Agent1',
+          name: 'Cancel',
+        ),
+      );
+      expect(
+        (denied as DBusMethodErrorResponse).errorName,
+        'org.freedesktop.DBus.Error.AccessDenied',
+      );
+      expect(calls, 0);
 
-    final accepted = await endpoint.handleMethodCall(
-      DBusMethodCall(
-        sender: ':1.42',
-        interface: 'org.bluez.Agent1',
-        name: 'RequestConfirmation',
-        values: <DBusValue>[
-          DBusObjectPath('/org/bluez/hci0/dev_1'),
-          DBusUint32(123456),
-        ],
-      ),
-    );
-    expect(accepted, isA<DBusMethodSuccessResponse>());
-    expect(calls, 1);
+      final accepted = await endpoint.handleMethodCall(
+        DBusMethodCall(
+          sender: ':1.42',
+          interface: 'org.bluez.Agent1',
+          name: 'RequestConfirmation',
+          values: <DBusValue>[
+            DBusObjectPath('/org/bluez/hci0/dev_1'),
+            DBusUint32(123456),
+          ],
+        ),
+      );
+      expect(accepted, isA<DBusMethodSuccessResponse>());
+      expect(calls, 1);
 
-    final interface = endpoint.introspect().single;
-    expect(interface.name, 'org.bluez.Agent1');
-    expect(
-      interface.methods.map((method) => method.name),
-      containsAll(<String>[
-        'RequestPinCode',
-        'RequestPasskey',
-        'RequestConfirmation',
-        'AuthorizeService',
-        'Cancel',
-      ]),
-    );
-  });
+      final interface = endpoint.introspect().single;
+      expect(interface.name, 'org.bluez.Agent1');
+      expect(
+        interface.methods.map((method) => method.name),
+        containsAll(<String>[
+          'RequestPinCode',
+          'RequestPasskey',
+          'RequestConfirmation',
+          'AuthorizeService',
+          'Cancel',
+        ]),
+      );
+    },
+  );
 }

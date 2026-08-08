@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../localization/denial_localizations.dart';
 import '../../settings/shell_settings.dart';
+import '../../theme/cursor_themes.dart';
 import '../../theme/tokens.dart';
 import 'settings_controls.dart';
 
@@ -16,6 +17,9 @@ const settingsBackdropBlurSliderKey = ValueKey<String>(
 );
 const settingsBackdropBlurOpacityThresholdKey = ValueKey<String>(
   'settings-backdrop-blur-opacity-threshold',
+);
+const settingsCursorSizeSliderKey = ValueKey<String>(
+  'settings-cursor-size-slider',
 );
 
 class SettingsAppearancePage extends StatelessWidget {
@@ -32,6 +36,7 @@ class SettingsAppearancePage extends StatelessWidget {
     required this.onBackdropBlurOpacityThresholdChanged,
     required this.onFocusedOpacityChanged,
     required this.onUnfocusedOpacityChanged,
+    required this.onCursorSizeChanged,
     required this.onReset,
     super.key,
   });
@@ -48,6 +53,7 @@ class SettingsAppearancePage extends StatelessWidget {
   final ValueChanged<double> onBackdropBlurOpacityThresholdChanged;
   final ValueChanged<double> onFocusedOpacityChanged;
   final ValueChanged<double> onUnfocusedOpacityChanged;
+  final ValueChanged<double> onCursorSizeChanged;
   final VoidCallback onReset;
 
   @override
@@ -172,6 +178,21 @@ class SettingsAppearancePage extends StatelessWidget {
                     onChanged: onPanelOpacityChanged,
                   ),
                 ],
+              ),
+            ),
+            SettingsSection(
+              title: l10n.settingsCursorTitle,
+              child: SettingsSlider(
+                key: settingsCursorSizeSliderKey,
+                label: l10n.settingsCursorSize,
+                value: settings.cursorSize,
+                minimum: shellCursorMinimumSize,
+                maximum: shellCursorMaximumSize,
+                divisions:
+                    ((shellCursorMaximumSize - shellCursorMinimumSize) / 4)
+                        .round(),
+                valueLabel: l10n.settingsPixels(settings.cursorSize.round()),
+                onChanged: onCursorSizeChanged,
               ),
             ),
             SettingsSection(

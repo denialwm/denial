@@ -84,13 +84,13 @@ class LogindInhibitor {
 
   @override
   int get hashCode => Object.hash(
-        Object.hashAll(what.toList()..sort()),
-        who,
-        why,
-        mode,
-        uid,
-        pid,
-      );
+    Object.hashAll(what.toList()..sort()),
+    who,
+    why,
+    mode,
+    uid,
+    pid,
+  );
 }
 
 @immutable
@@ -99,20 +99,20 @@ class LogindSnapshot {
     required this.serviceAvailable,
     required Map<LogindAction, LogindCapability> capabilities,
     required List<LogindInhibitor> inhibitors,
-  })  : capabilities = Map<LogindAction, LogindCapability>.unmodifiable(
-          capabilities,
-        ),
-        inhibitors = List<LogindInhibitor>.unmodifiable(inhibitors);
+  }) : capabilities = Map<LogindAction, LogindCapability>.unmodifiable(
+         capabilities,
+       ),
+       inhibitors = List<LogindInhibitor>.unmodifiable(inhibitors);
 
   LogindSnapshot.unavailable()
-      : serviceAvailable = false,
-        capabilities = Map<LogindAction, LogindCapability>.unmodifiable(
-          <LogindAction, LogindCapability>{
-            for (final action in LogindAction.values)
-              action: LogindCapability.unavailable,
-          },
-        ),
-        inhibitors = const <LogindInhibitor>[];
+    : serviceAvailable = false,
+      capabilities = Map<LogindAction, LogindCapability>.unmodifiable(
+        <LogindAction, LogindCapability>{
+          for (final action in LogindAction.values)
+            action: LogindCapability.unavailable,
+        },
+      ),
+      inhibitors = const <LogindInhibitor>[];
 
   final bool serviceAvailable;
   final Map<LogindAction, LogindCapability> capabilities;
@@ -121,15 +121,13 @@ class LogindSnapshot {
   LogindCapability capabilityFor(LogindAction action) =>
       capabilities[action] ?? LogindCapability.unavailable;
 
-  List<LogindInhibitor> blockersFor(LogindAction action) =>
-      inhibitors.where((inhibitor) => inhibitor.blocks(action)).toList(
-            growable: false,
-          );
+  List<LogindInhibitor> blockersFor(LogindAction action) => inhibitors
+      .where((inhibitor) => inhibitor.blocks(action))
+      .toList(growable: false);
 
-  List<LogindInhibitor> delaysFor(LogindAction action) =>
-      inhibitors.where((inhibitor) => inhibitor.delays(action)).toList(
-            growable: false,
-          );
+  List<LogindInhibitor> delaysFor(LogindAction action) => inhibitors
+      .where((inhibitor) => inhibitor.delays(action))
+      .toList(growable: false);
 
   @override
   bool operator ==(Object other) =>
@@ -141,14 +139,14 @@ class LogindSnapshot {
 
   @override
   int get hashCode => Object.hash(
-        serviceAvailable,
-        Object.hashAll(
-          LogindAction.values.map(
-            (action) => Object.hash(action, capabilities[action]),
-          ),
-        ),
-        Object.hashAll(inhibitors),
-      );
+    serviceAvailable,
+    Object.hashAll(
+      LogindAction.values.map(
+        (action) => Object.hash(action, capabilities[action]),
+      ),
+    ),
+    Object.hashAll(inhibitors),
+  );
 }
 
 abstract interface class LogindBackend {
@@ -180,11 +178,11 @@ class LogindService implements LogindBackend {
   }
 
   LogindService._(this._client)
-      : _manager = DBusRemoteObject(
-          _client,
-          name: _serviceName,
-          path: DBusObjectPath(_managerPath),
-        );
+    : _manager = DBusRemoteObject(
+        _client,
+        name: _serviceName,
+        path: DBusObjectPath(_managerPath),
+      );
 
   static const String _serviceName = 'org.freedesktop.login1';
   static const String _managerPath = '/org/freedesktop/login1';
@@ -224,20 +222,17 @@ class LogindService implements LogindBackend {
       _client,
       sender: _serviceName,
       path: DBusObjectPath(_managerPath),
-    ).listen(
-      (_) => _scheduleRefresh(),
-      onError: (_) => _scheduleRefresh(),
-    );
+    ).listen((_) => _scheduleRefresh(), onError: (_) => _scheduleRefresh());
     _ownerSubscription = _client.nameOwnerChanged
         .where((event) => event.name == _serviceName)
         .listen((event) {
-      if (event.newOwner == null) {
-        _refreshTimer?.cancel();
-        _emit(LogindSnapshot.unavailable());
-      } else {
-        _scheduleRefresh(immediate: true);
-      }
-    });
+          if (event.newOwner == null) {
+            _refreshTimer?.cancel();
+            _emit(LogindSnapshot.unavailable());
+          } else {
+            _scheduleRefresh(immediate: true);
+          }
+        });
     await refresh();
   }
 
@@ -291,9 +286,7 @@ class LogindService implements LogindBackend {
     await refresh();
     final capability = _current.capabilityFor(action);
     if (!capability.canRequest) {
-      throw LogindActionUnavailableException(
-        _capabilityFailure(capability),
-      );
+      throw LogindActionUnavailableException(_capabilityFailure(capability));
     }
     final blockers = _current.blockersFor(action);
     if (blockers.isNotEmpty) {
@@ -301,36 +294,34 @@ class LogindService implements LogindBackend {
     }
 
     await _manager
-        .callMethod(
-          _managerInterface,
-          action.method,
-          const <DBusValue>[DBusBoolean(true)],
-          replySignature: DBusSignature(''),
-        )
+        .callMethod(_managerInterface, action.method, const <DBusValue>[
+          DBusBoolean(true),
+        ], replySignature: DBusSignature(''))
         .timeout(_actionTimeout);
   }
 
   Future<LogindSnapshot> _readSnapshot() async {
-    final replies = await Future.wait<
-        DBusMethodSuccessResponse>(<Future<DBusMethodSuccessResponse>>[
-      for (final action in LogindAction.values)
+    final replies = await Future.wait<DBusMethodSuccessResponse>(
+      <Future<DBusMethodSuccessResponse>>[
+        for (final action in LogindAction.values)
+          _manager
+              .callMethod(
+                _managerInterface,
+                'Can${action.method}',
+                const <DBusValue>[],
+                replySignature: DBusSignature('s'),
+              )
+              .timeout(_readTimeout),
         _manager
             .callMethod(
               _managerInterface,
-              'Can${action.method}',
+              'ListInhibitors',
               const <DBusValue>[],
-              replySignature: DBusSignature('s'),
+              replySignature: DBusSignature('a(ssssuu)'),
             )
             .timeout(_readTimeout),
-      _manager
-          .callMethod(
-            _managerInterface,
-            'ListInhibitors',
-            const <DBusValue>[],
-            replySignature: DBusSignature('a(ssssuu)'),
-          )
-          .timeout(_readTimeout),
-    ]);
+      ],
+    );
 
     final capabilities = <LogindAction, LogindCapability>{};
     for (var index = 0; index < LogindAction.values.length; index += 1) {
@@ -386,12 +377,12 @@ class LogindService implements LogindBackend {
 }
 
 LogindCapability parseLogindCapability(String value) => switch (value) {
-      'yes' => LogindCapability.available,
-      'challenge' => LogindCapability.authenticationRequired,
-      'no' => LogindCapability.denied,
-      'na' => LogindCapability.unsupported,
-      _ => LogindCapability.unavailable,
-    };
+  'yes' => LogindCapability.available,
+  'challenge' => LogindCapability.authenticationRequired,
+  'no' => LogindCapability.denied,
+  'na' => LogindCapability.unsupported,
+  _ => LogindCapability.unavailable,
+};
 
 List<LogindInhibitor> parseLogindInhibitors(
   DBusValue value, {
@@ -424,14 +415,16 @@ List<LogindInhibitor> parseLogindInhibitors(
       if (what.isEmpty) {
         continue;
       }
-      result.add(LogindInhibitor(
-        what: what,
-        who: _boundedText(fields[1].asString(), 160),
-        why: _boundedText(fields[2].asString(), 256),
-        mode: mode,
-        uid: fields[4].asUint32(),
-        pid: fields[5].asUint32(),
-      ));
+      result.add(
+        LogindInhibitor(
+          what: what,
+          who: _boundedText(fields[1].asString(), 160),
+          why: _boundedText(fields[2].asString(), 256),
+          mode: mode,
+          uid: fields[4].asUint32(),
+          pid: fields[5].asUint32(),
+        ),
+      );
     } on Object {
       // A malformed third-party inhibitor must not poison the entire surface.
     }
@@ -440,10 +433,10 @@ List<LogindInhibitor> parseLogindInhibitors(
 }
 
 String _capabilityFailure(LogindCapability capability) => switch (capability) {
-      LogindCapability.denied => 'This action is not authorized',
-      LogindCapability.unsupported => 'This action is not supported',
-      _ => 'The session service is unavailable',
-    };
+  LogindCapability.denied => 'This action is not authorized',
+  LogindCapability.unsupported => 'This action is not supported',
+  _ => 'The session service is unavailable',
+};
 
 String _boundedText(String value, int maximumRunes) {
   final normalized = value

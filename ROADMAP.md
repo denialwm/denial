@@ -74,6 +74,9 @@ unrelated Linux system services or applications.
 - Low input latency and correct presentation feedback.
 - Reasonable power and idle behavior on desktop, laptop, and future tablet
   hardware.
+- Cull atlas pixels outside active output rectangles in Impeller by passing the
+  output-region union into the engine and applying one root stencil clip after
+  the black clear; keep it only if GPU measurements show a real win.
 - Performance claims backed by repeatable evidence.
 
 ### Distribution and trust

@@ -13,7 +13,5 @@ final runtimePathsProvider = Provider<RuntimePaths>((ref) {
 final homeTitleProvider = Provider<String>((ref) => 'denia-home');
 
 final screenPowerServiceProvider = Provider<ScreenPowerService>((ref) {
-  return ScreenPowerService(
-    paths: ref.watch(runtimePathsProvider),
-  );
+  return ScreenPowerService(paths: ref.watch(runtimePathsProvider));
 });

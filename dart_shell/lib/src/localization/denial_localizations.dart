@@ -11,16 +11,12 @@ import '../models/shell_power_status.dart';
 /// observed for changes. Unsupported locales fall back through Flutter's
 /// standard locale resolution, which currently selects English.
 class DenialLocalizationScope extends StatefulWidget {
-  const DenialLocalizationScope({
-    required this.child,
-    this.locale,
-    super.key,
-  });
+  const DenialLocalizationScope({required this.child, this.locale, super.key});
 
   final Widget child;
 
-  /// An explicit locale for tests or a future user preference. When omitted,
-  /// the scope follows the platform's ordered locale list.
+  /// An explicit locale for tests or a persisted user preference. When
+  /// omitted, the scope follows the platform's ordered locale list.
   final Locale? locale;
 
   @override
@@ -57,10 +53,9 @@ class _DenialLocalizationScopeState extends State<DenialLocalizationScope>
   Locale _resolveLocale([List<Locale>? platformLocales]) {
     final explicitLocale = widget.locale;
     if (explicitLocale != null) {
-      return basicLocaleListResolution(
-        <Locale>[explicitLocale],
-        AppLocalizations.supportedLocales,
-      );
+      return basicLocaleListResolution(<Locale>[
+        explicitLocale,
+      ], AppLocalizations.supportedLocales);
     }
     return basicLocaleListResolution(
       platformLocales ?? WidgetsBinding.instance.platformDispatcher.locales,
@@ -173,13 +168,12 @@ String localizedBatteryState(
   AppLocalizations l10n,
   String state, {
   bool showUnknown = false,
-}) =>
-    switch (state) {
-      'charging' => l10n.batteryCharging,
-      'discharging' => l10n.batteryDischarging,
-      'idle' => l10n.batteryIdle,
-      _ => showUnknown ? l10n.statusUnknown : '',
-    };
+}) => switch (state) {
+  'charging' => l10n.batteryCharging,
+  'discharging' => l10n.batteryDischarging,
+  'idle' => l10n.batteryIdle,
+  _ => showUnknown ? l10n.statusUnknown : '',
+};
 
 String localizedBatteryLine(
   AppLocalizations l10n,
@@ -198,21 +192,19 @@ String localizedBatteryLine(
 String localizedChargeProtocol(
   AppLocalizations l10n,
   ShellChargeProtocol protocol,
-) =>
-    switch (protocol) {
-      ShellChargeProtocol.vooc => l10n.chargeProtocolVooc,
-      ShellChargeProtocol.pps => l10n.chargeProtocolPps,
-      ShellChargeProtocol.powerDelivery => l10n.chargeProtocolPowerDelivery,
-      ShellChargeProtocol.fast => l10n.chargeProtocolFast,
-    };
+) => switch (protocol) {
+  ShellChargeProtocol.vooc => l10n.chargeProtocolVooc,
+  ShellChargeProtocol.pps => l10n.chargeProtocolPps,
+  ShellChargeProtocol.powerDelivery => l10n.chargeProtocolPowerDelivery,
+  ShellChargeProtocol.fast => l10n.chargeProtocolFast,
+};
 
 String localizedThermalSensor(
   AppLocalizations l10n,
   ShellThermalSensor sensor,
-) =>
-    switch (sensor) {
-      ShellThermalSensor.cpu => l10n.thermalSensorCpu,
-      ShellThermalSensor.svooc => l10n.thermalSensorSvooc,
-      ShellThermalSensor.pmic => l10n.thermalSensorPmic,
-      ShellThermalSensor.exp2 => l10n.thermalSensorExp2,
-    };
+) => switch (sensor) {
+  ShellThermalSensor.cpu => l10n.thermalSensorCpu,
+  ShellThermalSensor.svooc => l10n.thermalSensorSvooc,
+  ShellThermalSensor.pmic => l10n.thermalSensorPmic,
+  ShellThermalSensor.exp2 => l10n.thermalSensorExp2,
+};

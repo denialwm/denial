@@ -42,9 +42,11 @@ class DesktopOverviewTarget {
     );
     final anchor =
         foreground ?? (topmost == null ? null : windowsById[topmost.objectId]);
-    final anchorPlacement =
-        anchor == null ? null : workspace.placements[anchor.objectId];
-    final outputs = displayLayout?.outputs
+    final anchorPlacement = anchor == null
+        ? null
+        : workspace.placements[anchor.objectId];
+    final outputs =
+        displayLayout?.outputs
             .where((output) => !output.logicalRect.intersect(canvas).isEmpty)
             .toList(growable: false) ??
         const <DisplayOutput>[];
@@ -94,34 +96,34 @@ class DesktopOverviewTarget {
     final systemBarRect = output == null
         ? Rect.zero
         : displayLayout?.systemBarRectFor(output).intersect(canvas) ??
-            Rect.zero;
+              Rect.zero;
     final systemBarSide = displayLayout?.systemBarSide ?? SystemBarSide.hidden;
     if (!systemBarRect.isEmpty && systemBarRect.overlaps(monitorBounds)) {
       overviewBounds = switch (systemBarSide) {
         SystemBarSide.left => Rect.fromLTRB(
-            systemBarRect.right + DesktopMetrics.panelGap,
-            monitorBounds.top,
-            monitorBounds.right,
-            monitorBounds.bottom,
-          ),
+          systemBarRect.right + DesktopMetrics.panelGap,
+          monitorBounds.top,
+          monitorBounds.right,
+          monitorBounds.bottom,
+        ),
         SystemBarSide.right => Rect.fromLTRB(
-            monitorBounds.left,
-            monitorBounds.top,
-            systemBarRect.left - DesktopMetrics.panelGap,
-            monitorBounds.bottom,
-          ),
+          monitorBounds.left,
+          monitorBounds.top,
+          systemBarRect.left - DesktopMetrics.panelGap,
+          monitorBounds.bottom,
+        ),
         SystemBarSide.top => Rect.fromLTRB(
-            monitorBounds.left,
-            systemBarRect.bottom + DesktopMetrics.panelGap,
-            monitorBounds.right,
-            monitorBounds.bottom,
-          ),
+          monitorBounds.left,
+          systemBarRect.bottom + DesktopMetrics.panelGap,
+          monitorBounds.right,
+          monitorBounds.bottom,
+        ),
         SystemBarSide.bottom => Rect.fromLTRB(
-            monitorBounds.left,
-            monitorBounds.top,
-            monitorBounds.right,
-            systemBarRect.top - DesktopMetrics.panelGap,
-          ),
+          monitorBounds.left,
+          monitorBounds.top,
+          monitorBounds.right,
+          systemBarRect.top - DesktopMetrics.panelGap,
+        ),
         SystemBarSide.hidden => monitorBounds,
       };
     }

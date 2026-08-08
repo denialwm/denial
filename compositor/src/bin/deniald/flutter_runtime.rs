@@ -21,8 +21,9 @@ use std::time::{Duration, Instant};
 
 use denial_core::topology::{AtlasPlan, PixelSize, SCALE_BASE, TopologySnapshot};
 use denial_flutter_engine::{
-    DartRuntimeMode, EngineError, EngineEvent, EngineHost, EngineLibrary, EngineProject,
-    OpenGlHandler, PlatformMessage, PresentFrame, RendererBackend, ScheduledTask, sys,
+    DartRuntimeMode, EngineError, EngineEvent, EngineHost, EngineLibrary, EngineLocale,
+    EngineProject, OpenGlHandler, PlatformMessage, PresentFrame, RendererBackend, ScheduledTask,
+    sys,
 };
 use sha2::{Digest, Sha256};
 use smithay::backend::allocator::Buffer as AllocatorBuffer;
@@ -53,7 +54,7 @@ mod mouse_cursor;
 #[path = "flutter_runtime/platform.rs"]
 mod platform;
 #[path = "flutter_runtime/system_command.rs"]
-mod system_command;
+pub(super) mod system_command;
 #[path = "flutter_runtime/text_input.rs"]
 mod text_input;
 
@@ -913,6 +914,7 @@ struct BufferSlot {
     output_refs: usize,
     fence: Option<OwnedFd>,
     damage: DamageRegion,
+    screenshot_request_id: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -925,6 +927,7 @@ struct BufferBroker {
     // must retain the union rather than only the final frame's delta.
     ready_damage: DamageRegion,
     independent_scanout: bool,
+    next_screenshot_request_id: Option<u64>,
 }
 
 impl BufferBroker {
@@ -948,6 +951,7 @@ impl BufferBroker {
                 // Even the initial scanout has never been rendered by this
                 // Flutter engine. Its contents cannot be used incrementally.
                 damage: DamageRegion::full(size.width, size.height),
+                screenshot_request_id: None,
             })
             .collect::<Vec<_>>();
         if scanning >= slots.len() {
@@ -965,7 +969,27 @@ impl BufferBroker {
             frame_damage: DamageRegion::empty(size.width, size.height),
             ready_damage: DamageRegion::empty(size.width, size.height),
             independent_scanout: false,
+            next_screenshot_request_id: None,
         })
+    }
+
+    fn tag_next_frame_for_screenshot(&mut self, request_id: u64) -> Result<(), &'static str> {
+        if request_id == 0 || self.next_screenshot_request_id.is_some() {
+            return Err("a screenshot frame is already pending");
+        }
+        self.next_screenshot_request_id = Some(request_id);
+        Ok(())
+    }
+
+    fn cancel_screenshot_frame(&mut self, request_id: u64) {
+        if self.next_screenshot_request_id == Some(request_id) {
+            self.next_screenshot_request_id = None;
+        }
+        for slot in &mut self.slots {
+            if slot.screenshot_request_id == Some(request_id) {
+                slot.screenshot_request_id = None;
+            }
+        }
     }
 
     fn acquire_for_render(&mut self) -> Option<u32> {
@@ -980,6 +1004,11 @@ impl BufferBroker {
                 slot.damage.invalidate();
                 slot.state = BufferState::Free;
                 slot.fence = None;
+                if self.next_screenshot_request_id.is_none() {
+                    self.next_screenshot_request_id = slot.screenshot_request_id.take();
+                } else {
+                    slot.screenshot_request_id = None;
+                }
             }
         }
 
@@ -998,6 +1027,7 @@ impl BufferBroker {
         let slot = &mut self.slots[index];
         slot.state = BufferState::Rendering;
         slot.fence = None;
+        slot.screenshot_request_id = self.next_screenshot_request_id.take();
         Some(slot.framebuffer)
     }
 
@@ -1018,6 +1048,7 @@ impl BufferBroker {
         self.frame_damage.replace_from_flutter(frame_damage);
         self.ready_damage.union(&self.frame_damage);
 
+        let mut inherited_screenshot_request_id = None;
         for (other_index, slot) in self.slots.iter_mut().enumerate() {
             if other_index != index {
                 // This slot still represents an older logical Flutter frame.
@@ -1025,11 +1056,16 @@ impl BufferBroker {
                 slot.damage.union(&self.frame_damage);
             }
             if other_index != index && slot.state == BufferState::Ready && slot.output_refs == 0 {
+                inherited_screenshot_request_id =
+                    inherited_screenshot_request_id.or_else(|| slot.screenshot_request_id.take());
                 slot.state = BufferState::Free;
                 slot.fence = None;
             }
         }
         let slot = &mut self.slots[index];
+        if slot.screenshot_request_id.is_none() {
+            slot.screenshot_request_id = inherited_screenshot_request_id;
+        }
         // Flutter repaired this target using the damage returned by
         // populate_existing_damage, so it now represents the current frame.
         slot.damage.clear();
@@ -1063,12 +1099,19 @@ impl BufferBroker {
             .iter()
             .position(|slot| slot.state == BufferState::Ready)?;
         self.slots[index].state = BufferState::Pending;
-        let damage = self.ready_damage.clone();
+        let screenshot_request_id = self.slots[index].screenshot_request_id.take();
+        let mut damage = self.ready_damage.clone();
+        if screenshot_request_id.is_some() {
+            // Route the cursor-free frame to every output even when hiding an
+            // already-invisible cursor produced no ordinary scene damage.
+            damage.invalidate();
+        }
         self.ready_damage.clear();
         Some(ReadyFrame {
             index,
             fence: self.slots[index].fence.take(),
             damage,
+            screenshot_request_id,
         })
     }
 
@@ -1096,6 +1139,7 @@ impl BufferBroker {
         {
             slot.state = BufferState::Free;
             slot.fence = None;
+            slot.screenshot_request_id = None;
         }
     }
 
@@ -1179,6 +1223,7 @@ pub struct ReadyFrame {
     pub index: usize,
     pub fence: Option<OwnedFd>,
     pub damage: DamageRegion,
+    pub screenshot_request_id: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1474,7 +1519,7 @@ enum ExternalTextureLeaseResource {
         // but the Wayland buffer guard must not: releasing this lease is what
         // eventually permits the client to recycle its wl_buffer.
         _binding: Arc<CachedTextureBinding>,
-        _wayland_buffer_guard: RendererBufferGuard,
+        _wayland_buffer_guard: Option<RendererBufferGuard>,
         _resource_permit: ExternalTextureResourcePermit,
     },
     Shm {
@@ -1778,7 +1823,7 @@ impl ShmTextureFrame {
 enum ExternalTextureSource {
     Dmabuf {
         dmabuf: Dmabuf,
-        buffer_guard: RendererBufferGuard,
+        buffer_guard: Option<RendererBufferGuard>,
         revision: u64,
     },
     Shm(ShmTextureFrame),
@@ -1960,10 +2005,22 @@ impl ExternalTextureFrame {
             texture_id,
             source: ExternalTextureSource::Dmabuf {
                 dmabuf,
-                buffer_guard,
+                buffer_guard: Some(buffer_guard),
                 revision,
             },
             expects_sample,
+        }
+    }
+
+    pub(super) fn from_owned_dmabuf(texture_id: i64, dmabuf: Dmabuf, revision: u64) -> Self {
+        Self {
+            texture_id,
+            source: ExternalTextureSource::Dmabuf {
+                dmabuf,
+                buffer_guard: None,
+                revision,
+            },
+            expects_sample: false,
         }
     }
 
@@ -2291,6 +2348,14 @@ impl FlutterGlHandler {
 
     fn release_output(&self, index: usize) -> Result<(), &'static str> {
         lock(&self.broker).release_output(index)
+    }
+
+    fn tag_next_frame_for_screenshot(&self, request_id: u64) -> Result<(), &'static str> {
+        lock(&self.broker).tag_next_frame_for_screenshot(request_id)
+    }
+
+    fn cancel_screenshot_frame(&self, request_id: u64) {
+        lock(&self.broker).cancel_screenshot_frame(request_id);
     }
 
     fn set_external_texture_sources(&self, frames: impl IntoIterator<Item = ExternalTextureFrame>) {
@@ -2707,7 +2772,7 @@ impl FlutterGlHandler {
                     _wayland_buffer_guard: buffer_guard,
                     _resource_permit: lease_permit,
                 };
-                (width, height, binding, resource, Some(sampled_buffer))
+                (width, height, binding, resource, sampled_buffer)
             }
             ExternalTextureSource::Shm(frame) => {
                 let width = usize::try_from(frame.width).unwrap_or_default();
@@ -3163,7 +3228,7 @@ impl OpenGlHandler for FlutterGlHandler {
                         _wayland_buffer_guard: buffer_guard,
                         _resource_permit: lease_permit,
                     },
-                    Some(sampled_buffer),
+                    sampled_buffer,
                 )
             }
             ExternalTextureSource::Shm(frame) => {
@@ -3729,6 +3794,8 @@ pub struct FlutterRuntime {
     next_platform_task_order: u64,
     registered_external_textures: HashSet<i64>,
     scene_texture_ids: HashSet<i64>,
+    screenshot_texture_id: Option<i64>,
+    pending_screenshot_frame_id: Option<u64>,
     scene_texture_id_scratch: Vec<i64>,
     window_close_texture_leases: WindowCloseTextureLeases,
     pending_frame_texture_ids: Vec<i64>,
@@ -3783,6 +3850,10 @@ impl FlutterRuntime {
             Arc::clone(&factory.library),
             Some(super::cpu_scheduling::set_flutter_thread_priority),
         )?;
+        if let Some(locale) = locale_from_environment(|name| std::env::var(name).ok()) {
+            host.engine()
+                .update_locales(std::slice::from_ref(&locale))?;
+        }
         let refresh_hz = f64::from(refresh_millihz) / 1_000.0;
         let device_pixel_ratio = f64::from(atlas.engine_scale_120) / f64::from(SCALE_BASE);
         host.engine().notify_displays(
@@ -3845,6 +3916,8 @@ impl FlutterRuntime {
             next_platform_task_order: 0,
             registered_external_textures: HashSet::new(),
             scene_texture_ids: HashSet::new(),
+            screenshot_texture_id: None,
+            pending_screenshot_frame_id: None,
             scene_texture_id_scratch: Vec::new(),
             window_close_texture_leases: WindowCloseTextureLeases::default(),
             pending_frame_texture_ids: Vec::new(),
@@ -4118,6 +4191,21 @@ impl FlutterRuntime {
         }
     }
 
+    pub fn arm_screenshot_frame(&mut self, request_id: u64) -> Result<(), Box<dyn Error>> {
+        if request_id == 0 || self.pending_screenshot_frame_id.is_some() {
+            return Err("a screenshot frame is already armed".into());
+        }
+        self.pending_screenshot_frame_id = Some(request_id);
+        Ok(())
+    }
+
+    pub fn cancel_screenshot_frame(&mut self, request_id: u64) {
+        if self.pending_screenshot_frame_id == Some(request_id) {
+            self.pending_screenshot_frame_id = None;
+        }
+        self.handler.cancel_screenshot_frame(request_id);
+    }
+
     fn collect_external_texture_updates(&mut self) {
         self.handler
             .advance_external_texture_sources(&mut self.pending_frame_texture_ids);
@@ -4179,6 +4267,9 @@ impl FlutterRuntime {
                     return Err(error);
                 }
             }
+        }
+        if let Some(request_id) = self.pending_screenshot_frame_id.take() {
+            self.handler.tag_next_frame_for_screenshot(request_id)?;
         }
         self.begin_reserved_frame(tick)?;
         Ok(true)
@@ -4278,9 +4369,10 @@ impl FlutterRuntime {
             self.registered_external_textures
                 .difference(&desired)
                 .filter(|texture_id| {
-                    !self
-                        .window_close_texture_leases
-                        .retains_texture(**texture_id)
+                    self.screenshot_texture_id != Some(**texture_id)
+                        && !self
+                            .window_close_texture_leases
+                            .retains_texture(**texture_id)
                 })
                 .copied(),
         );
@@ -4360,6 +4452,31 @@ impl FlutterRuntime {
         self.system_commands.take_logout_requested()
     }
 
+    pub fn take_application_launch(&mut self) -> Option<system_command::PendingApplicationLaunch> {
+        self.system_commands.take_application_launch()
+    }
+
+    pub fn start_application(
+        &mut self,
+        launch: system_command::PendingApplicationLaunch,
+        activation_token: Option<&str>,
+    ) -> Result<(), system_command::DispatchError> {
+        self.system_commands
+            .start_application(launch, activation_token)
+    }
+
+    pub fn take_screenshot_requested(&mut self) -> Option<system_command::ScreenshotRequest> {
+        self.system_commands.take_screenshot_requested()
+    }
+
+    pub fn take_screenshot_prepared(&mut self) -> Option<std::num::NonZeroU64> {
+        self.system_commands.take_screenshot_prepared()
+    }
+
+    pub fn take_screenshot_cancelled(&mut self) -> Option<std::num::NonZeroU64> {
+        self.system_commands.take_screenshot_cancelled()
+    }
+
     pub fn take_idle_dpms_timeout(&mut self) -> Option<Option<Duration>> {
         self.pending_idle_dpms_timeout.take()
     }
@@ -4416,6 +4533,61 @@ impl FlutterRuntime {
             .expect("Flutter runtime is shutting down")
             .engine();
         let event = self.wire.encode_shell_action(action, monitor_id)?;
+        engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, event)?;
+        Ok(())
+    }
+
+    pub fn register_screenshot_texture(
+        &mut self,
+        dmabuf: Dmabuf,
+        revision: u64,
+    ) -> Result<i64, Box<dyn Error>> {
+        if self.screenshot_texture_id.is_some() {
+            return Err("a screenshot texture is already registered".into());
+        }
+        let texture_id = (1..=i64::MAX)
+            .rev()
+            .find(|texture_id| !self.registered_external_textures.contains(texture_id))
+            .ok_or("Flutter external texture identifiers are exhausted")?;
+        self.host().engine().register_external_texture(texture_id)?;
+        self.registered_external_textures.insert(texture_id);
+        self.handler
+            .set_external_texture_sources([ExternalTextureFrame::from_owned_dmabuf(
+                texture_id, dmabuf, revision,
+            )]);
+        self.screenshot_texture_id = Some(texture_id);
+        Ok(texture_id)
+    }
+
+    pub fn unregister_screenshot_texture(&mut self, texture_id: i64) -> Result<(), Box<dyn Error>> {
+        if self.screenshot_texture_id != Some(texture_id) {
+            return Err("screenshot texture identity does not match the active texture".into());
+        }
+        self.host()
+            .engine()
+            .unregister_external_texture(texture_id)?;
+        self.handler.remove_external_texture_source(texture_id);
+        self.pending_frame_texture_ids
+            .retain(|pending| *pending != texture_id);
+        self.registered_external_textures.remove(&texture_id);
+        self.screenshot_texture_id = None;
+        Ok(())
+    }
+
+    pub fn send_screenshot_action(
+        &mut self,
+        action: wire::ShellAction,
+        request_id: u64,
+        texture_id: Option<i64>,
+    ) -> Result<(), Box<dyn Error>> {
+        let engine = self
+            .host
+            .as_ref()
+            .expect("Flutter runtime is shutting down")
+            .engine();
+        let event = self
+            .wire
+            .encode_screenshot_action(action, request_id, texture_id)?;
         engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, event)?;
         Ok(())
     }
@@ -4567,6 +4739,7 @@ impl FlutterRuntime {
     ) -> Result<(), Box<dyn Error>> {
         for texture_id in texture_ids {
             if self.scene_texture_ids.contains(&texture_id)
+                || self.screenshot_texture_id == Some(texture_id)
                 || self.window_close_texture_leases.retains_texture(texture_id)
                 || !self.registered_external_textures.contains(&texture_id)
             {
@@ -4882,6 +5055,75 @@ fn project_from_bundle(
     })
 }
 
+fn locale_from_environment(mut read: impl FnMut(&str) -> Option<String>) -> Option<EngineLocale> {
+    ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .into_iter()
+        .filter_map(|name| read(name))
+        .find_map(|value| parse_posix_locale(&value))
+}
+
+fn parse_posix_locale(value: &str) -> Option<EngineLocale> {
+    let value = value.trim();
+    if value.is_empty()
+        || value.eq_ignore_ascii_case("C")
+        || value.eq_ignore_ascii_case("POSIX")
+        || value.to_ascii_uppercase().starts_with("C.")
+    {
+        return None;
+    }
+    let base = value.split_once('@').map_or(value, |(base, _)| base);
+    let base = base.split_once('.').map_or(base, |(base, _)| base);
+    let mut parts = base.split(['_', '-']);
+    let language = parts.next()?.to_ascii_lowercase();
+    if !(2..=3).contains(&language.len())
+        || !language.bytes().all(|byte| byte.is_ascii_alphabetic())
+    {
+        return None;
+    }
+
+    let mut script = None;
+    let mut country = None;
+    let mut variants = Vec::new();
+    for part in parts.filter(|part| !part.is_empty()) {
+        if script.is_none()
+            && part.len() == 4
+            && part.bytes().all(|byte| byte.is_ascii_alphabetic())
+        {
+            let mut characters = part.chars();
+            script = characters.next().map(|first| {
+                format!(
+                    "{}{}",
+                    first.to_ascii_uppercase(),
+                    characters.as_str().to_ascii_lowercase()
+                )
+            });
+        } else if country.is_none()
+            && ((part.len() == 2 && part.bytes().all(|byte| byte.is_ascii_alphabetic()))
+                || (part.len() == 3 && part.bytes().all(|byte| byte.is_ascii_digit())))
+        {
+            country = Some(part.to_ascii_uppercase());
+        } else {
+            variants.push(part.to_owned());
+        }
+    }
+
+    if language == "zh" && script.is_none() {
+        script = match country.as_deref() {
+            Some("CN" | "SG") => Some("Hans".to_owned()),
+            Some("TW" | "HK" | "MO") => Some("Hant".to_owned()),
+            _ => None,
+        };
+    }
+    let variant = (!variants.is_empty()).then(|| variants.join("_"));
+    EngineLocale::new(
+        &language,
+        country.as_deref(),
+        script.as_deref(),
+        variant.as_deref(),
+    )
+    .ok()
+}
+
 fn first_file(paths: &[PathBuf]) -> Option<PathBuf> {
     paths.iter().find(|path| path.is_file()).cloned()
 }
@@ -4889,6 +5131,33 @@ fn first_file(paths: &[PathBuf]) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn posix_locale_parser_preserves_chinese_script_distinctions() {
+        let simplified = parse_posix_locale("zh_CN.UTF-8").expect("Simplified Chinese locale");
+        assert_eq!(simplified.language_code(), c"zh");
+        assert_eq!(simplified.country_code(), Some(c"CN"));
+        assert_eq!(simplified.script_code(), Some(c"Hans"));
+
+        let traditional = parse_posix_locale("zh_TW.UTF-8").expect("Traditional Chinese locale");
+        assert_eq!(traditional.country_code(), Some(c"TW"));
+        assert_eq!(traditional.script_code(), Some(c"Hant"));
+    }
+
+    #[test]
+    fn locale_environment_uses_posix_category_precedence() {
+        let locale = locale_from_environment(|name| match name {
+            "LC_ALL" => Some(String::new()),
+            "LC_MESSAGES" => Some("zh-Hans-SG.UTF-8".to_owned()),
+            "LANG" => Some("en_US.UTF-8".to_owned()),
+            _ => None,
+        })
+        .expect("message locale");
+        assert_eq!(locale.language_code(), c"zh");
+        assert_eq!(locale.country_code(), Some(c"SG"));
+        assert_eq!(locale.script_code(), Some(c"Hans"));
+        assert_eq!(locale.variant_code(), None);
+    }
 
     #[test]
     fn vm_service_log_parser_only_accepts_the_configured_loopback_service() {
@@ -5647,6 +5916,27 @@ mod tests {
         assert!(BufferBroker::new([1, 1, 2], 0, size).is_err());
         assert!(BufferBroker::new([0, 1, 2], 0, size).is_err());
         assert!(BufferBroker::new([], 0, size).is_err());
+    }
+
+    #[test]
+    fn screenshot_tag_skips_a_frame_already_rendering_before_prepare() {
+        let size = PixelSize::new(1920, 1080);
+        let mut broker = BufferBroker::new([11, 22, 33], 0, size).unwrap();
+
+        let old_frame = broker.acquire_for_render().unwrap();
+        broker.tag_next_frame_for_screenshot(41).unwrap();
+        broker.mark_ready(old_frame, &[], None).unwrap();
+        let old_ready = broker.take_latest_ready().unwrap();
+        assert_eq!(old_ready.screenshot_request_id, None);
+        broker.cancel_flip(old_ready.index);
+
+        let cursorless_frame = broker.acquire_for_render().unwrap();
+        broker.mark_ready(cursorless_frame, &[], None).unwrap();
+        let cursorless_ready = broker.take_latest_ready().unwrap();
+        assert_eq!(cursorless_ready.screenshot_request_id, Some(41));
+        let mut damage = Vec::new();
+        cursorless_ready.damage.write_flutter(&mut damage);
+        assert_full(&damage, size);
     }
 
     #[test]

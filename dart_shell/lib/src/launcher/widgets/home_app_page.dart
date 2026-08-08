@@ -47,7 +47,8 @@ class HomeAppPage extends StatelessWidget {
     int pageSize,
     LongPressStartDetails details,
     Size feedbackSize,
-  ) onDragStart;
+  )
+  onDragStart;
   final void Function(Offset? finalGlobalPosition) onDragEnd;
   final ValueChanged<LongPressMoveUpdateDetails> onDragUpdate;
   final void Function(
@@ -55,21 +56,24 @@ class HomeAppPage extends StatelessWidget {
     int index,
     int pageSize,
     LongPressStartDetails details,
-  ) onResizeModeStart;
+  )
+  onResizeModeStart;
   final void Function(
     HomeGridItem item,
     int index,
     int pageSize,
     LongPressMoveUpdateDetails details,
     Size feedbackSize,
-  ) onResizeModeMove;
+  )
+  onResizeModeMove;
   final VoidCallback onResizeModeEnd;
   final void Function(
     HomeGridItem item,
     int index,
     int pageSize,
     DragStartDetails details,
-  ) onResizeStart;
+  )
+  onResizeStart;
   final ValueChanged<DragUpdateDetails> onResizeUpdate;
   final VoidCallback onResizeEnd;
 
@@ -78,9 +82,11 @@ class HomeAppPage extends StatelessWidget {
     final pageEnd = startIndex + pageSize;
     final anchors = <int>[];
 
-    for (var index = startIndex;
-        index < pageEnd && index < slots.length;
-        index += 1) {
+    for (
+      var index = startIndex;
+      index < pageEnd && index < slots.length;
+      index += 1
+    ) {
       final item = slots[index];
       if (item == null) {
         continue;
@@ -168,7 +174,8 @@ class _PositionedGridItem extends StatelessWidget {
     int pageSize,
     LongPressStartDetails details,
     Size feedbackSize,
-  ) onDragStart;
+  )
+  onDragStart;
   final void Function(Offset? finalGlobalPosition) onDragEnd;
   final ValueChanged<LongPressMoveUpdateDetails> onDragUpdate;
   final void Function(
@@ -176,21 +183,24 @@ class _PositionedGridItem extends StatelessWidget {
     int index,
     int pageSize,
     LongPressStartDetails details,
-  ) onResizeModeStart;
+  )
+  onResizeModeStart;
   final void Function(
     HomeGridItem item,
     int index,
     int pageSize,
     LongPressMoveUpdateDetails details,
     Size feedbackSize,
-  ) onResizeModeMove;
+  )
+  onResizeModeMove;
   final VoidCallback onResizeModeEnd;
   final void Function(
     HomeGridItem item,
     int index,
     int pageSize,
     DragStartDetails details,
-  ) onResizeStart;
+  )
+  onResizeStart;
   final ValueChanged<DragUpdateDetails> onResizeUpdate;
   final VoidCallback onResizeEnd;
 
@@ -214,9 +224,7 @@ class _PositionedGridItem extends StatelessWidget {
               Positioned.fill(child: tile),
               Positioned.fill(
                 child: IgnorePointer(
-                  child: CustomPaint(
-                    painter: _ResizeFramePainter(),
-                  ),
+                  child: CustomPaint(painter: _ResizeFramePainter()),
                 ),
               ),
               Align(
@@ -224,12 +232,8 @@ class _PositionedGridItem extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.only(right: 4, bottom: 4),
                   child: _ResizeHandle(
-                    onPanStart: (details) => onResizeStart(
-                      item,
-                      index,
-                      pageSize,
-                      details,
-                    ),
+                    onPanStart: (details) =>
+                        onResizeStart(item, index, pageSize, details),
                     onPanUpdate: onResizeUpdate,
                     onPanEnd: onResizeEnd,
                   ),
@@ -247,33 +251,29 @@ class _PositionedGridItem extends StatelessWidget {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onLongPressStart: item.resizable
-            ? (details) => onResizeModeStart(
-                  item,
-                  index,
-                  pageSize,
-                  details,
-                )
+            ? (details) => onResizeModeStart(item, index, pageSize, details)
             : (details) => onDragStart(
-                  item,
-                  index,
-                  pageSize,
-                  details,
-                  Size(width, height),
-                ),
+                item,
+                index,
+                pageSize,
+                details,
+                Size(width, height),
+              ),
         onLongPressMoveUpdate: item.resizable
             ? (details) => onResizeModeMove(
-                  item,
-                  index,
-                  pageSize,
-                  details,
-                  Size(width, height),
-                )
+                item,
+                index,
+                pageSize,
+                details,
+                Size(width, height),
+              )
             : onDragUpdate,
         onLongPressEnd: item.resizable
             ? (_) => onResizeModeEnd()
             : (details) => onDragEnd(details.globalPosition),
-        onLongPressCancel:
-            item.resizable ? onResizeModeEnd : () => onDragEnd(null),
+        onLongPressCancel: item.resizable
+            ? onResizeModeEnd
+            : () => onDragEnd(null),
         child: hidden ? const SizedBox.shrink() : child,
       ),
     );

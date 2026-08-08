@@ -458,8 +458,8 @@ find_denial_pid() {
 require_bundle_refresh_support() {
     local pid="$1"
     "/proc/$pid/exe" --help 2>/dev/null \
-        | grep -Fq "Control: SIGUSR1 refreshes the embedded Flutter bundle in process." \
-        || die "running deniald process $pid predates in-process bundle refresh support"
+        | grep -Fq "Control: SIGUSR1 safely refreshes the embedded Flutter bundle in process." \
+        || die "running deniald process $pid predates safe in-process bundle refresh support; restart Denial once before using refresh"
 }
 
 refresh_bundle() {

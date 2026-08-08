@@ -197,10 +197,7 @@ class _WallpaperScene extends StatelessWidget {
 }
 
 class _WallpaperDarknessLayer extends StatelessWidget {
-  const _WallpaperDarknessLayer({
-    super.key,
-    required this.darkness,
-  });
+  const _WallpaperDarknessLayer({super.key, required this.darkness});
 
   final double darkness;
 
@@ -271,10 +268,8 @@ class _ExpandingWallpaperHoleClipper extends CustomClipper<Path> {
       safeOrigin.dy - bounds.top,
       bounds.bottom - safeOrigin.dy,
     );
-    final radius = math.sqrt(
-          farthestX * farthestX + farthestY * farthestY,
-        ) *
-        progress;
+    final radius =
+        math.sqrt(farthestX * farthestX + farthestY * farthestY) * progress;
     return Path()
       ..fillType = PathFillType.evenOdd
       ..addRect(bounds)
