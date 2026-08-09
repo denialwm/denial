@@ -1341,6 +1341,7 @@ struct GlApi {
     bind_framebuffer: unsafe extern "system" fn(u32, u32),
     framebuffer_texture_2d: unsafe extern "system" fn(u32, u32, u32, u32, i32),
     check_framebuffer_status: unsafe extern "system" fn(u32) -> u32,
+    blit_framebuffer: unsafe extern "system" fn(i32, i32, i32, i32, i32, i32, i32, i32, u32, u32),
     delete_framebuffers: unsafe extern "system" fn(i32, *const u32),
     gen_renderbuffers: unsafe extern "system" fn(i32, *mut u32),
     bind_renderbuffer: unsafe extern "system" fn(u32, u32),
@@ -1398,6 +1399,10 @@ impl GlApi {
                 "glCheckFramebufferStatus",
                 unsafe extern "system" fn(u32) -> u32
             ),
+            blit_framebuffer: symbol!(
+                "glBlitFramebuffer",
+                unsafe extern "system" fn(i32, i32, i32, i32, i32, i32, i32, i32, u32, u32)
+            ),
             delete_framebuffers: symbol!(
                 "glDeleteFramebuffers",
                 unsafe extern "system" fn(i32, *const u32)
@@ -1431,8 +1436,16 @@ impl GlApi {
 #[derive(Clone, Copy, Debug)]
 struct GlTarget {
     image: usize,
-    texture: u32,
-    framebuffer: u32,
+    scanout_texture: u32,
+    scanout_framebuffer: u32,
+    render_texture: u32,
+    render_framebuffer: u32,
+}
+
+impl GlTarget {
+    fn needs_blit(self) -> bool {
+        self.render_framebuffer != self.scanout_framebuffer
+    }
 }
 
 #[derive(Debug, Default)]
@@ -2112,6 +2125,7 @@ impl FlutterGlHandler {
         initial_scanout: usize,
         size: PixelSize,
         renderer_backend: RendererBackend,
+        offscreen_blit: bool,
         events: Sender<RuntimeEvent>,
         generation: u64,
         use_native_fence: bool,
@@ -2150,7 +2164,11 @@ impl FlutterGlHandler {
                 return Err("could not allocate Impeller GLES depth/stencil storage".into());
             }
         }
-        info!(%renderer_backend, "creating direct Flutter atlas texture targets");
+        info!(
+            %renderer_backend,
+            offscreen_blit,
+            "creating Flutter atlas texture targets"
+        );
         let mut targets = Vec::new();
 
         for dmabuf in dmabufs {
@@ -2165,29 +2183,31 @@ impl FlutterGlHandler {
             };
             let mut target = GlTarget {
                 image: image as usize,
-                texture: 0,
-                framebuffer: 0,
+                scanout_texture: 0,
+                scanout_framebuffer: 0,
+                render_texture: 0,
+                render_framebuffer: 0,
             };
             // SAFETY: a compatible GLES context is current and all output
             // pointers reference live local integers.
             unsafe {
-                (gl.gen_textures)(1, &mut target.texture);
-                (gl.bind_texture)(gl::TEXTURE_2D, target.texture);
+                (gl.gen_textures)(1, &mut target.scanout_texture);
+                (gl.bind_texture)(gl::TEXTURE_2D, target.scanout_texture);
                 (gl.tex_parameter_i)(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
                 (gl.tex_parameter_i)(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
                 (gl.tex_parameter_i)(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
                 (gl.tex_parameter_i)(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
                 (gl.image_target_texture)(gl::TEXTURE_2D, image.cast());
-                (gl.gen_framebuffers)(1, &mut target.framebuffer);
-                (gl.bind_framebuffer)(gl::FRAMEBUFFER, target.framebuffer);
+                (gl.gen_framebuffers)(1, &mut target.scanout_framebuffer);
+                (gl.bind_framebuffer)(gl::FRAMEBUFFER, target.scanout_framebuffer);
                 (gl.framebuffer_texture_2d)(
                     gl::FRAMEBUFFER,
                     gl::COLOR_ATTACHMENT0,
                     gl::TEXTURE_2D,
-                    target.texture,
+                    target.scanout_texture,
                     0,
                 );
-                if depth_stencil != 0 {
+                if !offscreen_blit && depth_stencil != 0 {
                     (gl.framebuffer_renderbuffer)(
                         gl::FRAMEBUFFER,
                         gl::DEPTH_STENCIL_ATTACHMENT,
@@ -2196,10 +2216,9 @@ impl FlutterGlHandler {
                     );
                 }
             }
-            // Flutter draws directly into the imported scanout DMA-BUF. The
-            // versioned engine wraps the attached level-zero texture. Ganesh
-            // allocates its own stencil and dynamic-MSAA resources, so the
-            // embedder attachment remains absent on the Skia path.
+            // Direct mode exposes this imported texture to Flutter. Offscreen
+            // mode keeps it only as the destination of the final full-atlas
+            // copy, so effects and partial repaint never need to read it.
             let mut actual_samples = 0;
             let mut actual_stencil_bits = 0;
             // SAFETY: the same compatible GLES context remains current, the
@@ -2213,26 +2232,127 @@ impl FlutterGlHandler {
                 }
                 status
             };
-            if target.texture == 0
-                || target.framebuffer == 0
+            if target.scanout_texture == 0
+                || target.scanout_framebuffer == 0
                 || framebuffer_status != gl::FRAMEBUFFER_COMPLETE
-                || actual_samples > 1
-                || (needs_depth_stencil && actual_stencil_bits < 8)
+                || (!offscreen_blit && actual_samples > 1)
+                || (!offscreen_blit && needs_depth_stencil && actual_stencil_bits < 8)
             {
                 warn!(
-                    texture = target.texture,
-                    framebuffer = target.framebuffer,
+                    texture = target.scanout_texture,
+                    framebuffer = target.scanout_framebuffer,
                     status = framebuffer_status,
                     actual_samples,
                     actual_stencil_bits,
-                    "Flutter direct atlas FBO creation failed"
+                    "Flutter scanout atlas FBO creation failed"
                 );
                 let mut failed = vec![target];
                 destroy_targets(gl, &display, &mut failed);
                 destroy_targets(gl, &display, &mut targets);
                 destroy_depth_stencil(gl, &mut depth_stencil);
                 render_context.unbind()?;
-                return Err("a Flutter direct atlas framebuffer is incomplete".into());
+                return Err("a Flutter scanout atlas framebuffer is incomplete".into());
+            }
+
+            if offscreen_blit {
+                // Flutter's root target is ordinary RGBA8 texture storage. It
+                // is renderable, sampleable and readable without inheriting
+                // scanout modifier or display-IOMMU constraints.
+                // SAFETY: the compatible GLES context remains current and all
+                // names and attachment dimensions belong to this handler.
+                unsafe {
+                    let _ = (gl.get_error)();
+                    (gl.gen_textures)(1, &mut target.render_texture);
+                    (gl.bind_texture)(gl::TEXTURE_2D, target.render_texture);
+                    (gl.tex_parameter_i)(
+                        gl::TEXTURE_2D,
+                        gl::TEXTURE_MIN_FILTER,
+                        gl::NEAREST as i32,
+                    );
+                    (gl.tex_parameter_i)(
+                        gl::TEXTURE_2D,
+                        gl::TEXTURE_MAG_FILTER,
+                        gl::NEAREST as i32,
+                    );
+                    (gl.tex_parameter_i)(
+                        gl::TEXTURE_2D,
+                        gl::TEXTURE_WRAP_S,
+                        gl::CLAMP_TO_EDGE as i32,
+                    );
+                    (gl.tex_parameter_i)(
+                        gl::TEXTURE_2D,
+                        gl::TEXTURE_WRAP_T,
+                        gl::CLAMP_TO_EDGE as i32,
+                    );
+                    (gl.tex_image_2d)(
+                        gl::TEXTURE_2D,
+                        0,
+                        gl::RGBA8 as i32,
+                        width,
+                        height,
+                        0,
+                        gl::RGBA,
+                        gl::UNSIGNED_BYTE,
+                        ptr::null(),
+                    );
+                    (gl.gen_framebuffers)(1, &mut target.render_framebuffer);
+                    (gl.bind_framebuffer)(gl::FRAMEBUFFER, target.render_framebuffer);
+                    (gl.framebuffer_texture_2d)(
+                        gl::FRAMEBUFFER,
+                        gl::COLOR_ATTACHMENT0,
+                        gl::TEXTURE_2D,
+                        target.render_texture,
+                        0,
+                    );
+                    if depth_stencil != 0 {
+                        (gl.framebuffer_renderbuffer)(
+                            gl::FRAMEBUFFER,
+                            gl::DEPTH_STENCIL_ATTACHMENT,
+                            gl::RENDERBUFFER,
+                            depth_stencil,
+                        );
+                    }
+                }
+                actual_samples = 0;
+                actual_stencil_bits = 0;
+                // SAFETY: the newly created render framebuffer is still bound
+                // in the current compatible GLES context.
+                let render_status = unsafe {
+                    let status = (gl.check_framebuffer_status)(gl::FRAMEBUFFER);
+                    (gl.get_integer_v)(gl::SAMPLES, &mut actual_samples);
+                    if needs_depth_stencil {
+                        (gl.get_integer_v)(gl::STENCIL_BITS, &mut actual_stencil_bits);
+                    }
+                    status
+                };
+                // SAFETY: querying the current context's error queue has no
+                // additional pointer or object-lifetime requirements.
+                let render_error = unsafe { (gl.get_error)() };
+                if target.render_texture == 0
+                    || target.render_framebuffer == 0
+                    || render_status != gl::FRAMEBUFFER_COMPLETE
+                    || render_error != gl::NO_ERROR
+                    || actual_samples > 1
+                    || (needs_depth_stencil && actual_stencil_bits < 8)
+                {
+                    warn!(
+                        texture = target.render_texture,
+                        framebuffer = target.render_framebuffer,
+                        status = render_status,
+                        error = format_args!("{render_error:#x}"),
+                        actual_samples,
+                        actual_stencil_bits,
+                        "Flutter offscreen atlas FBO creation failed"
+                    );
+                    let mut failed = vec![target];
+                    destroy_targets(gl, &display, &mut failed);
+                    destroy_targets(gl, &display, &mut targets);
+                    destroy_depth_stencil(gl, &mut depth_stencil);
+                    render_context.unbind()?;
+                    return Err("a Flutter offscreen atlas framebuffer is incomplete".into());
+                }
+            } else {
+                target.render_framebuffer = target.scanout_framebuffer;
             }
             targets.push(target);
         }
@@ -2250,10 +2370,10 @@ impl FlutterGlHandler {
             destroy_targets(gl, &display, &mut targets);
             destroy_depth_stencil(gl, &mut depth_stencil);
             render_context.unbind()?;
-            return Err("Flutter direct scanout needs at least three atlas buffers".into());
+            return Err("Flutter presentation needs at least three atlas buffers".into());
         }
         let broker = match BufferBroker::new(
-            targets.iter().map(|target| target.framebuffer),
+            targets.iter().map(|target| target.render_framebuffer),
             initial_scanout,
             size,
         ) {
@@ -2274,6 +2394,7 @@ impl FlutterGlHandler {
             buffers = targets.len(),
             width = size.width,
             height = size.height,
+            offscreen_blit,
             "imported GBM atlas pool into Flutter EGL context"
         );
         let render_audit = render_audit_enabled().then(|| {
@@ -2667,6 +2788,72 @@ impl FlutterGlHandler {
         }
     }
 
+    fn blit_to_scanout(&self, render_framebuffer: u32) -> bool {
+        let target = lock(&self.targets)
+            .iter()
+            .find(|target| target.render_framebuffer == render_framebuffer)
+            .copied();
+        let Some(target) = target else {
+            error!(
+                framebuffer = render_framebuffer,
+                "Flutter presented an unknown atlas target"
+            );
+            return false;
+        };
+        if !target.needs_blit() {
+            return true;
+        }
+
+        // The raster commands and this copy share one GLES context, so command
+        // ordering makes the completed scene the source without a CPU wait.
+        // Copy the complete atlas for this correctness fallback; Flutter still
+        // uses per-buffer damage to repair its readable scene targets.
+        let width = self.size.width as i32;
+        let height = self.size.height as i32;
+        // SAFETY: Flutter invokes present with this handler's render context
+        // current, and both framebuffer names remain live in `targets`.
+        unsafe {
+            for _ in 0..8 {
+                if (self.gl.get_error)() == gl::NO_ERROR {
+                    break;
+                }
+            }
+            (self.gl.bind_framebuffer)(gl::READ_FRAMEBUFFER, target.render_framebuffer);
+            (self.gl.bind_framebuffer)(gl::DRAW_FRAMEBUFFER, target.scanout_framebuffer);
+            (self.gl.blit_framebuffer)(
+                0,
+                0,
+                width,
+                height,
+                0,
+                0,
+                width,
+                height,
+                gl::COLOR_BUFFER_BIT,
+                gl::NEAREST,
+            );
+        }
+        // SAFETY: the same render context remains current after the blit.
+        let error = unsafe { (self.gl.get_error)() };
+        // Restore the framebuffer binding expected by Flutter until it clears
+        // the context after present().
+        // SAFETY: the render framebuffer and viewport dimensions remain valid.
+        unsafe {
+            (self.gl.bind_framebuffer)(gl::FRAMEBUFFER, target.render_framebuffer);
+            (self.gl.viewport)(0, 0, width, height);
+        }
+        if error != gl::NO_ERROR {
+            error!(
+                framebuffer = render_framebuffer,
+                scanout_framebuffer = target.scanout_framebuffer,
+                error = format_args!("{error:#x}"),
+                "Flutter scene-to-scanout blit failed"
+            );
+            return false;
+        }
+        true
+    }
+
     fn destroy_targets(&self) {
         let mut targets = lock(&self.targets);
         let mut depth_stencil = lock(&self.depth_stencil);
@@ -2867,8 +3054,8 @@ impl OpenGlHandler for FlutterGlHandler {
     fn surface_transformation(&self) -> sys::FlutterTransformation {
         // Flutter renders OpenGL with a bottom-left framebuffer origin while
         // DRM scans the imported GBM image from its top-left row. Apply the
-        // inversion in Flutter's root transform so the image remains a direct
-        // scanout target and never needs an intermediate blit.
+        // inversion in Flutter's root transform. The optional offscreen path
+        // then performs an identity blit, preserving the same scanout rows.
         sys::FlutterTransformation {
             scaleX: 1.0,
             skewX: 0.0,
@@ -2937,6 +3124,16 @@ impl OpenGlHandler for FlutterGlHandler {
             // raster present owns the render context, so reclaim those queued
             // resources even when no further external texture is populated.
             self.destroy_retired_external_bindings();
+            if !self.blit_to_scanout(frame.framebuffer) {
+                let sampled = self.seal_sampled_buffers();
+                // A failed copy cannot produce a KMS fence. Finish Flutter's
+                // sampling before releasing client buffers, then let the next
+                // acquisition invalidate and recycle this rendering slot.
+                // SAFETY: present runs with the raster context current.
+                unsafe { (self.gl.finish)() };
+                let _ = self.publish_sampled_buffer_release(None, sampled);
+                return false;
+            }
             let fence = if self.use_native_fence {
                 let context = lock(&self.render_context);
                 match EGLFence::create(context.context.display()) {
@@ -3483,11 +3680,19 @@ fn destroy_targets(gl: GlApi, display: &EGLDisplayHandle, targets: &mut Vec<GlTa
         // SAFETY: cleanup runs with the owning shared EGL context current;
         // every object/image was created exactly once by this handler.
         unsafe {
-            if target.framebuffer != 0 {
-                (gl.delete_framebuffers)(1, &target.framebuffer);
+            if target.render_framebuffer != 0
+                && target.render_framebuffer != target.scanout_framebuffer
+            {
+                (gl.delete_framebuffers)(1, &target.render_framebuffer);
             }
-            if target.texture != 0 {
-                (gl.delete_textures)(1, &target.texture);
+            if target.render_texture != 0 {
+                (gl.delete_textures)(1, &target.render_texture);
+            }
+            if target.scanout_framebuffer != 0 {
+                (gl.delete_framebuffers)(1, &target.scanout_framebuffer);
+            }
+            if target.scanout_texture != 0 {
+                (gl.delete_textures)(1, &target.scanout_texture);
             }
             if target.image != 0 {
                 egl_ffi::egl::DestroyImageKHR(
@@ -3818,6 +4023,7 @@ impl FlutterRuntime {
         snapshot: &TopologySnapshot,
         atlas: &AtlasPlan,
         refresh_millihz: u32,
+        offscreen_blit: bool,
         factory: &FlutterRuntimeFactory,
         events: Sender<RuntimeEvent>,
         authentication: Arc<super::authentication::AuthenticationController>,
@@ -3840,6 +4046,7 @@ impl FlutterRuntime {
             initial_scanout,
             size,
             factory.project.renderer_backend,
+            offscreen_blit,
             events,
             generation,
             use_native_fence,

@@ -552,6 +552,7 @@ pub(super) struct LayoutTransition {
 pub(super) struct FlutterLauncher {
     factory: Option<flutter_runtime::FlutterRuntimeFactory>,
     renderer_backend: denial_flutter_engine::RendererBackend,
+    offscreen_blit: bool,
     active_mode: ui_development::UiRuntimeMode,
     resident_jit_engine_fingerprint: Option<[u8; 32]>,
     ui_development: ui_development::UiDevelopmentController,
@@ -569,6 +570,7 @@ pub(super) struct FlutterLauncher {
 pub(super) struct FlutterLaunchConfiguration<'a> {
     pub(super) bundle: &'a Path,
     pub(super) renderer_backend: denial_flutter_engine::RendererBackend,
+    pub(super) offscreen_blit: bool,
     pub(super) debug_bundle: Option<PathBuf>,
     pub(super) ui_workspace: Option<PathBuf>,
 }
@@ -596,6 +598,7 @@ impl FlutterLauncher {
                 configuration.renderer_backend,
             )?),
             renderer_backend: configuration.renderer_backend,
+            offscreen_blit: configuration.offscreen_blit,
             active_mode: ui_development::UiRuntimeMode::OfficialOptimized,
             resident_jit_engine_fingerprint: None,
             ui_development,
@@ -647,6 +650,7 @@ impl FlutterLauncher {
             atlas,
             scanouts,
             u32::try_from(refresh_millihz)?,
+            self.offscreen_blit,
         );
         let mut runtime = match runtime {
             Ok(runtime) => runtime,
@@ -669,6 +673,7 @@ impl FlutterLauncher {
                     atlas,
                     scanouts,
                     u32::try_from(refresh_millihz)?,
+                    self.offscreen_blit,
                 )?
             }
             Err(error) => return Err(error),
@@ -690,6 +695,7 @@ impl FlutterLauncher {
         atlas: &AtlasPlan,
         scanouts: &[Scanout],
         refresh_millihz: u32,
+        offscreen_blit: bool,
     ) -> Result<flutter_runtime::FlutterRuntime, Box<dyn Error>> {
         flutter_runtime::FlutterRuntime::start(
             shared_context,
@@ -699,6 +705,7 @@ impl FlutterLauncher {
             snapshot,
             atlas,
             refresh_millihz,
+            offscreen_blit,
             self.factory
                 .as_ref()
                 .ok_or("Flutter launcher has no active runtime factory")?,

@@ -160,6 +160,12 @@ case "$flutter_renderer" in
   *) die "DENIA_FLUTTER_RENDERER must be skia or impeller, got: $flutter_renderer" ;;
 esac
 
+flutter_offscreen_blit="${DENIAL_FLUTTER_OFFSCREEN_BLIT:-0}"
+case "$flutter_offscreen_blit" in
+  0 | 1) ;;
+  *) die "DENIAL_FLUTTER_OFFSCREEN_BLIT must be 0 or 1, got: $flutter_offscreen_blit" ;;
+esac
+
 bundle="${DENIAL_FLUTTER_BUNDLE:-$DEFAULT_BUNDLE}"
 if [[ -n "${DENIAL_OUTPUT_CONFIG:-}" ]]; then
   output_config="$DENIAL_OUTPUT_CONFIG"
@@ -201,6 +207,7 @@ if [[ "${1:-}" == --check ]]; then
   printf 'ok  %-16s %s\n' 'scanout allocator' "$scanout_allocator"
   printf 'ok  %-16s %s\n' 'shell profile' "$DENIA_SHELL_PROFILE"
   printf 'ok  %-16s %s\n' 'Flutter renderer' "${flutter_renderer:-impeller (default)}"
+  printf 'ok  %-16s %s\n' 'Flutter target' "$([[ "$flutter_offscreen_blit" == 1 ]] && printf 'offscreen blit' || printf direct)"
   printf 'ok  %-16s %s\n' 'Xwayland' "$(command -v Xwayland)"
   printf 'ok  %-16s %s\n' 'UWSM' "$(command -v uwsm)"
   exit 0
@@ -226,6 +233,9 @@ if [[ -n "$dumb_scanout_modifier" ]]; then
 fi
 if [[ -n "$flutter_renderer" ]]; then
   denial_args+=(--flutter-renderer "$flutter_renderer")
+fi
+if [[ "$flutter_offscreen_blit" == 1 ]]; then
+  denial_args+=(--flutter-offscreen-blit)
 fi
 if [[ -n "${DENIAL_FLUTTER_DEBUG_BUNDLE:-}" ]]; then
   [[ "$DENIAL_FLUTTER_DEBUG_BUNDLE" == /* ]] \

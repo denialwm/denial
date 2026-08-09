@@ -83,6 +83,17 @@ The modifier must be common to the KMS primary planes and EGL render formats.
 Extra rows reserve backing storage only; Denial continues to expose the
 configured output's visible dimensions to KMS and Flutter.
 
+If a device's scanout allocation is renderable but cannot satisfy Flutter's
+root-framebuffer readback operations, enable the explicit compatibility path:
+
+```sh
+DENIAL_FLUTTER_OFFSCREEN_BLIT=1
+```
+
+Flutter then renders into ordinary readable RGBA8 textures. Denial performs a
+GPU copy of the complete scene into the paired scanout buffer before creating
+the presentation fence. Direct scanout rendering remains the default.
+
 ## Supported launcher modes
 
 | Invocation | Result |
