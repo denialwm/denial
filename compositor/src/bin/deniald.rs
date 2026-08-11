@@ -46,6 +46,8 @@ mod scene_sync;
 #[cfg(feature = "flutter")]
 #[path = "deniald/screenshot.rs"]
 mod screenshot;
+#[path = "deniald/settings.rs"]
+mod settings;
 #[path = "deniald/system_controls.rs"]
 mod system_controls;
 #[cfg(feature = "flutter")]
@@ -274,6 +276,20 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
 
     let runtime_limit = options.runtime_limit();
     let output_configuration = RuntimeOutputConfiguration::from_options(&options);
+    let mut settings = options
+        .wayland
+        .then(settings::SettingsManager::load)
+        .transpose()?;
+    if let Some(settings) = settings.as_mut()
+        && let Err(error) = settings.keyboard().compiled_layout_names()
+    {
+        warn!(
+            %error,
+            path = %settings.path().display(),
+            "configured keyboard is unavailable; using the safe US keymap without overwriting the file"
+        );
+        settings.replace_invalid_keyboard_with_default();
+    }
 
     // calloop's signal source masks only the thread that creates it. Create it
     // before libseat, RTKit, graphics drivers, or any Denial worker can spawn
@@ -452,6 +468,9 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
             &seat_name,
             drm_fd.clone(),
             options.work_area.clone(),
+            settings
+                .take()
+                .expect("Wayland settings were loaded before frontend startup"),
         )?;
         let x11_display = frontend.xdisplay_name();
         if let Err(error) =
@@ -1018,6 +1037,7 @@ mod uwsm_tests {
             environment.get(OsStr::new("DISPLAY")),
             Some(&Some(OsString::from(":42")))
         );
+        assert!(!environment.contains_key(OsStr::new("XMODIFIERS")));
         assert_eq!(
             environment.get(OsStr::new("DENIAL_SOCKET")),
             Some(&Some(OsString::from("/run/user/1000/denial/control.sock")))
@@ -1034,6 +1054,7 @@ mod uwsm_tests {
             Some("wayland-37")
         );
         assert_eq!(environment.get("DISPLAY").map(String::as_str), Some(":42"));
+        assert!(!environment.contains_key("XMODIFIERS"));
         assert_eq!(
             environment.get("XDG_SESSION_TYPE").map(String::as_str),
             Some("wayland")
@@ -2805,6 +2826,7 @@ fn run_flutter_event_loop(
         synchronize_system_control_events(runtime, &mut events)?;
         synchronize_notification_events(runtime, &mut events)?;
         synchronize_shell_keyboard(runtime, &mut events)?;
+        synchronize_settings(runtime, &mut events)?;
         synchronize_system_bar_configuration(runtime, &mut events, Some(flutter_launcher));
         synchronize_flutter_window_management(runtime, &mut events)?;
         synchronize_flutter_scene(runtime, &mut events)?;
@@ -3083,6 +3105,7 @@ fn reload_flutter_runtime(
         synchronize_clipboard(&mut old_runtime, events)?;
         synchronize_system_control_events(&mut old_runtime, events)?;
         synchronize_shell_keyboard(&mut old_runtime, events)?;
+        synchronize_settings(&mut old_runtime, events)?;
         synchronize_system_bar_configuration(&mut old_runtime, events, Some(flutter_launcher));
         synchronize_flutter_window_management(&mut old_runtime, events)?;
         synchronize_flutter_input_layout(&mut old_runtime, events);
@@ -3283,6 +3306,7 @@ fn wait_for_flutter_frame(
         synchronize_system_control_events(runtime, events)?;
         synchronize_notification_events(runtime, events)?;
         synchronize_shell_keyboard(runtime, events)?;
+        synchronize_settings(runtime, events)?;
         synchronize_system_bar_configuration(runtime, events, flutter_launcher.as_deref_mut());
         synchronize_flutter_window_management(runtime, events)?;
         synchronize_flutter_scene(runtime, events)?;
@@ -3493,6 +3517,13 @@ fn synchronize_authentication_boundary(events: &mut RuntimeState) {
     // the previously focused application.
     wayland_frontend::reset_all_input_devices(events);
     events.session_lock_applied = locked;
+    if events
+        .wayland
+        .as_mut()
+        .is_some_and(|frontend| frontend.set_input_method_blocked(locked))
+    {
+        events.scene_sync.mark_dirty();
+    }
     if locked {
         events.pending_shell_actions.clear();
     } else if let Some(authentication) = events.authentication.as_ref() {
@@ -3592,28 +3623,94 @@ fn synchronize_shell_keyboard(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &mut RuntimeState,
 ) -> Result<(), Box<dyn Error>> {
+    if let Some((generation, snapshot)) = runtime.take_text_input_state()
+        && events
+            .wayland
+            .as_mut()
+            .is_some_and(|frontend| frontend.observe_flutter_text_editor(generation, snapshot))
+    {
+        events.scene_sync.mark_dirty();
+    }
+
+    let input_method_transactions = events
+        .wayland
+        .as_mut()
+        .map(|frontend| {
+            frontend
+                .drain_flutter_input_method_transactions()
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if !events.secure_session_locked() {
+        for (generation, client_id, transaction) in input_method_transactions {
+            if !runtime.dispatch_input_method_to_flutter(generation, client_id, &transaction)? {
+                debug!(
+                    generation,
+                    client_id, "input-method transaction lost its Flutter editor"
+                );
+            }
+        }
+    }
+    if let Some((generation, snapshot)) = runtime.take_text_input_state()
+        && events
+            .wayland
+            .as_mut()
+            .is_some_and(|frontend| frontend.observe_flutter_text_editor(generation, snapshot))
+    {
+        events.scene_sync.mark_dirty();
+    }
     let commands = runtime.drain_keyboard_commands().collect::<Vec<_>>();
     if events.secure_session_locked() {
         return Ok(());
     }
 
     for command in commands {
-        if runtime.has_flutter_text_input_client() {
-            runtime.dispatch_keyboard_command_to_flutter(&command)?;
-        } else if events
+        let target = events
             .wayland
             .as_ref()
-            .is_some_and(wayland_frontend::WaylandFrontend::shell_captures_keyboard)
-        {
-            debug!(
-                ?command,
-                "shell keyboard command had no active shell text field"
-            );
-        } else if !wayland_frontend::dispatch_shell_keyboard_command(events, &command) {
-            warn!(
-                ?command,
-                "shell keyboard command had no focused input target"
-            );
+            .map(|frontend| match &command {
+                wire::KeyboardCommand::Text(_) => frontend.text_input_target_for_text(),
+                wire::KeyboardCommand::Key { .. } => frontend.text_input_target_for_key(),
+            })
+            .unwrap_or(wayland_frontend::ShellCommandTarget::None);
+        match target {
+            wayland_frontend::ShellCommandTarget::Flutter => {
+                runtime.dispatch_keyboard_command_to_flutter(&command)?;
+            }
+            wayland_frontend::ShellCommandTarget::WaylandText => {
+                let wire::KeyboardCommand::Text(text) = &command else {
+                    unreachable!("named keys never select the Wayland text endpoint")
+                };
+                let delivered = events
+                    .wayland
+                    .as_mut()
+                    .is_some_and(|frontend| frontend.commit_text_input(text));
+                if !delivered
+                    && !wayland_frontend::dispatch_shell_keyboard_fallback(events, &command)
+                {
+                    warn!(
+                        ?command,
+                        "Wayland text endpoint disappeared and its seat fallback was unavailable"
+                    );
+                }
+            }
+            wayland_frontend::ShellCommandTarget::Seat => {
+                if !wayland_frontend::dispatch_shell_keyboard_fallback(events, &command) {
+                    warn!(?command, "seat fallback had no focused input target");
+                }
+            }
+            wayland_frontend::ShellCommandTarget::Captured => {
+                debug!(
+                    ?command,
+                    "shell captured keyboard input without an active editor"
+                );
+            }
+            wayland_frontend::ShellCommandTarget::None => {
+                warn!(
+                    ?command,
+                    "shell keyboard command had no focused input target"
+                );
+            }
         }
     }
     Ok(())
@@ -3663,6 +3760,201 @@ fn synchronize_flutter_window_management(
     }
     events.pending_window_events.recycle_drained(pending);
     Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn synchronize_settings(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &mut RuntimeState,
+) -> Result<(), Box<dyn Error>> {
+    let commands = runtime.drain_settings_commands().collect::<Vec<_>>();
+    for command in commands {
+        match command {
+            wire::SettingsCommand::ReadDocument { request_id } => {
+                let (revision, document) = {
+                    let settings = &events
+                        .wayland
+                        .as_ref()
+                        .ok_or("settings request has no Wayland frontend")?
+                        .settings;
+                    (settings.revision(), settings.document_json())
+                };
+                match document {
+                    Ok(document) => runtime.send_settings_document_response(
+                        request_id,
+                        revision,
+                        Some(&document),
+                        None,
+                    )?,
+                    Err(error) => runtime.send_settings_document_response(
+                        request_id,
+                        revision,
+                        None,
+                        Some(&error.to_string()),
+                    )?,
+                }
+            }
+            wire::SettingsCommand::WriteDocument {
+                request_id,
+                expected_revision,
+                document,
+            } => {
+                let result = {
+                    let frontend = events
+                        .wayland
+                        .as_mut()
+                        .ok_or("settings request has no Wayland frontend")?;
+                    frontend
+                        .settings
+                        .prepare_shell_update(expected_revision, &document)
+                        .and_then(|prepared| frontend.settings.commit(prepared))
+                };
+                let (revision, document) = {
+                    let frontend = events.wayland.as_mut().expect("missing Wayland frontend");
+                    if result.is_ok() {
+                        // The keyboard values are unchanged, but its revision
+                        // token advanced with the shared document.
+                        frontend.keyboard_configuration_changed = true;
+                    }
+                    (
+                        frontend.settings.revision(),
+                        result
+                            .as_ref()
+                            .ok()
+                            .and_then(|()| frontend.settings.document_json().ok()),
+                    )
+                };
+                runtime.send_settings_document_response(
+                    request_id,
+                    revision,
+                    document.as_deref(),
+                    result
+                        .as_ref()
+                        .err()
+                        .map(|error| error.to_string())
+                        .as_deref(),
+                )?;
+            }
+            wire::SettingsCommand::ReadKeyboard { request_id } => {
+                send_keyboard_settings(runtime, events, request_id, None)?;
+            }
+            wire::SettingsCommand::ConfigureKeyboard {
+                request_id,
+                expected_revision,
+                keyboard,
+            } => {
+                let prepared = events
+                    .wayland
+                    .as_ref()
+                    .ok_or("settings request has no Wayland frontend")?
+                    .settings
+                    .prepare_keyboard_update(expected_revision, keyboard);
+                let result = match prepared {
+                    Ok(prepared) => {
+                        let previous = events
+                            .wayland
+                            .as_ref()
+                            .expect("missing Wayland frontend")
+                            .settings
+                            .keyboard()
+                            .clone();
+                        let next = prepared.keyboard().clone();
+                        match wayland_frontend::install_keyboard_settings(events, &next) {
+                            Ok(_) => {
+                                let commit = events
+                                    .wayland
+                                    .as_mut()
+                                    .expect("missing Wayland frontend")
+                                    .settings
+                                    .commit(prepared);
+                                if let Err(error) = commit {
+                                    if let Err(rollback_error) =
+                                        wayland_frontend::install_keyboard_settings(
+                                            events, &previous,
+                                        )
+                                    {
+                                        return Err(format!(
+                                            "keyboard settings commit failed ({error}) and the live keymap rollback failed ({rollback_error})"
+                                        )
+                                        .into());
+                                    }
+                                    Err(error)
+                                } else {
+                                    info!(
+                                        revision = events
+                                            .wayland
+                                            .as_ref()
+                                            .expect("missing Wayland frontend")
+                                            .settings
+                                            .revision(),
+                                        layouts = next.layouts.len(),
+                                        repeat_rate_hz = next.repeat_rate_hz,
+                                        repeat_delay_ms = next.repeat_delay_ms,
+                                        "applied persistent keyboard settings"
+                                    );
+                                    Ok(())
+                                }
+                            }
+                            Err(error) => {
+                                warn!(%error, "rejected keyboard configuration after XKB preflight");
+                                // Convert the late Smithay error into the same
+                                // bounded user-facing response as persistence
+                                // failures.
+                                send_keyboard_settings(
+                                    runtime,
+                                    events,
+                                    request_id,
+                                    Some(&error.to_string()),
+                                )?;
+                                continue;
+                            }
+                        }
+                    }
+                    Err(error) => Err(error),
+                };
+                send_keyboard_settings(
+                    runtime,
+                    events,
+                    request_id,
+                    result
+                        .as_ref()
+                        .err()
+                        .map(|error| error.to_string())
+                        .as_deref(),
+                )?;
+            }
+        }
+    }
+
+    let changed = events
+        .wayland
+        .as_mut()
+        .is_some_and(|frontend| std::mem::take(&mut frontend.keyboard_configuration_changed));
+    if changed {
+        send_keyboard_settings(runtime, events, 0, None)?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn send_keyboard_settings(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &RuntimeState,
+    request_id: u64,
+    error: Option<&str>,
+) -> Result<(), Box<dyn Error>> {
+    let frontend = events
+        .wayland
+        .as_ref()
+        .ok_or("keyboard settings response has no Wayland frontend")?;
+    runtime.send_keyboard_settings_response(
+        request_id,
+        frontend.settings.revision(),
+        frontend.settings.keyboard(),
+        &frontend.keyboard_layout_names,
+        frontend.active_keyboard_layout,
+        error,
+    )
 }
 
 #[cfg(feature = "flutter")]
@@ -3864,6 +4156,7 @@ fn apply_hotplug_topology(
             synchronize_clipboard(&mut old_runtime, events)?;
             synchronize_system_control_events(&mut old_runtime, events)?;
             synchronize_shell_keyboard(&mut old_runtime, events)?;
+            synchronize_settings(&mut old_runtime, events)?;
             synchronize_system_bar_configuration(
                 &mut old_runtime,
                 events,

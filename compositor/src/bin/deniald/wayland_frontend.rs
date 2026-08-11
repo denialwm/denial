@@ -29,12 +29,17 @@ use smithay::desktop::{
     Window, WindowSurfaceType, find_popup_root_surface, get_popup_toplevel_coords,
 };
 use smithay::input::dnd::{DnDGrab, DndGrabHandler, GrabType, Source};
+#[cfg(feature = "flutter")]
+use smithay::input::keyboard::xkb;
+use smithay::input::keyboard::XkbConfig;
 use smithay::input::pointer::{CursorImageStatus, Focus, PointerHandle};
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
 use smithay::reexports::calloop::{
     EventLoop, Interest, LoopHandle, Mode as PollMode, PostAction, generic::Generic,
 };
+#[cfg(feature = "flutter")]
+use smithay::reexports::calloop::RegistrationToken;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as XdgDecorationMode;
 use smithay::reexports::wayland_server::backend::{
@@ -100,6 +105,7 @@ use super::flutter_runtime::{ExternalTextureFrame, ShmSnapshotPool, ShmTextureFr
 use super::frame_scheduler::FrameTick;
 #[cfg(feature = "flutter")]
 use super::local_windows::{LocalFlutterWindows, LocalWindowError};
+use super::settings::SettingsManager;
 use super::window_grab::{
     MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, X11ResizeSurfaceGrab, checked_pointer_grab,
     constrain_dimension,
@@ -126,8 +132,10 @@ mod handlers;
 mod idle_inhibit;
 #[path = "wayland_frontend/input.rs"]
 mod input;
+#[path = "wayland_frontend/input_method.rs"]
+pub(super) mod input_method;
 #[cfg(feature = "flutter")]
-pub(super) use input::{dispatch_shell_keyboard_command, reconcile_flutter_pointer_route};
+pub(super) use input::{dispatch_shell_keyboard_fallback, reconcile_flutter_pointer_route};
 #[path = "wayland_frontend/input_source.rs"]
 mod input_source;
 #[path = "wayland_frontend/output_power.rs"]
@@ -141,6 +149,8 @@ pub(crate) use screencopy::{copy_atlas_region_to_memory, copy_atlas_to_dmabuf};
 #[cfg(feature = "flutter")]
 #[path = "wayland_frontend/surface_snapshot.rs"]
 mod surface_snapshot;
+#[path = "wayland_frontend/text_input.rs"]
+mod text_input;
 #[path = "wayland_frontend/topology.rs"]
 mod topology;
 #[path = "wayland_frontend/window_management.rs"]
@@ -157,11 +167,19 @@ use handlers::{MAX_WAYLAND_CLIENTS, WaylandClientBudget};
 #[cfg(feature = "flutter")]
 use idle_inhibit::IdleInhibitors;
 #[cfg(feature = "flutter")]
+pub(super) use input::install_keyboard_settings;
+#[cfg(feature = "flutter")]
 use input::{ClientInputRoute, RoutedPointerTarget};
 pub(super) use input::{init_libinput, reset_all_input_devices};
+#[cfg(feature = "flutter")]
+use input_method::EditorEndpoint;
+use input_method::InputMethodManager;
 use output_power::OutputPowerManager;
 #[cfg(feature = "flutter")]
 use surface_snapshot::{rgba_payload_len, shm_cache_budget_for_atlas, snapshot_shm_buffer};
+#[cfg(feature = "flutter")]
+pub(super) use text_input::ShellCommandTarget;
+use text_input::{SeatFocusKind, TextInputManager};
 pub(super) use topology::saturating_point_add;
 use topology::{
     choose_popup_output, clamp_window_geometry, configure_output, output_logical_bounds,
@@ -402,6 +420,14 @@ pub(super) struct WaylandFrontend {
     client_touch_frame_pending: bool,
     #[cfg(feature = "flutter")]
     flutter_keyboard_keys: HashSet<u32>,
+    #[cfg(feature = "flutter")]
+    flutter_compose: Option<xkb::compose::State>,
+    #[cfg(feature = "flutter")]
+    flutter_repeat_key: Option<u32>,
+    #[cfg(feature = "flutter")]
+    flutter_repeat_generation: u64,
+    #[cfg(feature = "flutter")]
+    flutter_repeat_token: Option<RegistrationToken>,
     retired_keyboard_keys: HashSet<u32>,
     #[cfg(feature = "flutter")]
     minimized_windows: HashSet<ObjectId>,
@@ -414,11 +440,17 @@ pub(super) struct WaylandFrontend {
     pub data_device_state: DataDeviceState,
     pub popups: PopupManager,
     pub seat: Seat<RuntimeState>,
+    pub(super) settings: SettingsManager,
+    pub(super) keyboard_layout_names: Vec<String>,
+    pub(super) active_keyboard_layout: usize,
+    pub(super) keyboard_configuration_changed: bool,
     presentation: presentation::PresentationTracker,
     #[cfg(feature = "flutter")]
     idle_inhibitors: IdleInhibitors,
     output_power: OutputPowerManager,
     screencopy: screencopy::ScreencopyManager,
+    text_input: TextInputManager,
+    input_method: InputMethodManager,
     outputs: Vec<WaylandOutput>,
     work_area: crate::options::WorkAreaOptions,
     ticker_output: Option<OutputId>,
@@ -643,14 +675,30 @@ fn window_expects_sample(
     !input_visibility_known || visible_window_ids.contains(&window_id)
 }
 
-impl WaylandFrontend {
-    #[cfg(feature = "flutter")]
-    pub(super) fn shell_captures_keyboard(&self) -> bool {
-        self.input_layout
-            .as_ref()
-            .is_some_and(|layout| layout.keyboard_capture() || layout.exclusive_shell())
+#[cfg(feature = "flutter")]
+fn flutter_compose_state() -> Option<xkb::compose::State> {
+    let locale = ["LC_ALL", "LC_CTYPE", "LANG"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .find(|value| !value.is_empty())
+        .unwrap_or_else(|| OsString::from("C.UTF-8"));
+    let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+    match xkb::compose::Table::new_from_locale(&context, &locale, xkb::compose::COMPILE_NO_FLAGS) {
+        Ok(table) => Some(xkb::compose::State::new(
+            &table,
+            xkb::compose::STATE_NO_FLAGS,
+        )),
+        Err(()) => {
+            warn!(
+                ?locale,
+                "XKB Compose table is unavailable for Flutter input"
+            );
+            None
+        }
     }
+}
 
+impl WaylandFrontend {
     pub fn new(
         event_loop: &mut EventLoop<'static, RuntimeState>,
         snapshot: &TopologySnapshot,
@@ -658,6 +706,7 @@ impl WaylandFrontend {
         seat_name: &str,
         drm_device: DrmDeviceFd,
         work_area: crate::options::WorkAreaOptions,
+        settings: SettingsManager,
     ) -> Result<Self, Box<dyn Error>> {
         let display = Display::<RuntimeState>::new()?;
         let display_handle = display.handle();
@@ -682,6 +731,8 @@ impl WaylandFrontend {
         let idle_inhibitors = IdleInhibitors::new(&display_handle);
         let output_power = OutputPowerManager::new(&display_handle);
         let screencopy = screencopy::ScreencopyManager::new(&display_handle);
+        let text_input = TextInputManager::new(&display_handle);
+        let input_method = InputMethodManager::new(&display_handle);
         let shm_state = ShmState::new::<RuntimeState>(&display_handle, vec![]);
         let dmabuf_state = DmabufState::new();
         let drm_syncobj_state = if supports_syncobj_eventfd(&drm_device) {
@@ -699,10 +750,24 @@ impl WaylandFrontend {
         let data_device_state = DataDeviceState::new::<RuntimeState>(&display_handle);
         let mut seat_state = SeatState::new();
         let mut seat = seat_state.new_wl_seat(&display_handle, "seat0");
-        // Match Denial's established desktop defaults. A 200 ms delay made
-        // normal key holds cross the client-side repeat threshold and showed
-        // up as doubled/tripled letters during ordinary typing.
-        seat.add_keyboard(Default::default(), 600, 25)?;
+        let keyboard = settings.keyboard();
+        let keyboard_layout_names = keyboard.compiled_layout_names()?;
+        let xkb_names = keyboard.xkb_names();
+        #[cfg(feature = "flutter")]
+        let flutter_compose = flutter_compose_state();
+        // Supplying every field explicitly makes the compositor configuration
+        // independent of XKB_DEFAULT_* inherited from a display manager.
+        seat.add_keyboard(
+            XkbConfig {
+                rules: "evdev",
+                model: "pc105",
+                layout: &xkb_names.layout,
+                variant: &xkb_names.variant,
+                options: Some(xkb_names.options),
+            },
+            i32::try_from(keyboard.repeat_delay_ms)?,
+            i32::try_from(keyboard.repeat_rate_hz)?,
+        )?;
         seat.add_pointer();
         seat.add_touch();
         let popups = PopupManager::default();
@@ -1067,6 +1132,14 @@ impl WaylandFrontend {
             client_touch_frame_pending: false,
             #[cfg(feature = "flutter")]
             flutter_keyboard_keys: HashSet::new(),
+            #[cfg(feature = "flutter")]
+            flutter_compose,
+            #[cfg(feature = "flutter")]
+            flutter_repeat_key: None,
+            #[cfg(feature = "flutter")]
+            flutter_repeat_generation: 0,
+            #[cfg(feature = "flutter")]
+            flutter_repeat_token: None,
             retired_keyboard_keys: HashSet::new(),
             #[cfg(feature = "flutter")]
             minimized_windows: HashSet::new(),
@@ -1079,11 +1152,17 @@ impl WaylandFrontend {
             data_device_state,
             popups,
             seat,
+            settings,
+            keyboard_layout_names,
+            active_keyboard_layout: 0,
+            keyboard_configuration_changed: false,
             presentation,
             #[cfg(feature = "flutter")]
             idle_inhibitors,
             output_power,
             screencopy,
+            text_input,
+            input_method,
             outputs,
             work_area,
             ticker_output: snapshot.ticker,
@@ -2720,6 +2799,105 @@ impl WaylandFrontend {
     }
 
     #[cfg(feature = "flutter")]
+    fn surface_tree_offset(
+        &self,
+        root: &WlSurface,
+        target: &WlSurface,
+    ) -> Option<Point<i32, Logical>> {
+        let mut target_offset = None;
+        with_surface_tree_upward(
+            root,
+            Point::from((0, 0)),
+            |surface, states, location| {
+                let Some(renderer_state) = states.data_map.get::<RendererSurfaceStateUserData>()
+                else {
+                    return TraversalAction::SkipChildren;
+                };
+                let renderer_state = renderer_state
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let Some(view) = renderer_state.view() else {
+                    return TraversalAction::SkipChildren;
+                };
+                let location = saturating_point_add(*location, view.offset);
+                if surface == target {
+                    target_offset = Some(location);
+                }
+                TraversalAction::DoChildren(location)
+            },
+            |_, _, _| {},
+            |_, _, _| true,
+        );
+        target_offset
+    }
+
+    #[cfg(feature = "flutter")]
+    fn input_method_editor_rectangle_global(&self) -> Option<Rectangle<i32, Logical>> {
+        let editor = self.input_method.active_editor()?;
+        let rectangle = editor.cursor_rectangle.unwrap_or_default();
+        let origin = match editor.endpoint {
+            EditorEndpoint::Flutter { .. } => Point::from((
+                self.atlas_origin
+                    .x
+                    .round()
+                    .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32,
+                self.atlas_origin
+                    .y
+                    .round()
+                    .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32,
+            )),
+            EditorEndpoint::Wayland { surface, .. } => {
+                let root = self.owning_toplevel_surface(&surface)?;
+                let window = self.window_for_root_surface(&root)?;
+                let root_origin = saturating_point_sub(
+                    self.window_geometry_target(&window).loc,
+                    window.geometry().loc,
+                );
+                let surface_offset = self.surface_tree_offset(&root, &surface)?;
+                saturating_point_add(root_origin, surface_offset)
+            }
+        };
+        Some(Rectangle::new(
+            saturating_point_add(origin, rectangle.loc),
+            rectangle.size,
+        ))
+    }
+
+    #[cfg(feature = "flutter")]
+    fn place_input_method_popup(
+        &self,
+        cursor: Rectangle<i32, Logical>,
+        size: Size<i32, Logical>,
+    ) -> Rectangle<i32, Logical> {
+        let anchor = Rectangle::new(
+            Point::from((cursor.loc.x, cursor.loc.y.saturating_add(cursor.size.h))),
+            (1, 1).into(),
+        );
+        let bounds = self
+            .output_for_geometry(anchor)
+            .map(|output| output.logical_geometry)
+            .unwrap_or(self.desktop_bounds);
+        let width = size.w.max(1).min(bounds.size.w.max(1));
+        let height = size.h.max(1).min(bounds.size.h.max(1));
+        let right = bounds
+            .loc
+            .x
+            .saturating_add(bounds.size.w)
+            .saturating_sub(width);
+        let bottom = bounds
+            .loc
+            .y
+            .saturating_add(bounds.size.h)
+            .saturating_sub(height);
+        let x = cursor.loc.x.clamp(bounds.loc.x, right.max(bounds.loc.x));
+        let below = cursor.loc.y.saturating_add(cursor.size.h);
+        let above = cursor.loc.y.saturating_sub(height);
+        let y = if below <= bottom { below } else { above }
+            .clamp(bounds.loc.y, bottom.max(bounds.loc.y));
+        Rectangle::new((x, y).into(), (width, height).into())
+    }
+
+    #[cfg(feature = "flutter")]
     pub fn flutter_scene(
         &mut self,
     ) -> Result<(Vec<WindowDescription>, Vec<ExternalTextureFrame>), Box<dyn Error>> {
@@ -2732,6 +2910,8 @@ impl WaylandFrontend {
         surface_windows.clear();
         let mut complex_windows = std::mem::take(&mut self.scene_complex_windows_scratch);
         complex_windows.clear();
+        let input_method_editor_rectangle = self.input_method_editor_rectangle_global();
+        let input_method_popups = self.input_method.visible_popups();
         let mut window_count = 0;
         for window in self.space.elements() {
             let Some(surface) = self.window_root_surface(window) else {
@@ -3069,6 +3249,148 @@ impl WaylandFrontend {
             }
             window_count += 1;
         }
+        if let Some(cursor_rectangle) = input_method_editor_rectangle {
+            for popup in input_method_popups {
+                let surface = popup.surface();
+                let Some(stable_id) = self.surface_id(surface) else {
+                    continue;
+                };
+                let (mut title, mut app_id, mut layers) = windows
+                    .get_mut(window_count)
+                    .map(|previous| {
+                        (
+                            std::mem::take(&mut previous.title),
+                            std::mem::take(&mut previous.app_id),
+                            std::mem::take(&mut previous.surfaces),
+                        )
+                    })
+                    .unwrap_or_default();
+                title.clear();
+                title.push_str("Input method");
+                app_id.clear();
+                app_id.push_str("denia-systemui-input-method");
+                layers.clear();
+                let expects_sample = window_expects_sample(
+                    self.input_visibility_known,
+                    &self.visible_window_ids,
+                    stable_id,
+                );
+                let mut composition_order = 0;
+                self.append_surface_tree(
+                    surface,
+                    (0, 0).into(),
+                    SurfaceRoleDescription::Root,
+                    0,
+                    0,
+                    expects_sample,
+                    &mut composition_order,
+                    &mut layers,
+                    &mut textures,
+                );
+                if layers.is_empty() {
+                    continue;
+                }
+                let min_x = layers
+                    .iter()
+                    .map(|layer| layer.surface_x)
+                    .fold(f64::INFINITY, f64::min);
+                let min_y = layers
+                    .iter()
+                    .map(|layer| layer.surface_y)
+                    .fold(f64::INFINITY, f64::min);
+                let max_x = layers
+                    .iter()
+                    .map(|layer| layer.surface_x + layer.surface_width)
+                    .fold(f64::NEG_INFINITY, f64::max);
+                let max_y = layers
+                    .iter()
+                    .map(|layer| layer.surface_y + layer.surface_height)
+                    .fold(f64::NEG_INFINITY, f64::max);
+                let logical_width = (max_x - min_x).ceil().clamp(1.0, f64::from(i32::MAX)) as i32;
+                let logical_height = (max_y - min_y).ceil().clamp(1.0, f64::from(i32::MAX)) as i32;
+                let geometry = self.place_input_method_popup(
+                    cursor_rectangle,
+                    (logical_width, logical_height).into(),
+                );
+                for layer in &layers {
+                    if layer.texture_id > 0 {
+                        surface_windows.insert(layer.surface_id, stable_id);
+                    }
+                }
+                if layers.len() != 1 || layers[0].surface_id != stable_id {
+                    complex_windows.insert(stable_id);
+                }
+                let root_layer = layers.iter().find(|layer| layer.surface_id == stable_id);
+                let (
+                    texture_id,
+                    width,
+                    height,
+                    texture_source_x,
+                    texture_source_y,
+                    texture_source_width,
+                    texture_source_height,
+                    transform,
+                    scale_120,
+                ) = root_layer.map_or((0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0, 120), |layer| {
+                    (
+                        layer.texture_id,
+                        layer.width,
+                        layer.height,
+                        layer.texture_source_x,
+                        layer.texture_source_y,
+                        layer.texture_source_width,
+                        layer.texture_source_height,
+                        layer.transform,
+                        layer.scale_120,
+                    )
+                });
+                let monitor_id = self
+                    .output_for_geometry(geometry)
+                    .and_then(|output| i64::try_from(output.id.0).ok())
+                    .unwrap_or(-1);
+                let description = WindowDescription {
+                    object_id: stable_id,
+                    surface_id: stable_id,
+                    window_id: stable_id,
+                    texture_id,
+                    title,
+                    app_id,
+                    width,
+                    height,
+                    surface_x: min_x,
+                    surface_y: min_y,
+                    surface_width: f64::from(logical_width),
+                    surface_height: f64::from(logical_height),
+                    texture_source_x,
+                    texture_source_y,
+                    texture_source_width,
+                    texture_source_height,
+                    geometry_x: f64::from(geometry.loc.x) - self.atlas_origin.x,
+                    geometry_y: f64::from(geometry.loc.y) - self.atlas_origin.y,
+                    geometry_width: f64::from(geometry.size.w),
+                    geometry_height: f64::from(geometry.size.h),
+                    monitor_id,
+                    transform,
+                    scale_120,
+                    content_x: min_x,
+                    content_y: min_y,
+                    content_width: f64::from(logical_width),
+                    content_height: f64::from(logical_height),
+                    suppress_animations: true,
+                    server_side_decorated: false,
+                    opacity: 1.0,
+                    surfaces: layers,
+                    content_kind: WindowContentKind::SurfaceTree,
+                    opacity_class: WindowOpacityClass::ContentTranslucent,
+                };
+                if let Some(previous) = windows.get_mut(window_count) {
+                    *previous = description;
+                } else {
+                    windows.push(description);
+                }
+                window_count += 1;
+            }
+        }
         windows.truncate(window_count);
         self.scene_popups_scratch = popups;
         std::mem::swap(&mut self.scene_surface_windows, &mut surface_windows);
@@ -3095,6 +3417,9 @@ impl WaylandFrontend {
         &mut self,
         layout: InputLayoutSnapshot,
     ) -> (Option<InputLayoutSnapshot>, bool, bool) {
+        self.text_input
+            .set_shell_capture(layout.keyboard_capture() || layout.exclusive_shell());
+        let input_method_changed = self.synchronize_input_method();
         let first_generation_layout = self.input_layout.is_none();
         let routing_changed = input_routing_changed(self.input_layout.as_ref(), &layout);
         let visibility_changed = input_visibility_changed(self.input_layout.as_ref(), &layout);
@@ -3134,7 +3459,11 @@ impl WaylandFrontend {
             // replacement Dart bridge has subscribed to cursor updates.
             self.queue_cursor_state_for_flutter_generation();
         }
-        (previous, visibility_changed, routing_changed)
+        (
+            previous,
+            visibility_changed || input_method_changed,
+            routing_changed,
+        )
     }
 
     #[cfg(feature = "flutter")]
@@ -3159,6 +3488,9 @@ impl WaylandFrontend {
         // later release/up cannot be delivered to the new engine without its
         // matching press/down. Client captures and routes remain untouched.
         self.input_layout = None;
+        self.text_input.set_shell_capture(false);
+        self.text_input.retire_flutter_generation();
+        self.synchronize_input_method();
         self.visible_window_ids.clear();
         self.input_visibility_known = false;
         self.client_input_route_cache = None;
@@ -3366,6 +3698,18 @@ impl WaylandFrontend {
                 callback_time,
             ));
         }
+        let callback_millis = callback_time.as_millis() as u32;
+        for popup in self.input_method.visible_popups() {
+            if self
+                .surface_id(popup.surface())
+                .is_some_and(|surface_id| self.visible_window_ids.contains(&surface_id))
+            {
+                sent = sent.saturating_add(presentation::send_surface_frame_callbacks(
+                    popup.surface(),
+                    callback_millis,
+                ));
+            }
+        }
         if sent == 0 {
             return Ok(());
         }
@@ -3462,8 +3806,8 @@ fn init_listener(
                 .insert_client(client_stream, Arc::new(client_state))
             {
                 // Resource exhaustion or a client disconnect during accept
-                // must not turn an untrusted connection into a compositor
-                // panic. Dropping the stream rejects this client only.
+                // must not turn a failed connection into a compositor panic.
+                // Dropping the stream rejects this client only.
                 warn!(%error, "failed to insert Wayland client");
             }
         })?;

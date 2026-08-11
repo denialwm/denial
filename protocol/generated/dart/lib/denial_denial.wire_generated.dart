@@ -381,6 +381,78 @@ class _KeyboardCommandKindReader extends fb.Reader<KeyboardCommandKind> {
       KeyboardCommandKind.fromValue(const fb.Uint8Reader().read(bc, offset));
 }
 
+enum SettingsRequestKind {
+  ReadDocument(0),
+  WriteDocument(1),
+  ReadKeyboard(2),
+  ConfigureKeyboard(3);
+
+  final int value;
+  const SettingsRequestKind(this.value);
+
+  factory SettingsRequestKind.fromValue(int value) {
+    switch (value) {
+      case 0: return SettingsRequestKind.ReadDocument;
+      case 1: return SettingsRequestKind.WriteDocument;
+      case 2: return SettingsRequestKind.ReadKeyboard;
+      case 3: return SettingsRequestKind.ConfigureKeyboard;
+      default: throw StateError('Invalid value $value for bit flag enum');
+    }
+  }
+
+  static SettingsRequestKind? _createOrNull(int? value) =>
+      value == null ? null : SettingsRequestKind.fromValue(value);
+
+  static const int minValue = 0;
+  static const int maxValue = 3;
+  static const fb.Reader<SettingsRequestKind> reader = _SettingsRequestKindReader();
+}
+
+class _SettingsRequestKindReader extends fb.Reader<SettingsRequestKind> {
+  const _SettingsRequestKindReader();
+
+  @override
+  int get size => 1;
+
+  @override
+  SettingsRequestKind read(fb.BufferContext bc, int offset) =>
+      SettingsRequestKind.fromValue(const fb.Uint8Reader().read(bc, offset));
+}
+
+enum SettingsResponseKind {
+  Document(0),
+  Keyboard(1);
+
+  final int value;
+  const SettingsResponseKind(this.value);
+
+  factory SettingsResponseKind.fromValue(int value) {
+    switch (value) {
+      case 0: return SettingsResponseKind.Document;
+      case 1: return SettingsResponseKind.Keyboard;
+      default: throw StateError('Invalid value $value for bit flag enum');
+    }
+  }
+
+  static SettingsResponseKind? _createOrNull(int? value) =>
+      value == null ? null : SettingsResponseKind.fromValue(value);
+
+  static const int minValue = 0;
+  static const int maxValue = 1;
+  static const fb.Reader<SettingsResponseKind> reader = _SettingsResponseKindReader();
+}
+
+class _SettingsResponseKindReader extends fb.Reader<SettingsResponseKind> {
+  const _SettingsResponseKindReader();
+
+  @override
+  int get size => 1;
+
+  @override
+  SettingsResponseKind read(fb.BufferContext bc, int offset) =>
+      SettingsResponseKind.fromValue(const fb.Uint8Reader().read(bc, offset));
+}
+
 enum DesktopNotificationEventKind {
   Added(0),
   Replaced(1),
@@ -542,7 +614,9 @@ enum PayloadTypeId {
   KeyboardCommand(9),
   CursorPosition(10),
   DesktopNotificationEvent(11),
-  DesktopNotificationCommand(12);
+  DesktopNotificationCommand(12),
+  SettingsRequest(13),
+  SettingsResponse(14);
 
   final int value;
   const PayloadTypeId(this.value);
@@ -562,6 +636,8 @@ enum PayloadTypeId {
       case 10: return PayloadTypeId.CursorPosition;
       case 11: return PayloadTypeId.DesktopNotificationEvent;
       case 12: return PayloadTypeId.DesktopNotificationCommand;
+      case 13: return PayloadTypeId.SettingsRequest;
+      case 14: return PayloadTypeId.SettingsResponse;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -570,7 +646,7 @@ enum PayloadTypeId {
       value == null ? null : PayloadTypeId.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 12;
+  static const int maxValue = 14;
   static const fb.Reader<PayloadTypeId> reader = _PayloadTypeIdReader();
 }
 
@@ -2727,6 +2803,434 @@ class KeyboardCommandObjectBuilder extends fb.ObjectBuilder {
     return fbBuilder.buffer;
   }
 }
+class KeyboardLayout {
+  KeyboardLayout._(this._bc, this._bcOffset);
+  factory KeyboardLayout(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<KeyboardLayout> reader = _KeyboardLayoutReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  String? get layout => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 4);
+  String? get variant => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 6);
+  String? get displayName => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 8);
+
+  @override
+  String toString() {
+    return 'KeyboardLayout{layout: ${layout}, variant: ${variant}, displayName: ${displayName}}';
+  }
+}
+
+class _KeyboardLayoutReader extends fb.TableReader<KeyboardLayout> {
+  const _KeyboardLayoutReader();
+
+  @override
+  KeyboardLayout createObject(fb.BufferContext bc, int offset) => 
+    KeyboardLayout._(bc, offset);
+}
+
+class KeyboardLayoutBuilder {
+  KeyboardLayoutBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(3);
+  }
+
+  int addLayoutOffset(int? offset) {
+    fbBuilder.addOffset(0, offset);
+    return fbBuilder.offset;
+  }
+  int addVariantOffset(int? offset) {
+    fbBuilder.addOffset(1, offset);
+    return fbBuilder.offset;
+  }
+  int addDisplayNameOffset(int? offset) {
+    fbBuilder.addOffset(2, offset);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class KeyboardLayoutObjectBuilder extends fb.ObjectBuilder {
+  final String? _layout;
+  final String? _variant;
+  final String? _displayName;
+
+  KeyboardLayoutObjectBuilder({
+    String? layout,
+    String? variant,
+    String? displayName,
+  })
+      : _layout = layout,
+        _variant = variant,
+        _displayName = displayName;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    final int? layoutOffset = _layout == null ? null
+        : fbBuilder.writeString(_layout!);
+    final int? variantOffset = _variant == null ? null
+        : fbBuilder.writeString(_variant!);
+    final int? displayNameOffset = _displayName == null ? null
+        : fbBuilder.writeString(_displayName!);
+    fbBuilder.startTable(3);
+    fbBuilder.addOffset(0, layoutOffset);
+    fbBuilder.addOffset(1, variantOffset);
+    fbBuilder.addOffset(2, displayNameOffset);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
+class KeyboardConfiguration {
+  KeyboardConfiguration._(this._bc, this._bcOffset);
+  factory KeyboardConfiguration(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<KeyboardConfiguration> reader = _KeyboardConfigurationReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  List<KeyboardLayout>? get layouts => const fb.ListReader<KeyboardLayout>(KeyboardLayout.reader).vTableGetNullable(_bc, _bcOffset, 4);
+  List<String>? get options => const fb.ListReader<String>(fb.StringReader()).vTableGetNullable(_bc, _bcOffset, 6);
+  int get repeatDelayMs => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 8, 600);
+  int get repeatRateHz => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 10, 25);
+  int get activeLayout => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 12, 0);
+
+  @override
+  String toString() {
+    return 'KeyboardConfiguration{layouts: ${layouts}, options: ${options}, repeatDelayMs: ${repeatDelayMs}, repeatRateHz: ${repeatRateHz}, activeLayout: ${activeLayout}}';
+  }
+}
+
+class _KeyboardConfigurationReader extends fb.TableReader<KeyboardConfiguration> {
+  const _KeyboardConfigurationReader();
+
+  @override
+  KeyboardConfiguration createObject(fb.BufferContext bc, int offset) => 
+    KeyboardConfiguration._(bc, offset);
+}
+
+class KeyboardConfigurationBuilder {
+  KeyboardConfigurationBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(5);
+  }
+
+  int addLayoutsOffset(int? offset) {
+    fbBuilder.addOffset(0, offset);
+    return fbBuilder.offset;
+  }
+  int addOptionsOffset(int? offset) {
+    fbBuilder.addOffset(1, offset);
+    return fbBuilder.offset;
+  }
+  int addRepeatDelayMs(int? repeatDelayMs) {
+    fbBuilder.addUint32(2, repeatDelayMs);
+    return fbBuilder.offset;
+  }
+  int addRepeatRateHz(int? repeatRateHz) {
+    fbBuilder.addUint32(3, repeatRateHz);
+    return fbBuilder.offset;
+  }
+  int addActiveLayout(int? activeLayout) {
+    fbBuilder.addUint32(4, activeLayout);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class KeyboardConfigurationObjectBuilder extends fb.ObjectBuilder {
+  final List<KeyboardLayoutObjectBuilder>? _layouts;
+  final List<String>? _options;
+  final int? _repeatDelayMs;
+  final int? _repeatRateHz;
+  final int? _activeLayout;
+
+  KeyboardConfigurationObjectBuilder({
+    List<KeyboardLayoutObjectBuilder>? layouts,
+    List<String>? options,
+    int? repeatDelayMs,
+    int? repeatRateHz,
+    int? activeLayout,
+  })
+      : _layouts = layouts,
+        _options = options,
+        _repeatDelayMs = repeatDelayMs,
+        _repeatRateHz = repeatRateHz,
+        _activeLayout = activeLayout;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    final int? layoutsOffset = _layouts == null ? null
+        : fbBuilder.writeList(_layouts!.map((b) => b.getOrCreateOffset(fbBuilder)).toList());
+    final int? optionsOffset = _options == null ? null
+        : fbBuilder.writeList(_options!.map(fbBuilder.writeString).toList());
+    fbBuilder.startTable(5);
+    fbBuilder.addOffset(0, layoutsOffset);
+    fbBuilder.addOffset(1, optionsOffset);
+    fbBuilder.addUint32(2, _repeatDelayMs);
+    fbBuilder.addUint32(3, _repeatRateHz);
+    fbBuilder.addUint32(4, _activeLayout);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
+class SettingsRequest {
+  SettingsRequest._(this._bc, this._bcOffset);
+  factory SettingsRequest(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<SettingsRequest> reader = _SettingsRequestReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  SettingsRequestKind get kind => SettingsRequestKind.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 4, 0));
+  int get expectedRevision => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 6, 0);
+  String? get document => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 8);
+  KeyboardConfiguration? get keyboard => KeyboardConfiguration.reader.vTableGetNullable(_bc, _bcOffset, 10);
+
+  @override
+  String toString() {
+    return 'SettingsRequest{kind: ${kind}, expectedRevision: ${expectedRevision}, document: ${document}, keyboard: ${keyboard}}';
+  }
+}
+
+class _SettingsRequestReader extends fb.TableReader<SettingsRequest> {
+  const _SettingsRequestReader();
+
+  @override
+  SettingsRequest createObject(fb.BufferContext bc, int offset) => 
+    SettingsRequest._(bc, offset);
+}
+
+class SettingsRequestBuilder {
+  SettingsRequestBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(4);
+  }
+
+  int addKind(SettingsRequestKind? kind) {
+    fbBuilder.addUint8(0, kind?.value);
+    return fbBuilder.offset;
+  }
+  int addExpectedRevision(int? expectedRevision) {
+    fbBuilder.addUint64(1, expectedRevision);
+    return fbBuilder.offset;
+  }
+  int addDocumentOffset(int? offset) {
+    fbBuilder.addOffset(2, offset);
+    return fbBuilder.offset;
+  }
+  int addKeyboardOffset(int? offset) {
+    fbBuilder.addOffset(3, offset);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class SettingsRequestObjectBuilder extends fb.ObjectBuilder {
+  final SettingsRequestKind? _kind;
+  final int? _expectedRevision;
+  final String? _document;
+  final KeyboardConfigurationObjectBuilder? _keyboard;
+
+  SettingsRequestObjectBuilder({
+    SettingsRequestKind? kind,
+    int? expectedRevision,
+    String? document,
+    KeyboardConfigurationObjectBuilder? keyboard,
+  })
+      : _kind = kind,
+        _expectedRevision = expectedRevision,
+        _document = document,
+        _keyboard = keyboard;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    final int? documentOffset = _document == null ? null
+        : fbBuilder.writeString(_document!);
+    final int? keyboardOffset = _keyboard?.getOrCreateOffset(fbBuilder);
+    fbBuilder.startTable(4);
+    fbBuilder.addUint8(0, _kind?.value);
+    fbBuilder.addUint64(1, _expectedRevision);
+    fbBuilder.addOffset(2, documentOffset);
+    fbBuilder.addOffset(3, keyboardOffset);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
+class SettingsResponse {
+  SettingsResponse._(this._bc, this._bcOffset);
+  factory SettingsResponse(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<SettingsResponse> reader = _SettingsResponseReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  SettingsResponseKind get kind => SettingsResponseKind.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 4, 0));
+  bool get success => const fb.BoolReader().vTableGet(_bc, _bcOffset, 6, true);
+  int get revision => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 8, 0);
+  String? get document => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 10);
+  KeyboardConfiguration? get keyboard => KeyboardConfiguration.reader.vTableGetNullable(_bc, _bcOffset, 12);
+  String? get error => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 14);
+
+  @override
+  String toString() {
+    return 'SettingsResponse{kind: ${kind}, success: ${success}, revision: ${revision}, document: ${document}, keyboard: ${keyboard}, error: ${error}}';
+  }
+}
+
+class _SettingsResponseReader extends fb.TableReader<SettingsResponse> {
+  const _SettingsResponseReader();
+
+  @override
+  SettingsResponse createObject(fb.BufferContext bc, int offset) => 
+    SettingsResponse._(bc, offset);
+}
+
+class SettingsResponseBuilder {
+  SettingsResponseBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(6);
+  }
+
+  int addKind(SettingsResponseKind? kind) {
+    fbBuilder.addUint8(0, kind?.value);
+    return fbBuilder.offset;
+  }
+  int addSuccess(bool? success) {
+    fbBuilder.addBool(1, success);
+    return fbBuilder.offset;
+  }
+  int addRevision(int? revision) {
+    fbBuilder.addUint64(2, revision);
+    return fbBuilder.offset;
+  }
+  int addDocumentOffset(int? offset) {
+    fbBuilder.addOffset(3, offset);
+    return fbBuilder.offset;
+  }
+  int addKeyboardOffset(int? offset) {
+    fbBuilder.addOffset(4, offset);
+    return fbBuilder.offset;
+  }
+  int addErrorOffset(int? offset) {
+    fbBuilder.addOffset(5, offset);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class SettingsResponseObjectBuilder extends fb.ObjectBuilder {
+  final SettingsResponseKind? _kind;
+  final bool? _success;
+  final int? _revision;
+  final String? _document;
+  final KeyboardConfigurationObjectBuilder? _keyboard;
+  final String? _error;
+
+  SettingsResponseObjectBuilder({
+    SettingsResponseKind? kind,
+    bool? success,
+    int? revision,
+    String? document,
+    KeyboardConfigurationObjectBuilder? keyboard,
+    String? error,
+  })
+      : _kind = kind,
+        _success = success,
+        _revision = revision,
+        _document = document,
+        _keyboard = keyboard,
+        _error = error;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    final int? documentOffset = _document == null ? null
+        : fbBuilder.writeString(_document!);
+    final int? keyboardOffset = _keyboard?.getOrCreateOffset(fbBuilder);
+    final int? errorOffset = _error == null ? null
+        : fbBuilder.writeString(_error!);
+    fbBuilder.startTable(6);
+    fbBuilder.addUint8(0, _kind?.value);
+    fbBuilder.addBool(1, _success);
+    fbBuilder.addUint64(2, _revision);
+    fbBuilder.addOffset(3, documentOffset);
+    fbBuilder.addOffset(4, keyboardOffset);
+    fbBuilder.addOffset(5, errorOffset);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
 class DesktopNotificationAction {
   DesktopNotificationAction._(this._bc, this._bcOffset);
   factory DesktopNotificationAction(List<int> bytes) {
@@ -3459,6 +3963,8 @@ class Envelope {
       case 10: return CursorPosition.reader.vTableGetNullable(_bc, _bcOffset, 12);
       case 11: return DesktopNotificationEvent.reader.vTableGetNullable(_bc, _bcOffset, 12);
       case 12: return DesktopNotificationCommand.reader.vTableGetNullable(_bc, _bcOffset, 12);
+      case 13: return SettingsRequest.reader.vTableGetNullable(_bc, _bcOffset, 12);
+      case 14: return SettingsResponse.reader.vTableGetNullable(_bc, _bcOffset, 12);
       default: return null;
     }
   }

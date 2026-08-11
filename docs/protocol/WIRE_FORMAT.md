@@ -21,6 +21,12 @@ strings, geometry, request rules, and topmost-first input-window ordering
 before it copies callback-owned bytes. The retained input layout is an
 immutable owned buffer swapped as one unit.
 
+Settings use typed `SettingsRequest` and `SettingsResponse` payloads. The
+shared shell document is bounded to 256 KiB and revision checked; the native
+keyboard payload bounds layouts, XKB options, repeat timing, and active group.
+Rust sends keyboard state with request ID zero when a physical or XKB-defined
+layout shortcut changes the active group.
+
 Input-layout rectangles accept every finite, strictly positive width and
 height. In particular, shell-region subtraction can legitimately produce
 strips narrower than one logical pixel; rejecting one would discard the whole

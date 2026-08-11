@@ -1478,6 +1478,66 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsLanguageTitle => '选择 Denial 使用的语言。';
 
   @override
+  String get settingsKeyboardSection => '输入';
+
+  @override
+  String get settingsKeyboardTitle => '配置 Flutter、Wayland 和 Xwayland 共用的物理键盘。';
+
+  @override
+  String get settingsKeyboardLayoutsTitle => '布局与变体';
+
+  @override
+  String get settingsKeyboardLayoutsDescription =>
+      '按切换顺序输入布局。变体写在冒号后，例如 us, de:nodeadkeys。';
+
+  @override
+  String get settingsKeyboardLayoutsLabel => '布局';
+
+  @override
+  String get settingsKeyboardLayoutsHint => 'us, de:nodeadkeys';
+
+  @override
+  String get settingsKeyboardOptionsLabel => 'XKB 选项';
+
+  @override
+  String get settingsKeyboardOptionsHint => 'compose:menu, caps:escape';
+
+  @override
+  String get settingsKeyboardOptionsDescription =>
+      '用逗号分隔选项，可启用 Compose、其他布局切换快捷键、Caps 重映射等 XKB 行为。';
+
+  @override
+  String get settingsKeyboardRepeatTitle => '按键重复';
+
+  @override
+  String get settingsKeyboardRepeatDelay => '延迟';
+
+  @override
+  String get settingsKeyboardRepeatRate => '速率';
+
+  @override
+  String get settingsKeyboardSwitchingTitle => '布局切换';
+
+  @override
+  String get settingsKeyboardActiveLayout => '当前布局';
+
+  @override
+  String get settingsKeyboardSwitchingShortcut =>
+      'Super+空格切换到下一个布局；同时按 Shift 切换到上一个。';
+
+  @override
+  String get settingsKeyboardApply => '应用键盘设置';
+
+  @override
+  String get settingsKeyboardApplying => '正在应用…';
+
+  @override
+  String get settingsKeyboardLoading => '正在读取合成器键盘配置…';
+
+  @override
+  String get settingsKeyboardInvalidLayouts => '请输入至少一个有效的 XKB 布局。';
+
+  @override
   String get settingsLayoutDescription => '控制普通窗口和最大化窗口周围的预留间距。';
 
   @override
@@ -1700,6 +1760,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsNavigationLanguage => '语言';
+
+  @override
+  String get settingsNavigationKeyboard => '键盘';
 
   @override
   String get settingsNavigationLockScreen => '锁屏';

@@ -57,6 +57,8 @@ mod platform;
 pub(super) mod system_command;
 #[path = "flutter_runtime/text_input.rs"]
 mod text_input;
+pub(super) use super::wayland_frontend::input_method::InputMethodTransaction;
+pub(super) use text_input::TextInputSnapshot;
 
 #[path = "flutter_runtime/damage.rs"]
 mod damage;
@@ -707,9 +709,18 @@ impl InputQueue {
         state: KeyState,
         modifiers: &ModifiersState,
     ) {
-        let xkb_keycode = key.raw_code().raw();
-        let keycode = xkb_keycode.saturating_sub(8);
         let unicode = key.modified_sym().key_char().map(u32::from).unwrap_or(0);
+        self.handle_keyboard_with_unicode(key.raw_code().raw(), state, modifiers, unicode);
+    }
+
+    pub fn handle_keyboard_with_unicode(
+        &mut self,
+        xkb_keycode: u32,
+        state: KeyState,
+        modifiers: &ModifiersState,
+        unicode: u32,
+    ) {
+        let keycode = xkb_keycode.saturating_sub(8);
         self.push(InputRecord::Keyboard(KeyboardRecord {
             keycode,
             unicode,
@@ -4577,8 +4588,32 @@ impl FlutterRuntime {
         self.wire.drain_keyboard_commands()
     }
 
-    pub fn has_flutter_text_input_client(&self) -> bool {
-        self.text_input.has_client()
+    pub fn take_text_input_state(&mut self) -> Option<(u64, TextInputSnapshot)> {
+        self.text_input
+            .take_state_change()
+            .map(|snapshot| (self.generation, snapshot))
+    }
+
+    pub fn dispatch_input_method_to_flutter(
+        &mut self,
+        generation: u64,
+        client_id: i64,
+        transaction: &InputMethodTransaction,
+    ) -> Result<bool, Box<dyn Error>> {
+        if generation != self.generation {
+            return Ok(false);
+        }
+        let engine = self
+            .host
+            .as_ref()
+            .expect("Flutter runtime is shutting down")
+            .engine();
+        let messages = self.text_input.apply_input_method(client_id, transaction);
+        let delivered = !messages.is_empty();
+        for message in messages {
+            engine.send_platform_message(text_input::CHANNEL, message)?;
+        }
+        Ok(delivered)
     }
 
     pub fn dispatch_keyboard_command_to_flutter(
@@ -4632,6 +4667,10 @@ impl FlutterRuntime {
         &mut self,
     ) -> impl Iterator<Item = wire::NotificationCommand> + '_ {
         self.wire.drain_notification_commands()
+    }
+
+    pub fn drain_settings_commands(&mut self) -> impl Iterator<Item = wire::SettingsCommand> + '_ {
+        self.wire.drain_settings_commands()
     }
 
     pub fn take_work_area_update(&mut self) -> Option<super::options::WorkAreaOptions> {
@@ -4815,6 +4854,51 @@ impl FlutterRuntime {
             .engine();
         let update = self.wire.encode_notification_event(event)?;
         engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, update)?;
+        Ok(())
+    }
+
+    pub fn send_settings_document_response(
+        &mut self,
+        request_id: u64,
+        revision: u64,
+        document: Option<&str>,
+        error: Option<&str>,
+    ) -> Result<(), Box<dyn Error>> {
+        let engine = self
+            .host
+            .as_ref()
+            .expect("Flutter runtime is shutting down")
+            .engine();
+        let response = self
+            .wire
+            .encode_settings_document_response(request_id, revision, document, error)?;
+        engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, response)?;
+        Ok(())
+    }
+
+    pub fn send_keyboard_settings_response(
+        &mut self,
+        request_id: u64,
+        revision: u64,
+        keyboard: &super::settings::KeyboardSettings,
+        display_names: &[String],
+        active_layout: usize,
+        error: Option<&str>,
+    ) -> Result<(), Box<dyn Error>> {
+        let engine = self
+            .host
+            .as_ref()
+            .expect("Flutter runtime is shutting down")
+            .engine();
+        let response = self.wire.encode_keyboard_settings_response(
+            request_id,
+            revision,
+            keyboard,
+            display_names,
+            active_layout,
+            error,
+        )?;
+        engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, response)?;
         Ok(())
     }
 

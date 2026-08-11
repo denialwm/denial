@@ -3,17 +3,19 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../launcher/launcher_providers.dart';
 import '../config/startup_environment.dart';
 import '../models/display_layout.dart';
 import '../models/shell_popup_placement.dart';
 import '../state/desktop_window_close_effect.dart';
 import '../theme/cursor_themes.dart';
+import '../state/shell_controller.dart';
 import 'settings_store.dart';
 import 'shell_settings.dart';
 
 final settingsStoreProvider = Provider<SettingsStore>((ref) {
-  return FileSettingsStore(ref.watch(runtimePathsProvider));
+  return NativeSettingsStore(
+    DenialSettingsDocumentTransport(ref.watch(denialBridgeProvider)),
+  );
 });
 
 final shellSettingsProvider =

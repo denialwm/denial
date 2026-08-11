@@ -12,6 +12,7 @@ import 'package:denial_dart_shell/src/models/denial_window.dart';
 import 'package:denial_dart_shell/src/models/denial_window_event.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart'
     show SystemBarSide;
+import 'package:denial_dart_shell/src/models/keyboard_configuration.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/platform/denial_wire.dart' as wire;
 
@@ -227,6 +228,100 @@ void main() {
       messenger.setMockMessageHandler(wire.denialWireToNativeChannel, null);
     }
   });
+
+  test(
+    'settings and keyboard replies stay revisioned on the typed bridge',
+    () async {
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final requests = <wire.Envelope>[];
+      messenger.setMockMessageHandler(wire.denialWireToNativeChannel, (
+        message,
+      ) async {
+        requests.add(wire.Envelope(_bytes(message!)));
+        return null;
+      });
+      final bridge = _startedBridge();
+      final keyboardEvents = <DenialKeyboardConfiguration>[];
+      final subscription = bridge.keyboardConfigurations.listen(
+        keyboardEvents.add,
+      );
+      try {
+        final documentFuture = bridge.readSettingsDocument();
+        final keyboardFuture = bridge.readKeyboardConfiguration();
+        expect(requests, hasLength(2));
+        expect(
+          (requests[0].payload as wire.SettingsRequest).kind,
+          wire.SettingsRequestKind.ReadDocument,
+        );
+        expect(
+          (requests[1].payload as wire.SettingsRequest).kind,
+          wire.SettingsRequestKind.ReadKeyboard,
+        );
+
+        await _sendToFlutter(
+          messenger,
+          _settingsDocumentResponse(
+            requestId: requests[0].requestId,
+            revision: 7,
+            document: '{"version":8,"revision":7}',
+          ),
+        );
+        final document = await documentFuture;
+        expect(document.revision, 7);
+        expect(document.json, contains('"revision":7'));
+
+        await _sendToFlutter(
+          messenger,
+          _keyboardSettingsResponse(
+            requestId: requests[1].requestId,
+            revision: 7,
+            activeLayout: 1,
+          ),
+        );
+        final keyboard = await keyboardFuture;
+        expect(keyboard.active.label, 'German');
+        expect(keyboard.repeatDelayMs, 450);
+        expect(keyboard.repeatRateHz, 30);
+
+        final update = bridge.configureKeyboard(
+          keyboard.copyWith(repeatRateHz: 40),
+        );
+        final configureEnvelope = requests.last;
+        final configure = configureEnvelope.payload as wire.SettingsRequest;
+        expect(configure.kind, wire.SettingsRequestKind.ConfigureKeyboard);
+        expect(configure.expectedRevision, 7);
+        expect(configure.keyboard!.repeatRateHz, 40);
+        await _sendToFlutter(
+          messenger,
+          _keyboardSettingsResponse(
+            requestId: configureEnvelope.requestId,
+            revision: 8,
+            activeLayout: 0,
+            repeatRateHz: 40,
+          ),
+        );
+        expect((await update).revision, 8);
+
+        await _sendToFlutter(
+          messenger,
+          _keyboardSettingsResponse(
+            requestId: 0,
+            revision: 8,
+            activeLayout: 1,
+            repeatRateHz: 40,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(keyboardEvents.last.active.label, 'German');
+        expect(keyboardEvents.last.revision, 8);
+      } finally {
+        await subscription.cancel();
+        bridge.dispose();
+        messenger.setMockMessageHandler(wire.denialWireToNativeChannel, null);
+      }
+    },
+  );
 
   test('placement begin, update, and end keep wire order', () async {
     final messenger =
@@ -925,6 +1020,58 @@ Uint8List _displayResponse({required int requestId}) {
             refreshRate: 120,
           ),
         ],
+      ),
+    ),
+    requestId: requestId,
+  );
+}
+
+Uint8List _settingsDocumentResponse({
+  required int requestId,
+  required int revision,
+  required String document,
+}) {
+  return _envelope(
+    wire.PayloadTypeId.SettingsResponse,
+    wire.SettingsResponseObjectBuilder(
+      kind: wire.SettingsResponseKind.Document,
+      success: true,
+      revision: revision,
+      document: document,
+    ),
+    requestId: requestId,
+  );
+}
+
+Uint8List _keyboardSettingsResponse({
+  required int requestId,
+  required int revision,
+  required int activeLayout,
+  int repeatRateHz = 30,
+}) {
+  return _envelope(
+    wire.PayloadTypeId.SettingsResponse,
+    wire.SettingsResponseObjectBuilder(
+      kind: wire.SettingsResponseKind.Keyboard,
+      success: true,
+      revision: revision,
+      keyboard: wire.KeyboardConfigurationObjectBuilder(
+        layouts: <wire.KeyboardLayoutObjectBuilder>[
+          wire.KeyboardLayoutObjectBuilder(
+            layout: 'us',
+            variant: '',
+            displayName: 'English (US)',
+          ),
+          wire.KeyboardLayoutObjectBuilder(
+            layout: 'de',
+            variant: 'nodeadkeys',
+            displayName: 'German',
+          ),
+        ],
+        options: const <String>['compose:menu'],
+        repeatDelayMs: 450,
+        repeatRateHz: repeatRateHz,
+        activeLayout: activeLayout,
       ),
     ),
     requestId: requestId,

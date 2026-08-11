@@ -2752,6 +2752,120 @@ abstract class AppLocalizations {
   /// **'Choose the language Denial uses.'**
   String get settingsLanguageTitle;
 
+  /// Section eyebrow for physical keyboard settings.
+  ///
+  /// In en, this message translates to:
+  /// **'INPUT'**
+  String get settingsKeyboardSection;
+
+  /// Physical keyboard settings page description.
+  ///
+  /// In en, this message translates to:
+  /// **'Configure the physical keyboard used by Flutter, Wayland, and Xwayland.'**
+  String get settingsKeyboardTitle;
+
+  /// Title for configured XKB layouts.
+  ///
+  /// In en, this message translates to:
+  /// **'Layouts and variants'**
+  String get settingsKeyboardLayoutsTitle;
+
+  /// Help for XKB layout and variant syntax.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter layouts in switching order. Add a variant after a colon, for example us, de:nodeadkeys.'**
+  String get settingsKeyboardLayoutsDescription;
+
+  /// Label for the XKB layouts field.
+  ///
+  /// In en, this message translates to:
+  /// **'Layouts'**
+  String get settingsKeyboardLayoutsLabel;
+
+  /// Example XKB layouts.
+  ///
+  /// In en, this message translates to:
+  /// **'us, de:nodeadkeys'**
+  String get settingsKeyboardLayoutsHint;
+
+  /// Label for XKB options.
+  ///
+  /// In en, this message translates to:
+  /// **'XKB options'**
+  String get settingsKeyboardOptionsLabel;
+
+  /// Example XKB options.
+  ///
+  /// In en, this message translates to:
+  /// **'compose:menu, caps:escape'**
+  String get settingsKeyboardOptionsHint;
+
+  /// Help for the XKB options field.
+  ///
+  /// In en, this message translates to:
+  /// **'Comma-separated options enable Compose, alternate group shortcuts, Caps remapping, and other XKB behavior.'**
+  String get settingsKeyboardOptionsDescription;
+
+  /// Title for keyboard repeat settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Key repeat'**
+  String get settingsKeyboardRepeatTitle;
+
+  /// Keyboard repeat delay label.
+  ///
+  /// In en, this message translates to:
+  /// **'Delay'**
+  String get settingsKeyboardRepeatDelay;
+
+  /// Keyboard repeat rate label.
+  ///
+  /// In en, this message translates to:
+  /// **'Rate'**
+  String get settingsKeyboardRepeatRate;
+
+  /// Title for keyboard layout switching status.
+  ///
+  /// In en, this message translates to:
+  /// **'Layout switching'**
+  String get settingsKeyboardSwitchingTitle;
+
+  /// Label for the active keyboard layout.
+  ///
+  /// In en, this message translates to:
+  /// **'Active layout'**
+  String get settingsKeyboardActiveLayout;
+
+  /// Description of Denial's physical layout switching shortcut.
+  ///
+  /// In en, this message translates to:
+  /// **'Super+Space selects the next layout. Add Shift to select the previous one.'**
+  String get settingsKeyboardSwitchingShortcut;
+
+  /// Button label for applying keyboard settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply keyboard settings'**
+  String get settingsKeyboardApply;
+
+  /// Busy label while keyboard settings are applied.
+  ///
+  /// In en, this message translates to:
+  /// **'Applying…'**
+  String get settingsKeyboardApplying;
+
+  /// Loading label for keyboard settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Reading the compositor keyboard configuration…'**
+  String get settingsKeyboardLoading;
+
+  /// Validation error for the keyboard layouts field.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter at least one valid XKB layout.'**
+  String get settingsKeyboardInvalidLayouts;
+
   /// English UI text for settingsLayoutDescription.
   ///
   /// In en, this message translates to:
@@ -3177,6 +3291,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Language'**
   String get settingsNavigationLanguage;
+
+  /// Settings navigation label for physical keyboard configuration.
+  ///
+  /// In en, this message translates to:
+  /// **'Keyboard'**
+  String get settingsNavigationKeyboard;
 
   /// English UI text for settingsNavigationLockScreen.
   ///

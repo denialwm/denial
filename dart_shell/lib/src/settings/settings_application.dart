@@ -23,6 +23,7 @@ import 'widgets/settings_appearance_page.dart';
 import 'widgets/settings_animations_page.dart';
 import 'widgets/settings_developer_page.dart';
 import 'widgets/settings_layout_page.dart';
+import 'widgets/settings_keyboard_page.dart';
 import 'widgets/settings_language_page.dart';
 import 'widgets/settings_lock_screen_page.dart';
 import 'widgets/settings_navigation.dart';
@@ -211,6 +212,7 @@ class _DenialSettingsApplicationState
         onChanged: controller.setLocalePreference,
         onReset: controller.resetLocalization,
       ),
+      SettingsPageId.keyboard => const SettingsKeyboardPage(),
       SettingsPageId.layout => SettingsLayoutPage(
         settings: settings.layout,
         displayLayout: displayLayout,

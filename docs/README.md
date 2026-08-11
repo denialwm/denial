@@ -27,6 +27,7 @@ Project-level release documents live at the repository root:
 - [Platform-channel inventory](protocol/CHANNEL_INVENTORY.md)
 - [Denial wire format](protocol/WIRE_FORMAT.md)
 - [Control protocol v1](protocol/control-v1.md)
+- [Wayland text input v3](protocol/text-input-v3.md)
 
 The versioned FlatBuffers schema and generated bindings remain under
 [`protocol/`](../protocol/).

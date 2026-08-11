@@ -10,6 +10,7 @@ import '../input/input_layout.dart';
 import '../models/display_layout.dart';
 import '../models/denial_drag_icon.dart';
 import '../models/desktop_notification.dart' as model;
+import '../models/keyboard_configuration.dart';
 import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
 
@@ -25,6 +26,7 @@ const int denialWireMaxNotificationActions = 16;
 const int denialWireMaxNotificationImageBytes = 512 * 1024;
 const int denialWireMaxLocalAppIdBytes = 256;
 const int denialWireMaxLocalWindowTitleBytes = 1024;
+const int denialWireMaxSettingsDocumentBytes = 256 * 1024;
 
 const String denialWireToNativeChannel = 'denial/wire/to_native';
 const String denialWireToFlutterChannel = 'denial/wire/to_flutter';
@@ -251,6 +253,152 @@ class DenialWireCodec {
         key: key,
         flags: ctrl ? _keyboardCtrl : 0,
       ),
+    );
+  }
+
+  Uint8List encodeSettingsRead(
+    generated.SettingsRequestKind kind, {
+    required int requestId,
+  }) {
+    if (requestId <= 0 ||
+        (kind != generated.SettingsRequestKind.ReadDocument &&
+            kind != generated.SettingsRequestKind.ReadKeyboard)) {
+      throw ArgumentError('invalid settings read request');
+    }
+    return _encodeEnvelope(
+      generated.PayloadTypeId.SettingsRequest,
+      generated.SettingsRequestObjectBuilder(kind: kind),
+      requestId: requestId,
+    );
+  }
+
+  Uint8List? encodeSettingsDocumentWrite({
+    required int requestId,
+    required int expectedRevision,
+    required String document,
+  }) {
+    final bytes = utf8.encode(document);
+    if (requestId <= 0 ||
+        expectedRevision <= 0 ||
+        bytes.isEmpty ||
+        bytes.length > denialWireMaxSettingsDocumentBytes ||
+        bytes.contains(0)) {
+      return null;
+    }
+    return _encodeEnvelope(
+      generated.PayloadTypeId.SettingsRequest,
+      generated.SettingsRequestObjectBuilder(
+        kind: generated.SettingsRequestKind.WriteDocument,
+        expectedRevision: expectedRevision,
+        document: document,
+      ),
+      requestId: requestId,
+    );
+  }
+
+  Uint8List? encodeKeyboardConfiguration({
+    required int requestId,
+    required DenialKeyboardConfiguration configuration,
+  }) {
+    if (requestId <= 0 ||
+        configuration.revision <= 0 ||
+        configuration.layouts.isEmpty ||
+        configuration.layouts.length > 8 ||
+        configuration.options.length > 32 ||
+        configuration.repeatDelayMs < 100 ||
+        configuration.repeatDelayMs > 5000 ||
+        configuration.repeatRateHz < 0 ||
+        configuration.repeatRateHz > 100) {
+      return null;
+    }
+    final layouts = <generated.KeyboardLayoutObjectBuilder>[];
+    for (final layout in configuration.layouts) {
+      if (!_validXkbName(layout.layout, emptyAllowed: false) ||
+          !_validXkbName(layout.variant, emptyAllowed: true)) {
+        return null;
+      }
+      layouts.add(
+        generated.KeyboardLayoutObjectBuilder(
+          layout: layout.layout,
+          variant: layout.variant,
+        ),
+      );
+    }
+    if (configuration.options.any((option) => !_validXkbOption(option)) ||
+        configuration.options.toSet().length != configuration.options.length) {
+      return null;
+    }
+    return _encodeEnvelope(
+      generated.PayloadTypeId.SettingsRequest,
+      generated.SettingsRequestObjectBuilder(
+        kind: generated.SettingsRequestKind.ConfigureKeyboard,
+        expectedRevision: configuration.revision,
+        keyboard: generated.KeyboardConfigurationObjectBuilder(
+          layouts: layouts,
+          options: configuration.options,
+          repeatDelayMs: configuration.repeatDelayMs,
+          repeatRateHz: configuration.repeatRateHz,
+          activeLayout: 0,
+        ),
+      ),
+      requestId: requestId,
+    );
+  }
+
+  DenialKeyboardConfiguration? decodeKeyboardConfiguration(
+    generated.SettingsResponse response,
+  ) {
+    final keyboard = response.keyboard;
+    final sourceLayouts = keyboard?.layouts;
+    final sourceOptions = keyboard?.options;
+    if (response.kind != generated.SettingsResponseKind.Keyboard ||
+        response.revision <= 0 ||
+        keyboard == null ||
+        sourceLayouts == null ||
+        sourceLayouts.isEmpty ||
+        sourceLayouts.length > 8 ||
+        sourceOptions == null ||
+        sourceOptions.length > 32 ||
+        keyboard.activeLayout < 0 ||
+        keyboard.activeLayout >= sourceLayouts.length ||
+        keyboard.repeatDelayMs < 100 ||
+        keyboard.repeatDelayMs > 5000 ||
+        keyboard.repeatRateHz < 0 ||
+        keyboard.repeatRateHz > 100) {
+      rejectedStructuredMessages += 1;
+      return null;
+    }
+    final layouts = <DenialKeyboardLayout>[];
+    for (final source in sourceLayouts) {
+      final layout = source.layout ?? '';
+      final variant = source.variant ?? '';
+      final displayName = source.displayName ?? '';
+      if (!_validXkbName(layout, emptyAllowed: false) ||
+          !_validXkbName(variant, emptyAllowed: true) ||
+          utf8.encode(displayName).length > denialWireMaxStringLength) {
+        rejectedStructuredMessages += 1;
+        return null;
+      }
+      layouts.add(
+        DenialKeyboardLayout(
+          layout: layout,
+          variant: variant,
+          displayName: displayName,
+        ),
+      );
+    }
+    if (sourceOptions.any((option) => !_validXkbOption(option)) ||
+        sourceOptions.toSet().length != sourceOptions.length) {
+      rejectedStructuredMessages += 1;
+      return null;
+    }
+    return DenialKeyboardConfiguration(
+      revision: response.revision,
+      layouts: List<DenialKeyboardLayout>.unmodifiable(layouts),
+      options: List<String>.unmodifiable(sourceOptions),
+      repeatDelayMs: keyboard.repeatDelayMs,
+      repeatRateHz: keyboard.repeatRateHz,
+      activeLayout: keyboard.activeLayout,
     );
   }
 
@@ -1045,7 +1193,30 @@ bool _nativePayloadType(generated.PayloadTypeId type) {
       type == generated.PayloadTypeId.ShellAction ||
       type == generated.PayloadTypeId.CursorShape ||
       type == generated.PayloadTypeId.CursorPosition ||
-      type == generated.PayloadTypeId.DesktopNotificationEvent;
+      type == generated.PayloadTypeId.DesktopNotificationEvent ||
+      type == generated.PayloadTypeId.SettingsResponse;
+}
+
+bool _validXkbName(String value, {required bool emptyAllowed}) {
+  final bytes = value.codeUnits;
+  return (emptyAllowed || bytes.isNotEmpty) &&
+      bytes.length <= 64 &&
+      bytes.every(
+        (byte) =>
+            (byte >= 0x30 && byte <= 0x39) ||
+            (byte >= 0x41 && byte <= 0x5a) ||
+            (byte >= 0x61 && byte <= 0x7a) ||
+            byte == 0x5f ||
+            byte == 0x2b ||
+            byte == 0x2d,
+      );
+}
+
+bool _validXkbOption(String value) {
+  if (value.isEmpty || value.length > 64) {
+    return false;
+  }
+  return _validXkbName(value.replaceAll(':', ''), emptyAllowed: false);
 }
 
 bool _finiteWindow(generated.Window window) {

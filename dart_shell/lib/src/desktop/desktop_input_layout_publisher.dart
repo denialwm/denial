@@ -89,6 +89,9 @@ class _DesktopInputLayoutPublisherState
       for (final window in windows)
         if (window.isUserApp) window.objectId: window,
     };
+    final inputMethodPopups = windows
+        .where((window) => window.isInputMethodPopup && window.geometry != null)
+        .toList(growable: false);
     final switcher = ref.read(desktopWindowSwitcherProvider);
     final sampledSwitcherIds =
         interactions.capturesFullScene && (switcher?.isSelecting ?? false)
@@ -112,6 +115,9 @@ class _DesktopInputLayoutPublisherState
     // ownership while leaving a hot edge can synthesize another edge enter and
     // make the launcher repeatedly open and close over client windows.
     if (!interactions.capturesFullScene) {
+      for (final popup in inputMethodPopups) {
+        shellRegions = _subtractFromAll(shellRegions, popup.geometry!);
+      }
       for (final placement in placements) {
         final visualContentRect = placement.contentRect;
         shellRegions = _subtractFromAll(shellRegions, visualContentRect);
@@ -133,6 +139,21 @@ class _DesktopInputLayoutPublisherState
 
     final inputWindows = <InputWindowRegion>[];
     final visibleSurfaceIds = <int>{};
+    for (final popup in inputMethodPopups) {
+      visibleSurfaceIds.addAll(popup.visibleSurfaceIds);
+      if (!interactions.capturesFullScene) {
+        inputWindows.add(
+          InputWindowRegion(
+            window: popup,
+            surfaceId: popup.objectId,
+            rect: popup.geometry!,
+            sourceRect: popup.contentCoordinateRect,
+            z: 0x7fffffff,
+            geometryLocked: true,
+          ),
+        );
+      }
+    }
     // Desktop widgets still sample their live main-surface textures. Keep
     // those surfaces presentation-visible without adding a client input
     // region or configuring the native window to the widget rectangle.

@@ -97,7 +97,9 @@ class _DesktopSceneWindows {
   // windows. Each keyed frame and popup layer selects its own current window.
   _DesktopSceneWindows(List<DenialWindow> windows)
     : windows = List<DenialWindow>.unmodifiable(
-        windows.where((window) => window.isUserApp),
+        windows.where(
+          (window) => window.isUserApp || window.isInputMethodPopup,
+        ),
       );
 
   final List<DenialWindow> windows;
@@ -1141,7 +1143,9 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     final activeObjectIds = <int>{
       for (final window in widget.windows) window.objectId,
     };
-    for (final window in oldWidget.windows) {
+    for (final window in oldWidget.windows.where(
+      (window) => window.isUserApp,
+    )) {
       if (activeObjectIds.contains(window.objectId)) {
         continue;
       }
@@ -1228,6 +1232,9 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     final windowsById = <int, DenialWindow>{
       for (final window in windows) window.objectId: window,
     };
+    final inputMethodPopups = windows
+        .where((window) => window.isInputMethodPopup)
+        .toList(growable: false);
     final placements =
         desktop.placements.values
             .where((placement) => windowsById.containsKey(placement.objectId))
@@ -1498,6 +1505,20 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                         ),
                       ),
                     ),
+                  for (final popup in inputMethodPopups)
+                    if (popup.geometry case final geometry?)
+                      Positioned.fromRect(
+                        key: ValueKey<String>(
+                          'desktop-input-method-popup-${popup.objectId}',
+                        ),
+                        rect: geometry,
+                        child: IgnorePointer(
+                          child: WindowSurfaceTree(
+                            window: popup,
+                            includePopups: true,
+                          ),
+                        ),
+                      ),
                   if (frameTimingOptions.showOverlay)
                     Positioned(
                       top: 12,

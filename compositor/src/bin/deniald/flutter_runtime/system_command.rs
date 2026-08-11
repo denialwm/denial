@@ -1026,6 +1026,7 @@ mod tests {
             environment.get(OsStr::new("XDG_CURRENT_DESKTOP")),
             Some(&Some(OsString::from("Denial")))
         );
+        assert!(!environment.contains_key(OsStr::new("XMODIFIERS")));
         assert_eq!(
             environment.get(OsStr::new("DENIAL_SOCKET")),
             Some(&Some(OsString::from("/run/user/1000/denial/control.sock")))
@@ -1044,7 +1045,15 @@ mod tests {
             Some(&None)
         );
         assert_eq!(environment.get(OsStr::new("NO_COLOR")), Some(&None));
-        for inherited in ["PATH", "LANG", "LC_ALL", "TERM", "COLORTERM", "HOME"] {
+        for inherited in [
+            "PATH",
+            "LANG",
+            "LC_ALL",
+            "TERM",
+            "COLORTERM",
+            "HOME",
+            "XMODIFIERS",
+        ] {
             assert_eq!(
                 environment.get(OsStr::new(inherited)),
                 None,

@@ -82,6 +82,18 @@ enum KeyboardCommandKind : ubyte {
   Key = 1
 }
 
+enum SettingsRequestKind : ubyte {
+  ReadDocument = 0,
+  WriteDocument = 1,
+  ReadKeyboard = 2,
+  ConfigureKeyboard = 3
+}
+
+enum SettingsResponseKind : ubyte {
+  Document = 0,
+  Keyboard = 1
+}
+
 enum DesktopNotificationEventKind : ubyte {
   Added = 0,
   Replaced = 1,
@@ -334,6 +346,41 @@ table KeyboardCommand {
   flags:uint;
 }
 
+table KeyboardLayout {
+  layout:string;
+  variant:string;
+  // Native XKB's human-readable group name. Requests leave this empty;
+  // responses fill it from the keymap that is actually active on the seat.
+  display_name:string;
+}
+
+table KeyboardConfiguration {
+  layouts:[KeyboardLayout];
+  options:[string];
+  repeat_delay_ms:uint = 600;
+  // Zero disables repeat, matching wl_keyboard.repeat_info.
+  repeat_rate_hz:uint = 25;
+  active_layout:uint;
+}
+
+table SettingsRequest {
+  kind:SettingsRequestKind = ReadDocument;
+  expected_revision:ulong;
+  // WriteDocument only. Keyboard is native-owned and ignored if echoed here.
+  document:string;
+  // ConfigureKeyboard only.
+  keyboard:KeyboardConfiguration;
+}
+
+table SettingsResponse {
+  kind:SettingsResponseKind = Document;
+  success:bool = true;
+  revision:ulong;
+  document:string;
+  keyboard:KeyboardConfiguration;
+  error:string;
+}
+
 table DesktopNotificationAction {
   key:string;
   label:string;
@@ -403,7 +450,9 @@ union Payload {
   KeyboardCommand,
   CursorPosition,
   DesktopNotificationEvent,
-  DesktopNotificationCommand
+  DesktopNotificationCommand,
+  SettingsRequest,
+  SettingsResponse
 }
 
 table Envelope {

@@ -11,6 +11,7 @@ const settingsNavigationListKey = ValueKey<String>('settings-navigation-list');
 enum SettingsPageId {
   appearance,
   language,
+  keyboard,
   animations,
   layout,
   overlays,
@@ -29,6 +30,7 @@ extension SettingsPageIdPresentation on SettingsPageId {
     SettingsPageId.about => context.l10n.settingsNavigationAbout,
     SettingsPageId.appearance => context.l10n.settingsNavigationAppearance,
     SettingsPageId.language => context.l10n.settingsNavigationLanguage,
+    SettingsPageId.keyboard => context.l10n.settingsNavigationKeyboard,
     SettingsPageId.animations => context.l10n.settingsNavigationAnimations,
     SettingsPageId.layout => context.l10n.settingsNavigationDesktopLayout,
     SettingsPageId.overlays => context.l10n.settingsNavigationOverlays,
@@ -45,6 +47,7 @@ extension SettingsPageIdPresentation on SettingsPageId {
     SettingsPageId.about => Icons.info_outline_rounded,
     SettingsPageId.appearance => Icons.palette_outlined,
     SettingsPageId.language => Icons.translate_rounded,
+    SettingsPageId.keyboard => Icons.keyboard_rounded,
     SettingsPageId.animations => Icons.animation_rounded,
     SettingsPageId.layout => Icons.space_dashboard_outlined,
     SettingsPageId.overlays => Icons.picture_in_picture_alt_outlined,

@@ -16,6 +16,7 @@ use super::notification_server::{
     Notification, NotificationEvent, NotificationEventKind, NotificationUrgency,
 };
 use super::options::{SystemBarOptions, SystemBarSide, WorkAreaOptions};
+use super::settings::{KeyboardLayout, KeyboardSettings};
 
 #[allow(
     clippy::all,
@@ -51,6 +52,8 @@ const MAX_SURFACES: usize = 32768;
 const MAX_PENDING_WINDOW_COMMANDS: usize = 4096;
 const MAX_PENDING_KEYBOARD_COMMANDS: usize = 256;
 const MAX_PENDING_NOTIFICATION_COMMANDS: usize = 256;
+const MAX_PENDING_SETTINGS_COMMANDS: usize = 64;
+const MAX_SETTINGS_DOCUMENT_BYTES: usize = 256 * 1024;
 const MAX_LOCAL_APP_ID_BYTES: usize = 256;
 const MAX_LOCAL_WINDOW_TITLE_BYTES: usize = 1024;
 const WINDOW_PLACEMENT_PACKET_BYTES: usize = 80;
@@ -102,6 +105,26 @@ pub enum WindowCommand {
 pub enum KeyboardCommand {
     Text(String),
     Key { key: String, ctrl: bool },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SettingsCommand {
+    ReadDocument {
+        request_id: u64,
+    },
+    WriteDocument {
+        request_id: u64,
+        expected_revision: u64,
+        document: String,
+    },
+    ReadKeyboard {
+        request_id: u64,
+    },
+    ConfigureKeyboard {
+        request_id: u64,
+        expected_revision: u64,
+        keyboard: KeyboardSettings,
+    },
 }
 
 impl WindowCommand {
@@ -459,6 +482,7 @@ pub struct WireBridge {
     pending_window_commands: VecDeque<WindowCommand>,
     pending_keyboard_commands: VecDeque<KeyboardCommand>,
     pending_notification_commands: VecDeque<NotificationCommand>,
+    pending_settings_commands: VecDeque<SettingsCommand>,
     pending_work_area: Option<WorkAreaOptions>,
     next_sequence: u64,
 }
@@ -482,6 +506,7 @@ impl WireBridge {
             pending_window_commands: VecDeque::new(),
             pending_keyboard_commands: VecDeque::new(),
             pending_notification_commands: VecDeque::new(),
+            pending_settings_commands: VecDeque::new(),
             pending_work_area: None,
             next_sequence: 1,
         })
@@ -536,6 +561,10 @@ impl WireBridge {
         &mut self,
     ) -> impl Iterator<Item = NotificationCommand> + '_ {
         self.pending_notification_commands.drain(..)
+    }
+
+    pub fn drain_settings_commands(&mut self) -> impl Iterator<Item = SettingsCommand> + '_ {
+        self.pending_settings_commands.drain(..)
     }
 
     /// Takes the latest validated system-bar update. Settings changes are
@@ -684,6 +713,75 @@ impl WireBridge {
         Ok(self.outbound_builder.finished_data())
     }
 
+    pub fn encode_settings_document_response(
+        &mut self,
+        request_id: u64,
+        revision: u64,
+        document: Option<&str>,
+        error: Option<&str>,
+    ) -> Result<&[u8], WireError> {
+        if request_id == 0 || revision == 0 {
+            return Err(WireError::RequestId);
+        }
+        if document.is_some_and(|document| document.len() > MAX_SETTINGS_DOCUMENT_BYTES)
+            || error.is_some_and(|error| error.len() > MAX_STRING_BYTES)
+        {
+            return Err(WireError::Size(
+                document.map_or_else(|| error.map_or(0, str::len), str::len),
+            ));
+        }
+        let sequence = self.take_sequence();
+        self.outbound_builder.reset();
+        encode_settings_response(
+            &mut self.outbound_builder,
+            sequence,
+            request_id,
+            fb::SettingsResponseKind::Document,
+            revision,
+            document,
+            None,
+            &[],
+            0,
+            error,
+        )?;
+        Ok(self.outbound_builder.finished_data())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn encode_keyboard_settings_response(
+        &mut self,
+        request_id: u64,
+        revision: u64,
+        keyboard: &KeyboardSettings,
+        display_names: &[String],
+        active_layout: usize,
+        error: Option<&str>,
+    ) -> Result<&[u8], WireError> {
+        if revision == 0 || active_layout >= keyboard.layouts.len() {
+            return Err(WireError::Identity);
+        }
+        if display_names.len() != keyboard.layouts.len()
+            || error.is_some_and(|error| error.len() > MAX_STRING_BYTES)
+        {
+            return Err(WireError::Count);
+        }
+        let sequence = self.take_sequence();
+        self.outbound_builder.reset();
+        encode_settings_response(
+            &mut self.outbound_builder,
+            sequence,
+            request_id,
+            fb::SettingsResponseKind::Keyboard,
+            revision,
+            None,
+            Some(keyboard),
+            display_names,
+            active_layout,
+            error,
+        )?;
+        Ok(self.outbound_builder.finished_data())
+    }
+
     /// Handles one verified Flutter message and returns an ordered response,
     /// when the payload is a request/reply operation.
     pub fn handle(&mut self, bytes: &[u8]) -> Result<Option<&[u8]>, WireError> {
@@ -747,6 +845,20 @@ impl WireBridge {
                 }
                 let command = decode_notification_command(command)?;
                 self.pending_notification_commands.push_back(command);
+                Ok(None)
+            }
+            fb::Payload::SettingsRequest => {
+                if envelope.request_id() == 0 {
+                    return Err(WireError::RequestId);
+                }
+                if self.pending_settings_commands.len() >= MAX_PENDING_SETTINGS_COMMANDS {
+                    return Err(WireError::Count);
+                }
+                let request = envelope
+                    .payload_as_settings_request()
+                    .ok_or(WireError::Payload)?;
+                let command = decode_settings_request(envelope.request_id(), request)?;
+                self.pending_settings_commands.push_back(command);
                 Ok(None)
             }
             fb::Payload::WindowRequest => {
@@ -975,6 +1087,84 @@ fn decode_keyboard_command(command: fb::KeyboardCommand<'_>) -> Result<KeyboardC
         }
         _ => Err(WireError::Enumeration),
     }
+}
+
+fn decode_settings_request(
+    request_id: u64,
+    request: fb::SettingsRequest<'_>,
+) -> Result<SettingsCommand, WireError> {
+    match request.kind() {
+        fb::SettingsRequestKind::ReadDocument => {
+            if request.expected_revision() != 0
+                || request.document().is_some()
+                || request.keyboard().is_some()
+            {
+                return Err(WireError::Payload);
+            }
+            Ok(SettingsCommand::ReadDocument { request_id })
+        }
+        fb::SettingsRequestKind::WriteDocument => {
+            let document = request.document().ok_or(WireError::String)?;
+            if request.expected_revision() == 0
+                || document.is_empty()
+                || document.len() > MAX_SETTINGS_DOCUMENT_BYTES
+                || request.keyboard().is_some()
+            {
+                return Err(WireError::Payload);
+            }
+            Ok(SettingsCommand::WriteDocument {
+                request_id,
+                expected_revision: request.expected_revision(),
+                document: document.to_owned(),
+            })
+        }
+        fb::SettingsRequestKind::ReadKeyboard => {
+            if request.expected_revision() != 0
+                || request.document().is_some()
+                || request.keyboard().is_some()
+            {
+                return Err(WireError::Payload);
+            }
+            Ok(SettingsCommand::ReadKeyboard { request_id })
+        }
+        fb::SettingsRequestKind::ConfigureKeyboard => {
+            if request.expected_revision() == 0 || request.document().is_some() {
+                return Err(WireError::Payload);
+            }
+            let keyboard = decode_keyboard_settings(request.keyboard().ok_or(WireError::Payload)?)?;
+            Ok(SettingsCommand::ConfigureKeyboard {
+                request_id,
+                expected_revision: request.expected_revision(),
+                keyboard,
+            })
+        }
+        _ => Err(WireError::Enumeration),
+    }
+}
+
+fn decode_keyboard_settings(
+    keyboard: fb::KeyboardConfiguration<'_>,
+) -> Result<KeyboardSettings, WireError> {
+    let layouts = keyboard.layouts().ok_or(WireError::Payload)?;
+    let options = keyboard.options().ok_or(WireError::Payload)?;
+    let mut decoded_layouts = Vec::with_capacity(layouts.len());
+    for layout in layouts {
+        if layout.display_name().is_some_and(|name| !name.is_empty()) {
+            return Err(WireError::Payload);
+        }
+        decoded_layouts.push(KeyboardLayout {
+            layout: layout.layout().ok_or(WireError::String)?.to_owned(),
+            variant: layout.variant().unwrap_or_default().to_owned(),
+        });
+    }
+    let decoded = KeyboardSettings {
+        layouts: decoded_layouts,
+        options: options.iter().map(str::to_owned).collect(),
+        repeat_delay_ms: keyboard.repeat_delay_ms(),
+        repeat_rate_hz: keyboard.repeat_rate_hz(),
+    };
+    decoded.validate().map_err(|_| WireError::Payload)?;
+    Ok(decoded)
 }
 
 fn decode_notification_command(
@@ -1603,6 +1793,79 @@ fn encode_cursor_position(
     validate_finished_message(builder)
 }
 
+#[allow(clippy::too_many_arguments)]
+fn encode_settings_response(
+    builder: &mut FlatBufferBuilder<'_>,
+    sequence: u64,
+    request_id: u64,
+    kind: fb::SettingsResponseKind,
+    revision: u64,
+    document: Option<&str>,
+    keyboard: Option<&KeyboardSettings>,
+    display_names: &[String],
+    active_layout: usize,
+    error: Option<&str>,
+) -> Result<(), WireError> {
+    let document = document.map(|document| builder.create_string(document));
+    let error = error.map(|error| builder.create_string(error));
+    let keyboard = keyboard.map(|keyboard| {
+        let mut layouts = Vec::with_capacity(keyboard.layouts.len());
+        for (layout, display_name) in keyboard.layouts.iter().zip(display_names) {
+            let name = builder.create_string(&layout.layout);
+            let variant = builder.create_string(&layout.variant);
+            let display_name = builder.create_string(display_name);
+            layouts.push(fb::KeyboardLayout::create(
+                builder,
+                &fb::KeyboardLayoutArgs {
+                    layout: Some(name),
+                    variant: Some(variant),
+                    display_name: Some(display_name),
+                },
+            ));
+        }
+        let layouts = builder.create_vector(&layouts);
+        let options = keyboard
+            .options
+            .iter()
+            .map(|option| builder.create_string(option))
+            .collect::<Vec<_>>();
+        let options = builder.create_vector(&options);
+        fb::KeyboardConfiguration::create(
+            builder,
+            &fb::KeyboardConfigurationArgs {
+                layouts: Some(layouts),
+                options: Some(options),
+                repeat_delay_ms: keyboard.repeat_delay_ms,
+                repeat_rate_hz: keyboard.repeat_rate_hz,
+                active_layout: u32::try_from(active_layout).unwrap_or(u32::MAX),
+            },
+        )
+    });
+    let response = fb::SettingsResponse::create(
+        builder,
+        &fb::SettingsResponseArgs {
+            kind,
+            success: error.is_none(),
+            revision,
+            document,
+            keyboard,
+            error,
+        },
+    );
+    let envelope = fb::Envelope::create(
+        builder,
+        &fb::EnvelopeArgs {
+            protocol_version: PROTOCOL_VERSION,
+            sequence,
+            request_id,
+            payload_type: fb::Payload::SettingsResponse,
+            payload: Some(response.as_union_value()),
+        },
+    );
+    fb::finish_envelope_buffer(builder, envelope);
+    validate_finished_message(builder)
+}
+
 fn encode_notification_event(
     builder: &mut FlatBufferBuilder<'_>,
     sequence: u64,
@@ -2097,6 +2360,71 @@ mod tests {
                 payload_type: fb::Payload::KeyboardCommand,
                 payload: Some(command.as_union_value()),
                 ..Default::default()
+            },
+        );
+        fb::finish_envelope_buffer(&mut builder, envelope);
+        builder.finished_data().to_vec()
+    }
+
+    fn settings_request(
+        kind: fb::SettingsRequestKind,
+        request_id: u64,
+        expected_revision: u64,
+        document: Option<&str>,
+        keyboard: Option<(&[(&str, &str)], &[&str], u32, u32)>,
+    ) -> Vec<u8> {
+        let mut builder = FlatBufferBuilder::new();
+        let document = document.map(|value| builder.create_string(value));
+        let keyboard = keyboard.map(|(layouts, options, delay, rate)| {
+            let layouts = layouts
+                .iter()
+                .map(|(layout, variant)| {
+                    let layout = builder.create_string(layout);
+                    let variant = builder.create_string(variant);
+                    fb::KeyboardLayout::create(
+                        &mut builder,
+                        &fb::KeyboardLayoutArgs {
+                            layout: Some(layout),
+                            variant: Some(variant),
+                            display_name: None,
+                        },
+                    )
+                })
+                .collect::<Vec<_>>();
+            let layouts = builder.create_vector(&layouts);
+            let options = options
+                .iter()
+                .map(|option| builder.create_string(option))
+                .collect::<Vec<_>>();
+            let options = builder.create_vector(&options);
+            fb::KeyboardConfiguration::create(
+                &mut builder,
+                &fb::KeyboardConfigurationArgs {
+                    layouts: Some(layouts),
+                    options: Some(options),
+                    repeat_delay_ms: delay,
+                    repeat_rate_hz: rate,
+                    active_layout: 0,
+                },
+            )
+        });
+        let request = fb::SettingsRequest::create(
+            &mut builder,
+            &fb::SettingsRequestArgs {
+                kind,
+                expected_revision,
+                document,
+                keyboard,
+            },
+        );
+        let envelope = fb::Envelope::create(
+            &mut builder,
+            &fb::EnvelopeArgs {
+                protocol_version: PROTOCOL_VERSION,
+                sequence: 12,
+                request_id,
+                payload_type: fb::Payload::SettingsRequest,
+                payload: Some(request.as_union_value()),
             },
         );
         fb::finish_envelope_buffer(&mut builder, envelope);
@@ -2779,6 +3107,147 @@ mod tests {
                 Err(WireError::Payload | WireError::FlatBuffer(_))
             ));
         }
+    }
+
+    #[test]
+    fn settings_requests_are_typed_bounded_and_revisioned() {
+        let mut bridge = bridge();
+        bridge
+            .handle(&settings_request(
+                fb::SettingsRequestKind::ReadDocument,
+                41,
+                0,
+                None,
+                None,
+            ))
+            .unwrap();
+        bridge
+            .handle(&settings_request(
+                fb::SettingsRequestKind::WriteDocument,
+                42,
+                7,
+                Some(r#"{"version":8}"#),
+                None,
+            ))
+            .unwrap();
+        bridge
+            .handle(&settings_request(
+                fb::SettingsRequestKind::ConfigureKeyboard,
+                43,
+                8,
+                None,
+                Some((
+                    &[("us", ""), ("de", "nodeadkeys")],
+                    &["compose:menu"],
+                    450,
+                    30,
+                )),
+            ))
+            .unwrap();
+        assert_eq!(
+            bridge.drain_settings_commands().collect::<Vec<_>>(),
+            vec![
+                SettingsCommand::ReadDocument { request_id: 41 },
+                SettingsCommand::WriteDocument {
+                    request_id: 42,
+                    expected_revision: 7,
+                    document: r#"{"version":8}"#.to_owned(),
+                },
+                SettingsCommand::ConfigureKeyboard {
+                    request_id: 43,
+                    expected_revision: 8,
+                    keyboard: KeyboardSettings {
+                        layouts: vec![
+                            KeyboardLayout {
+                                layout: "us".to_owned(),
+                                variant: String::new(),
+                            },
+                            KeyboardLayout {
+                                layout: "de".to_owned(),
+                                variant: "nodeadkeys".to_owned(),
+                            },
+                        ],
+                        options: vec!["compose:menu".to_owned()],
+                        repeat_delay_ms: 450,
+                        repeat_rate_hz: 30,
+                    },
+                },
+            ]
+        );
+
+        for request in [
+            settings_request(fb::SettingsRequestKind::ReadKeyboard, 0, 0, None, None),
+            settings_request(
+                fb::SettingsRequestKind::WriteDocument,
+                44,
+                0,
+                Some("{}"),
+                None,
+            ),
+            settings_request(
+                fb::SettingsRequestKind::ConfigureKeyboard,
+                45,
+                9,
+                None,
+                Some((&[("not,a,layout", "")], &[], 600, 25)),
+            ),
+        ] {
+            assert!(bridge.handle(&request).is_err());
+        }
+    }
+
+    #[test]
+    fn settings_responses_preserve_document_and_keyboard_metadata() {
+        let mut bridge = bridge();
+        let bytes = bridge
+            .encode_settings_document_response(51, 9, Some("{\n  \"version\": 8\n}\n"), None)
+            .unwrap();
+        let envelope = fb::root_as_envelope(bytes).unwrap();
+        let response = envelope.payload_as_settings_response().unwrap();
+        assert_eq!(envelope.request_id(), 51);
+        assert_eq!(response.kind(), fb::SettingsResponseKind::Document);
+        assert!(response.success());
+        assert_eq!(response.revision(), 9);
+        assert_eq!(response.document(), Some("{\n  \"version\": 8\n}\n"));
+
+        let keyboard = KeyboardSettings {
+            layouts: vec![
+                KeyboardLayout {
+                    layout: "us".to_owned(),
+                    variant: String::new(),
+                },
+                KeyboardLayout {
+                    layout: "de".to_owned(),
+                    variant: "nodeadkeys".to_owned(),
+                },
+            ],
+            options: vec!["compose:menu".to_owned()],
+            repeat_delay_ms: 450,
+            repeat_rate_hz: 30,
+        };
+        let bytes = bridge
+            .encode_keyboard_settings_response(
+                52,
+                10,
+                &keyboard,
+                &["English (US)".to_owned(), "German".to_owned()],
+                1,
+                Some("revision conflict"),
+            )
+            .unwrap();
+        let envelope = fb::root_as_envelope(bytes).unwrap();
+        let response = envelope.payload_as_settings_response().unwrap();
+        let encoded = response.keyboard().unwrap();
+        assert!(!response.success());
+        assert_eq!(response.error(), Some("revision conflict"));
+        assert_eq!(encoded.active_layout(), 1);
+        assert_eq!(encoded.repeat_delay_ms(), 450);
+        assert_eq!(encoded.repeat_rate_hz(), 30);
+        let layouts = encoded.layouts().unwrap();
+        assert_eq!(layouts.get(1).layout(), Some("de"));
+        assert_eq!(layouts.get(1).variant(), Some("nodeadkeys"));
+        assert_eq!(layouts.get(1).display_name(), Some("German"));
+        assert_eq!(encoded.options().unwrap().get(0), "compose:menu");
     }
 
     #[test]

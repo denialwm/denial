@@ -25,12 +25,27 @@ void main() {
     expect(first.hasSameStaticSceneRoleAs(resized), isTrue);
     expect(first.hasSameStaticSceneRoleAs(repinned), isFalse);
   });
+
+  test(
+    'input-method candidates are compositor UI, not desktop applications',
+    () {
+      final popup = _window(
+        title: 'Input method',
+        appId: 'denia-systemui-input-method',
+      );
+
+      expect(popup.isInputMethodPopup, isTrue);
+      expect(popup.isSystemUi, isTrue);
+      expect(popup.isUserApp, isFalse);
+    },
+  );
 }
 
 DenialWindow _window({
   required String title,
   int width = 1920,
   bool pinned = false,
+  String appId = 'kitty',
 }) {
   return DenialWindow(
     objectId: 1,
@@ -39,7 +54,7 @@ DenialWindow _window({
     windowId: 11,
     textureId: 101,
     title: title,
-    appId: 'kitty',
+    appId: appId,
     width: width,
     height: 1080,
     surfaceX: 0,

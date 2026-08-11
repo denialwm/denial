@@ -197,6 +197,10 @@ class DenialWindow {
   bool get isSystemUi =>
       appId.startsWith('denia-systemui') || title.startsWith('denia-systemui');
 
+  bool get isInputMethodPopup =>
+      appId == 'denia-systemui-input-method' ||
+      title == 'denia-systemui-input-method';
+
   bool get isUserApp => !isHome && !isSystemUi;
 
   Rect? get geometry => geometryWidth > 0.0 && geometryHeight > 0.0

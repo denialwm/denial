@@ -257,7 +257,7 @@ pub(super) fn send_window_frame_callbacks(window: &Window, callback_time: Durati
     sent
 }
 
-fn send_surface_frame_callbacks(root: &WlSurface, callback_millis: u32) -> usize {
+pub(super) fn send_surface_frame_callbacks(root: &WlSurface, callback_millis: u32) -> usize {
     let mut sent = 0usize;
     with_surface_tree_downward(
         root,

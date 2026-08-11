@@ -5,8 +5,8 @@ outside this inventory.
 
 | Channel | Direction | Encoding | Purpose |
 | --- | --- | --- | --- |
-| `denial/wire/to_native` | Dart → native | FlatBuffers `DENW` | Input layout, window requests, OSK keys, notification commands |
-| `denial/wire/to_flutter` | Native → Dart | FlatBuffers `DENW` or fixed `DENP` | Window/display state, actions, cursor state, notifications, ordered placement |
+| `denial/wire/to_native` | Dart → native | FlatBuffers `DENW` | Input layout, window requests, OSK keys, notification commands, revisioned settings requests |
+| `denial/wire/to_flutter` | Native → Dart | FlatBuffers `DENW` or fixed `DENP` | Window/display state, actions, cursor state, notifications, settings state, ordered placement |
 | `denial/haptics` | Dart → native | 1 byte | Prewarm or tap through the persistent haptics socket |
 | `denial/audio` | Dart → native | bounded fixed packet | Read/set default output and enumerate/control application streams |
 | `denial/audio_state` | Native → Dart | 5 bytes | Level and request serial |
@@ -27,6 +27,12 @@ Structured messages are limited to 1 MiB, 4,096 windows, 8,192 input regions,
 32,768 visible surfaces, and 4,096 bytes per string. Native verifies schema,
 direction, version, counts, enums, identities, geometry, flags, and ordering
 before use.
+
+The settings request/response tables carry either a JSON shell document
+(limited to 256 KiB) or a typed keyboard configuration. Requests use nonzero
+revision tokens. Keyboard responses may also be unsolicited (`request_id=0`)
+when the active XKB group changes. Rust remains the only process that opens
+the settings file.
 
 ## Dormant diagnostic hooks
 

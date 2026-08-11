@@ -1,31 +1,14 @@
 import 'dart:convert';
-import 'dart:io';
 
-import 'package:denial_dart_shell/src/launcher/runtime_paths.dart';
+import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/settings/settings_store.dart';
 import 'package:denial_dart_shell/src/settings/shell_settings.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  late Directory directory;
-  late RuntimePaths paths;
-  late FileSettingsStore store;
-
-  setUp(() {
-    directory = Directory.systemTemp.createTempSync('denial-settings-');
-    paths = RuntimePaths(
-      environment: <String, String>{'XDG_CONFIG_HOME': directory.path},
-    );
-    store = FileSettingsStore(paths);
-  });
-
-  tearDown(() {
-    if (directory.existsSync()) {
-      directory.deleteSync(recursive: true);
-    }
-  });
-
-  test('writes atomically and restores the latest complete settings', () async {
+  test('serializes writes through the Rust-owned document transport', () async {
+    final transport = _MemorySettingsTransport();
+    final store = NativeSettingsStore(transport);
     const first = ShellSettings(
       appearance: ShellAppearanceSettings(windowRadius: 18),
     );
@@ -36,17 +19,72 @@ void main() {
     await Future.wait(<Future<void>>[store.write(first), store.write(latest)]);
 
     expect(await store.read(), latest);
-    expect(File('${paths.settingsPath}.tmp').existsSync(), isFalse);
-    final decoded = jsonDecode(File(paths.settingsPath).readAsStringSync());
-    expect(decoded['version'], ShellSettings.schemaVersion);
+    expect(transport.maximumConcurrentWrites, 1);
+    expect(
+      jsonDecode(transport.document)['version'],
+      ShellSettings.schemaVersion,
+    );
   });
 
-  test('missing or malformed files fall back without throwing', () async {
-    expect(await store.read(), isNull);
+  test(
+    'refreshes and retries after a shared-document revision conflict',
+    () async {
+      final transport = _MemorySettingsTransport()..conflictNextWrite = true;
+      final store = NativeSettingsStore(transport);
+      const settings = ShellSettings(
+        appearance: ShellAppearanceSettings(windowRadius: 29),
+      );
 
-    final file = await paths.settingsFile();
-    file.writeAsStringSync('{ this is not JSON', flush: true);
+      await store.write(settings);
+
+      expect(transport.writeAttempts, 2);
+      expect(await store.read(), settings);
+    },
+  );
+
+  test('malformed native documents fall back without throwing', () async {
+    final transport = _MemorySettingsTransport()..document = '{ not JSON';
+    final store = NativeSettingsStore(transport);
 
     expect(await store.read(), isNull);
   });
+}
+
+class _MemorySettingsTransport implements SettingsDocumentTransport {
+  int revision = 1;
+  String document = '${jsonEncode(const ShellSettings().toJson())}\n';
+  bool conflictNextWrite = false;
+  int writeAttempts = 0;
+  int _concurrentWrites = 0;
+  int maximumConcurrentWrites = 0;
+
+  @override
+  Future<DenialSettingsDocument> read() async {
+    return DenialSettingsDocument(revision: revision, json: document);
+  }
+
+  @override
+  Future<DenialSettingsDocument> write({
+    required int expectedRevision,
+    required String document,
+  }) async {
+    writeAttempts += 1;
+    _concurrentWrites += 1;
+    maximumConcurrentWrites = maximumConcurrentWrites < _concurrentWrites
+        ? _concurrentWrites
+        : maximumConcurrentWrites;
+    await Future<void>.delayed(Duration.zero);
+    _concurrentWrites -= 1;
+    if (conflictNextWrite) {
+      conflictNextWrite = false;
+      revision += 1;
+      throw StateError('settings revision conflict');
+    }
+    if (expectedRevision != revision) {
+      throw StateError('settings revision conflict');
+    }
+    revision += 1;
+    this.document = document;
+    return DenialSettingsDocument(revision: revision, json: document);
+  }
 }
