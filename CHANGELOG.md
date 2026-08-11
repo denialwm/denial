@@ -8,6 +8,31 @@ boundaries may change before 1.0.
 
 ### Added
 
+- End-to-end fractional display scaling now keeps Flutter, native Wayland clients, and Xwayland sharp and consistently sized.
+- `Super+Shift+S` now opens a compositor-native region screenshot workflow with direct Wayland screencopy support.
+- Settings now runs as a built-in local Flutter application that can be launched from the desktop and mobile home surfaces.
+- Mobile mode now has a dedicated wallpaper browser with preview, drag positioning, fine alignment controls, and per-display targeting.
+- Simplified Chinese localization and a live language selector are now available throughout the shell and Settings.
+- Appearance settings now include live wallpaper selection and physical cursor-size controls.
+
+### Changed
+
+- Clipboard history now provides searchable text, image and file cards, drag-to-drop actions, privacy states, and accessible controls.
+- KMS and rendering devices can now be selected independently, with automatic display-owned scanout allocation for split-GPU hardware.
+- Flutter frame delivery now uses stricter backpressure, preserved logical damage, kernel presentation timing, and safer multi-output buffer ownership.
+- The shell keyboard now routes text editing and native key actions correctly between local Flutter surfaces and Wayland clients.
+- Window content rendering now cleanly separates embedded Flutter applications from compositor-supplied Wayland textures.
+- Distribution guidance now documents a reusable packaging boundary and an initial Debian delivery plan.
+
+### Fixed
+
+- Delayed display edges can no longer replay stale frame ticks or supersede a ready Flutter frame before presentation.
+- Mobile edge panels, status text, wallpaper queries, and local-application home-grid persistence now behave consistently across compact layouts.
+
+## [0.2.6] - 2026-08-07
+
+### Added
+
 - A compositor-integrated Impeller GLES path for Flutter's desktop-wide GBM
   atlas, including exact embedder FBO presentation, preserved partial damage,
   backdrop-filter support, native synchronization, and external-texture
@@ -175,6 +200,7 @@ boundaries may change before 1.0.
 - A custom Flutter shell and direct VM-service access are trusted local-user
   capabilities, not a sandbox for untrusted code.
 
-[Unreleased]: https://github.com/denialwm/denial/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/denialwm/denial/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/denialwm/denial/compare/v0.2.1...v0.2.6
 [0.2.1]: https://github.com/denialwm/denial/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/denialwm/denial/compare/v0.1.0...v0.2.0
