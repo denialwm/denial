@@ -5,10 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/generated/app_localizations.dart';
 import '../../localization/denial_localizations.dart';
+import '../../theme/shell_theme.dart';
 import '../../widgets/app_icon.dart';
 import '../controllers/home_grid_controller.dart';
 import '../models/home_battery_discharge_info.dart';
-import '../models/desktop_app.dart';
 import '../models/home_clock_info.dart';
 import '../models/home_grid_item.dart';
 
@@ -22,7 +22,7 @@ class HomeGridItemCard extends ConsumerWidget {
 
   final HomeGridItem item;
   final bool launchEnabled;
-  final ValueChanged<DesktopApp> onLaunch;
+  final ValueChanged<HomeGridItem> onLaunch;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -36,8 +36,10 @@ class HomeGridItemCard extends ConsumerWidget {
             HomeBatteryDischargeSeries.empty,
       ),
       HomeGridItemType.app => _HomeAppTile(
-        app: item.app!,
-        onTap: launchEnabled ? () => onLaunch(item.app!) : null,
+        name: item.localApp?.titleFor(context) ?? item.app!.name,
+        iconPath: item.app?.iconPath,
+        icon: item.localApp?.icon,
+        onTap: launchEnabled ? () => onLaunch(item) : null,
       ),
     };
   }
@@ -977,9 +979,16 @@ String? _formatVoltageMv(AppLocalizations l10n, int? voltageMv) {
 }
 
 class _HomeAppTile extends StatelessWidget {
-  const _HomeAppTile({required this.app, required this.onTap});
+  const _HomeAppTile({
+    required this.name,
+    required this.iconPath,
+    required this.icon,
+    required this.onTap,
+  });
 
-  final DesktopApp app;
+  final String name;
+  final String? iconPath;
+  final IconData? icon;
   final VoidCallback? onTap;
 
   @override
@@ -987,7 +996,7 @@ class _HomeAppTile extends StatelessWidget {
     return Semantics(
       button: true,
       enabled: onTap != null,
-      label: app.name,
+      label: name,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
@@ -999,13 +1008,21 @@ class _HomeAppTile extends StatelessWidget {
               child: Center(
                 child: SizedBox.square(
                   dimension: 85,
-                  child: AppIconImage(iconPath: app.iconPath),
+                  child: icon == null
+                      ? AppIconImage(iconPath: iconPath)
+                      : ExcludeSemantics(
+                          child: Icon(
+                            icon,
+                            size: 72,
+                            color: ShellTheme.of(context).accentPalette.primary,
+                          ),
+                        ),
                 ),
               ),
             ),
             const SizedBox(height: 9),
             Text(
-              app.name,
+              name,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,

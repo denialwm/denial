@@ -212,13 +212,25 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
   }
 
   void setSpanAlignment(WallpaperSpanAlignment alignment) {
+    if (state.assignment.spanAlignment == alignment) {
+      return;
+    }
+    previewSpanAlignment(alignment);
+    unawaited(_store.write(state.assignment));
+  }
+
+  void previewSpanAlignment(WallpaperSpanAlignment alignment) {
     final assignment = state.assignment.withSpanAlignment(alignment);
     if (assignment == state.assignment) {
       return;
     }
     _assignmentGeneration += 1;
     state = state.copyWith(assignment: assignment, clearOutgoing: true);
-    unawaited(_store.write(assignment));
+  }
+
+  void commitSpanAlignment(WallpaperSpanAlignment alignment) {
+    previewSpanAlignment(alignment);
+    unawaited(_store.write(state.assignment));
   }
 
   void setDarkness(double darkness) {
@@ -492,9 +504,13 @@ class WallpaperStore {
       final all = await _validResource(parsedAll)
           ? parsedAll!
           : WallpaperResource.defaultWallpaper;
-      final alignment = WallpaperSpanAlignment(
+      final legacyAlignment = WallpaperSpanAlignment(
         horizontal: _horizontalAlignment(decoded['horizontalAlignment']),
         vertical: _verticalAlignment(decoded['verticalAlignment']),
+      );
+      final alignment = WallpaperSpanAlignment.precise(
+        x: _alignmentPosition(decoded['alignmentX']) ?? legacyAlignment.x,
+        y: _alignmentPosition(decoded['alignmentY']) ?? legacyAlignment.y,
       );
       final allDarkness = _darkness(decoded['darkness']) ?? 0.0;
       final overrides = <String, WallpaperResource>{};
@@ -552,10 +568,12 @@ class WallpaperStore {
       final file = await _paths.wallpaperStateFile();
       final temporary = File('${file.path}.tmp');
       final payload = jsonEncode(<String, Object>{
-        'version': 3,
+        'version': 4,
         'all': assignment.all.persistenceValue,
         'horizontalAlignment': assignment.spanAlignment.horizontal.name,
         'verticalAlignment': assignment.spanAlignment.vertical.name,
+        'alignmentX': assignment.spanAlignment.x,
+        'alignmentY': assignment.spanAlignment.y,
         'darkness': assignment.allDarkness,
         'outputs': <String, String>{
           for (final entry in assignment.outputOverrides.entries)
@@ -607,5 +625,16 @@ class WallpaperStore {
       return null;
     }
     return darkness.clamp(0.0, 1.0).toDouble();
+  }
+
+  double? _alignmentPosition(Object? value) {
+    if (value is! num) {
+      return null;
+    }
+    final position = value.toDouble();
+    if (!position.isFinite) {
+      return null;
+    }
+    return position.clamp(-1.0, 1.0).toDouble();
   }
 }

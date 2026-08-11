@@ -2035,6 +2035,19 @@ class AppLocalizationsEn extends AppLocalizations {
       'The lock screen follows wallpaper changes and per-output assignments.';
 
   @override
+  String get settingsWallpaperChoose => 'Choose wallpaper';
+
+  @override
+  String get settingsWallpaperDescription =>
+      'Choose the image shown behind the shell and on the lock screen.';
+
+  @override
+  String get settingsWallpaperPreviewSemantics => 'Current wallpaper preview';
+
+  @override
+  String get settingsWallpaperTitle => 'Wallpaper';
+
+  @override
   String get settingsWidth => 'Width';
 
   @override
@@ -2169,6 +2182,40 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get wallpaperFinding => 'Finding wallpapers…';
+
+  @override
+  String get wallpaperMobileBackToSelection => 'Back to wallpaper selection';
+
+  @override
+  String get wallpaperMobileCenterPosition => 'Center';
+
+  @override
+  String get wallpaperMobileChoose => 'Choose a wallpaper';
+
+  @override
+  String get wallpaperMobileDone => 'Done';
+
+  @override
+  String get wallpaperMobileHideControls => 'Hide controls';
+
+  @override
+  String get wallpaperMobileHorizontalPosition => 'Horizontal';
+
+  @override
+  String get wallpaperMobilePosition => 'Position';
+
+  @override
+  String get wallpaperMobilePositionHint =>
+      'Drag the wallpaper, then fine-tune its position';
+
+  @override
+  String get wallpaperMobileShowControls => 'Show controls';
+
+  @override
+  String get wallpaperMobileTitle => 'Wallpaper';
+
+  @override
+  String get wallpaperMobileVerticalPosition => 'Vertical';
 
   @override
   String get wallpaperNoneFound => 'No wallpapers found';

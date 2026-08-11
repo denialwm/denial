@@ -89,15 +89,13 @@ use denial_core::topology::{
     AtlasPlan, LogicalPoint, OutputId, OutputSpec, OutputTransform, PixelRect, PixelSize,
     SCALE_BASE, TopologyChange, TopologyManager, TopologySnapshot,
 };
-use smithay::backend::allocator::dmabuf::{AsDmabuf, Dmabuf, DmabufFlags};
-use smithay::backend::allocator::dumb::{DumbAllocator, DumbBuffer};
+use smithay::backend::allocator::dmabuf::{AsDmabuf, Dmabuf};
 use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBuffer, GbmBufferFlags, GbmDevice};
-use smithay::backend::allocator::{Allocator, Format, Fourcc, Modifier};
-use smithay::backend::drm::gbm::{GbmFramebuffer, framebuffer_from_bo, framebuffer_from_dmabuf};
+use smithay::backend::allocator::{Allocator, Buffer as AllocatorBuffer, Format, Fourcc, Modifier};
+use smithay::backend::drm::gbm::{GbmFramebuffer, framebuffer_from_bo};
 use smithay::backend::drm::{
-    DrmDevice, DrmDeviceFd, DrmEvent, DrmEventTime, DrmNode, DrmSurface, PlaneConfig, PlaneState,
-    VrrSupport,
+    DrmDevice, DrmDeviceFd, DrmEvent, DrmEventTime, DrmSurface, PlaneConfig, PlaneState, VrrSupport,
 };
 use smithay::backend::egl::EGLDisplay;
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -112,7 +110,7 @@ use smithay::reexports::calloop::{EventLoop, RegistrationToken};
 #[cfg(feature = "flutter")]
 use smithay::reexports::calloop::{Interest, Mode as PollMode, PostAction, generic::Generic};
 use smithay::reexports::drm::buffer::{
-    Buffer as DrmBuffer, DrmFourcc, DrmModifier, Handle as BufferHandle, PlanarBuffer,
+    DrmFourcc, DrmModifier, Handle as BufferHandle, PlanarBuffer,
 };
 use smithay::reexports::drm::control::{
     AtomicCommitFlags, Device as ControlDevice, FbCmd2Flags, Mode, ModeTypeFlags, PlaneType,
@@ -347,11 +345,25 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
                     // presentation timestamp to Flutter; reducing the event
                     // to a bare CRTC here made the later OnVsync timestamp
                     // depend on batching latency instead.
-                    let observed_at = Instant::now();
+                    let delivered_at = Instant::now();
                     let presented_at = metadata.as_ref().and_then(|metadata| match metadata.time {
                         DrmEventTime::Monotonic(timestamp) => Some(timestamp),
                         DrmEventTime::Realtime(_) => None,
                     });
+                    // A DRM event can spend several milliseconds waiting in
+                    // the event loop on a busy mobile compositor. Compare its
+                    // physical edge with the synthetic display clock, not its
+                    // userspace delivery time, or one edge can be mistaken for
+                    // a second Flutter vsync. Linux Instant and DRM monotonic
+                    // timestamps use the same clock rate; translate only the
+                    // elapsed duration so their private epochs need not match.
+                    let observed_at = presented_at
+                        .and_then(|presented_at| {
+                            monotonic_now().map(|monotonic_now| {
+                                presentation_instant(delivered_at, monotonic_now, presented_at)
+                            })
+                        })
+                        .unwrap_or(delivered_at);
                     let sequence = metadata
                         .as_ref()
                         .map(|metadata| u64::from(metadata.sequence));
@@ -441,9 +453,15 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
             drm_fd.clone(),
             options.work_area.clone(),
         )?;
+        let x11_display = frontend.xdisplay_name();
+        if let Err(error) =
+            publish_session_activation_environment(frontend.socket_name(), x11_display.as_os_str())
+        {
+            warn!(%error, "could not publish the compositor display to D-Bus activation");
+        }
         info!(
             wayland_display = ?frontend.socket_name(),
-            x11_display = ?frontend.xdisplay_name(),
+            x11_display = ?x11_display,
             "Wayland frontend listening"
         );
         Some(frontend)
@@ -508,24 +526,11 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     let gbm = GbmDevice::new(render_fd.clone())?;
     let gbm_flags = GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT;
     let mut allocator = GbmAllocator::new(gbm.clone(), gbm_flags);
-    let mut atlas_allocator = if let Some(modifier) = options.dumb_scanout_modifier {
-        AtlasAllocator::dumb(
-            drm_fd.clone(),
-            Modifier::from(modifier),
-            options.dumb_scanout_extra_rows,
-        )
-    } else {
-        let scanout_gbm = if render_device == options.device {
-            None
-        } else {
-            Some(GbmDevice::new(drm_fd.clone())?)
-        };
-        AtlasAllocator::gbm(
-            GbmAllocator::new(gbm.clone(), gbm_flags),
-            drm_fd.clone(),
-            scanout_gbm,
-        )
-    };
+    let mut atlas_allocator = AtlasAllocator::gbm(
+        GbmAllocator::new(gbm.clone(), gbm_flags),
+        drm_fd.clone(),
+        render_device != options.device,
+    );
     // SAFETY: the GBM device outlives the EGL display, context, renderer and
     // every imported dmabuf created below. All of them are dropped in this
     // function before `gbm`, `render_fd`, and `drm_fd`.
@@ -680,7 +685,6 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
             FlutterLaunchConfiguration {
                 bundle,
                 renderer_backend: options.flutter_renderer,
-                offscreen_blit: options.flutter_offscreen_blit,
                 debug_bundle: options.flutter_debug_bundle.clone(),
                 ui_workspace: options.flutter_ui_workspace.clone(),
             },
@@ -903,6 +907,47 @@ fn finalize_uwsm_session(
     Ok(())
 }
 
+fn session_activation_environment(
+    wayland_display: &OsStr,
+    x11_display: &OsStr,
+) -> Result<BTreeMap<&'static str, String>, Box<dyn Error>> {
+    let wayland_display = wayland_display
+        .to_str()
+        .ok_or("Wayland socket name is not valid UTF-8")?;
+    let x11_display = x11_display
+        .to_str()
+        .ok_or("X11 display name is not valid UTF-8")?;
+    Ok(BTreeMap::from([
+        ("DESKTOP_SESSION", String::from("Denial")),
+        ("DISPLAY", x11_display.to_owned()),
+        ("WAYLAND_DISPLAY", wayland_display.to_owned()),
+        ("XDG_CURRENT_DESKTOP", String::from("Denial")),
+        ("XDG_SESSION_DESKTOP", String::from("Denial")),
+        ("XDG_SESSION_TYPE", String::from("wayland")),
+    ]))
+}
+
+fn publish_session_activation_environment(
+    wayland_display: &OsStr,
+    x11_display: &OsStr,
+) -> Result<(), Box<dyn Error>> {
+    let environment = session_activation_environment(wayland_display, x11_display)?;
+    let connection = zbus::blocking::Connection::session()?;
+    let proxy = zbus::blocking::Proxy::new(
+        &connection,
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+    )?;
+    let _: () = proxy.call("UpdateActivationEnvironment", &environment)?;
+    info!(
+        wayland_display = ?wayland_display,
+        x11_display = ?x11_display,
+        "published the compositor display to D-Bus activation"
+    );
+    Ok(())
+}
+
 fn uwsm_finalize_command(
     wayland_display: &OsStr,
     x11_display: &OsStr,
@@ -978,6 +1023,22 @@ mod uwsm_tests {
             Some(&Some(OsString::from("/run/user/1000/denial/control.sock")))
         );
     }
+
+    #[test]
+    fn dbus_activation_environment_uses_the_real_compositor_displays() {
+        let environment =
+            session_activation_environment(OsStr::new("wayland-37"), OsStr::new(":42"))
+                .expect("valid session environment");
+        assert_eq!(
+            environment.get("WAYLAND_DISPLAY").map(String::as_str),
+            Some("wayland-37")
+        );
+        assert_eq!(environment.get("DISPLAY").map(String::as_str), Some(":42"));
+        assert_eq!(
+            environment.get("XDG_SESSION_TYPE").map(String::as_str),
+            Some("wayland")
+        );
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -996,6 +1057,59 @@ struct PresentedOutput {
     observed_at: Instant,
     presented_at: Option<Duration>,
     sequence: Option<u64>,
+}
+
+fn monotonic_now() -> Option<Duration> {
+    let mut timestamp = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: `timestamp` points to initialized writable storage and
+    // CLOCK_MONOTONIC requires no additional lifetime or ownership contract.
+    if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut timestamp) } != 0 {
+        return None;
+    }
+    let seconds = u64::try_from(timestamp.tv_sec).ok()?;
+    let nanoseconds = u32::try_from(timestamp.tv_nsec).ok()?;
+    (nanoseconds < 1_000_000_000).then(|| Duration::new(seconds, nanoseconds))
+}
+
+fn presentation_instant(
+    delivered_at: Instant,
+    monotonic_now: Duration,
+    presented_at: Duration,
+) -> Instant {
+    let Some(delivery_delay) = monotonic_now.checked_sub(presented_at) else {
+        return delivered_at;
+    };
+    delivered_at
+        .checked_sub(delivery_delay)
+        .unwrap_or(delivered_at)
+}
+
+#[cfg(test)]
+mod presentation_clock_tests {
+    use super::*;
+
+    #[test]
+    fn kernel_monotonic_timestamp_is_backdated_from_event_delivery() {
+        let delivered_at = Instant::now();
+        let monotonic_now = Duration::from_secs(20);
+        let delay = Duration::from_millis(3);
+
+        assert_eq!(
+            presentation_instant(delivered_at, monotonic_now, monotonic_now - delay),
+            delivered_at - delay
+        );
+        assert_eq!(
+            presentation_instant(
+                delivered_at,
+                monotonic_now,
+                monotonic_now + Duration::from_nanos(1)
+            ),
+            delivered_at
+        );
+    }
 }
 
 #[derive(Default)]
@@ -1925,9 +2039,9 @@ fn install_ready_fence_watch(
     event_loop.handle().insert_source(
         Generic::new(fence, Interest::READ, PollMode::Level),
         move |_, _, state: &mut RuntimeState| {
-            // sync_file readability means the atlas is complete. Wake the
-            // compositor and let the scheduler target the following vblank;
-            // never occupy KMS's pending slot with unfinished GPU work.
+            // Output-owned fences go directly to KMS through IN_FENCE_FD.
+            // This userspace watch exists only when no powered output consumed
+            // the rendered damage, so readability makes that atlas reusable.
             state.ready_fence_signals.push(signal);
             Ok(PostAction::Remove)
         },
@@ -2020,7 +2134,6 @@ fn run_flutter_event_loop(
     let mut raster_frames = 0u64;
     let mut delivered_vsyncs = 0u64;
     let mut retired_output_flips = 0u64;
-    let mut retired_superseded_ready_frames = 0u64;
     let mut flutter = Some(flutter);
     let mut scheduler = output_scheduler::OutputScheduler::new(
         scanouts,
@@ -2422,8 +2535,6 @@ fn run_flutter_event_loop(
 
             retired_output_flips =
                 retired_output_flips.saturating_add(scheduler.presented_frames());
-            retired_superseded_ready_frames =
-                retired_superseded_ready_frames.saturating_add(scheduler.superseded_ready_frames());
             output_configuration = staged_configuration;
             events.output_control_dirty = true;
             scheduler = output_scheduler::OutputScheduler::new(
@@ -2553,8 +2664,6 @@ fn run_flutter_event_loop(
                     }
                     retired_output_flips =
                         retired_output_flips.saturating_add(scheduler.presented_frames());
-                    retired_superseded_ready_frames = retired_superseded_ready_frames
-                        .saturating_add(scheduler.superseded_ready_frames());
                     apply_hotplug_topology(
                         renderer,
                         atlas_allocator,
@@ -2635,8 +2744,6 @@ fn run_flutter_event_loop(
             )?;
             retired_output_flips =
                 retired_output_flips.saturating_add(scheduler.presented_frames());
-            retired_superseded_ready_frames =
-                retired_superseded_ready_frames.saturating_add(scheduler.superseded_ready_frames());
             reload_flutter_runtime(
                 renderer,
                 swapchain,
@@ -2697,6 +2804,7 @@ fn run_flutter_event_loop(
         synchronize_clipboard(runtime, &mut events)?;
         synchronize_system_control_events(runtime, &mut events)?;
         synchronize_notification_events(runtime, &mut events)?;
+        synchronize_shell_keyboard(runtime, &mut events)?;
         synchronize_system_bar_configuration(runtime, &mut events, Some(flutter_launcher));
         synchronize_flutter_window_management(runtime, &mut events)?;
         synchronize_flutter_scene(runtime, &mut events)?;
@@ -2824,13 +2932,22 @@ fn run_flutter_event_loop(
             runtime.send_screenshot_action(wire::ShellAction::ScreenshotDone, request_id, None)?;
         }
 
-        if let Some(ready) = runtime.take_ready() {
+        // Queue the candidate before accepting its successor. Native GPU work
+        // travels with the atomic commit through IN_FENCE_FD, so KMS learns of
+        // the frame immediately without allowing a producer mailbox to replace
+        // storage that the raster thread may still be writing.
+        scheduler.submit_ready(drm, swapchain, scanouts, &mut events)?;
+        if scheduler.can_accept_ready()
+            && let Some(ready) = runtime.take_ready()
+        {
             if let Some(watch) = scheduler.publish_ready(runtime, ready, scanouts)? {
                 install_ready_fence_watch(event_loop, watch)?;
             }
             raster_frames = raster_frames.saturating_add(1);
+            // Leave the newly published frame queued before servicing the next
+            // display tick. KMS owns the native fence after the atomic ioctl.
+            scheduler.submit_ready(drm, swapchain, scanouts, &mut events)?;
         }
-        scheduler.submit_ready(drm, swapchain, scanouts, &mut events)?;
         let frame_action = frame_scheduler.step(Instant::now(), runtime.pending_frame());
         for tick in frame_scheduler.output_ticks().iter().copied() {
             if let Some(frontend) = events.wayland.as_mut() {
@@ -2910,12 +3027,9 @@ fn run_flutter_event_loop(
 
     let elapsed = started.elapsed();
     let output_page_flips = retired_output_flips.saturating_add(scheduler.presented_frames());
-    let superseded_ready_frames =
-        retired_superseded_ready_frames.saturating_add(scheduler.superseded_ready_frames());
     info!(
         raster_frames,
         output_page_flips,
-        superseded_ready_frames,
         delivered_vsyncs,
         elapsed_ms = elapsed.as_secs_f64() * 1_000.0,
         raster_frames_per_second = raster_frames as f64 / elapsed.as_secs_f64(),
@@ -2968,6 +3082,7 @@ fn reload_flutter_runtime(
         synchronize_authentication_boundary(events);
         synchronize_clipboard(&mut old_runtime, events)?;
         synchronize_system_control_events(&mut old_runtime, events)?;
+        synchronize_shell_keyboard(&mut old_runtime, events)?;
         synchronize_system_bar_configuration(&mut old_runtime, events, Some(flutter_launcher));
         synchronize_flutter_window_management(&mut old_runtime, events)?;
         synchronize_flutter_input_layout(&mut old_runtime, events);
@@ -3167,6 +3282,7 @@ fn wait_for_flutter_frame(
         synchronize_clipboard(runtime, events)?;
         synchronize_system_control_events(runtime, events)?;
         synchronize_notification_events(runtime, events)?;
+        synchronize_shell_keyboard(runtime, events)?;
         synchronize_system_bar_configuration(runtime, events, flutter_launcher.as_deref_mut());
         synchronize_flutter_window_management(runtime, events)?;
         synchronize_flutter_scene(runtime, events)?;
@@ -3472,6 +3588,38 @@ fn synchronize_notification_events(
 }
 
 #[cfg(feature = "flutter")]
+fn synchronize_shell_keyboard(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &mut RuntimeState,
+) -> Result<(), Box<dyn Error>> {
+    let commands = runtime.drain_keyboard_commands().collect::<Vec<_>>();
+    if events.secure_session_locked() {
+        return Ok(());
+    }
+
+    for command in commands {
+        if runtime.has_flutter_text_input_client() {
+            runtime.dispatch_keyboard_command_to_flutter(&command)?;
+        } else if events
+            .wayland
+            .as_ref()
+            .is_some_and(wayland_frontend::WaylandFrontend::shell_captures_keyboard)
+        {
+            debug!(
+                ?command,
+                "shell keyboard command had no active shell text field"
+            );
+        } else if !wayland_frontend::dispatch_shell_keyboard_command(events, &command) {
+            warn!(
+                ?command,
+                "shell keyboard command had no focused input target"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "flutter")]
 fn synchronize_flutter_window_management(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &mut RuntimeState,
@@ -3715,6 +3863,7 @@ fn apply_hotplug_topology(
             synchronize_authentication_boundary(events);
             synchronize_clipboard(&mut old_runtime, events)?;
             synchronize_system_control_events(&mut old_runtime, events)?;
+            synchronize_shell_keyboard(&mut old_runtime, events)?;
             synchronize_system_bar_configuration(
                 &mut old_runtime,
                 events,
@@ -5029,7 +5178,7 @@ fn plane_state_for_mode(
                 (i32::from(width), i32::from(height)).into(),
             ),
             transform: Transform::Normal,
-            alpha: 1.0,
+            alpha: scanout.plane_properties.smithay_opaque_alpha,
             damage_clips: None,
             fb: framebuffer,
             fence: None,

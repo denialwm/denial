@@ -69,31 +69,6 @@ Denial keeps KMS and scanout on `DENIAL_DRM_DEVICE`; GBM allocation, EGL, and
 Flutter rendering use `DENIAL_RENDER_DEVICE`. When the render override is
 unset, both paths continue to use the KMS device.
 
-Some display engines cannot scan out physically fragmented render-node
-allocations. They can allocate the shared atlas through the KMS device's dumb
-allocator, export it to the render node, and describe its driver-supported
-layout explicitly:
-
-```sh
-DENIAL_DUMB_SCANOUT_MODIFIER=0x0800000000000062
-DENIAL_DUMB_SCANOUT_EXTRA_ROWS=128
-```
-
-The modifier must be common to the KMS primary planes and EGL render formats.
-Extra rows reserve backing storage only; Denial continues to expose the
-configured output's visible dimensions to KMS and Flutter.
-
-If a device's scanout allocation is renderable but cannot satisfy Flutter's
-root-framebuffer readback operations, enable the explicit compatibility path:
-
-```sh
-DENIAL_FLUTTER_OFFSCREEN_BLIT=1
-```
-
-Flutter then renders into ordinary readable RGBA8 textures. Denial performs a
-GPU copy of the complete scene into the paired scanout buffer before creating
-the presentation fence. Direct scanout rendering remains the default.
-
 ## Supported launcher modes
 
 | Invocation | Result |

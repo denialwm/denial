@@ -9,6 +9,7 @@ import '../services/brightness_service.dart';
 import '../services/power_profile_service.dart';
 import '../services/system_actions_service.dart';
 import 'notifier_lifecycle.dart';
+import 'shell_controller.dart';
 
 /// Immutable state for the quick-settings shade controls.
 @immutable
@@ -18,7 +19,6 @@ class QuickSettingsState {
     required this.volume,
     required this.rotationLock,
     required this.profile,
-    required this.keyboardOpening,
     required this.screenshotRunning,
   });
 
@@ -27,7 +27,6 @@ class QuickSettingsState {
     volume: 0.46,
     rotationLock: true,
     profile: PowerProfile.balanced,
-    keyboardOpening: false,
     screenshotRunning: false,
   );
 
@@ -35,7 +34,6 @@ class QuickSettingsState {
   final double volume;
   final bool rotationLock;
   final String profile;
-  final bool keyboardOpening;
   final bool screenshotRunning;
 
   QuickSettingsState copyWith({
@@ -43,7 +41,6 @@ class QuickSettingsState {
     double? volume,
     bool? rotationLock,
     String? profile,
-    bool? keyboardOpening,
     bool? screenshotRunning,
   }) {
     return QuickSettingsState(
@@ -51,7 +48,6 @@ class QuickSettingsState {
       volume: volume ?? this.volume,
       rotationLock: rotationLock ?? this.rotationLock,
       profile: profile ?? this.profile,
-      keyboardOpening: keyboardOpening ?? this.keyboardOpening,
       screenshotRunning: screenshotRunning ?? this.screenshotRunning,
     );
   }
@@ -423,20 +419,8 @@ class QuickSettingsController extends Notifier<QuickSettingsState>
     unawaited(_power.write(next));
   }
 
-  Future<void> openKeyboard() async {
-    if (state.keyboardOpening) {
-      return;
-    }
-    final generation = _buildGeneration;
-    state = state.copyWith(keyboardOpening: true);
-    try {
-      await _actions.toggleKeyboard();
-    } finally {
-      if (isBuildGenerationActive(generation)) {
-        state = state.copyWith(keyboardOpening: false);
-      }
-    }
-  }
+  void openKeyboard() =>
+      ref.read(shellControllerProvider.notifier).openEdgePanel();
 
   /// Captures a screenshot. The caller is expected to dismiss the shade first;
   /// the settle delay gives that animation time to clear the frame.

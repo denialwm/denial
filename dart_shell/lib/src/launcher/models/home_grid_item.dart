@@ -1,3 +1,4 @@
+import '../../local_apps/local_flutter_application.dart';
 import 'desktop_app.dart';
 
 enum HomeGridItemType { clock, batteryDischarge, app }
@@ -17,6 +18,7 @@ class HomeGridItem {
     required this.colSpan,
     required this.rowSpan,
     required this.app,
+    required this.localApp,
   });
 
   factory HomeGridItem.clock({
@@ -29,6 +31,7 @@ class HomeGridItem {
       colSpan: colSpan.clamp(clockMinColSpan, clockMaxColSpan).toInt(),
       rowSpan: rowSpan.clamp(clockMinRowSpan, clockMaxRowSpan).toInt(),
       app: null,
+      localApp: null,
     );
   }
 
@@ -39,6 +42,18 @@ class HomeGridItem {
       colSpan: 1,
       rowSpan: 1,
       app: desktopApp,
+      localApp: null,
+    );
+  }
+
+  factory HomeGridItem.localApp(LocalFlutterApplication localApp) {
+    return HomeGridItem._(
+      type: HomeGridItemType.app,
+      id: 'local:${localApp.id}',
+      colSpan: 1,
+      rowSpan: 1,
+      app: null,
+      localApp: localApp,
     );
   }
 
@@ -56,6 +71,7 @@ class HomeGridItem {
           .clamp(batteryDischargeMinRowSpan, batteryDischargeMaxRowSpan)
           .toInt(),
       app: null,
+      localApp: null,
     );
   }
 
@@ -77,6 +93,7 @@ class HomeGridItem {
   final int colSpan;
   final int rowSpan;
   final DesktopApp? app;
+  final LocalFlutterApplication? localApp;
 
   bool get resizable => type != HomeGridItemType.app;
 

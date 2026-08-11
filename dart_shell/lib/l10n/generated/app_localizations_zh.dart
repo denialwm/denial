@@ -1949,6 +1949,18 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsUseSystemWallpaperDescription => '锁屏会跟随壁纸更改和各输出的分配。';
 
   @override
+  String get settingsWallpaperChoose => '选择壁纸';
+
+  @override
+  String get settingsWallpaperDescription => '选择在 Shell 后方和锁屏上显示的图像。';
+
+  @override
+  String get settingsWallpaperPreviewSemantics => '当前壁纸预览';
+
+  @override
+  String get settingsWallpaperTitle => '壁纸';
+
+  @override
   String get settingsWidth => '宽度';
 
   @override
@@ -2080,6 +2092,39 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get wallpaperFinding => '正在查找壁纸…';
+
+  @override
+  String get wallpaperMobileBackToSelection => '返回壁纸选择';
+
+  @override
+  String get wallpaperMobileCenterPosition => '居中';
+
+  @override
+  String get wallpaperMobileChoose => '选择壁纸';
+
+  @override
+  String get wallpaperMobileDone => '完成';
+
+  @override
+  String get wallpaperMobileHideControls => '隐藏控件';
+
+  @override
+  String get wallpaperMobileHorizontalPosition => '水平';
+
+  @override
+  String get wallpaperMobilePosition => '位置';
+
+  @override
+  String get wallpaperMobilePositionHint => '拖动壁纸，然后微调其位置';
+
+  @override
+  String get wallpaperMobileShowControls => '显示控件';
+
+  @override
+  String get wallpaperMobileTitle => '壁纸';
+
+  @override
+  String get wallpaperMobileVerticalPosition => '垂直';
 
   @override
   String get wallpaperNoneFound => '未找到壁纸';

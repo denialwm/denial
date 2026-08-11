@@ -102,6 +102,26 @@ void main() {
       isNull,
     );
   });
+
+  test('a pending built-in app launch binds its local window', () {
+    final bridge = _TestBridge();
+    final service = _TestAuthenticationService();
+    final harness = _shellHarness(bridge, service);
+    final requestId = harness.controller.beginAppLaunch(
+      appName: 'Settings',
+      iconPath: null,
+      expectedAppIds: const <String>['dev.denial.settings'],
+    );
+
+    bridge.publish(const <DenialWindow>[_settingsWindow]);
+
+    final state = harness.container.read(shellControllerProvider);
+    expect(requestId, isNotNull);
+    expect(state.foregroundObjectId, _settingsWindow.objectId);
+    expect(state.launchingObjectId, _settingsWindow.objectId);
+    expect(state.launchingWindow, _settingsWindow);
+    expect(bridge.focusedWindowIds, <int>[_settingsWindow.windowId]);
+  });
 }
 
 ({ProviderContainer container, ShellController controller}) _shellHarness(
@@ -277,4 +297,33 @@ const _notificationWindow = DenialWindow(
   monitorId: 1,
   transform: 0,
   scale120: 120,
+);
+
+const _settingsWindow = DenialWindow(
+  objectId: 91,
+  objectKind: 'local_flutter',
+  surfaceId: 91,
+  windowId: 91,
+  textureId: 0,
+  title: 'Settings',
+  appId: 'dev.denial.settings',
+  width: 900,
+  height: 620,
+  surfaceX: 0,
+  surfaceY: 0,
+  surfaceWidth: 900,
+  surfaceHeight: 620,
+  textureSourceX: 0,
+  textureSourceY: 0,
+  textureSourceWidth: 0,
+  textureSourceHeight: 0,
+  geometryX: 0,
+  geometryY: 0,
+  geometryWidth: 900,
+  geometryHeight: 620,
+  monitorId: 1,
+  transform: 0,
+  scale120: 120,
+  serverSideDecorated: false,
+  contentKind: DenialWindowContentKind.localFlutter,
 );

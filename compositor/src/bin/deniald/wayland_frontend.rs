@@ -127,7 +127,7 @@ mod idle_inhibit;
 #[path = "wayland_frontend/input.rs"]
 mod input;
 #[cfg(feature = "flutter")]
-pub(super) use input::reconcile_flutter_pointer_route;
+pub(super) use input::{dispatch_shell_keyboard_command, reconcile_flutter_pointer_route};
 #[path = "wayland_frontend/input_source.rs"]
 mod input_source;
 #[path = "wayland_frontend/output_power.rs"]
@@ -399,6 +399,8 @@ pub(super) struct WaylandFrontend {
     #[cfg(feature = "flutter")]
     client_touch_routes: HashMap<i32, ClientInputRoute>,
     #[cfg(feature = "flutter")]
+    client_touch_frame_pending: bool,
+    #[cfg(feature = "flutter")]
     flutter_keyboard_keys: HashSet<u32>,
     retired_keyboard_keys: HashSet<u32>,
     #[cfg(feature = "flutter")]
@@ -642,6 +644,13 @@ fn window_expects_sample(
 }
 
 impl WaylandFrontend {
+    #[cfg(feature = "flutter")]
+    pub(super) fn shell_captures_keyboard(&self) -> bool {
+        self.input_layout
+            .as_ref()
+            .is_some_and(|layout| layout.keyboard_capture() || layout.exclusive_shell())
+    }
+
     pub fn new(
         event_loop: &mut EventLoop<'static, RuntimeState>,
         snapshot: &TopologySnapshot,
@@ -1054,6 +1063,8 @@ impl WaylandFrontend {
             flutter_touch_slots: HashSet::new(),
             #[cfg(feature = "flutter")]
             client_touch_routes: HashMap::new(),
+            #[cfg(feature = "flutter")]
+            client_touch_frame_pending: false,
             #[cfg(feature = "flutter")]
             flutter_keyboard_keys: HashSet::new(),
             retired_keyboard_keys: HashSet::new(),

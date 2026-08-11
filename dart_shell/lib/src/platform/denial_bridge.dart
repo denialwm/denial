@@ -100,7 +100,6 @@ class DenialBridge {
     _hapticTapPayload,
   );
   static const int _launchApplicationCommand = 0;
-  static const int _toggleKeyboardCommand = 1;
   static const int _takeScreenshotCommand = 2;
   static const int _logoutCommand = 3;
   static const int _screenshotPreparedCommand = 4;
@@ -568,8 +567,6 @@ class DenialBridge {
       requestId: launchRequestId,
     );
   }
-
-  bool toggleKeyboard() => _sendSystemCommand(_toggleKeyboardCommand);
 
   bool takeScreenshot() => _sendSystemCommand(_takeScreenshotCommand);
 

@@ -47,7 +47,6 @@ void main() {
         ], launchRequestId: 42),
         isTrue,
       );
-      expect(bridge.toggleKeyboard(), isTrue);
       expect(bridge.takeScreenshot(), isTrue);
       expect(bridge.screenshotPrepared(77), isTrue);
       expect(
@@ -79,7 +78,7 @@ void main() {
       bridge.setIdleDpmsTimeout(const Duration(minutes: 17));
       bridge.setIdleDpmsTimeout(null);
 
-      expect(systemMessages, hasLength(7));
+      expect(systemMessages, hasLength(6));
       final launch = systemMessages[0];
       expect(launch.getUint8(0), 0);
       expect(launch.getUint64(1, Endian.little), 42);
@@ -90,26 +89,24 @@ void main() {
         'Denial shell',
       ]);
 
-      expect(systemMessages[1].getUint8(0), 1);
+      expect(systemMessages[1].getUint8(0), 2);
       expect(systemMessages[1].lengthInBytes, 13);
-      expect(systemMessages[2].getUint8(0), 2);
+      expect(systemMessages[2].getUint8(0), 4);
+      expect(systemMessages[2].getUint64(1, Endian.little), 77);
       expect(systemMessages[2].lengthInBytes, 13);
-      expect(systemMessages[3].getUint8(0), 4);
+      expect(systemMessages[3].getUint8(0), 2);
       expect(systemMessages[3].getUint64(1, Endian.little), 77);
-      expect(systemMessages[3].lengthInBytes, 13);
-      expect(systemMessages[4].getUint8(0), 2);
-      expect(systemMessages[4].getUint64(1, Endian.little), 77);
-      expect(_decodeSystemArguments(systemMessages[4]), const <String>[
+      expect(_decodeSystemArguments(systemMessages[3]), const <String>[
         '12.500000',
         '24.000000',
         '640.000000',
         '480.000000',
       ]);
-      expect(systemMessages[5].getUint8(0), 5);
-      expect(systemMessages[5].getUint64(1, Endian.little), 77);
+      expect(systemMessages[4].getUint8(0), 5);
+      expect(systemMessages[4].getUint64(1, Endian.little), 77);
+      expect(systemMessages[4].lengthInBytes, 13);
+      expect(systemMessages[5].getUint8(0), 3);
       expect(systemMessages[5].lengthInBytes, 13);
-      expect(systemMessages[6].getUint8(0), 3);
-      expect(systemMessages[6].lengthInBytes, 13);
 
       expect(brightnessMessages, hasLength(2));
       final brightnessRead = brightnessMessages.first;

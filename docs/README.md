@@ -14,6 +14,7 @@ Project-level release documents live at the repository root:
 ## Development and architecture
 
 - [Build Denial](BUILDING.md)
+- [Distribution support](DISTRIBUTION_SUPPORT.md)
 - [Architecture](architecture.md)
 - [Session startup and locking](SESSION_STARTUP.md)
 - [denialctl](DENIALCTL.md)

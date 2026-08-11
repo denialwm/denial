@@ -179,6 +179,9 @@ class LocalFlutterApplicationLauncher {
     if (app.singleInstance) {
       for (final window in _windows()) {
         if (window.isLocalFlutter && window.appId == app.id) {
+          if (geometry != null && window.geometry != geometry) {
+            _bridge.configureWindow(window, geometry);
+          }
           _focus(window);
           return true;
         }

@@ -202,10 +202,7 @@ void main() {
 
     final assignment = WallpaperAssignment(
       all: legacy,
-      spanAlignment: const WallpaperSpanAlignment(
-        horizontal: WallpaperHorizontalAlignment.right,
-        vertical: WallpaperVerticalAlignment.bottom,
-      ),
+      spanAlignment: const WallpaperSpanAlignment.precise(x: 0.37, y: -0.64),
       allDarkness: 0.3,
       outputOverrides: <String, WallpaperResource>{'DP-4': right},
       outputDarknessOverrides: const <String, double>{'DP-4': 0.65},
@@ -213,6 +210,18 @@ void main() {
     await store.write(assignment);
 
     expect(await store.read(), assignment);
+
+    await stateFile.writeAsString(
+      '{"version":3,"all":"asset:$defaultShellWallpaperAsset",'
+      '"horizontalAlignment":"left","verticalAlignment":"bottom"}\n',
+    );
+    expect(
+      (await store.read())!.spanAlignment,
+      const WallpaperSpanAlignment(
+        horizontal: WallpaperHorizontalAlignment.left,
+        vertical: WallpaperVerticalAlignment.bottom,
+      ),
+    );
   });
 
   test('changing monitor target reruns the query for its resolution', () async {

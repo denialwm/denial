@@ -11,11 +11,7 @@ import 'src/theme/motion.dart';
 void main() {
   final environment = StartupEnvironment.capture();
   WidgetsFlutterBinding.ensureInitialized();
-  MotionTelemetry.install(
-    enabled:
-        environment.flag('DENIA_DART_FRAME_TRACE') ||
-        environment.flag('DENIA_RENDER_AUDIT'),
-  );
+  MotionTelemetry.install(enabled: environment.flag('DENIA_DART_FRAME_TRACE'));
   DesktopWindowRenderTelemetry.install(
     enabled: environment.flag('DENIA_RENDER_AUDIT'),
   );

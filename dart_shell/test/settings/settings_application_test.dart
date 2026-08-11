@@ -20,12 +20,25 @@ import 'package:denial_dart_shell/src/settings/shell_settings.dart';
 import 'package:denial_dart_shell/src/state/display_layout.dart';
 import 'package:denial_dart_shell/src/state/shell_controller.dart';
 import 'package:denial_dart_shell/src/theme/tokens.dart';
+import 'package:denial_dart_shell/src/wallpaper/state/wallpaper_controller.dart';
 import 'package:denial_dart_shell/src/widgets/denial_wordmark.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+const _settingsPages = <SettingsPageId>[
+  SettingsPageId.appearance,
+  SettingsPageId.language,
+  SettingsPageId.animations,
+  SettingsPageId.layout,
+  SettingsPageId.overlays,
+  SettingsPageId.lockScreen,
+  SettingsPageId.power,
+  SettingsPageId.developer,
+  SettingsPageId.about,
+];
 
 void main() {
   testWidgets('settings application presents the live appearance control', (
@@ -48,6 +61,8 @@ void main() {
     expect(svg.clipBehavior, Clip.none);
     expect(svg.renderingStrategy.name, 'picture');
     expect(find.text('Make the desktop feel like yours.'), findsOneWidget);
+    expect(find.text('Wallpaper'), findsOneWidget);
+    expect(find.byKey(settingsWallpaperTriggerKey), findsOneWidget);
     expect(find.text('Shell accent'), findsOneWidget);
     expect(find.text('Backdrop blur'), findsOneWidget);
     expect(find.text('Shape'), findsOneWidget);
@@ -67,7 +82,7 @@ void main() {
       findsNothing,
     );
     expect(find.byType(SettingsCardGroup), findsOneWidget);
-    expect(find.byType(SettingsSection), findsNWidgets(5));
+    expect(find.byType(SettingsSection), findsNWidgets(6));
 
     final pageTitle = tester.widget<Text>(
       find.text('Make the desktop feel like yours.'),
@@ -88,6 +103,19 @@ void main() {
     );
     expect(settingsSemantics.properties.role, SemanticsRole.main);
     semantics.dispose();
+  });
+
+  testWidgets('wallpaper action opens the shared selector', (tester) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container, size: const Size(420, 792));
+
+    await tester.tap(find.byKey(settingsWallpaperTriggerKey));
+    await tester.pump();
+
+    final wallpaperState = container.read(wallpaperControllerProvider);
+    expect(wallpaperState.selectorVisible, isTrue);
+    expect(wallpaperState.targetPixelSize, _displayLayout.pixelSize);
   });
 
   testWidgets('short settings tabs remain aligned to the top', (tester) async {
@@ -111,17 +139,6 @@ void main() {
   testWidgets('localized settings tabs fit the minimum application size', (
     tester,
   ) async {
-    const pages = <SettingsPageId>[
-      SettingsPageId.appearance,
-      SettingsPageId.language,
-      SettingsPageId.animations,
-      SettingsPageId.layout,
-      SettingsPageId.overlays,
-      SettingsPageId.lockScreen,
-      SettingsPageId.power,
-      SettingsPageId.developer,
-      SettingsPageId.about,
-    ];
     for (final locale in const <Locale>[Locale('en'), Locale('zh')]) {
       final container = _settingsContainer();
       addTearDown(container.dispose);
@@ -132,7 +149,32 @@ void main() {
         locale: locale,
       );
 
-      for (final page in pages) {
+      for (final page in _settingsPages) {
+        tester
+            .widget<SettingsNavigation>(find.byType(SettingsNavigation))
+            .onSelected(page);
+        await tester.pumpAndSettle();
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: '${locale.languageCode}/${page.name}',
+        );
+      }
+    }
+  });
+
+  testWidgets('localized settings tabs fit a phone viewport', (tester) async {
+    for (final locale in const <Locale>[Locale('en'), Locale('zh')]) {
+      final container = _settingsContainer();
+      addTearDown(container.dispose);
+      await _pumpSettings(
+        tester,
+        container,
+        size: const Size(420, 792),
+        locale: locale,
+      );
+
+      for (final page in _settingsPages) {
         tester
             .widget<SettingsNavigation>(find.byType(SettingsNavigation))
             .onSelected(page);
@@ -534,6 +576,7 @@ ProviderContainer _settingsContainer() {
   return ProviderContainer.test(
     overrides: [
       settingsStoreProvider.overrideWithValue(_MemorySettingsStore()),
+      wallpaperSourcesProvider.overrideWithValue(const []),
       denialBridgeProvider.overrideWith((ref) {
         final bridge = _SettingsBridge(_displayLayout);
         ref.onDispose(bridge.dispose);

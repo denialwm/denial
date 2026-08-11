@@ -49,6 +49,7 @@ const MAX_WINDOWS: usize = 4096;
 const MAX_REGIONS: usize = 8192;
 const MAX_SURFACES: usize = 32768;
 const MAX_PENDING_WINDOW_COMMANDS: usize = 4096;
+const MAX_PENDING_KEYBOARD_COMMANDS: usize = 256;
 const MAX_PENDING_NOTIFICATION_COMMANDS: usize = 256;
 const MAX_LOCAL_APP_ID_BYTES: usize = 256;
 const MAX_LOCAL_WINDOW_TITLE_BYTES: usize = 1024;
@@ -95,6 +96,12 @@ pub enum WindowCommand {
         window_id: u64,
         geometry: WindowGeometry,
     },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum KeyboardCommand {
+    Text(String),
+    Key { key: String, ctrl: bool },
 }
 
 impl WindowCommand {
@@ -450,6 +457,7 @@ pub struct WireBridge {
     input_layout_scratch: InputLayoutSnapshot,
     input_layout_identities_scratch: HashSet<u64>,
     pending_window_commands: VecDeque<WindowCommand>,
+    pending_keyboard_commands: VecDeque<KeyboardCommand>,
     pending_notification_commands: VecDeque<NotificationCommand>,
     pending_work_area: Option<WorkAreaOptions>,
     next_sequence: u64,
@@ -472,6 +480,7 @@ impl WireBridge {
             input_layout_scratch: InputLayoutSnapshot::default(),
             input_layout_identities_scratch: HashSet::new(),
             pending_window_commands: VecDeque::new(),
+            pending_keyboard_commands: VecDeque::new(),
             pending_notification_commands: VecDeque::new(),
             pending_work_area: None,
             next_sequence: 1,
@@ -517,6 +526,10 @@ impl WireBridge {
 
     pub fn drain_window_commands(&mut self) -> impl Iterator<Item = WindowCommand> + '_ {
         self.pending_window_commands.drain(..)
+    }
+
+    pub fn drain_keyboard_commands(&mut self) -> impl Iterator<Item = KeyboardCommand> + '_ {
+        self.pending_keyboard_commands.drain(..)
     }
 
     pub fn drain_notification_commands(
@@ -718,7 +731,11 @@ impl WireBridge {
                 let command = envelope
                     .payload_as_keyboard_command()
                     .ok_or(WireError::Payload)?;
-                validate_keyboard_command(command)?;
+                if self.pending_keyboard_commands.len() >= MAX_PENDING_KEYBOARD_COMMANDS {
+                    return Err(WireError::Count);
+                }
+                let command = decode_keyboard_command(command)?;
+                self.pending_keyboard_commands.push_back(command);
                 Ok(None)
             }
             fb::Payload::DesktopNotificationCommand => {
@@ -932,7 +949,7 @@ fn validate_required_string(value: Option<&str>) -> Result<(), WireError> {
     }
 }
 
-fn validate_keyboard_command(command: fb::KeyboardCommand<'_>) -> Result<(), WireError> {
+fn decode_keyboard_command(command: fb::KeyboardCommand<'_>) -> Result<KeyboardCommand, WireError> {
     if command.kind().variant_name().is_none() {
         return Err(WireError::Enumeration);
     }
@@ -940,12 +957,24 @@ fn validate_keyboard_command(command: fb::KeyboardCommand<'_>) -> Result<(), Wir
         return Err(WireError::Flags);
     }
 
-    let value = match command.kind() {
-        fb::KeyboardCommandKind::Text => command.text(),
-        fb::KeyboardCommandKind::Key => command.key(),
-        _ => return Err(WireError::Enumeration),
-    };
-    validate_required_string(value)
+    match command.kind() {
+        fb::KeyboardCommandKind::Text => {
+            let text = command.text();
+            validate_required_string(text)?;
+            Ok(KeyboardCommand::Text(
+                text.expect("validated keyboard text").to_owned(),
+            ))
+        }
+        fb::KeyboardCommandKind::Key => {
+            let key = command.key();
+            validate_required_string(key)?;
+            Ok(KeyboardCommand::Key {
+                key: key.expect("validated keyboard key").to_owned(),
+                ctrl: command.flags() & KEYBOARD_CTRL != 0,
+            })
+        }
+        _ => Err(WireError::Enumeration),
+    }
 }
 
 fn decode_notification_command(
@@ -2631,6 +2660,16 @@ mod tests {
                 KEYBOARD_CTRL,
             ))
             .unwrap();
+        assert_eq!(
+            bridge.drain_keyboard_commands().collect::<Vec<_>>(),
+            vec![
+                KeyboardCommand::Text("hello".into()),
+                KeyboardCommand::Key {
+                    key: "Backspace".into(),
+                    ctrl: true,
+                },
+            ]
+        );
         assert!(matches!(
             bridge.handle(&keyboard_command(
                 fb::KeyboardCommandKind(255),
@@ -2767,6 +2806,20 @@ mod tests {
                 0,
                 1,
                 None,
+            )),
+            Err(WireError::Count)
+        ));
+
+        bridge.pending_keyboard_commands =
+            vec![KeyboardCommand::Text("a".into()); MAX_PENDING_KEYBOARD_COMMANDS]
+                .into_iter()
+                .collect();
+        assert!(matches!(
+            bridge.handle(&keyboard_command(
+                fb::KeyboardCommandKind::Text,
+                Some("a"),
+                None,
+                0,
             )),
             Err(WireError::Count)
         ));

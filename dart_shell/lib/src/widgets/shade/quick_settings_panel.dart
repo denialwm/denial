@@ -282,7 +282,6 @@ class _ControlContents extends StatelessWidget {
           dnd: doNotDisturb,
           dndReady: notificationPolicyLoaded,
           profile: quickSettings.profile,
-          keyboardOpening: quickSettings.keyboardOpening,
           onToggleWifi: onToggleWifi,
           onOpenWifi: onOpenWifi,
           onToggleBluetooth: onToggleBluetooth,

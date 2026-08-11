@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../controllers/home_grid_layout.dart';
-import '../models/desktop_app.dart';
 import '../models/home_grid_item.dart';
 import 'home_tiles.dart';
 
@@ -40,7 +39,7 @@ class HomeAppPage extends StatelessWidget {
   final double tileHeight;
   final int? draggingSourceIndex;
   final int? resizeModeIndex;
-  final ValueChanged<DesktopApp> onLaunch;
+  final ValueChanged<HomeGridItem> onLaunch;
   final void Function(
     HomeGridItem item,
     int fromIndex,
@@ -167,7 +166,7 @@ class _PositionedGridItem extends StatelessWidget {
   final bool hidden;
   final bool resizeActive;
   final bool resizeModeEnabled;
-  final ValueChanged<DesktopApp> onLaunch;
+  final ValueChanged<HomeGridItem> onLaunch;
   final void Function(
     HomeGridItem item,
     int fromIndex,

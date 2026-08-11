@@ -10,7 +10,7 @@ use smithay::backend::libinput::{LibinputInputBackend, LibinputSessionInterface}
 use smithay::backend::session::libseat::LibSeatSession;
 #[cfg(feature = "flutter")]
 use smithay::desktop::{WindowSurfaceType, utils::under_from_surface_tree};
-use smithay::input::keyboard::FilterResult;
+use smithay::input::keyboard::{FilterResult, KeyboardHandle, Keycode};
 use smithay::input::pointer::{
     AxisFrame, ButtonEvent, MotionEvent, PointerHandle, RelativeMotionEvent,
 };
@@ -59,6 +59,207 @@ const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 #[cfg(feature = "flutter")]
 const MAX_CLIENT_POINTER_PRESSES: usize = 16;
+
+#[cfg(feature = "flutter")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ShellKeyStroke {
+    evdev_keycode: u32,
+    shift: bool,
+}
+
+#[cfg(feature = "flutter")]
+fn shell_text_key_stroke(character: char) -> Option<ShellKeyStroke> {
+    let (evdev_keycode, shift) = match character {
+        'a'..='z' => (
+            [
+                30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38, 50, 49, 24, 25, 16, 19, 31, 20, 22,
+                47, 17, 45, 21, 44,
+            ][usize::from(character as u8 - b'a')],
+            false,
+        ),
+        'A'..='Z' => (
+            [
+                30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38, 50, 49, 24, 25, 16, 19, 31, 20, 22,
+                47, 17, 45, 21, 44,
+            ][usize::from(character as u8 - b'A')],
+            true,
+        ),
+        '1' => (2, false),
+        '2' => (3, false),
+        '3' => (4, false),
+        '4' => (5, false),
+        '5' => (6, false),
+        '6' => (7, false),
+        '7' => (8, false),
+        '8' => (9, false),
+        '9' => (10, false),
+        '0' => (11, false),
+        '!' => (2, true),
+        '@' => (3, true),
+        '#' => (4, true),
+        '$' => (5, true),
+        '%' => (6, true),
+        '^' => (7, true),
+        '&' => (8, true),
+        '*' => (9, true),
+        '(' => (10, true),
+        ')' => (11, true),
+        '-' => (12, false),
+        '_' => (12, true),
+        '=' => (13, false),
+        '+' => (13, true),
+        '[' => (26, false),
+        '{' => (26, true),
+        ']' => (27, false),
+        '}' => (27, true),
+        ';' => (39, false),
+        ':' => (39, true),
+        '\'' => (40, false),
+        '"' => (40, true),
+        '`' => (41, false),
+        '~' => (41, true),
+        '\\' => (43, false),
+        '|' => (43, true),
+        ',' => (51, false),
+        '<' => (51, true),
+        '.' => (52, false),
+        '>' => (52, true),
+        '/' => (53, false),
+        '?' => (53, true),
+        ' ' => (57, false),
+        _ => return None,
+    };
+    Some(ShellKeyStroke {
+        evdev_keycode,
+        shift,
+    })
+}
+
+#[cfg(feature = "flutter")]
+fn shell_named_key_stroke(key: &str) -> Option<ShellKeyStroke> {
+    let (evdev_keycode, shift) = match key {
+        "Escape" => (1, false),
+        "BackSpace" | "Backspace" => (14, false),
+        "Tab" => (15, false),
+        "Return" | "Enter" => (28, false),
+        "space" | "Space" => (57, false),
+        "Up" => (103, false),
+        "Left" => (105, false),
+        "Right" => (106, false),
+        "Down" => (108, false),
+        "Delete" => (111, false),
+        "comma" => (51, false),
+        "period" => (52, false),
+        "slash" => (53, false),
+        "backslash" => (43, false),
+        "minus" => (12, false),
+        "equal" => (13, false),
+        "apostrophe" => (40, false),
+        "semicolon" => (39, false),
+        "colon" => (39, true),
+        "bracketleft" => (26, false),
+        "bracketright" => (27, false),
+        value if value.chars().count() == 1 => shell_text_key_stroke(value.chars().next()?)
+            .map(|stroke| (stroke.evdev_keycode, stroke.shift))?,
+        _ => return None,
+    };
+    Some(ShellKeyStroke {
+        evdev_keycode,
+        shift,
+    })
+}
+
+#[cfg(feature = "flutter")]
+fn inject_shell_key_stroke(
+    state: &mut RuntimeState,
+    keyboard: &KeyboardHandle<RuntimeState>,
+    stroke: ShellKeyStroke,
+    ctrl: bool,
+    time: u32,
+) -> bool {
+    const XKB_KEYCODE_OFFSET: u32 = 8;
+    const LEFT_CTRL: u32 = 29;
+    const LEFT_SHIFT: u32 = 42;
+
+    let keycode = Keycode::new(stroke.evdev_keycode + XKB_KEYCODE_OFFSET);
+    if keyboard.pressed_keys().contains(&keycode) {
+        warn!(
+            keycode = stroke.evdev_keycode,
+            "ignored shell keyboard key already held by another input source"
+        );
+        return false;
+    }
+
+    let modifiers = keyboard.modifier_state();
+    let inject_ctrl = ctrl && !modifiers.ctrl;
+    let inject_shift = stroke.shift && !modifiers.shift;
+    let ctrl_keycode = Keycode::new(LEFT_CTRL + XKB_KEYCODE_OFFSET);
+    let shift_keycode = Keycode::new(LEFT_SHIFT + XKB_KEYCODE_OFFSET);
+    let send = |state: &mut RuntimeState, keycode: Keycode, key_state: KeyState| {
+        keyboard.input::<(), _>(
+            state,
+            keycode,
+            key_state,
+            SERIAL_COUNTER.next_serial(),
+            time,
+            |_, _, _| FilterResult::Forward,
+        );
+    };
+
+    if inject_ctrl {
+        send(state, ctrl_keycode, KeyState::Pressed);
+    }
+    if inject_shift {
+        send(state, shift_keycode, KeyState::Pressed);
+    }
+    send(state, keycode, KeyState::Pressed);
+    send(state, keycode, KeyState::Released);
+    if inject_shift {
+        send(state, shift_keycode, KeyState::Released);
+    }
+    if inject_ctrl {
+        send(state, ctrl_keycode, KeyState::Released);
+    }
+    true
+}
+
+#[cfg(feature = "flutter")]
+pub(crate) fn dispatch_shell_keyboard_command(
+    state: &mut RuntimeState,
+    command: &super::super::wire::KeyboardCommand,
+) -> bool {
+    let (keyboard, time) = {
+        let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
+        (
+            frontend.seat.get_keyboard().expect("seat has no keyboard"),
+            frontend.start_time.elapsed().as_millis() as u32,
+        )
+    };
+    if keyboard.current_focus().is_none() {
+        return false;
+    }
+
+    match command {
+        super::super::wire::KeyboardCommand::Text(text) => {
+            let mut delivered = false;
+            for character in text.chars() {
+                let Some(stroke) = shell_text_key_stroke(character) else {
+                    warn!(%character, "ignored character unsupported by the shell keyboard keymap");
+                    continue;
+                };
+                delivered |= inject_shell_key_stroke(state, &keyboard, stroke, false, time);
+            }
+            delivered
+        }
+        super::super::wire::KeyboardCommand::Key { key, ctrl } => {
+            let Some(stroke) = shell_named_key_stroke(key) else {
+                warn!(%key, "ignored unsupported shell keyboard key");
+                return false;
+            };
+            inject_shell_key_stroke(state, &keyboard, stroke, *ctrl, time)
+        }
+    }
+}
 
 #[cfg(feature = "flutter")]
 #[derive(Clone)]
@@ -654,11 +855,18 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
     } else {
         Vec::new()
     };
+    #[cfg(feature = "flutter")]
+    let cancel_client_touch = reset.touch
+        && (!frontend.client_touch_routes.is_empty()
+            || touch.as_ref().is_some_and(|touch| touch.is_grabbed()));
+    #[cfg(not(feature = "flutter"))]
+    let cancel_client_touch = reset.touch;
     if reset.touch {
         #[cfg(feature = "flutter")]
         {
             frontend.flutter_touch_slots.clear();
             frontend.client_touch_routes.clear();
+            frontend.client_touch_frame_pending = false;
         }
     }
 
@@ -704,7 +912,7 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
         }
     }
 
-    if let Some(touch) = touch {
+    if cancel_client_touch && let Some(touch) = touch {
         touch.cancel(state);
         if touch.is_grabbed() {
             touch.unset_grab(state);
@@ -1431,6 +1639,11 @@ fn process_flutter_input_event(
                         .expect("missing Wayland frontend")
                         .client_touch_routes
                         .insert(slot, route);
+                    state
+                        .wayland
+                        .as_mut()
+                        .expect("missing Wayland frontend")
+                        .client_touch_frame_pending = true;
                     if scene_changed {
                         state.scene_sync.mark_dirty();
                     }
@@ -1479,6 +1692,11 @@ fn process_flutter_input_event(
                         time: touch_event.time_msec(),
                     },
                 );
+                state
+                    .wayland
+                    .as_mut()
+                    .expect("missing Wayland frontend")
+                    .client_touch_frame_pending = true;
                 true
             } else {
                 false
@@ -1521,16 +1739,22 @@ fn process_flutter_input_event(
                         time: touch_event.time_msec(),
                     },
                 );
+                state
+                    .wayland
+                    .as_mut()
+                    .expect("missing Wayland frontend")
+                    .client_touch_frame_pending = true;
             }
             client_target
         }
         InputEvent::TouchFrame { .. }
-            if !state
-                .wayland
-                .as_ref()
-                .expect("missing Wayland frontend")
-                .client_touch_routes
-                .is_empty() =>
+            if std::mem::take(
+                &mut state
+                    .wayland
+                    .as_mut()
+                    .expect("missing Wayland frontend")
+                    .client_touch_frame_pending,
+            ) =>
         {
             let touch = state
                 .wayland
@@ -1572,12 +1796,9 @@ fn process_flutter_input_event(
                     .get_touch()
                     .expect("seat has no touch");
                 touch.cancel(state);
-                state
-                    .wayland
-                    .as_mut()
-                    .expect("missing Wayland frontend")
-                    .client_touch_routes
-                    .clear();
+                let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+                frontend.client_touch_routes.clear();
+                frontend.client_touch_frame_pending = false;
                 true
             } else {
                 false
@@ -2619,6 +2840,40 @@ mod pointer_constraint_escape_tests {
 #[cfg(all(test, feature = "flutter"))]
 mod compositor_pointer_binding_tests {
     use super::*;
+
+    #[test]
+    fn shell_keyboard_maps_its_visual_us_layout_to_evdev_strokes() {
+        assert_eq!(
+            shell_text_key_stroke('a'),
+            Some(ShellKeyStroke {
+                evdev_keycode: 30,
+                shift: false,
+            })
+        );
+        assert_eq!(
+            shell_text_key_stroke('A'),
+            Some(ShellKeyStroke {
+                evdev_keycode: 30,
+                shift: true,
+            })
+        );
+        assert_eq!(
+            shell_text_key_stroke('?'),
+            Some(ShellKeyStroke {
+                evdev_keycode: 53,
+                shift: true,
+            })
+        );
+        assert_eq!(
+            shell_named_key_stroke("BackSpace"),
+            Some(ShellKeyStroke {
+                evdev_keycode: 14,
+                shift: false,
+            })
+        );
+        assert_eq!(shell_text_key_stroke('😀'), None);
+        assert_eq!(shell_named_key_stroke("unsupported"), None);
+    }
 
     #[test]
     fn super_left_moves_and_super_right_resizes() {

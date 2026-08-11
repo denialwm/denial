@@ -119,6 +119,8 @@ struct RenderDamageAudit {
     sampled_textures: u64,
     max_sampled_textures: usize,
     sampled_texture_counts: HashMap<i64, u64>,
+    target_blocked_ready: u64,
+    target_blocked_exhausted: u64,
 }
 
 impl RenderDamageAudit {
@@ -143,6 +145,19 @@ impl RenderDamageAudit {
             sampled_textures: 0,
             max_sampled_textures: 0,
             sampled_texture_counts: HashMap::new(),
+            target_blocked_ready: 0,
+            target_blocked_exhausted: 0,
+        }
+    }
+
+    fn record_target_blocked(&mut self, blocked: RenderTargetBlocked) {
+        match blocked {
+            RenderTargetBlocked::ReadyHandoff => {
+                self.target_blocked_ready = self.target_blocked_ready.saturating_add(1);
+            }
+            RenderTargetBlocked::PoolExhausted => {
+                self.target_blocked_exhausted = self.target_blocked_exhausted.saturating_add(1);
+            }
         }
     }
 
@@ -248,6 +263,8 @@ impl RenderDamageAudit {
             sampled_textures_avg = self.sampled_textures as f64 / transaction_denominator,
             sampled_textures_max = self.max_sampled_textures,
             sampled_texture_counts = %self.sampled_texture_counts_description(),
+            target_blocked_ready = self.target_blocked_ready,
+            target_blocked_exhausted = self.target_blocked_exhausted,
             last_frame_damage = %self.frame_region.compact_description(),
             last_buffer_damage = %self.buffer_region.compact_description(),
             "Flutter atlas render audit"
@@ -269,6 +286,8 @@ impl RenderDamageAudit {
         self.sampled_textures = 0;
         self.max_sampled_textures = 0;
         self.sampled_texture_counts.clear();
+        self.target_blocked_ready = 0;
+        self.target_blocked_exhausted = 0;
         self.frame_region.clear();
         self.buffer_region.clear();
     }
@@ -883,6 +902,58 @@ fn glfw_keycode(keycode: u32) -> u32 {
     }
 }
 
+fn shell_named_keycode(key: &str) -> Option<u32> {
+    Some(match key {
+        "Escape" => 1,
+        "BackSpace" | "Backspace" => 14,
+        "Tab" => 15,
+        "Return" | "Enter" => 28,
+        "space" | "Space" => 57,
+        "Up" => 103,
+        "Left" => 105,
+        "Right" => 106,
+        "Down" => 108,
+        "Delete" => 111,
+        "a" | "A" => 30,
+        "b" | "B" => 48,
+        "c" | "C" => 46,
+        "d" | "D" => 32,
+        "e" | "E" => 18,
+        "f" | "F" => 33,
+        "g" | "G" => 34,
+        "h" | "H" => 35,
+        "i" | "I" => 23,
+        "j" | "J" => 36,
+        "k" | "K" => 37,
+        "l" | "L" => 38,
+        "m" | "M" => 50,
+        "n" | "N" => 49,
+        "o" | "O" => 24,
+        "p" | "P" => 25,
+        "q" | "Q" => 16,
+        "r" | "R" => 19,
+        "s" | "S" => 31,
+        "t" | "T" => 20,
+        "u" | "U" => 22,
+        "v" | "V" => 47,
+        "w" | "W" => 17,
+        "x" | "X" => 45,
+        "y" | "Y" => 21,
+        "z" | "Z" => 44,
+        "comma" => 51,
+        "period" => 52,
+        "slash" => 53,
+        "backslash" => 43,
+        "minus" => 12,
+        "equal" => 13,
+        "apostrophe" => 40,
+        "semicolon" | "colon" => 39,
+        "bracketleft" => 26,
+        "bracketright" => 27,
+        _ => return None,
+    })
+}
+
 fn mouse_button_mask(button: u32) -> Option<i64> {
     match button {
         0x110 => Some(1),
@@ -907,6 +978,12 @@ enum BufferState {
     Scanning,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RenderTargetBlocked {
+    ReadyHandoff,
+    PoolExhausted,
+}
+
 #[derive(Debug)]
 struct BufferSlot {
     framebuffer: u32,
@@ -915,6 +992,7 @@ struct BufferSlot {
     fence: Option<OwnedFd>,
     damage: DamageRegion,
     screenshot_request_id: Option<u64>,
+    rendered_at: Option<Instant>,
 }
 
 #[derive(Debug)]
@@ -926,6 +1004,11 @@ struct BufferBroker {
     // serviced; the latest Ready buffer contains all of them, so output fanout
     // must retain the union rather than only the final frame's delta.
     ready_damage: DamageRegion,
+    // Logical Flutter damage from frames for which framebuffer() returned 0.
+    // Those frames advance the layer tree but cannot update any atlas buffer.
+    // Keep their damage separate from an older Ready buffer: only the next
+    // frame that is actually rasterized contains these pixels.
+    deferred_damage: DamageRegion,
     independent_scanout: bool,
     next_screenshot_request_id: Option<u64>,
 }
@@ -952,6 +1035,7 @@ impl BufferBroker {
                 // Flutter engine. Its contents cannot be used incrementally.
                 damage: DamageRegion::full(size.width, size.height),
                 screenshot_request_id: None,
+                rendered_at: None,
             })
             .collect::<Vec<_>>();
         if scanning >= slots.len() {
@@ -968,6 +1052,7 @@ impl BufferBroker {
             slots,
             frame_damage: DamageRegion::empty(size.width, size.height),
             ready_damage: DamageRegion::empty(size.width, size.height),
+            deferred_damage: DamageRegion::empty(size.width, size.height),
             independent_scanout: false,
             next_screenshot_request_id: None,
         })
@@ -992,7 +1077,7 @@ impl BufferBroker {
         }
     }
 
-    fn acquire_for_render(&mut self) -> Option<u32> {
+    fn acquire_for_render_detailed(&mut self) -> Result<u32, RenderTargetBlocked> {
         // A raster frame can be abandoned before present().  Once Flutter asks
         // for another target, that older Rendering slot is no longer in use.
         for slot in &mut self.slots {
@@ -1004,6 +1089,7 @@ impl BufferBroker {
                 slot.damage.invalidate();
                 slot.state = BufferState::Free;
                 slot.fence = None;
+                slot.rendered_at = None;
                 if self.next_screenshot_request_id.is_none() {
                     self.next_screenshot_request_id = slot.screenshot_request_id.take();
                 } else {
@@ -1011,31 +1097,53 @@ impl BufferBroker {
                 }
             }
         }
+        // Keep the completed producer frame stable until the platform thread
+        // has transferred it to the output scheduler. Reusing a Ready target
+        // as a mailbox slot is unsafe when its native fence has not signaled:
+        // the next raster pass can overwrite storage which the GPU is still
+        // filling. Returning no target applies the same ordinary backpressure
+        // as an output-owned pool exhaustion.
+        if self
+            .slots
+            .iter()
+            .any(|slot| slot.state == BufferState::Ready)
+        {
+            return Err(RenderTargetBlocked::ReadyHandoff);
+        }
 
         let index = self
             .slots
             .iter()
             .position(|slot| slot.state == BufferState::Free && slot.output_refs == 0)
-            .or_else(|| {
-                // Ready is a mailbox state. mark_ready() always retires the
-                // previous Ready slot, so there is exactly one candidate and
-                // no wrapping frame serial is needed to order it.
-                self.slots
-                    .iter()
-                    .position(|slot| slot.state == BufferState::Ready && slot.output_refs == 0)
-            })?;
+            .ok_or(RenderTargetBlocked::PoolExhausted)?;
         let slot = &mut self.slots[index];
         slot.state = BufferState::Rendering;
         slot.fence = None;
         slot.screenshot_request_id = self.next_screenshot_request_id.take();
-        Some(slot.framebuffer)
+        Ok(slot.framebuffer)
     }
 
+    #[cfg(test)]
+    fn acquire_for_render(&mut self) -> Option<u32> {
+        self.acquire_for_render_detailed().ok()
+    }
+
+    #[cfg(test)]
     fn mark_ready(
         &mut self,
         framebuffer: u32,
         frame_damage: &[sys::FlutterRect],
         fence: Option<OwnedFd>,
+    ) -> Option<usize> {
+        self.mark_ready_at(framebuffer, frame_damage, fence, None)
+    }
+
+    fn mark_ready_at(
+        &mut self,
+        framebuffer: u32,
+        frame_damage: &[sys::FlutterRect],
+        fence: Option<OwnedFd>,
+        rendered_at: Option<Instant>,
     ) -> Option<usize> {
         let index = self
             .slots
@@ -1046,32 +1154,37 @@ impl BufferBroker {
         }
 
         self.frame_damage.replace_from_flutter(frame_damage);
+        self.ready_damage.union(&self.deferred_damage);
         self.ready_damage.union(&self.frame_damage);
 
-        let mut inherited_screenshot_request_id = None;
         for (other_index, slot) in self.slots.iter_mut().enumerate() {
             if other_index != index {
                 // This slot still represents an older logical Flutter frame.
                 // Accumulate every change since it last represented current.
                 slot.damage.union(&self.frame_damage);
             }
-            if other_index != index && slot.state == BufferState::Ready && slot.output_refs == 0 {
-                inherited_screenshot_request_id =
-                    inherited_screenshot_request_id.or_else(|| slot.screenshot_request_id.take());
-                slot.state = BufferState::Free;
-                slot.fence = None;
-            }
         }
         let slot = &mut self.slots[index];
-        if slot.screenshot_request_id.is_none() {
-            slot.screenshot_request_id = inherited_screenshot_request_id;
-        }
         // Flutter repaired this target using the damage returned by
         // populate_existing_damage, so it now represents the current frame.
         slot.damage.clear();
         slot.state = BufferState::Ready;
         slot.fence = fence;
+        slot.rendered_at = rendered_at;
+        self.deferred_damage.clear();
         Some(index)
+    }
+
+    fn mark_skipped(&mut self, frame_damage: &[sys::FlutterRect]) {
+        self.frame_damage.replace_from_flutter(frame_damage);
+        self.deferred_damage.union(&self.frame_damage);
+
+        // No target received this logical frame. Every atlas buffer remains
+        // older than Flutter's layer tree and must repair the skipped region
+        // before it can represent a later frame.
+        for slot in &mut self.slots {
+            slot.damage.union(&self.frame_damage);
+        }
     }
 
     fn populate_existing_damage(
@@ -1112,6 +1225,7 @@ impl BufferBroker {
             fence: self.slots[index].fence.take(),
             damage,
             screenshot_request_id,
+            rendered_at: self.slots[index].rendered_at.take(),
         })
     }
 
@@ -1140,6 +1254,7 @@ impl BufferBroker {
             slot.state = BufferState::Free;
             slot.fence = None;
             slot.screenshot_request_id = None;
+            slot.rendered_at = None;
         }
     }
 
@@ -1224,6 +1339,7 @@ pub struct ReadyFrame {
     pub fence: Option<OwnedFd>,
     pub damage: DamageRegion,
     pub screenshot_request_id: Option<u64>,
+    pub rendered_at: Option<Instant>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1341,7 +1457,6 @@ struct GlApi {
     bind_framebuffer: unsafe extern "system" fn(u32, u32),
     framebuffer_texture_2d: unsafe extern "system" fn(u32, u32, u32, u32, i32),
     check_framebuffer_status: unsafe extern "system" fn(u32) -> u32,
-    blit_framebuffer: unsafe extern "system" fn(i32, i32, i32, i32, i32, i32, i32, i32, u32, u32),
     delete_framebuffers: unsafe extern "system" fn(i32, *const u32),
     gen_renderbuffers: unsafe extern "system" fn(i32, *mut u32),
     bind_renderbuffer: unsafe extern "system" fn(u32, u32),
@@ -1399,10 +1514,6 @@ impl GlApi {
                 "glCheckFramebufferStatus",
                 unsafe extern "system" fn(u32) -> u32
             ),
-            blit_framebuffer: symbol!(
-                "glBlitFramebuffer",
-                unsafe extern "system" fn(i32, i32, i32, i32, i32, i32, i32, i32, u32, u32)
-            ),
             delete_framebuffers: symbol!(
                 "glDeleteFramebuffers",
                 unsafe extern "system" fn(i32, *const u32)
@@ -1436,16 +1547,8 @@ impl GlApi {
 #[derive(Clone, Copy, Debug)]
 struct GlTarget {
     image: usize,
-    scanout_texture: u32,
-    scanout_framebuffer: u32,
-    render_texture: u32,
-    render_framebuffer: u32,
-}
-
-impl GlTarget {
-    fn needs_blit(self) -> bool {
-        self.render_framebuffer != self.scanout_framebuffer
-    }
+    texture: u32,
+    framebuffer: u32,
 }
 
 #[derive(Debug, Default)]
@@ -2125,7 +2228,6 @@ impl FlutterGlHandler {
         initial_scanout: usize,
         size: PixelSize,
         renderer_backend: RendererBackend,
-        offscreen_blit: bool,
         events: Sender<RuntimeEvent>,
         generation: u64,
         use_native_fence: bool,
@@ -2164,11 +2266,7 @@ impl FlutterGlHandler {
                 return Err("could not allocate Impeller GLES depth/stencil storage".into());
             }
         }
-        info!(
-            %renderer_backend,
-            offscreen_blit,
-            "creating Flutter atlas texture targets"
-        );
+        info!(%renderer_backend, "creating direct Flutter atlas texture targets");
         let mut targets = Vec::new();
 
         for dmabuf in dmabufs {
@@ -2183,31 +2281,29 @@ impl FlutterGlHandler {
             };
             let mut target = GlTarget {
                 image: image as usize,
-                scanout_texture: 0,
-                scanout_framebuffer: 0,
-                render_texture: 0,
-                render_framebuffer: 0,
+                texture: 0,
+                framebuffer: 0,
             };
             // SAFETY: a compatible GLES context is current and all output
             // pointers reference live local integers.
             unsafe {
-                (gl.gen_textures)(1, &mut target.scanout_texture);
-                (gl.bind_texture)(gl::TEXTURE_2D, target.scanout_texture);
+                (gl.gen_textures)(1, &mut target.texture);
+                (gl.bind_texture)(gl::TEXTURE_2D, target.texture);
                 (gl.tex_parameter_i)(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
                 (gl.tex_parameter_i)(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
                 (gl.tex_parameter_i)(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
                 (gl.tex_parameter_i)(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
                 (gl.image_target_texture)(gl::TEXTURE_2D, image.cast());
-                (gl.gen_framebuffers)(1, &mut target.scanout_framebuffer);
-                (gl.bind_framebuffer)(gl::FRAMEBUFFER, target.scanout_framebuffer);
+                (gl.gen_framebuffers)(1, &mut target.framebuffer);
+                (gl.bind_framebuffer)(gl::FRAMEBUFFER, target.framebuffer);
                 (gl.framebuffer_texture_2d)(
                     gl::FRAMEBUFFER,
                     gl::COLOR_ATTACHMENT0,
                     gl::TEXTURE_2D,
-                    target.scanout_texture,
+                    target.texture,
                     0,
                 );
-                if !offscreen_blit && depth_stencil != 0 {
+                if depth_stencil != 0 {
                     (gl.framebuffer_renderbuffer)(
                         gl::FRAMEBUFFER,
                         gl::DEPTH_STENCIL_ATTACHMENT,
@@ -2216,9 +2312,10 @@ impl FlutterGlHandler {
                     );
                 }
             }
-            // Direct mode exposes this imported texture to Flutter. Offscreen
-            // mode keeps it only as the destination of the final full-atlas
-            // copy, so effects and partial repaint never need to read it.
+            // Flutter draws directly into the imported scanout DMA-BUF. The
+            // versioned engine wraps the attached level-zero texture. Ganesh
+            // allocates its own stencil and dynamic-MSAA resources, so the
+            // embedder attachment remains absent on the Skia path.
             let mut actual_samples = 0;
             let mut actual_stencil_bits = 0;
             // SAFETY: the same compatible GLES context remains current, the
@@ -2232,127 +2329,26 @@ impl FlutterGlHandler {
                 }
                 status
             };
-            if target.scanout_texture == 0
-                || target.scanout_framebuffer == 0
+            if target.texture == 0
+                || target.framebuffer == 0
                 || framebuffer_status != gl::FRAMEBUFFER_COMPLETE
-                || (!offscreen_blit && actual_samples > 1)
-                || (!offscreen_blit && needs_depth_stencil && actual_stencil_bits < 8)
+                || actual_samples > 1
+                || (needs_depth_stencil && actual_stencil_bits < 8)
             {
                 warn!(
-                    texture = target.scanout_texture,
-                    framebuffer = target.scanout_framebuffer,
+                    texture = target.texture,
+                    framebuffer = target.framebuffer,
                     status = framebuffer_status,
                     actual_samples,
                     actual_stencil_bits,
-                    "Flutter scanout atlas FBO creation failed"
+                    "Flutter direct atlas FBO creation failed"
                 );
                 let mut failed = vec![target];
                 destroy_targets(gl, &display, &mut failed);
                 destroy_targets(gl, &display, &mut targets);
                 destroy_depth_stencil(gl, &mut depth_stencil);
                 render_context.unbind()?;
-                return Err("a Flutter scanout atlas framebuffer is incomplete".into());
-            }
-
-            if offscreen_blit {
-                // Flutter's root target is ordinary RGBA8 texture storage. It
-                // is renderable, sampleable and readable without inheriting
-                // scanout modifier or display-IOMMU constraints.
-                // SAFETY: the compatible GLES context remains current and all
-                // names and attachment dimensions belong to this handler.
-                unsafe {
-                    let _ = (gl.get_error)();
-                    (gl.gen_textures)(1, &mut target.render_texture);
-                    (gl.bind_texture)(gl::TEXTURE_2D, target.render_texture);
-                    (gl.tex_parameter_i)(
-                        gl::TEXTURE_2D,
-                        gl::TEXTURE_MIN_FILTER,
-                        gl::NEAREST as i32,
-                    );
-                    (gl.tex_parameter_i)(
-                        gl::TEXTURE_2D,
-                        gl::TEXTURE_MAG_FILTER,
-                        gl::NEAREST as i32,
-                    );
-                    (gl.tex_parameter_i)(
-                        gl::TEXTURE_2D,
-                        gl::TEXTURE_WRAP_S,
-                        gl::CLAMP_TO_EDGE as i32,
-                    );
-                    (gl.tex_parameter_i)(
-                        gl::TEXTURE_2D,
-                        gl::TEXTURE_WRAP_T,
-                        gl::CLAMP_TO_EDGE as i32,
-                    );
-                    (gl.tex_image_2d)(
-                        gl::TEXTURE_2D,
-                        0,
-                        gl::RGBA8 as i32,
-                        width,
-                        height,
-                        0,
-                        gl::RGBA,
-                        gl::UNSIGNED_BYTE,
-                        ptr::null(),
-                    );
-                    (gl.gen_framebuffers)(1, &mut target.render_framebuffer);
-                    (gl.bind_framebuffer)(gl::FRAMEBUFFER, target.render_framebuffer);
-                    (gl.framebuffer_texture_2d)(
-                        gl::FRAMEBUFFER,
-                        gl::COLOR_ATTACHMENT0,
-                        gl::TEXTURE_2D,
-                        target.render_texture,
-                        0,
-                    );
-                    if depth_stencil != 0 {
-                        (gl.framebuffer_renderbuffer)(
-                            gl::FRAMEBUFFER,
-                            gl::DEPTH_STENCIL_ATTACHMENT,
-                            gl::RENDERBUFFER,
-                            depth_stencil,
-                        );
-                    }
-                }
-                actual_samples = 0;
-                actual_stencil_bits = 0;
-                // SAFETY: the newly created render framebuffer is still bound
-                // in the current compatible GLES context.
-                let render_status = unsafe {
-                    let status = (gl.check_framebuffer_status)(gl::FRAMEBUFFER);
-                    (gl.get_integer_v)(gl::SAMPLES, &mut actual_samples);
-                    if needs_depth_stencil {
-                        (gl.get_integer_v)(gl::STENCIL_BITS, &mut actual_stencil_bits);
-                    }
-                    status
-                };
-                // SAFETY: querying the current context's error queue has no
-                // additional pointer or object-lifetime requirements.
-                let render_error = unsafe { (gl.get_error)() };
-                if target.render_texture == 0
-                    || target.render_framebuffer == 0
-                    || render_status != gl::FRAMEBUFFER_COMPLETE
-                    || render_error != gl::NO_ERROR
-                    || actual_samples > 1
-                    || (needs_depth_stencil && actual_stencil_bits < 8)
-                {
-                    warn!(
-                        texture = target.render_texture,
-                        framebuffer = target.render_framebuffer,
-                        status = render_status,
-                        error = format_args!("{render_error:#x}"),
-                        actual_samples,
-                        actual_stencil_bits,
-                        "Flutter offscreen atlas FBO creation failed"
-                    );
-                    let mut failed = vec![target];
-                    destroy_targets(gl, &display, &mut failed);
-                    destroy_targets(gl, &display, &mut targets);
-                    destroy_depth_stencil(gl, &mut depth_stencil);
-                    render_context.unbind()?;
-                    return Err("a Flutter offscreen atlas framebuffer is incomplete".into());
-                }
-            } else {
-                target.render_framebuffer = target.scanout_framebuffer;
+                return Err("a Flutter direct atlas framebuffer is incomplete".into());
             }
             targets.push(target);
         }
@@ -2370,10 +2366,10 @@ impl FlutterGlHandler {
             destroy_targets(gl, &display, &mut targets);
             destroy_depth_stencil(gl, &mut depth_stencil);
             render_context.unbind()?;
-            return Err("Flutter presentation needs at least three atlas buffers".into());
+            return Err("Flutter direct scanout needs at least three atlas buffers".into());
         }
         let broker = match BufferBroker::new(
-            targets.iter().map(|target| target.render_framebuffer),
+            targets.iter().map(|target| target.framebuffer),
             initial_scanout,
             size,
         ) {
@@ -2394,7 +2390,6 @@ impl FlutterGlHandler {
             buffers = targets.len(),
             width = size.width,
             height = size.height,
-            offscreen_blit,
             "imported GBM atlas pool into Flutter EGL context"
         );
         let render_audit = render_audit_enabled().then(|| {
@@ -2788,72 +2783,6 @@ impl FlutterGlHandler {
         }
     }
 
-    fn blit_to_scanout(&self, render_framebuffer: u32) -> bool {
-        let target = lock(&self.targets)
-            .iter()
-            .find(|target| target.render_framebuffer == render_framebuffer)
-            .copied();
-        let Some(target) = target else {
-            error!(
-                framebuffer = render_framebuffer,
-                "Flutter presented an unknown atlas target"
-            );
-            return false;
-        };
-        if !target.needs_blit() {
-            return true;
-        }
-
-        // The raster commands and this copy share one GLES context, so command
-        // ordering makes the completed scene the source without a CPU wait.
-        // Copy the complete atlas for this correctness fallback; Flutter still
-        // uses per-buffer damage to repair its readable scene targets.
-        let width = self.size.width as i32;
-        let height = self.size.height as i32;
-        // SAFETY: Flutter invokes present with this handler's render context
-        // current, and both framebuffer names remain live in `targets`.
-        unsafe {
-            for _ in 0..8 {
-                if (self.gl.get_error)() == gl::NO_ERROR {
-                    break;
-                }
-            }
-            (self.gl.bind_framebuffer)(gl::READ_FRAMEBUFFER, target.render_framebuffer);
-            (self.gl.bind_framebuffer)(gl::DRAW_FRAMEBUFFER, target.scanout_framebuffer);
-            (self.gl.blit_framebuffer)(
-                0,
-                0,
-                width,
-                height,
-                0,
-                0,
-                width,
-                height,
-                gl::COLOR_BUFFER_BIT,
-                gl::NEAREST,
-            );
-        }
-        // SAFETY: the same render context remains current after the blit.
-        let error = unsafe { (self.gl.get_error)() };
-        // Restore the framebuffer binding expected by Flutter until it clears
-        // the context after present().
-        // SAFETY: the render framebuffer and viewport dimensions remain valid.
-        unsafe {
-            (self.gl.bind_framebuffer)(gl::FRAMEBUFFER, target.render_framebuffer);
-            (self.gl.viewport)(0, 0, width, height);
-        }
-        if error != gl::NO_ERROR {
-            error!(
-                framebuffer = render_framebuffer,
-                scanout_framebuffer = target.scanout_framebuffer,
-                error = format_args!("{error:#x}"),
-                "Flutter scene-to-scanout blit failed"
-            );
-            return false;
-        }
-        true
-    }
-
     fn destroy_targets(&self) {
         let mut targets = lock(&self.targets);
         let mut depth_stencil = lock(&self.depth_stencil);
@@ -3054,8 +2983,8 @@ impl OpenGlHandler for FlutterGlHandler {
     fn surface_transformation(&self) -> sys::FlutterTransformation {
         // Flutter renders OpenGL with a bottom-left framebuffer origin while
         // DRM scans the imported GBM image from its top-left row. Apply the
-        // inversion in Flutter's root transform. The optional offscreen path
-        // then performs an identity blit, preserving the same scanout rows.
+        // inversion in Flutter's root transform so the image remains a direct
+        // scanout target and never needs an intermediate blit.
         sys::FlutterTransformation {
             scaleX: 1.0,
             skewX: 0.0,
@@ -3080,15 +3009,22 @@ impl OpenGlHandler for FlutterGlHandler {
             );
             return 0;
         }
-        let Some(framebuffer) = lock(&self.broker).acquire_for_render() else {
-            // Every independently clocked output can temporarily retain a
-            // scanning and a submitted atlas generation. Exhausting the pool
-            // until the next page-flip event is therefore ordinary producer
-            // backpressure, not a rendering failure. Flutter accepts FBO 0 as
-            // a skipped frame; present() completes that no-op successfully so
-            // it returns to AwaitVSync instead of entering a retry storm that
-            // could starve the page-flip which frees the next target.
-            return 0;
+        let framebuffer = match lock(&self.broker).acquire_for_render_detailed() {
+            Ok(framebuffer) => framebuffer,
+            Err(blocked) => {
+                if let Some(audit) = &self.render_audit {
+                    lock(audit).record_target_blocked(blocked);
+                }
+                // Every independently clocked output can temporarily retain a
+                // scanning generation, an atomic submission awaiting page flip,
+                // and a newer ready generation. Exhaustion remains ordinary
+                // producer backpressure if a supported topology reaches its
+                // bounded worst case. Flutter accepts FBO 0 as a skipped frame;
+                // present() completes that no-op successfully so it returns to
+                // AwaitVSync instead of entering a retry storm that could starve
+                // the page flip which frees the next target.
+                return 0;
+            }
         };
         // Leave the selected FBO current as required by the embedder OpenGL
         // contract. Denial's versioned engine stack queries the attached
@@ -3106,6 +3042,7 @@ impl OpenGlHandler for FlutterGlHandler {
         self.begin_present();
         let presented = (|| {
             if frame.framebuffer == 0 {
+                lock(&self.broker).mark_skipped(frame.frame_damage);
                 let batch = self.seal_sampled_buffers();
                 if let Some(audit) = &self.render_audit {
                     lock(audit).record_skipped(batch.as_ref());
@@ -3124,16 +3061,6 @@ impl OpenGlHandler for FlutterGlHandler {
             // raster present owns the render context, so reclaim those queued
             // resources even when no further external texture is populated.
             self.destroy_retired_external_bindings();
-            if !self.blit_to_scanout(frame.framebuffer) {
-                let sampled = self.seal_sampled_buffers();
-                // A failed copy cannot produce a KMS fence. Finish Flutter's
-                // sampling before releasing client buffers, then let the next
-                // acquisition invalidate and recycle this rendering slot.
-                // SAFETY: present runs with the raster context current.
-                unsafe { (self.gl.finish)() };
-                let _ = self.publish_sampled_buffer_release(None, sampled);
-                return false;
-            }
             let fence = if self.use_native_fence {
                 let context = lock(&self.render_context);
                 match EGLFence::create(context.context.display()) {
@@ -3190,9 +3117,13 @@ impl OpenGlHandler for FlutterGlHandler {
                 None
             };
             let release_published = self.publish_sampled_buffer_release(release_fence, sampled);
-            let Some(_index) =
-                lock(&self.broker).mark_ready(frame.framebuffer, frame.frame_damage, fence)
-            else {
+            let rendered_at = self.render_audit.as_ref().map(|_| Instant::now());
+            let Some(_index) = lock(&self.broker).mark_ready_at(
+                frame.framebuffer,
+                frame.frame_damage,
+                fence,
+                rendered_at,
+            ) else {
                 error!(
                     framebuffer = frame.framebuffer,
                     "Flutter presented an atlas FBO that was not rendering"
@@ -3680,19 +3611,11 @@ fn destroy_targets(gl: GlApi, display: &EGLDisplayHandle, targets: &mut Vec<GlTa
         // SAFETY: cleanup runs with the owning shared EGL context current;
         // every object/image was created exactly once by this handler.
         unsafe {
-            if target.render_framebuffer != 0
-                && target.render_framebuffer != target.scanout_framebuffer
-            {
-                (gl.delete_framebuffers)(1, &target.render_framebuffer);
+            if target.framebuffer != 0 {
+                (gl.delete_framebuffers)(1, &target.framebuffer);
             }
-            if target.render_texture != 0 {
-                (gl.delete_textures)(1, &target.render_texture);
-            }
-            if target.scanout_framebuffer != 0 {
-                (gl.delete_framebuffers)(1, &target.scanout_framebuffer);
-            }
-            if target.scanout_texture != 0 {
-                (gl.delete_textures)(1, &target.scanout_texture);
+            if target.texture != 0 {
+                (gl.delete_textures)(1, &target.texture);
             }
             if target.image != 0 {
                 egl_ffi::egl::DestroyImageKHR(
@@ -4023,7 +3946,6 @@ impl FlutterRuntime {
         snapshot: &TopologySnapshot,
         atlas: &AtlasPlan,
         refresh_millihz: u32,
-        offscreen_blit: bool,
         factory: &FlutterRuntimeFactory,
         events: Sender<RuntimeEvent>,
         authentication: Arc<super::authentication::AuthenticationController>,
@@ -4046,7 +3968,6 @@ impl FlutterRuntime {
             initial_scanout,
             size,
             factory.project.renderer_backend,
-            offscreen_blit,
             events,
             generation,
             use_native_fence,
@@ -4175,31 +4096,38 @@ impl FlutterRuntime {
                 }
                 InputRecord::Keyboard(event) => {
                     self.flush_pointer_events(&mut pointer_events)?;
-                    encode_key_event(event, &mut key_message);
-                    self.host()
-                        .engine()
-                        .send_platform_message(FLUTTER_KEY_EVENT_CHANNEL, &key_message)?;
-                    if event.pressed
-                        && !(event.unicode != 0
-                            && event.modifiers & (GLFW_MOD_CONTROL | GLFW_MOD_ALT) != 0)
-                    {
-                        let engine = self
-                            .host
-                            .as_ref()
-                            .expect("Flutter runtime is shutting down")
-                            .engine();
-                        let text_messages =
-                            self.text_input.on_key_pressed(event.keycode, event.unicode);
-                        for message in text_messages {
-                            engine.send_platform_message(text_input::CHANNEL, message)?;
-                        }
-                    }
+                    self.send_flutter_keyboard_record(event, &mut key_message)?;
                 }
             }
         }
         self.flush_pointer_events(&mut pointer_events)?;
         self.pointer_event_scratch = pointer_events;
         self.key_event_scratch = key_message;
+        Ok(())
+    }
+
+    fn send_flutter_keyboard_record(
+        &mut self,
+        event: KeyboardRecord,
+        key_message: &mut Vec<u8>,
+    ) -> Result<(), Box<dyn Error>> {
+        encode_key_event(event, key_message);
+        self.host()
+            .engine()
+            .send_platform_message(FLUTTER_KEY_EVENT_CHANNEL, key_message)?;
+        if event.pressed
+            && !(event.unicode != 0 && event.modifiers & (GLFW_MOD_CONTROL | GLFW_MOD_ALT) != 0)
+        {
+            let engine = self
+                .host
+                .as_ref()
+                .expect("Flutter runtime is shutting down")
+                .engine();
+            let text_messages = self.text_input.on_key_pressed(event.keycode, event.unicode);
+            for message in text_messages {
+                engine.send_platform_message(text_input::CHANNEL, message)?;
+            }
+        }
         Ok(())
     }
 
@@ -4643,6 +4571,61 @@ impl FlutterRuntime {
 
     pub fn drain_window_commands(&mut self) -> impl Iterator<Item = wire::WindowCommand> + '_ {
         self.wire.drain_window_commands()
+    }
+
+    pub fn drain_keyboard_commands(&mut self) -> impl Iterator<Item = wire::KeyboardCommand> + '_ {
+        self.wire.drain_keyboard_commands()
+    }
+
+    pub fn has_flutter_text_input_client(&self) -> bool {
+        self.text_input.has_client()
+    }
+
+    pub fn dispatch_keyboard_command_to_flutter(
+        &mut self,
+        command: &wire::KeyboardCommand,
+    ) -> Result<(), Box<dyn Error>> {
+        match command {
+            wire::KeyboardCommand::Text(text) => {
+                let engine = self
+                    .host
+                    .as_ref()
+                    .expect("Flutter runtime is shutting down")
+                    .engine();
+                let messages = self.text_input.insert_text(text);
+                for message in messages {
+                    engine.send_platform_message(text_input::CHANNEL, message)?;
+                }
+            }
+            wire::KeyboardCommand::Key { key, ctrl } => {
+                let Some(keycode) = shell_named_keycode(key) else {
+                    warn!(%key, "ignored unsupported shell keyboard key for Flutter text input");
+                    return Ok(());
+                };
+                let modifiers = if *ctrl { GLFW_MOD_CONTROL } else { 0 };
+                let mut key_message = mem::take(&mut self.key_event_scratch);
+                self.send_flutter_keyboard_record(
+                    KeyboardRecord {
+                        keycode,
+                        unicode: 0,
+                        modifiers,
+                        pressed: true,
+                    },
+                    &mut key_message,
+                )?;
+                self.send_flutter_keyboard_record(
+                    KeyboardRecord {
+                        keycode,
+                        unicode: 0,
+                        modifiers,
+                        pressed: false,
+                    },
+                    &mut key_message,
+                )?;
+                self.key_event_scratch = key_message;
+            }
+        }
+        Ok(())
     }
 
     pub fn drain_notification_commands(
@@ -6474,7 +6457,7 @@ mod tests {
     }
 
     #[test]
-    fn quad_buffer_mailbox_reuse_preserves_only_missing_damage() {
+    fn ready_frame_backpressures_raster_until_consumed() {
         let size = PixelSize::new(120, 90);
         let mut broker = BufferBroker::new([1, 2, 3, 4], 0, size).unwrap();
 
@@ -6482,29 +6465,15 @@ mod tests {
         broker
             .mark_ready(2, &[rect(1.0, 1.0, 4.0, 4.0)], None)
             .unwrap();
+        assert_eq!(broker.acquire_for_render(), None);
         assert_eq!(broker.take_latest_ready().unwrap().index, 1);
 
         assert_eq!(broker.acquire_for_render(), Some(3));
         broker
             .mark_ready(3, &[rect(10.0, 10.0, 14.0, 14.0)], None)
             .unwrap();
-        assert_eq!(broker.acquire_for_render(), Some(4));
-        broker
-            .mark_ready(4, &[rect(30.0, 20.0, 35.0, 25.0)], None)
-            .unwrap();
-
-        // Presenting slot 4 superseded Ready slot 3. Reusing slot 3 needs only
-        // the change from frame 3 to frame 4, not a full atlas repaint.
-        assert_eq!(broker.acquire_for_render(), Some(3));
-        let stale_three = broker_damage(&broker, 3);
-        assert_eq!(stale_three.len(), 1);
-        assert!(covers(&stale_three, 32.0, 22.0));
-        assert!(!covers(&stale_three, 12.0, 12.0));
-        broker
-            .mark_ready(3, &[rect(70.0, 50.0, 75.0, 55.0)], None)
-            .unwrap();
-        assert!(broker_damage(&broker, 3).is_empty());
-        assert!(covers(&broker_damage(&broker, 4), 72.0, 52.0));
+        assert_eq!(broker.acquire_for_render(), None);
+        assert_eq!(broker.take_latest_ready().unwrap().index, 2);
 
         // An abandoned render may have partially overwritten its target. The
         // next acquisition must repair the full atlas, not trust old history.
@@ -6515,7 +6484,27 @@ mod tests {
     }
 
     #[test]
-    fn mailbox_ready_damage_includes_superseded_frames() {
+    fn fourth_buffer_keeps_the_producer_available_with_three_output_generations() {
+        let size = PixelSize::new(120, 90);
+        let mut broker = BufferBroker::new([11, 22, 33, 44], 0, size).unwrap();
+        assert_eq!(broker.enable_independent_scanout(1).unwrap(), 0);
+
+        for (framebuffer, expected_index) in [(22, 1), (33, 2)] {
+            assert_eq!(broker.acquire_for_render(), Some(framebuffer));
+            broker.mark_ready(framebuffer, &[], None).unwrap();
+            let ready = broker.take_latest_ready().unwrap();
+            assert_eq!(ready.index, expected_index);
+            broker.publish_to_outputs(ready.index, 1).unwrap();
+        }
+
+        // The first three targets model scanning, submitted, and ready output
+        // generations. Flutter must still have a producer-owned target for the
+        // following display edge instead of receiving FBO 0.
+        assert_eq!(broker.acquire_for_render(), Some(44));
+    }
+
+    #[test]
+    fn ready_damage_is_published_once_without_supersession() {
         let size = PixelSize::new(120, 90);
         let mut broker = BufferBroker::new([1, 2, 3, 4], 0, size).unwrap();
 
@@ -6523,24 +6512,60 @@ mod tests {
         broker
             .mark_ready(2, &[rect(2.0, 2.0, 7.0, 7.0)], None)
             .unwrap();
-
-        // The main thread has not consumed slot 2 yet. A second Flutter frame
-        // replaces that Ready slot in the mailbox before the coalesced wakeup
-        // is handled.
-        assert_eq!(broker.acquire_for_render(), Some(3));
-        broker
-            .mark_ready(3, &[rect(40.0, 30.0, 46.0, 36.0)], None)
-            .unwrap();
+        assert_eq!(broker.acquire_for_render(), None);
 
         let latest = broker.take_latest_ready().unwrap();
-        assert_eq!(latest.index, 2);
+        assert_eq!(latest.index, 1);
         let mut damage = Vec::new();
         latest.damage.write_flutter(&mut damage);
         assert!(covers(&damage, 3.0, 3.0));
-        assert!(covers(&damage, 42.0, 32.0));
         let mut remaining = Vec::new();
         broker.ready_damage.write_flutter(&mut remaining);
         assert!(remaining.is_empty());
+    }
+
+    #[test]
+    fn skipped_logical_damage_waits_for_the_next_rasterized_frame() {
+        let size = PixelSize::new(120, 90);
+        let mut broker = BufferBroker::new([1, 2, 3, 4], 0, size).unwrap();
+        for slot in &mut broker.slots {
+            slot.damage.clear();
+        }
+
+        let first_damage = rect(2.0, 2.0, 7.0, 7.0);
+        let skipped_damage = rect(20.0, 20.0, 25.0, 25.0);
+        let next_damage = rect(40.0, 40.0, 45.0, 45.0);
+
+        assert_eq!(broker.acquire_for_render(), Some(2));
+        broker.mark_ready(2, &[first_damage], None).unwrap();
+
+        // Backpressure advances Flutter's logical frame without changing the
+        // already-Ready pixels. The old frame must not claim the skipped
+        // damage when it is handed to KMS.
+        broker.mark_skipped(&[skipped_damage]);
+        let first = broker.take_latest_ready().unwrap();
+        let mut published = Vec::new();
+        first.damage.write_flutter(&mut published);
+        assert!(covers(&published, 3.0, 3.0));
+        assert!(!covers(&published, 21.0, 21.0));
+
+        // A later target repairs both changes in its old contents, while its
+        // output damage is relative to the preceding submitted frame.
+        assert_eq!(broker.acquire_for_render(), Some(3));
+        let existing = broker_damage(&broker, 3);
+        assert!(covers(&existing, 3.0, 3.0));
+        assert!(covers(&existing, 21.0, 21.0));
+        broker.mark_ready(3, &[next_damage], None).unwrap();
+        let next = broker.take_latest_ready().unwrap();
+        published.clear();
+        next.damage.write_flutter(&mut published);
+        assert!(!covers(&published, 3.0, 3.0));
+        assert!(covers(&published, 21.0, 21.0));
+        assert!(covers(&published, 41.0, 41.0));
+
+        let mut deferred = Vec::new();
+        broker.deferred_damage.write_flutter(&mut deferred);
+        assert!(deferred.is_empty());
     }
 
     #[test]

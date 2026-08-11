@@ -3634,6 +3634,30 @@ abstract class AppLocalizations {
   /// **'The lock screen follows wallpaper changes and per-output assignments.'**
   String get settingsUseSystemWallpaperDescription;
 
+  /// Action that opens the shell wallpaper selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose wallpaper'**
+  String get settingsWallpaperChoose;
+
+  /// Explanation of the wallpaper appearance setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose the image shown behind the shell and on the lock screen.'**
+  String get settingsWallpaperDescription;
+
+  /// Accessibility label for the current wallpaper thumbnail.
+  ///
+  /// In en, this message translates to:
+  /// **'Current wallpaper preview'**
+  String get settingsWallpaperPreviewSemantics;
+
+  /// Title of the wallpaper appearance setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Wallpaper'**
+  String get settingsWallpaperTitle;
+
   /// English UI text for settingsWidth.
   ///
   /// In en, this message translates to:
@@ -3867,6 +3891,72 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Finding wallpapers…'**
   String get wallpaperFinding;
+
+  /// Accessibility label for leaving mobile wallpaper positioning.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to wallpaper selection'**
+  String get wallpaperMobileBackToSelection;
+
+  /// Button that centers the mobile wallpaper position.
+  ///
+  /// In en, this message translates to:
+  /// **'Center'**
+  String get wallpaperMobileCenterPosition;
+
+  /// Heading above mobile wallpaper choices.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a wallpaper'**
+  String get wallpaperMobileChoose;
+
+  /// Button that finishes precise mobile wallpaper positioning.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get wallpaperMobileDone;
+
+  /// Accessibility label for hiding the mobile wallpaper selector UI.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide controls'**
+  String get wallpaperMobileHideControls;
+
+  /// Label for precise horizontal wallpaper positioning.
+  ///
+  /// In en, this message translates to:
+  /// **'Horizontal'**
+  String get wallpaperMobileHorizontalPosition;
+
+  /// Action and title for precise mobile wallpaper positioning.
+  ///
+  /// In en, this message translates to:
+  /// **'Position'**
+  String get wallpaperMobilePosition;
+
+  /// Instruction shown while positioning a mobile wallpaper.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag the wallpaper, then fine-tune its position'**
+  String get wallpaperMobilePositionHint;
+
+  /// Accessibility label for restoring the hidden mobile wallpaper selector UI.
+  ///
+  /// In en, this message translates to:
+  /// **'Show controls'**
+  String get wallpaperMobileShowControls;
+
+  /// Title of the dedicated mobile wallpaper selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Wallpaper'**
+  String get wallpaperMobileTitle;
+
+  /// Label for precise vertical wallpaper positioning.
+  ///
+  /// In en, this message translates to:
+  /// **'Vertical'**
+  String get wallpaperMobileVerticalPosition;
 
   /// English UI text for wallpaperNoneFound.
   ///

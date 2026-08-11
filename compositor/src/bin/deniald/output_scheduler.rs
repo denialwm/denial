@@ -75,8 +75,8 @@ impl ReadyFenceSlot {
         true
     }
 
-    fn can_submit(&self) -> bool {
-        self.users > 0 && self.signaled
+    fn can_queue(&self) -> bool {
+        self.users > 0
     }
 
     fn release_user(&mut self) -> Result<(), &'static str> {
@@ -198,44 +198,176 @@ struct OutputPipeline {
 struct OutputSchedulerAudit {
     interval_started: Instant,
     ready_published_at: Vec<Option<Instant>>,
+    fence_signaled_at: Vec<Option<Instant>>,
+    last_sequences: Vec<Option<u32>>,
+    last_presented_at: Vec<Option<Instant>>,
+    submitted_at: Vec<Option<Instant>>,
     ready_published: u64,
     ready_with_fence: u64,
     fence_signals: u64,
     real_submissions: u64,
-    ready_superseded: u64,
-    ready_to_submit_max: Duration,
+    presentations: u64,
+    sequence_samples: u64,
+    sequence_delta_total: u64,
+    sequence_delta_max: u32,
+    missed_vblanks: u64,
+    ready_to_fence: AuditLatency,
+    fence_to_submit: AuditLatency,
+    ready_to_submit: AuditLatency,
+    render_to_publish: AuditLatency,
+    presentation_delivery: AuditLatency,
+    presentation_to_submit: AuditLatency,
+    submit_to_presentation: AuditLatency,
+}
+
+#[derive(Debug, Default)]
+struct AuditLatency {
+    samples: u64,
+    total: Duration,
+    max: Duration,
+}
+
+impl AuditLatency {
+    fn record(&mut self, duration: Duration) {
+        self.samples = self.samples.saturating_add(1);
+        self.total = self.total.saturating_add(duration);
+        self.max = self.max.max(duration);
+    }
+
+    fn average_us(&self) -> f64 {
+        if self.samples == 0 {
+            return 0.0;
+        }
+        self.total.as_secs_f64() * 1_000_000.0 / self.samples as f64
+    }
 }
 
 impl OutputSchedulerAudit {
-    fn new(buffer_count: usize) -> Self {
+    fn new(buffer_count: usize, output_count: usize) -> Self {
         Self {
             interval_started: Instant::now(),
             ready_published_at: vec![None; buffer_count],
+            fence_signaled_at: vec![None; buffer_count],
+            last_sequences: vec![None; output_count],
+            last_presented_at: vec![None; output_count],
+            submitted_at: vec![None; output_count],
             ready_published: 0,
             ready_with_fence: 0,
             fence_signals: 0,
             real_submissions: 0,
-            ready_superseded: 0,
-            ready_to_submit_max: Duration::ZERO,
+            presentations: 0,
+            sequence_samples: 0,
+            sequence_delta_total: 0,
+            sequence_delta_max: 0,
+            missed_vblanks: 0,
+            ready_to_fence: AuditLatency::default(),
+            fence_to_submit: AuditLatency::default(),
+            ready_to_submit: AuditLatency::default(),
+            render_to_publish: AuditLatency::default(),
+            presentation_delivery: AuditLatency::default(),
+            presentation_to_submit: AuditLatency::default(),
+            submit_to_presentation: AuditLatency::default(),
         }
     }
 
-    fn record_ready(&mut self, index: usize, has_fence: bool) {
+    fn record_ready(&mut self, index: usize, has_fence: bool, rendered_at: Option<Instant>) {
+        self.maybe_report();
         self.ready_published = self.ready_published.saturating_add(1);
         if has_fence {
             self.ready_with_fence = self.ready_with_fence.saturating_add(1);
         }
-        if let Some(published_at) = self.ready_published_at.get_mut(index) {
-            *published_at = Some(Instant::now());
+        let now = Instant::now();
+        if let Some(rendered_at) = rendered_at {
+            self.render_to_publish
+                .record(now.saturating_duration_since(rendered_at));
         }
-        self.maybe_report();
+        if let Some(published_at) = self.ready_published_at.get_mut(index) {
+            *published_at = Some(now);
+        }
+        if let Some(signaled_at) = self.fence_signaled_at.get_mut(index) {
+            *signaled_at = (!has_fence).then_some(now);
+        }
     }
 
-    fn record_real_submission(&mut self, index: usize) {
-        self.real_submissions = self.real_submissions.saturating_add(1);
+    fn record_fence_signal(&mut self, index: usize) {
+        self.maybe_report();
+        self.fence_signals = self.fence_signals.saturating_add(1);
+        let now = Instant::now();
         if let Some(Some(published_at)) = self.ready_published_at.get(index) {
-            self.ready_to_submit_max = self.ready_to_submit_max.max(published_at.elapsed());
+            self.ready_to_fence
+                .record(now.duration_since(*published_at));
         }
+        if let Some(signaled_at) = self.fence_signaled_at.get_mut(index) {
+            *signaled_at = Some(now);
+        }
+    }
+
+    fn record_real_submission(&mut self, output_index: usize, buffer_index: usize) {
+        self.maybe_report();
+        self.real_submissions = self.real_submissions.saturating_add(1);
+        let now = Instant::now();
+        if let Some(Some(presented_at)) = self.last_presented_at.get(output_index) {
+            self.presentation_to_submit
+                .record(now.saturating_duration_since(*presented_at));
+        }
+        if let Some(submitted_at) = self.submitted_at.get_mut(output_index) {
+            *submitted_at = Some(now);
+        }
+        if let Some(published_at) = self
+            .ready_published_at
+            .get_mut(buffer_index)
+            .and_then(Option::take)
+        {
+            self.ready_to_submit
+                .record(now.duration_since(published_at));
+        }
+        if let Some(signaled_at) = self
+            .fence_signaled_at
+            .get_mut(buffer_index)
+            .and_then(Option::take)
+        {
+            self.fence_to_submit.record(now.duration_since(signaled_at));
+        }
+    }
+
+    fn record_presentation(
+        &mut self,
+        output_index: usize,
+        observed_at: Instant,
+        sequence: Option<u64>,
+    ) {
+        self.maybe_report();
+        self.presentations = self.presentations.saturating_add(1);
+        let delivered_at = Instant::now();
+        self.presentation_delivery
+            .record(delivered_at.saturating_duration_since(observed_at));
+        if let Some(submitted_at) = self
+            .submitted_at
+            .get_mut(output_index)
+            .and_then(Option::take)
+        {
+            self.submit_to_presentation
+                .record(observed_at.saturating_duration_since(submitted_at));
+        }
+        if let Some(presented_at) = self.last_presented_at.get_mut(output_index) {
+            *presented_at = Some(observed_at);
+        }
+        let Some(sequence) = sequence.map(|sequence| sequence as u32) else {
+            return;
+        };
+        let Some(last_sequence) = self.last_sequences.get_mut(output_index) else {
+            return;
+        };
+        if let Some(previous) = *last_sequence {
+            let delta = sequence.wrapping_sub(previous);
+            self.sequence_samples = self.sequence_samples.saturating_add(1);
+            self.sequence_delta_total = self.sequence_delta_total.saturating_add(u64::from(delta));
+            self.sequence_delta_max = self.sequence_delta_max.max(delta);
+            self.missed_vblanks = self
+                .missed_vblanks
+                .saturating_add(u64::from(delta.saturating_sub(1)));
+        }
+        *last_sequence = Some(sequence);
     }
 
     fn maybe_report(&mut self) {
@@ -252,8 +384,29 @@ impl OutputSchedulerAudit {
             ready_with_fence = self.ready_with_fence,
             fence_signals = self.fence_signals,
             real_submissions = self.real_submissions,
-            ready_superseded = self.ready_superseded,
-            ready_to_submit_max_us = self.ready_to_submit_max.as_secs_f64() * 1_000_000.0,
+            presentations = self.presentations,
+            sequence_samples = self.sequence_samples,
+            sequence_delta_avg = if self.sequence_samples == 0 {
+                0.0
+            } else {
+                self.sequence_delta_total as f64 / self.sequence_samples as f64
+            },
+            sequence_delta_max = self.sequence_delta_max,
+            missed_vblanks = self.missed_vblanks,
+            ready_to_fence_avg_us = self.ready_to_fence.average_us(),
+            ready_to_fence_max_us = self.ready_to_fence.max.as_secs_f64() * 1_000_000.0,
+            fence_to_submit_avg_us = self.fence_to_submit.average_us(),
+            fence_to_submit_max_us = self.fence_to_submit.max.as_secs_f64() * 1_000_000.0,
+            ready_to_submit_avg_us = self.ready_to_submit.average_us(),
+            ready_to_submit_max_us = self.ready_to_submit.max.as_secs_f64() * 1_000_000.0,
+            render_to_publish_avg_us = self.render_to_publish.average_us(),
+            render_to_publish_max_us = self.render_to_publish.max.as_secs_f64() * 1_000_000.0,
+            presentation_delivery_avg_us = self.presentation_delivery.average_us(),
+            presentation_delivery_max_us = self.presentation_delivery.max.as_secs_f64() * 1_000_000.0,
+            presentation_to_submit_avg_us = self.presentation_to_submit.average_us(),
+            presentation_to_submit_max_us = self.presentation_to_submit.max.as_secs_f64() * 1_000_000.0,
+            submit_to_presentation_avg_us = self.submit_to_presentation.average_us(),
+            submit_to_presentation_max_us = self.submit_to_presentation.max.as_secs_f64() * 1_000_000.0,
             "KMS output scheduler audit"
         );
 
@@ -262,8 +415,18 @@ impl OutputSchedulerAudit {
         self.ready_with_fence = 0;
         self.fence_signals = 0;
         self.real_submissions = 0;
-        self.ready_superseded = 0;
-        self.ready_to_submit_max = Duration::ZERO;
+        self.presentations = 0;
+        self.sequence_samples = 0;
+        self.sequence_delta_total = 0;
+        self.sequence_delta_max = 0;
+        self.missed_vblanks = 0;
+        self.ready_to_fence = AuditLatency::default();
+        self.fence_to_submit = AuditLatency::default();
+        self.ready_to_submit = AuditLatency::default();
+        self.render_to_publish = AuditLatency::default();
+        self.presentation_delivery = AuditLatency::default();
+        self.presentation_to_submit = AuditLatency::default();
+        self.submit_to_presentation = AuditLatency::default();
     }
 }
 
@@ -291,7 +454,6 @@ pub(super) struct OutputScheduler {
     parked: Option<usize>,
     latest_index: usize,
     presented_frames: u64,
-    superseded_ready_frames: u64,
 }
 
 impl OutputScheduler {
@@ -347,11 +509,11 @@ impl OutputScheduler {
             ready_fences: std::iter::repeat_with(ReadyFenceSlot::default)
                 .take(buffer_count)
                 .collect(),
-            audit: render_audit_enabled().then(|| OutputSchedulerAudit::new(buffer_count)),
+            audit: render_audit_enabled()
+                .then(|| OutputSchedulerAudit::new(buffer_count, powered_outputs)),
             parked: (powered_outputs == 0).then_some(initial_index),
             latest_index: initial_index,
             presented_frames: 0,
-            superseded_ready_frames: 0,
         })
     }
 
@@ -366,6 +528,7 @@ impl OutputScheduler {
             fence,
             damage,
             screenshot_request_id,
+            rendered_at,
         } = ready;
         if self
             .ready_fences
@@ -375,7 +538,7 @@ impl OutputScheduler {
             return Err("Flutter published an atlas slot still awaiting KMS submission".into());
         }
         if let Some(audit) = self.audit.as_mut() {
-            audit.record_ready(index, fence.is_some());
+            audit.record_ready(index, fence.is_some(), rendered_at);
         }
         self.affected_pipelines.clear();
         self.affected_pipelines
@@ -412,48 +575,31 @@ impl OutputScheduler {
                 signal: ReadyFenceSignal { index, token },
             }));
         }
+        if self
+            .affected_pipelines
+            .iter()
+            .any(|pipeline_index| self.pipelines[*pipeline_index].ready.is_some())
+        {
+            return Err("cannot replace an unsubmitted Flutter output frame".into());
+        }
         runtime.publish_to_outputs(index, self.affected_pipelines.len())?;
         self.latest_index = index;
 
-        let watch_fence = fence
-            .as_ref()
-            .map(|fence| fence.as_fd().try_clone_to_owned())
-            .transpose()?;
         let token = next_ready_fence_token();
         self.ready_fences[index].claim(fence, self.affected_pipelines.len(), token)?;
         for pipeline_index in self.affected_pipelines.iter().copied() {
             let pipeline = &mut self.pipelines[pipeline_index];
-            let mut pipeline_screenshot_request_id = screenshot_request_id;
-            if let Some(superseded) = pipeline.ready.take() {
-                if pipeline_screenshot_request_id.is_none() {
-                    pipeline_screenshot_request_id = superseded.screenshot_request_id;
-                }
-                self.superseded_ready_frames = self.superseded_ready_frames.saturating_add(1);
-                if let Some(audit) = self.audit.as_mut() {
-                    audit.ready_superseded = audit.ready_superseded.saturating_add(1);
-                }
-                if self.superseded_ready_frames == 1 {
-                    info!(
-                        output = scanouts[pipeline.scanout_index].output.name,
-                        "Flutter atlas mailbox superseded its first unsubmitted output frame"
-                    );
-                }
-                runtime.release_output(superseded.index)?;
-                let slot = self
-                    .ready_fences
-                    .get_mut(superseded.index)
-                    .ok_or("superseded Flutter fence index exceeds the atlas pool")?;
-                slot.release_user()?;
-            }
             pipeline.ready = Some(OutputFrame {
                 index,
-                screenshot_request_id: pipeline_screenshot_request_id,
+                screenshot_request_id,
             });
         }
-        Ok(watch_fence.map(|fence| ReadyFenceWatch {
-            fence,
-            signal: ReadyFenceSignal { index, token },
-        }))
+        // Every affected plane advertised IN_FENCE_FD before Flutter enabled
+        // native fences. Queue that fence directly with the atomic commit;
+        // the kernel takes its own reference during the ioctl and wakes the
+        // display pipeline when rendering completes. A userspace fence watch
+        // is needed only for a rendered frame which no output will consume.
+        Ok(None)
     }
 
     pub(super) fn acknowledge_ready_fences(
@@ -465,7 +611,7 @@ impl OutputScheduler {
             if let Some(slot) = self.ready_fences.get_mut(signal.index) {
                 let signaled = slot.mark_signaled(signal.token);
                 if signaled && let Some(audit) = self.audit.as_mut() {
-                    audit.fence_signals = audit.fence_signals.saturating_add(1);
+                    audit.record_fence_signal(signal.index);
                 }
                 if signaled && slot.discard_on_signal {
                     runtime.release_output(signal.index)?;
@@ -487,20 +633,17 @@ impl OutputScheduler {
         let mut queue_error = None;
         let (pipelines, ready_fences, audit) =
             (&mut self.pipelines, &mut self.ready_fences, &mut self.audit);
-        for pipeline in pipelines {
+        for (pipeline_index, pipeline) in pipelines.iter_mut().enumerate() {
             if pipeline.powering_off || pipeline.submitted.is_some() || pipeline.ready.is_none() {
                 continue;
             }
             let scanout = &scanouts[pipeline.scanout_index];
             let frame = pipeline.ready.as_ref().expect("checked ready output frame");
             let frame_index = frame.index;
-            if !ready_fences[frame_index].can_submit() {
-                // Keep unfinished GPU work out of KMS. An IN_FENCE_FD queued
-                // here would occupy the CRTC's sole pending commit until the
-                // fence signaled, suppressing physical edges and allowing the
-                // producer mailbox to build a burst behind it. The calloop
-                // fence watch wakes the scheduler as soon as this frame is
-                // genuinely eligible for the next vblank.
+            if !ready_fences[frame_index].can_queue() {
+                // A pipeline-ready frame must retain one fence owner until its
+                // atomic ioctl has copied IN_FENCE_FD. Fence-less rendering
+                // reaches this point only after the raster thread's glFinish.
                 continue;
             }
             let framebuffer = swapchain.buffers[frame_index].framebuffer();
@@ -515,7 +658,7 @@ impl OutputScheduler {
             events.pending.insert(scanout.output.crtc);
             pipeline.submitted = pipeline.ready.take();
             if let Some(audit) = audit.as_mut() {
-                audit.record_real_submission(frame_index);
+                audit.record_real_submission(pipeline_index, frame_index);
             }
             ready_fences[frame_index].release_user()?;
             if ready_fences[frame_index].users == 0 {
@@ -532,6 +675,16 @@ impl OutputScheduler {
             return Err(error.into());
         }
         Ok(self.submitted_outputs.len())
+    }
+
+    /// A completed Flutter atlas must remain in the runtime broker while any
+    /// output is still waiting to submit the preceding generation. This
+    /// bounds producer work without replacing a buffer whose GPU fence may
+    /// still be pending.
+    pub(super) fn can_accept_ready(&self) -> bool {
+        self.pipelines
+            .iter()
+            .all(|pipeline| pipeline.ready.is_none())
     }
 
     pub(super) fn handle_completions(
@@ -590,6 +743,13 @@ impl OutputScheduler {
                 presented_at: completion.presented_at,
                 sequence: completion.sequence,
             };
+            if let Some(audit) = self.audit.as_mut() {
+                audit.record_presentation(
+                    pipeline_index,
+                    completion.observed_at,
+                    completion.sequence,
+                );
+            }
             self.presented_outputs.push(presentation);
             self.presented_frames = self.presented_frames.saturating_add(1);
         }
@@ -868,17 +1028,14 @@ impl OutputScheduler {
     pub(super) fn presented_frames(&self) -> u64 {
         self.presented_frames
     }
-
-    pub(super) fn superseded_ready_frames(&self) -> u64 {
-        self.superseded_ready_frames
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::os::unix::net::UnixStream;
+    use std::time::Instant;
 
-    use super::ReadyFenceSlot;
+    use super::{OutputSchedulerAudit, ReadyFenceSlot};
 
     #[test]
     fn ready_fence_slot_closes_only_after_its_last_pipeline_user() {
@@ -886,7 +1043,7 @@ mod tests {
         assert!(slot.is_available());
         slot.claim(None, 2, 11).unwrap();
         assert!(!slot.is_available());
-        assert!(slot.can_submit());
+        assert!(slot.can_queue());
         assert!(slot.claim(None, 1, 12).is_err());
 
         slot.release_user().unwrap();
@@ -903,11 +1060,11 @@ mod tests {
         let mut slot = ReadyFenceSlot::default();
         let (fence, _peer) = UnixStream::pair().unwrap();
         slot.claim(Some(fence.into()), 1, 21).unwrap();
-        assert!(!slot.can_submit());
+        assert!(slot.can_queue());
         assert!(!slot.mark_signaled(20));
-        assert!(!slot.can_submit());
+        assert!(slot.can_queue());
         assert!(slot.mark_signaled(21));
-        assert!(slot.can_submit());
+        assert!(slot.can_queue());
 
         slot.release_user().unwrap();
         assert!(!slot.mark_signaled(21));
@@ -924,5 +1081,19 @@ mod tests {
         assert!(!slot.is_available());
         slot.release_user().unwrap();
         assert!(slot.is_available());
+    }
+
+    #[test]
+    fn scheduler_audit_counts_wrapped_drm_sequence_gaps() {
+        let mut audit = OutputSchedulerAudit::new(4, 1);
+        let now = Instant::now();
+        audit.record_presentation(0, now, Some(u64::from(u32::MAX - 1)));
+        audit.record_presentation(0, now, Some(1));
+
+        assert_eq!(audit.presentations, 2);
+        assert_eq!(audit.sequence_samples, 1);
+        assert_eq!(audit.sequence_delta_total, 3);
+        assert_eq!(audit.sequence_delta_max, 3);
+        assert_eq!(audit.missed_vblanks, 2);
     }
 }

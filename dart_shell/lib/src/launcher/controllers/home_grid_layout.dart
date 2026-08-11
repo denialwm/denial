@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
+import '../../local_apps/local_flutter_application.dart';
 import '../models/desktop_app.dart';
 import '../models/home_grid_item.dart';
 
@@ -75,12 +76,15 @@ class HomeGridLayout {
 
   static List<HomeGridItem?> initialSlotsForApps(
     List<DesktopApp> apps,
+    Iterable<LocalFlutterApplication> localApps,
     List<HomeLayoutSlot?>? savedLayout,
   ) {
     final itemsById = <String, HomeGridItem>{
       'widget:clock': HomeGridItem.clock(),
       'widget:battery-discharge': HomeGridItem.batteryDischarge(),
       for (final app in apps) 'app:${app.id}': HomeGridItem.app(app),
+      for (final app in localApps)
+        'local:${app.id}': HomeGridItem.localApp(app),
     };
     final used = <String>{};
     var slots = <HomeGridItem?>[];
@@ -128,9 +132,12 @@ class HomeGridLayout {
   static List<HomeGridItem?> refreshSlotsForApps(
     List<HomeGridItem?> currentSlots,
     List<DesktopApp> apps,
+    Iterable<LocalFlutterApplication> localApps,
   ) {
     final appItemsById = <String, HomeGridItem>{
       for (final app in apps) 'app:${app.id}': HomeGridItem.app(app),
+      for (final app in localApps)
+        'local:${app.id}': HomeGridItem.localApp(app),
     };
     final placedIds = <String>{};
     var next = <HomeGridItem?>[];

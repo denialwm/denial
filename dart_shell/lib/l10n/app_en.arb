@@ -2802,6 +2802,22 @@
   "@settingsUseSystemWallpaperDescription": {
     "description": "English UI text for settingsUseSystemWallpaperDescription."
   },
+  "settingsWallpaperChoose": "Choose wallpaper",
+  "@settingsWallpaperChoose": {
+    "description": "Action that opens the shell wallpaper selector."
+  },
+  "settingsWallpaperDescription": "Choose the image shown behind the shell and on the lock screen.",
+  "@settingsWallpaperDescription": {
+    "description": "Explanation of the wallpaper appearance setting."
+  },
+  "settingsWallpaperPreviewSemantics": "Current wallpaper preview",
+  "@settingsWallpaperPreviewSemantics": {
+    "description": "Accessibility label for the current wallpaper thumbnail."
+  },
+  "settingsWallpaperTitle": "Wallpaper",
+  "@settingsWallpaperTitle": {
+    "description": "Title of the wallpaper appearance setting."
+  },
   "settingsWidth": "Width",
   "@settingsWidth": {
     "description": "English UI text for settingsWidth."
@@ -3009,6 +3025,50 @@
   "wallpaperFinding": "Finding wallpapers…",
   "@wallpaperFinding": {
     "description": "English UI text for wallpaperFinding."
+  },
+  "wallpaperMobileBackToSelection": "Back to wallpaper selection",
+  "@wallpaperMobileBackToSelection": {
+    "description": "Accessibility label for leaving mobile wallpaper positioning."
+  },
+  "wallpaperMobileCenterPosition": "Center",
+  "@wallpaperMobileCenterPosition": {
+    "description": "Button that centers the mobile wallpaper position."
+  },
+  "wallpaperMobileChoose": "Choose a wallpaper",
+  "@wallpaperMobileChoose": {
+    "description": "Heading above mobile wallpaper choices."
+  },
+  "wallpaperMobileDone": "Done",
+  "@wallpaperMobileDone": {
+    "description": "Button that finishes precise mobile wallpaper positioning."
+  },
+  "wallpaperMobileHideControls": "Hide controls",
+  "@wallpaperMobileHideControls": {
+    "description": "Accessibility label for hiding the mobile wallpaper selector UI."
+  },
+  "wallpaperMobileHorizontalPosition": "Horizontal",
+  "@wallpaperMobileHorizontalPosition": {
+    "description": "Label for precise horizontal wallpaper positioning."
+  },
+  "wallpaperMobilePosition": "Position",
+  "@wallpaperMobilePosition": {
+    "description": "Action and title for precise mobile wallpaper positioning."
+  },
+  "wallpaperMobilePositionHint": "Drag the wallpaper, then fine-tune its position",
+  "@wallpaperMobilePositionHint": {
+    "description": "Instruction shown while positioning a mobile wallpaper."
+  },
+  "wallpaperMobileShowControls": "Show controls",
+  "@wallpaperMobileShowControls": {
+    "description": "Accessibility label for restoring the hidden mobile wallpaper selector UI."
+  },
+  "wallpaperMobileTitle": "Wallpaper",
+  "@wallpaperMobileTitle": {
+    "description": "Title of the dedicated mobile wallpaper selector."
+  },
+  "wallpaperMobileVerticalPosition": "Vertical",
+  "@wallpaperMobileVerticalPosition": {
+    "description": "Label for precise vertical wallpaper positioning."
   },
   "wallpaperNoneFound": "No wallpapers found",
   "@wallpaperNoneFound": {

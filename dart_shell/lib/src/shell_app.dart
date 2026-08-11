@@ -24,6 +24,8 @@ import 'theme/motion.dart';
 import 'theme/shell_theme.dart';
 import 'theme/tokens.dart';
 import 'wallpaper/state/wallpaper_accent.dart';
+import 'wallpaper/state/wallpaper_controller.dart';
+import 'wallpaper/widgets/mobile_wallpaper_selector_layer.dart';
 import 'widgets/bottom_gesture_handle.dart';
 import 'widgets/connectivity/bluetooth_detail_surface.dart';
 import 'widgets/edge_panel_layer.dart';
@@ -39,7 +41,7 @@ import 'widgets/screenshot_selection_layer.dart';
 import 'widgets/shell_surface_host.dart';
 import 'widgets/shell_wallpaper.dart';
 import 'widgets/system_level_hud.dart';
-import 'widgets/window_texture_rect.dart';
+import 'widgets/window_content_rect.dart';
 
 const _shellDragDevices = <PointerDeviceKind>{
   PointerDeviceKind.touch,
@@ -136,6 +138,7 @@ class _DenialShellAppState extends ConsumerState<DenialShellApp> {
           ref
               .read(shellSurfaceControllerProvider.notifier)
               .dismissAllImmediately();
+          ref.read(wallpaperControllerProvider.notifier).closeSelector();
         }
       },
     );
@@ -180,15 +183,22 @@ class _DenialShellAppState extends ConsumerState<DenialShellApp> {
     );
     final scene = switch (effectiveProfile) {
       ShellProfile.mobile => InputLayoutPublisher(
-        child: const ShellSurfaceHost(
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              _ShellContent(),
-              SystemLevelHudLayer(),
-              NotificationBannerLayer(),
-            ],
-          ),
+        child: const Stack(
+          fit: StackFit.expand,
+          children: [
+            ShellSurfaceHost(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _ShellContent(),
+                  SystemLevelHudLayer(),
+                  NotificationBannerLayer(),
+                  MobileWallpaperSelectorLayer(),
+                ],
+              ),
+            ),
+            MobileSystemKeyboardLayer(),
+          ],
         ),
       ),
       ShellProfile.desktop => DesktopInputLayoutPublisher(
@@ -315,8 +325,6 @@ class _ShellContent extends ConsumerWidget {
           overviewVisible: state.overviewVisible,
           swipeDy: state.gestureDrag.dy,
           homeTransitionActive: state.homeTransitionActive,
-          edgePanelProgress: state.edgePanelDragProgress,
-          edgePanelViewportScroll: state.edgePanelViewportScroll,
           locked: state.locked,
           lockLayerVisible: state.lockLayerVisible,
         ),
@@ -333,87 +341,71 @@ class _ShellContent extends ConsumerWidget {
             visual.swipeDy < 0.0 ||
             visual.homeTransitionActive);
     final primaryOpacity = heroOwnsForeground ? 0.0 : 1.0;
+    final applicationScene = MobileKeyboardViewport(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const ShellWallpaper(),
+          const RepaintBoundary(child: _LauncherLayer()),
+          if (primaryWindow != null &&
+              !(primaryWindow.isLocalFlutter && heroOwnsForeground))
+            Positioned.fill(
+              child: _PrimaryWindowStage(
+                currentWindow: primaryWindow,
+                switchTargetWindow: visual.appSwitchTargetWindow,
+                switchDragX: visual.appSwitchDragX,
+                opacity: primaryOpacity,
+              ),
+            ),
+          LaunchTransitionLayer(
+            request: visual.launchRequest,
+            window: visual.launchingWindow,
+            onCompleted: controller.completeLaunchTransition,
+          ),
+          OverviewLayer(
+            windows: userAppWindows,
+            foregroundWindow: visual.foregroundWindow,
+            foregroundObjectId: visual.foregroundObjectId,
+            visible: visual.overviewVisible,
+            swipeDy: visual.swipeDy,
+            homeTransitionActive: visual.homeTransitionActive,
+            onDismissOverview: controller.closeOverview,
+            onDismissWindow: controller.closeWindow,
+            onFocusWindow: controller.focusWindow,
+            onHomeSettled: controller.completeHomeTransition,
+          ),
+        ],
+      ),
+    );
+    const shellChromeLayer = Stack(
+      fit: StackFit.expand,
+      children: [BottomGestureHandle(), SystemShadeLayer()],
+    );
 
     return DefaultTextStyle(
       style: ShellText.base,
       child: ColoredBox(
         color: ShellColors.background,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final viewSize = constraints.biggest;
-            final edgePanelOffset =
-                ShellMetrics.edgePanelHeight(viewSize) *
-                visual.edgePanelProgress;
-            final viewportScroll = visual.edgePanelViewportScroll
-                .clamp(0.0, edgePanelOffset)
-                .toDouble();
-            final contentOffset = edgePanelOffset - viewportScroll;
-            final applicationScene = Transform.translate(
-              offset: Offset(0.0, -contentOffset),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  const ShellWallpaper(),
-                  const RepaintBoundary(child: _LauncherLayer()),
-                  if (primaryWindow != null)
-                    Positioned.fill(
-                      child: _PrimaryWindowStage(
-                        currentWindow: primaryWindow,
-                        switchTargetWindow: visual.appSwitchTargetWindow,
-                        switchDragX: visual.appSwitchDragX,
-                        opacity: primaryOpacity,
-                      ),
-                    ),
-                  LaunchTransitionLayer(
-                    request: visual.launchRequest,
-                    window: visual.launchingWindow,
-                    onCompleted: controller.completeLaunchTransition,
-                  ),
-                  OverviewLayer(
-                    windows: userAppWindows,
-                    foregroundWindow: visual.foregroundWindow,
-                    foregroundObjectId: visual.foregroundObjectId,
-                    visible: visual.overviewVisible,
-                    swipeDy: visual.swipeDy,
-                    homeTransitionActive: visual.homeTransitionActive,
-                    onDismissOverview: controller.closeOverview,
-                    onDismissWindow: controller.closeWindow,
-                    onFocusWindow: controller.focusWindow,
-                    onHomeSettled: controller.completeHomeTransition,
-                  ),
-                ],
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            UnlockTransitionHost(
+              locked: visual.locked,
+              lockLayerVisible: visual.lockLayerVisible,
+              onUnlockComplete: controller.completeUnlockTransition,
+              scene: applicationScene,
+              chrome: IgnorePointer(
+                ignoring: visual.launchRequest != null,
+                child: shellChromeLayer,
               ),
-            );
-            const shellChromeLayer = Stack(
-              fit: StackFit.expand,
-              children: [
-                BottomGestureHandle(),
-                SystemShadeLayer(),
-                EdgePanelLayer(),
-              ],
-            );
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                UnlockTransitionHost(
-                  locked: visual.locked,
-                  lockLayerVisible: visual.lockLayerVisible,
-                  onUnlockComplete: controller.completeUnlockTransition,
-                  scene: applicationScene,
-                  chrome: IgnorePointer(
-                    ignoring: visual.launchRequest != null,
-                    child: shellChromeLayer,
-                  ),
-                ),
-                if (frameTiming.showOverlay)
-                  const Positioned(
-                    top: 12,
-                    left: 12,
-                    child: _FrameTimingOverlayHost(),
-                  ),
-              ],
-            );
-          },
+            ),
+            if (frameTiming.showOverlay)
+              const Positioned(
+                top: 12,
+                left: 12,
+                child: _FrameTimingOverlayHost(),
+              ),
+          ],
         ),
       ),
     );
@@ -707,9 +699,10 @@ class _PrimaryWindowStage extends StatelessWidget {
   Widget build(BuildContext context) {
     final target = switchTargetWindow;
     if (target == null || switchDragX.abs() < 0.5) {
-      final texture = WindowTextureRect(
+      final texture = WindowContentRect(
         key: ValueKey<int>(currentWindow.objectId),
         window: currentWindow,
+        active: true,
       );
       return opacity >= 1.0
           ? texture
@@ -731,9 +724,10 @@ class _PrimaryWindowStage extends StatelessWidget {
             Positioned.fill(
               child: Transform.translate(
                 offset: Offset(dx, 0.0),
-                child: WindowTextureRect(
+                child: WindowContentRect(
                   key: ValueKey<int>(currentWindow.objectId),
                   window: currentWindow,
+                  active: true,
                   borderRadius: _switchRadius,
                 ),
               ),
@@ -741,7 +735,7 @@ class _PrimaryWindowStage extends StatelessWidget {
             Positioned.fill(
               child: Transform.translate(
                 offset: Offset(targetDx, 0.0),
-                child: WindowTextureRect(
+                child: WindowContentRect(
                   key: ValueKey<int>(target.objectId),
                   window: target,
                   borderRadius: _switchRadius,

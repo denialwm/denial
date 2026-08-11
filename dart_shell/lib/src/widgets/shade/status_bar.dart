@@ -84,7 +84,7 @@ class _StatusClock extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final now = ref.watch(clockProvider).value ?? DateTime.now();
     return Text(
-      context.l10n.statusBarLiveTime(localizedTime(context, now)),
+      localizedTime(context, now),
       style: ShellText.statusClock.copyWith(color: color),
     );
   }
