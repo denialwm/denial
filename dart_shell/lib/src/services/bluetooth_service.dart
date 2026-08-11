@@ -99,18 +99,18 @@ class BluetoothDeviceInfo {
 
   @override
   int get hashCode => Object.hash(
-        objectPath,
-        adapterPath,
-        address,
-        name,
-        icon,
-        connected,
-        paired,
-        trusted,
-        blocked,
-        servicesResolved,
-        signalStrength,
-      );
+    objectPath,
+    adapterPath,
+    address,
+    name,
+    icon,
+    connected,
+    paired,
+    trusted,
+    blocked,
+    servicesResolved,
+    signalStrength,
+  );
 }
 
 @immutable
@@ -127,14 +127,14 @@ class BluetoothSnapshot {
   });
 
   const BluetoothSnapshot.unavailable()
-      : serviceAvailable = false,
-        available = false,
-        adapterPath = null,
-        adapterName = '',
-        powered = false,
-        discovering = false,
-        pairable = false,
-        devices = const <BluetoothDeviceInfo>[];
+    : serviceAvailable = false,
+      available = false,
+      adapterPath = null,
+      adapterName = '',
+      powered = false,
+      discovering = false,
+      pairable = false,
+      devices = const <BluetoothDeviceInfo>[];
 
   final bool serviceAvailable;
   final bool available;
@@ -169,15 +169,15 @@ class BluetoothSnapshot {
 
   @override
   int get hashCode => Object.hash(
-        serviceAvailable,
-        available,
-        adapterPath,
-        adapterName,
-        powered,
-        discovering,
-        pairable,
-        Object.hashAll(devices),
-      );
+    serviceAvailable,
+    available,
+    adapterPath,
+    adapterName,
+    powered,
+    discovering,
+    pairable,
+    Object.hashAll(devices),
+  );
 }
 
 abstract interface class BluetoothBackend {
@@ -230,12 +230,12 @@ class BluetoothService implements BluetoothBackend {
   }
 
   BluetoothService._(this._client)
-      : _manager = DBusRemoteObjectManager(
-          _client,
-          name: _bluez,
-          path: DBusObjectPath.root,
-        ),
-        _agent = BluetoothAgentEndpoint();
+    : _manager = DBusRemoteObjectManager(
+        _client,
+        name: _bluez,
+        path: DBusObjectPath.root,
+      ),
+      _agent = BluetoothAgentEndpoint();
 
   static const String _bluez = 'org.bluez';
   static const String _adapterInterface = 'org.bluez.Adapter1';
@@ -392,13 +392,10 @@ class BluetoothService implements BluetoothBackend {
       return;
     }
     _refreshTimer?.cancel();
-    _refreshTimer = Timer(
-      immediate ? Duration.zero : _signalCoalesce,
-      () {
-        _refreshTimer = null;
-        unawaited(refresh());
-      },
-    );
+    _refreshTimer = Timer(immediate ? Duration.zero : _signalCoalesce, () {
+      _refreshTimer = null;
+      unawaited(refresh());
+    });
   }
 
   void _emit(BluetoothSnapshot snapshot) {
@@ -549,12 +546,9 @@ class BluetoothService implements BluetoothBackend {
       respondToPairing(_currentPairingRequest!.id, accepted: false);
     }
     await (await _adapter())
-        .callMethod(
-          _adapterInterface,
-          'RemoveDevice',
-          <DBusValue>[DBusObjectPath(device.objectPath)],
-          replySignature: DBusSignature(''),
-        )
+        .callMethod(_adapterInterface, 'RemoveDevice', <DBusValue>[
+          DBusObjectPath(device.objectPath),
+        ], replySignature: DBusSignature(''))
         .timeout(_methodTimeout);
     await refresh();
   }
@@ -791,9 +785,9 @@ class BluetoothService implements BluetoothBackend {
         pending.completer.complete(_bluezRejected('Invalid PIN code'));
         return;
       }
-      pending.completer.complete(DBusMethodSuccessResponse(<DBusValue>[
-        DBusString(pin),
-      ]));
+      pending.completer.complete(
+        DBusMethodSuccessResponse(<DBusValue>[DBusString(pin)]),
+      );
       return;
     }
     if (kind == BluetoothPairingRequestKind.passkey) {
@@ -802,9 +796,9 @@ class BluetoothService implements BluetoothBackend {
         pending.completer.complete(_bluezRejected('Invalid passkey'));
         return;
       }
-      pending.completer.complete(DBusMethodSuccessResponse(<DBusValue>[
-        DBusUint32(passkey),
-      ]));
+      pending.completer.complete(
+        DBusMethodSuccessResponse(<DBusValue>[DBusUint32(passkey)]),
+      );
       return;
     }
     pending.completer.complete(DBusMethodSuccessResponse());
@@ -838,11 +832,7 @@ class BluetoothService implements BluetoothBackend {
     if (path == null) {
       throw StateError('No Bluetooth adapter is available');
     }
-    return DBusRemoteObject(
-      _client,
-      name: _bluez,
-      path: DBusObjectPath(path),
-    );
+    return DBusRemoteObject(_client, name: _bluez, path: DBusObjectPath(path));
   }
 
   DBusRemoteObject _device(BluetoothDeviceInfo device) {
@@ -889,11 +879,7 @@ BluetoothSnapshot buildBluetoothSnapshot(
     final candidate = _AdapterSnapshot(
       path: entry.key.value,
       name: _bounded(
-        _string(
-          properties,
-          'Alias',
-          fallback: _string(properties, 'Name'),
-        ),
+        _string(properties, 'Alias', fallback: _string(properties, 'Name')),
         96,
       ),
       powered: _boolean(properties, 'Powered'),
@@ -1008,28 +994,28 @@ class _PendingPairing {
 @visibleForTesting
 class BluetoothAgentEndpoint extends DBusObject {
   BluetoothAgentEndpoint()
-      : super(DBusObjectPath('/org/denial/BluetoothAgent'));
+    : super(DBusObjectPath('/org/denial/BluetoothAgent'));
 
   String? Function()? owner;
   Future<DBusMethodResponse> Function(DBusMethodCall)? handler;
 
   @override
   List<DBusIntrospectInterface> introspect() => <DBusIntrospectInterface>[
-        DBusIntrospectInterface(
-          'org.bluez.Agent1',
-          methods: <DBusIntrospectMethod>[
-            _agentMethod('Release'),
-            _agentMethod('RequestPinCode', input: 'o', output: 's'),
-            _agentMethod('DisplayPinCode', input: 'os'),
-            _agentMethod('RequestPasskey', input: 'o', output: 'u'),
-            _agentMethod('DisplayPasskey', input: 'ouq'),
-            _agentMethod('RequestConfirmation', input: 'ou'),
-            _agentMethod('RequestAuthorization', input: 'o'),
-            _agentMethod('AuthorizeService', input: 'os'),
-            _agentMethod('Cancel'),
-          ],
-        ),
-      ];
+    DBusIntrospectInterface(
+      'org.bluez.Agent1',
+      methods: <DBusIntrospectMethod>[
+        _agentMethod('Release'),
+        _agentMethod('RequestPinCode', input: 'o', output: 's'),
+        _agentMethod('DisplayPinCode', input: 'os'),
+        _agentMethod('RequestPasskey', input: 'o', output: 'u'),
+        _agentMethod('DisplayPasskey', input: 'ouq'),
+        _agentMethod('RequestConfirmation', input: 'ou'),
+        _agentMethod('RequestAuthorization', input: 'o'),
+        _agentMethod('AuthorizeService', input: 'os'),
+        _agentMethod('Cancel'),
+      ],
+    ),
+  ];
 
   @override
   Future<DBusMethodResponse> handleMethodCall(DBusMethodCall methodCall) async {
@@ -1068,16 +1054,14 @@ DBusIntrospectMethod _agentMethod(
 }
 
 DBusMethodErrorResponse _bluezRejected(String message) =>
-    DBusMethodErrorResponse(
-      'org.bluez.Error.Rejected',
-      <DBusValue>[DBusString(message)],
-    );
+    DBusMethodErrorResponse('org.bluez.Error.Rejected', <DBusValue>[
+      DBusString(message),
+    ]);
 
 DBusMethodErrorResponse _bluezCanceled(String message) =>
-    DBusMethodErrorResponse(
-      'org.bluez.Error.Canceled',
-      <DBusValue>[DBusString(message)],
-    );
+    DBusMethodErrorResponse('org.bluez.Error.Canceled', <DBusValue>[
+      DBusString(message),
+    ]);
 
 String _string(
   Map<String, DBusValue> properties,

@@ -15,6 +15,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get actionDismiss => 'Dismiss';
 
   @override
+  String get screenshotSelectionHint =>
+      'Drag to select an area · Esc to cancel';
+
+  @override
   String get anchorBottomCenter => 'Bottom center';
 
   @override
@@ -276,6 +280,77 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get chargeProtocolVooc => 'VOOC';
+
+  @override
+  String get clipboardCloseHistory => 'Close clipboard history';
+
+  @override
+  String get clipboardDelete => 'Delete';
+
+  @override
+  String get clipboardDeleteItem => 'Delete clipboard item';
+
+  @override
+  String get clipboardDragToClose =>
+      'Drag clipboard tray toward its edge to close';
+
+  @override
+  String get clipboardEmptyDescription =>
+      'Copy text, an image, or files and they will appear here.';
+
+  @override
+  String get clipboardEmptyTitle => 'Nothing captured yet';
+
+  @override
+  String get clipboardFileSelection => 'File selection';
+
+  @override
+  String get clipboardHistoryLockedDescription =>
+      'Clipboard contents stay hidden while the session is locked.';
+
+  @override
+  String get clipboardHistoryLockedTitle => 'History is sealed';
+
+  @override
+  String get clipboardImageFileThumbnail => 'Image file thumbnail';
+
+  @override
+  String get clipboardImagePreview => 'Clipboard image preview';
+
+  @override
+  String get clipboardItemHint =>
+      'Activate to paste it into the focused app. Drag it to drop it.';
+
+  @override
+  String clipboardItemSemantics(String type, String preview) {
+    return '$type clipboard item. $preview';
+  }
+
+  @override
+  String get clipboardNoSearchResultsDescription =>
+      'Try a different word, file type, or application.';
+
+  @override
+  String get clipboardNoSearchResultsTitle => 'No echoes found';
+
+  @override
+  String get clipboardPreviewUnavailable => 'Preview unavailable';
+
+  @override
+  String get clipboardTypeFiles => 'FILES';
+
+  @override
+  String get clipboardTypeImage => 'IMAGE';
+
+  @override
+  String get clipboardTypeText => 'TEXT';
+
+  @override
+  String get clipboardUnavailableDescription =>
+      'The native history service did not answer.';
+
+  @override
+  String get clipboardUnavailableTitle => 'Clipboard bridge unavailable';
 
   @override
   String get commonBluetooth => 'Bluetooth';
@@ -1352,6 +1427,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsConnectedDisplaysTitle => 'Connected displays';
 
   @override
+  String get settingsCursorSize => 'Cursor size';
+
+  @override
+  String get settingsCursorTitle => 'Cursor';
+
+  @override
   String get settingsDashboardOverlayDescription =>
       'Position the desktop dashboard.';
 
@@ -1431,6 +1512,31 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsLauncherOverlayTitle => 'Applications';
+
+  @override
+  String get settingsLanguageDescription =>
+      'System default follows your desktop language. Changes apply immediately.';
+
+  @override
+  String get settingsLanguageEnglish => 'English';
+
+  @override
+  String get settingsLanguageInterfaceTitle => 'Interface language';
+
+  @override
+  String get settingsLanguageSection => 'LANGUAGE';
+
+  @override
+  String get settingsLanguageSelectorSemantics => 'Denial interface language';
+
+  @override
+  String get settingsLanguageSimplifiedChinese => '简体中文';
+
+  @override
+  String get settingsLanguageSystemDefault => 'System default';
+
+  @override
+  String get settingsLanguageTitle => 'Choose the language Denial uses.';
 
   @override
   String get settingsLayoutDescription =>
@@ -1663,6 +1769,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsNavigationDisplays => 'Displays & video';
+
+  @override
+  String get settingsNavigationLanguage => 'Language';
 
   @override
   String get settingsNavigationLockScreen => 'Lock screen';
@@ -1926,6 +2035,19 @@ class AppLocalizationsEn extends AppLocalizations {
       'The lock screen follows wallpaper changes and per-output assignments.';
 
   @override
+  String get settingsWallpaperChoose => 'Choose wallpaper';
+
+  @override
+  String get settingsWallpaperDescription =>
+      'Choose the image shown behind the shell and on the lock screen.';
+
+  @override
+  String get settingsWallpaperPreviewSemantics => 'Current wallpaper preview';
+
+  @override
+  String get settingsWallpaperTitle => 'Wallpaper';
+
+  @override
   String get settingsWidth => 'Width';
 
   @override
@@ -2060,6 +2182,40 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get wallpaperFinding => 'Finding wallpapers…';
+
+  @override
+  String get wallpaperMobileBackToSelection => 'Back to wallpaper selection';
+
+  @override
+  String get wallpaperMobileCenterPosition => 'Center';
+
+  @override
+  String get wallpaperMobileChoose => 'Choose a wallpaper';
+
+  @override
+  String get wallpaperMobileDone => 'Done';
+
+  @override
+  String get wallpaperMobileHideControls => 'Hide controls';
+
+  @override
+  String get wallpaperMobileHorizontalPosition => 'Horizontal';
+
+  @override
+  String get wallpaperMobilePosition => 'Position';
+
+  @override
+  String get wallpaperMobilePositionHint =>
+      'Drag the wallpaper, then fine-tune its position';
+
+  @override
+  String get wallpaperMobileShowControls => 'Show controls';
+
+  @override
+  String get wallpaperMobileTitle => 'Wallpaper';
+
+  @override
+  String get wallpaperMobileVerticalPosition => 'Vertical';
 
   @override
   String get wallpaperNoneFound => 'No wallpapers found';

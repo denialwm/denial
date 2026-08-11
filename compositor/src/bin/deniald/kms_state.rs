@@ -10,7 +10,7 @@ use smithay::backend::egl::EGLContext;
 const ATLAS_BYTES_PER_PIXEL: u64 = 4;
 const MAX_ATLAS_DIMENSION: u32 = 16_384;
 const MAX_ATLAS_POOL_BYTES: u64 = 1024 * 1024 * 1024;
-const MAX_ATLAS_BUFFERS: usize = 33;
+const MAX_ATLAS_BUFFERS: usize = 49;
 
 #[derive(Clone, Debug)]
 pub(super) struct ConnectedOutput {
@@ -234,10 +234,27 @@ pub(super) struct AtlasPlaneProperties {
     pub(super) source_width: property::Handle,
     pub(super) source_height: property::Handle,
     pub(super) in_fence_fd: Option<property::Handle>,
+    pub(super) smithay_opaque_alpha: f32,
 }
 
 impl AtlasPlaneProperties {
     pub(super) fn load(drm: &DrmDevice, plane: plane::Handle) -> Result<Self, Box<dyn Error>> {
+        let smithay_opaque_alpha = match optional_named_property(drm, plane, "alpha")? {
+            Some(alpha) => match drm.get_property(alpha)?.value_type() {
+                property::ValueType::UnsignedRange(0, maximum) => {
+                    let value = smithay_opaque_alpha_for_maximum(maximum);
+                    if value != 1.0 {
+                        info!(
+                            ?plane,
+                            maximum, "adapting to non-standard DRM plane alpha range"
+                        );
+                    }
+                    value
+                }
+                _ => 1.0,
+            },
+            None => 1.0,
+        };
         Ok(Self {
             framebuffer: named_property(drm, plane, "FB_ID")?,
             source_x: named_property(drm, plane, "SRC_X")?,
@@ -245,7 +262,18 @@ impl AtlasPlaneProperties {
             source_width: named_property(drm, plane, "SRC_W")?,
             source_height: named_property(drm, plane, "SRC_H")?,
             in_fence_fd: optional_named_property(drm, plane, "IN_FENCE_FD")?,
+            smithay_opaque_alpha,
         })
+    }
+}
+
+fn smithay_opaque_alpha_for_maximum(maximum: u64) -> f32 {
+    const DRM_STANDARD_ALPHA_MAXIMUM: u64 = u16::MAX as u64;
+
+    if (1..DRM_STANDARD_ALPHA_MAXIMUM).contains(&maximum) {
+        maximum as f32 / DRM_STANDARD_ALPHA_MAXIMUM as f32
+    } else {
+        1.0
     }
 }
 
@@ -260,18 +288,90 @@ pub(super) struct RestoreAttempt {
     pub(super) failures: Vec<String>,
 }
 
+enum AtlasFramebuffer {
+    Gbm(GbmFramebuffer),
+    Prime(PrimeFramebuffer),
+}
+
+impl AtlasFramebuffer {
+    fn handle(&self) -> framebuffer::Handle {
+        match self {
+            Self::Gbm(framebuffer) => *framebuffer.as_ref(),
+            Self::Prime(framebuffer) => framebuffer.handle,
+        }
+    }
+}
+
+/// A KMS framebuffer whose GEM handles were imported directly from dma-buf
+/// file descriptors. Display-only DRM nodes do not necessarily have a GBM
+/// backend capable of re-importing every modifier their planes can scan out;
+/// PRIME plus ADDFB2 is the kernel ABI for that split-device case.
+struct PrimeFramebuffer {
+    handle: framebuffer::Handle,
+    drm: DrmDeviceFd,
+    imported_handles: Vec<BufferHandle>,
+}
+
+impl Drop for PrimeFramebuffer {
+    fn drop(&mut self) {
+        if let Err(error) = self.drm.destroy_framebuffer(self.handle) {
+            warn!(framebuffer = ?self.handle, %error, "failed to destroy PRIME scanout framebuffer");
+        }
+        for handle in self.imported_handles.drain(..) {
+            if let Err(error) = self.drm.close_buffer(handle) {
+                warn!(buffer = ?handle, %error, "failed to close imported PRIME scanout handle");
+            }
+        }
+    }
+}
+
+pub(super) struct AtlasAllocator {
+    allocator: GbmAllocator<DrmDeviceFd>,
+    drm_fd: DrmDeviceFd,
+    cross_device: bool,
+}
+
+impl AtlasAllocator {
+    pub(super) fn gbm(
+        allocator: GbmAllocator<DrmDeviceFd>,
+        drm_fd: DrmDeviceFd,
+        cross_device: bool,
+    ) -> Self {
+        Self {
+            allocator,
+            drm_fd,
+            cross_device,
+        }
+    }
+
+    fn allocate(
+        &mut self,
+        size: PixelSize,
+        modifiers: &[Modifier],
+    ) -> Result<AtlasBuffer, Box<dyn Error>> {
+        AtlasBuffer::allocate_gbm(
+            &mut self.allocator,
+            &self.drm_fd,
+            self.cross_device,
+            size,
+            modifiers,
+        )
+    }
+}
+
 pub(super) struct AtlasBuffer {
-    // The framebuffer must be destroyed before its backing GBM object.
-    framebuffer: GbmFramebuffer,
+    // The framebuffer must be destroyed before its backing allocation.
+    framebuffer: AtlasFramebuffer,
     pub(super) dmabuf: Dmabuf,
     format: Format,
     _buffer: GbmBuffer,
 }
 
 impl AtlasBuffer {
-    fn allocate(
+    fn allocate_gbm(
         allocator: &mut GbmAllocator<DrmDeviceFd>,
         drm_fd: &DrmDeviceFd,
+        cross_device: bool,
         size: PixelSize,
         modifiers: &[Modifier],
     ) -> Result<Self, Box<dyn Error>> {
@@ -279,7 +379,11 @@ impl AtlasBuffer {
             allocator.create_buffer(size.width, size.height, Fourcc::Xrgb8888, modifiers)?;
         let format = smithay::backend::allocator::Buffer::format(&buffer);
         let dmabuf = buffer.export()?;
-        let framebuffer = framebuffer_from_bo(drm_fd, &buffer, true)?;
+        let framebuffer = if cross_device {
+            AtlasFramebuffer::Prime(framebuffer_from_prime_dmabuf(drm_fd, &dmabuf)?)
+        } else {
+            AtlasFramebuffer::Gbm(framebuffer_from_bo(drm_fd, &buffer, true)?)
+        };
         Ok(Self {
             framebuffer,
             dmabuf,
@@ -289,7 +393,7 @@ impl AtlasBuffer {
     }
 
     pub(super) fn framebuffer(&self) -> framebuffer::Handle {
-        *self.framebuffer.as_ref()
+        self.framebuffer.handle()
     }
 
     pub(super) fn format(&self) -> Format {
@@ -297,10 +401,106 @@ impl AtlasBuffer {
     }
 }
 
+fn framebuffer_from_prime_dmabuf(
+    drm: &DrmDeviceFd,
+    dmabuf: &Dmabuf,
+) -> Result<PrimeFramebuffer, Box<dyn Error>> {
+    let plane_count = dmabuf.num_planes();
+    if plane_count == 0 || plane_count > 4 {
+        return Err(format!("cannot import a dma-buf with {plane_count} planes to KMS").into());
+    }
+
+    let mut handles = [None; 4];
+    let mut imported_handles = Vec::with_capacity(plane_count);
+    for (index, fd) in dmabuf.handles().enumerate() {
+        let handle = match drm.prime_fd_to_buffer(fd) {
+            Ok(handle) => handle,
+            Err(error) => {
+                close_prime_handles(drm, &mut imported_handles);
+                return Err(error.into());
+            }
+        };
+        handles[index] = Some(handle);
+        if !imported_handles
+            .iter()
+            .any(|existing| u32::from(*existing) == u32::from(handle))
+        {
+            imported_handles.push(handle);
+        }
+    }
+
+    let mut pitches = [0; 4];
+    for (index, stride) in dmabuf.strides().enumerate() {
+        pitches[index] = stride;
+    }
+    let mut offsets = [0; 4];
+    for (index, offset) in dmabuf.offsets().enumerate() {
+        offsets[index] = offset;
+    }
+
+    let format = AllocatorBuffer::format(dmabuf);
+    let modifier = (format.modifier != Modifier::Invalid).then_some(format.modifier);
+    let planar = AliasedPlanarBuffer {
+        size: (dmabuf.width(), dmabuf.height()),
+        format: format.code,
+        modifier,
+        pitches,
+        handles,
+        offsets,
+    };
+    let flags = if modifier.is_some() {
+        FbCmd2Flags::MODIFIERS
+    } else {
+        FbCmd2Flags::empty()
+    };
+    let handle = match drm.add_planar_framebuffer(&planar, flags) {
+        Ok(handle) => handle,
+        Err(error) => {
+            close_prime_handles(drm, &mut imported_handles);
+            return Err(error.into());
+        }
+    };
+
+    Ok(PrimeFramebuffer {
+        handle,
+        drm: drm.clone(),
+        imported_handles,
+    })
+}
+
+fn close_prime_handles(drm: &DrmDeviceFd, handles: &mut Vec<BufferHandle>) {
+    for handle in handles.drain(..) {
+        if let Err(error) = drm.close_buffer(handle) {
+            warn!(buffer = ?handle, %error, "failed to close PRIME handle after framebuffer import failure");
+        }
+    }
+}
+
 pub(super) struct AtlasSwapchain {
     pub(super) size: PixelSize,
     pub(super) buffers: Vec<AtlasBuffer>,
     pub(super) current: usize,
+}
+
+pub(super) struct ScreenshotBuffer {
+    pub(super) dmabuf: Dmabuf,
+    _buffer: GbmBuffer,
+}
+
+impl ScreenshotBuffer {
+    pub(super) fn allocate(
+        allocator: &mut GbmAllocator<DrmDeviceFd>,
+        size: PixelSize,
+        modifier: Modifier,
+    ) -> Result<Self, Box<dyn Error>> {
+        let buffer =
+            allocator.create_buffer(size.width, size.height, Fourcc::Xrgb8888, &[modifier])?;
+        let dmabuf = buffer.export()?;
+        Ok(Self {
+            dmabuf,
+            _buffer: buffer,
+        })
+    }
 }
 
 pub(super) struct LayoutTransition {
@@ -621,13 +821,14 @@ pub(super) fn flutter_pool_length(output_count: usize) -> Result<usize, Box<dyn 
         return Err("Flutter atlas pool needs at least one output".into());
     }
 
-    // Independently clocked outputs may each retain one scanning and one
-    // submitted atlas generation while Flutter needs one unowned render
-    // target. This is the same bound used by deniald's established scheduler;
-    // a global triple buffer would periodically couple a fast CRTC to the
-    // slowest one.
+    // Independently clocked outputs may each retain a scanning generation, an
+    // atomic submission awaiting its page-flip event, and a newer ready
+    // generation awaiting fence completion or submission. Flutter still needs
+    // one unowned render target. At high refresh rates the ready generation can
+    // legitimately overlap the following render; reserving only two output
+    // generations turns that overlap into an avoidable skipped Flutter frame.
     let length = output_count
-        .checked_mul(2)
+        .checked_mul(3)
         .and_then(|count| count.checked_add(1))
         .ok_or("Flutter atlas pool length overflow")?;
     if length > MAX_ATLAS_BUFFERS {
@@ -703,17 +904,15 @@ pub(super) fn shared_atlas_modifiers(
 
 impl AtlasSwapchain {
     pub(super) fn allocate(
-        allocator: &mut GbmAllocator<DrmDeviceFd>,
-        drm_fd: &DrmDeviceFd,
+        allocator: &mut AtlasAllocator,
         size: PixelSize,
         modifiers: &[Modifier],
     ) -> Result<Self, Box<dyn Error>> {
-        Self::allocate_pool(allocator, drm_fd, size, 2, modifiers)
+        Self::allocate_pool(allocator, size, 2, modifiers)
     }
 
     pub(super) fn allocate_pool(
-        allocator: &mut GbmAllocator<DrmDeviceFd>,
-        drm_fd: &DrmDeviceFd,
+        allocator: &mut AtlasAllocator,
         size: PixelSize,
         length: usize,
         modifiers: &[Modifier],
@@ -732,9 +931,9 @@ impl AtlasSwapchain {
             return Err("atlas allocation received no usable DRM modifier".into());
         }
 
-        let allocate = |allocator: &mut GbmAllocator<DrmDeviceFd>, modifiers: &[Modifier]| {
+        let allocate = |allocator: &mut AtlasAllocator, modifiers: &[Modifier]| {
             (0..length)
-                .map(|_| AtlasBuffer::allocate(allocator, drm_fd, size, modifiers))
+                .map(|_| allocator.allocate(size, modifiers))
                 .collect::<Result<Vec<_>, _>>()
         };
         let buffers = if optimized.is_empty() {
@@ -1458,7 +1657,7 @@ fn original_plane_state(
                 (i32::from(width), i32::from(height)).into(),
             ),
             transform: Transform::Normal,
-            alpha: 1.0,
+            alpha: scanout.plane_properties.smithay_opaque_alpha,
             damage_clips: None,
             fb: framebuffer,
             fence: None,
@@ -1518,19 +1717,19 @@ fn restore_original_modes_with_atlas(
 mod tests {
     use super::{
         Format, FormatSet, Fourcc, Modifier, PixelSize, ScanoutIdentity, ScanoutIdentityError,
-        common_xrgb8888_modifiers, inherited_plane_needs_release, validate_atlas_allocation,
-        validate_scanout_identities,
+        common_xrgb8888_modifiers, inherited_plane_needs_release, smithay_opaque_alpha_for_maximum,
+        validate_atlas_allocation, validate_scanout_identities,
     };
     #[cfg(feature = "flutter")]
     use super::{ensure_resident_jit_engine_matches, flutter_pool_length};
 
     #[cfg(feature = "flutter")]
     #[test]
-    fn flutter_atlas_reserves_two_generations_per_independent_output() {
+    fn flutter_atlas_reserves_three_output_generations_plus_a_render_target() {
         assert!(flutter_pool_length(0).is_err());
-        assert_eq!(flutter_pool_length(1).expect("one output"), 3);
-        assert_eq!(flutter_pool_length(2).expect("two outputs"), 5);
-        assert_eq!(flutter_pool_length(16).expect("sixteen outputs"), 33);
+        assert_eq!(flutter_pool_length(1).expect("one output"), 4);
+        assert_eq!(flutter_pool_length(2).expect("two outputs"), 7);
+        assert_eq!(flutter_pool_length(16).expect("sixteen outputs"), 49);
         assert!(flutter_pool_length(17).is_err());
         assert!(flutter_pool_length(usize::MAX).is_err());
     }
@@ -1554,7 +1753,9 @@ mod tests {
         assert!(validate_atlas_allocation(PixelSize::new(1, 1), 0).is_err());
         assert!(validate_atlas_allocation(PixelSize::new(1, 1), 1).is_err());
         assert!(validate_atlas_allocation(PixelSize::new(1, 1), 5).is_ok());
-        assert!(validate_atlas_allocation(PixelSize::new(1, 1), 34).is_err());
+        assert!(
+            validate_atlas_allocation(PixelSize::new(1, 1), super::MAX_ATLAS_BUFFERS + 1).is_err()
+        );
         assert!(validate_atlas_allocation(PixelSize::new(0, 1080), 3).is_err());
         assert!(validate_atlas_allocation(PixelSize::new(16_385, 1080), 3).is_err());
         assert!(validate_atlas_allocation(PixelSize::new(15_360, 4_320), 3).is_ok());
@@ -1603,6 +1804,18 @@ mod tests {
             common_xrgb8888_modifiers([&first, &second]),
             vec![preferred, Modifier::Linear]
         );
+    }
+
+    #[test]
+    fn plane_alpha_uses_an_advertised_narrow_range_only_when_needed() {
+        let standard = smithay_opaque_alpha_for_maximum(u16::MAX as u64);
+        let eight_bit = smithay_opaque_alpha_for_maximum(u8::MAX as u64);
+
+        assert_eq!(standard, 1.0);
+        assert_eq!((standard * u16::MAX as f32).round() as u64, 0xffff);
+        assert_eq!((eight_bit * u16::MAX as f32).round() as u64, 0xff);
+        assert_eq!(smithay_opaque_alpha_for_maximum(0), 1.0);
+        assert_eq!(smithay_opaque_alpha_for_maximum(0x1_0000), 1.0);
     }
 
     #[test]

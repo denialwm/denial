@@ -14,6 +14,7 @@ license=(
 )
 _flutter_generation='3.44.7.denial1'
 depends=(
+  'adobe-source-han-sans-cn-fonts'
   'bash'
   'coreutils'
   'ddcutil'
@@ -64,11 +65,11 @@ source=(
   'xdg-desktop-portal-wlr-Denial'
 )
 sha256sums=(
-  'd38d0953d23904b0a345a284ce6c8167b9413ce8f7be3b6674b21d38049e9762'
+  '218ff846ecce3a079b859049215607e4cbdff5d39fc67e026347ac7425058ded'
   'aa35c7e222fc814b9b48599176794db375885f444f0d03fb1b1a3fcad118fbe1'
   '92d54e0cce7ef20febd0dcbfdd2fd8578aa0996e50a78ac0160e3b8fcaa6c99f'
-  '4e94352954d9c60ebc27ff5f544380f3a23fa100675511ca41323d633c806da5'
-  'd9ed9daf7f9ddd2ae6006bcfe74c8f398584a3f3046ba365c086c84bdb8a80de'
+  'f08c63142c05e1ea65098018e9f94b3d94c12e2178faa2016b6a67b1f8310043'
+  '1336edb764b77e8903d505cf26640df12c7ebb58a21e55483dbf060213e04ddd'
   '3b4e3a52dff1a2ece31d122bd7220ddee2bdbaeb73ebe24ed9bd8c350580cd30'
 )
 

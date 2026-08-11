@@ -146,6 +146,7 @@ impl WaylandFrontend {
         self.ticker_output = snapshot.ticker;
         let desktop_bounds = logical_bounds(snapshot)?;
         let atlas = AtlasPlan::for_snapshot(snapshot).ok_or("Wayland topology has no atlas")?;
+        let xwayland_scale_changed = self.set_xwayland_scale(atlas.engine_scale_120)?;
         // A queued request identifies pixels in the old atlas. Never let it
         // read from a replacement allocation after a hotplug transaction.
         self.fail_all_screencopies();
@@ -395,8 +396,10 @@ impl WaylandFrontend {
                 shm_cache_budget_for_atlas(atlas.pixel_size.width, atlas.pixel_size.height);
         }
         self.pointer_location = self.clamp_pointer(self.pointer_location);
-        #[cfg(feature = "flutter")]
         self.rebuild_window_output_membership();
+        if xwayland_scale_changed {
+            self.reconfigure_x11_for_scale()?;
+        }
         self.space.refresh();
         info!(
             epoch = snapshot.epoch,

@@ -19,6 +19,10 @@ class WindowTextureRect extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    assert(
+      !window.isLocalFlutter,
+      'Local Flutter windows must be rendered through WindowContentRect.',
+    );
     return LayoutBuilder(
       builder: (context, constraints) {
         final targetSize =

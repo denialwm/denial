@@ -1,13 +1,10 @@
+import '../../local_apps/local_flutter_application.dart';
 import 'desktop_app.dart';
 
 enum HomeGridItemType { clock, batteryDischarge, app }
 
 class HomeLayoutSlot {
-  const HomeLayoutSlot({
-    required this.id,
-    this.colSpan,
-    this.rowSpan,
-  });
+  const HomeLayoutSlot({required this.id, this.colSpan, this.rowSpan});
 
   final String id;
   final int? colSpan;
@@ -21,6 +18,7 @@ class HomeGridItem {
     required this.colSpan,
     required this.rowSpan,
     required this.app,
+    required this.localApp,
   });
 
   factory HomeGridItem.clock({
@@ -33,6 +31,7 @@ class HomeGridItem {
       colSpan: colSpan.clamp(clockMinColSpan, clockMaxColSpan).toInt(),
       rowSpan: rowSpan.clamp(clockMinRowSpan, clockMaxRowSpan).toInt(),
       app: null,
+      localApp: null,
     );
   }
 
@@ -43,6 +42,18 @@ class HomeGridItem {
       colSpan: 1,
       rowSpan: 1,
       app: desktopApp,
+      localApp: null,
+    );
+  }
+
+  factory HomeGridItem.localApp(LocalFlutterApplication localApp) {
+    return HomeGridItem._(
+      type: HomeGridItemType.app,
+      id: 'local:${localApp.id}',
+      colSpan: 1,
+      rowSpan: 1,
+      app: null,
+      localApp: localApp,
     );
   }
 
@@ -54,18 +65,13 @@ class HomeGridItem {
       type: HomeGridItemType.batteryDischarge,
       id: 'widget:battery-discharge',
       colSpan: colSpan
-          .clamp(
-            batteryDischargeMinColSpan,
-            batteryDischargeMaxColSpan,
-          )
+          .clamp(batteryDischargeMinColSpan, batteryDischargeMaxColSpan)
           .toInt(),
       rowSpan: rowSpan
-          .clamp(
-            batteryDischargeMinRowSpan,
-            batteryDischargeMaxRowSpan,
-          )
+          .clamp(batteryDischargeMinRowSpan, batteryDischargeMaxRowSpan)
           .toInt(),
       app: null,
+      localApp: null,
     );
   }
 
@@ -87,6 +93,7 @@ class HomeGridItem {
   final int colSpan;
   final int rowSpan;
   final DesktopApp? app;
+  final LocalFlutterApplication? localApp;
 
   bool get resizable => type != HomeGridItemType.app;
 
@@ -122,22 +129,19 @@ class HomeGridItem {
     };
   }
 
-  HomeGridItem resize({
-    required int colSpan,
-    required int rowSpan,
-  }) {
+  HomeGridItem resize({required int colSpan, required int rowSpan}) {
     if (!resizable) {
       return this;
     }
     return switch (type) {
       HomeGridItemType.clock => HomeGridItem.clock(
-          colSpan: colSpan,
-          rowSpan: rowSpan,
-        ),
+        colSpan: colSpan,
+        rowSpan: rowSpan,
+      ),
       HomeGridItemType.batteryDischarge => HomeGridItem.batteryDischarge(
-          colSpan: colSpan,
-          rowSpan: rowSpan,
-        ),
+        colSpan: colSpan,
+        rowSpan: rowSpan,
+      ),
       HomeGridItemType.app => this,
     };
   }

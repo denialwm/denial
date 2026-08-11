@@ -11,9 +11,7 @@ void main() {
     final service = _FakeAuthenticationService();
     addTearDown(service.dispose);
     final container = ProviderContainer.test(
-      overrides: [
-        authenticationServiceProvider.overrideWithValue(service),
-      ],
+      overrides: [authenticationServiceProvider.overrideWithValue(service)],
     );
     final controller = container.read(authenticationProvider.notifier);
 
@@ -52,9 +50,7 @@ void main() {
     final service = _FakeAuthenticationService();
     addTearDown(service.dispose);
     final container = ProviderContainer.test(
-      overrides: [
-        authenticationServiceProvider.overrideWithValue(service),
-      ],
+      overrides: [authenticationServiceProvider.overrideWithValue(service)],
     );
     final controller = container.read(authenticationProvider.notifier);
 
@@ -82,9 +78,7 @@ void main() {
     final service = _FakeAuthenticationService();
     addTearDown(service.dispose);
     final container = ProviderContainer.test(
-      overrides: [
-        authenticationServiceProvider.overrideWithValue(service),
-      ],
+      overrides: [authenticationServiceProvider.overrideWithValue(service)],
     );
     final controller = container.read(authenticationProvider.notifier);
 

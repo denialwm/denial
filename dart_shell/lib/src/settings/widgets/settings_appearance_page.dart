@@ -2,9 +2,16 @@ import 'package:flutter/material.dart';
 
 import '../../localization/denial_localizations.dart';
 import '../../settings/shell_settings.dart';
+import '../../theme/cursor_themes.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
+import '../../wallpaper/wallpaper.dart';
+import '../../wallpaper/widgets/wallpaper_image.dart';
 import 'settings_controls.dart';
 
+const settingsWallpaperTriggerKey = ValueKey<String>(
+  'settings-wallpaper-trigger',
+);
 const settingsAccentColorTriggerKey = ValueKey<String>(
   'settings-accent-color-trigger',
 );
@@ -17,11 +24,16 @@ const settingsBackdropBlurSliderKey = ValueKey<String>(
 const settingsBackdropBlurOpacityThresholdKey = ValueKey<String>(
   'settings-backdrop-blur-opacity-threshold',
 );
+const settingsCursorSizeSliderKey = ValueKey<String>(
+  'settings-cursor-size-slider',
+);
 
 class SettingsAppearancePage extends StatelessWidget {
   const SettingsAppearancePage({
     required this.settings,
     required this.extractedAccent,
+    required this.wallpaper,
+    required this.onOpenWallpaperSelector,
     required this.onAccentSourceChanged,
     required this.onOpenAccentPicker,
     required this.onWindowRadiusChanged,
@@ -32,12 +44,15 @@ class SettingsAppearancePage extends StatelessWidget {
     required this.onBackdropBlurOpacityThresholdChanged,
     required this.onFocusedOpacityChanged,
     required this.onUnfocusedOpacityChanged,
+    required this.onCursorSizeChanged,
     required this.onReset,
     super.key,
   });
 
   final ShellAppearanceSettings settings;
   final Color extractedAccent;
+  final WallpaperResource wallpaper;
+  final VoidCallback onOpenWallpaperSelector;
   final ValueChanged<ShellAccentSource> onAccentSourceChanged;
   final VoidCallback onOpenAccentPicker;
   final ValueChanged<double> onWindowRadiusChanged;
@@ -48,6 +63,7 @@ class SettingsAppearancePage extends StatelessWidget {
   final ValueChanged<double> onBackdropBlurOpacityThresholdChanged;
   final ValueChanged<double> onFocusedOpacityChanged;
   final ValueChanged<double> onUnfocusedOpacityChanged;
+  final ValueChanged<double> onCursorSizeChanged;
   final VoidCallback onReset;
 
   @override
@@ -64,6 +80,26 @@ class SettingsAppearancePage extends StatelessWidget {
       children: [
         SettingsCardGroup(
           children: [
+            SettingsSection(
+              title: l10n.settingsWallpaperTitle,
+              leading: _WallpaperThumbnail(
+                wallpaper: wallpaper,
+                semanticsLabel: l10n.settingsWallpaperPreviewSemantics,
+              ),
+              trailing: SettingsTextButton(
+                key: settingsWallpaperTriggerKey,
+                label: l10n.settingsWallpaperChoose,
+                onPressed: onOpenWallpaperSelector,
+              ),
+              child: Text(
+                l10n.settingsWallpaperDescription,
+                style: ShellText.base.copyWith(
+                  color: ShellColors.textSecondary,
+                  fontSize: 11,
+                  height: 1.4,
+                ),
+              ),
+            ),
             SettingsSection(
               title: l10n.settingsShellAccentTitle,
               leading: _ColorOrb(color: effectiveAccent),
@@ -175,6 +211,21 @@ class SettingsAppearancePage extends StatelessWidget {
               ),
             ),
             SettingsSection(
+              title: l10n.settingsCursorTitle,
+              child: SettingsSlider(
+                key: settingsCursorSizeSliderKey,
+                label: l10n.settingsCursorSize,
+                value: settings.cursorSize,
+                minimum: shellCursorMinimumSize,
+                maximum: shellCursorMaximumSize,
+                divisions:
+                    ((shellCursorMaximumSize - shellCursorMinimumSize) / 4)
+                        .round(),
+                valueLabel: l10n.settingsPixels(settings.cursorSize.round()),
+                onChanged: onCursorSizeChanged,
+              ),
+            ),
+            SettingsSection(
               title: l10n.settingsWindowOpacityTitle,
               child: Column(
                 children: [
@@ -207,6 +258,50 @@ class SettingsAppearancePage extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+class _WallpaperThumbnail extends StatelessWidget {
+  const _WallpaperThumbnail({
+    required this.wallpaper,
+    required this.semanticsLabel,
+  });
+
+  final WallpaperResource wallpaper;
+  final String semanticsLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(10);
+    return Semantics(
+      image: true,
+      label: semanticsLabel,
+      child: Container(
+        width: 54,
+        height: 40,
+        foregroundDecoration: BoxDecoration(
+          borderRadius: radius,
+          border: Border.all(color: ShellColors.hairline),
+        ),
+        child: ClipRRect(
+          borderRadius: radius,
+          child: Image(
+            image: wallpaperImageProvider(wallpaper),
+            fit: BoxFit.cover,
+            filterQuality: FilterQuality.low,
+            excludeFromSemantics: true,
+            errorBuilder: (_, _, _) => ColoredBox(
+              color: ShellColors.surfaceContainerHighest,
+              child: Icon(
+                Icons.wallpaper_rounded,
+                size: 20,
+                color: ShellTheme.of(context).accent,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

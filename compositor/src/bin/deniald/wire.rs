@@ -49,6 +49,7 @@ const MAX_WINDOWS: usize = 4096;
 const MAX_REGIONS: usize = 8192;
 const MAX_SURFACES: usize = 32768;
 const MAX_PENDING_WINDOW_COMMANDS: usize = 4096;
+const MAX_PENDING_KEYBOARD_COMMANDS: usize = 256;
 const MAX_PENDING_NOTIFICATION_COMMANDS: usize = 256;
 const MAX_LOCAL_APP_ID_BYTES: usize = 256;
 const MAX_LOCAL_WINDOW_TITLE_BYTES: usize = 1024;
@@ -97,6 +98,12 @@ pub enum WindowCommand {
     },
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum KeyboardCommand {
+    Text(String),
+    Key { key: String, ctrl: bool },
+}
+
 impl WindowCommand {
     pub fn window_id(&self) -> Option<u64> {
         match self {
@@ -130,6 +137,9 @@ pub enum ShellAction {
     #[allow(dead_code)]
     WindowSwitcherEnd,
     Clipboard,
+    ScreenshotRegion,
+    ScreenshotTextureReady,
+    ScreenshotDone,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -154,6 +164,9 @@ impl ShellAction {
             Self::WindowSwitcherNext => fb::ShellActionKind::WindowSwitcherNext,
             Self::WindowSwitcherEnd => fb::ShellActionKind::WindowSwitcherEnd,
             Self::Clipboard => fb::ShellActionKind::Clipboard,
+            Self::ScreenshotRegion => fb::ShellActionKind::ScreenshotRegion,
+            Self::ScreenshotTextureReady => fb::ShellActionKind::ScreenshotTextureReady,
+            Self::ScreenshotDone => fb::ShellActionKind::ScreenshotDone,
         }
     }
 }
@@ -444,6 +457,7 @@ pub struct WireBridge {
     input_layout_scratch: InputLayoutSnapshot,
     input_layout_identities_scratch: HashSet<u64>,
     pending_window_commands: VecDeque<WindowCommand>,
+    pending_keyboard_commands: VecDeque<KeyboardCommand>,
     pending_notification_commands: VecDeque<NotificationCommand>,
     pending_work_area: Option<WorkAreaOptions>,
     next_sequence: u64,
@@ -466,6 +480,7 @@ impl WireBridge {
             input_layout_scratch: InputLayoutSnapshot::default(),
             input_layout_identities_scratch: HashSet::new(),
             pending_window_commands: VecDeque::new(),
+            pending_keyboard_commands: VecDeque::new(),
             pending_notification_commands: VecDeque::new(),
             pending_work_area: None,
             next_sequence: 1,
@@ -511,6 +526,10 @@ impl WireBridge {
 
     pub fn drain_window_commands(&mut self) -> impl Iterator<Item = WindowCommand> + '_ {
         self.pending_window_commands.drain(..)
+    }
+
+    pub fn drain_keyboard_commands(&mut self) -> impl Iterator<Item = KeyboardCommand> + '_ {
+        self.pending_keyboard_commands.drain(..)
     }
 
     pub fn drain_notification_commands(
@@ -590,7 +609,46 @@ impl WireBridge {
         }
         let sequence = self.take_sequence();
         self.outbound_builder.reset();
-        encode_shell_action(&mut self.outbound_builder, sequence, action, monitor_id)?;
+        encode_shell_action(
+            &mut self.outbound_builder,
+            sequence,
+            action,
+            monitor_id,
+            0,
+            None,
+        )?;
+        Ok(self.outbound_builder.finished_data())
+    }
+
+    pub fn encode_screenshot_action(
+        &mut self,
+        action: ShellAction,
+        request_id: u64,
+        texture_id: Option<i64>,
+    ) -> Result<&[u8], WireError> {
+        let valid_action = matches!(
+            action,
+            ShellAction::ScreenshotRegion
+                | ShellAction::ScreenshotTextureReady
+                | ShellAction::ScreenshotDone
+        );
+        if !valid_action
+            || request_id == 0
+            || texture_id.is_some_and(|texture_id| texture_id <= 0)
+            || (action == ShellAction::ScreenshotTextureReady) != texture_id.is_some()
+        {
+            return Err(WireError::Identity);
+        }
+        let sequence = self.take_sequence();
+        self.outbound_builder.reset();
+        encode_shell_action(
+            &mut self.outbound_builder,
+            sequence,
+            action,
+            None,
+            request_id,
+            texture_id,
+        )?;
         Ok(self.outbound_builder.finished_data())
     }
 
@@ -673,7 +731,11 @@ impl WireBridge {
                 let command = envelope
                     .payload_as_keyboard_command()
                     .ok_or(WireError::Payload)?;
-                validate_keyboard_command(command)?;
+                if self.pending_keyboard_commands.len() >= MAX_PENDING_KEYBOARD_COMMANDS {
+                    return Err(WireError::Count);
+                }
+                let command = decode_keyboard_command(command)?;
+                self.pending_keyboard_commands.push_back(command);
                 Ok(None)
             }
             fb::Payload::DesktopNotificationCommand => {
@@ -887,7 +949,7 @@ fn validate_required_string(value: Option<&str>) -> Result<(), WireError> {
     }
 }
 
-fn validate_keyboard_command(command: fb::KeyboardCommand<'_>) -> Result<(), WireError> {
+fn decode_keyboard_command(command: fb::KeyboardCommand<'_>) -> Result<KeyboardCommand, WireError> {
     if command.kind().variant_name().is_none() {
         return Err(WireError::Enumeration);
     }
@@ -895,12 +957,24 @@ fn validate_keyboard_command(command: fb::KeyboardCommand<'_>) -> Result<(), Wir
         return Err(WireError::Flags);
     }
 
-    let value = match command.kind() {
-        fb::KeyboardCommandKind::Text => command.text(),
-        fb::KeyboardCommandKind::Key => command.key(),
-        _ => return Err(WireError::Enumeration),
-    };
-    validate_required_string(value)
+    match command.kind() {
+        fb::KeyboardCommandKind::Text => {
+            let text = command.text();
+            validate_required_string(text)?;
+            Ok(KeyboardCommand::Text(
+                text.expect("validated keyboard text").to_owned(),
+            ))
+        }
+        fb::KeyboardCommandKind::Key => {
+            let key = command.key();
+            validate_required_string(key)?;
+            Ok(KeyboardCommand::Key {
+                key: key.expect("validated keyboard key").to_owned(),
+                ctrl: command.flags() & KEYBOARD_CTRL != 0,
+            })
+        }
+        _ => Err(WireError::Enumeration),
+    }
 }
 
 fn decode_notification_command(
@@ -1461,6 +1535,8 @@ fn encode_shell_action(
     sequence: u64,
     action: ShellAction,
     monitor_id: Option<i64>,
+    request_id: u64,
+    texture_id: Option<i64>,
 ) -> Result<(), WireError> {
     let action = fb::ShellAction::create(
         builder,
@@ -1468,6 +1544,7 @@ fn encode_shell_action(
             action: action.wire(),
             monitor_id: monitor_id.unwrap_or(-1),
             has_monitor_id: monitor_id.is_some(),
+            texture_id: texture_id.unwrap_or(0),
         },
     );
     let envelope = fb::Envelope::create(
@@ -1475,7 +1552,7 @@ fn encode_shell_action(
         &fb::EnvelopeArgs {
             protocol_version: PROTOCOL_VERSION,
             sequence,
-            request_id: 0,
+            request_id,
             payload_type: fb::Payload::ShellAction,
             payload: Some(action.as_union_value()),
         },
@@ -2583,6 +2660,16 @@ mod tests {
                 KEYBOARD_CTRL,
             ))
             .unwrap();
+        assert_eq!(
+            bridge.drain_keyboard_commands().collect::<Vec<_>>(),
+            vec![
+                KeyboardCommand::Text("hello".into()),
+                KeyboardCommand::Key {
+                    key: "Backspace".into(),
+                    ctrl: true,
+                },
+            ]
+        );
         assert!(matches!(
             bridge.handle(&keyboard_command(
                 fb::KeyboardCommandKind(255),
@@ -2719,6 +2806,20 @@ mod tests {
                 0,
                 1,
                 None,
+            )),
+            Err(WireError::Count)
+        ));
+
+        bridge.pending_keyboard_commands =
+            vec![KeyboardCommand::Text("a".into()); MAX_PENDING_KEYBOARD_COMMANDS]
+                .into_iter()
+                .collect();
+        assert!(matches!(
+            bridge.handle(&keyboard_command(
+                fb::KeyboardCommandKind::Text,
+                Some("a"),
+                None,
+                0,
             )),
             Err(WireError::Count)
         ));
@@ -2893,6 +2994,39 @@ mod tests {
         assert_eq!(action.action(), fb::ShellActionKind::Overview);
         assert!(action.has_monitor_id());
         assert_eq!(action.monitor_id(), 9);
+
+        let bytes = bridge
+            .encode_shell_action(ShellAction::ScreenshotRegion, None)
+            .unwrap();
+        let envelope = fb::root_as_envelope(bytes).unwrap();
+        let action = envelope.payload_as_shell_action().unwrap();
+        assert_eq!(envelope.sequence(), 3);
+        assert_eq!(action.action(), fb::ShellActionKind::ScreenshotRegion);
+        assert!(!action.has_monitor_id());
+    }
+
+    #[test]
+    fn screenshot_actions_carry_the_workflow_identity_and_texture() {
+        let mut bridge = bridge();
+        let bytes = bridge
+            .encode_screenshot_action(ShellAction::ScreenshotTextureReady, 41, Some(9001))
+            .unwrap();
+        let envelope = fb::root_as_envelope(bytes).unwrap();
+        let action = envelope.payload_as_shell_action().unwrap();
+        assert_eq!(envelope.request_id(), 41);
+        assert_eq!(action.action(), fb::ShellActionKind::ScreenshotTextureReady);
+        assert_eq!(action.texture_id(), 9001);
+
+        assert!(
+            bridge
+                .encode_screenshot_action(ShellAction::ScreenshotTextureReady, 41, None)
+                .is_err()
+        );
+        assert!(
+            bridge
+                .encode_screenshot_action(ShellAction::ScreenshotDone, 0, None)
+                .is_err()
+        );
     }
 
     #[test]

@@ -15,3 +15,13 @@ To add a locale:
 No shell-root wiring is needed for an additional ARB file. The generated
 `supportedLocales` catalog and `DenialLocalizationScope` resolve the platform
 locale automatically, with English as the fallback.
+
+The Settings language page persists an optional `ShellLocalePreference`.
+`system` leaves the scope override empty so platform locale changes continue
+to apply; explicit preferences update the shell immediately. Add a preference
+and its self-named selector label only when a new locale should be selectable
+independently of the system locale.
+
+`app_zh.arb` is the Simplified Chinese base catalog. A future Traditional
+Chinese translation should use `app_zh_Hant.arb`; Flutter will select that
+script-specific catalog before falling back to `zh`.

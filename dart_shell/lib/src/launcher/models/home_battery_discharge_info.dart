@@ -150,7 +150,6 @@ class HomeBatteryDischargePoint {
     final value = voltageMv;
     return value == null ? null : value / 1000;
   }
-
 }
 
 int? _parseOptionalInt(String value) {

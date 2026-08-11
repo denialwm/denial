@@ -108,8 +108,10 @@ class _RangeBarState extends State<RangeBar> {
                     Positioned(
                       top: 6,
                       bottom: 6,
-                      left: (constraints.maxWidth * clamped - 2)
-                          .clamp(16.0, constraints.maxWidth - 18.0),
+                      left: (constraints.maxWidth * clamped - 2).clamp(
+                        16.0,
+                        constraints.maxWidth - 18.0,
+                      ),
                       width: 5,
                       child: DecoratedBox(
                         decoration: BoxDecoration(

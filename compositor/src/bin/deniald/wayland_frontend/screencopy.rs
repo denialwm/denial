@@ -363,6 +363,58 @@ fn copy_to_shm(
     copy_pixels_to_shm(buffer, pixels, target.size)
 }
 
+pub(crate) fn copy_atlas_region_to_memory(
+    renderer: &mut GlesRenderer,
+    atlas: &mut Dmabuf,
+    atlas_size: Size<i32, Physical>,
+    source: Rectangle<i32, Physical>,
+) -> Result<Vec<u8>, Box<dyn Error>> {
+    let source = framebuffer_source_rect(source, atlas_size)
+        .ok_or_else(|| io::Error::other("capture source is outside the atlas"))?;
+    let source_framebuffer = renderer.bind(atlas)?;
+    let mapping = renderer.copy_framebuffer(
+        &source_framebuffer,
+        as_buffer_rect(source),
+        Fourcc::Xrgb8888,
+    )?;
+    let pixels = renderer.map_texture(&mapping)?;
+    let expected = usize::try_from(source.size.w)?
+        .checked_mul(usize::try_from(source.size.h)?)
+        .and_then(|pixels| pixels.checked_mul(BYTES_PER_PIXEL as usize))
+        .ok_or_else(|| io::Error::other("capture payload size overflow"))?;
+    if pixels.len() < expected {
+        return Err(io::Error::other("renderer returned a short capture mapping").into());
+    }
+    Ok(pixels[..expected].to_vec())
+}
+
+pub(crate) fn copy_atlas_to_dmabuf(
+    renderer: &mut GlesRenderer,
+    atlas: &mut Dmabuf,
+    atlas_size: Size<i32, Physical>,
+    destination: &mut Dmabuf,
+) -> Result<(), Box<dyn Error>> {
+    if i32::try_from(destination.width()).ok() != Some(atlas_size.w)
+        || i32::try_from(destination.height()).ok() != Some(atlas_size.h)
+    {
+        return Err(io::Error::other("screenshot DMA-BUF does not match the atlas size").into());
+    }
+    let source = framebuffer_source_rect(Rectangle::from_size(atlas_size), atlas_size)
+        .ok_or_else(|| io::Error::other("screenshot source is outside the atlas"))?;
+    let source_framebuffer = renderer.bind(atlas)?;
+    let mut destination_framebuffer = renderer.bind(destination)?;
+    renderer
+        .blit(
+            &source_framebuffer,
+            &mut destination_framebuffer,
+            source,
+            Rectangle::from_size(atlas_size),
+            TextureFilter::Nearest,
+        )?
+        .wait()?;
+    Ok(())
+}
+
 fn copy_to_dmabuf(
     renderer: &mut GlesRenderer,
     atlas: &mut Dmabuf,

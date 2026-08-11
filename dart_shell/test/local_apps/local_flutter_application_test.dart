@@ -1,6 +1,7 @@
 import 'package:denial_dart_shell/src/local_apps/local_flutter_application.dart';
 import 'package:denial_dart_shell/src/local_apps/local_flutter_window_host.dart';
 import 'package:denial_dart_shell/src/models/denial_window.dart';
+import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/widgets/desktop_window_snapshot.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -25,6 +26,33 @@ void main() {
       ]),
       throwsArgumentError,
     );
+  });
+
+  test('single-instance launch updates geometry before focusing', () {
+    final application = _application('dev.denial.counter', 'Counter');
+    final window = _localWindow(title: 'Counter');
+    final bridge = _LauncherBridge();
+    DenialWindow? focused;
+    final launcher = LocalFlutterApplicationLauncher(
+      registry: LocalFlutterApplicationRegistry(<LocalFlutterApplication>[
+        application,
+      ]),
+      bridge: bridge,
+      windows: () => <DenialWindow>[window],
+      focus: (value) => focused = value,
+    );
+    const geometry = Rect.fromLTWH(0, 48, 420, 792);
+
+    final launched = launcher.launch(
+      application.id,
+      availableBounds: const Offset(0, 0) & Size(420, 840),
+      geometry: geometry,
+    );
+
+    expect(launched, isTrue);
+    expect(bridge.configuredWindow, same(window));
+    expect(bridge.configuredGeometry, geometry);
+    expect(focused, same(window));
   });
 
   testWidgets('local host preserves application state across window updates', (
@@ -197,5 +225,16 @@ class _CounterApplicationState extends State<_CounterApplication> {
       onTap: () => setState(() => _count += 1),
       child: Center(child: Text('${widget.metadataTitle}: $_count')),
     );
+  }
+}
+
+class _LauncherBridge extends DenialBridge {
+  DenialWindow? configuredWindow;
+  Rect? configuredGeometry;
+
+  @override
+  void configureWindow(DenialWindow window, Rect contentRect) {
+    configuredWindow = window;
+    configuredGeometry = contentRect;
   }
 }

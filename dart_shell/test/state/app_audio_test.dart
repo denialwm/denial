@@ -15,8 +15,8 @@ void main() {
       final bridge = DenialBridge();
       final audio = _FakeAudioService(bridge);
       addTearDown(audio.dispose);
-    final container = ProviderContainer.test(
-      overrides: [audioServiceProvider.overrideWithValue(audio)],
+      final container = ProviderContainer.test(
+        overrides: [audioServiceProvider.overrideWithValue(audio)],
       );
       final controller = container.read(appAudioProvider.notifier);
       controller.refresh();

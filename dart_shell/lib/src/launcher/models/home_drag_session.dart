@@ -36,8 +36,9 @@ class HomeDragSession {
           pointerGlobalPosition ?? this.pointerGlobalPosition,
       localAnchor: localAnchor,
       feedbackSize: feedbackSize,
-      targetIndex:
-          replaceTargetIndex ? targetIndex : targetIndex ?? this.targetIndex,
+      targetIndex: replaceTargetIndex
+          ? targetIndex
+          : targetIndex ?? this.targetIndex,
     );
   }
 }

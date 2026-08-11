@@ -1,24 +1,19 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
+import '../../local_apps/local_flutter_application.dart';
 import '../models/desktop_app.dart';
 import '../models/home_grid_item.dart';
 
 class HomeGridMoveResult {
-  const HomeGridMoveResult({
-    required this.slots,
-    required this.movedToIndex,
-  });
+  const HomeGridMoveResult({required this.slots, required this.movedToIndex});
 
   final List<HomeGridItem?> slots;
   final int movedToIndex;
 }
 
 class HomeGridResizeResult {
-  const HomeGridResizeResult({
-    required this.slots,
-    required this.resizedIndex,
-  });
+  const HomeGridResizeResult({required this.slots, required this.resizedIndex});
 
   final List<HomeGridItem?> slots;
   final int resizedIndex;
@@ -76,20 +71,20 @@ class HomeGridLayout {
       return slots;
     }
 
-    return [
-      ...slots,
-      for (var i = slots.length; i < wantedSlots; i += 1) null,
-    ];
+    return [...slots, for (var i = slots.length; i < wantedSlots; i += 1) null];
   }
 
   static List<HomeGridItem?> initialSlotsForApps(
     List<DesktopApp> apps,
+    Iterable<LocalFlutterApplication> localApps,
     List<HomeLayoutSlot?>? savedLayout,
   ) {
     final itemsById = <String, HomeGridItem>{
       'widget:clock': HomeGridItem.clock(),
       'widget:battery-discharge': HomeGridItem.batteryDischarge(),
       for (final app in apps) 'app:${app.id}': HomeGridItem.app(app),
+      for (final app in localApps)
+        'local:${app.id}': HomeGridItem.localApp(app),
     };
     final used = <String>{};
     var slots = <HomeGridItem?>[];
@@ -137,9 +132,12 @@ class HomeGridLayout {
   static List<HomeGridItem?> refreshSlotsForApps(
     List<HomeGridItem?> currentSlots,
     List<DesktopApp> apps,
+    Iterable<LocalFlutterApplication> localApps,
   ) {
     final appItemsById = <String, HomeGridItem>{
       for (final app in apps) 'app:${app.id}': HomeGridItem.app(app),
+      for (final app in localApps)
+        'local:${app.id}': HomeGridItem.localApp(app),
     };
     final placedIds = <String>{};
     var next = <HomeGridItem?>[];
@@ -207,7 +205,7 @@ class HomeGridLayout {
     HomeGridItem item,
   ) {
     var next = [...slots];
-    for (var index = math.max(0, startIndex);; index += 1) {
+    for (var index = math.max(0, startIndex); ; index += 1) {
       if (!itemFitsAtColumn(item, index)) {
         continue;
       }
@@ -227,25 +225,19 @@ class HomeGridLayout {
     return column + item.colSpan <= columns;
   }
 
-  static bool itemFitsInPage(
-    int index,
-    HomeGridItem item,
-    int pageSize,
-  ) {
+  static bool itemFitsInPage(int index, HomeGridItem item, int pageSize) {
     if (pageSize <= 0 || !itemFitsAtColumn(item, index)) {
       return false;
     }
     final pageStart = (index ~/ pageSize) * pageSize;
     final pageEnd = pageStart + pageSize;
-    return cellsFor(index, item)
-        .every((cell) => cell >= pageStart && cell < pageEnd);
+    return cellsFor(
+      index,
+      item,
+    ).every((cell) => cell >= pageStart && cell < pageEnd);
   }
 
-  static List<int> cellsFor(
-    int index,
-    HomeGridItem item, {
-    int? columns,
-  }) {
+  static List<int> cellsFor(int index, HomeGridItem item, {int? columns}) {
     columns ??= HomeGridLayout.columns;
     final baseRow = index ~/ columns;
     final baseColumn = index % columns;
@@ -276,10 +268,7 @@ class HomeGridLayout {
     if (slots.length >= length) {
       return slots;
     }
-    return [
-      ...slots,
-      for (var i = slots.length; i < length; i += 1) null,
-    ];
+    return [...slots, for (var i = slots.length; i < length; i += 1) null];
   }
 
   static bool canPlaceAt(
@@ -396,13 +385,7 @@ class HomeGridLayout {
     }
 
     final resized = source.resize(colSpan: colSpan, rowSpan: rowSpan);
-    return canPlaceAt(
-      slots,
-      index,
-      resized,
-      pageSize,
-      ignoreAnchors: {index},
-    );
+    return canPlaceAt(slots, index, resized, pageSize, ignoreAnchors: {index});
   }
 
   static HomeGridResizeResult? resizeSlot(

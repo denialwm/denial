@@ -12,21 +12,17 @@ abstract final class PowerProfile {
 
   /// Cycles power-save -> balanced -> performance -> power-save.
   static String next(String current) => switch (current) {
-        powerSave => balanced,
-        balanced => performance,
-        _ => powerSave,
-      };
+    powerSave => balanced,
+    balanced => performance,
+    _ => powerSave,
+  };
 
   static String? normalize(String? value) => switch ((value ?? '').trim()) {
-        'power-save' ||
-        'power-saver' ||
-        'powersave' ||
-        'power_save' =>
-          powerSave,
-        'performance' => performance,
-        'balanced' => balanced,
-        _ => null,
-      };
+    'power-save' || 'power-saver' || 'powersave' || 'power_save' => powerSave,
+    'performance' => performance,
+    'balanced' => balanced,
+    _ => null,
+  };
 }
 
 final powerProfileServiceProvider = Provider<PowerProfileService>((ref) {

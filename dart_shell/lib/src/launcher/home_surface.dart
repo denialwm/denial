@@ -4,12 +4,14 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../input/input_layout.dart';
+import '../local_apps/local_flutter_application.dart';
 import '../localization/denial_localizations.dart';
+import '../state/display_layout.dart';
 import '../state/shell_controller.dart';
 import 'controllers/home_grid_controller.dart';
 import 'controllers/home_grid_layout.dart';
 import 'launcher_providers.dart';
-import 'models/desktop_app.dart';
 import 'models/home_drag_session.dart';
 import 'models/home_grid_item.dart';
 import 'widgets/home_app_page.dart';
@@ -184,7 +186,17 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     }
   }
 
-  Future<void> _launchApp(DesktopApp app) async {
+  Future<void> _launchApp(HomeGridItem item) async {
+    final localApp = item.localApp;
+    if (localApp != null) {
+      _launchLocalApp(localApp);
+      return;
+    }
+
+    final app = item.app;
+    if (app == null) {
+      return;
+    }
     final launcher = ref.read(appLauncherProvider);
     if (!widget.useShellLaunchTransition) {
       await launcher.launch(app);
@@ -203,6 +215,65 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
 
     final started = await launcher.launch(app, launchRequestId: requestId);
     if (mounted && !started) {
+      shellController.failAppLaunch(requestId);
+    }
+  }
+
+  void _launchLocalApp(LocalFlutterApplication app) {
+    final displayLayout = ref.read(displayLayoutProvider);
+    final mainOutput = displayLayout?.mainOutput;
+    final availableBounds = mainOutput == null
+        ? Offset.zero & MediaQuery.sizeOf(context)
+        : displayLayout!.workAreaOf(mainOutput);
+    final statusBarHeight =
+        MediaQuery.paddingOf(context).top + ShellMetrics.appStatusBarHeight;
+    final applicationBounds = Rect.fromLTWH(
+      availableBounds.left,
+      availableBounds.top + statusBarHeight,
+      availableBounds.width,
+      math.max(64.0, availableBounds.height - statusBarHeight),
+    );
+    final title = app.titleFor(context);
+    final launcher = ref.read(localFlutterApplicationLauncherProvider);
+    if (!widget.useShellLaunchTransition) {
+      launcher.launch(
+        app.id,
+        availableBounds: availableBounds,
+        geometry: applicationBounds,
+        title: title,
+      );
+      return;
+    }
+
+    final shellState = ref.read(shellControllerProvider);
+    for (final window in shellState.windows) {
+      if (window.isLocalFlutter && window.appId == app.id) {
+        launcher.launch(
+          app.id,
+          availableBounds: availableBounds,
+          geometry: applicationBounds,
+          title: title,
+        );
+        return;
+      }
+    }
+
+    final shellController = ref.read(shellControllerProvider.notifier);
+    final requestId = shellController.beginAppLaunch(
+      appName: title,
+      iconPath: null,
+      expectedAppIds: <String>[app.id],
+    );
+    if (requestId == null) {
+      return;
+    }
+    final started = launcher.launch(
+      app.id,
+      availableBounds: availableBounds,
+      geometry: applicationBounds,
+      title: title,
+    );
+    if (!started) {
       shellController.failAppLaunch(requestId);
     }
   }

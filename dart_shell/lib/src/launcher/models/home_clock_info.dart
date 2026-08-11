@@ -158,10 +158,7 @@ class HomePowerStatus {
 }
 
 class HomeThermalReading {
-  const HomeThermalReading({
-    required this.sensor,
-    required this.deciC,
-  });
+  const HomeThermalReading({required this.sensor, required this.deciC});
 
   final ShellThermalSensor sensor;
   final int deciC;

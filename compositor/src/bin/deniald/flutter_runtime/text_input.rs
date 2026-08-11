@@ -83,6 +83,10 @@ struct EditingStateFields<'a> {
 struct JsonString<'a>(#[serde(borrow)] Cow<'a, str>);
 
 impl TextInputPlugin {
+    pub fn has_client(&self) -> bool {
+        self.client.is_some()
+    }
+
     pub fn handle_platform_message(&mut self, data: &[u8]) -> &[u8] {
         if data.len() > MAX_TEXT_INPUT_PACKET_BYTES {
             return &[];
@@ -167,6 +171,17 @@ impl TextInputPlugin {
             message_count += 1;
         }
         &self.messages[..message_count]
+    }
+
+    pub fn insert_text(&mut self, text: &str) -> &[Vec<u8>] {
+        let Some(client) = self.client.as_mut() else {
+            return &[];
+        };
+        if !client.model.add_text(text) {
+            return &[];
+        }
+        update_editing_state(client, &mut self.text_utf8_scratch, &mut self.messages[0]);
+        &self.messages[..1]
     }
 
     fn set_client(&mut self, arguments: &Value) -> Result<(), (&'static str, &'static str)> {
@@ -419,6 +434,42 @@ impl TextInputModel {
         true
     }
 
+    fn add_text(&mut self, text: &str) -> bool {
+        self.replacement_scratch.clear();
+        self.replacement_scratch.extend(text.encode_utf16());
+        if self.replacement_scratch.is_empty() {
+            return false;
+        }
+
+        let start = self.selection_start();
+        let end = self.selection_end();
+        let selected = end - start;
+        let Some(next_len) = self
+            .text
+            .len()
+            .checked_sub(selected)
+            .and_then(|len| len.checked_add(self.replacement_scratch.len()))
+        else {
+            return false;
+        };
+        if next_len > MAX_TEXT_UTF16_UNITS {
+            return false;
+        }
+
+        if selected != 0 {
+            self.text.copy_within(end.., start);
+            self.text.truncate(self.text.len() - selected);
+        }
+        let inserted = self.replacement_scratch.len();
+        let old_len = self.text.len();
+        self.text.resize(next_len, 0);
+        self.text.copy_within(start..old_len, start + inserted);
+        self.text[start..start + inserted].copy_from_slice(&self.replacement_scratch);
+        self.selection_base = start + inserted;
+        self.selection_extent = start + inserted;
+        true
+    }
+
     fn backspace(&mut self) -> bool {
         if self.delete_selected() {
             return true;
@@ -614,6 +665,38 @@ mod tests {
         assert_eq!(update["method"], UPDATE_EDITING_STATE);
         assert_eq!(update["args"][1]["text"], "abà");
         assert_eq!(update["args"][1]["selectionBase"], 3);
+    }
+
+    #[test]
+    fn shell_keyboard_text_replaces_the_active_flutter_selection() {
+        let mut plugin = TextInputPlugin::default();
+        assert!(!plugin.has_client());
+        assert_eq!(
+            plugin.handle_platform_message(&call(
+                SET_CLIENT,
+                json!([9, {
+                    "inputAction": "TextInputAction.done",
+                    "inputType": {"name": "TextInputType.text"}
+                }]),
+            )),
+            b"[null]"
+        );
+        assert_eq!(
+            plugin.handle_platform_message(&call(
+                SET_EDITING_STATE,
+                json!({"text": "before", "selectionBase": 0, "selectionExtent": 6}),
+            )),
+            b"[null]"
+        );
+
+        assert!(plugin.has_client());
+        let messages = plugin.insert_text("after 😀");
+        assert_eq!(messages.len(), 1);
+        let update: Value = serde_json::from_slice(&messages[0]).unwrap();
+        assert_eq!(update["method"], UPDATE_EDITING_STATE);
+        assert_eq!(update["args"][1]["text"], "after 😀");
+        assert_eq!(update["args"][1]["selectionBase"], 8);
+        assert_eq!(update["args"][1]["selectionExtent"], 8);
     }
 
     #[test]

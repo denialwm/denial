@@ -5,12 +5,12 @@ import 'package:flutter/widgets.dart';
 import '../models/denial_window.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
-import 'window_texture_rect.dart';
+import 'window_content_rect.dart';
 
-/// A window's live texture rendered with rounded corners and an optional
+/// A window's live content rendered with rounded corners and an optional
 /// hairline border, filling its parent. This is the single building block for
-/// every place the shell shows a window outside the primary stage: launch,
-/// overview cards, the foreground-to-overview hero and the focus zoom.
+/// every place the mobile shell shows a window: launch, overview cards, the
+/// foreground-to-overview hero, focus zoom, and the primary stage.
 class WindowSurface extends StatelessWidget {
   const WindowSurface({
     super.key,
@@ -34,7 +34,7 @@ class WindowSurface extends StatelessWidget {
         ? BorderRadius.zero
         : BorderRadius.circular(effectiveRadius);
 
-    Widget content = WindowTextureRect(
+    Widget content = WindowContentRect(
       window: window,
       borderRadius: borderRadius,
     );
@@ -103,11 +103,7 @@ class WindowHero extends StatelessWidget {
 
     return Positioned.fromRect(
       rect: rect,
-      child: WindowSurface(
-        window: window,
-        radius: radius,
-        borderColor: border,
-      ),
+      child: WindowSurface(window: window, radius: radius, borderColor: border),
     );
   }
 }

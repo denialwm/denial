@@ -26,10 +26,10 @@ class NonBlockingFifoWriter {
     _close = _libc.lookupFunction<_CloseNative, _CloseDart>('close');
     _malloc = _libc.lookupFunction<_MallocNative, _MallocDart>('malloc');
     _free = _libc.lookupFunction<_FreeNative, _FreeDart>('free');
-    _errnoLocation =
-        _libc.lookupFunction<_ErrnoLocationNative, _ErrnoLocationDart>(
-      '__errno_location',
-    );
+    _errnoLocation = _libc
+        .lookupFunction<_ErrnoLocationNative, _ErrnoLocationDart>(
+          '__errno_location',
+        );
   }
 
   static const int _oWriteOnly = 0x1;
@@ -60,10 +60,7 @@ class NonBlockingFifoWriter {
     Pointer<Uint8>? nativeCommand;
     var descriptor = -1;
     try {
-      descriptor = _open(
-        nativePath,
-        _oWriteOnly | _oNonBlock | _oCloseOnExec,
-      );
+      descriptor = _open(nativePath, _oWriteOnly | _oNonBlock | _oCloseOnExec);
       if (descriptor < 0) {
         final errno = _errno;
         throw FileSystemException(
@@ -93,10 +90,7 @@ class NonBlockingFifoWriter {
           );
         }
         if (written == 0) {
-          throw FileSystemException(
-            'Il daemon PBO non accetta comandi',
-            path,
-          );
+          throw FileSystemException('Il daemon PBO non accetta comandi', path);
         }
         offset += written;
       }

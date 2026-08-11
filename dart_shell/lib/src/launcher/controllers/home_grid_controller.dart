@@ -3,8 +3,9 @@ import 'dart:isolate';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../state/system_status.dart';
+import '../../local_apps/local_flutter_application.dart';
 import '../../state/shell_controller.dart';
+import '../../state/system_status.dart';
 import '../launcher_providers.dart';
 import '../models/home_battery_discharge_info.dart';
 import '../models/desktop_app.dart';
@@ -133,15 +134,23 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
     });
     final appsRepository = ref.watch(desktopAppsRepositoryProvider);
     final layoutRepository = ref.watch(homeLayoutRepositoryProvider);
+    final localApps = ref
+        .watch(localFlutterApplicationRegistryProvider)
+        .applications
+        .toList(growable: false);
     try {
       final apps = await _loadApplications(appsRepository, reason: 'initial');
       final savedLayout = await layoutRepository.readSavedLayout();
-      final slots = HomeGridLayout.initialSlotsForApps(apps, savedLayout);
+      final slots = HomeGridLayout.initialSlotsForApps(
+        apps,
+        localApps,
+        savedLayout,
+      );
       if (!_isBuildActive(generation)) {
         return HomeGridState(slots: slots);
       }
       _lastDesktopRefresh = DateTime.now();
-      if (_savedLayoutNeedsRefresh(apps, savedLayout, slots)) {
+      if (_savedLayoutNeedsRefresh(apps, localApps, savedLayout, slots)) {
         unawaited(layoutRepository.saveLayout(slots));
       }
       _startDesktopRefreshTriggers(generation);
@@ -210,7 +219,14 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
         return;
       }
 
-      final slots = HomeGridLayout.refreshSlotsForApps(current.slots, apps);
+      final localApps = ref
+          .read(localFlutterApplicationRegistryProvider)
+          .applications;
+      final slots = HomeGridLayout.refreshSlotsForApps(
+        current.slots,
+        apps,
+        localApps,
+      );
       state = AsyncData(current.copyWith(slots: slots));
       unawaited(ref.read(homeLayoutRepositoryProvider).saveLayout(slots));
     } finally {
@@ -399,6 +415,7 @@ bool _sameDesktopApp(DesktopApp a, DesktopApp b) {
 
 bool _savedLayoutNeedsRefresh(
   List<DesktopApp> apps,
+  Iterable<LocalFlutterApplication> localApps,
   List<HomeLayoutSlot?>? savedLayout,
   List<HomeGridItem?> slots,
 ) {
@@ -411,12 +428,15 @@ bool _savedLayoutNeedsRefresh(
     return true;
   }
 
-  final currentAppIds = {for (final app in apps) 'app:${app.id}'};
+  final currentAppIds = <String>{
+    for (final app in apps) 'app:${app.id}',
+    for (final app in localApps) 'local:${app.id}',
+  };
   if (!savedIds.containsAll(currentAppIds)) {
     return true;
   }
 
   return savedIds
-      .where((id) => id.startsWith('app:'))
+      .where((id) => id.startsWith('app:') || id.startsWith('local:'))
       .any((id) => !currentAppIds.contains(id));
 }

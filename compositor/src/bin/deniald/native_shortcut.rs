@@ -4,6 +4,7 @@ const KEY_ESCAPE: u32 = 1;
 const KEY_BACKSPACE: u32 = 14;
 const KEY_TAB: u32 = 15;
 const KEY_A: u32 = 30;
+const KEY_S: u32 = 31;
 const KEY_F: u32 = 33;
 const KEY_K: u32 = 37;
 const KEY_L: u32 = 38;
@@ -34,6 +35,7 @@ const CAPTURED_POINTER_RELEASE: u16 = 1 << 6;
 const CAPTURED_MAXIMIZE: u16 = 1 << 7;
 const CAPTURED_CLIPBOARD: u16 = 1 << 8;
 const CAPTURED_VERTICAL_MAXIMIZE: u16 = 1 << 9;
+const CAPTURED_SCREENSHOT_REGION: u16 = 1 << 10;
 const CAPTURED_MUTE: u8 = 1 << 0;
 const CAPTURED_VOLUME_DOWN: u8 = 1 << 1;
 const CAPTURED_VOLUME_UP: u8 = 1 << 2;
@@ -49,6 +51,7 @@ pub(super) enum ShortcutDisposition {
     RequestWindowSwitcherNext,
     RequestWindowSwitcherEnd,
     RequestClipboard,
+    RequestScreenshotRegion,
     RequestClose,
     RequestMinimize,
     RequestToggleMaximize,
@@ -177,6 +180,24 @@ impl NativeEscapeShortcut {
                     self.captured_logo_actions &= !capture;
                     return ShortcutDisposition::Consume;
                 }
+            }
+            return ShortcutDisposition::Forward;
+        }
+
+        if evdev_keycode == KEY_S {
+            if pressed {
+                if self.logo_keys == 0 || self.shift_keys == 0 {
+                    return ShortcutDisposition::Forward;
+                }
+                if self.captured_logo_actions & CAPTURED_SCREENSHOT_REGION != 0 {
+                    return ShortcutDisposition::Consume;
+                }
+                self.captured_logo_actions |= CAPTURED_SCREENSHOT_REGION;
+                return ShortcutDisposition::RequestScreenshotRegion;
+            }
+            if self.captured_logo_actions & CAPTURED_SCREENSHOT_REGION != 0 {
+                self.captured_logo_actions &= !CAPTURED_SCREENSHOT_REGION;
+                return ShortcutDisposition::Consume;
             }
             return ShortcutDisposition::Forward;
         }
@@ -534,6 +555,37 @@ mod tests {
             press(&mut shortcut, KEY_UP),
             ShortcutDisposition::RequestToggleMaximize
         );
+    }
+
+    #[test]
+    fn super_shift_s_requests_region_capture_and_owns_the_key_lifecycle() {
+        let mut shortcut = NativeEscapeShortcut::default();
+
+        assert_eq!(
+            press(&mut shortcut, KEY_LEFT_SHIFT),
+            ShortcutDisposition::Forward
+        );
+        assert_eq!(
+            press(&mut shortcut, KEY_LEFT_META),
+            ShortcutDisposition::Consume
+        );
+        assert_eq!(
+            press(&mut shortcut, KEY_S),
+            ShortcutDisposition::RequestScreenshotRegion
+        );
+        assert_eq!(press(&mut shortcut, KEY_S), ShortcutDisposition::Consume);
+        assert_eq!(
+            release(&mut shortcut, KEY_LEFT_SHIFT),
+            ShortcutDisposition::Forward
+        );
+        assert_eq!(release(&mut shortcut, KEY_S), ShortcutDisposition::Consume);
+        assert_eq!(
+            release(&mut shortcut, KEY_LEFT_META),
+            ShortcutDisposition::Consume
+        );
+
+        assert_eq!(press(&mut shortcut, KEY_S), ShortcutDisposition::Forward);
+        assert_eq!(release(&mut shortcut, KEY_S), ShortcutDisposition::Forward);
     }
 
     #[test]

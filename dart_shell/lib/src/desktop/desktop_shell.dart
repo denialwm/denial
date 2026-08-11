@@ -36,6 +36,7 @@ import '../state/desktop_window_close_effect.dart';
 import '../state/desktop_window_switcher.dart';
 import '../state/display_layout.dart';
 import '../state/quick_settings.dart';
+import '../state/screenshot_selection.dart';
 import '../state/shell_controller.dart';
 import '../theme/motion.dart';
 import '../theme/shell_theme.dart';
@@ -215,6 +216,20 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         _finishWindowSwitcher();
       case DenialShellAction.clipboard:
         _toggleClipboardTray(event.monitorId);
+      case DenialShellAction.screenshotPrepare:
+        final controller = ref.read(screenshotSelectionProvider.notifier);
+        if (controller.prepare(event.requestId)) {
+          ref.read(denialBridgeProvider).screenshotPrepared(event.requestId);
+        }
+      case DenialShellAction.screenshotTextureReady:
+        final textureId = event.textureId;
+        if (textureId != null) {
+          ref
+              .read(screenshotSelectionProvider.notifier)
+              .textureReady(event.requestId, textureId);
+        }
+      case DenialShellAction.screenshotDone:
+        ref.read(screenshotSelectionProvider.notifier).done(event.requestId);
     }
   }
 
@@ -952,7 +967,6 @@ List<Widget> _buildDesktopWindowLayers({
   required Rect switcherStageBounds,
   required int topZ,
   required bool reduceMotion,
-  required Offset Function(DesktopWindowPlacement placement) windowOffsetFor,
   required ValueChanged<DenialWindow> onActivateWindow,
   required ValueChanged<DenialWindow> onBeginOverviewDrag,
   required void Function(DenialWindow window, Offset delta)
@@ -1005,15 +1019,12 @@ List<Widget> _buildDesktopWindowLayers({
     final active = switching
         ? DesktopWindowSwitcherLayout.isSelected(switcher, placement.objectId)
         : !overview && !placement.minimized && placement.z == topZ;
-    final windowOffset = windowOffsetFor(placement);
-    final visualFrame = frame.shift(windowOffset);
-
     layers.add(
       _DesktopWindowFrame(
         key: ValueKey<int>(placement.objectId),
         window: window,
         placement: placement,
-        frame: visualFrame,
+        frame: frame,
         minimized: !visible,
         desktopWidget: desktopWidget,
         overviewActive: desktop.overviewActive,
@@ -1034,7 +1045,7 @@ List<Widget> _buildDesktopWindowLayers({
           key: ValueKey<String>('desktop-popup-layers-${placement.objectId}'),
           window: window,
           placement: placement,
-          frame: visualFrame,
+          frame: frame,
           minimized: !visible,
           overviewActive: desktop.overviewActive,
           overview: overview,
@@ -1187,29 +1198,11 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     final overlaySettings = ref.watch(
       shellSettingsProvider.select((settings) => settings.overlays),
     );
-    final layoutSettings = ref.watch(
-      shellSettingsProvider.select((settings) => settings.layout),
-    );
-    final clipboardTray = ref.watch(clipboardTrayProvider);
     final viewSize = widget.viewSize;
     final windows = widget.windows;
     final desktop = widget.desktop;
     final windowSwitcher = widget.windowSwitcher;
     final displayLayout = widget.displayLayout;
-    Offset clipboardWindowOffsetFor(DesktopWindowPlacement placement) =>
-        clipboardTrayWindowOffset(
-          clipboardTray,
-          layoutSettings,
-          monitorId: placement.monitorId,
-          displayLayout: displayLayout,
-        );
-    Offset clipboardClosingWindowOffsetFor(DenialWindow window) =>
-        clipboardTrayWindowOffset(
-          clipboardTray,
-          layoutSettings,
-          monitorId: window.monitorId,
-          displayLayout: displayLayout,
-        );
     final frameTimingOptions = widget.frameTimingOptions;
     final wallpaperSelectorVisible = widget.wallpaperSelectorVisible;
     final shellOutputRect = widget.shellOutputRect;
@@ -1351,7 +1344,6 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                     switcherStageBounds: switcherStageBounds,
                     topZ: topZ,
                     reduceMotion: reduceMotion,
-                    windowOffsetFor: clipboardWindowOffsetFor,
                     onActivateWindow: onActivateWindow,
                     onBeginOverviewDrag: onBeginOverviewDrag,
                     onUpdateOverviewDrag: onUpdateOverviewDrag,
@@ -1397,7 +1389,6 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                     switcherStageBounds: switcherStageBounds,
                     topZ: topZ,
                     reduceMotion: reduceMotion,
-                    windowOffsetFor: clipboardWindowOffsetFor,
                     onActivateWindow: onActivateWindow,
                     onBeginOverviewDrag: onBeginOverviewDrag,
                     onUpdateOverviewDrag: onUpdateOverviewDrag,
@@ -1410,13 +1401,9 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                         'desktop-closing-window-${closing.id}',
                       ),
                       rect: closing.frame,
-                      child: Transform.translate(
-                        offset: clipboardClosingWindowOffsetFor(closing.window),
-                        child: _DesktopClosingWindowFrame(
-                          closing: closing,
-                          onCompleted: () =>
-                              _completeCloseAnimation(closing.id),
-                        ),
+                      child: _DesktopClosingWindowFrame(
+                        closing: closing,
+                        onCompleted: () => _completeCloseAnimation(closing.id),
                       ),
                     ),
                   if (windowSwitcher != null)

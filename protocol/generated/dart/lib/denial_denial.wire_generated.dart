@@ -306,7 +306,10 @@ enum ShellActionKind {
   Overview(1),
   WindowSwitcherNext(2),
   WindowSwitcherEnd(3),
-  Clipboard(4);
+  Clipboard(4),
+  ScreenshotRegion(5),
+  ScreenshotTextureReady(6),
+  ScreenshotDone(7);
 
   final int value;
   const ShellActionKind(this.value);
@@ -318,6 +321,9 @@ enum ShellActionKind {
       case 2: return ShellActionKind.WindowSwitcherNext;
       case 3: return ShellActionKind.WindowSwitcherEnd;
       case 4: return ShellActionKind.Clipboard;
+      case 5: return ShellActionKind.ScreenshotRegion;
+      case 6: return ShellActionKind.ScreenshotTextureReady;
+      case 7: return ShellActionKind.ScreenshotDone;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -326,7 +332,7 @@ enum ShellActionKind {
       value == null ? null : ShellActionKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 4;
+  static const int maxValue = 7;
   static const fb.Reader<ShellActionKind> reader = _ShellActionKindReader();
 }
 
@@ -2383,10 +2389,11 @@ class ShellAction {
   ShellActionKind get action => ShellActionKind.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 4, 0));
   int get monitorId => const fb.Int64Reader().vTableGet(_bc, _bcOffset, 6, -1);
   bool get hasMonitorId => const fb.BoolReader().vTableGet(_bc, _bcOffset, 8, false);
+  int get textureId => const fb.Int64Reader().vTableGet(_bc, _bcOffset, 10, 0);
 
   @override
   String toString() {
-    return 'ShellAction{action: ${action}, monitorId: ${monitorId}, hasMonitorId: ${hasMonitorId}}';
+    return 'ShellAction{action: ${action}, monitorId: ${monitorId}, hasMonitorId: ${hasMonitorId}, textureId: ${textureId}}';
   }
 }
 
@@ -2404,7 +2411,7 @@ class ShellActionBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(3);
+    fbBuilder.startTable(4);
   }
 
   int addAction(ShellActionKind? action) {
@@ -2419,6 +2426,10 @@ class ShellActionBuilder {
     fbBuilder.addBool(2, hasMonitorId);
     return fbBuilder.offset;
   }
+  int addTextureId(int? textureId) {
+    fbBuilder.addInt64(3, textureId);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -2429,23 +2440,27 @@ class ShellActionObjectBuilder extends fb.ObjectBuilder {
   final ShellActionKind? _action;
   final int? _monitorId;
   final bool? _hasMonitorId;
+  final int? _textureId;
 
   ShellActionObjectBuilder({
     ShellActionKind? action,
     int? monitorId,
     bool? hasMonitorId,
+    int? textureId,
   })
       : _action = action,
         _monitorId = monitorId,
-        _hasMonitorId = hasMonitorId;
+        _hasMonitorId = hasMonitorId,
+        _textureId = textureId;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
-    fbBuilder.startTable(3);
+    fbBuilder.startTable(4);
     fbBuilder.addUint8(0, _action?.value);
     fbBuilder.addInt64(1, _monitorId);
     fbBuilder.addBool(2, _hasMonitorId);
+    fbBuilder.addInt64(3, _textureId);
     return fbBuilder.endTable();
   }
 

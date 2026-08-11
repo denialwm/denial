@@ -11,6 +11,62 @@ import '../theme/tokens.dart';
 import 'osk/shell_osk_panel.dart';
 import 'shell_backdrop_blur.dart';
 
+/// Keeps the mobile software keyboard above applications and transient shell
+/// surfaces while preserving the lock screen as the highest security layer.
+class MobileSystemKeyboardLayer extends ConsumerWidget {
+  const MobileSystemKeyboardLayer({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = ref.watch(
+      shellControllerProvider.select(
+        (state) => !state.lockLayerVisible && !state.launchTransitionActive,
+      ),
+    );
+    return Offstage(
+      offstage: !enabled,
+      child: IgnorePointer(ignoring: !enabled, child: const EdgePanelLayer()),
+    );
+  }
+}
+
+/// Moves mobile content within the space left by the software keyboard.
+///
+/// The keyboard and its right-edge scroll strip must remain stationary, so
+/// every full-screen surface that should follow the user's viewport pan wraps
+/// itself in this boundary instead of duplicating the translation.
+class MobileKeyboardViewport extends ConsumerWidget {
+  const MobileKeyboardViewport({required this.child, super.key});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final position = ref.watch(
+      shellControllerProvider.select(
+        (state) => (
+          progress: state.edgePanelDragProgress,
+          scroll: state.edgePanelViewportScroll,
+        ),
+      ),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final keyboardOffset =
+            ShellMetrics.edgePanelHeight(constraints.biggest) *
+            position.progress;
+        final viewportScroll = position.scroll
+            .clamp(0.0, keyboardOffset)
+            .toDouble();
+        return Transform.translate(
+          offset: Offset(0.0, -(keyboardOffset - viewportScroll)),
+          child: child,
+        );
+      },
+    );
+  }
+}
+
 class EdgePanelLayer extends ConsumerStatefulWidget {
   const EdgePanelLayer({super.key});
 
@@ -67,7 +123,7 @@ class _EdgePanelLayerState extends ConsumerState<EdgePanelLayer>
       (_, next) => _onPanelChanged(next),
     );
 
-    return Positioned.fill(
+    return SizedBox.expand(
       child: Stack(
         fit: StackFit.expand,
         children: [

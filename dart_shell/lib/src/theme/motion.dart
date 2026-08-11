@@ -42,6 +42,7 @@ class Motion {
   static const Duration systemLevelHud = Duration(milliseconds: 220);
   static const Duration systemLevelHudValue = Duration(milliseconds: 260);
   static const Duration notificationBanner = Duration(milliseconds: 260);
+  static const Duration screenshotTake = Duration(milliseconds: 220);
   static const Duration unlock = Duration(milliseconds: 400);
 
   // Curves -------------------------------------------------------------------

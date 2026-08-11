@@ -173,10 +173,7 @@ class ShellPowerStatus {
 
 @immutable
 class ShellThermalReading {
-  const ShellThermalReading({
-    required this.sensor,
-    required this.deciC,
-  });
+  const ShellThermalReading({required this.sensor, required this.deciC});
 
   final ShellThermalSensor sensor;
   final int deciC;

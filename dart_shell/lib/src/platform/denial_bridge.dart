@@ -21,13 +21,23 @@ enum DenialShellAction {
   windowSwitcherNext,
   windowSwitcherEnd,
   clipboard,
+  screenshotPrepare,
+  screenshotTextureReady,
+  screenshotDone,
 }
 
 class DenialShellActionEvent {
-  const DenialShellActionEvent({required this.action, required this.monitorId});
+  const DenialShellActionEvent({
+    required this.action,
+    required this.monitorId,
+    required this.requestId,
+    required this.textureId,
+  });
 
   final DenialShellAction action;
   final int? monitorId;
+  final int requestId;
+  final int? textureId;
 }
 
 class DenialAudioState {
@@ -90,9 +100,10 @@ class DenialBridge {
     _hapticTapPayload,
   );
   static const int _launchApplicationCommand = 0;
-  static const int _toggleKeyboardCommand = 1;
   static const int _takeScreenshotCommand = 2;
   static const int _logoutCommand = 3;
+  static const int _screenshotPreparedCommand = 4;
+  static const int _cancelScreenshotCommand = 5;
   static const int _systemCommandHeaderBytes = 1 + 8 + 4;
   static const int _maxSystemCommandBytes = 64 * 1024;
   static const int _maxSystemCommandArguments = 64;
@@ -553,13 +564,40 @@ class DenialBridge {
     return _sendSystemCommand(
       _launchApplicationCommand,
       argv: argv,
-      launchRequestId: launchRequestId,
+      requestId: launchRequestId,
     );
   }
 
-  bool toggleKeyboard() => _sendSystemCommand(_toggleKeyboardCommand);
-
   bool takeScreenshot() => _sendSystemCommand(_takeScreenshotCommand);
+
+  bool screenshotPrepared(int requestId) =>
+      _sendSystemCommand(_screenshotPreparedCommand, requestId: requestId);
+
+  bool finishScreenshotRegion(int requestId, Rect region) {
+    if (requestId <= 0 ||
+        region.isEmpty ||
+        !region.left.isFinite ||
+        !region.top.isFinite ||
+        !region.width.isFinite ||
+        !region.height.isFinite ||
+        region.left < 0 ||
+        region.top < 0) {
+      return false;
+    }
+    return _sendSystemCommand(
+      _takeScreenshotCommand,
+      requestId: requestId,
+      argv: <String>[
+        region.left.toStringAsFixed(6),
+        region.top.toStringAsFixed(6),
+        region.width.toStringAsFixed(6),
+        region.height.toStringAsFixed(6),
+      ],
+    );
+  }
+
+  bool cancelScreenshot(int requestId) =>
+      _sendSystemCommand(_cancelScreenshotCommand, requestId: requestId);
 
   /// Asks the native compositor to end this graphical session cleanly.
   ///
@@ -570,10 +608,10 @@ class DenialBridge {
   bool _sendSystemCommand(
     int command, {
     List<String> argv = const <String>[],
-    int? launchRequestId,
+    int? requestId,
   }) {
     if (argv.length > _maxSystemCommandArguments ||
-        (launchRequestId != null && launchRequestId <= 0)) {
+        (requestId != null && requestId <= 0)) {
       return false;
     }
 
@@ -595,7 +633,7 @@ class DenialBridge {
 
     final data = ByteData(size)
       ..setUint8(0, command)
-      ..setUint64(1, launchRequestId ?? 0, Endian.little)
+      ..setUint64(1, requestId ?? 0, Endian.little)
       ..setUint32(9, encodedArguments.length, Endian.little);
     var offset = _systemCommandHeaderBytes;
     final bytes = data.buffer.asUint8List();
@@ -856,6 +894,12 @@ class DenialBridge {
           wire.ShellActionKind.WindowSwitcherEnd =>
             DenialShellAction.windowSwitcherEnd,
           wire.ShellActionKind.Clipboard => DenialShellAction.clipboard,
+          wire.ShellActionKind.ScreenshotRegion =>
+            DenialShellAction.screenshotPrepare,
+          wire.ShellActionKind.ScreenshotTextureReady =>
+            DenialShellAction.screenshotTextureReady,
+          wire.ShellActionKind.ScreenshotDone =>
+            DenialShellAction.screenshotDone,
         };
         if (!_shellActions.isClosed) {
           _shellActions.add(
@@ -864,6 +908,8 @@ class DenialBridge {
               monitorId: payload.hasMonitorId && payload.monitorId >= 0
                   ? payload.monitorId
                   : null,
+              requestId: decoded.requestId,
+              textureId: payload.textureId > 0 ? payload.textureId : null,
             ),
           );
         }

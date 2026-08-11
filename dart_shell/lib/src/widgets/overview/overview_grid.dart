@@ -57,9 +57,11 @@ class OverviewGrid extends StatelessWidget {
           fit: StackFit.expand,
           clipBehavior: Clip.none,
           children: [
-            for (var visualIndex = 0;
-                visualIndex < windows.length;
-                visualIndex += 1)
+            for (
+              var visualIndex = 0;
+              visualIndex < windows.length;
+              visualIndex += 1
+            )
               _positionedCard(
                 layout: layout,
                 originRect: originRect,

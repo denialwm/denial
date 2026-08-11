@@ -2,16 +2,19 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart' show kPrimaryMouseButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../input/shell_interaction_registry.dart';
+import '../localization/denial_localizations.dart';
 import '../models/clipboard_history.dart';
 import '../settings/settings_controller.dart';
 import '../settings/shell_settings.dart';
 import '../state/clipboard_tray.dart';
 import '../state/display_layout.dart';
+import '../state/shell_controller.dart';
 import '../theme/motion.dart';
 import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
@@ -20,11 +23,11 @@ import 'shell_backdrop_blur.dart';
 typedef _ClipboardEntryDragStart =
     void Function(
       ClipboardHistoryEntry entry,
-      DragStartDetails details,
+      Offset position,
       Rect sourceRect,
     );
-typedef _ClipboardEntryDragUpdate = void Function(DragUpdateDetails details);
-typedef _ClipboardEntryDragEnd = void Function(DragEndDetails details);
+typedef _ClipboardEntryDragUpdate = ValueChanged<Offset>;
+typedef _ClipboardEntryDragEnd = VoidCallback;
 
 class ClipboardTrayLayer extends ConsumerStatefulWidget {
   const ClipboardTrayLayer({super.key});
@@ -36,58 +39,34 @@ class ClipboardTrayLayer extends ConsumerStatefulWidget {
 class _ClipboardTrayLayerState extends ConsumerState<ClipboardTrayLayer>
     with TickerProviderStateMixin {
   late final AnimationController _motion;
-  late final AnimationController _dragSettle;
-  late final TextEditingController _searchController;
-  late final FocusNode _searchFocusNode;
-  _ClipboardDragPreviewState? _dragPreview;
+  late final StreamSubscription<Offset> _cursorPositionSubscription;
+  _ClipboardEntryDragState? _entryDrag;
 
   @override
   void initState() {
     super.initState();
-    _motion = AnimationController(vsync: this)
-      ..addListener(_publishMotion)
-      ..addStatusListener(_handleMotionStatus);
-    _dragSettle = AnimationController(vsync: this, duration: Motion.cardSettle);
-    _searchController = TextEditingController();
-    _searchFocusNode = FocusNode(debugLabel: 'clipboard-history-search')
-      ..addListener(_handleSearchFocusChanged);
+    _motion = AnimationController(vsync: this)..addListener(_publishMotion);
+    _cursorPositionSubscription = ref
+        .read(denialBridgeProvider)
+        .cursorPositions
+        .listen(_updateEntryDragPosition);
   }
 
   @override
   void dispose() {
     _motion
       ..removeListener(_publishMotion)
-      ..removeStatusListener(_handleMotionStatus)
       ..dispose();
-    _dragSettle.dispose();
-    _searchController.dispose();
-    _searchFocusNode
-      ..removeListener(_handleSearchFocusChanged)
-      ..dispose();
+    unawaited(_cursorPositionSubscription.cancel());
     super.dispose();
-  }
-
-  void _handleSearchFocusChanged() {
-    if (mounted) {
-      setState(() {});
-    }
   }
 
   void _publishMotion() {
     ref.read(clipboardTrayProvider.notifier).setMotionProgress(_motion.value);
   }
 
-  void _handleMotionStatus(AnimationStatus status) {
-    if (status == AnimationStatus.dismissed) {
-      _searchFocusNode.unfocus();
-    }
-  }
-
   void _animateTo(bool open) {
     final target = open ? 1.0 : 0.0;
-    if (!open) {
-      _searchFocusNode.unfocus();
-    }
     if ((_motion.value - target).abs() < 0.001) {
       _motion.value = target;
       return;
@@ -153,38 +132,31 @@ class _ClipboardTrayLayerState extends ConsumerState<ClipboardTrayLayer>
   }
 
   void _closeTray() {
-    _searchFocusNode.unfocus();
     ref.read(clipboardTrayProvider.notifier).close();
   }
 
   void _beginEntryDrag(
     ClipboardHistoryEntry entry,
-    DragStartDetails details,
+    Offset position,
     Rect sourceRect,
   ) {
-    final width = math.min(sourceRect.width, 320.0);
-    final height = math.min(sourceRect.height, 190.0);
     final anchor = Offset(
       sourceRect.width <= 0
           ? 0.5
-          : ((details.globalPosition.dx - sourceRect.left) / sourceRect.width)
-                .clamp(0.08, 0.92)
+          : ((position.dx - sourceRect.left) / sourceRect.width)
+                .clamp(0.0, 1.0)
                 .toDouble(),
       sourceRect.height <= 0
-          ? 0.2
-          : ((details.globalPosition.dy - sourceRect.top) / sourceRect.height)
-                .clamp(0.08, 0.92)
+          ? 0.5
+          : ((position.dy - sourceRect.top) / sourceRect.height)
+                .clamp(0.0, 1.0)
                 .toDouble(),
     );
-    _dragSettle
-      ..stop()
-      ..value = 0;
     setState(() {
-      _dragPreview = _ClipboardDragPreviewState(
+      _entryDrag = _ClipboardEntryDragState(
         entry: entry,
-        position: details.globalPosition,
-        sourceRect: sourceRect,
-        size: Size(width, height),
+        position: position,
+        size: sourceRect.size,
         anchor: anchor,
       );
     });
@@ -195,52 +167,33 @@ class _ClipboardTrayLayerState extends ConsumerState<ClipboardTrayLayer>
     final started = await ref
         .read(clipboardHistoryProvider.notifier)
         .startDrag(itemId);
-    if (!started && mounted && _dragPreview?.entry.id == itemId) {
-      _settleEntryDrag(Offset.zero, cancelled: true);
+    if (!started && mounted && _entryDrag?.entry.id == itemId) {
+      _finishEntryDrag();
     }
   }
 
-  void _updateEntryDrag(DragUpdateDetails details) {
-    final preview = _dragPreview;
-    if (preview == null || preview.settling) {
+  void _updateEntryDragPosition(Offset position) {
+    final drag = _entryDrag;
+    if (drag == null ||
+        !position.dx.isFinite ||
+        !position.dy.isFinite ||
+        position == drag.position) {
       return;
     }
     setState(() {
-      _dragPreview = preview.copyWith(position: details.globalPosition);
+      _entryDrag = drag.copyWith(position: position);
     });
   }
 
-  void _endEntryDrag(DragEndDetails details) {
-    _settleEntryDrag(details.velocity.pixelsPerSecond);
+  void _finishEntryDrag() {
+    if (_entryDrag != null) {
+      setState(() => _entryDrag = null);
+    }
   }
 
-  void _cancelEntryDrag() {
-    _settleEntryDrag(Offset.zero, cancelled: true);
-  }
-
-  void _settleEntryDrag(Offset velocity, {bool cancelled = false}) {
-    final preview = _dragPreview;
-    if (preview == null || preview.settling) {
-      return;
-    }
-    setState(() {
-      _dragPreview = preview.copyWith(
-        settling: true,
-        cancelled: cancelled,
-        releaseVelocity: velocity,
-      );
-    });
-    if (MediaQuery.disableAnimationsOf(context)) {
-      setState(() => _dragPreview = null);
-      return;
-    }
-    unawaited(
-      _dragSettle.forward(from: 0).whenComplete(() {
-        if (mounted && _dragPreview?.entry.id == preview.entry.id) {
-          setState(() => _dragPreview = null);
-        }
-      }),
-    );
+  void _endEntryDrag() {
+    _finishEntryDrag();
+    _closeTray();
   }
 
   @override
@@ -266,8 +219,9 @@ class _ClipboardTrayLayerState extends ConsumerState<ClipboardTrayLayer>
         : requestedOutputRect;
     final extent = clipboardTrayExtentForSize(layout, outputRect.size);
     final trayRect = _trayRect(outputRect, edge, extent);
-    final dragPreview = _dragPreview;
-    final dismissActive = tray.open && dragPreview == null;
+    final entryDrag = _entryDrag;
+    final trayVisible = tray.open || tray.painted;
+    final dismissActive = tray.open && entryDrag == null;
 
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
@@ -285,7 +239,7 @@ class _ClipboardTrayLayerState extends ConsumerState<ClipboardTrayLayer>
                 pointerPolicy: ShellPointerPolicy.fullScene,
                 child: Semantics(
                   button: true,
-                  label: 'Close clipboard history',
+                  label: context.l10n.clipboardCloseHistory,
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTap: _closeTray,
@@ -295,45 +249,48 @@ class _ClipboardTrayLayerState extends ConsumerState<ClipboardTrayLayer>
             ),
           ),
           Positioned.fromRect(
-            rect: trayRect,
-            child: AnimatedBuilder(
-              animation: _motion,
-              builder: (context, child) {
-                final hiddenOffset = _hiddenOffset(edge, extent);
-                return Transform.translate(
-                  offset: hiddenOffset * (1 - _motion.value),
-                  child: child,
-                );
-              },
-              child: ShellInputRegion(
-                debugLabel: 'Clipboard history tray',
-                active: tray.painted,
-                keyboardPolicy: tray.open && _searchFocusNode.hasFocus
-                    ? ShellKeyboardPolicy.capture
-                    : ShellKeyboardPolicy.none,
-                child: _ClipboardTraySurface(
-                  edge: edge,
-                  extent: extent,
-                  searchController: _searchController,
-                  searchFocusNode: _searchFocusNode,
-                  onSearchChanged: ref
-                      .read(clipboardHistoryProvider.notifier)
-                      .setQuery,
-                  onClose: _closeTray,
-                  onDragStart: _beginTrayDrag,
-                  onDragUpdate: (details) =>
-                      _updateTrayDrag(details, edge, extent),
-                  onDragEnd: (details) => _endTrayDrag(details, edge, extent),
-                  onEntryDragStart: _beginEntryDrag,
-                  onEntryDragUpdate: _updateEntryDrag,
-                  onEntryDragEnd: _endEntryDrag,
-                  onEntryDragCancel: _cancelEntryDrag,
-                ),
+            rect: outputRect,
+            child: ClipRect(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Positioned.fromRect(
+                    rect: trayRect.shift(-outputRect.topLeft),
+                    child: AnimatedBuilder(
+                      animation: _motion,
+                      builder: (context, child) {
+                        final hiddenOffset = _hiddenOffset(edge, extent);
+                        return Transform.translate(
+                          offset: hiddenOffset * (1 - _motion.value),
+                          child: child,
+                        );
+                      },
+                      child: ShellInputRegion(
+                        debugLabel: 'Clipboard history tray',
+                        active: tray.painted,
+                        child: trayVisible
+                            ? _ClipboardTraySurface(
+                                edge: edge,
+                                onClose: _closeTray,
+                                onDragStart: _beginTrayDrag,
+                                onDragUpdate: (details) =>
+                                    _updateTrayDrag(details, edge, extent),
+                                onDragEnd: (details) =>
+                                    _endTrayDrag(details, edge, extent),
+                                draggedEntryId: entryDrag?.entry.id,
+                                onEntryDragStart: _beginEntryDrag,
+                                onEntryDragUpdate: _updateEntryDragPosition,
+                                onEntryDragEnd: _endEntryDrag,
+                              )
+                            : const SizedBox.expand(),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-          if (dragPreview != null)
-            _ClipboardDragPreview(state: dragPreview, settle: _dragSettle),
+          if (entryDrag != null) _DraggedClipboardEntry(state: entryDrag),
         ],
       ),
     );
@@ -343,33 +300,25 @@ class _ClipboardTrayLayerState extends ConsumerState<ClipboardTrayLayer>
 class _ClipboardTraySurface extends ConsumerWidget {
   const _ClipboardTraySurface({
     required this.edge,
-    required this.extent,
-    required this.searchController,
-    required this.searchFocusNode,
-    required this.onSearchChanged,
     required this.onClose,
     required this.onDragStart,
     required this.onDragUpdate,
     required this.onDragEnd,
+    required this.draggedEntryId,
     required this.onEntryDragStart,
     required this.onEntryDragUpdate,
     required this.onEntryDragEnd,
-    required this.onEntryDragCancel,
   });
 
   final ClipboardTrayEdge edge;
-  final double extent;
-  final TextEditingController searchController;
-  final FocusNode searchFocusNode;
-  final ValueChanged<String> onSearchChanged;
   final VoidCallback onClose;
   final GestureDragStartCallback onDragStart;
   final GestureDragUpdateCallback onDragUpdate;
   final GestureDragEndCallback onDragEnd;
+  final int? draggedEntryId;
   final _ClipboardEntryDragStart onEntryDragStart;
   final _ClipboardEntryDragUpdate onEntryDragUpdate;
   final _ClipboardEntryDragEnd onEntryDragEnd;
-  final VoidCallback onEntryDragCancel;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -428,49 +377,35 @@ class _ClipboardTraySurface extends ConsumerWidget {
                 ),
               ],
             ),
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                edge == ClipboardTrayEdge.left ? 18 : 16,
-                edge == ClipboardTrayEdge.top ? 18 : 16,
-                edge == ClipboardTrayEdge.right ? 18 : 16,
-                edge == ClipboardTrayEdge.bottom ? 18 : 16,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _ClipboardTrayHeader(
-                    horizontal: horizontal,
-                    snapshot: history.snapshot,
-                    searchController: searchController,
-                    searchFocusNode: searchFocusNode,
-                    onSearchChanged: onSearchChanged,
-                    onClear: controller.clear,
-                    onDragStart: onDragStart,
-                    onDragUpdate: onDragUpdate,
-                    onDragEnd: onDragEnd,
-                  ),
-                  const SizedBox(height: 14),
-                  Expanded(
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Padding(
+                    padding: _clipboardTrayContentPadding(edge),
                     child: _ClipboardHistoryBody(
                       horizontal: horizontal,
                       state: history,
+                      draggedEntryId: draggedEntryId,
                       onActivate: (entry) async {
                         if (await controller.activate(entry.id)) {
                           onClose();
                         }
                       },
-                      onPinnedChanged: (entry) =>
-                          controller.setPinned(entry.id, pinned: !entry.pinned),
                       onDelete: (entry) => controller.delete(entry.id),
                       onEntryDragStart: onEntryDragStart,
                       onEntryDragUpdate: onEntryDragUpdate,
                       onEntryDragEnd: onEntryDragEnd,
-                      onEntryDragCancel: onEntryDragCancel,
                       onRetry: controller.refresh,
                     ),
                   ),
-                ],
-              ),
+                ),
+                _ClipboardTrayDragRegion(
+                  edge: edge,
+                  onDragStart: onDragStart,
+                  onDragUpdate: onDragUpdate,
+                  onDragEnd: onDragEnd,
+                ),
+              ],
             ),
           ),
         ),
@@ -479,134 +414,65 @@ class _ClipboardTraySurface extends ConsumerWidget {
   }
 }
 
-class _ClipboardTrayHeader extends StatelessWidget {
-  const _ClipboardTrayHeader({
-    required this.horizontal,
-    required this.snapshot,
-    required this.searchController,
-    required this.searchFocusNode,
-    required this.onSearchChanged,
-    required this.onClear,
+class _ClipboardTrayDragRegion extends StatelessWidget {
+  const _ClipboardTrayDragRegion({
+    required this.edge,
     required this.onDragStart,
     required this.onDragUpdate,
     required this.onDragEnd,
   });
 
-  final bool horizontal;
-  final ClipboardHistorySnapshot? snapshot;
-  final TextEditingController searchController;
-  final FocusNode searchFocusNode;
-  final ValueChanged<String> onSearchChanged;
-  final VoidCallback onClear;
+  final ClipboardTrayEdge edge;
   final GestureDragStartCallback onDragStart;
   final GestureDragUpdateCallback onDragUpdate;
   final GestureDragEndCallback onDragEnd;
 
   @override
   Widget build(BuildContext context) {
-    final accent = ShellTheme.of(context).accentPalette;
-    final count = snapshot?.entries.length ?? 0;
-    final search = TextField(
-      controller: searchController,
-      focusNode: searchFocusNode,
-      onChanged: onSearchChanged,
-      textInputAction: TextInputAction.search,
-      style: ShellText.base,
-      cursorColor: accent.primary,
-      decoration: InputDecoration(
-        hintText: 'Search text, files, apps…',
-        hintStyle: ShellText.base.copyWith(color: ShellColors.textTertiary),
-        prefixIcon: const Icon(
-          Icons.search_rounded,
-          color: ShellColors.textTertiary,
-        ),
-        suffixIcon: searchController.text.isEmpty
-            ? null
-            : IconButton(
-                tooltip: 'Clear search',
-                onPressed: () {
-                  searchController.clear();
-                  onSearchChanged('');
-                },
-                icon: const Icon(Icons.close_rounded),
-              ),
-        filled: true,
-        fillColor: ShellColors.surfaceContainerHigh.withValues(alpha: 0.74),
-        isDense: true,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 13,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(color: ShellColors.hairlineSoft),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: BorderSide(color: accent.primary, width: 1.4),
-        ),
-      ),
-    );
-    return Semantics(
-      label: 'Drag clipboard tray toward its edge to close',
+    final verticalTray = _isVerticalEdge(edge);
+    final region = Semantics(
+      label: context.l10n.clipboardDragToClose,
       child: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onHorizontalDragStart: horizontal ? null : onDragStart,
-        onHorizontalDragUpdate: horizontal ? null : onDragUpdate,
-        onHorizontalDragEnd: horizontal ? null : onDragEnd,
-        onVerticalDragStart: horizontal ? onDragStart : null,
-        onVerticalDragUpdate: horizontal ? onDragUpdate : null,
-        onVerticalDragEnd: horizontal ? onDragEnd : null,
-        child: Row(
-          children: [
-            Expanded(
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: horizontal ? 560 : double.infinity,
-                  ),
-                  child: search,
-                ),
-              ),
-            ),
-            if (count > 0) ...[
-              const SizedBox(width: 10),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: accent.subtle,
-                  borderRadius: BorderRadius.circular(99),
-                  border: Border.all(color: accent.outline),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 7,
-                  ),
-                  child: Text(
-                    '$count',
-                    semanticsLabel: count == 1
-                        ? '1 clipboard item'
-                        : '$count clipboard items',
-                    style: ShellText.cardTitle.copyWith(
-                      color: accent.primary,
-                      fontFamily: ShellText.systemBarFontFamily,
-                      fontSize: 10,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-            const SizedBox(width: 4),
-            _TrayIconButton(
-              icon: Icons.delete_sweep_outlined,
-              label: 'Clear clipboard history',
-              onPressed: count == 0 ? null : onClear,
-            ),
-          ],
-        ),
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragStart: verticalTray ? onDragStart : null,
+        onHorizontalDragUpdate: verticalTray ? onDragUpdate : null,
+        onHorizontalDragEnd: verticalTray ? onDragEnd : null,
+        onVerticalDragStart: verticalTray ? null : onDragStart,
+        onVerticalDragUpdate: verticalTray ? null : onDragUpdate,
+        onVerticalDragEnd: verticalTray ? null : onDragEnd,
+        child: const SizedBox.expand(),
       ),
     );
+    return switch (edge) {
+      ClipboardTrayEdge.left => Positioned(
+        left: 0,
+        top: 0,
+        bottom: 0,
+        width: 8,
+        child: region,
+      ),
+      ClipboardTrayEdge.right => Positioned(
+        right: 0,
+        top: 0,
+        bottom: 0,
+        width: 8,
+        child: region,
+      ),
+      ClipboardTrayEdge.top => Positioned(
+        left: 0,
+        top: 0,
+        right: 0,
+        height: 18,
+        child: region,
+      ),
+      ClipboardTrayEdge.bottom => Positioned(
+        left: 0,
+        right: 0,
+        bottom: 0,
+        height: 18,
+        child: region,
+      ),
+    };
   }
 }
 
@@ -614,34 +480,33 @@ class _ClipboardHistoryBody extends StatelessWidget {
   const _ClipboardHistoryBody({
     required this.horizontal,
     required this.state,
+    required this.draggedEntryId,
     required this.onActivate,
-    required this.onPinnedChanged,
     required this.onDelete,
     required this.onEntryDragStart,
     required this.onEntryDragUpdate,
     required this.onEntryDragEnd,
-    required this.onEntryDragCancel,
     required this.onRetry,
   });
 
   final bool horizontal;
   final ClipboardHistoryViewState state;
+  final int? draggedEntryId;
   final ValueChanged<ClipboardHistoryEntry> onActivate;
-  final ValueChanged<ClipboardHistoryEntry> onPinnedChanged;
   final ValueChanged<ClipboardHistoryEntry> onDelete;
   final _ClipboardEntryDragStart onEntryDragStart;
   final _ClipboardEntryDragUpdate onEntryDragUpdate;
   final _ClipboardEntryDragEnd onEntryDragEnd;
-  final VoidCallback onEntryDragCancel;
   final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     if (state.snapshot?.locked ?? false) {
-      return const _ClipboardMessage(
+      return _ClipboardMessage(
         icon: Icons.lock_outline_rounded,
-        title: 'History is sealed',
-        message: 'Clipboard contents stay hidden while the session is locked.',
+        title: l10n.clipboardHistoryLockedTitle,
+        message: l10n.clipboardHistoryLockedDescription,
       );
     }
     if (state.entries.isEmpty && state.loading) {
@@ -650,9 +515,9 @@ class _ClipboardHistoryBody extends StatelessWidget {
     if (state.entries.isEmpty && state.error != null) {
       return _ClipboardMessage(
         icon: Icons.sync_problem_rounded,
-        title: 'Clipboard bridge unavailable',
-        message: 'The native history service did not answer.',
-        actionLabel: 'Try again',
+        title: l10n.clipboardUnavailableTitle,
+        message: l10n.clipboardUnavailableDescription,
+        actionLabel: l10n.commonRetry,
         onAction: onRetry,
       );
     }
@@ -661,10 +526,12 @@ class _ClipboardHistoryBody extends StatelessWidget {
         icon: state.query.isEmpty
             ? Icons.content_paste_off_rounded
             : Icons.search_off_rounded,
-        title: state.query.isEmpty ? 'Nothing captured yet' : 'No echoes found',
+        title: state.query.isEmpty
+            ? l10n.clipboardEmptyTitle
+            : l10n.clipboardNoSearchResultsTitle,
         message: state.query.isEmpty
-            ? 'Copy text, an image, or files and they will appear here.'
-            : 'Try a different word, file type, or application.',
+            ? l10n.clipboardEmptyDescription
+            : l10n.clipboardNoSearchResultsDescription,
       );
     }
 
@@ -676,38 +543,28 @@ class _ClipboardHistoryBody extends StatelessWidget {
       children: [
         ListView.separated(
           scrollDirection: horizontal ? Axis.horizontal : Axis.vertical,
+          physics: draggedEntryId == null
+              ? null
+              : const NeverScrollableScrollPhysics(),
           padding: const EdgeInsets.only(bottom: 6),
           itemCount: entries.length,
           separatorBuilder: (_, _) =>
               SizedBox(width: horizontal ? 12 : 0, height: horizontal ? 0 : 12),
           itemBuilder: (context, index) {
             final entry = entries[index];
-            return SizedBox(
-              width: horizontal
-                  ? clipboardImageMimeType(entry) != null
-                        ? 340
-                        : clipboardFileMimeType(entry) != null
-                        ? 320
-                        : 292
-                  : double.infinity,
-              height: horizontal
-                  ? null
-                  : clipboardImageMimeType(entry) != null
-                  ? 196
-                  : clipboardFileMimeType(entry) != null
-                  ? 154
-                  : 142,
+            return Align(
+              alignment: horizontal
+                  ? Alignment.centerLeft
+                  : Alignment.topCenter,
               child: _ClipboardHistoryCard(
                 entry: entry,
-                horizontalTray: horizontal,
                 busy: state.busyItemIds.contains(entry.id),
+                dragging: draggedEntryId == entry.id,
                 onActivate: () => onActivate(entry),
-                onPinnedChanged: () => onPinnedChanged(entry),
                 onDelete: () => onDelete(entry),
                 onEntryDragStart: onEntryDragStart,
                 onEntryDragUpdate: onEntryDragUpdate,
                 onEntryDragEnd: onEntryDragEnd,
-                onEntryDragCancel: onEntryDragCancel,
               ),
             );
           },
@@ -724,232 +581,170 @@ class _ClipboardHistoryBody extends StatelessWidget {
   }
 }
 
-class _ClipboardHistoryCard extends ConsumerStatefulWidget {
+class _ClipboardHistoryCard extends StatefulWidget {
   const _ClipboardHistoryCard({
     required this.entry,
-    required this.horizontalTray,
     required this.busy,
+    required this.dragging,
     required this.onActivate,
-    required this.onPinnedChanged,
     required this.onDelete,
     required this.onEntryDragStart,
     required this.onEntryDragUpdate,
     required this.onEntryDragEnd,
-    required this.onEntryDragCancel,
   });
 
   final ClipboardHistoryEntry entry;
-  final bool horizontalTray;
   final bool busy;
+  final bool dragging;
   final VoidCallback onActivate;
-  final VoidCallback onPinnedChanged;
   final VoidCallback onDelete;
   final _ClipboardEntryDragStart onEntryDragStart;
   final _ClipboardEntryDragUpdate onEntryDragUpdate;
   final _ClipboardEntryDragEnd onEntryDragEnd;
-  final VoidCallback onEntryDragCancel;
 
   @override
-  ConsumerState<_ClipboardHistoryCard> createState() =>
-      _ClipboardHistoryCardState();
+  State<_ClipboardHistoryCard> createState() => _ClipboardHistoryCardState();
 }
 
-class _ClipboardHistoryCardState extends ConsumerState<_ClipboardHistoryCard> {
-  bool _hovered = false;
-  bool _dragging = false;
+class _ClipboardHistoryCardState extends State<_ClipboardHistoryCard> {
+  static const _dragThreshold = 5.0;
 
-  void _handleDragStart(DragStartDetails details) {
-    final renderBox = context.findRenderObject();
+  final GlobalKey _itemKey = GlobalKey();
+  bool _hovered = false;
+  bool _focused = false;
+  int? _trackedPointer;
+  Offset? _pointerDownPosition;
+  Rect? _sourceRect;
+  bool _dragStarted = false;
+
+  void _setHovered(bool hovered) {
+    if (_hovered != hovered) {
+      setState(() => _hovered = hovered);
+    }
+  }
+
+  void _setFocused(bool focused) {
+    if (_focused != focused) {
+      setState(() => _focused = focused);
+    }
+  }
+
+  void _handlePointerDown(PointerDownEvent event) {
+    if (widget.busy ||
+        widget.dragging ||
+        _trackedPointer != null ||
+        event.buttons & kPrimaryMouseButton == 0) {
+      return;
+    }
+    final renderBox = _itemKey.currentContext?.findRenderObject();
     if (renderBox is! RenderBox || !renderBox.hasSize) {
       return;
     }
-    final sourceRect = renderBox.localToGlobal(Offset.zero) & renderBox.size;
-    setState(() => _dragging = true);
-    widget.onEntryDragStart(widget.entry, details, sourceRect);
+    _trackedPointer = event.pointer;
+    _pointerDownPosition = event.position;
+    _sourceRect = renderBox.localToGlobal(Offset.zero) & renderBox.size;
   }
 
-  void _handleDragUpdate(DragUpdateDetails details) {
-    widget.onEntryDragUpdate(details);
+  void _handlePointerMove(PointerMoveEvent event) {
+    if (event.pointer != _trackedPointer) {
+      return;
+    }
+    if (!_dragStarted) {
+      final down = _pointerDownPosition;
+      final sourceRect = _sourceRect;
+      if (down == null ||
+          sourceRect == null ||
+          (event.position - down).distance < _dragThreshold) {
+        return;
+      }
+      _dragStarted = true;
+      widget.onEntryDragStart(widget.entry, event.position, sourceRect);
+      return;
+    }
+    widget.onEntryDragUpdate(event.position);
   }
 
-  void _handleDragEnd(DragEndDetails details) {
-    setState(() => _dragging = false);
-    widget.onEntryDragEnd(details);
+  void _handlePointerUp(PointerUpEvent event) {
+    if (event.pointer != _trackedPointer) {
+      return;
+    }
+    final dragStarted = _dragStarted;
+    final activate =
+        !dragStarted && (_sourceRect?.contains(event.position) ?? false);
+    _resetPointerTracking();
+    if (dragStarted) {
+      widget.onEntryDragEnd();
+    } else if (activate) {
+      widget.onActivate();
+    }
   }
 
-  void _handleDragCancel() {
-    setState(() => _dragging = false);
-    widget.onEntryDragCancel();
+  void _handlePointerCancel(PointerCancelEvent event) {
+    if (event.pointer != _trackedPointer || _dragStarted) {
+      return;
+    }
+    _resetPointerTracking();
+  }
+
+  void _resetPointerTracking() {
+    _trackedPointer = null;
+    _pointerDownPosition = null;
+    _sourceRect = null;
+    _dragStarted = false;
   }
 
   @override
   Widget build(BuildContext context) {
     final entry = widget.entry;
-    final accent = ShellTheme.of(context).accentPalette;
     final fileMime = clipboardFileMimeType(entry);
     final imageMime = clipboardImageMimeType(entry);
     final typeLabel = fileMime != null
-        ? 'FILES'
+        ? context.l10n.clipboardTypeFiles
         : imageMime != null
-        ? 'IMAGE'
-        : 'TEXT';
+        ? context.l10n.clipboardTypeImage
+        : context.l10n.clipboardTypeText;
+    final highlighted = _hovered || _focused;
 
-    return Semantics(
-      key: ValueKey<String>('clipboard-history-card-${entry.id}'),
-      button: true,
-      label: '$typeLabel clipboard item. ${entry.preview}',
-      hint: 'Activate to paste it into the focused app. Drag it to drop it.',
-      child: MouseRegion(
-        cursor: widget.busy
-            ? SystemMouseCursors.forbidden
-            : SystemMouseCursors.grab,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onPanStart: widget.busy ? null : _handleDragStart,
-          onPanUpdate: widget.busy ? null : _handleDragUpdate,
-          onPanEnd: widget.busy ? null : _handleDragEnd,
-          onPanCancel: widget.busy ? null : _handleDragCancel,
-          child: AnimatedOpacity(
-            duration: Motion.cardSettle,
-            opacity: _dragging ? 0.28 : 1,
-            child: AnimatedScale(
-              duration: Motion.cardSettle,
-              curve: Motion.standard,
-              scale: _dragging
-                  ? 0.975
-                  : _hovered
-                  ? 1.006
-                  : 1,
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(19),
-                  onTap: widget.busy ? null : widget.onActivate,
-                  child: AnimatedContainer(
-                    duration: Motion.cardSettle,
-                    curve: Motion.standard,
-                    decoration: BoxDecoration(
-                      color: Color.alphaBlend(
-                        accent.primary.withValues(
-                          alpha: entry.active
-                              ? 0.1
-                              : _hovered
-                              ? 0.055
-                              : 0.018,
-                        ),
-                        ShellColors.surfaceContainerHigh.withValues(
-                          alpha: 0.82,
-                        ),
-                      ),
-                      borderRadius: BorderRadius.circular(19),
-                      border: Border.all(
-                        color: entry.active || _hovered
-                            ? accent.outline
-                            : ShellColors.hairlineSoft,
-                      ),
-                      boxShadow: _hovered
-                          ? const [
-                              BoxShadow(
-                                color: ShellColors.shadowSoft,
-                                blurRadius: 16,
-                                offset: Offset(0, 7),
-                              ),
-                            ]
-                          : const [],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(18),
-                      child: Stack(
-                        children: [
-                          Positioned(
-                            left: 0,
-                            top: 0,
-                            bottom: 0,
-                            child: AnimatedContainer(
-                              duration: Motion.tile,
-                              width: entry.active ? 4 : 2,
-                              color: entry.active
-                                  ? accent.primary
-                                  : accent.primary.withValues(alpha: 0.28),
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(14, 12, 10, 10),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Expanded(
-                                  child: fileMime != null
-                                      ? _ClipboardFilePreview(
-                                          entry: entry,
-                                          mimeType: fileMime,
-                                        )
-                                      : imageMime != null
-                                      ? _ClipboardImagePreview(
-                                          entry: entry,
-                                          mimeType: imageMime,
-                                        )
-                                      : _ClipboardTextPreview(
-                                          text: entry.preview,
-                                          maxLines: widget.horizontalTray
-                                              ? 10
-                                              : 4,
-                                        ),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: _ClipboardCardMetadata(
-                                        entry: entry,
-                                        typeLabel: typeLabel,
-                                      ),
-                                    ),
-                                    _CardAction(
-                                      icon: entry.pinned
-                                          ? Icons.push_pin_rounded
-                                          : Icons.push_pin_outlined,
-                                      label: entry.pinned
-                                          ? 'Unpin clipboard item'
-                                          : 'Pin clipboard item',
-                                      selected: entry.pinned,
-                                      onPressed: widget.busy
-                                          ? null
-                                          : widget.onPinnedChanged,
-                                    ),
-                                    _CardAction(
-                                      icon: Icons.delete_outline_rounded,
-                                      label: 'Delete clipboard item',
-                                      onPressed: widget.busy
-                                          ? null
-                                          : widget.onDelete,
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (widget.busy)
-                            const Positioned.fill(
-                              child: ColoredBox(
-                                color: Color(0x22000000),
-                                child: Center(
-                                  child: SizedBox.square(
-                                    dimension: 22,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
+    return SizedBox(
+      key: _itemKey,
+      child: _ClipboardEntryItem(
+        visible: !widget.dragging,
+        onDelete: widget.busy ? null : widget.onDelete,
+        child: Semantics(
+          key: ValueKey<String>('clipboard-history-card-${entry.id}'),
+          button: true,
+          label: context.l10n.clipboardItemSemantics(typeLabel, entry.preview),
+          hint: context.l10n.clipboardItemHint,
+          child: FocusableActionDetector(
+            enabled: !widget.busy,
+            mouseCursor: widget.dragging
+                ? SystemMouseCursors.basic
+                : widget.busy
+                ? SystemMouseCursors.forbidden
+                : SystemMouseCursors.grab,
+            onShowHoverHighlight: _setHovered,
+            onShowFocusHighlight: _setFocused,
+            shortcuts: const <ShortcutActivator, Intent>{
+              SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+              SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+            },
+            actions: <Type, Action<Intent>>{
+              ActivateIntent: CallbackAction<ActivateIntent>(
+                onInvoke: (_) {
+                  widget.onActivate();
+                  return null;
+                },
+              ),
+            },
+            child: Listener(
+              behavior: HitTestBehavior.opaque,
+              onPointerDown: _handlePointerDown,
+              onPointerMove: _handlePointerMove,
+              onPointerUp: _handlePointerUp,
+              onPointerCancel: _handlePointerCancel,
+              child: _ClipboardEntryVisual(
+                entry: entry,
+                highlighted: highlighted && !widget.dragging,
               ),
             ),
           ),
@@ -959,69 +754,77 @@ class _ClipboardHistoryCardState extends ConsumerState<_ClipboardHistoryCard> {
   }
 }
 
-class _ClipboardImagePreview extends ConsumerWidget {
-  const _ClipboardImagePreview({required this.entry, required this.mimeType});
+class _ClipboardEntryItem extends StatelessWidget {
+  const _ClipboardEntryItem({
+    required this.child,
+    required this.onDelete,
+    this.visible = true,
+    this.showDelete = true,
+  });
 
-  final ClipboardHistoryEntry entry;
-  final String mimeType;
+  final Widget child;
+  final VoidCallback? onDelete;
+  final bool visible;
+  final bool showDelete;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final data = ref.watch(
-      clipboardEntryDataProvider(ClipboardDataKey(entry.id, mimeType)),
+  Widget build(BuildContext context) {
+    Widget maintainLayout(Widget child) => Visibility(
+      visible: visible,
+      maintainState: true,
+      maintainAnimation: true,
+      maintainSize: true,
+      child: child,
     );
-    return RepaintBoundary(
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: ColoredBox(
-          color: ShellColors.surfaceContainerLow,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              data.when(
-                data: (payload) => Image.memory(
-                  payload.bytes,
-                  fit: BoxFit.cover,
-                  gaplessPlayback: true,
-                  filterQuality: FilterQuality.medium,
-                  semanticLabel: 'Clipboard image preview',
-                  errorBuilder: (_, _, _) => const _PreviewFallback(
-                    icon: Icons.broken_image_outlined,
-                    label: 'Preview unavailable',
-                  ),
-                ),
-                loading: () => const Center(
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                error: (_, _) => const _PreviewFallback(
-                  icon: Icons.broken_image_outlined,
-                  label: 'Preview unavailable',
-                ),
+
+    return Stack(
+      children: [
+        Padding(padding: const EdgeInsets.all(8), child: maintainLayout(child)),
+        if (showDelete)
+          Positioned(
+            left: 0,
+            top: 0,
+            child: maintainLayout(_ClipboardDeleteButton(onPressed: onDelete)),
+          ),
+      ],
+    );
+  }
+}
+
+class _ClipboardDeleteButton extends StatelessWidget {
+  const _ClipboardDeleteButton({required this.onPressed});
+
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accentPalette;
+    return Tooltip(
+      message: context.l10n.clipboardDelete,
+      child: Semantics(
+        button: true,
+        label: context.l10n.clipboardDeleteItem,
+        child: SizedBox.square(
+          dimension: 16,
+          child: Material(
+            color: Color.alphaBlend(
+              accent.primary.withValues(alpha: 0.18),
+              ShellColors.surfaceContainerHigh,
+            ).withValues(alpha: 0.9),
+            shape: CircleBorder(
+              side: BorderSide(color: accent.primary.withValues(alpha: 0.38)),
+            ),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onPressed,
+              child: Icon(
+                Icons.close_rounded,
+                size: 12,
+                color: onPressed == null
+                    ? ShellColors.textTertiary
+                    : ShellColors.textPrimary,
               ),
-              Positioned(
-                right: 8,
-                bottom: 8,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: const Color(0xbb101318),
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    child: Text(
-                      '${entry.width} × ${entry.height}',
-                      style: ShellText.base.copyWith(
-                        fontFamily: ShellText.systemBarFontFamily,
-                        fontSize: 9,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -1029,11 +832,129 @@ class _ClipboardImagePreview extends ConsumerWidget {
   }
 }
 
-class _ClipboardFilePreview extends ConsumerWidget {
-  const _ClipboardFilePreview({required this.entry, required this.mimeType});
+class _ClipboardEntryVisual extends StatelessWidget {
+  const _ClipboardEntryVisual({
+    required this.entry,
+    this.highlighted = false,
+    this.lifted = false,
+  });
+
+  final ClipboardHistoryEntry entry;
+  final bool highlighted;
+  final bool lifted;
+
+  @override
+  Widget build(BuildContext context) {
+    final imageMime = clipboardImageMimeType(entry);
+    if (imageMime != null) {
+      return _ClipboardImageTile(entry: entry, mimeType: imageMime);
+    }
+    final fileMime = clipboardFileMimeType(entry);
+    if (fileMime != null) {
+      return _ClipboardFileTile(
+        entry: entry,
+        mimeType: fileMime,
+        highlighted: highlighted,
+        lifted: lifted,
+      );
+    }
+    return _ClipboardTextTile(
+      entry: entry,
+      highlighted: highlighted,
+      lifted: lifted,
+    );
+  }
+}
+
+class _ClipboardImageTile extends StatelessWidget {
+  const _ClipboardImageTile({required this.entry, required this.mimeType});
 
   final ClipboardHistoryEntry entry;
   final String mimeType;
+
+  @override
+  Widget build(BuildContext context) {
+    final requestedSize = _clipboardImageDisplaySize(entry);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = _fitClipboardImageSize(requestedSize, constraints);
+        return SizedBox(
+          width: size.width,
+          height: size.height,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: _ClipboardImagePreview(
+              entry: entry,
+              mimeType: mimeType,
+              displaySize: size,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ClipboardImagePreview extends ConsumerWidget {
+  const _ClipboardImagePreview({
+    required this.entry,
+    required this.mimeType,
+    required this.displaySize,
+  });
+
+  final ClipboardHistoryEntry entry;
+  final String mimeType;
+  final Size displaySize;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pixelRatio = MediaQuery.devicePixelRatioOf(context);
+    final cacheWidth = math.max(1, (displaySize.width * pixelRatio).ceil());
+    final cacheHeight = math.max(1, (displaySize.height * pixelRatio).ceil());
+    final data = ref.watch(
+      clipboardEntryDataProvider(ClipboardDataKey(entry.id, mimeType)),
+    );
+    return RepaintBoundary(
+      child: ColoredBox(
+        color: ShellColors.surfaceContainerLow,
+        child: data.when(
+          data: (payload) => Image.memory(
+            payload.bytes,
+            fit: BoxFit.contain,
+            cacheWidth: cacheWidth,
+            cacheHeight: cacheHeight,
+            gaplessPlayback: true,
+            filterQuality: FilterQuality.low,
+            semanticLabel: context.l10n.clipboardImagePreview,
+            errorBuilder: (_, _, _) => _PreviewFallback(
+              icon: Icons.broken_image_outlined,
+              label: context.l10n.clipboardPreviewUnavailable,
+            ),
+          ),
+          loading: () =>
+              const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          error: (_, _) => _PreviewFallback(
+            icon: Icons.broken_image_outlined,
+            label: context.l10n.clipboardPreviewUnavailable,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ClipboardFileTile extends ConsumerWidget {
+  const _ClipboardFileTile({
+    required this.entry,
+    required this.mimeType,
+    required this.highlighted,
+    required this.lifted,
+  });
+
+  final ClipboardHistoryEntry entry;
+  final String mimeType;
+  final bool highlighted;
+  final bool lifted;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1052,118 +973,156 @@ class _ClipboardFilePreview extends ConsumerWidget {
         : null;
     final isFolder = first?.path.endsWith('/') ?? false;
     final name = first == null
-        ? 'File selection'
+        ? context.l10n.clipboardFileSelection
         : first.pathSegments
                   .where((segment) => segment.isNotEmpty)
                   .lastOrNull ??
               first.path;
-    final location = first?.toFilePath(windows: false) ?? entry.preview;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final previewExtent = constraints.maxHeight.clamp(48.0, 104.0);
-        return DecoratedBox(
-          decoration: BoxDecoration(
-            color: ShellColors.surfaceContainerLow.withValues(alpha: 0.72),
-            borderRadius: BorderRadius.circular(13),
-            border: Border.all(color: ShellColors.hairlineSoft),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(7),
-            child: Row(
-              children: [
-                SizedBox.square(
-                  dimension: previewExtent,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: accent.subtle,
-                        border: Border.all(color: accent.outline),
-                      ),
-                      child: thumbnail == null
-                          ? Icon(
-                              isFolder
-                                  ? Icons.folder_rounded
-                                  : Icons.insert_drive_file_rounded,
-                              size: 28,
-                              color: accent.primary,
-                            )
-                          : thumbnail.when(
-                              data: (bytes) => bytes == null
-                                  ? Icon(
-                                      Icons.image_outlined,
-                                      size: 28,
-                                      color: accent.primary,
-                                    )
-                                  : Image.memory(
-                                      bytes,
-                                      fit: BoxFit.cover,
-                                      gaplessPlayback: true,
-                                      filterQuality: FilterQuality.medium,
-                                      semanticLabel: 'Image file thumbnail',
-                                      errorBuilder: (_, _, _) => Icon(
-                                        Icons.broken_image_outlined,
-                                        size: 27,
-                                        color: accent.primary,
-                                      ),
-                                    ),
-                              loading: () => const Center(
-                                child: SizedBox.square(
-                                  dimension: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
+    return AnimatedContainer(
+      duration: Motion.cardSettle,
+      curve: Motion.standard,
+      width: 280,
+      height: 64,
+      padding: const EdgeInsets.all(9),
+      decoration: _clipboardNoteDecoration(
+        context,
+        entry: entry,
+        highlighted: highlighted,
+        lifted: lifted,
+      ),
+      child: Row(
+        children: [
+          SizedBox.square(
+            dimension: 46,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(11),
+              child: ColoredBox(
+                color: accent.subtle,
+                child: thumbnail == null
+                    ? Icon(
+                        isFolder
+                            ? Icons.folder_rounded
+                            : Icons.insert_drive_file_rounded,
+                        size: 24,
+                        color: accent.primary,
+                      )
+                    : thumbnail.when(
+                        data: (bytes) => bytes == null
+                            ? Icon(
+                                Icons.image_outlined,
+                                size: 24,
+                                color: accent.primary,
+                              )
+                            : Image.memory(
+                                bytes,
+                                fit: BoxFit.cover,
+                                gaplessPlayback: true,
+                                filterQuality: FilterQuality.medium,
+                                semanticLabel:
+                                    context.l10n.clipboardImageFileThumbnail,
+                                errorBuilder: (_, _, _) => Icon(
+                                  Icons.broken_image_outlined,
+                                  size: 23,
+                                  color: accent.primary,
                                 ),
                               ),
-                              error: (_, _) => Icon(
-                                Icons.broken_image_outlined,
-                                size: 27,
-                                color: accent.primary,
-                              ),
-                            ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: ShellText.cardTitle.copyWith(fontSize: 14),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        location,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: ShellText.base.copyWith(
-                          color: ShellColors.textTertiary,
-                          fontFamily: ShellText.systemBarFontFamily,
-                          fontSize: 10,
-                          height: 1.3,
-                        ),
-                      ),
-                      if (files.length > 1) ...[
-                        const SizedBox(height: 5),
-                        Text(
-                          '+ ${files.length - 1} more',
-                          style: ShellText.cardTitle.copyWith(
-                            color: accent.primary,
-                            fontSize: 10,
+                        loading: () => const Center(
+                          child: SizedBox.square(
+                            dimension: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           ),
                         ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
+                        error: (_, _) => Icon(
+                          Icons.broken_image_outlined,
+                          size: 23,
+                          color: accent.primary,
+                        ),
+                      ),
+              ),
             ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              files.length > 1 ? '$name  +${files.length - 1}' : name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: ShellText.base.copyWith(fontSize: 12.5, height: 1.25),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClipboardTextTile extends StatelessWidget {
+  const _ClipboardTextTile({
+    required this.entry,
+    required this.highlighted,
+    required this.lifted,
+  });
+
+  final ClipboardHistoryEntry entry;
+  final bool highlighted;
+  final bool lifted;
+
+  @override
+  Widget build(BuildContext context) {
+    const maxLines = 8;
+    const horizontalPadding = 14.0;
+    const verticalPadding = 12.0;
+    const maxTileWidth = 280.0;
+    final normalized = entry.preview.replaceAll(RegExp(r'\s+$'), '');
+    final text = normalized.isEmpty ? ' ' : normalized;
+    final style = ShellText.base.copyWith(
+      color: ShellColors.textPrimary,
+      fontSize: 13,
+      height: 1.38,
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final tileWidth = constraints.hasBoundedWidth
+            ? math.min(maxTileWidth, constraints.maxWidth)
+            : maxTileWidth;
+        final contentWidth = math.max(1.0, tileWidth - horizontalPadding * 2);
+        final painter = TextPainter(
+          text: TextSpan(text: text, style: style),
+          maxLines: maxLines,
+          ellipsis: '…',
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+          textWidthBasis: TextWidthBasis.longestLine,
+        )..layout(maxWidth: contentWidth);
+        final measuredSize = painter.size;
+        painter.dispose();
+        final minimumWidth = math.min(72.0, tileWidth);
+        final width = (measuredSize.width + horizontalPadding * 2)
+            .clamp(minimumWidth, tileWidth)
+            .toDouble();
+        final height = measuredSize.height + verticalPadding * 2;
+
+        return AnimatedContainer(
+          duration: Motion.cardSettle,
+          curve: Motion.standard,
+          width: width,
+          height: height,
+          padding: const EdgeInsets.symmetric(
+            horizontal: horizontalPadding,
+            vertical: verticalPadding,
+          ),
+          decoration: _clipboardNoteDecoration(
+            context,
+            entry: entry,
+            highlighted: highlighted,
+            lifted: lifted,
+          ),
+          child: Text(
+            text,
+            maxLines: maxLines,
+            overflow: TextOverflow.ellipsis,
+            style: style,
           ),
         );
       },
@@ -1171,322 +1130,139 @@ class _ClipboardFilePreview extends ConsumerWidget {
   }
 }
 
-class _ClipboardTextPreview extends StatelessWidget {
-  const _ClipboardTextPreview({required this.text, this.maxLines = 7});
-
-  final String text;
-  final int maxLines;
-
-  @override
-  Widget build(BuildContext context) {
-    final normalized = text.replaceAll(RegExp(r'\s+$'), '');
-    final bounded = normalized.length > 360
-        ? '${normalized.substring(0, 360)}…'
-        : normalized;
-    return Align(
-      alignment: Alignment.topLeft,
-      child: Text(
-        bounded,
-        maxLines: maxLines,
-        overflow: TextOverflow.ellipsis,
-        style: ShellText.base.copyWith(
-          color: ShellColors.textPrimary,
-          fontSize: 13,
-          height: 1.42,
+BoxDecoration _clipboardNoteDecoration(
+  BuildContext context, {
+  required ClipboardHistoryEntry entry,
+  required bool highlighted,
+  required bool lifted,
+}) {
+  final accent = ShellTheme.of(context).accentPalette;
+  final raised = highlighted || lifted;
+  final tint = entry.active
+      ? 0.16
+      : raised
+      ? 0.11
+      : 0.055;
+  return BoxDecoration(
+    gradient: LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Color.alphaBlend(
+          accent.primary.withValues(alpha: tint),
+          ShellColors.surfaceContainerLow,
+        ).withValues(
+          alpha: entry.active
+              ? 0.62
+              : raised
+              ? 0.54
+              : 0.44,
         ),
-      ),
-    );
-  }
-}
-
-class _ClipboardCardMetadata extends StatelessWidget {
-  const _ClipboardCardMetadata({required this.entry, required this.typeLabel});
-
-  final ClipboardHistoryEntry entry;
-  final String typeLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    final source = entry.sourceTitle.trim().isNotEmpty
-        ? entry.sourceTitle.trim()
-        : entry.sourceAppId.trim().isNotEmpty
-        ? entry.sourceAppId.trim()
-        : switch (entry.origin) {
-            ClipboardHistoryOrigin.wayland => 'Wayland',
-            ClipboardHistoryOrigin.x11 => 'X11',
-            ClipboardHistoryOrigin.flutter => 'Denial',
-          };
-    return Row(
-      children: [
-        DecoratedBox(
-          decoration: BoxDecoration(
-            color: entry.active
-                ? ShellTheme.of(context).accentPalette.subtle
-                : ShellColors.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(99),
-          ),
-          child: SizedBox.square(
-            dimension: 22,
-            child: Icon(
-              switch (typeLabel) {
-                'FILES' => Icons.folder_copy_outlined,
-                'IMAGE' => Icons.image_outlined,
-                _ => Icons.notes_rounded,
-              },
-              size: 12,
-              color: entry.active
-                  ? ShellTheme.of(context).accent
-                  : ShellColors.textTertiary,
-            ),
-          ),
-        ),
-        const SizedBox(width: 7),
-        Expanded(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                source,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: ShellText.cardTitle.copyWith(
-                  color: ShellColors.textSecondary,
-                  fontSize: 10,
-                ),
-              ),
-              Text(
-                '${_relativeTime(entry.capturedAt)} · ${_formatBytes(entry.byteLength)}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: ShellText.base.copyWith(
-                  color: ShellColors.textTertiary,
-                  fontFamily: ShellText.systemBarFontFamily,
-                  fontSize: 8.5,
-                ),
-              ),
-            ],
-          ),
+        Color.alphaBlend(
+          accent.primary.withValues(alpha: tint * 0.3),
+          ShellColors.panelBackgroundBottom,
+        ).withValues(
+          alpha: entry.active
+              ? 0.46
+              : raised
+              ? 0.38
+              : 0.3,
         ),
       ],
-    );
+    ),
+    borderRadius: BorderRadius.circular(18),
+    border: Border.all(
+      color: accent.primary.withValues(
+        alpha: entry.active
+            ? 0.48
+            : raised
+            ? 0.3
+            : 0.12,
+      ),
+    ),
+  );
+}
+
+Size _clipboardImageDisplaySize(ClipboardHistoryEntry entry) {
+  const maxWidth = 320.0;
+  const maxHeight = 220.0;
+  const minLongestSide = 72.0;
+  if (entry.width <= 0 || entry.height <= 0) {
+    return const Size(280, 175);
   }
+  final width = entry.width.toDouble();
+  final height = entry.height.toDouble();
+  final fitScale = math.min(maxWidth / width, maxHeight / height);
+  final minimumScale = minLongestSide / math.max(width, height);
+  final scale = math.min(fitScale, math.max(1.0, minimumScale));
+  return Size(width * scale, height * scale);
+}
+
+Size _fitClipboardImageSize(Size requested, BoxConstraints constraints) {
+  final widthScale = constraints.hasBoundedWidth
+      ? constraints.maxWidth / requested.width
+      : 1.0;
+  final heightScale = constraints.hasBoundedHeight
+      ? constraints.maxHeight / requested.height
+      : 1.0;
+  final scale = math.min(1.0, math.min(widthScale, heightScale));
+  return Size(requested.width * scale, requested.height * scale);
 }
 
 @immutable
-class _ClipboardDragPreviewState {
-  const _ClipboardDragPreviewState({
+class _ClipboardEntryDragState {
+  const _ClipboardEntryDragState({
     required this.entry,
     required this.position,
-    required this.sourceRect,
     required this.size,
     required this.anchor,
-    this.settling = false,
-    this.cancelled = false,
-    this.releaseVelocity = Offset.zero,
   });
 
   final ClipboardHistoryEntry entry;
   final Offset position;
-  final Rect sourceRect;
   final Size size;
   final Offset anchor;
-  final bool settling;
-  final bool cancelled;
-  final Offset releaseVelocity;
 
-  _ClipboardDragPreviewState copyWith({
-    Offset? position,
-    bool? settling,
-    bool? cancelled,
-    Offset? releaseVelocity,
-  }) {
-    return _ClipboardDragPreviewState(
+  _ClipboardEntryDragState copyWith({Offset? position}) {
+    return _ClipboardEntryDragState(
       entry: entry,
       position: position ?? this.position,
-      sourceRect: sourceRect,
       size: size,
       anchor: anchor,
-      settling: settling ?? this.settling,
-      cancelled: cancelled ?? this.cancelled,
-      releaseVelocity: releaseVelocity ?? this.releaseVelocity,
     );
   }
 }
 
-class _ClipboardDragPreview extends StatelessWidget {
-  const _ClipboardDragPreview({required this.state, required this.settle});
+class _DraggedClipboardEntry extends StatelessWidget {
+  const _DraggedClipboardEntry({required this.state});
 
-  final _ClipboardDragPreviewState state;
-  final Animation<double> settle;
+  final _ClipboardEntryDragState state;
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: settle,
-      builder: (context, child) {
-        final raw = state.settling ? settle.value : 0.0;
-        final progress = Curves.easeOutCubic.transform(raw);
-        final origin =
-            state.position -
-            Offset(
-              state.size.width * state.anchor.dx,
-              state.size.height * state.anchor.dy,
-            );
-        final target = state.cancelled
-            ? state.sourceRect.center -
-                  Offset(state.size.width / 2, state.size.height / 2)
-            : origin +
-                  Offset(
-                    state.releaseVelocity.dx.clamp(-2400.0, 2400.0) * 0.035,
-                    state.releaseVelocity.dy.clamp(-2400.0, 2400.0) * 0.035,
-                  );
-        final position = Offset.lerp(origin, target, progress)!;
-        final scale = state.settling
-            ? 1.035 - (state.cancelled ? 0.14 : 0.19) * progress
-            : 1.035;
-        final turn = state.settling && !state.cancelled
-            ? (state.releaseVelocity.dx / 80000).clamp(-0.035, 0.035) * progress
-            : 0.0;
-        return Positioned(
-          key: const ValueKey<String>('clipboard-drag-preview'),
-          left: position.dx,
-          top: position.dy,
-          width: state.size.width,
-          height: state.size.height,
-          child: IgnorePointer(
-            child: Opacity(
-              opacity: state.settling ? 1 - progress : 1,
-              child: Transform.rotate(
-                angle: turn,
-                child: Transform.scale(scale: scale, child: child),
-              ),
-            ),
-          ),
+    final origin =
+        state.position -
+        Offset(
+          state.size.width * state.anchor.dx,
+          state.size.height * state.anchor.dy,
         );
-      },
-      child: RepaintBoundary(child: _ClipboardDragGhost(entry: state.entry)),
-    );
-  }
-}
-
-class _ClipboardDragGhost extends StatelessWidget {
-  const _ClipboardDragGhost({required this.entry});
-
-  final ClipboardHistoryEntry entry;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = ShellTheme.of(context).accentPalette;
-    final fileMime = clipboardFileMimeType(entry);
-    final imageMime = clipboardImageMimeType(entry);
-    final typeLabel = fileMime != null
-        ? 'FILES'
-        : imageMime != null
-        ? 'IMAGE'
-        : 'TEXT';
-    return Material(
-      color: Colors.transparent,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: Color.alphaBlend(
-            accent.primary.withValues(alpha: 0.13),
-            ShellColors.surfaceContainerHighest,
-          ),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: accent.primary.withValues(alpha: 0.82)),
-          boxShadow: [
-            BoxShadow(
-              color: accent.primary.withValues(alpha: 0.26),
-              blurRadius: 28,
-              spreadRadius: -5,
-            ),
-            const BoxShadow(
-              color: ShellColors.shadow,
-              blurRadius: 30,
-              offset: Offset(0, 14),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(17),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 11, 10, 9),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  child: fileMime != null
-                      ? _ClipboardFilePreview(entry: entry, mimeType: fileMime)
-                      : imageMime != null
-                      ? _ClipboardImagePreview(
-                          entry: entry,
-                          mimeType: imageMime,
-                        )
-                      : _ClipboardTextPreview(text: entry.preview, maxLines: 4),
-                ),
-                const SizedBox(height: 7),
-                _ClipboardCardMetadata(entry: entry, typeLabel: typeLabel),
-              ],
+    return Positioned(
+      key: const ValueKey<String>('clipboard-drag-preview'),
+      left: origin.dx,
+      top: origin.dy,
+      width: state.size.width,
+      height: state.size.height,
+      child: IgnorePointer(
+        child: ExcludeSemantics(
+          child: RepaintBoundary(
+            child: _ClipboardEntryItem(
+              onDelete: () {},
+              showDelete: false,
+              child: _ClipboardEntryVisual(entry: state.entry, lifted: true),
             ),
           ),
         ),
       ),
-    );
-  }
-}
-
-class _TrayIconButton extends StatelessWidget {
-  const _TrayIconButton({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: label,
-      onPressed: onPressed,
-      style: IconButton.styleFrom(
-        foregroundColor: ShellColors.textSecondary,
-        backgroundColor: Colors.transparent,
-        disabledForegroundColor: ShellColors.glyphInactive,
-      ),
-      icon: Icon(icon, size: 19),
-    );
-  }
-}
-
-class _CardAction extends StatelessWidget {
-  const _CardAction({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-    this.selected = false,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback? onPressed;
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = ShellTheme.of(context).accentPalette;
-    return IconButton(
-      visualDensity: VisualDensity.compact,
-      constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-      padding: EdgeInsets.zero,
-      tooltip: label,
-      onPressed: onPressed,
-      color: selected ? accent.primary : ShellColors.textTertiary,
-      disabledColor: ShellColors.glyphInactive,
-      icon: Icon(icon, size: 16),
     );
   }
 }
@@ -1582,6 +1358,18 @@ class _ClipboardMessage extends StatelessWidget {
 bool _isVerticalEdge(ClipboardTrayEdge edge) =>
     edge == ClipboardTrayEdge.left || edge == ClipboardTrayEdge.right;
 
+EdgeInsets _clipboardTrayContentPadding(ClipboardTrayEdge edge) {
+  if (_isVerticalEdge(edge)) {
+    return const EdgeInsets.symmetric(horizontal: 8, vertical: 16);
+  }
+  return EdgeInsets.fromLTRB(
+    16,
+    edge == ClipboardTrayEdge.top ? 18 : 16,
+    16,
+    edge == ClipboardTrayEdge.bottom ? 18 : 16,
+  );
+}
+
 Offset _hiddenOffset(ClipboardTrayEdge edge, double extent) => switch (edge) {
   ClipboardTrayEdge.left => Offset(-extent, 0),
   ClipboardTrayEdge.right => Offset(extent, 0),
@@ -1650,30 +1438,3 @@ Alignment _gradientEnd(ClipboardTrayEdge edge) => switch (edge) {
   ClipboardTrayEdge.top => Alignment.topCenter,
   ClipboardTrayEdge.bottom => Alignment.bottomCenter,
 };
-
-String _relativeTime(DateTime capturedAt) {
-  final elapsed = DateTime.now().difference(capturedAt);
-  if (elapsed.isNegative || elapsed.inSeconds < 5) {
-    return 'now';
-  }
-  if (elapsed.inMinutes < 1) {
-    return '${elapsed.inSeconds}s';
-  }
-  if (elapsed.inHours < 1) {
-    return '${elapsed.inMinutes}m';
-  }
-  if (elapsed.inDays < 1) {
-    return '${elapsed.inHours}h';
-  }
-  return '${elapsed.inDays}d';
-}
-
-String _formatBytes(int bytes) {
-  if (bytes < 1024) {
-    return '$bytes B';
-  }
-  if (bytes < 1024 * 1024) {
-    return '${(bytes / 1024).toStringAsFixed(bytes < 10 * 1024 ? 1 : 0)} KB';
-  }
-  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-}

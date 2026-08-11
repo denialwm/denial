@@ -14,10 +14,7 @@ final displayBrightnessProvider =
     );
 
 class DisplayBrightnessState {
-  const DisplayBrightnessState({
-    required this.levels,
-    required this.loading,
-  });
+  const DisplayBrightnessState({required this.levels, required this.loading});
 
   final Map<int, double> levels;
   final Set<int> loading;
@@ -115,10 +112,7 @@ class DisplayBrightnessController extends Notifier<DisplayBrightnessState>
     unawaited(_service.apply((level * 100).round(), output));
   }
 
-  Future<void> _refreshOutput(
-    DisplayOutput output,
-    int generation,
-  ) async {
+  Future<void> _refreshOutput(DisplayOutput output, int generation) async {
     final level = await _service.readLevel(output);
     if (!isBuildGenerationActive(generation)) {
       return;
@@ -134,10 +128,7 @@ class DisplayBrightnessController extends Notifier<DisplayBrightnessState>
     );
   }
 
-  void _handleNativeUpdate(
-    DenialBrightnessState update,
-    int generation,
-  ) {
+  void _handleNativeUpdate(DenialBrightnessState update, int generation) {
     if (!isBuildGenerationActive(generation) ||
         !state.levels.containsKey(update.monitorId)) {
       return;

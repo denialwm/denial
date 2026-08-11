@@ -10,16 +10,20 @@ void main() {
       'denial-notification-policy-',
     );
     addTearDown(() => directory.delete(recursive: true));
-    final paths = RuntimePaths(environment: <String, String>{
-      'HOME': directory.path,
-      'XDG_STATE_HOME': directory.path,
-    });
+    final paths = RuntimePaths(
+      environment: <String, String>{
+        'HOME': directory.path,
+        'XDG_STATE_HOME': directory.path,
+      },
+    );
     final repository = NotificationPolicyRepository(paths: paths);
 
-    await repository.write(const NotificationPolicy(
-      doNotDisturb: true,
-      lockPreview: NotificationPreviewMode.full,
-    ));
+    await repository.write(
+      const NotificationPolicy(
+        doNotDisturb: true,
+        lockPreview: NotificationPreviewMode.full,
+      ),
+    );
     final restored = await repository.read();
 
     expect(restored.doNotDisturb, isTrue);
@@ -37,18 +41,17 @@ void main() {
       'denial-notification-policy-malformed-',
     );
     addTearDown(() => directory.delete(recursive: true));
-    final paths = RuntimePaths(environment: <String, String>{
-      'HOME': directory.path,
-      'XDG_STATE_HOME': directory.path,
-    });
+    final paths = RuntimePaths(
+      environment: <String, String>{
+        'HOME': directory.path,
+        'XDG_STATE_HOME': directory.path,
+      },
+    );
     final file = await paths.notificationPolicyFile();
     await file.writeAsString('{broken');
 
     final restored = await NotificationPolicyRepository(paths: paths).read();
     expect(restored.doNotDisturb, isFalse);
-    expect(
-      restored.lockPreview,
-      NotificationPreviewMode.applicationOnly,
-    );
+    expect(restored.lockPreview, NotificationPreviewMode.applicationOnly);
   });
 }

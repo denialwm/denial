@@ -99,15 +99,21 @@ abstract final class ShellText {
   /// Monospace family bundled for the system bar so ticking values keep a
   /// fixed advance; the rest of the shell stays on the default family.
   static const String systemBarFontFamily = 'JetBrainsMono';
+  static const List<String> fallbackFontFamilies = <String>[
+    'Source Han Sans CN',
+    'Noto Sans CJK SC',
+  ];
 
   static const TextStyle base = TextStyle(
     color: ShellColors.textPrimary,
+    fontFamilyFallback: fallbackFontFamilies,
     fontSize: 14,
     decoration: TextDecoration.none,
   );
 
   static const TextStyle statusClock = TextStyle(
     color: ShellColors.textPrimary,
+    fontFamilyFallback: fallbackFontFamilies,
     fontSize: 18,
     height: 1,
     fontWeight: FontWeight.w800,
@@ -119,6 +125,7 @@ abstract final class ShellText {
   static const TextStyle systemBarValue = TextStyle(
     color: ShellColors.textPrimary,
     fontFamily: systemBarFontFamily,
+    fontFamilyFallback: fallbackFontFamilies,
     fontSize: 13,
     height: 1,
     leadingDistribution: TextLeadingDistribution.even,
@@ -132,6 +139,7 @@ abstract final class ShellText {
   static const TextStyle systemBarCaption = TextStyle(
     color: ShellColors.textSecondary,
     fontFamily: systemBarFontFamily,
+    fontFamilyFallback: fallbackFontFamilies,
     fontSize: 11,
     height: 1,
     leadingDistribution: TextLeadingDistribution.even,
@@ -142,6 +150,7 @@ abstract final class ShellText {
 
   static const TextStyle shadeClock = TextStyle(
     color: ShellColors.panelText,
+    fontFamilyFallback: fallbackFontFamilies,
     fontSize: 42,
     height: 1,
     fontWeight: FontWeight.w800,
@@ -151,6 +160,7 @@ abstract final class ShellText {
 
   static const TextStyle shadeDate = TextStyle(
     color: ShellColors.textSecondary,
+    fontFamilyFallback: fallbackFontFamilies,
     fontSize: 16,
     height: 1,
     fontWeight: FontWeight.w700,
@@ -160,6 +170,7 @@ abstract final class ShellText {
 
   static const TextStyle lockClock = TextStyle(
     color: ShellColors.textPrimary,
+    fontFamilyFallback: fallbackFontFamilies,
     fontSize: 124,
     height: 0.95,
     fontWeight: FontWeight.w300,
@@ -169,6 +180,7 @@ abstract final class ShellText {
 
   static const TextStyle lockDate = TextStyle(
     color: ShellColors.textSecondary,
+    fontFamilyFallback: fallbackFontFamilies,
     fontSize: 24,
     height: 1.15,
     fontWeight: FontWeight.w600,
@@ -178,6 +190,7 @@ abstract final class ShellText {
 
   static const TextStyle lockStatus = TextStyle(
     color: ShellColors.textSecondary,
+    fontFamilyFallback: fallbackFontFamilies,
     fontSize: 18,
     height: 1.1,
     fontWeight: FontWeight.w700,
@@ -187,6 +200,7 @@ abstract final class ShellText {
 
   static const TextStyle lockChip = TextStyle(
     color: ShellColors.textPrimary,
+    fontFamilyFallback: fallbackFontFamilies,
     fontSize: 12,
     height: 1,
     fontWeight: FontWeight.w800,
@@ -196,6 +210,7 @@ abstract final class ShellText {
 
   static const TextStyle cardTitle = TextStyle(
     color: ShellColors.textPrimary,
+    fontFamilyFallback: fallbackFontFamilies,
     fontSize: 13,
     fontWeight: FontWeight.w600,
     decoration: TextDecoration.none,

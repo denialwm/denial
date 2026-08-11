@@ -57,6 +57,18 @@ For a controlled one-shot session, pass `--flutter-renderer skia` through the
 launcher instead. Renderer changes take effect when the Flutter engine starts,
 so restart the Denial session after changing the machine override.
 
+Machines whose display controller and GPU are exposed as different DRM nodes
+can select the render node independently in `/etc/denial/session.conf`:
+
+```sh
+DENIAL_DRM_DEVICE=/dev/dri/card0
+DENIAL_RENDER_DEVICE=/dev/dri/renderD128
+```
+
+Denial keeps KMS and scanout on `DENIAL_DRM_DEVICE`; GBM allocation, EGL, and
+Flutter rendering use `DENIAL_RENDER_DEVICE`. When the render override is
+unset, both paths continue to use the KMS device.
+
 ## Supported launcher modes
 
 | Invocation | Result |

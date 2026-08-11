@@ -75,6 +75,7 @@ impl Error for LoadError {
 #[derive(Debug)]
 pub enum EngineError {
     PathContainsNul(PathBuf),
+    LocaleContainsNul(&'static str),
     Call {
         operation: &'static str,
         result: sys::FlutterEngineResult,
@@ -87,6 +88,9 @@ impl fmt::Display for EngineError {
         match self {
             Self::PathContainsNul(path) => {
                 write!(formatter, "path contains a NUL byte: {}", path.display())
+            }
+            Self::LocaleContainsNul(field) => {
+                write!(formatter, "Flutter locale {field} contains a NUL byte")
             }
             Self::Call { operation, result } => {
                 write!(formatter, "Flutter {operation} failed with result {result}")
@@ -189,6 +193,7 @@ impl EngineLibrary {
         require_proc!(PostRenderThreadTask);
         require_proc!(GetCurrentTime);
         require_proc!(RunTask);
+        require_proc!(UpdateLocales);
         require_proc!(RunsAOTCompiledDartCode);
         require_proc!(NotifyDisplayUpdate);
         Ok(Self {
@@ -318,6 +323,75 @@ pub struct RunningEngine {
     aot_data: Option<AotData>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EngineLocale {
+    language_code: CString,
+    country_code: Option<CString>,
+    script_code: Option<CString>,
+    variant_code: Option<CString>,
+}
+
+impl EngineLocale {
+    pub fn new(
+        language_code: &str,
+        country_code: Option<&str>,
+        script_code: Option<&str>,
+        variant_code: Option<&str>,
+    ) -> Result<Self, EngineError> {
+        Ok(Self {
+            language_code: locale_string("language code", language_code)?,
+            country_code: country_code
+                .map(|value| locale_string("country code", value))
+                .transpose()?,
+            script_code: script_code
+                .map(|value| locale_string("script code", value))
+                .transpose()?,
+            variant_code: variant_code
+                .map(|value| locale_string("variant code", value))
+                .transpose()?,
+        })
+    }
+
+    pub fn language_code(&self) -> &CStr {
+        &self.language_code
+    }
+
+    pub fn country_code(&self) -> Option<&CStr> {
+        self.country_code.as_deref()
+    }
+
+    pub fn script_code(&self) -> Option<&CStr> {
+        self.script_code.as_deref()
+    }
+
+    pub fn variant_code(&self) -> Option<&CStr> {
+        self.variant_code.as_deref()
+    }
+
+    fn as_flutter_locale(&self) -> sys::FlutterLocale {
+        sys::FlutterLocale {
+            struct_size: mem::size_of::<sys::FlutterLocale>(),
+            language_code: self.language_code.as_ptr(),
+            country_code: self
+                .country_code
+                .as_ref()
+                .map_or(ptr::null(), |value| value.as_ptr()),
+            script_code: self
+                .script_code
+                .as_ref()
+                .map_or(ptr::null(), |value| value.as_ptr()),
+            variant_code: self
+                .variant_code
+                .as_ref()
+                .map_or(ptr::null(), |value| value.as_ptr()),
+        }
+    }
+}
+
+fn locale_string(field: &'static str, value: &str) -> Result<CString, EngineError> {
+    CString::new(value).map_err(|_| EngineError::LocaleContainsNul(field))
+}
+
 impl RunningEngine {
     pub(crate) fn raw_handle(&self) -> sys::FlutterEngine {
         self.handle
@@ -386,6 +460,31 @@ impl RunningEngine {
             .expect("validated Flutter proc table");
         // SAFETY: `task` came from this engine and is read synchronously.
         check_result("RunTask", unsafe { function(self.handle, task) })
+    }
+
+    pub fn update_locales(&self, locales: &[EngineLocale]) -> Result<(), EngineError> {
+        let flutter_locales = locales
+            .iter()
+            .map(EngineLocale::as_flutter_locale)
+            .collect::<Vec<_>>();
+        let mut locale_pointers = flutter_locales
+            .iter()
+            .map(std::ptr::from_ref)
+            .collect::<Vec<_>>();
+        let function = self
+            .library
+            .table
+            .UpdateLocales
+            .expect("validated Flutter proc table");
+        // SAFETY: Flutter reads the locale structs and their NUL-terminated
+        // strings synchronously and does not retain any supplied pointer.
+        check_result("UpdateLocales", unsafe {
+            function(
+                self.handle,
+                locale_pointers.as_mut_ptr(),
+                locale_pointers.len(),
+            )
+        })
     }
 
     pub fn send_window_metrics(

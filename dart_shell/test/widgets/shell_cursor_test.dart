@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:denial_dart_shell/src/models/denial_drag_icon.dart';
 import 'package:denial_dart_shell/src/models/denial_window.dart';
+import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/theme/cursor_themes.dart';
 import 'package:denial_dart_shell/src/widgets/shell_cursor.dart';
 import 'package:denial_dart_shell/src/widgets/window_surface_tree.dart';
@@ -170,6 +171,8 @@ void main() {
           textDirection: TextDirection.ltr,
           child: ShellCursorHost(
             theme: _animatedCursorTestTheme,
+            cursorSize: 64,
+            displayLayout: _cursorLayout(1),
             platformCursorShapes: shapes.stream,
             platformCursorPositions: positions.stream,
             child: const SizedBox.expand(),
@@ -293,6 +296,79 @@ void main() {
     expect(find.byType(Image), findsOneWidget);
   });
 
+  testWidgets('display scaling preserves the configured physical cursor size', (
+    tester,
+  ) async {
+    final positions = StreamController<Offset>.broadcast(sync: true);
+    addTearDown(positions.close);
+
+    Widget host(double outputScale) => Directionality(
+      textDirection: TextDirection.ltr,
+      child: ShellCursorHost(
+        theme: ShellCursorThemes.bibataModernIce,
+        cursorSize: 32,
+        displayLayout: _cursorLayout(outputScale),
+        platformCursorPositions: positions.stream,
+        child: const SizedBox.expand(),
+      ),
+    );
+
+    await tester.pumpWidget(host(1));
+    positions.add(const Offset(100, 80));
+    await tester.pump();
+
+    Image cursorImage() => tester.widget<Image>(find.byType(Image));
+    Positioned cursorPosition() => tester.widget<Positioned>(
+      find.ancestor(of: find.byType(Image), matching: find.byType(Positioned)),
+    );
+
+    expect(cursorImage().width, 32);
+    expect(cursorImage().height, 32);
+    expect(cursorPosition().left, 94);
+    expect(cursorPosition().top, 78);
+
+    await tester.pumpWidget(host(2));
+    expect(cursorImage().width, 16);
+    expect(cursorImage().height, 16);
+    expect(cursorImage().width! * 2, 32);
+    expect(cursorPosition().left, 97);
+    expect(cursorPosition().top, 79);
+
+    await tester.pumpWidget(host(1.5));
+    expect(cursorImage().width! * 1.5, closeTo(32, 0.001));
+    expect(cursorImage().height! * 1.5, closeTo(32, 0.001));
+  });
+
+  testWidgets('screenshot preparation hides only the cursor artwork', (
+    tester,
+  ) async {
+    final positions = StreamController<Offset>.broadcast(sync: true);
+    addTearDown(positions.close);
+
+    Widget host({required bool hideCursor}) => Directionality(
+      textDirection: TextDirection.ltr,
+      child: ShellCursorHost(
+        theme: ShellCursorThemes.bibataModernIce,
+        platformCursorPositions: positions.stream,
+        hideCursor: hideCursor,
+        child: const ColoredBox(color: Color(0xff123456)),
+      ),
+    );
+
+    await tester.pumpWidget(host(hideCursor: false));
+    positions.add(const Offset(100, 80));
+    await tester.pump();
+    expect(find.byType(Image), findsOneWidget);
+    expect(find.byType(ColoredBox), findsOneWidget);
+
+    await tester.pumpWidget(host(hideCursor: true));
+    expect(find.byType(Image), findsNothing);
+    expect(find.byType(ColoredBox), findsOneWidget);
+
+    await tester.pumpWidget(host(hideCursor: false));
+    expect(find.byType(Image), findsOneWidget);
+  });
+
   testWidgets('drag icon follows native cursor positions and clears on drop', (
     tester,
   ) async {
@@ -404,5 +480,28 @@ DenialDragIcon _dragIcon() {
       scale120: 120,
       compositionOrder: 0,
     ),
+  );
+}
+
+DisplayLayout _cursorLayout(double scale) {
+  return DisplayLayout(
+    epoch: 1,
+    globalOrigin: Offset.zero,
+    logicalSize: const Size(200, 120),
+    pixelSize: Size(200 * scale, 120 * scale),
+    engineScale: scale,
+    tickerMonitorId: 1,
+    systemBarMonitorId: 1,
+    systemBarSide: SystemBarSide.top,
+    outputs: <DisplayOutput>[
+      DisplayOutput(
+        monitorId: 1,
+        name: 'test-output',
+        logicalRect: const Rect.fromLTWH(0, 0, 200, 120),
+        pixelSize: Size(200 * scale, 120 * scale),
+        scale: scale,
+        refreshRate: 60,
+      ),
+    ],
   );
 }

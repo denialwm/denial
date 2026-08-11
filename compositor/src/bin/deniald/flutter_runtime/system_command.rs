@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::error::Error;
 use std::ffi::{CStr, OsStr, OsString};
 use std::fmt;
@@ -21,9 +22,13 @@ const MAX_PACKET_SIZE: usize = 64 * 1024;
 const MAX_ARGUMENTS: usize = 64;
 const MAX_ARGUMENT_SIZE: usize = 4096;
 const MAX_TRACKED_APPLICATIONS: usize = 64;
+const MAX_PENDING_APPLICATION_LAUNCHES: usize = 64;
 const REAPER_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const LAUNCH_APPLICATION: u8 = 0;
+const TAKE_SCREENSHOT: u8 = 2;
 const LOGOUT: u8 = 3;
+const SCREENSHOT_PREPARED: u8 = 4;
+const CANCEL_SCREENSHOT: u8 = 5;
 
 // Never pass connection selectors inherited from a parent/nested compositor
 // to applications. WAYLAND_DISPLAY is installed explicitly below; all other
@@ -61,13 +66,36 @@ const APPLICATION_ENVIRONMENT_REMOVALS: &[&str] = &[
     "NO_COLOR",
 ];
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScreenshotRegion {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScreenshotRequest {
+    pub request_id: Option<NonZeroU64>,
+    pub region: Option<ScreenshotRegion>,
+}
+
+#[derive(Debug, PartialEq)]
 enum Request {
     LaunchApplication {
         arguments: Vec<String>,
         launch_request_id: Option<NonZeroU64>,
     },
+    Screenshot(ScreenshotRequest),
+    ScreenshotPrepared(NonZeroU64),
+    CancelScreenshot(NonZeroU64),
     Logout,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct PendingApplicationLaunch {
+    arguments: Vec<String>,
+    launch_request_id: Option<NonZeroU64>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -81,6 +109,9 @@ pub enum DecodeError {
     ArgumentIsNotUtf8(usize),
     TrailingBytes,
     LaunchHasNoArguments,
+    ScreenshotArgumentCount(usize),
+    InvalidScreenshotRegion,
+    InvalidScreenshotRequestId,
     UnexpectedLaunchMetadata,
     UnsupportedCommand(u8),
 }
@@ -107,6 +138,18 @@ impl fmt::Display for DecodeError {
             }
             Self::TrailingBytes => formatter.write_str("packet has trailing bytes"),
             Self::LaunchHasNoArguments => formatter.write_str("launch command has no arguments"),
+            Self::ScreenshotArgumentCount(count) => {
+                write!(
+                    formatter,
+                    "screenshot command has {count} arguments; expected 0 or 4"
+                )
+            }
+            Self::InvalidScreenshotRegion => {
+                formatter.write_str("screenshot region is not finite and positive")
+            }
+            Self::InvalidScreenshotRequestId => {
+                formatter.write_str("screenshot workflow requires a non-zero request id")
+            }
             Self::UnexpectedLaunchMetadata => {
                 formatter.write_str("non-launch command carries launch metadata")
             }
@@ -123,6 +166,7 @@ impl Error for DecodeError {}
 pub enum DispatchError {
     Decode(DecodeError),
     WaylandUnavailable,
+    ApplicationQueueFull,
     ApplicationLimitReached,
     Reaper(io::Error),
     Spawn(io::Error),
@@ -135,6 +179,10 @@ impl fmt::Display for DispatchError {
             Self::WaylandUnavailable => {
                 formatter.write_str("cannot launch an application without a Wayland display")
             }
+            Self::ApplicationQueueFull => write!(
+                formatter,
+                "cannot queue more than {MAX_PENDING_APPLICATION_LAUNCHES} application launches"
+            ),
             Self::ApplicationLimitReached => write!(
                 formatter,
                 "cannot track more than {MAX_TRACKED_APPLICATIONS} launched applications"
@@ -150,7 +198,9 @@ impl Error for DispatchError {
         match self {
             Self::Decode(error) => Some(error),
             Self::Reaper(error) | Self::Spawn(error) => Some(error),
-            Self::WaylandUnavailable | Self::ApplicationLimitReached => None,
+            Self::WaylandUnavailable
+            | Self::ApplicationQueueFull
+            | Self::ApplicationLimitReached => None,
         }
     }
 }
@@ -200,7 +250,11 @@ pub struct SystemCommandHandler {
     wayland_display: Option<OsString>,
     x11_display: Option<OsString>,
     output_control_socket: Option<OsString>,
+    pending_application_launches: VecDeque<PendingApplicationLaunch>,
     logout_requested: bool,
+    screenshot_requested: Option<ScreenshotRequest>,
+    screenshot_prepared: Option<NonZeroU64>,
+    screenshot_cancelled: Option<NonZeroU64>,
 }
 
 impl SystemCommandHandler {
@@ -213,7 +267,11 @@ impl SystemCommandHandler {
             wayland_display,
             x11_display,
             output_control_socket,
+            pending_application_launches: VecDeque::new(),
             logout_requested: false,
+            screenshot_requested: None,
+            screenshot_prepared: None,
+            screenshot_cancelled: None,
         }
     }
 
@@ -223,23 +281,36 @@ impl SystemCommandHandler {
                 arguments,
                 launch_request_id,
             } => {
-                let display = self
-                    .wayland_display
-                    .as_deref()
-                    .ok_or(DispatchError::WaylandUnavailable)?;
-                let executable = arguments[0].clone();
-                let pid = launch_application(
-                    &arguments,
-                    launch_request_id,
-                    display,
-                    self.x11_display.as_deref(),
-                    self.output_control_socket.as_deref(),
-                )?;
-                info!(pid, executable, "launched application from Flutter shell");
+                if self.pending_application_launches.len() >= MAX_PENDING_APPLICATION_LAUNCHES {
+                    return Err(DispatchError::ApplicationQueueFull);
+                }
+                self.pending_application_launches
+                    .push_back(PendingApplicationLaunch {
+                        arguments,
+                        launch_request_id,
+                    });
             }
             Request::Logout => {
                 self.logout_requested = true;
                 info!("Flutter shell requested session logout");
+            }
+            Request::Screenshot(request) => {
+                self.screenshot_requested = Some(request);
+                debug!(?request, "Flutter shell requested an atlas screenshot");
+            }
+            Request::ScreenshotPrepared(request_id) => {
+                self.screenshot_prepared = Some(request_id);
+                debug!(
+                    request_id = request_id.get(),
+                    "Flutter hid its cursor for a screenshot"
+                );
+            }
+            Request::CancelScreenshot(request_id) => {
+                self.screenshot_cancelled = Some(request_id);
+                debug!(
+                    request_id = request_id.get(),
+                    "Flutter cancelled screenshot selection"
+                );
             }
         }
         Ok(())
@@ -247,6 +318,44 @@ impl SystemCommandHandler {
 
     pub fn take_logout_requested(&mut self) -> bool {
         std::mem::take(&mut self.logout_requested)
+    }
+
+    pub(super) fn take_application_launch(&mut self) -> Option<PendingApplicationLaunch> {
+        self.pending_application_launches.pop_front()
+    }
+
+    pub(super) fn start_application(
+        &self,
+        launch: PendingApplicationLaunch,
+        activation_token: Option<&str>,
+    ) -> Result<(), DispatchError> {
+        let display = self
+            .wayland_display
+            .as_deref()
+            .ok_or(DispatchError::WaylandUnavailable)?;
+        let executable = launch.arguments[0].clone();
+        let pid = launch_application(
+            &launch.arguments,
+            launch.launch_request_id,
+            activation_token,
+            display,
+            self.x11_display.as_deref(),
+            self.output_control_socket.as_deref(),
+        )?;
+        info!(pid, executable, "launched application from Flutter shell");
+        Ok(())
+    }
+
+    pub fn take_screenshot_requested(&mut self) -> Option<ScreenshotRequest> {
+        self.screenshot_requested.take()
+    }
+
+    pub fn take_screenshot_prepared(&mut self) -> Option<NonZeroU64> {
+        self.screenshot_prepared.take()
+    }
+
+    pub fn take_screenshot_cancelled(&mut self) -> Option<NonZeroU64> {
+        self.screenshot_cancelled.take()
     }
 }
 
@@ -256,7 +365,7 @@ fn decode(packet: &[u8]) -> Result<Request, DecodeError> {
     }
 
     let command = packet[0];
-    let launch_request_id = u64::from_le_bytes(
+    let request_id = u64::from_le_bytes(
         packet[1..1 + size_of::<u64>()]
             .try_into()
             .expect("fixed-size header was checked"),
@@ -314,14 +423,59 @@ fn decode(packet: &[u8]) -> Result<Request, DecodeError> {
             }
             Ok(Request::LaunchApplication {
                 arguments,
-                launch_request_id: NonZeroU64::new(launch_request_id),
+                launch_request_id: NonZeroU64::new(request_id),
             })
         }
+        TAKE_SCREENSHOT => {
+            let region = match arguments.as_slice() {
+                [] => None,
+                [x, y, width, height] => {
+                    let values = [x, y, width, height]
+                        .map(|value| value.parse::<f64>().ok())
+                        .map(|value| value.filter(|value| value.is_finite()));
+                    let [Some(x), Some(y), Some(width), Some(height)] = values else {
+                        return Err(DecodeError::InvalidScreenshotRegion);
+                    };
+                    if x < 0.0 || y < 0.0 || width <= 0.0 || height <= 0.0 {
+                        return Err(DecodeError::InvalidScreenshotRegion);
+                    }
+                    Some(ScreenshotRegion {
+                        x,
+                        y,
+                        width,
+                        height,
+                    })
+                }
+                arguments => {
+                    return Err(DecodeError::ScreenshotArgumentCount(arguments.len()));
+                }
+            };
+            let request_id = NonZeroU64::new(request_id);
+            if request_id.is_some() != region.is_some() {
+                return Err(DecodeError::InvalidScreenshotRequestId);
+            }
+            Ok(Request::Screenshot(ScreenshotRequest {
+                request_id,
+                region,
+            }))
+        }
         LOGOUT => {
-            if launch_request_id != 0 || !arguments.is_empty() {
+            if request_id != 0 || !arguments.is_empty() {
                 return Err(DecodeError::UnexpectedLaunchMetadata);
             }
             Ok(Request::Logout)
+        }
+        SCREENSHOT_PREPARED | CANCEL_SCREENSHOT => {
+            if !arguments.is_empty() {
+                return Err(DecodeError::ScreenshotArgumentCount(arguments.len()));
+            }
+            let request_id =
+                NonZeroU64::new(request_id).ok_or(DecodeError::InvalidScreenshotRequestId)?;
+            Ok(if command == SCREENSHOT_PREPARED {
+                Request::ScreenshotPrepared(request_id)
+            } else {
+                Request::CancelScreenshot(request_id)
+            })
         }
         command => Err(DecodeError::UnsupportedCommand(command)),
     }
@@ -330,6 +484,7 @@ fn decode(packet: &[u8]) -> Result<Request, DecodeError> {
 fn launch_application(
     arguments: &[String],
     launch_request_id: Option<NonZeroU64>,
+    activation_token: Option<&str>,
     wayland_display: &OsStr,
     x11_display: Option<&OsStr>,
     output_control_socket: Option<&OsStr>,
@@ -346,6 +501,7 @@ fn launch_application(
     let mut command = application_command(
         arguments,
         launch_request_id,
+        activation_token,
         wayland_display,
         x11_display,
         output_control_socket,
@@ -394,6 +550,7 @@ fn launch_application(
 fn application_command(
     arguments: &[String],
     launch_request_id: Option<NonZeroU64>,
+    activation_token: Option<&str>,
     wayland_display: &OsStr,
     x11_display: Option<&OsStr>,
     output_control_socket: Option<&OsStr>,
@@ -456,6 +613,9 @@ fn application_command(
     }
     if let Some(request_id) = launch_request_id {
         command.env("DENIA_LAUNCH_REQUEST_ID", request_id.get().to_string());
+    }
+    if let Some(token) = activation_token {
+        command.env("XDG_ACTIVATION_TOKEN", token);
     }
     command
 }
@@ -650,7 +810,7 @@ mod tests {
     }
 
     #[test]
-    fn decodes_launch_and_logout_packets() {
+    fn decodes_launch_screenshot_and_logout_packets() {
         assert_eq!(
             decode(&packet(
                 LAUNCH_APPLICATION,
@@ -662,7 +822,63 @@ mod tests {
                 launch_request_id: NonZeroU64::new(42),
             })
         );
+        assert_eq!(
+            decode(&packet(TAKE_SCREENSHOT, 0, &[])),
+            Ok(Request::Screenshot(ScreenshotRequest {
+                request_id: None,
+                region: None,
+            }))
+        );
+        assert_eq!(
+            decode(&packet(
+                TAKE_SCREENSHOT,
+                77,
+                &[b"12.5", b"4", b"800.25", b"600"]
+            )),
+            Ok(Request::Screenshot(ScreenshotRequest {
+                request_id: NonZeroU64::new(77),
+                region: Some(ScreenshotRegion {
+                    x: 12.5,
+                    y: 4.0,
+                    width: 800.25,
+                    height: 600.0,
+                }),
+            }))
+        );
+        assert_eq!(
+            decode(&packet(SCREENSHOT_PREPARED, 77, &[])),
+            Ok(Request::ScreenshotPrepared(NonZeroU64::new(77).unwrap()))
+        );
+        assert_eq!(
+            decode(&packet(CANCEL_SCREENSHOT, 77, &[])),
+            Ok(Request::CancelScreenshot(NonZeroU64::new(77).unwrap()))
+        );
         assert_eq!(decode(&packet(LOGOUT, 0, &[])), Ok(Request::Logout));
+    }
+
+    #[test]
+    fn queues_launch_until_the_compositor_can_attach_an_activation_token() {
+        let mut handler = SystemCommandHandler::new(
+            Some(OsString::from("wayland-7")),
+            Some(OsString::from(":42")),
+            None,
+        );
+        handler
+            .handle(&packet(
+                LAUNCH_APPLICATION,
+                19,
+                &[b"foot", b"--title", b"queued"],
+            ))
+            .unwrap();
+
+        assert_eq!(
+            handler.take_application_launch(),
+            Some(PendingApplicationLaunch {
+                arguments: vec!["foot".into(), "--title".into(), "queued".into()],
+                launch_request_id: NonZeroU64::new(19),
+            })
+        );
+        assert_eq!(handler.take_application_launch(), None);
     }
 
     #[test]
@@ -723,6 +939,22 @@ mod tests {
             Err(DecodeError::UnexpectedLaunchMetadata)
         );
         assert_eq!(
+            decode(&packet(TAKE_SCREENSHOT, 0, &[b"0", b"0", b"10"])),
+            Err(DecodeError::ScreenshotArgumentCount(3))
+        );
+        assert_eq!(
+            decode(&packet(TAKE_SCREENSHOT, 0, &[b"0", b"0", b"10", b"20"])),
+            Err(DecodeError::InvalidScreenshotRequestId)
+        );
+        assert_eq!(
+            decode(&packet(SCREENSHOT_PREPARED, 0, &[])),
+            Err(DecodeError::InvalidScreenshotRequestId)
+        );
+        assert_eq!(
+            decode(&packet(TAKE_SCREENSHOT, 0, &[b"0", b"0", b"-10", b"20"])),
+            Err(DecodeError::InvalidScreenshotRegion)
+        );
+        assert_eq!(
             decode(&packet(99, 0, &[])),
             Err(DecodeError::UnsupportedCommand(99))
         );
@@ -768,6 +1000,7 @@ mod tests {
         let command = application_command(
             &arguments,
             NonZeroU64::new(17),
+            Some("denial-test-activation"),
             OsStr::new("wayland-7"),
             Some(OsStr::new(":42")),
             Some(OsStr::new("/run/user/1000/denial/control.sock")),
@@ -801,6 +1034,10 @@ mod tests {
             environment.get(OsStr::new("DENIA_LAUNCH_REQUEST_ID")),
             Some(&Some(OsString::from("17")))
         );
+        assert_eq!(
+            environment.get(OsStr::new("XDG_ACTIVATION_TOKEN")),
+            Some(&Some(OsString::from("denial-test-activation")))
+        );
         assert_eq!(environment.get(OsStr::new("AQ_DRM_DEVICES")), Some(&None));
         assert_eq!(
             environment.get(OsStr::new("__EGL_VENDOR_LIBRARY_FILENAMES")),
@@ -820,7 +1057,10 @@ mod tests {
             .filter(|variable| {
                 !matches!(
                     *variable,
-                    "DENIA_LAUNCH_REQUEST_ID" | "DENIAL_SOCKET" | "DISPLAY"
+                    "DENIA_LAUNCH_REQUEST_ID"
+                        | "DENIAL_SOCKET"
+                        | "DISPLAY"
+                        | "XDG_ACTIVATION_TOKEN"
                 )
             })
         {
@@ -834,13 +1074,23 @@ mod tests {
 
     #[test]
     fn launch_without_output_control_removes_an_inherited_stale_socket() {
-        let command =
-            application_command(&["foot".into()], None, OsStr::new("wayland-7"), None, None);
+        let command = application_command(
+            &["foot".into()],
+            None,
+            None,
+            OsStr::new("wayland-7"),
+            None,
+            None,
+        );
         let environment = command
             .get_envs()
             .map(|(key, value)| (key.to_owned(), value.map(OsStr::to_owned)))
             .collect::<std::collections::BTreeMap<_, _>>();
 
         assert_eq!(environment.get(OsStr::new("DENIAL_SOCKET")), Some(&None));
+        assert_eq!(
+            environment.get(OsStr::new("XDG_ACTIVATION_TOKEN")),
+            Some(&None)
+        );
     }
 }

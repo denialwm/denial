@@ -5,7 +5,8 @@ import 'package:denial_dart_shell/src/services/cpu_usage_service.dart';
 
 void main() {
   test('parses the aggregate cpu line and ignores per-core lines', () {
-    const content = 'cpu  100 20 60 700 100 5 15 0 0 0\n'
+    const content =
+        'cpu  100 20 60 700 100 5 15 0 0 0\n'
         'cpu0 50 10 30 350 50 2 8 0 0 0\n'
         'intr 12345\n';
 

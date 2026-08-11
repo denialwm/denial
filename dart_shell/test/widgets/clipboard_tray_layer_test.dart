@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:denial_dart_shell/l10n/generated/app_localizations.dart';
 import 'package:denial_dart_shell/src/input/shell_interaction_registry.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/services/clipboard_history_service.dart';
@@ -50,6 +51,9 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           theme: ThemeData.dark(useMaterial3: true),
           home: const ShellTheme(
             data: ShellThemeData(),
@@ -131,6 +135,9 @@ void main() {
         container: container,
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           theme: ThemeData.dark(useMaterial3: true),
           home: const ShellTheme(
             data: ShellThemeData(
@@ -159,13 +166,44 @@ void main() {
     await tester.pump();
 
     expect(find.text('Clipboard'), findsNothing);
-    expect(find.text('clipboard_screenshot.jpg'), findsOneWidget);
-    expect(find.byType(Image), findsWidgets);
-    expect(find.textContaining('Architecture is the shape'), findsOneWidget);
     expect(
-      find.textContaining('This tail must never be visible'),
-      findsNothing,
+      tester
+          .widget<Semantics>(
+            find.byKey(const ValueKey<String>('clipboard-history-card-3')),
+          )
+          .properties
+          .label,
+      'IMAGE clipboard item. Abstract test image',
     );
+    expect(
+      tester
+          .widget<Semantics>(
+            find.byKey(const ValueKey<String>('clipboard-history-card-2')),
+          )
+          .properties
+          .label,
+      'FILES clipboard item. file:///home/example/Pictures/sample-preview.png',
+    );
+    expect(
+      tester
+          .widget<Semantics>(
+            find.byKey(const ValueKey<String>('clipboard-history-card-1')),
+          )
+          .properties
+          .label,
+      startsWith('TEXT clipboard item. Architecture is the shape'),
+    );
+    expect(find.byType(Image), findsWidgets);
+    final textPreview = find.textContaining('Architecture is the shape');
+    expect(textPreview, findsOneWidget);
+    final textWidget = tester.widget<Text>(textPreview);
+    expect(textWidget.maxLines, 8);
+    expect(textWidget.overflow, TextOverflow.ellipsis);
+    final textCardRect = tester.getRect(
+      find.byKey(const ValueKey<String>('clipboard-history-card-1')),
+    );
+    expect(textCardRect.width, lessThanOrEqualTo(280));
+    expect(textCardRect.height, lessThanOrEqualTo(190));
     _expectClipboardContentsInsideView(tester);
     expect(tester.takeException(), isNull);
 
@@ -184,17 +222,15 @@ void main() {
     await tester.pump();
     expect(
       find.byKey(const ValueKey<String>('clipboard-drag-preview')),
-      findsOneWidget,
-    );
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(
-      find.byKey(const ValueKey<String>('clipboard-drag-preview')),
       findsNothing,
     );
+    expect(container.read(clipboardTrayProvider).open, isFalse);
+    await tester.pump(const Duration(milliseconds: 400));
 
     container
         .read(shellSettingsProvider.notifier)
         .setClipboardTrayEdge(ClipboardTrayEdge.bottom);
+    container.read(clipboardTrayProvider.notifier).open();
     for (var frame = 0; frame < 45; frame += 1) {
       await tester.pump(const Duration(milliseconds: 16));
     }
@@ -232,6 +268,9 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           theme: ThemeData.dark(useMaterial3: true),
           home: const ShellTheme(
             data: ShellThemeData(),
@@ -248,101 +287,98 @@ void main() {
       for (var frame = 0; frame < 40; frame += 1) {
         await tester.pump(const Duration(milliseconds: 16));
       }
-      final position = tester.getTopLeft(find.byType(TextField));
-      switch (edge) {
-        case ClipboardTrayEdge.left:
-          expect(position.dx, lessThan(100));
-          break;
-        case ClipboardTrayEdge.right:
-          expect(position.dx, greaterThan(650));
-          break;
-        case ClipboardTrayEdge.top:
-          expect(position.dy, lessThan(100));
-          break;
-        case ClipboardTrayEdge.bottom:
-          expect(position.dy, greaterThan(400));
-          break;
-      }
+      final emptyState = find.text('Nothing captured yet');
+      expect(emptyState, findsOneWidget);
+      final position = tester.getCenter(emptyState);
+      final expectedTrayRect = switch (edge) {
+        ClipboardTrayEdge.left => const Rect.fromLTWH(0, 0, 280, 700),
+        ClipboardTrayEdge.right => const Rect.fromLTWH(720, 0, 280, 700),
+        ClipboardTrayEdge.top => const Rect.fromLTWH(0, 0, 1000, 280),
+        ClipboardTrayEdge.bottom => const Rect.fromLTWH(0, 420, 1000, 280),
+      };
+      expect(expectedTrayRect.contains(position), isTrue);
+      _expectInsideView(tester, emptyState);
       expect(tester.takeException(), isNull);
     }
   });
 
-  testWidgets(
-    'keeps app keyboard routing until search is focused and dismisses outside',
-    (tester) async {
-      tester.view.physicalSize = const Size(1000, 700);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets('keeps app keyboard routing and dismisses outside', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
 
-      final messenger =
-          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-      messenger.setMockMessageHandler(
-        denialClipboardChannel,
-        (_) async => _emptySnapshotPacket(),
-      );
-      addTearDown(
-        () => messenger.setMockMessageHandler(denialClipboardChannel, null),
-      );
-      final container = ProviderContainer(
-        overrides: [
-          settingsStoreProvider.overrideWithValue(_MemorySettingsStore()),
-          displayLayoutProvider.overrideWithBuild(
-            (ref, controller) =>
-                DisplayLayout.fallback(const Size(1000, 700), 1),
-          ),
-        ],
-      );
-      addTearDown(container.dispose);
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMessageHandler(
+      denialClipboardChannel,
+      (_) async => _emptySnapshotPacket(),
+    );
+    addTearDown(
+      () => messenger.setMockMessageHandler(denialClipboardChannel, null),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        settingsStoreProvider.overrideWithValue(_MemorySettingsStore()),
+        displayLayoutProvider.overrideWithBuild(
+          (ref, controller) => DisplayLayout.fallback(const Size(1000, 700), 1),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
 
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: MaterialApp(
-            theme: ThemeData.dark(useMaterial3: true),
-            home: const ShellTheme(
-              data: ShellThemeData(),
-              child: ClipboardTrayLayer(),
-            ),
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          theme: ThemeData.dark(useMaterial3: true),
+          home: const ShellTheme(
+            data: ShellThemeData(),
+            child: ClipboardTrayLayer(),
           ),
         ),
-      );
-      await tester.pump();
-      container.read(clipboardTrayProvider.notifier).open();
-      for (var frame = 0; frame < 40; frame += 1) {
-        await tester.pump(const Duration(milliseconds: 16));
-      }
+      ),
+    );
+    await tester.pump();
+    container.read(clipboardTrayProvider.notifier).open();
+    for (var frame = 0; frame < 40; frame += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
 
-      expect(
-        container.read(shellInteractionRegistryProvider).capturesKeyboard,
-        isFalse,
-      );
-      expect(
-        container.read(shellInteractionRegistryProvider).capturesFullScene,
-        isTrue,
-      );
+    expect(
+      container.read(shellInteractionRegistryProvider).capturesKeyboard,
+      isFalse,
+    );
+    expect(
+      container.read(shellInteractionRegistryProvider).capturesFullScene,
+      isTrue,
+    );
+    expect(find.byType(EditableText), findsNothing);
 
-      await tester.tap(find.byType(TextField));
-      await tester.pump();
-      await tester.pump();
-      expect(
-        container.read(shellInteractionRegistryProvider).capturesKeyboard,
-        isTrue,
-      );
+    await tester.tap(find.text('Nothing captured yet'));
+    await tester.pump();
+    expect(
+      container.read(shellInteractionRegistryProvider).capturesKeyboard,
+      isFalse,
+    );
+    expect(container.read(clipboardTrayProvider).open, isTrue);
 
-      await tester.tapAt(const Offset(100, 350));
-      await tester.pump();
-      expect(container.read(clipboardTrayProvider).open, isFalse);
-      expect(
-        container.read(shellInteractionRegistryProvider).capturesKeyboard,
-        isFalse,
-      );
-    },
-  );
+    await tester.tapAt(const Offset(100, 350));
+    await tester.pump();
+    expect(container.read(clipboardTrayProvider).open, isFalse);
+    expect(
+      container.read(shellInteractionRegistryProvider).capturesKeyboard,
+      isFalse,
+    );
+  });
 }
 
 void _expectClipboardContentsInsideView(WidgetTester tester) {
-  _expectInsideView(tester, find.byType(TextField));
   for (final itemId in const [1, 2, 3]) {
     _expectInsideView(
       tester,

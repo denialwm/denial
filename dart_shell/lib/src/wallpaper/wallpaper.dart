@@ -75,44 +75,61 @@ enum WallpaperVerticalAlignment { top, center, bottom }
 @immutable
 class WallpaperSpanAlignment {
   const WallpaperSpanAlignment({
-    this.horizontal = WallpaperHorizontalAlignment.center,
-    this.vertical = WallpaperVerticalAlignment.center,
-  });
+    WallpaperHorizontalAlignment horizontal =
+        WallpaperHorizontalAlignment.center,
+    WallpaperVerticalAlignment vertical = WallpaperVerticalAlignment.center,
+  }) : x = horizontal == WallpaperHorizontalAlignment.left
+           ? -1.0
+           : horizontal == WallpaperHorizontalAlignment.right
+           ? 1.0
+           : 0.0,
+       y = vertical == WallpaperVerticalAlignment.top
+           ? -1.0
+           : vertical == WallpaperVerticalAlignment.bottom
+           ? 1.0
+           : 0.0;
 
-  final WallpaperHorizontalAlignment horizontal;
-  final WallpaperVerticalAlignment vertical;
+  const WallpaperSpanAlignment.precise({required this.x, required this.y})
+    : assert(x >= -1.0 && x <= 1.0),
+      assert(y >= -1.0 && y <= 1.0);
 
-  double get x => switch (horizontal) {
-    WallpaperHorizontalAlignment.left => -1.0,
-    WallpaperHorizontalAlignment.center => 0.0,
-    WallpaperHorizontalAlignment.right => 1.0,
+  /// Continuous `BoxFit.cover` alignment, from the leading edge at `-1` to
+  /// the trailing edge at `1`. Desktop controls still select the three legacy
+  /// anchor values; mobile can retain every position between them.
+  final double x;
+  final double y;
+
+  WallpaperHorizontalAlignment get horizontal => switch (x) {
+    < -0.5 => WallpaperHorizontalAlignment.left,
+    > 0.5 => WallpaperHorizontalAlignment.right,
+    _ => WallpaperHorizontalAlignment.center,
   };
 
-  double get y => switch (vertical) {
-    WallpaperVerticalAlignment.top => -1.0,
-    WallpaperVerticalAlignment.center => 0.0,
-    WallpaperVerticalAlignment.bottom => 1.0,
+  WallpaperVerticalAlignment get vertical => switch (y) {
+    < -0.5 => WallpaperVerticalAlignment.top,
+    > 0.5 => WallpaperVerticalAlignment.bottom,
+    _ => WallpaperVerticalAlignment.center,
   };
 
   WallpaperSpanAlignment copyWith({
     WallpaperHorizontalAlignment? horizontal,
     WallpaperVerticalAlignment? vertical,
   }) {
-    return WallpaperSpanAlignment(
-      horizontal: horizontal ?? this.horizontal,
-      vertical: vertical ?? this.vertical,
+    return WallpaperSpanAlignment.precise(
+      x: horizontal == null
+          ? x
+          : WallpaperSpanAlignment(horizontal: horizontal).x,
+      y: vertical == null ? y : WallpaperSpanAlignment(vertical: vertical).y,
     );
   }
 
   @override
   bool operator ==(Object other) {
-    return other is WallpaperSpanAlignment &&
-        other.horizontal == horizontal &&
-        other.vertical == vertical;
+    return other is WallpaperSpanAlignment && other.x == x && other.y == y;
   }
 
   @override
-  int get hashCode => Object.hash(horizontal, vertical);
+  int get hashCode => Object.hash(x, y);
 }
 
 @immutable

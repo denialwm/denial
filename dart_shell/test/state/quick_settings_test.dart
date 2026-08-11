@@ -131,8 +131,5 @@ class _FakeSystemActionsService extends SystemActionsService {
   const _FakeSystemActionsService();
 
   @override
-  Future<void> toggleKeyboard() async {}
-
-  @override
   Future<void> takeScreenshot() async {}
 }

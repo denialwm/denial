@@ -21,10 +21,7 @@ class DenialDragIcon {
 
 @immutable
 class DenialDragIconUpdate {
-  const DenialDragIconUpdate({
-    required this.sequence,
-    required this.icon,
-  });
+  const DenialDragIconUpdate({required this.sequence, required this.icon});
 
   final int sequence;
   final DenialDragIcon? icon;

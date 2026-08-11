@@ -1,4 +1,3 @@
-#[cfg(feature = "flutter")]
 use smithay::desktop::Window;
 use smithay::output::Output;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
@@ -15,7 +14,6 @@ use smithay::wayland::shell::xdg::SurfaceCachedState;
 use smithay::wayland::shell::xdg::{ToplevelSurface, XdgToplevelSurfaceData};
 #[cfg(feature = "flutter")]
 use smithay::xwayland::xwm::{WmWindowType, X11Surface};
-#[cfg(feature = "flutter")]
 use tracing::warn;
 
 #[cfg(feature = "flutter")]
@@ -28,6 +26,8 @@ use super::super::window_placement_store::RestoredWindowPlacement;
 use super::super::wire::{
     WindowAction, WindowCommand, WindowGeometry, WindowPlacementChange, WindowPlacementPhase,
 };
+#[cfg(feature = "flutter")]
+use super::clamp_window_geometry;
 
 fn bound_geometry_size(mut geometry: Rectangle<i32, Logical>) -> Rectangle<i32, Logical> {
     geometry.size = Size::from((
@@ -155,6 +155,91 @@ fn preserves_client_fullscreen_geometry(
 }
 
 #[cfg(feature = "flutter")]
+fn transfer_restore_geometry(
+    mut restore: Rectangle<i32, Logical>,
+    source_output: Rectangle<i32, Logical>,
+    destination_output: Rectangle<i32, Logical>,
+    destination_bounds: Rectangle<i32, Logical>,
+) -> Rectangle<i32, Logical> {
+    let translated_coordinate = |coordinate: i32, source: i32, destination: i32| {
+        (i64::from(coordinate) - i64::from(source) + i64::from(destination))
+            .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+    };
+    restore.loc = Point::from((
+        translated_coordinate(restore.loc.x, source_output.loc.x, destination_output.loc.x),
+        translated_coordinate(restore.loc.y, source_output.loc.y, destination_output.loc.y),
+    ));
+    clamp_window_geometry(restore, destination_bounds)
+}
+
+/// Activates one managed client window through the single native focus path.
+///
+/// The Flutter scene owns Denial's visible z-order while Smithay and Xwayland
+/// retain independent focus/stacking state. Keeping all three updates in one
+/// transaction prevents a client from becoming keyboard-active underneath a
+/// different visible window.
+pub(super) fn activate_window(
+    state: &mut RuntimeState,
+    window: &Window,
+    serial: smithay::utils::Serial,
+) -> bool {
+    let (keyboard, keyboard_focus) = {
+        let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
+        let keyboard = frontend.seat.get_keyboard().expect("seat has no keyboard");
+        let Some(keyboard_focus) = frontend.keyboard_focus_for_window(window) else {
+            return false;
+        };
+        (keyboard, keyboard_focus)
+    };
+
+    #[cfg(feature = "flutter")]
+    let window_id = state.wayland.as_ref().and_then(|frontend| {
+        frontend
+            .window_root_surface(window)
+            .and_then(|surface| frontend.surface_id(&surface))
+    });
+
+    {
+        let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+        #[cfg(feature = "flutter")]
+        let resumed = frontend
+            .window_root_surface(window)
+            .is_some_and(|surface| frontend.minimized_windows.remove(&surface.id()))
+            && window
+                .toplevel()
+                .is_some_and(|toplevel| set_toplevel_suspended(toplevel, false));
+        #[cfg(not(feature = "flutter"))]
+        let resumed = false;
+
+        if let Some(x11) = window.x11_surface()
+            && let Err(error) = x11.set_hidden(false)
+        {
+            warn!(%error, window = x11.window_id(), "could not restore activated X11 window");
+        }
+        frontend.raise_window(window, true);
+        for candidate in frontend.space.elements() {
+            let changed = candidate.set_activated(candidate == window);
+            if let Some(toplevel) = candidate.toplevel()
+                && (changed || (candidate == window && resumed))
+                && toplevel.wl_surface().is_alive()
+            {
+                toplevel.send_pending_configure();
+            }
+        }
+    }
+
+    keyboard.set_focus(state, Some(keyboard_focus), serial);
+    #[cfg(feature = "flutter")]
+    if let Some(window_id) = window_id {
+        state
+            .pending_window_events
+            .push(PendingWindowEvent::Activated(window_id));
+    }
+    state.scene_sync.mark_dirty();
+    true
+}
+
+#[cfg(feature = "flutter")]
 pub(in super::super) fn apply_window_commands(
     state: &mut RuntimeState,
     commands: impl IntoIterator<Item = WindowCommand>,
@@ -252,46 +337,7 @@ pub(in super::super) fn apply_window_commands(
                 }
             }
             WindowCommand::Focus { .. } => {
-                let keyboard = state
-                    .wayland
-                    .as_ref()
-                    .expect("missing Wayland frontend")
-                    .seat
-                    .get_keyboard()
-                    .expect("seat has no keyboard");
-                let keyboard_focus = state
-                    .wayland
-                    .as_ref()
-                    .expect("missing Wayland frontend")
-                    .keyboard_focus_for_window(&window);
-                {
-                    let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
-                    let restoring = frontend.minimized_windows.remove(&root_surface.id());
-                    let resumed = restoring
-                        && window
-                            .toplevel()
-                            .is_some_and(|toplevel| set_toplevel_suspended(toplevel, false));
-                    if let Some(x11) = window.x11_surface()
-                        && let Err(error) = x11.set_hidden(false)
-                    {
-                        warn!(%error, window_id, "could not restore focused X11 window");
-                    }
-                    frontend.raise_window(&window, true);
-                    for candidate in frontend.space.elements() {
-                        let changed = candidate.set_activated(candidate == &window);
-                        if let Some(candidate_toplevel) = candidate.toplevel()
-                            && (changed || (candidate == &window && resumed))
-                            && candidate_toplevel.wl_surface().is_alive()
-                        {
-                            candidate_toplevel.send_pending_configure();
-                        }
-                    }
-                }
-                keyboard.set_focus(state, keyboard_focus, SERIAL_COUNTER.next_serial());
-                state
-                    .pending_window_events
-                    .push(PendingWindowEvent::Activated(window_id));
-                state.scene_sync.mark_dirty();
+                activate_window(state, &window, SERIAL_COUNTER.next_serial());
             }
             WindowCommand::Configure { geometry, .. } => {
                 let requested_size = Size::<i32, Logical>::from((
@@ -344,17 +390,65 @@ pub(in super::super) fn apply_window_commands(
                         .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32,
                 ));
                 let target = Rectangle::new(target_location, size);
-                let preserve_client_fullscreen = {
-                    let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
+                let (preserve_client_fullscreen, transferred_shell_restore) = {
+                    let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
                     let client_fullscreen =
                         window.toplevel().is_some_and(|toplevel| {
                             toplevel_has_state(toplevel, xdg_toplevel::State::Fullscreen)
                         }) || window.x11_surface().is_some_and(|x11| x11.is_fullscreen());
-                    preserves_client_fullscreen_geometry(
+                    let current_target = frontend.window_geometry_target(&window);
+                    let preserve_client_fullscreen = preserves_client_fullscreen_geometry(
                         client_fullscreen,
-                        frontend.window_geometry_target(&window),
+                        current_target,
                         target,
-                    )
+                    );
+                    let output_transfer = frontend
+                        .output_for_geometry(current_target)
+                        .and_then(|source| {
+                            frontend.output_for_geometry(target).map(|destination| {
+                                (
+                                    source.id,
+                                    source.logical_geometry,
+                                    destination.id,
+                                    destination.logical_geometry,
+                                    destination.output.clone(),
+                                )
+                            })
+                        })
+                        .filter(|(source_id, _, destination_id, _, _)| source_id != destination_id);
+                    let mut transferred_shell_restore = false;
+                    if let Some((_, source_geometry, _, destination_geometry, destination_output)) =
+                        output_transfer
+                    {
+                        let destination_bounds = frontend
+                            .maximize_work_area(Some(&destination_output), destination_geometry);
+                        let surface_id = root_surface.id();
+                        if let Some(restore) = frontend
+                            .shell_maximize_restore_geometries
+                            .get_mut(&surface_id)
+                        {
+                            *restore = transfer_restore_geometry(
+                                *restore,
+                                source_geometry,
+                                destination_geometry,
+                                destination_bounds,
+                            );
+                            transferred_shell_restore = true;
+                        }
+                        if let Some(restore) = frontend
+                            .shell_fullscreen_restore_geometries
+                            .get_mut(&surface_id)
+                        {
+                            *restore = transfer_restore_geometry(
+                                *restore,
+                                source_geometry,
+                                destination_geometry,
+                                destination_bounds,
+                            );
+                            transferred_shell_restore = true;
+                        }
+                    }
+                    (preserve_client_fullscreen, transferred_shell_restore)
                 };
                 if !preserve_client_fullscreen {
                     // A different rectangle is a shell-authored move/resize,
@@ -374,11 +468,11 @@ pub(in super::super) fn apply_window_commands(
                     toplevel.with_pending_state(|pending| pending.size = Some(size));
                     toplevel.send_pending_configure();
                 }
-                state
-                    .wayland
-                    .as_mut()
-                    .expect("missing Wayland frontend")
-                    .set_window_geometry_target(&window, target);
+                let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+                frontend.set_window_geometry_target(&window, target);
+                if transferred_shell_restore {
+                    frontend.remember_window_placement(&window);
+                }
                 state.scene_sync.mark_dirty();
             }
             WindowCommand::CreateLocal { .. } => unreachable!(),
@@ -1299,5 +1393,18 @@ mod tests {
         assert!(!preserves_client_fullscreen_geometry(
             true, fullscreen, moved
         ));
+    }
+
+    #[test]
+    fn constrained_restore_geometry_follows_an_output_transfer() {
+        let source = Rectangle::new(Point::from((0, 0)), Size::from((2560, 1440)));
+        let destination = Rectangle::new(Point::from((2560, -180)), Size::from((1920, 1080)));
+        let work_area = Rectangle::new(Point::from((2560, -148)), Size::from((1920, 1048)));
+        let restore = Rectangle::new(Point::from((2100, 1200)), Size::from((800, 600)));
+
+        assert_eq!(
+            transfer_restore_geometry(restore, source, destination, work_area),
+            Rectangle::new(Point::from((3680, 300)), Size::from((800, 600)))
+        );
     }
 }

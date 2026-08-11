@@ -16,9 +16,6 @@ void main() {
     expect(environment.flag('OFF', defaultValue: true), isFalse);
     expect(environment.flag('MISSING'), isFalse);
     expect(environment.flag('UNKNOWN', defaultValue: true), isTrue);
-    expect(
-      () => environment.values['NEW'] = 'value',
-      throwsUnsupportedError,
-    );
+    expect(() => environment.values['NEW'] = 'value', throwsUnsupportedError);
   });
 }

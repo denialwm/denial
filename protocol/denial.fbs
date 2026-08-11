@@ -71,7 +71,10 @@ enum ShellActionKind : ubyte {
   Overview = 1,
   WindowSwitcherNext = 2,
   WindowSwitcherEnd = 3,
-  Clipboard = 4
+  Clipboard = 4,
+  ScreenshotRegion = 5,
+  ScreenshotTextureReady = 6,
+  ScreenshotDone = 7
 }
 
 enum KeyboardCommandKind : ubyte {
@@ -306,6 +309,7 @@ table ShellAction {
   action:ShellActionKind = Applications;
   monitor_id:long = -1;
   has_monitor_id:bool;
+  texture_id:long;
 }
 
 // Rust-authoritative software cursor state. Flutter cursor intents and

@@ -27,7 +27,6 @@ class QuickSettingsTiles extends StatelessWidget {
     required this.dnd,
     required this.dndReady,
     required this.profile,
-    required this.keyboardOpening,
     required this.onToggleWifi,
     required this.onOpenWifi,
     required this.onToggleBluetooth,
@@ -50,7 +49,6 @@ class QuickSettingsTiles extends StatelessWidget {
   final bool dnd;
   final bool dndReady;
   final String profile;
-  final bool keyboardOpening;
   final VoidCallback onToggleWifi;
   final VoidCallback onOpenWifi;
   final VoidCallback onToggleBluetooth;
@@ -165,11 +163,9 @@ class QuickSettingsTiles extends StatelessWidget {
                   child: QuickTile(
                     icon: Icons.keyboard_rounded,
                     title: l10n.quickSettingsKeyboard,
-                    subtitle: keyboardOpening
-                        ? l10n.commonOpening
-                        : l10n.quickSettingsOpenOnScreen,
+                    subtitle: l10n.quickSettingsOpenOnScreen,
                     active: false,
-                    onTap: keyboardOpening ? _noop : onOpenKeyboard,
+                    onTap: onOpenKeyboard,
                     wide: true,
                   ),
                 ),
@@ -180,8 +176,6 @@ class QuickSettingsTiles extends StatelessWidget {
       },
     );
   }
-
-  static void _noop() {}
 }
 
 /// A single quick-settings tile. Animates its surface between the off and
@@ -238,10 +232,7 @@ class _QuickTileState extends State<QuickTile> {
       toggled: widget.active,
       label: widget.subtitle == null
           ? widget.title
-          : context.l10n.commonTitleAndSubtitle(
-              widget.title,
-              widget.subtitle!,
-            ),
+          : context.l10n.commonTitleAndSubtitle(widget.title, widget.subtitle!),
       child: FocusableActionDetector(
         enabled: widget.enabled,
         mouseCursor: widget.enabled
@@ -645,8 +636,9 @@ IconData _profileIcon(String profile) => switch (profile) {
   _ => Icons.balance_rounded,
 };
 
-String _profileLabel(String profile, AppLocalizations l10n) => switch (profile) {
-  PowerProfile.powerSave => l10n.quickSettingsBatterySaver,
-  PowerProfile.performance => l10n.quickSettingsHighPerformance,
-  _ => l10n.quickSettingsBalanced,
-};
+String _profileLabel(String profile, AppLocalizations l10n) =>
+    switch (profile) {
+      PowerProfile.powerSave => l10n.quickSettingsBatterySaver,
+      PowerProfile.performance => l10n.quickSettingsHighPerformance,
+      _ => l10n.quickSettingsBalanced,
+    };

@@ -41,8 +41,9 @@ class _BottomGestureHandleState extends ConsumerState<BottomGestureHandle>
   // Keep an independent velocity estimate for compositor-generated pointer
   // streams, where event coalescing can otherwise under-report a short flick.
   final Stopwatch _panClock = Stopwatch();
-  VelocityTracker _panVelocity =
-      VelocityTracker.withKind(PointerDeviceKind.touch);
+  VelocityTracker _panVelocity = VelocityTracker.withKind(
+    PointerDeviceKind.touch,
+  );
   Offset _panTravel = Offset.zero;
 
   @override
@@ -77,10 +78,10 @@ class _BottomGestureHandleState extends ConsumerState<BottomGestureHandle>
     final armed = visual.overviewVisible
         ? visual.gestureDrag.dy > _closeDistance
         : -visual.gestureDrag.dy > recentsTravel ||
-            _horizontalSwitchArmed(
-              visual.gestureDrag,
-              hasTarget: visual.appSwitchTargetWindow != null,
-            );
+              _horizontalSwitchArmed(
+                visual.gestureDrag,
+                hasTarget: visual.appSwitchTargetWindow != null,
+              );
 
     return Positioned(
       left: 0,
@@ -135,8 +136,11 @@ class _BottomGestureHandleState extends ConsumerState<BottomGestureHandle>
       return;
     }
 
-    final switchDirection =
-        _horizontalSwitchDirection(currentState, drag, velocity);
+    final switchDirection = _horizontalSwitchDirection(
+      currentState,
+      drag,
+      velocity,
+    );
     if (switchDirection != 0) {
       _animateSwitch(
         controller: controller,
@@ -201,7 +205,8 @@ class _BottomGestureHandleState extends ConsumerState<BottomGestureHandle>
       return 0;
     }
 
-    final horizontalIntent = drag.dx.abs() > drag.dy.abs() * _axisLockRatio ||
+    final horizontalIntent =
+        drag.dx.abs() > drag.dy.abs() * _axisLockRatio ||
         velocity.dx.abs() > velocity.dy.abs() * _axisLockRatio;
     if (!horizontalIntent) {
       return 0;

@@ -51,10 +51,7 @@ void main() {
 
     expect(layout.systemBarActive, isTrue);
     expect(layout.systemBarRect, const Rect.fromLTWH(0, 0, 2560, 32));
-    expect(
-      layout.workAreaOf(left),
-      const Rect.fromLTRB(0, 32, 2560, 1440),
-    );
+    expect(layout.workAreaOf(left), const Rect.fromLTRB(0, 32, 2560, 1440));
     expect(layout.workAreaOf(right), right.logicalRect);
     expect(layout.workAreasByMonitor(), <int, Rect>{
       0: right.logicalRect,
@@ -83,14 +80,8 @@ void main() {
       layout.systemBarRectFor(left),
       const Rect.fromLTWH(0, 1408, 2560, 32),
     );
-    expect(
-      layout.workAreaOf(right),
-      const Rect.fromLTWH(2560, 0, 2560, 1408),
-    );
-    expect(
-      layout.workAreaOf(left),
-      const Rect.fromLTWH(0, 0, 2560, 1408),
-    );
+    expect(layout.workAreaOf(right), const Rect.fromLTWH(2560, 0, 2560, 1408));
+    expect(layout.workAreaOf(left), const Rect.fromLTWH(0, 0, 2560, 1408));
   });
 
   test('hidden or zero-thickness bars reserve no work area', () {
@@ -143,15 +134,9 @@ void main() {
     );
 
     // The bar edge keeps only the bar; the other three edges gain padding.
-    expect(
-      layout.workAreaOf(left),
-      const Rect.fromLTRB(10, 32, 2550, 1430),
-    );
+    expect(layout.workAreaOf(left), const Rect.fromLTRB(10, 32, 2550, 1430));
     // Outputs without the bar pad all four edges.
-    expect(
-      layout.workAreaOf(right),
-      const Rect.fromLTRB(2570, 10, 5110, 1430),
-    );
+    expect(layout.workAreaOf(right), const Rect.fromLTRB(2570, 10, 5110, 1430));
   });
 
   test('hidden bars still apply maximize padding on all edges', () {
@@ -163,10 +148,7 @@ void main() {
       maximizePadding: 10,
     );
 
-    expect(
-      layout.workAreaOf(only),
-      const Rect.fromLTRB(10, 10, 2550, 1430),
-    );
+    expect(layout.workAreaOf(only), const Rect.fromLTRB(10, 10, 2550, 1430));
   });
 
   test('oversized maximize padding never swallows the output', () {
@@ -179,10 +161,7 @@ void main() {
     );
 
     // Clamped to a quarter of the smaller output dimension per side.
-    expect(
-      layout.workAreaOf(only),
-      const Rect.fromLTRB(360, 360, 2200, 1080),
-    );
+    expect(layout.workAreaOf(only), const Rect.fromLTRB(360, 360, 2200, 1080));
   });
 }
 

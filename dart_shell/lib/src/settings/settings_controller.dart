@@ -8,6 +8,7 @@ import '../config/startup_environment.dart';
 import '../models/display_layout.dart';
 import '../models/shell_popup_placement.dart';
 import '../state/desktop_window_close_effect.dart';
+import '../theme/cursor_themes.dart';
 import 'settings_store.dart';
 import 'shell_settings.dart';
 
@@ -51,6 +52,12 @@ class ShellSettingsController extends Notifier<ShellSettings> {
           ref.watch(startupEnvironmentProvider).values,
         ),
       ),
+    );
+  }
+
+  void setLocalePreference(ShellLocalePreference value) {
+    _update(
+      state.copyWith(localization: state.localization.copyWith(locale: value)),
     );
   }
 
@@ -106,6 +113,14 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     _updateAppearance(unfocusedWindowOpacity: value.clamp(0.2, 1).toDouble());
   }
 
+  void setCursorSize(double value) {
+    _updateAppearance(
+      cursorSize: value
+          .clamp(shellCursorMinimumSize, shellCursorMaximumSize)
+          .toDouble(),
+    );
+  }
+
   void setSystemBarPlacement({
     required SystemBarSide side,
     required Iterable<String> outputNames,
@@ -150,7 +165,9 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     _update(
       state.copyWith(
         layout: state.layout.copyWith(
-          clipboardTrayExtent: value.clamp(280, 720).toDouble(),
+          clipboardTrayExtent: value
+              .clamp(clipboardTrayMinimumExtent, clipboardTrayMaximumExtent)
+              .toDouble(),
         ),
       ),
     );
@@ -248,6 +265,10 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     _update(state.copyWith(appearance: const ShellAppearanceSettings()));
   }
 
+  void resetLocalization() {
+    _update(state.copyWith(localization: const ShellLocalizationSettings()));
+  }
+
   void resetLayout() {
     _update(state.copyWith(layout: const ShellLayoutSettings()));
   }
@@ -283,6 +304,7 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     double? backdropBlurOpacityThreshold,
     double? focusedWindowOpacity,
     double? unfocusedWindowOpacity,
+    double? cursorSize,
   }) {
     _update(
       state.copyWith(
@@ -295,6 +317,7 @@ class ShellSettingsController extends Notifier<ShellSettings> {
           backdropBlurOpacityThreshold: backdropBlurOpacityThreshold,
           focusedWindowOpacity: focusedWindowOpacity,
           unfocusedWindowOpacity: unfocusedWindowOpacity,
+          cursorSize: cursorSize,
         ),
       ),
     );

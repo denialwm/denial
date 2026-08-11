@@ -51,7 +51,9 @@ class _InputLayoutPublisherState extends ConsumerState<InputLayoutPublisher> {
       if (!mounted) {
         return;
       }
-      ref.read(shellControllerProvider.notifier).publishInputLayout(
+      ref
+          .read(shellControllerProvider.notifier)
+          .publishInputLayout(
             viewSize,
             ref.read(shellInteractionRegistryProvider),
           );

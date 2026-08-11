@@ -4,10 +4,7 @@ import 'package:denial_dart_shell/src/wallpaper/widgets/wallpaper_carousel_physi
 
 void main() {
   test('keeps adjacent strips eligible for implicit preloading', () {
-    expect(
-      const WallpaperCarouselPhysics().allowImplicitScrolling,
-      isTrue,
-    );
+    expect(const WallpaperCarouselPhysics().allowImplicitScrolling, isTrue);
   });
 
   test('a fling carries across multiple strips and then settles', () {

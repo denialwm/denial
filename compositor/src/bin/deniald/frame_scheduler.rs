@@ -74,8 +74,14 @@ impl FrameScheduler {
 
     pub(super) fn step(&mut self, now: Instant, pending: PendingFrame) -> FrameAction {
         let render_tick = self.outputs.advance(now);
-
-        if let Some(authorized_tick) = self.waiting_for_flutter {
+        if let Some(waiting_tick) = self.waiting_for_flutter {
+            // AwaitVSync is asynchronous. If Flutter returns its baton after
+            // one or more display edges, authorize it against the newest
+            // edge instead of feeding Dart an old animation timestamp. The
+            // imported texture already contains its latest contents, so the
+            // physical authorization must be a latest-value mailbox too.
+            let authorized_tick = render_tick.unwrap_or(waiting_tick);
+            self.waiting_for_flutter = Some(authorized_tick);
             if pending.flutter_requested {
                 self.waiting_for_flutter = None;
                 return FrameAction::Render(authorized_tick);
@@ -234,9 +240,23 @@ impl DisplayClock {
 
         let observed_at = presentation.observed_at;
         let same_edge = self.last_tick.is_some_and(|last_tick| {
-            instant_distance(last_tick, observed_at) <= self.source.interval / 2
+            observed_at <= last_tick
+                || observed_at.duration_since(last_tick) <= self.source.interval / 2
         });
-        self.next_tick = observed_at + self.source.interval;
+        let observed_next = observed_at + self.source.interval;
+
+        // A DRM event may reach the compositor after the timer has already
+        // issued that physical edge. Rephase from its kernel timestamp, but
+        // never move the synthetic clock behind the edge already delivered.
+        // Otherwise the next `take_tick` replays the stale presentation as a
+        // second vsync, producing a device-latency-dependent cadence.
+        self.next_tick = if same_edge {
+            self.last_tick.map_or(observed_next, |last_tick| {
+                observed_next.max(last_tick + self.source.interval)
+            })
+        } else {
+            observed_next
+        };
 
         if !same_edge {
             self.presented_tick = Some(FrameTick {
@@ -299,14 +319,6 @@ fn refresh_interval(scanout: &Scanout) -> Duration {
         .filter(|refresh| *refresh > 0)
         .unwrap_or(60_000);
     Duration::from_nanos(1_000_000_000_000 / refresh_millihz)
-}
-
-fn instant_distance(left: Instant, right: Instant) -> Duration {
-    if left <= right {
-        right.duration_since(left)
-    } else {
-        left.duration_since(right)
-    }
 }
 
 #[cfg(test)]
@@ -452,6 +464,30 @@ mod tests {
     }
 
     #[test]
+    fn delayed_physical_edge_older_than_the_last_timer_tick_is_not_replayed() {
+        let now = Instant::now();
+        let mut scheduler = scheduler(now);
+        scheduler.step(now, pending(false, false, true));
+        scheduler.step(now + INTERVAL, pending(false, false, true));
+
+        scheduler.observe_presentation(PresentedOutput {
+            id: FAST_OUTPUT,
+            observed_at: now + Duration::from_millis(1),
+            presented_at: Some(Duration::from_secs(7)),
+            sequence: Some(42),
+        });
+
+        scheduler.step(
+            now + INTERVAL + Duration::from_millis(4),
+            pending(false, false, true),
+        );
+        assert!(scheduler.output_ticks().is_empty());
+
+        scheduler.step(now + INTERVAL * 2, pending(false, false, true));
+        assert_eq!(scheduler.output_ticks()[0].observed_at, now + INTERVAL * 2);
+    }
+
+    #[test]
     fn missed_intervals_collapse_to_the_latest_tick() {
         let now = Instant::now();
         let mut scheduler = scheduler(now);
@@ -562,9 +598,12 @@ mod tests {
             now + FAST_INTERVAL * 2 + Duration::from_millis(1),
             pending(true, false, false),
         );
-        assert!(
-            matches!(render, FrameAction::Render(tick) if tick.output == FAST_OUTPUT && tick.observed_at == now)
-        );
+        assert!(matches!(
+            render,
+            FrameAction::Render(tick)
+                if tick.output == FAST_OUTPUT
+                    && tick.observed_at == now + FAST_INTERVAL * 2
+        ));
         assert!(scheduler.output_ticks().is_empty());
     }
 

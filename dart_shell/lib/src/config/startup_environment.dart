@@ -11,7 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 @immutable
 class StartupEnvironment {
   StartupEnvironment(Map<String, String> values)
-      : values = Map<String, String>.unmodifiable(values);
+    : values = Map<String, String>.unmodifiable(values);
 
   const StartupEnvironment.empty() : values = const <String, String>{};
 

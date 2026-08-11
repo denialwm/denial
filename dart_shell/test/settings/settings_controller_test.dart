@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:denial_dart_shell/src/settings/settings_controller.dart';
 import 'package:denial_dart_shell/src/settings/settings_store.dart';
 import 'package:denial_dart_shell/src/settings/shell_settings.dart';
+import 'package:denial_dart_shell/src/theme/cursor_themes.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -67,6 +68,28 @@ void main() {
     expect(store.writes.single.appearance, appearance);
   });
 
+  test('cursor size applies live, clamps, and persists', () async {
+    final store = _MemorySettingsStore(Future<ShellSettings?>.value(null));
+    final container = ProviderContainer.test(
+      overrides: [settingsStoreProvider.overrideWithValue(store)],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(shellSettingsProvider.notifier);
+
+    controller.setCursorSize(200);
+    expect(
+      container.read(shellSettingsProvider).appearance.cursorSize,
+      shellCursorMaximumSize,
+    );
+    controller.setCursorSize(8);
+    expect(
+      container.read(shellSettingsProvider).appearance.cursorSize,
+      shellCursorMinimumSize,
+    );
+    await controller.flush();
+    expect(store.writes.single.appearance.cursorSize, shellCursorMinimumSize);
+  });
+
   test('power timeout stays inside the compositor-supported range', () async {
     final store = _MemorySettingsStore(Future<ShellSettings?>.value(null));
     final container = ProviderContainer.test(
@@ -88,6 +111,32 @@ void main() {
     await controller.flush();
   });
 
+  test('locale preference applies live and persists', () async {
+    final store = _MemorySettingsStore(Future<ShellSettings?>.value(null));
+    final container = ProviderContainer.test(
+      overrides: [settingsStoreProvider.overrideWithValue(store)],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(shellSettingsProvider.notifier);
+
+    controller.setLocalePreference(ShellLocalePreference.simplifiedChinese);
+    expect(
+      container.read(shellSettingsProvider).localization.locale,
+      ShellLocalePreference.simplifiedChinese,
+    );
+    await controller.flush();
+    expect(
+      store.writes.single.localization.locale,
+      ShellLocalePreference.simplifiedChinese,
+    );
+
+    controller.resetLocalization();
+    expect(
+      container.read(shellSettingsProvider).localization.locale,
+      ShellLocalePreference.system,
+    );
+  });
+
   test('clipboard tray placement persists and clamps its extent', () async {
     final store = _MemorySettingsStore(Future<ShellSettings?>.value(null));
     final container = ProviderContainer.test(
@@ -102,7 +151,7 @@ void main() {
 
     final layout = container.read(shellSettingsProvider).layout;
     expect(layout.clipboardTrayEdge, ClipboardTrayEdge.top);
-    expect(layout.clipboardTrayExtent, 720);
+    expect(layout.clipboardTrayExtent, clipboardTrayMaximumExtent);
     await controller.flush();
     expect(store.writes.single.layout, layout);
   });

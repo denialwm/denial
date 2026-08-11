@@ -1,6 +1,7 @@
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/models/shell_popup_placement.dart';
 import 'package:denial_dart_shell/src/settings/shell_settings.dart';
+import 'package:denial_dart_shell/src/theme/cursor_themes.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -11,6 +12,9 @@ void main() {
 
   test('settings survive a complete JSON round trip', () {
     const settings = ShellSettings(
+      localization: ShellLocalizationSettings(
+        locale: ShellLocalePreference.simplifiedChinese,
+      ),
       appearance: ShellAppearanceSettings(
         accentSource: ShellAccentSource.custom,
         customAccentColor: Color(0xffc062ff),
@@ -22,6 +26,7 @@ void main() {
         backdropBlurOpacityThreshold: 0.18,
         focusedWindowOpacity: 0.96,
         unfocusedWindowOpacity: 0.72,
+        cursorSize: 44,
       ),
       layout: ShellLayoutSettings(
         systemBarSide: SystemBarSide.right,
@@ -29,7 +34,7 @@ void main() {
         systemBarThickness: 46,
         maximizePadding: 18,
         clipboardTrayEdge: ClipboardTrayEdge.bottom,
-        clipboardTrayExtent: 512,
+        clipboardTrayExtent: 288,
       ),
       overlays: ShellOverlaySettings(
         launcher: ShellPopupPlacement(
@@ -58,6 +63,7 @@ void main() {
   test('malformed and out-of-range values are safe and clamped', () {
     final settings = ShellSettings.fromJson(<String, dynamic>{
       'version': 999,
+      'localization': <String, dynamic>{'locale': 'future-locale'},
       'appearance': <String, dynamic>{
         'accentSource': 'future-source',
         'customAccentColor': -1,
@@ -66,6 +72,7 @@ void main() {
         'backdropBlurEnabled': 'sometimes',
         'backdropBlurSigma': 400,
         'backdropBlurOpacityThreshold': 4,
+        'cursorSize': 400,
       },
       'layout': <String, dynamic>{
         'systemBarSide': 'diagonal',
@@ -94,6 +101,7 @@ void main() {
       },
     });
 
+    expect(settings.localization.locale, ShellLocalePreference.system);
     expect(settings.appearance.accentSource, ShellAccentSource.wallpaper);
     expect(
       settings.appearance.customAccentColor,
@@ -104,12 +112,13 @@ void main() {
     expect(settings.appearance.backdropBlurEnabled, isTrue);
     expect(settings.appearance.backdropBlurSigma, 32);
     expect(settings.appearance.backdropBlurOpacityThreshold, 1);
+    expect(settings.appearance.cursorSize, shellCursorMaximumSize);
     expect(settings.layout.systemBarSide, isNull);
     expect(settings.layout.systemBarOutputNames, <String>['DP-1']);
     expect(settings.layout.systemBarThickness, 32);
     expect(settings.layout.maximizePadding, 0);
     expect(settings.layout.clipboardTrayEdge, ClipboardTrayEdge.right);
-    expect(settings.layout.clipboardTrayExtent, 720);
+    expect(settings.layout.clipboardTrayExtent, clipboardTrayMaximumExtent);
     expect(settings.overlays.launcher.anchor, ShellPopupAnchor.bottomRight);
     expect(settings.overlays.launcher.width, 420);
     expect(settings.overlays.launcher.height, 1200);
@@ -129,5 +138,22 @@ void main() {
 
     expect(settings.appearance.backdropBlurEnabled, isTrue);
     expect(settings.appearance.backdropBlurSigma, 18);
+    expect(settings.appearance.cursorSize, shellCursorDefaultSize);
+  });
+
+  test('locale preferences expose only explicit language overrides', () {
+    expect(const ShellLocalizationSettings().localeOverride, isNull);
+    expect(
+      const ShellLocalizationSettings(
+        locale: ShellLocalePreference.english,
+      ).localeOverride?.toLanguageTag(),
+      'en',
+    );
+    expect(
+      const ShellLocalizationSettings(
+        locale: ShellLocalePreference.simplifiedChinese,
+      ).localeOverride?.toLanguageTag(),
+      'zh',
+    );
   });
 }

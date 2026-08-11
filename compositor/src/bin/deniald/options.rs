@@ -15,6 +15,7 @@ use denial_flutter_engine::RendererBackend;
 const DEFAULT_DEVICE: &str = "/dev/dri/by-path/pci-0000:0a:00.0-card";
 const MAX_OUTPUT_CONFIG_BYTES: usize = 64 * 1024;
 const MAX_CONFIGURED_OUTPUTS: usize = 128;
+const REFRESH_MILLIHERTZ_LITERAL_THRESHOLD: u32 = 10_000;
 const MIN_OUTPUT_SCALE: f64 = 0.25;
 const MAX_OUTPUT_SCALE: f64 = 8.0;
 const MANAGED_OUTPUT_CONFIG_HEADER: &str = "# Output settings managed by Denial output control.";
@@ -103,6 +104,7 @@ fn parse_maximize_padding(value: &str) -> Result<f64, Box<dyn Error>> {
 #[derive(Debug)]
 pub(super) struct Options {
     pub(super) device: PathBuf,
+    pub(super) render_device: Option<PathBuf>,
     commit_seconds: u64,
     pub(super) max_outputs: usize,
     pub(super) output_config: Option<PathBuf>,
@@ -142,6 +144,7 @@ impl Options {
 
     fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Self, Box<dyn Error>> {
         let mut device = PathBuf::from(DEFAULT_DEVICE);
+        let mut render_device = None;
         let mut commit_seconds = 0;
         let mut max_outputs = usize::MAX;
         let mut output_config = None;
@@ -170,6 +173,11 @@ impl Options {
         while let Some(argument) = args.next() {
             match argument.as_str() {
                 "--device" => device = PathBuf::from(args.next().ok_or("--device needs a path")?),
+                "--render-device" => {
+                    render_device = Some(PathBuf::from(
+                        args.next().ok_or("--render-device needs a path")?,
+                    ));
+                }
                 "--commit-seconds" => {
                     commit_seconds = args
                         .next()
@@ -280,7 +288,7 @@ impl Options {
                 }
                 "--help" | "-h" => {
                     println!(
-                        "Usage: deniald [--device PATH] [--max-outputs N] \
+                        "Usage: deniald [--device PATH] [--render-device PATH] [--max-outputs N] \
                          [--output-config PATH] \
                          [--output-position NAME=X,Y] \
                          [--next-output-position NAME=X,Y --reconfigure-at-frame N] \
@@ -297,10 +305,11 @@ impl Options {
                          [--commit-seconds N | --frames N]\n\
                          With --flutter-bundle, omitting both limits runs until logout.\n\
                          Without Flutter, N=0 performs atomic TEST_ONLY without changing scanout.\n\
-                         Control: SIGUSR1 refreshes the embedded Flutter bundle in process."
+                         Control: SIGUSR1 safely refreshes the embedded Flutter bundle in process."
                     );
                     return Ok(Self {
                         device,
+                        render_device,
                         commit_seconds,
                         max_outputs: 0,
                         output_config,
@@ -425,6 +434,7 @@ impl Options {
         }
         Ok(Self {
             device,
+            render_device,
             commit_seconds,
             max_outputs,
             output_config,
@@ -643,16 +653,26 @@ fn parse_output_mode_entry(value: &str) -> Result<(String, u32, u32, u32), Box<d
         .next()
         .ok_or("output mode must use mode=NAME,WIDTH,HEIGHT,REFRESH_MILLIHZ")?
         .parse()?;
-    let refresh_millihz: u32 = fields
+    let refresh: u32 = fields
         .next()
         .ok_or("output mode must use mode=NAME,WIDTH,HEIGHT,REFRESH_MILLIHZ")?
         .parse()?;
     if fields.next().is_some() {
         return Err("output mode must use mode=NAME,WIDTH,HEIGHT,REFRESH_MILLIHZ".into());
     }
-    if width == 0 || height == 0 || refresh_millihz == 0 {
+    if width == 0 || height == 0 || refresh == 0 {
         return Err("output mode dimensions and refresh must be greater than zero".into());
     }
+    // Persisted mode directives use millihertz. Small hand-written values are
+    // unambiguously human-scale hertz and accepting them avoids turning a
+    // harmless unit mistake into a failed graphical session.
+    let refresh_millihz = if refresh < REFRESH_MILLIHERTZ_LITERAL_THRESHOLD {
+        refresh
+            .checked_mul(1_000)
+            .ok_or("output refresh is too large")?
+    } else {
+        refresh
+    };
     Ok((name.to_owned(), width, height, refresh_millihz))
 }
 
@@ -1238,8 +1258,24 @@ mod tests {
     fn flutter_without_a_finite_limit_runs_until_logout() {
         let options = options(&["--wayland", "--flutter-bundle", "/tmp/denial-bundle"]);
         assert_eq!(options.runtime_limit(), RuntimeLimit::UntilLogout);
+        assert_eq!(options.render_device, None);
         #[cfg(feature = "flutter")]
         assert_eq!(options.flutter_renderer, RendererBackend::ImpellerGles);
+    }
+
+    #[test]
+    fn render_device_can_differ_from_the_kms_device() {
+        let options = options(&[
+            "--device",
+            "/dev/dri/card0",
+            "--render-device",
+            "/dev/dri/renderD128",
+        ]);
+        assert_eq!(options.device, PathBuf::from("/dev/dri/card0"));
+        assert_eq!(
+            options.render_device,
+            Some(PathBuf::from("/dev/dri/renderD128"))
+        );
     }
 
     #[test]
@@ -1402,12 +1438,15 @@ mod tests {
 
     #[test]
     fn output_config_accepts_exact_modes_and_fractional_scales() {
-        let config = parse_output_config("DP-5=0,0\nmode=DP-5,2560,1440,199998\nscale=DP-5,1.25\n")
-            .expect("valid exact output config");
+        let config = parse_output_config(
+            "DP-5=0,0\nmode=DP-5,2560,1440,199998\nscale=DP-5,1.25\nmode=DP-4,1920,1080,60\n",
+        )
+        .expect("valid exact output config");
 
         assert_eq!(config.mode_sizes["DP-5"], (2560, 1440));
         assert_eq!(config.refresh_millihz["DP-5"], 199_998);
         assert_eq!(config.scales_120["DP-5"], 150);
+        assert_eq!(config.refresh_millihz["DP-4"], 60_000);
     }
 
     #[test]

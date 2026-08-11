@@ -183,13 +183,22 @@ The persistent form stores position, exact mode and millihertz refresh, scale,
 enablement, and adaptive sync. DPMS is intentionally runtime-only. Settings
 for connected outputs replace their old directives, while comments,
 `system_bar`, `maximize_padding`, and settings for disconnected outputs are
-preserved. Besides the legacy `NAME=X,Y[,REFRESH_HZ]` syntax, the output-config
-parser accepts:
+preserved. New configurations use separate position, exact-mode, and scale
+directives:
 
 ```text
+NAME=X,Y
 mode=NAME,WIDTH,HEIGHT,REFRESH_MILLIHZ
 scale=NAME,SCALE
 ```
+
+For example, `mode=eDP-1,1920,1080,60000` selects 1920×1080 at 60 Hz. Denial
+writes and documents exact-mode refresh rates in millihertz, but accepts values
+below `10000` as hertz when reading hand-written configurations. If the exact
+requested refresh is unavailable, Denial uses the closest refresh advertised
+for the requested resolution. The legacy combined `NAME=X,Y[,REFRESH_HZ]`
+syntax remains accepted for existing configurations; its optional refresh
+field is expressed in integer hertz.
 
 Denial rejects symlinked or concurrently edited targets. If the final
 filesystem commit fails after the KMS transaction has already succeeded, the

@@ -5,7 +5,7 @@ use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
 use std::process::Stdio;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use denial_core::topology::{AtlasPlan, OutputId, TopologySnapshot};
 #[cfg(feature = "flutter")]
@@ -65,6 +65,9 @@ use smithay::wayland::dmabuf::{
 use smithay::wayland::drm_syncobj::{
     DrmSyncobjCachedState, DrmSyncobjHandler, DrmSyncobjState, supports_syncobj_eventfd,
 };
+use smithay::wayland::fractional_scale::{
+    FractionalScaleManagerState, with_fractional_scale,
+};
 use smithay::wayland::output::{OutputHandler, OutputManagerState};
 use smithay::wayland::pointer_constraints::{PointerConstraintsHandler, PointerConstraintsState};
 use smithay::wayland::relative_pointer::RelativePointerManagerState;
@@ -84,6 +87,7 @@ use smithay::wayland::tablet_manager::TabletSeatHandler;
 use smithay::wayland::viewporter::ViewporterState;
 use smithay::wayland::xwayland_shell::XWaylandShellState;
 use smithay::wayland::xwayland_keyboard_grab::XWaylandKeyboardGrabState;
+use smithay::wayland::xdg_activation::XdgActivationState;
 use smithay::xwayland::{X11Wm, XWayland, XWaylandClientData, XWaylandEvent};
 use tracing::{error, info, warn};
 
@@ -123,7 +127,7 @@ mod idle_inhibit;
 #[path = "wayland_frontend/input.rs"]
 mod input;
 #[cfg(feature = "flutter")]
-pub(super) use input::reconcile_flutter_pointer_route;
+pub(super) use input::{dispatch_shell_keyboard_command, reconcile_flutter_pointer_route};
 #[path = "wayland_frontend/input_source.rs"]
 mod input_source;
 #[path = "wayland_frontend/output_power.rs"]
@@ -132,6 +136,8 @@ mod output_power;
 mod presentation;
 #[path = "wayland_frontend/screencopy.rs"]
 mod screencopy;
+#[cfg(feature = "flutter")]
+pub(crate) use screencopy::{copy_atlas_region_to_memory, copy_atlas_to_dmabuf};
 #[cfg(feature = "flutter")]
 #[path = "wayland_frontend/surface_snapshot.rs"]
 mod surface_snapshot;
@@ -143,7 +149,9 @@ mod window_management;
 mod xwayland;
 
 #[cfg(feature = "flutter")]
-pub(super) use clipboard_io::{apply_clipboard_actions, cancel_clipboard_captures};
+pub(super) use clipboard_io::{
+    DeferredClipboardCapture, apply_clipboard_actions, cancel_clipboard_captures,
+};
 use focus::KeyboardFocusTarget;
 use handlers::{MAX_WAYLAND_CLIENTS, WaylandClientBudget};
 #[cfg(feature = "flutter")]
@@ -170,6 +178,7 @@ use window_management::{
 };
 
 const MAX_PENDING_DMABUF_IMPORTS: usize = 128;
+const XDG_ACTIVATION_TOKEN_LIFETIME: Duration = Duration::from_secs(10);
 
 fn dmabuf_import_queue_has_capacity(pending: usize) -> bool {
     pending < MAX_PENDING_DMABUF_IMPORTS
@@ -270,12 +279,16 @@ pub(super) struct WaylandFrontend {
     pub space: Space<Window>,
     pub compositor_state: CompositorState,
     pub xdg_shell_state: XdgShellState,
+    pub xdg_activation_state: XdgActivationState,
     pub xwayland_shell_state: XWaylandShellState,
     pub _xwayland_keyboard_grab_state: XWaylandKeyboardGrabState,
     pub _relative_pointer_manager_state: RelativePointerManagerState,
     pub _pointer_constraints_state: PointerConstraintsState,
     _viewporter_state: ViewporterState,
+    _fractional_scale_manager_state: FractionalScaleManagerState,
     pub xwm: Option<X11Wm>,
+    xwayland_client: Client,
+    xwayland_scale: u32,
     xdisplay: u32,
     _xdg_decoration_state: XdgDecorationState,
     _cursor_shape_state: CursorShapeManagerState,
@@ -385,6 +398,8 @@ pub(super) struct WaylandFrontend {
     flutter_touch_slots: HashSet<i32>,
     #[cfg(feature = "flutter")]
     client_touch_routes: HashMap<i32, ClientInputRoute>,
+    #[cfg(feature = "flutter")]
+    client_touch_frame_pending: bool,
     #[cfg(feature = "flutter")]
     flutter_keyboard_keys: HashSet<u32>,
     retired_keyboard_keys: HashSet<u32>,
@@ -629,6 +644,13 @@ fn window_expects_sample(
 }
 
 impl WaylandFrontend {
+    #[cfg(feature = "flutter")]
+    pub(super) fn shell_captures_keyboard(&self) -> bool {
+        self.input_layout
+            .as_ref()
+            .is_some_and(|layout| layout.keyboard_capture() || layout.exclusive_shell())
+    }
+
     pub fn new(
         event_loop: &mut EventLoop<'static, RuntimeState>,
         snapshot: &TopologySnapshot,
@@ -642,6 +664,7 @@ impl WaylandFrontend {
         let loop_handle = event_loop.handle();
         let compositor_state = CompositorState::new::<RuntimeState>(&display_handle);
         let xdg_shell_state = XdgShellState::new::<RuntimeState>(&display_handle);
+        let xdg_activation_state = XdgActivationState::new::<RuntimeState>(&display_handle);
         let xwayland_shell_state = XWaylandShellState::new::<RuntimeState>(&display_handle);
         let xwayland_keyboard_grab_state =
             XWaylandKeyboardGrabState::new::<RuntimeState>(&display_handle);
@@ -650,6 +673,8 @@ impl WaylandFrontend {
         let pointer_constraints_state =
             PointerConstraintsState::new::<RuntimeState>(&display_handle);
         let viewporter_state = ViewporterState::new::<RuntimeState>(&display_handle);
+        let fractional_scale_manager_state =
+            FractionalScaleManagerState::new::<RuntimeState>(&display_handle);
         let xdg_decoration_state = XdgDecorationState::new::<RuntimeState>(&display_handle);
         let cursor_shape_state = CursorShapeManagerState::new::<RuntimeState>(&display_handle);
         let presentation = presentation::PresentationTracker::new(&display_handle);
@@ -828,16 +853,24 @@ impl WaylandFrontend {
 
         let client_budget = Arc::new(WaylandClientBudget::default());
         let socket_name = init_listener(display, event_loop, client_budget)?;
+        let xwayland_scale = xwayland::scale_for_engine(atlas.engine_scale_120);
+        let xwayland_dpi = xwayland::dpi(xwayland_scale);
+        let xwayland_args = ["-dpi".to_owned(), xwayland_dpi.to_string()];
         let (xwayland, xwayland_client) = XWayland::spawn(
             &display_handle,
             None,
             std::iter::empty::<(String, String)>(),
-            std::iter::empty::<String>(),
+            xwayland_args,
             true,
             Stdio::null(),
             Stdio::null(),
             |_| {},
         )?;
+        xwayland_client
+            .get_data::<XWaylandClientData>()
+            .expect("Xwayland client is missing compositor state")
+            .compositor_state
+            .set_client_scale(f64::from(xwayland_scale));
         let xdisplay = xwayland.display_number();
         let window_placement_path = default_state_path();
         let window_placements = match WindowPlacementStore::load(window_placement_path.clone()) {
@@ -859,6 +892,7 @@ impl WaylandFrontend {
         }
         let xwm_loop_handle = event_loop.handle();
         let xwm_display_handle = display_handle.clone();
+        let xwm_client = xwayland_client.clone();
         event_loop
             .handle()
             .insert_source(xwayland, move |event, _, state| match event {
@@ -869,9 +903,9 @@ impl WaylandFrontend {
                     xwm_loop_handle.clone(),
                     &xwm_display_handle,
                     x11_socket,
-                    xwayland_client.clone(),
+                    xwm_client.clone(),
                 ) {
-                    Ok(xwm) => {
+                    Ok(mut xwm) => {
                         let Some(frontend) = state.wayland.as_mut() else {
                             error!(
                                 display_number,
@@ -879,9 +913,15 @@ impl WaylandFrontend {
                             );
                             return;
                         };
+                        if let Err(error) = xwayland::publish_dpi(&mut xwm, frontend.xwayland_scale)
+                        {
+                            error!(%error, "could not publish Xwayland DPI settings");
+                        }
                         frontend.xwm = Some(xwm);
                         info!(
                             display = %format_args!(":{display_number}"),
+                            scale = frontend.xwayland_scale,
+                            dpi = xwayland::dpi(frontend.xwayland_scale),
                             "Xwayland is ready"
                         );
                         state.scene_sync.mark_dirty();
@@ -910,12 +950,16 @@ impl WaylandFrontend {
             space,
             compositor_state,
             xdg_shell_state,
+            xdg_activation_state,
             xwayland_shell_state,
             _xwayland_keyboard_grab_state: xwayland_keyboard_grab_state,
             _relative_pointer_manager_state: relative_pointer_manager_state,
             _pointer_constraints_state: pointer_constraints_state,
             _viewporter_state: viewporter_state,
+            _fractional_scale_manager_state: fractional_scale_manager_state,
             xwm: None,
+            xwayland_client,
+            xwayland_scale,
             xdisplay,
             _xdg_decoration_state: xdg_decoration_state,
             _cursor_shape_state: cursor_shape_state,
@@ -1020,6 +1064,8 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             client_touch_routes: HashMap::new(),
             #[cfg(feature = "flutter")]
+            client_touch_frame_pending: false,
+            #[cfg(feature = "flutter")]
             flutter_keyboard_keys: HashSet::new(),
             retired_keyboard_keys: HashSet::new(),
             #[cfg(feature = "flutter")]
@@ -1056,7 +1102,11 @@ impl WaylandFrontend {
 
     #[cfg(feature = "flutter")]
     fn update_cursor_image(&mut self, image: CursorImageStatus) {
-        let shape = software_cursor_shape(&image);
+        let shape = if self.clipboard_drag_active {
+            "default"
+        } else {
+            software_cursor_shape(&image)
+        };
         self.cursor_status = image;
         if matches!(self.routed_pointer_target, RoutedPointerTarget::Client(_)) {
             self.queue_cursor_shape(shape);
@@ -1075,9 +1125,33 @@ impl WaylandFrontend {
 
     #[cfg(feature = "flutter")]
     pub(super) fn request_flutter_cursor_shape(&mut self, shape: &'static str) {
+        if self.clipboard_drag_active {
+            self.queue_cursor_shape("default");
+            return;
+        }
         if let Some(shape) = accepted_flutter_cursor_shape(self.routed_pointer_target, shape) {
             self.queue_cursor_shape(shape);
         }
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn set_clipboard_drag_active(&mut self, active: bool) {
+        if self.clipboard_drag_active == active {
+            if active {
+                self.queue_cursor_shape("default");
+            }
+            return;
+        }
+        self.clipboard_drag_active = active;
+        self.published_cursor_shape = None;
+        self.pending_cursor_shape = if active {
+            Some("default")
+        } else {
+            match self.routed_pointer_target {
+                RoutedPointerTarget::Flutter => None,
+                RoutedPointerTarget::Client(_) => Some(software_cursor_shape(&self.cursor_status)),
+            }
+        };
     }
 
     #[cfg(feature = "flutter")]
@@ -1087,6 +1161,10 @@ impl WaylandFrontend {
         }
         self.routed_pointer_target = target;
         self.published_cursor_shape = None;
+        if self.clipboard_drag_active {
+            self.pending_cursor_shape = Some("default");
+            return;
+        }
         match target {
             // Dart's MouseRegion owns cursor selection again.  Discard a
             // client update which has not crossed the bridge yet so it cannot
@@ -1107,7 +1185,7 @@ impl WaylandFrontend {
 
     #[cfg(feature = "flutter")]
     fn queue_cursor_position(&mut self) {
-        self.pending_cursor_position = Some(self.flutter_pointer_position());
+        self.pending_cursor_position = Some(self.flutter_scene_pointer_position());
     }
 
     #[cfg(feature = "flutter")]
@@ -1136,6 +1214,14 @@ impl WaylandFrontend {
         }
         self.window_root_surface(window)
             .map(KeyboardFocusTarget::Wayland)
+    }
+
+    /// Mints a one-shot token for a user launch initiated by Denial's shell.
+    pub(super) fn create_launch_activation_token(&mut self) -> String {
+        self.xdg_activation_state
+            .retain_tokens(|_, data| data.timestamp.elapsed() <= XDG_ACTIVATION_TOKEN_LIFETIME);
+        let (token, _) = self.xdg_activation_state.create_external_token(None);
+        token.to_string()
     }
 
     /// Raises a desktop window in both compositor and X11 stacking state.
@@ -1451,7 +1537,6 @@ impl WaylandFrontend {
             // stretches independent auxiliary toplevels to the main window.
             toplevel.with_pending_state(|pending| pending.size = None);
             self.space.relocate_element(window, restored.geometry.loc);
-            #[cfg(feature = "flutter")]
             self.update_window_output_membership(window);
             self.pending_client_sized_placements.insert(
                 object_id.clone(),
@@ -1553,7 +1638,6 @@ impl WaylandFrontend {
             output_geometry,
         );
         self.space.relocate_element(window, target.loc);
-        #[cfg(feature = "flutter")]
         self.update_window_output_membership(window);
         self.pending_client_sized_placements.remove(&object_id);
         info!(
@@ -1636,16 +1720,28 @@ impl WaylandFrontend {
             .unwrap_or_else(|| window.bbox())
     }
 
-    #[cfg(feature = "flutter")]
     pub(super) fn update_window_output_membership(&mut self, window: &Window) {
-        let Some(root_surface) = self.window_root_surface(window) else {
-            return;
-        };
-        let output = self
-            .output_index_for_geometry(self.window_geometry_target(window))
-            .map(|index| self.outputs[index].id);
-        self.output_window_membership
-            .update(root_surface.id(), window.clone(), output);
+        let output_index = self.output_index_for_geometry(self.window_geometry_target(window));
+        let output = output_index.map(|index| self.outputs[index].id);
+        let output_scale = output_index
+            .map(|index| {
+                self.outputs[index]
+                    .output
+                    .current_scale()
+                    .fractional_scale()
+            })
+            .unwrap_or(1.0);
+        window.with_surfaces(|surface, states| {
+            let preferred_scale = Self::client_preferred_scale(surface, output_scale);
+            with_fractional_scale(states, |fractional_scale| {
+                fractional_scale.set_preferred_scale(preferred_scale);
+            });
+        });
+        #[cfg(feature = "flutter")]
+        if let Some(root_surface) = self.window_root_surface(window) {
+            self.output_window_membership
+                .update(root_surface.id(), window.clone(), output);
+        }
     }
 
     #[cfg(feature = "flutter")]
@@ -1653,8 +1749,8 @@ impl WaylandFrontend {
         self.output_window_membership.remove(&surface.id());
     }
 
-    #[cfg(feature = "flutter")]
     pub(super) fn rebuild_window_output_membership(&mut self) {
+        #[cfg(feature = "flutter")]
         self.output_window_membership.clear();
         let windows = self.space.elements().cloned().collect::<Vec<_>>();
         for window in windows {
@@ -1696,7 +1792,6 @@ impl WaylandFrontend {
             self.configured_window_geometries
                 .insert(root_surface.id(), target);
         }
-        #[cfg(feature = "flutter")]
         self.update_window_output_membership(window);
     }
 
@@ -2103,7 +2198,6 @@ impl WaylandFrontend {
             .collect()
     }
 
-    #[cfg(feature = "flutter")]
     fn toplevel_candidate_surface(&self, surface: &WlSurface) -> WlSurface {
         let mut tree_root = surface.clone();
         while let Some(parent) = get_parent(&tree_root) {
@@ -2114,6 +2208,41 @@ impl WaylandFrontend {
             .find_popup(&tree_root)
             .and_then(|popup| find_popup_root_surface(&popup).ok())
             .unwrap_or(tree_root)
+    }
+
+    pub(super) fn update_surface_fractional_scale(&self, surface: &WlSurface) {
+        let root = self.toplevel_candidate_surface(surface);
+        let preferred_scale = self
+            .window_for_root_surface(&root)
+            .and_then(|window| {
+                self.output_for_geometry(self.window_geometry_target(&window))
+                    .map(|output| output.output.current_scale().fractional_scale())
+            })
+            .or_else(|| {
+                self.outputs
+                    .first()
+                    .map(|output| output.output.current_scale().fractional_scale())
+            })
+            .unwrap_or(1.0);
+        let preferred_scale = Self::client_preferred_scale(surface, preferred_scale);
+        with_states(surface, |states| {
+            with_fractional_scale(states, |fractional_scale| {
+                fractional_scale.set_preferred_scale(preferred_scale);
+            });
+        });
+    }
+
+    fn client_preferred_scale(surface: &WlSurface, output_scale: f64) -> f64 {
+        let client_scale = surface
+            .client()
+            .and_then(|client| {
+                client
+                    .get_data::<XWaylandClientData>()
+                    .map(|data| data.compositor_state.client_scale())
+            })
+            .unwrap_or(1.0)
+            .max(f64::EPSILON);
+        (output_scale / client_scale).max(1.0)
     }
 
     #[cfg(feature = "flutter")]
@@ -3018,7 +3147,7 @@ impl WaylandFrontend {
             }
             RoutedPointerTarget::Client(_) => {
                 self.pending_cursor_shape = Some(software_cursor_shape(&self.cursor_status));
-                self.pending_cursor_position = Some(self.flutter_pointer_position());
+                self.pending_cursor_position = Some(self.flutter_scene_pointer_position());
             }
         }
     }
@@ -3072,14 +3201,24 @@ impl WaylandFrontend {
         ))
     }
 
-    /// Projects the compositor-owned logical pointer into the Flutter atlas.
-    /// Flutter runs at pixel ratio 1, so embedder pointer coordinates are
-    /// physical atlas pixels rather than desktop logical coordinates.
+    /// Projects the compositor-owned logical pointer into Flutter's physical
+    /// atlas pixels, as required by `FlutterPointerEvent`.
     #[cfg(feature = "flutter")]
-    pub(super) fn flutter_pointer_position(&self) -> (f64, f64) {
+    pub(super) fn flutter_pointer_position_physical(&self) -> (f64, f64) {
         (
             (self.pointer_location.x - self.atlas_origin.x) * self.atlas_scale,
             (self.pointer_location.y - self.atlas_origin.y) * self.atlas_scale,
+        )
+    }
+
+    /// Projects the compositor-owned pointer into Flutter framework logical
+    /// coordinates. Structured messages consumed directly by Dart do not pass
+    /// through Flutter's physical-to-logical pointer-event conversion.
+    #[cfg(feature = "flutter")]
+    fn flutter_scene_pointer_position(&self) -> (f64, f64) {
+        (
+            self.pointer_location.x - self.atlas_origin.x,
+            self.pointer_location.y - self.atlas_origin.y,
         )
     }
 
@@ -3375,7 +3514,7 @@ mod tests {
         InitialXdgPlacementPolicy, MAX_PENDING_DMABUF_IMPORTS, dmabuf_import_queue_has_capacity,
         initial_xdg_placement_policy,
     };
-    use super::{RuntimeState, ViewporterState};
+    use super::{RuntimeState, ViewporterState, XdgActivationState};
     use crate::window_placement_store::WindowPlacementState;
     #[cfg(feature = "flutter")]
     use crate::wire::{InputLayoutSnapshot, InputRect, WindowOpacityClass};
@@ -3440,6 +3579,21 @@ mod tests {
             .expect("wp_viewporter global should remain registered");
 
         assert_eq!(global.interface.name, "wp_viewporter");
+        assert_eq!(global.version, 1);
+        assert!(!global.disabled);
+    }
+
+    #[test]
+    fn advertises_xdg_activation_version_one() {
+        let display = Display::<RuntimeState>::new().expect("Wayland display should initialize");
+        let display_handle = display.handle();
+        let activation = XdgActivationState::new::<RuntimeState>(&display_handle);
+        let global = display_handle
+            .backend_handle()
+            .global_info(activation.global())
+            .expect("xdg_activation_v1 global should remain registered");
+
+        assert_eq!(global.interface.name, "xdg_activation_v1");
         assert_eq!(global.version, 1);
         assert!(!global.disabled);
     }

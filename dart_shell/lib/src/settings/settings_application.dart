@@ -23,6 +23,7 @@ import 'widgets/settings_appearance_page.dart';
 import 'widgets/settings_animations_page.dart';
 import 'widgets/settings_developer_page.dart';
 import 'widgets/settings_layout_page.dart';
+import 'widgets/settings_language_page.dart';
 import 'widgets/settings_lock_screen_page.dart';
 import 'widgets/settings_navigation.dart';
 import 'widgets/settings_overlays_page.dart';
@@ -189,6 +190,8 @@ class _DenialSettingsApplicationState
       SettingsPageId.appearance => SettingsAppearancePage(
         settings: settings.appearance,
         extractedAccent: extractedAccent,
+        wallpaper: wallpaper,
+        onOpenWallpaperSelector: () => unawaited(_openWallpaperSelector()),
         onAccentSourceChanged: controller.setAccentSource,
         onOpenAccentPicker: () => setState(() => _colorPickerOpen = true),
         onWindowRadiusChanged: controller.setWindowRadius,
@@ -200,7 +203,13 @@ class _DenialSettingsApplicationState
             controller.setBackdropBlurOpacityThreshold,
         onFocusedOpacityChanged: controller.setFocusedWindowOpacity,
         onUnfocusedOpacityChanged: controller.setUnfocusedWindowOpacity,
+        onCursorSizeChanged: controller.setCursorSize,
         onReset: controller.resetAppearance,
+      ),
+      SettingsPageId.language => SettingsLanguagePage(
+        settings: settings.localization,
+        onChanged: controller.setLocalePreference,
+        onReset: controller.resetLocalization,
       ),
       SettingsPageId.layout => SettingsLayoutPage(
         settings: settings.layout,
@@ -310,6 +319,23 @@ class _DenialSettingsApplicationState
       onReset: () => controller.setCustomAccentColor(ShellColors.accent),
       onClose: () => setState(() => _colorPickerOpen = false),
     );
+  }
+
+  Future<void> _openWallpaperSelector() async {
+    var displayLayout = ref.read(displayLayoutProvider);
+    displayLayout ??= await ref
+        .read(displayLayoutProvider.notifier)
+        .ensureLoaded();
+    if (!mounted) {
+      return;
+    }
+    final fallbackPixelSize =
+        MediaQuery.sizeOf(context) * MediaQuery.devicePixelRatioOf(context);
+    ref
+        .read(wallpaperControllerProvider.notifier)
+        .openSelector(
+          targetPixelSize: displayLayout?.pixelSize ?? fallbackPixelSize,
+        );
   }
 
   void _syncDisplayConfiguration(
