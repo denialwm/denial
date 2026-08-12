@@ -136,5 +136,5 @@ class _FakeNvml extends NvmlReader {
   final List<GpuSample> _samples;
 
   @override
-  List<GpuSample> read() => _samples;
+  Future<List<GpuSample>> read() async => _samples;
 }
