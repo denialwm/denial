@@ -11,7 +11,7 @@ The authoritative source input is
 [`SOURCE_LOCK.json`](../SOURCE_LOCK.json):
 
 - Denial Flutter fork:
-  `b6d610952b3f73388bdcb2b4adbf0bdd0c1ba588`
+  `5b799268a6757b03e8621d8835bab0d353ef3872`
 - Denial Skia fork:
   `0ee042f542b3e79f5ac49115387718c6bb3d7d34`
 - Upstream Flutter compatibility base:
@@ -45,6 +45,7 @@ The equivalent direct engine commands are:
 ```sh
 ./flutter/tools/gn \
   --runtime-mode=debug \
+  --enable-fontconfig \
   --target-dir=denial_host_debug
 /usr/bin/ninja -C out/denial_host_debug libflutter_engine.so
 ```
@@ -52,6 +53,10 @@ The equivalent direct engine commands are:
 The engine must report JIT mode and export `FlutterEngineGetProcAddresses`,
 `FlutterEngineRunsAOTCompiledDartCode`, and
 `DenialFlutterEngineScheduleFrameForExternalTextures`.
+
+Linux builds enable Flutter's Fontconfig backend. The shipped engine therefore
+requires `libfontconfig.so.1` and discovers fonts through the host's Fontconfig
+configuration instead of assuming they live below `/usr/share/fonts`.
 
 ## Licensing
 

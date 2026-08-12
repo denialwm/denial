@@ -8,7 +8,9 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::fmt;
+use std::fs;
 use std::io;
+use std::path::Path;
 use std::ptr;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::{Mutex, MutexGuard};
@@ -1549,7 +1551,7 @@ struct DdcIoPath {
 }
 
 #[repr(C)]
-struct DdcDisplayInfo2 {
+struct DdcDisplayInfo {
     marker: [c_char; 4],
     dispno: c_int,
     path: DdcIoPath,
@@ -1562,6 +1564,11 @@ struct DdcDisplayInfo2 {
     edid_bytes: [u8; 128],
     vcp_version: [u8; 2],
     dref: DdcDisplayRef,
+}
+
+#[repr(C)]
+struct DdcDisplayInfo2 {
+    legacy: DdcDisplayInfo,
     drm_card_connector: [c_char; 32],
     drm_card_connector_found_by: c_int,
     drm_connector_id: i16,
@@ -1577,13 +1584,24 @@ struct DdcNonTableValue {
     current_low: u8,
 }
 
+#[derive(Clone, Copy)]
+enum DdcDisplayInfoApi {
+    ConnectorAware {
+        get: unsafe extern "C" fn(DdcDisplayRef, *mut *mut DdcDisplayInfo2) -> c_int,
+        free: unsafe extern "C" fn(*mut DdcDisplayInfo2),
+    },
+    Stable {
+        get: unsafe extern "C" fn(DdcDisplayRef, *mut *mut DdcDisplayInfo) -> c_int,
+        free: unsafe extern "C" fn(*mut DdcDisplayInfo),
+    },
+}
+
 struct DdcApi {
     _library: Library,
     init: unsafe extern "C" fn(*const c_char, c_int, c_int, *mut *mut *mut c_char) -> c_int,
     redetect_displays: unsafe extern "C" fn() -> c_int,
     get_display_refs: unsafe extern "C" fn(bool, *mut *mut DdcDisplayRef) -> c_int,
-    get_display_info: unsafe extern "C" fn(DdcDisplayRef, *mut *mut DdcDisplayInfo2) -> c_int,
-    free_display_info: unsafe extern "C" fn(*mut DdcDisplayInfo2),
+    display_info: DdcDisplayInfoApi,
     open_display: unsafe extern "C" fn(DdcDisplayRef, bool, *mut DdcDisplayHandle) -> c_int,
     close_display: unsafe extern "C" fn(DdcDisplayHandle) -> c_int,
     get_value: unsafe extern "C" fn(DdcDisplayHandle, u8, *mut DdcNonTableValue) -> c_int,
@@ -1606,16 +1624,63 @@ impl DdcApi {
                         .map_err(|error| format!("missing libddcutil symbol {}: {error}", $name))?
                 };
             }
+            let display_info = match (
+                library
+                    .get::<unsafe extern "C" fn(DdcDisplayRef, *mut *mut DdcDisplayInfo2) -> c_int>(
+                        b"ddca_get_display_info2\0",
+                    ),
+                library.get::<unsafe extern "C" fn(*mut DdcDisplayInfo2)>(
+                    b"ddca_free_display_info2\0",
+                ),
+            ) {
+                (Ok(get), Ok(free)) => DdcDisplayInfoApi::ConnectorAware {
+                    get: *get,
+                    free: *free,
+                },
+                _ => {
+                    let get: unsafe extern "C" fn(
+                        DdcDisplayRef,
+                        *mut *mut DdcDisplayInfo,
+                    ) -> c_int = symbol!("ddca_get_display_info");
+                    let free: unsafe extern "C" fn(*mut DdcDisplayInfo) =
+                        symbol!("ddca_free_display_info");
+                    info!(
+                        "libddcutil exposes its stable display metadata API; correlating displays through DRM sysfs"
+                    );
+                    DdcDisplayInfoApi::Stable { get, free }
+                }
+            };
+            let set_value: unsafe extern "C" fn(DdcDisplayHandle, u8, u8, u8) -> c_int =
+                match library.get(b"ddca_set_non_table_vcp_value2\0") {
+                    Ok(symbol) => *symbol,
+                    Err(preferred_error) => {
+                        let symbol = library.get(b"ddca_set_non_table_vcp_value\0").map_err(
+                            |legacy_error| {
+                                format!(
+                                    concat!(
+                                        "missing libddcutil VCP setter: ",
+                                        "ddca_set_non_table_vcp_value2: {}; ",
+                                        "ddca_set_non_table_vcp_value: {}"
+                                    ),
+                                    preferred_error, legacy_error
+                                )
+                            },
+                        )?;
+                        info!(
+                            "libddcutil does not expose the verification-free VCP setter; using its ABI-compatible legacy setter"
+                        );
+                        *symbol
+                    }
+                };
             Ok(Self {
                 init: symbol!("ddca_init2"),
                 redetect_displays: symbol!("ddca_redetect_displays"),
                 get_display_refs: symbol!("ddca_get_display_refs"),
-                get_display_info: symbol!("ddca_get_display_info2"),
-                free_display_info: symbol!("ddca_free_display_info2"),
+                display_info,
                 open_display: symbol!("ddca_open_display2"),
                 close_display: symbol!("ddca_close_display"),
                 get_value: symbol!("ddca_get_non_table_vcp_value"),
-                set_value: symbol!("ddca_set_non_table_vcp_value2"),
+                set_value,
                 status_description: symbol!("ddca_rc_desc"),
                 _library: library,
             })
@@ -1634,6 +1699,120 @@ impl DdcApi {
                 .into_owned()
         }
     }
+
+    fn display_connector(
+        &self,
+        reference: DdcDisplayRef,
+        drm_connectors: &[DrmConnectorIdentity],
+    ) -> Option<String> {
+        // SAFETY: the selected function/free pair belongs to the same loaded
+        // ABI, and the display reference came from that library.
+        unsafe {
+            match self.display_info {
+                DdcDisplayInfoApi::ConnectorAware { get, free } => {
+                    let mut info = ptr::null_mut();
+                    let status = get(reference, &mut info);
+                    let connector = (status == 0 && !info.is_null()).then(|| {
+                        let metadata = &*info;
+                        let published = fixed_c_string(&metadata.drm_card_connector);
+                        if published.is_empty() {
+                            connector_for_stable_display(&metadata.legacy, drm_connectors)
+                        } else {
+                            Some(connector_from_ddc_name(&published))
+                        }
+                    });
+                    if !info.is_null() {
+                        free(info);
+                    }
+                    connector.flatten().filter(|name| !name.is_empty())
+                }
+                DdcDisplayInfoApi::Stable { get, free } => {
+                    let mut info = ptr::null_mut();
+                    let status = get(reference, &mut info);
+                    let connector = (status == 0 && !info.is_null())
+                        .then(|| connector_for_stable_display(&*info, drm_connectors));
+                    if !info.is_null() {
+                        free(info);
+                    }
+                    connector.flatten().filter(|name| !name.is_empty())
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+struct DrmConnectorIdentity {
+    name: String,
+    i2c_bus: Option<c_int>,
+    edid: Option<[u8; 128]>,
+}
+
+fn fixed_c_string(chars: &[c_char]) -> String {
+    let bytes = chars
+        .iter()
+        .map(|character| *character as u8)
+        .take_while(|character| *character != 0)
+        .collect::<Vec<_>>();
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+fn drm_connector_identities(root: &Path) -> Vec<DrmConnectorIdentity> {
+    let Ok(entries) = fs::read_dir(root) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if !path.join("connector_id").is_file() {
+                return None;
+            }
+            let name = connector_from_ddc_name(&entry.file_name().to_string_lossy());
+            if name.is_empty() {
+                return None;
+            }
+            let i2c_bus = fs::canonicalize(path.join("ddc"))
+                .ok()
+                .and_then(|path| {
+                    path.file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                })
+                .and_then(|name| name.strip_prefix("i2c-").and_then(|bus| bus.parse().ok()));
+            let edid = fs::read(path.join("edid"))
+                .ok()
+                .and_then(|bytes| bytes.get(..128).and_then(|prefix| prefix.try_into().ok()));
+            Some(DrmConnectorIdentity {
+                name,
+                i2c_bus,
+                edid,
+            })
+        })
+        .collect()
+}
+
+fn connector_for_stable_display(
+    info: &DdcDisplayInfo,
+    drm_connectors: &[DrmConnectorIdentity],
+) -> Option<String> {
+    // I2C bus ownership is authoritative and distinguishes identical monitor
+    // models. USB displays lack that relationship, so use their complete base
+    // EDID only when it identifies exactly one DRM connector.
+    if info.path.io_mode == 0
+        && let Some(connector) = drm_connectors
+            .iter()
+            .find(|connector| connector.i2c_bus == Some(info.path.path))
+    {
+        return Some(connector.name.clone());
+    }
+    if info.edid_bytes.iter().all(|byte| *byte == 0) {
+        return None;
+    }
+    let mut matches = drm_connectors
+        .iter()
+        .filter(|connector| connector.edid.as_ref() == Some(&info.edid_bytes));
+    let connector = matches.next()?;
+    matches.next().is_none().then(|| connector.name.clone())
 }
 
 struct DdcWorker {
@@ -1688,6 +1867,7 @@ impl DdcWorker {
             ));
         }
         let mut displays = HashMap::new();
+        let drm_connectors = drm_connector_identities(Path::new("/sys/class/drm"));
         let mut index = 0usize;
         loop {
             // SAFETY: get_display_refs promises a null-terminated array.
@@ -1695,22 +1875,8 @@ impl DdcWorker {
             if reference.is_null() {
                 break;
             }
-            let mut info: *mut DdcDisplayInfo2 = ptr::null_mut();
-            // SAFETY: reference came from the same library enumeration.
-            let info_status = unsafe { (self.api.get_display_info)(reference, &mut info) };
-            if info_status == 0 && !info.is_null() {
-                // SAFETY: connector is a fixed NUL-terminated public field.
-                let connector = unsafe {
-                    CStr::from_ptr((*info).drm_card_connector.as_ptr())
-                        .to_string_lossy()
-                        .into_owned()
-                };
-                let connector = connector_from_ddc_name(&connector);
-                if !connector.is_empty() {
-                    displays.insert(connector, reference);
-                }
-                // SAFETY: info was allocated by ddca_get_display_info2.
-                unsafe { (self.api.free_display_info)(info) };
+            if let Some(connector) = self.api.display_connector(reference, &drm_connectors) {
+                displays.insert(connector, reference);
             }
             index += 1;
         }
@@ -1994,10 +2160,65 @@ mod tests {
         assert_eq!(offset_of!(PaSinkInputInfoPrefix, mute), 336);
         assert_eq!(offset_of!(PaSinkInputInfoPrefix, proplist), 344);
 
-        assert_eq!(offset_of!(DdcDisplayInfo2, dref), 192);
+        assert_eq!(offset_of!(DdcDisplayInfo, dref), 192);
+        assert_eq!(size_of::<DdcDisplayInfo>(), 200);
         assert_eq!(offset_of!(DdcDisplayInfo2, drm_card_connector), 200);
         assert_eq!(size_of::<DdcDisplayInfo2>(), 304);
         assert_eq!(size_of::<DdcNonTableValue>(), 4);
+    }
+
+    #[test]
+    fn stable_ddc_metadata_prefers_i2c_identity_and_rejects_ambiguous_edids() {
+        let edid = [7; 128];
+        let connectors = [
+            DrmConnectorIdentity {
+                name: "DP-1".into(),
+                i2c_bus: Some(8),
+                edid: Some(edid),
+            },
+            DrmConnectorIdentity {
+                name: "DP-2".into(),
+                i2c_bus: Some(9),
+                edid: Some(edid),
+            },
+        ];
+        let display = DdcDisplayInfo {
+            marker: [0; 4],
+            dispno: 1,
+            path: DdcIoPath {
+                io_mode: 0,
+                path: 9,
+            },
+            usb_bus: 0,
+            usb_device: 0,
+            mfg_id: [0; 4],
+            model_name: [0; 14],
+            serial: [0; 14],
+            product_code: 0,
+            edid_bytes: edid,
+            vcp_version: [0; 2],
+            dref: ptr::null_mut(),
+        };
+        assert_eq!(
+            connector_for_stable_display(&display, &connectors).as_deref(),
+            Some("DP-2")
+        );
+
+        let usb_display = DdcDisplayInfo {
+            path: DdcIoPath {
+                io_mode: 1,
+                path: 0,
+            },
+            ..display
+        };
+        assert_eq!(
+            connector_for_stable_display(&usb_display, &connectors),
+            None
+        );
+        assert_eq!(
+            connector_for_stable_display(&usb_display, &connectors[..1]).as_deref(),
+            Some("DP-1")
+        );
     }
 
     #[test]

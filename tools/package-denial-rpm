@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+CACHE_ROOT="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
+BUILD_ROOT="$(readlink -m -- "${DENIAL_PC_BUILD_ROOT:-$CACHE_ROOT/denial/pc-build}")"
+PACKAGE_INPUT_ROOT="${DENIAL_PC_PACKAGE_INPUT_ROOT:-$BUILD_ROOT/package-input}"
+STAGE_ROOT="${DENIAL_PACKAGE_STAGE_ROOT:-$PACKAGE_INPUT_ROOT/native}"
+PACKAGE_ROOT="${DENIAL_PC_PACKAGE_ROOT:-$BUILD_ROOT/packages}"
+RPM_ROOT="$(readlink -m -- "$BUILD_ROOT/rpm-package")"
+
+if [[ "${DENIAL_PROMOTION_MODE:-0}" == 1 \
+  && "${DENIAL_PACKAGE_SKIP_STAGE:-0}" != 1 ]]; then
+  printf 'package-denial-rpm: promotion requires DENIAL_PACKAGE_SKIP_STAGE=1\n' >&2
+  exit 125
+fi
+
+for required_command in bsdtar rpmbuild rpm rpm2cpio; do
+  command -v "$required_command" >/dev/null 2>&1 \
+    || { printf 'package-denial-rpm: %s is required\n' "$required_command" >&2; exit 1; }
+done
+
+if [[ "${DENIAL_PACKAGE_SKIP_STAGE:-0}" != 1 ]]; then
+  "$ROOT/tools/stage-denial-runtime"
+fi
+[[ -f "$STAGE_ROOT/metadata.json" ]] \
+  || { printf 'package-denial-rpm: missing staged metadata\n' >&2; exit 1; }
+mapfile -t native_metadata < <(
+  "$ROOT/tools/read-denial-native-metadata" "$STAGE_ROOT/metadata.json"
+)
+((${#native_metadata[@]} == 7)) \
+  || { printf 'package-denial-rpm: invalid staged metadata\n' >&2; exit 1; }
+PACKAGE_VERSION="${native_metadata[0]}"
+PACKAGE_RELEASE="${native_metadata[1]}"
+BUILD_IDENTITY="${native_metadata[2]}"
+SOURCE_DATE_EPOCH="${native_metadata[3]}"
+GLIBC_BASELINE="${native_metadata[4]}"
+FLUTTER_ENGINE_ABI="${native_metadata[5]}"
+FLUTTER_ENGINE_SHA256="${native_metadata[6]}"
+readonly PACKAGE_VERSION PACKAGE_RELEASE BUILD_IDENTITY SOURCE_DATE_EPOCH
+readonly GLIBC_BASELINE FLUTTER_ENGINE_ABI FLUTTER_ENGINE_SHA256
+
+[[ "$PACKAGE_VERSION" != *-* ]] \
+  || { printf 'package-denial-rpm: RPM version cannot contain a hyphen\n' >&2; exit 1; }
+[[ "$BUILD_ROOT" != / && "$BUILD_ROOT" != /home \
+  && "$BUILD_ROOT" != "${HOME:-}" ]] \
+  || { printf 'package-denial-rpm: unsafe build root\n' >&2; exit 1; }
+[[ "$RPM_ROOT" == "$BUILD_ROOT"/rpm-package ]] \
+  || { printf 'package-denial-rpm: RPM root must be below the build root\n' >&2; exit 1; }
+mkdir -p -- "$PACKAGE_ROOT"
+if [[ -e "$RPM_ROOT" ]]; then
+  [[ -d "$RPM_ROOT" && ! -L "$RPM_ROOT" ]] \
+    || { printf 'package-denial-rpm: unsafe RPM root\n' >&2; exit 1; }
+  rm -rf --one-file-system -- "$RPM_ROOT"
+fi
+install -d -m 0755 \
+  "$RPM_ROOT/BUILD" "$RPM_ROOT/BUILDROOT" "$RPM_ROOT/RPMS" \
+  "$RPM_ROOT/SOURCES" "$RPM_ROOT/SPECS" "$RPM_ROOT/SRPMS" \
+  "$RPM_ROOT/database"
+
+cp -- "$ROOT/packaging/fedora/denial.spec" "$RPM_ROOT/SPECS/denial.spec"
+runtime_version_definition=()
+if [[ -f "$STAGE_ROOT/denial/usr/share/denial/version" ]]; then
+  runtime_version_definition=(
+    --define 'runtime_version_path /usr/share/denial/version'
+  )
+fi
+env "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" rpmbuild -bb \
+  --define "_topdir $RPM_ROOT" \
+  --define "_dbpath $RPM_ROOT/database" \
+  --define '_buildhost denial-build' \
+  --define 'use_source_date_epoch_as_buildtime 1' \
+  --define 'build_mtime_policy clamp_to_source_date_epoch' \
+  --define "denial_version $PACKAGE_VERSION" \
+  --define "denial_release $PACKAGE_RELEASE" \
+  --define "glibc_baseline $GLIBC_BASELINE" \
+  --define "flutter_engine_abi $FLUTTER_ENGINE_ABI" \
+  --define "denial_payload $STAGE_ROOT/denial" \
+  --define "engine_payload $STAGE_ROOT/denial-flutter-engine" \
+  "${runtime_version_definition[@]}" \
+  "$RPM_ROOT/SPECS/denial.spec"
+
+denial_package="$(find "$RPM_ROOT/RPMS" -type f -name "denial-${PACKAGE_VERSION}-${PACKAGE_RELEASE}.x86_64.rpm" -print -quit)"
+engine_package="$(find "$RPM_ROOT/RPMS" -type f -name "denial-flutter-engine-${PACKAGE_VERSION}-${PACKAGE_RELEASE}.x86_64.rpm" -print -quit)"
+[[ -n "$denial_package" && -n "$engine_package" ]] \
+  || { printf 'package-denial-rpm: expected RPM outputs are missing\n' >&2; exit 1; }
+
+denial_output="$PACKAGE_ROOT/${denial_package##*/}"
+engine_output="$PACKAGE_ROOT/${engine_package##*/}"
+cp -- "$denial_package" "$denial_output"
+cp -- "$engine_package" "$engine_output"
+
+rpm --dbpath "$RPM_ROOT/database" -qp \
+  --qf '%{NAME} %{VERSION}-%{RELEASE} %{ARCH}\n' \
+  "$engine_output" "$denial_output"
+"$ROOT/tools/verify-denial-package-payload" rpm "$engine_output" \
+  "$STAGE_ROOT/denial-flutter-engine"
+"$ROOT/tools/verify-denial-package-payload" rpm "$denial_output" \
+  "$STAGE_ROOT/denial"
+"$ROOT/tools/verify-denial-native-package-metadata" \
+  rpm "$engine_output" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" \
+  "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE"
+"$ROOT/tools/verify-denial-native-package-metadata" \
+  rpm "$denial_output" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" \
+  "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE"
+
+printf '\nFedora packages ready:\n%s\n%s\n' "$engine_output" "$denial_output"

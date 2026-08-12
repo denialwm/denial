@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if (($# != 1)); then
+  printf 'Usage: read-denial-native-metadata FILE\n' >&2
+  exit 2
+fi
+
+metadata_file="$1"
+[[ -f "$metadata_file" && ! -L "$metadata_file" ]] \
+  || {
+    printf 'read-denial-native-metadata: metadata is not a regular file: %s\n' \
+      "$metadata_file" >&2
+    exit 1
+  }
+command -v jq >/dev/null 2>&1 \
+  || {
+    printf 'read-denial-native-metadata: jq is required\n' >&2
+    exit 1
+  }
+
+# jq's normal object model keeps only the last value for a repeated key. Check
+# the streaming token sequence first so a candidate cannot conceal duplicate
+# fields before the exact-schema validation below.
+jq --stream --slurp -e '
+  [
+    .[]
+    | select(length == 2 and (.[0] | length) == 1)
+    | .[0][0]
+  ] as $keys
+  | ($keys | length) == 8 and ($keys | unique | length) == 8
+' "$metadata_file" >/dev/null \
+  || {
+    printf 'read-denial-native-metadata: duplicate or malformed metadata fields\n' >&2
+    exit 1
+  }
+
+# Emit a fixed, newline-delimited tuple only after the complete document has
+# passed validation. Callers map fields by position and never evaluate artifact
+# content as shell source.
+jq -er '
+  def exact_keys($expected):
+    (keys | sort) == ($expected | sort);
+  if type == "object"
+    and exact_keys([
+      "schema_version",
+      "package_version",
+      "package_release",
+      "build_identity",
+      "source_date_epoch",
+      "glibc_baseline",
+      "flutter_engine_abi",
+      "flutter_engine_sha256"
+    ])
+    and .schema_version == 1
+    and (.package_version | type == "string"
+      and test("^[0-9][0-9A-Za-z.+~]*$"))
+    and (.package_release | type == "number"
+      and . >= 0 and floor == .)
+    and (.build_identity | type == "string"
+      and test("^[0-9A-Za-z][0-9A-Za-z._:+~-]*$"))
+    and (.source_date_epoch | type == "number"
+      and . >= 0 and floor == .)
+    and (.glibc_baseline | type == "string"
+      and test("^[0-9]+([.][0-9]+)*$"))
+    and (.flutter_engine_abi | type == "string"
+      and test("^[0-9A-Za-z][0-9A-Za-z._+-]*$"))
+    and (.flutter_engine_sha256 | type == "string"
+      and test("^[0-9a-f]{64}$"))
+  then [
+    .package_version,
+    (.package_release | tostring),
+    .build_identity,
+    (.source_date_epoch | tostring),
+    .glibc_baseline,
+    .flutter_engine_abi,
+    .flutter_engine_sha256
+  ][]
+  else error("invalid native metadata schema or value")
+  end
+' "$metadata_file"

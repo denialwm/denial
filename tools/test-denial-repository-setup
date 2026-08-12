@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+fail() {
+  printf 'test-denial-repository-setup: %s\n' "$*" >&2
+  exit 1
+}
+
+for command_name in cmp env find grep install mktemp rm script; do
+  command -v "$command_name" >/dev/null 2>&1 \
+    || fail "$command_name is required"
+done
+
+work_root="$(
+  mktemp -d "${TMPDIR:-/tmp}/denial-repository-setup-test.XXXXXX"
+)"
+cleanup() {
+  if [[ "$work_root" == \
+    "${TMPDIR:-/tmp}"/denial-repository-setup-test.* ]]; then
+    rm -rf --one-file-system -- "$work_root"
+  fi
+}
+trap cleanup EXIT
+
+fake_bin="$work_root/bin"
+install -d -m 0755 "$fake_bin"
+
+cat >"$fake_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+output=''
+while (($#)); do
+  if [[ "$1" == --output ]]; then
+    output="$2"
+    shift 2
+  else
+    shift
+  fi
+done
+[[ -n "$output" ]]
+cp -- "$DENIAL_TEST_KEY_SOURCE" "$output"
+EOF
+
+cat >"$fake_bin/sudo" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == -v ]]; then
+  exit 0
+fi
+exec "$@"
+EOF
+
+cat >"$fake_bin/pacman-key" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'pacman-key %s\n' "$*" >>"$DENIAL_TEST_ADMIN_LOG"
+EOF
+
+cat >"$fake_bin/rpmkeys" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'rpmkeys %s\n' "$*" >>"$DENIAL_TEST_ADMIN_LOG"
+EOF
+
+for package_manager in pacman apt dnf; do
+  cat >"$fake_bin/$package_manager" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s %s\n' "$(basename -- "$0")" "$*" >>"$DENIAL_TEST_PACKAGE_LOG"
+exit 97
+EOF
+done
+chmod 0755 "$fake_bin"/*
+
+run_setup() {
+  local case_root="$1"
+  local response="${2:-y}"
+  local command
+
+  command="env PATH=$fake_bin:$PATH DENIAL_TEST_KEY_SOURCE=$ROOT/packaging/arch/denial-repo-key.asc DENIAL_TEST_ADMIN_LOG=$case_root/admin.log DENIAL_TEST_PACKAGE_LOG=$case_root/package.log DENIAL_SETUP_OS_RELEASE=$case_root/os-release DENIAL_SETUP_PACMAN_CONFIG=$case_root/pacman.conf DENIAL_SETUP_APT_KEYRING=$case_root/apt/keyrings/denial.asc DENIAL_SETUP_APT_SOURCES=$case_root/apt/sources.list.d/denial.sources DENIAL_SETUP_RPM_KEY=$case_root/rpm-gpg/RPM-GPG-KEY-denial DENIAL_SETUP_DNF_REPOSITORY=$case_root/yum.repos.d/denial.repo sh $ROOT/install.sh"
+  printf '%s\n' "$response" \
+    | script --quiet --return --command "$command" /dev/null \
+      >>"$case_root/setup.log"
+}
+
+arch_root="$work_root/arch"
+install -d -m 0755 "$arch_root"
+printf 'ID=arch\n' >"$arch_root/os-release"
+printf '[core]\nInclude = /etc/pacman.d/mirrorlist\n' >"$arch_root/pacman.conf"
+: >"$arch_root/admin.log"
+: >"$arch_root/package.log"
+run_setup "$arch_root"
+grep -Fxq '[denial]' "$arch_root/pacman.conf"
+grep -Fxq 'SigLevel = Required TrustedOnly' "$arch_root/pacman.conf"
+# Pacman expands this literal at runtime.
+# shellcheck disable=SC2016
+grep -Fxq 'Server = https://denialwm.github.io/denial/$arch' \
+  "$arch_root/pacman.conf"
+run_setup "$arch_root"
+[[ "$(grep -c '^\[denial\]$' "$arch_root/pacman.conf")" == 1 ]] \
+  || fail 'Arch repository setup is not idempotent'
+[[ ! -s "$arch_root/package.log" ]] \
+  || fail 'Arch setup invoked the package manager'
+
+for apt_case in 'debian 13 trixie' 'ubuntu 24.04 noble'; do
+  read -r os_id os_version suite <<<"$apt_case"
+  apt_root="$work_root/$os_id"
+  install -d -m 0755 "$apt_root"
+  printf 'ID=%s\nVERSION_ID="%s"\nVERSION_CODENAME=%s\n' \
+    "$os_id" "$os_version" "$suite" >"$apt_root/os-release"
+  : >"$apt_root/pacman.conf"
+  : >"$apt_root/admin.log"
+  : >"$apt_root/package.log"
+  run_setup "$apt_root"
+  grep -Fxq 'Types: deb' "$apt_root/apt/sources.list.d/denial.sources"
+  grep -Fxq "Suites: $suite" "$apt_root/apt/sources.list.d/denial.sources"
+  grep -Fxq \
+    "Signed-By: $apt_root/apt/keyrings/denial.asc" \
+    "$apt_root/apt/sources.list.d/denial.sources"
+  cmp -- \
+    "$ROOT/packaging/arch/denial-repo-key.asc" \
+    "$apt_root/apt/keyrings/denial.asc"
+  run_setup "$apt_root"
+  [[ ! -s "$apt_root/package.log" ]] \
+    || fail "$os_id setup invoked the package manager"
+done
+
+fedora_root="$work_root/fedora"
+install -d -m 0755 "$fedora_root"
+printf 'ID=fedora\nVERSION_ID=44\n' >"$fedora_root/os-release"
+: >"$fedora_root/pacman.conf"
+: >"$fedora_root/admin.log"
+: >"$fedora_root/package.log"
+run_setup "$fedora_root"
+grep -Fxq 'gpgcheck=1' "$fedora_root/yum.repos.d/denial.repo"
+grep -Fxq 'repo_gpgcheck=1' "$fedora_root/yum.repos.d/denial.repo"
+grep -Fxq \
+  "gpgkey=file://$fedora_root/rpm-gpg/RPM-GPG-KEY-denial" \
+  "$fedora_root/yum.repos.d/denial.repo"
+run_setup "$fedora_root"
+[[ ! -s "$fedora_root/package.log" ]] \
+  || fail 'Fedora setup invoked DNF'
+
+printf 'Types: deb\nURIs: https://example.invalid\n' \
+  >"$work_root/debian/apt/sources.list.d/denial.sources"
+if run_setup "$work_root/debian" y >/dev/null 2>&1; then
+  fail 'APT setup accepted a conflicting existing source definition'
+fi
+
+printf 'Repository setup tests passed for Arch, Debian, Ubuntu, and Fedora.\n'

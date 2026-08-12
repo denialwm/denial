@@ -95,6 +95,7 @@ namcap
 diffoscope
 bubblewrap
 binutils
+dpkg
 patchelf
 pax-utils
 clang
@@ -103,6 +104,7 @@ ninja
 cmake
 pkgconf
 rustup
+rpm-tools
 shellcheck
 nvme-cli
 ```

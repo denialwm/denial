@@ -8,6 +8,7 @@ import '../input/input_layout.dart';
 import '../models/denial_drag_icon.dart';
 import '../models/desktop_notification.dart';
 import '../models/display_layout.dart';
+import '../models/keyboard_configuration.dart';
 import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
 import '../models/denial_window_snapshot.dart';
@@ -78,6 +79,13 @@ class DenialBrightnessState {
   final double level;
 }
 
+class DenialSettingsDocument {
+  const DenialSettingsDocument({required this.revision, required this.json});
+
+  final int revision;
+  final String json;
+}
+
 class DenialBridge {
   static const String _hapticsChannel = 'denial/haptics';
   static const String _audioChannel = 'denial/audio';
@@ -130,6 +138,10 @@ class DenialBridge {
 
   final Map<int, Completer<DenialWindowSnapshot>> _pendingWindowRequests = {};
   final Map<int, Completer<DisplayLayout?>> _pendingDisplayRequests = {};
+  final Map<int, Completer<DenialSettingsDocument>>
+  _pendingSettingsDocumentRequests = {};
+  final Map<int, Completer<DenialKeyboardConfiguration>>
+  _pendingKeyboardSettingsRequests = {};
   final Set<Completer<double?>> _pendingAudioReads = {};
   final StreamController<DenialWindowEvent> _windowEvents =
       StreamController<DenialWindowEvent>.broadcast(sync: true);
@@ -151,6 +163,8 @@ class DenialBridge {
       StreamController<DesktopNotificationEvent>.broadcast(sync: true);
   final StreamController<DenialUiDevelopmentState> _uiDevelopmentStates =
       StreamController<DenialUiDevelopmentState>.broadcast(sync: true);
+  final StreamController<DenialKeyboardConfiguration> _keyboardConfigurations =
+      StreamController<DenialKeyboardConfiguration>.broadcast(sync: true);
   final wire.DenialWireCodec _wireCodec = wire.DenialWireCodec();
   final DenialUiDevelopmentProtocol _uiDevelopmentProtocol =
       DenialUiDevelopmentProtocol();
@@ -173,6 +187,8 @@ class DenialBridge {
       _notificationEvents.stream;
   Stream<DenialUiDevelopmentState> get uiDevelopmentStates =>
       _uiDevelopmentStates.stream;
+  Stream<DenialKeyboardConfiguration> get keyboardConfigurations =>
+      _keyboardConfigurations.stream;
 
   void start({
     required VoidCallback onWindowsChanged,
@@ -221,6 +237,18 @@ class DenialBridge {
       }
     }
     _pendingDisplayRequests.clear();
+    for (final completer in _pendingSettingsDocumentRequests.values) {
+      if (!completer.isCompleted) {
+        completer.completeError(StateError('Denial bridge disposed'));
+      }
+    }
+    _pendingSettingsDocumentRequests.clear();
+    for (final completer in _pendingKeyboardSettingsRequests.values) {
+      if (!completer.isCompleted) {
+        completer.completeError(StateError('Denial bridge disposed'));
+      }
+    }
+    _pendingKeyboardSettingsRequests.clear();
     for (final completer in _pendingAudioReads) {
       if (!completer.isCompleted) {
         completer.complete(null);
@@ -240,6 +268,7 @@ class DenialBridge {
     unawaited(_brightnessStates.close());
     unawaited(_notificationEvents.close());
     unawaited(_uiDevelopmentStates.close());
+    unawaited(_keyboardConfigurations.close());
   }
 
   Future<DenialWindowSnapshot> listWindows(List<DenialWindow> fallback) {
@@ -312,6 +341,96 @@ class DenialBridge {
       onTimeout: () {
         _pendingDisplayRequests.remove(requestId);
         return null;
+      },
+    );
+  }
+
+  Future<DenialSettingsDocument> readSettingsDocument() {
+    final requestId = _nextRequestId++;
+    final completer = Completer<DenialSettingsDocument>();
+    _pendingSettingsDocumentRequests[requestId] = completer;
+    _sendWire(
+      _wireCodec.encodeSettingsRead(
+        wire.SettingsRequestKind.ReadDocument,
+        requestId: requestId,
+      ),
+    );
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingSettingsDocumentRequests.remove(requestId);
+        throw TimeoutException('Denial settings read timed out');
+      },
+    );
+  }
+
+  Future<DenialSettingsDocument> writeSettingsDocument({
+    required int expectedRevision,
+    required String document,
+  }) {
+    final requestId = _nextRequestId++;
+    final bytes = _wireCodec.encodeSettingsDocumentWrite(
+      requestId: requestId,
+      expectedRevision: expectedRevision,
+      document: document,
+    );
+    if (bytes == null) {
+      return Future<DenialSettingsDocument>.error(
+        ArgumentError('invalid Denial settings document'),
+      );
+    }
+    final completer = Completer<DenialSettingsDocument>();
+    _pendingSettingsDocumentRequests[requestId] = completer;
+    _sendWire(bytes);
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingSettingsDocumentRequests.remove(requestId);
+        throw TimeoutException('Denial settings write timed out');
+      },
+    );
+  }
+
+  Future<DenialKeyboardConfiguration> readKeyboardConfiguration() {
+    final requestId = _nextRequestId++;
+    final completer = Completer<DenialKeyboardConfiguration>();
+    _pendingKeyboardSettingsRequests[requestId] = completer;
+    _sendWire(
+      _wireCodec.encodeSettingsRead(
+        wire.SettingsRequestKind.ReadKeyboard,
+        requestId: requestId,
+      ),
+    );
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingKeyboardSettingsRequests.remove(requestId);
+        throw TimeoutException('Denial keyboard settings read timed out');
+      },
+    );
+  }
+
+  Future<DenialKeyboardConfiguration> configureKeyboard(
+    DenialKeyboardConfiguration configuration,
+  ) {
+    final requestId = _nextRequestId++;
+    final bytes = _wireCodec.encodeKeyboardConfiguration(
+      requestId: requestId,
+      configuration: configuration,
+    );
+    if (bytes == null) {
+      return Future<DenialKeyboardConfiguration>.error(
+        ArgumentError('invalid Denial keyboard configuration'),
+      );
+    }
+    final completer = Completer<DenialKeyboardConfiguration>();
+    _pendingKeyboardSettingsRequests[requestId] = completer;
+    _sendWire(bytes);
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingKeyboardSettingsRequests.remove(requestId);
+        throw TimeoutException('Denial keyboard settings update timed out');
       },
     );
   }
@@ -929,12 +1048,57 @@ class DenialBridge {
         if (event != null && !_notificationEvents.isClosed) {
           _notificationEvents.add(event);
         }
+      } else if (payload is wire.SettingsResponse) {
+        _handleSettingsResponse(decoded.requestId, payload);
       }
     } on Object {
       _wireCodec.rejectedStructuredMessages += 1;
     }
 
     return null;
+  }
+
+  void _handleSettingsResponse(int requestId, wire.SettingsResponse response) {
+    if (response.kind == wire.SettingsResponseKind.Document) {
+      final completer = _pendingSettingsDocumentRequests.remove(requestId);
+      if (completer == null || completer.isCompleted) {
+        return;
+      }
+      final document = response.document;
+      if (!response.success ||
+          response.revision <= 0 ||
+          document == null ||
+          utf8.encode(document).length >
+              wire.denialWireMaxSettingsDocumentBytes) {
+        completer.completeError(
+          StateError(response.error ?? 'Denial settings request failed'),
+        );
+        return;
+      }
+      completer.complete(
+        DenialSettingsDocument(revision: response.revision, json: document),
+      );
+      return;
+    }
+
+    final configuration = _wireCodec.decodeKeyboardConfiguration(response);
+    final completer = _pendingKeyboardSettingsRequests.remove(requestId);
+    if (configuration != null && !_keyboardConfigurations.isClosed) {
+      _keyboardConfigurations.add(configuration);
+    }
+    if (requestId == 0) {
+      return;
+    }
+    if (completer == null || completer.isCompleted) {
+      return;
+    }
+    if (!response.success || configuration == null) {
+      completer.completeError(
+        StateError(response.error ?? 'Denial keyboard settings request failed'),
+      );
+    } else {
+      completer.complete(configuration);
+    }
   }
 
   void _handleWindowResponse(

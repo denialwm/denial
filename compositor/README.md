@@ -61,8 +61,8 @@ target DRM device.  Every finite command below restores the captured state:
 cargo build --release --features kms --manifest-path compositor/Cargo.toml \
   --bin deniald
 
-LIBSEAT_BACKEND=logind compositor/target/release/deniald --frames 60
-LIBSEAT_BACKEND=logind compositor/target/release/deniald \
+compositor/target/release/deniald --frames 60
+compositor/target/release/deniald \
   --frames 2400 --wayland
 ```
 
@@ -74,7 +74,7 @@ normal-exit path then restores the captured atomic KMS state:
 cargo build --release --features flutter --manifest-path compositor/Cargo.toml \
   --bin deniald --bin denialctl
 
-LIBSEAT_BACKEND=logind compositor/target/release/deniald \
+compositor/target/release/deniald \
   --wayland --flutter-bundle /path/to/denial/bundle
 ```
 
@@ -106,7 +106,7 @@ For the first full-session attempt on the current development workstation,
 keep teardown bounded while exercising the real Flutter/Wayland path:
 
 ```sh
-LIBSEAT_BACKEND=logind compositor/target/release/deniald \
+compositor/target/release/deniald \
   --output-config dev/denial-outputs.conf \
   --wayland --flutter-bundle dart_shell/build/linux/x64/release/bundle \
   --commit-seconds 120
@@ -142,19 +142,19 @@ disabled=HDMI-A-1
 ```
 
 ```sh
-LIBSEAT_BACKEND=logind compositor/target/release/deniald \
+compositor/target/release/deniald \
   --output-config ~/.config/denial/outputs.conf --frames 60
 ```
 
 Dynamic-layout and hotplug regression harnesses:
 
 ```sh
-LIBSEAT_BACKEND=logind compositor/target/release/deniald \
+compositor/target/release/deniald \
   --frames 120 --reconfigure-at-frame 60 \
   --next-output-position DP-4=0,0 \
   --next-output-position DP-5=0,1440
 
-LIBSEAT_BACKEND=logind compositor/target/release/deniald \
+compositor/target/release/deniald \
   --frames 150 --wayland --simulate-hotplug-at-frame 60
 ```
 

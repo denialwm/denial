@@ -47,6 +47,12 @@ class Motion {
 
   // Curves -------------------------------------------------------------------
   static const Curve standard = Curves.easeOutCubic;
+
+  /// Symmetric session motion with enough travel in the terminal tenth to
+  /// remain visibly continuous on high-refresh displays. The steeper
+  /// [Curves.easeInOutCubic] tail used previously fell below a pixel per tick
+  /// near either endpoint and looked like a late animation hitch.
+  static const Curve sessionTransitionCurve = Curves.easeInOut;
   static const Curve desktopWindowRevealCurve = Curves.easeOut;
   static const Curve emphasized = Curves.easeOutQuart;
   static const Curve md3Emphasized = Cubic(0.2, 0.0, 0.0, 1.0);

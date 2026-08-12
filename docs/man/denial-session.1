@@ -1,0 +1,63 @@
+.TH DENIAL-SESSION 1 "August 2026" "Denial" "User Commands"
+.SH NAME
+denial-session \- start or validate an installed Denial desktop session
+.SH SYNOPSIS
+.B denial-session
+.RI [ \-\-check ]
+.br
+.B denial-session
+.RI [ deniald-options ]
+.SH DESCRIPTION
+.B denial-session
+is the supported entry point for an installed Denial graphical session. It
+resolves the display and optional render devices by capability, initializes
+and validates the user's output configuration, locates the packaged Flutter
+bundle, discovers an available user-session lifecycle, and starts
+.BR deniald (1).
+.PP
+Display-manager session entries invoke this command directly. On systems with
+an active systemd user manager, Denial activates its packaged
+.B denial-session.target
+after the compositor has published its endpoints and completed initial KMS
+presentation. On other logind-compatible systems the launcher process owns
+the compositor lifecycle directly.
+.SH OPTIONS
+.TP
+.B \-\-check
+Validate the compositor, control client, session lifecycle, Flutter bundle,
+output configuration, DRM selection, renderer, and Xwayland without starting
+a compositor.
+.TP
+.B \-\-start-locked
+Start with Denial's native authentication gate locked. Use this for direct or
+autologin sessions that were not authenticated by a display manager.
+.PP
+All other arguments are forwarded to
+.BR deniald (1).
+.SH CONFIGURATION
+.TP
+.I /etc/denial/session.conf
+Root-owned shell-compatible machine configuration. Supported overrides include
+.BR DENIAL_DRM_DEVICE ,
+.BR DENIAL_RENDER_DEVICE ,
+.BR DENIA_SHELL_PROFILE ,
+.BR DENIA_FLUTTER_RENDERER ,
+and
+.BR DENIAL_FLUTTER_BUNDLE .
+.TP
+.I /etc/denial/outputs.conf
+System output template copied to a user's configuration on first launch.
+.TP
+.I $XDG_CONFIG_HOME/denial/outputs.conf
+Per-user persistent output configuration.
+.TP
+.I /usr/lib/systemd/user/denial-session.target
+Packaged graphical-session target used when a systemd user manager is
+available.
+.SH EXIT STATUS
+Zero indicates that validation succeeded or that the compositor exited
+normally. Installation, configuration, device-discovery, and compositor
+failures return nonzero.
+.SH SEE ALSO
+.BR deniald (1),
+.BR denialctl (1)

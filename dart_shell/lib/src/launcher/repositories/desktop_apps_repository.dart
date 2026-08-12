@@ -18,11 +18,18 @@ class DesktopAppsRepository {
       }
 
       await for (final entity in dir.list(followLinks: false)) {
-        if (entity is! File || !entity.path.endsWith('.desktop')) {
+        if (!entity.path.endsWith('.desktop')) {
+          continue;
+        }
+        final type = await FileSystemEntity.type(
+          entity.path,
+          followLinks: true,
+        );
+        if (type != FileSystemEntityType.file) {
           continue;
         }
 
-        filesById.putIfAbsent(p.basename(entity.path), () => entity);
+        filesById.putIfAbsent(p.basename(entity.path), () => File(entity.path));
       }
     }
 

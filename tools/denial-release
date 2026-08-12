@@ -15,8 +15,8 @@ Usage:
                                     [--public-alpha TAG]
 
 Commands:
-  doctor        Inspect an Arch x86-64 release-builder host.
-  source-audit  Verify committed source, manifests, and Arch PKGBUILDs.
+  doctor        Inspect the x86-64 multi-format release-builder host.
+  source-audit  Verify committed source, manifests, and package adapters.
 
 Options:
   --ci              Require the protected manual GitHub runner context.
@@ -123,6 +123,7 @@ doctor() {
     clang
     cmake
     diffoscope
+    dpkg-deb
     flock
     git
     gn
@@ -143,6 +144,9 @@ doctor() {
     python3
     readelf
     repo-add
+    rpm
+    rpm2cpio
+    rpmbuild
     rustc
     sha256sum
     shellcheck
@@ -192,7 +196,7 @@ doctor() {
       ;;
   esac
 
-  printf 'Denial x86-64 builder qualification\n\n'
+  printf 'Denial x86-64 multi-format builder qualification\n\n'
 
   if [[ -r /etc/arch-release ]]; then
     pass 'host is Arch Linux'
@@ -600,8 +604,14 @@ source_audit() {
       "$ROOT/.github/workflows/release.yml" \
     && grep -Fq \
       'tools/promote-denial-arch-candidate' \
+      "$ROOT/.github/workflows/release.yml" \
+    && grep -Fq \
+      'tools/promote-denial-native-candidate' \
+      "$ROOT/.github/workflows/release.yml" \
+    && grep -Fq \
+      'tools/run-denial-promotion-no-build' \
       "$ROOT/.github/workflows/release.yml"; then
-    pass 'signed-tag workflow promotes a main candidate without compiling'
+    pass 'signed-tag workflow promotes every package format under the no-build guard'
   else
     fail 'signed-tag workflow rebuilds instead of promoting the main candidate'
   fi
@@ -830,12 +840,30 @@ source_audit() {
     && bash -n \
     "$ROOT/tools/denial-pc" \
     "$ROOT/tools/denial-builder" \
+    "$ROOT/tools/deny-denial-promotion-compile" \
     "$ROOT/tools/denial-release-key" \
     "$ROOT/tools/denial-repository" \
     "$ROOT/tools/denial-release" \
+    "$ROOT/tools/generate-denial-apt-repository" \
+    "$ROOT/tools/generate-denial-dnf-repository" \
     "$ROOT/tools/generate-denial-wire" \
+    "$ROOT/tools/generate-denial-package-copyright" \
     "$ROOT/tools/package-denial-arch" \
+    "$ROOT/tools/package-denial-deb" \
+    "$ROOT/tools/package-denial-native" \
+    "$ROOT/tools/package-denial-rpm" \
     "$ROOT/tools/promote-denial-arch-candidate" \
+    "$ROOT/tools/promote-denial-native-candidate" \
+    "$ROOT/tools/read-denial-native-metadata" \
+    "$ROOT/tools/run-denial-promotion-no-build" \
+    "$ROOT/tools/stage-denial-runtime" \
+    "$ROOT/tools/test-denial-native-metadata" \
+    "$ROOT/tools/test-denial-promotion-no-build" \
+    "$ROOT/tools/test-denial-repository-generators" \
+    "$ROOT/tools/test-denial-repository-setup" \
+    "$ROOT/tools/verify-denial-package-payload" \
+    "$ROOT/tools/verify-denial-native-package-metadata" \
+    "$ROOT/tools/verify-denial-published-repositories" \
     "$ROOT/tools/import-bibata-cursor" \
     "$ROOT/tools/notification-test-client" \
     "$ROOT/packaging/arch/denial-session" \
@@ -848,6 +876,16 @@ source_audit() {
     pass 'release-facing shell files parse successfully'
   else
     fail 'a release-facing shell file has a syntax error'
+  fi
+  if "$ROOT/tools/test-denial-promotion-no-build"; then
+    pass 'signed-tag promotion compile and staging guards execute successfully'
+  else
+    fail 'signed-tag promotion compile or staging guard failed'
+  fi
+  if "$ROOT/tools/test-denial-native-metadata"; then
+    pass 'native candidate metadata rejects executable and malformed input'
+  else
+    fail 'native candidate metadata parser test failed'
   fi
 
   cargo_version="$(
@@ -863,6 +901,9 @@ source_audit() {
       # Each PKGBUILD load is deliberately isolated.
       # shellcheck disable=SC2030,SC2031
       export DENIAL_PACKAGE_VERSION="$audit_package_version"
+      # makepkg defines startdir before loading a PKGBUILD. Reproduce that
+      # contract for local file:// sources during the metadata-only audit.
+      startdir="$ROOT/packaging/arch"
       # PKGBUILD is executable Bash and is intentionally loaded to inspect its
       # effective default metadata.
       # shellcheck disable=SC1091
@@ -1003,17 +1044,22 @@ source_audit() {
     'https://denialwm.github.io/denial/denial-repo-key.asc' \
     "$installer_key_url"
   if grep -Eq \
-      '^[[:space:]]*(if[[:space:]]+![[:space:]]+)?sudo[[:space:]]+pacman[[:space:]]+-S' \
+      '^[[:space:]]*sudo[[:space:]]+(pacman[[:space:]]+-S|apt(-get)?[[:space:]].*install|dnf[[:space:]].*install)' \
       "$ROOT/install.sh"; then
     fail 'guided repository setup installs packages instead of stopping after configuration'
   else
     pass 'guided repository setup leaves package installation explicit'
   fi
-  if grep -Fq 'sudo pacman -Syu denial' "$ROOT/install.sh"; then
-    pass 'guided repository setup prints the explicit install command'
-  else
-    fail 'guided repository setup does not print the explicit install command'
-  fi
+  for installer_command in \
+    'sudo pacman -Syu denial' \
+    'sudo apt update && sudo apt install denial' \
+    'sudo dnf install denial'; do
+    if grep -Fq "$installer_command" "$ROOT/install.sh"; then
+      pass "guided repository setup prints: $installer_command"
+    else
+      fail "guided repository setup omits: $installer_command"
+    fi
+  done
   for install_document in \
     "$ROOT/README.md" \
     "$ROOT/docs/packaging/arch/INSTALL.md"; do

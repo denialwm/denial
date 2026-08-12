@@ -12,7 +12,7 @@ the complete desktop with a breakpoint or step operation.
 
 - Flutter: `3.44.7`
 - Denial Flutter revision:
-  `b6d610952b3f73388bdcb2b4adbf0bdd0c1ba588`
+  `5b799268a6757b03e8621d8835bab0d353ef3872`
 - Upstream compatibility revision:
   `84fc5cbb223bc12f83d65b647ff8a56caf779ffd`
 - Dart: `3.12.2`

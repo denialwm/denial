@@ -211,6 +211,7 @@ jobs:
           {
             time cargo xtask ui-development-package
             time tools/denial-pc arch-package
+            time tools/denial-pc native-packages
           } 2>&1 | tee "$EVIDENCE_ROOT/package-build.txt"
 
       - name: Collect failed build diagnostics
@@ -248,7 +249,7 @@ jobs:
             "$CANDIDATE_ROOT/evidence/package-metadata"
           cp -a -- "$EVIDENCE_ROOT/." "$CANDIDATE_ROOT/evidence/"
 
-          mapfile -d '' packages < <(
+          mapfile -d '' arch_packages < <(
             find "$package_root" \
               -maxdepth 1 \
               -type f \
@@ -256,18 +257,75 @@ jobs:
               -print0 \
               | sort -z
           )
-          if ((${#packages[@]} != 3)); then
-            printf 'Expected three packages, found %d\n' "${#packages[@]}" >&2
+          mapfile -d '' deb_packages < <(
+            find "$package_root" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.deb' \
+              -print0 \
+              | sort -z
+          )
+          mapfile -d '' rpm_packages < <(
+            find "$package_root" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.rpm' \
+              -print0 \
+              | sort -z
+          )
+          if ((${#arch_packages[@]} != 3)); then
+            printf 'Expected three Arch packages, found %d\n' \
+              "${#arch_packages[@]}" >&2
             exit 1
           fi
+          if ((${#deb_packages[@]} != 2)); then
+            printf 'Expected two Debian packages, found %d\n' \
+              "${#deb_packages[@]}" >&2
+            exit 1
+          fi
+          if ((${#rpm_packages[@]} != 2)); then
+            printf 'Expected two RPM packages, found %d\n' \
+              "${#rpm_packages[@]}" >&2
+            exit 1
+          fi
+          packages=(
+            "${arch_packages[@]}"
+            "${deb_packages[@]}"
+            "${rpm_packages[@]}"
+          )
           cp --reflink=auto -- "${packages[@]}" "$CANDIDATE_ROOT/packages/"
+          cp -a -- \
+            "$DENIAL_PC_PACKAGE_INPUT_ROOT/native" \
+            "$CANDIDATE_ROOT/native-payload"
+          (
+            cd "$CANDIDATE_ROOT/native-payload"
+            mapfile -d '' native_files < <(
+              find . -type f ! -name NATIVE-SHA256SUMS -print0 | sort -z
+            )
+            sha256sum -- "${native_files[@]}" >NATIVE-SHA256SUMS
+            sha256sum --check --strict NATIVE-SHA256SUMS
+          )
 
-          for package in "${packages[@]}"; do
+          for package in "${arch_packages[@]}"; do
             package_name="$(basename -- "$package")"
             bsdtar -xOf "$package" .PKGINFO \
               >"$CANDIDATE_ROOT/evidence/package-metadata/${package_name}.PKGINFO"
             bsdtar -xOf "$package" .BUILDINFO \
               >"$CANDIDATE_ROOT/evidence/package-metadata/${package_name}.BUILDINFO"
+          done
+          for package in "${deb_packages[@]}"; do
+            package_name="$(basename -- "$package")"
+            dpkg-deb --field "$package" \
+              >"$CANDIDATE_ROOT/evidence/package-metadata/${package_name}.control"
+          done
+          rpm_query_db="$RUNNER_TEMP/denial-rpm-query-db"
+          install -d -m 0755 "$rpm_query_db"
+          for package in "${rpm_packages[@]}"; do
+            package_name="$(basename -- "$package")"
+            rpm --dbpath "$rpm_query_db" -qp --qf \
+              $'name=%{NAME}\nversion=%{VERSION}-%{RELEASE}\narchitecture=%{ARCH}\n' \
+              "$package" \
+              >"$CANDIDATE_ROOT/evidence/package-metadata/${package_name}.rpm"
           done
 
           {
@@ -277,6 +335,8 @@ jobs:
               "$RELEASE_SIGNING_ELIGIBLE"
             printf 'signature_status=unsigned\n'
             printf 'package_release=%s\n' "$DENIAL_PACKAGE_RELEASE"
+            printf 'package_formats=arch,deb,rpm\n'
+            printf 'native_payload_schema=1\n'
             printf 'compile_mode=%s\n' "$CANDIDATE_COMPILE_MODE"
             printf 'build_identity=%s\n' "$DENIAL_BUILD_IDENTITY"
             printf 'source_commit=%s\n' "$GITHUB_SHA"
@@ -315,7 +375,7 @@ jobs:
 
           (
             cd "$CANDIDATE_ROOT/packages"
-            sha256sum -- *.pkg.tar.zst >SHA256SUMS
+            sha256sum -- *.pkg.tar.zst *.deb *.rpm >SHA256SUMS
             sha256sum --check --strict SHA256SUMS
           )
           namcap "$CANDIDATE_ROOT"/packages/*.pkg.tar.zst \
@@ -346,7 +406,9 @@ jobs:
     steps:
       - name: Install verification tools
         shell: bash
-        run: pacman -Syu --needed --noconfirm git jq
+        run: >-
+          pacman -Syu --needed --noconfirm
+          apt createrepo_c dnf dpkg git gnupg jq rpm-tools
 
       - name: Check out the exact candidate source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -415,6 +477,8 @@ jobs:
           grep -Fxq \
             "package_release=$expected_package_release" \
             "$provenance"
+          grep -Fxq 'package_formats=arch,deb,rpm' "$provenance"
+          grep -Fxq 'native_payload_schema=1' "$provenance"
           grep -Fxq "compile_mode=$expected_compile_mode" "$provenance"
           grep -Fxq "source_commit=$GITHUB_SHA" "$provenance"
           grep -Fxq "source_ref=$GITHUB_REF" "$provenance"
@@ -428,8 +492,34 @@ jobs:
               | sort -z
           )
           if ((${#packages[@]} != 3)); then
-            printf 'Expected three candidate packages, found %d\n' \
+            printf 'Expected three candidate Arch packages, found %d\n' \
               "${#packages[@]}" >&2
+            exit 1
+          fi
+          mapfile -d '' deb_packages < <(
+            find "$CANDIDATE_ROOT/packages" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.deb' \
+              -print0 \
+              | sort -z
+          )
+          mapfile -d '' rpm_packages < <(
+            find "$CANDIDATE_ROOT/packages" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.rpm' \
+              -print0 \
+              | sort -z
+          )
+          if ((${#deb_packages[@]} != 2)); then
+            printf 'Expected two candidate Debian packages, found %d\n' \
+              "${#deb_packages[@]}" >&2
+            exit 1
+          fi
+          if ((${#rpm_packages[@]} != 2)); then
+            printf 'Expected two candidate RPM packages, found %d\n' \
+              "${#rpm_packages[@]}" >&2
             exit 1
           fi
           (
@@ -440,6 +530,8 @@ jobs:
           denial_packages=0
           engine_packages=0
           ui_development_packages=0
+          denial_arch_package=''
+          engine_arch_package=''
           denial_version=''
           engine_version=''
           ui_development_version=''
@@ -496,6 +588,7 @@ jobs:
               denial)
                 denial_packages=$((denial_packages + 1))
                 denial_version="$package_version"
+                denial_arch_package="$package"
                 test "$package_filename" = \
                   "denial-${package_version}-x86_64.pkg.tar.zst"
                 grep -Fxq \
@@ -521,6 +614,7 @@ jobs:
               denial-flutter-engine)
                 engine_packages=$((engine_packages + 1))
                 engine_version="$package_version"
+                engine_arch_package="$package"
                 test "$package_filename" = \
                   "denial-flutter-engine-${package_version}-x86_64.pkg.tar.zst"
                 grep -Fxq \
@@ -615,6 +709,137 @@ jobs:
           test "$ui_development_packages" -eq 1
           test "$engine_version" = "1:${denial_version}"
           test "$ui_development_version" = "$denial_version"
+          test -n "$denial_arch_package"
+          test -n "$engine_arch_package"
+
+          native_payload="$CANDIDATE_ROOT/native-payload"
+          test -d "$native_payload/denial"
+          test -d "$native_payload/denial-flutter-engine"
+          test -f "$native_payload/metadata.json"
+          (
+            cd "$native_payload"
+            sha256sum --check --strict NATIVE-SHA256SUMS
+          )
+          mapfile -t native_metadata < <(
+            tools/read-denial-native-metadata \
+              "$native_payload/metadata.json"
+          )
+          test "${#native_metadata[@]}" -eq 7
+          PACKAGE_VERSION="${native_metadata[0]}"
+          PACKAGE_RELEASE="${native_metadata[1]}"
+          BUILD_IDENTITY="${native_metadata[2]}"
+          SOURCE_DATE_EPOCH="${native_metadata[3]}"
+          GLIBC_BASELINE="${native_metadata[4]}"
+          FLUTTER_ENGINE_ABI="${native_metadata[5]}"
+          FLUTTER_ENGINE_SHA256="${native_metadata[6]}"
+          test "$PACKAGE_RELEASE" = "$expected_package_release"
+          test "$BUILD_IDENTITY" = "$GITHUB_REF_NAME.g$GITHUB_SHA"
+          test "$SOURCE_DATE_EPOCH" = "$(
+            git -c safe.directory="$GITHUB_WORKSPACE" \
+              show -s --format=%ct "$GITHUB_SHA"
+          )"
+          grep -Fxq "build_identity=$BUILD_IDENTITY" "$provenance"
+          test "$FLUTTER_ENGINE_ABI" = 3.44.7.denial1
+          test "$FLUTTER_ENGINE_SHA256" = "$(
+            awk 'NR == 1 { print $1 }' \
+              prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so.sha256
+          )"
+          test ! -e "$native_payload/denial/usr/share/denial/version"
+          for package_root in denial denial-flutter-engine; do
+            (
+              cd "$native_payload/$package_root"
+              sha256sum --check --strict --quiet \
+                "$native_payload/${package_root}.sha256"
+            )
+          done
+          tools/verify-denial-package-payload \
+            arch "$denial_arch_package" "$native_payload/denial"
+          tools/verify-denial-package-payload \
+            arch "$engine_arch_package" \
+            "$native_payload/denial-flutter-engine"
+
+          deb_names=()
+          for package in "${deb_packages[@]}"; do
+            package_name="$(dpkg-deb --field "$package" Package)"
+            package_version="$(dpkg-deb --field "$package" Version)"
+            package_arch="$(dpkg-deb --field "$package" Architecture)"
+            test "$package_arch" = amd64
+            test "$package_version" = "$PACKAGE_VERSION-$PACKAGE_RELEASE"
+            case "$package_name" in
+              denial)
+                expected_file="denial_${PACKAGE_VERSION}-${PACKAGE_RELEASE}_amd64.deb"
+                expected_root="$native_payload/denial"
+                ;;
+              denial-flutter-engine)
+                expected_file="denial-flutter-engine_${PACKAGE_VERSION}-${PACKAGE_RELEASE}_amd64.deb"
+                expected_root="$native_payload/denial-flutter-engine"
+                ;;
+              *)
+                printf 'Unexpected Debian package: %s\n' "$package_name" >&2
+                exit 1
+                ;;
+            esac
+            test "$(basename -- "$package")" = "$expected_file"
+            tools/verify-denial-package-payload deb "$package" "$expected_root"
+            tools/verify-denial-native-package-metadata \
+              deb "$package" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" \
+              "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE"
+            deb_names+=("$package_name")
+          done
+          test "${deb_names[*]}" = 'denial-flutter-engine denial'
+
+          rpm_names=()
+          rpm_query_db="$RUNNER_TEMP/denial-rpm-verification-db"
+          install -d -m 0755 "$rpm_query_db"
+          for package in "${rpm_packages[@]}"; do
+            package_name="$(rpm --dbpath "$rpm_query_db" -qp --qf '%{NAME}' "$package")"
+            package_version="$(rpm --dbpath "$rpm_query_db" -qp --qf '%{VERSION}-%{RELEASE}' "$package")"
+            package_arch="$(rpm --dbpath "$rpm_query_db" -qp --qf '%{ARCH}' "$package")"
+            test "$package_arch" = x86_64
+            test "$package_version" = "$PACKAGE_VERSION-$PACKAGE_RELEASE"
+            case "$package_name" in
+              denial)
+                expected_file="denial-${PACKAGE_VERSION}-${PACKAGE_RELEASE}.x86_64.rpm"
+                expected_root="$native_payload/denial"
+                ;;
+              denial-flutter-engine)
+                expected_file="denial-flutter-engine-${PACKAGE_VERSION}-${PACKAGE_RELEASE}.x86_64.rpm"
+                expected_root="$native_payload/denial-flutter-engine"
+                ;;
+              *)
+                printf 'Unexpected RPM package: %s\n' "$package_name" >&2
+                exit 1
+                ;;
+            esac
+            test "$(basename -- "$package")" = "$expected_file"
+            tools/verify-denial-package-payload rpm "$package" "$expected_root"
+            tools/verify-denial-native-package-metadata \
+              rpm "$package" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" \
+              "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE"
+            rpm_names+=("$package_name")
+          done
+          test "${rpm_names[*]}" = 'denial denial-flutter-engine'
+
+      - name: Rehearse signed APT and DNF repository generation
+        shell: bash
+        env:
+          CANDIDATE_ROOT: ${{ runner.temp }}/denial-${{ github.ref_name }}-candidate
+        run: |
+          set -euo pipefail
+          mapfile -t native_metadata < <(
+            tools/read-denial-native-metadata \
+              "$CANDIDATE_ROOT/native-payload/metadata.json"
+          )
+          test "${#native_metadata[@]}" -eq 7
+          test "${native_metadata[1]}" = 0
+          tools/test-denial-repository-generators \
+            "$CANDIDATE_ROOT/packages" \
+            "${native_metadata[0]}" \
+            "${native_metadata[1]}"
+
+      - name: Test guided repository setup state handling
+        shell: bash
+        run: tools/test-denial-repository-setup
 
       - name: Record validation result
         shell: bash

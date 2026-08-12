@@ -138,7 +138,7 @@ The standard display-manager entry starts unlocked because the display manager
 has already authenticated the user. An autologin or other direct boot path
 which does not authenticate first should launch
 `denial-session --start-locked`. See
-[Session startup and locking](../../SESSION_STARTUP.md) for the exact UWSM and
+[Session startup and locking](../../SESSION_STARTUP.md) for the exact session and
 greetd forms and the supported launcher modes.
 
 ## Optional live Flutter development

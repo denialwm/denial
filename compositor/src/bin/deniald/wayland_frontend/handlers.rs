@@ -660,6 +660,14 @@ impl CompositorHandler for RuntimeState {
             }
         }
         on_commit_buffer_handler::<Self>(surface);
+        let input_method_changed = {
+            let frontend = self.wayland.as_mut().expect("missing Wayland frontend");
+            frontend.text_input.surface_committed(surface);
+            frontend.synchronize_input_method()
+        };
+        if input_method_changed {
+            self.scene_sync.mark_dirty();
+        }
         #[cfg(feature = "flutter")]
         let mut restored_window_state = None;
         #[cfg(feature = "flutter")]
@@ -762,13 +770,16 @@ impl CompositorHandler for RuntimeState {
         #[cfg(feature = "flutter")]
         let owning_toplevel = frontend.owning_toplevel_surface(surface);
         #[cfg(feature = "flutter")]
+        let has_published_owner =
+            owning_toplevel.is_some() || frontend.input_method.owns_popup_surface(surface);
+        #[cfg(feature = "flutter")]
         let published_visual_update = published_surface_commits.as_ref().is_some_and(|published| {
             published.metadata_changed || !published.buffer_surface_ids.is_empty()
         });
         #[cfg(feature = "flutter")]
         let affects_published_scene = commit_affects_published_scene(
             synchronized,
-            owning_toplevel.is_some(),
+            has_published_owner,
             published_visual_update,
         );
         handle_xdg_commit(&mut frontend.popups, &frontend.space, surface);
@@ -941,14 +952,30 @@ impl SeatHandler for RuntimeState {
         let client = focused
             .and_then(WaylandFocus::wl_surface)
             .and_then(|surface| display_handle.get_client(surface.id()).ok());
+        let focused_surface = focused
+            .and_then(WaylandFocus::wl_surface)
+            .map(|surface| surface.into_owned());
+        let focus_kind = match focused {
+            Some(KeyboardFocusTarget::Wayland(_)) => super::SeatFocusKind::Wayland,
+            Some(KeyboardFocusTarget::X11(_)) => super::SeatFocusKind::Xwayland,
+            None => super::SeatFocusKind::None,
+        };
+        let input_method_changed = {
+            let frontend = self.wayland.as_mut().expect("missing Wayland frontend");
+            frontend.text_input.set_keyboard_focus(
+                &display_handle,
+                focused_surface.clone(),
+                focus_kind,
+            );
+            frontend.synchronize_input_method()
+        };
+        if input_method_changed {
+            self.scene_sync.mark_dirty();
+        }
         set_data_device_focus(&display_handle, seat, client);
         #[cfg(feature = "flutter")]
         {
-            let focused_surface = focused.and_then(WaylandFocus::wl_surface);
-            super::clipboard_io::release_deferred_clipboard_capture(
-                self,
-                focused_surface.as_deref(),
-            );
+            super::clipboard_io::release_deferred_clipboard_capture(self, focused_surface.as_ref());
         }
     }
 }

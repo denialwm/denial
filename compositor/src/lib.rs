@@ -14,6 +14,9 @@ pub const BUILD_IDENTITY: &str = match option_env!("DENIAL_BUILD_VERSION") {
     None => "development",
 };
 
+/// Flutter Engine generation accepted by this compositor build.
+pub const FLUTTER_ENGINE_ABI: &str = "3.44.7.denial1";
+
 static RUNTIME_VERSION: OnceLock<String> = OnceLock::new();
 
 /// Return the externally visible Denial version.

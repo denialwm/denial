@@ -5,6 +5,16 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('session transition keeps moving through its terminal tenth', () {
+    final curve = Motion.sessionTransitionCurve;
+    final initialTravel = curve.transform(0.1);
+    final terminalTravel = 1.0 - curve.transform(0.9);
+
+    expect(initialTravel, greaterThan(0.015));
+    expect(terminalTravel, greaterThan(0.015));
+    expect(terminalTravel, closeTo(initialTravel, 0.000001));
+  });
+
   testWidgets('desktop lock is the inverse of unlock without remounting', (
     tester,
   ) async {
@@ -115,6 +125,42 @@ void main() {
     expect(tester.state(reveal), same(originalRevealState));
     expect(_clipsInside(reveal), findsNothing);
   });
+
+  testWidgets('transition ticks do not rebuild the lock subtree', (
+    tester,
+  ) async {
+    final harnessKey = GlobalKey<_UnlockHarnessState>();
+    var lockBuilds = 0;
+
+    await tester.pumpWidget(
+      MediaQuery(
+        data: const MediaQueryData(size: Size(1000, 800)),
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox.fromSize(
+            size: const Size(1000, 800),
+            child: _UnlockHarness(
+              key: harnessKey,
+              onLockBuild: () => lockBuilds += 1,
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(lockBuilds, 1);
+
+    harnessKey.currentState!.unlock();
+    await tester.pump();
+    final buildsAtStart = lockBuilds;
+    await tester.pump(
+      Duration(microseconds: Motion.unlock.inMicroseconds ~/ 3),
+    );
+    await tester.pump(
+      Duration(microseconds: Motion.unlock.inMicroseconds ~/ 3),
+    );
+
+    expect(lockBuilds, buildsAtStart);
+  });
 }
 
 Finder _clipsInside(Finder reveal) {
@@ -127,7 +173,9 @@ Finder _clipsInside(Finder reveal) {
 }
 
 class _UnlockHarness extends StatefulWidget {
-  const _UnlockHarness({super.key});
+  const _UnlockHarness({super.key, this.onLockBuild});
+
+  final VoidCallback? onLockBuild;
 
   @override
   State<_UnlockHarness> createState() => _UnlockHarnessState();
@@ -160,10 +208,7 @@ class _UnlockHarnessState extends State<_UnlockHarness> {
       animateLock: true,
       onUnlockComplete: _completeUnlock,
       backdrop: const SizedBox.shrink(),
-      lockLayerBuilder: (_) => const ColoredBox(
-        key: ValueKey<String>('lock-layer'),
-        color: Color(0xff050608),
-      ),
+      lockLayerBuilder: (_) => _LockTestLayer(onBuild: widget.onLockBuild),
       scene: const DesktopWindowReveal(
         child: ColoredBox(
           key: ValueKey<String>('existing-window'),
@@ -171,6 +216,21 @@ class _UnlockHarnessState extends State<_UnlockHarness> {
         ),
       ),
       chrome: const SizedBox.shrink(),
+    );
+  }
+}
+
+class _LockTestLayer extends StatelessWidget {
+  const _LockTestLayer({this.onBuild});
+
+  final VoidCallback? onBuild;
+
+  @override
+  Widget build(BuildContext context) {
+    onBuild?.call();
+    return const ColoredBox(
+      key: ValueKey<String>('lock-layer'),
+      color: Color(0xff050608),
     );
   }
 }

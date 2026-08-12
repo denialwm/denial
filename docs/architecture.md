@@ -93,14 +93,70 @@ unit.
 - client hits are transformed and delivered through the Wayland seat;
 - grabs, pointer constraints and drag-and-drop take precedence;
 - window move and resize remain compositor operations;
-- keyboard text from the built-in OSK returns through the native bridge.
+- keyboard text from the built-in OSK returns through the native bridge;
+- Rust selects one text endpoint from the Flutter editor generation, the
+  focused `zwp_text_input_v3` editor, or the seat fallback. Native text-input
+  editors receive Unicode through `commit_string`/`done`, while named and
+  physical keys remain on the Smithay seat.
+- one external input-method client may bind `zwp_input_method_v2` for the seat;
+  later contenders receive `unavailable`, and its `zwp_virtual_keyboard_v1`
+  companion is accepted only from that same Wayland client. Rust bridges its
+  keyboard grab, loop-safe key pass-through, and editing transactions to the
+  active endpoint, while candidate surfaces join the same Flutter scene and
+  native input layout.
+
+Rust also owns one live XKB configuration for that seat. The same map and
+repeat metadata reach native Wayland clients and Xwayland; Flutter physical
+events are projected from that XKB state and use a native Compose state and
+repeat timer. `Super+Space` selects the next configured layout and
+`Shift+Super+Space` selects the previous one. XKB group-switch options remain
+available and publish the resulting active layout back to the shell.
+
+The endpoint broker keeps keyboard focus, shell capture, editor activation,
+and Flutter engine lifetime as separate state. Flutter is an endpoint adapter,
+not a fabricated Wayland surface. The full Wayland contract is documented in
+[Wayland text input v3](protocol/text-input-v3.md).
+
+## Settings
+
+Rust is the sole owner of the versioned, pretty-printed settings document at
+`$XDG_CONFIG_HOME/denial/settings.json` (or
+`$HOME/.config/denial/settings.json`). It migrates older documents, protects
+native-owned sections, revision-checks every mutation, rejects concurrent
+external edits, and persists through a mode-`0600` temporary file plus atomic
+rename. Flutter reads and updates the shared document only through typed wire
+transactions.
+
+Keyboard settings live in the native-owned `keyboard` section:
+
+```json
+{
+  "version": 8,
+  "revision": 3,
+  "keyboard": {
+    "layouts": [
+      { "layout": "us", "variant": "" },
+      { "layout": "de", "variant": "nodeadkeys" }
+    ],
+    "options": ["compose:menu"],
+    "repeatDelayMs": 450,
+    "repeatRateHz": 30
+  }
+}
+```
+
+Rust syntax-checks and compiles a candidate keymap before it changes either
+the seat or the file. A failed live install keeps the previous configuration;
+a persistence conflict rolls the live seat back.
 
 ## Platform bridge
 
 Structured compositor traffic uses the checked-in FlatBuffers schema in
 `protocol/denial.fbs`. Generated Dart and Rust code is versioned in the
 repository. Small high-frequency or service commands use bounded binary
-packets. No custom Denial channel uses JSON.
+packets. The versioned settings JSON is carried only as a bounded string
+inside revisioned FlatBuffers transactions; it is never an unframed channel
+protocol.
 
 The [current channels](protocol/CHANNEL_INVENTORY.md) and
 [ordered wire format](protocol/WIRE_FORMAT.md) are documented alongside the

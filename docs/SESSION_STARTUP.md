@@ -7,14 +7,33 @@ output configuration, selects the packaged Flutter bundle, and then starts
 
 ## Display-manager sessions
 
-The installed Wayland session entry starts Denial through UWSM:
+The installed Wayland session entry starts Denial directly:
 
 ```sh
-uwsm start -e -D Denial /usr/bin/denial-session
+/usr/bin/denial-session
 ```
 
-This path starts unlocked. That is intentional: a display manager such as
-SDDM has already authenticated the user before it launches the selected
+Once the compositor has selected its sockets, it publishes the complete
+session environment to D-Bus activation. After the Flutter shell is alive and
+every initial output has accepted a real atomic commit, Denial also publishes
+the environment to an available systemd user manager and starts its packaged
+`denial-session.target`. That target binds to the standard
+`graphical-session.target`, allowing portals and other desktop services to
+start against the discovered sockets. Denial stops the target on shutdown,
+and the launcher provides a cleanup fallback after the compositor process
+exits.
+
+On a system without a systemd user manager, such as a runit system using
+elogind, the launcher remains the session process parent and therefore owns
+the compositor lifecycle directly. D-Bus-activated desktop services still
+receive the same discovered Wayland, X11, desktop, and control endpoints.
+
+The same publication is the readiness contract UWSM discovers when a user
+elects to run Denial inside UWSM; no launcher flag or separate finalization
+command is needed.
+
+This path starts unlocked. That is intentional: a display manager such as GDM
+or SDDM has already authenticated the user before it launches the selected
 session. Adding another startup lock to that entry would normally ask for the
 same password twice without establishing a stronger login boundary.
 
@@ -24,7 +43,7 @@ If a session manager starts Denial without authenticating the user first, it
 must request Denial's own startup lock:
 
 ```sh
-uwsm start -e -D Denial -- /usr/bin/denial-session --start-locked
+/usr/bin/denial-session --start-locked
 ```
 
 `--start-locked` initializes the native authentication state and security gate
@@ -36,7 +55,7 @@ For example, a greetd autologin can use:
 
 ```toml
 [initial_session]
-command = "uwsm start -e -D Denial -- /usr/bin/denial-session --start-locked"
+command = "/usr/bin/denial-session --start-locked"
 user = "alice"
 ```
 
@@ -74,7 +93,7 @@ unset, both paths continue to use the KMS device.
 | Invocation | Result |
 | --- | --- |
 | `denial-session` | Start the packaged desktop after an authenticated display-manager login |
-| `denial-session --check` | Validate the installation, bundle, output configuration, DRM selection, Xwayland, and UWSM without starting a compositor |
+| `denial-session --check` | Validate the installation, discovered session lifecycle, bundle, output configuration, DRM selection, and Xwayland without starting a compositor |
 | `denial-session --start-locked` | Start with Denial's native security gate and Flutter lock screen already locked |
 
 `denial-session` forwards other arguments to `deniald`. Those lower-level

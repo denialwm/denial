@@ -34,6 +34,11 @@ general desktop portals with GTK. The backend turns Denial's screencopy frames
 into PipeWire streams; PipeWire is intentionally not linked into the
 compositor process itself.
 
+At its first ready frame, Denial activates the packaged
+`denial-session.target`, which binds the standard systemd
+`graphical-session.target`. Portal activation is deliberately gated on that
+ready point so a backend never inherits an unset or stale Wayland socket.
+
 Because the default `xdg-desktop-portal-wlr` chooser starts `slurp`, Denial
 provides a Zenity chooser instead. Zenity uses a regular xdg-shell window and
 returns the monitor selected by the user without depending on layer-shell.

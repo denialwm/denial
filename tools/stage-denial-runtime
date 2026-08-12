@@ -1,0 +1,316 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+CACHE_ROOT="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
+BUILD_ROOT="${DENIAL_PC_BUILD_ROOT:-$CACHE_ROOT/denial/pc-build}"
+RUST_TARGET="${DENIAL_PC_RUST_TARGET:-$BUILD_ROOT/rust}"
+PACKAGE_INPUT_ROOT="$(readlink -m -- "${DENIAL_PC_PACKAGE_INPUT_ROOT:-$BUILD_ROOT/package-input}")"
+STAGE_ROOT="$(readlink -m -- "${DENIAL_PACKAGE_STAGE_ROOT:-$PACKAGE_INPUT_ROOT/native}")"
+BINARY="${DENIAL_PC_BINARY:-$RUST_TARGET/release/deniald}"
+CONTROL_BINARY="${DENIAL_PC_CONTROL_BINARY:-$RUST_TARGET/release/denialctl}"
+BUNDLE="${DENIAL_PC_BUNDLE:-$PACKAGE_INPUT_ROOT/bundle}"
+BUNDLE_ASSEMBLY="${DENIAL_PC_BUNDLE_ASSEMBLY:-$PACKAGE_INPUT_ROOT/flutter-release}"
+PACKAGE_RELEASE="${DENIAL_PACKAGE_RELEASE:-1}"
+RELEASE_TAG="${DENIAL_RELEASE_TAG:-}"
+REQUESTED_PACKAGE_VERSION="${DENIAL_PACKAGE_VERSION:-}"
+REQUESTED_BUILD_IDENTITY="${DENIAL_BUILD_IDENTITY:-}"
+RUNTIME_VERSION_FILE="${DENIAL_PACKAGE_RUNTIME_VERSION_FILE:-}"
+GLIBC_BASELINE="${DENIAL_PACKAGE_GLIBC_BASELINE:-2.39}"
+
+die() {
+  printf 'stage-denial-runtime: %s\n' "$*" >&2
+  exit 1
+}
+
+if [[ "${DENIAL_PROMOTION_MODE:-0}" == 1 ]]; then
+  die 'staging is disabled during signed-tag promotion'
+fi
+
+for required_command in find git gzip install jq mktemp objdump readlink sha256sum sort; do
+  command -v "$required_command" >/dev/null 2>&1 \
+    || die "$required_command is required"
+done
+
+[[ "$PACKAGE_INPUT_ROOT" == /* && "$STAGE_ROOT" == /* ]] \
+  || die 'package input and stage roots must be absolute'
+[[ "$PACKAGE_INPUT_ROOT" != / && "$PACKAGE_INPUT_ROOT" != /home \
+  && "$PACKAGE_INPUT_ROOT" != "${HOME:-}" ]] \
+  || die "refusing unsafe package input root: $PACKAGE_INPUT_ROOT"
+[[ "$STAGE_ROOT" == "$PACKAGE_INPUT_ROOT"/native ]] \
+  || die "stage root must be the native child of $PACKAGE_INPUT_ROOT"
+[[ "$PACKAGE_RELEASE" =~ ^[0-9]+$ ]] \
+  || die 'DENIAL_PACKAGE_RELEASE must be a nonnegative integer'
+
+if [[ -n "$RELEASE_TAG" ]]; then
+  [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die 'release tag must have the form vMAJOR.MINOR.PATCH'
+  [[ "$(git -C "$ROOT" rev-parse "${RELEASE_TAG}^{commit}")" \
+    == "$(git -C "$ROOT" rev-parse HEAD)" ]] \
+    || die "$RELEASE_TAG does not resolve to HEAD"
+  [[ -z "$(git -C "$ROOT" status --porcelain --untracked-files=normal)" ]] \
+    || die 'release checkout is dirty'
+  package_version="${RELEASE_TAG#v}"
+  if [[ -n "$REQUESTED_PACKAGE_VERSION" \
+    && "$REQUESTED_PACKAGE_VERSION" != "$package_version" ]]; then
+    die "requested package version $REQUESTED_PACKAGE_VERSION does not match tag version $package_version"
+  fi
+  [[ "$PACKAGE_RELEASE" == 1 ]] \
+    || die 'a version-tag release must use package release 1'
+else
+  latest_release_tag=''
+  while IFS= read -r candidate; do
+    if [[ "$candidate" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      latest_release_tag="$candidate"
+      break
+    fi
+  done < <(
+    git -C "$ROOT" tag --merged HEAD --list 'v*' --sort=-v:refname
+  )
+  if [[ -n "$latest_release_tag" ]]; then
+    development_base="${latest_release_tag#v}"
+    revision_count="$(
+      git -C "$ROOT" rev-list --count "${latest_release_tag}..HEAD"
+    )"
+  else
+    development_base='0.0.0'
+    revision_count="$(git -C "$ROOT" rev-list --count HEAD)"
+  fi
+  revision="$(git -C "$ROOT" rev-parse --short=8 HEAD)"
+  package_version="$development_base.r$revision_count.g$revision"
+  if [[ -n "$(git -C "$ROOT" status --porcelain --untracked-files=normal)" ]]; then
+    package_version="$package_version.dirty"
+  fi
+fi
+
+[[ "$package_version" =~ ^[0-9][0-9A-Za-z.+~]*$ ]] \
+  || die "package version is not portable to Debian and RPM: $package_version"
+build_identity="${REQUESTED_BUILD_IDENTITY:-$package_version}"
+
+DENIAL_BUILD_VERSION="$build_identity" \
+DENIAL_PC_BUNDLE="$BUNDLE" \
+DENIAL_PC_BUNDLE_ASSEMBLY="$BUNDLE_ASSEMBLY" \
+  "$ROOT/tools/denial-pc" build
+
+[[ -x "$BINARY" ]] || die "missing compositor: $BINARY"
+[[ -x "$CONTROL_BINARY" ]] || die "missing control client: $CONTROL_BINARY"
+for required in \
+  "$BUNDLE/data/icudtl.dat" \
+  "$BUNDLE/data/flutter_assets/AssetManifest.bin" \
+  "$BUNDLE/lib/libapp.so" \
+  "$BUNDLE/lib/libflutter_engine.so"; do
+  [[ -f "$required" ]] || die "incomplete Flutter bundle: $required"
+done
+
+glibc_requirement() {
+  local file="$1"
+  objdump -T "$file" 2>/dev/null \
+    | sed -n 's/.*(GLIBC_\([^)]*\)).*/\1/p' \
+    | sort -Vu \
+    | tail -n 1
+}
+
+validate_elf_baseline() {
+  local file="$1"
+  local requirement
+  requirement="$(glibc_requirement "$file")"
+  [[ -n "$requirement" ]] || return 0
+  if [[ "$(printf '%s\n%s\n' "$GLIBC_BASELINE" "$requirement" | sort -V | tail -n 1)" \
+    != "$GLIBC_BASELINE" ]]; then
+    die "${file#"$ROOT"/} requires GLIBC_$requirement, newer than GLIBC_$GLIBC_BASELINE"
+  fi
+}
+
+for elf in \
+  "$BINARY" \
+  "$CONTROL_BINARY" \
+  "$BUNDLE/lib/libapp.so" \
+  "$BUNDLE/lib/libflutter_engine.so"; do
+  validate_elf_baseline "$elf"
+done
+
+stage_parent="$(dirname -- "$STAGE_ROOT")"
+mkdir -p -- "$stage_parent"
+temporary_stage="$(mktemp -d "$stage_parent/native.XXXXXX")"
+cleanup() {
+  if [[ -d "$temporary_stage" \
+    && "$temporary_stage" == "$stage_parent"/native.* ]]; then
+    rm -rf --one-file-system -- "$temporary_stage"
+  fi
+}
+trap cleanup EXIT
+
+engine_root="$temporary_stage/denial-flutter-engine"
+denial_root="$temporary_stage/denial"
+install -d -m 0755 "$engine_root" "$denial_root"
+
+engine_source_root="$ROOT/prebuilt/flutter-engine/linux-x64-release"
+source_lock="$ROOT/prebuilt/flutter-engine/SOURCE_LOCK.json"
+expected_engine_sha256="$(cut -d' ' -f1 < "$engine_source_root/libflutter_engine.so.sha256")"
+actual_engine_sha256="$(sha256sum "$BUNDLE/lib/libflutter_engine.so" | cut -d' ' -f1)"
+[[ "$actual_engine_sha256" == "$expected_engine_sha256" ]] \
+  || die "Flutter Engine SHA-256 is $actual_engine_sha256, expected $expected_engine_sha256"
+
+install -Dm755 "$BUNDLE/lib/libflutter_engine.so" \
+  "$engine_root/usr/lib/denial/flutter/lib/libflutter_engine.so"
+install -Dm644 "$BUNDLE/data/icudtl.dat" \
+  "$engine_root/usr/lib/denial/flutter/data/icudtl.dat"
+install -Dm644 "$ROOT/packaging/arch/flutter-engine/manifest.json" \
+  "$engine_root/usr/share/denial/flutter-engine/manifest.json"
+install -Dm644 "$source_lock" \
+  "$engine_root/usr/share/denial/flutter-engine/SOURCE_LOCK.json"
+for metadata in \
+  libflutter_engine.so.sha256 ENGINE_REVISION FLUTTER_REVISION args.gn; do
+  install -Dm644 "$engine_source_root/$metadata" \
+    "$engine_root/usr/share/denial/flutter-engine/$metadata"
+done
+install -Dm644 "$engine_source_root/BUILD_INFO.md" \
+  "$engine_root/usr/share/doc/denial-flutter-engine/BUILD_INFO.md"
+install -d -m 0755 "$engine_root/usr/share/doc/denial-flutter-engine"
+"$ROOT/tools/generate-denial-package-copyright" \
+  denial-flutter-engine \
+  "$engine_root/usr/share/doc/denial-flutter-engine/copyright"
+install -Dm644 "$engine_source_root/LICENSE.flutter" \
+  "$engine_root/usr/share/licenses/denial-flutter-engine/LICENSE.flutter"
+install -Dm644 "$engine_source_root/LICENSE.third_party" \
+  "$engine_root/usr/share/licenses/denial-flutter-engine/LICENSE.third_party"
+
+install -Dm755 "$BINARY" "$denial_root/usr/bin/deniald"
+install -Dm755 "$CONTROL_BINARY" "$denial_root/usr/bin/denialctl"
+install -Dm755 "$ROOT/packaging/arch/denial-session" \
+  "$denial_root/usr/bin/denial-session"
+install -Dm644 "$ROOT/packaging/denial-session.target" \
+  "$denial_root/usr/lib/systemd/user/denial-session.target"
+install -d -m 0755 "$denial_root/usr/lib/denial/flutter/data"
+cp -a -- "$BUNDLE/data/flutter_assets" \
+  "$denial_root/usr/lib/denial/flutter/data/flutter_assets"
+chmod -R u=rwX,go=rX \
+  "$denial_root/usr/lib/denial/flutter/data/flutter_assets"
+install -Dm755 "$BUNDLE/lib/libapp.so" \
+  "$denial_root/usr/lib/denial/flutter/lib/libapp.so"
+
+install -Dm644 "$ROOT/packaging/arch/denial.desktop" \
+  "$denial_root/usr/share/wayland-sessions/denial.desktop"
+install -Dm644 "$ROOT/packaging/arch/denial-portals.conf" \
+  "$denial_root/usr/share/xdg-desktop-portal/denial-portals.conf"
+install -Dm644 "$ROOT/packaging/arch/xdg-desktop-portal-wlr-Denial" \
+  "$denial_root/etc/xdg/xdg-desktop-portal-wlr/Denial"
+install -Dm644 "$ROOT/packaging/arch/outputs.conf" \
+  "$denial_root/etc/denial/outputs.conf"
+install -Dm644 "$ROOT/packaging/arch/session.conf" \
+  "$denial_root/etc/denial/session.conf"
+
+install -Dm644 "$ROOT/README.md" \
+  "$denial_root/usr/share/doc/denial/README.md"
+"$ROOT/tools/generate-denial-package-copyright" \
+  denial "$denial_root/usr/share/doc/denial/copyright"
+install -d -m 0755 "$denial_root/usr/share/man/man1"
+for manual in denialctl deniald denial-session; do
+  gzip -n -9 --stdout "$ROOT/docs/man/$manual.1" \
+    > "$denial_root/usr/share/man/man1/$manual.1.gz"
+  chmod 0644 "$denial_root/usr/share/man/man1/$manual.1.gz"
+done
+install -Dm644 "$ROOT/dart_shell/assets/wallpapers/ATTRIBUTION.md" \
+  "$denial_root/usr/share/doc/denial/WALLPAPERS.md"
+install -Dm644 "$ROOT/dart_shell/assets/cursors/BIBATA_MODERN_ICE.md" \
+  "$denial_root/usr/share/doc/denial/CURSORS.md"
+install -Dm644 "$ROOT/dart_shell/assets/cursors/bibata_modern_ice.sha256" \
+  "$denial_root/usr/share/doc/denial/BIBATA_MODERN_ICE.sha256"
+install -Dm644 "$ROOT/dart_shell/assets/fonts/README.md" \
+  "$denial_root/usr/share/doc/denial/FONTS.md"
+install -Dm644 "$ROOT/dart_shell/assets/fonts/JetBrainsMono.sha256" \
+  "$denial_root/usr/share/doc/denial/JETBRAINS_MONO.sha256"
+install -Dm644 "$ROOT/third_party/bibata/Bibata_Cursor-v2.0.7-source.tar.gz" \
+  "$denial_root/usr/share/doc/denial/sources/Bibata_Cursor-v2.0.7-source.tar.gz"
+install -Dm644 "$ROOT/LICENSES/CC-BY-SA-4.0.txt" \
+  "$denial_root/usr/share/licenses/denial/CC-BY-SA-4.0.txt"
+install -Dm644 "$ROOT/LICENSES/GPL-3.0-only.txt" \
+  "$denial_root/usr/share/licenses/denial/GPL-3.0-only.txt"
+install -Dm644 "$ROOT/dart_shell/assets/fonts/OFL.txt" \
+  "$denial_root/usr/share/licenses/denial/OFL-1.1.txt"
+install -Dm644 "$ROOT/LICENSE" \
+  "$denial_root/usr/share/licenses/denial/LICENSE"
+
+generated_runtime_version_file=''
+if [[ -z "$RUNTIME_VERSION_FILE" && -n "$RELEASE_TAG" ]]; then
+  RUNTIME_VERSION_FILE="$temporary_stage/release-version"
+  generated_runtime_version_file="$RUNTIME_VERSION_FILE"
+  printf '%s\n' "$package_version" > "$RUNTIME_VERSION_FILE"
+fi
+if [[ -n "$RUNTIME_VERSION_FILE" ]]; then
+  [[ -f "$RUNTIME_VERSION_FILE" ]] \
+    || die "runtime-version file is missing: $RUNTIME_VERSION_FILE"
+  runtime_version="$(< "$RUNTIME_VERSION_FILE")"
+  [[ "$runtime_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "runtime version is invalid: $runtime_version"
+  install -Dm644 "$RUNTIME_VERSION_FILE" \
+    "$denial_root/usr/share/denial/version"
+fi
+if [[ -n "$generated_runtime_version_file" ]]; then
+  rm -f -- "$generated_runtime_version_file"
+fi
+
+source_date_epoch="${SOURCE_DATE_EPOCH:-$(git -C "$ROOT" log -1 --format=%ct)}"
+[[ "$source_date_epoch" =~ ^[0-9]+$ ]] \
+  || die "SOURCE_DATE_EPOCH is invalid: $source_date_epoch"
+find "$engine_root" "$denial_root" -print0 \
+  | xargs -0 touch --no-dereference --date="@$source_date_epoch"
+
+write_manifest() (
+  local payload_root="$1"
+  local manifest="$2"
+  cd -- "$payload_root"
+  find . -type f -print0 \
+    | sort -z \
+    | xargs -0 sha256sum > "$manifest"
+)
+
+write_inventory() (
+  local payload_root="$1"
+  local inventory="$2"
+  cd -- "$payload_root"
+  find . -mindepth 1 \
+    \( -type l -printf '%m %y %p -> %l\n' \
+       -o -printf '%m %y %p\n' \) \
+    | sort > "$inventory"
+)
+
+write_manifest "$engine_root" "$temporary_stage/denial-flutter-engine.sha256"
+write_manifest "$denial_root" "$temporary_stage/denial.sha256"
+write_inventory "$engine_root" "$temporary_stage/denial-flutter-engine.inventory"
+write_inventory "$denial_root" "$temporary_stage/denial.inventory"
+
+jq -n \
+  --arg package_version "$package_version" \
+  --argjson package_release "$PACKAGE_RELEASE" \
+  --arg build_identity "$build_identity" \
+  --argjson source_date_epoch "$source_date_epoch" \
+  --arg glibc_baseline "$GLIBC_BASELINE" \
+  --arg flutter_engine_abi '3.44.7.denial1' \
+  --arg flutter_engine_sha256 "$actual_engine_sha256" \
+  '{
+    schema_version: 1,
+    package_version: $package_version,
+    package_release: $package_release,
+    build_identity: $build_identity,
+    source_date_epoch: $source_date_epoch,
+    glibc_baseline: $glibc_baseline,
+    flutter_engine_abi: $flutter_engine_abi,
+    flutter_engine_sha256: $flutter_engine_sha256
+  }' > "$temporary_stage/metadata.json"
+"$ROOT/tools/read-denial-native-metadata" \
+  "$temporary_stage/metadata.json" >/dev/null
+
+if [[ -e "$STAGE_ROOT" ]]; then
+  [[ -d "$STAGE_ROOT" && ! -L "$STAGE_ROOT" ]] \
+    || die "existing stage root is not a directory: $STAGE_ROOT"
+  rm -rf --one-file-system -- "$STAGE_ROOT"
+fi
+mv -- "$temporary_stage" "$STAGE_ROOT"
+trap - EXIT
+
+printf 'Native package payload staged at %s\n' "$STAGE_ROOT"
+printf 'Version: %s-%s (GLIBC <= %s)\n' \
+  "$package_version" "$PACKAGE_RELEASE" "$GLIBC_BASELINE"

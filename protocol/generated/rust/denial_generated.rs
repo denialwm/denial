@@ -945,6 +945,184 @@ impl<'a> flatbuffers::Verifiable for KeyboardCommandKind {
 
 impl flatbuffers::SimpleToVerifyInSlice for KeyboardCommandKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_SETTINGS_REQUEST_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_SETTINGS_REQUEST_KIND: u8 = 3;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_SETTINGS_REQUEST_KIND: [SettingsRequestKind; 4] = [
+  SettingsRequestKind::ReadDocument,
+  SettingsRequestKind::WriteDocument,
+  SettingsRequestKind::ReadKeyboard,
+  SettingsRequestKind::ConfigureKeyboard,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct SettingsRequestKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl SettingsRequestKind {
+  pub const ReadDocument: Self = Self(0);
+  pub const WriteDocument: Self = Self(1);
+  pub const ReadKeyboard: Self = Self(2);
+  pub const ConfigureKeyboard: Self = Self(3);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 3;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::ReadDocument,
+    Self::WriteDocument,
+    Self::ReadKeyboard,
+    Self::ConfigureKeyboard,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::ReadDocument => Some("ReadDocument"),
+      Self::WriteDocument => Some("WriteDocument"),
+      Self::ReadKeyboard => Some("ReadKeyboard"),
+      Self::ConfigureKeyboard => Some("ConfigureKeyboard"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for SettingsRequestKind {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for SettingsRequestKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for SettingsRequestKind {
+    type Output = SettingsRequestKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { flatbuffers::emplace_scalar::<u8>(dst, self.0); }
+    }
+}
+
+impl flatbuffers::EndianScalar for SettingsRequestKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for SettingsRequestKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for SettingsRequestKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_SETTINGS_RESPONSE_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_SETTINGS_RESPONSE_KIND: u8 = 1;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_SETTINGS_RESPONSE_KIND: [SettingsResponseKind; 2] = [
+  SettingsResponseKind::Document,
+  SettingsResponseKind::Keyboard,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct SettingsResponseKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl SettingsResponseKind {
+  pub const Document: Self = Self(0);
+  pub const Keyboard: Self = Self(1);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 1;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Document,
+    Self::Keyboard,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Document => Some("Document"),
+      Self::Keyboard => Some("Keyboard"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for SettingsResponseKind {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for SettingsResponseKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for SettingsResponseKind {
+    type Output = SettingsResponseKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { flatbuffers::emplace_scalar::<u8>(dst, self.0); }
+    }
+}
+
+impl flatbuffers::EndianScalar for SettingsResponseKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for SettingsResponseKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for SettingsResponseKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_DESKTOP_NOTIFICATION_EVENT_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MAX_DESKTOP_NOTIFICATION_EVENT_KIND: u8 = 2;
@@ -1311,10 +1489,10 @@ impl flatbuffers::SimpleToVerifyInSlice for SystemBarSide {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_PAYLOAD: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_PAYLOAD: u8 = 12;
+pub const ENUM_MAX_PAYLOAD: u8 = 14;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_PAYLOAD: [Payload; 13] = [
+pub const ENUM_VALUES_PAYLOAD: [Payload; 15] = [
   Payload::NONE,
   Payload::InputLayout,
   Payload::WindowSnapshot,
@@ -1328,6 +1506,8 @@ pub const ENUM_VALUES_PAYLOAD: [Payload; 13] = [
   Payload::CursorPosition,
   Payload::DesktopNotificationEvent,
   Payload::DesktopNotificationCommand,
+  Payload::SettingsRequest,
+  Payload::SettingsResponse,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1348,9 +1528,11 @@ impl Payload {
   pub const CursorPosition: Self = Self(10);
   pub const DesktopNotificationEvent: Self = Self(11);
   pub const DesktopNotificationCommand: Self = Self(12);
+  pub const SettingsRequest: Self = Self(13);
+  pub const SettingsResponse: Self = Self(14);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 12;
+  pub const ENUM_MAX: u8 = 14;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::NONE,
     Self::InputLayout,
@@ -1365,6 +1547,8 @@ impl Payload {
     Self::CursorPosition,
     Self::DesktopNotificationEvent,
     Self::DesktopNotificationCommand,
+    Self::SettingsRequest,
+    Self::SettingsResponse,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -1382,6 +1566,8 @@ impl Payload {
       Self::CursorPosition => Some("CursorPosition"),
       Self::DesktopNotificationEvent => Some("DesktopNotificationEvent"),
       Self::DesktopNotificationCommand => Some("DesktopNotificationCommand"),
+      Self::SettingsRequest => Some("SettingsRequest"),
+      Self::SettingsResponse => Some("SettingsResponse"),
       _ => None,
     }
   }
@@ -5017,6 +5203,632 @@ impl core::fmt::Debug for KeyboardCommand<'_> {
       ds.finish()
   }
 }
+pub enum KeyboardLayoutOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct KeyboardLayout<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for KeyboardLayout<'a> {
+  type Inner = KeyboardLayout<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> KeyboardLayout<'a> {
+  pub const VT_LAYOUT: flatbuffers::VOffsetT = 4;
+  pub const VT_VARIANT: flatbuffers::VOffsetT = 6;
+  pub const VT_DISPLAY_NAME: flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    KeyboardLayout { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args KeyboardLayoutArgs<'args>
+  ) -> flatbuffers::WIPOffset<KeyboardLayout<'bldr>> {
+    let mut builder = KeyboardLayoutBuilder::new(_fbb);
+    if let Some(x) = args.display_name { builder.add_display_name(x); }
+    if let Some(x) = args.variant { builder.add_variant(x); }
+    if let Some(x) = args.layout { builder.add_layout(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn layout(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(KeyboardLayout::VT_LAYOUT, None)}
+  }
+  #[inline]
+  pub fn variant(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(KeyboardLayout::VT_VARIANT, None)}
+  }
+  #[inline]
+  pub fn display_name(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(KeyboardLayout::VT_DISPLAY_NAME, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for KeyboardLayout<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("layout", Self::VT_LAYOUT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("variant", Self::VT_VARIANT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("display_name", Self::VT_DISPLAY_NAME, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct KeyboardLayoutArgs<'a> {
+    pub layout: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub variant: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub display_name: Option<flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for KeyboardLayoutArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    KeyboardLayoutArgs {
+      layout: None,
+      variant: None,
+      display_name: None,
+    }
+  }
+}
+
+pub struct KeyboardLayoutBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> KeyboardLayoutBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_layout(&mut self, layout: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(KeyboardLayout::VT_LAYOUT, layout);
+  }
+  #[inline]
+  pub fn add_variant(&mut self, variant: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(KeyboardLayout::VT_VARIANT, variant);
+  }
+  #[inline]
+  pub fn add_display_name(&mut self, display_name: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(KeyboardLayout::VT_DISPLAY_NAME, display_name);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> KeyboardLayoutBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    KeyboardLayoutBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<KeyboardLayout<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for KeyboardLayout<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("KeyboardLayout");
+      ds.field("layout", &self.layout());
+      ds.field("variant", &self.variant());
+      ds.field("display_name", &self.display_name());
+      ds.finish()
+  }
+}
+pub enum KeyboardConfigurationOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct KeyboardConfiguration<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for KeyboardConfiguration<'a> {
+  type Inner = KeyboardConfiguration<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> KeyboardConfiguration<'a> {
+  pub const VT_LAYOUTS: flatbuffers::VOffsetT = 4;
+  pub const VT_OPTIONS: flatbuffers::VOffsetT = 6;
+  pub const VT_REPEAT_DELAY_MS: flatbuffers::VOffsetT = 8;
+  pub const VT_REPEAT_RATE_HZ: flatbuffers::VOffsetT = 10;
+  pub const VT_ACTIVE_LAYOUT: flatbuffers::VOffsetT = 12;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    KeyboardConfiguration { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args KeyboardConfigurationArgs<'args>
+  ) -> flatbuffers::WIPOffset<KeyboardConfiguration<'bldr>> {
+    let mut builder = KeyboardConfigurationBuilder::new(_fbb);
+    builder.add_active_layout(args.active_layout);
+    builder.add_repeat_rate_hz(args.repeat_rate_hz);
+    builder.add_repeat_delay_ms(args.repeat_delay_ms);
+    if let Some(x) = args.options { builder.add_options(x); }
+    if let Some(x) = args.layouts { builder.add_layouts(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn layouts(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<KeyboardLayout<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<KeyboardLayout>>>>(KeyboardConfiguration::VT_LAYOUTS, None)}
+  }
+  #[inline]
+  pub fn options(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>>>(KeyboardConfiguration::VT_OPTIONS, None)}
+  }
+  #[inline]
+  pub fn repeat_delay_ms(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(KeyboardConfiguration::VT_REPEAT_DELAY_MS, Some(600)).unwrap()}
+  }
+  #[inline]
+  pub fn repeat_rate_hz(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(KeyboardConfiguration::VT_REPEAT_RATE_HZ, Some(25)).unwrap()}
+  }
+  #[inline]
+  pub fn active_layout(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(KeyboardConfiguration::VT_ACTIVE_LAYOUT, Some(0)).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for KeyboardConfiguration<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<KeyboardLayout>>>>("layouts", Self::VT_LAYOUTS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<&'_ str>>>>("options", Self::VT_OPTIONS, false)?
+     .visit_field::<u32>("repeat_delay_ms", Self::VT_REPEAT_DELAY_MS, false)?
+     .visit_field::<u32>("repeat_rate_hz", Self::VT_REPEAT_RATE_HZ, false)?
+     .visit_field::<u32>("active_layout", Self::VT_ACTIVE_LAYOUT, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct KeyboardConfigurationArgs<'a> {
+    pub layouts: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<KeyboardLayout<'a>>>>>,
+    pub options: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>>>,
+    pub repeat_delay_ms: u32,
+    pub repeat_rate_hz: u32,
+    pub active_layout: u32,
+}
+impl<'a> Default for KeyboardConfigurationArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    KeyboardConfigurationArgs {
+      layouts: None,
+      options: None,
+      repeat_delay_ms: 600,
+      repeat_rate_hz: 25,
+      active_layout: 0,
+    }
+  }
+}
+
+pub struct KeyboardConfigurationBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> KeyboardConfigurationBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_layouts(&mut self, layouts: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<KeyboardLayout<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(KeyboardConfiguration::VT_LAYOUTS, layouts);
+  }
+  #[inline]
+  pub fn add_options(&mut self, options: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<&'b  str>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(KeyboardConfiguration::VT_OPTIONS, options);
+  }
+  #[inline]
+  pub fn add_repeat_delay_ms(&mut self, repeat_delay_ms: u32) {
+    self.fbb_.push_slot::<u32>(KeyboardConfiguration::VT_REPEAT_DELAY_MS, repeat_delay_ms, 600);
+  }
+  #[inline]
+  pub fn add_repeat_rate_hz(&mut self, repeat_rate_hz: u32) {
+    self.fbb_.push_slot::<u32>(KeyboardConfiguration::VT_REPEAT_RATE_HZ, repeat_rate_hz, 25);
+  }
+  #[inline]
+  pub fn add_active_layout(&mut self, active_layout: u32) {
+    self.fbb_.push_slot::<u32>(KeyboardConfiguration::VT_ACTIVE_LAYOUT, active_layout, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> KeyboardConfigurationBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    KeyboardConfigurationBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<KeyboardConfiguration<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for KeyboardConfiguration<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("KeyboardConfiguration");
+      ds.field("layouts", &self.layouts());
+      ds.field("options", &self.options());
+      ds.field("repeat_delay_ms", &self.repeat_delay_ms());
+      ds.field("repeat_rate_hz", &self.repeat_rate_hz());
+      ds.field("active_layout", &self.active_layout());
+      ds.finish()
+  }
+}
+pub enum SettingsRequestOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct SettingsRequest<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for SettingsRequest<'a> {
+  type Inner = SettingsRequest<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> SettingsRequest<'a> {
+  pub const VT_KIND: flatbuffers::VOffsetT = 4;
+  pub const VT_EXPECTED_REVISION: flatbuffers::VOffsetT = 6;
+  pub const VT_DOCUMENT: flatbuffers::VOffsetT = 8;
+  pub const VT_KEYBOARD: flatbuffers::VOffsetT = 10;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    SettingsRequest { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args SettingsRequestArgs<'args>
+  ) -> flatbuffers::WIPOffset<SettingsRequest<'bldr>> {
+    let mut builder = SettingsRequestBuilder::new(_fbb);
+    builder.add_expected_revision(args.expected_revision);
+    if let Some(x) = args.keyboard { builder.add_keyboard(x); }
+    if let Some(x) = args.document { builder.add_document(x); }
+    builder.add_kind(args.kind);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn kind(&self) -> SettingsRequestKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<SettingsRequestKind>(SettingsRequest::VT_KIND, Some(SettingsRequestKind::ReadDocument)).unwrap()}
+  }
+  #[inline]
+  pub fn expected_revision(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(SettingsRequest::VT_EXPECTED_REVISION, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn document(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(SettingsRequest::VT_DOCUMENT, None)}
+  }
+  #[inline]
+  pub fn keyboard(&self) -> Option<KeyboardConfiguration<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<KeyboardConfiguration>>(SettingsRequest::VT_KEYBOARD, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for SettingsRequest<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<SettingsRequestKind>("kind", Self::VT_KIND, false)?
+     .visit_field::<u64>("expected_revision", Self::VT_EXPECTED_REVISION, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("document", Self::VT_DOCUMENT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<KeyboardConfiguration>>("keyboard", Self::VT_KEYBOARD, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct SettingsRequestArgs<'a> {
+    pub kind: SettingsRequestKind,
+    pub expected_revision: u64,
+    pub document: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub keyboard: Option<flatbuffers::WIPOffset<KeyboardConfiguration<'a>>>,
+}
+impl<'a> Default for SettingsRequestArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    SettingsRequestArgs {
+      kind: SettingsRequestKind::ReadDocument,
+      expected_revision: 0,
+      document: None,
+      keyboard: None,
+    }
+  }
+}
+
+pub struct SettingsRequestBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> SettingsRequestBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_kind(&mut self, kind: SettingsRequestKind) {
+    self.fbb_.push_slot::<SettingsRequestKind>(SettingsRequest::VT_KIND, kind, SettingsRequestKind::ReadDocument);
+  }
+  #[inline]
+  pub fn add_expected_revision(&mut self, expected_revision: u64) {
+    self.fbb_.push_slot::<u64>(SettingsRequest::VT_EXPECTED_REVISION, expected_revision, 0);
+  }
+  #[inline]
+  pub fn add_document(&mut self, document: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(SettingsRequest::VT_DOCUMENT, document);
+  }
+  #[inline]
+  pub fn add_keyboard(&mut self, keyboard: flatbuffers::WIPOffset<KeyboardConfiguration<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<KeyboardConfiguration>>(SettingsRequest::VT_KEYBOARD, keyboard);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> SettingsRequestBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    SettingsRequestBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<SettingsRequest<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for SettingsRequest<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("SettingsRequest");
+      ds.field("kind", &self.kind());
+      ds.field("expected_revision", &self.expected_revision());
+      ds.field("document", &self.document());
+      ds.field("keyboard", &self.keyboard());
+      ds.finish()
+  }
+}
+pub enum SettingsResponseOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct SettingsResponse<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for SettingsResponse<'a> {
+  type Inner = SettingsResponse<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> SettingsResponse<'a> {
+  pub const VT_KIND: flatbuffers::VOffsetT = 4;
+  pub const VT_SUCCESS: flatbuffers::VOffsetT = 6;
+  pub const VT_REVISION: flatbuffers::VOffsetT = 8;
+  pub const VT_DOCUMENT: flatbuffers::VOffsetT = 10;
+  pub const VT_KEYBOARD: flatbuffers::VOffsetT = 12;
+  pub const VT_ERROR: flatbuffers::VOffsetT = 14;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    SettingsResponse { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args SettingsResponseArgs<'args>
+  ) -> flatbuffers::WIPOffset<SettingsResponse<'bldr>> {
+    let mut builder = SettingsResponseBuilder::new(_fbb);
+    builder.add_revision(args.revision);
+    if let Some(x) = args.error { builder.add_error(x); }
+    if let Some(x) = args.keyboard { builder.add_keyboard(x); }
+    if let Some(x) = args.document { builder.add_document(x); }
+    builder.add_success(args.success);
+    builder.add_kind(args.kind);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn kind(&self) -> SettingsResponseKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<SettingsResponseKind>(SettingsResponse::VT_KIND, Some(SettingsResponseKind::Document)).unwrap()}
+  }
+  #[inline]
+  pub fn success(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(SettingsResponse::VT_SUCCESS, Some(true)).unwrap()}
+  }
+  #[inline]
+  pub fn revision(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(SettingsResponse::VT_REVISION, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn document(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(SettingsResponse::VT_DOCUMENT, None)}
+  }
+  #[inline]
+  pub fn keyboard(&self) -> Option<KeyboardConfiguration<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<KeyboardConfiguration>>(SettingsResponse::VT_KEYBOARD, None)}
+  }
+  #[inline]
+  pub fn error(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(SettingsResponse::VT_ERROR, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for SettingsResponse<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<SettingsResponseKind>("kind", Self::VT_KIND, false)?
+     .visit_field::<bool>("success", Self::VT_SUCCESS, false)?
+     .visit_field::<u64>("revision", Self::VT_REVISION, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("document", Self::VT_DOCUMENT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<KeyboardConfiguration>>("keyboard", Self::VT_KEYBOARD, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("error", Self::VT_ERROR, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct SettingsResponseArgs<'a> {
+    pub kind: SettingsResponseKind,
+    pub success: bool,
+    pub revision: u64,
+    pub document: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub keyboard: Option<flatbuffers::WIPOffset<KeyboardConfiguration<'a>>>,
+    pub error: Option<flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for SettingsResponseArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    SettingsResponseArgs {
+      kind: SettingsResponseKind::Document,
+      success: true,
+      revision: 0,
+      document: None,
+      keyboard: None,
+      error: None,
+    }
+  }
+}
+
+pub struct SettingsResponseBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> SettingsResponseBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_kind(&mut self, kind: SettingsResponseKind) {
+    self.fbb_.push_slot::<SettingsResponseKind>(SettingsResponse::VT_KIND, kind, SettingsResponseKind::Document);
+  }
+  #[inline]
+  pub fn add_success(&mut self, success: bool) {
+    self.fbb_.push_slot::<bool>(SettingsResponse::VT_SUCCESS, success, true);
+  }
+  #[inline]
+  pub fn add_revision(&mut self, revision: u64) {
+    self.fbb_.push_slot::<u64>(SettingsResponse::VT_REVISION, revision, 0);
+  }
+  #[inline]
+  pub fn add_document(&mut self, document: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(SettingsResponse::VT_DOCUMENT, document);
+  }
+  #[inline]
+  pub fn add_keyboard(&mut self, keyboard: flatbuffers::WIPOffset<KeyboardConfiguration<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<KeyboardConfiguration>>(SettingsResponse::VT_KEYBOARD, keyboard);
+  }
+  #[inline]
+  pub fn add_error(&mut self, error: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(SettingsResponse::VT_ERROR, error);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> SettingsResponseBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    SettingsResponseBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<SettingsResponse<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for SettingsResponse<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("SettingsResponse");
+      ds.field("kind", &self.kind());
+      ds.field("success", &self.success());
+      ds.field("revision", &self.revision());
+      ds.field("document", &self.document());
+      ds.field("keyboard", &self.keyboard());
+      ds.field("error", &self.error());
+      ds.finish()
+  }
+}
 pub enum DesktopNotificationActionOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -6353,6 +7165,36 @@ impl<'a> Envelope<'a> {
     }
   }
 
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_settings_request(&self) -> Option<SettingsRequest<'a>> {
+    if self.payload_type() == Payload::SettingsRequest {
+      self.payload().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { SettingsRequest::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_settings_response(&self) -> Option<SettingsResponse<'a>> {
+    if self.payload_type() == Payload::SettingsResponse {
+      self.payload().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { SettingsResponse::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
 }
 
 impl flatbuffers::Verifiable for Envelope<'_> {
@@ -6379,6 +7221,8 @@ impl flatbuffers::Verifiable for Envelope<'_> {
           Payload::CursorPosition => v.verify_union_variant::<flatbuffers::ForwardsUOffset<CursorPosition>>("Payload::CursorPosition", pos),
           Payload::DesktopNotificationEvent => v.verify_union_variant::<flatbuffers::ForwardsUOffset<DesktopNotificationEvent>>("Payload::DesktopNotificationEvent", pos),
           Payload::DesktopNotificationCommand => v.verify_union_variant::<flatbuffers::ForwardsUOffset<DesktopNotificationCommand>>("Payload::DesktopNotificationCommand", pos),
+          Payload::SettingsRequest => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SettingsRequest>>("Payload::SettingsRequest", pos),
+          Payload::SettingsResponse => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SettingsResponse>>("Payload::SettingsResponse", pos),
           _ => Ok(()),
         }
      })?
@@ -6533,6 +7377,20 @@ impl core::fmt::Debug for Envelope<'_> {
         },
         Payload::DesktopNotificationCommand => {
           if let Some(x) = self.payload_as_desktop_notification_command() {
+            ds.field("payload", &x)
+          } else {
+            ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        Payload::SettingsRequest => {
+          if let Some(x) = self.payload_as_settings_request() {
+            ds.field("payload", &x)
+          } else {
+            ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        Payload::SettingsResponse => {
+          if let Some(x) = self.payload_as_settings_response() {
             ds.field("payload", &x)
           } else {
             ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")

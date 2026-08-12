@@ -10,6 +10,7 @@ const KEY_K: u32 = 37;
 const KEY_L: u32 = 38;
 const KEY_V: u32 = 47;
 const KEY_M: u32 = 50;
+const KEY_SPACE: u32 = 57;
 const KEY_UP: u32 = 103;
 const KEY_MUTE: u32 = 113;
 const KEY_VOLUME_DOWN: u32 = 114;
@@ -36,6 +37,7 @@ const CAPTURED_MAXIMIZE: u16 = 1 << 7;
 const CAPTURED_CLIPBOARD: u16 = 1 << 8;
 const CAPTURED_VERTICAL_MAXIMIZE: u16 = 1 << 9;
 const CAPTURED_SCREENSHOT_REGION: u16 = 1 << 10;
+const CAPTURED_KEYBOARD_LAYOUT: u16 = 1 << 11;
 const CAPTURED_MUTE: u8 = 1 << 0;
 const CAPTURED_VOLUME_DOWN: u8 = 1 << 1;
 const CAPTURED_VOLUME_UP: u8 = 1 << 2;
@@ -63,6 +65,8 @@ pub(super) enum ShortcutDisposition {
     RequestMute,
     RequestBrightnessUp,
     RequestBrightnessDown,
+    RequestNextKeyboardLayout,
+    RequestPreviousKeyboardLayout,
 }
 
 #[derive(Debug, Default)]
@@ -197,6 +201,28 @@ impl NativeEscapeShortcut {
             }
             if self.captured_logo_actions & CAPTURED_SCREENSHOT_REGION != 0 {
                 self.captured_logo_actions &= !CAPTURED_SCREENSHOT_REGION;
+                return ShortcutDisposition::Consume;
+            }
+            return ShortcutDisposition::Forward;
+        }
+
+        if evdev_keycode == KEY_SPACE {
+            if pressed {
+                if self.logo_keys == 0 {
+                    return ShortcutDisposition::Forward;
+                }
+                if self.captured_logo_actions & CAPTURED_KEYBOARD_LAYOUT != 0 {
+                    return ShortcutDisposition::Consume;
+                }
+                self.captured_logo_actions |= CAPTURED_KEYBOARD_LAYOUT;
+                return if self.shift_keys == 0 {
+                    ShortcutDisposition::RequestNextKeyboardLayout
+                } else {
+                    ShortcutDisposition::RequestPreviousKeyboardLayout
+                };
+            }
+            if self.captured_logo_actions & CAPTURED_KEYBOARD_LAYOUT != 0 {
+                self.captured_logo_actions &= !CAPTURED_KEYBOARD_LAYOUT;
                 return ShortcutDisposition::Consume;
             }
             return ShortcutDisposition::Forward;
@@ -586,6 +612,51 @@ mod tests {
 
         assert_eq!(press(&mut shortcut, KEY_S), ShortcutDisposition::Forward);
         assert_eq!(release(&mut shortcut, KEY_S), ShortcutDisposition::Forward);
+    }
+
+    #[test]
+    fn super_space_cycles_layouts_and_owns_the_key_lifecycle() {
+        let mut shortcut = NativeEscapeShortcut::default();
+
+        press(&mut shortcut, KEY_LEFT_META);
+        assert_eq!(
+            press(&mut shortcut, KEY_SPACE),
+            ShortcutDisposition::RequestNextKeyboardLayout
+        );
+        assert_eq!(
+            press(&mut shortcut, KEY_SPACE),
+            ShortcutDisposition::Consume
+        );
+        release(&mut shortcut, KEY_LEFT_META);
+        assert_eq!(
+            release(&mut shortcut, KEY_SPACE),
+            ShortcutDisposition::Consume
+        );
+
+        press(&mut shortcut, KEY_RIGHT_SHIFT);
+        press(&mut shortcut, KEY_RIGHT_META);
+        assert_eq!(
+            press(&mut shortcut, KEY_SPACE),
+            ShortcutDisposition::RequestPreviousKeyboardLayout
+        );
+        release(&mut shortcut, KEY_RIGHT_SHIFT);
+        assert_eq!(
+            release(&mut shortcut, KEY_SPACE),
+            ShortcutDisposition::Consume
+        );
+        assert_eq!(
+            release(&mut shortcut, KEY_RIGHT_META),
+            ShortcutDisposition::Consume
+        );
+
+        assert_eq!(
+            press(&mut shortcut, KEY_SPACE),
+            ShortcutDisposition::Forward
+        );
+        assert_eq!(
+            release(&mut shortcut, KEY_SPACE),
+            ShortcutDisposition::Forward
+        );
     }
 
     #[test]

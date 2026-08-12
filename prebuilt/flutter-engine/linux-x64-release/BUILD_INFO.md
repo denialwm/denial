@@ -13,7 +13,7 @@ checksum, GN configuration, upstream compatibility revisions, and licenses.
 engine source:
 
 - Denial Flutter fork:
-  `b6d610952b3f73388bdcb2b4adbf0bdd0c1ba588`
+  `5b799268a6757b03e8621d8835bab0d353ef3872`
 - Denial Skia fork:
   `0ee042f542b3e79f5ac49115387718c6bb3d7d34`
 - Upstream Flutter compatibility base:
@@ -21,7 +21,7 @@ engine source:
 - Engine artifact revision:
   `69c8c61792f04cc809dfef0c910414fb9afc06cd`
 - Engine content hash:
-  `b5226e6abf6e75cfbe9c4f7ced8afb40fb3b0deb`
+  `76d7875f7b35ff92f6454c0174406e4b5efbc2ea`
 - Dart:
   `d684a576a6aa954ae107a03b2b4e1d61c3bebe93` (Dart SDK `3.12.2`)
 
@@ -55,6 +55,7 @@ The equivalent direct release commands are:
 ```sh
 ./flutter/tools/gn \
   --runtime-mode=release \
+  --enable-fontconfig \
   --target-dir=denial_host_release
 /usr/bin/ninja -C out/denial_host_release libflutter_engine.so
 ```
@@ -63,6 +64,10 @@ Generated arguments must match `args.gn`, and the output must match
 `libflutter_engine.so.sha256`. It must export
 `FlutterEngineGetProcAddresses` and
 `DenialFlutterEngineScheduleFrameForExternalTextures`.
+
+Linux builds enable Flutter's Fontconfig backend. The shipped engine therefore
+requires `libfontconfig.so.1` and discovers fonts through the host's Fontconfig
+configuration instead of assuming they live below `/usr/share/fonts`.
 
 The standard Rust ABI remains generated from the pristine official embedder
 header at the upstream compatibility revision:

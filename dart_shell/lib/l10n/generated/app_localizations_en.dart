@@ -1539,6 +1539,69 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsLanguageTitle => 'Choose the language Denial uses.';
 
   @override
+  String get settingsKeyboardSection => 'INPUT';
+
+  @override
+  String get settingsKeyboardTitle =>
+      'Configure the physical keyboard used by Flutter, Wayland, and Xwayland.';
+
+  @override
+  String get settingsKeyboardLayoutsTitle => 'Layouts and variants';
+
+  @override
+  String get settingsKeyboardLayoutsDescription =>
+      'Enter layouts in switching order. Add a variant after a colon, for example us, de:nodeadkeys.';
+
+  @override
+  String get settingsKeyboardLayoutsLabel => 'Layouts';
+
+  @override
+  String get settingsKeyboardLayoutsHint => 'us, de:nodeadkeys';
+
+  @override
+  String get settingsKeyboardOptionsLabel => 'XKB options';
+
+  @override
+  String get settingsKeyboardOptionsHint => 'compose:menu, caps:escape';
+
+  @override
+  String get settingsKeyboardOptionsDescription =>
+      'Comma-separated options enable Compose, alternate group shortcuts, Caps remapping, and other XKB behavior.';
+
+  @override
+  String get settingsKeyboardRepeatTitle => 'Key repeat';
+
+  @override
+  String get settingsKeyboardRepeatDelay => 'Delay';
+
+  @override
+  String get settingsKeyboardRepeatRate => 'Rate';
+
+  @override
+  String get settingsKeyboardSwitchingTitle => 'Layout switching';
+
+  @override
+  String get settingsKeyboardActiveLayout => 'Active layout';
+
+  @override
+  String get settingsKeyboardSwitchingShortcut =>
+      'Super+Space selects the next layout. Add Shift to select the previous one.';
+
+  @override
+  String get settingsKeyboardApply => 'Apply keyboard settings';
+
+  @override
+  String get settingsKeyboardApplying => 'Applying…';
+
+  @override
+  String get settingsKeyboardLoading =>
+      'Reading the compositor keyboard configuration…';
+
+  @override
+  String get settingsKeyboardInvalidLayouts =>
+      'Enter at least one valid XKB layout.';
+
+  @override
   String get settingsLayoutDescription =>
       'Control the spacing reserved around ordinary and maximized windows.';
 
@@ -1772,6 +1835,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsNavigationLanguage => 'Language';
+
+  @override
+  String get settingsNavigationKeyboard => 'Keyboard';
 
   @override
   String get settingsNavigationLockScreen => 'Lock screen';

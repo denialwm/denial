@@ -86,12 +86,16 @@ The initial public repository deliberately makes a smaller, testable promise:
   payloads are byte-identical to that candidate;
 - exactly one compatible `denial` and `denial-flutter-engine` pair, plus the
   optional version-matched `denial-ui-development` package when present in the
-  release contract, is handed to a separate GitHub-hosted signing job;
-- packages, Pacman databases, and the complete checksum manifest are signed;
+  release contract, is produced as Arch packages; the same exact runtime and
+  engine payloads are also wrapped as one Debian-family pair and one Fedora
+  pair and handed to a separate GitHub-hosted signing job;
+- packages, direct-download signatures, Pacman databases, and the complete
+  checksum manifest are signed;
 - the signed repository is re-verified without a secret key before one Pages
   artifact is deployed;
-- the same package set and evidence are retained on a draft GitHub Release,
-  which is published only after Pages deployment succeeds;
+- the same package set, including `.deb` and `.rpm` downloads with adjacent
+  detached OpenPGP signatures, and evidence are retained on a draft GitHub
+  Release, which is published only after Pages deployment succeeds;
 - package filenames are immutable and installation uses Pacman's normal
   signature enforcement.
 
@@ -188,6 +192,7 @@ This is the user-facing package. It contains:
 /usr/bin/denialctl
 /usr/bin/denial-session
 /usr/share/man/man1/denialctl.1.gz
+/usr/lib/systemd/user/denial-session.target
 /usr/lib/denial/flutter/lib/libapp.so
 /usr/lib/denial/flutter/data/flutter_assets/
 /usr/share/wayland-sessions/denial.desktop
@@ -265,7 +270,7 @@ Flutter source revision:     84fc5cbb223bc12f83d65b647ff8a56caf779ffd
 Engine artifact revision:    69c8c61792f04cc809dfef0c910414fb9afc06cd
 Dart source revision:        d684a576a6aa954ae107a03b2b4e1d61c3bebe93
 Skia upstream revision:      e9ed4fc9f1544c58d8a9347c1fc9471d8dd7c465
-Flutter fork revision:       b6d610952b3f73388bdcb2b4adbf0bdd0c1ba588
+Flutter fork revision:       5b799268a6757b03e8621d8835bab0d353ef3872
 Skia fork revision:          0ee042f542b3e79f5ac49115387718c6bb3d7d34
 Fork source lock:             prebuilt/flutter-engine/SOURCE_LOCK.json
 Embedder header checksum:    recorded in compositor/flutter-engine/src/sys.rs
@@ -762,6 +767,16 @@ Snapshot versions may include a Git revision and `.dirty`, but no dirty or
 environment-injected package is eligible for signing or repository
 publication.
 
+`tools/denial-pc native-packages` applies the same development identity to a
+shared, GLIBC-gated payload and then creates the Debian-family and Fedora
+archives without recompiling it. Production promotion consumes the retained
+payload tree rather than either candidate wrapper. It adds only the verified
+tag-derived package metadata and installed runtime-version file, compares the
+payload manifests, and then creates new `.deb` and `.rpm` wrappers. These
+downloads retain detached OpenPGP signatures. The release job also signs APT
+Release metadata, embeds signatures in RPM headers, and signs DNF repository
+metadata.
+
 ## Architecture matrix
 
 Flutter, Rust, and Pacman use different names for the same CPU families:
@@ -1053,6 +1068,13 @@ The public-alpha repository is one static HTTPS tree:
 public/
 ├── denial-repo-key.asc
 ├── install.sh
+├── apt/
+│   ├── pool/main/d/denial/
+│   └── dists/{trixie,noble}/
+├── rpm/fedora/44/x86_64/
+│   ├── Packages/
+│   └── repodata/
+├── downloads/x86_64/
 ├── x86_64/
 │   ├── denial.db
 │   ├── denial.db.sig
@@ -1074,16 +1096,16 @@ Cloudflare route. Stage 2 adds the toolchain package; AArch64 adds a sibling
 directory only after its own build and hardware lane exists.
 
 Package filenames are immutable. GitHub Releases retain the complete package
-set and signed evidence for each tag. Pages presents the current Pacman view;
-manual rollback can use an earlier release until automated rollback retention
-is implemented.
+set and signed evidence for each tag. Pages presents one complete latest-only
+Pacman, APT, and DNF snapshot; manual rollback can use an earlier release until
+automated rollback retention is implemented.
 
 Publication order is:
 
 1. build a fresh staging tree;
 2. copy all package files and detached signatures;
-3. construct and sign databases from that exact staged set;
-4. verify that every database entry resolves to an existing signed package;
+3. construct and sign Pacman, APT, and DNF metadata from that exact staged set;
+4. verify that every metadata entry resolves to an existing signed package;
 5. upload the release assets to a draft GitHub Release;
 6. deploy the complete tree as one Pages artifact;
 7. publish the draft release only after Pages succeeds.
@@ -1302,8 +1324,10 @@ gates apply to every later release:
    a signed `vMAJOR.MINOR.PATCH` tag on the exact candidate commit;
 5. manually run `.github/workflows/release.yml` for that tag;
 6. verify the Pages repository and GitHub Release produced by the workflow;
-7. install or upgrade through `pacman -Syu` on a real Arch system; and
-8. retain the package, database, signature, checksum, and build evidence.
+7. install or upgrade through each native repository on representative Arch,
+   Debian-family, and Fedora systems; and
+8. retain every package, detached signature, database, checksum, and build
+   evidence file.
 
 The workflow itself:
 
@@ -1313,10 +1337,16 @@ The workflow itself:
 - repackages only to apply tag-derived Pacman metadata and the installed
   runtime version, while comparing full payload manifests and refusing any
   compiled-file change;
+- applies the same tag identity to the retained native payload and creates the
+  Debian-family and Fedora wrappers without compiling or changing any
+  candidate file other than the installed runtime-version metadata;
 - signs exactly one `denial`, one compatible `denial-flutter-engine`, and,
   beginning with 0.2.0, one optional version-matched
-  `denial-ui-development`;
+  `denial-ui-development` in the Arch lane, plus the runtime/engine pair in
+  each direct-download format;
 - creates and verifies signed `denial.db` and `denial.files` databases;
+- creates and verifies trixie/noble APT indexes, signed Release metadata,
+  Fedora 44 DNF metadata, and embedded RPM signatures;
 - materializes every Pages alias as a regular file;
 - re-verifies the complete signed tree in a job with no secret key;
 - creates a draft GitHub prerelease, deploys the Pages artifact, and publishes

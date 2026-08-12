@@ -2168,6 +2168,82 @@
   "@settingsLanguageTitle": {
     "description": "Title text for the Settings language page."
   },
+  "settingsKeyboardSection": "INPUT",
+  "@settingsKeyboardSection": {
+    "description": "Section eyebrow for physical keyboard settings."
+  },
+  "settingsKeyboardTitle": "Configure the physical keyboard used by Flutter, Wayland, and Xwayland.",
+  "@settingsKeyboardTitle": {
+    "description": "Physical keyboard settings page description."
+  },
+  "settingsKeyboardLayoutsTitle": "Layouts and variants",
+  "@settingsKeyboardLayoutsTitle": {
+    "description": "Title for configured XKB layouts."
+  },
+  "settingsKeyboardLayoutsDescription": "Enter layouts in switching order. Add a variant after a colon, for example us, de:nodeadkeys.",
+  "@settingsKeyboardLayoutsDescription": {
+    "description": "Help for XKB layout and variant syntax."
+  },
+  "settingsKeyboardLayoutsLabel": "Layouts",
+  "@settingsKeyboardLayoutsLabel": {
+    "description": "Label for the XKB layouts field."
+  },
+  "settingsKeyboardLayoutsHint": "us, de:nodeadkeys",
+  "@settingsKeyboardLayoutsHint": {
+    "description": "Example XKB layouts."
+  },
+  "settingsKeyboardOptionsLabel": "XKB options",
+  "@settingsKeyboardOptionsLabel": {
+    "description": "Label for XKB options."
+  },
+  "settingsKeyboardOptionsHint": "compose:menu, caps:escape",
+  "@settingsKeyboardOptionsHint": {
+    "description": "Example XKB options."
+  },
+  "settingsKeyboardOptionsDescription": "Comma-separated options enable Compose, alternate group shortcuts, Caps remapping, and other XKB behavior.",
+  "@settingsKeyboardOptionsDescription": {
+    "description": "Help for the XKB options field."
+  },
+  "settingsKeyboardRepeatTitle": "Key repeat",
+  "@settingsKeyboardRepeatTitle": {
+    "description": "Title for keyboard repeat settings."
+  },
+  "settingsKeyboardRepeatDelay": "Delay",
+  "@settingsKeyboardRepeatDelay": {
+    "description": "Keyboard repeat delay label."
+  },
+  "settingsKeyboardRepeatRate": "Rate",
+  "@settingsKeyboardRepeatRate": {
+    "description": "Keyboard repeat rate label."
+  },
+  "settingsKeyboardSwitchingTitle": "Layout switching",
+  "@settingsKeyboardSwitchingTitle": {
+    "description": "Title for keyboard layout switching status."
+  },
+  "settingsKeyboardActiveLayout": "Active layout",
+  "@settingsKeyboardActiveLayout": {
+    "description": "Label for the active keyboard layout."
+  },
+  "settingsKeyboardSwitchingShortcut": "Super+Space selects the next layout. Add Shift to select the previous one.",
+  "@settingsKeyboardSwitchingShortcut": {
+    "description": "Description of Denial's physical layout switching shortcut."
+  },
+  "settingsKeyboardApply": "Apply keyboard settings",
+  "@settingsKeyboardApply": {
+    "description": "Button label for applying keyboard settings."
+  },
+  "settingsKeyboardApplying": "Applying…",
+  "@settingsKeyboardApplying": {
+    "description": "Busy label while keyboard settings are applied."
+  },
+  "settingsKeyboardLoading": "Reading the compositor keyboard configuration…",
+  "@settingsKeyboardLoading": {
+    "description": "Loading label for keyboard settings."
+  },
+  "settingsKeyboardInvalidLayouts": "Enter at least one valid XKB layout.",
+  "@settingsKeyboardInvalidLayouts": {
+    "description": "Validation error for the keyboard layouts field."
+  },
   "settingsLayoutDescription": "Control the spacing reserved around ordinary and maximized windows.",
   "@settingsLayoutDescription": {
     "description": "English UI text for settingsLayoutDescription."
@@ -2456,6 +2532,10 @@
   "settingsNavigationLanguage": "Language",
   "@settingsNavigationLanguage": {
     "description": "Label for the Language destination in Settings navigation."
+  },
+  "settingsNavigationKeyboard": "Keyboard",
+  "@settingsNavigationKeyboard": {
+    "description": "Settings navigation label for physical keyboard configuration."
   },
   "settingsNavigationLockScreen": "Lock screen",
   "@settingsNavigationLockScreen": {

@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+fail() {
+  printf 'test-denial-repository-generators: %s\n' "$*" >&2
+  exit 1
+}
+
+if (($# != 3)); then
+  printf '%s\n' \
+    'Usage: test-denial-repository-generators PACKAGE_ROOT VERSION RELEASE' \
+    >&2
+  exit 2
+fi
+
+for command_name in \
+  apt-cache apt-get awk cat dnf find gpg gpgconf grep install mktemp paste \
+  realpath rm rpmkeys sort; do
+  command -v "$command_name" >/dev/null 2>&1 \
+    || fail "$command_name is required"
+done
+
+PACKAGE_ROOT="$(realpath -e -- "$1")"
+VERSION="$2"
+RELEASE="$3"
+readonly PACKAGE_ROOT VERSION RELEASE
+
+work_root="$(mktemp -d "${TMPDIR:-/tmp}/drt.XXXXXX")"
+cleanup() {
+  gpgconf --homedir "$work_root/gnupg" --kill all >/dev/null 2>&1 || true
+  if [[ "$work_root" == \
+    "${TMPDIR:-/tmp}"/drt.* ]]; then
+    rm -rf --one-file-system -- "$work_root"
+  fi
+}
+trap cleanup EXIT
+
+export GNUPGHOME="$work_root/gnupg"
+install -d -m 0700 "$GNUPGHOME"
+gpg \
+  --batch \
+  --passphrase '' \
+  --quick-generate-key \
+  'Denial disposable repository generator test' \
+  ed25519 \
+  sign \
+  1d
+fingerprint="$(
+  gpg --batch --with-colons --fingerprint --list-secret-keys \
+    | awk -F: '$1 == "fpr" { print toupper($10); exit }'
+)"
+[[ "$fingerprint" =~ ^[0-9A-F]{40,64}$ ]] \
+  || fail 'disposable signing key has no complete fingerprint'
+gpg --batch --armor --export "$fingerprint" >"$work_root/key.asc"
+
+"$ROOT/tools/generate-denial-apt-repository" \
+  "$PACKAGE_ROOT" \
+  "$work_root/apt" \
+  "$fingerprint" \
+  "$VERSION" \
+  "$RELEASE"
+"$ROOT/tools/generate-denial-dnf-repository" \
+  "$PACKAGE_ROOT" \
+  "$work_root/rpm" \
+  "$fingerprint" \
+  "$work_root/key.asc" \
+  "$VERSION" \
+  "$RELEASE"
+
+for suite in trixie noble; do
+  release_root="$work_root/apt/dists/$suite"
+  gpg --batch --verify "$release_root/InRelease"
+  gpg --batch --verify "$release_root/Release.gpg" "$release_root/Release"
+done
+gpg --batch --verify \
+  "$work_root/rpm/fedora/44/x86_64/repodata/repomd.xml.asc" \
+  "$work_root/rpm/fedora/44/x86_64/repodata/repomd.xml"
+
+apt_root="$work_root/apt-client"
+install -d -m 0755 \
+  "$apt_root/state/lists/partial" \
+  "$apt_root/cache/archives/partial" \
+  "$apt_root/etc"
+install -m 0644 "$work_root/key.asc" "$apt_root/key.asc"
+cat >"$apt_root/etc/sources.list" <<EOF
+deb [arch=amd64 signed-by=$apt_root/key.asc] file:$work_root/apt trixie main
+deb [arch=amd64 signed-by=$apt_root/key.asc] file:$work_root/apt noble main
+EOF
+apt_options=(
+  -o Debug::NoLocking=true
+  -o "Dir::Etc::sourcelist=$apt_root/etc/sources.list"
+  -o 'Dir::Etc::sourceparts=-'
+  -o "Dir::State=$apt_root/state"
+  -o 'Dir::State::status=/dev/null'
+  -o "Dir::Cache=$apt_root/cache"
+  -o 'Acquire::Languages=none'
+)
+apt-get "${apt_options[@]}" update
+apt_names="$(
+  apt-cache "${apt_options[@]}" show denial denial-flutter-engine \
+    | awk '/^Package: / { print $2 }' \
+    | sort -u \
+    | paste -sd' ' -
+)"
+[[ "$apt_names" == 'denial denial-flutter-engine' ]] \
+  || fail "APT resolved the wrong package set: $apt_names"
+
+rpm_db="$work_root/rpm-db"
+install -d -m 0700 "$rpm_db"
+rpmkeys --dbpath "$rpm_db" --import "$work_root/key.asc"
+mapfile -d '' rpms < <(
+  find "$work_root/rpm/fedora/44/x86_64/Packages" \
+    -maxdepth 1 -type f -name '*.rpm' -print0 | sort -z
+)
+((${#rpms[@]} == 2)) || fail 'DNF repository does not contain two RPMs'
+for package in "${rpms[@]}"; do
+  rpmkeys --dbpath "$rpm_db" --checksig --verbose "$package" \
+    | grep -Eiq 'signature.*: OK'
+done
+
+dnf_root="$work_root/dnf-client"
+install -d -m 0755 "$dnf_root"
+dnf_common=(
+  --installroot "$dnf_root"
+  --releasever 44
+  --forcearch x86_64
+  --setopt "cachedir=$work_root/dnf-cache"
+  --setopt "persistdir=$work_root/dnf-persist"
+  --setopt reposdir=/dev/null
+  --setopt plugins=0
+  --repofrompath "denial,file://$work_root/rpm/fedora/44/x86_64"
+  --setopt denial.gpgcheck=1
+  --setopt denial.repo_gpgcheck=1
+  --setopt "denial.gpgkey=file://$work_root/key.asc"
+  --repo denial
+)
+dnf --assumeyes "${dnf_common[@]}" makecache
+dnf_names="$(
+  dnf \
+    --quiet \
+    "${dnf_common[@]}" \
+    repoquery \
+    --available \
+    --qf '%{name}' \
+    denial denial-flutter-engine \
+    | sort -u \
+    | paste -sd' ' -
+)"
+[[ "$dnf_names" == 'denial denial-flutter-engine' ]] \
+  || fail "DNF resolved the wrong package set: $dnf_names"
+
+printf '\n' >>"$work_root/apt/dists/trixie/Release"
+if gpg --batch --verify \
+    "$work_root/apt/dists/trixie/Release.gpg" \
+    "$work_root/apt/dists/trixie/Release" \
+    >/dev/null 2>&1; then
+  fail 'tampered APT Release metadata retained a valid signature'
+fi
+printf '\n' >>"$work_root/rpm/fedora/44/x86_64/repodata/repomd.xml"
+if gpg --batch --verify \
+    "$work_root/rpm/fedora/44/x86_64/repodata/repomd.xml.asc" \
+    "$work_root/rpm/fedora/44/x86_64/repodata/repomd.xml" \
+    >/dev/null 2>&1; then
+  fail 'tampered DNF repository metadata retained a valid signature'
+fi
+
+printf 'APT and DNF repository generator tests passed.\n'

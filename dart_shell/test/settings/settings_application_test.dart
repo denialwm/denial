@@ -12,6 +12,7 @@ import 'package:denial_dart_shell/src/settings/widgets/settings_navigation.dart'
 import 'package:denial_dart_shell/src/settings/widgets/system_bar_placement_card.dart';
 import 'package:denial_dart_shell/src/localization/denial_localizations.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
+import 'package:denial_dart_shell/src/models/keyboard_configuration.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/settings/settings_application.dart';
 import 'package:denial_dart_shell/src/settings/settings_controller.dart';
@@ -31,6 +32,7 @@ import 'package:flutter_test/flutter_test.dart';
 const _settingsPages = <SettingsPageId>[
   SettingsPageId.appearance,
   SettingsPageId.language,
+  SettingsPageId.keyboard,
   SettingsPageId.animations,
   SettingsPageId.layout,
   SettingsPageId.overlays,
@@ -223,6 +225,41 @@ void main() {
       container.read(shellSettingsProvider).localization.locale,
       ShellLocalePreference.system,
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('keyboard page applies the shared native XKB configuration', (
+    tester,
+  ) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container, size: const Size(980, 700));
+
+    await tester.tap(find.text('Keyboard'));
+    await tester.pumpAndSettle();
+    expect(find.text('Layouts and variants'), findsOneWidget);
+    expect(find.textContaining('English (US)'), findsOneWidget);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Layouts'),
+      'us, de:nodeadkeys',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'XKB options'),
+      'compose:menu',
+    );
+    await tester.ensureVisible(find.text('Apply keyboard settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Apply keyboard settings'));
+    await tester.pumpAndSettle();
+
+    final bridge = container.read(denialBridgeProvider) as _SettingsBridge;
+    expect(bridge.keyboard.revision, 2);
+    expect(bridge.keyboard.layouts, const <DenialKeyboardLayout>[
+      DenialKeyboardLayout(layout: 'us'),
+      DenialKeyboardLayout(layout: 'de', variant: 'nodeadkeys'),
+    ]);
+    expect(bridge.keyboard.options, const <String>['compose:menu']);
     expect(tester.takeException(), isNull);
   });
 
@@ -638,6 +675,29 @@ class _SettingsBridge extends DenialBridge {
   _SettingsBridge(this.layout);
 
   DisplayLayout layout;
+  DenialKeyboardConfiguration keyboard = const DenialKeyboardConfiguration(
+    revision: 1,
+    layouts: <DenialKeyboardLayout>[
+      DenialKeyboardLayout(layout: 'us', displayName: 'English (US)'),
+    ],
+    options: <String>[],
+    repeatDelayMs: 600,
+    repeatRateHz: 25,
+    activeLayout: 0,
+  );
+
+  @override
+  Future<DenialKeyboardConfiguration> readKeyboardConfiguration() async {
+    return keyboard;
+  }
+
+  @override
+  Future<DenialKeyboardConfiguration> configureKeyboard(
+    DenialKeyboardConfiguration configuration,
+  ) async {
+    keyboard = configuration.copyWith(revision: keyboard.revision + 1);
+    return keyboard;
+  }
 
   @override
   Future<DisplayLayout?> getDisplayLayout() async => layout;

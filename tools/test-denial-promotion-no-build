@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+fail() {
+  printf 'test-denial-promotion-no-build: %s\n' "$*" >&2
+  exit 1
+}
+
+expect_blocked() {
+  local label="$1"
+  local expected="$2"
+  shift 2
+  local output
+  if output=$("$@" 2>&1); then
+    fail "$label was allowed during promotion"
+  fi
+  grep -Fq "$expected" <<<"$output" \
+    || fail "$label failed for an unexpected reason: $output"
+}
+
+expect_blocked \
+  'compiler command' \
+  'promotion attempted forbidden command: cargo' \
+  "$ROOT/tools/run-denial-promotion-no-build" cargo --version
+expect_blocked \
+  'Flutter command' \
+  'promotion attempted forbidden command: flutter' \
+  "$ROOT/tools/run-denial-promotion-no-build" flutter --version
+expect_blocked \
+  'Ninja command' \
+  'promotion attempted forbidden command: ninja' \
+  "$ROOT/tools/run-denial-promotion-no-build" ninja --version
+expect_blocked \
+  'PC build entry point' \
+  'disabled during signed-tag promotion' \
+  "$ROOT/tools/run-denial-promotion-no-build" \
+    "$ROOT/tools/denial-pc" build
+expect_blocked \
+  'native staging entry point' \
+  'disabled during signed-tag promotion' \
+  "$ROOT/tools/run-denial-promotion-no-build" \
+    "$ROOT/tools/stage-denial-runtime"
+expect_blocked \
+  'Flutter Engine build entry point' \
+  'disabled during signed-tag promotion' \
+  "$ROOT/tools/run-denial-promotion-no-build" \
+    "$ROOT/tools/denial-flutter-engine" build
+expect_blocked \
+  'Debian implicit staging' \
+  'requires DENIAL_PACKAGE_SKIP_STAGE=1' \
+  "$ROOT/tools/run-denial-promotion-no-build" \
+    "$ROOT/tools/package-denial-deb"
+expect_blocked \
+  'RPM implicit staging' \
+  'requires DENIAL_PACKAGE_SKIP_STAGE=1' \
+  "$ROOT/tools/run-denial-promotion-no-build" \
+    "$ROOT/tools/package-denial-rpm"
+
+printf 'Verified signed-tag promotion compile and staging guards.\n'

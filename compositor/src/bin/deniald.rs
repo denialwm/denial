@@ -46,6 +46,8 @@ mod scene_sync;
 #[cfg(feature = "flutter")]
 #[path = "deniald/screenshot.rs"]
 mod screenshot;
+#[path = "deniald/settings.rs"]
+mod settings;
 #[path = "deniald/system_controls.rs"]
 mod system_controls;
 #[cfg(feature = "flutter")]
@@ -69,7 +71,7 @@ use std::error::Error;
 use std::ffi::OsStr;
 #[cfg(feature = "flutter")]
 use std::ffi::OsString;
-#[cfg(feature = "flutter")]
+use std::fs::OpenOptions;
 use std::os::fd::{AsFd, OwnedFd};
 use std::os::fd::{AsRawFd, BorrowedFd};
 use std::os::unix::fs::MetadataExt;
@@ -77,7 +79,6 @@ use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::path::Path;
 #[cfg(feature = "flutter")]
 use std::path::PathBuf;
-use std::process::Command;
 #[cfg(feature = "flutter")]
 use std::sync::atomic::Ordering;
 #[cfg(feature = "flutter")]
@@ -129,7 +130,7 @@ use hotplug_transaction::{
 use kms_state::{
     AtlasAllocator, AtlasPlaneProperties, AtlasSwapchain, ConnectedOutput, KmsContext,
     LayoutTransition, PreviousScanoutState, ReconciledScanoutOrigin, RestoreState, Scanout,
-    ScanoutReconciliation, shared_atlas_modifiers,
+    ScanoutReconciliation, atlas_gbm_flags, shared_atlas_modifiers,
 };
 #[cfg(feature = "flutter")]
 use kms_state::{FlutterLaunchConfiguration, FlutterLauncher, flutter_pool_length};
@@ -155,6 +156,9 @@ const COLORS: [Color32F; 4] = [
     Color32F::new(0.20, 0.80, 0.48, 1.0),
     Color32F::new(0.72, 0.35, 0.96, 1.0),
 ];
+const DENIAL_SESSION_TARGET: &str = "denial-session.target";
+const GRAPHICAL_SESSION_TARGET: &str = "graphical-session.target";
+const SYSTEMD_DBUS_NAME: &str = "org.freedesktop.systemd1";
 
 #[cfg(feature = "flutter")]
 const NOTIFICATION_EVENT_QUEUE_CAPACITY: usize = 512;
@@ -274,6 +278,20 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
 
     let runtime_limit = options.runtime_limit();
     let output_configuration = RuntimeOutputConfiguration::from_options(&options);
+    let mut settings = options
+        .wayland
+        .then(settings::SettingsManager::load)
+        .transpose()?;
+    if let Some(settings) = settings.as_mut()
+        && let Err(error) = settings.keyboard().compiled_layout_names()
+    {
+        warn!(
+            %error,
+            path = %settings.path().display(),
+            "configured keyboard is unavailable; using the safe US keymap without overwriting the file"
+        );
+        settings.replace_invalid_keyboard_with_default();
+    }
 
     // calloop's signal source masks only the thread that creates it. Create it
     // before libseat, RTKit, graphics drivers, or any Denial worker can spawn
@@ -312,10 +330,20 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     let render_fd = if render_device == options.device {
         drm_fd.clone()
     } else {
-        let owned_fd = session.open(
-            Path::new(render_device),
-            OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK,
-        )?;
+        // Render nodes carry no KMS state and require neither DRM master nor
+        // seat activation. Passing one through libseat asks logind to manage
+        // it as a seat device, which rejects valid render nodes on systemd.
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(render_device)
+            .map_err(|error| {
+                format!(
+                    "could not open independent render device {}: {error}",
+                    render_device.display()
+                )
+            })?;
+        let owned_fd: OwnedFd = file.into();
         DrmDeviceFd::new(DeviceFd::from(owned_fd))
     };
     let (drm, drm_notifier) = DrmDevice::new(drm_fd.clone(), false)?;
@@ -452,13 +480,11 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
             &seat_name,
             drm_fd.clone(),
             options.work_area.clone(),
+            settings
+                .take()
+                .expect("Wayland settings were loaded before frontend startup"),
         )?;
         let x11_display = frontend.xdisplay_name();
-        if let Err(error) =
-            publish_session_activation_environment(frontend.socket_name(), x11_display.as_os_str())
-        {
-            warn!(%error, "could not publish the compositor display to D-Bus activation");
-        }
         info!(
             wayland_display = ?frontend.socket_name(),
             x11_display = ?x11_display,
@@ -523,18 +549,29 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         });
     }
 
-    let gbm = GbmDevice::new(render_fd.clone())?;
+    let cross_device_rendering = render_device != options.device;
+    let gbm = GbmDevice::new(render_fd.clone()).map_err(|error| {
+        format!(
+            "could not create GBM device for {}: {error}",
+            render_device.display()
+        )
+    })?;
     let gbm_flags = GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT;
     let mut allocator = GbmAllocator::new(gbm.clone(), gbm_flags);
     let mut atlas_allocator = AtlasAllocator::gbm(
-        GbmAllocator::new(gbm.clone(), gbm_flags),
+        GbmAllocator::new(gbm.clone(), atlas_gbm_flags(cross_device_rendering)),
         drm_fd.clone(),
-        render_device != options.device,
+        cross_device_rendering,
     );
     // SAFETY: the GBM device outlives the EGL display, context, renderer and
     // every imported dmabuf created below. All of them are dropped in this
     // function before `gbm`, `render_fd`, and `drm_fd`.
-    let egl_display = unsafe { EGLDisplay::new(gbm.clone())? };
+    let egl_display = unsafe { EGLDisplay::new(gbm.clone()) }.map_err(|error| {
+        format!(
+            "could not create EGL display for {}: {error}",
+            render_device.display()
+        )
+    })?;
     let atlas_modifiers =
         shared_atlas_modifiers(&kms.scanouts, egl_display.dmabuf_render_formats())?;
     let atlas_pool_length = if options.flutter_bundle.is_some() {
@@ -554,7 +591,14 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         atlas.pixel_size,
         atlas_pool_length,
         &atlas_modifiers,
-    )?;
+    )
+    .map_err(|error| {
+        format!(
+            "could not allocate atlas on render device {} for KMS device {}: {error}",
+            render_device.display(),
+            options.device.display()
+        )
+    })?;
     let egl_context = egl_context::create_render_context(&egl_display)?;
     // SAFETY: `egl_context` is current only through this renderer and remains
     // alive for the renderer's entire lifetime.
@@ -596,10 +640,10 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     );
 
     let mut restore_state = if !preserves_predecessor_kms_state(runtime_limit) {
-        // SDDM/logind may disable its CRTC between libseat activation and this
-        // point. A real login session hands KMS back by releasing DRM master;
-        // it must not depend on cloning a greeter framebuffer that may already
-        // have disappeared.
+        // The display manager/logind may disable its CRTC between libseat
+        // activation and this point. A real login session hands KMS back by
+        // releasing DRM master; it must not depend on cloning a greeter
+        // framebuffer that may already have disappeared.
         let state = RestoreState::for_session_handoff(&kms.scanouts)?;
         info!("using display-manager KMS handoff without predecessor restore");
         state
@@ -721,6 +765,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    let mut graphical_session_started = false;
     let runtime_outcome = catch_unwind(AssertUnwindSafe(|| -> Result<_, Box<dyn Error>> {
         for scanout in &kms.scanouts {
             scanout
@@ -728,22 +773,28 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
                 .commit([plane_state(scanout, fb)], false)
                 .map_err(|error| format!("initial KMS commit failed: {error}"))?;
         }
+        // A display manager, D-Bus activated desktop services, and optional
+        // session managers must only observe Denial after the shell is alive
+        // and every initial scanout has accepted a real commit. Publishing at
+        // this boundary makes the standard activation environment double as
+        // the compositor's readiness signal without coupling it to a launcher.
         if let Some(frontend) = wayland.as_ref() {
-            // READY means the full session is usable: Flutter has started and
-            // every connected output accepted its first real KMS commit. A
-            // finalization failure remains inside the restore boundary.
-            finalize_uwsm_session(
+            match publish_session_activation_environment(
                 frontend.socket_name(),
-                &frontend.xdisplay_name(),
+                frontend.xdisplay_name().as_os_str(),
                 #[cfg(feature = "flutter")]
                 output_control
                     .as_ref()
                     .map(|server| server.socket_path().as_os_str()),
                 #[cfg(not(feature = "flutter"))]
                 None,
-            )?;
+            ) {
+                Ok(activation) => graphical_session_started = activation.starts_systemd_target(),
+                Err(error) => {
+                    warn!(%error, "could not activate the compositor session environment")
+                }
+            }
         }
-
         if let RuntimeLimit::Frames(frame_count) = runtime_limit {
             run_frame_loop(
                 &mut renderer,
@@ -845,12 +896,17 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         // The orderly path already drains pending flips and releases master,
         // but an error or panic can leave the Flutter loop before reaching
         // that code. Never let such an exceptional exit fall through to the
-        // synchronous atomic restore below: SDDM owns the next modeset.
+        // synchronous atomic restore below: the display manager owns the next
+        // modeset.
         kms.pause();
     }
     let restore = kms.restore_once(&restore_state, current_fb);
     let restored = restore.restored;
     let restore_failures = restore.failures;
+
+    if graphical_session_started && let Err(error) = stop_systemd_graphical_session() {
+        warn!(%error, "could not stop the Denial graphical-session target");
+    }
 
     match runtime_outcome {
         Ok(Ok(_)) if restore_failures.is_empty() => {}
@@ -879,37 +935,10 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn finalize_uwsm_session(
-    wayland_display: &OsStr,
-    x11_display: &OsStr,
-    output_control_socket: Option<&OsStr>,
-) -> Result<(), Box<dyn Error>> {
-    if std::env::var_os("DENIA_UWSM_FINALIZE").as_deref() != Some(OsStr::new("1")) {
-        return Ok(());
-    }
-
-    // The SDDM entry intentionally follows the existing, reliable UWSM
-    // session envelope. Once the caller has brought Smithay, Flutter and the
-    // real KMS scanouts up, export the listener's actual auto-selected name
-    // and complete the compositor unit handshake.
-    // Direct TTY/KMS test runs never set DENIA_UWSM_FINALIZE and remain fully
-    // independent from the user's graphical-session manager.
-    let status =
-        uwsm_finalize_command(wayland_display, x11_display, output_control_socket).status()?;
-    if !status.success() {
-        return Err(format!("uwsm finalize failed with {status}").into());
-    }
-    info!(
-        wayland_display = ?wayland_display,
-        x11_display = ?x11_display,
-        "finalized UWSM Wayland session"
-    );
-    Ok(())
-}
-
 fn session_activation_environment(
     wayland_display: &OsStr,
     x11_display: &OsStr,
+    output_control_socket: Option<&OsStr>,
 ) -> Result<BTreeMap<&'static str, String>, Box<dyn Error>> {
     let wayland_display = wayland_display
         .to_str()
@@ -917,64 +946,155 @@ fn session_activation_environment(
     let x11_display = x11_display
         .to_str()
         .ok_or("X11 display name is not valid UTF-8")?;
-    Ok(BTreeMap::from([
+    let mut environment = BTreeMap::from([
         ("DESKTOP_SESSION", String::from("Denial")),
         ("DISPLAY", x11_display.to_owned()),
         ("WAYLAND_DISPLAY", wayland_display.to_owned()),
         ("XDG_CURRENT_DESKTOP", String::from("Denial")),
         ("XDG_SESSION_DESKTOP", String::from("Denial")),
         ("XDG_SESSION_TYPE", String::from("wayland")),
-    ]))
+    ]);
+    if let Some(socket) = output_control_socket {
+        environment.insert(
+            "DENIAL_SOCKET",
+            socket
+                .to_str()
+                .ok_or("Denial control socket path is not valid UTF-8")?
+                .to_owned(),
+        );
+    }
+    Ok(environment)
+}
+
+fn systemd_environment_assignments(environment: &BTreeMap<&'static str, String>) -> Vec<String> {
+    environment
+        .iter()
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect()
+}
+
+fn update_dbus_activation_environment(
+    connection: &zbus::blocking::Connection,
+    environment: &BTreeMap<&'static str, String>,
+) -> Result<(), zbus::Error> {
+    let proxy = zbus::blocking::Proxy::new(
+        connection,
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+    )?;
+    proxy.call("UpdateActivationEnvironment", environment)
+}
+
+fn dbus_name_has_owner(
+    connection: &zbus::blocking::Connection,
+    name: &str,
+) -> Result<bool, zbus::Error> {
+    let proxy = zbus::blocking::Proxy::new(
+        connection,
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+    )?;
+    proxy.call("NameHasOwner", &(name))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SessionActivation {
+    Dbus,
+    Systemd,
+}
+
+impl SessionActivation {
+    fn for_systemd_name_owner(has_owner: bool) -> Self {
+        if has_owner { Self::Systemd } else { Self::Dbus }
+    }
+
+    fn starts_systemd_target(self) -> bool {
+        self == Self::Systemd
+    }
+}
+
+fn update_systemd_activation_environment(
+    connection: &zbus::blocking::Connection,
+    environment: &BTreeMap<&'static str, String>,
+) -> Result<(), zbus::Error> {
+    let proxy = zbus::blocking::Proxy::new(
+        connection,
+        "org.freedesktop.systemd1",
+        "/org/freedesktop/systemd1",
+        "org.freedesktop.systemd1.Manager",
+    )?;
+    proxy.call(
+        "SetEnvironment",
+        &systemd_environment_assignments(environment),
+    )
+}
+
+fn change_systemd_graphical_session(
+    connection: &zbus::blocking::Connection,
+    method: &'static str,
+    target: &'static str,
+) -> Result<(), zbus::Error> {
+    let proxy = zbus::blocking::Proxy::new(
+        connection,
+        "org.freedesktop.systemd1",
+        "/org/freedesktop/systemd1",
+        "org.freedesktop.systemd1.Manager",
+    )?;
+    let _: zbus::zvariant::OwnedObjectPath = proxy.call(method, &(target, "replace"))?;
+    Ok(())
+}
+
+fn start_systemd_graphical_session(
+    connection: &zbus::blocking::Connection,
+) -> Result<(), zbus::Error> {
+    change_systemd_graphical_session(connection, "StartUnit", DENIAL_SESSION_TARGET)
+}
+
+fn stop_systemd_graphical_session() -> Result<(), Box<dyn Error>> {
+    let connection = zbus::blocking::Connection::session()?;
+    change_systemd_graphical_session(&connection, "StopUnit", GRAPHICAL_SESSION_TARGET)?;
+    Ok(())
 }
 
 fn publish_session_activation_environment(
     wayland_display: &OsStr,
     x11_display: &OsStr,
-) -> Result<(), Box<dyn Error>> {
-    let environment = session_activation_environment(wayland_display, x11_display)?;
-    let connection = zbus::blocking::Connection::session()?;
-    let proxy = zbus::blocking::Proxy::new(
-        &connection,
-        "org.freedesktop.DBus",
-        "/org/freedesktop/DBus",
-        "org.freedesktop.DBus",
-    )?;
-    let _: () = proxy.call("UpdateActivationEnvironment", &environment)?;
-    info!(
-        wayland_display = ?wayland_display,
-        x11_display = ?x11_display,
-        "published the compositor display to D-Bus activation"
-    );
-    Ok(())
-}
-
-fn uwsm_finalize_command(
-    wayland_display: &OsStr,
-    x11_display: &OsStr,
     output_control_socket: Option<&OsStr>,
-) -> Command {
-    let mut command = Command::new("uwsm");
-    command
-        .arg("finalize")
-        .args([
-            "XDG_CURRENT_DESKTOP",
-            "XDG_SESSION_DESKTOP",
-            "XDG_SESSION_TYPE",
-            "DESKTOP_SESSION",
-            "DISPLAY",
-        ])
-        .env("WAYLAND_DISPLAY", wayland_display)
-        .env("DISPLAY", x11_display);
-    if let Some(socket) = output_control_socket {
-        command.arg("DENIAL_SOCKET").env("DENIAL_SOCKET", socket);
+) -> Result<SessionActivation, Box<dyn Error>> {
+    let environment =
+        session_activation_environment(wayland_display, x11_display, output_control_socket)?;
+    let connection = zbus::blocking::Connection::session()?;
+    update_dbus_activation_environment(&connection, &environment)?;
+
+    let activation = SessionActivation::for_systemd_name_owner(dbus_name_has_owner(
+        &connection,
+        SYSTEMD_DBUS_NAME,
+    )?);
+    match activation {
+        SessionActivation::Dbus => info!(
+            wayland_display = ?wayland_display,
+            x11_display = ?x11_display,
+            "published the compositor session to D-Bus activation"
+        ),
+        SessionActivation::Systemd => {
+            update_systemd_activation_environment(&connection, &environment)?;
+            start_systemd_graphical_session(&connection)?;
+            info!(
+                wayland_display = ?wayland_display,
+                x11_display = ?x11_display,
+                target = DENIAL_SESSION_TARGET,
+                "published the compositor session and activated its graphical-session target"
+            );
+        }
     }
-    command
+    Ok(activation)
 }
 
 #[cfg(test)]
-mod uwsm_tests {
+mod session_activation_tests {
     use super::*;
-    use std::ffi::OsString;
 
     #[test]
     fn login_session_handoff_does_not_capture_the_greeter_framebuffer() {
@@ -987,57 +1107,53 @@ mod uwsm_tests {
     }
 
     #[test]
-    fn finalize_command_exports_the_real_smithay_socket_and_desktop_identity() {
-        let command = uwsm_finalize_command(
+    fn activation_environment_uses_the_discovered_session_endpoints() {
+        let environment = session_activation_environment(
             OsStr::new("wayland-37"),
             OsStr::new(":42"),
             Some(OsStr::new("/run/user/1000/denial/control.sock")),
-        );
-        assert_eq!(command.get_program(), OsStr::new("uwsm"));
-        assert_eq!(
-            command.get_args().collect::<Vec<_>>(),
-            [
-                OsStr::new("finalize"),
-                OsStr::new("XDG_CURRENT_DESKTOP"),
-                OsStr::new("XDG_SESSION_DESKTOP"),
-                OsStr::new("XDG_SESSION_TYPE"),
-                OsStr::new("DESKTOP_SESSION"),
-                OsStr::new("DISPLAY"),
-                OsStr::new("DENIAL_SOCKET"),
-            ]
-        );
-        let environment = command
-            .get_envs()
-            .map(|(key, value)| (key.to_owned(), value.map(OsStr::to_owned)))
-            .collect::<BTreeMap<_, _>>();
-        assert_eq!(
-            environment.get(OsStr::new("WAYLAND_DISPLAY")),
-            Some(&Some(OsString::from("wayland-37")))
-        );
-        assert_eq!(
-            environment.get(OsStr::new("DISPLAY")),
-            Some(&Some(OsString::from(":42")))
-        );
-        assert_eq!(
-            environment.get(OsStr::new("DENIAL_SOCKET")),
-            Some(&Some(OsString::from("/run/user/1000/denial/control.sock")))
-        );
-    }
-
-    #[test]
-    fn dbus_activation_environment_uses_the_real_compositor_displays() {
-        let environment =
-            session_activation_environment(OsStr::new("wayland-37"), OsStr::new(":42"))
-                .expect("valid session environment");
+        )
+        .expect("valid session environment");
         assert_eq!(
             environment.get("WAYLAND_DISPLAY").map(String::as_str),
             Some("wayland-37")
         );
         assert_eq!(environment.get("DISPLAY").map(String::as_str), Some(":42"));
+        assert!(!environment.contains_key("XMODIFIERS"));
         assert_eq!(
             environment.get("XDG_SESSION_TYPE").map(String::as_str),
             Some("wayland")
         );
+        assert_eq!(
+            environment.get("DENIAL_SOCKET").map(String::as_str),
+            Some("/run/user/1000/denial/control.sock")
+        );
+        assert_eq!(
+            systemd_environment_assignments(&environment),
+            [
+                "DENIAL_SOCKET=/run/user/1000/denial/control.sock",
+                "DESKTOP_SESSION=Denial",
+                "DISPLAY=:42",
+                "WAYLAND_DISPLAY=wayland-37",
+                "XDG_CURRENT_DESKTOP=Denial",
+                "XDG_SESSION_DESKTOP=Denial",
+                "XDG_SESSION_TYPE=wayland",
+            ]
+        );
+    }
+
+    #[test]
+    fn session_lifecycle_follows_the_available_activation_manager() {
+        assert_eq!(
+            SessionActivation::for_systemd_name_owner(false),
+            SessionActivation::Dbus
+        );
+        assert_eq!(
+            SessionActivation::for_systemd_name_owner(true),
+            SessionActivation::Systemd
+        );
+        assert!(!SessionActivation::Dbus.starts_systemd_target());
+        assert!(SessionActivation::Systemd.starts_systemd_target());
     }
 }
 
@@ -2039,14 +2155,29 @@ fn install_ready_fence_watch(
     event_loop.handle().insert_source(
         Generic::new(fence, Interest::READ, PollMode::Level),
         move |_, _, state: &mut RuntimeState| {
-            // Output-owned fences go directly to KMS through IN_FENCE_FD.
-            // This userspace watch exists only when no powered output consumed
-            // the rendered damage, so readability makes that atlas reusable.
+            // Readability either makes an unconsumed atlas reusable or allows
+            // a capability fallback to submit it without IN_FENCE_FD.
             state.ready_fence_signals.push(signal);
             Ok(PostAction::Remove)
         },
     )?;
     Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn submit_ready_frames(
+    scheduler: &mut output_scheduler::OutputScheduler,
+    drm: &DrmDevice,
+    swapchain: &AtlasSwapchain,
+    scanouts: &[Scanout],
+    event_loop: &mut EventLoop<'_, RuntimeState>,
+    events: &mut RuntimeState,
+) -> Result<usize, Box<dyn Error>> {
+    let submission = scheduler.submit_ready(drm, swapchain, scanouts, events)?;
+    if let Some(watch) = submission.fence_watch {
+        install_ready_fence_watch(event_loop, watch)?;
+    }
+    Ok(submission.submitted)
 }
 
 #[cfg(feature = "flutter")]
@@ -2324,7 +2455,14 @@ fn run_flutter_event_loop(
             && let Some(request) = events.pending_output_applies.pop_front()
         {
             if scheduler.has_pending_scanout_work() {
-                scheduler.submit_ready(drm, swapchain, scanouts, &mut events)?;
+                submit_ready_frames(
+                    &mut scheduler,
+                    drm,
+                    swapchain,
+                    scanouts,
+                    event_loop,
+                    &mut events,
+                )?;
                 events.pending_output_applies.push_front(request);
                 let now = Instant::now();
                 let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
@@ -2641,7 +2779,14 @@ fn run_flutter_event_loop(
                         // common rollback point used by the hotplug transaction.
                         // A signalled userspace fence can be submitted now; an
                         // unfinished one will wake this loop through calloop.
-                        scheduler.submit_ready(drm, swapchain, scanouts, &mut events)?;
+                        submit_ready_frames(
+                            &mut scheduler,
+                            drm,
+                            swapchain,
+                            scanouts,
+                            event_loop,
+                            &mut events,
+                        )?;
                         events.topology_dirty = true;
                         events.kms_reconfigure_requested = kms_reconfigure_requested;
                         let now = Instant::now();
@@ -2724,7 +2869,14 @@ fn run_flutter_event_loop(
                 // every affected CRTC. A ready fence or page flip will wake
                 // this loop through calloop, without disturbing clients or
                 // the graphical session.
-                scheduler.submit_ready(drm, swapchain, scanouts, &mut events)?;
+                submit_ready_frames(
+                    &mut scheduler,
+                    drm,
+                    swapchain,
+                    scanouts,
+                    event_loop,
+                    &mut events,
+                )?;
                 let now = Instant::now();
                 let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
                     Duration::from_millis(50).min(deadline.saturating_duration_since(now))
@@ -2805,6 +2957,7 @@ fn run_flutter_event_loop(
         synchronize_system_control_events(runtime, &mut events)?;
         synchronize_notification_events(runtime, &mut events)?;
         synchronize_shell_keyboard(runtime, &mut events)?;
+        synchronize_settings(runtime, &mut events)?;
         synchronize_system_bar_configuration(runtime, &mut events, Some(flutter_launcher));
         synchronize_flutter_window_management(runtime, &mut events)?;
         synchronize_flutter_scene(runtime, &mut events)?;
@@ -2933,10 +3086,18 @@ fn run_flutter_event_loop(
         }
 
         // Queue the candidate before accepting its successor. Native GPU work
-        // travels with the atomic commit through IN_FENCE_FD, so KMS learns of
-        // the frame immediately without allowing a producer mailbox to replace
-        // storage that the raster thread may still be writing.
-        scheduler.submit_ready(drm, swapchain, scanouts, &mut events)?;
+        // normally travels with the atomic commit through IN_FENCE_FD. If a
+        // driver advertises that property but rejects real fenced commits, the
+        // scheduler first waits for the same fence in calloop and then queues
+        // the framebuffer, preserving the producer ownership boundary.
+        submit_ready_frames(
+            &mut scheduler,
+            drm,
+            swapchain,
+            scanouts,
+            event_loop,
+            &mut events,
+        )?;
         if scheduler.can_accept_ready()
             && let Some(ready) = runtime.take_ready()
         {
@@ -2944,9 +3105,16 @@ fn run_flutter_event_loop(
                 install_ready_fence_watch(event_loop, watch)?;
             }
             raster_frames = raster_frames.saturating_add(1);
-            // Leave the newly published frame queued before servicing the next
-            // display tick. KMS owns the native fence after the atomic ioctl.
-            scheduler.submit_ready(drm, swapchain, scanouts, &mut events)?;
+            // Leave the newly published frame queued (or watched by calloop)
+            // before servicing the next display tick.
+            submit_ready_frames(
+                &mut scheduler,
+                drm,
+                swapchain,
+                scanouts,
+                event_loop,
+                &mut events,
+            )?;
         }
         let frame_action = frame_scheduler.step(Instant::now(), runtime.pending_frame());
         for tick in frame_scheduler.output_ticks().iter().copied() {
@@ -3011,11 +3179,12 @@ fn run_flutter_event_loop(
         scanouts,
         event_loop,
         &mut events,
-        // A real login session hands KMS ownership back to SDDM. Restoring
-        // the framebuffer captured before Denial started is both unnecessary
-        // and dangerous here: an atomic commit can wait forever on a fence
-        // owned by the compositor which is currently tearing down. Finite KMS
-        // tests still restore their captured state after a successful drain.
+        // A real login session hands KMS ownership back to its display
+        // manager. Restoring the framebuffer captured before Denial started is
+        // both unnecessary and dangerous here: an atomic commit can wait
+        // forever on a fence owned by the compositor which is currently
+        // tearing down. Finite KMS tests still restore their captured state
+        // after a successful drain.
         duration.is_none(),
     );
 
@@ -3083,6 +3252,7 @@ fn reload_flutter_runtime(
         synchronize_clipboard(&mut old_runtime, events)?;
         synchronize_system_control_events(&mut old_runtime, events)?;
         synchronize_shell_keyboard(&mut old_runtime, events)?;
+        synchronize_settings(&mut old_runtime, events)?;
         synchronize_system_bar_configuration(&mut old_runtime, events, Some(flutter_launcher));
         synchronize_flutter_window_management(&mut old_runtime, events)?;
         synchronize_flutter_input_layout(&mut old_runtime, events);
@@ -3216,11 +3386,12 @@ fn quiesce_flutter_page_flips(
     }
 
     if release_drm_master && drm.is_active() {
-        // Closing a full SDDM/UWSM compositor session is an ownership handoff,
+        // Closing a full display-manager session is an ownership handoff,
         // not a temporary KMS experiment. Release the device before Flutter
-        // destroys its contexts and buffers; SDDM will establish its own mode
-        // when logind activates it. KmsContext::restore_once observes the
-        // inactive device and deliberately skips every blocking atomic ioctl.
+        // destroys its contexts and buffers; the display manager will
+        // establish its own mode when logind activates it.
+        // KmsContext::restore_once observes the inactive device and deliberately
+        // skips every blocking atomic ioctl.
         drm.pause();
         info!("released DRM master for graphical-session handoff");
     }
@@ -3283,6 +3454,7 @@ fn wait_for_flutter_frame(
         synchronize_system_control_events(runtime, events)?;
         synchronize_notification_events(runtime, events)?;
         synchronize_shell_keyboard(runtime, events)?;
+        synchronize_settings(runtime, events)?;
         synchronize_system_bar_configuration(runtime, events, flutter_launcher.as_deref_mut());
         synchronize_flutter_window_management(runtime, events)?;
         synchronize_flutter_scene(runtime, events)?;
@@ -3493,12 +3665,22 @@ fn synchronize_authentication_boundary(events: &mut RuntimeState) {
     // the previously focused application.
     wayland_frontend::reset_all_input_devices(events);
     events.session_lock_applied = locked;
+    if events
+        .wayland
+        .as_mut()
+        .is_some_and(|frontend| frontend.set_input_method_blocked(locked))
+    {
+        events.scene_sync.mark_dirty();
+    }
     if locked {
         events.pending_shell_actions.clear();
     } else if let Some(authentication) = events.authentication.as_ref() {
         authentication.acknowledge_unlocked_boundary();
     }
-    events.scene_sync.mark_dirty();
+    // The security boundary changes routing, not Wayland scene metadata. The
+    // input-method branch above dirties the scene when blocking it actually
+    // changes a visible popup; forcing an unconditional full scene traversal
+    // here would put unrelated synchronous work on the first lock/unlock frame.
     info!(locked, "Denial native session security state changed");
 }
 
@@ -3592,28 +3774,94 @@ fn synchronize_shell_keyboard(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &mut RuntimeState,
 ) -> Result<(), Box<dyn Error>> {
+    if let Some((generation, snapshot)) = runtime.take_text_input_state()
+        && events
+            .wayland
+            .as_mut()
+            .is_some_and(|frontend| frontend.observe_flutter_text_editor(generation, snapshot))
+    {
+        events.scene_sync.mark_dirty();
+    }
+
+    let input_method_transactions = events
+        .wayland
+        .as_mut()
+        .map(|frontend| {
+            frontend
+                .drain_flutter_input_method_transactions()
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if !events.secure_session_locked() {
+        for (generation, client_id, transaction) in input_method_transactions {
+            if !runtime.dispatch_input_method_to_flutter(generation, client_id, &transaction)? {
+                debug!(
+                    generation,
+                    client_id, "input-method transaction lost its Flutter editor"
+                );
+            }
+        }
+    }
+    if let Some((generation, snapshot)) = runtime.take_text_input_state()
+        && events
+            .wayland
+            .as_mut()
+            .is_some_and(|frontend| frontend.observe_flutter_text_editor(generation, snapshot))
+    {
+        events.scene_sync.mark_dirty();
+    }
     let commands = runtime.drain_keyboard_commands().collect::<Vec<_>>();
     if events.secure_session_locked() {
         return Ok(());
     }
 
     for command in commands {
-        if runtime.has_flutter_text_input_client() {
-            runtime.dispatch_keyboard_command_to_flutter(&command)?;
-        } else if events
+        let target = events
             .wayland
             .as_ref()
-            .is_some_and(wayland_frontend::WaylandFrontend::shell_captures_keyboard)
-        {
-            debug!(
-                ?command,
-                "shell keyboard command had no active shell text field"
-            );
-        } else if !wayland_frontend::dispatch_shell_keyboard_command(events, &command) {
-            warn!(
-                ?command,
-                "shell keyboard command had no focused input target"
-            );
+            .map(|frontend| match &command {
+                wire::KeyboardCommand::Text(_) => frontend.text_input_target_for_text(),
+                wire::KeyboardCommand::Key { .. } => frontend.text_input_target_for_key(),
+            })
+            .unwrap_or(wayland_frontend::ShellCommandTarget::None);
+        match target {
+            wayland_frontend::ShellCommandTarget::Flutter => {
+                runtime.dispatch_keyboard_command_to_flutter(&command)?;
+            }
+            wayland_frontend::ShellCommandTarget::WaylandText => {
+                let wire::KeyboardCommand::Text(text) = &command else {
+                    unreachable!("named keys never select the Wayland text endpoint")
+                };
+                let delivered = events
+                    .wayland
+                    .as_mut()
+                    .is_some_and(|frontend| frontend.commit_text_input(text));
+                if !delivered
+                    && !wayland_frontend::dispatch_shell_keyboard_fallback(events, &command)
+                {
+                    warn!(
+                        ?command,
+                        "Wayland text endpoint disappeared and its seat fallback was unavailable"
+                    );
+                }
+            }
+            wayland_frontend::ShellCommandTarget::Seat => {
+                if !wayland_frontend::dispatch_shell_keyboard_fallback(events, &command) {
+                    warn!(?command, "seat fallback had no focused input target");
+                }
+            }
+            wayland_frontend::ShellCommandTarget::Captured => {
+                debug!(
+                    ?command,
+                    "shell captured keyboard input without an active editor"
+                );
+            }
+            wayland_frontend::ShellCommandTarget::None => {
+                warn!(
+                    ?command,
+                    "shell keyboard command had no focused input target"
+                );
+            }
         }
     }
     Ok(())
@@ -3663,6 +3911,201 @@ fn synchronize_flutter_window_management(
     }
     events.pending_window_events.recycle_drained(pending);
     Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn synchronize_settings(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &mut RuntimeState,
+) -> Result<(), Box<dyn Error>> {
+    let commands = runtime.drain_settings_commands().collect::<Vec<_>>();
+    for command in commands {
+        match command {
+            wire::SettingsCommand::ReadDocument { request_id } => {
+                let (revision, document) = {
+                    let settings = &events
+                        .wayland
+                        .as_ref()
+                        .ok_or("settings request has no Wayland frontend")?
+                        .settings;
+                    (settings.revision(), settings.document_json())
+                };
+                match document {
+                    Ok(document) => runtime.send_settings_document_response(
+                        request_id,
+                        revision,
+                        Some(&document),
+                        None,
+                    )?,
+                    Err(error) => runtime.send_settings_document_response(
+                        request_id,
+                        revision,
+                        None,
+                        Some(&error.to_string()),
+                    )?,
+                }
+            }
+            wire::SettingsCommand::WriteDocument {
+                request_id,
+                expected_revision,
+                document,
+            } => {
+                let result = {
+                    let frontend = events
+                        .wayland
+                        .as_mut()
+                        .ok_or("settings request has no Wayland frontend")?;
+                    frontend
+                        .settings
+                        .prepare_shell_update(expected_revision, &document)
+                        .and_then(|prepared| frontend.settings.commit(prepared))
+                };
+                let (revision, document) = {
+                    let frontend = events.wayland.as_mut().expect("missing Wayland frontend");
+                    if result.is_ok() {
+                        // The keyboard values are unchanged, but its revision
+                        // token advanced with the shared document.
+                        frontend.keyboard_configuration_changed = true;
+                    }
+                    (
+                        frontend.settings.revision(),
+                        result
+                            .as_ref()
+                            .ok()
+                            .and_then(|()| frontend.settings.document_json().ok()),
+                    )
+                };
+                runtime.send_settings_document_response(
+                    request_id,
+                    revision,
+                    document.as_deref(),
+                    result
+                        .as_ref()
+                        .err()
+                        .map(|error| error.to_string())
+                        .as_deref(),
+                )?;
+            }
+            wire::SettingsCommand::ReadKeyboard { request_id } => {
+                send_keyboard_settings(runtime, events, request_id, None)?;
+            }
+            wire::SettingsCommand::ConfigureKeyboard {
+                request_id,
+                expected_revision,
+                keyboard,
+            } => {
+                let prepared = events
+                    .wayland
+                    .as_ref()
+                    .ok_or("settings request has no Wayland frontend")?
+                    .settings
+                    .prepare_keyboard_update(expected_revision, keyboard);
+                let result = match prepared {
+                    Ok(prepared) => {
+                        let previous = events
+                            .wayland
+                            .as_ref()
+                            .expect("missing Wayland frontend")
+                            .settings
+                            .keyboard()
+                            .clone();
+                        let next = prepared.keyboard().clone();
+                        match wayland_frontend::install_keyboard_settings(events, &next) {
+                            Ok(_) => {
+                                let commit = events
+                                    .wayland
+                                    .as_mut()
+                                    .expect("missing Wayland frontend")
+                                    .settings
+                                    .commit(prepared);
+                                if let Err(error) = commit {
+                                    if let Err(rollback_error) =
+                                        wayland_frontend::install_keyboard_settings(
+                                            events, &previous,
+                                        )
+                                    {
+                                        return Err(format!(
+                                            "keyboard settings commit failed ({error}) and the live keymap rollback failed ({rollback_error})"
+                                        )
+                                        .into());
+                                    }
+                                    Err(error)
+                                } else {
+                                    info!(
+                                        revision = events
+                                            .wayland
+                                            .as_ref()
+                                            .expect("missing Wayland frontend")
+                                            .settings
+                                            .revision(),
+                                        layouts = next.layouts.len(),
+                                        repeat_rate_hz = next.repeat_rate_hz,
+                                        repeat_delay_ms = next.repeat_delay_ms,
+                                        "applied persistent keyboard settings"
+                                    );
+                                    Ok(())
+                                }
+                            }
+                            Err(error) => {
+                                warn!(%error, "rejected keyboard configuration after XKB preflight");
+                                // Convert the late Smithay error into the same
+                                // bounded user-facing response as persistence
+                                // failures.
+                                send_keyboard_settings(
+                                    runtime,
+                                    events,
+                                    request_id,
+                                    Some(&error.to_string()),
+                                )?;
+                                continue;
+                            }
+                        }
+                    }
+                    Err(error) => Err(error),
+                };
+                send_keyboard_settings(
+                    runtime,
+                    events,
+                    request_id,
+                    result
+                        .as_ref()
+                        .err()
+                        .map(|error| error.to_string())
+                        .as_deref(),
+                )?;
+            }
+        }
+    }
+
+    let changed = events
+        .wayland
+        .as_mut()
+        .is_some_and(|frontend| std::mem::take(&mut frontend.keyboard_configuration_changed));
+    if changed {
+        send_keyboard_settings(runtime, events, 0, None)?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn send_keyboard_settings(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &RuntimeState,
+    request_id: u64,
+    error: Option<&str>,
+) -> Result<(), Box<dyn Error>> {
+    let frontend = events
+        .wayland
+        .as_ref()
+        .ok_or("keyboard settings response has no Wayland frontend")?;
+    runtime.send_keyboard_settings_response(
+        request_id,
+        frontend.settings.revision(),
+        frontend.settings.keyboard(),
+        &frontend.keyboard_layout_names,
+        frontend.active_keyboard_layout,
+        error,
+    )
 }
 
 #[cfg(feature = "flutter")]
@@ -3864,6 +4307,7 @@ fn apply_hotplug_topology(
             synchronize_clipboard(&mut old_runtime, events)?;
             synchronize_system_control_events(&mut old_runtime, events)?;
             synchronize_shell_keyboard(&mut old_runtime, events)?;
+            synchronize_settings(&mut old_runtime, events)?;
             synchronize_system_bar_configuration(
                 &mut old_runtime,
                 events,

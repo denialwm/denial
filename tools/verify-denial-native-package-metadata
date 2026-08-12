@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fail() {
+  printf 'verify-denial-native-package-metadata: %s\n' "$*" >&2
+  exit 1
+}
+
+if (($# != 6)); then
+  printf '%s\n' \
+    'Usage: verify-denial-native-package-metadata FORMAT PACKAGE VERSION RELEASE ABI GLIBC_BASELINE' \
+    >&2
+  exit 2
+fi
+
+format="$1"
+package="$2"
+package_version="$3"
+package_release="$4"
+flutter_engine_abi="$5"
+glibc_baseline="$6"
+expected_version="${package_version}-${package_release}"
+
+[[ -f "$package" && ! -L "$package" ]] \
+  || fail "package is not a regular file: $package"
+[[ "$format" == deb || "$format" == rpm ]] \
+  || fail "unsupported package format: $format"
+
+has_deb_relation() {
+  local relations="$1"
+  local expected="$2"
+  tr ',' '\n' <<<"$relations" \
+    | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
+    | grep -Fxq "$expected"
+}
+
+verify_deb() {
+  local package_name package_arch package_dependencies package_provides
+  local control_root payload_listing actual_conffiles expected_conffiles script
+
+  for command in basename bsdtar dpkg-deb grep mktemp rm sed sh sort stat tr; do
+    command -v "$command" >/dev/null 2>&1 \
+      || fail "$command is required"
+  done
+
+  package_name="$(dpkg-deb --field "$package" Package)"
+  package_arch="$(dpkg-deb --field "$package" Architecture)"
+  [[ "$(dpkg-deb --field "$package" Version)" == "$expected_version" ]] \
+    || fail "$(basename -- "$package") has the wrong Debian version"
+  [[ "$package_arch" == amd64 ]] \
+    || fail "$(basename -- "$package") targets $package_arch, expected amd64"
+  package_dependencies="$(dpkg-deb --field "$package" Depends)"
+  package_provides="$(dpkg-deb --field "$package" Provides 2>/dev/null || true)"
+  payload_listing="$(dpkg-deb --fsys-tarfile "$package" | bsdtar -tf -)"
+
+  control_root="$(mktemp -d "${TMPDIR:-/tmp}/denial-deb-control.XXXXXX")"
+  cleanup_deb_control() {
+    if [[ "$control_root" == "${TMPDIR:-/tmp}"/denial-deb-control.* ]]; then
+      rm -rf --one-file-system -- "$control_root"
+    fi
+  }
+  trap cleanup_deb_control EXIT
+  dpkg-deb --ctrl-tarfile "$package" | bsdtar -xpf - -C "$control_root"
+
+  case "$package_name" in
+    denial)
+      has_deb_relation "$package_dependencies" \
+        "denial-flutter-engine (= $expected_version)" \
+        || fail 'Debian package has the wrong exact engine dependency'
+      has_deb_relation "$package_dependencies" \
+        'init-system-helpers (>= 1.66~)' \
+        || fail 'Debian package lacks the user-unit lifecycle helper dependency'
+      has_deb_relation "$package_dependencies" rtkit \
+        || fail 'Debian package does not require rtkit'
+      expected_conffiles="$(printf '%s\n' \
+        /etc/denial/outputs.conf \
+        /etc/denial/session.conf \
+        /etc/xdg/xdg-desktop-portal-wlr/Denial \
+        | sort)"
+      [[ -f "$control_root/conffiles" ]] \
+        || fail 'Debian package has no conffiles policy'
+      actual_conffiles="$(sort "$control_root/conffiles")"
+      [[ "$actual_conffiles" == "$expected_conffiles" ]] \
+        || fail 'Debian package conffiles policy is incomplete'
+      for script in postinst postrm; do
+        [[ -f "$control_root/$script" \
+          && "$(stat -c '%a' "$control_root/$script")" == 755 ]] \
+          || fail "Debian package lacks executable $script"
+        sh -n "$control_root/$script" \
+          || fail "Debian $script does not parse"
+        grep -Fq 'deb-systemd-invoke --user daemon-reload' \
+          "$control_root/$script" \
+          || fail "Debian $script does not reload user managers"
+        if grep -Eq \
+            'deb-systemd-invoke[[:space:]]+--user[[:space:]]+(start|stop|restart)' \
+            "$control_root/$script"; then
+          fail "Debian $script changes the graphical session lifecycle"
+        fi
+      done
+      grep -Fxq './usr/share/doc/denial/copyright' <<<"$payload_listing" \
+        || fail 'Debian package has no policy copyright file'
+      ;;
+    denial-flutter-engine)
+      has_deb_relation "$package_dependencies" "libc6 (>= $glibc_baseline)" \
+        || fail 'Debian engine package has the wrong glibc baseline'
+      has_deb_relation "$package_dependencies" libfontconfig1 \
+        || fail 'Debian engine package does not require Fontconfig'
+      has_deb_relation "$package_provides" \
+        "denial-flutter-engine-abi (= $flutter_engine_abi)" \
+        || fail 'Debian engine package provides the wrong Flutter ABI'
+      grep -Fxq \
+        './usr/share/doc/denial-flutter-engine/copyright' \
+        <<<"$payload_listing" \
+        || fail 'Debian engine package has no policy copyright file'
+      ;;
+    *) fail "unexpected Debian package: ${package_name:-unset}" ;;
+  esac
+
+  cleanup_deb_control
+  trap - EXIT
+  printf 'Verified Debian control metadata: %s\n' "$package"
+}
+
+verify_rpm() {
+  local package_name package_arch package_epoch requirements provides
+  local config_files license_files package_files scripts rpm_query_db
+
+  for command in basename grep mktemp rm rpm sort; do
+    command -v "$command" >/dev/null 2>&1 \
+      || fail "$command is required"
+  done
+
+  rpm_query_db="$(mktemp -d "${TMPDIR:-/tmp}/denial-rpm-metadata.XXXXXX")"
+  cleanup_rpm_metadata() {
+    if [[ "$rpm_query_db" == "${TMPDIR:-/tmp}"/denial-rpm-metadata.* ]]; then
+      rm -rf --one-file-system -- "$rpm_query_db"
+    fi
+  }
+  trap cleanup_rpm_metadata EXIT
+
+  package_name="$(rpm --dbpath "$rpm_query_db" -qp --qf '%{NAME}' "$package")"
+  package_arch="$(rpm --dbpath "$rpm_query_db" -qp --qf '%{ARCH}' "$package")"
+  package_epoch="$(rpm --dbpath "$rpm_query_db" -qp --qf '%{EPOCH}' "$package")"
+  [[ "$(rpm --dbpath "$rpm_query_db" -qp --qf '%{VERSION}-%{RELEASE}' "$package")" \
+    == "$expected_version" ]] \
+    || fail "$(basename -- "$package") has the wrong RPM version"
+  [[ "$package_arch" == x86_64 ]] \
+    || fail "$(basename -- "$package") targets $package_arch, expected x86_64"
+  requirements="$(rpm --dbpath "$rpm_query_db" -qp --requires "$package")"
+  provides="$(rpm --dbpath "$rpm_query_db" -qp --provides "$package")"
+  config_files="$(rpm --dbpath "$rpm_query_db" -qp --configfiles "$package" | sort)"
+  license_files="$(rpm --dbpath "$rpm_query_db" -qp --licensefiles "$package" | sort)"
+  package_files="$(rpm --dbpath "$rpm_query_db" -qlp "$package")"
+  scripts="$(rpm --dbpath "$rpm_query_db" -qp --scripts "$package")"
+
+  case "$package_name" in
+    denial)
+      [[ "$package_epoch" == '(none)' ]] \
+        || fail 'Denial RPM unexpectedly has an epoch'
+      grep -Fxq "denial-flutter-engine = 1:$expected_version" \
+        <<<"$requirements" \
+        || fail 'Denial RPM has the wrong exact engine dependency'
+      grep -Fxq rtkit <<<"$requirements" \
+        || fail 'Denial RPM does not require rtkit'
+      grep -Fxq systemd <<<"$requirements" \
+        || fail 'Denial RPM lacks its systemd scriptlet dependency'
+      [[ "$config_files" == "$(printf '%s\n' \
+        /etc/denial/outputs.conf \
+        /etc/denial/session.conf \
+        /etc/xdg/xdg-desktop-portal-wlr/Denial \
+        | sort)" ]] \
+        || fail 'Denial RPM config(noreplace) policy is incomplete'
+      for expected_license in \
+        /usr/share/licenses/denial/CC-BY-SA-4.0.txt \
+        /usr/share/licenses/denial/GPL-3.0-only.txt \
+        /usr/share/licenses/denial/LICENSE \
+        /usr/share/licenses/denial/OFL-1.1.txt; do
+        grep -Fxq "$expected_license" <<<"$license_files" \
+          || fail "Denial RPM does not mark $expected_license as a license"
+      done
+      grep -Fxq /usr/share/doc/denial/copyright <<<"$package_files" \
+        || fail 'Denial RPM has no package copyright file'
+      for expected_action in \
+        'install-user-units denial-session.target' \
+        'remove-user-units denial-session.target' \
+        'mark-reload-user-units denial-session.target'; do
+        grep -Fq "$expected_action" <<<"$scripts" \
+          || fail "Denial RPM lacks systemd action: $expected_action"
+      done
+      if grep -Fq 'mark-restart-user-units denial-session.target' \
+          <<<"$scripts"; then
+        fail 'Denial RPM restarts the graphical session target during upgrades'
+      fi
+      ;;
+    denial-flutter-engine)
+      [[ "$package_epoch" == 1 ]] \
+        || fail 'Flutter Engine RPM has the wrong epoch'
+      grep -Fxq "glibc >= $glibc_baseline" <<<"$requirements" \
+        || fail 'Flutter Engine RPM has the wrong glibc baseline'
+      grep -Fxq fontconfig <<<"$requirements" \
+        || fail 'Flutter Engine RPM does not require Fontconfig'
+      grep -Fxq "denial-flutter-engine-abi = $flutter_engine_abi" \
+        <<<"$provides" \
+        || fail 'Flutter Engine RPM provides the wrong ABI'
+      for expected_license in \
+        /usr/share/licenses/denial-flutter-engine/LICENSE.flutter \
+        /usr/share/licenses/denial-flutter-engine/LICENSE.third_party; do
+        grep -Fxq "$expected_license" <<<"$license_files" \
+          || fail "Flutter Engine RPM does not mark $expected_license as a license"
+      done
+      grep -Fxq \
+        /usr/share/doc/denial-flutter-engine/copyright \
+        <<<"$package_files" \
+        || fail 'Flutter Engine RPM has no package copyright file'
+      ;;
+    *) fail "unexpected RPM package: ${package_name:-unset}" ;;
+  esac
+
+  cleanup_rpm_metadata
+  trap - EXIT
+  printf 'Verified RPM package metadata: %s\n' "$package"
+}
+
+case "$format" in
+  deb) verify_deb ;;
+  rpm) verify_rpm ;;
+esac

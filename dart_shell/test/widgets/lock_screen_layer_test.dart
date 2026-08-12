@@ -49,7 +49,8 @@ void main() {
       tester
           .widgetList<LockScreenLayer>(find.byType(LockScreenLayer))
           .single
-          .unlockProgress,
+          .unlockProgress
+          .value,
       0,
     );
     expect(find.bySemanticsLabel('Desktop lock screen'), findsOneWidget);
@@ -182,7 +183,7 @@ Widget _host({
           initialEntries: <OverlayEntry>[
             OverlayEntry(
               builder: (_) => const LockScreenLayer(
-                unlockProgress: 0,
+                unlockProgress: AlwaysStoppedAnimation<double>(0),
                 animateDesktopEntrance: false,
               ),
             ),

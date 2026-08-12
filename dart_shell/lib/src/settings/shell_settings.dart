@@ -418,7 +418,7 @@ class ShellSettings {
     this.power = const ShellPowerSettings(),
   });
 
-  static const int schemaVersion = 7;
+  static const int schemaVersion = 8;
 
   final ShellLocalizationSettings localization;
   final ShellAppearanceSettings appearance;

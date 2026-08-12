@@ -7,7 +7,7 @@ use denial_core::topology::OutputId;
 use smithay::backend::drm::DrmDevice;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::reexports::drm::control::{AtomicCommitFlags, RawResourceHandle, framebuffer};
-use tracing::info;
+use tracing::{info, warn};
 
 use super::flutter_runtime::{FlutterRuntime, ReadyFrame};
 use super::frame_scheduler::FrameTick;
@@ -75,8 +75,8 @@ impl ReadyFenceSlot {
         true
     }
 
-    fn can_queue(&self) -> bool {
-        self.users > 0
+    fn can_queue(&self, submission: FenceSubmission) -> bool {
+        self.users > 0 && (submission == FenceSubmission::Kernel || self.signaled)
     }
 
     fn release_user(&mut self) -> Result<(), &'static str> {
@@ -95,6 +95,21 @@ impl ReadyFenceSlot {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FenceSubmission {
+    /// Give the exported sync_file to KMS through IN_FENCE_FD.
+    Kernel,
+    /// Wait for the sync_file in calloop, then queue the framebuffer without it.
+    Userspace,
+}
+
+fn is_in_fence_capability_error(error: &std::io::Error) -> bool {
+    matches!(
+        error.raw_os_error(),
+        Some(libc::EPERM | libc::EINVAL | libc::EOPNOTSUPP | libc::ENOSYS)
+    )
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct ReadyFenceSignal {
     index: usize,
     token: u64,
@@ -104,6 +119,12 @@ pub(super) struct ReadyFenceSignal {
 pub(super) struct ReadyFenceWatch {
     fence: OwnedFd,
     signal: ReadyFenceSignal,
+}
+
+#[derive(Debug, Default)]
+pub(super) struct ReadySubmission {
+    pub(super) submitted: usize,
+    pub(super) fence_watch: Option<ReadyFenceWatch>,
 }
 
 impl ReadyFenceWatch {
@@ -447,6 +468,7 @@ pub(super) struct OutputScheduler {
     /// for their synchronous atomic ioctl; no Arc allocation or refcount is
     /// needed to fan a frame out across independently clocked outputs.
     ready_fences: Vec<ReadyFenceSlot>,
+    fence_submission: FenceSubmission,
     audit: Option<OutputSchedulerAudit>,
     /// Buffer ownership retained while every physical output is DPMS-off.
     /// Flutter's independent-scanout broker requires one initial owner, and
@@ -509,6 +531,7 @@ impl OutputScheduler {
             ready_fences: std::iter::repeat_with(ReadyFenceSlot::default)
                 .take(buffer_count)
                 .collect(),
+            fence_submission: FenceSubmission::Kernel,
             audit: render_audit_enabled()
                 .then(|| OutputSchedulerAudit::new(buffer_count, powered_outputs)),
             parked: (powered_outputs == 0).then_some(initial_index),
@@ -594,11 +617,18 @@ impl OutputScheduler {
                 screenshot_request_id,
             });
         }
+        if self.fence_submission == FenceSubmission::Userspace
+            && let Some(fence) = self.ready_fences[index].fence.as_ref()
+        {
+            return Ok(Some(ReadyFenceWatch {
+                fence: fence.as_fd().try_clone_to_owned()?,
+                signal: ReadyFenceSignal { index, token },
+            }));
+        }
         // Every affected plane advertised IN_FENCE_FD before Flutter enabled
-        // native fences. Queue that fence directly with the atomic commit;
-        // the kernel takes its own reference during the ioctl and wakes the
-        // display pipeline when rendering completes. A userspace fence watch
-        // is needed only for a rendered frame which no output will consume.
+        // native fences. Prefer giving the fence directly to KMS, but retain
+        // enough ownership to fall back to a calloop wait if the first real
+        // fenced commit proves that the advertised property is unusable.
         Ok(None)
     }
 
@@ -628,9 +658,10 @@ impl OutputScheduler {
         swapchain: &AtlasSwapchain,
         scanouts: &[Scanout],
         events: &mut RuntimeState,
-    ) -> Result<usize, Box<dyn Error>> {
+    ) -> Result<ReadySubmission, Box<dyn Error>> {
         self.submitted_outputs.clear();
         let mut queue_error = None;
+        let mut fence_watch = None;
         let (pipelines, ready_fences, audit) =
             (&mut self.pipelines, &mut self.ready_fences, &mut self.audit);
         for (pipeline_index, pipeline) in pipelines.iter_mut().enumerate() {
@@ -640,18 +671,40 @@ impl OutputScheduler {
             let scanout = &scanouts[pipeline.scanout_index];
             let frame = pipeline.ready.as_ref().expect("checked ready output frame");
             let frame_index = frame.index;
-            if !ready_fences[frame_index].can_queue() {
-                // A pipeline-ready frame must retain one fence owner until its
-                // atomic ioctl has copied IN_FENCE_FD. Fence-less rendering
-                // reaches this point only after the raster thread's glFinish.
+            if !ready_fences[frame_index].can_queue(self.fence_submission) {
+                // Kernel submission can queue an unfinished sync_file directly.
+                // The userspace fallback waits until the same file is readable.
                 continue;
             }
             let framebuffer = swapchain.buffers[frame_index].framebuffer();
-            if let Err(error) = pipeline.request.queue(
-                drm,
-                framebuffer,
-                ready_fences[frame_index].fence.as_ref().map(AsFd::as_fd),
-            ) {
+            let fence = (self.fence_submission == FenceSubmission::Kernel)
+                .then(|| ready_fences[frame_index].fence.as_ref().map(AsFd::as_fd))
+                .flatten();
+            if let Err(error) = pipeline.request.queue(drm, framebuffer, fence) {
+                if self.fence_submission == FenceSubmission::Kernel
+                    && fence.is_some()
+                    && is_in_fence_capability_error(&error)
+                {
+                    let slot = &ready_fences[frame_index];
+                    fence_watch = Some(ReadyFenceWatch {
+                        fence: slot
+                            .fence
+                            .as_ref()
+                            .expect("a failed fenced commit retains its sync_file")
+                            .as_fd()
+                            .try_clone_to_owned()?,
+                        signal: ReadyFenceSignal {
+                            index: frame_index,
+                            token: slot.token,
+                        },
+                    });
+                    self.fence_submission = FenceSubmission::Userspace;
+                    warn!(
+                        %error,
+                        "KMS rejected a real IN_FENCE_FD commit; waiting for GPU fences in userspace"
+                    );
+                    break;
+                }
                 queue_error = Some(error);
                 break;
             }
@@ -674,7 +727,10 @@ impl OutputScheduler {
         if let Some(error) = queue_error {
             return Err(error.into());
         }
-        Ok(self.submitted_outputs.len())
+        Ok(ReadySubmission {
+            submitted: self.submitted_outputs.len(),
+            fence_watch,
+        })
     }
 
     /// A completed Flutter atlas must remain in the runtime broker while any
@@ -1032,10 +1088,13 @@ impl OutputScheduler {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
     use std::os::unix::net::UnixStream;
     use std::time::Instant;
 
-    use super::{OutputSchedulerAudit, ReadyFenceSlot};
+    use super::{
+        FenceSubmission, OutputSchedulerAudit, ReadyFenceSlot, is_in_fence_capability_error,
+    };
 
     #[test]
     fn ready_fence_slot_closes_only_after_its_last_pipeline_user() {
@@ -1043,7 +1102,8 @@ mod tests {
         assert!(slot.is_available());
         slot.claim(None, 2, 11).unwrap();
         assert!(!slot.is_available());
-        assert!(slot.can_queue());
+        assert!(slot.can_queue(FenceSubmission::Kernel));
+        assert!(slot.can_queue(FenceSubmission::Userspace));
         assert!(slot.claim(None, 1, 12).is_err());
 
         slot.release_user().unwrap();
@@ -1060,11 +1120,12 @@ mod tests {
         let mut slot = ReadyFenceSlot::default();
         let (fence, _peer) = UnixStream::pair().unwrap();
         slot.claim(Some(fence.into()), 1, 21).unwrap();
-        assert!(slot.can_queue());
+        assert!(slot.can_queue(FenceSubmission::Kernel));
+        assert!(!slot.can_queue(FenceSubmission::Userspace));
         assert!(!slot.mark_signaled(20));
-        assert!(slot.can_queue());
+        assert!(!slot.can_queue(FenceSubmission::Userspace));
         assert!(slot.mark_signaled(21));
-        assert!(slot.can_queue());
+        assert!(slot.can_queue(FenceSubmission::Userspace));
 
         slot.release_user().unwrap();
         assert!(!slot.mark_signaled(21));
@@ -1081,6 +1142,20 @@ mod tests {
         assert!(!slot.is_available());
         slot.release_user().unwrap();
         assert!(slot.is_available());
+    }
+
+    #[test]
+    fn fenced_commit_capability_errors_are_narrowly_classified() {
+        for errno in [libc::EPERM, libc::EINVAL, libc::EOPNOTSUPP, libc::ENOSYS] {
+            assert!(is_in_fence_capability_error(&io::Error::from_raw_os_error(
+                errno
+            )));
+        }
+        for errno in [libc::EACCES, libc::EBUSY, libc::ENOMEM] {
+            assert!(!is_in_fence_capability_error(
+                &io::Error::from_raw_os_error(errno)
+            ));
+        }
     }
 
     #[test]

@@ -16,8 +16,8 @@ Usage:
   tools/denial-repository UNSIGNED_ROOT OUTPUT_ROOT FINGERPRINT
 
 UNSIGNED_ROOT must contain packages/ and evidence/. The command signs one
-x86-64 public-alpha package set and creates a complete static Pacman
-repository below OUTPUT_ROOT.
+x86-64 public-alpha package set, creates complete static Pacman, APT, and DNF
+repositories, and publishes signed direct downloads below OUTPUT_ROOT.
 
 Required environment:
   DENIAL_RELEASE_BUILD_RUN
@@ -37,8 +37,9 @@ if (($# != 3)); then
 fi
 
 for required_command in \
-  awk basename bsdtar cp date dirname find gpg gpg-connect-agent gpgconf \
-  grep head install readlink realpath repo-add rm sed sh sha256sum sort tr; do
+  awk basename bsdtar cat cmp cp date dirname dpkg-deb find gpg gpg-connect-agent \
+  gpgconf grep head install readlink realpath repo-add rm rpm sed sh sha256sum \
+  sort tr; do
   command -v "$required_command" >/dev/null 2>&1 \
     || fail "missing command: $required_command"
 done
@@ -51,6 +52,9 @@ readonly EVIDENCE_INPUT="${UNSIGNED_ROOT}/evidence"
 OUTPUT_ROOT="$(realpath -m -- "$2")"
 readonly OUTPUT_ROOT
 readonly REPOSITORY_ROOT="${OUTPUT_ROOT}/x86_64"
+readonly DOWNLOAD_ROOT="${OUTPUT_ROOT}/downloads/x86_64"
+readonly APT_ROOT="${OUTPUT_ROOT}/apt"
+readonly RPM_ROOT="${OUTPUT_ROOT}/rpm"
 FINGERPRINT="$(tr '[:lower:]' '[:upper:]' <<<"$3")"
 readonly FINGERPRINT
 readonly SOURCE_SHA="${DENIAL_RELEASE_SOURCE_SHA:-}"
@@ -63,6 +67,8 @@ readonly TOOLING_SHA="${DENIAL_RELEASE_TOOLING_SHA:-$SOURCE_SHA}"
   || fail "unsigned package directory is missing: $PACKAGE_INPUT"
 [[ -d "$EVIDENCE_INPUT" ]] \
   || fail "unsigned evidence directory is missing: $EVIDENCE_INPUT"
+[[ -f "$PACKAGE_INPUT/SHA256SUMS" ]] \
+  || fail "unsigned package checksum manifest is missing: $PACKAGE_INPUT/SHA256SUMS"
 [[ "$FINGERPRINT" =~ ^[0-9A-F]{40,64}$ ]] \
   || fail 'signing fingerprint must be a complete OpenPGP fingerprint'
 [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] \
@@ -79,6 +85,8 @@ readonly TOOLING_SHA="${DENIAL_RELEASE_TOOLING_SHA:-$SOURCE_SHA}"
   || fail 'DENIAL_RELEASE_SIGNING_PASSPHRASE is required'
 [[ -n "${GNUPGHOME:-}" && -d "$GNUPGHOME" ]] \
   || fail 'GNUPGHOME must identify the imported release-signing keyring'
+readonly RPM_QUERY_DB="${GNUPGHOME}/rpm-query-db"
+install -d -m 0700 "$RPM_QUERY_DB"
 
 for expected in \
   'public_alpha=true' \
@@ -87,10 +95,15 @@ for expected in \
   "source_commit=$SOURCE_SHA" \
   "main_candidate_run=$BUILD_RUN" \
   "promotion_workflow_run=$WORKFLOW_RUN" \
-  'compiled_payloads_changed=false'; do
+  'compiled_payloads_changed=false' \
+  'package_formats=arch,deb,rpm'; do
   grep -Fxq "$expected" "$EVIDENCE_INPUT/provenance.txt" \
     || fail "unsigned promotion provenance is missing: $expected"
 done
+(
+  cd "$PACKAGE_INPUT"
+  sha256sum --check --strict SHA256SUMS
+) || fail 'unsigned package checksums failed'
 
 if [[ -e "$OUTPUT_ROOT" ]] \
   && find "$OUTPUT_ROOT" -mindepth 1 -print -quit | grep -q .; then
@@ -319,6 +332,81 @@ done
   || fail \
     'the package set must contain denial, denial-flutter-engine, and denial-ui-development'
 
+mapfile -d '' deb_inputs < <(
+  find "$PACKAGE_INPUT" \
+    -maxdepth 1 \
+    -type f \
+    -name '*.deb' \
+    -print0 \
+    | sort -z
+)
+mapfile -d '' rpm_inputs < <(
+  find "$PACKAGE_INPUT" \
+    -maxdepth 1 \
+    -type f \
+    -name '*.rpm' \
+    -print0 \
+    | sort -z
+)
+((${#deb_inputs[@]} == 2)) \
+  || fail "expected exactly two Debian packages, found ${#deb_inputs[@]}"
+((${#rpm_inputs[@]} == 2)) \
+  || fail "expected exactly two RPM packages, found ${#rpm_inputs[@]}"
+
+deb_names=()
+for package in "${deb_inputs[@]}"; do
+  package_name="$(dpkg-deb --field "$package" Package)"
+  package_version="$(dpkg-deb --field "$package" Version)"
+  package_arch="$(dpkg-deb --field "$package" Architecture)"
+  [[ "$package_arch" == amd64 ]] \
+    || fail "$(basename -- "$package") targets $package_arch, expected amd64"
+  [[ "$package_version" == "${release_version}-1" ]] \
+    || fail "$(basename -- "$package") has version $package_version"
+  case "$package_name" in
+    denial)
+      expected_filename="denial_${release_version}-1_amd64.deb"
+      ;;
+    denial-flutter-engine)
+      expected_filename="denial-flutter-engine_${release_version}-1_amd64.deb"
+      ;;
+    *) fail "unexpected Debian package: ${package_name:-unset}" ;;
+  esac
+  [[ "$(basename -- "$package")" == "$expected_filename" ]] \
+    || fail "unexpected Debian package filename: $(basename -- "$package")"
+  "$ROOT/tools/verify-denial-native-package-metadata" \
+    deb "$package" "$release_version" 1 '3.44.7.denial1' 2.39
+  deb_names+=("$package_name")
+done
+[[ "${deb_names[*]}" == 'denial-flutter-engine denial' ]] \
+  || fail 'Debian package set is incomplete'
+
+rpm_names=()
+for package in "${rpm_inputs[@]}"; do
+  package_name="$(rpm --dbpath "$RPM_QUERY_DB" -qp --qf '%{NAME}' "$package")"
+  package_version="$(rpm --dbpath "$RPM_QUERY_DB" -qp --qf '%{VERSION}-%{RELEASE}' "$package")"
+  package_arch="$(rpm --dbpath "$RPM_QUERY_DB" -qp --qf '%{ARCH}' "$package")"
+  [[ "$package_arch" == x86_64 ]] \
+    || fail "$(basename -- "$package") targets $package_arch, expected x86_64"
+  [[ "$package_version" == "${release_version}-1" ]] \
+    || fail "$(basename -- "$package") has version $package_version"
+  case "$package_name" in
+    denial)
+      expected_filename="denial-${release_version}-1.x86_64.rpm"
+      ;;
+    denial-flutter-engine)
+      expected_filename="denial-flutter-engine-${release_version}-1.x86_64.rpm"
+      ;;
+    *) fail "unexpected RPM package: ${package_name:-unset}" ;;
+  esac
+  [[ "$(basename -- "$package")" == "$expected_filename" ]] \
+    || fail "unexpected RPM package filename: $(basename -- "$package")"
+  "$ROOT/tools/verify-denial-native-package-metadata" \
+    rpm "$package" "$release_version" 1 '3.44.7.denial1' 2.39
+  rpm_names+=("$package_name")
+done
+[[ "${rpm_names[*]}" == 'denial denial-flutter-engine' ]] \
+  || fail 'RPM package set is incomplete'
+
 readonly INSTALLER="${ROOT}/install.sh"
 [[ -f "$INSTALLER" ]] || fail "guided installer is missing: $INSTALLER"
 sh -n "$INSTALLER" || fail 'guided installer does not parse as POSIX shell'
@@ -328,16 +416,37 @@ installer_fingerprint="$(
 [[ "$installer_fingerprint" == "$FINGERPRINT" ]] \
   || fail 'guided installer fingerprint does not match the release key'
 if grep -Eq \
-    '^[[:space:]]*(if[[:space:]]+![[:space:]]+)?sudo[[:space:]]+pacman[[:space:]]+-S' \
+    '^[[:space:]]*sudo[[:space:]]+(pacman[[:space:]]+-S|apt(-get)?[[:space:]].*install|dnf[[:space:]].*install)' \
     "$INSTALLER"; then
   fail 'guided repository setup must not install packages'
 fi
-grep -Fq 'sudo pacman -Syu denial' "$INSTALLER" \
-  || fail 'guided repository setup does not print the explicit install command'
+for install_command in \
+  'sudo pacman -Syu denial' \
+  'sudo apt update && sudo apt install denial' \
+  'sudo dnf install denial'; do
+  grep -Fq "$install_command" "$INSTALLER" \
+    || fail "guided repository setup omits: $install_command"
+done
 
-install -d -m 0755 "$REPOSITORY_ROOT"
+install -d -m 0755 "$REPOSITORY_ROOT" "$DOWNLOAD_ROOT"
 cp -a -- "$EVIDENCE_INPUT" "${OUTPUT_ROOT}/evidence"
 install -m 0644 "$INSTALLER" "${OUTPUT_ROOT}/install.sh"
+
+gpg --batch --armor --export "$FINGERPRINT" \
+  >"${OUTPUT_ROOT}/denial-repo-key.asc"
+exported_fingerprint="$(
+  gpg \
+    --batch \
+    --show-keys \
+    --with-colons \
+    --fingerprint \
+    "${OUTPUT_ROOT}/denial-repo-key.asc" \
+    | awk -F: '$1 == "fpr" { print toupper($10); exit }'
+)"
+[[ "$exported_fingerprint" == "$FINGERPRINT" ]] \
+  || fail 'exported public key fingerprint does not match'
+rpmkeys --dbpath "$RPM_QUERY_DB" --import \
+  "${OUTPUT_ROOT}/denial-repo-key.asc"
 
 signed_packages=()
 for package in "${package_inputs[@]}"; do
@@ -354,19 +463,68 @@ for package in "${package_inputs[@]}"; do
   signed_packages+=("$destination")
 done
 
-gpg --batch --armor --export "$FINGERPRINT" \
-  >"${OUTPUT_ROOT}/denial-repo-key.asc"
-exported_fingerprint="$(
+signed_native_packages=()
+for package in "${deb_inputs[@]}"; do
+  destination="${DOWNLOAD_ROOT}/$(basename -- "$package")"
+  cp --reflink=auto -- "$package" "$destination"
   gpg \
     --batch \
-    --show-keys \
-    --with-colons \
-    --fingerprint \
-    "${OUTPUT_ROOT}/denial-repo-key.asc" \
-    | awk -F: '$1 == "fpr" { print toupper($10); exit }'
-)"
-[[ "$exported_fingerprint" == "$FINGERPRINT" ]] \
-  || fail 'exported public key fingerprint does not match'
+    --yes \
+    --local-user "$FINGERPRINT" \
+    --detach-sign \
+    --output "${destination}.sig" \
+    "$destination"
+  gpg --batch --verify "${destination}.sig" "$destination"
+  signed_native_packages+=("$destination")
+done
+
+"$ROOT/tools/generate-denial-apt-repository" \
+  "$PACKAGE_INPUT" \
+  "$APT_ROOT" \
+  "$FINGERPRINT" \
+  "$release_version" \
+  1
+"$ROOT/tools/generate-denial-dnf-repository" \
+  "$PACKAGE_INPUT" \
+  "$RPM_ROOT" \
+  "$FINGERPRINT" \
+  "${OUTPUT_ROOT}/denial-repo-key.asc" \
+  "$release_version" \
+  1
+
+for setup_file in \
+  "$APT_ROOT/denial-trixie.sources" \
+  "$APT_ROOT/denial-noble.sources" \
+  "$RPM_ROOT/denial-fedora.repo"; do
+  install -m 0644 "$setup_file" "${OUTPUT_ROOT}/$(basename -- "$setup_file")"
+done
+
+mapfile -d '' signed_rpm_packages < <(
+  find "$RPM_ROOT/fedora/44/x86_64/Packages" \
+    -maxdepth 1 \
+    -type f \
+    -name '*.rpm' \
+    -print0 \
+    | sort -z
+)
+((${#signed_rpm_packages[@]} == 2)) \
+  || fail 'signed DNF repository does not contain two RPM packages'
+for package in "${signed_rpm_packages[@]}"; do
+  destination="${DOWNLOAD_ROOT}/$(basename -- "$package")"
+  cp --reflink=auto -- "$package" "$destination"
+  cmp -- "$package" "$destination"
+  rpmkeys --dbpath "$RPM_QUERY_DB" --checksig --verbose "$destination" \
+    | grep -Eiq 'signature.*: OK'
+  gpg \
+    --batch \
+    --yes \
+    --local-user "$FINGERPRINT" \
+    --detach-sign \
+    --output "${destination}.sig" \
+    "$destination"
+  gpg --batch --verify "${destination}.sig" "$destination"
+  signed_native_packages+=("$destination")
+done
 
 repository_database="${REPOSITORY_ROOT}/denial.db.tar.zst"
 repo-add \
@@ -423,7 +581,7 @@ done
   || fail 'repository database does not embed every package signature'
 
 cat >"${OUTPUT_ROOT}/RELEASE-METADATA.txt" <<EOF
-DENIAL PUBLIC-ALPHA PACMAN REPOSITORY
+DENIAL PUBLIC-ALPHA PACKAGE SET
 
 Release tag:         $RELEASE_TAG
 Source commit:       $SOURCE_SHA
@@ -438,7 +596,9 @@ Build disclosure:
   Production binaries were built and independently checked from main on
   Denial's owner-operated x86-64 runner. The signed tag assigned package and
   runtime versions while preserving those exact compiled payloads.
-  Packages and repository databases are signed by the Denial release key.
+  Arch packages and repository databases, APT Release metadata, RPM headers,
+  DNF repository metadata, and every direct download are signed by the Denial
+  release key. Direct downloads also use adjacent detached OpenPGP signatures.
   This release does not claim an offline dependency closure, reproducible
   packages, independent rebuilding, an SBOM, or AArch64 support.
 EOF
@@ -470,18 +630,23 @@ This is a signed x86-64 public-alpha release of Denial.
 - Signing fingerprint: \`${FINGERPRINT}\`
 - Required packages: \`denial\` and \`denial-flutter-engine\`
 - Optional live-development package: \`denial-ui-development\`
+- Direct downloads: Arch, Debian-family (Debian 13 / Ubuntu 24.04), and Fedora
+- Every direct package has an adjacent detached OpenPGP signature
+- APT repository: Debian 13 (trixie) and Ubuntu 24.04 (noble)
+- DNF repository: Fedora 44 x86-64
 
 ${release_changes}
 
 The production binaries were built and independently checked from \`main\` on
 Denial's owner-operated x86-64 runner. This signed tag promoted those exact
 compiled payloads, assigned their package and runtime versions, and signed and
-re-verified the repository in GitHub-hosted jobs. This release does not yet
+re-verified the Pacman, APT, and DNF repositories plus every direct download
+in GitHub-hosted jobs. This release does not yet
 claim an offline dependency closure, reproducible packages, independent
 rebuilding, an SBOM, or AArch64 support.
 
 Installation instructions are in
-[\`docs/packaging/arch/INSTALL.md\`](https://github.com/denialwm/denial/blob/${RELEASE_TAG}/docs/packaging/arch/INSTALL.md).
+[\`docs/INSTALL.md\`](https://github.com/denialwm/denial/blob/${RELEASE_TAG}/docs/INSTALL.md).
 EOF
 
 cat >"${OUTPUT_ROOT}/index.html" <<EOF
@@ -490,11 +655,11 @@ cat >"${OUTPUT_ROOT}/index.html" <<EOF
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Denial Pacman repository</title>
+  <title>Denial package repositories</title>
 </head>
 <body>
   <main>
-    <h1>Denial Pacman repository</h1>
+    <h1>Denial package repositories</h1>
     <p>Signed x86-64 packages for Denial ${release_version}.</p>
     <p>Signing fingerprint: <code>${FINGERPRINT}</code></p>
     <p>Set up the signed repository:</p>
@@ -503,9 +668,18 @@ cat >"${OUTPUT_ROOT}/index.html" <<EOF
       The <a href="install.sh">setup script</a> does not install packages.
       Install Denial explicitly afterward:
     </p>
-    <pre><code>sudo pacman -Syu denial</code></pre>
+    <pre><code>Arch: sudo pacman -Syu denial
+Debian / Ubuntu: sudo apt update &amp;&amp; sudo apt install denial
+Fedora: sudo dnf install denial</code></pre>
     <p>
-      <a href="https://github.com/denialwm/denial/blob/${RELEASE_TAG}/docs/packaging/arch/INSTALL.md">
+      Signed direct packages for every supported distribution are downloadable
+      from the
+      <a href="https://github.com/denialwm/denial/releases/tag/${RELEASE_TAG}">
+        GitHub release
+      </a>. Verify each adjacent <code>.sig</code> with the repository key.
+    </p>
+    <p>
+      <a href="https://github.com/denialwm/denial/blob/${RELEASE_TAG}/docs/INSTALL.md">
         Installation instructions
       </a>
     </p>
@@ -559,4 +733,4 @@ printf '%s\n' \
   "Signed public-alpha repository ready: $OUTPUT_ROOT" \
   "Release: $RELEASE_TAG" \
   "Signing fingerprint: $FINGERPRINT" \
-  "Packages: ${#signed_packages[@]}"
+  "Packages: $((${#signed_packages[@]} + ${#signed_native_packages[@]}))"

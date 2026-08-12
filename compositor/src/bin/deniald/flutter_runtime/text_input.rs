@@ -5,6 +5,8 @@ use std::io::Write;
 use serde::Deserialize;
 use serde_json::{Value, value::RawValue};
 
+use super::super::wayland_frontend::input_method::InputMethodTransaction;
+
 #[cfg(test)]
 use serde_json::json;
 
@@ -15,6 +17,9 @@ const CLEAR_CLIENT: &str = "TextInput.clearClient";
 const SET_CLIENT: &str = "TextInput.setClient";
 const SHOW: &str = "TextInput.show";
 const HIDE: &str = "TextInput.hide";
+const SET_EDITABLE_SIZE_AND_TRANSFORM: &str = "TextInput.setEditableSizeAndTransform";
+const SET_MARKED_TEXT_RECT: &str = "TextInput.setMarkedTextRect";
+const SET_CARET_RECT: &str = "TextInput.setCaretRect";
 const UPDATE_EDITING_STATE: &str = "TextInputClient.updateEditingState";
 const PERFORM_ACTION: &str = "TextInputClient.performAction";
 const MULTILINE: &str = "TextInputType.multiline";
@@ -36,6 +41,9 @@ const KEY_DELETE: u32 = 111;
 pub struct TextInputPlugin {
     client: Option<TextInputClient>,
     client_scratch: Option<TextInputClient>,
+    lifecycle_revision: u64,
+    state_revision: u64,
+    state_dirty: bool,
     messages: [Vec<u8>; 2],
     text_utf8_scratch: String,
     response_scratch: Vec<u8>,
@@ -46,6 +54,9 @@ impl Default for TextInputPlugin {
         Self {
             client: None,
             client_scratch: None,
+            lifecycle_revision: 0,
+            state_revision: 0,
+            state_dirty: true,
             messages: [Vec::with_capacity(512), Vec::with_capacity(128)],
             text_utf8_scratch: String::new(),
             response_scratch: Vec::with_capacity(160),
@@ -53,12 +64,60 @@ impl Default for TextInputPlugin {
     }
 }
 
-#[derive(Default)]
 struct TextInputClient {
     id: i64,
     input_type: String,
     input_action: String,
+    obscure_text: bool,
+    enable_personalized_learning: bool,
+    editable_transform: [f64; 16],
+    caret_rect: Option<TextInputRectangle>,
+    marked_text_rect: Option<TextInputRectangle>,
     model: TextInputModel,
+}
+
+impl Default for TextInputClient {
+    fn default() -> Self {
+        let mut editable_transform = [0.0; 16];
+        editable_transform[0] = 1.0;
+        editable_transform[5] = 1.0;
+        editable_transform[10] = 1.0;
+        editable_transform[15] = 1.0;
+        Self {
+            id: 0,
+            input_type: String::new(),
+            input_action: String::new(),
+            obscure_text: false,
+            enable_personalized_learning: true,
+            editable_transform,
+            caret_rect: None,
+            marked_text_rect: None,
+            model: TextInputModel::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct TextInputRectangle {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TextInputSnapshot {
+    pub revision: u64,
+    pub lifecycle_revision: u64,
+    pub client_id: i64,
+    pub active: bool,
+    pub secure: bool,
+    pub surrounding_text: Option<String>,
+    pub cursor: u32,
+    pub anchor: u32,
+    pub content_hint: u32,
+    pub content_purpose: u32,
+    pub cursor_rectangle: Option<TextInputRectangle>,
 }
 
 #[derive(Deserialize)]
@@ -77,14 +136,80 @@ struct EditingStateFields<'a> {
     selection_base: Option<&'a RawValue>,
     #[serde(rename = "selectionExtent", borrow)]
     selection_extent: Option<&'a RawValue>,
+    #[serde(rename = "composingBase", borrow)]
+    composing_base: Option<&'a RawValue>,
+    #[serde(rename = "composingExtent", borrow)]
+    composing_extent: Option<&'a RawValue>,
+}
+
+#[derive(Deserialize)]
+struct EditableGeometry {
+    width: f64,
+    height: f64,
+    transform: Vec<f64>,
+}
+
+#[derive(Deserialize)]
+struct RectangleFields {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
 }
 
 #[derive(Deserialize)]
 struct JsonString<'a>(#[serde(borrow)] Cow<'a, str>);
 
 impl TextInputPlugin {
-    pub fn has_client(&self) -> bool {
-        self.client.is_some()
+    pub fn take_state_change(&mut self) -> Option<TextInputSnapshot> {
+        if !self.state_dirty {
+            return None;
+        }
+        self.state_dirty = false;
+        let Some(client) = self.client.as_ref() else {
+            return Some(TextInputSnapshot {
+                revision: self.state_revision,
+                lifecycle_revision: self.lifecycle_revision,
+                client_id: 0,
+                active: false,
+                secure: false,
+                surrounding_text: None,
+                cursor: 0,
+                anchor: 0,
+                content_hint: 0,
+                content_purpose: 0,
+                cursor_rectangle: None,
+            });
+        };
+        let (surrounding_text, cursor, anchor) = client
+            .model
+            .surrounding_text(MAX_TEXT_INPUT_PACKET_BYTES.min(4000))
+            .map_or((None, 0, 0), |(text, cursor, anchor)| {
+                (Some(text), cursor, anchor)
+            });
+        Some(TextInputSnapshot {
+            revision: self.state_revision,
+            lifecycle_revision: self.lifecycle_revision,
+            client_id: client.id,
+            active: true,
+            secure: client.obscure_text,
+            surrounding_text,
+            cursor,
+            anchor,
+            content_hint: client.content_hint(),
+            content_purpose: client.content_purpose(),
+            cursor_rectangle: client.transformed_cursor_rectangle(),
+        })
+    }
+
+    fn note_client_change(&mut self) {
+        self.lifecycle_revision = self.lifecycle_revision.wrapping_add(1);
+        self.note_state_change();
+    }
+
+    fn note_state_change(&mut self) {
+        self.state_revision = self.state_revision.wrapping_add(1);
+        self.state_dirty = true;
     }
 
     pub fn handle_platform_message(&mut self, data: &[u8]) -> &[u8] {
@@ -105,6 +230,7 @@ impl TextInputPlugin {
                 if let Some(mut client) = self.client.take() {
                     client.clear();
                     self.client_scratch = Some(client);
+                    self.note_client_change();
                 }
                 Ok(())
             }
@@ -116,6 +242,9 @@ impl TextInputPlugin {
                 self.set_client(&arguments)
             }
             SET_EDITING_STATE => self.set_editing_state(message.args),
+            SET_EDITABLE_SIZE_AND_TRANSFORM => self.set_editable_size_and_transform(message.args),
+            SET_MARKED_TEXT_RECT => self.set_text_rectangle(message.args, false),
+            SET_CARET_RECT => self.set_text_rectangle(message.args, true),
             _ => return &[],
         };
         match result {
@@ -170,6 +299,9 @@ impl TextInputPlugin {
             );
             message_count += 1;
         }
+        if message_count > 0 {
+            self.note_state_change();
+        }
         &self.messages[..message_count]
     }
 
@@ -181,6 +313,23 @@ impl TextInputPlugin {
             return &[];
         }
         update_editing_state(client, &mut self.text_utf8_scratch, &mut self.messages[0]);
+        self.note_state_change();
+        &self.messages[..1]
+    }
+
+    pub fn apply_input_method(
+        &mut self,
+        client_id: i64,
+        transaction: &InputMethodTransaction,
+    ) -> &[Vec<u8>] {
+        let Some(client) = self.client.as_mut().filter(|client| client.id == client_id) else {
+            return &[];
+        };
+        if !client.model.apply_input_method(transaction) {
+            return &[];
+        }
+        update_editing_state(client, &mut self.text_utf8_scratch, &mut self.messages[0]);
+        self.note_state_change();
         &self.messages[..1]
     }
 
@@ -222,8 +371,18 @@ impl TextInputPlugin {
         client.input_type.push_str(input_type);
         client.input_action.clear();
         client.input_action.push_str(input_action);
+        client.obscure_text = config
+            .get("obscureText")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        client.enable_personalized_learning = config
+            .get("enableIMEPersonalizedLearning")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        client.reset_geometry();
         client.model.clear();
         self.client = Some(client);
+        self.note_client_change();
         Ok(())
     }
 
@@ -274,12 +433,99 @@ impl TextInputPlugin {
                 "Selection base/extent values invalid.",
             ));
         };
-        if !client.model.replace_text(text.as_ref(), base, extent) {
+        let composing = match (
+            arguments
+                .composing_base
+                .and_then(|value| serde_json::from_str::<i64>(value.get()).ok()),
+            arguments
+                .composing_extent
+                .and_then(|value| serde_json::from_str::<i64>(value.get()).ok()),
+        ) {
+            (Some(-1), Some(-1)) | (None, None) => None,
+            (Some(base), Some(extent)) => {
+                let (Ok(base), Ok(extent)) = (usize::try_from(base), usize::try_from(extent))
+                else {
+                    return Err((
+                        "Internal Consistency Error",
+                        "Composing range values invalid.",
+                    ));
+                };
+                Some((base, extent))
+            }
+            _ => {
+                return Err((
+                    "Internal Consistency Error",
+                    "Composing range values invalid.",
+                ));
+            }
+        };
+        if !client
+            .model
+            .replace_editing_state(text.as_ref(), base, extent, composing)
+        {
             return Err((
                 "Bad Arguments",
-                "Text or selection exceeds the supported bounds.",
+                "Text, selection, or composing range exceeds the supported bounds.",
             ));
         }
+        self.note_state_change();
+        Ok(())
+    }
+
+    fn set_editable_size_and_transform(
+        &mut self,
+        arguments: Option<&RawValue>,
+    ) -> Result<(), (&'static str, &'static str)> {
+        let Some(arguments) = arguments
+            .and_then(|arguments| serde_json::from_str::<EditableGeometry>(arguments.get()).ok())
+        else {
+            return Err(("Bad Arguments", "Editable geometry is invalid."));
+        };
+        if !arguments.width.is_finite()
+            || !arguments.height.is_finite()
+            || arguments.transform.len() != 16
+            || arguments.transform.iter().any(|value| !value.is_finite())
+        {
+            return Err(("Bad Arguments", "Editable geometry is invalid."));
+        }
+        let Some(client) = self.client.as_mut() else {
+            return Ok(());
+        };
+        client
+            .editable_transform
+            .copy_from_slice(&arguments.transform);
+        self.note_state_change();
+        Ok(())
+    }
+
+    fn set_text_rectangle(
+        &mut self,
+        arguments: Option<&RawValue>,
+        caret: bool,
+    ) -> Result<(), (&'static str, &'static str)> {
+        let Some(arguments) = arguments
+            .and_then(|arguments| serde_json::from_str::<RectangleFields>(arguments.get()).ok())
+        else {
+            return Err(("Bad Arguments", "Text input rectangle is invalid."));
+        };
+        let rectangle = TextInputRectangle {
+            x: arguments.x,
+            y: arguments.y,
+            width: arguments.width,
+            height: arguments.height,
+        };
+        if !rectangle.is_valid() {
+            return Err(("Bad Arguments", "Text input rectangle is invalid."));
+        }
+        let Some(client) = self.client.as_mut() else {
+            return Ok(());
+        };
+        if caret {
+            client.caret_rect = Some(rectangle);
+        } else {
+            client.marked_text_rect = Some(rectangle);
+        }
+        self.note_state_change();
         Ok(())
     }
 }
@@ -289,7 +535,101 @@ impl TextInputClient {
         self.id = 0;
         self.input_type.clear();
         self.input_action.clear();
+        self.obscure_text = false;
+        self.enable_personalized_learning = true;
+        self.reset_geometry();
         self.model.clear();
+    }
+
+    fn reset_geometry(&mut self) {
+        self.editable_transform.fill(0.0);
+        self.editable_transform[0] = 1.0;
+        self.editable_transform[5] = 1.0;
+        self.editable_transform[10] = 1.0;
+        self.editable_transform[15] = 1.0;
+        self.caret_rect = None;
+        self.marked_text_rect = None;
+    }
+
+    fn content_hint(&self) -> u32 {
+        const COMPLETION: u32 = 1;
+        const SPELLCHECK: u32 = 2;
+        const SENSITIVE_DATA: u32 = 128;
+        const MULTILINE_HINT: u32 = 512;
+        let mut hint = 0;
+        if !self.obscure_text {
+            hint |= COMPLETION | SPELLCHECK;
+        }
+        if !self.enable_personalized_learning {
+            hint |= SENSITIVE_DATA;
+        }
+        if self.input_type == MULTILINE {
+            hint |= MULTILINE_HINT;
+        }
+        hint
+    }
+
+    fn content_purpose(&self) -> u32 {
+        match self.input_type.as_str() {
+            "TextInputType.number" => 3,
+            "TextInputType.phone" => 4,
+            "TextInputType.url" => 5,
+            "TextInputType.emailAddress" => 6,
+            "TextInputType.name" => 7,
+            "TextInputType.visiblePassword" => 8,
+            "TextInputType.datetime" => 12,
+            _ => 0,
+        }
+    }
+
+    fn transformed_cursor_rectangle(&self) -> Option<TextInputRectangle> {
+        let rectangle = self.caret_rect.or(self.marked_text_rect)?;
+        rectangle.transform(&self.editable_transform)
+    }
+}
+
+impl TextInputRectangle {
+    fn is_valid(self) -> bool {
+        self.x.is_finite()
+            && self.y.is_finite()
+            && self.width.is_finite()
+            && self.height.is_finite()
+            && self.width >= 0.0
+            && self.height >= 0.0
+    }
+
+    fn transform(self, transform: &[f64; 16]) -> Option<Self> {
+        let corners = [
+            (self.x, self.y),
+            (self.x + self.width, self.y),
+            (self.x, self.y + self.height),
+            (self.x + self.width, self.y + self.height),
+        ];
+        let mut min_x = f64::INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
+        for (x, y) in corners {
+            let w = transform[3] * x + transform[7] * y + transform[15];
+            if !w.is_finite() || w.abs() <= f64::EPSILON {
+                return None;
+            }
+            let transformed_x = (transform[0] * x + transform[4] * y + transform[12]) / w;
+            let transformed_y = (transform[1] * x + transform[5] * y + transform[13]) / w;
+            if !transformed_x.is_finite() || !transformed_y.is_finite() {
+                return None;
+            }
+            min_x = min_x.min(transformed_x);
+            min_y = min_y.min(transformed_y);
+            max_x = max_x.max(transformed_x);
+            max_y = max_y.max(transformed_y);
+        }
+        Some(Self {
+            x: min_x,
+            y: min_y,
+            width: (max_x - min_x).max(0.0),
+            height: (max_y - min_y).max(0.0),
+        })
     }
 }
 
@@ -300,9 +640,19 @@ fn update_editing_state(
 ) {
     client.model.write_text(text_utf8_scratch);
     output.clear();
+    let (composing_base, composing_extent) =
+        client
+            .model
+            .composing
+            .map_or((-1_i64, -1_i64), |(base, extent)| {
+                (
+                    i64::try_from(base).unwrap_or(-1),
+                    i64::try_from(extent).unwrap_or(-1),
+                )
+            });
     write!(
         output,
-        r#"{{"method":"{UPDATE_EDITING_STATE}","args":[{},{{"composingBase":-1,"composingExtent":-1,"selectionAffinity":"TextAffinity.downstream","selectionBase":{},"selectionExtent":{},"selectionIsDirectional":false,"text":"#,
+        r#"{{"method":"{UPDATE_EDITING_STATE}","args":[{},{{"composingBase":{composing_base},"composingExtent":{composing_extent},"selectionAffinity":"TextAffinity.downstream","selectionBase":{},"selectionExtent":{},"selectionIsDirectional":false,"text":"#,
         client.id, client.model.selection_base, client.model.selection_extent,
     )
     .expect("writing JSON into a Vec cannot fail");
@@ -330,6 +680,7 @@ struct TextInputModel {
     replacement_scratch: Vec<u16>,
     selection_base: usize,
     selection_extent: usize,
+    composing: Option<(usize, usize)>,
 }
 
 impl TextInputModel {
@@ -338,14 +689,30 @@ impl TextInputModel {
         self.replacement_scratch.clear();
         self.selection_base = 0;
         self.selection_extent = 0;
+        self.composing = None;
     }
 
+    #[cfg(test)]
     fn replace_text(&mut self, text: &str, base: usize, extent: usize) -> bool {
+        self.replace_editing_state(text, base, extent, None)
+    }
+
+    fn replace_editing_state(
+        &mut self,
+        text: &str,
+        base: usize,
+        extent: usize,
+        composing: Option<(usize, usize)>,
+    ) -> bool {
         self.replacement_scratch.clear();
         self.replacement_scratch.extend(text.encode_utf16());
         if self.replacement_scratch.len() > MAX_TEXT_UTF16_UNITS
             || !valid_selection_boundary(&self.replacement_scratch, base)
             || !valid_selection_boundary(&self.replacement_scratch, extent)
+            || composing.is_some_and(|(base, extent)| {
+                !valid_selection_boundary(&self.replacement_scratch, base)
+                    || !valid_selection_boundary(&self.replacement_scratch, extent)
+            })
         {
             return false;
         }
@@ -357,6 +724,7 @@ impl TextInputModel {
         );
         self.selection_base = base;
         self.selection_extent = extent;
+        self.composing = composing;
         true
     }
 
@@ -385,6 +753,168 @@ impl TextInputModel {
         );
     }
 
+    fn surrounding_text(&self, max_bytes: usize) -> Option<(String, u32, u32)> {
+        let text = String::from_utf16(&self.text).ok()?;
+        let cursor = utf16_offset_to_utf8(&self.text, self.selection_extent)?;
+        let anchor = utf16_offset_to_utf8(&self.text, self.selection_base)?;
+        let low = cursor.min(anchor);
+        let high = cursor.max(anchor);
+        if high.saturating_sub(low) > max_bytes {
+            return None;
+        }
+        if text.len() <= max_bytes {
+            return Some((
+                text,
+                u32::try_from(cursor).ok()?,
+                u32::try_from(anchor).ok()?,
+            ));
+        }
+
+        let selection_bytes = high - low;
+        let spare = max_bytes - selection_bytes;
+        let mut start = low.saturating_sub(spare / 2);
+        while start > 0 && !text.is_char_boundary(start) {
+            start -= 1;
+        }
+        let mut end = (start + max_bytes).min(text.len());
+        while end > high && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        if end < high {
+            end = high;
+            start = end.saturating_sub(max_bytes);
+            while start < low && !text.is_char_boundary(start) {
+                start += 1;
+            }
+        }
+        Some((
+            text[start..end].to_owned(),
+            u32::try_from(cursor - start).ok()?,
+            u32::try_from(anchor - start).ok()?,
+        ))
+    }
+
+    fn apply_input_method(&mut self, transaction: &InputMethodTransaction) -> bool {
+        let has_request = transaction.commit_string.is_some()
+            || transaction.preedit_string.is_some()
+            || transaction.delete_surrounding.is_some();
+        if !has_request && self.composing.is_none() {
+            return false;
+        }
+
+        let Ok(mut text) = String::from_utf16(&self.text) else {
+            return false;
+        };
+        let mut cursor = if let Some((base, extent)) = self.composing {
+            let start = base.min(extent);
+            let end = base.max(extent);
+            let (Some(start), Some(end)) = (
+                utf16_offset_to_utf8(&self.text, start),
+                utf16_offset_to_utf8(&self.text, end),
+            ) else {
+                return false;
+            };
+            text.replace_range(start..end, "");
+            start
+        } else {
+            let start = self.selection_base.min(self.selection_extent);
+            let end = self.selection_base.max(self.selection_extent);
+            let (Some(start), Some(end)) = (
+                utf16_offset_to_utf8(&self.text, start),
+                utf16_offset_to_utf8(&self.text, end),
+            ) else {
+                return false;
+            };
+            if has_request && start != end {
+                text.replace_range(start..end, "");
+            }
+            start
+        };
+
+        if let Some((before, after)) = transaction.delete_surrounding {
+            let (Ok(before), Ok(after)) = (usize::try_from(before), usize::try_from(after)) else {
+                return false;
+            };
+            let Some(start) = cursor.checked_sub(before) else {
+                return false;
+            };
+            let Some(end) = cursor.checked_add(after) else {
+                return false;
+            };
+            if end > text.len() || !text.is_char_boundary(start) || !text.is_char_boundary(end) {
+                return false;
+            }
+            text.replace_range(start..end, "");
+            cursor = start;
+        }
+
+        if let Some(commit) = transaction.commit_string.as_deref() {
+            if commit.contains('\0') {
+                return false;
+            }
+            text.insert_str(cursor, commit);
+            cursor += commit.len();
+        }
+
+        let mut selection_base_bytes = cursor;
+        let mut selection_extent_bytes = cursor;
+        let mut composing_bytes = None;
+        if let Some((preedit, cursor_begin, cursor_end)) = transaction.preedit_string.as_ref() {
+            if preedit.contains('\0') {
+                return false;
+            }
+            let start = cursor;
+            text.insert_str(start, preedit);
+            let end = start + preedit.len();
+            if !preedit.is_empty() {
+                composing_bytes = Some((start, end));
+            }
+            if *cursor_begin >= 0 || *cursor_end >= 0 {
+                let (Ok(begin), Ok(end_cursor)) =
+                    (usize::try_from(*cursor_begin), usize::try_from(*cursor_end))
+                else {
+                    return false;
+                };
+                if begin > preedit.len()
+                    || end_cursor > preedit.len()
+                    || !preedit.is_char_boundary(begin)
+                    || !preedit.is_char_boundary(end_cursor)
+                {
+                    return false;
+                }
+                selection_base_bytes = start + begin;
+                selection_extent_bytes = start + end_cursor;
+            } else if *cursor_begin == -1 && *cursor_end == -1 {
+                selection_base_bytes = end;
+                selection_extent_bytes = end;
+            } else {
+                return false;
+            }
+        }
+
+        let text_utf16 = text.encode_utf16().collect::<Vec<_>>();
+        if text_utf16.len() > MAX_TEXT_UTF16_UNITS {
+            return false;
+        }
+        let Some(selection_base) = utf8_offset_to_utf16(&text, selection_base_bytes) else {
+            return false;
+        };
+        let Some(selection_extent) = utf8_offset_to_utf16(&text, selection_extent_bytes) else {
+            return false;
+        };
+        let composing = composing_bytes.and_then(|(base, extent)| {
+            Some((
+                utf8_offset_to_utf16(&text, base)?,
+                utf8_offset_to_utf16(&text, extent)?,
+            ))
+        });
+        self.text = text_utf16;
+        self.selection_base = selection_base;
+        self.selection_extent = selection_extent;
+        self.composing = composing;
+        true
+    }
+
     fn selection_start(&self) -> usize {
         self.selection_base.min(self.selection_extent)
     }
@@ -402,6 +932,7 @@ impl TextInputModel {
         self.remove_range(start, end);
         self.selection_base = start;
         self.selection_extent = start;
+        self.composing = None;
         true
     }
 
@@ -431,6 +962,7 @@ impl TextInputModel {
         let position = position + encoded.len();
         self.selection_base = position;
         self.selection_extent = position;
+        self.composing = None;
         true
     }
 
@@ -467,6 +999,7 @@ impl TextInputModel {
         self.text[start..start + inserted].copy_from_slice(&self.replacement_scratch);
         self.selection_base = start + inserted;
         self.selection_extent = start + inserted;
+        self.composing = None;
         true
     }
 
@@ -489,6 +1022,7 @@ impl TextInputModel {
         self.remove_range(position - count, position);
         self.selection_base = position - count;
         self.selection_extent = position - count;
+        self.composing = None;
         true
     }
 
@@ -509,6 +1043,7 @@ impl TextInputModel {
             1
         };
         self.remove_range(position, position + count);
+        self.composing = None;
         true
     }
 
@@ -585,6 +1120,21 @@ impl TextInputModel {
         self.selection_extent = end;
         true
     }
+}
+
+fn utf16_offset_to_utf8(text: &[u16], offset: usize) -> Option<usize> {
+    if !valid_selection_boundary(text, offset) {
+        return None;
+    }
+    let prefix = String::from_utf16(&text[..offset]).ok()?;
+    Some(prefix.len())
+}
+
+fn utf8_offset_to_utf16(text: &str, offset: usize) -> Option<usize> {
+    if offset > text.len() || !text.is_char_boundary(offset) {
+        return None;
+    }
+    Some(text[..offset].encode_utf16().count())
 }
 
 fn valid_selection_boundary(text: &[u16], position: usize) -> bool {
@@ -670,7 +1220,7 @@ mod tests {
     #[test]
     fn shell_keyboard_text_replaces_the_active_flutter_selection() {
         let mut plugin = TextInputPlugin::default();
-        assert!(!plugin.has_client());
+        assert!(plugin.client.is_none());
         assert_eq!(
             plugin.handle_platform_message(&call(
                 SET_CLIENT,
@@ -689,7 +1239,7 @@ mod tests {
             b"[null]"
         );
 
-        assert!(plugin.has_client());
+        assert!(plugin.client.is_some());
         let messages = plugin.insert_text("after 😀");
         assert_eq!(messages.len(), 1);
         let update: Value = serde_json::from_slice(&messages[0]).unwrap();
@@ -697,6 +1247,122 @@ mod tests {
         assert_eq!(update["args"][1]["text"], "after 😀");
         assert_eq!(update["args"][1]["selectionBase"], 8);
         assert_eq!(update["args"][1]["selectionExtent"], 8);
+    }
+
+    #[test]
+    fn input_method_preedit_is_replaced_atomically_by_its_commit() {
+        let mut model = TextInputModel::default();
+        assert!(model.replace_text("", 0, 0));
+        assert!(model.apply_input_method(&InputMethodTransaction {
+            preedit_string: Some(("ni".to_owned(), 2, 2)),
+            ..InputMethodTransaction::default()
+        }));
+        assert_eq!(model.text(), "ni");
+        assert_eq!(model.composing, Some((0, 2)));
+
+        assert!(model.apply_input_method(&InputMethodTransaction {
+            commit_string: Some("你".to_owned()),
+            preedit_string: Some((String::new(), -1, -1)),
+            ..InputMethodTransaction::default()
+        }));
+        assert_eq!(model.text(), "你");
+        assert_eq!(model.selection_base, 1);
+        assert_eq!(model.selection_extent, 1);
+        assert_eq!(model.composing, None);
+    }
+
+    #[test]
+    fn input_method_deletion_uses_utf8_bytes_without_splitting_unicode() {
+        let mut model = TextInputModel::default();
+        assert!(model.replace_text("你好吗", 2, 2));
+        assert!(model.apply_input_method(&InputMethodTransaction {
+            delete_surrounding: Some((3, 0)),
+            ..InputMethodTransaction::default()
+        }));
+        assert_eq!(model.text(), "你吗");
+        assert_eq!(model.selection_extent, 1);
+
+        let before = model.text();
+        assert!(!model.apply_input_method(&InputMethodTransaction {
+            delete_surrounding: Some((1, 0)),
+            ..InputMethodTransaction::default()
+        }));
+        assert_eq!(model.text(), before);
+    }
+
+    #[test]
+    fn flutter_editor_snapshot_tracks_security_and_transformed_caret() {
+        let mut plugin = TextInputPlugin::default();
+        assert_eq!(
+            plugin.handle_platform_message(&call(
+                SET_CLIENT,
+                json!([41, {
+                    "obscureText": true,
+                    "inputAction": "TextInputAction.done",
+                    "inputType": {"name": "TextInputType.text"}
+                }]),
+            )),
+            b"[null]"
+        );
+        assert_eq!(
+            plugin.handle_platform_message(&call(
+                SET_EDITABLE_SIZE_AND_TRANSFORM,
+                json!({
+                    "width": 300.0,
+                    "height": 40.0,
+                    "transform": [
+                        1.0, 0.0, 0.0, 0.0,
+                        0.0, 1.0, 0.0, 0.0,
+                        0.0, 0.0, 1.0, 0.0,
+                        100.0, 50.0, 0.0, 1.0
+                    ]
+                }),
+            )),
+            b"[null]"
+        );
+        assert_eq!(
+            plugin.handle_platform_message(&call(
+                SET_CARET_RECT,
+                json!({"x": 10.0, "y": 5.0, "width": 2.0, "height": 20.0}),
+            )),
+            b"[null]"
+        );
+        let snapshot = plugin.take_state_change().expect("dirty editor snapshot");
+        assert_eq!(snapshot.client_id, 41);
+        assert!(snapshot.secure);
+        assert_eq!(
+            snapshot.cursor_rectangle,
+            Some(TextInputRectangle {
+                x: 110.0,
+                y: 55.0,
+                width: 2.0,
+                height: 20.0,
+            })
+        );
+    }
+
+    #[test]
+    fn input_method_transaction_cannot_cross_flutter_client_identity() {
+        let mut plugin = TextInputPlugin::default();
+        assert_eq!(
+            plugin.handle_platform_message(&call(
+                SET_CLIENT,
+                json!([7, {
+                    "inputAction": "TextInputAction.done",
+                    "inputType": {"name": "TextInputType.text"}
+                }]),
+            )),
+            b"[null]"
+        );
+        let messages = plugin.apply_input_method(
+            8,
+            &InputMethodTransaction {
+                commit_string: Some("lost".to_owned()),
+                ..InputMethodTransaction::default()
+            },
+        );
+        assert!(messages.is_empty());
+        assert_eq!(plugin.client.as_ref().unwrap().model.text(), "");
     }
 
     #[test]
@@ -808,6 +1474,37 @@ mod tests {
             json!({"text": "stale", "selectionBase": 5, "selectionExtent": 5}),
         ));
         assert_eq!(response, b"[null]");
+    }
+
+    #[test]
+    fn editor_state_is_edge_triggered_and_identifies_replacements() {
+        let mut plugin = TextInputPlugin::default();
+        let snapshot = plugin.take_state_change().unwrap();
+        assert_eq!((snapshot.lifecycle_revision, snapshot.active), (0, false));
+        assert!(plugin.take_state_change().is_none());
+
+        let configure = |id| {
+            call(
+                SET_CLIENT,
+                json!([id, {
+                    "inputAction": "TextInputAction.done",
+                    "inputType": {"name": "TextInputType.text"}
+                }]),
+            )
+        };
+        assert_eq!(plugin.handle_platform_message(&configure(1)), b"[null]");
+        let snapshot = plugin.take_state_change().unwrap();
+        assert_eq!((snapshot.lifecycle_revision, snapshot.active), (1, true));
+        assert_eq!(plugin.handle_platform_message(&configure(2)), b"[null]");
+        let snapshot = plugin.take_state_change().unwrap();
+        assert_eq!((snapshot.lifecycle_revision, snapshot.active), (2, true));
+        assert_eq!(
+            plugin.handle_platform_message(&call(CLEAR_CLIENT, Value::Null)),
+            b"[null]"
+        );
+        let snapshot = plugin.take_state_change().unwrap();
+        assert_eq!((snapshot.lifecycle_revision, snapshot.active), (3, false));
+        assert!(plugin.take_state_change().is_none());
     }
 
     #[test]

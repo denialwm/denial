@@ -1,13 +1,32 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash
 set -euo pipefail
 
 readonly CONFIG_FILE=/etc/denial/session.conf
-readonly DEFAULT_BUNDLE=/usr/lib/denial/flutter
 readonly SYSTEM_OUTPUT_CONFIG=/etc/denial/outputs.conf
 
 die() {
   printf 'denial-session: %s\n' "$*" >&2
   exit 1
+}
+
+launcher_path="$(readlink -f -- "${BASH_SOURCE[0]}")" \
+  || die 'could not resolve the installed launcher path'
+launcher_bin="$(dirname -- "$launcher_path")"
+package_prefix="$(dirname -- "$launcher_bin")"
+readonly launcher_path launcher_bin package_prefix
+readonly DEFAULT_BUNDLE="$package_prefix/lib/denial/flutter"
+readonly DENIALD="$launcher_bin/deniald"
+readonly DENIALCTL="$launcher_bin/denialctl"
+
+discover_user_systemctl() {
+  local candidate resolved
+
+  candidate="$(command -v systemctl 2>/dev/null)" || return 1
+  [[ "$candidate" == /* && -x "$candidate" ]] || return 1
+  resolved="$(readlink -f -- "$candidate")" || return 1
+  [[ -x "$resolved" ]] || return 1
+  "$resolved" --user show-environment >/dev/null 2>&1 || return 1
+  printf '%s\n' "$resolved"
 }
 
 default_user_output_config() {
@@ -170,21 +189,38 @@ fi
 validate_output_config "$output_config"
 drm_device="$(resolve_drm_device)"
 render_device="$(resolve_render_device)"
+systemctl_bin="$(discover_user_systemctl || true)"
+if [[ -n "$systemctl_bin" ]]; then
+  session_lifecycle='systemd user manager'
+else
+  session_lifecycle='launcher process'
+fi
+readonly systemctl_bin session_lifecycle
 
-[[ -x /usr/bin/deniald ]] || die 'missing /usr/bin/deniald'
-[[ -x /usr/bin/denialctl ]] || die 'missing /usr/bin/denialctl'
+[[ -f "$DENIALD" && -x "$DENIALD" ]] \
+  || die "missing compositor beside the session launcher: $DENIALD"
+[[ -f "$DENIALCTL" && -x "$DENIALCTL" ]] \
+  || die "missing control client beside the session launcher: $DENIALCTL"
+if [[ -n "$systemctl_bin" ]]; then
+  "$systemctl_bin" --user cat denial-session.target >/dev/null 2>&1 \
+    || die 'denial-session.target is not available to the systemd user manager'
+fi
 [[ -f "$bundle/data/icudtl.dat" ]] || die "missing Flutter ICU data below $bundle"
 [[ -f "$bundle/lib/libapp.so" ]] || die "missing Flutter application below $bundle"
 [[ -f "$bundle/lib/libflutter_engine.so" ]] \
   || die "missing Flutter engine below $bundle"
 command -v Xwayland >/dev/null 2>&1 \
   || die 'Xwayland is required for X11 applications'
-command -v uwsm >/dev/null 2>&1 \
-  || die 'UWSM is required to manage the graphical session'
 
 if [[ "${1:-}" == --check ]]; then
-  printf 'ok  %-16s %s\n' 'compositor' /usr/bin/deniald
-  printf 'ok  %-16s %s\n' 'control client' /usr/bin/denialctl
+  printf 'ok  %-16s %s\n' 'compositor' "$DENIALD"
+  printf 'ok  %-16s %s\n' 'control client' "$DENIALCTL"
+  if [[ -n "$systemctl_bin" ]]; then
+    printf 'ok  %-16s %s (%s)\n' \
+      'session lifecycle' "$session_lifecycle" denial-session.target
+  else
+    printf 'ok  %-16s %s\n' 'session lifecycle' "$session_lifecycle"
+  fi
   printf 'ok  %-16s %s\n' 'Flutter bundle' "$bundle"
   printf 'ok  %-16s %s\n' 'output config' "$output_config"
   printf 'ok  %-16s %s\n' 'DRM device' "$drm_device"
@@ -192,7 +228,6 @@ if [[ "${1:-}" == --check ]]; then
   printf 'ok  %-16s %s\n' 'shell profile' "$DENIA_SHELL_PROFILE"
   printf 'ok  %-16s %s\n' 'Flutter renderer' "${flutter_renderer:-impeller (default)}"
   printf 'ok  %-16s %s\n' 'Xwayland' "$(command -v Xwayland)"
-  printf 'ok  %-16s %s\n' 'UWSM' "$(command -v uwsm)"
   exit 0
 fi
 
@@ -224,9 +259,38 @@ fi
 
 unset DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE SWAYSOCK I3SOCK
 unset NO_COLOR WLR_DRM_DEVICES AQ_DRM_DEVICES
-export LIBSEAT_BACKEND="${LIBSEAT_BACKEND:-logind}"
-export DENIA_UWSM_FINALIZE=1
 export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
 export RUST_LOG="${DENIAL_RUST_LOG:-deniald=info,smithay=warn}"
 
-exec /usr/bin/deniald "${denial_args[@]}" "$@"
+denial_pid=''
+
+stop_graphical_session() {
+  if [[ -n "$systemctl_bin" ]]; then
+    "$systemctl_bin" --user stop graphical-session.target >/dev/null 2>&1 || true
+  fi
+}
+
+terminate_denial() {
+  # The display manager can signal the launcher and compositor together.
+  # Ignore re-entrant termination while the child performs its bounded KMS
+  # handoff; restoring SIG_DFL from inside Bash's active trap can make Bash
+  # resend that same signal to itself before wait returns.
+  trap '' HUP INT TERM
+  if [[ -n "$denial_pid" ]] && kill -0 "$denial_pid" 2>/dev/null; then
+    kill -TERM "$denial_pid" 2>/dev/null || true
+    wait "$denial_pid" 2>/dev/null || true
+  fi
+  exit 143
+}
+
+trap stop_graphical_session EXIT
+trap terminate_denial HUP INT TERM
+
+"$DENIALD" "${denial_args[@]}" "$@" &
+denial_pid=$!
+set +e
+wait "$denial_pid"
+denial_status=$?
+set -e
+denial_pid=''
+exit "$denial_status"

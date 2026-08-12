@@ -56,14 +56,6 @@ class RuntimePaths {
     return File(p.join(dir.path, 'wallpaper'));
   }
 
-  Future<File> settingsFile() async {
-    final dir = Directory(p.join(configHome, 'denial'));
-    await dir.create(recursive: true);
-    return File(p.join(dir.path, 'settings.json'));
-  }
-
-  String get settingsPath => p.join(configHome, 'denial', 'settings.json');
-
   Future<File> notificationPolicyFile() async {
     final dir = Directory(p.join(stateHome, 'denial'));
     await dir.create(recursive: true);

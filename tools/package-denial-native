@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+"$ROOT/tools/stage-denial-runtime"
+DENIAL_PACKAGE_SKIP_STAGE=1 "$ROOT/tools/package-denial-deb"
+DENIAL_PACKAGE_SKIP_STAGE=1 "$ROOT/tools/package-denial-rpm"
