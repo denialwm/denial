@@ -17,8 +17,8 @@ if (($# != 3)); then
 fi
 
 for command_name in \
-  apt-cache apt-get awk cat dnf find gpg gpgconf grep install mktemp paste \
-  realpath rm rpmkeys sort; do
+  apt-cache apt-get awk cat cp gpg gpgconf grep install mktemp paste \
+  realpath rm sort; do
   command -v "$command_name" >/dev/null 2>&1 \
     || fail "$command_name is required"
 done
@@ -75,9 +75,17 @@ for suite in trixie noble; do
   gpg --batch --verify "$release_root/InRelease"
   gpg --batch --verify "$release_root/Release.gpg" "$release_root/Release"
 done
-gpg --batch --verify \
-  "$work_root/rpm/fedora/44/x86_64/repodata/repomd.xml.asc" \
-  "$work_root/rpm/fedora/44/x86_64/repodata/repomd.xml"
+
+rpm_direct="$work_root/rpm-direct"
+install -d -m 0755 "$rpm_direct"
+cp -a -- "$work_root/rpm/fedora/44/x86_64/Packages/." "$rpm_direct/"
+"$ROOT/tools/verify-denial-rpm-repository" \
+  "$work_root/rpm/fedora/44/x86_64" \
+  "$rpm_direct" \
+  "$work_root/key.asc" \
+  "$fingerprint" \
+  "$VERSION" \
+  "$RELEASE"
 
 apt_root="$work_root/apt-client"
 install -d -m 0755 \
@@ -107,50 +115,6 @@ apt_names="$(
 )"
 [[ "$apt_names" == 'denial denial-flutter-engine' ]] \
   || fail "APT resolved the wrong package set: $apt_names"
-
-rpm_db="$work_root/rpm-db"
-install -d -m 0700 "$rpm_db"
-rpmkeys --dbpath "$rpm_db" --import "$work_root/key.asc"
-mapfile -d '' rpms < <(
-  find "$work_root/rpm/fedora/44/x86_64/Packages" \
-    -maxdepth 1 -type f -name '*.rpm' -print0 | sort -z
-)
-((${#rpms[@]} == 2)) || fail 'DNF repository does not contain two RPMs'
-for package in "${rpms[@]}"; do
-  rpmkeys --dbpath "$rpm_db" --checksig --verbose "$package" \
-    | grep -Eiq 'signature.*: OK'
-done
-
-dnf_root="$work_root/dnf-client"
-install -d -m 0755 "$dnf_root"
-dnf_common=(
-  --installroot "$dnf_root"
-  --releasever 44
-  --forcearch x86_64
-  --setopt "cachedir=$work_root/dnf-cache"
-  --setopt "persistdir=$work_root/dnf-persist"
-  --setopt reposdir=/dev/null
-  --setopt plugins=0
-  --repofrompath "denial,file://$work_root/rpm/fedora/44/x86_64"
-  --setopt denial.gpgcheck=1
-  --setopt denial.repo_gpgcheck=1
-  --setopt "denial.gpgkey=file://$work_root/key.asc"
-  --repo denial
-)
-dnf --assumeyes "${dnf_common[@]}" makecache
-dnf_names="$(
-  dnf \
-    --quiet \
-    "${dnf_common[@]}" \
-    repoquery \
-    --available \
-    --qf '%{name}' \
-    denial denial-flutter-engine \
-    | sort -u \
-    | paste -sd' ' -
-)"
-[[ "$dnf_names" == 'denial denial-flutter-engine' ]] \
-  || fail "DNF resolved the wrong package set: $dnf_names"
 
 printf '\n' >>"$work_root/apt/dists/trixie/Release"
 if gpg --batch --verify \

@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fail() {
+  printf 'verify-denial-rpm-repository: %s\n' "$*" >&2
+  exit 1
+}
+
+if (($# != 6)); then
+  printf '%s\n' \
+    'Usage: verify-denial-rpm-repository REPOSITORY_ROOT DIRECT_ROOT PUBLIC_KEY FINGERPRINT VERSION RELEASE' \
+    >&2
+  exit 2
+fi
+
+for command_name in \
+  awk basename cmp dnf find gpg gpgconf grep install mktemp paste realpath \
+  rm rpm rpmkeys sort; do
+  command -v "$command_name" >/dev/null 2>&1 \
+    || fail "$command_name is required"
+done
+
+REPOSITORY_ROOT="$(realpath -e -- "$1")"
+DIRECT_ROOT="$(realpath -e -- "$2")"
+PUBLIC_KEY="$(realpath -e -- "$3")"
+FINGERPRINT="${4^^}"
+VERSION="$5"
+RELEASE="$6"
+readonly \
+  REPOSITORY_ROOT DIRECT_ROOT PUBLIC_KEY FINGERPRINT VERSION RELEASE
+
+[[ "$FINGERPRINT" =~ ^[0-9A-F]{40,64}$ ]] \
+  || fail 'fingerprint must be a complete OpenPGP fingerprint'
+[[ "$VERSION" =~ ^[0-9][0-9A-Za-z.+~]*$ && "$VERSION" != *-* ]] \
+  || fail 'version is not valid for RPM metadata'
+[[ "$RELEASE" =~ ^[0-9]+$ ]] \
+  || fail 'release must be numeric'
+
+work_root="$(mktemp -d "${TMPDIR:-/tmp}/denial-rpm-verify.XXXXXX")"
+cleanup() {
+  gpgconf --homedir "$work_root/gnupg" --kill all >/dev/null 2>&1 || true
+  if [[ "$work_root" == "${TMPDIR:-/tmp}"/denial-rpm-verify.* ]]; then
+    rm -rf --one-file-system -- "$work_root"
+  fi
+}
+trap cleanup EXIT
+
+export GNUPGHOME="$work_root/gnupg"
+install -d -m 0700 "$GNUPGHOME"
+actual_fingerprint="$(
+  gpg \
+    --batch \
+    --show-keys \
+    --with-colons \
+    --fingerprint \
+    "$PUBLIC_KEY" \
+    | awk -F: '$1 == "fpr" { print toupper($10); exit }'
+)"
+[[ "$actual_fingerprint" == "$FINGERPRINT" ]] \
+  || fail "public key fingerprint is $actual_fingerprint"
+gpg --batch --import "$PUBLIC_KEY"
+if gpg --batch --list-secret-keys 2>/dev/null | grep -q .; then
+  fail 'verification keyring unexpectedly contains a secret key'
+fi
+
+repomd="$REPOSITORY_ROOT/repodata/repomd.xml"
+[[ -f "$repomd" && -f "$repomd.asc" ]] \
+  || fail 'signed DNF repomd.xml is incomplete'
+gpg --batch --verify "$repomd.asc" "$repomd"
+
+rpm_db="$work_root/rpm-db"
+install -d -m 0700 "$rpm_db"
+rpmkeys --dbpath "$rpm_db" --import "$PUBLIC_KEY"
+mapfile -d '' repository_rpms < <(
+  find "$REPOSITORY_ROOT/Packages" \
+    -maxdepth 1 -type f -name '*.rpm' -print0 | sort -z
+)
+((${#repository_rpms[@]} == 2)) \
+  || fail "expected two DNF packages, found ${#repository_rpms[@]}"
+for package in "${repository_rpms[@]}"; do
+  direct="$DIRECT_ROOT/$(basename -- "$package")"
+  [[ -f "$direct" ]] || fail "direct RPM package is missing: $direct"
+  cmp -- "$package" "$direct"
+  signature_report="$(
+    rpmkeys --dbpath "$rpm_db" --checksig --verbose "$package"
+  )"
+  grep -Eiq 'signature.*: OK' <<<"$signature_report" \
+    || fail "RPM signature was not verified: $package"
+  [[ "$(rpm --dbpath "$rpm_db" -qp --qf '%{VERSION}-%{RELEASE}' "$package")" \
+    == "$VERSION-$RELEASE" ]] \
+    || fail "DNF package has the wrong version: $package"
+done
+
+dnf_root="$work_root/dnf-client"
+install -d -m 0755 "$dnf_root"
+dnf_common=(
+  --installroot "$dnf_root"
+  --releasever 44
+  --forcearch x86_64
+  --setopt "cachedir=$work_root/dnf-cache"
+  --setopt "persistdir=$work_root/dnf-persist"
+  --setopt reposdir=/dev/null
+  --setopt plugins=0
+  --repofrompath "denial,file://$REPOSITORY_ROOT"
+  --setopt denial.gpgcheck=1
+  --setopt denial.repo_gpgcheck=1
+  --setopt "denial.gpgkey=file://$PUBLIC_KEY"
+  --repo denial
+)
+dnf --assumeyes "${dnf_common[@]}" makecache
+dnf_names="$(
+  dnf \
+    --quiet \
+    "${dnf_common[@]}" \
+    repoquery \
+    --available \
+    --qf '%{name} ' \
+    denial denial-flutter-engine \
+    | awk '{ for (field = 1; field <= NF; field++) print $field }' \
+    | sort -u \
+    | paste -sd' ' -
+)"
+[[ "$dnf_names" == 'denial denial-flutter-engine' ]] \
+  || fail "DNF client resolved the wrong package set: $dnf_names"
+
+printf 'Verified embedded RPM signatures and DNF client behavior: %s\n' \
+  "$REPOSITORY_ROOT"

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+if (($# != 4)); then
+  printf '%s\n' \
+    'Usage: verify-denial-published-rpm-repository SIGNED_ROOT FINGERPRINT VERSION RELEASE' \
+    >&2
+  exit 2
+fi
+
+SIGNED_ROOT="$(realpath -e -- "$1")"
+readonly SIGNED_ROOT
+
+"$SCRIPT_DIR/verify-denial-rpm-repository" \
+  "$SIGNED_ROOT/rpm/fedora/44/x86_64" \
+  "$SIGNED_ROOT/downloads/x86_64" \
+  "$SIGNED_ROOT/denial-repo-key.asc" \
+  "$2" \
+  "$3" \
+  "$4"
