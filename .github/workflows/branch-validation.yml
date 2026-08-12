@@ -735,7 +735,8 @@ jobs:
           test "$PACKAGE_RELEASE" = "$expected_package_release"
           test "$BUILD_IDENTITY" = "$GITHUB_REF_NAME.g$GITHUB_SHA"
           test "$SOURCE_DATE_EPOCH" = "$(
-            git show -s --format=%ct "$GITHUB_SHA"
+            git -c safe.directory="$GITHUB_WORKSPACE" \
+              show -s --format=%ct "$GITHUB_SHA"
           )"
           grep -Fxq "build_identity=$BUILD_IDENTITY" "$provenance"
           test "$FLUTTER_ENGINE_ABI" = 3.44.7.denial1
