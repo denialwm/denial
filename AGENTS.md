@@ -161,7 +161,7 @@ The host needs a Rust toolchain compatible with the repository-level
 DRM, GBM/EGL, libinput, libseat and udev backends. Only binding regeneration
 needs Clang/libclang.
 
-Install or remove the local SDDM entry with:
+Install or remove the local display-manager entry with:
 
 ```sh
 tools/denial-pc install-session

@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+if (($# == 0)); then
+  printf 'Usage: tools/run-denial-promotion-no-build COMMAND [ARG ...]\n' >&2
+  exit 2
+fi
+
+guard_root="$(mktemp -d "${TMPDIR:-/tmp}/denial-promotion-guard.XXXXXX")"
+cleanup() {
+  if [[ "$guard_root" == "${TMPDIR:-/tmp}"/denial-promotion-guard.* ]]; then
+    rm -rf --one-file-system -- "$guard_root"
+  fi
+}
+trap cleanup EXIT
+
+for command_name in \
+  cargo rustc rustdoc rustup sccache \
+  flutter dart gen_snapshot frontend_server \
+  gn autoninja ninja cmake meson \
+  cc c++ gcc g++ clang clang++ ld lld \
+  go javac kotlinc; do
+  ln -s -- "$SCRIPT_DIR/deny-denial-promotion-compile" \
+    "$guard_root/$command_name"
+done
+
+if PATH="$guard_root:$PATH" DENIAL_PROMOTION_MODE=1 "$@"; then
+  status=0
+else
+  status=$?
+fi
+exit "$status"

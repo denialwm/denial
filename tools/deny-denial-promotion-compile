@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf 'deny-denial-promotion-compile: promotion attempted forbidden command: %s\n' \
+  "$(basename -- "$0")" >&2
+exit 125

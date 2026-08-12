@@ -121,6 +121,8 @@ The host needs:
 - RealtimeKit (`rtkit`) for the compositor's unprivileged high-priority
   scheduling fallback;
 - Xwayland;
+- the Fontconfig development files used by the Linux engine's system-font
+  backend;
 - the development libraries used by Smithay's DRM, GBM/EGL, libinput,
   libseat, udev, and libxkbcommon backends.
 
@@ -185,13 +187,33 @@ version-matched editable source snapshot and revision metadata, and the native
 with networking disabled.
 An engine binary change requires one Denial session restart; normal Dart hot
 reload does not.
+
 The validator reports the compressed and installed sizes and enforces explicit
 budgets so accidental package growth fails before publication. See
 [Live Flutter UI development](UI_DEVELOPMENT.md).
 
+## Debian and Fedora package adapters
+
+Build both native package families from one compiled and ABI-gated payload:
+
+```sh
+tools/denial-pc native-packages
+```
+
+`debian-package` and `fedora-package` build either family independently. The
+shared staging pass rejects any ELF input requiring a glibc version newer than
+2.39, the Ubuntu 24.04 baseline, and records deterministic file inventories
+and hashes. Both adapters disable package-time ELF rewriting, extract their
+finished archives, and require every installed payload byte and mode to match
+that shared tree. Target distributions are required for clean installation
+and graphical-session validation, not for compilation or package assembly.
+The builder needs `dpkg-deb` for `.deb` output and `rpmbuild`, `rpm`,
+`rpm2cpio`, and `bsdtar` for RPM output. Finished packages are written below
+`$XDG_CACHE_HOME/denial/pc-build/packages/` by default.
+
 ## Local session
 
-Install or remove the development SDDM entry with:
+Install or remove the development display-manager entry with:
 
 ```sh
 tools/denial-pc install-session

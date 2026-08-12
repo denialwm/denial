@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+  configure|abort-upgrade|abort-deconfigure|abort-remove)
+    if [ -z "${DPKG_ROOT:-}" ] && [ -d /run/systemd/system ] \
+      && command -v deb-systemd-invoke >/dev/null 2>&1; then
+      # The target has no [Install] section and must never be enabled or
+      # auto-started. Only teach already-running user managers about it.
+      deb-systemd-invoke --user daemon-reload >/dev/null || true
+    fi
+    ;;
+esac
+
+exit 0

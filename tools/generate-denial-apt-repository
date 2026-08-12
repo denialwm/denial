@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fail() {
+  printf 'generate-denial-apt-repository: %s\n' "$*" >&2
+  exit 1
+}
+
+if (($# != 5)); then
+  printf '%s\n' \
+    'Usage: generate-denial-apt-repository PACKAGE_ROOT OUTPUT_ROOT FINGERPRINT VERSION RELEASE' \
+    >&2
+  exit 2
+fi
+
+for command_name in \
+  apt-ftparchive awk basename cat cp dpkg-deb find gpg grep gzip install mv \
+  realpath sha256sum sort xz; do
+  command -v "$command_name" >/dev/null 2>&1 \
+    || fail "$command_name is required"
+done
+
+PACKAGE_ROOT="$(realpath -e -- "$1")"
+OUTPUT_ROOT="$(realpath -m -- "$2")"
+FINGERPRINT="${3^^}"
+VERSION="$4"
+RELEASE="$5"
+readonly PACKAGE_ROOT OUTPUT_ROOT FINGERPRINT VERSION RELEASE
+
+[[ -n "${GNUPGHOME:-}" && -d "$GNUPGHOME" ]] \
+  || fail 'GNUPGHOME must identify the release-signing keyring'
+[[ "$FINGERPRINT" =~ ^[0-9A-F]{40,64}$ ]] \
+  || fail 'fingerprint must be a complete OpenPGP fingerprint'
+[[ "$VERSION" =~ ^[0-9][0-9A-Za-z.+~]*$ && "$VERSION" != *-* ]] \
+  || fail 'version is not valid for both Debian and RPM metadata'
+[[ "$RELEASE" =~ ^[0-9]+$ ]] \
+  || fail 'release must be numeric'
+if [[ -e "$OUTPUT_ROOT" ]] \
+  && find "$OUTPUT_ROOT" -mindepth 1 -print -quit | grep -q .; then
+  fail "output directory is not empty: $OUTPUT_ROOT"
+fi
+
+mapfile -d '' packages < <(
+  find "$PACKAGE_ROOT" -maxdepth 1 -type f -name '*.deb' -print0 | sort -z
+)
+((${#packages[@]} == 2)) \
+  || fail "expected two Debian packages, found ${#packages[@]}"
+
+pool_root="$OUTPUT_ROOT/pool/main/d/denial"
+install -d -m 0755 "$pool_root"
+package_names=()
+for package in "${packages[@]}"; do
+  package_name="$(dpkg-deb --field "$package" Package)"
+  package_version="$(dpkg-deb --field "$package" Version)"
+  package_arch="$(dpkg-deb --field "$package" Architecture)"
+  [[ "$package_name" == denial || "$package_name" == denial-flutter-engine ]] \
+    || fail "unexpected Debian package: ${package_name:-unset}"
+  [[ "$package_version" == "$VERSION-$RELEASE" ]] \
+    || fail "$(basename -- "$package") has version $package_version"
+  [[ "$package_arch" == amd64 ]] \
+    || fail "$(basename -- "$package") targets $package_arch"
+  cp --reflink=auto -- "$package" "$pool_root/"
+  package_names+=("$package_name")
+done
+mapfile -t package_names < <(printf '%s\n' "${package_names[@]}" | sort)
+[[ "${package_names[*]}" == 'denial denial-flutter-engine' ]] \
+  || fail 'Debian package set is incomplete'
+
+for suite in trixie noble; do
+  binary_root="$OUTPUT_ROOT/dists/$suite/main/binary-amd64"
+  install -d -m 0755 "$binary_root"
+  (
+    cd "$OUTPUT_ROOT"
+    apt-ftparchive packages pool/main/d/denial
+  ) >"$binary_root/Packages"
+  gzip -n -9 --stdout "$binary_root/Packages" \
+    >"$binary_root/Packages.gz"
+  xz --threads=1 -9e --stdout "$binary_root/Packages" \
+    >"$binary_root/Packages.xz"
+
+  [[ "$(grep -c '^Package: ' "$binary_root/Packages")" == 2 ]] \
+    || fail "$suite Packages index has the wrong package count"
+  for package in "${packages[@]}"; do
+    filename="pool/main/d/denial/$(basename -- "$package")"
+    checksum="$(sha256sum "$package" | awk '{ print $1 }')"
+    grep -Fxq "Filename: $filename" "$binary_root/Packages" \
+      || fail "$suite Packages index omits $filename"
+    grep -Fxq "SHA256: $checksum" "$binary_root/Packages" \
+      || fail "$suite Packages index has the wrong checksum for $filename"
+  done
+
+  release_root="$OUTPUT_ROOT/dists/$suite"
+  release_output="$OUTPUT_ROOT/.${suite}.Release.tmp"
+  (
+    cd "$OUTPUT_ROOT"
+    apt-ftparchive \
+      -o APT::FTPArchive::Release::Origin=Denial \
+      -o APT::FTPArchive::Release::Label=Denial \
+      -o APT::FTPArchive::Release::Suite="$suite" \
+      -o APT::FTPArchive::Release::Codename="$suite" \
+      -o APT::FTPArchive::Release::Architectures=amd64 \
+      -o APT::FTPArchive::Release::Components=main \
+      -o APT::FTPArchive::Release::Description='Denial public-alpha packages' \
+      release "dists/$suite"
+  ) >"$release_output"
+  mv -- "$release_output" "$release_root/Release"
+  for expected in \
+    'Origin: Denial' \
+    'Label: Denial' \
+    "Suite: $suite" \
+    "Codename: $suite" \
+    'Architectures: amd64' \
+    'Components: main'; do
+    grep -Fxq "$expected" "$release_root/Release" \
+      || fail "$suite Release metadata omits $expected"
+  done
+  release_sha256_count="$(
+    awk '
+      $0 == "SHA256:" { in_sha256 = 1; next }
+      in_sha256 && /^[A-Za-z0-9]/ { exit }
+      in_sha256 && NF == 3 { count++ }
+      END { print count + 0 }
+    ' "$release_root/Release"
+  )"
+  [[ "$release_sha256_count" == 3 ]] \
+    || fail "$suite Release metadata has no exact three-file SHA256 set"
+
+  gpg \
+    --batch \
+    --yes \
+    --local-user "$FINGERPRINT" \
+    --digest-algo SHA256 \
+    --clearsign \
+    --output "$release_root/InRelease" \
+    "$release_root/Release"
+  gpg \
+    --batch \
+    --yes \
+    --armor \
+    --local-user "$FINGERPRINT" \
+    --digest-algo SHA256 \
+    --detach-sign \
+    --output "$release_root/Release.gpg" \
+    "$release_root/Release"
+  gpg --batch --verify "$release_root/InRelease"
+  gpg --batch --verify "$release_root/Release.gpg" "$release_root/Release"
+done
+
+cat >"$OUTPUT_ROOT/denial-trixie.sources" <<'EOF'
+Types: deb
+URIs: https://denialwm.github.io/denial/apt
+Suites: trixie
+Components: main
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/denial.asc
+EOF
+
+cat >"$OUTPUT_ROOT/denial-noble.sources" <<'EOF'
+Types: deb
+URIs: https://denialwm.github.io/denial/apt
+Suites: noble
+Components: main
+Architectures: amd64
+Signed-By: /etc/apt/keyrings/denial.asc
+EOF
+
+find "$OUTPUT_ROOT" -type d -exec chmod 0755 {} +
+find "$OUTPUT_ROOT" -type f -exec chmod 0644 {} +
+printf 'Generated signed APT repositories for trixie and noble: %s\n' \
+  "$OUTPUT_ROOT"

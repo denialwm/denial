@@ -45,6 +45,7 @@ The equivalent direct engine commands are:
 ```sh
 ./flutter/tools/gn \
   --runtime-mode=debug \
+  --enable-fontconfig \
   --target-dir=denial_host_debug
 /usr/bin/ninja -C out/denial_host_debug libflutter_engine.so
 ```
@@ -52,6 +53,10 @@ The equivalent direct engine commands are:
 The engine must report JIT mode and export `FlutterEngineGetProcAddresses`,
 `FlutterEngineRunsAOTCompiledDartCode`, and
 `DenialFlutterEngineScheduleFrameForExternalTextures`.
+
+Linux builds enable Flutter's Fontconfig backend. The shipped engine therefore
+requires `libfontconfig.so.1` and discovers fonts through the host's Fontconfig
+configuration instead of assuming they live below `/usr/share/fonts`.
 
 ## Licensing
 

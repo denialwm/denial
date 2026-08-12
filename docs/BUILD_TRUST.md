@@ -8,7 +8,7 @@ package signature, or maintainer-owned builder as proof that a binary is safe.
 
 ## Current status
 
-As of 2026-07-27:
+As of 2026-08-12:
 
 - the x86-64 source-built Flutter Engine and split Pacman package prototype
   have passed source reconstruction, tests, package transactions, and
@@ -21,6 +21,10 @@ As of 2026-07-27:
 - the v0.2.0 candidate path adds the separately versioned and optional
   `denial-ui-development` package to the same build, signing, verification,
   repository, and release-evidence boundary;
+- the release candidate also emits byte-identical Debian-family and Fedora
+  runtime/engine pairs from one GLIBC-gated staging tree; the signed-tag path
+  republishes those exact payloads through signed APT and DNF repositories and
+  as signed GitHub Release downloads without compiling them again;
 - no Stage 1 development or disposable-key package is presented as a public
   release;
 - complete offline dependency closure and package reproducibility remain
@@ -85,24 +89,30 @@ No individual item replaces the others.
 Every public-alpha release publishes:
 
 - a signed, immutable source tag;
-- literal package metadata;
-- the package `.BUILDINFO`;
+- literal package metadata (`.PKGINFO`/`.BUILDINFO`, Debian control fields,
+  and RPM identity fields);
 - the source revision, runner disclosure, compiler and Flutter versions, host
   package inventory, test logs, Namcap output, and artifact hashes;
-- detached OpenPGP signatures for packages and repository databases;
+- embedded or detached OpenPGP signatures for packages and signed Pacman,
+  APT, and DNF repository metadata;
 - a signed complete SHA-256 manifest;
 - the full public key and fingerprint;
 - explicit non-claims for offline closure, reproducibility, independent
   rebuilding, SBOMs, and AArch64.
 
-Beginning with v0.2.0, the signed package set contains exactly one
-`denial-flutter-engine`, one `denial`, and one optional
-`denial-ui-development` archive. The latter is not installed by default, but
-it is built and verified in the same release run as the runtime pair.
-Every archive takes its `pkgver` directly from the verified signed tag. The
+Beginning with v0.2.0, the signed package set contains three Arch archives:
+one `denial-flutter-engine`, one `denial`, and one optional
+`denial-ui-development`; it also contains a `denial-flutter-engine`/`denial`
+pair for Debian-family systems and another pair for Fedora. The development
+archive remains Arch-only and is not installed by default. Every archive
+takes its package identity directly from the verified signed tag. The
 engine's `denial-flutter-engine-abi` capability is an independent
 compatibility contract; its one-time epoch only preserves Pacman ordering
-across the transition from the former Flutter-numbered package.
+across the transition from the former Flutter-numbered package. Arch packages
+and repository databases and every direct download receive an adjacent
+detached OpenPGP signature. APT additionally authenticates
+`InRelease`/`Release.gpg`, while DNF authenticates signed `repomd.xml` and the
+embedded signature in each RPM header.
 
 Stage 2 and Stage 3 later add immutable source/tool closures, generated
 `.SRCINFO`, normalized compiler and linker manifests, SBOMs, attestations,
@@ -152,8 +162,12 @@ The public GitHub workflows are part of the reviewable build instructions:
 - workflow permissions default to read-only;
 - build jobs have no signing or repository-publication secret;
 - a separate `release-signing` environment receives only the secret subkey;
-- publication re-verifies the signed tree without any secret key and publishes
-  a draft GitHub Release only after Pages deployment succeeds.
+- publication re-verifies the signed tree without any secret key, exercises
+  isolated APT and DNF clients, and publishes the draft GitHub Release only
+  after Pages deployment succeeds;
+- the release page exposes every signed Arch, Debian-family, and Fedora
+  package together with its detached signature and the signed complete
+  checksum manifest.
 
 `tools/denial-release` implements the machine and source audits used by those
 workflows. Passing a development source audit is necessary but is not

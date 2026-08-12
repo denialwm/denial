@@ -1,0 +1,5 @@
+[Unit]
+Description=Denial graphical session
+Documentation=https://github.com/denialwm/denial
+BindsTo=graphical-session.target
+Before=graphical-session.target

@@ -59,7 +59,6 @@ const APPLICATION_ENVIRONMENT_REMOVALS: &[&str] = &[
     "SYSTEMD_EXEC_PID",
     "DENIAL_NO_RT",
     "DENIA_LAUNCH_REQUEST_ID",
-    "DENIA_UWSM_FINALIZE",
     "DENIAL_SOCKET",
     // This is useful for keeping compositor diagnostics machine-readable, but
     // it must not silently disable color in applications launched by Denial.

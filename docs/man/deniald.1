@@ -1,0 +1,90 @@
+.TH DENIALD 1 "August 2026" "Denial" "User Commands"
+.SH NAME
+deniald \- run the Denial Wayland compositor
+.SH SYNOPSIS
+.B deniald
+.RI [ options ]
+.SH DESCRIPTION
+.B deniald
+owns the DRM/KMS display, input devices, Wayland and Xwayland frontends, and
+the embedded Flutter desktop scene.
+An installed graphical session should normally start
+.BR denial-session (1),
+which discovers the correct devices, configuration, and Flutter bundle before
+invoking this lower-level binary.
+.SH SESSION OPTIONS
+.TP
+.BI \-\-device " path"
+Use the DRM card at
+.IR path .
+.TP
+.BI \-\-render-device " path"
+Render on a DRM node distinct from the KMS device. Both devices must support a
+compatible DMA-BUF format and modifier.
+.TP
+.BI \-\-output-config " path"
+Load persistent output configuration from
+.IR path .
+.TP
+.B \-\-wayland
+Start the Wayland frontend and Xwayland integration.
+.TP
+.BI \-\-flutter-bundle " path"
+Load the packaged Flutter shell bundle from
+.IR path .
+.TP
+.BI \-\-flutter-renderer " skia|impeller"
+Select the Flutter GLES renderer. Impeller is the default.
+.TP
+.B \-\-start-locked
+Initialize the native authentication gate and Flutter lock screen as locked.
+.TP
+.BR \-h ", " \-\-help
+Show all runtime and diagnostic options.
+.TP
+.BR \-V ", " \-\-version
+Show the installed Denial version, immutable candidate build identity, and
+Flutter Engine ABI generation.
+.SH DIAGNOSTIC OPTIONS
+.TP
+.BI \-\-frames " count"
+Exit after a bounded number of presented frames.
+.TP
+.BI \-\-commit-seconds " seconds"
+Exit after a bounded presentation interval.
+.TP
+.BI \-\-max-outputs " count"
+Limit the outputs used by a controlled KMS run.
+.TP
+.BI \-\-output-position " name=x,y"
+Override an output position for this invocation.
+.PP
+Additional reconfiguration and topology-test options are listed by
+.BR "deniald --help" .
+.SH SIGNALS
+.TP
+.B SIGUSR1
+Refresh the embedded packaged Flutter runtime in process.
+.TP
+.B SIGUSR2
+Re-evaluate the live KMS topology.
+.TP
+.B SIGINT, SIGTERM
+Request a bounded compositor shutdown and KMS handoff.
+.SH FILES
+.TP
+.I /etc/denial/session.conf
+Administrator-owned session and device overrides read by
+.BR denial-session (1).
+.TP
+.I $XDG_CONFIG_HOME/denial/outputs.conf
+Per-user output configuration initialized and passed by the session launcher.
+.TP
+.I /usr/lib/denial/flutter
+Default installed Flutter shell bundle.
+.TP
+.I /usr/share/denial/version
+Signed-tag runtime version installed only in release packages.
+.SH SEE ALSO
+.BR denial-session (1),
+.BR denialctl (1)

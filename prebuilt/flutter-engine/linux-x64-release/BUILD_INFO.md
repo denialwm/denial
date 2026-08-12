@@ -55,6 +55,7 @@ The equivalent direct release commands are:
 ```sh
 ./flutter/tools/gn \
   --runtime-mode=release \
+  --enable-fontconfig \
   --target-dir=denial_host_release
 /usr/bin/ninja -C out/denial_host_release libflutter_engine.so
 ```
@@ -63,6 +64,10 @@ Generated arguments must match `args.gn`, and the output must match
 `libflutter_engine.so.sha256`. It must export
 `FlutterEngineGetProcAddresses` and
 `DenialFlutterEngineScheduleFrameForExternalTextures`.
+
+Linux builds enable Flutter's Fontconfig backend. The shipped engine therefore
+requires `libfontconfig.so.1` and discovers fonts through the host's Fontconfig
+configuration instead of assuming they live below `/usr/share/fonts`.
 
 The standard Rust ABI remains generated from the pristine official embedder
 header at the upstream compatibility revision:

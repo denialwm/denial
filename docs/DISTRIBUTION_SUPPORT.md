@@ -1,8 +1,26 @@
 # Distribution support
 
-Denial targets Linux rather than one distribution. Debian is the first port
-because it has been requested most often; the packaging boundary should remain
-reusable for other distributions.
+Denial targets Linux rather than one distribution. Fedora 44, Debian 13,
+NixOS 26.05, Void Linux, and Ubuntu 24.04 LTS have completed
+cross-distribution runtime validation. Debian-family and Fedora package
+adapters consume one byte-identical runtime staging tree. Signed APT
+repositories serve Debian 13 and Ubuntu 24.04, and a signed DNF repository
+serves Fedora 44; the same packages are retained as direct GitHub Release
+downloads. NixOS and Void native adapters remain deferred. The packaging
+boundary remains reusable for other distributions.
+
+The first real GDM port and the compatibility requirements it exposed are
+recorded in the [Fedora 44 validation](../packaging/fedora/VALIDATION.md).
+The older userspace and NVIDIA driver behavior exercised by the next port are
+recorded in the [Debian 13 validation](../packaging/debian/VALIDATION.md).
+The immutable paths, symlinked desktop entries, and system font discovery
+exercised by the third port are recorded in the
+[NixOS 26.05 validation](../packaging/nixos/VALIDATION.md).
+The runit, elogind, and user-D-Bus lifecycle exercised by the fourth port is
+recorded in the [Void Linux validation](../packaging/void/VALIDATION.md).
+The Ubuntu desktop stack and hybrid-graphics topology exercised by the fifth
+port are recorded in the
+[Ubuntu 24.04 LTS validation](../packaging/ubuntu/VALIDATION.md).
 
 ## Current limitations
 
@@ -10,38 +28,49 @@ reusable for other distributions.
 - The Rust compositor is built against the builder's host libraries. The
   current Arch-built binary requires glibc 2.39, so it cannot run on Debian 12;
   Debian 13 can load it, but a future rolling-distribution build could raise
-  that requirement again. The Flutter engine itself currently requires only
-  glibc 2.18.
+  that requirement again. The Flutter engine itself currently requires glibc
+  2.18 and Fontconfig for distribution-native system-font discovery.
 - Denial pins Rust 1.95, newer than Debian 13's packaged Rust compiler. A
   Debian builder must provision the pinned toolchain, while the resulting
   runtime package must not depend on a Rust installation.
-- The supported graphical-session launcher requires UWSM and systemd/logind.
-  UWSM is available for Debian 13 through backports rather than the base stable
-  suite, so an ordinary stable installation cannot yet satisfy this path from
-  its default repositories alone.
-- Native DDC brightness loads libddcutil ABI 5. Debian 13 provides it; Debian
-  12 provides ABI 4, so brightness control would be unavailable there even
-  after a native compositor rebuild.
+- The graphical session requires a logind-compatible seat and session API and
+  a user D-Bus. Denial always publishes its discovered Wayland, X11, and
+  control endpoints to D-Bus activation. When a systemd user manager owns its
+  standard bus name, Denial additionally publishes there and manages the
+  packaged graphical-session target; otherwise its launcher process owns the
+  compositor lifecycle directly. This supports elogind-based systems without
+  making UWSM or systemd a runtime requirement.
+- Native DDC brightness loads libddcutil ABI 5 and resolves both display
+  metadata and VCP setter APIs by symbol capability. Newer releases publish a
+  DRM connector directly. With the stable metadata API in libddcutil 2.2.0,
+  Denial correlates the reported I2C bus with DRM sysfs and accepts an EDID
+  fallback only when it is unambiguous. The setter similarly supports the
+  verification-free entry point added in libddcutil 2.2.6 and the
+  ABI-compatible legacy entry point. Debian 13 provides ABI 5; Debian 12
+  provides ABI 4, so brightness control would be unavailable there even after
+  a native compositor rebuild. Fedora packages the ABI library as
+  `libddcutil`, separately from the `ddcutil` command, so its packaging adapter
+  recommends its `libddcutil.so.5` capability directly rather than relying on
+  the diagnostic command to provide it.
 - Hardware must expose atomic KMS, GBM/EGL, hardware GLES 3.0 or newer, and a
   renderable format/modifier shared with every active primary plane. This may
   exclude older GPUs and simple virtual-machine display devices independently
   of distribution.
 
-## Debian delivery plan
+## Native package delivery
 
-Use a dedicated Debian development and build machine, with the oldest Debian
-release we intend to support as its ABI baseline. Initially this should be
-Debian 13 unless Debian 12 is deliberately added to scope.
+One version-neutral x86-64 build supplies the locked Flutter engine and Denial
+payload. The shared staging pass enforces the oldest supported ABI baseline,
+currently glibc 2.39 from Ubuntu 24.04, before thin adapters add Debian or RPM
+metadata. Package assembly does not require booting the target distribution.
+The adapters preserve compiled bytes and independently compare every extracted
+file and mode with the staging manifest.
 
-That machine will build native Debian packages for the locked Flutter engine
-and Denial payload. The packages must install a complete usable compositor:
-the binaries and Flutter bundle, session launcher and Wayland session entry,
-default configuration, portal routing, licenses, and declared runtime
-dependencies. Essential session components belong in `Depends`; integrations
-whose absence only removes a shell feature belong in `Recommends` or
-`Suggests`. UWSM must either be supplied by the same repository or cease to be
-a mandatory session dependency before the package can claim installation from
-an unmodified Debian stable system.
+The packages install a complete usable compositor: binaries and Flutter
+bundle, session launcher and Wayland session entry, default configuration,
+portal routing, licenses, and declared runtime dependencies. Essential session
+components belong in `Depends`/`Requires`; integrations whose absence only
+removes a shell feature belong in `Recommends` or `Suggests`.
 
 Validation must start from a clean Debian installation and cover package
 installation, display-manager login, logind/libseat handoff, Wayland and X11

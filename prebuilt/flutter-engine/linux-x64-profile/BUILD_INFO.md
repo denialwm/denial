@@ -36,6 +36,7 @@ The equivalent direct engine commands are:
 ```sh
 ./flutter/tools/gn \
   --runtime-mode=profile \
+  --enable-fontconfig \
   --target-dir=denial_host_profile
 /usr/bin/ninja -C out/denial_host_profile libflutter_engine.so
 ```
@@ -47,6 +48,10 @@ Generated arguments must match `args.gn`; the result must match
 Before checksum verification, the builder canonicalizes the stripped
 library's GNU build ID from the shipped ELF content. Full-file SHA-256
 verification therefore remains exact across independent build paths.
+
+Linux builds enable Flutter's Fontconfig backend. The shipped engine therefore
+requires `libfontconfig.so.1` and discovers fonts through the host's Fontconfig
+configuration instead of assuming they live below `/usr/share/fonts`.
 
 ## Licensing
 

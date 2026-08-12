@@ -517,7 +517,7 @@ class UnlockTransitionHost extends StatefulWidget {
   final Widget scene;
   final Widget chrome;
   final Widget backdrop;
-  final Widget Function(double progress)? lockLayerBuilder;
+  final Widget Function(Animation<double> progress)? lockLayerBuilder;
   final bool animateLock;
 
   @override
@@ -568,8 +568,19 @@ class _UnlockTransitionHostState extends State<UnlockTransitionHost>
 
   @override
   Widget build(BuildContext context) {
+    final lockLayer = widget.lockLayerVisible
+        ? widget.lockLayerBuilder?.call(_controller) ??
+              LockScreenLayer(
+                unlockProgress: _controller,
+                animateDesktopEntrance: !widget.animateLock,
+              )
+        : null;
     return AnimatedBuilder(
       animation: _controller,
+      // The transition only moves the lock stage. Keeping the stage as the
+      // builder child prevents its complete widget tree from rebuilding on
+      // every controller tick.
+      child: lockLayer,
       builder: (context, child) {
         final rawProgress = _controller.value;
         final progress = widget.lockLayerVisible ? rawProgress : 1.0;
@@ -578,13 +589,7 @@ class _UnlockTransitionHostState extends State<UnlockTransitionHost>
           backdrop: widget.backdrop,
           scene: widget.scene,
           chrome: widget.chrome,
-          lockLayer: widget.lockLayerVisible
-              ? widget.lockLayerBuilder?.call(rawProgress) ??
-                    LockScreenLayer(
-                      unlockProgress: rawProgress,
-                      animateDesktopEntrance: !widget.animateLock,
-                    )
-              : null,
+          lockLayer: child,
         );
       },
     );
@@ -600,7 +605,12 @@ class _UnlockTransitionHostState extends State<UnlockTransitionHost>
     if (_controller.value <= 0.0) {
       return;
     }
-    _controller.reverse();
+    MotionTelemetry.observe(
+      _controller,
+      _controller.reverse(),
+      'session_lock',
+      target: 0.0,
+    );
   }
 
   void _startUnlock() {
@@ -612,7 +622,12 @@ class _UnlockTransitionHostState extends State<UnlockTransitionHost>
       _controller.value = 1.0;
       return;
     }
-    _controller.forward();
+    MotionTelemetry.observe(
+      _controller,
+      _controller.forward(),
+      'session_unlock',
+      target: 1.0,
+    );
   }
 
   void _handleStatus(AnimationStatus status) {
@@ -641,7 +656,7 @@ class _UnlockVerticalStack extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final slide = Curves.easeInOutCubic.transform(unit(progress));
+        final slide = Motion.sessionTransitionCurve.transform(unit(progress));
         final height = constraints.maxHeight;
         final currentLockLayer = lockLayer;
         return ClipRect(

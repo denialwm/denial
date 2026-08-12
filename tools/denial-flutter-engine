@@ -35,6 +35,10 @@ fail() {
   exit 1
 }
 
+if [[ "${DENIAL_PROMOTION_MODE:-0}" == 1 ]]; then
+  fail 'build commands are disabled during signed-tag promotion'
+fi
+
 cleanup_artifact_staging() {
   [[ -n "$ARTIFACT_STAGING" ]] || return 0
   if [[ "$ARTIFACT_STAGING" == "$ARTIFACT_ROOT/."* ]]; then
@@ -598,6 +602,7 @@ build_artifacts() {
         VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
         ./flutter/tools/gn \
           --runtime-mode="$mode" \
+          --enable-fontconfig \
           --out-dir="$BUILD_ROOT" \
           --target-dir="$target"
     )

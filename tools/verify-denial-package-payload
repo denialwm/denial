@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if (($# != 3)); then
+  printf 'Usage: verify-denial-package-payload FORMAT PACKAGE EXPECTED_ROOT\n' >&2
+  exit 2
+fi
+
+format="$1"
+package="$2"
+expected_root="$3"
+expected_parent="$(dirname -- "$expected_root")"
+expected_name="$(basename -- "$expected_root")"
+expected_inventory="$expected_parent/$expected_name.inventory"
+expected_hashes="$expected_parent/$expected_name.sha256"
+
+[[ "$format" == arch || "$format" == deb || "$format" == rpm ]] \
+  || { printf 'unsupported package format: %s\n' "$format" >&2; exit 2; }
+[[ -f "$package" ]] \
+  || { printf 'package is missing: %s\n' "$package" >&2; exit 1; }
+[[ -d "$expected_root" ]] \
+  || { printf 'expected payload is missing: %s\n' "$expected_root" >&2; exit 1; }
+
+temporary_root="$(mktemp -d)"
+cleanup() {
+  rm -rf --one-file-system -- "$temporary_root"
+}
+trap cleanup EXIT
+
+case "$format" in
+  arch)
+    bsdtar -xpf "$package" -C "$temporary_root"
+    for metadata in .BUILDINFO .CHANGELOG .INSTALL .MTREE .PKGINFO; do
+      rm -f -- "$temporary_root/$metadata"
+    done
+    if find "$temporary_root" -mindepth 1 -maxdepth 1 -name '.*' \
+      -print -quit | grep -q .; then
+      printf 'Arch package contains unexpected root metadata: %s\n' \
+        "$package" >&2
+      exit 1
+    fi
+    ;;
+  deb) dpkg-deb --extract "$package" "$temporary_root" ;;
+  rpm) rpm2cpio "$package" | bsdtar -xpf - -C "$temporary_root" ;;
+esac
+
+inventory() (
+  cd -- "$1"
+  find . -mindepth 1 \
+    \( -type l -printf '%m %y %p -> %l\n' \
+       -o -printf '%m %y %p\n' \) \
+    | sort
+)
+
+hashes() (
+  cd -- "$1"
+  find . -type f -print0 | sort -z | xargs -0 sha256sum
+)
+
+if [[ -f "$expected_inventory" && -f "$expected_hashes" ]]; then
+  diff -u "$expected_inventory" <(inventory "$expected_root")
+  (
+    cd -- "$expected_root"
+    sha256sum --check --strict --quiet "$expected_hashes"
+  )
+fi
+
+diff -u <(inventory "$expected_root") <(inventory "$temporary_root")
+diff -u <(hashes "$expected_root") <(hashes "$temporary_root")
+
+printf 'Verified byte-identical %s payload: %s\n' "$format" "$package"

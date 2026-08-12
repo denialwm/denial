@@ -227,6 +227,13 @@ validate_denial_package() (
         return 1
       }
   done
+  [[ -f "$validation_root/usr/lib/systemd/user/denial-session.target" ]] \
+    && grep -Fqx 'BindsTo=graphical-session.target' \
+      "$validation_root/usr/lib/systemd/user/denial-session.target" \
+    || {
+      printf 'package-denial-arch: graphical-session target is missing or invalid\n' >&2
+      return 1
+    }
   grep -Fqx 'depend = rtkit' "$validation_root/.PKGINFO" \
     || {
       printf 'package-denial-arch: Denial package does not require rtkit\n' >&2

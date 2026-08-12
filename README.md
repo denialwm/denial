@@ -101,9 +101,9 @@ direct screenshots, and portal-based screen sharing.
 
 ## Live Flutter shell development
 
-The optional `denial-ui-development` package turns the reference shell into an
-editable Flutter workspace. `denialctl ui setup` creates the matching source
-checkout and starts a JIT shell; opening its `dart_shell` directory in
+The optional Arch-only `denial-ui-development` package turns the reference
+shell into an editable Flutter workspace. `denialctl ui setup` creates the
+matching source checkout and starts a JIT shell; opening its `dart_shell` directory in
 VSCodium enables hot reload on save and the packaged browser DevTools for
 Flutter Inspector and performance profiling while Wayland applications keep
 running.
@@ -123,24 +123,32 @@ the interactive desktop. A native `denialctl ui restore` command returns to
 the packaged optimized shell even when edited Flutter code cannot present a
 usable Settings window.
 
-## Install on Arch Linux
+## Install
 
-Denial provides signed first-party packages for Arch Linux on `x86_64`.
-Review the [installer](install.sh), then run:
+Denial provides signed first-party x86-64 repositories for Arch Linux,
+Debian 13, Ubuntu 24.04 LTS, and Fedora 44. Review the
+[repository setup script](install.sh), then run:
 
 ```sh
 curl -fsSL https://install.denialwm.org | sh
 ```
 
-It verifies the complete release-key fingerprint, rejects conflicting Pacman
-configuration, and adds the signed repository when needed. It does not install
-packages. When setup completes, install Denial explicitly:
+It verifies the complete release-key fingerprint, rejects conflicting package
+manager configuration, and adds the matching signed repository. It does not
+install packages. When setup completes, install Denial explicitly:
 
 ```sh
+# Arch Linux
 sudo pacman -Syu denial
+
+# Debian 13 or Ubuntu 24.04
+sudo apt update && sudo apt install denial
+
+# Fedora 44
+sudo dnf install denial
 ```
 
-Pacman pulls in the matching `denial-flutter-engine` package automatically.
+The package manager pulls in the matching `denial-flutter-engine` package.
 The setup script shows its complete plan and asks for confirmation before using
 `sudo`.
 
@@ -148,12 +156,13 @@ Impeller is the default renderer. If a driver-specific issue requires the
 Skia/Ganesh fallback, set `DENIA_FLUTTER_RENDERER=skia` in
 `/etc/denial/session.conf` and restart the Denial session.
 
-See the [complete installation guide](docs/packaging/arch/INSTALL.md) for
-manual setup, keyring initialization, verification, updates, and removal.
+See the [complete installation guide](docs/INSTALL.md) for trust paths,
+updates, removal, and the detailed Arch manual setup.
 
 ## Documentation
 
-- [Install from the Arch repository](docs/packaging/arch/INSTALL.md)
+- [Install Denial](docs/INSTALL.md)
+- [Arch repository details](docs/packaging/arch/INSTALL.md)
 - [Build Denial](docs/BUILDING.md)
 - [Session startup and locking](docs/SESSION_STARTUP.md)
 - [Control and recover Denial with `denialctl`](docs/DENIALCTL.md)

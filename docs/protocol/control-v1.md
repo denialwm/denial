@@ -13,7 +13,7 @@ $XDG_RUNTIME_DIR/denial/control.sock
 ```
 
 It exports the absolute path as `DENIAL_SOCKET` both to applications launched
-by the Flutter shell and, in a UWSM session, to the activation environment.
+by the Flutter shell and to the systemd/D-Bus activation environments.
 The socket directory and socket are mode `0700` and `0600`, respectively.
 
 Each connection carries exactly one UTF-8 JSON request and one JSON response.

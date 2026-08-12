@@ -234,6 +234,9 @@ class _ShellInputRegionState extends ConsumerState<ShellInputRegion> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.pointerPolicy != ShellPointerPolicy.childBounds) {
+      return widget.child;
+    }
     return _PaintBoundsReporter(
       onPaintBounds: _handlePaintBounds,
       child: widget.child,

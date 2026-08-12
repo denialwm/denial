@@ -54,6 +54,7 @@ not release assets.
 ```text
 /usr/bin/deniald
 /usr/bin/denial-session
+/usr/lib/systemd/user/denial-session.target
 /usr/lib/denial/flutter/lib/libapp.so
 /usr/lib/denial/flutter/data/flutter_assets/
 /usr/share/wayland-sessions/denial.desktop
@@ -140,7 +141,7 @@ payloads over the host without modifying it. In that environment,
 - the split Flutter bundle;
 - package-owned output configuration;
 - the real `/dev/dri/card2`;
-- Xwayland and UWSM.
+- Xwayland and the systemd/D-Bus activation environment.
 
 ## Live Pacman-owned session
 
@@ -183,7 +184,7 @@ The packaged session completed:
 - Linux DMA-BUF v4 feedback and native-fence synchronization;
 - import of the five-buffer 5120×1440 GBM atlas;
 - Flutter startup from `/usr/lib/denial/flutter` at 280 Hz;
-- UWSM finalization, Xwayland startup, and Wayland client composition.
+- session activation publication, Xwayland startup, and Wayland client composition.
 
 The user confirmed that the packaged desktop was fully functional. No new
 engine, rendering, or package-path error appeared. The startup warnings were

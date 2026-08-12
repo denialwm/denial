@@ -13,6 +13,7 @@ Project-level release documents live at the repository root:
 
 ## Development and architecture
 
+- [Install Denial](INSTALL.md)
 - [Build Denial](BUILDING.md)
 - [Distribution support](DISTRIBUTION_SUPPORT.md)
 - [Architecture](architecture.md)
@@ -32,10 +33,10 @@ Project-level release documents live at the repository root:
 The versioned FlatBuffers schema and generated bindings remain under
 [`protocol/`](../protocol/).
 
-## Arch packaging and releases
+## Packaging and releases
 
 - [Packaging overview](packaging/arch/README.md)
-- [Repository installation](packaging/arch/INSTALL.md)
+- [Arch repository details](packaging/arch/INSTALL.md)
 - [Build trust and release evidence](BUILD_TRUST.md)
 - [Publishing design](packaging/arch/PUBLISHING.md)
 - [Builder runbook](packaging/arch/BUILDER.md)

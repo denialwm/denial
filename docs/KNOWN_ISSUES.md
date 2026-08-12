@@ -23,6 +23,19 @@ Until this is fixed, stop Denial before changing the `scale=NAME,SCALE` entry in
 `$XDG_CONFIG_HOME/denial/outputs.conf`, then start a fresh Denial session. The
 requested scale is applied normally during startup.
 
+## Hybrid graphics lacks a cross-GPU presentation fallback
+
+Denial can render on a GPU different from the one driving the displays only
+when both devices share a renderable and scanout-capable DMA-BUF modifier. If
+they do not, Denial cannot yet render on the faster GPU and copy the result into
+a display-GPU buffer. It must instead render the desktop on the display GPU,
+which can be a serious performance limitation when a weak integrated GPU owns
+the panel and a much faster discrete GPU has no direct display connection.
+
+Applications can still use PRIME render offload independently. Denial needs a
+capability-driven GPU blit path, with an explicitly synchronized staging or CPU
+copy fallback, before whole-desktop rendering can cover every hybrid topology.
+
 ## Complex text requires a text-input-aware native client
 
 The built-in keyboard can commit arbitrary Unicode to native Wayland clients

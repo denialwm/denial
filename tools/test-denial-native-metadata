@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+for required_command in jq mktemp rm sed wc; do
+  command -v "$required_command" >/dev/null 2>&1 \
+    || { printf 'test-denial-native-metadata: %s is required\n' "$required_command" >&2; exit 1; }
+done
+
+fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/denial-native-metadata-test.XXXXXX")"
+cleanup() {
+  if [[ "$fixture_root" == "${TMPDIR:-/tmp}"/denial-native-metadata-test.* ]]; then
+    rm -rf --one-file-system -- "$fixture_root"
+  fi
+}
+trap cleanup EXIT
+
+jq -n '
+  {
+    schema_version: 1,
+    package_version: "0.2.7",
+    package_release: 0,
+    build_identity: "main.g0123456789abcdef0123456789abcdef01234567",
+    source_date_epoch: 1786478123,
+    glibc_baseline: "2.39",
+    flutter_engine_abi: "3.44.7.denial1",
+    flutter_engine_sha256: "8735bdabb624e5b12c9cfe3d7473c834c224fc707c88ed954bb13c255e82f8b1"
+  }
+' >"$fixture_root/valid.json"
+
+valid_output="$fixture_root/valid.out"
+"$ROOT/tools/read-denial-native-metadata" \
+  "$fixture_root/valid.json" >"$valid_output"
+[[ "$(wc -l <"$valid_output")" == 7 ]] \
+  || { printf 'test-denial-native-metadata: valid tuple has the wrong arity\n' >&2; exit 1; }
+
+sed '3i\  "schema_version": 1,' \
+  "$fixture_root/valid.json" >"$fixture_root/duplicate.json"
+jq '. + {command: "exit 0"}' \
+  "$fixture_root/valid.json" >"$fixture_root/injection.json"
+jq '.build_identity = "$(exit 0)"' \
+  "$fixture_root/valid.json" >"$fixture_root/early-exit.json"
+jq 'del(.source_date_epoch)' \
+  "$fixture_root/valid.json" >"$fixture_root/missing.json"
+jq '.package_release = "0"' \
+  "$fixture_root/valid.json" >"$fixture_root/wrong-type.json"
+
+for malformed in duplicate injection early-exit missing wrong-type; do
+  if "$ROOT/tools/read-denial-native-metadata" \
+      "$fixture_root/$malformed.json" >/dev/null 2>&1; then
+    printf 'test-denial-native-metadata: accepted %s fixture\n' \
+      "$malformed" >&2
+    exit 1
+  fi
+done
+
+printf 'Verified strict, non-executable native metadata parsing.\n'

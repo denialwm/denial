@@ -31,7 +31,10 @@ class LockScreenLayer extends ConsumerStatefulWidget {
     this.animateDesktopEntrance = true,
   });
 
-  final double unlockProgress;
+  /// Transition progress is intentionally a listenable rather than a scalar.
+  /// Gesture handlers need its current value, but the lock-screen subtree does
+  /// not need to rebuild for each transition tick.
+  final Animation<double> unlockProgress;
   final bool animateDesktopEntrance;
 
   @override
@@ -192,7 +195,7 @@ class _LockScreenPane extends ConsumerStatefulWidget {
     required this.desktop,
   });
 
-  final double unlockProgress;
+  final Animation<double> unlockProgress;
   final bool authenticationEnabled;
   final bool desktop;
 
@@ -399,7 +402,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
   }
 
   void _beginGesture() {
-    if (widget.unlockProgress > 0.0) {
+    if (widget.unlockProgress.value > 0.0) {
       return;
     }
 
@@ -409,7 +412,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
   }
 
   void _updateGesture(Offset delta, double height) {
-    if (!_dragging || widget.unlockProgress > 0.0) {
+    if (!_dragging || widget.unlockProgress.value > 0.0) {
       return;
     }
 
@@ -421,7 +424,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
   }
 
   void _finishGesture(double height) {
-    if (!_dragging || widget.unlockProgress > 0.0) {
+    if (!_dragging || widget.unlockProgress.value > 0.0) {
       return;
     }
 
@@ -439,7 +442,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
   }
 
   void _showAuthentication() {
-    if (!widget.authenticationEnabled || widget.unlockProgress > 0.0) {
+    if (!widget.authenticationEnabled || widget.unlockProgress.value > 0.0) {
       return;
     }
     if (!_authenticationVisible) {
@@ -518,7 +521,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
   }
 
   void _cancelGesture() {
-    if (!_dragging || widget.unlockProgress > 0.0) {
+    if (!_dragging || widget.unlockProgress.value > 0.0) {
       return;
     }
 

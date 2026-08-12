@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+CACHE_ROOT="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
+BUILD_ROOT="${DENIAL_PC_BUILD_ROOT:-$CACHE_ROOT/denial/pc-build}"
+PACKAGE_INPUT_ROOT="${DENIAL_PC_PACKAGE_INPUT_ROOT:-$BUILD_ROOT/package-input}"
+STAGE_ROOT="${DENIAL_PACKAGE_STAGE_ROOT:-$PACKAGE_INPUT_ROOT/native}"
+PACKAGE_ROOT="${DENIAL_PC_PACKAGE_ROOT:-$BUILD_ROOT/packages}"
+WORK_ROOT="${DENIAL_PC_DEB_ROOT:-$BUILD_ROOT/debian-package}"
+PACKAGER="${DENIAL_PACKAGE_PACKAGER:-Doctor Logix <doctor.logix@gmail.com>}"
+
+if [[ "${DENIAL_PROMOTION_MODE:-0}" == 1 \
+  && "${DENIAL_PACKAGE_SKIP_STAGE:-0}" != 1 ]]; then
+  printf 'package-denial-deb: promotion requires DENIAL_PACKAGE_SKIP_STAGE=1\n' >&2
+  exit 125
+fi
+
+for required_command in dpkg-deb install mktemp; do
+  command -v "$required_command" >/dev/null 2>&1 \
+    || { printf 'package-denial-deb: %s is required\n' "$required_command" >&2; exit 1; }
+done
+
+if [[ "${DENIAL_PACKAGE_SKIP_STAGE:-0}" != 1 ]]; then
+  "$ROOT/tools/stage-denial-runtime"
+fi
+[[ -f "$STAGE_ROOT/metadata.json" ]] \
+  || { printf 'package-denial-deb: missing staged metadata\n' >&2; exit 1; }
+mapfile -t native_metadata < <(
+  "$ROOT/tools/read-denial-native-metadata" "$STAGE_ROOT/metadata.json"
+)
+((${#native_metadata[@]} == 7)) \
+  || { printf 'package-denial-deb: invalid staged metadata\n' >&2; exit 1; }
+PACKAGE_VERSION="${native_metadata[0]}"
+PACKAGE_RELEASE="${native_metadata[1]}"
+BUILD_IDENTITY="${native_metadata[2]}"
+SOURCE_DATE_EPOCH="${native_metadata[3]}"
+GLIBC_BASELINE="${native_metadata[4]}"
+FLUTTER_ENGINE_ABI="${native_metadata[5]}"
+FLUTTER_ENGINE_SHA256="${native_metadata[6]}"
+readonly PACKAGE_VERSION PACKAGE_RELEASE BUILD_IDENTITY SOURCE_DATE_EPOCH
+readonly GLIBC_BASELINE FLUTTER_ENGINE_ABI FLUTTER_ENGINE_SHA256
+
+mkdir -p -- "$PACKAGE_ROOT" "$WORK_ROOT"
+temporary_root="$(mktemp -d "$WORK_ROOT/build.XXXXXX")"
+cleanup() {
+  rm -rf --one-file-system -- "$temporary_root"
+}
+trap cleanup EXIT
+
+build_deb() {
+  local package_name="$1"
+  local source_root="$2"
+  local control_body="$3"
+  local output="$4"
+  local package_root="$temporary_root/$package_name"
+  local installed_size
+
+  install -d -m 0755 "$package_root/DEBIAN"
+  cp -a -- "$source_root/." "$package_root/"
+  installed_size="$(du -sk --apparent-size "$source_root" | cut -f1)"
+  {
+    printf 'Package: %s\n' "$package_name"
+    printf 'Version: %s-%s\n' "$PACKAGE_VERSION" "$PACKAGE_RELEASE"
+    printf 'Architecture: amd64\n'
+    printf 'Maintainer: %s\n' "$PACKAGER"
+    printf 'Installed-Size: %s\n' "$installed_size"
+    printf '%s\n' "$control_body"
+  } > "$package_root/DEBIAN/control"
+  find "$package_root/DEBIAN" -print0 \
+    | xargs -0 touch --no-dereference --date="@$SOURCE_DATE_EPOCH"
+  env "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" \
+    dpkg-deb --root-owner-group --uniform-compression -Zxz \
+      --build "$package_root" "$output"
+}
+
+engine_package="$PACKAGE_ROOT/denial-flutter-engine_${PACKAGE_VERSION}-${PACKAGE_RELEASE}_amd64.deb"
+denial_package="$PACKAGE_ROOT/denial_${PACKAGE_VERSION}-${PACKAGE_RELEASE}_amd64.deb"
+
+engine_control="$(cat <<EOF
+Section: libs
+Priority: optional
+Depends: libc6 (>= $GLIBC_BASELINE), libfontconfig1
+Provides: denial-flutter-engine-abi (= $FLUTTER_ENGINE_ABI)
+Conflicts: denial-flutter-engine-git
+Homepage: https://github.com/denialwm/denial
+Description: pinned Flutter Engine runtime for Denial
+ Source-built Flutter Engine generation coupled to Denial's embedder ABI.
+EOF
+)"
+
+denial_control="$(cat <<EOF
+Section: x11
+Priority: optional
+Depends: bash, coreutils, dbus, denial-flutter-engine (= $PACKAGE_VERSION-$PACKAGE_RELEASE), init-system-helpers (>= 1.66~), libc6 (>= $GLIBC_BASELINE), libegl1, libgbm1, libgcc-s1, libgl1, libinput10, libpam0g, libpulse0, libseat1, libudev1, libxkbcommon0, rtkit, x11-xkb-utils, xkb-data, xserver-xorg-core, xwayland
+Recommends: fonts-noto-cjk, network-manager, pipewire-pulse, power-profiles-daemon, upower, xdg-desktop-portal, xdg-desktop-portal-gtk, xdg-desktop-portal-wlr, zenity
+Suggests: ddcutil, gdm3
+Conflicts: denial-git
+Homepage: https://github.com/denialwm/denial
+Description: Flutter-native Wayland compositor and desktop shell
+ Denial owns the Wayland desktop scene, shell, motion, and composition using
+ Flutter as part of the compositor foundation.
+EOF
+)"
+
+build_deb denial-flutter-engine \
+  "$STAGE_ROOT/denial-flutter-engine" "$engine_control" "$engine_package"
+
+install -d -m 0755 "$temporary_root/conffiles"
+printf '%s\n' \
+  /etc/denial/outputs.conf \
+  /etc/denial/session.conf \
+  /etc/xdg/xdg-desktop-portal-wlr/Denial \
+  > "$temporary_root/conffiles/list"
+
+# Build the main package separately so its conffile policy is part of the
+# control archive without altering the shared payload tree.
+main_root="$temporary_root/denial"
+install -d -m 0755 "$main_root/DEBIAN"
+cp -a -- "$STAGE_ROOT/denial/." "$main_root/"
+installed_size="$(du -sk --apparent-size "$STAGE_ROOT/denial" | cut -f1)"
+{
+  printf 'Package: denial\n'
+  printf 'Version: %s-%s\n' "$PACKAGE_VERSION" "$PACKAGE_RELEASE"
+  printf 'Architecture: amd64\n'
+  printf 'Maintainer: %s\n' "$PACKAGER"
+  printf 'Installed-Size: %s\n' "$installed_size"
+  printf '%s\n' "$denial_control"
+} > "$main_root/DEBIAN/control"
+cp -- "$temporary_root/conffiles/list" "$main_root/DEBIAN/conffiles"
+install -m 0755 "$ROOT/packaging/debian/postinst" \
+  "$main_root/DEBIAN/postinst"
+install -m 0755 "$ROOT/packaging/debian/postrm" \
+  "$main_root/DEBIAN/postrm"
+find "$main_root/DEBIAN" -print0 \
+  | xargs -0 touch --no-dereference --date="@$SOURCE_DATE_EPOCH"
+env "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" \
+  dpkg-deb --root-owner-group --uniform-compression -Zxz \
+    --build "$main_root" "$denial_package"
+
+"$ROOT/tools/verify-denial-package-payload" deb "$engine_package" \
+  "$STAGE_ROOT/denial-flutter-engine"
+"$ROOT/tools/verify-denial-package-payload" deb "$denial_package" \
+  "$STAGE_ROOT/denial"
+"$ROOT/tools/verify-denial-native-package-metadata" \
+  deb "$engine_package" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" \
+  "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE"
+"$ROOT/tools/verify-denial-native-package-metadata" \
+  deb "$denial_package" "$PACKAGE_VERSION" "$PACKAGE_RELEASE" \
+  "$FLUTTER_ENGINE_ABI" "$GLIBC_BASELINE"
+
+printf '\nDebian packages ready:\n%s\n%s\n' "$engine_package" "$denial_package"

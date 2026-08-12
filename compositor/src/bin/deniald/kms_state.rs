@@ -12,6 +12,19 @@ const MAX_ATLAS_DIMENSION: u32 = 16_384;
 const MAX_ATLAS_POOL_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_ATLAS_BUFFERS: usize = 49;
 
+/// Request local scanout constraints only when the render device also owns
+/// KMS. A render-only GPU exports the atlas to another DRM device, so asking
+/// its GBM allocator for local scanout can reject otherwise shareable LINEAR
+/// buffers on output-less PRIME render sources.
+pub(super) fn atlas_gbm_flags(cross_device: bool) -> GbmBufferFlags {
+    let flags = GbmBufferFlags::RENDERING;
+    if cross_device {
+        flags
+    } else {
+        flags | GbmBufferFlags::SCANOUT
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct ConnectedOutput {
     pub(super) id: OutputId,
@@ -1225,9 +1238,10 @@ impl RestoreState {
     /// Build teardown metadata for a display-manager session handoff.
     ///
     /// A long-running login session never restores the greeter framebuffer:
-    /// it releases DRM master and lets SDDM perform its own modeset. Recording
-    /// the scanouts still gives hotplug transactions stable output identities
-    /// and original modes without depending on a racy foreign framebuffer.
+    /// it releases DRM master and lets the display manager perform its own
+    /// modeset. Recording the scanouts still gives hotplug transactions stable
+    /// output identities and original modes without depending on a racy
+    /// foreign framebuffer.
     pub(super) fn for_session_handoff(scanouts: &[Scanout]) -> Result<Self, Box<dyn Error>> {
         validate_scanout_identities(scanouts.iter().map(|scanout| ScanoutIdentity {
             output: scanout.output.id.0,
@@ -1548,7 +1562,7 @@ where
 /// Release non-primary planes left latched by the previous DRM master.
 ///
 /// Denial composites its pointer into the Flutter scene and never programs a
-/// hardware cursor plane. A display manager such as SDDM can nevertheless
+/// hardware cursor plane. A display manager can nevertheless
 /// leave a cursor or overlay plane bound when it releases DRM master, causing
 /// the kernel to scan that stale image out above every Denial frame. Refusing
 /// this best-effort cleanup must not prevent the session from starting.
@@ -1716,9 +1730,10 @@ fn restore_original_modes_with_atlas(
 #[cfg(test)]
 mod tests {
     use super::{
-        Format, FormatSet, Fourcc, Modifier, PixelSize, ScanoutIdentity, ScanoutIdentityError,
-        common_xrgb8888_modifiers, inherited_plane_needs_release, smithay_opaque_alpha_for_maximum,
-        validate_atlas_allocation, validate_scanout_identities,
+        Format, FormatSet, Fourcc, GbmBufferFlags, Modifier, PixelSize, ScanoutIdentity,
+        ScanoutIdentityError, atlas_gbm_flags, common_xrgb8888_modifiers,
+        inherited_plane_needs_release, smithay_opaque_alpha_for_maximum, validate_atlas_allocation,
+        validate_scanout_identities,
     };
     #[cfg(feature = "flutter")]
     use super::{ensure_resident_jit_engine_matches, flutter_pool_length};
@@ -1761,6 +1776,17 @@ mod tests {
         assert!(validate_atlas_allocation(PixelSize::new(15_360, 4_320), 3).is_ok());
         assert!(validate_atlas_allocation(PixelSize::new(16_384, 8_192), 3).is_err());
         assert!(validate_atlas_allocation(PixelSize::new(1, 1), usize::MAX).is_err());
+    }
+
+    #[test]
+    fn cross_device_atlas_does_not_require_local_scanout() {
+        let local = atlas_gbm_flags(false);
+        assert!(local.contains(GbmBufferFlags::RENDERING));
+        assert!(local.contains(GbmBufferFlags::SCANOUT));
+
+        let offloaded = atlas_gbm_flags(true);
+        assert!(offloaded.contains(GbmBufferFlags::RENDERING));
+        assert!(!offloaded.contains(GbmBufferFlags::SCANOUT));
     }
 
     #[test]

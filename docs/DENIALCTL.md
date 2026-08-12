@@ -18,7 +18,7 @@ The client resolves the socket in this order:
 The path must be absolute, refer directly to a Unix socket, and have no
 group/other permission bits. A normal Denial session creates its directory as
 `0700`, its socket as `0600`, and exports `DENIAL_SOCKET` to launched
-applications and the UWSM activation environment.
+applications and the systemd/D-Bus activation environments.
 
 ## Runtime and recovery
 

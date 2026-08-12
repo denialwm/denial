@@ -138,6 +138,35 @@ pub(super) enum RuntimeLimit {
 }
 
 impl Options {
+    fn terminal() -> Self {
+        Self {
+            device: PathBuf::from(DEFAULT_DEVICE),
+            render_device: None,
+            commit_seconds: 0,
+            max_outputs: 0,
+            output_config: None,
+            positions: BTreeMap::new(),
+            mode_sizes: BTreeMap::new(),
+            refresh_millihz: BTreeMap::new(),
+            scales_120: BTreeMap::new(),
+            vrr_outputs: BTreeSet::new(),
+            disabled_outputs: BTreeSet::new(),
+            next_positions: BTreeMap::new(),
+            reconfigure_at_frame: None,
+            rescan_at_frame: None,
+            simulate_hotplug_at_frame: None,
+            wayland: false,
+            flutter_bundle: None,
+            #[cfg(feature = "flutter")]
+            flutter_renderer: RendererBackend::default(),
+            flutter_debug_bundle: None,
+            flutter_ui_workspace: None,
+            start_locked: false,
+            work_area: WorkAreaOptions::default(),
+            frames: 0,
+        }
+    }
+
     pub(super) fn parse() -> Result<Self, Box<dyn Error>> {
         Self::parse_from(std::env::args().skip(1))
     }
@@ -231,7 +260,7 @@ impl Options {
                     rescan_at_frame = Some(frame);
                 }
                 "--simulate-hotplug-at-frame" => {
-                    let frame = args
+                    let frame: u64 = args
                         .next()
                         .ok_or("--simulate-hotplug-at-frame needs a value")?
                         .parse()?;
@@ -300,6 +329,7 @@ impl Options {
                          [--flutter-debug-bundle PATH] \
                          [--flutter-ui-workspace PATH] \
                          [--start-locked] \
+                         [-V | --version] \
                          [--system-bar SIDE,THICKNESS[,OUTPUT[+OUTPUT...]] | --system-bar hidden] \
                          [--maximize-padding PIXELS] \
                          [--commit-seconds N | --frames N]\n\
@@ -307,36 +337,16 @@ impl Options {
                          Without Flutter, N=0 performs atomic TEST_ONLY without changing scanout.\n\
                          Control: SIGUSR1 safely refreshes the embedded Flutter bundle in process."
                     );
-                    return Ok(Self {
-                        device,
-                        render_device,
-                        commit_seconds,
-                        max_outputs: 0,
-                        output_config,
-                        positions,
-                        mode_sizes,
-                        refresh_millihz,
-                        scales_120,
-                        vrr_outputs,
-                        disabled_outputs,
-                        next_positions,
-                        reconfigure_at_frame,
-                        rescan_at_frame,
-                        simulate_hotplug_at_frame,
-                        wayland,
-                        flutter_bundle,
-                        #[cfg(feature = "flutter")]
-                        flutter_renderer: flutter_renderer.unwrap_or_default(),
-                        flutter_debug_bundle,
-                        flutter_ui_workspace,
-                        start_locked,
-                        work_area: WorkAreaOptions {
-                            system_bar: system_bar_argument.unwrap_or_default(),
-                            maximize_padding: maximize_padding_argument
-                                .unwrap_or(DEFAULT_MAXIMIZE_PADDING),
-                        },
-                        frames,
-                    });
+                    return Ok(Self::terminal());
+                }
+                "--version" | "-V" => {
+                    println!(
+                        "deniald {} (build {}; Flutter Engine ABI {})",
+                        denial_core::version(),
+                        denial_core::BUILD_IDENTITY,
+                        denial_core::FLUTTER_ENGINE_ABI,
+                    );
+                    return Ok(Self::terminal());
                 }
                 _ => return Err(format!("unknown argument: {argument}").into()),
             }
@@ -1415,6 +1425,12 @@ mod tests {
     #[test]
     fn no_flutter_and_no_limit_remains_test_only() {
         assert_eq!(options(&[]).runtime_limit(), RuntimeLimit::TestOnly);
+    }
+
+    #[test]
+    fn version_is_a_terminal_command() {
+        assert_eq!(options(&["--version"]).max_outputs, 0);
+        assert_eq!(options(&["-V"]).max_outputs, 0);
     }
 
     #[test]

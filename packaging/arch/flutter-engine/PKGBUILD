@@ -8,15 +8,15 @@ pkgdesc='Pinned source-built Flutter Engine runtime for Denial'
 arch=('x86_64')
 url='https://github.com/denialwm/denial'
 license=('BSD-3-Clause')
-depends=('glibc')
+depends=('fontconfig' 'glibc')
 _flutter_generation='3.44.7.denial1'
 provides=("denial-flutter-engine-abi=${_flutter_generation}")
 conflicts=('denial-flutter-engine-git')
 options=('!strip' '!debug')
 source=('manifest.json')
-sha256sums=('b57be334894a8cc85f4ce9f89b91f2cc3cd709af2b9cfc0c38318eb940d7d38d')
+sha256sums=('31d32f841d935a46e19a42f1849fdf7dd45b18050aeeb65f088c8066ec6a3582')
 
-_engine_sha256='7b81784d993660c4a60086b793e3c2b7d810b64bd003aa6474a43de21701961f'
+_engine_sha256='8735bdabb624e5b12c9cfe3d7473c834c224fc707c88ed954bb13c255e82f8b1'
 _icu_sha256='998367809a821d595928089c197b3f7959f0420f81f79d4d0daee53378492ed5'
 
 package() {
@@ -85,6 +85,9 @@ package() {
     "$pkgdir/usr/share/denial/flutter-engine/args.gn"
   install -Dm644 "$engine_root/BUILD_INFO.md" \
     "$pkgdir/usr/share/doc/denial-flutter-engine/BUILD_INFO.md"
+  "$repository_root/tools/generate-denial-package-copyright" \
+    denial-flutter-engine \
+    "$pkgdir/usr/share/doc/denial-flutter-engine/copyright"
 
   install -Dm644 "$engine_root/LICENSE.flutter" \
     "$pkgdir/usr/share/licenses/denial-flutter-engine/LICENSE.flutter"

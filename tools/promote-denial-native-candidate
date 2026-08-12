@@ -1,0 +1,388 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+readonly ROOT
+
+fail() {
+  printf 'promote-denial-native-candidate: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ "${DENIAL_PROMOTION_MODE:-0}" == 1 ]] \
+  || fail 'must run through tools/run-denial-promotion-no-build'
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tools/promote-denial-native-candidate \
+    CANDIDATE_ROOT OUTPUT_ROOT RELEASE_TAG SOURCE_SHA EVIDENCE_FILE
+
+Repackage the retained Debian-family and RPM payloads from an independently
+verified main candidate. The signed tag supplies package metadata and the
+installed runtime version. This command never compiles source code.
+EOF
+}
+
+if (($# != 5)); then
+  usage >&2
+  exit 2
+fi
+
+for required_command in \
+  awk basename bsdtar cmp cp diff dirname dpkg-deb env find git grep head \
+  install jq mktemp readlink realpath rm rmdir rpm rpmbuild rpm2cpio sed \
+  sha256sum sort stat touch xargs; do
+  command -v "$required_command" >/dev/null 2>&1 \
+    || fail "missing command: $required_command"
+done
+
+CANDIDATE_ROOT="$(realpath -e -- "$1")"
+readonly CANDIDATE_ROOT
+OUTPUT_ROOT="$(realpath -m -- "$2")"
+readonly OUTPUT_ROOT
+RELEASE_TAG="$3"
+readonly RELEASE_TAG
+SOURCE_SHA="$4"
+readonly SOURCE_SHA
+EVIDENCE_FILE="$(realpath -m -- "$5")"
+readonly EVIDENCE_FILE
+readonly CANDIDATE_PACKAGES="$CANDIDATE_ROOT/packages"
+readonly CANDIDATE_STAGE="$CANDIDATE_ROOT/native-payload"
+readonly CANDIDATE_PROVENANCE="$CANDIDATE_ROOT/evidence/provenance.txt"
+
+[[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+  || fail 'release tag must have the form vMAJOR.MINOR.PATCH'
+[[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] \
+  || fail 'source commit must be a complete Git commit ID'
+[[ -d "$CANDIDATE_PACKAGES" ]] \
+  || fail "candidate package directory is missing: $CANDIDATE_PACKAGES"
+[[ -d "$CANDIDATE_STAGE/denial" \
+  && -d "$CANDIDATE_STAGE/denial-flutter-engine" \
+    && -f "$CANDIDATE_STAGE/metadata.json" ]] \
+  || fail "candidate native payload is incomplete: $CANDIDATE_STAGE"
+[[ -f "$CANDIDATE_PROVENANCE" ]] \
+  || fail "candidate provenance is missing: $CANDIDATE_PROVENANCE"
+[[ "$(git -C "$ROOT" rev-parse HEAD)" == "$SOURCE_SHA" ]] \
+  || fail 'checked-out source does not match the candidate commit'
+[[ "$(git -C "$ROOT" rev-parse "${RELEASE_TAG}^{commit}")" == "$SOURCE_SHA" ]] \
+  || fail 'signed release tag does not identify the candidate commit'
+if ! git -C "$ROOT" diff --quiet \
+  || ! git -C "$ROOT" diff --cached --quiet; then
+  fail 'tracked release source contains changes'
+fi
+
+for expected in \
+  'artifact_class=production-release-candidate' \
+  'publication_authorized=false' \
+  'release_signing_eligible=true' \
+  'signature_status=unsigned' \
+  'package_release=0' \
+  'package_formats=arch,deb,rpm' \
+  'native_payload_schema=1' \
+  "build_identity=main.g$SOURCE_SHA" \
+  "source_commit=$SOURCE_SHA" \
+  'source_ref=refs/heads/main' \
+  'workflow_event=push' \
+  'compile_mode=release'; do
+  grep -Fxq "$expected" "$CANDIDATE_PROVENANCE" \
+    || fail "candidate provenance is missing: $expected"
+done
+
+(
+  cd "$CANDIDATE_PACKAGES"
+  sha256sum --check --strict SHA256SUMS
+) || fail 'candidate package checksums failed'
+(
+  cd "$CANDIDATE_STAGE"
+  sha256sum --check --strict NATIVE-SHA256SUMS
+) || fail 'candidate native-payload checksums failed'
+
+mapfile -t native_metadata < <(
+  "$ROOT/tools/read-denial-native-metadata" "$CANDIDATE_STAGE/metadata.json"
+)
+((${#native_metadata[@]} == 7)) \
+  || fail 'candidate native metadata is invalid'
+PACKAGE_VERSION="${native_metadata[0]}"
+PACKAGE_RELEASE="${native_metadata[1]}"
+BUILD_IDENTITY="${native_metadata[2]}"
+SOURCE_DATE_EPOCH="${native_metadata[3]}"
+GLIBC_BASELINE="${native_metadata[4]}"
+FLUTTER_ENGINE_ABI="${native_metadata[5]}"
+FLUTTER_ENGINE_SHA256="${native_metadata[6]}"
+readonly PACKAGE_VERSION PACKAGE_RELEASE BUILD_IDENTITY SOURCE_DATE_EPOCH
+readonly GLIBC_BASELINE FLUTTER_ENGINE_ABI FLUTTER_ENGINE_SHA256
+[[ "$PACKAGE_RELEASE" == 0 ]] \
+  || fail 'native candidate payload is not package-release 0'
+[[ "$BUILD_IDENTITY" == "main.g$SOURCE_SHA" ]] \
+  || fail 'native candidate build identity does not match its main commit'
+[[ "$SOURCE_DATE_EPOCH" == "$(git -C "$ROOT" show -s --format=%ct "$SOURCE_SHA")" ]] \
+  || fail 'native candidate timestamp does not match its main commit'
+[[ "$GLIBC_BASELINE" == 2.39 ]] \
+  || fail 'native candidate has an unexpected glibc baseline'
+[[ "$FLUTTER_ENGINE_ABI" == 3.44.7.denial1 ]] \
+  || fail 'native candidate has an unexpected Flutter Engine ABI'
+[[ "$FLUTTER_ENGINE_SHA256" == "$(
+  awk 'NR == 1 { print $1 }' \
+    "$ROOT/prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so.sha256"
+)" ]] || fail 'native candidate has an unexpected Flutter Engine payload'
+candidate_build_identity="$BUILD_IDENTITY"
+readonly candidate_build_identity
+candidate_package_version="$PACKAGE_VERSION"
+readonly candidate_package_version
+glibc_baseline="$GLIBC_BASELINE"
+readonly glibc_baseline
+flutter_engine_abi="$FLUTTER_ENGINE_ABI"
+readonly flutter_engine_abi
+flutter_engine_sha256="$FLUTTER_ENGINE_SHA256"
+readonly flutter_engine_sha256
+
+for package_root in denial denial-flutter-engine; do
+  (
+    cd "$CANDIDATE_STAGE/$package_root"
+    sha256sum --check --strict --quiet \
+      "$CANDIDATE_STAGE/${package_root}.sha256"
+  ) || fail "candidate $package_root payload hashes failed"
+done
+[[ ! -e "$CANDIDATE_STAGE/denial/usr/share/denial/version" ]] \
+  || fail 'main candidate predicts a public runtime version'
+
+mapfile -d '' candidate_arch_packages < <(
+  find "$CANDIDATE_PACKAGES" \
+    -maxdepth 1 \
+    -type f \
+    -name '*.pkg.tar.zst' \
+    -print0 \
+    | sort -z
+)
+((${#candidate_arch_packages[@]} == 3)) \
+  || fail "expected three candidate Arch packages, found ${#candidate_arch_packages[@]}"
+arch_denial_packages=0
+arch_engine_packages=0
+for package in "${candidate_arch_packages[@]}"; do
+  package_name="$(
+    bsdtar -xOf "$package" .PKGINFO \
+      | sed -n 's/^pkgname = //p' \
+      | head -n 1
+  )"
+  case "$package_name" in
+    denial)
+      "$ROOT/tools/verify-denial-package-payload" \
+        arch "$package" "$CANDIDATE_STAGE/denial"
+      arch_denial_packages=$((arch_denial_packages + 1))
+      ;;
+    denial-flutter-engine)
+      "$ROOT/tools/verify-denial-package-payload" \
+        arch "$package" "$CANDIDATE_STAGE/denial-flutter-engine"
+      arch_engine_packages=$((arch_engine_packages + 1))
+      ;;
+    denial-ui-development) ;;
+    *) fail "unexpected candidate Arch package: ${package_name:-unset}" ;;
+  esac
+done
+((arch_denial_packages == 1 && arch_engine_packages == 1)) \
+  || fail 'candidate Arch/native payload set is incomplete'
+
+mapfile -d '' candidate_debs < <(
+  find "$CANDIDATE_PACKAGES" -maxdepth 1 -type f -name '*.deb' -print0 \
+    | sort -z
+)
+mapfile -d '' candidate_rpms < <(
+  find "$CANDIDATE_PACKAGES" -maxdepth 1 -type f -name '*.rpm' -print0 \
+    | sort -z
+)
+((${#candidate_debs[@]} == 2)) \
+  || fail "expected two candidate Debian packages, found ${#candidate_debs[@]}"
+((${#candidate_rpms[@]} == 2)) \
+  || fail "expected two candidate RPM packages, found ${#candidate_rpms[@]}"
+rpm_query_db="$(mktemp -d "${TMPDIR:-/tmp}/denial-rpm-query.XXXXXX")"
+readonly rpm_query_db
+cleanup_rpm_query() {
+  if [[ "$rpm_query_db" == "${TMPDIR:-/tmp}"/denial-rpm-query.* ]]; then
+    rm -rf --one-file-system -- "$rpm_query_db"
+  fi
+}
+trap cleanup_rpm_query EXIT
+candidate_deb_names=()
+for package in "${candidate_debs[@]}"; do
+  package_name="$(dpkg-deb --field "$package" Package)"
+  package_version="$(dpkg-deb --field "$package" Version)"
+  [[ "$package_version" == "${candidate_package_version}-0" ]] \
+    || fail "candidate Debian package is not package-release 0: $(basename -- "$package")"
+  case "$package_name" in
+    denial | denial-flutter-engine) ;;
+    *) fail "unexpected candidate Debian package: ${package_name:-unset}" ;;
+  esac
+  candidate_deb_names+=("$package_name")
+done
+[[ "${candidate_deb_names[*]}" == 'denial-flutter-engine denial' ]] \
+  || fail 'candidate Debian package set is incomplete'
+candidate_rpm_names=()
+for package in "${candidate_rpms[@]}"; do
+  package_name="$(rpm --dbpath "$rpm_query_db" -qp --qf '%{NAME}' "$package")"
+  package_version="$(rpm --dbpath "$rpm_query_db" -qp --qf '%{VERSION}-%{RELEASE}' "$package")"
+  [[ "$package_version" == "${candidate_package_version}-0" ]] \
+    || fail "candidate RPM package is not package-release 0: $(basename -- "$package")"
+  case "$package_name" in
+    denial | denial-flutter-engine) ;;
+    *) fail "unexpected candidate RPM package: ${package_name:-unset}" ;;
+  esac
+  candidate_rpm_names+=("$package_name")
+done
+[[ "${candidate_rpm_names[*]}" == 'denial denial-flutter-engine' ]] \
+  || fail 'candidate RPM package set is incomplete'
+cleanup_rpm_query
+trap - EXIT
+
+if [[ -e "$EVIDENCE_FILE" ]]; then
+  fail "evidence output already exists: $EVIDENCE_FILE"
+fi
+install -d -m 0755 "$OUTPUT_ROOT" "$(dirname -- "$EVIDENCE_FILE")"
+
+work_root="$(mktemp -d "${TMPDIR:-/tmp}/denial-native-promotion.XXXXXX")"
+readonly work_root
+cleanup() {
+  if [[ "$work_root" == "${TMPDIR:-/tmp}"/denial-native-promotion.* ]]; then
+    rm -rf --one-file-system -- "$work_root"
+  fi
+}
+trap cleanup EXIT
+
+release_version="${RELEASE_TAG#v}"
+readonly release_version
+source_date_epoch="$(git -C "$ROOT" show -s --format=%ct "$SOURCE_SHA")"
+readonly source_date_epoch
+release_stage="$work_root/native"
+readonly release_stage
+cp -a -- "$CANDIDATE_STAGE" "$release_stage"
+runtime_version_file="$work_root/release-version"
+printf '%s\n' "$release_version" >"$runtime_version_file"
+install -Dm644 "$runtime_version_file" \
+  "$release_stage/denial/usr/share/denial/version"
+find "$release_stage/denial" "$release_stage/denial-flutter-engine" -print0 \
+  | xargs -0 touch --no-dereference --date="@$source_date_epoch"
+
+write_manifest() (
+  cd -- "$1"
+  find . -type f -print0 | sort -z | xargs -0 sha256sum >"$2"
+)
+
+write_inventory() (
+  cd -- "$1"
+  find . -mindepth 1 \
+    \( -type l -printf '%m %y %p -> %l\n' -o -printf '%m %y %p\n' \) \
+    | sort >"$2"
+)
+
+write_manifest "$release_stage/denial" "$release_stage/denial.sha256"
+write_manifest \
+  "$release_stage/denial-flutter-engine" \
+  "$release_stage/denial-flutter-engine.sha256"
+write_inventory "$release_stage/denial" "$release_stage/denial.inventory"
+write_inventory \
+  "$release_stage/denial-flutter-engine" \
+  "$release_stage/denial-flutter-engine.inventory"
+jq -n \
+  --arg package_version "$release_version" \
+  --argjson package_release 1 \
+  --arg build_identity "$candidate_build_identity" \
+  --argjson source_date_epoch "$source_date_epoch" \
+  --arg glibc_baseline "$glibc_baseline" \
+  --arg flutter_engine_abi "$flutter_engine_abi" \
+  --arg flutter_engine_sha256 "$flutter_engine_sha256" \
+  '{
+    schema_version: 1,
+    package_version: $package_version,
+    package_release: $package_release,
+    build_identity: $build_identity,
+    source_date_epoch: $source_date_epoch,
+    glibc_baseline: $glibc_baseline,
+    flutter_engine_abi: $flutter_engine_abi,
+    flutter_engine_sha256: $flutter_engine_sha256
+  }' >"$release_stage/metadata.json"
+"$ROOT/tools/read-denial-native-metadata" \
+  "$release_stage/metadata.json" >/dev/null
+
+common_environment=(
+  env
+  LC_ALL=C
+  DENIAL_PROMOTION_MODE=1
+  "SOURCE_DATE_EPOCH=$source_date_epoch"
+  'DENIAL_PACKAGE_SKIP_STAGE=1'
+  "DENIAL_PACKAGE_STAGE_ROOT=$release_stage"
+  "DENIAL_PC_PACKAGE_ROOT=$OUTPUT_ROOT"
+  "DENIAL_PC_BUILD_ROOT=$work_root/build"
+  "DENIAL_PC_DEB_ROOT=$work_root/debian"
+)
+"${common_environment[@]}" "$ROOT/tools/package-denial-deb"
+"${common_environment[@]}" "$ROOT/tools/package-denial-rpm"
+
+expected_packages=(
+  "$OUTPUT_ROOT/denial-flutter-engine_${release_version}-1_amd64.deb"
+  "$OUTPUT_ROOT/denial_${release_version}-1_amd64.deb"
+  "$OUTPUT_ROOT/denial-flutter-engine-${release_version}-1.x86_64.rpm"
+  "$OUTPUT_ROOT/denial-${release_version}-1.x86_64.rpm"
+)
+for package in "${expected_packages[@]}"; do
+  [[ -f "$package" ]] || fail "promoted package is missing: $package"
+done
+
+comparison_root="$work_root/comparison"
+cp -a -- "$release_stage/denial" "$comparison_root"
+rm -- "$comparison_root/usr/share/denial/version"
+rmdir --ignore-fail-on-non-empty "$comparison_root/usr/share/denial"
+candidate_manifest="$work_root/candidate-denial.manifest"
+release_manifest="$work_root/release-denial.manifest"
+write_manifest "$CANDIDATE_STAGE/denial" "$candidate_manifest"
+write_manifest "$comparison_root" "$release_manifest"
+if ! cmp -- "$candidate_manifest" "$release_manifest"; then
+  diff -u -- "$candidate_manifest" "$release_manifest" >&2 || true
+  fail 'Denial payload changed during native promotion'
+fi
+candidate_engine_manifest="$work_root/candidate-engine.manifest"
+release_engine_manifest="$work_root/release-engine.manifest"
+write_manifest \
+  "$CANDIDATE_STAGE/denial-flutter-engine" "$candidate_engine_manifest"
+write_manifest \
+  "$release_stage/denial-flutter-engine" "$release_engine_manifest"
+cmp -- "$candidate_engine_manifest" "$release_engine_manifest" \
+  || fail 'Flutter Engine payload changed during native promotion'
+candidate_inventory="$work_root/candidate-denial.inventory"
+release_inventory="$work_root/release-denial.inventory"
+write_inventory "$CANDIDATE_STAGE/denial" "$candidate_inventory"
+write_inventory "$comparison_root" "$release_inventory"
+cmp -- "$candidate_inventory" "$release_inventory" \
+  || fail 'Denial payload modes or entry types changed during native promotion'
+candidate_engine_inventory="$work_root/candidate-engine.inventory"
+release_engine_inventory="$work_root/release-engine.inventory"
+write_inventory \
+  "$CANDIDATE_STAGE/denial-flutter-engine" "$candidate_engine_inventory"
+write_inventory \
+  "$release_stage/denial-flutter-engine" "$release_engine_inventory"
+cmp -- "$candidate_engine_inventory" "$release_engine_inventory" \
+  || fail 'Flutter Engine payload modes or entry types changed during native promotion'
+
+{
+  printf 'promotion_schema=1\n'
+  printf 'release_tag=%s\n' "$RELEASE_TAG"
+  printf 'release_version=%s\n' "$release_version"
+  printf 'source_commit=%s\n' "$SOURCE_SHA"
+  printf 'candidate_workflow_run=%s\n' \
+    "$(sed -n 's/^workflow_run=//p' "$CANDIDATE_PROVENANCE")"
+  printf 'candidate_artifact_class=production-release-candidate\n'
+  printf 'package_formats=deb,rpm\n'
+  printf 'cross_format_payloads_verified=true\n'
+  printf 'compiled_payloads_changed=false\n'
+  printf 'tag_metadata_only=true\n'
+  for package in "${expected_packages[@]}"; do
+    printf '\nrelease_file=%s\n' "$(basename -- "$package")"
+    printf 'release_sha256=%s\n' \
+      "$(sha256sum "$package" | awk '{ print $1 }')"
+  done
+} >"$EVIDENCE_FILE"
+
+printf '%s\n' \
+  "Promoted exact native main-candidate payloads for $RELEASE_TAG" \
+  "Packages: $OUTPUT_ROOT" \
+  "Evidence: $EVIDENCE_FILE"

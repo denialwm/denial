@@ -10,6 +10,9 @@ fail() {
   exit 1
 }
 
+[[ "${DENIAL_PROMOTION_MODE:-0}" == 1 ]] \
+  || fail 'must run through tools/run-denial-promotion-no-build'
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -262,6 +265,7 @@ for package_name in \
   makepkg_environment=(
     env
     LC_ALL=C
+    DENIAL_PROMOTION_MODE=1
     "SOURCE_DATE_EPOCH=$source_date_epoch"
     "DENIAL_PACKAGE_SOURCE_ROOT=$ROOT"
     "DENIAL_PACKAGE_PAYLOAD_ROOT=$candidate_payload"
