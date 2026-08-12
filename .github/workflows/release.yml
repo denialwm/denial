@@ -615,11 +615,78 @@ jobs:
             rm -rf --one-file-system -- "$GNUPGHOME"
           fi
 
+  verify-rpm-publication:
+    name: Independently verify RPM and DNF publication input
+    needs:
+      - resolve
+      - sign
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container:
+      image: registry.fedoraproject.org/fedora@sha256:94621cbf28eea7bfbe330203ae98ffc9dd46a92b29b3d44cb61dd29203f1fc22
+
+    steps:
+      - name: Install Fedora repository client tools
+        shell: bash
+        run: >-
+          dnf install
+          --setopt=install_weak_deps=False
+          --assumeyes
+          coreutils diffutils findutils gawk git gnupg2 grep rpm tar
+
+      - name: Define RPM verification paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            printf 'SIGNED_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-release-signed"
+          } >>"$GITHUB_ENV"
+
+      - name: Check out the exact signed source tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.release_tag }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download signed repository
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: denial-release-signed-${{ github.run_id }}
+          path: ${{ runner.temp }}/denial-release-signed-transfer
+
+      - name: Extract signed repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 0755 "$SIGNED_ROOT"
+          tar \
+            --extract \
+            --file="$RUNNER_TEMP/denial-release-signed-transfer/denial-release-signed.tar" \
+            --directory="$SIGNED_ROOT" \
+            --no-same-owner
+
+      - name: Verify embedded RPM signatures and DNF behavior
+        shell: bash
+        env:
+          EXPECTED_FINGERPRINT: ${{ vars.DENIAL_RELEASE_SIGNING_FINGERPRINT }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ needs.resolve.outputs.source_sha }}"
+          tools/verify-denial-published-rpm-repository \
+            "$SIGNED_ROOT" \
+            "$EXPECTED_FINGERPRINT" \
+            "$RELEASE_VERSION" \
+            1
+
   publish:
     name: Publish GitHub Release and package repositories
     needs:
       - resolve
       - sign
+      - verify-rpm-publication
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -642,12 +709,12 @@ jobs:
               "$RUNNER_TEMP/denial-release-signed"
           } >>"$GITHUB_ENV"
 
-      - name: Install independent repository client tools
+      - name: Install independent APT verification tools
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install --yes dnf libarchive-tools rpm
+          sudo apt-get install --yes gnupg
 
       - name: Check out the exact signed source tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -681,7 +748,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ needs.resolve.outputs.source_sha }}"
-          tools/verify-denial-published-repositories \
+          tools/verify-denial-published-repositories-common \
             "$SIGNED_ROOT" \
             "$EXPECTED_FINGERPRINT" \
             "$RELEASE_VERSION" \
