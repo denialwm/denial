@@ -9,7 +9,7 @@ Project-level release documents live at the repository root:
 - [Changelog](../CHANGELOG.md)
 - [Roadmap](../ROADMAP.md)
 - [Security policy](../SECURITY.md)
-- [Alpha contribution policy](../CONTRIBUTING.md)
+- [Beta contribution policy](../CONTRIBUTING.md)
 
 ## Development and architecture
 

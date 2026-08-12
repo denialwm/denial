@@ -12,7 +12,7 @@ session state, and signed software distribution.
 | `main` | Fixes are developed here, but it is not a released package |
 | Older tagged releases | Not supported |
 
-During the public alpha, users should update to the latest tagged release to
+During the public beta, users should update to the latest tagged release to
 receive security fixes.
 
 ## Reporting a vulnerability

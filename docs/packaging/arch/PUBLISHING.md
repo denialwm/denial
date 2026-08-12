@@ -2,7 +2,7 @@
 
 > Status: Stage 1, the private pipeline rehearsal, the resource and structure
 > review, and the clean repository root completed on 2026-07-25. Denial 0.1.0
-> activated the signed public-alpha repository on 2026-07-26. Every trusted
+> activated the signed public-beta repository on 2026-07-26. Every trusted
 > `main` push can produce an unsigned, independently checked production
 > candidate when the ephemeral runner is armed. Only after that candidate is
 > green is a version chosen; the clean signed tag promotes its exact compiled
@@ -18,7 +18,7 @@ runtime-archive proposal.
 Denial's own Pacman repository publishes normal signed binary packages.
 Flutter is maintained as a separate, slowly changing generation; routine
 Denial releases reuse that generation and do not rebuild Flutter Engine. The
-public alpha discloses that its owner-operated builder is not independently
+public beta discloses that its owner-operated builder is not independently
 reproducible. Later stages progressively close and reproduce every build
 input.
 
@@ -32,7 +32,7 @@ denial-ui-development (optional) ─requires┘───────────
 ```
 
 Compilation happens in package builders, never during `pacman -S`, an install
-hook, or first launch. The public alpha uses the validated two-package runtime
+hook, or first launch. The public beta uses the validated two-package runtime
 split, `denial-flutter-engine` plus `denial`, and publishes
 `denial-ui-development` separately for users who want live Flutter shell
 editing. The build-only `denial-flutter-toolchain` arrives in Stage 2.
@@ -44,14 +44,14 @@ The build and distribution system is introduced in four deliberate stages:
 | Stage | Purpose | Dependency control | Distribution |
 |---|---|---|---|
 | 1. Prototype build | Prove the source build and package split | Pinned top-level revisions, but online acquisition and existing caches are allowed | Local `pacman -U` testing only |
-| 1.5. Signed public alpha | Give early users ordinary Pacman install and update semantics with explicit limits | Stage 1 inputs plus a clean signed version tag, locked package set, release evidence, and a separate signing job | Signed x86_64 first-party repository |
+| 1.5. Signed public beta | Give early users ordinary Pacman install and update semantics with explicit limits | Stage 1 inputs plus a clean signed version tag, locked package set, release evidence, and a separate signing job | Signed x86_64 first-party repository |
 | 2. Pinned build | Make the build repeatable and reviewable | All effective inputs are fixed, declared, and checked | Clean-chroot and testing repository |
 | 3. Secured build | Harden releases after adoption justifies the cost | Offline closure, reproducibility, independent comparison, SBOM, audit, and recovery exercises | Hardened public repository |
 
 “Unsecured prototype” describes the absence of stronger supply-chain
 assurances. It does not permit intentionally unsafe code or skipped source
 review. Arbitrary Stage 1 outputs and the disposable-key rehearsal remain
-private. A public-alpha artifact is a distinct output: it must come from the
+private. A public-beta artifact is a distinct output: it must come from the
 reviewed manual tag workflow, pass the documented tests, carry the permanent
 Denial signature, and state every missing assurance next to the download.
 
@@ -62,7 +62,7 @@ throwaway build script.
 Architectures advance through the gates independently:
 
 ```text
-x86_64:  Stage 1 ──▶ Public alpha ──▶ Stage 2 ──▶ Stage 3
+x86_64:  Stage 1 ──▶ Public beta ──▶ Stage 2 ──▶ Stage 3
 aarch64:                     Stage 1 ──▶ Stage 2 ──▶ Stage 3
 ```
 
@@ -70,7 +70,7 @@ The first active lane is x86_64. The public repository advertises only that
 lane. AArch64 work starts later and follows its own gates; adding it does not
 require rebuilding or redesigning x86_64.
 
-## Public-alpha release contract
+## Public-beta release contract
 
 The initial public repository deliberately makes a smaller, testable promise:
 
@@ -101,8 +101,8 @@ The initial public repository deliberately makes a smaller, testable promise:
 
 Every release page and repository manifest also states what this does not
 prove: there is no complete offline dependency closure, byte-for-byte
-reproducibility claim, independent builder, generated SBOM, or AArch64
-support yet. Signatures prove that Denial authorized exact bytes; they do not
+reproducibility claim, independent builder, generated SBOM, or AArch64 binary
+packages yet. Signatures prove that Denial authorized exact bytes; they do not
 prove that those bytes were independently reconstructed from source.
 
 ## Stage 3 hardened-release goals
@@ -133,7 +133,7 @@ identified.
 
 Stage 1 implements the `denial-flutter-engine` and `denial` runtime split. It
 uses the locally bootstrapped pinned Flutter SDK to build the application. The
-public-alpha channel additionally carries the optional
+public-beta channel additionally carries the optional
 `denial-ui-development` package. The immutable
 `denial-flutter-toolchain` package and the combined split-package base are
 introduced in Stage 2, after the engine source build is proven.
@@ -1030,7 +1030,7 @@ be renewed or revoked:
 - sign release tags, packages, repository databases, and checksum manifests.
   Stage 3 later adds signed source closures and SBOM material.
 
-The public-alpha workflow builds unsigned packages on the owner-operated
+The public-beta workflow builds unsigned packages on the owner-operated
 runner, transfers them by digest, and signs them in the isolated hosted job.
 Equivalent manual package signing is:
 
@@ -1062,7 +1062,7 @@ the database metadata.
 
 ## Repository layout and publication
 
-The public-alpha repository is one static HTTPS tree:
+The public-beta repository is one static HTTPS tree:
 
 ```text
 public/
@@ -1151,7 +1151,7 @@ Installation and upgrades remain ordinary Pacman transactions:
 sudo pacman -Syu denial
 ```
 
-Pacman substitutes `$arch`; the public alpha currently serves only `x86_64`.
+Pacman substitutes `$arch`; the public beta currently serves only `x86_64`.
 Do not instruct users to use `TrustAll`, `SigLevel = Optional`, or
 `SigLevel = Never`.
 
@@ -1196,7 +1196,7 @@ The repository has not yet implemented the complete production design:
   source closure inside `build()`;
 - development candidates still use VCS-derived package versions. The
   production `main` candidate is built before a public version is chosen; the
-  public-alpha path accepts only a clean `vMAJOR.MINOR.PATCH` tag on that exact
+  public-beta path accepts only a clean `vMAJOR.MINOR.PATCH` tag on that exact
   commit, derives all final package and runtime versions from it, fixes
   `pkgrel=1`, and promotes the candidate's compiled payloads unchanged;
 - the project-level GPL-3.0-or-later grant now exists, while a generated
@@ -1306,7 +1306,7 @@ databases, independently verified them, and uploaded them as one-day
 workflow artifacts. That result proves the mechanics only and is never a
 user-facing release.
 
-### Stage 1.5 — signed public alpha
+### Stage 1.5 — signed public beta
 
 Goal: make the validated x86-64 packages installable and updatable through
 ordinary Pacman while describing the owner-operated build boundary precisely.
@@ -1363,7 +1363,7 @@ Stage 1.5 explicitly does not claim:
 - byte-for-byte package reproducibility;
 - an independent build;
 - generated SBOM or attestation coverage;
-- AArch64 support.
+- AArch64 binary packages.
 
 Stage 1.5 passes for each release when a fresh or existing x86-64 Arch system
 rejects altered content, accepts the published key and signed databases,
@@ -1455,7 +1455,7 @@ An architecture is ready for hardened-release status when:
 
 The project may describe an architecture as a hardened, independently
 reproducible release lane only after that architecture independently satisfies
-this definition. Public-alpha architecture support remains governed by its
+this definition. Public-beta architecture support remains governed by its
 smaller contract above.
 
 ## References

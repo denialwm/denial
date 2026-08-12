@@ -16,7 +16,7 @@ Usage:
   tools/denial-repository UNSIGNED_ROOT OUTPUT_ROOT FINGERPRINT
 
 UNSIGNED_ROOT must contain packages/ and evidence/. The command signs one
-x86-64 public-alpha package set, creates complete static Pacman, APT, and DNF
+x86-64 public-beta package set, creates complete static Pacman, APT, and DNF
 repositories, and publishes signed direct downloads below OUTPUT_ROOT.
 
 Required environment:
@@ -89,7 +89,7 @@ readonly RPM_QUERY_DB="${GNUPGHOME}/rpm-query-db"
 install -d -m 0700 "$RPM_QUERY_DB"
 
 for expected in \
-  'public_alpha=true' \
+  'public_beta=true' \
   'artifact_class=tag-promoted-main-candidate' \
   "release_tag=$RELEASE_TAG" \
   "source_commit=$SOURCE_SHA" \
@@ -265,8 +265,8 @@ for package in "${package_inputs[@]}"; do
       bsdtar -xOf \
         "$package" \
         usr/share/denial/ui-development/manifest.json \
-        | grep -Fq '"stage": "public-alpha"' \
-        || fail 'UI-development package does not declare its public-alpha stage'
+        | grep -Fq '"stage": "public-beta"' \
+        || fail 'UI-development package does not declare its public-beta stage'
       expected_debug_engine_sha="$(
         awk 'NR == 1 { print $1 }' \
           "$ROOT/prebuilt/flutter-engine/linux-x64-debug/libflutter_engine.so.sha256"
@@ -581,7 +581,7 @@ done
   || fail 'repository database does not embed every package signature'
 
 cat >"${OUTPUT_ROOT}/RELEASE-METADATA.txt" <<EOF
-DENIAL PUBLIC-ALPHA PACKAGE SET
+DENIAL PUBLIC-BETA PACKAGE SET
 
 Release tag:         $RELEASE_TAG
 Source commit:       $SOURCE_SHA
@@ -600,7 +600,7 @@ Build disclosure:
   DNF repository metadata, and every direct download are signed by the Denial
   release key. Direct downloads also use adjacent detached OpenPGP signatures.
   This release does not claim an offline dependency closure, reproducible
-  packages, independent rebuilding, an SBOM, or AArch64 support.
+  packages, independent rebuilding, an SBOM, or AArch64 binary packages.
 EOF
 
 release_changes="$(
@@ -623,7 +623,7 @@ release_changes="$(
 cat >"${OUTPUT_ROOT}/RELEASE-NOTES.md" <<EOF
 ## Denial ${release_version}
 
-This is a signed x86-64 public-alpha release of Denial.
+This is a signed x86-64 public-beta release of Denial.
 
 - Source tag: \`${RELEASE_TAG}\`
 - Source commit: \`${SOURCE_SHA}\`
@@ -643,7 +643,7 @@ compiled payloads, assigned their package and runtime versions, and signed and
 re-verified the Pacman, APT, and DNF repositories plus every direct download
 in GitHub-hosted jobs. This release does not yet
 claim an offline dependency closure, reproducible packages, independent
-rebuilding, an SBOM, or AArch64 support.
+rebuilding, an SBOM, or AArch64 binary packages.
 
 Installation instructions are in
 [\`docs/INSTALL.md\`](https://github.com/denialwm/denial/blob/${RELEASE_TAG}/docs/INSTALL.md).
@@ -663,7 +663,7 @@ cat >"${OUTPUT_ROOT}/index.html" <<EOF
     <p>Signed x86-64 packages for Denial ${release_version}.</p>
     <p>Signing fingerprint: <code>${FINGERPRINT}</code></p>
     <p>Set up the signed repository:</p>
-    <pre><code>curl -fsSL https://install.denialwm.org | sh</code></pre>
+    <pre><code>sh -c 'if ! command -v curl &gt;/dev/null 2&gt;&amp;1; then echo "Error: curl is not available." &gt;&amp;2; exit 1; fi; curl -fsSL https://install.denialwm.org | sh'</code></pre>
     <p>
       The <a href="install.sh">setup script</a> does not install packages.
       Install Denial explicitly afterward:
@@ -730,7 +730,7 @@ kill_agent
 trap - EXIT
 
 printf '%s\n' \
-  "Signed public-alpha repository ready: $OUTPUT_ROOT" \
+  "Signed public-beta repository ready: $OUTPUT_ROOT" \
   "Release: $RELEASE_TAG" \
   "Signing fingerprint: $FINGERPRINT" \
   "Packages: $((${#signed_packages[@]} + ${#signed_native_packages[@]}))"

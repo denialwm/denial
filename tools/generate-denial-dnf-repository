@@ -121,7 +121,7 @@ gpg --batch --verify "$repomd.asc" "$repomd"
 
 cat >"$OUTPUT_ROOT/denial-fedora.repo" <<'EOF'
 [denial]
-name=Denial public alpha
+name=Denial public beta
 baseurl=https://denialwm.github.io/denial/rpm/fedora/$releasever/$basearch
 enabled=1
 gpgcheck=1

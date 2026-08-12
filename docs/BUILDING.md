@@ -1,6 +1,6 @@
 # Building Denial
 
-Denial currently supports an x86-64 PC development build. It builds two
+Denial supports PC source builds on x86-64 and ARM64 (AArch64). It builds two
 versioned components:
 
 - the Rust compositor and native control client in `compositor/`;
@@ -9,6 +9,11 @@ versioned components:
 Downloaded toolchains and native build output live outside the checkout by
 default. A first bootstrap needs network access; later development builds
 reuse the pinned cache.
+
+The turnkey helper and paths below document the current x86-64 reference build.
+An ARM64 build uses the same locked Denial, Flutter, and Skia sources with an
+architecture-matched Flutter engine and shell bundle; do not reuse the x86-64
+engine artifacts on ARM64. First-party ARM64 packages are not published yet.
 
 ## Quick start
 

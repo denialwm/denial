@@ -16,7 +16,7 @@ development package is installed only when requested.
 Review the repository-owned [`install.sh`](../../../install.sh), then run:
 
 ```sh
-curl -fsSL https://install.denialwm.org | sh
+sh -c 'if ! command -v curl >/dev/null 2>&1; then echo "Error: curl is not available." >&2; exit 1; fi; curl -fsSL https://install.denialwm.org | sh'
 ```
 
 The installer downloads the public key from the published Denial repository,
@@ -197,9 +197,9 @@ data and is not removed by Pacman.
 
 ## Release trust
 
-Public-alpha packages are built on Denial's owner-operated x86-64 runner and
+Public-beta packages are built on Denial's owner-operated x86-64 runner and
 signed in a separate GitHub-hosted job. The signature proves that Denial
 authorized the exact package bytes. It does not yet prove an offline build,
 byte-for-byte reproducibility, independent rebuilding, SBOM coverage, or
-AArch64 support. See [Build trust](../../BUILD_TRUST.md) for the precise
+AArch64 binary packages. See [Build trust](../../BUILD_TRUST.md) for the precise
 claims and non-claims.

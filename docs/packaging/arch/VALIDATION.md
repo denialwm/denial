@@ -211,7 +211,7 @@ Stage 1 does not claim:
 - deterministic or reproducible packages;
 - signed source tags, packages, or repository databases;
 - public repository readiness;
-- AArch64 support.
+- AArch64 binary packages.
 
 ## Package release 4 display persistence correction
 

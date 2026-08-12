@@ -1,7 +1,7 @@
 # Denial build trust
 
 Denial publishes only claims supported by its current evidence. The signed
-public alpha prioritizes ordinary installation, verified updates, and
+public beta prioritizes ordinary installation, verified updates, and
 transparent build ownership. Complete offline closure and independent
 reproducibility remain later goals. The project does not treat a CI badge,
 package signature, or maintainer-owned builder as proof that a binary is safe.
@@ -31,7 +31,8 @@ As of 2026-08-12:
   Stage 2 and Stage 3 work;
 - the dedicated x86-64 host, locked runner account, and manually armed
   one-job GitHub registration have passed local and live registration tests;
-- AArch64 is not yet a supported release architecture.
+- ARM64 (AArch64) is a fully supported runtime architecture, but it is not yet
+  a first-party binary release architecture.
 
 The detailed evidence is in
 [the package validation report](packaging/arch/VALIDATION.md). The remaining
@@ -50,7 +51,7 @@ Machine ownership is disclosed rather than presented as an assurance. The
 builder is one trust domain, so two builds on that machine can demonstrate
 determinism but not independent reproduction.
 
-For the public alpha, the builder must:
+For the public beta, the builder must:
 
 - run as a dedicated unprivileged account;
 - receive no production signing key;
@@ -64,7 +65,7 @@ For the public alpha, the builder must:
 
 Stage 2 and Stage 3 additionally require recreated clean Arch environments,
 declared dependency acquisition, network-disabled compilation, and
-reproducibility work. The public alpha states plainly that it has not reached
+reproducibility work. The public beta states plainly that it has not reached
 those gates.
 
 The implemented host uses a locked `denial-builder` account, a checksum-pinned
@@ -84,9 +85,9 @@ key. See [the builder runbook](packaging/arch/BUILDER.md).
 
 No individual item replaces the others.
 
-## Public-alpha release evidence
+## Public-beta release evidence
 
-Every public-alpha release publishes:
+Every public-beta release publishes:
 
 - a signed, immutable source tag;
 - literal package metadata (`.PKGINFO`/`.BUILDINFO`, Debian control fields,
@@ -98,14 +99,14 @@ Every public-alpha release publishes:
 - a signed complete SHA-256 manifest;
 - the full public key and fingerprint;
 - explicit non-claims for offline closure, reproducibility, independent
-  rebuilding, SBOMs, and AArch64.
+  rebuilding, SBOMs, and AArch64 binary packages.
 
 Beginning with v0.2.0, the signed package set contains three Arch archives:
 one `denial-flutter-engine`, one `denial`, and one optional
 `denial-ui-development`; it also contains a `denial-flutter-engine`/`denial`
 pair for Debian-family systems and another pair for Fedora. The development
-archive remains Arch-only and is not installed by default. Every archive
-takes its package identity directly from the verified signed tag. The
+archive remains available only through Pacman and is not installed by default.
+Every archive takes its package identity directly from the verified signed tag. The
 engine's `denial-flutter-engine-abi` capability is an independent
 compatibility contract; its one-time epoch only preserves Pacman ordering
 across the transition from the former Flutter-numbered package. Arch packages
@@ -133,7 +134,7 @@ cd packaging/arch
 makerepropkg /path/to/denial-X.Y.Z-1-x86_64.pkg.tar.zst
 ```
 
-This command is not yet a public-alpha claim: the current PKGBUILD consumes
+This command is not yet a public-beta claim: the current PKGBUILD consumes
 cache-backed build outputs. It becomes a release gate only after Stage 2
 replaces those inputs with a complete immutable closure.
 

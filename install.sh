@@ -28,6 +28,9 @@ fail() {
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
+    if [ "$1" = curl ]; then
+      fail 'curl is not available.'
+    fi
     fail "Required command not found: $1"
   fi
 }
@@ -239,7 +242,7 @@ case "$mode" in
   dnf)
     {
       printf '[denial]\n'
-      printf 'name=Denial public alpha\n'
+      printf 'name=Denial public beta\n'
       printf 'baseurl=%s\n' "$DNF_SERVER"
       printf 'enabled=1\n'
       printf 'gpgcheck=1\n'

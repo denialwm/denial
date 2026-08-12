@@ -1,12 +1,35 @@
 # Distribution support
 
-Denial targets Linux rather than one distribution. Fedora 44, Debian 13,
-NixOS 26.05, Void Linux, and Ubuntu 24.04 LTS have completed
-cross-distribution runtime validation. Debian-family and Fedora package
-adapters consume one byte-identical runtime staging tree. Signed APT
-repositories serve Debian 13 and Ubuntu 24.04, and a signed DNF repository
-serves Fedora 44; the same packages are retained as direct GitHub Release
-downloads. NixOS and Void native adapters remain deferred. The packaging
+Denial targets Linux rather than one distribution. Arch Linux, CachyOS,
+Fedora 44, Debian 13, NixOS 26.05, Void Linux, and Ubuntu 24.04 LTS have
+completed runtime validation.
+
+## Architecture support
+
+| Architecture | Working | Binaries available |
+| --- | :---: | :---: |
+| x86-64 | ✅ | ✅ |
+| ARM64 (AArch64) | ✅ | ❌ |
+
+Both architectures are fully supported. The first-party repository and
+release pipeline currently publish binaries only for x86-64; ARM64 users build
+the same compositor, Flutter engine, and shell from source.
+
+| Distro | Working | Binaries available |
+| --- | :---: | :---: |
+| Arch Linux | ✅ | ✅ |
+| CachyOS | ✅ | ✅ |
+| Debian 13 (trixie) | ✅ | ✅ |
+| Ubuntu 24.04 LTS (noble) | ✅ | ✅ |
+| Fedora 44 | ✅ | ✅ |
+| NixOS 26.05 | ✅ | ❌ |
+| Void Linux | ✅ | ❌ |
+
+Debian-family and Fedora package adapters consume one byte-identical runtime
+staging tree. Signed APT repositories serve Debian 13 and Ubuntu 24.04, and a
+signed DNF repository serves Fedora 44; the same packages are retained as
+direct GitHub Release downloads. Arch Linux and CachyOS use the signed Pacman
+repository. NixOS and Void native adapters remain deferred. The packaging
 boundary remains reusable for other distributions.
 
 The first real GDM port and the compatibility requirements it exposed are
@@ -24,9 +47,11 @@ port are recorded in the
 
 ## Current limitations
 
-- The Flutter engine, Dart bundle, packages, and CI are currently x86-64 only.
+- First-party packages and the public release CI lane are currently x86-64
+  only. This is a binary-delivery limitation, not a Denial runtime support
+  limitation; ARM64 is fully supported from source.
 - The Rust compositor is built against the builder's host libraries. The
-  current Arch-built binary requires glibc 2.39, so it cannot run on Debian 12;
+  current first-party x86-64 binary requires glibc 2.39, so it cannot run on Debian 12;
   Debian 13 can load it, but a future rolling-distribution build could raise
   that requirement again. The Flutter engine itself currently requires glibc
   2.18 and Fontconfig for distribution-native system-font discovery.

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "public-alpha",
+  "stage": "public-beta",
   "generation": "flutter-3.44.7-engine-69c8c617-denial-r1",
   "package": {
     "name": "denial-flutter-engine",
