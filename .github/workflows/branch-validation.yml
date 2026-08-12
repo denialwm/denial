@@ -734,8 +734,15 @@ jobs:
           FLUTTER_ENGINE_SHA256="${native_metadata[6]}"
           test "$PACKAGE_RELEASE" = "$expected_package_release"
           test "$BUILD_IDENTITY" = "$GITHUB_REF_NAME.g$GITHUB_SHA"
+          test "$SOURCE_DATE_EPOCH" = "$(
+            git show -s --format=%ct "$GITHUB_SHA"
+          )"
           grep -Fxq "build_identity=$BUILD_IDENTITY" "$provenance"
           test "$FLUTTER_ENGINE_ABI" = 3.44.7.denial1
+          test "$FLUTTER_ENGINE_SHA256" = "$(
+            awk 'NR == 1 { print $1 }' \
+              prebuilt/flutter-engine/linux-x64-release/libflutter_engine.so.sha256
+          )"
           test ! -e "$native_payload/denial/usr/share/denial/version"
           for package_root in denial denial-flutter-engine; do
             (
