@@ -111,7 +111,7 @@ nvme-cli
 
 These host packages qualify the builder and produce trusted-branch
 candidates. The `main` candidate supplies the exact compiled payloads later
-promoted into public-alpha packages. They are not the Stage 2 dependency
+promoted into public-beta packages. They are not the Stage 2 dependency
 closure.
 Compositor and Flutter build dependencies ultimately belong in the recreated
 clean environment, not in undocumented ambient host state.
@@ -173,7 +173,7 @@ Its unsigned artifact and independent verification boundary are documented in
 [`BRANCH_VALIDATION.md`](BRANCH_VALIDATION.md).
 
 Only after the `main` production candidate has passed may a version be chosen
-and signed. The public-alpha release controller is:
+and signed. The public-beta release controller is:
 
 ```sh
 tools/denial-builder release v0.2.0

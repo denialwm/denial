@@ -93,16 +93,45 @@ not have to determine what it can become.
 
 ## Project status
 
-Denial is a public alpha in active development. The current PC target is
-x86-64, and the native APIs, Flutter bundle contract, configuration, and wire
-protocol may still change before 1.0. The compositor already runs as a complete
-Wayland session with Xwayland, multi-output presentation, native input routing,
-direct screenshots, and portal-based screen sharing.
+Denial is a public beta in active development. The supported PC architectures
+are x86-64 and ARM64 (AArch64), and the native APIs, Flutter bundle contract,
+configuration, and wire protocol may still change before 1.0. The compositor
+already runs as a complete Wayland session with Xwayland, multi-output
+presentation, native input routing, direct screenshots, and portal-based
+screen sharing.
+
+## Supported architectures
+
+| Architecture | Working | Binaries available |
+| --- | :---: | :---: |
+| x86-64 | ✅ | ✅ |
+| ARM64 (AArch64) | ✅ | ❌ |
+
+ARM64 is fully supported, but first-party ARM64 binaries are not published
+yet. Build Denial from source with an architecture-matched Flutter engine and
+shell bundle; see the [build guide](docs/BUILDING.md).
+
+## Supported distros
+
+| Distro | Working | Binaries available |
+| --- | :---: | :---: |
+| Arch Linux | ✅ | ✅ |
+| CachyOS | ✅ | ✅ |
+| Debian 13 (trixie) | ✅ | ✅ |
+| Ubuntu 24.04 LTS (noble) | ✅ | ✅ |
+| Fedora 44 | ✅ | ✅ |
+| NixOS | ✅ | ❌ |
+| Void Linux | ✅ | ❌ |
+
+The binary column refers to the current first-party x86-64 package set. NixOS
+and Void Linux have been tested successfully, but do not have first-party
+binary packages yet.
 
 ## Live Flutter shell development
 
-The optional Arch-only `denial-ui-development` package turns the reference
-shell into an editable Flutter workspace. `denialctl ui setup` creates the
+The optional `denial-ui-development` binary package is currently available
+only through the Pacman repository. It turns the reference shell into an
+editable Flutter workspace. `denialctl ui setup` creates the
 matching source checkout and starts a JIT shell; opening its `dart_shell` directory in
 VSCodium enables hot reload on save and the packaged browser DevTools for
 Flutter Inspector and performance profiling while Wayland applications keep
@@ -125,26 +154,34 @@ usable Settings window.
 
 ## Install
 
-Denial provides signed first-party x86-64 repositories for Arch Linux,
-Debian 13, Ubuntu 24.04 LTS, and Fedora 44. Review the
+Denial provides signed first-party x86-64 repositories for Arch Linux and
+CachyOS, Debian 13, Ubuntu 24.04 LTS, and Fedora 44. Review the
 [repository setup script](install.sh), then run:
 
 ```sh
-curl -fsSL https://install.denialwm.org | sh
+sh -c 'if ! command -v curl >/dev/null 2>&1; then echo "Error: curl is not available." >&2; exit 1; fi; curl -fsSL https://install.denialwm.org | sh'
 ```
 
 It verifies the complete release-key fingerprint, rejects conflicting package
 manager configuration, and adds the matching signed repository. It does not
-install packages. When setup completes, install Denial explicitly:
+install packages. When setup completes, use only the command for the current
+distribution.
+
+**Arch Linux or CachyOS**
 
 ```sh
-# Arch Linux
 sudo pacman -Syu denial
+```
 
-# Debian 13 or Ubuntu 24.04
+**Debian 13 or Ubuntu 24.04**
+
+```sh
 sudo apt update && sudo apt install denial
+```
 
-# Fedora 44
+**Fedora 44**
+
+```sh
 sudo dnf install denial
 ```
 
@@ -152,12 +189,15 @@ The package manager pulls in the matching `denial-flutter-engine` package.
 The setup script shows its complete plan and asks for confirmation before using
 `sudo`.
 
+ARM64 is fully supported from source, but the first-party repositories do not
+publish ARM64 packages yet. See [Build Denial](docs/BUILDING.md).
+
 Impeller is the default renderer. If a driver-specific issue requires the
 Skia/Ganesh fallback, set `DENIA_FLUTTER_RENDERER=skia` in
 `/etc/denial/session.conf` and restart the Denial session.
 
-See the [complete installation guide](docs/INSTALL.md) for trust paths,
-updates, removal, and the detailed Arch manual setup.
+See the [complete installation guide](docs/INSTALL.md) for per-distribution
+trust paths, updates, removal, and manual Pacman setup.
 
 ## Documentation
 
@@ -172,7 +212,7 @@ updates, removal, and the detailed Arch manual setup.
 - [Changelog](CHANGELOG.md)
 - [Roadmap](ROADMAP.md)
 - [Security policy](SECURITY.md)
-- [Alpha contribution policy](CONTRIBUTING.md)
+- [Beta contribution policy](CONTRIBUTING.md)
 - [Complete documentation index](docs/README.md)
 
 ## Made through dialogue

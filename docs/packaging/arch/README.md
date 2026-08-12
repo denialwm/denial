@@ -89,7 +89,7 @@ launcher examples are documented in
 
 ## First-party repository
 
-The public-alpha workflow publishes a signed x86-64 repository at:
+The public-beta workflow publishes a signed x86-64 repository at:
 
 ```text
 https://denialwm.github.io/denial/x86_64
@@ -102,7 +102,7 @@ packages and, beginning with Denial 0.2.0, the optional
 rotation, and revocation procedure is in [SIGNING.md](SIGNING.md).
 
 The completed local package validation is recorded in
-[VALIDATION.md](VALIDATION.md). The public-alpha contract and later hardening
+[VALIDATION.md](VALIDATION.md). The public-beta contract and later hardening
 stages are defined in [PUBLISHING.md](PUBLISHING.md). Trusted `dev` pushes
 produce non-releasable development candidates. An exact merge into `main`
 authorizes a fresh production build, whose independently checked payload is

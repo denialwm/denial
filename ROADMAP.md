@@ -81,14 +81,16 @@ unrelated Linux system services or applications.
 
 ### Distribution and trust
 
-- Signed first-party Arch Linux packages for supported architectures.
+- Signed first-party Pacman, APT, and DNF packages for the validated
+  distributions.
+- Fully supported x86-64 and ARM64 source-build paths.
 - Pinned and documented source inputs for Denial's coupled Flutter Engine
   build.
 - A source build path that remains usable without the first-party repository.
 - Progressively stronger build isolation and reproducibility as the project
   and its user base grow.
 
-## Now: harden the public alpha
+## Now: harden the public beta
 
 The current priority is making the existing desktop dependable outside its
 development machines:
@@ -125,7 +127,7 @@ path.
 
 ## Next: establish the shell platform
 
-Once the public-alpha foundation is sufficiently dependable:
+Once the public-beta foundation is sufficiently dependable:
 
 - formalize the bundle manifest and compatibility rules;
 - add compositor and shell capability negotiation;
@@ -140,14 +142,14 @@ Once the public-alpha foundation is sufficiently dependable:
   consumes the platform.
 
 The alternative-shell contract is not stable until the project explicitly
-announces it as stable. Compatibility may break during the public alpha when
+announces it as stable. Compatibility may break during the public beta when
 that is necessary to reach a sound long-term design.
 
 ## Later: expand the platform
 
 Longer-term work may include:
 
-- first-party ARM64 builds;
+- first-party ARM64 binary builds and repositories;
 - touch-first and tablet hardware support;
 - broader GPU and driver qualification;
 - a general per-output rendering fallback for layouts that cannot use the
@@ -198,7 +200,7 @@ Denial does not currently aim to:
 
 Doctor Logix maintains Denial's product and technical direction. User reports
 and technical evidence can change priorities, but receiving sponsorship does
-not transfer roadmap control. Pull requests are not accepted during alpha;
+not transfer roadmap control. Pull requests are not accepted during beta;
 the temporary policy and accepted feedback channels are documented in
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 

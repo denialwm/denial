@@ -1,4 +1,4 @@
-name: Publish signed Denial public alpha
+name: Publish signed Denial public beta
 run-name: Promote ${{ github.ref_name }} from validated main candidate
 
 on:
@@ -426,7 +426,7 @@ jobs:
           done
 
           {
-            printf 'public_alpha=true\n'
+            printf 'public_beta=true\n'
             printf 'artifact_class=tag-promoted-main-candidate\n'
             printf 'release_tag=%s\n' "$RELEASE_TAG"
             printf 'source_commit=%s\n' "$SOURCE_SHA"
@@ -532,7 +532,7 @@ jobs:
             --no-same-owner
           provenance="$UNSIGNED_ROOT/evidence/provenance.txt"
           for expected in \
-            'public_alpha=true' \
+            'public_beta=true' \
             'artifact_class=tag-promoted-main-candidate' \
             "release_tag=$RELEASE_TAG" \
             "source_commit=$SOURCE_SHA" \

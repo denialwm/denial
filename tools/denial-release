@@ -12,7 +12,7 @@ usage() {
 Usage:
   tools/denial-release doctor [--ci] [--branch BRANCH] [--release-tag TAG]
   tools/denial-release source-audit [--branch BRANCH] [--development]
-                                    [--public-alpha TAG]
+                                    [--public-beta TAG]
 
 Commands:
   doctor        Inspect the x86-64 multi-format release-builder host.
@@ -23,8 +23,8 @@ Options:
   --branch BRANCH   Require the main or dev validation branch (default: main).
   --release-tag TAG Require a manual workflow running from this version tag.
   --development     Allow a dirty checkout, reported as a warning.
-  --public-alpha TAG
-                    Audit a clean version-tag checkout for public-alpha use.
+  --public-beta TAG
+                    Audit a clean version-tag checkout for public-beta use.
 
 Neither command builds, signs, attests, or publishes a package.
 EOF
@@ -351,7 +351,7 @@ source_audit() {
   local manifest="$ROOT/packaging/arch/flutter-engine/manifest.json"
   local package_version
   local profile_engine_dir="$ROOT/prebuilt/flutter-engine/linux-x64-profile"
-  local public_alpha_tag=''
+  local public_beta_tag=''
   local public_key="$ROOT/packaging/arch/denial-repo-key.asc"
   local public_key_fingerprint
   local remote
@@ -377,13 +377,13 @@ source_audit() {
         shift
         ;;
       --development) allow_dirty=1 ;;
-      --public-alpha)
+      --public-beta)
         (($# >= 2)) \
           || {
-            printf 'denial-release: --public-alpha requires a tag\n' >&2
+            printf 'denial-release: --public-beta requires a tag\n' >&2
             return 2
           }
-        public_alpha_tag="$2"
+        public_beta_tag="$2"
         shift
         ;;
       -h | --help)
@@ -404,8 +404,8 @@ source_audit() {
       return 2
       ;;
   esac
-  if [[ -n "$public_alpha_tag" ]]; then
-    audit_package_version="${public_alpha_tag#v}"
+  if [[ -n "$public_beta_tag" ]]; then
+    audit_package_version="${public_beta_tag#v}"
   else
     # Deliberately differs from the source-manifest version. This proves that
     # package metadata is supplied externally instead of predicting a release.
@@ -485,11 +485,11 @@ source_audit() {
   fi
 
   if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
-    if [[ -n "$public_alpha_tag" ]]; then
+    if [[ -n "$public_beta_tag" ]]; then
       github_sha="${GITHUB_SHA:-unset}"
       if [[ "$github_sha" == "$(git -C "$ROOT" rev-parse HEAD)" \
         || "$github_sha" == "$(
-          git -C "$ROOT" rev-parse "$public_alpha_tag"
+          git -C "$ROOT" rev-parse "$public_beta_tag"
         )" ]]; then
         pass 'checked-out release commit matches the GitHub tag context'
       else
@@ -497,8 +497,8 @@ source_audit() {
           "checked-out release commit does not match GITHUB_SHA: $github_sha"
       fi
       check_equal \
-        'public-alpha workflow uses the requested tag' \
-        "refs/tags/${public_alpha_tag}" \
+        'public-beta workflow uses the requested tag' \
+        "refs/tags/${public_beta_tag}" \
         "${GITHUB_REF:-unset}"
     else
       check_equal \
@@ -514,7 +514,7 @@ source_audit() {
 
   if jq -e '
       .schema_version == 1
-      and .stage == "public-alpha"
+      and .stage == "public-beta"
       and .package.name == "denial-flutter-engine"
       and .package.version_source == "denial-release-tag"
       and .package.epoch == 1
@@ -524,13 +524,13 @@ source_audit() {
       and .assurances.reproducible_package == false
       and .assurances.signed_generation_tags == false
     ' "$manifest" >/dev/null; then
-    pass 'engine manifest states the public-alpha assurances accurately'
+    pass 'engine manifest states the public-beta assurances accurately'
   else
     fail 'engine manifest schema, architecture, or assurance state is invalid'
   fi
   if jq -e '
       .schema_version == 1
-      and .stage == "public-alpha"
+      and .stage == "public-beta"
       and .package.name == "denial-ui-development"
       and .package.architecture == "x86_64"
       and .compatibility.denial_ui_development_api == 1
@@ -547,7 +547,7 @@ source_audit() {
       and .assurances.reproducible_package == false
       and .assurances.independently_reproduced == false
     ' "$ui_manifest" >/dev/null; then
-    pass 'UI-development manifest states its public-alpha boundary accurately'
+    pass 'UI-development manifest states its public-beta boundary accurately'
   else
     fail 'UI-development manifest schema, runtime, or assurance state is invalid'
   fi
@@ -1049,7 +1049,7 @@ source_audit() {
     else
       fail 'tracked release key has no valid primary fingerprint'
     fi
-  elif [[ -n "$public_alpha_tag" ]]; then
+  elif [[ -n "$public_beta_tag" ]]; then
     fail 'tracked release key is missing'
   else
     warn 'tracked release key has not been created yet'
@@ -1083,7 +1083,7 @@ source_audit() {
     "$ROOT/README.md" \
     "$ROOT/docs/packaging/arch/INSTALL.md"; do
     if grep -Fqx \
-      'curl -fsSL https://install.denialwm.org | sh' \
+      'sh -c '\''if ! command -v curl >/dev/null 2>&1; then echo "Error: curl is not available." >&2; exit 1; fi; curl -fsSL https://install.denialwm.org | sh'\''' \
       "$install_document"; then
       pass "$(realpath --relative-to="$ROOT" "$install_document") uses the canonical guided-install command"
     else
@@ -1098,24 +1098,24 @@ source_audit() {
     fi
   done
 
-  if [[ -n "$public_alpha_tag" ]]; then
-    if [[ "$public_alpha_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-      pass "public-alpha tag has the required form: $public_alpha_tag"
+  if [[ -n "$public_beta_tag" ]]; then
+    if [[ "$public_beta_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      pass "public-beta tag has the required form: $public_beta_tag"
     else
-      fail "invalid public-alpha tag: $public_alpha_tag"
+      fail "invalid public-beta tag: $public_beta_tag"
     fi
     if git -C "$ROOT" rev-parse --verify \
-      "${public_alpha_tag}^{commit}" >/dev/null 2>&1; then
+      "${public_beta_tag}^{commit}" >/dev/null 2>&1; then
       check_equal \
-        'public-alpha tag resolves to audited HEAD' \
+        'public-beta tag resolves to audited HEAD' \
         "$(git -C "$ROOT" rev-parse HEAD)" \
-        "$(git -C "$ROOT" rev-parse "${public_alpha_tag}^{commit}")"
+        "$(git -C "$ROOT" rev-parse "${public_beta_tag}^{commit}")"
     else
-      fail "public-alpha tag is unavailable: $public_alpha_tag"
+      fail "public-beta tag is unavailable: $public_beta_tag"
     fi
     check_equal \
-      'public-alpha tag supplies the audited package version' \
-      "${public_alpha_tag#v}" \
+      'public-beta tag supplies the audited package version' \
+      "${public_beta_tag#v}" \
       "$audit_package_version"
   fi
 
@@ -1132,10 +1132,10 @@ source_audit() {
 
   actual="$(git -C "$ROOT" rev-parse HEAD)"
   printf 'INFO  audited commit: %s\n' "$actual"
-  if [[ -n "$public_alpha_tag" ]]; then
+  if [[ -n "$public_beta_tag" ]]; then
     printf '%s\n' \
-      'INFO  release stage: signed public alpha' \
-      'INFO  non-claims: no offline closure, reproducibility, independent build, SBOM, or AArch64'
+      'INFO  release stage: signed public beta' \
+      'INFO  non-claims: no offline closure, reproducibility, independent build, SBOM, or AArch64 packages'
   else
     printf 'INFO  release stage: development/prototype; publication is forbidden\n'
   fi

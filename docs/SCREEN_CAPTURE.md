@@ -28,7 +28,7 @@ For a development session, install or refresh the portal routing with:
 tools/denial-pc install-session
 ```
 
-The Arch package installs the equivalent configuration. It routes the
+The first-party packages install the equivalent configuration. It routes the
 ScreenCast and Screenshot portal interfaces to the `wlr` backend while leaving
 general desktop portals with GTK. The backend turns Denial's screencopy frames
 into PipeWire streams; PipeWire is intentionally not linked into the

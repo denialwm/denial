@@ -100,7 +100,7 @@ for suite in trixie noble; do
       -o APT::FTPArchive::Release::Codename="$suite" \
       -o APT::FTPArchive::Release::Architectures=amd64 \
       -o APT::FTPArchive::Release::Components=main \
-      -o APT::FTPArchive::Release::Description='Denial public-alpha packages' \
+      -o APT::FTPArchive::Release::Description='Denial public-beta packages' \
       release "dists/$suite"
   ) >"$release_output"
   mv -- "$release_output" "$release_root/Release"

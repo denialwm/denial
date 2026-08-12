@@ -1375,7 +1375,7 @@ fn package_rustflags(repository: &Path) -> Result<OsString, ToolError> {
 fn validate_host(paths: &BuildPaths) -> Result<(), ToolError> {
     if env::consts::OS != "linux" || env::consts::ARCH != "x86_64" {
         return Err(ToolError::new(
-            "denial-ui-development currently supports Linux x86-64 only",
+            "the denial-ui-development binary package currently ships for Linux x86-64 only",
         ));
     }
     for command in ["bsdtar", "bwrap", "cargo", "git", "makepkg", "sha256sum"] {
@@ -1794,7 +1794,7 @@ fn validate_package(
         "\"flutter_tool_sha256\": \"{expected_flutter_tool_sha256}\""
     )) || !manifest.contains(&format!(
         "\"dartaotruntime_sha256\": \"{expected_flutter_tool_runtime_sha256}\""
-    )) || !manifest.contains("\"stage\": \"public-alpha\"")
+    )) || !manifest.contains("\"stage\": \"public-beta\"")
         || !manifest.contains(&format!("\"sha256\": \"{expected_source_lock_sha256}\""))
         || !manifest.contains(&format!(
             "\"debug_engine_args_sha256\": \"{expected_debug_engine_args_sha256}\""

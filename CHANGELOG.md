@@ -1,7 +1,7 @@
 # Changelog
 
-This file records user-visible changes to Denial. Denial is still a public
-alpha: native APIs, the Flutter shell contract, configuration, and package
+This file records user-visible changes to Denial. Denial is currently a public
+beta: native APIs, the Flutter shell contract, configuration, and package
 boundaries may change before 1.0.
 
 ## [Unreleased]

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "public-alpha",
+  "stage": "public-beta",
   "package": {
     "name": "denial-ui-development",
     "version_source": "denial",
