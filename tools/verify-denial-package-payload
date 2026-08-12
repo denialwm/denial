@@ -41,7 +41,15 @@ case "$format" in
     fi
     ;;
   deb) dpkg-deb --extract "$package" "$temporary_root" ;;
-  rpm) rpm2cpio "$package" | bsdtar -xpf - -C "$temporary_root" ;;
+  rpm)
+    (
+      # RPM payloads can omit standard parent-directory entries. Keep any
+      # directories synthesized by the extractor independent of the caller's
+      # umask so hardened build services do not turn them into mode 0700.
+      umask 022
+      rpm2cpio "$package" | bsdtar -xpf - -C "$temporary_root"
+    )
+    ;;
 esac
 
 inventory() (
