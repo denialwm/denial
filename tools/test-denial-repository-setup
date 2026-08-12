@@ -86,24 +86,27 @@ run_setup() {
       >>"$case_root/setup.log"
 }
 
-arch_root="$work_root/arch"
-install -d -m 0755 "$arch_root"
-printf 'ID=arch\n' >"$arch_root/os-release"
-printf '[core]\nInclude = /etc/pacman.d/mirrorlist\n' >"$arch_root/pacman.conf"
-: >"$arch_root/admin.log"
-: >"$arch_root/package.log"
-run_setup "$arch_root"
-grep -Fxq '[denial]' "$arch_root/pacman.conf"
-grep -Fxq 'SigLevel = Required TrustedOnly' "$arch_root/pacman.conf"
-# Pacman expands this literal at runtime.
-# shellcheck disable=SC2016
-grep -Fxq 'Server = https://denialwm.github.io/denial/$arch' \
-  "$arch_root/pacman.conf"
-run_setup "$arch_root"
-[[ "$(grep -c '^\[denial\]$' "$arch_root/pacman.conf")" == 1 ]] \
-  || fail 'Arch repository setup is not idempotent'
-[[ ! -s "$arch_root/package.log" ]] \
-  || fail 'Arch setup invoked the package manager'
+for pacman_os in arch cachyos; do
+  pacman_root="$work_root/$pacman_os"
+  install -d -m 0755 "$pacman_root"
+  printf 'ID=%s\n' "$pacman_os" >"$pacman_root/os-release"
+  printf '[core]\nInclude = /etc/pacman.d/mirrorlist\n' \
+    >"$pacman_root/pacman.conf"
+  : >"$pacman_root/admin.log"
+  : >"$pacman_root/package.log"
+  run_setup "$pacman_root"
+  grep -Fxq '[denial]' "$pacman_root/pacman.conf"
+  grep -Fxq 'SigLevel = Required TrustedOnly' "$pacman_root/pacman.conf"
+  # Pacman expands this literal at runtime.
+  # shellcheck disable=SC2016
+  grep -Fxq 'Server = https://denialwm.github.io/denial/$arch' \
+    "$pacman_root/pacman.conf"
+  run_setup "$pacman_root"
+  [[ "$(grep -c '^\[denial\]$' "$pacman_root/pacman.conf")" == 1 ]] \
+    || fail "$pacman_os repository setup is not idempotent"
+  [[ ! -s "$pacman_root/package.log" ]] \
+    || fail "$pacman_os setup invoked the package manager"
+done
 
 for apt_case in 'debian 13 trixie' 'ubuntu 24.04 noble'; do
   read -r os_id os_version suite <<<"$apt_case"
@@ -150,4 +153,5 @@ if run_setup "$work_root/debian" y >/dev/null 2>&1; then
   fail 'APT setup accepted a conflicting existing source definition'
 fi
 
-printf 'Repository setup tests passed for Arch, Debian, Ubuntu, and Fedora.\n'
+printf '%s\n' \
+  'Repository setup tests passed for Arch, CachyOS, Debian, Ubuntu, and Fedora.'

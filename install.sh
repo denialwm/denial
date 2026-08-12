@@ -158,7 +158,7 @@ mode=''
 suite=''
 install_command=''
 case "$os_id:$os_version:$os_codename" in
-  arch:* | endeavouros:* | manjaro:*)
+  arch:* | cachyos:* | endeavouros:* | manjaro:*)
     mode='pacman'
     install_command='sudo pacman -Syu denial'
     ;;
@@ -177,7 +177,7 @@ case "$os_id:$os_version:$os_codename" in
     install_command='sudo dnf install denial'
     ;;
   *)
-    fail "Unsupported distribution: ${os_id:-unknown} ${os_version:-unknown} (${os_codename:-no-codename}). Supported: Arch, Debian 13, Ubuntu 24.04, Fedora 44."
+    fail "Unsupported distribution: ${os_id:-unknown} ${os_version:-unknown} (${os_codename:-no-codename}). Supported: Arch and compatible derivatives, Debian 13, Ubuntu 24.04, Fedora 44."
     ;;
 esac
 

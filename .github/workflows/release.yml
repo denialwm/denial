@@ -674,7 +674,9 @@ jobs:
           RELEASE_VERSION: ${{ needs.resolve.outputs.release_version }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ needs.resolve.outputs.source_sha }}"
+          test "$(
+            git -c safe.directory="$GITHUB_WORKSPACE" rev-parse HEAD
+          )" = "${{ needs.resolve.outputs.source_sha }}"
           tools/verify-denial-published-rpm-repository \
             "$SIGNED_ROOT" \
             "$EXPECTED_FINGERPRINT" \
