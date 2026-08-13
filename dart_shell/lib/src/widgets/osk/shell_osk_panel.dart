@@ -11,12 +11,15 @@ import '../../theme/tokens.dart';
 
 enum ShellOskKeyAction { text, key, space, backspace, enter }
 
+enum ShellOskKeyPhase { tap, pressed, released }
+
 class ShellOskKeyIntent {
   const ShellOskKeyIntent._({
     required this.action,
     this.text,
     this.key,
     this.ctrl = false,
+    this.phase = ShellOskKeyPhase.tap,
   });
 
   const ShellOskKeyIntent.text(String value)
@@ -33,8 +36,15 @@ class ShellOskKeyIntent {
         ctrl: ctrl,
       );
 
-  const ShellOskKeyIntent.backspace({bool ctrl = false})
-    : this._(action: ShellOskKeyAction.backspace, key: 'BackSpace', ctrl: ctrl);
+  const ShellOskKeyIntent.backspace({
+    bool ctrl = false,
+    ShellOskKeyPhase phase = ShellOskKeyPhase.tap,
+  }) : this._(
+         action: ShellOskKeyAction.backspace,
+         key: 'BackSpace',
+         ctrl: ctrl,
+         phase: phase,
+       );
 
   const ShellOskKeyIntent.enter({bool ctrl = false})
     : this._(action: ShellOskKeyAction.enter, key: 'Return', ctrl: ctrl);
@@ -43,6 +53,7 @@ class ShellOskKeyIntent {
   final String? text;
   final String? key;
   final bool ctrl;
+  final ShellOskKeyPhase phase;
 }
 
 class ShellOskPanel extends StatefulWidget {
@@ -104,6 +115,8 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
                   ctrlArmed: _ctrlArmed,
                   onKey: _handleKey,
                   onKeyLongPress: _handleKeyLongPress,
+                  onKeyDown: _handleKeyDown,
+                  onKeyUp: _handleKeyUp,
                 ),
                 if (index != rows.length - 1) SizedBox(height: rowGap),
               ],
@@ -201,6 +214,25 @@ class _ShellOskPanelState extends State<ShellOskPanel> {
     });
   }
 
+  void _handleKeyDown(_OskKeySpec spec) {
+    if (spec.control != _OskControl.backspace || _ctrlArmed) {
+      return;
+    }
+    widget.onKeyTap?.call();
+    widget.onKey?.call(
+      const ShellOskKeyIntent.backspace(phase: ShellOskKeyPhase.pressed),
+    );
+  }
+
+  void _handleKeyUp(_OskKeySpec spec) {
+    if (spec.control != _OskControl.backspace) {
+      return;
+    }
+    widget.onKey?.call(
+      const ShellOskKeyIntent.backspace(phase: ShellOskKeyPhase.released),
+    );
+  }
+
   void _sendKey(ShellOskKeyIntent intent) {
     widget.onKey?.call(intent);
     _consumeCtrl();
@@ -235,6 +267,8 @@ class _OskRow extends StatelessWidget {
     required this.ctrlArmed,
     required this.onKey,
     required this.onKeyLongPress,
+    required this.onKeyDown,
+    required this.onKeyUp,
   });
 
   final _OskRowData row;
@@ -244,6 +278,8 @@ class _OskRow extends StatelessWidget {
   final bool ctrlArmed;
   final ValueChanged<_OskKeySpec> onKey;
   final ValueChanged<_OskKeySpec> onKeyLongPress;
+  final ValueChanged<_OskKeySpec> onKeyDown;
+  final ValueChanged<_OskKeySpec> onKeyUp;
 
   @override
   Widget build(BuildContext context) {
@@ -271,6 +307,11 @@ class _OskRow extends StatelessWidget {
                       ctrlArmed: ctrlArmed,
                       onPressed: () => onKey(row.keys[index]),
                       onLongPress: () => onKeyLongPress(row.keys[index]),
+                      holdEnabled:
+                          row.keys[index].control == _OskControl.backspace &&
+                          !ctrlArmed,
+                      onHoldStarted: () => onKeyDown(row.keys[index]),
+                      onHoldEnded: () => onKeyUp(row.keys[index]),
                     ),
                   ),
                   if (index != row.keys.length - 1) SizedBox(width: keyGap),
@@ -293,6 +334,9 @@ class _OskKeyButton extends StatefulWidget {
     required this.ctrlArmed,
     required this.onPressed,
     required this.onLongPress,
+    required this.holdEnabled,
+    required this.onHoldStarted,
+    required this.onHoldEnded,
   });
 
   final _OskKeySpec spec;
@@ -301,6 +345,9 @@ class _OskKeyButton extends StatefulWidget {
   final bool ctrlArmed;
   final VoidCallback onPressed;
   final VoidCallback onLongPress;
+  final bool holdEnabled;
+  final VoidCallback onHoldStarted;
+  final VoidCallback onHoldEnded;
 
   @override
   State<_OskKeyButton> createState() => _OskKeyButtonState();
@@ -317,9 +364,11 @@ class _OskKeyButtonState extends State<_OskKeyButton>
   );
   DateTime? _lastPressStartedAt;
   bool _pressed = false;
+  bool _holdActive = false;
 
   @override
   void dispose() {
+    _finishHold();
     _glow.dispose();
     super.dispose();
   }
@@ -345,13 +394,13 @@ class _OskKeyButtonState extends State<_OskKeyButton>
       ),
       child: Listener(
         behavior: HitTestBehavior.opaque,
-        onPointerDown: (_) => _startGlow(),
-        onPointerUp: (_) => _releaseGlow(),
-        onPointerCancel: (_) => _releaseGlow(),
+        onPointerDown: (_) => _handlePointerDown(),
+        onPointerUp: (_) => _handlePointerEnd(),
+        onPointerCancel: (_) => _handlePointerEnd(),
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: widget.onPressed,
-          onLongPress: widget.onLongPress,
+          onTap: widget.holdEnabled ? null : widget.onPressed,
+          onLongPress: widget.holdEnabled ? null : widget.onLongPress,
           child: AnimatedBuilder(
             animation: _glow,
             builder: (context, child) {
@@ -402,6 +451,28 @@ class _OskKeyButtonState extends State<_OskKeyButton>
         ),
       ),
     );
+  }
+
+  void _handlePointerDown() {
+    _startGlow();
+    if (!widget.holdEnabled || _holdActive) {
+      return;
+    }
+    _holdActive = true;
+    widget.onHoldStarted();
+  }
+
+  void _handlePointerEnd() {
+    _finishHold();
+    _releaseGlow();
+  }
+
+  void _finishHold() {
+    if (!_holdActive) {
+      return;
+    }
+    _holdActive = false;
+    widget.onHoldEnded();
   }
 
   void _startGlow() {

@@ -74,6 +74,8 @@ scheduling a Flutter frame. Counts are grouped by Wayland object ID:
 - `ready_published` counts Flutter atlas generations made available to KMS.
 - `ready_with_fence` and `fence_signals` describe native-fence readiness.
 - `real_submissions` counts actual KMS framebuffer submissions.
+- `volition_lookahead_submissions` counts frames queued through Volition behind
+  a still-pending hardware commit.
 - `ready_superseded` counts completed generations replaced before submission.
 - `ready_to_submit_max_us` records the largest publication-to-submission delay
   in the interval.

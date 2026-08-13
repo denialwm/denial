@@ -12,7 +12,7 @@ deniald
   Rust compositor
     Smithay Wayland frontend and Xwayland
     libseat/libinput/udev session and input
-    GBM/EGL and atomic DRM/KMS presentation
+    GBM/EGL rendering and Volition atomic DRM/KMS presentation
     window, focus, grab and buffer lifetime state
     persistent native system controls
 
@@ -63,6 +63,13 @@ connects it directly to the rotating compositor-owned FBOs, preserves atlas
 damage, and keeps external client textures alive through native GPU fences.
 Skia/Ganesh remains compiled into the same engine as an explicit compatibility
 fallback.
+
+Atomic presentation synchronization lives in the in-tree
+`denial_core::volition` library module at `compositor/src/volition/`. Volition
+owns the DRM file descriptor, reusable plane commits, and alternating KMS
+lookahead lanes. Denial's output scheduler remains the caller: it chooses the
+frame, retains buffer ownership through page-flip completion, and handles
+Flutter, Wayland, DPMS, and screenshot policy.
 
 Topology changes are validated atomically before allocation. Atlas axes above
 16,384 pixels and complete pools above 1 GiB are rejected. The compositor

@@ -106,6 +106,18 @@ class ShellMetrics {
     );
   }
 
+  static List<Rect> softwareKeyboardRegions(
+    Size viewSize, {
+    required double progress,
+    required bool scrollStripVisible,
+  }) {
+    final panel = edgePanelRect(viewSize, progress);
+    return <Rect>[
+      if (panel.height > 0.0) panel,
+      if (scrollStripVisible) edgePanelScrollStripRect(viewSize),
+    ];
+  }
+
   static Rect statusRect(Size viewSize) {
     return Rect.fromLTWH(
       0,
@@ -122,6 +134,7 @@ class InputLayoutSnapshot {
     required this.shellRegions,
     required this.windows,
     this.visibleSurfaceIds = const <int>[],
+    this.softwareKeyboardRegions = const <Rect>[],
     this.keyboardCapture = false,
     this.exclusiveShellMode = false,
   });
@@ -130,6 +143,7 @@ class InputLayoutSnapshot {
   final List<Rect> shellRegions;
   final List<InputWindowRegion> windows;
   final List<int> visibleSurfaceIds;
+  final List<Rect> softwareKeyboardRegions;
   final bool keyboardCapture;
   final bool exclusiveShellMode;
 
@@ -137,12 +151,22 @@ class InputLayoutSnapshot {
     if (keyboardCapture != other.keyboardCapture ||
         exclusiveShellMode != other.exclusiveShellMode ||
         shellRegions.length != other.shellRegions.length ||
+        softwareKeyboardRegions.length !=
+            other.softwareKeyboardRegions.length ||
         windows.length != other.windows.length ||
         visibleSurfaceIds.length != other.visibleSurfaceIds.length) {
       return false;
     }
     for (var index = 0; index < shellRegions.length; index += 1) {
       if (!_sameWireRect(shellRegions[index], other.shellRegions[index])) {
+        return false;
+      }
+    }
+    for (var index = 0; index < softwareKeyboardRegions.length; index += 1) {
+      if (!_sameWireRect(
+        softwareKeyboardRegions[index],
+        other.softwareKeyboardRegions[index],
+      )) {
         return false;
       }
     }

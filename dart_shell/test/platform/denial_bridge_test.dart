@@ -25,6 +25,7 @@ void main() {
     final systemMessages = <ByteData>[];
     final brightnessMessages = <ByteData>[];
     final idlePolicyMessages = <ByteData>[];
+    final displayPowerMessages = <ByteData>[];
     messenger.setMockMessageHandler('denial/system_command', (message) async {
       systemMessages.add(message!);
       return null;
@@ -35,6 +36,10 @@ void main() {
     });
     messenger.setMockMessageHandler('denial/idle_policy', (message) async {
       idlePolicyMessages.add(message!);
+      return null;
+    });
+    messenger.setMockMessageHandler('denial/display_power', (message) async {
+      displayPowerMessages.add(message!);
       return null;
     });
 
@@ -78,6 +83,7 @@ void main() {
       );
       bridge.setIdleDpmsTimeout(const Duration(minutes: 17));
       bridge.setIdleDpmsTimeout(null);
+      bridge.requestDpmsOff();
 
       expect(systemMessages, hasLength(6));
       final launch = systemMessages[0];
@@ -131,11 +137,15 @@ void main() {
         const Duration(minutes: 17).inMilliseconds,
       );
       expect(idlePolicyMessages.last.getUint64(0, Endian.little), 0);
+      expect(displayPowerMessages, hasLength(1));
+      expect(displayPowerMessages.single.lengthInBytes, 1);
+      expect(displayPowerMessages.single.getUint8(0), 1);
     } finally {
       bridge.dispose();
       messenger.setMockMessageHandler('denial/system_command', null);
       messenger.setMockMessageHandler('denial/brightness', null);
       messenger.setMockMessageHandler('denial/idle_policy', null);
+      messenger.setMockMessageHandler('denial/display_power', null);
     }
   });
 
@@ -576,6 +586,62 @@ void main() {
       }
     },
   );
+
+  test('native text input state drives the typed bridge stream', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final bridge = _startedBridge();
+    final states = <DenialTextInputState>[];
+    final subscription = bridge.textInputStates.listen(states.add);
+    try {
+      await _sendToFlutter(
+        messenger,
+        _envelope(
+          wire.PayloadTypeId.TextInputState,
+          wire.TextInputStateObjectBuilder(
+            active: true,
+            inputPanelVisible: true,
+            legacy: true,
+            contentHint: 3,
+            contentPurpose: 6,
+          ),
+        ),
+      );
+      await _sendToFlutter(
+        messenger,
+        _envelope(
+          wire.PayloadTypeId.TextInputState,
+          wire.TextInputStateObjectBuilder(
+            active: false,
+            inputPanelVisible: false,
+          ),
+        ),
+      );
+      await _sendToFlutter(
+        messenger,
+        _envelope(
+          wire.PayloadTypeId.TextInputState,
+          wire.TextInputStateObjectBuilder(
+            active: false,
+            inputPanelVisible: true,
+          ),
+        ),
+      );
+
+      expect(states, hasLength(2));
+      expect(states.first.active, isTrue);
+      expect(states.first.inputPanelVisible, isTrue);
+      expect(states.first.legacy, isTrue);
+      expect(states.first.contentHint, 3);
+      expect(states.first.contentPurpose, 6);
+      expect(states.last.active, isFalse);
+      expect(states.last.inputPanelVisible, isFalse);
+      expect(states.last.legacy, isFalse);
+    } finally {
+      await subscription.cancel();
+      bridge.dispose();
+    }
+  });
 
   test(
     'native drag-icon textures are forwarded and cleared in wire order',

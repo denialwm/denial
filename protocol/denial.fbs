@@ -165,6 +165,9 @@ table InputLayout {
   // independent from hit-test regions: a negative-z subsurface can be visible
   // without ever being the input target.
   visible_surface_ids:[ulong];
+  // Compositor-owned software-keyboard surfaces. Touching these regions must
+  // preserve the active client editor instead of behaving like an outside tap.
+  software_keyboard_regions:[WireRect];
 }
 
 table SurfaceLayer {
@@ -301,6 +304,11 @@ table WindowRequest {
   // the native compositor remains authoritative over the resolved layout.
   system_bar_side:SystemBarSide = Top;
   system_bar_monitor_ids:[long];
+  // ConfigureWindow.flags bit 0 requests an exact compositor-owned viewport.
+  // The native compositor ignores client size hints and retains this geometry
+  // across client-authored maximize/fullscreen requests until a later normal
+  // ConfigureWindow releases it.
+  flags:uint;
 }
 
 table WindowResponse {
@@ -338,7 +346,24 @@ table CursorPosition {
   y:double;
 }
 
-// KeyboardCommand.flags bit 0 means Ctrl is held.
+// Native-authoritative editor and software-keyboard state. An active editor
+// is the protocol-level answer to whether the focused control accepts text;
+// input_panel_visible additionally respects explicit client show/hide hints.
+// Content metadata lets future keyboard layouts select text, number, URL,
+// email, and password arrangements without inferring from application names.
+table TextInputState {
+  active:bool;
+  input_panel_visible:bool;
+  // True only for Denial's protocol-free focused-seat fallback. Consumers
+  // may restrict that fallback without weakening real text-input clients.
+  legacy:bool;
+  content_hint:uint;
+  content_purpose:uint;
+}
+
+// KeyboardCommand.flags: bit 0 means Ctrl is held; bit 1 is key press; bit 2
+// is key release. Neither phase bit means a complete tap. Press and release
+// are mutually exclusive, and modifiers are carried only by complete taps.
 table KeyboardCommand {
   kind:KeyboardCommandKind = Text;
   text:string;
@@ -452,7 +477,8 @@ union Payload {
   DesktopNotificationEvent,
   DesktopNotificationCommand,
   SettingsRequest,
-  SettingsResponse
+  SettingsResponse,
+  TextInputState
 }
 
 table Envelope {

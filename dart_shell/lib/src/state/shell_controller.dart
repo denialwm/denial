@@ -13,6 +13,7 @@ import '../platform/denial_bridge.dart';
 import '../services/lock_state_repository.dart';
 import 'authentication.dart';
 import 'notifier_lifecycle.dart';
+import 'shell_profile.dart';
 import 'shell_state.dart';
 
 final denialBridgeProvider = Provider<DenialBridge>((ref) {
@@ -44,6 +45,8 @@ class ShellController extends Notifier<ShellState>
         .watch(startupEnvironmentProvider)
         .flag('DENIA_START_LOCKED');
     _resetBuildFields();
+    _automaticSoftwareKeyboard =
+        ref.read(shellProfileProvider) == ShellProfile.mobile;
     _buildGeneration = beginBuildGeneration();
     final generation = _buildGeneration;
 
@@ -54,6 +57,11 @@ class ShellController extends Notifier<ShellState>
         }
       },
     );
+    _textInputStateSubscription = _bridge.textInputStates.listen((input) {
+      if (isBuildGenerationActive(generation)) {
+        _handleTextInputState(input);
+      }
+    });
     _bridge.start(
       onWindowsChanged: () => unawaited(_refreshWindows(generation)),
       onWindowSnapshot: (snapshot) {
@@ -74,8 +82,12 @@ class ShellController extends Notifier<ShellState>
       }
     });
     ref.onDispose(() {
+      _automaticSoftwareKeyboardCloseTimer?.cancel();
+      _automaticSoftwareKeyboardCloseTimer = null;
       _launchRequestTimer?.cancel();
       _launchRequestTimer = null;
+      unawaited(_textInputStateSubscription?.cancel());
+      _textInputStateSubscription = null;
     });
     scheduleMicrotask(() {
       if (!isBuildGenerationActive(generation)) {
@@ -97,6 +109,9 @@ class ShellController extends Notifier<ShellState>
   static const double _quickSettingsFlickVelocity = 520.0;
   static const double _edgePanelFlickVelocity = 520.0;
   static const Duration _launchRequestTimeout = Duration(seconds: 15);
+  static const Duration _automaticSoftwareKeyboardCloseGrace = Duration(
+    milliseconds: 24,
+  );
 
   late DenialBridge _bridge;
   late LockStateRepository _lockRepository;
@@ -117,8 +132,17 @@ class ShellController extends Notifier<ShellState>
   int _nextLaunchRequestId = 1;
   Timer? _launchRequestTimer;
   bool? _lastMirroredNativeLock;
+  bool _automaticSoftwareKeyboard = false;
+  final Set<String> _legacyTextInputAppIds = <String>{};
+  final Set<String> _backgroundLaunchAppIds = <String>{};
+  Timer? _automaticSoftwareKeyboardCloseTimer;
+  StreamSubscription<DenialTextInputState>? _textInputStateSubscription;
 
   void _resetBuildFields() {
+    _automaticSoftwareKeyboardCloseTimer?.cancel();
+    _automaticSoftwareKeyboardCloseTimer = null;
+    unawaited(_textInputStateSubscription?.cancel());
+    _textInputStateSubscription = null;
     _inputLayoutEpoch = 0;
     _lastInputLayoutSnapshot = null;
     _rawGestureDrag = Offset.zero;
@@ -134,10 +158,62 @@ class ShellController extends Notifier<ShellState>
     _nextLaunchRequestId = 1;
     _launchRequestTimer = null;
     _lastMirroredNativeLock = null;
+    _legacyTextInputAppIds.clear();
+    _backgroundLaunchAppIds.clear();
+  }
+
+  void _handleTextInputState(DenialTextInputState input) {
+    if (!_automaticSoftwareKeyboard) {
+      return;
+    }
+    if (input.inputPanelVisible) {
+      final foregroundAppId = AppLaunchRequest.normalizeAppId(
+        state.foregroundWindow?.appId ?? '',
+      );
+      if (input.legacy && !_legacyTextInputAppIds.contains(foregroundAppId)) {
+        closeEdgePanel();
+        return;
+      }
+      _automaticSoftwareKeyboardCloseTimer?.cancel();
+      _automaticSoftwareKeyboardCloseTimer = null;
+      openEdgePanel();
+    } else {
+      // Flutter retires the old TextInputClient just before registering the
+      // next one during a field-to-field focus transfer. Preserve the panel
+      // across that short protocol gap; a replacement editor cancels this
+      // close before any visible keyboard motion begins.
+      _automaticSoftwareKeyboardCloseTimer?.cancel();
+      final generation = _buildGeneration;
+      _automaticSoftwareKeyboardCloseTimer = Timer(
+        _automaticSoftwareKeyboardCloseGrace,
+        () {
+          _automaticSoftwareKeyboardCloseTimer = null;
+          if (isBuildGenerationActive(generation)) {
+            closeEdgePanel();
+          }
+        },
+      );
+    }
+  }
+
+  void registerLegacyTextInputAppIds(Iterable<String> appIds) {
+    _legacyTextInputAppIds.addAll(
+      appIds
+          .map(AppLaunchRequest.normalizeAppId)
+          .where((identity) => identity.isNotEmpty),
+    );
   }
 
   void lock() {
     _authentication.lock();
+  }
+
+  /// Secures the session first, then asks the compositor to blank its outputs.
+  /// Both commands use Denial's native channels; no external power daemon is
+  /// involved.
+  void lockAndBlankDisplays() {
+    lock();
+    _bridge.requestDpmsOff();
   }
 
   void requestUnlock() {
@@ -308,15 +384,14 @@ class ShellController extends Notifier<ShellState>
     final boundObjectId = state.launchingObjectId;
     if (boundObjectId != null) {
       for (final window in windows) {
-        if (window.objectId == boundObjectId &&
-            request.matchesNewWindow(window)) {
+        if (window.objectId == boundObjectId && request.matchesWindow(window)) {
           return window;
         }
       }
     }
 
     for (final window in windows) {
-      if (request.matchesNewWindow(window)) {
+      if (request.matchesWindow(window)) {
         return window;
       }
     }
@@ -342,6 +417,37 @@ class ShellController extends Notifier<ShellState>
     required String? iconPath,
     required Iterable<String> expectedAppIds,
   }) {
+    return _beginLauncherTransition(
+      appName: appName,
+      iconPath: iconPath,
+      expectedAppIds: expectedAppIds,
+    );
+  }
+
+  /// Focuses an already-open application through the same coherent launcher
+  /// transition used for a newly-created application window.
+  int? activateAppFromLauncher({
+    required DenialWindow window,
+    required String appName,
+    required String? iconPath,
+  }) {
+    if (!window.isUserApp) {
+      return null;
+    }
+    return _beginLauncherTransition(
+      appName: appName,
+      iconPath: iconPath,
+      expectedAppIds: <String>[window.appId],
+      targetWindow: window,
+    );
+  }
+
+  int? _beginLauncherTransition({
+    required String appName,
+    required String? iconPath,
+    required Iterable<String> expectedAppIds,
+    DenialWindow? targetWindow,
+  }) {
     if (state.lockLayerVisible || state.launchRequest != null) {
       return null;
     }
@@ -353,6 +459,7 @@ class ShellController extends Notifier<ShellState>
       iconPath: iconPath,
       expectedAppIds: expectedAppIds,
       existingObjectIds: state.openAppWindows.map((window) => window.objectId),
+      targetObjectId: targetWindow?.objectId,
     );
 
     _rawGestureDrag = Offset.zero;
@@ -368,7 +475,9 @@ class ShellController extends Notifier<ShellState>
 
     state = state.copyWith(
       launchRequest: request,
-      clearLaunchingObjectId: true,
+      foregroundObjectId: targetWindow?.objectId,
+      launchingObjectId: targetWindow?.objectId,
+      clearLaunchingObjectId: targetWindow == null,
       overviewVisible: false,
       gestureDrag: Offset.zero,
       quickSettingsVisible: false,
@@ -379,6 +488,12 @@ class ShellController extends Notifier<ShellState>
       edgePanelDragActive: false,
       homeTransitionActive: false,
     );
+    if (targetWindow != null) {
+      _backgroundLaunchAppIds.remove(
+        AppLaunchRequest.normalizeAppId(targetWindow.appId),
+      );
+      _bridge.focusWindow(targetWindow);
+    }
     return requestId;
   }
 
@@ -423,6 +538,27 @@ class ShellController extends Notifier<ShellState>
     _rawGestureDrag = Offset.zero;
     _gestureLockOrigin = Offset.zero;
     _gestureAxis = _GestureAxis.undecided;
+    final launchRequest = state.launchRequest;
+    if (launchRequest != null) {
+      _launchRequestTimer?.cancel();
+      _launchRequestTimer = null;
+      _backgroundLaunchAppIds.addAll(launchRequest.expectedAppIds);
+      state = state.copyWith(
+        clearLaunchRequest: true,
+        clearLaunchingObjectId: true,
+        clearForegroundObjectId: true,
+        homeTransitionActive: false,
+        overviewVisible: false,
+        gestureDrag: Offset.zero,
+        quickSettingsVisible: false,
+        quickSettingsDrag: Offset.zero,
+        quickSettingsDragActive: false,
+        edgePanelVisible: false,
+        edgePanelDrag: Offset.zero,
+        edgePanelDragActive: false,
+      );
+      return;
+    }
     // Clear the foreground now so home shows immediately beneath the flying
     // thumbnail; the overview layer keeps the app texture for the fly-away.
     state = state.copyWith(
@@ -475,6 +611,9 @@ class ShellController extends Notifier<ShellState>
       return;
     }
 
+    _backgroundLaunchAppIds.remove(
+      AppLaunchRequest.normalizeAppId(window.appId),
+    );
     _activateWindowInShell(window);
     _bridge.focusWindow(window);
   }
@@ -508,6 +647,10 @@ class ShellController extends Notifier<ShellState>
   void _handleNativeWindowActivated(int windowId) {
     for (final window in state.windows) {
       if (window.windowId == windowId && window.isUserApp) {
+        final appId = AppLaunchRequest.normalizeAppId(window.appId);
+        if (_backgroundLaunchAppIds.remove(appId)) {
+          return;
+        }
         _activateWindowInShell(window);
         return;
       }
@@ -853,6 +996,18 @@ class ShellController extends Notifier<ShellState>
 
     final quickSettingsActive =
         state.quickSettingsVisible || state.quickSettingsDragProgress > 0.0;
+    final edgePanelActive =
+        state.edgePanelVisible || state.edgePanelDragProgress > 0.0;
+    final edgePanelProgress = state.edgePanelDragProgress;
+    final edgePanelRect = ShellMetrics.edgePanelRect(
+      viewSize,
+      edgePanelProgress,
+    );
+    final softwareKeyboardRegions = ShellMetrics.softwareKeyboardRegions(
+      viewSize,
+      progress: edgePanelProgress,
+      scrollStripVisible: state.edgePanelVisible,
+    );
     if (state.lockLayerVisible) {
       final lockBackgroundWindow = state.primaryWindow;
       _publishInputLayout(
@@ -868,19 +1023,13 @@ class ShellController extends Notifier<ShellState>
               hitTest: false,
             ),
         ],
+        softwareKeyboardRegions: softwareKeyboardRegions,
         keyboardCapture: true,
         exclusiveShellMode: true,
       );
       return;
     }
 
-    final edgePanelActive =
-        state.edgePanelVisible || state.edgePanelDragProgress > 0.0;
-    final edgePanelProgress = state.edgePanelDragProgress;
-    final edgePanelRect = ShellMetrics.edgePanelRect(
-      viewSize,
-      edgePanelProgress,
-    );
     final contentOffset = edgePanelActive
         ? (edgePanelRect.height - state.edgePanelViewportScroll)
               .clamp(0.0, edgePanelRect.height)
@@ -925,6 +1074,7 @@ class ShellController extends Notifier<ShellState>
       viewSize: viewSize,
       shellRegions: shellRegions,
       windows: inputRegions,
+      softwareKeyboardRegions: softwareKeyboardRegions,
       keyboardCapture: quickSettingsActive || interactions.capturesKeyboard,
       exclusiveShellMode: interactions.compositorExclusive,
     );
@@ -984,6 +1134,7 @@ class ShellController extends Notifier<ShellState>
             clipped.height * scaleY,
           ),
           z: popup.compositionOrder + 1,
+          geometryLocked: true,
         ),
       );
     }
@@ -996,6 +1147,7 @@ class ShellController extends Notifier<ShellState>
         rect: rect,
         sourceRect: sourceRect,
         z: 0,
+        geometryLocked: true,
       ),
     );
     return regions;
@@ -1005,6 +1157,7 @@ class ShellController extends Notifier<ShellState>
     required Size viewSize,
     required List<Rect> shellRegions,
     required List<InputWindowRegion> windows,
+    List<Rect> softwareKeyboardRegions = const <Rect>[],
     bool keyboardCapture = false,
     bool exclusiveShellMode = false,
   }) {
@@ -1016,6 +1169,7 @@ class ShellController extends Notifier<ShellState>
       epoch: _inputLayoutEpoch + 1,
       shellRegions: shellRegions,
       windows: windows,
+      softwareKeyboardRegions: softwareKeyboardRegions,
       visibleSurfaceIds: <int>{
         for (final region in windows) ...region.window.visibleSurfaceIds,
       }.toList(growable: false),

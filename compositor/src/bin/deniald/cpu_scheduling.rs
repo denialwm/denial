@@ -1,9 +1,9 @@
 //! CPU scheduling policy for the compositor's latency-critical threads.
 //!
-//! Denial uses Linux's lowest `SCHED_RR` priority for its compositor, display,
-//! and raster threads. This prevents ordinary application load from starving
-//! presentation without outranking audio and other deliberately
-//! higher-priority realtime work.
+//! Denial uses Linux's lowest `SCHED_RR` priority for its compositor, Volition
+//! submission, Flutter display, and raster threads. This prevents ordinary
+//! application load from starving presentation without outranking audio and
+//! other deliberately higher-priority realtime work.
 //!
 //! Realtime is enabled only when `RLIMIT_RTTIME` can retain an infinite hard
 //! limit. A finite soft limit still detects a runaway and drops the elevated
@@ -67,6 +67,7 @@ enum PriorityRole {
     Compositor = 1,
     FlutterDisplay = 2,
     FlutterRaster = 3,
+    Volition = 4,
 }
 
 impl PriorityRole {
@@ -76,6 +77,7 @@ impl PriorityRole {
             Self::Compositor => "compositor",
             Self::FlutterDisplay => "flutter-display",
             Self::FlutterRaster => "flutter-raster",
+            Self::Volition => "volition",
         }
     }
 
@@ -84,6 +86,7 @@ impl PriorityRole {
             1 => Self::Compositor,
             2 => Self::FlutterDisplay,
             3 => Self::FlutterRaster,
+            4 => Self::Volition,
             _ => Self::Unknown,
         }
     }
@@ -312,6 +315,13 @@ fn start_priority_guard() {
 /// libraries have initialized.
 pub(super) fn promote_compositor_thread() {
     promote_and_log(PriorityRole::Compositor);
+}
+
+/// Elevates a Volition atomic-commit lane. It normally sleeps in the kernel and
+/// only runs long enough to advance the next already-rendered scanout at the
+/// preceding commit's hardware-completion boundary.
+pub(super) fn promote_volition_thread() {
+    promote_and_log(PriorityRole::Volition);
 }
 
 fn promote_and_log(role: PriorityRole) {
@@ -823,6 +833,9 @@ unsafe extern "C" fn handle_sigxcpu(_signal: libc::c_int) {
         (PriorityRole::FlutterRaster, true) => {
             b"deniald: Flutter raster thread exceeded realtime budget; dropped realtime CPU scheduling\n"
         }
+        (PriorityRole::Volition, true) => {
+            b"deniald: Volition thread exceeded realtime budget; dropped realtime CPU scheduling\n"
+        }
         (PriorityRole::Unknown, true) => {
             b"deniald: unregistered thread exceeded realtime budget; dropped realtime CPU scheduling\n"
         }
@@ -834,6 +847,9 @@ unsafe extern "C" fn handle_sigxcpu(_signal: libc::c_int) {
         }
         (PriorityRole::FlutterRaster, false) => {
             b"deniald: Flutter raster thread exceeded realtime budget; failed to drop all realtime CPU scheduling\n"
+        }
+        (PriorityRole::Volition, false) => {
+            b"deniald: Volition thread exceeded realtime budget; failed to drop all realtime CPU scheduling\n"
         }
         (PriorityRole::Unknown, false) => {
             b"deniald: unregistered thread exceeded realtime budget; failed to drop all realtime CPU scheduling\n"

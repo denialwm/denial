@@ -164,6 +164,10 @@ const SYSTEMD_DBUS_NAME: &str = "org.freedesktop.systemd1";
 const NOTIFICATION_EVENT_QUEUE_CAPACITY: usize = 512;
 #[cfg(feature = "flutter")]
 const DPMS_WAKE_TOPOLOGY_GRACE: Duration = Duration::from_secs(5);
+#[cfg(feature = "flutter")]
+const COMPOSITOR_BACKGROUND_SLICE: Duration = Duration::from_millis(2);
+#[cfg(feature = "flutter")]
+const MAX_FLUTTER_EVENTS_PER_ITERATION: usize = 128;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct OutputModePreference {
@@ -591,6 +595,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         atlas.pixel_size,
         atlas_pool_length,
         &atlas_modifiers,
+        options.flutter_offscreen_blit,
     )
     .map_err(|error| {
         format!(
@@ -729,6 +734,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
             FlutterLaunchConfiguration {
                 bundle,
                 renderer_backend: options.flutter_renderer,
+                offscreen_blit: options.flutter_offscreen_blit,
                 debug_bundle: options.flutter_debug_bundle.clone(),
                 ui_workspace: options.flutter_ui_workspace.clone(),
             },
@@ -1255,6 +1261,8 @@ struct RuntimeState {
     #[cfg(feature = "flutter")]
     ready_fence_signals: Vec<output_scheduler::ReadyFenceSignal>,
     #[cfg(feature = "flutter")]
+    volition_events: Vec<denial_core::volition::Event>,
+    #[cfg(feature = "flutter")]
     flutter_channel_closed: bool,
     #[cfg(feature = "flutter")]
     flutter_reload_requested: bool,
@@ -1544,6 +1552,24 @@ fn synchronize_idle_dpms_configuration(
     } else {
         info!("disabled automatic display power-off");
     }
+}
+
+#[cfg(feature = "flutter")]
+fn synchronize_requested_dpms_off(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    scanouts: &[Scanout],
+    events: &mut RuntimeState,
+) {
+    if !runtime.take_dpms_off_requested() {
+        return;
+    }
+    let requests = events.idle_dpms.blank_now(
+        scanouts
+            .iter()
+            .map(|scanout| (scanout.output.id, scanout.powered)),
+    );
+    events.queue_idle_power_requests(requests);
+    info!("requested immediate compositor-owned display power-off");
 }
 
 #[cfg(feature = "flutter")]
@@ -2167,13 +2193,12 @@ fn install_ready_fence_watch(
 #[cfg(feature = "flutter")]
 fn submit_ready_frames(
     scheduler: &mut output_scheduler::OutputScheduler,
-    drm: &DrmDevice,
     swapchain: &AtlasSwapchain,
     scanouts: &[Scanout],
     event_loop: &mut EventLoop<'_, RuntimeState>,
     events: &mut RuntimeState,
 ) -> Result<usize, Box<dyn Error>> {
-    let submission = scheduler.submit_ready(drm, swapchain, scanouts, events)?;
+    let submission = scheduler.submit_ready(swapchain, scanouts, events)?;
     if let Some(watch) = submission.fence_watch {
         install_ready_fence_watch(event_loop, watch)?;
     }
@@ -2261,12 +2286,23 @@ fn run_flutter_event_loop(
         flutter_input: flutter_runtime::InputQueue::new(swapchain.size),
         ..RuntimeState::default()
     };
+    let (volition_event_sender, volition_event_source) = sync_channel(8);
+    event_loop.handle().insert_source(
+        volition_event_source,
+        |event, _, state: &mut RuntimeState| {
+            if let ChannelEvent::Msg(event) = event {
+                state.volition_events.push(event);
+            }
+        },
+    )?;
     events.synchronize_flutter_pointer_position();
     let mut raster_frames = 0u64;
     let mut delivered_vsyncs = 0u64;
     let mut retired_output_flips = 0u64;
     let mut flutter = Some(flutter);
     let mut scheduler = output_scheduler::OutputScheduler::new(
+        drm,
+        volition_event_sender.clone(),
         scanouts,
         swapchain.current,
         swapchain.buffers.len(),
@@ -2309,6 +2345,7 @@ fn run_flutter_event_loop(
                 .ok_or("Flutter runtime disappeared during fence acknowledgement")?,
             events.ready_fence_signals.drain(..),
         )?;
+        scheduler.acknowledge_volition_events(events.volition_events.drain(..))?;
         let needs_output_snapshot =
             ready_output_apply.is_some() || pending_output_success.is_some();
         let mut current_output_snapshot =
@@ -2359,6 +2396,66 @@ fn run_flutter_event_loop(
             for presentation in scheduler.presented_outputs().iter().copied() {
                 frame_scheduler.observe_presentation(presentation);
             }
+
+            // Deadline-critical lane. Raster completion is published before
+            // its callback wakeup, so retire that wakeup without servicing
+            // unrelated Flutter messages, transfer the finished atlas, and
+            // authorize the next animation frame directly from this physical
+            // display edge. Input and compositor bookkeeping deliberately run
+            // only after this lane.
+            runtime.observe_frame_ready_events(&mut events.flutter_events);
+
+            // A page flip can retire the submitted generation while an older
+            // completed generation already occupies the scheduler's Ready
+            // slot and a newer one waits in Flutter's broker. Submit that
+            // scheduler-owned frame first so the broker handoff below can
+            // drain before authorizing Flutter to render again. Otherwise the
+            // broker remains Ready for one more display edge and Flutter must
+            // skip that edge even when another atlas target is free.
+            submit_ready_frames(&mut scheduler, swapchain, scanouts, event_loop, &mut events)?;
+
+            if scheduler.can_accept_ready()
+                && let Some(ready) = runtime.take_ready()
+            {
+                if let Some(watch) = scheduler.publish_ready(runtime, ready, scanouts)? {
+                    install_ready_fence_watch(event_loop, watch)?;
+                }
+                raster_frames = raster_frames.saturating_add(1);
+            }
+
+            let frame_action = frame_scheduler.step(Instant::now(), runtime.pending_frame());
+            match frame_action {
+                frame_scheduler::FrameAction::Skip => {}
+                frame_scheduler::FrameAction::RequestFlutter => {
+                    if !runtime.request_flutter_for_app_updates()? {
+                        frame_scheduler.cancel_flutter_request();
+                    }
+                }
+                frame_scheduler::FrameAction::Render(tick) => {
+                    if runtime.render_authorized_frame(tick)? {
+                        delivered_vsyncs = delivered_vsyncs.saturating_add(1);
+                    }
+                }
+            }
+
+            // Queue any atlas which was complete when this iteration began.
+            // This remains ahead of input, Wayland traversal, and background
+            // shell synchronization, but follows frame-clock authorization so
+            // those tasks cannot perturb Flutter's animation timestamp.
+            submit_ready_frames(&mut scheduler, swapchain, scanouts, event_loop, &mut events)?;
+            for tick in frame_scheduler.output_ticks().iter().copied() {
+                if let Some(frontend) = events.wayland.as_mut() {
+                    frontend.frame_tick(tick)?;
+                }
+                scheduler.process_screencopies_at_tick(
+                    tick,
+                    renderer,
+                    swapchain,
+                    scanouts,
+                    &mut events,
+                )?;
+            }
+
             // Freeze the tagged atlas as part of the page-flip completion that
             // made it visible. Display-clock ticks may be deduplicated against
             // that same completion; waiting for a later tick would let another
@@ -2397,6 +2494,8 @@ fn run_flutter_event_loop(
         if let Some(error) = events.error.take() {
             return Err(format!("DRM event error in Flutter event loop: {error}").into());
         }
+
+        let background_started = Instant::now();
 
         collect_output_power_requests(&mut events);
         synchronize_idle_dpms(scanouts, &mut events);
@@ -2455,14 +2554,7 @@ fn run_flutter_event_loop(
             && let Some(request) = events.pending_output_applies.pop_front()
         {
             if scheduler.has_pending_scanout_work() {
-                submit_ready_frames(
-                    &mut scheduler,
-                    drm,
-                    swapchain,
-                    scanouts,
-                    event_loop,
-                    &mut events,
-                )?;
+                submit_ready_frames(&mut scheduler, swapchain, scanouts, event_loop, &mut events)?;
                 events.pending_output_applies.push_front(request);
                 let now = Instant::now();
                 let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
@@ -2676,6 +2768,8 @@ fn run_flutter_event_loop(
             output_configuration = staged_configuration;
             events.output_control_dirty = true;
             scheduler = output_scheduler::OutputScheduler::new(
+                drm,
+                volition_event_sender.clone(),
                 scanouts,
                 swapchain.current,
                 swapchain.buffers.len(),
@@ -2781,7 +2875,6 @@ fn run_flutter_event_loop(
                         // unfinished one will wake this loop through calloop.
                         submit_ready_frames(
                             &mut scheduler,
-                            drm,
                             swapchain,
                             scanouts,
                             event_loop,
@@ -2826,6 +2919,8 @@ fn run_flutter_event_loop(
                         Some(flutter_launcher),
                     )?;
                     scheduler = output_scheduler::OutputScheduler::new(
+                        drm,
+                        volition_event_sender.clone(),
                         scanouts,
                         swapchain.current,
                         swapchain.buffers.len(),
@@ -2869,14 +2964,7 @@ fn run_flutter_event_loop(
                 // every affected CRTC. A ready fence or page flip will wake
                 // this loop through calloop, without disturbing clients or
                 // the graphical session.
-                submit_ready_frames(
-                    &mut scheduler,
-                    drm,
-                    swapchain,
-                    scanouts,
-                    event_loop,
-                    &mut events,
-                )?;
+                submit_ready_frames(&mut scheduler, swapchain, scanouts, event_loop, &mut events)?;
                 let now = Instant::now();
                 let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
                     Duration::from_millis(50).min(deadline.saturating_duration_since(now))
@@ -2906,6 +2994,8 @@ fn run_flutter_event_loop(
                 flutter_launcher,
             )?;
             scheduler = output_scheduler::OutputScheduler::new(
+                drm,
+                volition_event_sender.clone(),
                 scanouts,
                 swapchain.current,
                 swapchain.buffers.len(),
@@ -2926,16 +3016,25 @@ fn run_flutter_event_loop(
         let runtime = flutter
             .as_mut()
             .ok_or("Flutter runtime disappeared from event loop")?;
-        runtime.process_input(&mut events.flutter_input)?;
+        runtime.process_input_batch(&mut events.flutter_input)?;
         // Drain in place so the callback queue keeps its allocation across
         // frame/engine dispatches. AwaitVSync and platform-task traffic is a
         // steady-state hot path and must not rebuild this Vec every time.
-        runtime.process_events(events.flutter_events.drain(..))?;
+        let flutter_event_batch = events
+            .flutter_events
+            .len()
+            .min(MAX_FLUTTER_EVENTS_PER_ITERATION);
+        runtime.process_events(events.flutter_events.drain(..flutter_event_batch))?;
+        if background_started.elapsed() >= COMPOSITOR_BACKGROUND_SLICE {
+            event_loop.dispatch(Duration::ZERO, &mut events)?;
+            continue;
+        }
         if flutter_launcher.synchronize_ui_development(runtime)? {
             events.flutter_reload_requested = true;
         }
         synchronize_idle_dpms_configuration(runtime, &mut events);
         synchronize_authentication_boundary(&mut events);
+        synchronize_requested_dpms_off(runtime, scanouts, &mut events);
         let screenshot_is_invalid = screenshot_manager.as_ref().is_some_and(|manager| {
             events.secure_session_locked()
                 || manager.topology_epoch() != Some(topology.snapshot().epoch)
@@ -2959,10 +3058,18 @@ fn run_flutter_event_loop(
         synchronize_shell_keyboard(runtime, &mut events)?;
         synchronize_settings(runtime, &mut events)?;
         synchronize_system_bar_configuration(runtime, &mut events, Some(flutter_launcher));
+        if background_started.elapsed() >= COMPOSITOR_BACKGROUND_SLICE {
+            event_loop.dispatch(Duration::ZERO, &mut events)?;
+            continue;
+        }
         synchronize_flutter_window_management(runtime, &mut events)?;
         synchronize_flutter_scene(runtime, &mut events)?;
-        synchronize_flutter_input_layout(runtime, &mut events);
+        synchronize_flutter_input_layout(runtime, &mut events)?;
         synchronize_wayland_cursor(runtime, &mut events)?;
+        if background_started.elapsed() >= COMPOSITOR_BACKGROUND_SLICE {
+            event_loop.dispatch(Duration::ZERO, &mut events)?;
+            continue;
+        }
         let screenshot_prepared = runtime.take_screenshot_prepared();
         let screenshot_cancelled = runtime.take_screenshot_cancelled();
         let screenshot_request = runtime.take_screenshot_requested();
@@ -3085,67 +3192,12 @@ fn run_flutter_event_loop(
             runtime.send_screenshot_action(wire::ShellAction::ScreenshotDone, request_id, None)?;
         }
 
-        // Queue the candidate before accepting its successor. Native GPU work
-        // normally travels with the atomic commit through IN_FENCE_FD. If a
-        // driver advertises that property but rejects real fenced commits, the
-        // scheduler first waits for the same fence in calloop and then queues
-        // the framebuffer, preserving the producer ownership boundary.
-        submit_ready_frames(
-            &mut scheduler,
-            drm,
-            swapchain,
-            scanouts,
-            event_loop,
-            &mut events,
-        )?;
-        if scheduler.can_accept_ready()
-            && let Some(ready) = runtime.take_ready()
-        {
-            if let Some(watch) = scheduler.publish_ready(runtime, ready, scanouts)? {
-                install_ready_fence_watch(event_loop, watch)?;
-            }
-            raster_frames = raster_frames.saturating_add(1);
-            // Leave the newly published frame queued (or watched by calloop)
-            // before servicing the next display tick.
-            submit_ready_frames(
-                &mut scheduler,
-                drm,
-                swapchain,
-                scanouts,
-                event_loop,
-                &mut events,
-            )?;
-        }
-        let frame_action = frame_scheduler.step(Instant::now(), runtime.pending_frame());
-        for tick in frame_scheduler.output_ticks().iter().copied() {
-            if let Some(frontend) = events.wayland.as_mut() {
-                frontend.frame_tick(tick)?;
-            }
-            scheduler.process_screencopies_at_tick(
-                tick,
-                renderer,
-                swapchain,
-                scanouts,
-                &mut events,
-            )?;
-        }
-        match frame_action {
-            frame_scheduler::FrameAction::Skip => {}
-            frame_scheduler::FrameAction::RequestFlutter => {
-                if !runtime.request_flutter_for_app_updates()? {
-                    frame_scheduler.cancel_flutter_request();
-                }
-            }
-            frame_scheduler::FrameAction::Render(tick) => {
-                if runtime.render_authorized_frame(tick)? {
-                    delivered_vsyncs = delivered_vsyncs.saturating_add(1);
-                }
-            }
-        }
-
         let now = Instant::now();
         let mut next_dispatch_timeout =
             frame_scheduler.limit_dispatch_timeout(now, runtime.next_dispatch_timeout());
+        if events.flutter_input.has_pending() || !events.flutter_events.is_empty() {
+            next_dispatch_timeout = Duration::ZERO;
+        }
         if let Some(recheck_at) = events.topology_recheck_at {
             next_dispatch_timeout =
                 next_dispatch_timeout.min(recheck_at.saturating_duration_since(now));
@@ -3187,6 +3239,7 @@ fn run_flutter_event_loop(
         // after a successful drain.
         duration.is_none(),
     );
+    scheduler.shutdown_volition();
 
     flutter
         .take()
@@ -3255,7 +3308,7 @@ fn reload_flutter_runtime(
         synchronize_settings(&mut old_runtime, events)?;
         synchronize_system_bar_configuration(&mut old_runtime, events, Some(flutter_launcher));
         synchronize_flutter_window_management(&mut old_runtime, events)?;
-        synchronize_flutter_input_layout(&mut old_runtime, events);
+        synchronize_flutter_input_layout(&mut old_runtime, events)?;
         Ok(())
     })();
     let shutdown = old_runtime.shutdown();
@@ -3458,7 +3511,7 @@ fn wait_for_flutter_frame(
         synchronize_system_bar_configuration(runtime, events, flutter_launcher.as_deref_mut());
         synchronize_flutter_window_management(runtime, events)?;
         synchronize_flutter_scene(runtime, events)?;
-        synchronize_flutter_input_layout(runtime, events);
+        synchronize_flutter_input_layout(runtime, events)?;
         synchronize_wayland_cursor(runtime, events)?;
         if let Some(index) = runtime.take_ready() {
             return Ok(Some(index));
@@ -3601,12 +3654,12 @@ fn synchronize_flutter_scene(
 fn synchronize_flutter_input_layout(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &mut RuntimeState,
-) {
+) -> Result<(), Box<dyn Error>> {
     let Some(layout) = runtime.take_input_layout_update() else {
-        return;
+        return Ok(());
     };
     let Some(frontend) = events.wayland.as_mut() else {
-        return;
+        return Ok(());
     };
     let (previous, sampling_changed, routing_changed) = frontend.install_input_layout(layout);
     if let Some(previous) = previous {
@@ -3622,6 +3675,10 @@ fn synchronize_flutter_input_layout(
     if routing_changed {
         wayland_frontend::reconcile_flutter_pointer_route(events);
     }
+    // InputLayout owns shell keyboard capture. Publish again after applying
+    // it so releasing a local Flutter surface exposes an already-active
+    // Wayland editor in this iteration instead of waiting for unrelated input.
+    publish_software_keyboard_state(runtime, events)
 }
 
 #[cfg(feature = "flutter")]
@@ -3810,61 +3867,46 @@ fn synchronize_shell_keyboard(
     {
         events.scene_sync.mark_dirty();
     }
+    publish_software_keyboard_state(runtime, events)?;
     let commands = runtime.drain_keyboard_commands().collect::<Vec<_>>();
-    if events.secure_session_locked() {
-        return Ok(());
-    }
-
+    // The OSK is a virtual keyboard source. Rust converts each intent into
+    // complete key transitions and feeds the same focus/XKB/seat-or-Flutter
+    // router used by libinput; there is no separate text-delivery path.
+    let mut flush_wayland_clients = false;
     for command in commands {
-        let target = events
-            .wayland
-            .as_ref()
-            .map(|frontend| match &command {
-                wire::KeyboardCommand::Text(_) => frontend.text_input_target_for_text(),
-                wire::KeyboardCommand::Key { .. } => frontend.text_input_target_for_key(),
-            })
-            .unwrap_or(wayland_frontend::ShellCommandTarget::None);
-        match target {
-            wayland_frontend::ShellCommandTarget::Flutter => {
-                runtime.dispatch_keyboard_command_to_flutter(&command)?;
-            }
-            wayland_frontend::ShellCommandTarget::WaylandText => {
-                let wire::KeyboardCommand::Text(text) = &command else {
-                    unreachable!("named keys never select the Wayland text endpoint")
-                };
-                let delivered = events
-                    .wayland
-                    .as_mut()
-                    .is_some_and(|frontend| frontend.commit_text_input(text));
-                if !delivered
-                    && !wayland_frontend::dispatch_shell_keyboard_fallback(events, &command)
-                {
-                    warn!(
-                        ?command,
-                        "Wayland text endpoint disappeared and its seat fallback was unavailable"
-                    );
-                }
-            }
-            wayland_frontend::ShellCommandTarget::Seat => {
-                if !wayland_frontend::dispatch_shell_keyboard_fallback(events, &command) {
-                    warn!(?command, "seat fallback had no focused input target");
-                }
-            }
-            wayland_frontend::ShellCommandTarget::Captured => {
-                debug!(
-                    ?command,
-                    "shell captured keyboard input without an active editor"
-                );
-            }
-            wayland_frontend::ShellCommandTarget::None => {
-                warn!(
-                    ?command,
-                    "shell keyboard command had no focused input target"
-                );
-            }
+        let delivered = wayland_frontend::dispatch_shell_keyboard(events, &command);
+        flush_wayland_clients |= delivered;
+        if !delivered {
+            warn!(
+                ?command,
+                "virtual keyboard could not produce this key transition"
+            );
         }
     }
+    if flush_wayland_clients && let Some(frontend) = events.wayland.as_mut() {
+        frontend.display_handle.flush_clients()?;
+    }
     Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn publish_software_keyboard_state(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &RuntimeState,
+) -> Result<(), Box<dyn Error>> {
+    let keyboard = events
+        .wayland
+        .as_ref()
+        .map(|frontend| frontend.software_keyboard_state())
+        .unwrap_or_default();
+    runtime.publish_text_input_state(
+        keyboard.active,
+        keyboard.input_panel_visible,
+        keyboard.legacy,
+        keyboard.content_hint,
+        keyboard.content_purpose,
+        keyboard.activation_serial,
+    )
 }
 
 #[cfg(feature = "flutter")]
@@ -4177,6 +4219,12 @@ fn apply_hotplug_topology(
     let old_snapshot = topology.snapshot();
     let mut progress = HotplugProgress::default();
     let reconciliation = reconcile_scanouts(drm, scanouts, restore_state, outputs, &atlas)?;
+    #[cfg(not(feature = "flutter"))]
+    let linear_render_targets = false;
+    #[cfg(feature = "flutter")]
+    let linear_render_targets = flutter_launcher
+        .as_deref()
+        .is_some_and(FlutterLauncher::uses_offscreen_blit);
     let atlas_modifiers = match shared_atlas_modifiers(
         reconciliation.scanouts(),
         renderer.egl_context().dmabuf_render_formats(),
@@ -4193,6 +4241,7 @@ fn apply_hotplug_topology(
         atlas.pixel_size,
         pool_length,
         &atlas_modifiers,
+        linear_render_targets,
     ) {
         Ok(staged) => staged,
         Err(error) => {
@@ -4314,7 +4363,7 @@ fn apply_hotplug_topology(
                 flutter_launcher.as_deref_mut(),
             );
             synchronize_flutter_window_management(&mut old_runtime, events)?;
-            synchronize_flutter_input_layout(&mut old_runtime, events);
+            synchronize_flutter_input_layout(&mut old_runtime, events)?;
             Ok(())
         })();
         let shutdown = old_runtime.shutdown();

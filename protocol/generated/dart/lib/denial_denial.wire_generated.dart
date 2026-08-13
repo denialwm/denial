@@ -616,7 +616,8 @@ enum PayloadTypeId {
   DesktopNotificationEvent(11),
   DesktopNotificationCommand(12),
   SettingsRequest(13),
-  SettingsResponse(14);
+  SettingsResponse(14),
+  TextInputState(15);
 
   final int value;
   const PayloadTypeId(this.value);
@@ -638,6 +639,7 @@ enum PayloadTypeId {
       case 12: return PayloadTypeId.DesktopNotificationCommand;
       case 13: return PayloadTypeId.SettingsRequest;
       case 14: return PayloadTypeId.SettingsResponse;
+      case 15: return PayloadTypeId.TextInputState;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -646,7 +648,7 @@ enum PayloadTypeId {
       value == null ? null : PayloadTypeId.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 14;
+  static const int maxValue = 15;
   static const fb.Reader<PayloadTypeId> reader = _PayloadTypeIdReader();
 }
 
@@ -992,10 +994,11 @@ class InputLayout {
   List<WireRect>? get shellRegions => const fb.ListReader<WireRect>(WireRect.reader).vTableGetNullable(_bc, _bcOffset, 8);
   List<InputWindowRegion>? get windows => const fb.ListReader<InputWindowRegion>(InputWindowRegion.reader).vTableGetNullable(_bc, _bcOffset, 10);
   List<int>? get visibleSurfaceIds => const fb.ListReader<int>(fb.Uint64Reader()).vTableGetNullable(_bc, _bcOffset, 12);
+  List<WireRect>? get softwareKeyboardRegions => const fb.ListReader<WireRect>(WireRect.reader).vTableGetNullable(_bc, _bcOffset, 14);
 
   @override
   String toString() {
-    return 'InputLayout{epoch: ${epoch}, flags: ${flags}, shellRegions: ${shellRegions}, windows: ${windows}, visibleSurfaceIds: ${visibleSurfaceIds}}';
+    return 'InputLayout{epoch: ${epoch}, flags: ${flags}, shellRegions: ${shellRegions}, windows: ${windows}, visibleSurfaceIds: ${visibleSurfaceIds}, softwareKeyboardRegions: ${softwareKeyboardRegions}}';
   }
 }
 
@@ -1013,7 +1016,7 @@ class InputLayoutBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(5);
+    fbBuilder.startTable(6);
   }
 
   int addEpoch(int? epoch) {
@@ -1036,6 +1039,10 @@ class InputLayoutBuilder {
     fbBuilder.addOffset(4, offset);
     return fbBuilder.offset;
   }
+  int addSoftwareKeyboardRegionsOffset(int? offset) {
+    fbBuilder.addOffset(5, offset);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -1048,6 +1055,7 @@ class InputLayoutObjectBuilder extends fb.ObjectBuilder {
   final List<WireRectObjectBuilder>? _shellRegions;
   final List<InputWindowRegionObjectBuilder>? _windows;
   final List<int>? _visibleSurfaceIds;
+  final List<WireRectObjectBuilder>? _softwareKeyboardRegions;
 
   InputLayoutObjectBuilder({
     int? epoch,
@@ -1055,12 +1063,14 @@ class InputLayoutObjectBuilder extends fb.ObjectBuilder {
     List<WireRectObjectBuilder>? shellRegions,
     List<InputWindowRegionObjectBuilder>? windows,
     List<int>? visibleSurfaceIds,
+    List<WireRectObjectBuilder>? softwareKeyboardRegions,
   })
       : _epoch = epoch,
         _flags = flags,
         _shellRegions = shellRegions,
         _windows = windows,
-        _visibleSurfaceIds = visibleSurfaceIds;
+        _visibleSurfaceIds = visibleSurfaceIds,
+        _softwareKeyboardRegions = softwareKeyboardRegions;
 
   /// Finish building, and store into the [fbBuilder].
   @override
@@ -1071,12 +1081,15 @@ class InputLayoutObjectBuilder extends fb.ObjectBuilder {
         : fbBuilder.writeListOfStructs(_windows!);
     final int? visibleSurfaceIdsOffset = _visibleSurfaceIds == null ? null
         : fbBuilder.writeListUint64(_visibleSurfaceIds!);
-    fbBuilder.startTable(5);
+    final int? softwareKeyboardRegionsOffset = _softwareKeyboardRegions == null ? null
+        : fbBuilder.writeListOfStructs(_softwareKeyboardRegions!);
+    fbBuilder.startTable(6);
     fbBuilder.addUint64(0, _epoch);
     fbBuilder.addUint32(1, _flags);
     fbBuilder.addOffset(2, shellRegionsOffset);
     fbBuilder.addOffset(3, windowsOffset);
     fbBuilder.addOffset(4, visibleSurfaceIdsOffset);
+    fbBuilder.addOffset(5, softwareKeyboardRegionsOffset);
     return fbBuilder.endTable();
   }
 
@@ -2136,10 +2149,11 @@ class WindowRequest {
   String? get title => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 12);
   SystemBarSide get systemBarSide => SystemBarSide.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 14, 2));
   List<int>? get systemBarMonitorIds => const fb.ListReader<int>(fb.Int64Reader()).vTableGetNullable(_bc, _bcOffset, 16);
+  int get flags => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 18, 0);
 
   @override
   String toString() {
-    return 'WindowRequest{kind: ${kind}, windowId: ${windowId}, geometry: ${geometry}, appId: ${appId}, title: ${title}, systemBarSide: ${systemBarSide}, systemBarMonitorIds: ${systemBarMonitorIds}}';
+    return 'WindowRequest{kind: ${kind}, windowId: ${windowId}, geometry: ${geometry}, appId: ${appId}, title: ${title}, systemBarSide: ${systemBarSide}, systemBarMonitorIds: ${systemBarMonitorIds}, flags: ${flags}}';
   }
 }
 
@@ -2157,7 +2171,7 @@ class WindowRequestBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(7);
+    fbBuilder.startTable(8);
   }
 
   int addKind(WindowRequestKind? kind) {
@@ -2188,6 +2202,10 @@ class WindowRequestBuilder {
     fbBuilder.addOffset(6, offset);
     return fbBuilder.offset;
   }
+  int addFlags(int? flags) {
+    fbBuilder.addUint32(7, flags);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -2202,6 +2220,7 @@ class WindowRequestObjectBuilder extends fb.ObjectBuilder {
   final String? _title;
   final SystemBarSide? _systemBarSide;
   final List<int>? _systemBarMonitorIds;
+  final int? _flags;
 
   WindowRequestObjectBuilder({
     WindowRequestKind? kind,
@@ -2211,6 +2230,7 @@ class WindowRequestObjectBuilder extends fb.ObjectBuilder {
     String? title,
     SystemBarSide? systemBarSide,
     List<int>? systemBarMonitorIds,
+    int? flags,
   })
       : _kind = kind,
         _windowId = windowId,
@@ -2218,7 +2238,8 @@ class WindowRequestObjectBuilder extends fb.ObjectBuilder {
         _appId = appId,
         _title = title,
         _systemBarSide = systemBarSide,
-        _systemBarMonitorIds = systemBarMonitorIds;
+        _systemBarMonitorIds = systemBarMonitorIds,
+        _flags = flags;
 
   /// Finish building, and store into the [fbBuilder].
   @override
@@ -2229,7 +2250,7 @@ class WindowRequestObjectBuilder extends fb.ObjectBuilder {
         : fbBuilder.writeString(_title!);
     final int? systemBarMonitorIdsOffset = _systemBarMonitorIds == null ? null
         : fbBuilder.writeListInt64(_systemBarMonitorIds!);
-    fbBuilder.startTable(7);
+    fbBuilder.startTable(8);
     fbBuilder.addUint8(0, _kind?.value);
     fbBuilder.addUint64(1, _windowId);
     if (_geometry != null) {
@@ -2239,6 +2260,7 @@ class WindowRequestObjectBuilder extends fb.ObjectBuilder {
     fbBuilder.addOffset(4, titleOffset);
     fbBuilder.addUint8(5, _systemBarSide?.value);
     fbBuilder.addOffset(6, systemBarMonitorIdsOffset);
+    fbBuilder.addUint32(7, _flags);
     return fbBuilder.endTable();
   }
 
@@ -2690,6 +2712,113 @@ class CursorPositionObjectBuilder extends fb.ObjectBuilder {
     fbBuilder.startTable(2);
     fbBuilder.addFloat64(0, _x);
     fbBuilder.addFloat64(1, _y);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
+class TextInputState {
+  TextInputState._(this._bc, this._bcOffset);
+  factory TextInputState(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<TextInputState> reader = _TextInputStateReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  bool get active => const fb.BoolReader().vTableGet(_bc, _bcOffset, 4, false);
+  bool get inputPanelVisible => const fb.BoolReader().vTableGet(_bc, _bcOffset, 6, false);
+  bool get legacy => const fb.BoolReader().vTableGet(_bc, _bcOffset, 8, false);
+  int get contentHint => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 10, 0);
+  int get contentPurpose => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 12, 0);
+
+  @override
+  String toString() {
+    return 'TextInputState{active: ${active}, inputPanelVisible: ${inputPanelVisible}, legacy: ${legacy}, contentHint: ${contentHint}, contentPurpose: ${contentPurpose}}';
+  }
+}
+
+class _TextInputStateReader extends fb.TableReader<TextInputState> {
+  const _TextInputStateReader();
+
+  @override
+  TextInputState createObject(fb.BufferContext bc, int offset) => 
+    TextInputState._(bc, offset);
+}
+
+class TextInputStateBuilder {
+  TextInputStateBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(5);
+  }
+
+  int addActive(bool? active) {
+    fbBuilder.addBool(0, active);
+    return fbBuilder.offset;
+  }
+  int addInputPanelVisible(bool? inputPanelVisible) {
+    fbBuilder.addBool(1, inputPanelVisible);
+    return fbBuilder.offset;
+  }
+  int addLegacy(bool? legacy) {
+    fbBuilder.addBool(2, legacy);
+    return fbBuilder.offset;
+  }
+  int addContentHint(int? contentHint) {
+    fbBuilder.addUint32(3, contentHint);
+    return fbBuilder.offset;
+  }
+  int addContentPurpose(int? contentPurpose) {
+    fbBuilder.addUint32(4, contentPurpose);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class TextInputStateObjectBuilder extends fb.ObjectBuilder {
+  final bool? _active;
+  final bool? _inputPanelVisible;
+  final bool? _legacy;
+  final int? _contentHint;
+  final int? _contentPurpose;
+
+  TextInputStateObjectBuilder({
+    bool? active,
+    bool? inputPanelVisible,
+    bool? legacy,
+    int? contentHint,
+    int? contentPurpose,
+  })
+      : _active = active,
+        _inputPanelVisible = inputPanelVisible,
+        _legacy = legacy,
+        _contentHint = contentHint,
+        _contentPurpose = contentPurpose;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    fbBuilder.startTable(5);
+    fbBuilder.addBool(0, _active);
+    fbBuilder.addBool(1, _inputPanelVisible);
+    fbBuilder.addBool(2, _legacy);
+    fbBuilder.addUint32(3, _contentHint);
+    fbBuilder.addUint32(4, _contentPurpose);
     return fbBuilder.endTable();
   }
 
@@ -3965,6 +4094,7 @@ class Envelope {
       case 12: return DesktopNotificationCommand.reader.vTableGetNullable(_bc, _bcOffset, 12);
       case 13: return SettingsRequest.reader.vTableGetNullable(_bc, _bcOffset, 12);
       case 14: return SettingsResponse.reader.vTableGetNullable(_bc, _bcOffset, 12);
+      case 15: return TextInputState.reader.vTableGetNullable(_bc, _bcOffset, 12);
       default: return null;
     }
   }

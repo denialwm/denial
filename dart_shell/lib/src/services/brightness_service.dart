@@ -6,7 +6,6 @@ import '../models/display_layout.dart';
 import '../platform/denial_bridge.dart';
 import '../state/display_layout.dart';
 import '../state/shell_controller.dart';
-import 'system_io.dart';
 
 final brightnessServiceProvider = Provider<BrightnessService>((ref) {
   return BrightnessService(
@@ -15,17 +14,12 @@ final brightnessServiceProvider = Provider<BrightnessService>((ref) {
   );
 });
 
-/// Reads and applies monitor brightness through compositor-owned DDC/CI.
+/// Reads and applies monitor brightness through compositor-owned providers.
 class BrightnessService {
   const BrightnessService(this._bridge, {this.defaultOutput});
 
   final DenialBridge _bridge;
   final DisplayOutput? defaultOutput;
-  static const String _currentPath =
-      '/sys/class/backlight/panel0-backlight/brightness';
-  static const String _maxPath =
-      '/sys/class/backlight/panel0-backlight/max_brightness';
-
   Stream<DenialBrightnessState> get states => _bridge.brightnessStates;
 
   int? get defaultMonitorId => defaultOutput?.monitorId;
@@ -52,14 +46,7 @@ class BrightnessService {
       }
     }
 
-    // Keep the laptop-panel fallback for development sessions which do not
-    // expose the compositor display layout.
-    final current = await readSysInt(_currentPath);
-    final max = await readSysInt(_maxPath);
-    if (current == null || max == null || max <= 0) {
-      return null;
-    }
-    return (current / max).clamp(0.01, 1.0).toDouble();
+    return null;
   }
 
   /// Applies a `[1, 100]` percentage to the backlight.

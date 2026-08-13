@@ -11,6 +11,22 @@ import 'package:denial_dart_shell/src/platform/denial_wire.dart'
     hide InputWindowRegion;
 
 void main() {
+  test('keyboard key lifecycle preserves tap, press, and release', () {
+    final codec = DenialWireCodec();
+    for (final expectation in <(DenialKeyboardKeyPhase, int)>[
+      (DenialKeyboardKeyPhase.tap, 0),
+      (DenialKeyboardKeyPhase.pressed, 1 << 1),
+      (DenialKeyboardKeyPhase.released, 1 << 2),
+    ]) {
+      final bytes = codec.encodeKeyboardKey('BackSpace', phase: expectation.$1);
+      final envelope = Envelope(bytes);
+      final command = envelope.payload as KeyboardCommand;
+      expect(command.kind, KeyboardCommandKind.Key);
+      expect(command.key, 'BackSpace');
+      expect(command.flags, expectation.$2);
+    }
+  });
+
   test('system bar configuration encodes its edge and selected outputs', () {
     final codec = DenialWireCodec();
     final bytes = codec.encodeSystemBarConfiguration(
@@ -69,6 +85,25 @@ void main() {
     },
   );
 
+  test('routing comparison includes software keyboard regions', () {
+    const original = InputLayoutSnapshot(
+      epoch: 1,
+      shellRegions: <Rect>[],
+      windows: <InputWindowRegion>[],
+    );
+    const withKeyboard = InputLayoutSnapshot(
+      epoch: 2,
+      shellRegions: <Rect>[],
+      softwareKeyboardRegions: <Rect>[
+        Rect.fromLTWH(0, 700, 400, 300),
+        Rect.fromLTWH(382, 0, 18, 700),
+      ],
+      windows: <InputWindowRegion>[],
+    );
+
+    expect(original.hasSameRoutingAs(withKeyboard), isFalse);
+  });
+
   test('Dart input goldens are current and decode in Dart', () {
     for (final count in <int>[0, 1, 8, 32]) {
       final codec = DenialWireCodec();
@@ -115,6 +150,24 @@ void main() {
     expect(layout.shellRegions, hasLength(1));
     expect(layout.shellRegions!.single.width, 0.25);
     expect(layout.shellRegions!.single.height, 0.5);
+  });
+
+  test('input layout carries software keyboard preservation regions', () {
+    final codec = DenialWireCodec();
+    final bytes = codec.encodeInputLayout(
+      const InputLayoutSnapshot(
+        epoch: 1,
+        shellRegions: <Rect>[Rect.fromLTWH(0, 700, 400, 300)],
+        softwareKeyboardRegions: <Rect>[Rect.fromLTWH(0, 700, 400, 300)],
+        windows: <InputWindowRegion>[],
+      ),
+    );
+
+    expect(bytes, isNotNull);
+    final layout = Envelope(bytes!).payload as InputLayout;
+    expect(layout.softwareKeyboardRegions, hasLength(1));
+    expect(layout.softwareKeyboardRegions!.single.y, 700);
+    expect(layout.softwareKeyboardRegions!.single.height, 300);
   });
 
   test('input layout preserves hit testing as the missing-bit default', () {

@@ -361,14 +361,49 @@ impl AtlasAllocator {
         &mut self,
         size: PixelSize,
         modifiers: &[Modifier],
+        linear_render_target: bool,
     ) -> Result<AtlasBuffer, Box<dyn Error>> {
-        AtlasBuffer::allocate_gbm(
+        let mut buffer = AtlasBuffer::allocate_gbm(
             &mut self.allocator,
             &self.drm_fd,
             self.cross_device,
             size,
             modifiers,
-        )
+        )?;
+        if linear_render_target {
+            buffer.render_target = Some(LinearRenderBuffer::allocate(&mut self.allocator, size)?);
+        }
+        Ok(buffer)
+    }
+}
+
+struct LinearRenderBuffer {
+    dmabuf: Dmabuf,
+    _buffer: GbmBuffer,
+}
+
+impl LinearRenderBuffer {
+    fn allocate(
+        allocator: &mut GbmAllocator<DrmDeviceFd>,
+        size: PixelSize,
+    ) -> Result<Self, Box<dyn Error>> {
+        let buffer = allocator.create_buffer(
+            size.width,
+            size.height,
+            Fourcc::Xrgb8888,
+            &[Modifier::Linear],
+        )?;
+        let format = smithay::backend::allocator::Buffer::format(&buffer);
+        if format.code != Fourcc::Xrgb8888 || format.modifier != Modifier::Linear {
+            return Err(
+                format!("offscreen Flutter render target is not linear XR24: {format:?}").into(),
+            );
+        }
+        let dmabuf = buffer.export()?;
+        Ok(Self {
+            dmabuf,
+            _buffer: buffer,
+        })
     }
 }
 
@@ -377,6 +412,7 @@ pub(super) struct AtlasBuffer {
     framebuffer: AtlasFramebuffer,
     pub(super) dmabuf: Dmabuf,
     format: Format,
+    render_target: Option<LinearRenderBuffer>,
     _buffer: GbmBuffer,
 }
 
@@ -401,6 +437,7 @@ impl AtlasBuffer {
             framebuffer,
             dmabuf,
             format,
+            render_target: None,
             _buffer: buffer,
         })
     }
@@ -411,6 +448,14 @@ impl AtlasBuffer {
 
     pub(super) fn format(&self) -> Format {
         self.format
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn flutter_target_dmabufs(&self) -> (&Dmabuf, Option<&Dmabuf>) {
+        (
+            &self.dmabuf,
+            self.render_target.as_ref().map(|target| &target.dmabuf),
+        )
     }
 }
 
@@ -525,6 +570,7 @@ pub(super) struct LayoutTransition {
 pub(super) struct FlutterLauncher {
     factory: Option<flutter_runtime::FlutterRuntimeFactory>,
     renderer_backend: denial_flutter_engine::RendererBackend,
+    offscreen_blit: bool,
     active_mode: ui_development::UiRuntimeMode,
     resident_jit_engine_fingerprint: Option<[u8; 32]>,
     ui_development: ui_development::UiDevelopmentController,
@@ -542,6 +588,7 @@ pub(super) struct FlutterLauncher {
 pub(super) struct FlutterLaunchConfiguration<'a> {
     pub(super) bundle: &'a Path,
     pub(super) renderer_backend: denial_flutter_engine::RendererBackend,
+    pub(super) offscreen_blit: bool,
     pub(super) debug_bundle: Option<PathBuf>,
     pub(super) ui_workspace: Option<PathBuf>,
 }
@@ -569,6 +616,7 @@ impl FlutterLauncher {
                 configuration.renderer_backend,
             )?),
             renderer_backend: configuration.renderer_backend,
+            offscreen_blit: configuration.offscreen_blit,
             active_mode: ui_development::UiRuntimeMode::OfficialOptimized,
             resident_jit_engine_fingerprint: None,
             ui_development,
@@ -581,6 +629,10 @@ impl FlutterLauncher {
             work_area,
             generation: 0,
         })
+    }
+
+    pub(super) fn uses_offscreen_blit(&self) -> bool {
+        self.offscreen_blit
     }
 
     pub(super) fn start(
@@ -613,7 +665,10 @@ impl FlutterLauncher {
             .ok_or("Flutter runtime has no output refresh")?;
         let runtime = self.start_with_current_factory(
             renderer.egl_context(),
-            swapchain.buffers.iter().map(|buffer| &buffer.dmabuf),
+            swapchain
+                .buffers
+                .iter()
+                .map(AtlasBuffer::flutter_target_dmabufs),
             swapchain.current,
             swapchain.size,
             snapshot,
@@ -635,7 +690,10 @@ impl FlutterLauncher {
                 self.replace_factory(ui_development::UiRuntimeMode::OfficialOptimized)?;
                 self.start_with_current_factory(
                     renderer.egl_context(),
-                    swapchain.buffers.iter().map(|buffer| &buffer.dmabuf),
+                    swapchain
+                        .buffers
+                        .iter()
+                        .map(AtlasBuffer::flutter_target_dmabufs),
                     swapchain.current,
                     swapchain.size,
                     snapshot,
@@ -656,7 +714,7 @@ impl FlutterLauncher {
     fn start_with_current_factory<'a>(
         &self,
         shared_context: &EGLContext,
-        dmabufs: impl IntoIterator<Item = &'a Dmabuf>,
+        dmabufs: impl IntoIterator<Item = (&'a Dmabuf, Option<&'a Dmabuf>)>,
         initial_scanout: usize,
         size: PixelSize,
         snapshot: &TopologySnapshot,
@@ -672,6 +730,7 @@ impl FlutterLauncher {
             snapshot,
             atlas,
             refresh_millihz,
+            self.offscreen_blit,
             self.factory
                 .as_ref()
                 .ok_or("Flutter launcher has no active runtime factory")?,
@@ -921,7 +980,7 @@ impl AtlasSwapchain {
         size: PixelSize,
         modifiers: &[Modifier],
     ) -> Result<Self, Box<dyn Error>> {
-        Self::allocate_pool(allocator, size, 2, modifiers)
+        Self::allocate_pool(allocator, size, 2, modifiers, false)
     }
 
     pub(super) fn allocate_pool(
@@ -929,6 +988,7 @@ impl AtlasSwapchain {
         size: PixelSize,
         length: usize,
         modifiers: &[Modifier],
+        linear_render_targets: bool,
     ) -> Result<Self, Box<dyn Error>> {
         if length < 2 {
             return Err("an atlas swapchain needs at least two buffers".into());
@@ -946,7 +1006,7 @@ impl AtlasSwapchain {
 
         let allocate = |allocator: &mut AtlasAllocator, modifiers: &[Modifier]| {
             (0..length)
-                .map(|_| allocator.allocate(size, modifiers))
+                .map(|_| allocator.allocate(size, modifiers, linear_render_targets))
                 .collect::<Result<Vec<_>, _>>()
         };
         let buffers = if optimized.is_empty() {

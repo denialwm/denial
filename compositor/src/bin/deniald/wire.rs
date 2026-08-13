@@ -58,7 +58,10 @@ const MAX_LOCAL_APP_ID_BYTES: usize = 256;
 const MAX_LOCAL_WINDOW_TITLE_BYTES: usize = 1024;
 const WINDOW_PLACEMENT_PACKET_BYTES: usize = 80;
 const KEYBOARD_CTRL: u32 = 1 << 0;
-const KEYBOARD_FLAGS_MASK: u32 = KEYBOARD_CTRL;
+const KEYBOARD_PRESSED: u32 = 1 << 1;
+const KEYBOARD_RELEASED: u32 = 1 << 2;
+const KEYBOARD_PHASE_MASK: u32 = KEYBOARD_PRESSED | KEYBOARD_RELEASED;
+const KEYBOARD_FLAGS_MASK: u32 = KEYBOARD_CTRL | KEYBOARD_PHASE_MASK;
 
 pub const INPUT_LAYOUT_KEYBOARD_CAPTURE: u32 = 1 << 0;
 pub const INPUT_LAYOUT_EXCLUSIVE_SHELL: u32 = 1 << 1;
@@ -98,13 +101,25 @@ pub enum WindowCommand {
     Configure {
         window_id: u64,
         geometry: WindowGeometry,
+        exact: bool,
     },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum KeyboardKeyPhase {
+    Tap,
+    Pressed,
+    Released,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum KeyboardCommand {
     Text(String),
-    Key { key: String, ctrl: bool },
+    Key {
+        key: String,
+        ctrl: bool,
+        phase: KeyboardKeyPhase,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -278,6 +293,7 @@ pub struct InputLayoutSnapshot {
     pub epoch: u64,
     pub flags: u32,
     pub shell_regions: Vec<InputRect>,
+    pub software_keyboard_regions: Vec<InputRect>,
     pub windows: Vec<InputWindowRegion>,
     pub visible_surface_ids: Vec<u64>,
 }
@@ -702,6 +718,31 @@ impl WireBridge {
         Ok(self.outbound_builder.finished_data())
     }
 
+    pub fn encode_text_input_state(
+        &mut self,
+        active: bool,
+        input_panel_visible: bool,
+        legacy: bool,
+        content_hint: u32,
+        content_purpose: u32,
+    ) -> Result<&[u8], WireError> {
+        if input_panel_visible && !active {
+            return Err(WireError::Payload);
+        }
+        let sequence = self.take_sequence();
+        self.outbound_builder.reset();
+        encode_text_input_state(
+            &mut self.outbound_builder,
+            sequence,
+            active,
+            input_panel_visible,
+            legacy,
+            content_hint,
+            content_purpose,
+        )?;
+        Ok(self.outbound_builder.finished_data())
+    }
+
     pub fn encode_notification_event(
         &mut self,
         event: &NotificationEvent,
@@ -973,6 +1014,7 @@ impl WireBridge {
                         WindowCommand::Configure {
                             window_id,
                             geometry,
+                            exact: request.flags() & 1 != 0,
                         }
                     }
                     _ => unreachable!(),
@@ -1071,6 +1113,9 @@ fn decode_keyboard_command(command: fb::KeyboardCommand<'_>) -> Result<KeyboardC
 
     match command.kind() {
         fb::KeyboardCommandKind::Text => {
+            if command.flags() != 0 {
+                return Err(WireError::Flags);
+            }
             let text = command.text();
             validate_required_string(text)?;
             Ok(KeyboardCommand::Text(
@@ -1080,9 +1125,20 @@ fn decode_keyboard_command(command: fb::KeyboardCommand<'_>) -> Result<KeyboardC
         fb::KeyboardCommandKind::Key => {
             let key = command.key();
             validate_required_string(key)?;
+            let phase = match command.flags() & KEYBOARD_PHASE_MASK {
+                0 => KeyboardKeyPhase::Tap,
+                KEYBOARD_PRESSED => KeyboardKeyPhase::Pressed,
+                KEYBOARD_RELEASED => KeyboardKeyPhase::Released,
+                _ => return Err(WireError::Flags),
+            };
+            let ctrl = command.flags() & KEYBOARD_CTRL != 0;
+            if ctrl && phase != KeyboardKeyPhase::Tap {
+                return Err(WireError::Flags);
+            }
             Ok(KeyboardCommand::Key {
                 key: key.expect("validated keyboard key").to_owned(),
-                ctrl: command.flags() & KEYBOARD_CTRL != 0,
+                ctrl,
+                phase,
             })
         }
         _ => Err(WireError::Enumeration),
@@ -1274,9 +1330,11 @@ fn decode_input_layout(
     identities: &mut HashSet<u64>,
 ) -> Result<(), WireError> {
     let shell_regions = layout.shell_regions();
+    let software_keyboard_regions = layout.software_keyboard_regions();
     let windows = layout.windows();
     let visible_surface_ids = layout.visible_surface_ids();
     if shell_regions.is_some_and(|regions| regions.len() > MAX_REGIONS)
+        || software_keyboard_regions.is_some_and(|regions| regions.len() > MAX_REGIONS)
         || windows.is_some_and(|regions| regions.len() > MAX_REGIONS)
         || visible_surface_ids.is_some_and(|ids| ids.len() > MAX_SURFACES)
     {
@@ -1286,6 +1344,7 @@ fn decode_input_layout(
     decoded.epoch = layout.epoch();
     decoded.flags = layout.flags();
     decoded.shell_regions.clear();
+    decoded.software_keyboard_regions.clear();
     decoded.windows.clear();
     decoded.visible_surface_ids.clear();
     identities.clear();
@@ -1295,6 +1354,15 @@ fn decode_input_layout(
         for index in 0..regions.len() {
             decoded
                 .shell_regions
+                .push(decode_input_rect(regions.get(index))?);
+        }
+    }
+
+    if let Some(regions) = software_keyboard_regions {
+        decoded.software_keyboard_regions.reserve(regions.len());
+        for index in 0..regions.len() {
+            decoded
+                .software_keyboard_regions
                 .push(decode_input_rect(regions.get(index))?);
         }
     }
@@ -1793,6 +1861,39 @@ fn encode_cursor_position(
     validate_finished_message(builder)
 }
 
+fn encode_text_input_state(
+    builder: &mut FlatBufferBuilder<'_>,
+    sequence: u64,
+    active: bool,
+    input_panel_visible: bool,
+    legacy: bool,
+    content_hint: u32,
+    content_purpose: u32,
+) -> Result<(), WireError> {
+    let state = fb::TextInputState::create(
+        builder,
+        &fb::TextInputStateArgs {
+            active,
+            input_panel_visible,
+            legacy,
+            content_hint,
+            content_purpose,
+        },
+    );
+    let envelope = fb::Envelope::create(
+        builder,
+        &fb::EnvelopeArgs {
+            protocol_version: PROTOCOL_VERSION,
+            sequence,
+            request_id: 0,
+            payload_type: fb::Payload::TextInputState,
+            payload: Some(state.as_union_value()),
+        },
+    );
+    fb::finish_envelope_buffer(builder, envelope);
+    validate_finished_message(builder)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn encode_settings_response(
     builder: &mut FlatBufferBuilder<'_>,
@@ -2228,6 +2329,32 @@ mod tests {
         builder.finished_data().to_vec()
     }
 
+    fn exact_window_request(window_id: u64, geometry: fb::WireRect) -> Vec<u8> {
+        let mut builder = FlatBufferBuilder::new();
+        let request = fb::WindowRequest::create(
+            &mut builder,
+            &fb::WindowRequestArgs {
+                kind: fb::WindowRequestKind::ConfigureWindow,
+                window_id,
+                geometry: Some(&geometry),
+                flags: 1,
+                ..Default::default()
+            },
+        );
+        let envelope = fb::Envelope::create(
+            &mut builder,
+            &fb::EnvelopeArgs {
+                protocol_version: PROTOCOL_VERSION,
+                sequence: 4,
+                request_id: 0,
+                payload_type: fb::Payload::WindowRequest,
+                payload: Some(request.as_union_value()),
+            },
+        );
+        fb::finish_envelope_buffer(&mut builder, envelope);
+        builder.finished_data().to_vec()
+    }
+
     fn create_local_window_request(
         request_id: u64,
         app_id: &str,
@@ -2318,6 +2445,7 @@ mod tests {
                 shell_regions: Some(shell_regions),
                 windows: Some(windows),
                 visible_surface_ids: Some(visible_surface_ids),
+                software_keyboard_regions: None,
             },
         );
         let envelope = fb::Envelope::create(
@@ -2835,9 +2963,24 @@ mod tests {
                         width: 1120.0,
                         height: 700.0,
                     },
+                    exact: false,
                 },
             ]
         );
+        bridge
+            .handle(&exact_window_request(
+                43,
+                fb::WireRect::new(0.0, 48.0, 632.0, 1342.0),
+            ))
+            .unwrap();
+        assert!(matches!(
+            bridge.drain_window_commands().next(),
+            Some(WindowCommand::Configure {
+                window_id: 43,
+                exact: true,
+                ..
+            })
+        ));
         assert!(matches!(
             bridge.handle(&window_request(
                 fb::WindowRequestKind::ConfigureWindow,
@@ -2995,9 +3138,55 @@ mod tests {
                 KeyboardCommand::Key {
                     key: "Backspace".into(),
                     ctrl: true,
+                    phase: KeyboardKeyPhase::Tap,
                 },
             ]
         );
+        bridge
+            .handle(&keyboard_command(
+                fb::KeyboardCommandKind::Key,
+                None,
+                Some("BackSpace"),
+                KEYBOARD_PRESSED,
+            ))
+            .unwrap();
+        bridge
+            .handle(&keyboard_command(
+                fb::KeyboardCommandKind::Key,
+                None,
+                Some("BackSpace"),
+                KEYBOARD_RELEASED,
+            ))
+            .unwrap();
+        assert_eq!(
+            bridge.drain_keyboard_commands().collect::<Vec<_>>(),
+            vec![
+                KeyboardCommand::Key {
+                    key: "BackSpace".into(),
+                    ctrl: false,
+                    phase: KeyboardKeyPhase::Pressed,
+                },
+                KeyboardCommand::Key {
+                    key: "BackSpace".into(),
+                    ctrl: false,
+                    phase: KeyboardKeyPhase::Released,
+                },
+            ]
+        );
+        for invalid_flags in [
+            KEYBOARD_PRESSED | KEYBOARD_RELEASED,
+            KEYBOARD_CTRL | KEYBOARD_PRESSED,
+        ] {
+            assert!(matches!(
+                bridge.handle(&keyboard_command(
+                    fb::KeyboardCommandKind::Key,
+                    None,
+                    Some("BackSpace"),
+                    invalid_flags,
+                )),
+                Err(WireError::Flags)
+            ));
+        }
         assert!(matches!(
             bridge.handle(&keyboard_command(
                 fb::KeyboardCommandKind(255),
@@ -3107,6 +3296,34 @@ mod tests {
                 Err(WireError::Payload | WireError::FlatBuffer(_))
             ));
         }
+    }
+
+    #[test]
+    fn rapid_keyboard_commands_remain_individual_and_ordered() {
+        let mut bridge = bridge();
+        let expected = "thequickbrownfox";
+
+        for character in expected.chars() {
+            let text = character.to_string();
+            bridge
+                .handle(&keyboard_command(
+                    fb::KeyboardCommandKind::Text,
+                    Some(&text),
+                    None,
+                    0,
+                ))
+                .unwrap();
+        }
+
+        let delivered = bridge
+            .drain_keyboard_commands()
+            .map(|command| match command {
+                KeyboardCommand::Text(text) => text,
+                KeyboardCommand::Key { .. } => panic!("text burst produced a named key"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(delivered.len(), expected.chars().count());
+        assert_eq!(delivered.concat(), expected);
     }
 
     #[test]
@@ -3552,6 +3769,31 @@ mod tests {
         assert_eq!(envelope.payload_type(), fb::Payload::CursorPosition);
         assert_eq!(cursor.x(), 713.25);
         assert_eq!(cursor.y(), 419.75);
+    }
+
+    #[test]
+    fn encodes_native_text_input_state_and_rejects_impossible_visibility() {
+        let mut bridge = bridge();
+
+        assert!(matches!(
+            bridge.encode_text_input_state(false, true, false, 0, 0),
+            Err(WireError::Payload)
+        ));
+
+        let bytes = bridge
+            .encode_text_input_state(true, true, true, 3, 6)
+            .unwrap();
+        let envelope = fb::root_as_envelope(bytes).unwrap();
+        let state = envelope.payload_as_text_input_state().unwrap();
+        assert_eq!(envelope.protocol_version(), PROTOCOL_VERSION);
+        assert_eq!(envelope.sequence(), 1);
+        assert_eq!(envelope.request_id(), 0);
+        assert_eq!(envelope.payload_type(), fb::Payload::TextInputState);
+        assert!(state.active());
+        assert!(state.input_panel_visible());
+        assert!(state.legacy());
+        assert_eq!(state.content_hint(), 3);
+        assert_eq!(state.content_purpose(), 6);
     }
 
     #[test]

@@ -68,6 +68,29 @@ class ShellPowerStatus {
   final int? thermalPmicDeciC;
   final int? thermalExp2DeciC;
 
+  /// Replaces only the generic battery fields with the authoritative standard
+  /// Linux power-supply reading. Device-specific protocol and thermal details
+  /// remain supplementary metadata and cannot override the real capacity.
+  ShellPowerStatus withStandardBattery(BatteryStatus battery) {
+    if (battery.capacity == null) {
+      return this;
+    }
+    return ShellPowerStatus(
+      state: battery.charging ? 'charging' : 'discharging',
+      capacity: battery.capacity,
+      fastCharge: fastCharge,
+      voocCharging: voocCharging,
+      ppsCharging: ppsCharging,
+      pdCharging: pdCharging,
+      ppsPower: ppsPower,
+      usbPower: usbPower,
+      thermalCpuDeciC: thermalCpuDeciC,
+      thermalSvoocDeciC: thermalSvoocDeciC,
+      thermalPmicDeciC: thermalPmicDeciC,
+      thermalExp2DeciC: thermalExp2DeciC,
+    );
+  }
+
   bool get charging {
     return state == 'charging' ||
         fastCharge ||

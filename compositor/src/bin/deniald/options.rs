@@ -122,6 +122,7 @@ pub(super) struct Options {
     pub(super) flutter_bundle: Option<PathBuf>,
     #[cfg(feature = "flutter")]
     pub(super) flutter_renderer: RendererBackend,
+    pub(super) flutter_offscreen_blit: bool,
     pub(super) flutter_debug_bundle: Option<PathBuf>,
     pub(super) flutter_ui_workspace: Option<PathBuf>,
     pub(super) start_locked: bool,
@@ -159,6 +160,7 @@ impl Options {
             flutter_bundle: None,
             #[cfg(feature = "flutter")]
             flutter_renderer: RendererBackend::default(),
+            flutter_offscreen_blit: false,
             flutter_debug_bundle: None,
             flutter_ui_workspace: None,
             start_locked: false,
@@ -191,6 +193,7 @@ impl Options {
         let mut flutter_bundle = None;
         #[cfg(feature = "flutter")]
         let mut flutter_renderer = None;
+        let mut flutter_offscreen_blit = false;
         let mut flutter_debug_bundle = None;
         let mut flutter_ui_workspace = None;
         let mut start_locked = false;
@@ -287,6 +290,7 @@ impl Options {
                             .parse()?,
                     );
                 }
+                "--flutter-offscreen-blit" => flutter_offscreen_blit = true,
                 "--flutter-debug-bundle" => {
                     flutter_debug_bundle = Some(PathBuf::from(
                         args.next().ok_or("--flutter-debug-bundle needs a path")?,
@@ -326,6 +330,7 @@ impl Options {
                          [--wayland] \
                          [--flutter-bundle PATH] \
                          [--flutter-renderer skia|impeller] \
+                         [--flutter-offscreen-blit] \
                          [--flutter-debug-bundle PATH] \
                          [--flutter-ui-workspace PATH] \
                          [--start-locked] \
@@ -429,6 +434,9 @@ impl Options {
         if flutter_renderer.is_some() && flutter_bundle.is_none() {
             return Err("--flutter-renderer requires --flutter-bundle".into());
         }
+        if flutter_offscreen_blit && flutter_bundle.is_none() {
+            return Err("--flutter-offscreen-blit requires --flutter-bundle".into());
+        }
         if (flutter_debug_bundle.is_some() || flutter_ui_workspace.is_some())
             && flutter_bundle.is_none()
         {
@@ -462,6 +470,7 @@ impl Options {
             flutter_bundle,
             #[cfg(feature = "flutter")]
             flutter_renderer: flutter_renderer.unwrap_or_default(),
+            flutter_offscreen_blit,
             flutter_debug_bundle,
             flutter_ui_workspace,
             start_locked,
@@ -1399,6 +1408,27 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "--flutter-debug-bundle and --flutter-ui-workspace require --flutter-bundle"
+        );
+    }
+
+    #[test]
+    fn flutter_offscreen_blit_is_explicit_and_requires_flutter() {
+        let direct = options(&["--wayland", "--flutter-bundle", "/tmp/denial-bundle"]);
+        let blit = options(&[
+            "--wayland",
+            "--flutter-bundle",
+            "/tmp/denial-bundle",
+            "--flutter-offscreen-blit",
+        ]);
+        let error =
+            Options::parse_from(["--flutter-offscreen-blit"].into_iter().map(str::to_owned))
+                .expect_err("offscreen blit without Flutter must be rejected");
+
+        assert!(!direct.flutter_offscreen_blit);
+        assert!(blit.flutter_offscreen_blit);
+        assert_eq!(
+            error.to_string(),
+            "--flutter-offscreen-blit requires --flutter-bundle"
         );
     }
 

@@ -1,8 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
-import 'package:flutter/material.dart'
-    show CircularProgressIndicator, Icons, Tooltip;
+import 'package:flutter/material.dart' show CircularProgressIndicator, Icons;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -21,6 +20,7 @@ import '../../state/system_status.dart';
 import '../../theme/motion.dart';
 import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
+import '../edge_panel_layer.dart';
 import '../shell_wallpaper.dart';
 import '../shade/status_glyphs.dart';
 
@@ -221,7 +221,6 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
     debugLabel: 'lock-authentication-response',
   );
   bool _authenticationVisible = false;
-  bool _oskVisible = false;
   int? _focusedPromptSequence;
 
   @override
@@ -258,7 +257,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
       }
     }
     final now = ref.watch(clockProvider).value ?? DateTime.now();
-    final power = ref.watch(powerStatusProvider);
+    final power = ref.watch(effectivePowerStatusProvider);
     final cpu = widget.desktop && lockSettings.showSystemStatus
         ? ref.watch(cpuUsageProvider)
         : LoadSeries.empty;
@@ -355,12 +354,6 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                         state: authentication,
                         controller: _responseController,
                         focusNode: _responseFocus,
-                        oskVisible: _oskVisible,
-                        onToggleOsk: () {
-                          setState(() => _oskVisible = !_oskVisible);
-                        },
-                        onInsertText: _insertText,
-                        onBackspace: _backspace,
                         onSubmit: _submitResponse,
                         onBegin: ref
                             .read(authenticationProvider.notifier)
@@ -465,7 +458,6 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
     }
     final response = _responseController.text;
     _responseController.clear();
-    setState(() => _oskVisible = false);
     ref.read(authenticationProvider.notifier).respond(response);
   }
 
@@ -477,47 +469,8 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
       ref.read(authenticationProvider.notifier).cancel();
     }
     if (mounted) {
-      setState(() {
-        _authenticationVisible = false;
-        _oskVisible = false;
-      });
+      setState(() => _authenticationVisible = false);
     }
-  }
-
-  void _insertText(String text) {
-    final value = _responseController.value;
-    final selection = value.selection.isValid
-        ? value.selection
-        : TextSelection.collapsed(offset: value.text.length);
-    final start = selection.start.clamp(0, value.text.length);
-    final end = selection.end.clamp(0, value.text.length);
-    final next = value.text.replaceRange(start, end, text);
-    _responseController.value = value.copyWith(
-      text: next,
-      selection: TextSelection.collapsed(offset: start + text.length),
-      composing: TextRange.empty,
-    );
-  }
-
-  void _backspace() {
-    final value = _responseController.value;
-    if (value.text.isEmpty) {
-      return;
-    }
-    final selection = value.selection.isValid
-        ? value.selection
-        : TextSelection.collapsed(offset: value.text.length);
-    var start = selection.start.clamp(0, value.text.length);
-    final end = selection.end.clamp(0, value.text.length);
-    if (start == end && start > 0) {
-      start -= 1;
-    }
-    final next = value.text.replaceRange(start, end, '');
-    _responseController.value = value.copyWith(
-      text: next,
-      selection: TextSelection.collapsed(offset: start),
-      composing: TextRange.empty,
-    );
   }
 
   void _cancelGesture() {
@@ -696,10 +649,6 @@ class _LockAuthenticationPanel extends StatelessWidget {
     required this.state,
     required this.controller,
     required this.focusNode,
-    required this.oskVisible,
-    required this.onToggleOsk,
-    required this.onInsertText,
-    required this.onBackspace,
     required this.onSubmit,
     required this.onBegin,
     required this.onCancel,
@@ -709,10 +658,6 @@ class _LockAuthenticationPanel extends StatelessWidget {
   final AuthenticationState state;
   final TextEditingController controller;
   final FocusNode focusNode;
-  final bool oskVisible;
-  final VoidCallback onToggleOsk;
-  final ValueChanged<String> onInsertText;
-  final VoidCallback onBackspace;
   final VoidCallback onSubmit;
   final VoidCallback onBegin;
   final VoidCallback onCancel;
@@ -739,6 +684,17 @@ class _LockAuthenticationPanel extends StatelessWidget {
     final theme = ShellTheme.of(context);
     final accent = theme.accentPalette;
     final size = MediaQuery.sizeOf(context);
+
+    if (!desktop) {
+      return _MobileLockAuthenticationPanel(
+        state: state,
+        controller: controller,
+        focusNode: focusNode,
+        onSubmit: onSubmit,
+        onBegin: onBegin,
+        onCancel: onCancel,
+      );
+    }
 
     return Positioned.fill(
       child: SafeArea(
@@ -900,57 +856,30 @@ class _LockAuthenticationPanel extends StatelessWidget {
                                 horizontal: 14,
                                 vertical: 4,
                               ),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: EditableText(
-                                      controller: controller,
-                                      focusNode: focusNode,
-                                      style: ShellText.base.copyWith(
-                                        fontSize: 16,
-                                        letterSpacing: prompt.obscure ? 2.5 : 0,
-                                      ),
-                                      cursorColor: accent.primary,
-                                      backgroundCursorColor:
-                                          ShellColors.textTertiary,
-                                      selectionColor: accent.selection,
-                                      obscureText: prompt.obscure,
-                                      obscuringCharacter: '•',
-                                      autocorrect: false,
-                                      enableSuggestions: false,
-                                      enableInteractiveSelection: false,
-                                      keyboardType:
-                                          TextInputType.visiblePassword,
-                                      textInputAction: TextInputAction.done,
-                                      inputFormatters: [
-                                        LengthLimitingTextInputFormatter(1024),
-                                      ],
-                                      onSubmitted: (_) => onSubmit(),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  _LockIconButton(
-                                    label: oskVisible
-                                        ? l10n.lockHideOnScreenKeyboard
-                                        : l10n.lockShowOnScreenKeyboard,
-                                    icon: oskVisible
-                                        ? Icons.keyboard_hide_rounded
-                                        : Icons.keyboard_rounded,
-                                    active: oskVisible,
-                                    onPressed: onToggleOsk,
-                                  ),
+                              child: EditableText(
+                                controller: controller,
+                                focusNode: focusNode,
+                                style: ShellText.base.copyWith(
+                                  fontSize: 16,
+                                  letterSpacing: prompt.obscure ? 2.5 : 0,
+                                ),
+                                cursorColor: accent.primary,
+                                backgroundCursorColor: ShellColors.textTertiary,
+                                selectionColor: accent.selection,
+                                obscureText: prompt.obscure,
+                                obscuringCharacter: '•',
+                                autocorrect: false,
+                                enableSuggestions: false,
+                                enableInteractiveSelection: false,
+                                keyboardType: TextInputType.visiblePassword,
+                                textInputAction: TextInputAction.done,
+                                inputFormatters: [
+                                  LengthLimitingTextInputFormatter(1024),
                                 ],
+                                onSubmitted: (_) => onSubmit(),
                               ),
                             ),
                           ),
-                        ),
-                      ],
-                      if (oskVisible && canRespond) ...[
-                        const SizedBox(height: 12),
-                        _LockOnScreenKeyboard(
-                          onText: onInsertText,
-                          onBackspace: onBackspace,
-                          onSubmit: onSubmit,
                         ),
                       ],
                       const SizedBox(height: 15),
@@ -984,6 +913,369 @@ class _LockAuthenticationPanel extends StatelessWidget {
                     ],
                   ),
                 ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileLockAuthenticationPanel extends StatelessWidget {
+  const _MobileLockAuthenticationPanel({
+    required this.state,
+    required this.controller,
+    required this.focusNode,
+    required this.onSubmit,
+    required this.onBegin,
+    required this.onCancel,
+  });
+
+  final AuthenticationState state;
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final VoidCallback onSubmit;
+  final VoidCallback onBegin;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final prompt = state.prompt;
+    final error =
+        state.resultIsError || prompt?.style == AuthenticationPromptStyle.error;
+    final canRespond =
+        state.available && state.busy && (prompt?.requiresResponse ?? false);
+    final canBegin =
+        state.available && state.locked && !state.busy && !state.rateLimited;
+    final promptLabel = prompt?.message.trim();
+    final message =
+        state.resultMessage ??
+        state.statusMessage ??
+        (error ? promptLabel : null) ??
+        (!canRespond && state.busy ? l10n.lockWaitingForAuthentication : null);
+    final cooldownSeconds = (state.cooldown.inMilliseconds / 1000).ceil().clamp(
+      1,
+      30,
+    );
+    final accent = ShellTheme.of(context).accentPalette;
+    final size = MediaQuery.sizeOf(context);
+
+    return Positioned.fill(
+      child: MobileKeyboardViewport(
+        child: SafeArea(
+          minimum: const EdgeInsets.fromLTRB(18, 12, 18, 22),
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: 480,
+                maxHeight: math.max(210.0, size.height * 0.58),
+              ),
+              child: DecoratedBox(
+                key: const ValueKey<String>('mobile-lock-authentication-panel'),
+                decoration: BoxDecoration(
+                  color: ShellColors.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: ShellColors.hairline),
+                ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                  child: FocusTraversalGroup(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                l10n.lockUnlockDenial,
+                                style: ShellText.base.copyWith(
+                                  fontSize: 23,
+                                  height: 1.1,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: -0.35,
+                                ),
+                              ),
+                            ),
+                            if (state.busy && !canRespond) ...[
+                              SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: accent.primary,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                            ],
+                            _MobileLockCancelButton(
+                              label: l10n.commonCancel,
+                              onPressed: onCancel,
+                            ),
+                          ],
+                        ),
+                        if (!state.available) ...[
+                          const SizedBox(height: 7),
+                          Text(
+                            l10n.lockAuthenticationUnavailable,
+                            style: ShellText.base.copyWith(
+                              color: ShellColors.textTertiary,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                        if (message != null && message.isNotEmpty) ...[
+                          const SizedBox(height: 13),
+                          Semantics(
+                            liveRegion: true,
+                            label: message,
+                            child: Text(
+                              message,
+                              style: ShellText.base.copyWith(
+                                color: error
+                                    ? ShellColors.performanceBad
+                                    : ShellColors.textSecondary,
+                                fontSize: 13,
+                                height: 1.3,
+                                fontWeight: error
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (state.rateLimited) ...[
+                          const SizedBox(height: 10),
+                          Semantics(
+                            liveRegion: true,
+                            child: Text(
+                              l10n.lockRetryInSeconds(cooldownSeconds),
+                              style: ShellText.base.copyWith(
+                                color: ShellColors.performanceWarning,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (canRespond) ...[
+                          const SizedBox(height: 16),
+                          Text(
+                            (promptLabel == null ||
+                                    promptLabel.isEmpty ||
+                                    error)
+                                ? l10n.lockAuthenticationResponse
+                                : promptLabel,
+                            style: ShellText.base.copyWith(
+                              color: ShellColors.textSecondary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 7),
+                          Semantics(
+                            label: prompt!.obscure
+                                ? l10n.lockPasswordObscured
+                                : l10n.lockAuthenticationResponse,
+                            textField: true,
+                            obscured: prompt.obscure,
+                            child: TextFieldTapRegion(
+                              child: AnimatedBuilder(
+                                animation: focusNode,
+                                builder: (context, child) => DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: ShellColors.background.withValues(
+                                      alpha: 0.72,
+                                    ),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: focusNode.hasFocus
+                                          ? accent.primary
+                                          : ShellColors.hairline,
+                                    ),
+                                  ),
+                                  child: child,
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    15,
+                                    5,
+                                    6,
+                                    5,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: EditableText(
+                                          key: const ValueKey<String>(
+                                            'lock-authentication-field',
+                                          ),
+                                          controller: controller,
+                                          focusNode: focusNode,
+                                          style: ShellText.base.copyWith(
+                                            fontSize: 17,
+                                            letterSpacing: prompt.obscure
+                                                ? 2.2
+                                                : 0,
+                                          ),
+                                          cursorColor: accent.primary,
+                                          backgroundCursorColor:
+                                              ShellColors.textTertiary,
+                                          selectionColor: accent.selection,
+                                          obscureText: prompt.obscure,
+                                          obscuringCharacter: '•',
+                                          autocorrect: false,
+                                          enableSuggestions: false,
+                                          enableInteractiveSelection: false,
+                                          keyboardType:
+                                              TextInputType.visiblePassword,
+                                          textInputAction: TextInputAction.done,
+                                          inputFormatters: [
+                                            LengthLimitingTextInputFormatter(
+                                              1024,
+                                            ),
+                                          ],
+                                          onSubmitted: (_) => onSubmit(),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      _MobileLockSubmitButton(
+                                        label: l10n.lockUnlock,
+                                        onPressed: onSubmit,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ] else ...[
+                          const SizedBox(height: 16),
+                          _MobileLockPrimaryButton(
+                            label: state.busy
+                                ? l10n.lockAuthenticating
+                                : state.rateLimited
+                                ? l10n.lockPleaseWait
+                                : l10n.lockTryAgain,
+                            enabled: canBegin,
+                            onPressed: onBegin,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileLockCancelButton extends StatelessWidget {
+  const _MobileLockCancelButton({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 8),
+          child: Text(
+            label,
+            style: ShellText.base.copyWith(
+              color: ShellColors.textSecondary,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileLockSubmitButton extends StatelessWidget {
+  const _MobileLockSubmitButton({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accentPalette;
+    return Semantics(
+      button: true,
+      label: label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onPressed,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: accent.primary,
+            borderRadius: BorderRadius.circular(11),
+          ),
+          child: SizedBox(
+            width: 42,
+            height: 42,
+            child: Icon(
+              Icons.arrow_forward_rounded,
+              size: 19,
+              color: accent.onPrimary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileLockPrimaryButton extends StatelessWidget {
+  const _MobileLockPrimaryButton({
+    required this.label,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final String label;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accentPalette;
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: enabled ? onPressed : null,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: enabled ? accent.primary : accent.subtle,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: ShellText.base.copyWith(
+                color: enabled ? accent.onPrimary : ShellColors.textTertiary,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
@@ -1088,276 +1380,6 @@ class _LockActionButtonState extends State<_LockActionButton> {
         ),
       ),
     );
-  }
-}
-
-class _LockIconButton extends StatelessWidget {
-  const _LockIconButton({
-    required this.label,
-    required this.icon,
-    required this.onPressed,
-    required this.active,
-  });
-
-  final String label;
-  final IconData icon;
-  final VoidCallback onPressed;
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = ShellTheme.of(context).accentPalette;
-    return Semantics(
-      button: true,
-      label: label,
-      child: Tooltip(
-        message: label,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onPressed,
-          child: FocusableActionDetector(
-            mouseCursor: SystemMouseCursors.click,
-            shortcuts: const <ShortcutActivator, Intent>{
-              SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-              SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-            },
-            actions: <Type, Action<Intent>>{
-              ActivateIntent: CallbackAction<ActivateIntent>(
-                onInvoke: (_) {
-                  onPressed();
-                  return null;
-                },
-              ),
-            },
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: active
-                    ? accent.subtle
-                    : ShellColors.surfaceContainerHigh,
-                shape: BoxShape.circle,
-                border: Border.all(color: ShellColors.hairlineSoft),
-              ),
-              child: SizedBox(
-                width: 38,
-                height: 38,
-                child: Icon(
-                  icon,
-                  size: 19,
-                  color: active ? accent.primary : ShellColors.textSecondary,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LockOnScreenKeyboard extends StatefulWidget {
-  const _LockOnScreenKeyboard({
-    required this.onText,
-    required this.onBackspace,
-    required this.onSubmit,
-  });
-
-  final ValueChanged<String> onText;
-  final VoidCallback onBackspace;
-  final VoidCallback onSubmit;
-
-  @override
-  State<_LockOnScreenKeyboard> createState() => _LockOnScreenKeyboardState();
-}
-
-class _LockOnScreenKeyboardState extends State<_LockOnScreenKeyboard> {
-  bool _shift = false;
-  bool _symbols = false;
-
-  static const List<List<String>> _letters = <List<String>>[
-    <String>['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
-    <String>['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
-    <String>['z', 'x', 'c', 'v', 'b', 'n', 'm'],
-  ];
-  static const List<List<String>> _symbolKeys = <List<String>>[
-    <String>['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-    <String>['!', '@', '#', r'$', '%', '^', '&', '*', '(', ')'],
-    <String>['-', '_', '=', '+', '[', ']', '{', '}', '?'],
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final rows = _symbols ? _symbolKeys : _letters;
-    final l10n = context.l10n;
-    return Semantics(
-      container: true,
-      label: l10n.lockOnScreenKeyboard,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: const Color(0x66101318),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: ShellColors.hairlineSoft),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(7),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (final row in rows) ...[
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    for (final key in row)
-                      Expanded(
-                        child: _LockKeyboardKey(
-                          label: _shift && !_symbols ? key.toUpperCase() : key,
-                          onPressed: () => widget.onText(
-                            _shift && !_symbols ? key.toUpperCase() : key,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-              ],
-              Row(
-                children: [
-                  _LockKeyboardKey(
-                    label: _symbols
-                        ? l10n.lockKeyboardLetters
-                        : l10n.lockKeyboardSymbols,
-                    wide: true,
-                    onPressed: () => setState(() => _symbols = !_symbols),
-                  ),
-                  const SizedBox(width: 4),
-                  _LockKeyboardKey(
-                    label: l10n.lockKeyboardShift,
-                    icon: Icons.arrow_upward_rounded,
-                    active: _shift,
-                    onPressed: () => setState(() => _shift = !_shift),
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: _LockKeyboardKey(
-                      label: l10n.lockKeyboardSpace,
-                      onPressed: () => widget.onText(' '),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  _LockKeyboardKey(
-                    label: l10n.lockKeyboardBackspace,
-                    icon: Icons.backspace_outlined,
-                    onPressed: widget.onBackspace,
-                  ),
-                  const SizedBox(width: 4),
-                  _LockKeyboardKey(
-                    label: l10n.lockUnlock,
-                    icon: Icons.keyboard_return_rounded,
-                    active: true,
-                    onPressed: widget.onSubmit,
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LockKeyboardKey extends StatefulWidget {
-  const _LockKeyboardKey({
-    required this.label,
-    required this.onPressed,
-    this.icon,
-    this.active = false,
-    this.wide = false,
-  });
-
-  final String label;
-  final VoidCallback onPressed;
-  final IconData? icon;
-  final bool active;
-  final bool wide;
-
-  @override
-  State<_LockKeyboardKey> createState() => _LockKeyboardKeyState();
-}
-
-class _LockKeyboardKeyState extends State<_LockKeyboardKey> {
-  bool _highlighted = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = ShellTheme.of(context).accentPalette;
-    final child = Semantics(
-      button: true,
-      label: widget.label,
-      child: Tooltip(
-        message: widget.label,
-        child: FocusableActionDetector(
-          mouseCursor: SystemMouseCursors.click,
-          onShowFocusHighlight: (value) {
-            setState(() => _highlighted = value);
-          },
-          onShowHoverHighlight: (value) {
-            setState(() => _highlighted = value);
-          },
-          shortcuts: const <ShortcutActivator, Intent>{
-            SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-            SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-          },
-          actions: <Type, Action<Intent>>{
-            ActivateIntent: CallbackAction<ActivateIntent>(
-              onInvoke: (_) {
-                widget.onPressed();
-                return null;
-              },
-            ),
-          },
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: widget.onPressed,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: widget.active
-                    ? accent.subtle
-                    : _highlighted
-                    ? ShellColors.surfaceContainerHighest
-                    : ShellColors.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(9),
-                border: Border.all(
-                  color: _highlighted
-                      ? accent.primary
-                      : ShellColors.hairlineSoft,
-                ),
-              ),
-              child: SizedBox(
-                height: 34,
-                child: Center(
-                  child: widget.icon == null
-                      ? Text(
-                          widget.label,
-                          style: ShellText.base.copyWith(
-                            fontSize: widget.label.length == 1 ? 14 : 10,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        )
-                      : Icon(
-                          widget.icon,
-                          size: 16,
-                          color: widget.active
-                              ? accent.primary
-                              : ShellColors.textSecondary,
-                        ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    return SizedBox(width: widget.wide ? 52 : 38, child: child);
   }
 }
 

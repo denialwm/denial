@@ -37,8 +37,12 @@ const int _inputWindowVisible = 1 << 0;
 const int _inputWindowHitTestDisabled = 1 << 1;
 const int _inputWindowGeometryLocked = 1 << 2;
 const int _keyboardCtrl = 1 << 0;
+const int _keyboardPressed = 1 << 1;
+const int _keyboardReleased = 1 << 2;
 const int _placementPacketBytes = 80;
 const int _dragIconPacketBytes = 128;
+
+enum DenialKeyboardKeyPhase { tap, pressed, released }
 
 bool isDenialPlacementPacket(ByteData? data) {
   return data != null &&
@@ -82,6 +86,7 @@ class DenialWireCodec {
 
   Uint8List? encodeInputLayout(InputLayoutSnapshot snapshot) {
     if (snapshot.shellRegions.length > denialWireMaxRegions ||
+        snapshot.softwareKeyboardRegions.length > denialWireMaxRegions ||
         snapshot.windows.length > denialWireMaxRegions ||
         snapshot.visibleSurfaceIds.length > denialWireMaxSurfaces ||
         snapshot.visibleSurfaceIds.any((surfaceId) => surfaceId <= 0)) {
@@ -94,6 +99,14 @@ class DenialWireCodec {
         return null;
       }
       shellRegions.add(_rectBuilder(rect));
+    }
+
+    final softwareKeyboardRegions = <generated.WireRectObjectBuilder>[];
+    for (final rect in snapshot.softwareKeyboardRegions) {
+      if (!_validRect(rect)) {
+        return null;
+      }
+      softwareKeyboardRegions.add(_rectBuilder(rect));
     }
 
     final orderedWindows = _inputWindowsAreOrdered(snapshot.windows)
@@ -150,6 +163,7 @@ class DenialWireCodec {
         shellRegions: shellRegions,
         windows: windows,
         visibleSurfaceIds: snapshot.visibleSurfaceIds,
+        softwareKeyboardRegions: softwareKeyboardRegions,
       ),
     );
   }
@@ -163,6 +177,7 @@ class DenialWireCodec {
     String? title,
     generated.SystemBarSide? systemBarSide,
     List<int>? systemBarMonitorIds,
+    int flags = 0,
   }) {
     return _encodeEnvelope(
       generated.PayloadTypeId.WindowRequest,
@@ -174,6 +189,7 @@ class DenialWireCodec {
         title: title,
         systemBarSide: systemBarSide,
         systemBarMonitorIds: systemBarMonitorIds,
+        flags: flags,
       ),
       requestId: requestId,
     );
@@ -245,13 +261,22 @@ class DenialWireCodec {
     );
   }
 
-  Uint8List encodeKeyboardKey(String key, {bool ctrl = false}) {
+  Uint8List encodeKeyboardKey(
+    String key, {
+    bool ctrl = false,
+    DenialKeyboardKeyPhase phase = DenialKeyboardKeyPhase.tap,
+  }) {
+    final phaseFlag = switch (phase) {
+      DenialKeyboardKeyPhase.tap => 0,
+      DenialKeyboardKeyPhase.pressed => _keyboardPressed,
+      DenialKeyboardKeyPhase.released => _keyboardReleased,
+    };
     return _encodeEnvelope(
       generated.PayloadTypeId.KeyboardCommand,
       generated.KeyboardCommandObjectBuilder(
         kind: generated.KeyboardCommandKind.Key,
         key: key,
-        flags: ctrl ? _keyboardCtrl : 0,
+        flags: (ctrl ? _keyboardCtrl : 0) | phaseFlag,
       ),
     );
   }
@@ -1061,6 +1086,7 @@ class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
     required this.shellRegions,
     required this.windows,
     required this.visibleSurfaceIds,
+    required this.softwareKeyboardRegions,
   });
 
   final int epoch;
@@ -1068,6 +1094,7 @@ class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
   final List<generated.WireRectObjectBuilder> shellRegions;
   final List<generated.InputWindowRegionObjectBuilder> windows;
   final List<int> visibleSurfaceIds;
+  final List<generated.WireRectObjectBuilder> softwareKeyboardRegions;
 
   @override
   int finish(fb.Builder builder) {
@@ -1077,12 +1104,17 @@ class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
       builder,
       visibleSurfaceIds,
     );
-    builder.startTable(5);
+    final softwareKeyboardRegionsOffset = _writeAlignedStructVector(
+      builder,
+      softwareKeyboardRegions,
+    );
+    builder.startTable(6);
     builder.addUint64(0, epoch);
     builder.addUint32(1, flags);
     builder.addOffset(2, shellRegionsOffset);
     builder.addOffset(3, windowsOffset);
     builder.addOffset(4, visibleSurfaceIdsOffset);
+    builder.addOffset(5, softwareKeyboardRegionsOffset);
     return builder.endTable();
   }
 
@@ -1193,6 +1225,7 @@ bool _nativePayloadType(generated.PayloadTypeId type) {
       type == generated.PayloadTypeId.ShellAction ||
       type == generated.PayloadTypeId.CursorShape ||
       type == generated.PayloadTypeId.CursorPosition ||
+      type == generated.PayloadTypeId.TextInputState ||
       type == generated.PayloadTypeId.DesktopNotificationEvent ||
       type == generated.PayloadTypeId.SettingsResponse;
 }

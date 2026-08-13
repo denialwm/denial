@@ -866,8 +866,12 @@ unsafe extern "C" fn post_task(task: sys::FlutterTask, target_time_nanos: u64, d
 
 unsafe extern "C" fn request_vsync(data: *mut c_void, baton: isize) {
     dispatch(data, (), |state| {
+        // This callback requests future raster work. An idle marker posted
+        // here can overtake that work and cancel its producer reservation.
+        // `make_current` posts the marker from inside the actual raster task,
+        // which orders it after that task without guessing about UI/raster
+        // thread scheduling.
         state.handler.event(EngineEvent::Vsync(baton));
-        queue_raster_sentinel(state, data);
     });
 }
 

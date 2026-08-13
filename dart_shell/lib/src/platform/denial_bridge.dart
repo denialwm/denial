@@ -79,6 +79,22 @@ class DenialBrightnessState {
   final double level;
 }
 
+class DenialTextInputState {
+  const DenialTextInputState({
+    required this.active,
+    required this.inputPanelVisible,
+    required this.legacy,
+    required this.contentHint,
+    required this.contentPurpose,
+  });
+
+  final bool active;
+  final bool inputPanelVisible;
+  final bool legacy;
+  final int contentHint;
+  final int contentPurpose;
+}
+
 class DenialSettingsDocument {
   const DenialSettingsDocument({required this.revision, required this.json});
 
@@ -91,6 +107,7 @@ class DenialBridge {
   static const String _audioChannel = 'denial/audio';
   static const String _brightnessChannel = 'denial/brightness';
   static const String _idlePolicyChannel = 'denial/idle_policy';
+  static const String _displayPowerChannel = 'denial/display_power';
   static const String _systemCommandChannel = 'denial/system_command';
   static const String _windowCloseCompleteChannel =
       'denial/window_close_complete';
@@ -165,6 +182,8 @@ class DenialBridge {
       StreamController<DenialUiDevelopmentState>.broadcast(sync: true);
   final StreamController<DenialKeyboardConfiguration> _keyboardConfigurations =
       StreamController<DenialKeyboardConfiguration>.broadcast(sync: true);
+  final StreamController<DenialTextInputState> _textInputStates =
+      StreamController<DenialTextInputState>.broadcast(sync: true);
   final wire.DenialWireCodec _wireCodec = wire.DenialWireCodec();
   final DenialUiDevelopmentProtocol _uiDevelopmentProtocol =
       DenialUiDevelopmentProtocol();
@@ -189,6 +208,7 @@ class DenialBridge {
       _uiDevelopmentStates.stream;
   Stream<DenialKeyboardConfiguration> get keyboardConfigurations =>
       _keyboardConfigurations.stream;
+  Stream<DenialTextInputState> get textInputStates => _textInputStates.stream;
 
   void start({
     required VoidCallback onWindowsChanged,
@@ -269,6 +289,7 @@ class DenialBridge {
     unawaited(_notificationEvents.close());
     unawaited(_uiDevelopmentStates.close());
     unawaited(_keyboardConfigurations.close());
+    unawaited(_textInputStates.close());
   }
 
   Future<DenialWindowSnapshot> listWindows(List<DenialWindow> fallback) {
@@ -503,7 +524,11 @@ class DenialBridge {
     );
   }
 
-  void configureWindow(DenialWindow window, Rect contentRect) {
+  void configureWindow(
+    DenialWindow window,
+    Rect contentRect, {
+    bool exact = false,
+  }) {
     if (window.windowId <= 0 ||
         contentRect.width < 1.0 ||
         contentRect.height < 1.0) {
@@ -520,6 +545,7 @@ class DenialBridge {
         wire.WindowRequestKind.ConfigureWindow,
         windowId: window.windowId,
         geometry: geometry,
+        flags: exact ? 1 : 0,
       ),
     );
   }
@@ -538,6 +564,32 @@ class DenialBridge {
     }
 
     _sendWire(_wireCodec.encodeKeyboardKey(key, ctrl: ctrl));
+  }
+
+  void pressKeyboardKey(String key) {
+    if (key.isEmpty) {
+      return;
+    }
+
+    _sendWire(
+      _wireCodec.encodeKeyboardKey(
+        key,
+        phase: wire.DenialKeyboardKeyPhase.pressed,
+      ),
+    );
+  }
+
+  void releaseKeyboardKey(String key) {
+    if (key.isEmpty) {
+      return;
+    }
+
+    _sendWire(
+      _wireCodec.encodeKeyboardKey(
+        key,
+        phase: wire.DenialKeyboardKeyPhase.released,
+      ),
+    );
   }
 
   bool requestBrightness({required int monitorId, required String connector}) {
@@ -596,6 +648,15 @@ class DenialBridge {
     final data = ByteData(8)..setUint64(0, milliseconds, Endian.little);
     ServicesBinding.instance.defaultBinaryMessenger
         .send(_idlePolicyChannel, data)
+        ?.catchError((Object _) => null);
+  }
+
+  /// Requests compositor-owned DPMS-off for every currently powered output.
+  /// The next physical input wakes outputs through the native idle policy.
+  void requestDpmsOff() {
+    final data = ByteData(1)..setUint8(0, 1);
+    ServicesBinding.instance.defaultBinaryMessenger
+        .send(_displayPowerChannel, data)
         ?.catchError((Object _) => null);
   }
 
@@ -1042,6 +1103,19 @@ class DenialBridge {
             payload.y.isFinite &&
             !_cursorPositions.isClosed) {
           _cursorPositions.add(Offset(payload.x, payload.y));
+        }
+      } else if (payload is wire.TextInputState) {
+        if ((!payload.inputPanelVisible || payload.active) &&
+            !_textInputStates.isClosed) {
+          _textInputStates.add(
+            DenialTextInputState(
+              active: payload.active,
+              inputPanelVisible: payload.inputPanelVisible,
+              legacy: payload.legacy,
+              contentHint: payload.contentHint,
+              contentPurpose: payload.contentPurpose,
+            ),
+          );
         }
       } else if (payload is wire.DesktopNotificationEvent) {
         final event = _wireCodec.decodeNotificationEvent(payload);

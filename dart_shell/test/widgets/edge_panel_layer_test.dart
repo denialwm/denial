@@ -42,6 +42,8 @@ void main() {
     );
     await tester.pump();
 
+    expect(find.byType(TextFieldTapRegion), findsOneWidget);
+
     final container = ProviderScope.containerOf(
       tester.element(find.byType(MobileSystemKeyboardLayer)),
     );
@@ -63,10 +65,56 @@ void main() {
 
     await gesture.up();
   });
+
+  testWidgets(
+    'system keyboard remains available above the mobile lock screen',
+    (tester) async {
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(420, 840);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            shellControllerProvider.overrideWith(
+              _LockedEdgePanelController.new,
+            ),
+          ],
+          child: const DenialLocalizationScope(
+            locale: Locale('en'),
+            child: ShellTheme(
+              data: ShellThemeData(),
+              child: MediaQuery(
+                data: MediaQueryData(size: Size(420, 840)),
+                child: Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: SizedBox(
+                    width: 420,
+                    height: 840,
+                    child: MobileSystemKeyboardLayer(),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(TextFieldTapRegion), findsOneWidget);
+    },
+  );
 }
 
 class _OpenEdgePanelController extends ShellController {
   @override
   ShellState build() =>
       ShellState.initial(locked: false).copyWith(edgePanelVisible: true);
+}
+
+class _LockedEdgePanelController extends ShellController {
+  @override
+  ShellState build() =>
+      ShellState.initial(locked: true).copyWith(edgePanelVisible: true);
 }

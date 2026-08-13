@@ -1,6 +1,9 @@
 import 'dart:async';
 
+import 'package:denial_dart_shell/src/input/input_layout.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
+import 'package:denial_dart_shell/src/models/denial_window.dart';
+import 'package:denial_dart_shell/src/models/denial_window_snapshot.dart';
 import 'package:denial_dart_shell/src/models/shell_power_status.dart';
 import 'package:denial_dart_shell/src/localization/denial_localizations.dart';
 import 'package:denial_dart_shell/src/platform/authentication_protocol.dart';
@@ -16,6 +19,7 @@ import 'package:denial_dart_shell/src/state/shell_profile.dart';
 import 'package:denial_dart_shell/src/state/system_status.dart';
 import 'package:denial_dart_shell/src/widgets/lock/lock_screen_layer.dart';
 import 'package:denial_dart_shell/src/widgets/shell_wallpaper.dart';
+import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
@@ -89,6 +93,65 @@ void main() {
       state.statusMessage,
     ], isNot(contains('one-shot')));
     expect(state.locked, isTrue);
+  });
+
+  testWidgets('mobile authentication has no private on-screen keyboard', (
+    tester,
+  ) async {
+    final service = _FakeAuthenticationService();
+    final bridge = _LayoutBridge(_singleOutputLayout);
+    addTearDown(() {
+      service.dispose();
+      bridge.dispose();
+    });
+
+    await tester.pumpWidget(
+      _host(service: service, bridge: bridge, profile: ShellProfile.mobile),
+    );
+    service.emit(_state(locked: true));
+    service.emit(_prompt(attemptId: 9, sequence: 4));
+    await tester.pump();
+
+    expect(find.byType(EditableText), findsOneWidget);
+    expect(find.byIcon(Icons.keyboard_rounded), findsNothing);
+  });
+
+  testWidgets('mobile authentication stays above the system keyboard', (
+    tester,
+  ) async {
+    final service = _FakeAuthenticationService();
+    final bridge = _LayoutBridge(_singleOutputLayout);
+    addTearDown(() {
+      service.dispose();
+      bridge.dispose();
+    });
+
+    await tester.pumpWidget(
+      _host(service: service, bridge: bridge, profile: ShellProfile.mobile),
+    );
+    service.emit(_state(locked: true));
+    service.emit(_prompt(attemptId: 10, sequence: 5));
+    await tester.pump();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(LockScreenLayer)),
+    );
+    container.read(shellControllerProvider.notifier).openEdgePanel();
+    await tester.pump();
+
+    final keyboardTop =
+        _singleOutputLayout.logicalSize.height -
+        ShellMetrics.edgePanelHeight(_singleOutputLayout.logicalSize);
+    final panel = find.byKey(
+      const ValueKey<String>('mobile-lock-authentication-panel'),
+    );
+    final editor = find.byKey(
+      const ValueKey<String>('lock-authentication-field'),
+    );
+    expect(panel, findsOneWidget);
+    expect(editor, findsOneWidget);
+    expect(tester.getBottomLeft(panel).dy, lessThanOrEqualTo(keyboardTop));
+    expect(tester.getBottomLeft(editor).dy, lessThan(keyboardTop));
   });
 
   testWidgets(
@@ -252,6 +315,10 @@ class _LayoutBridge extends DenialBridge {
   _LayoutBridge(this.layout);
 
   final DisplayLayout layout;
+
+  @override
+  Future<DenialWindowSnapshot> listWindows(List<DenialWindow> fallback) async =>
+      DenialWindowSnapshot(sequence: 0, windows: fallback);
 
   @override
   Future<DisplayLayout?> getDisplayLayout() async => layout;

@@ -11,7 +11,6 @@ import '../state/display_layout.dart';
 import '../state/shell_controller.dart';
 import 'controllers/home_grid_controller.dart';
 import 'controllers/home_grid_layout.dart';
-import 'launcher_providers.dart';
 import 'models/home_drag_session.dart';
 import 'models/home_grid_item.dart';
 import 'widgets/home_app_page.dart';
@@ -204,10 +203,26 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     }
 
     final shellController = ref.read(shellControllerProvider.notifier);
+    final expectedAppIds = launcher.expectedWindowAppIds(app);
+    if (launcher.usesLegacyTextInput(app)) {
+      shellController.registerLegacyTextInputAppIds(expectedAppIds);
+    }
+    final existingWindow = launcher.findOpenWindow(
+      app,
+      ref.read(shellControllerProvider).openAppWindows,
+    );
+    if (existingWindow != null) {
+      shellController.activateAppFromLauncher(
+        window: existingWindow,
+        appName: app.name,
+        iconPath: app.iconPath,
+      );
+      return;
+    }
     final requestId = shellController.beginAppLaunch(
       appName: app.name,
       iconPath: app.iconPath,
-      expectedAppIds: launcher.expectedWindowAppIds(app),
+      expectedAppIds: expectedAppIds,
     );
     if (requestId == null) {
       return;
@@ -248,6 +263,13 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     final shellState = ref.read(shellControllerProvider);
     for (final window in shellState.windows) {
       if (window.isLocalFlutter && window.appId == app.id) {
+        ref
+            .read(shellControllerProvider.notifier)
+            .activateAppFromLauncher(
+              window: window,
+              appName: title,
+              iconPath: null,
+            );
         launcher.launch(
           app.id,
           availableBounds: availableBounds,
@@ -306,7 +328,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
             _doubleTapDistanceTolerance) {
       _lastBackgroundTapTime = null;
       _lastBackgroundTapPosition = null;
-      _requestScreenOffFromDoubleTap();
+      _requestLockAndScreenOffFromDoubleTap();
       return;
     }
 
@@ -321,16 +343,14 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     _tapStartedOnInteractiveItem = false;
   }
 
-  void _requestScreenOffFromDoubleTap() {
+  void _requestLockAndScreenOffFromDoubleTap() {
     final now = DateTime.now();
     if (now.difference(_lastScreenOffRequest) < const Duration(seconds: 1)) {
       return;
     }
 
     _lastScreenOffRequest = now;
-    unawaited(
-      ref.read(screenPowerServiceProvider).screenOff(reason: 'home-double-tap'),
-    );
+    ref.read(shellControllerProvider.notifier).lockAndBlankDisplays();
   }
 
   bool _pointerInsideHomeItem(Offset globalPosition) {

@@ -1489,10 +1489,10 @@ impl flatbuffers::SimpleToVerifyInSlice for SystemBarSide {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_PAYLOAD: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_PAYLOAD: u8 = 14;
+pub const ENUM_MAX_PAYLOAD: u8 = 15;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_PAYLOAD: [Payload; 15] = [
+pub const ENUM_VALUES_PAYLOAD: [Payload; 16] = [
   Payload::NONE,
   Payload::InputLayout,
   Payload::WindowSnapshot,
@@ -1508,6 +1508,7 @@ pub const ENUM_VALUES_PAYLOAD: [Payload; 15] = [
   Payload::DesktopNotificationCommand,
   Payload::SettingsRequest,
   Payload::SettingsResponse,
+  Payload::TextInputState,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1530,9 +1531,10 @@ impl Payload {
   pub const DesktopNotificationCommand: Self = Self(12);
   pub const SettingsRequest: Self = Self(13);
   pub const SettingsResponse: Self = Self(14);
+  pub const TextInputState: Self = Self(15);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 14;
+  pub const ENUM_MAX: u8 = 15;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::NONE,
     Self::InputLayout,
@@ -1549,6 +1551,7 @@ impl Payload {
     Self::DesktopNotificationCommand,
     Self::SettingsRequest,
     Self::SettingsResponse,
+    Self::TextInputState,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -1568,6 +1571,7 @@ impl Payload {
       Self::DesktopNotificationCommand => Some("DesktopNotificationCommand"),
       Self::SettingsRequest => Some("SettingsRequest"),
       Self::SettingsResponse => Some("SettingsResponse"),
+      Self::TextInputState => Some("TextInputState"),
       _ => None,
     }
   }
@@ -2348,6 +2352,7 @@ impl<'a> InputLayout<'a> {
   pub const VT_SHELL_REGIONS: flatbuffers::VOffsetT = 8;
   pub const VT_WINDOWS: flatbuffers::VOffsetT = 10;
   pub const VT_VISIBLE_SURFACE_IDS: flatbuffers::VOffsetT = 12;
+  pub const VT_SOFTWARE_KEYBOARD_REGIONS: flatbuffers::VOffsetT = 14;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -2360,6 +2365,7 @@ impl<'a> InputLayout<'a> {
   ) -> flatbuffers::WIPOffset<InputLayout<'bldr>> {
     let mut builder = InputLayoutBuilder::new(_fbb);
     builder.add_epoch(args.epoch);
+    if let Some(x) = args.software_keyboard_regions { builder.add_software_keyboard_regions(x); }
     if let Some(x) = args.visible_surface_ids { builder.add_visible_surface_ids(x); }
     if let Some(x) = args.windows { builder.add_windows(x); }
     if let Some(x) = args.shell_regions { builder.add_shell_regions(x); }
@@ -2403,6 +2409,13 @@ impl<'a> InputLayout<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u64>>>(InputLayout::VT_VISIBLE_SURFACE_IDS, None)}
   }
+  #[inline]
+  pub fn software_keyboard_regions(&self) -> Option<flatbuffers::Vector<'a, WireRect>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, WireRect>>>(InputLayout::VT_SOFTWARE_KEYBOARD_REGIONS, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for InputLayout<'_> {
@@ -2417,6 +2430,7 @@ impl flatbuffers::Verifiable for InputLayout<'_> {
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, WireRect>>>("shell_regions", Self::VT_SHELL_REGIONS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, InputWindowRegion>>>("windows", Self::VT_WINDOWS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u64>>>("visible_surface_ids", Self::VT_VISIBLE_SURFACE_IDS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, WireRect>>>("software_keyboard_regions", Self::VT_SOFTWARE_KEYBOARD_REGIONS, false)?
      .finish();
     Ok(())
   }
@@ -2427,6 +2441,7 @@ pub struct InputLayoutArgs<'a> {
     pub shell_regions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, WireRect>>>,
     pub windows: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, InputWindowRegion>>>,
     pub visible_surface_ids: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u64>>>,
+    pub software_keyboard_regions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, WireRect>>>,
 }
 impl<'a> Default for InputLayoutArgs<'a> {
   #[inline]
@@ -2437,6 +2452,7 @@ impl<'a> Default for InputLayoutArgs<'a> {
       shell_regions: None,
       windows: None,
       visible_surface_ids: None,
+      software_keyboard_regions: None,
     }
   }
 }
@@ -2467,6 +2483,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> InputLayoutBuilder<'a, 'b, A> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(InputLayout::VT_VISIBLE_SURFACE_IDS, visible_surface_ids);
   }
   #[inline]
+  pub fn add_software_keyboard_regions(&mut self, software_keyboard_regions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , WireRect>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(InputLayout::VT_SOFTWARE_KEYBOARD_REGIONS, software_keyboard_regions);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> InputLayoutBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     InputLayoutBuilder {
@@ -2489,6 +2509,7 @@ impl core::fmt::Debug for InputLayout<'_> {
       ds.field("shell_regions", &self.shell_regions());
       ds.field("windows", &self.windows());
       ds.field("visible_surface_ids", &self.visible_surface_ids());
+      ds.field("software_keyboard_regions", &self.software_keyboard_regions());
       ds.finish()
   }
 }
@@ -4224,6 +4245,7 @@ impl<'a> WindowRequest<'a> {
   pub const VT_TITLE: flatbuffers::VOffsetT = 12;
   pub const VT_SYSTEM_BAR_SIDE: flatbuffers::VOffsetT = 14;
   pub const VT_SYSTEM_BAR_MONITOR_IDS: flatbuffers::VOffsetT = 16;
+  pub const VT_FLAGS: flatbuffers::VOffsetT = 18;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -4236,6 +4258,7 @@ impl<'a> WindowRequest<'a> {
   ) -> flatbuffers::WIPOffset<WindowRequest<'bldr>> {
     let mut builder = WindowRequestBuilder::new(_fbb);
     builder.add_window_id(args.window_id);
+    builder.add_flags(args.flags);
     if let Some(x) = args.system_bar_monitor_ids { builder.add_system_bar_monitor_ids(x); }
     if let Some(x) = args.title { builder.add_title(x); }
     if let Some(x) = args.app_id { builder.add_app_id(x); }
@@ -4295,6 +4318,13 @@ impl<'a> WindowRequest<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, i64>>>(WindowRequest::VT_SYSTEM_BAR_MONITOR_IDS, None)}
   }
+  #[inline]
+  pub fn flags(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(WindowRequest::VT_FLAGS, Some(0)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for WindowRequest<'_> {
@@ -4311,6 +4341,7 @@ impl flatbuffers::Verifiable for WindowRequest<'_> {
      .visit_field::<flatbuffers::ForwardsUOffset<&str>>("title", Self::VT_TITLE, false)?
      .visit_field::<SystemBarSide>("system_bar_side", Self::VT_SYSTEM_BAR_SIDE, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, i64>>>("system_bar_monitor_ids", Self::VT_SYSTEM_BAR_MONITOR_IDS, false)?
+     .visit_field::<u32>("flags", Self::VT_FLAGS, false)?
      .finish();
     Ok(())
   }
@@ -4323,6 +4354,7 @@ pub struct WindowRequestArgs<'a> {
     pub title: Option<flatbuffers::WIPOffset<&'a str>>,
     pub system_bar_side: SystemBarSide,
     pub system_bar_monitor_ids: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, i64>>>,
+    pub flags: u32,
 }
 impl<'a> Default for WindowRequestArgs<'a> {
   #[inline]
@@ -4335,6 +4367,7 @@ impl<'a> Default for WindowRequestArgs<'a> {
       title: None,
       system_bar_side: SystemBarSide::Top,
       system_bar_monitor_ids: None,
+      flags: 0,
     }
   }
 }
@@ -4373,6 +4406,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WindowRequestBuilder<'a, 'b, A>
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WindowRequest::VT_SYSTEM_BAR_MONITOR_IDS, system_bar_monitor_ids);
   }
   #[inline]
+  pub fn add_flags(&mut self, flags: u32) {
+    self.fbb_.push_slot::<u32>(WindowRequest::VT_FLAGS, flags, 0);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WindowRequestBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     WindowRequestBuilder {
@@ -4397,6 +4434,7 @@ impl core::fmt::Debug for WindowRequest<'_> {
       ds.field("title", &self.title());
       ds.field("system_bar_side", &self.system_bar_side());
       ds.field("system_bar_monitor_ids", &self.system_bar_monitor_ids());
+      ds.field("flags", &self.flags());
       ds.finish()
   }
 }
@@ -5052,6 +5090,171 @@ impl core::fmt::Debug for CursorPosition<'_> {
     let mut ds = f.debug_struct("CursorPosition");
       ds.field("x", &self.x());
       ds.field("y", &self.y());
+      ds.finish()
+  }
+}
+pub enum TextInputStateOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct TextInputState<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for TextInputState<'a> {
+  type Inner = TextInputState<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> TextInputState<'a> {
+  pub const VT_ACTIVE: flatbuffers::VOffsetT = 4;
+  pub const VT_INPUT_PANEL_VISIBLE: flatbuffers::VOffsetT = 6;
+  pub const VT_LEGACY: flatbuffers::VOffsetT = 8;
+  pub const VT_CONTENT_HINT: flatbuffers::VOffsetT = 10;
+  pub const VT_CONTENT_PURPOSE: flatbuffers::VOffsetT = 12;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    TextInputState { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args TextInputStateArgs
+  ) -> flatbuffers::WIPOffset<TextInputState<'bldr>> {
+    let mut builder = TextInputStateBuilder::new(_fbb);
+    builder.add_content_purpose(args.content_purpose);
+    builder.add_content_hint(args.content_hint);
+    builder.add_legacy(args.legacy);
+    builder.add_input_panel_visible(args.input_panel_visible);
+    builder.add_active(args.active);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn active(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(TextInputState::VT_ACTIVE, Some(false)).unwrap()}
+  }
+  #[inline]
+  pub fn input_panel_visible(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(TextInputState::VT_INPUT_PANEL_VISIBLE, Some(false)).unwrap()}
+  }
+  #[inline]
+  pub fn legacy(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(TextInputState::VT_LEGACY, Some(false)).unwrap()}
+  }
+  #[inline]
+  pub fn content_hint(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(TextInputState::VT_CONTENT_HINT, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn content_purpose(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(TextInputState::VT_CONTENT_PURPOSE, Some(0)).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for TextInputState<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<bool>("active", Self::VT_ACTIVE, false)?
+     .visit_field::<bool>("input_panel_visible", Self::VT_INPUT_PANEL_VISIBLE, false)?
+     .visit_field::<bool>("legacy", Self::VT_LEGACY, false)?
+     .visit_field::<u32>("content_hint", Self::VT_CONTENT_HINT, false)?
+     .visit_field::<u32>("content_purpose", Self::VT_CONTENT_PURPOSE, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct TextInputStateArgs {
+    pub active: bool,
+    pub input_panel_visible: bool,
+    pub legacy: bool,
+    pub content_hint: u32,
+    pub content_purpose: u32,
+}
+impl<'a> Default for TextInputStateArgs {
+  #[inline]
+  fn default() -> Self {
+    TextInputStateArgs {
+      active: false,
+      input_panel_visible: false,
+      legacy: false,
+      content_hint: 0,
+      content_purpose: 0,
+    }
+  }
+}
+
+pub struct TextInputStateBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> TextInputStateBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_active(&mut self, active: bool) {
+    self.fbb_.push_slot::<bool>(TextInputState::VT_ACTIVE, active, false);
+  }
+  #[inline]
+  pub fn add_input_panel_visible(&mut self, input_panel_visible: bool) {
+    self.fbb_.push_slot::<bool>(TextInputState::VT_INPUT_PANEL_VISIBLE, input_panel_visible, false);
+  }
+  #[inline]
+  pub fn add_legacy(&mut self, legacy: bool) {
+    self.fbb_.push_slot::<bool>(TextInputState::VT_LEGACY, legacy, false);
+  }
+  #[inline]
+  pub fn add_content_hint(&mut self, content_hint: u32) {
+    self.fbb_.push_slot::<u32>(TextInputState::VT_CONTENT_HINT, content_hint, 0);
+  }
+  #[inline]
+  pub fn add_content_purpose(&mut self, content_purpose: u32) {
+    self.fbb_.push_slot::<u32>(TextInputState::VT_CONTENT_PURPOSE, content_purpose, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> TextInputStateBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    TextInputStateBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<TextInputState<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for TextInputState<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("TextInputState");
+      ds.field("active", &self.active());
+      ds.field("input_panel_visible", &self.input_panel_visible());
+      ds.field("legacy", &self.legacy());
+      ds.field("content_hint", &self.content_hint());
+      ds.field("content_purpose", &self.content_purpose());
       ds.finish()
   }
 }
@@ -7195,6 +7398,21 @@ impl<'a> Envelope<'a> {
     }
   }
 
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_text_input_state(&self) -> Option<TextInputState<'a>> {
+    if self.payload_type() == Payload::TextInputState {
+      self.payload().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { TextInputState::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
 }
 
 impl flatbuffers::Verifiable for Envelope<'_> {
@@ -7223,6 +7441,7 @@ impl flatbuffers::Verifiable for Envelope<'_> {
           Payload::DesktopNotificationCommand => v.verify_union_variant::<flatbuffers::ForwardsUOffset<DesktopNotificationCommand>>("Payload::DesktopNotificationCommand", pos),
           Payload::SettingsRequest => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SettingsRequest>>("Payload::SettingsRequest", pos),
           Payload::SettingsResponse => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SettingsResponse>>("Payload::SettingsResponse", pos),
+          Payload::TextInputState => v.verify_union_variant::<flatbuffers::ForwardsUOffset<TextInputState>>("Payload::TextInputState", pos),
           _ => Ok(()),
         }
      })?
@@ -7391,6 +7610,13 @@ impl core::fmt::Debug for Envelope<'_> {
         },
         Payload::SettingsResponse => {
           if let Some(x) = self.payload_as_settings_response() {
+            ds.field("payload", &x)
+          } else {
+            ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        Payload::TextInputState => {
+          if let Some(x) = self.payload_as_text_input_state() {
             ds.field("payload", &x)
           } else {
             ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")

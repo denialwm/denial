@@ -11,17 +11,15 @@ import '../theme/tokens.dart';
 import 'osk/shell_osk_panel.dart';
 import 'shell_backdrop_blur.dart';
 
-/// Keeps the mobile software keyboard above applications and transient shell
-/// surfaces while preserving the lock screen as the highest security layer.
+/// Keeps the mobile software keyboard above applications and shell surfaces,
+/// including the compositor-owned lock screen.
 class MobileSystemKeyboardLayer extends ConsumerWidget {
   const MobileSystemKeyboardLayer({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final enabled = ref.watch(
-      shellControllerProvider.select(
-        (state) => !state.lockLayerVisible && !state.launchTransitionActive,
-      ),
+      shellControllerProvider.select((state) => !state.launchTransitionActive),
     );
     return Offstage(
       offstage: !enabled,
@@ -277,9 +275,14 @@ class _EdgePanelContent extends ConsumerWidget {
           ),
         ),
         child: RepaintBoundary(
-          child: ShellOskPanel(
-            onKeyTap: haptics.pulse,
-            onKey: (intent) => _sendOskIntent(bridge, intent),
+          // Keep OSK presses inside the focused EditableText tap group. A
+          // keyboard key must not look like an outside tap and retire the
+          // editor before its command is delivered.
+          child: TextFieldTapRegion(
+            child: ShellOskPanel(
+              onKeyTap: haptics.pulse,
+              onKey: (intent) => _sendOskIntent(bridge, intent),
+            ),
           ),
         ),
       ),
@@ -299,7 +302,15 @@ class _EdgePanelContent extends ConsumerWidget {
           bridge.sendKeyboardText(' ');
         }
       case ShellOskKeyAction.backspace:
-        bridge.sendKeyboardKey(intent.key ?? 'BackSpace', ctrl: intent.ctrl);
+        final key = intent.key ?? 'BackSpace';
+        switch (intent.phase) {
+          case ShellOskKeyPhase.tap:
+            bridge.sendKeyboardKey(key, ctrl: intent.ctrl);
+          case ShellOskKeyPhase.pressed:
+            bridge.pressKeyboardKey(key);
+          case ShellOskKeyPhase.released:
+            bridge.releaseKeyboardKey(key);
+        }
       case ShellOskKeyAction.enter:
         bridge.sendKeyboardKey(intent.key ?? 'Return', ctrl: intent.ctrl);
     }

@@ -296,6 +296,43 @@ void main() {
     expect(find.byType(Image), findsOneWidget);
   });
 
+  testWidgets('touch modality keeps a retained native cursor hidden', (
+    tester,
+  ) async {
+    final shapes = StreamController<String>.broadcast(sync: true);
+    final positions = StreamController<Offset>.broadcast(sync: true);
+    addTearDown(shapes.close);
+    addTearDown(positions.close);
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: ShellCursorHost(
+          theme: ShellCursorThemes.bibataModernIce,
+          platformCursorShapes: shapes.stream,
+          platformCursorPositions: positions.stream,
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+    positions.add(const Offset(100, 80));
+    shapes.add('default');
+    await tester.pump();
+    expect(find.byType(Image), findsOneWidget);
+
+    shapes.add('none');
+    await tester.pump();
+    expect(find.byType(Image), findsNothing);
+
+    positions.add(const Offset(140, 120));
+    await tester.pump();
+    expect(find.byType(Image), findsNothing);
+
+    shapes.add('default');
+    await tester.pump();
+    expect(find.byType(Image), findsOneWidget);
+  });
+
   testWidgets('display scaling preserves the configured physical cursor size', (
     tester,
   ) async {

@@ -32,6 +32,7 @@ import 'widgets/edge_panel_layer.dart';
 import 'widgets/input_layout_publisher.dart';
 import 'widgets/launch_transition_layer.dart';
 import 'widgets/lock/lock_screen_layer.dart';
+import 'widgets/mobile_text_input_policy.dart';
 import 'widgets/notification_banner.dart';
 import 'widgets/overview/overview_layer.dart';
 import 'widgets/shade/system_shade_layer.dart';
@@ -226,15 +227,17 @@ class _DenialShellAppState extends ConsumerState<DenialShellApp> {
       theme: effectiveProfile == ShellProfile.desktop
           ? cursorTheme
           : ShellCursorThemes.standard,
-      platformCursorShapes: effectiveProfile == ShellProfile.desktop
-          ? cursorShapes
-          : null,
+      platformCursorShapes: cursorShapes,
       platformCursorPositions: cursorPositions,
       platformDragIcons: dragIcons,
       hideCursor: hideCursor,
       displayLayout: displayLayout,
       cursorSize: settings.appearance.cursorSize,
       child: _ShellOverlayHost(child: scene),
+    );
+
+    final textInputPolicy = TapRegionSurface(
+      child: DefaultTextStyle(style: ShellText.base, child: content),
     );
 
     return ShellTheme(
@@ -256,7 +259,12 @@ class _DenialShellAppState extends ConsumerState<DenialShellApp> {
           view: View.of(context),
           child: ScrollConfiguration(
             behavior: const _ShellScrollBehavior(),
-            child: DefaultTextStyle(style: ShellText.base, child: content),
+            // WidgetsApp normally installs this boundary. Denial owns its
+            // widget root directly, so install the same standard boundary
+            // explicitly for EditableText outside-tap focus handling.
+            child: effectiveProfile == ShellProfile.mobile
+                ? MobileTextInputPolicy(child: textInputPolicy)
+                : textInputPolicy,
           ),
         ),
       ),
@@ -377,9 +385,12 @@ class _ShellContent extends ConsumerWidget {
         ],
       ),
     );
-    const shellChromeLayer = Stack(
+    final shellChromeLayer = Stack(
       fit: StackFit.expand,
-      children: [BottomGestureHandle(), SystemShadeLayer()],
+      children: [
+        const BottomGestureHandle(),
+        SystemShadeLayer(ignoring: visual.launchRequest != null),
+      ],
     );
 
     return DefaultTextStyle(
@@ -394,10 +405,7 @@ class _ShellContent extends ConsumerWidget {
               lockLayerVisible: visual.lockLayerVisible,
               onUnlockComplete: controller.completeUnlockTransition,
               scene: applicationScene,
-              chrome: IgnorePointer(
-                ignoring: visual.launchRequest != null,
-                child: shellChromeLayer,
-              ),
+              chrome: shellChromeLayer,
             ),
             if (frameTiming.showOverlay)
               const Positioned(
@@ -619,15 +627,32 @@ class _UnlockTransitionHostState extends State<UnlockTransitionHost>
       return;
     }
     if (MediaQuery.disableAnimationsOf(context)) {
-      _controller.value = 1.0;
+      _controller
+        ..stop()
+        ..value = 1.0;
+      widget.onUnlockComplete();
       return;
     }
-    MotionTelemetry.observe(
+    final transition = MotionTelemetry.observe(
       _controller,
       _controller.forward(),
       'session_unlock',
       target: 1.0,
     );
+    // The retained lock layer owns the full input boundary. Animation status
+    // notifications are useful telemetry, but must not be the sole mechanism
+    // that releases that boundary: an immediate/reduced-motion completion or
+    // a scheduler edge can otherwise leave the unlocked home non-interactive.
+    transition.whenCompleteOrCancel(_completeUnlockIfSettled);
+  }
+
+  void _completeUnlockIfSettled() {
+    if (!mounted || widget.locked || !widget.lockLayerVisible) {
+      return;
+    }
+    if (_controller.value >= 1.0) {
+      widget.onUnlockComplete();
+    }
   }
 
   void _handleStatus(AnimationStatus status) {
