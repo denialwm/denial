@@ -722,6 +722,16 @@ impl FlutterLauncher {
         scanouts: &[Scanout],
         refresh_millihz: u32,
     ) -> Result<flutter_runtime::FlutterRuntime, Box<dyn Error>> {
+        if let Some(scanout) = scanouts
+            .iter()
+            .find(|scanout| scanout.plane_properties.in_fence_fd.is_none())
+        {
+            return Err(format!(
+                "{} primary KMS plane does not advertise IN_FENCE_FD; Denial requires explicit scanout fencing",
+                scanout.output.name
+            )
+            .into());
+        }
         flutter_runtime::FlutterRuntime::start(
             shared_context,
             dmabufs,
@@ -739,9 +749,6 @@ impl FlutterLauncher {
             self.clipboard.clone(),
             self.work_area.clone(),
             self.generation,
-            scanouts
-                .iter()
-                .all(|scanout| scanout.plane_properties.in_fence_fd.is_some()),
             self.wayland_display.clone(),
             self.x11_display.clone(),
             self.output_control_socket.clone(),

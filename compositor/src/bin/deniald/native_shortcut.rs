@@ -15,6 +15,8 @@ const KEY_UP: u32 = 103;
 const KEY_MUTE: u32 = 113;
 const KEY_VOLUME_DOWN: u32 = 114;
 const KEY_VOLUME_UP: u32 = 115;
+const KEY_BRIGHTNESS_DOWN: u32 = 224;
+const KEY_BRIGHTNESS_UP: u32 = 225;
 const KEY_LEFT_CTRL: u32 = 29;
 const KEY_LEFT_ALT: u32 = 56;
 const KEY_RIGHT_CTRL: u32 = 97;
@@ -41,6 +43,8 @@ const CAPTURED_KEYBOARD_LAYOUT: u16 = 1 << 11;
 const CAPTURED_MUTE: u8 = 1 << 0;
 const CAPTURED_VOLUME_DOWN: u8 = 1 << 1;
 const CAPTURED_VOLUME_UP: u8 = 1 << 2;
+const CAPTURED_BRIGHTNESS_DOWN: u8 = 1 << 3;
+const CAPTURED_BRIGHTNESS_UP: u8 = 1 << 4;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ShortcutDisposition {
@@ -134,6 +138,16 @@ impl NativeEscapeShortcut {
                 Some(ShortcutDisposition::RequestBrightnessDown),
             )),
             KEY_MUTE => Some((CAPTURED_MUTE, ShortcutDisposition::RequestMute, None)),
+            KEY_BRIGHTNESS_DOWN => Some((
+                CAPTURED_BRIGHTNESS_DOWN,
+                ShortcutDisposition::RequestBrightnessDown,
+                Some(ShortcutDisposition::RequestBrightnessDown),
+            )),
+            KEY_BRIGHTNESS_UP => Some((
+                CAPTURED_BRIGHTNESS_UP,
+                ShortcutDisposition::RequestBrightnessUp,
+                Some(ShortcutDisposition::RequestBrightnessUp),
+            )),
             _ => None,
         };
         if let Some((capture, plain, with_logo)) = media_action {
@@ -786,5 +800,33 @@ mod tests {
             release(&mut shortcut, KEY_LEFT_META),
             ShortcutDisposition::Consume
         );
+    }
+
+    #[test]
+    fn hardware_brightness_keys_adjust_brightness_and_balance_releases() {
+        for (key, action) in [
+            (
+                KEY_BRIGHTNESS_DOWN,
+                ShortcutDisposition::RequestBrightnessDown,
+            ),
+            (KEY_BRIGHTNESS_UP, ShortcutDisposition::RequestBrightnessUp),
+        ] {
+            let mut shortcut = NativeEscapeShortcut::default();
+            assert_eq!(press(&mut shortcut, key), action);
+            assert_eq!(press(&mut shortcut, key), action);
+            assert_eq!(release(&mut shortcut, key), ShortcutDisposition::Consume);
+            assert_eq!(release(&mut shortcut, key), ShortcutDisposition::Forward);
+
+            assert_eq!(
+                press(&mut shortcut, KEY_LEFT_META),
+                ShortcutDisposition::Consume
+            );
+            assert_eq!(press(&mut shortcut, key), action);
+            assert_eq!(release(&mut shortcut, key), ShortcutDisposition::Consume);
+            assert_eq!(
+                release(&mut shortcut, KEY_LEFT_META),
+                ShortcutDisposition::Consume
+            );
+        }
     }
 }

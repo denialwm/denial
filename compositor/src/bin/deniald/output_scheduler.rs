@@ -10,7 +10,7 @@ use smithay::backend::drm::DrmDevice;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::output::Mode as OutputMode;
 use smithay::reexports::calloop::channel::SyncSender as EventSender;
-use tracing::{info, warn};
+use tracing::info;
 
 use super::flutter_runtime::{FlutterRuntime, ReadyFrame};
 use super::frame_scheduler::FrameTick;
@@ -19,6 +19,10 @@ use super::{PresentedOutput, RuntimeState, cpu_scheduling, render_audit_enabled}
 
 const OUTPUT_SCHEDULER_AUDIT_INTERVAL: Duration = Duration::from_secs(1);
 const VOLITION_SUBMIT_LEAD: Duration = Duration::from_micros(400);
+/// A nonblocking atomic commit should retire on the next display edge.  Give
+/// slow modesets and scheduler jitter ample room, but never retain a wedged
+/// KMS/GPU generation indefinitely.
+const PRESENTATION_STALL_TIMEOUT: Duration = Duration::from_secs(2);
 static NEXT_READY_FENCE_TOKEN: AtomicU64 = AtomicU64::new(1);
 
 fn next_ready_fence_token() -> u64 {
@@ -34,6 +38,30 @@ fn next_ready_fence_token() -> u64 {
 struct OutputFrame {
     index: usize,
     screenshot_request_id: Option<u64>,
+    submitted_at: Instant,
+}
+
+#[derive(Debug)]
+struct LookaheadFrame {
+    commit: CommitId,
+    frame: OutputFrame,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct PresentationStall {
+    pub(super) scanout_index: usize,
+    pub(super) framebuffer_index: usize,
+    pub(super) pending_frames: usize,
+    pub(super) elapsed: Duration,
+}
+
+fn presentation_stall_age(submitted_at: Instant, now: Instant) -> Option<Duration> {
+    let elapsed = now.saturating_duration_since(submitted_at);
+    (elapsed >= PRESENTATION_STALL_TIMEOUT).then_some(elapsed)
+}
+
+fn presentation_watchdog_remaining(submitted_at: Instant, now: Instant) -> Duration {
+    PRESENTATION_STALL_TIMEOUT.saturating_sub(now.saturating_duration_since(submitted_at))
 }
 
 #[derive(Debug, Default)]
@@ -42,7 +70,7 @@ struct ReadyFenceSlot {
     users: usize,
     token: u64,
     signaled: bool,
-    discard_on_signal: bool,
+    discard_users_on_signal: usize,
 }
 
 impl ReadyFenceSlot {
@@ -51,7 +79,7 @@ impl ReadyFenceSlot {
             && self.fence.is_none()
             && self.token == 0
             && !self.signaled
-            && !self.discard_on_signal
+            && self.discard_users_on_signal == 0
     }
 
     fn claim(
@@ -78,8 +106,16 @@ impl ReadyFenceSlot {
         true
     }
 
-    fn can_queue(&self, submission: FenceSubmission) -> bool {
-        self.users > 0 && (submission == FenceSubmission::Kernel || self.signaled)
+    fn can_submit_immediately(&self) -> bool {
+        self.users > 0
+    }
+
+    fn discard_user_when_signaled(&mut self) -> Result<(), &'static str> {
+        if self.signaled || self.discard_users_on_signal >= self.users {
+            return Err("Flutter fence discard does not reference a pending GPU user");
+        }
+        self.discard_users_on_signal += 1;
+        Ok(())
     }
 
     fn release_user(&mut self) -> Result<(), &'static str> {
@@ -91,18 +127,29 @@ impl ReadyFenceSlot {
             self.fence = None;
             self.token = 0;
             self.signaled = false;
-            self.discard_on_signal = false;
+            self.discard_users_on_signal = 0;
         }
         Ok(())
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum FenceSubmission {
-    /// Give the exported sync_file to KMS through IN_FENCE_FD.
-    Kernel,
-    /// Wait for the sync_file in calloop, then queue the framebuffer without it.
-    Userspace,
+fn discard_ready_frame(
+    runtime: &FlutterRuntime,
+    ready_fences: &mut [ReadyFenceSlot],
+    frame: OutputFrame,
+) -> Result<(), Box<dyn Error>> {
+    let slot = ready_fences
+        .get_mut(frame.index)
+        .ok_or("discarded Flutter frame exceeds the fence pool")?;
+    if slot.signaled {
+        runtime.release_output(frame.index)?;
+        slot.release_user()?;
+    } else {
+        // The output no longer needs this generation, but Flutter must not
+        // render into its storage until the GPU has finished producing it.
+        slot.discard_user_when_signaled()?;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -120,7 +167,6 @@ pub(super) struct ReadyFenceWatch {
 #[derive(Debug, Default)]
 pub(super) struct ReadySubmission {
     pub(super) submitted: usize,
-    pub(super) fence_watch: Option<ReadyFenceWatch>,
 }
 
 impl ReadyFenceWatch {
@@ -160,7 +206,7 @@ struct OutputPipeline {
     scanning_screenshot_request_id: Option<u64>,
     ready: Option<OutputFrame>,
     submitted: VecDeque<OutputFrame>,
-    lookahead_pending: Option<CommitId>,
+    lookahead_pending: Option<LookaheadFrame>,
     powering_off: bool,
     request: PlaneCommit,
     refresh_interval: Duration,
@@ -455,7 +501,6 @@ pub(super) struct OutputScheduler {
     /// for their synchronous atomic ioctl; no Arc allocation or refcount is
     /// needed to fan a frame out across independently clocked outputs.
     ready_fences: Vec<ReadyFenceSlot>,
-    fence_submission: FenceSubmission,
     audit: Option<OutputSchedulerAudit>,
     /// Buffer ownership retained while every physical output is DPMS-off.
     /// Flutter's independent-scanout broker requires one initial owner, and
@@ -486,6 +531,7 @@ impl OutputScheduler {
         runtime.set_outputs_visible(powered_outputs > 0)?;
         let presentation = Volition::new(
             drm.as_fd(),
+            scanouts.len().max(1),
             cpu_scheduling::promote_volition_thread,
             move |event| {
                 let _ = volition_events.send(event);
@@ -534,7 +580,6 @@ impl OutputScheduler {
             ready_fences: std::iter::repeat_with(ReadyFenceSlot::default)
                 .take(buffer_count)
                 .collect(),
-            fence_submission: FenceSubmission::Kernel,
             audit: render_audit_enabled()
                 .then(|| OutputSchedulerAudit::new(buffer_count, powered_outputs)),
             parked: (powered_outputs == 0).then_some(initial_index),
@@ -595,7 +640,7 @@ impl OutputScheduler {
             // signals even though no KMS pipeline will consume it.
             runtime.publish_to_outputs(index, 1)?;
             self.ready_fences[index].claim(Some(fence), 1, token)?;
-            self.ready_fences[index].discard_on_signal = true;
+            self.ready_fences[index].discard_user_when_signaled()?;
             return Ok(Some(ReadyFenceWatch {
                 fence: watch_fence,
                 signal: ReadyFenceSignal { index, token },
@@ -604,9 +649,10 @@ impl OutputScheduler {
         if self
             .affected_pipelines
             .iter()
-            .any(|pipeline_index| self.pipelines[*pipeline_index].ready.is_some())
+            .filter_map(|pipeline_index| self.pipelines[*pipeline_index].ready.as_ref())
+            .any(|frame| frame.screenshot_request_id.is_some())
         {
-            return Err("cannot replace an unsubmitted Flutter output frame".into());
+            return Err("cannot replace a screenshot-tagged Flutter output frame".into());
         }
         runtime.publish_to_outputs(index, self.affected_pipelines.len())?;
         self.latest_index = index;
@@ -622,15 +668,20 @@ impl OutputScheduler {
         self.ready_fences[index].claim(fence, self.affected_pipelines.len(), token)?;
         for pipeline_index in self.affected_pipelines.iter().copied() {
             let pipeline = &mut self.pipelines[pipeline_index];
+            if let Some(replaced) = pipeline.ready.take() {
+                discard_ready_frame(runtime, &mut self.ready_fences, replaced)?;
+            }
             pipeline.ready = Some(OutputFrame {
                 index,
                 screenshot_request_id,
+                // Reset when the frame actually enters KMS.  Initializing it
+                // here keeps the ownership type total while it is Ready.
+                submitted_at: Instant::now(),
             });
         }
         // Every affected plane advertised IN_FENCE_FD before Flutter enabled
-        // native fences. Prefer giving the fence directly to KMS, but retain
-        // enough ownership to fall back to a calloop wait if the first real
-        // fenced commit proves that the advertised property is unusable.
+        // native fences. Keep observing the fence for lookahead scheduling and
+        // buffer reuse while the immediate KMS path receives it directly.
         Ok(fence_watch)
     }
 
@@ -645,9 +696,13 @@ impl OutputScheduler {
             }
             if let Some(slot) = self.ready_fences.get_mut(signal.index) {
                 let signaled = slot.mark_signaled(signal.token);
-                if signaled && slot.discard_on_signal {
-                    runtime.release_output(signal.index)?;
-                    slot.release_user()?;
+                if signaled {
+                    let discard_users = slot.discard_users_on_signal;
+                    slot.discard_users_on_signal = 0;
+                    for _ in 0..discard_users {
+                        runtime.release_output(signal.index)?;
+                        slot.release_user()?;
+                    }
                 }
             }
         }
@@ -656,26 +711,61 @@ impl OutputScheduler {
 
     pub(super) fn acknowledge_volition_events(
         &mut self,
-        events: impl IntoIterator<Item = volition::Event>,
-    ) -> Result<(), Box<dyn Error>> {
-        for event in events {
+        volition_events: impl IntoIterator<Item = volition::Event>,
+        scanouts: &[Scanout],
+        events: &mut RuntimeState,
+    ) -> Result<Option<volition::Failure>, Box<dyn Error>> {
+        self.submitted_outputs.clear();
+        let mut stalled = None;
+        for event in volition_events {
             if !self.volition.owns(&event) {
                 continue;
             }
             match event {
-                volition::Event::Submitted { commit, .. } => {
-                    if let Some(pipeline) = self
+                volition::Event::Submitted {
+                    commit,
+                    submitted_at,
+                    ..
+                } => {
+                    let pipeline_index = self
                         .pipelines
-                        .iter_mut()
-                        .find(|pipeline| pipeline.lookahead_pending == Some(commit))
-                    {
-                        pipeline.lookahead_pending = None;
+                        .iter()
+                        .position(|pipeline| {
+                            pipeline
+                                .lookahead_pending
+                                .as_ref()
+                                .is_some_and(|pending| pending.commit == commit)
+                        })
+                        .ok_or("Volition accepted a commit with no pending output frame")?;
+                    let pipeline = &mut self.pipelines[pipeline_index];
+                    let mut pending = pipeline
+                        .lookahead_pending
+                        .take()
+                        .expect("located pending Volition frame");
+                    pending.frame.submitted_at = submitted_at;
+                    pipeline.submitted.push_back(pending.frame);
+                    let scanout = &scanouts[pipeline.scanout_index];
+                    events.pending.insert(scanout.output.crtc);
+                    if let Some(audit) = self.audit.as_mut() {
+                        audit.record_real_submission(pipeline_index, commit.frame, true);
+                    }
+                    self.submitted_outputs.push(scanout.output.id);
+                }
+                volition::Event::Stalled(failure) => {
+                    // Keep the pending frame and its Flutter ownership intact.
+                    // The caller will invalidate this entire scheduler only
+                    // after establishing a synchronous KMS baseline.
+                    if stalled.is_none() {
+                        stalled = Some(failure);
                     }
                 }
                 volition::Event::Failed(failure) => return Err(Box::new(failure)),
             }
         }
-        Ok(())
+        if let Some(frontend) = events.wayland.as_mut() {
+            frontend.outputs_submitted(&self.submitted_outputs)?;
+        }
+        Ok(stalled)
     }
 
     pub(super) fn submit_ready(
@@ -686,7 +776,6 @@ impl OutputScheduler {
     ) -> Result<ReadySubmission, Box<dyn Error>> {
         self.submitted_outputs.clear();
         let mut queue_error = None;
-        let mut fence_watch = None;
         let (pipelines, ready_fences, audit, presentation) = (
             &mut self.pipelines,
             &mut self.ready_fences,
@@ -694,8 +783,10 @@ impl OutputScheduler {
             &mut self.volition,
         );
         for (pipeline_index, pipeline) in pipelines.iter_mut().enumerate() {
+            let retained_generations =
+                pipeline.submitted.len() + usize::from(pipeline.lookahead_pending.is_some());
             if pipeline.powering_off
-                || pipeline.submitted.len() >= volition::MAX_IN_FLIGHT_COMMITS_PER_STREAM
+                || retained_generations >= volition::MAX_IN_FLIGHT_COMMITS_PER_STREAM
                 || pipeline.lookahead_pending.is_some()
                 || pipeline.ready.is_none()
             {
@@ -706,16 +797,15 @@ impl OutputScheduler {
             let frame_index = frame.index;
             let volition_lookahead = !pipeline.submitted.is_empty();
             if (volition_lookahead && !ready_fences[frame_index].signaled)
-                || (!volition_lookahead
-                    && !ready_fences[frame_index].can_queue(self.fence_submission))
+                || (!volition_lookahead && !ready_fences[frame_index].can_submit_immediately())
             {
                 // Kernel submission can queue an unfinished sync_file directly.
-                // Volition lookahead and the userspace fallback wait until the
-                // same file is readable before entering the atomic ioctl.
+                // Volition lookahead waits until the same file is readable
+                // before entering the atomic ioctl without a fence.
                 continue;
             }
             let framebuffer = swapchain.buffers[frame_index].framebuffer();
-            let queued = if volition_lookahead {
+            if volition_lookahead {
                 let commit = CommitId {
                     stream: pipeline_index,
                     frame: frame_index,
@@ -733,63 +823,40 @@ impl OutputScheduler {
                     not_before,
                 )?;
                 if submission == Submission::Queued {
-                    pipeline.lookahead_pending = Some(commit);
-                    true
-                } else {
-                    false
-                }
-            } else {
-                let fence = (self.fence_submission == FenceSubmission::Kernel)
-                    .then(|| ready_fences[frame_index].fence.as_ref().map(AsFd::as_fd))
-                    .flatten();
-                if let Err(error) =
-                    presentation.submit_immediate(&mut pipeline.request, framebuffer, fence)
-                {
-                    if self.fence_submission == FenceSubmission::Kernel
-                        && fence.is_some()
-                        && volition::is_fence_capability_error(&error)
-                    {
-                        let slot = &ready_fences[frame_index];
-                        fence_watch = Some(ReadyFenceWatch {
-                            fence: slot
-                                .fence
-                                .as_ref()
-                                .expect("a failed fenced commit retains its sync_file")
-                                .as_fd()
-                                .try_clone_to_owned()?,
-                            signal: ReadyFenceSignal {
-                                index: frame_index,
-                                token: slot.token,
-                            },
-                        });
-                        self.fence_submission = FenceSubmission::Userspace;
-                        warn!(
-                            %error,
-                            "KMS rejected a real IN_FENCE_FD commit; waiting for GPU fences in userspace"
-                        );
-                        break;
+                    let frame = pipeline.ready.take().expect("checked ready output frame");
+                    pipeline.lookahead_pending = Some(LookaheadFrame { commit, frame });
+                    ready_fences[frame_index].release_user()?;
+                    if ready_fences[frame_index].users == 0 {
+                        debug_assert!(ready_fences[frame_index].fence.is_none());
                     }
-                    queue_error = Some(error);
-                    break;
                 }
-                pipeline.next_presentation_at = Instant::now() + pipeline.refresh_interval;
-                true
-            };
-            if !queued {
                 continue;
             }
+
+            let fence = ready_fences[frame_index].fence.as_ref().map(AsFd::as_fd);
+            if let Err(error) =
+                presentation.submit_immediate(&mut pipeline.request, framebuffer, fence)
+            {
+                queue_error = Some(format!(
+                    "KMS rejected immediate plane commit for {} (IN_FENCE_FD={}): {error}",
+                    scanout.output.name,
+                    fence.is_some()
+                ));
+                break;
+            }
+            let submitted_at = Instant::now();
+            pipeline.next_presentation_at = submitted_at + pipeline.refresh_interval;
             events.pending.insert(scanout.output.crtc);
-            pipeline
-                .submitted
-                .push_back(pipeline.ready.take().expect("checked ready output frame"));
+            let mut frame = pipeline.ready.take().expect("checked ready output frame");
+            frame.submitted_at = submitted_at;
+            pipeline.submitted.push_back(frame);
             if let Some(audit) = audit.as_mut() {
-                audit.record_real_submission(pipeline_index, frame_index, volition_lookahead);
+                audit.record_real_submission(pipeline_index, frame_index, false);
             }
             ready_fences[frame_index].release_user()?;
             if ready_fences[frame_index].users == 0 {
-                // The immediate ioctl has copied its fence fd, while a
-                // Volition lookahead reaches this point only after that fence
-                // signaled and therefore needs no fd. The slot can close it.
+                // The immediate ioctl has copied its fence fd, so the slot can
+                // close it after its final output user enters KMS.
                 debug_assert!(ready_fences[frame_index].fence.is_none());
             }
             self.submitted_outputs.push(scanout.output.id);
@@ -802,18 +869,20 @@ impl OutputScheduler {
         }
         Ok(ReadySubmission {
             submitted: self.submitted_outputs.len(),
-            fence_watch,
         })
     }
 
-    /// A completed Flutter atlas must remain in the runtime broker while any
-    /// output is still waiting to submit the preceding generation. This
-    /// bounds producer work without replacing a buffer whose GPU fence may
-    /// still be pending.
+    /// Screenshot-tagged frames are exact handoffs and cannot be superseded.
+    /// Ordinary frames are latest-value mailbox entries per output: publishing
+    /// a newer generation replaces an older unsubmitted generation while its
+    /// GPU fence continues to protect the discarded buffer independently.
     pub(super) fn can_accept_ready(&self) -> bool {
-        self.pipelines
-            .iter()
-            .all(|pipeline| pipeline.ready.is_none())
+        self.pipelines.iter().all(|pipeline| {
+            pipeline
+                .ready
+                .as_ref()
+                .is_none_or(|frame| frame.screenshot_request_id.is_none())
+        })
     }
 
     pub(super) fn handle_completions(
@@ -964,14 +1033,46 @@ impl OutputScheduler {
             .any(|pipeline| !pipeline.submitted.is_empty())
     }
 
+    /// Reports a commit which entered KMS but produced no page-flip event.
+    /// The compositor can then drop every DRM/render fd and let its supervisor
+    /// start a fresh graphics stack instead of displaying one frozen frame.
+    pub(super) fn presentation_stall(&self, now: Instant) -> Option<PresentationStall> {
+        self.pipelines.iter().find_map(|pipeline| {
+            let frame = pipeline.submitted.front()?;
+            let elapsed = presentation_stall_age(frame.submitted_at, now)?;
+            Some(PresentationStall {
+                scanout_index: pipeline.scanout_index,
+                framebuffer_index: frame.index,
+                pending_frames: pipeline.submitted.len(),
+                elapsed,
+            })
+        })
+    }
+
+    /// Ensures calloop wakes when the oldest accepted commit reaches the
+    /// watchdog deadline even if the kernel never sends another DRM event.
+    pub(super) fn limit_presentation_watchdog_timeout(
+        &self,
+        now: Instant,
+        timeout: Duration,
+    ) -> Duration {
+        self.pipelines
+            .iter()
+            .filter_map(|pipeline| pipeline.submitted.front())
+            .map(|frame| presentation_watchdog_remaining(frame.submitted_at, now))
+            .fold(timeout, Duration::min)
+    }
+
     pub(super) fn shutdown_volition(&mut self) {
         self.volition.shutdown();
     }
 
     pub(super) fn has_pending_scanout_work(&self) -> bool {
-        self.pipelines
-            .iter()
-            .any(|pipeline| pipeline.ready.is_some() || !pipeline.submitted.is_empty())
+        self.pipelines.iter().any(|pipeline| {
+            pipeline.ready.is_some()
+                || pipeline.lookahead_pending.is_some()
+                || !pipeline.submitted.is_empty()
+        })
     }
 
     pub(super) fn begin_power_off(
@@ -989,13 +1090,9 @@ impl OutputScheduler {
         };
         pipeline.powering_off = true;
         if let Some(ready) = pipeline.ready.take() {
-            runtime.release_output(ready.index)?;
-            self.ready_fences
-                .get_mut(ready.index)
-                .ok_or("DPMS output frame exceeds the Flutter fence pool")?
-                .release_user()?;
+            discard_ready_frame(runtime, &mut self.ready_fences, ready)?;
         }
-        let submitted = !pipeline.submitted.is_empty();
+        let submitted = !pipeline.submitted.is_empty() || pipeline.lookahead_pending.is_some();
         self.repair_latest_index();
         Ok(submitted)
     }
@@ -1023,17 +1120,15 @@ impl OutputScheduler {
         else {
             return Ok(());
         };
-        if !self.pipelines[index].submitted.is_empty() {
-            return Err("cannot power off an output with a submitted page flip".into());
+        if !self.pipelines[index].submitted.is_empty()
+            || self.pipelines[index].lookahead_pending.is_some()
+        {
+            return Err("cannot power off an output with pending scanout work".into());
         }
 
         let pipeline = self.pipelines.remove(index);
         if let Some(ready) = pipeline.ready {
-            runtime.release_output(ready.index)?;
-            self.ready_fences
-                .get_mut(ready.index)
-                .ok_or("DPMS output frame exceeds the Flutter fence pool")?
-                .release_user()?;
+            discard_ready_frame(runtime, &mut self.ready_fences, ready)?;
         }
         if self.pipelines.is_empty() {
             debug_assert!(self.parked.is_none());
@@ -1050,6 +1145,17 @@ impl OutputScheduler {
         self.parked
             .or_else(|| self.pipelines.first().map(|pipeline| pipeline.scanning))
             .unwrap_or(self.latest_index)
+    }
+
+    pub(super) fn scanning_framebuffer_index(
+        &self,
+        output: OutputId,
+        scanouts: &[Scanout],
+    ) -> Option<usize> {
+        self.pipelines
+            .iter()
+            .find(|pipeline| scanouts[pipeline.scanout_index].output.id == output)
+            .map(|pipeline| pipeline.scanning)
     }
 
     pub(super) fn power_on(
@@ -1107,6 +1213,10 @@ impl OutputScheduler {
                         .submitted
                         .iter()
                         .any(|frame| frame.index == self.latest_index)
+                    || pipeline
+                        .lookahead_pending
+                        .as_ref()
+                        .is_some_and(|pending| pending.frame.index == self.latest_index)
             });
         if !still_owned
             && let Some(scanning) = self
@@ -1176,9 +1286,12 @@ impl OutputScheduler {
 #[cfg(test)]
 mod tests {
     use std::os::unix::net::UnixStream;
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
-    use super::{FenceSubmission, OutputSchedulerAudit, ReadyFenceSlot};
+    use super::{
+        OutputSchedulerAudit, PRESENTATION_STALL_TIMEOUT, ReadyFenceSlot, presentation_stall_age,
+        presentation_watchdog_remaining,
+    };
 
     #[test]
     fn ready_fence_slot_closes_only_after_its_last_pipeline_user() {
@@ -1186,8 +1299,7 @@ mod tests {
         assert!(slot.is_available());
         slot.claim(None, 2, 11).unwrap();
         assert!(!slot.is_available());
-        assert!(slot.can_queue(FenceSubmission::Kernel));
-        assert!(slot.can_queue(FenceSubmission::Userspace));
+        assert!(slot.can_submit_immediately());
         assert!(slot.claim(None, 1, 12).is_err());
 
         slot.release_user().unwrap();
@@ -1204,12 +1316,11 @@ mod tests {
         let mut slot = ReadyFenceSlot::default();
         let (fence, _peer) = UnixStream::pair().unwrap();
         slot.claim(Some(fence.into()), 1, 21).unwrap();
-        assert!(slot.can_queue(FenceSubmission::Kernel));
-        assert!(!slot.can_queue(FenceSubmission::Userspace));
+        assert!(slot.can_submit_immediately());
         assert!(!slot.mark_signaled(20));
-        assert!(!slot.can_queue(FenceSubmission::Userspace));
+        assert!(slot.can_submit_immediately());
         assert!(slot.mark_signaled(21));
-        assert!(slot.can_queue(FenceSubmission::Userspace));
+        assert!(slot.can_submit_immediately());
 
         slot.release_user().unwrap();
         assert!(!slot.mark_signaled(21));
@@ -1220,12 +1331,21 @@ mod tests {
     fn discarded_gpu_frame_is_not_reusable_until_its_fence_user_retires() {
         let mut slot = ReadyFenceSlot::default();
         let (fence, _peer) = UnixStream::pair().unwrap();
-        slot.claim(Some(fence.into()), 1, 31).unwrap();
-        slot.discard_on_signal = true;
+        slot.claim(Some(fence.into()), 2, 31).unwrap();
+        slot.discard_user_when_signaled().unwrap();
+        slot.discard_user_when_signaled().unwrap();
+        assert!(slot.discard_user_when_signaled().is_err());
 
         assert!(!slot.is_available());
-        slot.release_user().unwrap();
+        assert!(slot.mark_signaled(31));
+        let discard_users = slot.discard_users_on_signal;
+        slot.discard_users_on_signal = 0;
+        assert_eq!(discard_users, 2);
+        for _ in 0..discard_users {
+            slot.release_user().unwrap();
+        }
         assert!(slot.is_available());
+        assert!(slot.release_user().is_err());
     }
 
     #[test]
@@ -1274,5 +1394,26 @@ mod tests {
         audit.record_presentation(0, now, Some(2));
         assert!(audit.submitted_at[0].is_empty());
         assert_eq!(audit.submit_to_presentation.samples, 2);
+    }
+
+    #[test]
+    fn presentation_watchdog_trips_at_its_deadline() {
+        let submitted_at = Instant::now();
+        let before = submitted_at + PRESENTATION_STALL_TIMEOUT - Duration::from_nanos(1);
+        let deadline = submitted_at + PRESENTATION_STALL_TIMEOUT;
+
+        assert_eq!(presentation_stall_age(submitted_at, before), None);
+        assert_eq!(
+            presentation_watchdog_remaining(submitted_at, before),
+            Duration::from_nanos(1)
+        );
+        assert_eq!(
+            presentation_stall_age(submitted_at, deadline),
+            Some(PRESENTATION_STALL_TIMEOUT)
+        );
+        assert_eq!(
+            presentation_watchdog_remaining(submitted_at, deadline),
+            Duration::ZERO
+        );
     }
 }

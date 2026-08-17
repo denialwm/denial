@@ -28,6 +28,9 @@ mod lifecycle;
 #[cfg(feature = "flutter")]
 #[path = "deniald/local_windows.rs"]
 mod local_windows;
+#[cfg(feature = "flutter")]
+#[path = "deniald/native_app_plugin.rs"]
+mod native_app_plugin;
 #[path = "deniald/native_shortcut.rs"]
 mod native_shortcut;
 #[cfg(feature = "flutter")]
@@ -100,7 +103,7 @@ use smithay::backend::drm::{
 };
 use smithay::backend::egl::EGLDisplay;
 use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::backend::renderer::{Bind, Color32F, Frame, Renderer};
+use smithay::backend::renderer::{Bind, Color32F, Frame, ImportDma, Renderer};
 use smithay::backend::session::libseat::LibSeatSession;
 use smithay::backend::session::{Event as SessionEvent, Session};
 use smithay::backend::udev::{UdevBackend, UdevEvent};
@@ -164,6 +167,8 @@ const SYSTEMD_DBUS_NAME: &str = "org.freedesktop.systemd1";
 const NOTIFICATION_EVENT_QUEUE_CAPACITY: usize = 512;
 #[cfg(feature = "flutter")]
 const DPMS_WAKE_TOPOLOGY_GRACE: Duration = Duration::from_secs(5);
+#[cfg(feature = "flutter")]
+const KMS_PRESENTATION_RECOVERY_RETRY: Duration = Duration::from_millis(250);
 #[cfg(feature = "flutter")]
 const COMPOSITOR_BACKGROUND_SLICE: Duration = Duration::from_millis(2);
 #[cfg(feature = "flutter")]
@@ -244,7 +249,18 @@ fn render_audit_enabled() -> bool {
     })
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() {
+    if let Err(error) = denial_main() {
+        // Returning Result::Err from main becomes status 1, which display
+        // managers can mistake for an orderly session exit. Preserve the
+        // abnormal-termination distinction (and a usable core dump) for the
+        // failures which cannot be recovered inside the compositor.
+        eprintln!("deniald: fatal error: {error}");
+        std::process::abort();
+    }
+}
+
+fn denial_main() -> Result<(), Box<dyn Error>> {
     let options = Options::parse()?;
     if options.start_locked {
         // SAFETY: option parsing happens on the process's only thread, before
@@ -1259,6 +1275,22 @@ struct RuntimeState {
     #[cfg(feature = "flutter")]
     sampled_buffer_releases: Vec<(Option<OwnedFd>, flutter_runtime::SampledBufferHoldBatch)>,
     #[cfg(feature = "flutter")]
+    native_app_plugins: Option<native_app_plugin::NativeAppPluginManager>,
+    #[cfg(feature = "flutter")]
+    native_plugin_actions: VecDeque<native_app_plugin::NativePluginAction>,
+    #[cfg(feature = "flutter")]
+    native_release_commands: VecDeque<native_app_plugin::NativeReleaseCommand>,
+    #[cfg(feature = "flutter")]
+    native_ready_frames: Vec<native_app_plugin::NativeFrameKey>,
+    #[cfg(feature = "flutter")]
+    native_release_sender: Option<
+        smithay::reexports::calloop::channel::Sender<native_app_plugin::NativeReleaseCommand>,
+    >,
+    #[cfg(feature = "flutter")]
+    native_plugin_formats: Vec<native_app_plugin::NativeAppFormatV1>,
+    #[cfg(feature = "flutter")]
+    native_plugin_default_size: (u32, u32),
+    #[cfg(feature = "flutter")]
     ready_fence_signals: Vec<output_scheduler::ReadyFenceSignal>,
     #[cfg(feature = "flutter")]
     volition_events: Vec<denial_core::volition::Event>,
@@ -1449,6 +1481,30 @@ fn service_session_lifecycle(
     }
 
     drm.activate(false)?;
+    rebase_kms_scanouts(
+        drm,
+        scanouts,
+        framebuffer,
+        events,
+        "libseat reactivated the KMS session",
+    )
+}
+
+/// Establishes a synchronous scanout baseline after the DRM event stream can
+/// no longer be trusted.  A DPMS wake can leave an atomic commit accepted by
+/// the kernel but without its corresponding page-flip event while a display
+/// link is still training.  The Flutter scheduler owns page-flip generations,
+/// so it must be rebuilt after this operation.
+fn rebase_kms_scanouts(
+    drm: &mut DrmDevice,
+    scanouts: &[Scanout],
+    framebuffer: framebuffer::Handle,
+    events: &mut RuntimeState,
+    reason: &'static str,
+) -> Result<(), Box<dyn Error>> {
+    if !drm.is_active() {
+        return Err("cannot rebase scanouts while the DRM device is inactive".into());
+    }
     for scanout in scanouts.iter().filter(|scanout| scanout.powered) {
         scanout
             .surface
@@ -1472,9 +1528,81 @@ fn service_session_lifecycle(
     events.topology_dirty = true;
     info!(
         outputs = scanouts.iter().filter(|scanout| scanout.powered).count(),
-        "libseat reactivated the KMS session"
+        %reason,
+        "rebased KMS scanouts"
     );
     Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn recover_stalled_kms_presentation(
+    drm: &mut DrmDevice,
+    event_loop: &mut EventLoop<'_, RuntimeState>,
+    events: &mut RuntimeState,
+) -> Result<(), Box<dyn Error>> {
+    loop {
+        if events.lifecycle.shutdown_reason().is_some() {
+            return Ok(());
+        }
+        if events.device_removed {
+            return Err("the active DRM device was removed during presentation recovery".into());
+        }
+
+        if events.lifecycle.take_pause_pending() {
+            if drm.is_active() {
+                drm.pause();
+            }
+            events.pending.clear();
+            events.completed_page_flips.clear();
+        }
+
+        let recovery = if !events.lifecycle.seat_active() {
+            Err("the libseat session is inactive".into())
+        } else {
+            (|| -> Result<(), Box<dyn Error>> {
+                if drm.is_active() {
+                    drm.pause();
+                }
+                // Reset every connector, CRTC, and plane in one synchronous
+                // atomic transaction. Re-committing the old per-output state
+                // here can wait forever when DPMS wake also removed a
+                // connector, which is precisely the failure this path must
+                // recover from. The normal topology transaction will rescan
+                // and enable only hardware which is actually connected.
+                drm.activate(true)?;
+                events.pending.clear();
+                events.completed_page_flips.clear();
+                events.scanout_rebased = true;
+                events.topology_dirty = true;
+                info!("reset KMS state after a stalled DPMS-wake presentation");
+                Ok(())
+            })()
+        };
+        match recovery {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                // A connector can remain transient for several seconds after
+                // its USB hub and display link start waking.  Recovery failure
+                // is therefore backpressure, not a session-ending error. Keep
+                // resetting the device atomically until the hardware accepts
+                // a synchronous all-disabled baseline.
+                warn!(
+                    %error,
+                    retry_ms = KMS_PRESENTATION_RECOVERY_RETRY.as_millis(),
+                    "KMS presentation recovery is waiting for the display hardware"
+                );
+                if let Some(event_error) = events.error.take() {
+                    warn!(
+                        error = event_error,
+                        "discarding DRM event error during presentation recovery"
+                    );
+                }
+                events.pending.clear();
+                events.completed_page_flips.clear();
+                event_loop.dispatch(KMS_PRESENTATION_RECOVERY_RETRY, events)?;
+            }
+        }
+    }
 }
 
 fn log_shutdown(reason: ShutdownReason) {
@@ -1582,6 +1710,8 @@ fn apply_output_power_requests(
 ) -> Result<(), Box<dyn Error>> {
     let requests = std::mem::take(&mut events.output_power_requests);
     let mut deferred = BTreeMap::new();
+    let mut power_off = Vec::new();
+    let mut power_on = Vec::new();
 
     for (output, powered) in requests {
         let Some(scanout_index) = scanouts
@@ -1605,75 +1735,188 @@ fn apply_output_power_requests(
             continue;
         }
 
-        if !powered {
-            if scheduler.begin_power_off(runtime, output, scanouts)? {
-                deferred.insert(output, false);
-                continue;
-            }
-            if let Err(error) = scanouts[scanout_index].surface.clear() {
-                scheduler.cancel_power_off(output, scanouts);
-                events.idle_dpms.note_power_failure(output, Instant::now());
-                warn!(
-                    output = scanouts[scanout_index].output.name,
-                    %error,
-                    "failed to power off KMS output"
-                );
-                if let Some(frontend) = events.wayland.as_mut() {
-                    frontend.fail_output_power(output);
-                }
-                continue;
-            }
-            scheduler.power_off(runtime, output, scanouts)?;
-            scanouts[scanout_index].powered = false;
-            events.output_control_dirty = true;
-            swapchain.present(scheduler.stable_framebuffer_index());
-            events.pending.remove(&scanouts[scanout_index].output.crtc);
-            info!(
-                output = scanouts[scanout_index].output.name,
-                "powered off KMS output"
-            );
+        if powered {
+            power_on.push((output, scanout_index));
         } else {
-            let framebuffer_index = scheduler.stable_framebuffer_index();
-            let framebuffer = swapchain
-                .buffers
-                .get(framebuffer_index)
-                .ok_or("DPMS wake framebuffer exceeds the atlas pool")?
-                .framebuffer();
-            let wake = scanouts[scanout_index]
-                .surface
-                .test_state([plane_state(&scanouts[scanout_index], framebuffer)], true)
-                .and_then(|()| {
-                    scanouts[scanout_index]
-                        .surface
-                        .commit([plane_state(&scanouts[scanout_index], framebuffer)], false)
-                });
-            if let Err(error) = wake {
-                events.idle_dpms.note_power_failure(output, Instant::now());
-                warn!(
-                    output = scanouts[scanout_index].output.name,
-                    %error,
-                    "failed to power on KMS output"
-                );
-                if let Some(frontend) = events.wayland.as_mut() {
-                    frontend.fail_output_power(output);
-                }
-                continue;
-            }
-            scanouts[scanout_index].powered = true;
-            events.output_control_dirty = true;
-            events.note_dpms_wake(Instant::now());
-            scheduler.power_on(runtime, scanout_index, framebuffer_index, scanouts)?;
-            swapchain.present(framebuffer_index);
-            info!(
-                output = scanouts[scanout_index].output.name,
-                "powered on KMS output"
-            );
-        }
-
-        if let Some(frontend) = events.wayland.as_mut() {
-            frontend.output_power_applied(output, powered);
+            power_off.push((output, scanout_index));
         }
     }
+
+    // Stop every affected pipeline before clearing any CRTC. This keeps one
+    // slow output from turning a multi-output blank into a staggered series of
+    // independently visible transitions.
+    let mut waiting_for_power_off = false;
+    for &(output, _) in &power_off {
+        waiting_for_power_off |= scheduler.begin_power_off(runtime, output, scanouts)?;
+    }
+    if waiting_for_power_off {
+        deferred.extend(power_off.iter().map(|(output, _)| (*output, false)));
+    } else if !power_off.is_empty() {
+        let mut targets = Vec::with_capacity(power_off.len());
+        for &(output, scanout_index) in &power_off {
+            let framebuffer_index = scheduler
+                .scanning_framebuffer_index(output, scanouts)
+                .ok_or("DPMS power-off output has no scheduler framebuffer")?;
+            targets.push((output, scanout_index, framebuffer_index));
+        }
+
+        let mut cleared = Vec::with_capacity(targets.len());
+        let mut failure = None;
+        for &(output, scanout_index, framebuffer_index) in &targets {
+            match scanouts[scanout_index].surface.clear() {
+                Ok(()) => cleared.push((output, scanout_index, framebuffer_index)),
+                Err(error) => {
+                    failure = Some((scanout_index, error.to_string()));
+                    break;
+                }
+            }
+        }
+
+        if let Some((failed_index, error)) = failure {
+            let mut rollback_failures = Vec::new();
+            for &(_, scanout_index, framebuffer_index) in &cleared {
+                let framebuffer = swapchain
+                    .buffers
+                    .get(framebuffer_index)
+                    .ok_or("DPMS rollback framebuffer exceeds the atlas pool")?
+                    .framebuffer();
+                let restore = scanouts[scanout_index]
+                    .surface
+                    .test_state([plane_state(&scanouts[scanout_index], framebuffer)], true)
+                    .and_then(|()| {
+                        scanouts[scanout_index]
+                            .surface
+                            .commit([plane_state(&scanouts[scanout_index], framebuffer)], false)
+                    });
+                if let Err(rollback_error) = restore {
+                    rollback_failures.push(format!(
+                        "{}: {rollback_error}",
+                        scanouts[scanout_index].output.name
+                    ));
+                }
+            }
+            for &(output, _) in &power_off {
+                scheduler.cancel_power_off(output, scanouts);
+                events.idle_dpms.note_power_failure(output, Instant::now());
+                if let Some(frontend) = events.wayland.as_mut() {
+                    frontend.fail_output_power(output);
+                }
+            }
+            warn!(
+                output = scanouts[failed_index].output.name,
+                %error,
+                restored_outputs = cleared.len(),
+                requested_outputs = power_off.len(),
+                "aborted compositor-owned display power-off batch"
+            );
+            if !rollback_failures.is_empty() {
+                return Err(format!(
+                    "DPMS power-off rollback failed after {} rejected the transition ({error}): {}",
+                    scanouts[failed_index].output.name,
+                    rollback_failures.join("; ")
+                )
+                .into());
+            }
+        } else {
+            for &(output, scanout_index, _) in &targets {
+                scheduler.power_off(runtime, output, scanouts)?;
+                scanouts[scanout_index].powered = false;
+                events.output_control_dirty = true;
+                events.pending.remove(&scanouts[scanout_index].output.crtc);
+                info!(
+                    output = scanouts[scanout_index].output.name,
+                    "powered off KMS output"
+                );
+                if let Some(frontend) = events.wayland.as_mut() {
+                    frontend.output_power_applied(output, false);
+                }
+            }
+            swapchain.present(scheduler.stable_framebuffer_index());
+        }
+    }
+
+    if !power_on.is_empty() {
+        let framebuffer_index = scheduler.stable_framebuffer_index();
+        let framebuffer = swapchain
+            .buffers
+            .get(framebuffer_index)
+            .ok_or("DPMS wake framebuffer exceeds the atlas pool")?
+            .framebuffer();
+        let mut failure = None;
+        for &(_, scanout_index) in &power_on {
+            if let Err(error) = scanouts[scanout_index]
+                .surface
+                .test_state([plane_state(&scanouts[scanout_index], framebuffer)], true)
+            {
+                failure = Some((scanout_index, error.to_string(), false));
+                break;
+            }
+        }
+
+        let mut committed = Vec::with_capacity(power_on.len());
+        if failure.is_none() {
+            for &(output, scanout_index) in &power_on {
+                if let Err(error) = scanouts[scanout_index]
+                    .surface
+                    .commit([plane_state(&scanouts[scanout_index], framebuffer)], false)
+                {
+                    failure = Some((scanout_index, error.to_string(), true));
+                    break;
+                }
+                committed.push((output, scanout_index));
+            }
+        }
+
+        if let Some((failed_index, error, commit_failed)) = failure {
+            let mut rollback_failures = Vec::new();
+            for &(_, scanout_index) in &committed {
+                if let Err(rollback_error) = scanouts[scanout_index].surface.clear() {
+                    rollback_failures.push(format!(
+                        "{}: {rollback_error}",
+                        scanouts[scanout_index].output.name
+                    ));
+                }
+            }
+            for &(output, _) in &power_on {
+                events.idle_dpms.note_power_failure(output, Instant::now());
+                if let Some(frontend) = events.wayland.as_mut() {
+                    frontend.fail_output_power(output);
+                }
+            }
+            warn!(
+                output = scanouts[failed_index].output.name,
+                %error,
+                phase = if commit_failed { "commit" } else { "test" },
+                restored_outputs = committed.len(),
+                requested_outputs = power_on.len(),
+                "aborted compositor-owned display wake batch"
+            );
+            if !rollback_failures.is_empty() {
+                return Err(format!(
+                    "DPMS wake rollback failed after {} rejected the transition ({error}): {}",
+                    scanouts[failed_index].output.name,
+                    rollback_failures.join("; ")
+                )
+                .into());
+            }
+        } else {
+            for &(output, scanout_index) in &power_on {
+                scanouts[scanout_index].powered = true;
+                scheduler.power_on(runtime, scanout_index, framebuffer_index, scanouts)?;
+                events.output_control_dirty = true;
+                info!(
+                    output = scanouts[scanout_index].output.name,
+                    "powered on KMS output"
+                );
+                if let Some(frontend) = events.wayland.as_mut() {
+                    frontend.output_power_applied(output, true);
+                }
+            }
+            events.note_dpms_wake(Instant::now());
+            swapchain.present(framebuffer_index);
+        }
+    }
+
     runtime.set_outputs_visible(scanouts.iter().any(|scanout| scanout.powered))?;
     events.output_power_requests = deferred;
     Ok(())
@@ -2147,6 +2390,61 @@ fn run_frame_loop(
 }
 
 #[cfg(feature = "flutter")]
+fn service_native_app_plugins(
+    event_loop: &mut EventLoop<'_, RuntimeState>,
+    events: &mut RuntimeState,
+    allocator: &mut GbmAllocator<DrmDeviceFd>,
+) -> Result<(), Box<dyn Error>> {
+    let Some(mut manager) = events.native_app_plugins.take() else {
+        events.native_plugin_actions.clear();
+        events.native_release_commands.clear();
+        events.native_ready_frames.clear();
+        return Ok(());
+    };
+
+    for release in events.native_release_commands.drain(..) {
+        if let Err(error) = manager.handle_release_command(release) {
+            warn!(%error, "native application plugin release command failed");
+        }
+    }
+    for key in events.native_ready_frames.drain(..) {
+        manager.activate_frame(key);
+    }
+
+    let default_size = events.native_plugin_default_size;
+    let formats = &events.native_plugin_formats;
+    manager.refresh_dirty_target_pools(formats, allocator)?;
+    let release_sender = events
+        .native_release_sender
+        .as_ref()
+        .ok_or("native application release channel disappeared")?;
+    for action in events.native_plugin_actions.drain(..) {
+        let watch =
+            match manager.handle_action(action, default_size, formats, allocator, release_sender) {
+                Ok(watch) => watch,
+                Err(error) => {
+                    warn!(%error, "rejected native application plugin event");
+                    continue;
+                }
+            };
+        let Some(watch) = watch else {
+            continue;
+        };
+        let key = watch.key;
+        event_loop.handle().insert_source(
+            Generic::new(watch.fence, Interest::READ, PollMode::Level),
+            move |_, _, state: &mut RuntimeState| {
+                state.native_ready_frames.push(key);
+                Ok(PostAction::Remove)
+            },
+        )?;
+    }
+
+    events.native_app_plugins = Some(manager);
+    Ok(())
+}
+
+#[cfg(feature = "flutter")]
 fn install_sampled_buffer_releases(
     event_loop: &mut EventLoop<'_, RuntimeState>,
     events: &mut RuntimeState,
@@ -2154,16 +2452,23 @@ fn install_sampled_buffer_releases(
     for (fence, batch) in events.sampled_buffer_releases.drain(..) {
         let Some(fence) = fence else {
             // The raster thread already used glFinish. Drop the guards here so
-            // wl_buffer.release remains on the compositor/Wayland thread.
+            // producer release remains on the compositor thread.
+            batch.complete_native_releases_without_fence()?;
             drop(batch);
             continue;
         };
+        batch.materialize_native_releases(fence.as_fd())?;
         let mut batch = Some(batch);
         event_loop.handle().insert_source(
             Generic::new(fence, Interest::READ, PollMode::Level),
             move |_, _, _| {
                 // A sync_file becomes readable only after every preceding
                 // Flutter sample command has completed on the GPU.
+                if let Some(batch) = batch.as_ref()
+                    && let Err(error) = batch.complete_native_releases()
+                {
+                    error!(%error, "could not complete a native plugin buffer release");
+                }
                 drop(batch.take());
                 Ok(PostAction::Remove)
             },
@@ -2181,8 +2486,8 @@ fn install_ready_fence_watch(
     event_loop.handle().insert_source(
         Generic::new(fence, Interest::READ, PollMode::Level),
         move |_, _, state: &mut RuntimeState| {
-            // Readability either makes an unconsumed atlas reusable or allows
-            // a capability fallback to submit it without IN_FENCE_FD.
+            // Readability makes an unconsumed atlas reusable and authorizes
+            // fence-free Volition lookahead after an earlier KMS submission.
             state.ready_fence_signals.push(signal);
             Ok(PostAction::Remove)
         },
@@ -2195,13 +2500,9 @@ fn submit_ready_frames(
     scheduler: &mut output_scheduler::OutputScheduler,
     swapchain: &AtlasSwapchain,
     scanouts: &[Scanout],
-    event_loop: &mut EventLoop<'_, RuntimeState>,
     events: &mut RuntimeState,
 ) -> Result<usize, Box<dyn Error>> {
     let submission = scheduler.submit_ready(swapchain, scanouts, events)?;
-    if let Some(watch) = submission.fence_watch {
-        install_ready_fence_watch(event_loop, watch)?;
-    }
     Ok(submission.submitted)
 }
 
@@ -2227,9 +2528,35 @@ fn run_flutter_event_loop(
     duration: Option<Duration>,
     event_loop: &mut EventLoop<'_, RuntimeState>,
 ) -> Result<framebuffer::Handle, Box<dyn Error>> {
-    use smithay::reexports::calloop::channel::{Event as ChannelEvent, sync_channel};
+    use smithay::reexports::calloop::channel::{Event as ChannelEvent, channel, sync_channel};
 
     let persistence_available = output_config.is_some();
+    let native_app_snapshot = topology.snapshot();
+    let native_app_atlas = AtlasPlan::for_snapshot(&native_app_snapshot)
+        .ok_or("native application plugin initialization has no output atlas")?;
+    let native_app_refresh_millihz = ticker_refresh_millihz(&native_app_snapshot)?;
+    let native_app_plugins = native_app_plugin::NativeAppPluginManager::load_configured(
+        drm.as_fd(),
+        native_app_atlas.engine_scale_120,
+        SCALE_BASE,
+        native_app_refresh_millihz,
+    )?;
+    let native_plugin_poll_descriptors = native_app_plugins
+        .as_ref()
+        .map(native_app_plugin::NativeAppPluginManager::poll_descriptors)
+        .transpose()?
+        .unwrap_or_default();
+    let native_plugin_formats = renderer
+        .dmabuf_formats()
+        .iter()
+        .filter(|format| format.modifier != Modifier::Invalid)
+        .take(native_app_plugin::MAX_FORMATS)
+        .map(|format| native_app_plugin::NativeAppFormatV1 {
+            format: format.code as u32,
+            modifier: u64::from(format.modifier),
+        })
+        .collect::<Vec<_>>();
+    let (native_release_sender, native_release_source) = channel();
     let started = Instant::now();
     let deadline = duration
         .map(|duration| {
@@ -2284,8 +2611,40 @@ fn run_flutter_event_loop(
         authentication,
         flutter_active: true,
         flutter_input: flutter_runtime::InputQueue::new(swapchain.size),
+        native_app_plugins,
+        native_release_sender: Some(native_release_sender),
+        native_plugin_formats,
+        native_plugin_default_size: (swapchain.size.width, swapchain.size.height),
         ..RuntimeState::default()
     };
+    event_loop.handle().insert_source(
+        native_release_source,
+        |event, _, state: &mut RuntimeState| {
+            if let ChannelEvent::Msg(command) = event {
+                state.native_release_commands.push_back(command);
+            }
+        },
+    )?;
+    for (plugin_index, descriptor) in native_plugin_poll_descriptors {
+        event_loop.handle().insert_source(
+            Generic::new(descriptor, Interest::READ, PollMode::Level),
+            move |_, _, state: &mut RuntimeState| {
+                let mut actions = std::mem::take(&mut state.native_plugin_actions);
+                let result = match state.native_app_plugins.as_mut() {
+                    Some(manager) => manager
+                        .dispatch(plugin_index, &mut actions)
+                        .map_err(|error| error.to_string()),
+                    None => Err("native application plugin manager disappeared".to_owned()),
+                };
+                state.native_plugin_actions = actions;
+                if let Err(error) = result {
+                    warn!(plugin_index, %error, "disabled failed native application plugin event source");
+                    return Ok(PostAction::Remove);
+                }
+                Ok(PostAction::Continue)
+            },
+        )?;
+    }
     let (volition_event_sender, volition_event_source) = sync_channel(8);
     event_loop.handle().insert_source(
         volition_event_source,
@@ -2337,6 +2696,7 @@ fn run_flutter_event_loop(
             &mut events,
             deadline,
         )?;
+        service_native_app_plugins(event_loop, &mut events, allocator)?;
         events.service_topology_recheck_deadline(Instant::now());
         install_sampled_buffer_releases(event_loop, &mut events)?;
         scheduler.acknowledge_ready_fences(
@@ -2345,7 +2705,21 @@ fn run_flutter_event_loop(
                 .ok_or("Flutter runtime disappeared during fence acknowledgement")?,
             events.ready_fence_signals.drain(..),
         )?;
-        scheduler.acknowledge_volition_events(events.volition_events.drain(..))?;
+        let volition_events = std::mem::take(&mut events.volition_events);
+        if let Some(stall) =
+            scheduler.acknowledge_volition_events(volition_events, scanouts, &mut events)?
+        {
+            let commit = stall.commit();
+            error!(
+                stream = commit.stream,
+                framebuffer_index = commit.frame,
+                %stall,
+                "KMS lookahead remained busy; rebuilding the DRM and render stack in this session"
+            );
+            scheduler.shutdown_volition();
+            recover_stalled_kms_presentation(drm, event_loop, &mut events)?;
+            continue;
+        }
         let needs_output_snapshot =
             ready_output_apply.is_some() || pending_output_success.is_some();
         let mut current_output_snapshot =
@@ -2393,6 +2767,32 @@ fn run_flutter_event_loop(
                 .as_mut()
                 .ok_or("Flutter runtime disappeared during page-flip completion")?;
             scheduler.handle_completions(runtime, swapchain, scanouts, &mut events)?;
+            if drm.is_active()
+                && let Some(stall) = scheduler.presentation_stall(Instant::now())
+            {
+                let output = scanouts
+                    .get(stall.scanout_index)
+                    .map(|scanout| scanout.output.name.as_str())
+                    .unwrap_or("unknown");
+                error!(
+                    output,
+                    framebuffer_index = stall.framebuffer_index,
+                    pending_frames = stall.pending_frames,
+                    stalled_ms = stall.elapsed.as_millis(),
+                    "KMS presentation stopped making progress; rebuilding the DRM and render stack in this session"
+                );
+                // A monitor waking from DPMS can accept an atomic commit while
+                // its link is still training, then withhold the matching
+                // page-flip event.  Do not return an error here: a display
+                // manager interprets the compositor's non-zero exit as an
+                // ordinary ended session and drops the user onto a getty.
+                // Reset to a synchronous KMS baseline instead; the topology
+                // branch below rescans the connectors and recreates Flutter
+                // and its per-output scheduler.
+                scheduler.shutdown_volition();
+                recover_stalled_kms_presentation(drm, event_loop, &mut events)?;
+                continue;
+            }
             for presentation in scheduler.presented_outputs().iter().copied() {
                 frame_scheduler.observe_presentation(presentation);
             }
@@ -2412,7 +2812,7 @@ fn run_flutter_event_loop(
             // drain before authorizing Flutter to render again. Otherwise the
             // broker remains Ready for one more display edge and Flutter must
             // skip that edge even when another atlas target is free.
-            submit_ready_frames(&mut scheduler, swapchain, scanouts, event_loop, &mut events)?;
+            submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
 
             if scheduler.can_accept_ready()
                 && let Some(ready) = runtime.take_ready()
@@ -2442,7 +2842,7 @@ fn run_flutter_event_loop(
             // This remains ahead of input, Wayland traversal, and background
             // shell synchronization, but follows frame-clock authorization so
             // those tasks cannot perturb Flutter's animation timestamp.
-            submit_ready_frames(&mut scheduler, swapchain, scanouts, event_loop, &mut events)?;
+            submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
             for tick in frame_scheduler.output_ticks().iter().copied() {
                 if let Some(frontend) = events.wayland.as_mut() {
                     frontend.frame_tick(tick)?;
@@ -2554,7 +2954,7 @@ fn run_flutter_event_loop(
             && let Some(request) = events.pending_output_applies.pop_front()
         {
             if scheduler.has_pending_scanout_work() {
-                submit_ready_frames(&mut scheduler, swapchain, scanouts, event_loop, &mut events)?;
+                submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
                 events.pending_output_applies.push_front(request);
                 let now = Instant::now();
                 let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
@@ -2871,15 +3271,9 @@ fn run_flutter_event_loop(
                     if !scanout_rebased && scheduler.has_pending_scanout_work() {
                         // Finish any ready old-topology atlas before creating the
                         // common rollback point used by the hotplug transaction.
-                        // A signalled userspace fence can be submitted now; an
-                        // unfinished one will wake this loop through calloop.
-                        submit_ready_frames(
-                            &mut scheduler,
-                            swapchain,
-                            scanouts,
-                            event_loop,
-                            &mut events,
-                        )?;
+                        // A signalled ready fence can enter Volition lookahead;
+                        // an unfinished one will wake this loop through calloop.
+                        submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
                         events.topology_dirty = true;
                         events.kms_reconfigure_requested = kms_reconfigure_requested;
                         let now = Instant::now();
@@ -2902,7 +3296,7 @@ fn run_flutter_event_loop(
                     }
                     retired_output_flips =
                         retired_output_flips.saturating_add(scheduler.presented_frames());
-                    apply_hotplug_topology(
+                    let topology_apply = apply_hotplug_topology(
                         renderer,
                         atlas_allocator,
                         drm,
@@ -2917,7 +3311,27 @@ fn run_flutter_event_loop(
                         &mut events,
                         &mut flutter,
                         Some(flutter_launcher),
-                    )?;
+                    );
+                    if let Err(error) = topology_apply {
+                        if scanout_rebased && flutter.is_some() {
+                            // Recovery may reach this transaction while a
+                            // monitor is still link-training.  Its synchronous
+                            // baseline was accepted, but the transaction's
+                            // first event-producing flip can still time out.
+                            // Keep the login and retry from a fresh connector
+                            // scan instead of returning status 1 to SDDM.
+                            warn!(
+                                %error,
+                                retry_ms = KMS_PRESENTATION_RECOVERY_RETRY.as_millis(),
+                                "KMS topology rebuild is waiting for the display hardware"
+                            );
+                            events.scanout_rebased = true;
+                            events.topology_dirty = true;
+                            event_loop.dispatch(KMS_PRESENTATION_RECOVERY_RETRY, &mut events)?;
+                            continue;
+                        }
+                        return Err(error);
+                    }
                     scheduler = output_scheduler::OutputScheduler::new(
                         drm,
                         volition_event_sender.clone(),
@@ -2964,7 +3378,7 @@ fn run_flutter_event_loop(
                 // every affected CRTC. A ready fence or page flip will wake
                 // this loop through calloop, without disturbing clients or
                 // the graphical session.
-                submit_ready_frames(&mut scheduler, swapchain, scanouts, event_loop, &mut events)?;
+                submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
                 let now = Instant::now();
                 let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
                     Duration::from_millis(50).min(deadline.saturating_duration_since(now))
@@ -3195,6 +3609,10 @@ fn run_flutter_event_loop(
         let now = Instant::now();
         let mut next_dispatch_timeout =
             frame_scheduler.limit_dispatch_timeout(now, runtime.next_dispatch_timeout());
+        if drm.is_active() {
+            next_dispatch_timeout =
+                scheduler.limit_presentation_watchdog_timeout(now, next_dispatch_timeout);
+        }
         if events.flutter_input.has_pending() || !events.flutter_events.is_empty() {
             next_dispatch_timeout = Duration::ZERO;
         }
@@ -3544,31 +3962,32 @@ fn synchronize_flutter_scene(
 ) -> Result<(), Box<dyn Error>> {
     let mut metadata_revision = events.scene_sync.pending_metadata_revision();
     let pending_buffer_revision = events.scene_sync.pending_buffer_revision();
-    if metadata_revision.is_none() && pending_buffer_revision.is_none() {
-        return Ok(());
+    let native_scene_dirty = events
+        .native_app_plugins
+        .as_ref()
+        .is_some_and(native_app_plugin::NativeAppPluginManager::scene_dirty);
+    if native_scene_dirty && metadata_revision.is_none() {
+        events.scene_sync.mark_dirty();
+        metadata_revision = events.scene_sync.pending_metadata_revision();
     }
-    if events.wayland.is_none() {
+    if metadata_revision.is_none() && pending_buffer_revision.is_none() && !native_scene_dirty {
         return Ok(());
     }
 
     if metadata_revision.is_none() {
         let buffer_revision = pending_buffer_revision
             .expect("a scene sync without metadata must contain buffer work");
-        let textures = {
+        let textures = if let Some(frontend) = events.wayland.as_mut() {
             let scene_sync = &events.scene_sync;
-            events
-                .wayland
-                .as_mut()
-                .expect("Wayland frontend was present above")
-                .flutter_dirty_textures(scene_sync.dirty_surface_ids(buffer_revision))
+            frontend.flutter_dirty_textures(scene_sync.dirty_surface_ids(buffer_revision))
+        } else {
+            None
         };
         if let Some(textures) = textures {
             let textures = runtime.sync_wayland_buffers(textures)?;
-            events
-                .wayland
-                .as_mut()
-                .expect("Wayland frontend cannot disappear while synchronizing")
-                .recycle_flutter_dirty_textures(textures);
+            if let Some(frontend) = events.wayland.as_mut() {
+                frontend.recycle_flutter_dirty_textures(textures);
+            }
             events.scene_sync.mark_buffers_synchronized(buffer_revision);
             return Ok(());
         }
@@ -3582,20 +4001,27 @@ fn synchronize_flutter_scene(
 
     let revision = metadata_revision.expect("metadata fallback must be pending");
     let buffer_revision = events.scene_sync.buffer_revision();
-    let frontend = events
-        .wayland
-        .as_ref()
-        .expect("Wayland frontend was present above");
     // Building the live-ID set walks every toplevel. It is only needed to
     // classify events which arrived before their first renderable buffer;
     // the steady-state scene publication normally has none.
-    let live_window_ids = (!events.pending_unpublished_window_events.is_empty())
-        .then(|| frontend.live_toplevel_ids());
-    let (windows, textures) = events
+    let live_window_ids = (!events.pending_unpublished_window_events.is_empty()).then(|| {
+        events
+            .wayland
+            .as_ref()
+            .map(wayland_frontend::WaylandFrontend::live_toplevel_ids)
+            .unwrap_or_default()
+    });
+    let (mut windows, mut textures) = events
         .wayland
         .as_mut()
-        .expect("Wayland frontend was present above")
-        .flutter_scene()?;
+        .map(wayland_frontend::WaylandFrontend::flutter_scene)
+        .transpose()?
+        .unwrap_or_default();
+    if let Some(manager) = events.native_app_plugins.as_ref() {
+        let (native_windows, native_textures) = manager.scene();
+        windows.extend(native_windows);
+        textures.extend(native_textures);
+    }
     let flutter_runtime::SyncedWaylandScene {
         windows,
         textures,
@@ -3609,11 +4035,12 @@ fn synchronize_flutter_scene(
         published_window_ids.extend(runtime.synced_window_ids());
         events.published_window_ids = published_window_ids;
     }
-    events
-        .wayland
-        .as_mut()
-        .expect("Wayland frontend cannot disappear while synchronizing")
-        .recycle_flutter_scene(windows, textures);
+    if let Some(frontend) = events.wayland.as_mut() {
+        frontend.recycle_flutter_scene(windows, textures);
+    }
+    if let Some(manager) = events.native_app_plugins.as_mut() {
+        manager.mark_scene_synchronized();
+    }
     // A later Wayland commit has a newer revision, so acknowledging this
     // captured revision cannot erase work that arrived while Flutter/KMS was
     // processing the previous frame.
@@ -3658,7 +4085,13 @@ fn synchronize_flutter_input_layout(
     let Some(layout) = runtime.take_input_layout_update() else {
         return Ok(());
     };
+    if let Some(manager) = events.native_app_plugins.as_mut()
+        && let Err(error) = manager.apply_input_layout(&layout)
+    {
+        warn!(%error, "could not apply native plugin input visibility");
+    }
     let Some(frontend) = events.wayland.as_mut() else {
+        runtime.recycle_input_layout(layout);
         return Ok(());
     };
     let (previous, sampling_changed, routing_changed) = frontend.install_input_layout(layout);
@@ -3931,7 +4364,32 @@ fn synchronize_flutter_window_management(
         while let Some((action, monitor_id)) = events.pending_shell_actions.pop_front() {
             runtime.send_shell_action(action, monitor_id)?;
         }
-        wayland_frontend::apply_window_commands(events, runtime.drain_window_commands());
+        let commands = runtime.drain_window_commands().collect::<Vec<_>>();
+        let mut wayland_commands = Vec::with_capacity(commands.len());
+        for command in commands {
+            let native_owned = command.window_id().is_some_and(|window_id| {
+                events
+                    .native_app_plugins
+                    .as_ref()
+                    .is_some_and(|manager| manager.owns_window(window_id))
+            });
+            if native_owned {
+                if let Some(manager) = events.native_app_plugins.as_mut()
+                    && let Err(error) = manager.apply_window_command(&command)
+                {
+                    warn!(%error, "native application plugin window command failed");
+                }
+            } else {
+                if matches!(command, wire::WindowCommand::Focus { .. })
+                    && let Some(manager) = events.native_app_plugins.as_mut()
+                    && let Err(error) = manager.clear_focus()
+                {
+                    warn!(%error, "could not clear native application focus");
+                }
+                wayland_commands.push(command);
+            }
+        }
+        wayland_frontend::apply_window_commands(events, wayland_commands);
     }
     if events.pending_window_events.is_empty() {
         return Ok(());
@@ -4427,6 +4885,17 @@ fn apply_hotplug_topology(
         events.output_control_dirty = true;
     }
     let retired = std::mem::replace(swapchain, staged);
+    #[cfg(feature = "flutter")]
+    {
+        events.native_plugin_default_size = (swapchain.size.width, swapchain.size.height);
+        if let Some(manager) = events.native_app_plugins.as_mut() {
+            manager.set_configure_properties(
+                atlas.engine_scale_120,
+                SCALE_BASE,
+                ticker_refresh_millihz(&snapshot)?,
+            )?;
+        }
+    }
     progress.mark_finalized();
     drop(retired_scanouts);
 
@@ -4470,6 +4939,20 @@ fn apply_hotplug_topology(
         "committed hotplug atlas transaction"
     );
     Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn ticker_refresh_millihz(snapshot: &TopologySnapshot) -> Result<u32, Box<dyn Error>> {
+    let ticker = snapshot
+        .ticker
+        .ok_or("native application timing has no ticker output")?;
+    snapshot
+        .outputs
+        .iter()
+        .find(|output| output.id == ticker)
+        .map(|output| output.refresh_millihz)
+        .filter(|refresh| *refresh > 0 && *refresh <= 1_000_000)
+        .ok_or_else(|| "native application ticker output has an invalid refresh rate".into())
 }
 
 fn reconcile_scanouts<'a>(

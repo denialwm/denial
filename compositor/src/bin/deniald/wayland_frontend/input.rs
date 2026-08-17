@@ -24,6 +24,7 @@ use smithay::reexports::calloop::EventLoop;
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::input::Libinput;
 use smithay::reexports::input::event::pointer::PointerEventTrait;
+use smithay::reexports::input::event::touch::TouchEventTrait;
 #[cfg(feature = "flutter")]
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 #[cfg(feature = "flutter")]
@@ -858,6 +859,25 @@ fn process_keyboard_transition(
     if intercept_native_escape(state, keycode.raw(), key_state) {
         return true;
     }
+    if let Some(evdev_keycode) = keycode.raw().checked_sub(8) {
+        let allow_new = !state.secure_session_locked();
+        let routed = state.native_app_plugins.as_mut().map(|manager| {
+            manager.route_key(
+                evdev_keycode,
+                key_state == KeyState::Pressed,
+                u64::from(time).saturating_mul(1_000_000),
+                allow_new,
+            )
+        });
+        match routed {
+            Some(Ok(true)) => return true,
+            Some(Err(error)) => {
+                warn!(%error, evdev_keycode, "native application key routing failed");
+                return true;
+            }
+            Some(Ok(false)) | None => {}
+        }
+    }
     if state.flutter_active {
         return process_flutter_keyboard_transition(state, keycode, key_state, time);
     }
@@ -999,6 +1019,12 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
         state
             .flutter_input
             .cancel_device_lifecycles(reset.pointer, reset.touch);
+    }
+    #[cfg(feature = "flutter")]
+    if let Some(manager) = state.native_app_plugins.as_mut()
+        && let Err(error) = manager.reset_input(reset.keyboard, reset.touch)
+    {
+        warn!(%error, "could not reset native application input");
     }
 
     let Some(frontend) = state.wayland.as_mut() else {
@@ -2002,7 +2028,7 @@ fn process_flutter_input_event(
         } => {
             let serial = SERIAL_COUNTER.next_serial();
             let slot = i32::from(touch_event.slot());
-            let (position, target, software_keyboard_touch) = {
+            let (position, scene_position, software_keyboard_touch) = {
                 let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
                 frontend.set_pointer_cursor_visible(false);
                 let local = touch_event.position_transformed(frontend.touch_bounds.size);
@@ -2010,13 +2036,61 @@ fn process_flutter_input_event(
                 let scene_position = position - frontend.atlas_origin;
                 (
                     position,
-                    if secure_locked {
-                        InputTarget::Flutter
-                    } else {
-                        frontend.input_target(position)
-                    },
+                    scene_position,
                     software_keyboard_owns_touch(frontend.input_layout.as_ref(), scene_position),
                 )
+            };
+            let native_target = (!secure_locked)
+                .then(|| {
+                    state.native_app_plugins.as_ref().and_then(|manager| {
+                        manager.native_window_at(scene_position.x, scene_position.y)
+                    })
+                })
+                .flatten();
+            if let Some(host_id) = native_target {
+                let routed = state
+                    .native_app_plugins
+                    .as_mut()
+                    .expect("native touch target lost its plugin manager")
+                    .touch_down(
+                        host_id,
+                        slot,
+                        scene_position.x,
+                        scene_position.y,
+                        touch_event.time_usec().saturating_mul(1_000),
+                    );
+                if let Err(error) = routed {
+                    warn!(%error, host_id, slot, "native application touch-down routing failed");
+                    return false;
+                }
+                let keyboard = state
+                    .wayland
+                    .as_ref()
+                    .expect("missing Wayland frontend")
+                    .seat
+                    .get_keyboard()
+                    .expect("seat has no keyboard");
+                keyboard.set_focus(state, Option::<super::KeyboardFocusTarget>::None, serial);
+                state
+                    .wayland
+                    .as_mut()
+                    .expect("missing Wayland frontend")
+                    .text_input
+                    .note_client_touch();
+                state
+                    .pending_window_events
+                    .push(PendingWindowEvent::Activated(host_id));
+                state.scene_sync.mark_dirty();
+                return false;
+            }
+            let target = if secure_locked {
+                InputTarget::Flutter
+            } else {
+                state
+                    .wayland
+                    .as_mut()
+                    .expect("missing Wayland frontend")
+                    .input_target(position)
             };
             match target {
                 InputTarget::Flutter => {
@@ -2076,6 +2150,28 @@ fn process_flutter_input_event(
             event: touch_event, ..
         } => {
             let slot = i32::from(touch_event.slot());
+            let (position, scene_position) = {
+                let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
+                let local = touch_event.position_transformed(frontend.touch_bounds.size);
+                let position = local + frontend.touch_bounds.loc.to_f64();
+                (position, position - frontend.atlas_origin)
+            };
+            let native_routed = state.native_app_plugins.as_mut().map(|manager| {
+                manager.touch_motion(
+                    slot,
+                    scene_position.x,
+                    scene_position.y,
+                    touch_event.time_usec().saturating_mul(1_000),
+                )
+            });
+            match native_routed {
+                Some(Ok(true)) => return false,
+                Some(Err(error)) => {
+                    warn!(%error, slot, "native application touch-motion routing failed");
+                    return false;
+                }
+                Some(Ok(false)) | None => {}
+            }
             let flutter_target = state
                 .wayland
                 .as_ref()
@@ -2086,15 +2182,12 @@ fn process_flutter_input_event(
                 state.flutter_input.handle(&event);
                 return false;
             }
-            let (position, focus) = {
+            let focus = {
                 let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
-                let local = touch_event.position_transformed(frontend.touch_bounds.size);
-                let position = local + frontend.touch_bounds.loc.to_f64();
-                let focus = frontend
+                frontend
                     .client_touch_routes
                     .get(&slot)
-                    .map(|route| route.focus_at(position));
-                (position, focus)
+                    .map(|route| route.focus_at(position))
             };
             if let Some(focus) = focus {
                 let touch = state
@@ -2127,6 +2220,17 @@ fn process_flutter_input_event(
             event: touch_event, ..
         } => {
             let slot = i32::from(touch_event.slot());
+            let native_routed = state.native_app_plugins.as_mut().map(|manager| {
+                manager.touch_up(slot, touch_event.time_usec().saturating_mul(1_000))
+            });
+            match native_routed {
+                Some(Ok(true)) => return false,
+                Some(Err(error)) => {
+                    warn!(%error, slot, "native application touch-up routing failed");
+                    return false;
+                }
+                Some(Ok(false)) | None => {}
+            }
             let flutter_target = state
                 .wayland
                 .as_mut()
@@ -2192,6 +2296,17 @@ fn process_flutter_input_event(
             event: touch_event, ..
         } => {
             let slot = i32::from(touch_event.slot());
+            let native_routed = state.native_app_plugins.as_mut().map(|manager| {
+                manager.touch_cancel(slot, touch_event.time_usec().saturating_mul(1_000))
+            });
+            match native_routed {
+                Some(Ok(true)) => return false,
+                Some(Err(error)) => {
+                    warn!(%error, slot, "native application touch-cancel routing failed");
+                    return false;
+                }
+                Some(Ok(false)) | None => {}
+            }
             let flutter_target = state
                 .wayland
                 .as_mut()
@@ -2511,6 +2626,11 @@ fn activate_client_route(
         // stealing the keyboard focus from the editor they serve.
         return false;
     };
+    if let Some(manager) = state.native_app_plugins.as_mut()
+        && let Err(error) = manager.clear_focus()
+    {
+        warn!(%error, "could not clear native application focus");
+    }
     let keyboard = state
         .wayland
         .as_ref()

@@ -577,9 +577,7 @@ impl EngineHost {
                 state,
             )?;
         }
-        callback_state
-            .engine_handle
-            .store(engine.raw_handle() as usize, Ordering::Release);
+        publish_engine_handle(&callback_state, engine.raw_handle() as usize, state);
         Ok(Self {
             state: Some(Box::new(EngineHostState {
                 engine: Some(engine),
@@ -875,6 +873,16 @@ unsafe extern "C" fn request_vsync(data: *mut c_void, baton: isize) {
     });
 }
 
+fn publish_engine_handle(state: &CallbackState, handle: usize, data: *mut c_void) {
+    state.engine_handle.store(handle, Ordering::Release);
+    // Flutter may make the render context current while FlutterEngineRun is
+    // still returning, before there is a handle with which to post the
+    // matching idle sentinel. Retry after publishing the handle so that an
+    // initialization task which produced no present() cannot leave the
+    // producer permanently Rasterizing.
+    queue_raster_sentinel(state, data);
+}
+
 fn queue_raster_sentinel(state: &CallbackState, data: *mut c_void) {
     if state
         .raster_sentinel_pending
@@ -1099,6 +1107,80 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
+
+    static POSTED_RASTER_SENTINELS: AtomicUsize = AtomicUsize::new(0);
+    static POSTED_RASTER_SENTINEL_ENGINE: AtomicUsize = AtomicUsize::new(0);
+
+    struct NoopGlHandler;
+
+    impl OpenGlHandler for NoopGlHandler {
+        fn make_current(&self) -> bool {
+            true
+        }
+
+        fn clear_current(&self) -> bool {
+            true
+        }
+
+        fn make_resource_current(&self) -> bool {
+            true
+        }
+
+        fn framebuffer(&self, _width: u32, _height: u32) -> u32 {
+            0
+        }
+
+        fn present(&self, _frame: PresentFrame<'_>) -> bool {
+            true
+        }
+
+        fn populate_existing_damage(
+            &self,
+            _framebuffer: isize,
+            _damage: &mut Vec<sys::FlutterRect>,
+        ) {
+        }
+
+        fn resolve_proc(&self, _name: &CStr) -> *mut c_void {
+            ptr::null_mut()
+        }
+
+        fn event(&self, _event: EngineEvent) {}
+    }
+
+    unsafe extern "C" fn record_raster_sentinel(
+        engine: sys::FlutterEngine,
+        callback: sys::VoidCallback,
+        _data: *mut c_void,
+    ) -> sys::FlutterEngineResult {
+        POSTED_RASTER_SENTINEL_ENGINE.store(engine as usize, Ordering::SeqCst);
+        POSTED_RASTER_SENTINELS.store(usize::from(callback.is_some()), Ordering::SeqCst);
+        sys::FlutterEngineResult_kSuccess
+    }
+
+    #[test]
+    fn publishing_engine_handle_rearms_startup_raster_sentinel() {
+        POSTED_RASTER_SENTINELS.store(0, Ordering::SeqCst);
+        POSTED_RASTER_SENTINEL_ENGINE.store(0, Ordering::SeqCst);
+        let state = CallbackState {
+            handler: Arc::new(NoopGlHandler),
+            platform_thread: thread::current().id(),
+            platform_message_budget: Arc::new(PlatformMessageBudget::default()),
+            engine_handle: AtomicUsize::new(0),
+            post_render_thread_task: record_raster_sentinel,
+            raster_sentinel_pending: AtomicBool::new(false),
+        };
+        let data = ptr::from_ref(&state).cast_mut().cast::<c_void>();
+
+        queue_raster_sentinel(&state, data);
+        assert_eq!(POSTED_RASTER_SENTINELS.load(Ordering::SeqCst), 0);
+        assert!(!state.raster_sentinel_pending.load(Ordering::SeqCst));
+
+        publish_engine_handle(&state, 37, data);
+        assert_eq!(POSTED_RASTER_SENTINELS.load(Ordering::SeqCst), 1);
+        assert_eq!(POSTED_RASTER_SENTINEL_ENGINE.load(Ordering::SeqCst), 37);
+        assert!(state.raster_sentinel_pending.load(Ordering::SeqCst));
+    }
 
     #[test]
     fn engine_command_line_caps_the_resource_cache_when_requested() {

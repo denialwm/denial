@@ -8,6 +8,7 @@
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::ffi::{CStr, OsString, c_char, c_void};
+use std::hash::Hash;
 use std::io::{Read, Write};
 use std::mem;
 use std::os::fd::{AsFd, OwnedFd};
@@ -46,6 +47,7 @@ use tracing::{debug, error, info, warn};
 use super::egl_context;
 use super::frame_scheduler::{FrameTick, PendingFrame};
 use super::idle_policy;
+use super::native_app_plugin::NativeBufferRelease;
 use super::render_audit_enabled;
 use super::wire::{self, WireBridge};
 
@@ -79,7 +81,7 @@ const GLFW_MOD_CONTROL: u32 = 0x0002;
 const GLFW_MOD_ALT: u32 = 0x0004;
 const FLUTTER_MOUSE_WHEEL_SCROLL_PIXELS: f64 = 53.0;
 const V120_UNITS_PER_WHEEL_STEP: f64 = 120.0;
-const MAX_CACHED_DMABUF_BINDINGS: usize = 32;
+const MAX_CACHED_DMABUF_BINDINGS_PER_TEXTURE: usize = 8;
 const MAX_CACHED_SHM_BINDINGS: usize = 32;
 const MAX_CACHED_EXTERNAL_TEXTURE_LEASES: usize = 256;
 const MAX_RECYCLED_SAMPLED_BUFFER_BATCHES: usize = 8;
@@ -415,6 +417,10 @@ pub enum RuntimeEvent {
     QueueOverflow {
         generation: u64,
         queue: &'static str,
+    },
+    FatalRender {
+        generation: u64,
+        reason: String,
     },
     VmServiceUri {
         generation: u64,
@@ -1702,13 +1708,20 @@ impl Drop for CachedTextureBinding {
 enum ExternalTextureLeaseResource {
     Dmabuf {
         // The cached EGLImage/texture can outlive an individual Flutter frame,
-        // but the Wayland buffer guard must not: releasing this lease is what
-        // eventually permits the client to recycle its wl_buffer.
+        // but the producer buffer guard must not: releasing this lease is what
+        // eventually permits the producer to recycle its allocation.
         _binding: Arc<CachedTextureBinding>,
-        _wayland_buffer_guard: Option<RendererBufferGuard>,
+        _buffer_guard: Option<ExternalBufferGuard>,
         _resource_permit: ExternalTextureResourcePermit,
     },
     Shm {
+        _binding: Arc<CachedTextureBinding>,
+        _resource_permit: ExternalTextureResourcePermit,
+    },
+    Retained {
+        // Native producer buffers are copied once into this private texture.
+        // Later Flutter frames never sample producer-owned storage after its
+        // release fence signals.
         _binding: Arc<CachedTextureBinding>,
         _resource_permit: ExternalTextureResourcePermit,
     },
@@ -1721,7 +1734,7 @@ struct PreparedExternalTexture {
     height: usize,
     name: u32,
     resource: ExternalTextureLeaseResource,
-    sampled_buffer: Option<RendererBufferGuard>,
+    sampled_buffer: Option<ExternalBufferGuard>,
 }
 
 type ExternalTextureLeasePool = Mutex<Vec<Box<ExternalTextureLease>>>;
@@ -1856,6 +1869,57 @@ impl<K: Eq, V: Clone> RecencyCache<K, V> {
 
     fn drain(&mut self) -> Vec<V> {
         self.entries.drain(..).map(|entry| entry.value).collect()
+    }
+}
+
+/// Independent bounded buffer rings keyed by Flutter external-texture ID.
+///
+/// A single global LRU becomes a complete miss stream when several clients'
+/// rotating DMA-BUF pools collectively exceed its capacity: Flutter visits
+/// the textures in a stable order, so each miss evicts the buffer needed by a
+/// later texture in the same frame. Partitioning keeps one busy client from
+/// evicting every other client's reusable EGLImages. The compositor-wide
+/// `ExternalTextureResourceBudget` remains the hard ownership bound.
+struct PartitionedRecencyCache<O, K, V> {
+    partitions: HashMap<O, RecencyCache<K, V>>,
+    capacity_per_partition: usize,
+}
+
+impl<O: Eq + Hash, K: Eq, V: Clone> PartitionedRecencyCache<O, K, V> {
+    fn new(capacity_per_partition: usize) -> Self {
+        assert!(
+            capacity_per_partition > 0,
+            "partitioned recency cache capacity must be positive"
+        );
+        Self {
+            partitions: HashMap::new(),
+            capacity_per_partition,
+        }
+    }
+
+    fn get_by(&mut self, owner: &O, matches: impl FnMut(&K) -> bool) -> Option<V> {
+        self.partitions.get_mut(owner)?.get_by(matches)
+    }
+
+    fn insert(&mut self, owner: O, key: K, value: V) -> Option<V> {
+        let capacity = self.capacity_per_partition;
+        self.partitions
+            .entry(owner)
+            .or_insert_with(|| RecencyCache::new(capacity))
+            .insert(key, value)
+    }
+
+    fn remove(&mut self, owner: &O) -> Vec<V> {
+        self.partitions
+            .remove(owner)
+            .map_or_else(Vec::new, |mut partition| partition.drain())
+    }
+
+    fn drain(&mut self) -> Vec<V> {
+        self.partitions
+            .drain()
+            .flat_map(|(_, mut partition)| partition.drain())
+            .collect()
     }
 }
 
@@ -2006,10 +2070,22 @@ impl ShmTextureFrame {
 }
 
 #[derive(Clone)]
+enum ExternalBufferGuard {
+    Wayland { _guard: RendererBufferGuard },
+    Native(NativeBufferRelease),
+}
+
+impl ExternalBufferGuard {
+    fn is_native(&self) -> bool {
+        matches!(self, Self::Native(_))
+    }
+}
+
+#[derive(Clone)]
 enum ExternalTextureSource {
     Dmabuf {
         dmabuf: Dmabuf,
-        buffer_guard: Option<RendererBufferGuard>,
+        buffer_guard: Option<ExternalBufferGuard>,
         revision: u64,
     },
     Shm(ShmTextureFrame),
@@ -2092,7 +2168,7 @@ impl ExternalTextureSlot {
 struct SampledBufferHold {
     texture_id: i64,
     generation: u64,
-    _buffer_guard: RendererBufferGuard,
+    buffer_guard: ExternalBufferGuard,
 }
 
 type SampledBufferBatchPool = Mutex<Vec<Vec<SampledBufferHold>>>;
@@ -2109,6 +2185,36 @@ impl SampledBufferHoldBatch {
 
     fn texture_ids(&self) -> impl Iterator<Item = i64> + '_ {
         self.holds.iter().flatten().map(|hold| hold.texture_id)
+    }
+
+    pub(super) fn materialize_native_releases(
+        &self,
+        fence: std::os::fd::BorrowedFd<'_>,
+    ) -> Result<(), Box<dyn Error>> {
+        for hold in self.holds.iter().flatten() {
+            if let ExternalBufferGuard::Native(release) = &hold.buffer_guard {
+                release.materialize(fence)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn complete_native_releases(&self) -> Result<(), Box<dyn Error>> {
+        for hold in self.holds.iter().flatten() {
+            if let ExternalBufferGuard::Native(release) = &hold.buffer_guard {
+                release.complete()?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn complete_native_releases_without_fence(&self) -> Result<(), Box<dyn Error>> {
+        for hold in self.holds.iter().flatten() {
+            if let ExternalBufferGuard::Native(release) = &hold.buffer_guard {
+                release.complete_without_fence()?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -2330,7 +2436,9 @@ impl ExternalTextureFrame {
             texture_id,
             source: ExternalTextureSource::Dmabuf {
                 dmabuf,
-                buffer_guard: Some(buffer_guard),
+                buffer_guard: Some(ExternalBufferGuard::Wayland {
+                    _guard: buffer_guard,
+                }),
                 revision,
             },
             expects_sample,
@@ -2346,6 +2454,24 @@ impl ExternalTextureFrame {
                 revision,
             },
             expects_sample: false,
+        }
+    }
+
+    pub(super) fn from_native_dmabuf(
+        texture_id: i64,
+        dmabuf: Dmabuf,
+        release: NativeBufferRelease,
+        revision: u64,
+        expects_sample: bool,
+    ) -> Self {
+        Self {
+            texture_id,
+            source: ExternalTextureSource::Dmabuf {
+                dmabuf,
+                buffer_guard: Some(ExternalBufferGuard::Native(release)),
+                revision,
+            },
+            expects_sample,
         }
     }
 
@@ -2409,7 +2535,9 @@ struct FlutterGlHandler {
     external_texture_sources: Mutex<HashMap<i64, ExternalTextureSlot>>,
     raster_sampled_buffers: Mutex<Vec<SampledBufferHold>>,
     sampled_buffer_batch_pool: Arc<SampledBufferBatchPool>,
-    dmabuf_texture_cache: Mutex<RecencyCache<(i64, Dmabuf), Arc<CachedTextureBinding>>>,
+    dmabuf_texture_cache: Mutex<PartitionedRecencyCache<i64, Dmabuf, Arc<CachedTextureBinding>>>,
+    retained_native_texture_cache:
+        Mutex<PartitionedRecencyCache<i64, u64, Arc<CachedTextureBinding>>>,
     shm_texture_cache: Mutex<RecencyCache<(i64, u64), Arc<CachedTextureBinding>>>,
     retired_external_bindings: Arc<RetiredExternalBindingQueue>,
     retired_external_binding_scratch: Mutex<Vec<ExternalTextureBinding>>,
@@ -2425,7 +2553,6 @@ struct FlutterGlHandler {
     events: Sender<RuntimeEvent>,
     generation: u64,
     size: PixelSize,
-    use_native_fence: bool,
     producer: ProducerArbiter,
 }
 
@@ -2441,7 +2568,6 @@ impl FlutterGlHandler {
         offscreen_blit: bool,
         events: Sender<RuntimeEvent>,
         generation: u64,
-        use_native_fence: bool,
     ) -> Result<Arc<Self>, Box<dyn Error>> {
         let display = render_context.display().get_display_handle();
         // SAFETY: this context was just created and has never been current on
@@ -2700,18 +2826,15 @@ impl FlutterGlHandler {
             }
             targets.push(target);
         }
-        let mut shader_blit = None;
-        if offscreen_blit {
-            match create_shader_blit(gl) {
-                Ok(pipeline) => shader_blit = Some(pipeline),
-                Err(error) => {
-                    destroy_targets(gl, &display, &mut targets);
-                    destroy_depth_stencil(gl, &mut depth_stencil);
-                    render_context.unbind()?;
-                    return Err(error);
-                }
+        let mut shader_blit = match create_shader_blit(gl) {
+            Ok(pipeline) => Some(pipeline),
+            Err(error) => {
+                destroy_targets(gl, &display, &mut targets);
+                destroy_depth_stencil(gl, &mut depth_stencil);
+                render_context.unbind()?;
+                return Err(error);
             }
-        }
+        };
         // SAFETY: zero is the default GLES object and the context is current.
         unsafe {
             (gl.use_program)(0);
@@ -2781,7 +2904,12 @@ impl FlutterGlHandler {
             sampled_buffer_batch_pool: Arc::new(Mutex::new(Vec::with_capacity(
                 MAX_RECYCLED_SAMPLED_BUFFER_BATCHES,
             ))),
-            dmabuf_texture_cache: Mutex::new(RecencyCache::new(MAX_CACHED_DMABUF_BINDINGS)),
+            dmabuf_texture_cache: Mutex::new(PartitionedRecencyCache::new(
+                MAX_CACHED_DMABUF_BINDINGS_PER_TEXTURE,
+            )),
+            retained_native_texture_cache: Mutex::new(PartitionedRecencyCache::new(
+                MAX_CACHED_DMABUF_BINDINGS_PER_TEXTURE,
+            )),
             shm_texture_cache: Mutex::new(RecencyCache::new(MAX_CACHED_SHM_BINDINGS)),
             retired_external_bindings: Arc::new(RetiredExternalBindingQueue::new()),
             retired_external_binding_scratch: Mutex::new(Vec::new()),
@@ -2799,7 +2927,6 @@ impl FlutterGlHandler {
             events,
             generation,
             size,
-            use_native_fence,
             producer: ProducerArbiter::new(),
         }))
     }
@@ -2895,7 +3022,7 @@ impl FlutterGlHandler {
         &self,
         texture_id: i64,
         generation: u64,
-        buffer_guard: RendererBufferGuard,
+        buffer_guard: ExternalBufferGuard,
     ) {
         let mut sampled = lock(&self.raster_sampled_buffers);
         if sampled
@@ -2907,7 +3034,7 @@ impl FlutterGlHandler {
         sampled.push(SampledBufferHold {
             texture_id,
             generation,
-            _buffer_guard: buffer_guard,
+            buffer_guard,
         });
     }
 
@@ -2979,14 +3106,14 @@ impl FlutterGlHandler {
 
     fn remove_external_texture_source(&self, texture_id: i64) {
         lock(&self.external_texture_sources).remove(&texture_id);
-        let retired_dmabufs =
-            lock(&self.dmabuf_texture_cache).remove_where(|(owner, _)| *owner == texture_id);
+        let retired_dmabufs = lock(&self.dmabuf_texture_cache).remove(&texture_id);
+        let retired_native = lock(&self.retained_native_texture_cache).remove(&texture_id);
         let retired_shm =
             lock(&self.shm_texture_cache).remove_where(|(owner, _)| *owner == texture_id);
         // Dropping a cache reference never issues GL calls. If no Flutter
         // lease still references the binding, its Drop queues destruction for
         // the next callback with the raster context current.
-        drop((retired_dmabufs, retired_shm));
+        drop((retired_dmabufs, retired_native, retired_shm));
     }
 
     fn cached_dmabuf_binding(
@@ -2994,8 +3121,7 @@ impl FlutterGlHandler {
         texture_id: i64,
         dmabuf: &Dmabuf,
     ) -> Option<Arc<CachedTextureBinding>> {
-        lock(&self.dmabuf_texture_cache)
-            .get_by(|(owner, cached)| *owner == texture_id && cached == dmabuf)
+        lock(&self.dmabuf_texture_cache).get_by(&texture_id, |cached| cached == dmabuf)
     }
 
     fn cache_dmabuf_binding(
@@ -3004,7 +3130,27 @@ impl FlutterGlHandler {
         dmabuf: Dmabuf,
         binding: Arc<CachedTextureBinding>,
     ) {
-        let retired = lock(&self.dmabuf_texture_cache).insert((texture_id, dmabuf), binding);
+        let retired = lock(&self.dmabuf_texture_cache).insert(texture_id, dmabuf, binding);
+        drop(retired);
+    }
+
+    fn cached_retained_native_binding(
+        &self,
+        texture_id: i64,
+        revision: u64,
+    ) -> Option<Arc<CachedTextureBinding>> {
+        lock(&self.retained_native_texture_cache)
+            .get_by(&texture_id, |cached_revision| *cached_revision == revision)
+    }
+
+    fn cache_retained_native_binding(
+        &self,
+        texture_id: i64,
+        revision: u64,
+        binding: Arc<CachedTextureBinding>,
+    ) {
+        let retired =
+            lock(&self.retained_native_texture_cache).insert(texture_id, revision, binding);
         drop(retired);
     }
 
@@ -3259,6 +3405,173 @@ impl FlutterGlHandler {
         true
     }
 
+    fn retain_native_texture(
+        &self,
+        source_texture: u32,
+        width: u32,
+        height: u32,
+    ) -> Result<Arc<CachedTextureBinding>, Box<dyn Error>> {
+        let width_i32 = i32::try_from(width).map_err(|_| "native snapshot width exceeds GLES")?;
+        let height_i32 =
+            i32::try_from(height).map_err(|_| "native snapshot height exceeds GLES")?;
+        if source_texture == 0 || width_i32 <= 0 || height_i32 <= 0 {
+            return Err("native snapshot has invalid texture or dimensions".into());
+        }
+        let binding_permit = self
+            .external_texture_resource_budget
+            .try_acquire()
+            .ok_or("native snapshot exceeded the external texture resource limit")?;
+        let shader_blit = lock(&self.shader_blit)
+            .as_ref()
+            .copied()
+            .ok_or("native snapshot has no GLES copy pipeline")?;
+
+        let mut previous_draw_framebuffer = 0;
+        let mut previous_program = 0;
+        let mut previous_active_texture = 0;
+        let mut previous_texture_2d = 0;
+        let mut previous_viewport = [0; 4];
+        let mut previous_color_mask = [gl::FALSE; 4];
+        let mut previous_capabilities = [false; 5];
+        let mut texture = 0;
+        let mut framebuffer = 0;
+        let framebuffer_status;
+        let draw_error;
+
+        // The callback owns Flutter's current GLES context. Save and restore
+        // every state touched by the private copy so Skia cannot observe the
+        // snapshot operation in the surrounding external-texture callback.
+        // SAFETY: all queried pointers are valid local storage and every GL
+        // object is created, used, and either retained or deleted in this call.
+        unsafe {
+            for _ in 0..8 {
+                if (self.gl.get_error)() == gl::NO_ERROR {
+                    break;
+                }
+            }
+            (self.gl.get_integer_v)(gl::DRAW_FRAMEBUFFER_BINDING, &mut previous_draw_framebuffer);
+            (self.gl.get_integer_v)(gl::CURRENT_PROGRAM, &mut previous_program);
+            (self.gl.get_integer_v)(gl::ACTIVE_TEXTURE, &mut previous_active_texture);
+            (self.gl.get_integer_v)(gl::VIEWPORT, previous_viewport.as_mut_ptr());
+            (self.gl.get_boolean_v)(gl::COLOR_WRITEMASK, previous_color_mask.as_mut_ptr());
+            for (saved, capability) in previous_capabilities.iter_mut().zip([
+                gl::BLEND,
+                gl::CULL_FACE,
+                gl::DEPTH_TEST,
+                gl::SCISSOR_TEST,
+                gl::STENCIL_TEST,
+            ]) {
+                *saved = (self.gl.is_enabled)(capability) == gl::TRUE;
+            }
+            (self.gl.active_texture)(gl::TEXTURE0);
+            (self.gl.get_integer_v)(gl::TEXTURE_BINDING_2D, &mut previous_texture_2d);
+
+            (self.gl.gen_textures)(1, &mut texture);
+            (self.gl.bind_texture)(gl::TEXTURE_2D, texture);
+            (self.gl.tex_parameter_i)(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
+            (self.gl.tex_parameter_i)(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
+            (self.gl.tex_parameter_i)(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+            (self.gl.tex_parameter_i)(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+            (self.gl.tex_image_2d)(
+                gl::TEXTURE_2D,
+                0,
+                gl::RGBA8 as i32,
+                width_i32,
+                height_i32,
+                0,
+                gl::RGBA,
+                gl::UNSIGNED_BYTE,
+                ptr::null(),
+            );
+            (self.gl.gen_framebuffers)(1, &mut framebuffer);
+            (self.gl.bind_framebuffer)(gl::DRAW_FRAMEBUFFER, framebuffer);
+            (self.gl.framebuffer_texture_2d)(
+                gl::DRAW_FRAMEBUFFER,
+                gl::COLOR_ATTACHMENT0,
+                gl::TEXTURE_2D,
+                texture,
+                0,
+            );
+            framebuffer_status = (self.gl.check_framebuffer_status)(gl::DRAW_FRAMEBUFFER);
+            if texture != 0 && framebuffer != 0 && framebuffer_status == gl::FRAMEBUFFER_COMPLETE {
+                (self.gl.viewport)(0, 0, width_i32, height_i32);
+                (self.gl.disable)(gl::BLEND);
+                (self.gl.disable)(gl::CULL_FACE);
+                (self.gl.disable)(gl::DEPTH_TEST);
+                (self.gl.disable)(gl::SCISSOR_TEST);
+                (self.gl.disable)(gl::STENCIL_TEST);
+                (self.gl.color_mask)(gl::TRUE, gl::TRUE, gl::TRUE, gl::TRUE);
+                (self.gl.use_program)(shader_blit.program);
+                (self.gl.active_texture)(gl::TEXTURE0);
+                (self.gl.bind_texture)(gl::TEXTURE_2D, source_texture);
+                (self.gl.uniform_1i)(shader_blit.source_uniform, 0);
+                (self.gl.draw_arrays)(gl::TRIANGLES, 0, 3);
+            }
+            draw_error = (self.gl.get_error)();
+
+            (self.gl.use_program)(previous_program as u32);
+            (self.gl.bind_texture)(gl::TEXTURE_2D, previous_texture_2d as u32);
+            (self.gl.active_texture)(previous_active_texture as u32);
+            (self.gl.bind_framebuffer)(gl::DRAW_FRAMEBUFFER, previous_draw_framebuffer as u32);
+            (self.gl.viewport)(
+                previous_viewport[0],
+                previous_viewport[1],
+                previous_viewport[2],
+                previous_viewport[3],
+            );
+            (self.gl.color_mask)(
+                previous_color_mask[0],
+                previous_color_mask[1],
+                previous_color_mask[2],
+                previous_color_mask[3],
+            );
+            for (enabled, capability) in previous_capabilities.into_iter().zip([
+                gl::BLEND,
+                gl::CULL_FACE,
+                gl::DEPTH_TEST,
+                gl::SCISSOR_TEST,
+                gl::STENCIL_TEST,
+            ]) {
+                if enabled {
+                    (self.gl.enable)(capability);
+                } else {
+                    (self.gl.disable)(capability);
+                }
+            }
+            if framebuffer != 0 {
+                (self.gl.delete_framebuffers)(1, &framebuffer);
+            }
+        }
+        // SAFETY: the same render context remains current after restoration.
+        let restore_error = unsafe { (self.gl.get_error)() };
+        if texture == 0
+            || framebuffer == 0
+            || framebuffer_status != gl::FRAMEBUFFER_COMPLETE
+            || draw_error != gl::NO_ERROR
+            || restore_error != gl::NO_ERROR
+        {
+            // SAFETY: an allocated texture remains owned by this context and
+            // has not escaped on the failure path.
+            unsafe {
+                if texture != 0 {
+                    (self.gl.delete_textures)(1, &texture);
+                }
+            }
+            return Err(format!(
+                "native snapshot copy failed: framebuffer={framebuffer} status={framebuffer_status:#x} draw={draw_error:#x} restore={restore_error:#x}"
+            )
+            .into());
+        }
+        Ok(Arc::new(CachedTextureBinding {
+            binding: Some(ExternalTextureBinding {
+                dmabuf_image: None,
+                texture,
+                _resource_permit: binding_permit,
+            }),
+            retirements: Arc::clone(&self.retired_external_bindings),
+        }))
+    }
+
     fn destroy_targets(&self) {
         let mut targets = lock(&self.targets);
         let mut shader_blit = lock(&self.shader_blit);
@@ -3275,8 +3588,9 @@ impl FlutterGlHandler {
         }
         context.owner = Some(thread::current().id());
         let cached_dmabufs = lock(&self.dmabuf_texture_cache).drain();
+        let cached_native = lock(&self.retained_native_texture_cache).drain();
         let cached_shm = lock(&self.shm_texture_cache).drain();
-        drop((cached_dmabufs, cached_shm));
+        drop((cached_dmabufs, cached_native, cached_shm));
         self.destroy_retired_external_bindings();
         destroy_shader_blit(self.gl, &mut shader_blit);
         destroy_targets(self.gl, &self.display, &mut targets);
@@ -3353,20 +3667,37 @@ impl FlutterGlHandler {
             ExternalTextureSource::Dmabuf {
                 dmabuf,
                 buffer_guard,
-                revision: _,
+                revision,
             } => {
-                let width = usize::try_from(dmabuf.width()).unwrap_or_default();
-                let height = usize::try_from(dmabuf.height()).unwrap_or_default();
-                let Some(binding) = self.cached_dmabuf_binding(texture_id, &dmabuf) else {
-                    return false;
-                };
-                let sampled_buffer = buffer_guard.clone();
-                let resource = ExternalTextureLeaseResource::Dmabuf {
-                    _binding: Arc::clone(&binding),
-                    _wayland_buffer_guard: buffer_guard,
-                    _resource_permit: lease_permit,
-                };
-                (width, height, binding, resource, sampled_buffer)
+                let dmabuf_width = dmabuf.width();
+                let dmabuf_height = dmabuf.height();
+                let width = usize::try_from(dmabuf_width).unwrap_or_default();
+                let height = usize::try_from(dmabuf_height).unwrap_or_default();
+                if buffer_guard
+                    .as_ref()
+                    .is_some_and(ExternalBufferGuard::is_native)
+                {
+                    let Some(binding) = self.cached_retained_native_binding(texture_id, revision)
+                    else {
+                        return false;
+                    };
+                    let resource = ExternalTextureLeaseResource::Retained {
+                        _binding: Arc::clone(&binding),
+                        _resource_permit: lease_permit,
+                    };
+                    (width, height, binding, resource, None)
+                } else {
+                    let Some(binding) = self.cached_dmabuf_binding(texture_id, &dmabuf) else {
+                        return false;
+                    };
+                    let sampled_buffer = buffer_guard.clone();
+                    let resource = ExternalTextureLeaseResource::Dmabuf {
+                        _binding: Arc::clone(&binding),
+                        _buffer_guard: buffer_guard,
+                        _resource_permit: lease_permit,
+                    };
+                    (width, height, binding, resource, sampled_buffer)
+                }
             }
             ExternalTextureSource::Shm(frame) => {
                 let width = usize::try_from(frame.width).unwrap_or_default();
@@ -3549,36 +3880,51 @@ impl OpenGlHandler for FlutterGlHandler {
                 let _ = self.publish_sampled_buffer_release(None, sampled);
                 return false;
             }
-            let fence = if self.use_native_fence {
-                let context = lock(&self.render_context);
-                match EGLFence::create(context.context.display()) {
-                    Ok(fence) => {
-                        // The fence follows Flutter's render commands. Flushing
-                        // publishes the native sync_file without waiting for GPU
-                        // completion on the raster thread.
-                        // SAFETY: present runs with the raster context current.
-                        unsafe { (self.gl.flush)() };
-                        match fence.export() {
-                            Ok(fence) => Some(fence),
-                            Err(error) => {
-                                warn!(%error, "could not export Flutter native fence; using glFinish");
-                                // SAFETY: same current raster context.
-                                unsafe { (self.gl.finish)() };
-                                None
-                            }
+            let context = lock(&self.render_context);
+            let fence = match EGLFence::create(context.context.display()) {
+                Ok(fence) => {
+                    // The fence follows Flutter's render commands. Flushing
+                    // publishes the native sync_file without waiting for GPU
+                    // completion on the raster thread.
+                    // SAFETY: present runs with the raster context current.
+                    unsafe { (self.gl.flush)() };
+                    match fence.export() {
+                        Ok(fence) => Some(fence),
+                        Err(error) => {
+                            let reason = format!(
+                                "could not export the required Flutter native fence: {error}"
+                            );
+                            error!(%error, "required Flutter native fence export failed");
+                            // Complete outstanding sampling only so teardown
+                            // can release imported client buffers safely. This
+                            // frame is not published as an unfenced fallback.
+                            unsafe { (self.gl.finish)() };
+                            let sampled = self.seal_sampled_buffers();
+                            let _ = self.publish_sampled_buffer_release(None, sampled);
+                            let _ = self.events.send(RuntimeEvent::FatalRender {
+                                generation: self.generation,
+                                reason,
+                            });
+                            return false;
                         }
                     }
-                    Err(error) => {
-                        warn!(%error, "could not create Flutter native fence; using glFinish");
-                        // SAFETY: same current raster context.
-                        unsafe { (self.gl.finish)() };
-                        None
-                    }
                 }
-            } else {
-                // SAFETY: Flutter invokes present with its raster context current.
-                unsafe { (self.gl.finish)() };
-                None
+                Err(error) => {
+                    let reason =
+                        format!("could not create the required Flutter native fence: {error}");
+                    error!(%error, "required Flutter native fence creation failed");
+                    // Complete outstanding sampling only so teardown can
+                    // release imported client buffers safely. This frame is
+                    // not published as an unfenced fallback.
+                    unsafe { (self.gl.finish)() };
+                    let sampled = self.seal_sampled_buffers();
+                    let _ = self.publish_sampled_buffer_release(None, sampled);
+                    let _ = self.events.send(RuntimeEvent::FatalRender {
+                        generation: self.generation,
+                        reason,
+                    });
+                    return false;
+                }
             };
             let sampled = self.seal_sampled_buffers();
             if let Some(audit) = &self.render_audit {
@@ -3731,10 +4077,12 @@ impl OpenGlHandler for FlutterGlHandler {
             ExternalTextureSource::Dmabuf {
                 dmabuf,
                 buffer_guard,
-                revision: _,
+                revision,
             } => {
-                let width = usize::try_from(dmabuf.width()).unwrap_or_default();
-                let height = usize::try_from(dmabuf.height()).unwrap_or_default();
+                let dmabuf_width = dmabuf.width();
+                let dmabuf_height = dmabuf.height();
+                let width = usize::try_from(dmabuf_width).unwrap_or_default();
+                let height = usize::try_from(dmabuf_height).unwrap_or_default();
                 if width == 0 || height == 0 {
                     return false;
                 }
@@ -3834,18 +4182,65 @@ impl OpenGlHandler for FlutterGlHandler {
                 if name == 0 {
                     return false;
                 }
-                let sampled_buffer = buffer_guard.clone();
-                (
-                    width,
-                    height,
-                    name,
-                    ExternalTextureLeaseResource::Dmabuf {
-                        _binding: binding,
-                        _wayland_buffer_guard: buffer_guard,
-                        _resource_permit: lease_permit,
-                    },
-                    sampled_buffer,
-                )
+                if buffer_guard
+                    .as_ref()
+                    .is_some_and(ExternalBufferGuard::is_native)
+                {
+                    let (retained, copied) = if let Some(retained) =
+                        self.cached_retained_native_binding(texture_id, revision)
+                    {
+                        (retained, false)
+                    } else {
+                        let retained =
+                            match self.retain_native_texture(name, dmabuf_width, dmabuf_height) {
+                                Ok(retained) => retained,
+                                Err(error) => {
+                                    warn!(
+                                        %error,
+                                        texture_id,
+                                        revision,
+                                        "could not retain native dma-buf for Flutter"
+                                    );
+                                    return false;
+                                }
+                            };
+                        self.cache_retained_native_binding(
+                            texture_id,
+                            revision,
+                            Arc::clone(&retained),
+                        );
+                        self.destroy_retired_external_bindings();
+                        (retained, true)
+                    };
+                    let name = retained.texture();
+                    if name == 0 {
+                        return false;
+                    }
+                    let sampled_buffer = copied.then(|| buffer_guard.clone()).flatten();
+                    (
+                        width,
+                        height,
+                        name,
+                        ExternalTextureLeaseResource::Retained {
+                            _binding: retained,
+                            _resource_permit: lease_permit,
+                        },
+                        sampled_buffer,
+                    )
+                } else {
+                    let sampled_buffer = buffer_guard.clone();
+                    (
+                        width,
+                        height,
+                        name,
+                        ExternalTextureLeaseResource::Dmabuf {
+                            _binding: binding,
+                            _buffer_guard: buffer_guard,
+                            _resource_permit: lease_permit,
+                        },
+                        sampled_buffer,
+                    )
+                }
             }
             ExternalTextureSource::Shm(frame) => {
                 let width = usize::try_from(frame.width).unwrap_or_default();
@@ -4598,7 +4993,6 @@ impl FlutterRuntime {
         clipboard: super::clipboard::ClipboardManager,
         work_area: super::options::WorkAreaOptions,
         generation: u64,
-        use_native_fence: bool,
         wayland_display: Option<OsString>,
         x11_display: Option<OsString>,
         output_control_socket: Option<OsString>,
@@ -4617,7 +5011,6 @@ impl FlutterRuntime {
             offscreen_blit,
             events,
             generation,
-            use_native_fence,
         )?;
         let host = EngineHost::start_with_library_and_priority_setter(
             &factory.project,
@@ -4660,7 +5053,7 @@ impl FlutterRuntime {
             width = size.width,
             height = size.height,
             device_pixel_ratio,
-            native_fence = use_native_fence,
+            native_fence = true,
             resource_cache_max_mib =
                 factory.project.resource_cache_max_bytes_threshold / (1024 * 1024),
             "started Rust Flutter embedder on the KMS atlas"
@@ -4883,12 +5276,18 @@ impl FlutterRuntime {
                 {
                     return Err(format!("Flutter {queue} queue exceeded its safety limit").into());
                 }
+                RuntimeEvent::FatalRender { generation, reason }
+                    if generation == self.generation =>
+                {
+                    return Err(reason.into());
+                }
                 RuntimeEvent::VmServiceUri { generation, uri } if generation == self.generation => {
                     self.pending_vm_service_uri = Some(uri);
                 }
                 RuntimeEvent::Engine { .. }
                 | RuntimeEvent::PlatformTasksReady { .. }
                 | RuntimeEvent::QueueOverflow { .. }
+                | RuntimeEvent::FatalRender { .. }
                 | RuntimeEvent::VmServiceUri { .. }
                 | RuntimeEvent::FrameReady { .. }
                 | RuntimeEvent::SampledBuffersReady { .. } => {}
@@ -6799,6 +7198,53 @@ mod tests {
         assert_eq!(retired, ["seven-a", "seven-b"]);
         assert_eq!(cache.get_by(|key| *key == (8, 2)), Some("eight"));
         assert_eq!(cache.stats().explicit_removals, 2);
+    }
+
+    #[test]
+    fn partitioned_recency_cache_keeps_each_texture_buffer_ring_resident() {
+        let mut cache = PartitionedRecencyCache::new(4);
+        for texture_id in 0..10 {
+            for buffer in 0..4 {
+                assert!(
+                    cache
+                        .insert(texture_id, buffer, (texture_id, buffer))
+                        .is_none()
+                );
+            }
+        }
+
+        // Forty rotating buffers exceed the old global capacity of 32. Every
+        // generation must remain a hit when the same ten clients are sampled
+        // repeatedly in Flutter's stable scene order.
+        for _ in 0..3 {
+            for texture_id in 0..10 {
+                for buffer in 0..4 {
+                    assert_eq!(
+                        cache.get_by(&texture_id, |candidate| *candidate == buffer),
+                        Some((texture_id, buffer))
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn partitioned_recency_cache_evicts_and_retires_only_one_texture() {
+        let mut cache = PartitionedRecencyCache::new(2);
+        assert!(cache.insert(7, 1, "seven-a").is_none());
+        assert!(cache.insert(7, 2, "seven-b").is_none());
+        assert!(cache.insert(8, 1, "eight-a").is_none());
+        assert!(cache.insert(8, 2, "eight-b").is_none());
+
+        assert_eq!(cache.insert(7, 3, "seven-c"), Some("seven-a"));
+        assert_eq!(cache.get_by(&7, |key| *key == 1), None);
+        assert_eq!(cache.get_by(&8, |key| *key == 1), Some("eight-a"));
+
+        let mut retired = cache.remove(&7);
+        retired.sort_unstable();
+        assert_eq!(retired, ["seven-b", "seven-c"]);
+        assert_eq!(cache.get_by(&7, |_| true), None);
+        assert_eq!(cache.drain().len(), 2);
     }
 
     fn rect(left: f64, top: f64, right: f64, bottom: f64) -> sys::FlutterRect {

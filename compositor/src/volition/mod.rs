@@ -1,21 +1,25 @@
 //! Volition: ordered atomic-KMS presentation lookahead.
 //!
 //! Volition is Denial's in-tree display synchronization library. It owns the
-//! DRM file descriptor, atomic plane requests, and the two alternating commit
-//! lanes which approach the next physical display edge without blocking in a
-//! DRM ioctl. The compositor remains responsible for deciding *what*
+//! DRM file descriptor, atomic plane requests, and a bounded deadline scheduler
+//! which approaches each physical display edge without blocking in a DRM
+//! ioctl. The compositor remains responsible for deciding *what*
 //! to present, retaining buffers until page-flip completion, and observing
 //! render fences before submitting lookahead work.
 //!
 //! The separation is intentional: changes to KMS submission timing belong in
 //! this module; shell, Flutter, Wayland, DPMS, and screenshot policy do not.
 
+use std::cmp::Ordering as CmpOrdering;
+use std::collections::BinaryHeap;
 use std::fmt;
 use std::io;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::mpsc::{
+    Receiver, RecvTimeoutError, SyncSender, TryRecvError, TrySendError, sync_channel,
+};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -27,7 +31,6 @@ use smithay::reexports::drm::control::{
 use crate::topology::PixelRect;
 
 const MAX_ATOMIC_PLANE_PROPERTIES: usize = 6;
-const COMMIT_LANES: usize = 2;
 const LOOKAHEAD_RETRY_INTERVAL: Duration = Duration::from_micros(100);
 const LOOKAHEAD_MAX_WAIT: Duration = Duration::from_millis(100);
 static NEXT_INSTANCE: AtomicU64 = AtomicU64::new(1);
@@ -155,7 +158,7 @@ pub struct CommitId {
     pub frame: usize,
 }
 
-/// Result of attempting to enter a lookahead lane without blocking Denial.
+/// Result of attempting to enter the lookahead scheduler without blocking Denial.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[must_use]
 pub enum Submission {
@@ -163,7 +166,7 @@ pub enum Submission {
     Backpressured,
 }
 
-/// An asynchronous failure reported by a Volition commit lane.
+/// An asynchronous failure reported by the Volition commit scheduler.
 #[derive(Debug)]
 pub struct Failure {
     instance: u64,
@@ -196,7 +199,15 @@ impl std::error::Error for Failure {
 /// Completion of the asynchronous part of a Volition lookahead submission.
 #[derive(Debug)]
 pub enum Event {
-    Submitted { instance: u64, commit: CommitId },
+    Submitted {
+        instance: u64,
+        commit: CommitId,
+        submitted_at: Instant,
+    },
+    /// A transient kernel refusal outlived Volition's short scheduling window.
+    /// The compositor must rebuild its KMS ownership instead of treating this
+    /// display backpressure as a process-fatal error.
+    Stalled(Failure),
     Failed(Failure),
 }
 
@@ -204,14 +215,14 @@ impl Event {
     pub const fn commit(&self) -> CommitId {
         match self {
             Self::Submitted { commit, .. } => *commit,
-            Self::Failed(failure) => failure.commit,
+            Self::Stalled(failure) | Self::Failed(failure) => failure.commit,
         }
     }
 
     const fn instance(&self) -> u64 {
         match self {
             Self::Submitted { instance, .. } => *instance,
-            Self::Failed(failure) => failure.instance,
+            Self::Stalled(failure) | Self::Failed(failure) => failure.instance,
         }
     }
 }
@@ -226,69 +237,96 @@ struct CommitJob {
 
 type EventReporter = Arc<dyn Fn(Event) + Send + Sync + 'static>;
 
-struct CommitLane {
+struct ScheduledCommit {
+    job: CommitJob,
+    ready_at: Instant,
+    expires_at: Option<Instant>,
+    order: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LookaheadFailureDisposition {
+    Retry,
+    Recover,
+    Fail,
+}
+
+impl PartialEq for ScheduledCommit {
+    fn eq(&self, other: &Self) -> bool {
+        self.ready_at == other.ready_at && self.order == other.order
+    }
+}
+
+impl Eq for ScheduledCommit {}
+
+impl PartialOrd for ScheduledCommit {
+    fn partial_cmp(&self, other: &Self) -> Option<CmpOrdering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ScheduledCommit {
+    fn cmp(&self, other: &Self) -> CmpOrdering {
+        schedule_order(self.ready_at, self.order, other.ready_at, other.order)
+    }
+}
+
+fn schedule_order(
+    left_ready_at: Instant,
+    left_order: u64,
+    right_ready_at: Instant,
+    right_order: u64,
+) -> CmpOrdering {
+    // BinaryHeap is a max-heap. Reverse the keys so the earliest deadline and
+    // then the oldest arrival are serviced first.
+    right_ready_at
+        .cmp(&left_ready_at)
+        .then_with(|| right_order.cmp(&left_order))
+}
+
+struct CommitScheduler {
     jobs: Option<SyncSender<CommitJob>>,
     cancelled: Arc<AtomicBool>,
+    pending: Arc<AtomicUsize>,
+    capacity: usize,
     worker: Option<thread::JoinHandle<()>>,
 }
 
-impl CommitLane {
+impl CommitScheduler {
     fn start(
         drm: OwnedFd,
         initialize_thread: fn(),
         report_event: EventReporter,
-        lane: usize,
+        capacity: usize,
     ) -> io::Result<Self> {
-        let (jobs, receiver) = sync_channel::<CommitJob>(1);
+        if capacity == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Volition lookahead capacity must be non-zero",
+            ));
+        }
+        let (jobs, receiver) = sync_channel::<CommitJob>(capacity);
         let cancelled = Arc::new(AtomicBool::new(false));
         let worker_cancelled = Arc::clone(&cancelled);
+        let pending = Arc::new(AtomicUsize::new(0));
+        let worker_pending = Arc::clone(&pending);
         let worker = thread::Builder::new()
-            .name(format!("volition-kms-{lane}"))
+            .name("volition-kms".into())
             .spawn(move || {
                 initialize_thread();
-                while let Ok(mut job) = receiver.recv() {
-                    if !wait_until(&worker_cancelled, job.not_before) {
-                        break;
-                    }
-                    let expires_at = Instant::now() + LOOKAHEAD_MAX_WAIT;
-                    loop {
-                        if worker_cancelled.load(Ordering::Acquire) {
-                            return;
-                        }
-                        match job.request.submit(
-                            drm.as_fd(),
-                            job.framebuffer,
-                            None,
-                            CommitMode::Lookahead,
-                        ) {
-                            Ok(()) => {
-                                report_event(Event::Submitted {
-                                    instance: job.instance,
-                                    commit: job.commit,
-                                });
-                                break;
-                            }
-                            Err(source)
-                                if is_retryable_lookahead_error(&source)
-                                    && Instant::now() < expires_at =>
-                            {
-                                thread::park_timeout(LOOKAHEAD_RETRY_INTERVAL);
-                            }
-                            Err(source) => {
-                                report_event(Event::Failed(Failure {
-                                    instance: job.instance,
-                                    commit: job.commit,
-                                    source,
-                                }));
-                                break;
-                            }
-                        }
-                    }
-                }
+                run_scheduler(
+                    drm,
+                    receiver,
+                    &worker_cancelled,
+                    &worker_pending,
+                    &report_event,
+                );
             })?;
         Ok(Self {
             jobs: Some(jobs),
             cancelled,
+            pending,
+            capacity,
             worker: Some(worker),
         })
     }
@@ -297,16 +335,31 @@ impl CommitLane {
         let Some(jobs) = self.jobs.as_ref() else {
             return Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
-                "Volition KMS commit lane is shut down",
+                "Volition KMS commit scheduler is shut down",
             ));
         };
+        if self
+            .pending
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
+                (pending < self.capacity).then_some(pending + 1)
+            })
+            .is_err()
+        {
+            return Ok(Submission::Backpressured);
+        }
         match jobs.try_send(job) {
             Ok(()) => Ok(Submission::Queued),
-            Err(TrySendError::Full(_)) => Ok(Submission::Backpressured),
-            Err(TrySendError::Disconnected(_)) => Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "Volition KMS commit lane exited unexpectedly",
-            )),
+            Err(TrySendError::Full(_)) => {
+                self.pending.fetch_sub(1, Ordering::AcqRel);
+                Ok(Submission::Backpressured)
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                self.pending.fetch_sub(1, Ordering::AcqRel);
+                Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "Volition KMS commit scheduler exited unexpectedly",
+                ))
+            }
         }
     }
 
@@ -323,22 +376,145 @@ impl CommitLane {
     }
 }
 
-impl Drop for CommitLane {
+impl Drop for CommitScheduler {
     fn drop(&mut self) {
         self.shutdown();
     }
 }
 
-fn wait_until(cancelled: &AtomicBool, deadline: Instant) -> bool {
+fn schedule_job(queue: &mut BinaryHeap<ScheduledCommit>, order: &mut u64, job: CommitJob) {
+    queue.push(ScheduledCommit {
+        ready_at: job.not_before,
+        job,
+        expires_at: None,
+        order: *order,
+    });
+    *order = order.wrapping_add(1);
+}
+
+fn drain_jobs(
+    receiver: &Receiver<CommitJob>,
+    queue: &mut BinaryHeap<ScheduledCommit>,
+    order: &mut u64,
+) -> bool {
     loop {
-        if cancelled.load(Ordering::Acquire) {
-            return false;
+        match receiver.try_recv() {
+            Ok(job) => schedule_job(queue, order, job),
+            Err(TryRecvError::Empty) => return true,
+            Err(TryRecvError::Disconnected) => return false,
         }
+    }
+}
+
+fn finish_job(pending: &AtomicUsize, report_event: &EventReporter, event: Event) {
+    let previous = pending.fetch_sub(1, Ordering::AcqRel);
+    debug_assert!(previous > 0);
+    report_event(event);
+}
+
+fn run_scheduler(
+    drm: OwnedFd,
+    receiver: Receiver<CommitJob>,
+    cancelled: &AtomicBool,
+    pending: &AtomicUsize,
+    report_event: &EventReporter,
+) {
+    let mut queue = BinaryHeap::new();
+    let mut order = 0_u64;
+    let mut connected = true;
+
+    while !cancelled.load(Ordering::Acquire) {
+        if connected {
+            connected = drain_jobs(&receiver, &mut queue, &mut order);
+        }
+
+        let Some(next_ready_at) = queue.peek().map(|scheduled| scheduled.ready_at) else {
+            if !connected {
+                return;
+            }
+            match receiver.recv() {
+                Ok(job) => schedule_job(&mut queue, &mut order, job),
+                Err(_) => return,
+            }
+            continue;
+        };
+
         let now = Instant::now();
-        if now >= deadline {
-            return true;
+        if now < next_ready_at && connected {
+            match receiver.recv_timeout(next_ready_at.saturating_duration_since(now)) {
+                Ok(job) => schedule_job(&mut queue, &mut order, job),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => connected = false,
+            }
+            continue;
         }
-        thread::park_timeout(deadline.saturating_duration_since(now));
+        if now < next_ready_at {
+            thread::park_timeout(next_ready_at.saturating_duration_since(now));
+            continue;
+        }
+
+        let mut scheduled = queue.pop().expect("peeked Volition commit");
+        let attempted_at = Instant::now();
+        let expires_at = *scheduled
+            .expires_at
+            .get_or_insert(attempted_at + LOOKAHEAD_MAX_WAIT);
+        match scheduled.job.request.submit(
+            drm.as_fd(),
+            scheduled.job.framebuffer,
+            None,
+            CommitMode::Lookahead,
+        ) {
+            Ok(()) => finish_job(
+                pending,
+                report_event,
+                Event::Submitted {
+                    instance: scheduled.job.instance,
+                    commit: scheduled.job.commit,
+                    submitted_at: Instant::now(),
+                },
+            ),
+            Err(source) => match lookahead_failure_disposition(&source, attempted_at, expires_at) {
+                LookaheadFailureDisposition::Retry => {
+                    // Reinsert instead of retrying in place. Another output whose
+                    // edge is already due can then enter KMS before this busy
+                    // stream's next attempt.
+                    scheduled.ready_at = attempted_at + LOOKAHEAD_RETRY_INTERVAL;
+                    queue.push(scheduled);
+                }
+                LookaheadFailureDisposition::Recover => finish_job(
+                    pending,
+                    report_event,
+                    Event::Stalled(Failure {
+                        instance: scheduled.job.instance,
+                        commit: scheduled.job.commit,
+                        source,
+                    }),
+                ),
+                LookaheadFailureDisposition::Fail => finish_job(
+                    pending,
+                    report_event,
+                    Event::Failed(Failure {
+                        instance: scheduled.job.instance,
+                        commit: scheduled.job.commit,
+                        source,
+                    }),
+                ),
+            },
+        }
+    }
+}
+
+fn lookahead_failure_disposition(
+    error: &io::Error,
+    attempted_at: Instant,
+    expires_at: Instant,
+) -> LookaheadFailureDisposition {
+    if !is_retryable_lookahead_error(error) {
+        LookaheadFailureDisposition::Fail
+    } else if attempted_at < expires_at {
+        LookaheadFailureDisposition::Retry
+    } else {
+        LookaheadFailureDisposition::Recover
     }
 }
 
@@ -353,8 +529,7 @@ fn is_retryable_lookahead_error(error: &io::Error) -> bool {
 pub struct Volition {
     instance: u64,
     drm: OwnedFd,
-    lanes: Vec<CommitLane>,
-    next_lane: usize,
+    scheduler: CommitScheduler,
 }
 
 impl Volition {
@@ -363,27 +538,27 @@ impl Volition {
     /// `initialize_thread` applies the host compositor's scheduling policy.
     /// `report_event` must wake the owner because lookahead completion occurs
     /// after the submission call has returned.
-    pub fn new<F>(drm: BorrowedFd<'_>, initialize_thread: fn(), report_event: F) -> io::Result<Self>
+    pub fn new<F>(
+        drm: BorrowedFd<'_>,
+        lookahead_capacity: usize,
+        initialize_thread: fn(),
+        report_event: F,
+    ) -> io::Result<Self>
     where
         F: Fn(Event) + Send + Sync + 'static,
     {
         let drm = drm.try_clone_to_owned()?;
         let report_event: EventReporter = Arc::new(report_event);
-        let lanes = (0..COMMIT_LANES)
-            .map(|lane| {
-                CommitLane::start(
-                    drm.as_fd().try_clone_to_owned()?,
-                    initialize_thread,
-                    Arc::clone(&report_event),
-                    lane,
-                )
-            })
-            .collect::<io::Result<Vec<_>>>()?;
+        let scheduler = CommitScheduler::start(
+            drm.as_fd().try_clone_to_owned()?,
+            initialize_thread,
+            report_event,
+            lookahead_capacity,
+        )?;
         Ok(Self {
             instance: next_instance(),
             drm,
-            lanes,
-            next_lane: 0,
+            scheduler,
         })
     }
 
@@ -400,10 +575,12 @@ impl Volition {
     /// Queues a render-complete generation behind the current hardware commit.
     ///
     /// The caller must observe the frame's render fence before invoking this
-    /// method. Volition approaches the predicted presentation edge on an
-    /// alternating worker, then retries a nonblocking atomic ioctl until DRM
-    /// accepts the generation. This preserves edge-adjacent submission without
-    /// allowing a kernel wait to pin the compositor during shutdown.
+    /// method. Volition approaches the predicted presentation edge on a
+    /// single deadline scheduler, then retries a nonblocking atomic ioctl
+    /// until DRM accepts the generation. Retryable work is reinserted so a
+    /// busy output cannot hold another output behind it. This preserves
+    /// edge-adjacent submission without allowing a kernel wait to pin the
+    /// compositor during shutdown.
     pub fn submit_lookahead(
         &mut self,
         commit: CommitId,
@@ -411,18 +588,13 @@ impl Volition {
         framebuffer: framebuffer::Handle,
         not_before: Instant,
     ) -> io::Result<Submission> {
-        let lane = self.next_lane;
-        let submission = self.lanes[lane].try_submit(CommitJob {
+        self.scheduler.try_submit(CommitJob {
             instance: self.instance,
             commit,
             request: request.clone(),
             framebuffer,
             not_before,
-        })?;
-        if submission == Submission::Queued {
-            self.next_lane = (lane + 1) % self.lanes.len();
-        }
-        Ok(submission)
+        })
     }
 
     /// Distinguishes this instance from workers retiring after an old display
@@ -431,12 +603,10 @@ impl Volition {
         event.instance() == self.instance
     }
 
-    /// Cancels queued lookahead work and joins every KMS worker. Every ioctl
+    /// Cancels queued lookahead work and joins the KMS scheduler. Every ioctl
     /// issued by a worker is nonblocking, so this operation is bounded.
     pub fn shutdown(&mut self) {
-        for lane in &mut self.lanes {
-            lane.shutdown();
-        }
+        self.scheduler.shutdown();
     }
 }
 
@@ -446,21 +616,15 @@ impl Drop for Volition {
     }
 }
 
-/// Whether a real IN_FENCE_FD failure means userspace should wait instead.
-pub fn is_fence_capability_error(error: &io::Error) -> bool {
-    matches!(
-        error.raw_os_error(),
-        Some(libc::EPERM | libc::EINVAL | libc::EOPNOTSUPP | libc::ENOSYS)
-    )
-}
-
 #[cfg(test)]
 mod tests {
+    use std::cmp::Ordering;
     use std::io;
+    use std::time::{Duration, Instant};
 
     use super::{
-        CommitMode, Submission, commit_flags, is_fence_capability_error,
-        is_retryable_lookahead_error,
+        CommitMode, LookaheadFailureDisposition, Submission, commit_flags,
+        is_retryable_lookahead_error, lookahead_failure_disposition, schedule_order,
     };
     use smithay::reexports::drm::control::AtomicCommitFlags;
 
@@ -473,20 +637,6 @@ mod tests {
         let lookahead = commit_flags(CommitMode::Lookahead);
         assert!(lookahead.contains(AtomicCommitFlags::PAGE_FLIP_EVENT));
         assert!(lookahead.contains(AtomicCommitFlags::NONBLOCK));
-    }
-
-    #[test]
-    fn fenced_commit_capability_errors_are_narrowly_classified() {
-        for errno in [libc::EPERM, libc::EINVAL, libc::EOPNOTSUPP, libc::ENOSYS] {
-            assert!(is_fence_capability_error(&io::Error::from_raw_os_error(
-                errno
-            )));
-        }
-        for errno in [libc::EACCES, libc::EBUSY, libc::ENOMEM] {
-            assert!(!is_fence_capability_error(&io::Error::from_raw_os_error(
-                errno
-            )));
-        }
     }
 
     #[test]
@@ -504,7 +654,38 @@ mod tests {
     }
 
     #[test]
+    fn exhausted_busy_lookahead_requests_compositor_recovery() {
+        let deadline = Instant::now();
+        let busy = io::Error::from_raw_os_error(libc::EBUSY);
+        assert_eq!(
+            lookahead_failure_disposition(&busy, deadline - Duration::from_nanos(1), deadline),
+            LookaheadFailureDisposition::Retry
+        );
+        assert_eq!(
+            lookahead_failure_disposition(&busy, deadline, deadline),
+            LookaheadFailureDisposition::Recover
+        );
+
+        let invalid = io::Error::from_raw_os_error(libc::EINVAL);
+        assert_eq!(
+            lookahead_failure_disposition(&invalid, deadline - Duration::from_nanos(1), deadline),
+            LookaheadFailureDisposition::Fail
+        );
+    }
+
+    #[test]
     fn queue_result_is_explicit_backpressure_not_an_error() {
         assert_ne!(Submission::Queued, Submission::Backpressured);
+    }
+
+    #[test]
+    fn scheduler_prioritizes_earliest_deadline_then_oldest_arrival() {
+        let now = Instant::now();
+        assert_eq!(
+            schedule_order(now, 4, now + Duration::from_millis(1), 1),
+            Ordering::Greater
+        );
+        assert_eq!(schedule_order(now, 4, now, 5), Ordering::Greater);
+        assert_eq!(schedule_order(now, 5, now, 4), Ordering::Less);
     }
 }
