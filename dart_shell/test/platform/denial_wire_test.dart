@@ -290,6 +290,8 @@ void main() {
         expect(windows.first.statusColorArgb, 0xff123456);
         expect(windows.first.pinned, isFalse);
         expect(windows.first.suppressAnimations, isFalse);
+        expect(windows.first.restoredAcrossFlutterRestart, isFalse);
+        expect(windows.first.shouldAnimateEntrance, isTrue);
         expect(windows.first.serverSideDecorated, isTrue);
         expect(windows.first.opacity, 1.0);
         expect(
@@ -363,6 +365,58 @@ void main() {
     expect(
       windows.single.opacityClass,
       DenialWindowOpacityClass.borderAlphaOnly,
+    );
+  });
+
+  test('runtime-restored windows suppress only their entrance', () {
+    Uint8List snapshot({required int restoredWindowId}) =>
+        EnvelopeObjectBuilder(
+          protocolVersion: 1,
+          sequence: 1,
+          payloadType: PayloadTypeId.WindowSnapshot,
+          payload: WindowSnapshotObjectBuilder(
+            windows: <WindowObjectBuilder>[
+              WindowObjectBuilder(
+                objectId: 1,
+                surfaceId: 2,
+                windowId: 3,
+                textureId: 0,
+                title: 'Settings',
+                appId: 'dev.denial.settings',
+                width: 100,
+                height: 80,
+                surfaceWidth: 100,
+                surfaceHeight: 80,
+                geometryWidth: 100,
+                geometryHeight: 80,
+                contentWidth: 100,
+                contentHeight: 80,
+                contentKind: WindowContentKind.LocalFlutter,
+              ),
+            ],
+            restoredWindowIds: <int>[restoredWindowId],
+          ),
+        ).toBytes('DENW');
+
+    final codec = DenialWireCodec();
+    final decoded = codec.decodeStructured(
+      ByteData.sublistView(snapshot(restoredWindowId: 3)),
+    );
+    final window = codec
+        .decodeWindows(decoded!.payload as WindowSnapshot)!
+        .single;
+
+    expect(window.suppressAnimations, isFalse);
+    expect(window.restoredAcrossFlutterRestart, isTrue);
+    expect(window.shouldAnimateEntrance, isFalse);
+
+    final invalidCodec = DenialWireCodec();
+    final invalid = invalidCodec.decodeStructured(
+      ByteData.sublistView(snapshot(restoredWindowId: 99)),
+    );
+    expect(
+      invalidCodec.decodeWindows(invalid!.payload as WindowSnapshot),
+      isNull,
     );
   });
 

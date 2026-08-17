@@ -257,6 +257,11 @@ table Window {
 
 table WindowSnapshot {
   windows:[Window];
+  // Windows already published to the Flutter runtime that this one replaced.
+  // The replacement shell reconstructs them without replaying their entrance;
+  // windows mapped after the replacement are intentionally absent.
+  // Appended for wire compatibility: older senders/receivers default empty.
+  restored_window_ids:[ulong];
 }
 
 table DisplayOutput {

@@ -152,6 +152,7 @@ class ClipboardHistoryViewState {
     this.snapshot,
     this.query = '',
     this.loading = true,
+    this.clearing = false,
     this.error,
     this.busyItemIds = const <int>{},
   });
@@ -159,6 +160,7 @@ class ClipboardHistoryViewState {
   final ClipboardHistorySnapshot? snapshot;
   final String query;
   final bool loading;
+  final bool clearing;
   final Object? error;
   final Set<int> busyItemIds;
 
@@ -170,6 +172,7 @@ class ClipboardHistoryViewState {
     bool clearSnapshot = false,
     String? query,
     bool? loading,
+    bool? clearing,
     Object? error,
     bool clearError = false,
     Set<int>? busyItemIds,
@@ -178,6 +181,7 @@ class ClipboardHistoryViewState {
       snapshot: clearSnapshot ? null : snapshot ?? this.snapshot,
       query: query ?? this.query,
       loading: loading ?? this.loading,
+      clearing: clearing ?? this.clearing,
       error: clearError ? null : error ?? this.error,
       busyItemIds: busyItemIds ?? this.busyItemIds,
     );
@@ -266,12 +270,20 @@ class ClipboardHistoryController extends Notifier<ClipboardHistoryViewState> {
     }
   }
 
-  Future<void> clear() async {
+  Future<bool> clear() async {
+    if (state.clearing) {
+      return false;
+    }
+    state = state.copyWith(clearing: true, clearError: true);
     try {
       await ref.read(clipboardHistoryServiceProvider).clear();
       await refresh();
+      return true;
     } on Object catch (error) {
       state = state.copyWith(error: error);
+      return false;
+    } finally {
+      state = state.copyWith(clearing: false);
     }
   }
 

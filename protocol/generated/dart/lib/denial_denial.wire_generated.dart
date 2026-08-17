@@ -1757,10 +1757,11 @@ class WindowSnapshot {
   final int _bcOffset;
 
   List<Window>? get windows => const fb.ListReader<Window>(Window.reader).vTableGetNullable(_bc, _bcOffset, 4);
+  List<int>? get restoredWindowIds => const fb.ListReader<int>(fb.Uint64Reader()).vTableGetNullable(_bc, _bcOffset, 6);
 
   @override
   String toString() {
-    return 'WindowSnapshot{windows: ${windows}}';
+    return 'WindowSnapshot{windows: ${windows}, restoredWindowIds: ${restoredWindowIds}}';
   }
 }
 
@@ -1778,11 +1779,15 @@ class WindowSnapshotBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(1);
+    fbBuilder.startTable(2);
   }
 
   int addWindowsOffset(int? offset) {
     fbBuilder.addOffset(0, offset);
+    return fbBuilder.offset;
+  }
+  int addRestoredWindowIdsOffset(int? offset) {
+    fbBuilder.addOffset(1, offset);
     return fbBuilder.offset;
   }
 
@@ -1793,19 +1798,25 @@ class WindowSnapshotBuilder {
 
 class WindowSnapshotObjectBuilder extends fb.ObjectBuilder {
   final List<WindowObjectBuilder>? _windows;
+  final List<int>? _restoredWindowIds;
 
   WindowSnapshotObjectBuilder({
     List<WindowObjectBuilder>? windows,
+    List<int>? restoredWindowIds,
   })
-      : _windows = windows;
+      : _windows = windows,
+        _restoredWindowIds = restoredWindowIds;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
     final int? windowsOffset = _windows == null ? null
         : fbBuilder.writeList(_windows!.map((b) => b.getOrCreateOffset(fbBuilder)).toList());
-    fbBuilder.startTable(1);
+    final int? restoredWindowIdsOffset = _restoredWindowIds == null ? null
+        : fbBuilder.writeListUint64(_restoredWindowIds!);
+    fbBuilder.startTable(2);
     fbBuilder.addOffset(0, windowsOffset);
+    fbBuilder.addOffset(1, restoredWindowIdsOffset);
     return fbBuilder.endTable();
   }
 

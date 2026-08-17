@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
@@ -9,6 +10,7 @@ import '../models/denial_drag_icon.dart';
 import '../models/desktop_notification.dart';
 import '../models/display_layout.dart';
 import '../models/keyboard_configuration.dart';
+import '../models/output_configuration.dart';
 import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
 import '../models/denial_window_snapshot.dart';
@@ -133,6 +135,8 @@ class DenialBridge {
   static const int _maxSystemCommandBytes = 64 * 1024;
   static const int _maxSystemCommandArguments = 64;
   static const int _maxSystemCommandArgumentBytes = 4096;
+  static const int _maxOutputControlBytes = 256 * 1024;
+  static const Duration _outputControlTimeout = Duration(seconds: 20);
 
   DenialBridge() {
     ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
@@ -785,6 +789,150 @@ class DenialBridge {
   /// Wayland loop and executes the normal runtime/compositor teardown path.
   bool requestLogout() => _sendSystemCommand(_logoutCommand);
 
+  Future<DenialOutputConfiguration> readOutputConfiguration() async {
+    final result = await _sendOutputControlRequest('outputs.get');
+    return DenialOutputConfiguration.fromJson(result);
+  }
+
+  Future<DenialOutputConfiguration> applyOutputConfiguration({
+    required int serial,
+    required List<DenialOutput> outputs,
+    required bool persistent,
+    int? confirmationTimeoutMilliseconds,
+  }) async {
+    final result = await _sendOutputControlRequest(
+      'outputs.apply',
+      parameters: <String, Object>{
+        'serial': serial,
+        'persistent': persistent,
+        'confirmation_timeout_milliseconds': ?confirmationTimeoutMilliseconds,
+        'outputs': <Map<String, Object>>[
+          for (final output in outputs) output.toApplyJson(),
+        ],
+      },
+    );
+    return DenialOutputConfiguration.fromJson(result);
+  }
+
+  Future<void> confirmOutputConfiguration(int token) async {
+    await _sendOutputControlRequest(
+      'outputs.confirm',
+      parameters: <String, Object>{'token': token},
+    );
+  }
+
+  Future<void> rollbackOutputConfiguration(int token) async {
+    await _sendOutputControlRequest(
+      'outputs.rollback',
+      parameters: <String, Object>{'token': token},
+    );
+  }
+
+  Future<Map<String, Object?>> _sendOutputControlRequest(
+    String method, {
+    Map<String, Object>? parameters,
+  }) async {
+    final path = _outputControlSocketPath();
+    if (path == null) {
+      throw const DenialOutputControlException(
+        'unavailable',
+        'The Denial output control socket is unavailable.',
+      );
+    }
+    final requestId = _nextRequestId++;
+    final request = jsonEncode(<String, Object>{
+      'version': 1,
+      'id': requestId,
+      'method': method,
+      'params': ?parameters,
+    });
+    if (utf8.encode(request).length + 1 > _maxOutputControlBytes) {
+      throw const DenialOutputControlException(
+        'invalid_request',
+        'The output configuration is too large.',
+      );
+    }
+
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        InternetAddress(path, type: InternetAddressType.unix),
+        0,
+        timeout: _outputControlTimeout,
+      );
+      socket.add(utf8.encode('$request\n'));
+      await socket.flush();
+      final responseBytes = <int>[];
+      await for (final chunk in socket.timeout(_outputControlTimeout)) {
+        responseBytes.addAll(chunk);
+        if (responseBytes.length > _maxOutputControlBytes) {
+          throw const DenialOutputControlException(
+            'invalid_response',
+            'The compositor output response is too large.',
+          );
+        }
+      }
+      final decoded = jsonDecode(utf8.decode(responseBytes));
+      if (decoded is! Map<String, Object?> ||
+          decoded['version'] != 1 ||
+          decoded['id'] != requestId) {
+        throw const DenialOutputControlException(
+          'invalid_response',
+          'The compositor returned an invalid output response.',
+        );
+      }
+      if (decoded['ok'] != true) {
+        final error = decoded['error'];
+        if (error is Map<String, Object?>) {
+          throw DenialOutputControlException(
+            error['code'] is String ? error['code']! as String : 'failed',
+            error['message'] is String
+                ? error['message']! as String
+                : 'The compositor rejected the output configuration.',
+          );
+        }
+        throw const DenialOutputControlException(
+          'failed',
+          'The compositor rejected the output configuration.',
+        );
+      }
+      final result = decoded['result'];
+      if (result is Map<String, Object?>) {
+        return result;
+      }
+      throw const DenialOutputControlException(
+        'invalid_response',
+        'The compositor returned no output configuration.',
+      );
+    } on DenialOutputControlException {
+      rethrow;
+    } on Object catch (error) {
+      throw DenialOutputControlException(
+        'unavailable',
+        'Could not reach Denial output control: $error',
+      );
+    } finally {
+      socket?.destroy();
+    }
+  }
+
+  String? _outputControlSocketPath() {
+    final environment = Platform.environment;
+    final explicit = environment['DENIAL_SOCKET'];
+    if (explicit != null &&
+        explicit.startsWith('/') &&
+        !explicit.contains('\u0000')) {
+      return explicit;
+    }
+    final runtime = environment['XDG_RUNTIME_DIR'];
+    if (runtime == null ||
+        !runtime.startsWith('/') ||
+        runtime.contains('\u0000')) {
+      return null;
+    }
+    return '${runtime.replaceFirst(RegExp(r'/+$'), '')}/denial/control.sock';
+  }
+
   bool _sendSystemCommand(
     int command, {
     List<String> argv = const <String>[],
@@ -1262,4 +1410,14 @@ class DenialBridge {
       completer.complete(layout);
     }
   }
+}
+
+class DenialOutputControlException implements Exception {
+  const DenialOutputControlException(this.code, this.message);
+
+  final String code;
+  final String message;
+
+  @override
+  String toString() => message;
 }

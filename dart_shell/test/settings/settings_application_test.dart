@@ -6,6 +6,7 @@ import 'package:denial_dart_shell/src/settings/widgets/settings_about_page.dart'
 import 'package:denial_dart_shell/src/settings/widgets/settings_appearance_page.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_controls.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_developer_page.dart';
+import 'package:denial_dart_shell/src/settings/widgets/settings_displays_page.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_language_page.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_power_page.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_navigation.dart';
@@ -13,7 +14,9 @@ import 'package:denial_dart_shell/src/settings/widgets/system_bar_placement_card
 import 'package:denial_dart_shell/src/localization/denial_localizations.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/models/keyboard_configuration.dart';
+import 'package:denial_dart_shell/src/models/output_configuration.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
+import 'package:denial_dart_shell/src/services/brightness_service.dart';
 import 'package:denial_dart_shell/src/settings/settings_application.dart';
 import 'package:denial_dart_shell/src/settings/settings_controller.dart';
 import 'package:denial_dart_shell/src/settings/settings_store.dart';
@@ -260,6 +263,106 @@ void main() {
       DenialKeyboardLayout(layout: 'de', variant: 'nodeadkeys'),
     ]);
     expect(bridge.keyboard.options, const <String>['compose:menu']);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('display page edits rotation, arrangement, and applies once', (
+    tester,
+  ) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container, size: const Size(980, 700));
+
+    tester
+        .widget<SettingsNavigation>(find.byType(SettingsNavigation))
+        .onSelected(SettingsPageId.displays);
+    await tester.pumpAndSettle();
+    expect(find.byKey(settingsMonitorLayoutEditorKey), findsOneWidget);
+    expect(find.text('DP-1'), findsWidgets);
+    expect(find.text('HDMI-A-1'), findsWidgets);
+
+    tester
+        .widget<MonitorLayoutEditor>(find.byKey(settingsMonitorLayoutEditorKey))
+        .onPositionChanged('DP-1', 240, 0);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Landscape'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Landscape'));
+    await tester.pumpAndSettle();
+    expect(find.text('90° clockwise'), findsOneWidget);
+    await tester.ensureVisible(find.text('90° clockwise'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('90° clockwise'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(settingsApplyDisplayConfigurationKey),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(settingsApplyDisplayConfigurationKey));
+    await tester.pumpAndSettle();
+
+    final bridge = container.read(denialBridgeProvider) as _SettingsBridge;
+    expect(bridge.outputApplyCount, 1);
+    expect(
+      bridge.outputConfiguration.outputs.first.transform,
+      DenialOutputTransform.rotate90,
+    );
+    expect(
+      bridge.outputConfiguration.outputs.first.x,
+      greaterThan(_outputConfiguration.outputs.first.x),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('single display omits the monitor layout editor', (tester) async {
+    final singleOutput = DenialOutputConfiguration(
+      serial: _outputConfiguration.serial,
+      capabilities: _outputCapabilities,
+      outputs: <DenialOutput>[_outputConfiguration.outputs.first],
+    );
+    final container = _settingsContainer(outputConfiguration: singleOutput);
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container, size: const Size(980, 700));
+
+    tester
+        .widget<SettingsNavigation>(find.byType(SettingsNavigation))
+        .onSelected(SettingsPageId.displays);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(settingsMonitorLayoutEditorKey), findsNothing);
+    expect(find.text('Resolution'), findsOneWidget);
+    expect(find.text('Landscape'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('pending display changes reopen Displays and can be kept', (
+    tester,
+  ) async {
+    final pending = DenialOutputConfiguration(
+      serial: _outputConfiguration.serial,
+      capabilities: _outputCapabilities,
+      outputs: _outputConfiguration.outputs,
+      pendingConfirmation: DenialOutputConfirmation(
+        token: 91,
+        deadlineUnixMilliseconds: DateTime.now().millisecondsSinceEpoch + 10000,
+      ),
+    );
+    final container = _settingsContainer(outputConfiguration: pending);
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container, size: const Size(980, 700));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(settingsDisplayConfirmationDialogKey), findsOneWidget);
+    expect(find.text('Monitor configuration'), findsOneWidget);
+
+    await tester.tap(find.byKey(settingsKeepDisplayConfigurationKey));
+    await tester.pump();
+    await tester.pump();
+
+    final bridge = container.read(denialBridgeProvider) as _SettingsBridge;
+    expect(bridge.outputConfirmCount, 1);
+    expect(find.byKey(settingsDisplayConfirmationDialogKey), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -609,16 +712,24 @@ void main() {
   });
 }
 
-ProviderContainer _settingsContainer() {
+ProviderContainer _settingsContainer({
+  DenialOutputConfiguration outputConfiguration = _outputConfiguration,
+}) {
   return ProviderContainer.test(
     overrides: [
       settingsStoreProvider.overrideWithValue(_MemorySettingsStore()),
       wallpaperSourcesProvider.overrideWithValue(const []),
       denialBridgeProvider.overrideWith((ref) {
-        final bridge = _SettingsBridge(_displayLayout);
+        final bridge = _SettingsBridge(
+          _displayLayout,
+          outputConfiguration: outputConfiguration,
+        );
         ref.onDispose(bridge.dispose);
         return bridge;
       }),
+      brightnessServiceProvider.overrideWith(
+        (ref) => _TestBrightnessService(ref.watch(denialBridgeProvider)),
+      ),
     ],
   );
 }
@@ -671,10 +782,27 @@ Future<void> _pumpSettings(
   );
 }
 
+class _TestBrightnessService extends BrightnessService {
+  const _TestBrightnessService(super.bridge);
+
+  @override
+  Future<double?> readLevel([DisplayOutput? output]) async => 0.72;
+
+  @override
+  Future<void> apply(int percent, [DisplayOutput? output]) async {}
+}
+
 class _SettingsBridge extends DenialBridge {
-  _SettingsBridge(this.layout);
+  _SettingsBridge(
+    this.layout, {
+    this.outputConfiguration = _outputConfiguration,
+  });
 
   DisplayLayout layout;
+  DenialOutputConfiguration outputConfiguration;
+  int outputApplyCount = 0;
+  int outputConfirmCount = 0;
+  int outputRollbackCount = 0;
   DenialKeyboardConfiguration keyboard = const DenialKeyboardConfiguration(
     revision: 1,
     layouts: <DenialKeyboardLayout>[
@@ -710,7 +838,122 @@ class _SettingsBridge extends DenialBridge {
     layout = layout.copyWithSystemBar(side: side, monitorIds: monitorIds);
     return layout;
   }
+
+  @override
+  Future<DenialOutputConfiguration> readOutputConfiguration() async {
+    return outputConfiguration;
+  }
+
+  @override
+  Future<DenialOutputConfiguration> applyOutputConfiguration({
+    required int serial,
+    required List<DenialOutput> outputs,
+    required bool persistent,
+    int? confirmationTimeoutMilliseconds,
+  }) async {
+    outputApplyCount += 1;
+    outputConfiguration = DenialOutputConfiguration(
+      serial: serial + 1,
+      capabilities: outputConfiguration.capabilities,
+      outputs: List<DenialOutput>.unmodifiable(outputs),
+    );
+    return outputConfiguration;
+  }
+
+  @override
+  Future<void> confirmOutputConfiguration(int token) async {
+    if (outputConfiguration.pendingConfirmation?.token != token) {
+      throw const DenialOutputControlException(
+        'stale_confirmation',
+        'stale output confirmation',
+      );
+    }
+    outputConfirmCount += 1;
+    outputConfiguration = DenialOutputConfiguration(
+      serial: outputConfiguration.serial + 1,
+      capabilities: outputConfiguration.capabilities,
+      outputs: outputConfiguration.outputs,
+    );
+  }
+
+  @override
+  Future<void> rollbackOutputConfiguration(int token) async {
+    if (outputConfiguration.pendingConfirmation?.token != token) {
+      throw const DenialOutputControlException(
+        'stale_confirmation',
+        'stale output confirmation',
+      );
+    }
+    outputRollbackCount += 1;
+    outputConfiguration = DenialOutputConfiguration(
+      serial: outputConfiguration.serial + 1,
+      capabilities: outputConfiguration.capabilities,
+      outputs: outputConfiguration.outputs,
+    );
+  }
 }
+
+const _outputCapabilities = DenialOutputCapabilities(
+  apply: true,
+  position: true,
+  mode: true,
+  scale: true,
+  transform: true,
+  persistent: true,
+);
+
+const _mode1080p120 = DenialOutputMode(
+  width: 1920,
+  height: 1080,
+  refreshMillihz: 120000,
+  preferred: true,
+);
+
+const _mode1080p60 = DenialOutputMode(
+  width: 1920,
+  height: 1080,
+  refreshMillihz: 60000,
+  preferred: true,
+);
+
+const _outputConfiguration = DenialOutputConfiguration(
+  serial: 4,
+  capabilities: _outputCapabilities,
+  outputs: <DenialOutput>[
+    DenialOutput(
+      name: 'DP-1',
+      description: 'DP-1',
+      connected: true,
+      enabled: true,
+      powered: true,
+      x: 0,
+      y: 0,
+      logicalWidth: 1920,
+      logicalHeight: 1080,
+      scale: 1,
+      transform: DenialOutputTransform.normal,
+      adaptiveSync: false,
+      currentMode: _mode1080p120,
+      modes: <DenialOutputMode>[_mode1080p120, _mode1080p60],
+    ),
+    DenialOutput(
+      name: 'HDMI-A-1',
+      description: 'HDMI-A-1',
+      connected: true,
+      enabled: true,
+      powered: true,
+      x: 1920,
+      y: 0,
+      logicalWidth: 1920,
+      logicalHeight: 1080,
+      scale: 1,
+      transform: DenialOutputTransform.normal,
+      adaptiveSync: false,
+      currentMode: _mode1080p60,
+      modes: <DenialOutputMode>[_mode1080p60],
+    ),
+  ],
+);
 
 const _displayLayout = DisplayLayout(
   epoch: 1,

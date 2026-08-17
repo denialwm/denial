@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use denial_core::topology::{LogicalPoint, SCALE_BASE};
+use denial_core::topology::{LogicalPoint, OutputTransform, SCALE_BASE};
 #[cfg(feature = "flutter")]
 use denial_flutter_engine::RendererBackend;
 
@@ -112,6 +112,7 @@ pub(super) struct Options {
     pub(super) mode_sizes: BTreeMap<String, (u32, u32)>,
     pub(super) refresh_millihz: BTreeMap<String, u32>,
     pub(super) scales_120: BTreeMap<String, u32>,
+    pub(super) transforms: BTreeMap<String, OutputTransform>,
     pub(super) vrr_outputs: BTreeSet<String>,
     pub(super) disabled_outputs: BTreeSet<String>,
     pub(super) next_positions: BTreeMap<String, LogicalPoint>,
@@ -150,6 +151,7 @@ impl Options {
             mode_sizes: BTreeMap::new(),
             refresh_millihz: BTreeMap::new(),
             scales_120: BTreeMap::new(),
+            transforms: BTreeMap::new(),
             vrr_outputs: BTreeSet::new(),
             disabled_outputs: BTreeSet::new(),
             next_positions: BTreeMap::new(),
@@ -183,6 +185,7 @@ impl Options {
         let mut mode_sizes = BTreeMap::new();
         let mut refresh_millihz = BTreeMap::new();
         let mut scales_120 = BTreeMap::new();
+        let mut transforms = BTreeMap::new();
         let mut vrr_outputs = BTreeSet::new();
         let mut disabled_outputs = BTreeSet::new();
         let mut next_positions = BTreeMap::new();
@@ -375,6 +378,7 @@ impl Options {
             mode_sizes = configured.mode_sizes;
             refresh_millihz = configured.refresh_millihz;
             scales_120 = configured.scales_120;
+            transforms = configured.transforms;
             vrr_outputs = configured.vrr_outputs;
             disabled_outputs = configured.disabled_outputs;
             system_bar = configured.system_bar;
@@ -460,6 +464,7 @@ impl Options {
             mode_sizes,
             refresh_millihz,
             scales_120,
+            transforms,
             vrr_outputs,
             disabled_outputs,
             next_positions,
@@ -590,6 +595,7 @@ struct OutputConfig {
     mode_sizes: BTreeMap<String, (u32, u32)>,
     refresh_millihz: BTreeMap<String, u32>,
     scales_120: BTreeMap<String, u32>,
+    transforms: BTreeMap<String, OutputTransform>,
     vrr_outputs: BTreeSet<String>,
     disabled_outputs: BTreeSet<String>,
     system_bar: Option<SystemBarOptions>,
@@ -720,6 +726,52 @@ fn parse_output_scale_entry(value: &str) -> Result<(String, u32), Box<dyn Error>
     ))
 }
 
+fn parse_output_transform_entry(value: &str) -> Result<(String, OutputTransform), Box<dyn Error>> {
+    let mut fields = value.split(',').map(str::trim);
+    let name = fields
+        .next()
+        .filter(|name| !name.is_empty())
+        .ok_or(
+            "output transform must use transform=NAME,normal|90|180|270|flipped|flipped-90|flipped-180|flipped-270",
+        )?;
+    let transform = match fields.next() {
+        Some("normal") => OutputTransform::Normal,
+        Some("90") => OutputTransform::Rotate90,
+        Some("180") => OutputTransform::Rotate180,
+        Some("270") => OutputTransform::Rotate270,
+        Some("flipped") => OutputTransform::Flipped,
+        Some("flipped-90") => OutputTransform::Flipped90,
+        Some("flipped-180") => OutputTransform::Flipped180,
+        Some("flipped-270") => OutputTransform::Flipped270,
+        _ => {
+            return Err(
+                "output transform must use transform=NAME,normal|90|180|270|flipped|flipped-90|flipped-180|flipped-270"
+                    .into(),
+            );
+        }
+    };
+    if fields.next().is_some() {
+        return Err(
+            "output transform must use transform=NAME,normal|90|180|270|flipped|flipped-90|flipped-180|flipped-270"
+                .into(),
+        );
+    }
+    Ok((name.to_owned(), transform))
+}
+
+fn format_output_transform(transform: OutputTransform) -> &'static str {
+    match transform {
+        OutputTransform::Normal => "normal",
+        OutputTransform::Rotate90 => "90",
+        OutputTransform::Rotate180 => "180",
+        OutputTransform::Rotate270 => "270",
+        OutputTransform::Flipped => "flipped",
+        OutputTransform::Flipped90 => "flipped-90",
+        OutputTransform::Flipped180 => "flipped-180",
+        OutputTransform::Flipped270 => "flipped-270",
+    }
+}
+
 fn parse_output_config(contents: &str) -> Result<OutputConfig, String> {
     let mut config = OutputConfig::default();
     for (index, raw_line) in contents.lines().enumerate() {
@@ -798,6 +850,26 @@ fn parse_output_config(contents: &str) -> Result<OutputConfig, String> {
             config.scales_120.insert(name, scale_120);
             continue;
         }
+        if let Some((key, spec)) = line.split_once('=')
+            && key.trim() == "transform"
+        {
+            let (name, transform) = parse_output_transform_entry(spec)
+                .map_err(|error| format!("line {}: {error}", index + 1))?;
+            if config.transforms.contains_key(&name) {
+                return Err(format!(
+                    "line {}: duplicate transform for output {name}",
+                    index + 1
+                ));
+            }
+            if config.transforms.len() == MAX_CONFIGURED_OUTPUTS {
+                return Err(format!(
+                    "line {}: output config exceeds the {MAX_CONFIGURED_OUTPUTS}-output transform limit",
+                    index + 1
+                ));
+            }
+            config.transforms.insert(name, transform);
+            continue;
+        }
         if let Some((key, output)) = line.split_once('=')
             && key.trim() == "disabled"
         {
@@ -872,6 +944,7 @@ pub(super) struct PersistedOutput {
     pub(super) height: u32,
     pub(super) refresh_millihz: u32,
     pub(super) scale_120: u32,
+    pub(super) transform: OutputTransform,
     pub(super) adaptive_sync: bool,
 }
 
@@ -1148,6 +1221,13 @@ fn render_persisted_output_config(
             output.name,
             format_output_scale(output.scale_120)
         ));
+        if output.transform != OutputTransform::Normal {
+            lines.push(format!(
+                "transform={},{}",
+                output.name,
+                format_output_transform(output.transform)
+            ));
+        }
         if output.adaptive_sync {
             lines.push(format!("vrr={}", output.name));
         }
@@ -1201,7 +1281,7 @@ fn output_directive_name(raw_line: &str) -> Option<&str> {
     match key {
         "system_bar" | "maximize_padding" => None,
         "disabled" | "vrr" => Some(value.trim()),
-        "mode" | "scale" => value.split(',').next().map(str::trim),
+        "mode" | "scale" | "transform" => value.split(',').next().map(str::trim),
         _ => Some(key),
     }
 }
@@ -1264,6 +1344,7 @@ mod tests {
             height: 1440,
             refresh_millihz: 199_998,
             scale_120: 150,
+            transform: OutputTransform::Rotate90,
             adaptive_sync: true,
         }
     }
@@ -1485,14 +1566,39 @@ mod tests {
     #[test]
     fn output_config_accepts_exact_modes_and_fractional_scales() {
         let config = parse_output_config(
-            "DP-5=0,0\nmode=DP-5,2560,1440,199998\nscale=DP-5,1.25\nmode=DP-4,1920,1080,60\n",
+            "DP-5=0,0\nmode=DP-5,2560,1440,199998\nscale=DP-5,1.25\ntransform=DP-5,90\nmode=DP-4,1920,1080,60\n",
         )
         .expect("valid exact output config");
 
         assert_eq!(config.mode_sizes["DP-5"], (2560, 1440));
         assert_eq!(config.refresh_millihz["DP-5"], 199_998);
         assert_eq!(config.scales_120["DP-5"], 150);
+        assert_eq!(config.transforms["DP-5"], OutputTransform::Rotate90);
         assert_eq!(config.refresh_millihz["DP-4"], 60_000);
+    }
+
+    #[test]
+    fn output_config_accepts_every_wayland_transform_and_rejects_duplicates() {
+        let config = parse_output_config(
+            "transform=A,normal\ntransform=B,90\ntransform=C,180\ntransform=D,270\ntransform=E,flipped\ntransform=F,flipped-90\ntransform=G,flipped-180\ntransform=H,flipped-270\n",
+        )
+        .expect("valid output transforms");
+
+        assert_eq!(config.transforms["A"], OutputTransform::Normal);
+        assert_eq!(config.transforms["B"], OutputTransform::Rotate90);
+        assert_eq!(config.transforms["C"], OutputTransform::Rotate180);
+        assert_eq!(config.transforms["D"], OutputTransform::Rotate270);
+        assert_eq!(config.transforms["E"], OutputTransform::Flipped);
+        assert_eq!(config.transforms["F"], OutputTransform::Flipped90);
+        assert_eq!(config.transforms["G"], OutputTransform::Flipped180);
+        assert_eq!(config.transforms["H"], OutputTransform::Flipped270);
+
+        let duplicate = parse_output_config("transform=DP-1,90\ntransform=DP-1,180\n")
+            .expect_err("duplicate transform must fail");
+        assert!(duplicate.contains("duplicate transform for output DP-1"));
+        let invalid =
+            parse_output_config("transform=DP-1,left\n").expect_err("unknown transform must fail");
+        assert!(invalid.contains("output transform must use"));
     }
 
     #[test]
@@ -1523,6 +1629,7 @@ maximize_padding=14
         assert_eq!(parsed.mode_sizes["DP-5"], (2560, 1440));
         assert_eq!(parsed.refresh_millihz["DP-5"], 199_998);
         assert_eq!(parsed.scales_120["DP-5"], 150);
+        assert_eq!(parsed.transforms["DP-5"], OutputTransform::Rotate90);
         assert!(parsed.vrr_outputs.contains("DP-5"));
         assert!(!parsed.disabled_outputs.contains("DP-5"));
         assert_eq!(
@@ -1530,7 +1637,7 @@ maximize_padding=14
                 .lines()
                 .filter(|line| output_directive_name(line) == Some("DP-5"))
                 .count(),
-            4
+            5
         );
     }
 

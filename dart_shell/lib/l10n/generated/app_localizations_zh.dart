@@ -272,6 +272,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get clipboardCloseHistory => '关闭剪贴板历史';
 
   @override
+  String get clipboardClearAll => '全部清除';
+
+  @override
   String get clipboardDelete => '删除';
 
   @override
@@ -310,6 +313,12 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get clipboardPin => '固定';
+
+  @override
+  String get clipboardPinItem => '固定剪贴板项目';
+
+  @override
   String get clipboardNoSearchResultsDescription => '请尝试其他词语、文件类型或应用。';
 
   @override
@@ -326,6 +335,12 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get clipboardTypeText => '文本';
+
+  @override
+  String get clipboardUnpin => '取消固定';
+
+  @override
+  String get clipboardUnpinItem => '取消固定剪贴板项目';
 
   @override
   String get clipboardUnavailableDescription => '原生历史记录服务没有响应。';
@@ -1390,6 +1405,39 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsDisconnect => '断开连接';
 
   @override
+  String get settingsApplying => '正在应用…';
+
+  @override
+  String get settingsApplyDisplayConfiguration => '应用更改';
+
+  @override
+  String get settingsDisplayApplyPersistentHint =>
+      '保留更改后会更新当前会话和 outputs.conf。';
+
+  @override
+  String get settingsDisplayApplySessionHint => '保留更改后仅用于当前会话。';
+
+  @override
+  String get settingsDisplayConfirmationTitle => '保留这些显示设置吗？';
+
+  @override
+  String settingsDisplayConfirmationMessage(int seconds) {
+    return '将在 $seconds 秒后自动恢复之前的显示设置。';
+  }
+
+  @override
+  String get settingsDisplayKeepChanges => '保留更改';
+
+  @override
+  String get settingsDisplayRevertNow => '立即恢复';
+
+  @override
+  String get settingsDisplayArrangementSemantics => '显示器排列编辑器';
+
+  @override
+  String get settingsDisplayArrangementTitle => '显示器配置';
+
+  @override
   String get settingsDisplayBrightnessDescription => '调节主显示器亮度。';
 
   @override
@@ -1416,6 +1464,46 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsDisplaysTitle => '显示器与视频。';
+
+  @override
+  String settingsDisplayPosition(int x, int y) {
+    return '位置 $x, $y';
+  }
+
+  @override
+  String get settingsDisplayRefreshRate => '刷新率';
+
+  @override
+  String get settingsDisplayResolution => '分辨率';
+
+  @override
+  String get settingsDisplayRotation => '旋转';
+
+  @override
+  String get settingsDisplayRotationNormal => '横向';
+
+  @override
+  String get settingsDisplayRotation90 => '顺时针 90°';
+
+  @override
+  String get settingsDisplayRotation180 => '倒置';
+
+  @override
+  String get settingsDisplayRotation270 => '逆时针 90°';
+
+  @override
+  String get settingsDisplayScale => '缩放';
+
+  @override
+  String get settingsLoadingDisplays => '正在加载显示器配置…';
+
+  @override
+  String get settingsMonitorDragHint => '拖动以排列，或使用方向键移动。';
+
+  @override
+  String settingsMonitorSemantics(String name) {
+    return '显示器 $name';
+  }
 
   @override
   String get settingsEdgeDistance => '边缘距离';

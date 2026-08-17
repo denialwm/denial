@@ -86,7 +86,7 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 #[cfg(feature = "flutter")]
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use calloop::signals::{Signal, Signals};
 use denial_core::topology::{
@@ -145,7 +145,10 @@ use native_shortcut::NativeEscapeShortcut;
 use notification_server::NotificationServer;
 use options::{Options, RuntimeLimit, SIMULATED_HOTPLUG_GAP_FRAMES};
 #[cfg(feature = "flutter")]
-use output_control::{ControlEvent, OutputControlServer, PendingOutputApply, PendingUiDevelopment};
+use output_control::{
+    ControlEvent, OutputConfirmationAction, OutputControlServer, PendingOutputApply,
+    PendingOutputConfirmation, PendingUiDevelopment,
+};
 use scene_sync::SceneSyncState;
 #[cfg(feature = "flutter")]
 use scene_sync::{WindowEventDisposition, window_event_disposition};
@@ -226,7 +229,7 @@ impl RuntimeOutputConfiguration {
             positions: options.positions.clone(),
             modes,
             scales_120: options.scales_120.clone(),
-            transforms: BTreeMap::new(),
+            transforms: options.transforms.clone(),
             vrr_outputs: options.vrr_outputs.clone(),
             disabled_outputs: options.disabled_outputs.clone(),
         }
@@ -704,6 +707,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
                 &topology,
                 &output_configuration,
                 options.output_config.is_some(),
+                None,
             )?;
             let (server, source) = OutputControlServer::start(initial)?;
             frame_event_loop
@@ -715,6 +719,9 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
                         match request {
                             ControlEvent::OutputApply(request) => {
                                 state.pending_output_applies.push_back(request);
+                            }
+                            ControlEvent::OutputConfirmation(request) => {
+                                state.pending_output_confirmations.push_back(request);
                             }
                             ControlEvent::UiDevelopment(request) => {
                                 state.pending_ui_development.push_back(request);
@@ -1317,11 +1324,15 @@ struct RuntimeState {
     #[cfg(feature = "flutter")]
     published_window_ids: HashSet<u64>,
     #[cfg(feature = "flutter")]
+    restored_window_ids: BTreeSet<u64>,
+    #[cfg(feature = "flutter")]
     notification_server: Option<NotificationServer>,
     #[cfg(feature = "flutter")]
     pending_notification_events: VecDeque<notification_server::NotificationEvent>,
     #[cfg(feature = "flutter")]
     pending_output_applies: VecDeque<PendingOutputApply>,
+    #[cfg(feature = "flutter")]
+    pending_output_confirmations: VecDeque<PendingOutputConfirmation>,
     #[cfg(feature = "flutter")]
     output_control_dirty: bool,
     #[cfg(feature = "flutter")]
@@ -1380,6 +1391,29 @@ impl RuntimeState {
             return;
         };
         self.flutter_input.synchronize_pointer_position(x, y);
+    }
+
+    /// Starts a new Flutter generation without making the existing Wayland
+    /// scene look newly mapped. The replacement runtime receives this exact
+    /// set with its first window snapshot and can suppress entrance effects
+    /// without changing lasting animation policy for those windows.
+    fn begin_replacement_flutter_generation(&mut self, size: PixelSize) {
+        self.restored_window_ids.clear();
+        self.restored_window_ids
+            .extend(self.published_window_ids.drain());
+        self.flutter_input.resize(size);
+        if let Some(frontend) = self.wayland.as_mut() {
+            frontend.reset_flutter_input_generation();
+        }
+        self.synchronize_flutter_pointer_position();
+        self.flutter_channel_closed = false;
+        self.scene_sync.invalidate_runtime();
+        self.pending_window_events.clear();
+        self.pending_unpublished_window_events.clear();
+        if let Some(frontend) = self.wayland.as_ref() {
+            self.pending_window_events
+                .extend(frontend.replay_window_state_events());
+        }
     }
 
     fn note_user_activity(&mut self) {
@@ -2338,6 +2372,7 @@ fn run_frame_loop(
                             scanout.output.crtc != output.crtc
                                 || scanout.output.mode != output.mode
                                 || scanout.output.connector != output.connector
+                                || scanout.output.transform != output.transform
                                 || scanout.output.vrr_enabled != output.vrr_enabled
                         })
                 });
@@ -2504,6 +2539,47 @@ fn submit_ready_frames(
 ) -> Result<usize, Box<dyn Error>> {
     let submission = scheduler.submit_ready(swapchain, scanouts, events)?;
     Ok(submission.submitted)
+}
+
+#[cfg(feature = "flutter")]
+#[derive(Debug)]
+struct ActiveOutputConfirmation {
+    state: output_control::OutputControlConfirmation,
+    deadline: Instant,
+    rollback_configuration: RuntimeOutputConfiguration,
+    rollback_power: BTreeMap<OutputId, bool>,
+    prepared_persistence: Option<options::PreparedOutputConfig>,
+}
+
+#[cfg(feature = "flutter")]
+fn confirmation_deadline_unix_milliseconds(timeout: Duration) -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .saturating_add(timeout)
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
+}
+
+#[cfg(feature = "flutter")]
+fn begin_output_confirmation(
+    serial: u64,
+    timeout: Duration,
+    rollback_configuration: RuntimeOutputConfiguration,
+    rollback_power: BTreeMap<OutputId, bool>,
+    prepared_persistence: Option<options::PreparedOutputConfig>,
+) -> ActiveOutputConfirmation {
+    ActiveOutputConfirmation {
+        state: output_control::OutputControlConfirmation {
+            token: serial.wrapping_add(1).max(1),
+            deadline_unix_milliseconds: confirmation_deadline_unix_milliseconds(timeout),
+        },
+        deadline: Instant::now() + timeout,
+        rollback_configuration,
+        rollback_power,
+        prepared_persistence,
+    }
 }
 
 #[cfg(feature = "flutter")]
@@ -2681,6 +2757,9 @@ fn run_flutter_event_loop(
     };
     let mut ready_output_apply: Option<(PendingOutputApply, Vec<ConnectedConnector>)> = None;
     let mut pending_output_success: Option<PendingOutputApply> = None;
+    let mut pending_output_confirmation_success: VecDeque<PendingOutputConfirmation> =
+        VecDeque::new();
+    let mut active_output_confirmation: Option<ActiveOutputConfirmation> = None;
 
     // Any native helper inadvertently created by an elevated Flutter thread
     // is normalized before the compositor itself becomes realtime.
@@ -2720,6 +2799,22 @@ fn run_flutter_event_loop(
             recover_stalled_kms_presentation(drm, event_loop, &mut events)?;
             continue;
         }
+        if active_output_confirmation
+            .as_ref()
+            .is_some_and(|pending| Instant::now() >= pending.deadline)
+        {
+            let pending = active_output_confirmation
+                .take()
+                .expect("expired output confirmation exists");
+            output_configuration = pending.rollback_configuration;
+            events.output_power_requests.extend(pending.rollback_power);
+            events.kms_reconfigure_requested = true;
+            events.output_control_dirty = true;
+            info!(
+                token = pending.state.token,
+                "rolling back unconfirmed output configuration"
+            );
+        }
         let needs_output_snapshot =
             ready_output_apply.is_some() || pending_output_success.is_some();
         let mut current_output_snapshot =
@@ -2730,6 +2825,9 @@ fn run_flutter_event_loop(
                     topology,
                     &output_configuration,
                     persistence_available,
+                    active_output_confirmation
+                        .as_ref()
+                        .map(|pending| pending.state),
                 )
             })?;
         if needs_output_snapshot && current_output_snapshot.is_none() {
@@ -2740,6 +2838,9 @@ fn run_flutter_event_loop(
                 .as_ref()
                 .expect("successful output apply has a publication snapshot")
                 .clone()));
+        }
+        while let Some(request) = pending_output_confirmation_success.pop_front() {
+            request.reply(Ok(()));
         }
         if let Some(reason) = events.lifecycle.shutdown_reason() {
             log_shutdown(reason);
@@ -2943,6 +3044,62 @@ fn run_flutter_event_loop(
             }
         }
 
+        let mut output_confirmation_handled = false;
+        while let Some(request) = events.pending_output_confirmations.pop_front() {
+            let Some(pending) = active_output_confirmation.take() else {
+                request.reply(Err(output_control::OutputControlFailure::new(
+                    "stale_confirmation",
+                    "there is no output configuration awaiting confirmation",
+                )));
+                continue;
+            };
+            if request.token != pending.state.token {
+                active_output_confirmation = Some(pending);
+                request.reply(Err(output_control::OutputControlFailure::new(
+                    "stale_confirmation",
+                    "the output confirmation token is stale",
+                )));
+                continue;
+            }
+
+            output_confirmation_handled = true;
+            match request.action {
+                OutputConfirmationAction::Keep => {
+                    if let Some(prepared) = pending.prepared_persistence
+                        && let Err(error) = prepared.commit()
+                    {
+                        output_configuration = pending.rollback_configuration;
+                        events.output_power_requests.extend(pending.rollback_power);
+                        events.kms_reconfigure_requested = true;
+                        events.output_control_dirty = true;
+                        warn!(%error, "could not persist confirmed output configuration; rolling it back");
+                        request.reply(Err(output_control::OutputControlFailure::new(
+                            "persistence_failed",
+                            error,
+                        )));
+                        continue;
+                    }
+                    events.output_control_dirty = true;
+                    info!(token = pending.state.token, "kept output configuration");
+                    pending_output_confirmation_success.push_back(request);
+                }
+                OutputConfirmationAction::Rollback => {
+                    output_configuration = pending.rollback_configuration;
+                    events.output_power_requests.extend(pending.rollback_power);
+                    events.kms_reconfigure_requested = true;
+                    events.output_control_dirty = true;
+                    info!(
+                        token = pending.state.token,
+                        "rolling back output configuration on request"
+                    );
+                    pending_output_confirmation_success.push_back(request);
+                }
+            }
+        }
+        if output_confirmation_handled {
+            continue;
+        }
+
         if scanout_rebased && let Some((request, _)) = ready_output_apply.take() {
             // A VT resume invalidates the scheduler and any connector view
             // prepared against it. Re-scan the request after topology repair.
@@ -2953,6 +3110,13 @@ fn run_flutter_event_loop(
             && ready_output_apply.is_none()
             && let Some(request) = events.pending_output_applies.pop_front()
         {
+            if active_output_confirmation.is_some() {
+                request.reply(Err(output_control::OutputControlFailure::new(
+                    "confirmation_pending",
+                    "keep or roll back the current output configuration before applying another",
+                )));
+                continue;
+            }
             if scheduler.has_pending_scanout_work() {
                 submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
                 events.pending_output_applies.push_front(request);
@@ -2999,6 +3163,20 @@ fn run_flutter_event_loop(
                 events.topology_dirty = true;
                 continue;
             }
+            let confirmation_rollback = request
+                .configuration
+                .confirmation_timeout_milliseconds
+                .map(|timeout_milliseconds| {
+                    let rollback_power = scanouts
+                        .iter()
+                        .map(|scanout| (scanout.output.id, scanout.powered))
+                        .collect::<BTreeMap<_, _>>();
+                    (
+                        output_configuration.clone(),
+                        rollback_power,
+                        Duration::from_millis(timeout_milliseconds),
+                    )
+                });
             let (staged_configuration, desired_power) = match configuration_from_output_request(
                 &request.configuration,
                 &connectors,
@@ -3060,6 +3238,7 @@ fn run_flutter_event_loop(
                         height: output.mode.height,
                         refresh_millihz: output.mode.refresh_millihz,
                         scale_120: (output.scale * f64::from(SCALE_BASE)).round() as u32,
+                        transform: output_transform_from_name(output.transform),
                         adaptive_sync: output.adaptive_sync,
                     })
                     .collect::<Vec<_>>();
@@ -3104,7 +3283,17 @@ fn run_flutter_event_loop(
                     &mut events,
                 )?;
                 frame_scheduler.reconfigure(scanouts, Instant::now());
-                if let Some(prepared) = prepared_persistence {
+                if let Some((rollback_configuration, rollback_power, timeout)) =
+                    confirmation_rollback
+                {
+                    active_output_confirmation = Some(begin_output_confirmation(
+                        current_snapshot.serial,
+                        timeout,
+                        rollback_configuration,
+                        rollback_power,
+                        prepared_persistence,
+                    ));
+                } else if let Some(prepared) = prepared_persistence {
                     events.output_control_dirty = true;
                     if let Err(error) = prepared.commit() {
                         request.reply(Err(output_control::OutputControlFailure::new(
@@ -3190,7 +3379,15 @@ fn run_flutter_event_loop(
                 &mut events,
             )?;
             frame_scheduler.reconfigure(scanouts, Instant::now());
-            if let Some(prepared) = prepared_persistence {
+            if let Some((rollback_configuration, rollback_power, timeout)) = confirmation_rollback {
+                active_output_confirmation = Some(begin_output_confirmation(
+                    current_snapshot.serial,
+                    timeout,
+                    rollback_configuration,
+                    rollback_power,
+                    prepared_persistence,
+                ));
+            } else if let Some(prepared) = prepared_persistence {
                 events.output_control_dirty = true;
                 if let Err(error) = prepared.commit() {
                     request.reply(Err(output_control::OutputControlFailure::new(
@@ -3748,21 +3945,7 @@ fn reload_flutter_runtime(
     }
 
     *flutter = Some(flutter_launcher.start(renderer, swapchain, scanouts, &snapshot, &atlas)?);
-    events.flutter_input.resize(swapchain.size);
-    if let Some(frontend) = events.wayland.as_mut() {
-        frontend.reset_flutter_input_generation();
-    }
-    events.synchronize_flutter_pointer_position();
-    events.flutter_channel_closed = false;
-    events.scene_sync.invalidate_runtime();
-    events.published_window_ids.clear();
-    events.pending_window_events.clear();
-    events.pending_unpublished_window_events.clear();
-    if let Some(frontend) = events.wayland.as_ref() {
-        events
-            .pending_window_events
-            .extend(frontend.replay_window_state_events());
-    }
+    events.begin_replacement_flutter_generation(swapchain.size);
     Ok(())
 }
 
@@ -4026,7 +4209,7 @@ fn synchronize_flutter_scene(
         windows,
         textures,
         window_snapshot_changed,
-    } = runtime.sync_wayland_scene(windows, textures)?;
+    } = runtime.sync_wayland_scene(windows, textures, &events.restored_window_ids)?;
     if window_snapshot_changed {
         // Buffer-only revisions leave WireBridge's metadata snapshot equal.
         // Rehash IDs only when that authoritative snapshot actually changes.
@@ -4034,6 +4217,10 @@ fn synchronize_flutter_scene(
         published_window_ids.clear();
         published_window_ids.extend(runtime.synced_window_ids());
         events.published_window_ids = published_window_ids;
+        let published_window_ids = &events.published_window_ids;
+        events
+            .restored_window_ids
+            .retain(|window_id| published_window_ids.contains(window_id));
     }
     if let Some(frontend) = events.wayland.as_mut() {
         frontend.recycle_flutter_scene(windows, textures);
@@ -4904,21 +5091,7 @@ fn apply_hotplug_topology(
         drop(retired);
         let launcher = flutter_launcher.ok_or("dynamic Flutter topology has no launcher")?;
         *flutter = Some(launcher.start(renderer, swapchain, scanouts, &snapshot, &atlas)?);
-        events.flutter_input.resize(swapchain.size);
-        if let Some(frontend) = events.wayland.as_mut() {
-            frontend.reset_flutter_input_generation();
-        }
-        events.synchronize_flutter_pointer_position();
-        events.flutter_channel_closed = false;
-        events.scene_sync.invalidate_runtime();
-        events.published_window_ids.clear();
-        events.pending_window_events.clear();
-        events.pending_unpublished_window_events.clear();
-        if let Some(frontend) = events.wayland.as_ref() {
-            events
-                .pending_window_events
-                .extend(frontend.replay_window_state_events());
-        }
+        events.begin_replacement_flutter_generation(swapchain.size);
         info!(
             generation = launcher.generation,
             "restarted Flutter on the reconfigured KMS atlas"
@@ -5259,7 +5432,7 @@ fn queue_atlas_page_flip(
 ) -> Result<(), Box<dyn Error>> {
     drm.atomic_commit(
         AtomicCommitFlags::PAGE_FLIP_EVENT | AtomicCommitFlags::NONBLOCK,
-        atlas_plane_request(scanouts, framebuffer, fence),
+        atlas_plane_request(scanouts, framebuffer, fence)?,
     )?;
     Ok(())
 }
@@ -5275,7 +5448,7 @@ fn commit_atlas_now(
     }
     drm.atomic_commit(
         AtomicCommitFlags::empty(),
-        atlas_plane_request(scanouts, framebuffer, None),
+        atlas_plane_request(scanouts, framebuffer, None)?,
     )?;
     Ok(())
 }
@@ -5287,7 +5460,7 @@ fn test_atlas_page_flip(
 ) -> Result<(), Box<dyn Error>> {
     drm.atomic_commit(
         AtomicCommitFlags::TEST_ONLY,
-        atlas_plane_request(scanouts, framebuffer, None),
+        atlas_plane_request(scanouts, framebuffer, None)?,
     )?;
     Ok(())
 }
@@ -5296,7 +5469,7 @@ fn atlas_plane_request(
     scanouts: &[Scanout],
     framebuffer: framebuffer::Handle,
     fence: Option<BorrowedFd<'_>>,
-) -> AtomicModeReq {
+) -> Result<AtomicModeReq, Box<dyn Error>> {
     let mut request = AtomicModeReq::new();
     for scanout in scanouts.iter().filter(|scanout| scanout.powered) {
         let properties = scanout.plane_properties;
@@ -5326,6 +5499,9 @@ fn atlas_plane_request(
             properties.source_height,
             u64::from(scanout.source_rect.height) << 16,
         );
+        if let Some((property, value)) = scanout.rotation_property()? {
+            request.add_raw_property(plane, property, value);
+        }
         if let Some(property) = properties.in_fence_fd {
             let value = fence
                 .map(|fence| (i64::from(fence.as_raw_fd())) as u64)
@@ -5333,7 +5509,7 @@ fn atlas_plane_request(
             request.add_raw_property(plane, property, value);
         }
     }
-    request
+    Ok(request)
 }
 
 fn connected_outputs(
@@ -5463,12 +5639,18 @@ fn configured_outputs(
                 vrr_enabled,
                 "connected KMS output"
             );
+            let transform = configuration
+                .transforms
+                .get(&name)
+                .copied()
+                .unwrap_or(OutputTransform::Normal);
             Ok(ConnectedOutput {
                 id: OutputId(u64::from(u32::from(connector.info.handle()))),
                 name,
                 connector: connector.info.handle(),
                 crtc: connector.crtc,
                 mode,
+                transform,
                 vrr_enabled,
             })
         })
@@ -5482,6 +5664,7 @@ fn output_control_state(
     topology: &TopologyManager,
     configuration: &RuntimeOutputConfiguration,
     persistence_available: bool,
+    pending_confirmation: Option<output_control::OutputControlConfirmation>,
 ) -> Result<output_control::OutputControlState, Box<dyn Error>> {
     let snapshot = topology.snapshot();
     let mut outputs = Vec::new();
@@ -5551,6 +5734,7 @@ fn output_control_state(
     Ok(output_control::OutputControlState {
         capabilities,
         outputs,
+        pending_confirmation,
     })
 }
 
@@ -5650,6 +5834,20 @@ fn output_transform_name(transform: OutputTransform) -> output_control::OutputTr
 }
 
 #[cfg(feature = "flutter")]
+fn output_transform_from_name(transform: output_control::OutputTransformName) -> OutputTransform {
+    match transform {
+        output_control::OutputTransformName::Normal => OutputTransform::Normal,
+        output_control::OutputTransformName::Rotate90 => OutputTransform::Rotate90,
+        output_control::OutputTransformName::Rotate180 => OutputTransform::Rotate180,
+        output_control::OutputTransformName::Rotate270 => OutputTransform::Rotate270,
+        output_control::OutputTransformName::Flipped => OutputTransform::Flipped,
+        output_control::OutputTransformName::Flipped90 => OutputTransform::Flipped90,
+        output_control::OutputTransformName::Flipped180 => OutputTransform::Flipped180,
+        output_control::OutputTransformName::Flipped270 => OutputTransform::Flipped270,
+    }
+}
+
+#[cfg(feature = "flutter")]
 fn configuration_from_output_request(
     request: &output_control::ApplyOutputConfiguration,
     connectors: &[ConnectedConnector],
@@ -5662,11 +5860,27 @@ fn configuration_from_output_request(
 > {
     const MIN_SCALE: f64 = 0.25;
     const MAX_SCALE: f64 = 8.0;
+    const MIN_CONFIRMATION_TIMEOUT_MILLISECONDS: u64 = 1_000;
+    const MAX_CONFIRMATION_TIMEOUT_MILLISECONDS: u64 = 60_000;
 
     if request.persistent && !persistence_available {
         return Err(output_control::OutputControlFailure::new(
             "unsupported",
             "persistent output configuration requires deniald --output-config",
+        ));
+    }
+    if request
+        .confirmation_timeout_milliseconds
+        .is_some_and(|timeout| {
+            !(MIN_CONFIRMATION_TIMEOUT_MILLISECONDS..=MAX_CONFIRMATION_TIMEOUT_MILLISECONDS)
+                .contains(&timeout)
+        })
+    {
+        return Err(output_control::OutputControlFailure::new(
+            "invalid_configuration",
+            format!(
+                "output confirmation timeout must be within [{MIN_CONFIRMATION_TIMEOUT_MILLISECONDS}, {MAX_CONFIRMATION_TIMEOUT_MILLISECONDS}] milliseconds"
+            ),
         ));
     }
     if request.outputs.len() != connectors.len() {
@@ -5764,15 +5978,6 @@ fn configuration_from_output_request(
                 format!("{name} scale must be finite and within [{MIN_SCALE}, {MAX_SCALE}]"),
             ));
         }
-        if output.transform != output_control::OutputTransformName::Normal {
-            return Err(output_control::OutputControlFailure::new(
-                "unsupported",
-                format!(
-                    "{name} requests transform {:?}, but protocol version 1 only supports normal",
-                    output.transform
-                ),
-            ));
-        }
         let mode = OutputModePreference {
             width: Some(output.mode.width),
             height: Some(output.mode.height),
@@ -5794,7 +5999,9 @@ fn configuration_from_output_request(
             .insert(name.clone(), LogicalPoint::new(output.x, output.y));
         staged.modes.insert(name.clone(), mode);
         staged.scales_120.insert(name.clone(), scale_120);
-        staged.transforms.remove(&name);
+        staged
+            .transforms
+            .insert(name.clone(), output_transform_from_name(output.transform));
         if output.enabled {
             staged.disabled_outputs.remove(&name);
             power.insert(
@@ -6028,11 +6235,6 @@ fn output_specs(
             .get(&output.name)
             .copied()
             .unwrap_or(SCALE_BASE);
-        let transform = configuration
-            .transforms
-            .get(&output.name)
-            .copied()
-            .unwrap_or(OutputTransform::Normal);
         let spec = OutputSpec {
             id: output.id,
             name: output.name.clone(),
@@ -6040,7 +6242,7 @@ fn output_specs(
             mode: PixelSize::new(width, height),
             scale_120,
             refresh_millihz: u32::try_from(mode.refresh)?,
-            transform,
+            transform: output.transform,
         };
         let logical_width = spec.logical_rect().width.ceil();
         specs.push(spec);
@@ -6153,7 +6355,7 @@ fn plane_state_for_mode(
             dst: Rectangle::<i32, Physical>::from_size(
                 (i32::from(width), i32::from(height)).into(),
             ),
-            transform: Transform::Normal,
+            transform: smithay_output_transform(scanout.output.transform),
             alpha: scanout.plane_properties.smithay_opaque_alpha,
             damage_clips: None,
             fb: framebuffer,
@@ -6167,4 +6369,17 @@ fn physical_rect(rect: PixelRect) -> Result<Rectangle<i32, Physical>, Box<dyn Er
         (i32::try_from(rect.x)?, i32::try_from(rect.y)?).into(),
         (i32::try_from(rect.width)?, i32::try_from(rect.height)?).into(),
     ))
+}
+
+fn smithay_output_transform(transform: OutputTransform) -> Transform {
+    match transform {
+        OutputTransform::Normal => Transform::Normal,
+        OutputTransform::Rotate90 => Transform::_90,
+        OutputTransform::Rotate180 => Transform::_180,
+        OutputTransform::Rotate270 => Transform::_270,
+        OutputTransform::Flipped => Transform::Flipped,
+        OutputTransform::Flipped90 => Transform::Flipped90,
+        OutputTransform::Flipped180 => Transform::Flipped180,
+        OutputTransform::Flipped270 => Transform::Flipped270,
+    }
 }

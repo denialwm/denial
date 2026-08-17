@@ -4,7 +4,7 @@
 //! bounded and verified before it is inspected; generated unchecked accessors
 //! never see bytes supplied directly by Flutter.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::error::Error;
 use std::ffi::CStr;
 use std::fmt;
@@ -487,6 +487,7 @@ pub struct WireBridge {
     atlas: AtlasPlan,
     work_area: WorkAreaOptions,
     windows: Vec<WindowDescription>,
+    restored_window_ids: Vec<u64>,
     // Flutter copies platform-channel payloads during the synchronous engine
     // call. Keep one builder alive here and lend its finished tail until the
     // next mutable bridge operation, eliminating both builder churn and the
@@ -515,6 +516,7 @@ impl WireBridge {
             atlas: atlas.clone(),
             work_area,
             windows: Vec::new(),
+            restored_window_ids: Vec::new(),
             outbound_builder: FlatBufferBuilder::with_capacity(1024),
             pending_input_layout: None,
             input_layout_scratch: InputLayoutSnapshot::default(),
@@ -534,18 +536,33 @@ impl WireBridge {
     pub fn update_windows(
         &mut self,
         mut windows: Vec<WindowDescription>,
+        restored_window_ids: &BTreeSet<u64>,
     ) -> Result<(Option<&[u8]>, Vec<WindowDescription>), WireError> {
+        let next_restored_window_ids = windows
+            .iter()
+            .filter_map(|window| {
+                restored_window_ids
+                    .contains(&window.window_id)
+                    .then_some(window.window_id)
+            })
+            .collect::<Vec<_>>();
         // Buffer-only scene revisions usually keep all metadata unchanged.
         // The stored snapshot has already passed validation, so avoid the
         // validator's hash-table work on this application-frame-rate path.
-        if self.windows == windows {
+        if self.windows == windows && self.restored_window_ids == next_restored_window_ids {
             return Ok((None, windows));
         }
         validate_windows(&windows)?;
         std::mem::swap(&mut self.windows, &mut windows);
+        self.restored_window_ids = next_restored_window_ids;
         let sequence = self.take_sequence();
         self.outbound_builder.reset();
-        encode_windows_update(&mut self.outbound_builder, sequence, &self.windows)?;
+        encode_windows_update(
+            &mut self.outbound_builder,
+            sequence,
+            &self.windows,
+            &self.restored_window_ids,
+        )?;
         Ok((Some(self.outbound_builder.finished_data()), windows))
     }
 
@@ -930,6 +947,7 @@ impl WireBridge {
                     sequence,
                     request_id,
                     &self.windows,
+                    &self.restored_window_ids,
                 )?;
                 Ok(Some(self.outbound_builder.finished_data()))
             }
@@ -1599,6 +1617,7 @@ fn valid_opacity(opacity: f32) -> bool {
 fn create_window_snapshot<'a>(
     builder: &mut FlatBufferBuilder<'a>,
     descriptions: &[WindowDescription],
+    restored_window_ids: &[u64],
 ) -> WIPOffset<fb::WindowSnapshot<'a>> {
     let mut windows = Vec::with_capacity(descriptions.len());
     for description in descriptions {
@@ -1675,10 +1694,12 @@ fn create_window_snapshot<'a>(
         ));
     }
     let windows = builder.create_vector(&windows);
+    let restored_window_ids = builder.create_vector(restored_window_ids);
     fb::WindowSnapshot::create(
         builder,
         &fb::WindowSnapshotArgs {
             windows: Some(windows),
+            restored_window_ids: Some(restored_window_ids),
         },
     )
 }
@@ -1688,8 +1709,9 @@ fn encode_windows_response(
     sequence: u64,
     request_id: u64,
     descriptions: &[WindowDescription],
+    restored_window_ids: &[u64],
 ) -> Result<(), WireError> {
-    let snapshot = create_window_snapshot(builder, descriptions);
+    let snapshot = create_window_snapshot(builder, descriptions, restored_window_ids);
     let response = fb::WindowResponse::create(
         builder,
         &fb::WindowResponseArgs {
@@ -1706,8 +1728,9 @@ fn encode_windows_update(
     builder: &mut FlatBufferBuilder<'_>,
     sequence: u64,
     descriptions: &[WindowDescription],
+    restored_window_ids: &[u64],
 ) -> Result<(), WireError> {
-    let snapshot = create_window_snapshot(builder, descriptions);
+    let snapshot = create_window_snapshot(builder, descriptions, restored_window_ids);
     let envelope = fb::Envelope::create(
         builder,
         &fb::EnvelopeArgs {
@@ -2703,12 +2726,23 @@ mod tests {
             opacity_class: WindowOpacityClass::FullyOpaque,
         };
         let mut bridge = bridge();
-        let (update, recycled) = bridge.update_windows(vec![window.clone()]).unwrap();
+        let restored_window_ids = BTreeSet::from([window.window_id]);
+        let (update, recycled) = bridge
+            .update_windows(vec![window.clone()], &restored_window_ids)
+            .unwrap();
         assert!(recycled.is_empty());
         let update = update.unwrap();
         let envelope = fb::root_as_envelope(update).unwrap();
         let snapshot = envelope.payload_as_window_snapshot().unwrap();
         let encoded = snapshot.windows().unwrap().get(0);
+        assert_eq!(
+            snapshot
+                .restored_window_ids()
+                .unwrap()
+                .iter()
+                .collect::<Vec<_>>(),
+            [11]
+        );
 
         assert_eq!(envelope.sequence(), 1);
         assert_eq!(envelope.request_id(), 0);
@@ -2734,9 +2768,24 @@ mod tests {
             Err(WireError::Ordering)
         ));
         assert_eq!(bridge.window_ids().collect::<Vec<_>>(), [11]);
-        let (update, unchanged) = bridge.update_windows(vec![window]).unwrap();
+        let (update, unchanged) = bridge
+            .update_windows(vec![window.clone()], &restored_window_ids)
+            .unwrap();
         assert!(update.is_none());
         assert_eq!(unchanged.len(), 1);
+
+        let (update, _) = bridge
+            .update_windows(vec![window], &BTreeSet::new())
+            .unwrap();
+        let envelope = fb::root_as_envelope(update.unwrap()).unwrap();
+        assert!(
+            envelope
+                .payload_as_window_snapshot()
+                .unwrap()
+                .restored_window_ids()
+                .unwrap()
+                .is_empty()
+        );
 
         let response = bridge
             .handle(&request(fb::WindowRequestKind::ListWindows, 53))
@@ -2744,7 +2793,7 @@ mod tests {
             .unwrap();
         let envelope = fb::root_as_envelope(response).unwrap();
         let response = envelope.payload_as_window_response().unwrap();
-        assert_eq!(envelope.sequence(), 2);
+        assert_eq!(envelope.sequence(), 3);
         assert_eq!(
             response
                 .windows()

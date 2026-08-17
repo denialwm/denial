@@ -407,6 +407,10 @@
   "@clipboardCloseHistory": {
     "description": "Accessible label for the barrier that closes clipboard history."
   },
+  "clipboardClearAll": "Clear all",
+  "@clipboardClearAll": {
+    "description": "Label for clearing all unpinned clipboard-history entries."
+  },
   "clipboardDelete": "Delete",
   "@clipboardDelete": {
     "description": "Tooltip for deleting a clipboard-history entry."
@@ -463,6 +467,14 @@
       }
     }
   },
+  "clipboardPin": "Pin",
+  "@clipboardPin": {
+    "description": "Tooltip for pinning a clipboard-history entry."
+  },
+  "clipboardPinItem": "Pin clipboard item",
+  "@clipboardPinItem": {
+    "description": "Accessible label for pinning a clipboard-history entry."
+  },
   "clipboardNoSearchResultsDescription": "Try a different word, file type, or application.",
   "@clipboardNoSearchResultsDescription": {
     "description": "Guidance shown when clipboard search has no results."
@@ -486,6 +498,14 @@
   "clipboardTypeText": "TEXT",
   "@clipboardTypeText": {
     "description": "Accessible clipboard-entry type label for text."
+  },
+  "clipboardUnpin": "Unpin",
+  "@clipboardUnpin": {
+    "description": "Tooltip for unpinning a clipboard-history entry."
+  },
+  "clipboardUnpinItem": "Unpin clipboard item",
+  "@clipboardUnpinItem": {
+    "description": "Accessible label for unpinning a clipboard-history entry."
   },
   "clipboardUnavailableDescription": "The native history service did not answer.",
   "@clipboardUnavailableDescription": {
@@ -2046,6 +2066,51 @@
   "@settingsDisconnect": {
     "description": "English UI text for settingsDisconnect."
   },
+  "settingsApplying": "Applying…",
+  "@settingsApplying": {
+    "description": "Busy label shown while a display configuration is being applied."
+  },
+  "settingsApplyDisplayConfiguration": "Apply changes",
+  "@settingsApplyDisplayConfiguration": {
+    "description": "Button label that applies the edited monitor configuration."
+  },
+  "settingsDisplayApplyPersistentHint": "Keep changes to update this session and outputs.conf.",
+  "@settingsDisplayApplyPersistentHint": {
+    "description": "Explains that display changes will be persisted."
+  },
+  "settingsDisplayApplySessionHint": "Keep changes to use them for this session.",
+  "@settingsDisplayApplySessionHint": {
+    "description": "Explains that display changes cannot be persisted."
+  },
+  "settingsDisplayConfirmationTitle": "Keep these display settings?",
+  "@settingsDisplayConfirmationTitle": {
+    "description": "Title of the timed display configuration confirmation dialog."
+  },
+  "settingsDisplayConfirmationMessage": "The previous display settings will be restored automatically in {seconds} s.",
+  "@settingsDisplayConfirmationMessage": {
+    "description": "Countdown shown before an unconfirmed display configuration is rolled back.",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsDisplayKeepChanges": "Keep changes",
+  "@settingsDisplayKeepChanges": {
+    "description": "Button that confirms a newly applied display configuration."
+  },
+  "settingsDisplayRevertNow": "Revert now",
+  "@settingsDisplayRevertNow": {
+    "description": "Button that immediately restores the previous display configuration."
+  },
+  "settingsDisplayArrangementSemantics": "Monitor arrangement editor",
+  "@settingsDisplayArrangementSemantics": {
+    "description": "Accessibility label for the draggable monitor arrangement."
+  },
+  "settingsDisplayArrangementTitle": "Monitor configuration",
+  "@settingsDisplayArrangementTitle": {
+    "description": "Heading for output modes, scale, rotation, and arrangement."
+  },
   "settingsDisplayBrightnessDescription": "Adjust the main display brightness.",
   "@settingsDisplayBrightnessDescription": {
     "description": "English UI text for settingsDisplayBrightnessDescription."
@@ -2087,6 +2152,61 @@
   "settingsDisplaysTitle": "Displays and video.",
   "@settingsDisplaysTitle": {
     "description": "English UI text for settingsDisplaysTitle."
+  },
+  "settingsDisplayPosition": "Position {x}, {y}",
+  "@settingsDisplayPosition": {
+    "description": "Logical position of one monitor in the desktop layout.",
+    "placeholders": {
+      "x": { "type": "int" },
+      "y": { "type": "int" }
+    }
+  },
+  "settingsDisplayRefreshRate": "Refresh rate",
+  "@settingsDisplayRefreshRate": {
+    "description": "Label for the monitor refresh-rate selector."
+  },
+  "settingsDisplayResolution": "Resolution",
+  "@settingsDisplayResolution": {
+    "description": "Label for the monitor resolution selector."
+  },
+  "settingsDisplayRotation": "Rotation",
+  "@settingsDisplayRotation": {
+    "description": "Label for the monitor rotation selector."
+  },
+  "settingsDisplayRotationNormal": "Landscape",
+  "@settingsDisplayRotationNormal": {
+    "description": "Label for an unrotated monitor."
+  },
+  "settingsDisplayRotation90": "90° clockwise",
+  "@settingsDisplayRotation90": {
+    "description": "Label for a monitor rotated by 90 degrees."
+  },
+  "settingsDisplayRotation180": "Upside down",
+  "@settingsDisplayRotation180": {
+    "description": "Label for a monitor rotated by 180 degrees."
+  },
+  "settingsDisplayRotation270": "90° counterclockwise",
+  "@settingsDisplayRotation270": {
+    "description": "Label for a monitor rotated by 270 degrees."
+  },
+  "settingsDisplayScale": "Scale",
+  "@settingsDisplayScale": {
+    "description": "Label for the monitor scale selector."
+  },
+  "settingsLoadingDisplays": "Loading monitor configuration…",
+  "@settingsLoadingDisplays": {
+    "description": "Loading notice on the monitor settings page."
+  },
+  "settingsMonitorDragHint": "Drag to arrange, or use the arrow keys to move.",
+  "@settingsMonitorDragHint": {
+    "description": "Accessibility hint for a draggable monitor tile."
+  },
+  "settingsMonitorSemantics": "Monitor {name}",
+  "@settingsMonitorSemantics": {
+    "description": "Accessibility label for one monitor tile.",
+    "placeholders": {
+      "name": { "type": "String" }
+    }
   },
   "settingsEdgeDistance": "Edge distance",
   "@settingsEdgeDistance": {

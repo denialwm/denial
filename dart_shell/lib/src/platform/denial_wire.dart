@@ -810,12 +810,19 @@ class DenialWireCodec {
 
   List<DenialWindow>? decodeWindows(generated.WindowSnapshot snapshot) {
     final source = snapshot.windows ?? const <generated.Window>[];
-    if (source.length > denialWireMaxWindows) {
+    final restoredSource = snapshot.restoredWindowIds ?? const <int>[];
+    final restoredWindowIds = <int>{};
+    if (source.length > denialWireMaxWindows ||
+        restoredSource.length > source.length ||
+        restoredSource.any(
+          (windowId) => windowId <= 0 || !restoredWindowIds.add(windowId),
+        )) {
       rejectedStructuredMessages += 1;
       return null;
     }
 
     final windows = <DenialWindow>[];
+    final windowIds = <int>{};
     var surfaceCount = 0;
     for (final window in source) {
       final title = window.title ?? '';
@@ -823,6 +830,7 @@ class DenialWireCodec {
       if (window.objectId <= 0 ||
           window.surfaceId <= 0 ||
           window.windowId <= 0 ||
+          !windowIds.add(window.windowId) ||
           window.width <= 0 ||
           window.height <= 0 ||
           title.length > denialWireMaxStringLength ||
@@ -918,6 +926,9 @@ class DenialWireCodec {
           scale120: window.scale120,
           pinned: window.pinned,
           suppressAnimations: window.suppressAnimations,
+          restoredAcrossFlutterRestart: restoredWindowIds.contains(
+            window.windowId,
+          ),
           serverSideDecorated: window.serverSideDecorated,
           opacity: window.opacity,
           statusColorArgb: window.hasStatusColor
@@ -939,6 +950,10 @@ class DenialWireCodec {
           },
         ),
       );
+    }
+    if (!windowIds.containsAll(restoredWindowIds)) {
+      rejectedStructuredMessages += 1;
+      return null;
     }
     return List<DenialWindow>.unmodifiable(windows);
   }

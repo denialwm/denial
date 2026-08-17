@@ -175,9 +175,9 @@ impl ReadyFenceWatch {
     }
 }
 
-fn plane_commit(scanout: &Scanout) -> PlaneCommit {
+fn plane_commit(scanout: &Scanout) -> Result<PlaneCommit, Box<dyn Error>> {
     let properties = scanout.plane_properties;
-    PlaneCommit::new(
+    Ok(PlaneCommit::new(
         scanout.surface.plane(),
         PlaneProperties {
             framebuffer: properties.framebuffer,
@@ -185,10 +185,11 @@ fn plane_commit(scanout: &Scanout) -> PlaneCommit {
             source_y: properties.source_y,
             source_width: properties.source_width,
             source_height: properties.source_height,
+            rotation: scanout.rotation_property()?,
             in_fence_fd: properties.in_fence_fd,
         },
         scanout.source_rect,
-    )
+    ))
 }
 
 fn refresh_interval(scanout: &Scanout) -> Duration {
@@ -551,7 +552,7 @@ impl OutputScheduler {
                     submitted: VecDeque::with_capacity(volition::MAX_IN_FLIGHT_COMMITS_PER_STREAM),
                     lookahead_pending: None,
                     powering_off: false,
-                    request: plane_commit(scanout),
+                    request: plane_commit(scanout)?,
                     refresh_interval,
                     next_presentation_at: Instant::now() + refresh_interval,
                 })
@@ -1193,7 +1194,7 @@ impl OutputScheduler {
             submitted: VecDeque::with_capacity(volition::MAX_IN_FLIGHT_COMMITS_PER_STREAM),
             lookahead_pending: None,
             powering_off: false,
-            request: plane_commit(output),
+            request: plane_commit(output)?,
             refresh_interval,
             next_presentation_at: Instant::now() + refresh_interval,
         });

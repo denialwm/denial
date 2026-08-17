@@ -30,7 +30,7 @@ use smithay::reexports::drm::control::{
 
 use crate::topology::PixelRect;
 
-const MAX_ATOMIC_PLANE_PROPERTIES: usize = 6;
+const MAX_ATOMIC_PLANE_PROPERTIES: usize = 7;
 const LOOKAHEAD_RETRY_INTERVAL: Duration = Duration::from_micros(100);
 const LOOKAHEAD_MAX_WAIT: Duration = Duration::from_millis(100);
 static NEXT_INSTANCE: AtomicU64 = AtomicU64::new(1);
@@ -58,6 +58,7 @@ pub struct PlaneProperties {
     pub source_y: property::Handle,
     pub source_width: property::Handle,
     pub source_height: property::Handle,
+    pub rotation: Option<(property::Handle, u64)>,
     pub in_fence_fd: Option<property::Handle>,
 }
 
@@ -91,6 +92,9 @@ impl PlaneCommit {
         request.push(properties.source_y, u64::from(source.y) << 16);
         request.push(properties.source_width, u64::from(source.width) << 16);
         request.push(properties.source_height, u64::from(source.height) << 16);
+        if let Some((property, value)) = properties.rotation {
+            request.push(property, value);
+        }
         if let Some(property) = properties.in_fence_fd {
             request.fence_index = Some(request.property_count);
             request.push(property, u64::MAX);

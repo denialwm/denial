@@ -3659,6 +3659,7 @@ impl<'a> flatbuffers::Follow<'a> for WindowSnapshot<'a> {
 
 impl<'a> WindowSnapshot<'a> {
   pub const VT_WINDOWS: flatbuffers::VOffsetT = 4;
+  pub const VT_RESTORED_WINDOW_IDS: flatbuffers::VOffsetT = 6;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -3670,6 +3671,7 @@ impl<'a> WindowSnapshot<'a> {
     args: &'args WindowSnapshotArgs<'args>
   ) -> flatbuffers::WIPOffset<WindowSnapshot<'bldr>> {
     let mut builder = WindowSnapshotBuilder::new(_fbb);
+    if let Some(x) = args.restored_window_ids { builder.add_restored_window_ids(x); }
     if let Some(x) = args.windows { builder.add_windows(x); }
     builder.finish()
   }
@@ -3682,6 +3684,13 @@ impl<'a> WindowSnapshot<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Window>>>>(WindowSnapshot::VT_WINDOWS, None)}
   }
+  #[inline]
+  pub fn restored_window_ids(&self) -> Option<flatbuffers::Vector<'a, u64>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u64>>>(WindowSnapshot::VT_RESTORED_WINDOW_IDS, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for WindowSnapshot<'_> {
@@ -3692,18 +3701,21 @@ impl flatbuffers::Verifiable for WindowSnapshot<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Window>>>>("windows", Self::VT_WINDOWS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u64>>>("restored_window_ids", Self::VT_RESTORED_WINDOW_IDS, false)?
      .finish();
     Ok(())
   }
 }
 pub struct WindowSnapshotArgs<'a> {
     pub windows: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Window<'a>>>>>,
+    pub restored_window_ids: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u64>>>,
 }
 impl<'a> Default for WindowSnapshotArgs<'a> {
   #[inline]
   fn default() -> Self {
     WindowSnapshotArgs {
       windows: None,
+      restored_window_ids: None,
     }
   }
 }
@@ -3716,6 +3728,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WindowSnapshotBuilder<'a, 'b, A
   #[inline]
   pub fn add_windows(&mut self, windows: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Window<'b >>>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WindowSnapshot::VT_WINDOWS, windows);
+  }
+  #[inline]
+  pub fn add_restored_window_ids(&mut self, restored_window_ids: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u64>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WindowSnapshot::VT_RESTORED_WINDOW_IDS, restored_window_ids);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WindowSnapshotBuilder<'a, 'b, A> {
@@ -3736,6 +3752,7 @@ impl core::fmt::Debug for WindowSnapshot<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("WindowSnapshot");
       ds.field("windows", &self.windows());
+      ds.field("restored_window_ids", &self.restored_window_ids());
       ds.finish()
   }
 }

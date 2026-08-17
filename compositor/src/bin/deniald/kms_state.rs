@@ -32,6 +32,7 @@ pub(super) struct ConnectedOutput {
     pub(super) connector: connector::Handle,
     pub(super) crtc: crtc::Handle,
     pub(super) mode: Mode,
+    pub(super) transform: OutputTransform,
     pub(super) vrr_enabled: bool,
 }
 
@@ -246,6 +247,7 @@ pub(super) struct AtlasPlaneProperties {
     pub(super) source_y: property::Handle,
     pub(super) source_width: property::Handle,
     pub(super) source_height: property::Handle,
+    pub(super) rotation: Option<property::Handle>,
     pub(super) in_fence_fd: Option<property::Handle>,
     pub(super) smithay_opaque_alpha: f32,
 }
@@ -274,9 +276,45 @@ impl AtlasPlaneProperties {
             source_y: named_property(drm, plane, "SRC_Y")?,
             source_width: named_property(drm, plane, "SRC_W")?,
             source_height: named_property(drm, plane, "SRC_H")?,
+            rotation: optional_named_property(drm, plane, "rotation")?,
             in_fence_fd: optional_named_property(drm, plane, "IN_FENCE_FD")?,
             smithay_opaque_alpha,
         })
+    }
+}
+
+impl Scanout {
+    pub(super) fn rotation_property(
+        &self,
+    ) -> Result<Option<(property::Handle, u64)>, Box<dyn Error>> {
+        match self.plane_properties.rotation {
+            Some(property) => Ok(Some((property, drm_rotation(self.output.transform)))),
+            None if self.output.transform == OutputTransform::Normal => Ok(None),
+            None => Err(format!(
+                "{} primary plane does not expose the DRM rotation property required for {:?}",
+                self.output.name, self.output.transform
+            )
+            .into()),
+        }
+    }
+}
+
+const fn drm_rotation(transform: OutputTransform) -> u64 {
+    const ROTATE_0: u64 = 1 << 0;
+    const ROTATE_90: u64 = 1 << 1;
+    const ROTATE_180: u64 = 1 << 2;
+    const ROTATE_270: u64 = 1 << 3;
+    const REFLECT_Y: u64 = 1 << 5;
+
+    match transform {
+        OutputTransform::Normal => ROTATE_0,
+        OutputTransform::Rotate90 => ROTATE_90,
+        OutputTransform::Rotate180 => ROTATE_180,
+        OutputTransform::Rotate270 => ROTATE_270,
+        OutputTransform::Flipped => REFLECT_Y,
+        OutputTransform::Flipped90 => REFLECT_Y | ROTATE_90,
+        OutputTransform::Flipped180 => REFLECT_Y | ROTATE_180,
+        OutputTransform::Flipped270 => REFLECT_Y | ROTATE_270,
     }
 }
 

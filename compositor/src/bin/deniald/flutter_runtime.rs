@@ -5,7 +5,7 @@
 //! and the buffer-state machine that prevents Flutter from rendering into a
 //! buffer still being scanned out.
 
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::ffi::{CStr, OsString, c_char, c_void};
 use std::hash::Hash;
@@ -5544,6 +5544,7 @@ impl FlutterRuntime {
         &mut self,
         windows: Vec<wire::WindowDescription>,
         mut frames: Vec<ExternalTextureFrame>,
+        restored_window_ids: &BTreeSet<u64>,
     ) -> Result<SyncedWaylandScene, Box<dyn Error>> {
         let mut desired = mem::take(&mut self.scene_texture_ids);
         desired.clear();
@@ -5581,7 +5582,8 @@ impl FlutterRuntime {
                 .as_ref()
                 .expect("Flutter runtime is shutting down")
                 .engine();
-            let (update, recycled_windows) = self.wire.update_windows(windows)?;
+            let (update, recycled_windows) =
+                self.wire.update_windows(windows, restored_window_ids)?;
             let changed = if let Some(update) = update {
                 engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, update)?;
                 true

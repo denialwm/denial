@@ -26,6 +26,21 @@ void main() {
     expect(first.hasSameStaticSceneRoleAs(repinned), isFalse);
   });
 
+  test('runtime restoration suppresses only the one-time entrance', () {
+    final normal = _window(title: 'Terminal');
+    final restored = _window(
+      title: 'Terminal',
+      restoredAcrossFlutterRestart: true,
+    );
+    final transient = _window(title: 'Terminal', suppressAnimations: true);
+
+    expect(normal.shouldAnimateEntrance, isTrue);
+    expect(restored.shouldAnimateEntrance, isFalse);
+    expect(restored.suppressAnimations, isFalse);
+    expect(transient.shouldAnimateEntrance, isFalse);
+    expect(normal.hasSameStaticSceneRoleAs(restored), isFalse);
+  });
+
   test(
     'input-method candidates are compositor UI, not desktop applications',
     () {
@@ -45,6 +60,8 @@ DenialWindow _window({
   required String title,
   int width = 1920,
   bool pinned = false,
+  bool suppressAnimations = false,
+  bool restoredAcrossFlutterRestart = false,
   String appId = 'kitty',
 }) {
   return DenialWindow(
@@ -73,5 +90,7 @@ DenialWindow _window({
     transform: 0,
     scale120: 120,
     pinned: pinned,
+    suppressAnimations: suppressAnimations,
+    restoredAcrossFlutterRestart: restoredAcrossFlutterRestart,
   );
 }

@@ -548,6 +548,12 @@ abstract class AppLocalizations {
   /// **'Close clipboard history'**
   String get clipboardCloseHistory;
 
+  /// Label for clearing all unpinned clipboard-history entries.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear all'**
+  String get clipboardClearAll;
+
   /// Tooltip for deleting a clipboard-history entry.
   ///
   /// In en, this message translates to:
@@ -620,6 +626,18 @@ abstract class AppLocalizations {
   /// **'{type} clipboard item. {preview}'**
   String clipboardItemSemantics(String type, String preview);
 
+  /// Tooltip for pinning a clipboard-history entry.
+  ///
+  /// In en, this message translates to:
+  /// **'Pin'**
+  String get clipboardPin;
+
+  /// Accessible label for pinning a clipboard-history entry.
+  ///
+  /// In en, this message translates to:
+  /// **'Pin clipboard item'**
+  String get clipboardPinItem;
+
   /// Guidance shown when clipboard search has no results.
   ///
   /// In en, this message translates to:
@@ -655,6 +673,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'TEXT'**
   String get clipboardTypeText;
+
+  /// Tooltip for unpinning a clipboard-history entry.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpin'**
+  String get clipboardUnpin;
+
+  /// Accessible label for unpinning a clipboard-history entry.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpin clipboard item'**
+  String get clipboardUnpinItem;
 
   /// Explanation shown when the native clipboard-history service is unavailable.
   ///
@@ -2585,6 +2615,66 @@ abstract class AppLocalizations {
   /// **'Disconnect'**
   String get settingsDisconnect;
 
+  /// Busy label shown while a display configuration is being applied.
+  ///
+  /// In en, this message translates to:
+  /// **'Applying…'**
+  String get settingsApplying;
+
+  /// Button label that applies the edited monitor configuration.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply changes'**
+  String get settingsApplyDisplayConfiguration;
+
+  /// Explains that display changes will be persisted.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep changes to update this session and outputs.conf.'**
+  String get settingsDisplayApplyPersistentHint;
+
+  /// Explains that display changes cannot be persisted.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep changes to use them for this session.'**
+  String get settingsDisplayApplySessionHint;
+
+  /// Title of the timed display configuration confirmation dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep these display settings?'**
+  String get settingsDisplayConfirmationTitle;
+
+  /// Countdown shown before an unconfirmed display configuration is rolled back.
+  ///
+  /// In en, this message translates to:
+  /// **'The previous display settings will be restored automatically in {seconds} s.'**
+  String settingsDisplayConfirmationMessage(int seconds);
+
+  /// Button that confirms a newly applied display configuration.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep changes'**
+  String get settingsDisplayKeepChanges;
+
+  /// Button that immediately restores the previous display configuration.
+  ///
+  /// In en, this message translates to:
+  /// **'Revert now'**
+  String get settingsDisplayRevertNow;
+
+  /// Accessibility label for the draggable monitor arrangement.
+  ///
+  /// In en, this message translates to:
+  /// **'Monitor arrangement editor'**
+  String get settingsDisplayArrangementSemantics;
+
+  /// Heading for output modes, scale, rotation, and arrangement.
+  ///
+  /// In en, this message translates to:
+  /// **'Monitor configuration'**
+  String get settingsDisplayArrangementTitle;
+
   /// English UI text for settingsDisplayBrightnessDescription.
   ///
   /// In en, this message translates to:
@@ -2631,6 +2721,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Displays and video.'**
   String get settingsDisplaysTitle;
+
+  /// Logical position of one monitor in the desktop layout.
+  ///
+  /// In en, this message translates to:
+  /// **'Position {x}, {y}'**
+  String settingsDisplayPosition(int x, int y);
+
+  /// Label for the monitor refresh-rate selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh rate'**
+  String get settingsDisplayRefreshRate;
+
+  /// Label for the monitor resolution selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Resolution'**
+  String get settingsDisplayResolution;
+
+  /// Label for the monitor rotation selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Rotation'**
+  String get settingsDisplayRotation;
+
+  /// Label for an unrotated monitor.
+  ///
+  /// In en, this message translates to:
+  /// **'Landscape'**
+  String get settingsDisplayRotationNormal;
+
+  /// Label for a monitor rotated by 90 degrees.
+  ///
+  /// In en, this message translates to:
+  /// **'90° clockwise'**
+  String get settingsDisplayRotation90;
+
+  /// Label for a monitor rotated by 180 degrees.
+  ///
+  /// In en, this message translates to:
+  /// **'Upside down'**
+  String get settingsDisplayRotation180;
+
+  /// Label for a monitor rotated by 270 degrees.
+  ///
+  /// In en, this message translates to:
+  /// **'90° counterclockwise'**
+  String get settingsDisplayRotation270;
+
+  /// Label for the monitor scale selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Scale'**
+  String get settingsDisplayScale;
+
+  /// Loading notice on the monitor settings page.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading monitor configuration…'**
+  String get settingsLoadingDisplays;
+
+  /// Accessibility hint for a draggable monitor tile.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag to arrange, or use the arrow keys to move.'**
+  String get settingsMonitorDragHint;
+
+  /// Accessibility label for one monitor tile.
+  ///
+  /// In en, this message translates to:
+  /// **'Monitor {name}'**
+  String settingsMonitorSemantics(String name);
 
   /// English UI text for settingsEdgeDistance.
   ///

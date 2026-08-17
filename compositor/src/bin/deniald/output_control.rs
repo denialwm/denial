@@ -62,10 +62,7 @@ impl Default for OutputControlCapabilities {
             position: true,
             mode: true,
             scale: true,
-            // Denial's topology understands transforms, but the shared-atlas
-            // scanout path does not yet rotate pixels. Do not advertise a
-            // control until the complete render/KMS path implements it.
-            transform: false,
+            transform: true,
             adaptive_sync: true,
             dpms: true,
             mirror: false,
@@ -134,6 +131,13 @@ pub(super) struct OutputControlOutput {
 pub(super) struct OutputControlState {
     pub(super) capabilities: OutputControlCapabilities,
     pub(super) outputs: Vec<OutputControlOutput>,
+    pub(super) pending_confirmation: Option<OutputControlConfirmation>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub(super) struct OutputControlConfirmation {
+    pub(super) token: u64,
+    pub(super) deadline_unix_milliseconds: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -141,6 +145,7 @@ pub(super) struct OutputControlSnapshot {
     pub(super) serial: u64,
     pub(super) capabilities: OutputControlCapabilities,
     pub(super) outputs: Vec<OutputControlOutput>,
+    pub(super) pending_confirmation: Option<OutputControlConfirmation>,
 }
 
 impl OutputControlSnapshot {
@@ -149,11 +154,14 @@ impl OutputControlSnapshot {
             serial: initial_serial(),
             capabilities: state.capabilities,
             outputs: state.outputs,
+            pending_confirmation: state.pending_confirmation,
         }
     }
 
     fn same_state(&self, state: &OutputControlState) -> bool {
-        self.capabilities == state.capabilities && self.outputs == state.outputs
+        self.capabilities == state.capabilities
+            && self.outputs == state.outputs
+            && self.pending_confirmation == state.pending_confirmation
     }
 }
 
@@ -196,6 +204,7 @@ impl OutputControlPublisher {
             snapshot.serial = snapshot.serial.wrapping_add(1).max(1);
             snapshot.capabilities = state.capabilities;
             snapshot.outputs = state.outputs;
+            snapshot.pending_confirmation = state.pending_confirmation;
         }
         snapshot.clone()
     }
@@ -232,6 +241,8 @@ pub(super) struct ApplyOutputConfiguration {
     pub(super) serial: u64,
     #[serde(default)]
     pub(super) persistent: bool,
+    #[serde(default)]
+    pub(super) confirmation_timeout_milliseconds: Option<u64>,
     pub(super) outputs: Vec<RequestedOutput>,
 }
 
@@ -264,6 +275,27 @@ impl PendingOutputApply {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum OutputConfirmationAction {
+    Keep,
+    Rollback,
+}
+
+pub(super) type OutputConfirmationReply = Result<(), OutputControlFailure>;
+
+#[derive(Debug)]
+pub(super) struct PendingOutputConfirmation {
+    pub(super) token: u64,
+    pub(super) action: OutputConfirmationAction,
+    reply: mpsc::SyncSender<OutputConfirmationReply>,
+}
+
+impl PendingOutputConfirmation {
+    pub(super) fn reply(self, result: OutputConfirmationReply) {
+        let _ = self.reply.send(result);
+    }
+}
+
 pub(super) type UiDevelopmentReply = Result<UiDevelopmentState, OutputControlFailure>;
 
 #[derive(Debug)]
@@ -281,6 +313,7 @@ impl PendingUiDevelopment {
 #[derive(Debug)]
 pub(super) enum ControlEvent {
     OutputApply(PendingOutputApply),
+    OutputConfirmation(PendingOutputConfirmation),
     UiDevelopment(PendingUiDevelopment),
 }
 
@@ -303,6 +336,12 @@ struct UiWorkspaceParams {
 #[serde(deny_unknown_fields)]
 struct UiAutoReloadParams {
     enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OutputConfirmationParams {
+    token: u64,
 }
 
 pub(super) struct OutputControlServer {
@@ -607,6 +646,34 @@ fn handle_connection(
                 },
             }
         }
+        "outputs.confirm" | "outputs.rollback" => {
+            let parameters =
+                match serde_json::from_value::<OutputConfirmationParams>(request.params) {
+                    Ok(parameters) if parameters.token != 0 => parameters,
+                    Ok(_) => {
+                        return write_response(
+                            &mut stream,
+                            &error_response(
+                                Some(request.id),
+                                "invalid_params",
+                                "output confirmation token must be nonzero",
+                            ),
+                        );
+                    }
+                    Err(error) => {
+                        return write_response(
+                            &mut stream,
+                            &error_response(Some(request.id), "invalid_params", error.to_string()),
+                        );
+                    }
+                };
+            let action = if request.method == "outputs.confirm" {
+                OutputConfirmationAction::Keep
+            } else {
+                OutputConfirmationAction::Rollback
+            };
+            queue_output_confirmation(request.id, parameters.token, action, events)
+        }
         "ui.get" => queue_ui_development(
             request.id,
             UiDevelopmentCommandKind::Query,
@@ -706,6 +773,44 @@ fn handle_connection(
         ),
     };
     write_response(&mut stream, &response)
+}
+
+fn queue_output_confirmation(
+    id: u64,
+    token: u64,
+    action: OutputConfirmationAction,
+    events: &SyncSender<ControlEvent>,
+) -> Value {
+    let (reply, result) = mpsc::sync_channel(1);
+    let pending = PendingOutputConfirmation {
+        token,
+        action,
+        reply,
+    };
+    match events.try_send(ControlEvent::OutputConfirmation(pending)) {
+        Err(mpsc::TrySendError::Full(_)) => {
+            error_response(Some(id), "busy", "the compositor control queue is full")
+        }
+        Err(mpsc::TrySendError::Disconnected(_)) => error_response(
+            Some(id),
+            "unavailable",
+            "the compositor control queue is unavailable",
+        ),
+        Ok(()) => match result.recv_timeout(APPLY_TIMEOUT) {
+            Ok(Ok(())) => success_response(id, json!({})),
+            Ok(Err(error)) => error_response(Some(id), &error.code, error.message),
+            Err(mpsc::RecvTimeoutError::Timeout) => error_response(
+                Some(id),
+                "timeout",
+                "the compositor did not process the output confirmation in time",
+            ),
+            Err(mpsc::RecvTimeoutError::Disconnected) => error_response(
+                Some(id),
+                "unavailable",
+                "the compositor stopped before processing the output confirmation",
+            ),
+        },
+    }
 }
 
 fn queue_ui_development(
@@ -853,6 +958,7 @@ mod tests {
                     preferred: true,
                 }],
             }],
+            pending_confirmation: None,
         }
     }
 
@@ -1008,6 +1114,49 @@ mod tests {
         assert_eq!(response["id"], 23);
         assert_eq!(response["ok"], true);
         assert_eq!(response["result"]["outputs"][0]["name"], "DP-4");
+
+        drop(server);
+        fs::remove_dir(directory).expect("remove test socket directory");
+    }
+
+    #[test]
+    fn output_confirmation_is_handed_to_the_compositor_event_loop() {
+        let path = socket_path();
+        let directory = path.parent().expect("test socket has parent").to_owned();
+        let (server, source) =
+            OutputControlServer::start_at(path.clone(), state("DP-4")).expect("start server");
+        let mut event_loop = EventLoop::<()>::try_new().expect("create event loop");
+        event_loop
+            .handle()
+            .insert_source(source, move |event, _, _| {
+                if let ChannelEvent::Msg(ControlEvent::OutputConfirmation(request)) = event {
+                    assert_eq!(request.token, 41);
+                    assert_eq!(request.action, OutputConfirmationAction::Keep);
+                    request.reply(Ok(()));
+                }
+            })
+            .expect("insert Denial control source");
+
+        let client = thread::spawn(move || {
+            let mut stream = UnixStream::connect(&path).expect("connect to server");
+            stream
+                .write_all(
+                    b"{\"version\":1,\"id\":24,\"method\":\"outputs.confirm\",\"params\":{\"token\":41}}\n",
+                )
+                .expect("write confirmation request");
+            let mut response = String::new();
+            BufReader::new(stream)
+                .read_to_string(&mut response)
+                .expect("read confirmation response");
+            serde_json::from_str::<Value>(&response).expect("decode confirmation response")
+        });
+
+        event_loop
+            .dispatch(Duration::from_secs(1), &mut ())
+            .expect("dispatch output confirmation");
+        let response = client.join().expect("join Denial control client");
+        assert_eq!(response["id"], 24);
+        assert_eq!(response["ok"], true);
 
         drop(server);
         fs::remove_dir(directory).expect("remove test socket directory");

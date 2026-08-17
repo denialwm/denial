@@ -44,7 +44,7 @@ Representative response:
       "position": true,
       "mode": true,
       "scale": true,
-      "transform": false,
+      "transform": true,
       "adaptive_sync": true,
       "dpms": true,
       "mirror": false,
@@ -108,6 +108,7 @@ The client sends every connector returned by the corresponding
   "params": {
     "serial": 7,
     "persistent": true,
+    "confirmation_timeout_milliseconds": 10000,
     "outputs": [
       {
         "name": "DP-4",
@@ -147,6 +148,32 @@ The client sends every connector returned by the corresponding
 A successful response has the same `result` shape as `outputs.get`, including
 the new serial and the state actually applied.
 
+When `confirmation_timeout_milliseconds` is present, it must be between 1000
+and 60000. The compositor applies the candidate without committing its
+persistent file and returns a `pending_confirmation` object in the snapshot:
+
+```json
+{
+  "token": 42,
+  "deadline_unix_milliseconds": 1786966200000
+}
+```
+
+The client keeps or restores the transaction with the matching token:
+
+```json
+{"version":1,"id":8,"method":"outputs.confirm","params":{"token":42}}
+{"version":1,"id":9,"method":"outputs.rollback","params":{"token":42}}
+```
+
+`outputs.confirm` commits the already prepared persistent configuration and
+clears the deadline. `outputs.rollback` restores the previous runtime
+configuration immediately. If neither request arrives by the deadline, the
+compositor performs the same rollback autonomously. The deadline and rollback
+live in the compositor rather than its Flutter client, so a topology-driven
+Flutter restart or UI failure cannot disable the safety timeout. Another apply
+is rejected with `confirmation_pending` until the transaction is resolved.
+
 The request is rejected unless:
 
 - its serial is current;
@@ -159,10 +186,11 @@ The request is rejected unless:
 - `persistent` is false, or the compositor advertises the `persistent`
   capability.
 
-Version 1 accepts only the `normal` transform. The wire enum also reserves
-`90`, `180`, `270`, `flipped`, `flipped-90`, `flipped-180`, and
-`flipped-270`, but the capability remains false and such apply requests are
-rejected until the shared-atlas scanout path rotates pixels correctly.
+Version 1 accepts `normal`, `90`, `180`, `270`, `flipped`, `flipped-90`,
+`flipped-180`, and `flipped-270`. Denial programs the primary plane's DRM
+rotation property for every atlas commit. A transform unsupported by the
+selected plane is rejected by the atomic `TEST_ONLY` validation and leaves the
+previous display configuration active.
 
 Mode, position, scale, enable state, and adaptive sync are staged through
 Denial's topology transaction. The compositor allocates the candidate atlas,
@@ -176,12 +204,14 @@ The `persistent` capability is true when `deniald` was started with
 `--output-config PATH`. A request with `persistent: false` changes only the
 running compositor. With `persistent: true`, Denial prepares and syncs a
 replacement for that file before touching KMS, then atomically renames it over
-the unchanged original only after the runtime transaction succeeds. Denial
-owns this write; clients must not edit the file themselves.
+the unchanged original only after the runtime transaction succeeds. For a
+timed transaction, the rename is deferred until `outputs.confirm`; rollback
+drops the prepared replacement. Denial owns this write; clients must not edit
+the file themselves.
 
 The persistent form stores position, exact mode and millihertz refresh, scale,
-enablement, and adaptive sync. DPMS is intentionally runtime-only. Settings
-for connected outputs replace their old directives, while comments,
+transform, enablement, and adaptive sync. DPMS is intentionally runtime-only.
+Settings for connected outputs replace their old directives, while comments,
 `system_bar`, `maximize_padding`, and settings for disconnected outputs are
 preserved. New configurations use separate position, exact-mode, and scale
 directives:

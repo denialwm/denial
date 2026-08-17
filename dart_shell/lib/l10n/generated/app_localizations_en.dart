@@ -285,6 +285,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get clipboardCloseHistory => 'Close clipboard history';
 
   @override
+  String get clipboardClearAll => 'Clear all';
+
+  @override
   String get clipboardDelete => 'Delete';
 
   @override
@@ -327,6 +330,12 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get clipboardPin => 'Pin';
+
+  @override
+  String get clipboardPinItem => 'Pin clipboard item';
+
+  @override
   String get clipboardNoSearchResultsDescription =>
       'Try a different word, file type, or application.';
 
@@ -344,6 +353,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get clipboardTypeText => 'TEXT';
+
+  @override
+  String get clipboardUnpin => 'Unpin';
+
+  @override
+  String get clipboardUnpinItem => 'Unpin clipboard item';
 
   @override
   String get clipboardUnavailableDescription =>
@@ -1443,6 +1458,41 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsDisconnect => 'Disconnect';
 
   @override
+  String get settingsApplying => 'Applying…';
+
+  @override
+  String get settingsApplyDisplayConfiguration => 'Apply changes';
+
+  @override
+  String get settingsDisplayApplyPersistentHint =>
+      'Keep changes to update this session and outputs.conf.';
+
+  @override
+  String get settingsDisplayApplySessionHint =>
+      'Keep changes to use them for this session.';
+
+  @override
+  String get settingsDisplayConfirmationTitle => 'Keep these display settings?';
+
+  @override
+  String settingsDisplayConfirmationMessage(int seconds) {
+    return 'The previous display settings will be restored automatically in $seconds s.';
+  }
+
+  @override
+  String get settingsDisplayKeepChanges => 'Keep changes';
+
+  @override
+  String get settingsDisplayRevertNow => 'Revert now';
+
+  @override
+  String get settingsDisplayArrangementSemantics =>
+      'Monitor arrangement editor';
+
+  @override
+  String get settingsDisplayArrangementTitle => 'Monitor configuration';
+
+  @override
   String get settingsDisplayBrightnessDescription =>
       'Adjust the main display brightness.';
 
@@ -1472,6 +1522,47 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsDisplaysTitle => 'Displays and video.';
+
+  @override
+  String settingsDisplayPosition(int x, int y) {
+    return 'Position $x, $y';
+  }
+
+  @override
+  String get settingsDisplayRefreshRate => 'Refresh rate';
+
+  @override
+  String get settingsDisplayResolution => 'Resolution';
+
+  @override
+  String get settingsDisplayRotation => 'Rotation';
+
+  @override
+  String get settingsDisplayRotationNormal => 'Landscape';
+
+  @override
+  String get settingsDisplayRotation90 => '90° clockwise';
+
+  @override
+  String get settingsDisplayRotation180 => 'Upside down';
+
+  @override
+  String get settingsDisplayRotation270 => '90° counterclockwise';
+
+  @override
+  String get settingsDisplayScale => 'Scale';
+
+  @override
+  String get settingsLoadingDisplays => 'Loading monitor configuration…';
+
+  @override
+  String get settingsMonitorDragHint =>
+      'Drag to arrange, or use the arrow keys to move.';
+
+  @override
+  String settingsMonitorSemantics(String name) {
+    return 'Monitor $name';
+  }
 
   @override
   String get settingsEdgeDistance => 'Edge distance';

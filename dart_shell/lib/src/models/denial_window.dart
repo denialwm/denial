@@ -140,6 +140,7 @@ class DenialWindow {
     required this.scale120,
     this.pinned = false,
     this.suppressAnimations = false,
+    this.restoredAcrossFlutterRestart = false,
     this.serverSideDecorated = true,
     this.opacity = 1.0,
     this.statusColorArgb,
@@ -178,6 +179,7 @@ class DenialWindow {
   final int scale120;
   final bool pinned;
   final bool suppressAnimations;
+  final bool restoredAcrossFlutterRestart;
   final bool serverSideDecorated;
   final double opacity;
   final int? statusColorArgb;
@@ -202,6 +204,15 @@ class DenialWindow {
       title == 'denia-systemui-input-method';
 
   bool get isUserApp => !isHome && !isSystemUi;
+
+  /// Whether this scene entry should play Denial's one-time window entrance.
+  ///
+  /// A replacement Flutter engine reconstructs windows which were already
+  /// visible in its predecessor. That lifecycle fact is deliberately separate
+  /// from [suppressAnimations], which is lasting window policy for transient
+  /// surfaces and also controls their close effects.
+  bool get shouldAnimateEntrance =>
+      !suppressAnimations && !restoredAcrossFlutterRestart;
 
   Rect? get geometry => geometryWidth > 0.0 && geometryHeight > 0.0
       ? Rect.fromLTWH(geometryX, geometryY, geometryWidth, geometryHeight)
@@ -314,6 +325,7 @@ class DenialWindow {
         other.monitorId == monitorId &&
         other.pinned == pinned &&
         other.suppressAnimations == suppressAnimations &&
+        other.restoredAcrossFlutterRestart == restoredAcrossFlutterRestart &&
         other.serverSideDecorated == serverSideDecorated &&
         other.contentKind == contentKind;
   }
@@ -349,6 +361,7 @@ class DenialWindow {
         other.scale120 == scale120 &&
         other.pinned == pinned &&
         other.suppressAnimations == suppressAnimations &&
+        other.restoredAcrossFlutterRestart == restoredAcrossFlutterRestart &&
         other.serverSideDecorated == serverSideDecorated &&
         other.opacity == opacity &&
         other.statusColorArgb == statusColorArgb &&
@@ -395,6 +408,7 @@ class DenialWindow {
     scale120,
     pinned,
     suppressAnimations,
+    restoredAcrossFlutterRestart,
     serverSideDecorated,
     opacity,
     statusColorArgb,

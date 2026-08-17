@@ -1786,6 +1786,10 @@ fn internal_connector(name: &str) -> bool {
         .any(|prefix| name.starts_with(prefix))
 }
 
+fn connected_internal_connector(name: &str, status: &str) -> bool {
+    internal_connector(name) && status.trim() == "connected"
+}
+
 fn backlight_kind_priority(kind: &str) -> u8 {
     match kind {
         "raw" => 3,
@@ -1835,7 +1839,8 @@ fn discover_backlights(backlight_root: &Path, drm_root: &Path) -> HashMap<String
                 return None;
             }
             let name = connector_from_ddc_name(&entry.file_name().to_string_lossy());
-            if !internal_connector(&name) {
+            let status = fs::read_to_string(path.join("status")).unwrap_or_default();
+            if !connected_internal_connector(&name, &status) {
                 return None;
             }
             let device_path = fs::canonicalize(path.join("device")).ok()?;
@@ -2604,6 +2609,9 @@ mod tests {
         assert!(internal_connector("DSI-1"));
         assert!(!internal_connector("DP-1"));
         assert!(!internal_connector("HDMI-A-1"));
+        assert!(connected_internal_connector("eDP-1", "connected\n"));
+        assert!(!connected_internal_connector("eDP-2", "disconnected\n"));
+        assert!(!connected_internal_connector("DP-1", "connected\n"));
     }
 
     #[test]
