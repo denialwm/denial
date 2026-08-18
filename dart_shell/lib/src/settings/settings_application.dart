@@ -8,6 +8,7 @@ import '../local_apps/local_flutter_application.dart';
 import '../localization/denial_localizations.dart';
 import '../models/display_layout.dart';
 import '../state/display_layout.dart';
+import '../state/input_device_capabilities.dart';
 import '../state/output_configuration.dart';
 import '../state/ui_development.dart';
 import '../theme/motion.dart';
@@ -33,6 +34,7 @@ import 'widgets/settings_overlays_page.dart';
 import 'widgets/settings_power_page.dart';
 import 'widgets/settings_shortcuts_page.dart';
 import 'widgets/settings_system_pages.dart';
+import 'widgets/settings_touchpad_page.dart';
 
 final _englishSettings = AppLocalizationsEn();
 
@@ -104,12 +106,24 @@ class _DenialSettingsApplicationState
     final extractedAccent = ref.watch(wallpaperAccentProvider).color;
     final outputState = ref.watch(outputConfigurationProvider);
     final outputController = ref.read(outputConfigurationProvider.notifier);
+    final hasTouchpad = ref.watch(
+      inputDeviceCapabilitiesProvider.select(
+        (state) => state.capabilities.hasTouchpad,
+      ),
+    );
     final pendingOutputConfirmation =
         outputState.configuration?.pendingConfirmation;
     if (pendingOutputConfirmation != null && _page != SettingsPageId.displays) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _selectPage(SettingsPageId.displays);
+        }
+      });
+    }
+    if (!hasTouchpad && _page == SettingsPageId.touchpad) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _page == SettingsPageId.touchpad) {
+          _selectPage(SettingsPageId.keyboard);
         }
       });
     }
@@ -137,6 +151,7 @@ class _DenialSettingsApplicationState
                   SettingsNavigation(
                     selected: _page,
                     compact: true,
+                    showTouchpad: hasTouchpad,
                     onSelected: _selectPage,
                   ),
                   const Divider(height: 1, color: ShellColors.hairlineSoft),
@@ -149,6 +164,7 @@ class _DenialSettingsApplicationState
                         SettingsNavigation(
                           selected: _page,
                           compact: false,
+                          showTouchpad: hasTouchpad,
                           onSelected: _selectPage,
                         ),
                       Expanded(
@@ -245,6 +261,7 @@ class _DenialSettingsApplicationState
         onReset: controller.resetLocalization,
       ),
       SettingsPageId.keyboard => const SettingsKeyboardPage(),
+      SettingsPageId.touchpad => const SettingsTouchpadPage(),
       SettingsPageId.shortcuts => const SettingsShortcutsPage(),
       SettingsPageId.layout => SettingsLayoutPage(
         settings: settings.layout,

@@ -92,14 +92,17 @@ enum SettingsRequestKind : ubyte {
   AddShortcut = 6,
   UpdateShortcut = 7,
   RemoveShortcut = 8,
-  RestoreShortcuts = 9
+  RestoreShortcuts = 9,
+  ReadInputDevices = 10,
+  ConfigureTouchpad = 11
 }
 
 enum SettingsResponseKind : ubyte {
   Document = 0,
   Keyboard = 1,
   Shortcuts = 2,
-  ShortcutValidation = 3
+  ShortcutValidation = 3,
+  InputDevices = 4
 }
 
 enum ShortcutActionKind : ubyte {
@@ -493,6 +496,16 @@ table ShortcutValidation {
   error:string;
 }
 
+table InputDeviceCapabilities {
+  has_touchpad:bool;
+  touchpad:TouchpadConfiguration;
+}
+
+table TouchpadConfiguration {
+  tap_to_click_enabled:bool = true;
+  natural_scroll_enabled:bool;
+}
+
 table SettingsRequest {
   kind:SettingsRequestKind = ReadDocument;
   expected_revision:ulong;
@@ -505,6 +518,8 @@ table SettingsRequest {
   // The current canonical identity for editing/removing a binding. Validation
   // uses it to exclude the row currently being edited from conflict checks.
   existing_shortcut:string;
+  // ConfigureTouchpad only.
+  touchpad:TouchpadConfiguration;
 }
 
 table SettingsResponse {
@@ -516,6 +531,7 @@ table SettingsResponse {
   error:string;
   shortcuts:ShortcutConfiguration;
   shortcut_validation:ShortcutValidation;
+  input_devices:InputDeviceCapabilities;
 }
 
 table DesktopNotificationAction {

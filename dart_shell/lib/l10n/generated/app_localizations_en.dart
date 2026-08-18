@@ -1490,6 +1490,13 @@ class AppLocalizationsEn extends AppLocalizations {
       'Monitor arrangement editor';
 
   @override
+  String get settingsDisplayCanvasPanHint =>
+      'Drag empty space to move the canvas. Use the mouse wheel to zoom.';
+
+  @override
+  String get settingsDisplayCanvasPanSemantics => 'Pannable monitor canvas';
+
+  @override
   String get settingsDisplayArrangementTitle => 'Monitor configuration';
 
   @override
@@ -1551,6 +1558,20 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsDisplayScale => 'Scale';
+
+  @override
+  String get settingsDisplayZoomFit => 'Fit all monitors';
+
+  @override
+  String get settingsDisplayZoomIn => 'Zoom in';
+
+  @override
+  String settingsDisplayZoomLevel(int percent) {
+    return 'Canvas zoom $percent%';
+  }
+
+  @override
+  String get settingsDisplayZoomOut => 'Zoom out';
 
   @override
   String get settingsLoadingDisplays => 'Loading monitor configuration…';
@@ -1691,6 +1712,26 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get settingsKeyboardInvalidLayouts =>
       'Enter at least one valid XKB layout.';
+
+  @override
+  String get settingsTouchpadSection => 'INPUT';
+
+  @override
+  String get settingsTouchpadTitle => 'Use your touchpad across the desktop.';
+
+  @override
+  String get settingsTouchpadTapToClick => 'Tap to click';
+
+  @override
+  String get settingsTouchpadTapToClickDescription =>
+      'Tap the touchpad to press the primary mouse button.';
+
+  @override
+  String get settingsTouchpadNaturalScroll => 'Reverse two-finger scrolling';
+
+  @override
+  String get settingsTouchpadNaturalScrollDescription =>
+      'Move content in the same direction as your fingers.';
 
   @override
   String get settingsShortcutsSection => 'SHORTCUTS';
@@ -2189,6 +2230,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsNavigationKeyboard => 'Keyboard';
+
+  @override
+  String get settingsNavigationTouchpad => 'Touchpad';
 
   @override
   String get settingsNavigationShortcuts => 'Shortcuts';

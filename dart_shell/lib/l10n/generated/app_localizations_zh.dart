@@ -1435,6 +1435,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsDisplayArrangementSemantics => '显示器排列编辑器';
 
   @override
+  String get settingsDisplayCanvasPanHint => '拖动空白区域以移动画布。使用鼠标滚轮进行缩放。';
+
+  @override
+  String get settingsDisplayCanvasPanSemantics => '可平移的显示器画布';
+
+  @override
   String get settingsDisplayArrangementTitle => '显示器配置';
 
   @override
@@ -1493,6 +1499,20 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsDisplayScale => '缩放';
+
+  @override
+  String get settingsDisplayZoomFit => '适应所有显示器';
+
+  @override
+  String get settingsDisplayZoomIn => '放大';
+
+  @override
+  String settingsDisplayZoomLevel(int percent) {
+    return '画布缩放 $percent%';
+  }
+
+  @override
+  String get settingsDisplayZoomOut => '缩小';
 
   @override
   String get settingsLoadingDisplays => '正在加载显示器配置…';
@@ -1624,6 +1644,24 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsKeyboardInvalidLayouts => '请输入至少一个有效的 XKB 布局。';
+
+  @override
+  String get settingsTouchpadSection => '输入';
+
+  @override
+  String get settingsTouchpadTitle => '在整个桌面上使用触控板。';
+
+  @override
+  String get settingsTouchpadTapToClick => '轻触点击';
+
+  @override
+  String get settingsTouchpadTapToClickDescription => '轻触触控板即可按下鼠标主键。';
+
+  @override
+  String get settingsTouchpadNaturalScroll => '反向双指滚动';
+
+  @override
+  String get settingsTouchpadNaturalScrollDescription => '让内容沿手指移动的方向滚动。';
 
   @override
   String get settingsShortcutsSection => '快捷键';
@@ -2094,6 +2132,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsNavigationKeyboard => '键盘';
+
+  @override
+  String get settingsNavigationTouchpad => '触控板';
 
   @override
   String get settingsNavigationShortcuts => '快捷键';

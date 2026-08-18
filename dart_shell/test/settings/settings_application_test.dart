@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' show SemanticsRole;
 
 import 'package:denial_dart_shell/src/settings/widgets/focused_border_color_picker.dart';
@@ -9,10 +10,12 @@ import 'package:denial_dart_shell/src/settings/widgets/settings_developer_page.d
 import 'package:denial_dart_shell/src/settings/widgets/settings_displays_page.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_language_page.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_power_page.dart';
+import 'package:denial_dart_shell/src/settings/widgets/settings_touchpad_page.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_navigation.dart';
 import 'package:denial_dart_shell/src/settings/widgets/system_bar_placement_card.dart';
 import 'package:denial_dart_shell/src/localization/denial_localizations.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
+import 'package:denial_dart_shell/src/models/input_device_capabilities.dart';
 import 'package:denial_dart_shell/src/models/keyboard_configuration.dart';
 import 'package:denial_dart_shell/src/models/output_configuration.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
@@ -22,10 +25,12 @@ import 'package:denial_dart_shell/src/settings/settings_controller.dart';
 import 'package:denial_dart_shell/src/settings/settings_store.dart';
 import 'package:denial_dart_shell/src/settings/shell_settings.dart';
 import 'package:denial_dart_shell/src/state/display_layout.dart';
+import 'package:denial_dart_shell/src/state/output_configuration.dart';
 import 'package:denial_dart_shell/src/state/shell_controller.dart';
 import 'package:denial_dart_shell/src/theme/tokens.dart';
 import 'package:denial_dart_shell/src/wallpaper/state/wallpaper_controller.dart';
 import 'package:denial_dart_shell/src/widgets/denial_wordmark.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -121,6 +126,43 @@ void main() {
     final wallpaperState = container.read(wallpaperControllerProvider);
     expect(wallpaperState.selectorVisible, isTrue);
     expect(wallpaperState.targetPixelSize, _displayLayout.pixelSize);
+  });
+
+  testWidgets('touchpad settings follow compositor device detection', (
+    tester,
+  ) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container, size: const Size(980, 700));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Touchpad'), findsNothing);
+    final bridge = container.read(denialBridgeProvider) as _SettingsBridge;
+    bridge.setHasTouchpad(true);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Touchpad'), findsOneWidget);
+    await tester.tap(find.text('Touchpad'));
+    await tester.pumpAndSettle();
+    expect(find.text('Touchpad detected'), findsNothing);
+    expect(find.text('Gesture shortcuts'), findsNothing);
+    expect(find.text('Tap to click'), findsOneWidget);
+    expect(find.text('Reverse two-finger scrolling'), findsOneWidget);
+
+    await tester.tap(find.byKey(settingsTapToClickToggleKey));
+    await tester.pumpAndSettle();
+    expect(bridge.touchpad.tapToClickEnabled, isFalse);
+    expect(bridge.touchpadConfigureCount, 1);
+
+    await tester.tap(find.byKey(settingsNaturalScrollToggleKey));
+    await tester.pumpAndSettle();
+    expect(bridge.touchpad.naturalScrollEnabled, isTrue);
+    expect(bridge.touchpadConfigureCount, 2);
+
+    bridge.setHasTouchpad(false);
+    await tester.pumpAndSettle();
+    expect(find.text('Touchpad'), findsNothing);
+    expect(find.text('Layouts and variants'), findsOneWidget);
   });
 
   testWidgets('short settings tabs remain aligned to the top', (tester) async {
@@ -281,9 +323,12 @@ void main() {
     expect(find.text('DP-1'), findsWidgets);
     expect(find.text('HDMI-A-1'), findsWidgets);
 
-    tester
-        .widget<MonitorLayoutEditor>(find.byKey(settingsMonitorLayoutEditorKey))
-        .onPositionChanged('DP-1', 240, 0);
+    final monitor = find.byKey(const ValueKey<String>('monitor-DP-1'));
+    final drag = await tester.startGesture(tester.getCenter(monitor));
+    await drag.moveBy(const Offset(40, 0));
+    await tester.pump();
+    await drag.moveBy(const Offset(80, 0));
+    await drag.up();
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Landscape'));
     await tester.pumpAndSettle();
@@ -311,6 +356,113 @@ void main() {
       bridge.outputConfiguration.outputs.first.x,
       greaterThan(_outputConfiguration.outputs.first.x),
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('display canvas pans freely and offers NWG zoom steps', (
+    tester,
+  ) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container, size: const Size(980, 1000));
+
+    tester
+        .widget<SettingsNavigation>(find.byType(SettingsNavigation))
+        .onSelected(SettingsPageId.displays);
+    await tester.pumpAndSettle();
+
+    final monitor = find.byKey(const ValueKey<String>('monitor-DP-1'));
+    final canvas = find.byKey(settingsMonitorCanvasKey);
+    await tester.ensureVisible(canvas);
+    await tester.pumpAndSettle();
+    expect(tester.getSize(canvas).height, 360);
+    final monitorIcon = tester.widget<Icon>(
+      find.descendant(
+        of: monitor,
+        matching: find.byIcon(Icons.monitor_rounded),
+      ),
+    );
+    final monitorCard = tester.widget<AnimatedContainer>(
+      find.descendant(of: monitor, matching: find.byType(AnimatedContainer)),
+    );
+    expect(monitorIcon.color, ShellColors.textPrimary);
+    expect((monitorCard.decoration! as BoxDecoration).borderRadius, isNull);
+    final initialMonitorRect = tester.getRect(monitor);
+    final canvasRect = tester.getRect(canvas);
+    final pan = await tester.startGesture(
+      canvasRect.bottomRight - const Offset(24, 24),
+    );
+    await pan.moveBy(const Offset(32, 0));
+    await tester.pump();
+    await pan.moveBy(const Offset(700, 500));
+    await pan.up();
+    await tester.pumpAndSettle();
+
+    final pannedMonitorRect = tester.getRect(monitor);
+    expect(pannedMonitorRect.left - initialMonitorRect.left, greaterThan(650));
+    expect(pannedMonitorRect.top - initialMonitorRect.top, greaterThan(450));
+    expect(
+      container.read(outputConfigurationProvider).draftOutputs.first.x,
+      _outputConfiguration.outputs.first.x,
+    );
+
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: canvasRect.center,
+        scrollDelta: const Offset(0, -20),
+        kind: PointerDeviceKind.mouse,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.getSize(monitor).width, greaterThan(pannedMonitorRect.width));
+    expect(find.text('20%'), findsOneWidget);
+    expect(find.byKey(settingsMonitorZoomOutKey), findsOneWidget);
+    expect(find.byKey(settingsMonitorZoomFitKey), findsOneWidget);
+
+    for (var index = 0; index < 20; index++) {
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: canvasRect.center,
+          scrollDelta: const Offset(0, 20),
+          kind: PointerDeviceKind.mouse,
+        ),
+      );
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+    expect(find.text('1%'), findsOneWidget);
+    expect(tester.getSize(monitor).width, closeTo(19.2, 0.01));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('an unselected monitor selects and drags in one gesture', (
+    tester,
+  ) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container, size: const Size(980, 1000));
+
+    tester
+        .widget<SettingsNavigation>(find.byType(SettingsNavigation))
+        .onSelected(SettingsPageId.displays);
+    await tester.pumpAndSettle();
+
+    final monitor = find.byKey(const ValueKey<String>('monitor-HDMI-A-1'));
+    final initialX = container
+        .read(outputConfigurationProvider)
+        .draftOutputs
+        .last
+        .x;
+    final drag = await tester.startGesture(tester.getCenter(monitor));
+    await drag.moveBy(const Offset(36, 0));
+    await tester.pump();
+    await drag.moveBy(const Offset(80, 0));
+    await drag.up();
+    await tester.pumpAndSettle();
+
+    final state = container.read(outputConfigurationProvider);
+    expect(state.selectedOutput?.name, 'HDMI-A-1');
+    expect(state.draftOutputs.last.x, greaterThan(initialX));
     expect(tester.takeException(), isNull);
   });
 
@@ -800,6 +952,16 @@ class _SettingsBridge extends DenialBridge {
 
   DisplayLayout layout;
   DenialOutputConfiguration outputConfiguration;
+  final _inputDeviceCapabilities =
+      StreamController<DenialInputDeviceCapabilities>.broadcast(sync: true);
+  var hasTouchpad = false;
+  var touchpad = const DenialInputDeviceCapabilities(
+    revision: 1,
+    hasTouchpad: false,
+    tapToClickEnabled: true,
+    naturalScrollEnabled: false,
+  );
+  int touchpadConfigureCount = 0;
   int outputApplyCount = 0;
   int outputConfirmCount = 0;
   int outputRollbackCount = 0;
@@ -817,6 +979,37 @@ class _SettingsBridge extends DenialBridge {
   @override
   Future<DenialKeyboardConfiguration> readKeyboardConfiguration() async {
     return keyboard;
+  }
+
+  @override
+  Stream<DenialInputDeviceCapabilities> get inputDeviceCapabilities =>
+      _inputDeviceCapabilities.stream;
+
+  @override
+  Future<DenialInputDeviceCapabilities> readInputDeviceCapabilities() async {
+    return touchpad;
+  }
+
+  void setHasTouchpad(bool value) {
+    hasTouchpad = value;
+    touchpad = touchpad.copyWith(hasTouchpad: value);
+    _inputDeviceCapabilities.add(touchpad);
+  }
+
+  @override
+  Future<DenialInputDeviceCapabilities> configureTouchpad(
+    DenialInputDeviceCapabilities capabilities,
+  ) async {
+    touchpadConfigureCount += 1;
+    hasTouchpad = capabilities.hasTouchpad;
+    touchpad = capabilities.copyWith(revision: touchpad.revision + 1);
+    return touchpad;
+  }
+
+  @override
+  void dispose() {
+    unawaited(_inputDeviceCapabilities.close());
+    super.dispose();
   }
 
   @override

@@ -20,7 +20,7 @@ use super::notification_server::{
     Notification, NotificationEvent, NotificationEventKind, NotificationUrgency,
 };
 use super::options::{SystemBarOptions, SystemBarSide, WorkAreaOptions};
-use super::settings::{KeyboardLayout, KeyboardSettings};
+use super::settings::{KeyboardLayout, KeyboardSettings, TouchpadSettings};
 
 #[allow(
     clippy::all,
@@ -172,6 +172,14 @@ pub enum SettingsCommand {
     RestoreShortcuts {
         request_id: u64,
         expected_revision: u64,
+    },
+    ReadInputDevices {
+        request_id: u64,
+    },
+    ConfigureTouchpad {
+        request_id: u64,
+        expected_revision: u64,
+        touchpad: TouchpadSettings,
     },
 }
 
@@ -840,6 +848,60 @@ impl WireBridge {
         Ok(self.outbound_builder.finished_data())
     }
 
+    pub fn encode_input_device_capabilities_response(
+        &mut self,
+        request_id: u64,
+        revision: u64,
+        has_touchpad: bool,
+        touchpad: &TouchpadSettings,
+        error: Option<&str>,
+    ) -> Result<&[u8], WireError> {
+        if revision == 0 || error.is_some_and(|error| error.len() > MAX_STRING_BYTES) {
+            return Err(WireError::Identity);
+        }
+        let sequence = self.take_sequence();
+        self.outbound_builder.reset();
+        let touchpad = fb::TouchpadConfiguration::create(
+            &mut self.outbound_builder,
+            &fb::TouchpadConfigurationArgs {
+                tap_to_click_enabled: touchpad.tap_to_click_enabled,
+                natural_scroll_enabled: touchpad.natural_scroll_enabled,
+            },
+        );
+        let input_devices = fb::InputDeviceCapabilities::create(
+            &mut self.outbound_builder,
+            &fb::InputDeviceCapabilitiesArgs {
+                has_touchpad,
+                touchpad: Some(touchpad),
+            },
+        );
+        let error = error.map(|error| self.outbound_builder.create_string(error));
+        let response = fb::SettingsResponse::create(
+            &mut self.outbound_builder,
+            &fb::SettingsResponseArgs {
+                kind: fb::SettingsResponseKind::InputDevices,
+                success: error.is_none(),
+                revision,
+                error,
+                input_devices: Some(input_devices),
+                ..Default::default()
+            },
+        );
+        let envelope = fb::Envelope::create(
+            &mut self.outbound_builder,
+            &fb::EnvelopeArgs {
+                protocol_version: PROTOCOL_VERSION,
+                sequence,
+                request_id,
+                payload_type: fb::Payload::SettingsResponse,
+                payload: Some(response.as_union_value()),
+            },
+        );
+        fb::finish_envelope_buffer(&mut self.outbound_builder, envelope);
+        validate_finished_message(&self.outbound_builder)?;
+        Ok(self.outbound_builder.finished_data())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn encode_keyboard_settings_response(
         &mut self,
@@ -1274,6 +1336,7 @@ fn decode_settings_request(
                 || request.keyboard().is_some()
                 || request.shortcut().is_some()
                 || request.existing_shortcut().is_some()
+                || request.touchpad().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -1287,6 +1350,7 @@ fn decode_settings_request(
                 || request.keyboard().is_some()
                 || request.shortcut().is_some()
                 || request.existing_shortcut().is_some()
+                || request.touchpad().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -1302,6 +1366,7 @@ fn decode_settings_request(
                 || request.keyboard().is_some()
                 || request.shortcut().is_some()
                 || request.existing_shortcut().is_some()
+                || request.touchpad().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -1312,6 +1377,7 @@ fn decode_settings_request(
                 || request.document().is_some()
                 || request.shortcut().is_some()
                 || request.existing_shortcut().is_some()
+                || request.touchpad().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -1328,6 +1394,7 @@ fn decode_settings_request(
                 || request.keyboard().is_some()
                 || request.shortcut().is_some()
                 || request.existing_shortcut().is_some()
+                || request.touchpad().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -1337,6 +1404,7 @@ fn decode_settings_request(
             if request.expected_revision() != 0
                 || request.document().is_some()
                 || request.keyboard().is_some()
+                || request.touchpad().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -1362,6 +1430,7 @@ fn decode_settings_request(
                 || request.document().is_some()
                 || request.keyboard().is_some()
                 || request.existing_shortcut().is_some()
+                || request.touchpad().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -1375,6 +1444,7 @@ fn decode_settings_request(
             if request.expected_revision() == 0
                 || request.document().is_some()
                 || request.keyboard().is_some()
+                || request.touchpad().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -1395,6 +1465,7 @@ fn decode_settings_request(
                 || request.document().is_some()
                 || request.keyboard().is_some()
                 || request.shortcut().is_some()
+                || request.touchpad().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -1415,12 +1486,44 @@ fn decode_settings_request(
                 || request.keyboard().is_some()
                 || request.shortcut().is_some()
                 || request.existing_shortcut().is_some()
+                || request.touchpad().is_some()
             {
                 return Err(WireError::Payload);
             }
             Ok(SettingsCommand::RestoreShortcuts {
                 request_id,
                 expected_revision: request.expected_revision(),
+            })
+        }
+        fb::SettingsRequestKind::ReadInputDevices => {
+            if request.expected_revision() != 0
+                || request.document().is_some()
+                || request.keyboard().is_some()
+                || request.shortcut().is_some()
+                || request.existing_shortcut().is_some()
+                || request.touchpad().is_some()
+            {
+                return Err(WireError::Payload);
+            }
+            Ok(SettingsCommand::ReadInputDevices { request_id })
+        }
+        fb::SettingsRequestKind::ConfigureTouchpad => {
+            if request.expected_revision() == 0
+                || request.document().is_some()
+                || request.keyboard().is_some()
+                || request.shortcut().is_some()
+                || request.existing_shortcut().is_some()
+            {
+                return Err(WireError::Payload);
+            }
+            let touchpad = request.touchpad().ok_or(WireError::Payload)?;
+            Ok(SettingsCommand::ConfigureTouchpad {
+                request_id,
+                expected_revision: request.expected_revision(),
+                touchpad: TouchpadSettings {
+                    tap_to_click_enabled: touchpad.tap_to_click_enabled(),
+                    natural_scroll_enabled: touchpad.natural_scroll_enabled(),
+                },
             })
         }
         _ => Err(WireError::Enumeration),
@@ -2347,6 +2450,7 @@ fn encode_settings_response(
             error,
             shortcuts,
             shortcut_validation,
+            input_devices: None,
         },
     );
     let envelope = fb::Envelope::create(
@@ -3052,6 +3156,43 @@ mod tests {
             &fb::EnvelopeArgs {
                 protocol_version: PROTOCOL_VERSION,
                 sequence: 12,
+                request_id,
+                payload_type: fb::Payload::SettingsRequest,
+                payload: Some(request.as_union_value()),
+            },
+        );
+        fb::finish_envelope_buffer(&mut builder, envelope);
+        builder.finished_data().to_vec()
+    }
+
+    fn touchpad_settings_request(
+        request_id: u64,
+        expected_revision: u64,
+        tap_to_click_enabled: bool,
+        natural_scroll_enabled: bool,
+    ) -> Vec<u8> {
+        let mut builder = FlatBufferBuilder::new();
+        let touchpad = fb::TouchpadConfiguration::create(
+            &mut builder,
+            &fb::TouchpadConfigurationArgs {
+                tap_to_click_enabled,
+                natural_scroll_enabled,
+            },
+        );
+        let request = fb::SettingsRequest::create(
+            &mut builder,
+            &fb::SettingsRequestArgs {
+                kind: fb::SettingsRequestKind::ConfigureTouchpad,
+                expected_revision,
+                touchpad: Some(touchpad),
+                ..Default::default()
+            },
+        );
+        let envelope = fb::Envelope::create(
+            &mut builder,
+            &fb::EnvelopeArgs {
+                protocol_version: PROTOCOL_VERSION,
+                sequence: 13,
                 request_id,
                 payload_type: fb::Payload::SettingsRequest,
                 payload: Some(request.as_union_value()),
@@ -3871,7 +4012,7 @@ mod tests {
                 fb::SettingsRequestKind::WriteDocument,
                 42,
                 7,
-                Some(r#"{"version":8}"#),
+                Some(r#"{"version":9}"#),
                 None,
             ))
             .unwrap();
@@ -3889,6 +4030,18 @@ mod tests {
                 )),
             ))
             .unwrap();
+        bridge
+            .handle(&touchpad_settings_request(45, 9, false, true))
+            .unwrap();
+        bridge
+            .handle(&settings_request(
+                fb::SettingsRequestKind::ReadInputDevices,
+                44,
+                0,
+                None,
+                None,
+            ))
+            .unwrap();
         assert_eq!(
             bridge.drain_settings_commands().collect::<Vec<_>>(),
             vec![
@@ -3896,7 +4049,7 @@ mod tests {
                 SettingsCommand::WriteDocument {
                     request_id: 42,
                     expected_revision: 7,
-                    document: r#"{"version":8}"#.to_owned(),
+                    document: r#"{"version":9}"#.to_owned(),
                 },
                 SettingsCommand::ConfigureKeyboard {
                     request_id: 43,
@@ -3917,6 +4070,15 @@ mod tests {
                         repeat_rate_hz: 30,
                     },
                 },
+                SettingsCommand::ConfigureTouchpad {
+                    request_id: 45,
+                    expected_revision: 9,
+                    touchpad: TouchpadSettings {
+                        tap_to_click_enabled: false,
+                        natural_scroll_enabled: true,
+                    },
+                },
+                SettingsCommand::ReadInputDevices { request_id: 44 },
             ]
         );
 
@@ -3993,6 +4155,30 @@ mod tests {
         assert_eq!(layouts.get(1).variant(), Some("nodeadkeys"));
         assert_eq!(layouts.get(1).display_name(), Some("German"));
         assert_eq!(encoded.options().unwrap().get(0), "compose:menu");
+
+        let bytes = bridge
+            .encode_input_device_capabilities_response(
+                0,
+                11,
+                true,
+                &TouchpadSettings {
+                    tap_to_click_enabled: false,
+                    natural_scroll_enabled: true,
+                },
+                None,
+            )
+            .unwrap();
+        let envelope = fb::root_as_envelope(bytes).unwrap();
+        let response = envelope.payload_as_settings_response().unwrap();
+        assert_eq!(envelope.request_id(), 0);
+        assert_eq!(response.kind(), fb::SettingsResponseKind::InputDevices);
+        assert!(response.success());
+        assert_eq!(response.revision(), 11);
+        let input_devices = response.input_devices().unwrap();
+        assert!(input_devices.has_touchpad());
+        let touchpad = input_devices.touchpad().unwrap();
+        assert!(!touchpad.tap_to_click_enabled());
+        assert!(touchpad.natural_scroll_enabled());
     }
 
     #[test]

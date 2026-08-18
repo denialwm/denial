@@ -2107,6 +2107,14 @@
   "@settingsDisplayArrangementSemantics": {
     "description": "Accessibility label for the draggable monitor arrangement."
   },
+  "settingsDisplayCanvasPanHint": "Drag empty space to move the canvas. Use the mouse wheel to zoom.",
+  "@settingsDisplayCanvasPanHint": {
+    "description": "Instruction shown above the pannable monitor arrangement canvas."
+  },
+  "settingsDisplayCanvasPanSemantics": "Pannable monitor canvas",
+  "@settingsDisplayCanvasPanSemantics": {
+    "description": "Accessibility label for the draggable background of the monitor arrangement."
+  },
   "settingsDisplayArrangementTitle": "Monitor configuration",
   "@settingsDisplayArrangementTitle": {
     "description": "Heading for output modes, scale, rotation, and arrangement."
@@ -2192,6 +2200,25 @@
   "settingsDisplayScale": "Scale",
   "@settingsDisplayScale": {
     "description": "Label for the monitor scale selector."
+  },
+  "settingsDisplayZoomFit": "Fit all monitors",
+  "@settingsDisplayZoomFit": {
+    "description": "Tooltip for fitting the complete monitor layout in the canvas."
+  },
+  "settingsDisplayZoomIn": "Zoom in",
+  "@settingsDisplayZoomIn": {
+    "description": "Tooltip for increasing monitor canvas zoom."
+  },
+  "settingsDisplayZoomLevel": "Canvas zoom {percent}%",
+  "@settingsDisplayZoomLevel": {
+    "description": "Accessibility label for the current monitor canvas zoom.",
+    "placeholders": {
+      "percent": { "type": "int" }
+    }
+  },
+  "settingsDisplayZoomOut": "Zoom out",
+  "@settingsDisplayZoomOut": {
+    "description": "Tooltip for decreasing monitor canvas zoom."
   },
   "settingsLoadingDisplays": "Loading monitor configuration…",
   "@settingsLoadingDisplays": {
@@ -2363,6 +2390,30 @@
   "settingsKeyboardInvalidLayouts": "Enter at least one valid XKB layout.",
   "@settingsKeyboardInvalidLayouts": {
     "description": "Validation error for the keyboard layouts field."
+  },
+  "settingsTouchpadSection": "INPUT",
+  "@settingsTouchpadSection": {
+    "description": "Eyebrow label for touchpad settings."
+  },
+  "settingsTouchpadTitle": "Use your touchpad across the desktop.",
+  "@settingsTouchpadTitle": {
+    "description": "Description of the touchpad settings page."
+  },
+  "settingsTouchpadTapToClick": "Tap to click",
+  "@settingsTouchpadTapToClick": {
+    "description": "Label for the touchpad tap-to-click toggle."
+  },
+  "settingsTouchpadTapToClickDescription": "Tap the touchpad to press the primary mouse button.",
+  "@settingsTouchpadTapToClickDescription": {
+    "description": "Description of the touchpad tap-to-click toggle."
+  },
+  "settingsTouchpadNaturalScroll": "Reverse two-finger scrolling",
+  "@settingsTouchpadNaturalScroll": {
+    "description": "Label for the touchpad natural scrolling toggle."
+  },
+  "settingsTouchpadNaturalScrollDescription": "Move content in the same direction as your fingers.",
+  "@settingsTouchpadNaturalScrollDescription": {
+    "description": "Description of the touchpad natural scrolling toggle."
   },
   "settingsShortcutsSection": "SHORTCUTS",
   "@settingsShortcutsSection": {
@@ -2997,6 +3048,10 @@
   "settingsNavigationKeyboard": "Keyboard",
   "@settingsNavigationKeyboard": {
     "description": "Settings navigation label for physical keyboard configuration."
+  },
+  "settingsNavigationTouchpad": "Touchpad",
+  "@settingsNavigationTouchpad": {
+    "description": "Settings navigation label for touchpad information."
   },
   "settingsNavigationShortcuts": "Shortcuts",
   "@settingsNavigationShortcuts": {

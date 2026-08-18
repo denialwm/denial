@@ -138,7 +138,7 @@ Keyboard settings live in the native-owned `keyboard` section:
 
 ```json
 {
-  "version": 8,
+  "version": 9,
   "revision": 3,
   "keyboard": {
     "layouts": [
@@ -155,6 +155,21 @@ Keyboard settings live in the native-owned `keyboard` section:
 Rust syntax-checks and compiles a candidate keymap before it changes either
 the seat or the file. A failed live install keeps the previous configuration;
 a persistence conflict rolls the live seat back.
+
+Touchpad preferences live in the native-owned `touchpad` section:
+
+```json
+{
+  "touchpad": {
+    "tapToClickEnabled": true,
+    "naturalScrollEnabled": false
+  }
+}
+```
+
+Denial applies these preferences through libinput when a touchpad appears and
+on every live update. The shell receives touchpad presence separately so it
+only exposes the touchpad page when suitable hardware is connected.
 
 ## Platform bridge
 

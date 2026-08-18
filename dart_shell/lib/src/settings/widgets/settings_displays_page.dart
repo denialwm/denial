@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,11 +15,19 @@ import '../../theme/motion.dart';
 import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/shell_cursor.dart';
+import '../monitor_arrangement.dart';
 import 'settings_controls.dart';
 
 const settingsMonitorLayoutEditorKey = ValueKey<String>(
   'settings-monitor-layout-editor',
 );
+const settingsMonitorCanvasKey = ValueKey<String>('settings-monitor-canvas');
+const settingsMonitorCanvasPanSurfaceKey = ValueKey<String>(
+  'settings-monitor-canvas-pan-surface',
+);
+const settingsMonitorZoomOutKey = ValueKey<String>('settings-monitor-zoom-out');
+const settingsMonitorZoomFitKey = ValueKey<String>('settings-monitor-zoom-fit');
+const settingsMonitorZoomInKey = ValueKey<String>('settings-monitor-zoom-in');
 const settingsApplyDisplayConfigurationKey = ValueKey<String>(
   'settings-apply-display-configuration',
 );
@@ -321,7 +330,7 @@ class _OutputConfigurationBody extends StatelessWidget {
   }
 }
 
-class MonitorLayoutEditor extends StatelessWidget {
+class MonitorLayoutEditor extends StatefulWidget {
   const MonitorLayoutEditor({
     required this.outputs,
     required this.selectedName,
@@ -336,6 +345,115 @@ class MonitorLayoutEditor extends StatelessWidget {
   final void Function(String name, int x, int y) onPositionChanged;
 
   @override
+  State<MonitorLayoutEditor> createState() => _MonitorLayoutEditorState();
+}
+
+class _MonitorLayoutEditorState extends State<MonitorLayoutEditor> {
+  static const _zoomSteps = <double>[
+    0.01,
+    0.02,
+    0.03,
+    0.04,
+    0.05,
+    0.06,
+    0.07,
+    0.08,
+    0.09,
+    0.10,
+    0.15,
+    0.20,
+    0.25,
+    0.30,
+    0.35,
+    0.40,
+    0.45,
+    0.50,
+    0.55,
+    0.60,
+  ];
+
+  var _viewScale = nwgDisplaysViewScale;
+  var _panOffset = Offset.zero;
+  var _panning = false;
+
+  double? _nextZoom(bool zoomIn) {
+    if (zoomIn) {
+      for (final scale in _zoomSteps) {
+        if (scale > _viewScale + 0.001) {
+          return scale;
+        }
+      }
+      return null;
+    }
+    for (final scale in _zoomSteps.reversed) {
+      if (scale < _viewScale - 0.001) {
+        return scale;
+      }
+    }
+    return null;
+  }
+
+  void _setZoom({
+    required double scale,
+    required Size canvasSize,
+    required Offset visiblePan,
+    Offset? viewportAnchor,
+  }) {
+    setState(() {
+      _panOffset = panMonitorCanvasForZoom(
+        pan: visiblePan,
+        viewportSize: canvasSize,
+        oldScale: _viewScale,
+        newScale: scale,
+        viewportAnchor: viewportAnchor,
+      );
+      _viewScale = scale;
+    });
+  }
+
+  void _handlePointerSignal(
+    PointerSignalEvent event, {
+    required Size canvasSize,
+    required Offset visiblePan,
+    required double padding,
+  }) {
+    if (event is! PointerScrollEvent || event.scrollDelta.dy == 0) {
+      return;
+    }
+    final scale = _nextZoom(event.scrollDelta.dy < 0);
+    if (scale == null) {
+      return;
+    }
+    GestureBinding.instance.pointerSignalResolver.register(event, (_) {
+      final local = event.localPosition - Offset(padding, padding);
+      final anchor = Offset(
+        local.dx.clamp(0.0, canvasSize.width).toDouble(),
+        local.dy.clamp(0.0, canvasSize.height).toDouble(),
+      );
+      _setZoom(
+        scale: scale,
+        canvasSize: canvasSize,
+        visiblePan: visiblePan,
+        viewportAnchor: anchor,
+      );
+    });
+  }
+
+  void _fit({required Size canvasSize, required Size extent}) {
+    final scale = fitMonitorCanvasScale(
+      viewportSize: canvasSize,
+      layoutExtent: extent,
+    );
+    setState(() {
+      _viewScale = scale;
+      _panOffset = centerMonitorCanvasPan(
+        viewportSize: canvasSize,
+        contentSize: Size(extent.width * scale, extent.height * scale),
+      );
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final accent = ShellTheme.of(context).accent;
     return Semantics(
@@ -345,55 +463,225 @@ class MonitorLayoutEditor extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final width = math.max(240.0, constraints.maxWidth);
-          const height = 220.0;
+          const height = 360.0;
           const padding = 18.0;
-          final bounds = _layoutBounds(outputs);
-          final renderScale = math.min(
-            (width - padding * 2) / math.max(1, bounds.width),
-            (height - padding * 2) / math.max(1, bounds.height),
+          final canvasSize = Size(width - padding * 2, height - padding * 2);
+          final extent = _layoutExtent(widget.outputs);
+          final workspaceSize = denialMonitorWorkspaceSize(_viewScale);
+          final visiblePan = _panOffset;
+          final usableRect = Rect.fromLTWH(
+            padding + visiblePan.dx,
+            padding + visiblePan.dy,
+            workspaceSize.width,
+            workspaceSize.height,
           );
-          return RepaintBoundary(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: ShellColors.surfaceContainerHigh.withValues(alpha: 0.56),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: ShellColors.hairline),
+          final arrangement = <MonitorArrangementGeometry>[
+            for (final output in widget.outputs)
+              MonitorArrangementGeometry(
+                name: output.name,
+                x: output.x,
+                y: output.y,
+                logicalSize: output.draftLogicalSize,
               ),
-              child: SizedBox(
-                height: height,
-                child: Stack(
-                  clipBehavior: Clip.hardEdge,
-                  children: <Widget>[
-                    const Positioned.fill(child: _LayoutGrid()),
-                    for (final output in outputs)
-                      Positioned(
-                        left: padding + (output.x - bounds.left) * renderScale,
-                        top: padding + (output.y - bounds.top) * renderScale,
-                        width: math.max(
-                          64,
-                          output.draftLogicalSize.width * renderScale,
-                        ),
-                        height: math.max(
-                          48,
-                          output.draftLogicalSize.height * renderScale,
-                        ),
-                        child: _MonitorTile(
-                          key: ValueKey<String>('monitor-${output.name}'),
-                          output: output,
-                          selected: output.name == selectedName,
-                          accent: accent,
-                          renderScale: renderScale,
-                          onSelected: () => onSelected(output.name),
-                          onPositionChanged: (x, y) =>
-                              onPositionChanged(output.name, x, y),
+          ];
+          final zoomOut = _nextZoom(false);
+          final zoomIn = _nextZoom(true);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      context.l10n.settingsDisplayCanvasPanHint,
+                      style: ShellText.base.copyWith(
+                        color: ShellColors.textTertiary,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  _CanvasZoomButton(
+                    key: settingsMonitorZoomOutKey,
+                    icon: Icons.remove_rounded,
+                    tooltip: context.l10n.settingsDisplayZoomOut,
+                    onPressed: zoomOut == null
+                        ? null
+                        : () => _setZoom(
+                            scale: zoomOut,
+                            canvasSize: canvasSize,
+                            visiblePan: visiblePan,
+                          ),
+                  ),
+                  const SizedBox(width: 6),
+                  Semantics(
+                    label: context.l10n.settingsDisplayZoomLevel(
+                      (_viewScale * 100).round(),
+                    ),
+                    child: SizedBox(
+                      width: 48,
+                      child: Text(
+                        '${(_viewScale * 100).round()}%',
+                        textAlign: TextAlign.center,
+                        style: ShellText.base.copyWith(
+                          color: ShellColors.textSecondary,
+                          fontSize: 11,
                         ),
                       ),
-                  ],
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  _CanvasZoomButton(
+                    key: settingsMonitorZoomInKey,
+                    icon: Icons.add_rounded,
+                    tooltip: context.l10n.settingsDisplayZoomIn,
+                    onPressed: zoomIn == null
+                        ? null
+                        : () => _setZoom(
+                            scale: zoomIn,
+                            canvasSize: canvasSize,
+                            visiblePan: visiblePan,
+                          ),
+                  ),
+                  const SizedBox(width: 6),
+                  _CanvasZoomButton(
+                    key: settingsMonitorZoomFitKey,
+                    icon: Icons.fit_screen_rounded,
+                    tooltip: context.l10n.settingsDisplayZoomFit,
+                    onPressed: () =>
+                        _fit(canvasSize: canvasSize, extent: extent),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              RepaintBoundary(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: ShellColors.surfaceContainerHigh.withValues(
+                      alpha: 0.56,
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: ShellColors.hairline),
+                  ),
+                  child: SizedBox(
+                    key: settingsMonitorCanvasKey,
+                    height: height,
+                    child: Listener(
+                      onPointerSignal: (event) => _handlePointerSignal(
+                        event,
+                        canvasSize: canvasSize,
+                        visiblePan: visiblePan,
+                        padding: padding,
+                      ),
+                      child: Stack(
+                        clipBehavior: Clip.hardEdge,
+                        children: <Widget>[
+                          Positioned.fill(
+                            child: Semantics(
+                              label: context
+                                  .l10n
+                                  .settingsDisplayCanvasPanSemantics,
+                              hint: context.l10n.settingsDisplayCanvasPanHint,
+                              child: MouseRegion(
+                                cursor: ShellMouseCursors.move,
+                                child: GestureDetector(
+                                  key: settingsMonitorCanvasPanSurfaceKey,
+                                  behavior: HitTestBehavior.opaque,
+                                  dragStartBehavior: DragStartBehavior.down,
+                                  onPanStart: (_) => setState(() {
+                                    _panning = true;
+                                  }),
+                                  onPanUpdate: (details) => setState(() {
+                                    _panOffset += details.delta;
+                                  }),
+                                  onPanEnd: (_) =>
+                                      setState(() => _panning = false),
+                                  onPanCancel: () =>
+                                      setState(() => _panning = false),
+                                  child: _LayoutGrid(
+                                    offset: Offset(
+                                      padding + visiblePan.dx,
+                                      padding + visiblePan.dy,
+                                    ),
+                                    usableRect: usableRect,
+                                    emphasized: _panning,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          for (final output in widget.outputs)
+                            Positioned(
+                              left:
+                                  padding +
+                                  visiblePan.dx +
+                                  output.x * _viewScale,
+                              top:
+                                  padding +
+                                  visiblePan.dy +
+                                  output.y * _viewScale,
+                              width: output.draftLogicalSize.width * _viewScale,
+                              height:
+                                  output.draftLogicalSize.height * _viewScale,
+                              child: _MonitorTile(
+                                key: ValueKey<String>('monitor-${output.name}'),
+                                output: output,
+                                selected: output.name == widget.selectedName,
+                                accent: accent,
+                                renderScale: _viewScale,
+                                workspaceSize: workspaceSize,
+                                arrangement: arrangement,
+                                onSelected: () =>
+                                    widget.onSelected(output.name),
+                                onPositionChanged: (x, y) =>
+                                    widget.onPositionChanged(output.name, x, y),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            ),
+            ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _CanvasZoomButton extends StatelessWidget {
+  const _CanvasZoomButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+    super.key,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon),
+      iconSize: 18,
+      constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+      padding: EdgeInsets.zero,
+      style: IconButton.styleFrom(
+        foregroundColor: ShellColors.textSecondary,
+        disabledForegroundColor: ShellColors.textTertiary.withAlpha(82),
+        backgroundColor: ShellColors.surfaceContainerHigh,
+        hoverColor: ShellColors.textSecondary.withAlpha(26),
+        focusColor: ShellColors.textSecondary.withAlpha(26),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: const BorderSide(color: ShellColors.hairline),
+        ),
       ),
     );
   }
@@ -405,6 +693,8 @@ class _MonitorTile extends StatefulWidget {
     required this.selected,
     required this.accent,
     required this.renderScale,
+    required this.workspaceSize,
+    required this.arrangement,
     required this.onSelected,
     required this.onPositionChanged,
     super.key,
@@ -414,6 +704,8 @@ class _MonitorTile extends StatefulWidget {
   final bool selected;
   final Color accent;
   final double renderScale;
+  final Size workspaceSize;
+  final List<MonitorArrangementGeometry> arrangement;
   final VoidCallback onSelected;
   final void Function(int x, int y) onPositionChanged;
 
@@ -425,7 +717,35 @@ class _MonitorTileState extends State<_MonitorTile> {
   var _dragOffset = Offset.zero;
   var _dragStartX = 0;
   var _dragStartY = 0;
+  var _lastDragX = 0;
+  var _lastDragY = 0;
   var _focused = false;
+
+  math.Point<int> _arrange(Offset candidateCanvasPosition) {
+    return arrangeMonitorLikeNwgDisplays(
+      movingName: widget.output.name,
+      candidateCanvasPosition: candidateCanvasPosition,
+      canvasSize: widget.workspaceSize,
+      viewScale: widget.renderScale,
+      monitors: widget.arrangement,
+      snapThreshold: nwgDisplaysScaledSnapThreshold(widget.renderScale),
+    );
+  }
+
+  void _moveWithKeyboard(_NudgeMonitorIntent intent) {
+    final position = arrangeMonitorLikeNwgDisplays(
+      movingName: widget.output.name,
+      candidateCanvasPosition: Offset(
+        (widget.output.x + intent.dx) * widget.renderScale,
+        (widget.output.y + intent.dy) * widget.renderScale,
+      ),
+      canvasSize: widget.workspaceSize,
+      viewScale: widget.renderScale,
+      monitors: widget.arrangement,
+      snapThreshold: 0,
+    );
+    widget.onPositionChanged(position.x, position.y);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -468,29 +788,36 @@ class _MonitorTileState extends State<_MonitorTile> {
           _NudgeMonitorIntent: CallbackAction<_NudgeMonitorIntent>(
             onInvoke: (intent) {
               widget.onSelected();
-              widget.onPositionChanged(
-                widget.output.x + intent.dx,
-                widget.output.y + intent.dy,
-              );
+              _moveWithKeyboard(intent);
               return null;
             },
           ),
         },
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
+          dragStartBehavior: DragStartBehavior.down,
           onTap: widget.onSelected,
+          onPanDown: (_) => widget.onSelected(),
           onPanStart: (_) {
-            widget.onSelected();
             _dragOffset = Offset.zero;
             _dragStartX = widget.output.x;
             _dragStartY = widget.output.y;
+            _lastDragX = _dragStartX;
+            _lastDragY = _dragStartY;
           },
           onPanUpdate: (details) {
             _dragOffset += details.delta;
-            widget.onPositionChanged(
-              _dragStartX + (_dragOffset.dx / widget.renderScale).round(),
-              _dragStartY + (_dragOffset.dy / widget.renderScale).round(),
+            final position = _arrange(
+              Offset(
+                _dragStartX * widget.renderScale + _dragOffset.dx,
+                _dragStartY * widget.renderScale + _dragOffset.dy,
+              ),
             );
+            if (position.x != _lastDragX || position.y != _lastDragY) {
+              _lastDragX = position.x;
+              _lastDragY = position.y;
+              widget.onPositionChanged(position.x, position.y);
+            }
           },
           child: AnimatedContainer(
             duration: Motion.tile,
@@ -502,7 +829,6 @@ class _MonitorTileState extends State<_MonitorTile> {
                       ShellColors.surfaceContainerHighest,
                     )
                   : ShellColors.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(10),
               border: Border.all(
                 color: widget.selected || _focused
                     ? widget.accent
@@ -516,7 +842,11 @@ class _MonitorTileState extends State<_MonitorTile> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  const Icon(Icons.monitor_rounded, size: 21),
+                  const Icon(
+                    Icons.monitor_rounded,
+                    size: 21,
+                    color: ShellColors.textPrimary,
+                  ),
                   const SizedBox(height: 4),
                   Text(widget.output.name, style: ShellText.cardTitle),
                   Text(
@@ -1233,45 +1563,95 @@ class _InlineError extends StatelessWidget {
 }
 
 class _LayoutGrid extends StatelessWidget {
-  const _LayoutGrid();
+  const _LayoutGrid({
+    required this.offset,
+    required this.usableRect,
+    required this.emphasized,
+  });
+
+  final Offset offset;
+  final Rect usableRect;
+  final bool emphasized;
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(painter: _LayoutGridPainter());
+    return CustomPaint(
+      painter: _LayoutGridPainter(
+        offset: offset,
+        usableRect: usableRect,
+        emphasized: emphasized,
+      ),
+    );
   }
 }
 
 class _LayoutGridPainter extends CustomPainter {
+  const _LayoutGridPainter({
+    required this.offset,
+    required this.usableRect,
+    required this.emphasized,
+  });
+
+  final Offset offset;
+  final Rect usableRect;
+  final bool emphasized;
+
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = ShellColors.hairlineSoft.withValues(alpha: 0.48)
+      ..color = ShellColors.hairlineSoft.withValues(
+        alpha: emphasized ? 0.72 : 0.48,
+      )
       ..strokeWidth = 1;
     const gap = 24.0;
-    for (var x = gap; x < size.width; x += gap) {
+    final startX = offset.dx % gap;
+    final startY = offset.dy % gap;
+    for (var x = startX; x < size.width; x += gap) {
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
     }
-    for (var y = gap; y < size.height; y += gap) {
+    for (var y = startY; y < size.height; y += gap) {
       canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+
+    final viewport = Offset.zero & size;
+    final visibleUsableRect = usableRect.intersect(viewport);
+    final outside = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(viewport);
+    if (!visibleUsableRect.isEmpty) {
+      outside.addRect(visibleUsableRect);
+    }
+    canvas.drawPath(
+      outside,
+      Paint()..color = ShellColors.background.withValues(alpha: 0.72),
+    );
+    if (!visibleUsableRect.isEmpty) {
+      canvas.drawRect(
+        visibleUsableRect,
+        Paint()
+          ..color = ShellColors.hairline
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1,
+      );
     }
   }
 
   @override
-  bool shouldRepaint(covariant _LayoutGridPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _LayoutGridPainter oldDelegate) {
+    return oldDelegate.offset != offset ||
+        oldDelegate.usableRect != usableRect ||
+        oldDelegate.emphasized != emphasized;
+  }
 }
 
-Rect _layoutBounds(List<DenialOutput> outputs) {
-  var left = outputs.first.x.toDouble();
-  var top = outputs.first.y.toDouble();
-  var right = left + outputs.first.draftLogicalSize.width;
-  var bottom = top + outputs.first.draftLogicalSize.height;
-  for (final output in outputs.skip(1)) {
-    left = math.min(left, output.x.toDouble());
-    top = math.min(top, output.y.toDouble());
+Size _layoutExtent(List<DenialOutput> outputs) {
+  var right = 0.0;
+  var bottom = 0.0;
+  for (final output in outputs) {
     right = math.max(right, output.x + output.draftLogicalSize.width);
     bottom = math.max(bottom, output.y + output.draftLogicalSize.height);
   }
-  return Rect.fromLTRB(left, top, right, bottom);
+  return Size(right, bottom);
 }
 
 List<_Resolution> _resolutions(List<DenialOutputMode> modes) {

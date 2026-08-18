@@ -947,10 +947,10 @@ impl flatbuffers::SimpleToVerifyInSlice for KeyboardCommandKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SETTINGS_REQUEST_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SETTINGS_REQUEST_KIND: u8 = 9;
+pub const ENUM_MAX_SETTINGS_REQUEST_KIND: u8 = 11;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SETTINGS_REQUEST_KIND: [SettingsRequestKind; 10] = [
+pub const ENUM_VALUES_SETTINGS_REQUEST_KIND: [SettingsRequestKind; 12] = [
   SettingsRequestKind::ReadDocument,
   SettingsRequestKind::WriteDocument,
   SettingsRequestKind::ReadKeyboard,
@@ -961,6 +961,8 @@ pub const ENUM_VALUES_SETTINGS_REQUEST_KIND: [SettingsRequestKind; 10] = [
   SettingsRequestKind::UpdateShortcut,
   SettingsRequestKind::RemoveShortcut,
   SettingsRequestKind::RestoreShortcuts,
+  SettingsRequestKind::ReadInputDevices,
+  SettingsRequestKind::ConfigureTouchpad,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -978,9 +980,11 @@ impl SettingsRequestKind {
   pub const UpdateShortcut: Self = Self(7);
   pub const RemoveShortcut: Self = Self(8);
   pub const RestoreShortcuts: Self = Self(9);
+  pub const ReadInputDevices: Self = Self(10);
+  pub const ConfigureTouchpad: Self = Self(11);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 9;
+  pub const ENUM_MAX: u8 = 11;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::ReadDocument,
     Self::WriteDocument,
@@ -992,6 +996,8 @@ impl SettingsRequestKind {
     Self::UpdateShortcut,
     Self::RemoveShortcut,
     Self::RestoreShortcuts,
+    Self::ReadInputDevices,
+    Self::ConfigureTouchpad,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -1006,6 +1012,8 @@ impl SettingsRequestKind {
       Self::UpdateShortcut => Some("UpdateShortcut"),
       Self::RemoveShortcut => Some("RemoveShortcut"),
       Self::RestoreShortcuts => Some("RestoreShortcuts"),
+      Self::ReadInputDevices => Some("ReadInputDevices"),
+      Self::ConfigureTouchpad => Some("ConfigureTouchpad"),
       _ => None,
     }
   }
@@ -1064,14 +1072,15 @@ impl flatbuffers::SimpleToVerifyInSlice for SettingsRequestKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SETTINGS_RESPONSE_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SETTINGS_RESPONSE_KIND: u8 = 3;
+pub const ENUM_MAX_SETTINGS_RESPONSE_KIND: u8 = 4;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SETTINGS_RESPONSE_KIND: [SettingsResponseKind; 4] = [
+pub const ENUM_VALUES_SETTINGS_RESPONSE_KIND: [SettingsResponseKind; 5] = [
   SettingsResponseKind::Document,
   SettingsResponseKind::Keyboard,
   SettingsResponseKind::Shortcuts,
   SettingsResponseKind::ShortcutValidation,
+  SettingsResponseKind::InputDevices,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1083,14 +1092,16 @@ impl SettingsResponseKind {
   pub const Keyboard: Self = Self(1);
   pub const Shortcuts: Self = Self(2);
   pub const ShortcutValidation: Self = Self(3);
+  pub const InputDevices: Self = Self(4);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 3;
+  pub const ENUM_MAX: u8 = 4;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Document,
     Self::Keyboard,
     Self::Shortcuts,
     Self::ShortcutValidation,
+    Self::InputDevices,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -1099,6 +1110,7 @@ impl SettingsResponseKind {
       Self::Keyboard => Some("Keyboard"),
       Self::Shortcuts => Some("Shortcuts"),
       Self::ShortcutValidation => Some("ShortcutValidation"),
+      Self::InputDevices => Some("InputDevices"),
       _ => None,
     }
   }
@@ -7216,6 +7228,234 @@ impl core::fmt::Debug for ShortcutValidation<'_> {
       ds.finish()
   }
 }
+pub enum InputDeviceCapabilitiesOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct InputDeviceCapabilities<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for InputDeviceCapabilities<'a> {
+  type Inner = InputDeviceCapabilities<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> InputDeviceCapabilities<'a> {
+  pub const VT_HAS_TOUCHPAD: flatbuffers::VOffsetT = 4;
+  pub const VT_TOUCHPAD: flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    InputDeviceCapabilities { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args InputDeviceCapabilitiesArgs<'args>
+  ) -> flatbuffers::WIPOffset<InputDeviceCapabilities<'bldr>> {
+    let mut builder = InputDeviceCapabilitiesBuilder::new(_fbb);
+    if let Some(x) = args.touchpad { builder.add_touchpad(x); }
+    builder.add_has_touchpad(args.has_touchpad);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn has_touchpad(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(InputDeviceCapabilities::VT_HAS_TOUCHPAD, Some(false)).unwrap()}
+  }
+  #[inline]
+  pub fn touchpad(&self) -> Option<TouchpadConfiguration<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<TouchpadConfiguration>>(InputDeviceCapabilities::VT_TOUCHPAD, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for InputDeviceCapabilities<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<bool>("has_touchpad", Self::VT_HAS_TOUCHPAD, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<TouchpadConfiguration>>("touchpad", Self::VT_TOUCHPAD, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct InputDeviceCapabilitiesArgs<'a> {
+    pub has_touchpad: bool,
+    pub touchpad: Option<flatbuffers::WIPOffset<TouchpadConfiguration<'a>>>,
+}
+impl<'a> Default for InputDeviceCapabilitiesArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    InputDeviceCapabilitiesArgs {
+      has_touchpad: false,
+      touchpad: None,
+    }
+  }
+}
+
+pub struct InputDeviceCapabilitiesBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> InputDeviceCapabilitiesBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_has_touchpad(&mut self, has_touchpad: bool) {
+    self.fbb_.push_slot::<bool>(InputDeviceCapabilities::VT_HAS_TOUCHPAD, has_touchpad, false);
+  }
+  #[inline]
+  pub fn add_touchpad(&mut self, touchpad: flatbuffers::WIPOffset<TouchpadConfiguration<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<TouchpadConfiguration>>(InputDeviceCapabilities::VT_TOUCHPAD, touchpad);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> InputDeviceCapabilitiesBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    InputDeviceCapabilitiesBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<InputDeviceCapabilities<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for InputDeviceCapabilities<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("InputDeviceCapabilities");
+      ds.field("has_touchpad", &self.has_touchpad());
+      ds.field("touchpad", &self.touchpad());
+      ds.finish()
+  }
+}
+pub enum TouchpadConfigurationOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct TouchpadConfiguration<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for TouchpadConfiguration<'a> {
+  type Inner = TouchpadConfiguration<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> TouchpadConfiguration<'a> {
+  pub const VT_TAP_TO_CLICK_ENABLED: flatbuffers::VOffsetT = 4;
+  pub const VT_NATURAL_SCROLL_ENABLED: flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    TouchpadConfiguration { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args TouchpadConfigurationArgs
+  ) -> flatbuffers::WIPOffset<TouchpadConfiguration<'bldr>> {
+    let mut builder = TouchpadConfigurationBuilder::new(_fbb);
+    builder.add_natural_scroll_enabled(args.natural_scroll_enabled);
+    builder.add_tap_to_click_enabled(args.tap_to_click_enabled);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn tap_to_click_enabled(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(TouchpadConfiguration::VT_TAP_TO_CLICK_ENABLED, Some(true)).unwrap()}
+  }
+  #[inline]
+  pub fn natural_scroll_enabled(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(TouchpadConfiguration::VT_NATURAL_SCROLL_ENABLED, Some(false)).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for TouchpadConfiguration<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<bool>("tap_to_click_enabled", Self::VT_TAP_TO_CLICK_ENABLED, false)?
+     .visit_field::<bool>("natural_scroll_enabled", Self::VT_NATURAL_SCROLL_ENABLED, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct TouchpadConfigurationArgs {
+    pub tap_to_click_enabled: bool,
+    pub natural_scroll_enabled: bool,
+}
+impl<'a> Default for TouchpadConfigurationArgs {
+  #[inline]
+  fn default() -> Self {
+    TouchpadConfigurationArgs {
+      tap_to_click_enabled: true,
+      natural_scroll_enabled: false,
+    }
+  }
+}
+
+pub struct TouchpadConfigurationBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> TouchpadConfigurationBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_tap_to_click_enabled(&mut self, tap_to_click_enabled: bool) {
+    self.fbb_.push_slot::<bool>(TouchpadConfiguration::VT_TAP_TO_CLICK_ENABLED, tap_to_click_enabled, true);
+  }
+  #[inline]
+  pub fn add_natural_scroll_enabled(&mut self, natural_scroll_enabled: bool) {
+    self.fbb_.push_slot::<bool>(TouchpadConfiguration::VT_NATURAL_SCROLL_ENABLED, natural_scroll_enabled, false);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> TouchpadConfigurationBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    TouchpadConfigurationBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<TouchpadConfiguration<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for TouchpadConfiguration<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("TouchpadConfiguration");
+      ds.field("tap_to_click_enabled", &self.tap_to_click_enabled());
+      ds.field("natural_scroll_enabled", &self.natural_scroll_enabled());
+      ds.finish()
+  }
+}
 pub enum SettingsRequestOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -7238,6 +7478,7 @@ impl<'a> SettingsRequest<'a> {
   pub const VT_KEYBOARD: flatbuffers::VOffsetT = 10;
   pub const VT_SHORTCUT: flatbuffers::VOffsetT = 12;
   pub const VT_EXISTING_SHORTCUT: flatbuffers::VOffsetT = 14;
+  pub const VT_TOUCHPAD: flatbuffers::VOffsetT = 16;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -7250,6 +7491,7 @@ impl<'a> SettingsRequest<'a> {
   ) -> flatbuffers::WIPOffset<SettingsRequest<'bldr>> {
     let mut builder = SettingsRequestBuilder::new(_fbb);
     builder.add_expected_revision(args.expected_revision);
+    if let Some(x) = args.touchpad { builder.add_touchpad(x); }
     if let Some(x) = args.existing_shortcut { builder.add_existing_shortcut(x); }
     if let Some(x) = args.shortcut { builder.add_shortcut(x); }
     if let Some(x) = args.keyboard { builder.add_keyboard(x); }
@@ -7301,6 +7543,13 @@ impl<'a> SettingsRequest<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(SettingsRequest::VT_EXISTING_SHORTCUT, None)}
   }
+  #[inline]
+  pub fn touchpad(&self) -> Option<TouchpadConfiguration<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<TouchpadConfiguration>>(SettingsRequest::VT_TOUCHPAD, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for SettingsRequest<'_> {
@@ -7316,6 +7565,7 @@ impl flatbuffers::Verifiable for SettingsRequest<'_> {
      .visit_field::<flatbuffers::ForwardsUOffset<KeyboardConfiguration>>("keyboard", Self::VT_KEYBOARD, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<ShortcutBinding>>("shortcut", Self::VT_SHORTCUT, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<&str>>("existing_shortcut", Self::VT_EXISTING_SHORTCUT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<TouchpadConfiguration>>("touchpad", Self::VT_TOUCHPAD, false)?
      .finish();
     Ok(())
   }
@@ -7327,6 +7577,7 @@ pub struct SettingsRequestArgs<'a> {
     pub keyboard: Option<flatbuffers::WIPOffset<KeyboardConfiguration<'a>>>,
     pub shortcut: Option<flatbuffers::WIPOffset<ShortcutBinding<'a>>>,
     pub existing_shortcut: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub touchpad: Option<flatbuffers::WIPOffset<TouchpadConfiguration<'a>>>,
 }
 impl<'a> Default for SettingsRequestArgs<'a> {
   #[inline]
@@ -7338,6 +7589,7 @@ impl<'a> Default for SettingsRequestArgs<'a> {
       keyboard: None,
       shortcut: None,
       existing_shortcut: None,
+      touchpad: None,
     }
   }
 }
@@ -7372,6 +7624,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> SettingsRequestBuilder<'a, 'b, 
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(SettingsRequest::VT_EXISTING_SHORTCUT, existing_shortcut);
   }
   #[inline]
+  pub fn add_touchpad(&mut self, touchpad: flatbuffers::WIPOffset<TouchpadConfiguration<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<TouchpadConfiguration>>(SettingsRequest::VT_TOUCHPAD, touchpad);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> SettingsRequestBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     SettingsRequestBuilder {
@@ -7395,6 +7651,7 @@ impl core::fmt::Debug for SettingsRequest<'_> {
       ds.field("keyboard", &self.keyboard());
       ds.field("shortcut", &self.shortcut());
       ds.field("existing_shortcut", &self.existing_shortcut());
+      ds.field("touchpad", &self.touchpad());
       ds.finish()
   }
 }
@@ -7422,6 +7679,7 @@ impl<'a> SettingsResponse<'a> {
   pub const VT_ERROR: flatbuffers::VOffsetT = 14;
   pub const VT_SHORTCUTS: flatbuffers::VOffsetT = 16;
   pub const VT_SHORTCUT_VALIDATION: flatbuffers::VOffsetT = 18;
+  pub const VT_INPUT_DEVICES: flatbuffers::VOffsetT = 20;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -7434,6 +7692,7 @@ impl<'a> SettingsResponse<'a> {
   ) -> flatbuffers::WIPOffset<SettingsResponse<'bldr>> {
     let mut builder = SettingsResponseBuilder::new(_fbb);
     builder.add_revision(args.revision);
+    if let Some(x) = args.input_devices { builder.add_input_devices(x); }
     if let Some(x) = args.shortcut_validation { builder.add_shortcut_validation(x); }
     if let Some(x) = args.shortcuts { builder.add_shortcuts(x); }
     if let Some(x) = args.error { builder.add_error(x); }
@@ -7501,6 +7760,13 @@ impl<'a> SettingsResponse<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<ShortcutValidation>>(SettingsResponse::VT_SHORTCUT_VALIDATION, None)}
   }
+  #[inline]
+  pub fn input_devices(&self) -> Option<InputDeviceCapabilities<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<InputDeviceCapabilities>>(SettingsResponse::VT_INPUT_DEVICES, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for SettingsResponse<'_> {
@@ -7518,6 +7784,7 @@ impl flatbuffers::Verifiable for SettingsResponse<'_> {
      .visit_field::<flatbuffers::ForwardsUOffset<&str>>("error", Self::VT_ERROR, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<ShortcutConfiguration>>("shortcuts", Self::VT_SHORTCUTS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<ShortcutValidation>>("shortcut_validation", Self::VT_SHORTCUT_VALIDATION, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<InputDeviceCapabilities>>("input_devices", Self::VT_INPUT_DEVICES, false)?
      .finish();
     Ok(())
   }
@@ -7531,6 +7798,7 @@ pub struct SettingsResponseArgs<'a> {
     pub error: Option<flatbuffers::WIPOffset<&'a str>>,
     pub shortcuts: Option<flatbuffers::WIPOffset<ShortcutConfiguration<'a>>>,
     pub shortcut_validation: Option<flatbuffers::WIPOffset<ShortcutValidation<'a>>>,
+    pub input_devices: Option<flatbuffers::WIPOffset<InputDeviceCapabilities<'a>>>,
 }
 impl<'a> Default for SettingsResponseArgs<'a> {
   #[inline]
@@ -7544,6 +7812,7 @@ impl<'a> Default for SettingsResponseArgs<'a> {
       error: None,
       shortcuts: None,
       shortcut_validation: None,
+      input_devices: None,
     }
   }
 }
@@ -7586,6 +7855,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> SettingsResponseBuilder<'a, 'b,
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<ShortcutValidation>>(SettingsResponse::VT_SHORTCUT_VALIDATION, shortcut_validation);
   }
   #[inline]
+  pub fn add_input_devices(&mut self, input_devices: flatbuffers::WIPOffset<InputDeviceCapabilities<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<InputDeviceCapabilities>>(SettingsResponse::VT_INPUT_DEVICES, input_devices);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> SettingsResponseBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     SettingsResponseBuilder {
@@ -7611,6 +7884,7 @@ impl core::fmt::Debug for SettingsResponse<'_> {
       ds.field("error", &self.error());
       ds.field("shortcuts", &self.shortcuts());
       ds.field("shortcut_validation", &self.shortcut_validation());
+      ds.field("input_devices", &self.input_devices());
       ds.finish()
   }
 }

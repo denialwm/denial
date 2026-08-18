@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::error::Error;
+use std::ffi::OsStr;
 
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, AxisSource, ButtonState, Device, DeviceCapability, Event,
@@ -47,6 +48,7 @@ use super::super::native_shortcut::NativeEscapeShortcut;
 use super::super::native_shortcut::{ShortcutDisposition, ShortcutTarget};
 #[cfg(feature = "flutter")]
 use super::super::settings::KeyboardSettings;
+use super::super::settings::TouchpadSettings;
 #[cfg(feature = "flutter")]
 use super::super::window_grab::{
     LocalFlutterWindowGrab, MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, X11ResizeSurfaceGrab,
@@ -890,37 +892,83 @@ fn process_keyboard_transition(
     true
 }
 
-fn enable_tap_to_click(device: &mut LibinputDevice) {
+fn configure_touchpad_device(
+    device: &mut LibinputDevice,
+    settings: &TouchpadSettings,
+) -> Result<(), String> {
     let finger_count = device.config_tap_finger_count();
-    if finger_count == 0 {
-        return;
+    if finger_count > 0 {
+        if let Err(error) = device.config_tap_set_button_map(TapButtonMap::LeftRightMiddle) {
+            // Keep tap-to-click usable if a device rejects explicit remapping;
+            // libinput's normal default is the same left/right/middle order.
+            warn!(
+                ?error,
+                device = %device.name(),
+                "could not configure multi-finger tap button mapping"
+            );
+        }
+
+        device
+            .config_tap_set_enabled(settings.tap_to_click_enabled)
+            .map_err(|error| {
+                format!(
+                    "could not set tap-to-click on {} to {}: {error:?}",
+                    device.name(),
+                    settings.tap_to_click_enabled
+                )
+            })?;
     }
 
-    if let Err(error) = device.config_tap_set_button_map(TapButtonMap::LeftRightMiddle) {
-        // Keep tap-to-click usable if a device rejects explicit remapping;
-        // libinput's normal default is the same left/right/middle order.
-        warn!(
-            ?error,
-            device = %device.name(),
-            "could not configure multi-finger tap button mapping"
-        );
-    }
-
-    if let Err(error) = device.config_tap_set_enabled(true) {
-        warn!(
-            ?error,
-            device = %device.name(),
-            "could not enable touchpad tap-to-click"
-        );
-        return;
+    let natural_scroll_supported = device.config_scroll_has_natural_scroll();
+    if natural_scroll_supported {
+        device
+            .config_scroll_set_natural_scroll_enabled(settings.natural_scroll_enabled)
+            .map_err(|error| {
+                format!(
+                    "could not set natural scrolling on {} to {}: {error:?}",
+                    device.name(),
+                    settings.natural_scroll_enabled
+                )
+            })?;
     }
 
     info!(
         device = %device.name(),
         finger_count,
+        tap_to_click_enabled = settings.tap_to_click_enabled,
+        natural_scroll_enabled = settings.natural_scroll_enabled,
+        natural_scroll_supported,
         two_finger_right_click = finger_count >= 2,
-        "enabled touchpad tap-to-click"
+        "configured touchpad"
     );
+    Ok(())
+}
+
+fn is_touchpad_device(device: &LibinputDevice) -> bool {
+    // SAFETY: this device came from the same udev-backed libinput context used
+    // to construct the event source, as required by input::Device::udev_device.
+    let udev_marks_touchpad = unsafe { device.udev_device() }.and_then(|device| {
+        device
+            .property_value("ID_INPUT_TOUCHPAD")
+            .map(|value| value == OsStr::new("1"))
+    });
+    udev_marks_touchpad.unwrap_or_else(|| device.config_tap_finger_count() > 0)
+}
+
+#[cfg(feature = "flutter")]
+pub(in super::super) fn install_touchpad_settings(
+    state: &mut RuntimeState,
+    settings: &TouchpadSettings,
+) -> Result<(), String> {
+    for device in state.touchpad_devices.values_mut() {
+        configure_touchpad_device(device, settings)?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn touchpad_presence_changed(previous_count: usize, current_count: usize) -> bool {
+    (previous_count == 0) != (current_count == 0)
 }
 
 #[cfg(feature = "flutter")]
@@ -983,13 +1031,40 @@ fn process_input_event(
     mut event: InputEvent<LibinputInputBackend>,
 ) -> bool {
     if let InputEvent::DeviceAdded { device } = &mut event {
-        // libinput recognizes taps and emits ordinary BTN_LEFT transitions.
-        // Keeping recognition at the device boundary lets synthesized clicks
-        // use the exact same Flutter/Wayland focus and grab path as buttons.
-        enable_tap_to_click(device);
+        let touchpad = is_touchpad_device(device);
+        if touchpad {
+            let settings = state
+                .wayland
+                .as_ref()
+                .map(|frontend| frontend.settings.touchpad().clone())
+                .unwrap_or_default();
+            // libinput recognizes taps and emits ordinary BTN_LEFT transitions.
+            // Keeping recognition at the device boundary lets synthesized
+            // clicks use the same Flutter/Wayland focus and grab path as
+            // physical buttons.
+            if let Err(error) = configure_touchpad_device(device, &settings) {
+                warn!(%error, "could not apply persisted touchpad settings");
+            }
+            #[cfg(feature = "flutter")]
+            {
+                let previous_count = state.touchpad_devices.len();
+                state
+                    .touchpad_devices
+                    .insert(device.sysname().to_owned(), device.clone());
+                state.input_device_capabilities_changed |=
+                    touchpad_presence_changed(previous_count, state.touchpad_devices.len());
+            }
+        }
     }
 
     if let InputEvent::DeviceRemoved { device } = &event {
+        #[cfg(feature = "flutter")]
+        {
+            let previous_count = state.touchpad_devices.len();
+            state.touchpad_devices.remove(device.sysname());
+            state.input_device_capabilities_changed |=
+                touchpad_presence_changed(previous_count, state.touchpad_devices.len());
+        }
         let reset = InputDeviceReset {
             keyboard: Device::has_capability(device, DeviceCapability::Keyboard),
             pointer: Device::has_capability(device, DeviceCapability::Pointer),
@@ -3708,6 +3783,20 @@ mod flutter_pointer_endpoint_tests {
         assert!(flutter_pointer_endpoint_is_synchronized(
             client, client, false, false,
         ));
+    }
+}
+
+#[cfg(all(test, feature = "flutter"))]
+mod input_device_capability_tests {
+    use super::*;
+
+    #[test]
+    fn touchpad_presence_changes_only_at_empty_set_boundaries() {
+        assert!(touchpad_presence_changed(0, 1));
+        assert!(!touchpad_presence_changed(1, 2));
+        assert!(!touchpad_presence_changed(2, 1));
+        assert!(touchpad_presence_changed(1, 0));
+        assert!(!touchpad_presence_changed(0, 0));
     }
 }
 

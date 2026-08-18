@@ -9,6 +9,7 @@ import '../input/input_layout.dart';
 import '../models/denial_drag_icon.dart';
 import '../models/desktop_notification.dart';
 import '../models/display_layout.dart';
+import '../models/input_device_capabilities.dart';
 import '../models/keyboard_configuration.dart';
 import '../models/output_configuration.dart';
 import '../models/shortcut_configuration.dart';
@@ -164,6 +165,8 @@ class DenialBridge {
   _pendingSettingsDocumentRequests = {};
   final Map<int, Completer<DenialKeyboardConfiguration>>
   _pendingKeyboardSettingsRequests = {};
+  final Map<int, Completer<DenialInputDeviceCapabilities>>
+  _pendingInputDeviceRequests = {};
   final Map<int, Completer<DenialShortcutConfiguration>>
   _pendingShortcutRequests = {};
   final Map<int, Completer<DenialShortcutValidation>>
@@ -191,6 +194,9 @@ class DenialBridge {
       StreamController<DenialUiDevelopmentState>.broadcast(sync: true);
   final StreamController<DenialKeyboardConfiguration> _keyboardConfigurations =
       StreamController<DenialKeyboardConfiguration>.broadcast(sync: true);
+  final StreamController<DenialInputDeviceCapabilities>
+  _inputDeviceCapabilities =
+      StreamController<DenialInputDeviceCapabilities>.broadcast(sync: true);
   final StreamController<DenialShortcutConfiguration> _shortcutConfigurations =
       StreamController<DenialShortcutConfiguration>.broadcast(sync: true);
   final StreamController<DenialTextInputState> _textInputStates =
@@ -219,6 +225,8 @@ class DenialBridge {
       _uiDevelopmentStates.stream;
   Stream<DenialKeyboardConfiguration> get keyboardConfigurations =>
       _keyboardConfigurations.stream;
+  Stream<DenialInputDeviceCapabilities> get inputDeviceCapabilities =>
+      _inputDeviceCapabilities.stream;
   Stream<DenialShortcutConfiguration> get shortcutConfigurations =>
       _shortcutConfigurations.stream;
   Stream<DenialTextInputState> get textInputStates => _textInputStates.stream;
@@ -282,6 +290,12 @@ class DenialBridge {
       }
     }
     _pendingKeyboardSettingsRequests.clear();
+    for (final completer in _pendingInputDeviceRequests.values) {
+      if (!completer.isCompleted) {
+        completer.completeError(StateError('Denial bridge disposed'));
+      }
+    }
+    _pendingInputDeviceRequests.clear();
     for (final completer in _pendingShortcutRequests.values) {
       if (!completer.isCompleted) {
         completer.completeError(StateError('Denial bridge disposed'));
@@ -314,6 +328,7 @@ class DenialBridge {
     unawaited(_notificationEvents.close());
     unawaited(_uiDevelopmentStates.close());
     unawaited(_keyboardConfigurations.close());
+    unawaited(_inputDeviceCapabilities.close());
     unawaited(_shortcutConfigurations.close());
     unawaited(_textInputStates.close());
   }
@@ -453,6 +468,50 @@ class DenialBridge {
       onTimeout: () {
         _pendingKeyboardSettingsRequests.remove(requestId);
         throw TimeoutException('Denial keyboard settings read timed out');
+      },
+    );
+  }
+
+  Future<DenialInputDeviceCapabilities> readInputDeviceCapabilities() {
+    final requestId = _nextRequestId++;
+    final completer = Completer<DenialInputDeviceCapabilities>();
+    _pendingInputDeviceRequests[requestId] = completer;
+    _sendWire(
+      _wireCodec.encodeSettingsRead(
+        wire.SettingsRequestKind.ReadInputDevices,
+        requestId: requestId,
+      ),
+    );
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingInputDeviceRequests.remove(requestId);
+        throw TimeoutException('Denial input device detection timed out');
+      },
+    );
+  }
+
+  Future<DenialInputDeviceCapabilities> configureTouchpad(
+    DenialInputDeviceCapabilities capabilities,
+  ) {
+    final requestId = _nextRequestId++;
+    final bytes = _wireCodec.encodeTouchpadConfiguration(
+      requestId: requestId,
+      capabilities: capabilities,
+    );
+    if (bytes == null) {
+      return Future<DenialInputDeviceCapabilities>.error(
+        ArgumentError('invalid Denial touchpad configuration'),
+      );
+    }
+    final completer = Completer<DenialInputDeviceCapabilities>();
+    _pendingInputDeviceRequests[requestId] = completer;
+    _sendWire(bytes);
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingInputDeviceRequests.remove(requestId);
+        throw TimeoutException('Denial touchpad settings update timed out');
       },
     );
   }
@@ -1472,6 +1531,25 @@ class DenialBridge {
         );
       } else {
         completer.complete(validation);
+      }
+      return;
+    }
+
+    if (response.kind == wire.SettingsResponseKind.InputDevices) {
+      final capabilities = _wireCodec.decodeInputDeviceCapabilities(response);
+      final completer = _pendingInputDeviceRequests.remove(requestId);
+      if (capabilities != null && !_inputDeviceCapabilities.isClosed) {
+        _inputDeviceCapabilities.add(capabilities);
+      }
+      if (requestId == 0 || completer == null || completer.isCompleted) {
+        return;
+      }
+      if (capabilities == null) {
+        completer.completeError(
+          StateError(response.error ?? 'Denial input device detection failed'),
+        );
+      } else {
+        completer.complete(capabilities);
       }
       return;
     }

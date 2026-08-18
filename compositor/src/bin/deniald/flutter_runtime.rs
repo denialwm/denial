@@ -5974,6 +5974,30 @@ impl FlutterRuntime {
         Ok(())
     }
 
+    pub fn send_input_device_capabilities_response(
+        &mut self,
+        request_id: u64,
+        revision: u64,
+        has_touchpad: bool,
+        touchpad: &super::settings::TouchpadSettings,
+        error: Option<&str>,
+    ) -> Result<(), Box<dyn Error>> {
+        let engine = self
+            .host
+            .as_ref()
+            .expect("Flutter runtime is shutting down")
+            .engine();
+        let response = self.wire.encode_input_device_capabilities_response(
+            request_id,
+            revision,
+            has_touchpad,
+            touchpad,
+            error,
+        )?;
+        engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, response)?;
+        Ok(())
+    }
+
     pub fn send_keyboard_settings_response(
         &mut self,
         request_id: u64,

@@ -391,7 +391,9 @@ enum SettingsRequestKind {
   AddShortcut(6),
   UpdateShortcut(7),
   RemoveShortcut(8),
-  RestoreShortcuts(9);
+  RestoreShortcuts(9),
+  ReadInputDevices(10),
+  ConfigureTouchpad(11);
 
   final int value;
   const SettingsRequestKind(this.value);
@@ -408,6 +410,8 @@ enum SettingsRequestKind {
       case 7: return SettingsRequestKind.UpdateShortcut;
       case 8: return SettingsRequestKind.RemoveShortcut;
       case 9: return SettingsRequestKind.RestoreShortcuts;
+      case 10: return SettingsRequestKind.ReadInputDevices;
+      case 11: return SettingsRequestKind.ConfigureTouchpad;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -416,7 +420,7 @@ enum SettingsRequestKind {
       value == null ? null : SettingsRequestKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 9;
+  static const int maxValue = 11;
   static const fb.Reader<SettingsRequestKind> reader = _SettingsRequestKindReader();
 }
 
@@ -435,7 +439,8 @@ enum SettingsResponseKind {
   Document(0),
   Keyboard(1),
   Shortcuts(2),
-  ShortcutValidation(3);
+  ShortcutValidation(3),
+  InputDevices(4);
 
   final int value;
   const SettingsResponseKind(this.value);
@@ -446,6 +451,7 @@ enum SettingsResponseKind {
       case 1: return SettingsResponseKind.Keyboard;
       case 2: return SettingsResponseKind.Shortcuts;
       case 3: return SettingsResponseKind.ShortcutValidation;
+      case 4: return SettingsResponseKind.InputDevices;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -454,7 +460,7 @@ enum SettingsResponseKind {
       value == null ? null : SettingsResponseKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 3;
+  static const int maxValue = 4;
   static const fb.Reader<SettingsResponseKind> reader = _SettingsResponseKindReader();
 }
 
@@ -4007,6 +4013,167 @@ class ShortcutValidationObjectBuilder extends fb.ObjectBuilder {
     return fbBuilder.buffer;
   }
 }
+class InputDeviceCapabilities {
+  InputDeviceCapabilities._(this._bc, this._bcOffset);
+  factory InputDeviceCapabilities(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<InputDeviceCapabilities> reader = _InputDeviceCapabilitiesReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  bool get hasTouchpad => const fb.BoolReader().vTableGet(_bc, _bcOffset, 4, false);
+  TouchpadConfiguration? get touchpad => TouchpadConfiguration.reader.vTableGetNullable(_bc, _bcOffset, 6);
+
+  @override
+  String toString() {
+    return 'InputDeviceCapabilities{hasTouchpad: ${hasTouchpad}, touchpad: ${touchpad}}';
+  }
+}
+
+class _InputDeviceCapabilitiesReader extends fb.TableReader<InputDeviceCapabilities> {
+  const _InputDeviceCapabilitiesReader();
+
+  @override
+  InputDeviceCapabilities createObject(fb.BufferContext bc, int offset) => 
+    InputDeviceCapabilities._(bc, offset);
+}
+
+class InputDeviceCapabilitiesBuilder {
+  InputDeviceCapabilitiesBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(2);
+  }
+
+  int addHasTouchpad(bool? hasTouchpad) {
+    fbBuilder.addBool(0, hasTouchpad);
+    return fbBuilder.offset;
+  }
+  int addTouchpadOffset(int? offset) {
+    fbBuilder.addOffset(1, offset);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class InputDeviceCapabilitiesObjectBuilder extends fb.ObjectBuilder {
+  final bool? _hasTouchpad;
+  final TouchpadConfigurationObjectBuilder? _touchpad;
+
+  InputDeviceCapabilitiesObjectBuilder({
+    bool? hasTouchpad,
+    TouchpadConfigurationObjectBuilder? touchpad,
+  })
+      : _hasTouchpad = hasTouchpad,
+        _touchpad = touchpad;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    final int? touchpadOffset = _touchpad?.getOrCreateOffset(fbBuilder);
+    fbBuilder.startTable(2);
+    fbBuilder.addBool(0, _hasTouchpad);
+    fbBuilder.addOffset(1, touchpadOffset);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
+class TouchpadConfiguration {
+  TouchpadConfiguration._(this._bc, this._bcOffset);
+  factory TouchpadConfiguration(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<TouchpadConfiguration> reader = _TouchpadConfigurationReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  bool get tapToClickEnabled => const fb.BoolReader().vTableGet(_bc, _bcOffset, 4, true);
+  bool get naturalScrollEnabled => const fb.BoolReader().vTableGet(_bc, _bcOffset, 6, false);
+
+  @override
+  String toString() {
+    return 'TouchpadConfiguration{tapToClickEnabled: ${tapToClickEnabled}, naturalScrollEnabled: ${naturalScrollEnabled}}';
+  }
+}
+
+class _TouchpadConfigurationReader extends fb.TableReader<TouchpadConfiguration> {
+  const _TouchpadConfigurationReader();
+
+  @override
+  TouchpadConfiguration createObject(fb.BufferContext bc, int offset) => 
+    TouchpadConfiguration._(bc, offset);
+}
+
+class TouchpadConfigurationBuilder {
+  TouchpadConfigurationBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(2);
+  }
+
+  int addTapToClickEnabled(bool? tapToClickEnabled) {
+    fbBuilder.addBool(0, tapToClickEnabled);
+    return fbBuilder.offset;
+  }
+  int addNaturalScrollEnabled(bool? naturalScrollEnabled) {
+    fbBuilder.addBool(1, naturalScrollEnabled);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class TouchpadConfigurationObjectBuilder extends fb.ObjectBuilder {
+  final bool? _tapToClickEnabled;
+  final bool? _naturalScrollEnabled;
+
+  TouchpadConfigurationObjectBuilder({
+    bool? tapToClickEnabled,
+    bool? naturalScrollEnabled,
+  })
+      : _tapToClickEnabled = tapToClickEnabled,
+        _naturalScrollEnabled = naturalScrollEnabled;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    fbBuilder.startTable(2);
+    fbBuilder.addBool(0, _tapToClickEnabled);
+    fbBuilder.addBool(1, _naturalScrollEnabled);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
 class SettingsRequest {
   SettingsRequest._(this._bc, this._bcOffset);
   factory SettingsRequest(List<int> bytes) {
@@ -4025,10 +4192,11 @@ class SettingsRequest {
   KeyboardConfiguration? get keyboard => KeyboardConfiguration.reader.vTableGetNullable(_bc, _bcOffset, 10);
   ShortcutBinding? get shortcut => ShortcutBinding.reader.vTableGetNullable(_bc, _bcOffset, 12);
   String? get existingShortcut => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 14);
+  TouchpadConfiguration? get touchpad => TouchpadConfiguration.reader.vTableGetNullable(_bc, _bcOffset, 16);
 
   @override
   String toString() {
-    return 'SettingsRequest{kind: ${kind}, expectedRevision: ${expectedRevision}, document: ${document}, keyboard: ${keyboard}, shortcut: ${shortcut}, existingShortcut: ${existingShortcut}}';
+    return 'SettingsRequest{kind: ${kind}, expectedRevision: ${expectedRevision}, document: ${document}, keyboard: ${keyboard}, shortcut: ${shortcut}, existingShortcut: ${existingShortcut}, touchpad: ${touchpad}}';
   }
 }
 
@@ -4046,7 +4214,7 @@ class SettingsRequestBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(6);
+    fbBuilder.startTable(7);
   }
 
   int addKind(SettingsRequestKind? kind) {
@@ -4073,6 +4241,10 @@ class SettingsRequestBuilder {
     fbBuilder.addOffset(5, offset);
     return fbBuilder.offset;
   }
+  int addTouchpadOffset(int? offset) {
+    fbBuilder.addOffset(6, offset);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -4086,6 +4258,7 @@ class SettingsRequestObjectBuilder extends fb.ObjectBuilder {
   final KeyboardConfigurationObjectBuilder? _keyboard;
   final ShortcutBindingObjectBuilder? _shortcut;
   final String? _existingShortcut;
+  final TouchpadConfigurationObjectBuilder? _touchpad;
 
   SettingsRequestObjectBuilder({
     SettingsRequestKind? kind,
@@ -4094,13 +4267,15 @@ class SettingsRequestObjectBuilder extends fb.ObjectBuilder {
     KeyboardConfigurationObjectBuilder? keyboard,
     ShortcutBindingObjectBuilder? shortcut,
     String? existingShortcut,
+    TouchpadConfigurationObjectBuilder? touchpad,
   })
       : _kind = kind,
         _expectedRevision = expectedRevision,
         _document = document,
         _keyboard = keyboard,
         _shortcut = shortcut,
-        _existingShortcut = existingShortcut;
+        _existingShortcut = existingShortcut,
+        _touchpad = touchpad;
 
   /// Finish building, and store into the [fbBuilder].
   @override
@@ -4111,13 +4286,15 @@ class SettingsRequestObjectBuilder extends fb.ObjectBuilder {
     final int? shortcutOffset = _shortcut?.getOrCreateOffset(fbBuilder);
     final int? existingShortcutOffset = _existingShortcut == null ? null
         : fbBuilder.writeString(_existingShortcut!);
-    fbBuilder.startTable(6);
+    final int? touchpadOffset = _touchpad?.getOrCreateOffset(fbBuilder);
+    fbBuilder.startTable(7);
     fbBuilder.addUint8(0, _kind?.value);
     fbBuilder.addUint64(1, _expectedRevision);
     fbBuilder.addOffset(2, documentOffset);
     fbBuilder.addOffset(3, keyboardOffset);
     fbBuilder.addOffset(4, shortcutOffset);
     fbBuilder.addOffset(5, existingShortcutOffset);
+    fbBuilder.addOffset(6, touchpadOffset);
     return fbBuilder.endTable();
   }
 
@@ -4149,10 +4326,11 @@ class SettingsResponse {
   String? get error => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 14);
   ShortcutConfiguration? get shortcuts => ShortcutConfiguration.reader.vTableGetNullable(_bc, _bcOffset, 16);
   ShortcutValidation? get shortcutValidation => ShortcutValidation.reader.vTableGetNullable(_bc, _bcOffset, 18);
+  InputDeviceCapabilities? get inputDevices => InputDeviceCapabilities.reader.vTableGetNullable(_bc, _bcOffset, 20);
 
   @override
   String toString() {
-    return 'SettingsResponse{kind: ${kind}, success: ${success}, revision: ${revision}, document: ${document}, keyboard: ${keyboard}, error: ${error}, shortcuts: ${shortcuts}, shortcutValidation: ${shortcutValidation}}';
+    return 'SettingsResponse{kind: ${kind}, success: ${success}, revision: ${revision}, document: ${document}, keyboard: ${keyboard}, error: ${error}, shortcuts: ${shortcuts}, shortcutValidation: ${shortcutValidation}, inputDevices: ${inputDevices}}';
   }
 }
 
@@ -4170,7 +4348,7 @@ class SettingsResponseBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(8);
+    fbBuilder.startTable(9);
   }
 
   int addKind(SettingsResponseKind? kind) {
@@ -4205,6 +4383,10 @@ class SettingsResponseBuilder {
     fbBuilder.addOffset(7, offset);
     return fbBuilder.offset;
   }
+  int addInputDevicesOffset(int? offset) {
+    fbBuilder.addOffset(8, offset);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -4220,6 +4402,7 @@ class SettingsResponseObjectBuilder extends fb.ObjectBuilder {
   final String? _error;
   final ShortcutConfigurationObjectBuilder? _shortcuts;
   final ShortcutValidationObjectBuilder? _shortcutValidation;
+  final InputDeviceCapabilitiesObjectBuilder? _inputDevices;
 
   SettingsResponseObjectBuilder({
     SettingsResponseKind? kind,
@@ -4230,6 +4413,7 @@ class SettingsResponseObjectBuilder extends fb.ObjectBuilder {
     String? error,
     ShortcutConfigurationObjectBuilder? shortcuts,
     ShortcutValidationObjectBuilder? shortcutValidation,
+    InputDeviceCapabilitiesObjectBuilder? inputDevices,
   })
       : _kind = kind,
         _success = success,
@@ -4238,7 +4422,8 @@ class SettingsResponseObjectBuilder extends fb.ObjectBuilder {
         _keyboard = keyboard,
         _error = error,
         _shortcuts = shortcuts,
-        _shortcutValidation = shortcutValidation;
+        _shortcutValidation = shortcutValidation,
+        _inputDevices = inputDevices;
 
   /// Finish building, and store into the [fbBuilder].
   @override
@@ -4250,7 +4435,8 @@ class SettingsResponseObjectBuilder extends fb.ObjectBuilder {
         : fbBuilder.writeString(_error!);
     final int? shortcutsOffset = _shortcuts?.getOrCreateOffset(fbBuilder);
     final int? shortcutValidationOffset = _shortcutValidation?.getOrCreateOffset(fbBuilder);
-    fbBuilder.startTable(8);
+    final int? inputDevicesOffset = _inputDevices?.getOrCreateOffset(fbBuilder);
+    fbBuilder.startTable(9);
     fbBuilder.addUint8(0, _kind?.value);
     fbBuilder.addBool(1, _success);
     fbBuilder.addUint64(2, _revision);
@@ -4259,6 +4445,7 @@ class SettingsResponseObjectBuilder extends fb.ObjectBuilder {
     fbBuilder.addOffset(5, errorOffset);
     fbBuilder.addOffset(6, shortcutsOffset);
     fbBuilder.addOffset(7, shortcutValidationOffset);
+    fbBuilder.addOffset(8, inputDevicesOffset);
     return fbBuilder.endTable();
   }
 

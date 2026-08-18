@@ -165,15 +165,28 @@ impl OutputControlSnapshot {
     }
 }
 
+// Output-control identifiers cross a JSON boundary into Dart. Keep them in
+// the integer range that every JSON consumer, including JavaScript-backed
+// Dart runtimes, can represent exactly.
+const MAX_EXACT_JSON_INTEGER: u64 = (1_u64 << 53) - 1;
+
 fn initial_serial() -> u64 {
     let wall_clock = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_nanos() as u64)
         .unwrap_or_default();
-    wall_clock
+    let mixed = wall_clock
         .rotate_left(17)
-        .wrapping_add(u64::from(std::process::id()))
-        .max(1)
+        .wrapping_add(u64::from(std::process::id()));
+    mixed % MAX_EXACT_JSON_INTEGER + 1
+}
+
+pub(super) fn next_serial(serial: u64) -> u64 {
+    if serial >= MAX_EXACT_JSON_INTEGER {
+        1
+    } else {
+        serial + 1
+    }
 }
 
 #[derive(Clone)]
@@ -201,7 +214,7 @@ impl OutputControlPublisher {
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if !snapshot.same_state(&state) {
-            snapshot.serial = snapshot.serial.wrapping_add(1).max(1);
+            snapshot.serial = next_serial(snapshot.serial);
             snapshot.capabilities = state.capabilities;
             snapshot.outputs = state.outputs;
             snapshot.pending_confirmation = state.pending_confirmation;
@@ -977,11 +990,22 @@ mod tests {
         let publisher = OutputControlPublisher::new(state("DP-1"));
         let initial = publisher.snapshot().serial;
         assert_ne!(initial, 0);
+        assert!(initial <= MAX_EXACT_JSON_INTEGER);
         assert_eq!(publisher.publish(state("DP-1")).serial, initial);
         assert_eq!(
             publisher.publish(state("DP-2")).serial,
-            initial.wrapping_add(1).max(1)
+            next_serial(initial)
         );
+    }
+
+    #[test]
+    fn serials_wrap_within_the_exact_json_integer_range() {
+        assert_eq!(
+            next_serial(MAX_EXACT_JSON_INTEGER - 1),
+            MAX_EXACT_JSON_INTEGER
+        );
+        assert_eq!(next_serial(MAX_EXACT_JSON_INTEGER), 1);
+        assert_eq!(next_serial(u64::MAX), 1);
     }
 
     #[test]

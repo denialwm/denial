@@ -2669,6 +2669,18 @@ abstract class AppLocalizations {
   /// **'Monitor arrangement editor'**
   String get settingsDisplayArrangementSemantics;
 
+  /// Instruction shown above the pannable monitor arrangement canvas.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag empty space to move the canvas. Use the mouse wheel to zoom.'**
+  String get settingsDisplayCanvasPanHint;
+
+  /// Accessibility label for the draggable background of the monitor arrangement.
+  ///
+  /// In en, this message translates to:
+  /// **'Pannable monitor canvas'**
+  String get settingsDisplayCanvasPanSemantics;
+
   /// Heading for output modes, scale, rotation, and arrangement.
   ///
   /// In en, this message translates to:
@@ -2775,6 +2787,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Scale'**
   String get settingsDisplayScale;
+
+  /// Tooltip for fitting the complete monitor layout in the canvas.
+  ///
+  /// In en, this message translates to:
+  /// **'Fit all monitors'**
+  String get settingsDisplayZoomFit;
+
+  /// Tooltip for increasing monitor canvas zoom.
+  ///
+  /// In en, this message translates to:
+  /// **'Zoom in'**
+  String get settingsDisplayZoomIn;
+
+  /// Accessibility label for the current monitor canvas zoom.
+  ///
+  /// In en, this message translates to:
+  /// **'Canvas zoom {percent}%'**
+  String settingsDisplayZoomLevel(int percent);
+
+  /// Tooltip for decreasing monitor canvas zoom.
+  ///
+  /// In en, this message translates to:
+  /// **'Zoom out'**
+  String get settingsDisplayZoomOut;
 
   /// Loading notice on the monitor settings page.
   ///
@@ -3027,6 +3063,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Enter at least one valid XKB layout.'**
   String get settingsKeyboardInvalidLayouts;
+
+  /// Eyebrow label for touchpad settings.
+  ///
+  /// In en, this message translates to:
+  /// **'INPUT'**
+  String get settingsTouchpadSection;
+
+  /// Description of the touchpad settings page.
+  ///
+  /// In en, this message translates to:
+  /// **'Use your touchpad across the desktop.'**
+  String get settingsTouchpadTitle;
+
+  /// Label for the touchpad tap-to-click toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap to click'**
+  String get settingsTouchpadTapToClick;
+
+  /// Description of the touchpad tap-to-click toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap the touchpad to press the primary mouse button.'**
+  String get settingsTouchpadTapToClickDescription;
+
+  /// Label for the touchpad natural scrolling toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Reverse two-finger scrolling'**
+  String get settingsTouchpadNaturalScroll;
+
+  /// Description of the touchpad natural scrolling toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Move content in the same direction as your fingers.'**
+  String get settingsTouchpadNaturalScrollDescription;
 
   /// Eyebrow label for the configured shortcuts page.
   ///
@@ -3909,6 +3981,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Keyboard'**
   String get settingsNavigationKeyboard;
+
+  /// Settings navigation label for touchpad information.
+  ///
+  /// In en, this message translates to:
+  /// **'Touchpad'**
+  String get settingsNavigationTouchpad;
 
   /// Settings navigation label for configured shortcuts.
   ///

@@ -1323,6 +1323,10 @@ struct RuntimeState {
     #[cfg(feature = "flutter")]
     touchpad_gestures: touchpad_gestures::TouchpadGestureRecognizer,
     #[cfg(feature = "flutter")]
+    touchpad_devices: BTreeMap<String, smithay::reexports::input::Device>,
+    #[cfg(feature = "flutter")]
+    input_device_capabilities_changed: bool,
+    #[cfg(feature = "flutter")]
     pending_window_events: PendingWindowEventQueue,
     #[cfg(feature = "flutter")]
     pending_unpublished_window_events: PendingWindowEventQueue,
@@ -2588,7 +2592,7 @@ fn begin_output_confirmation(
 ) -> ActiveOutputConfirmation {
     ActiveOutputConfirmation {
         state: output_control::OutputControlConfirmation {
-            token: serial.wrapping_add(1).max(1),
+            token: output_control::next_serial(serial),
             deadline_unix_milliseconds: confirmation_deadline_unix_milliseconds(timeout),
         },
         deadline: Instant::now() + timeout,
@@ -4693,8 +4697,8 @@ fn synchronize_settings(
                 let (revision, document) = {
                     let frontend = events.wayland.as_mut().expect("missing Wayland frontend");
                     if result.is_ok() {
-                        // The keyboard values are unchanged, but its revision
-                        // token advanced with the shared document.
+                        // The native-owned values are unchanged, but their
+                        // revision token advanced with the shared document.
                         frontend.keyboard_configuration_changed = true;
                     }
                     (
@@ -4715,9 +4719,19 @@ fn synchronize_settings(
                         .map(|error| error.to_string())
                         .as_deref(),
                 )?;
+                if result.is_ok() {
+                    events.input_device_capabilities_changed = true;
+                }
             }
             wire::SettingsCommand::ReadKeyboard { request_id } => {
                 send_keyboard_settings(runtime, events, request_id, None)?;
+                if let Some(frontend) = events.wayland.as_mut() {
+                    frontend.keyboard_configuration_changed = false;
+                }
+            }
+            wire::SettingsCommand::ReadInputDevices { request_id } => {
+                send_input_device_settings(runtime, events, request_id, None)?;
+                events.input_device_capabilities_changed = false;
             }
             wire::SettingsCommand::ConfigureKeyboard {
                 request_id,
@@ -4803,6 +4817,102 @@ fn synchronize_settings(
                         .map(|error| error.to_string())
                         .as_deref(),
                 )?;
+                if result.is_ok() {
+                    events.input_device_capabilities_changed = true;
+                }
+            }
+            wire::SettingsCommand::ConfigureTouchpad {
+                request_id,
+                expected_revision,
+                touchpad,
+            } => {
+                let prepared = events
+                    .wayland
+                    .as_ref()
+                    .ok_or("touchpad update has no Wayland frontend")?
+                    .settings
+                    .prepare_touchpad_update(expected_revision, touchpad);
+                let result = match prepared {
+                    Ok(prepared) => {
+                        let previous = events
+                            .wayland
+                            .as_ref()
+                            .expect("missing Wayland frontend")
+                            .settings
+                            .touchpad()
+                            .clone();
+                        let next = prepared.touchpad().clone();
+                        match wayland_frontend::install_touchpad_settings(events, &next) {
+                            Ok(()) => {
+                                let commit = events
+                                    .wayland
+                                    .as_mut()
+                                    .expect("missing Wayland frontend")
+                                    .settings
+                                    .commit(prepared);
+                                if let Err(error) = commit {
+                                    if let Err(rollback_error) =
+                                        wayland_frontend::install_touchpad_settings(
+                                            events, &previous,
+                                        )
+                                    {
+                                        return Err(format!(
+                                            "touchpad settings commit failed ({error}) and the live configuration rollback failed ({rollback_error})"
+                                        )
+                                        .into());
+                                    }
+                                    Err(error)
+                                } else {
+                                    info!(
+                                        revision = events
+                                            .wayland
+                                            .as_ref()
+                                            .expect("missing Wayland frontend")
+                                            .settings
+                                            .revision(),
+                                        tap_to_click = next.tap_to_click_enabled,
+                                        natural_scroll = next.natural_scroll_enabled,
+                                        "applied persistent touchpad settings"
+                                    );
+                                    Ok(())
+                                }
+                            }
+                            Err(error) => {
+                                if let Err(rollback_error) =
+                                    wayland_frontend::install_touchpad_settings(events, &previous)
+                                {
+                                    return Err(format!(
+                                        "touchpad configuration failed ({error}) and the live configuration rollback failed ({rollback_error})"
+                                    )
+                                    .into());
+                                }
+                                send_input_device_settings(
+                                    runtime,
+                                    events,
+                                    request_id,
+                                    Some(&error),
+                                )?;
+                                continue;
+                            }
+                        }
+                    }
+                    Err(error) => Err(error),
+                };
+                send_input_device_settings(
+                    runtime,
+                    events,
+                    request_id,
+                    result
+                        .as_ref()
+                        .err()
+                        .map(|error| error.to_string())
+                        .as_deref(),
+                )?;
+                if result.is_ok()
+                    && let Some(frontend) = events.wayland.as_mut()
+                {
+                    frontend.keyboard_configuration_changed = true;
+                }
             }
             wire::SettingsCommand::ReadShortcuts { request_id } => {
                 send_shortcut_settings(runtime, events, request_id, None)?;
@@ -4886,6 +4996,9 @@ fn synchronize_settings(
         .is_some_and(|frontend| std::mem::take(&mut frontend.keyboard_configuration_changed));
     if changed {
         send_keyboard_settings(runtime, events, 0, None)?;
+    }
+    if std::mem::take(&mut events.input_device_capabilities_changed) {
+        send_input_device_settings(runtime, events, 0, None)?;
     }
     Ok(())
 }
@@ -4976,6 +5089,26 @@ fn send_keyboard_settings(
         frontend.settings.keyboard(),
         &frontend.keyboard_layout_names,
         frontend.active_keyboard_layout,
+        error,
+    )
+}
+
+#[cfg(feature = "flutter")]
+fn send_input_device_settings(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &RuntimeState,
+    request_id: u64,
+    error: Option<&str>,
+) -> Result<(), Box<dyn Error>> {
+    let frontend = events
+        .wayland
+        .as_ref()
+        .ok_or("touchpad settings response has no Wayland frontend")?;
+    runtime.send_input_device_capabilities_response(
+        request_id,
+        frontend.settings.revision(),
+        !events.touchpad_devices.is_empty(),
+        frontend.settings.touchpad(),
         error,
     )
 }

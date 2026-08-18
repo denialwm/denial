@@ -10,6 +10,7 @@ import '../input/input_layout.dart';
 import '../models/display_layout.dart';
 import '../models/denial_drag_icon.dart';
 import '../models/desktop_notification.dart' as model;
+import '../models/input_device_capabilities.dart';
 import '../models/keyboard_configuration.dart';
 import '../models/shortcut_configuration.dart';
 import '../models/denial_window.dart';
@@ -291,7 +292,8 @@ class DenialWireCodec {
   }) {
     if (requestId <= 0 ||
         (kind != generated.SettingsRequestKind.ReadDocument &&
-            kind != generated.SettingsRequestKind.ReadKeyboard)) {
+            kind != generated.SettingsRequestKind.ReadKeyboard &&
+            kind != generated.SettingsRequestKind.ReadInputDevices)) {
       throw ArgumentError('invalid settings read request');
     }
     return _encodeEnvelope(
@@ -374,6 +376,27 @@ class DenialWireCodec {
     );
   }
 
+  Uint8List? encodeTouchpadConfiguration({
+    required int requestId,
+    required DenialInputDeviceCapabilities capabilities,
+  }) {
+    if (requestId <= 0 || capabilities.revision <= 0) {
+      return null;
+    }
+    return _encodeEnvelope(
+      generated.PayloadTypeId.SettingsRequest,
+      generated.SettingsRequestObjectBuilder(
+        kind: generated.SettingsRequestKind.ConfigureTouchpad,
+        expectedRevision: capabilities.revision,
+        touchpad: generated.TouchpadConfigurationObjectBuilder(
+          tapToClickEnabled: capabilities.tapToClickEnabled,
+          naturalScrollEnabled: capabilities.naturalScrollEnabled,
+        ),
+      ),
+      requestId: requestId,
+    );
+  }
+
   Uint8List encodeShortcutRead({required int requestId}) {
     if (requestId <= 0) {
       throw ArgumentError('invalid shortcut read request');
@@ -445,6 +468,27 @@ class DenialWireCodec {
         existingShortcut: existingShortcut,
       ),
       requestId: requestId,
+    );
+  }
+
+  DenialInputDeviceCapabilities? decodeInputDeviceCapabilities(
+    generated.SettingsResponse response,
+  ) {
+    final inputDevices = response.inputDevices;
+    final touchpad = inputDevices?.touchpad;
+    if (!response.success ||
+        response.kind != generated.SettingsResponseKind.InputDevices ||
+        response.revision <= 0 ||
+        inputDevices == null ||
+        touchpad == null) {
+      rejectedStructuredMessages += 1;
+      return null;
+    }
+    return DenialInputDeviceCapabilities(
+      revision: response.revision,
+      hasTouchpad: inputDevices.hasTouchpad,
+      tapToClickEnabled: touchpad.tapToClickEnabled,
+      naturalScrollEnabled: touchpad.naturalScrollEnabled,
     );
   }
 

@@ -12,6 +12,7 @@ import 'package:denial_dart_shell/src/models/denial_window.dart';
 import 'package:denial_dart_shell/src/models/denial_window_event.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart'
     show SystemBarSide;
+import 'package:denial_dart_shell/src/models/input_device_capabilities.dart';
 import 'package:denial_dart_shell/src/models/keyboard_configuration.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/platform/denial_wire.dart' as wire;
@@ -256,10 +257,15 @@ void main() {
       final subscription = bridge.keyboardConfigurations.listen(
         keyboardEvents.add,
       );
+      final inputDeviceEvents = <DenialInputDeviceCapabilities>[];
+      final inputDeviceSubscription = bridge.inputDeviceCapabilities.listen(
+        inputDeviceEvents.add,
+      );
       try {
         final documentFuture = bridge.readSettingsDocument();
         final keyboardFuture = bridge.readKeyboardConfiguration();
-        expect(requests, hasLength(2));
+        final inputDevicesFuture = bridge.readInputDeviceCapabilities();
+        expect(requests, hasLength(3));
         expect(
           (requests[0].payload as wire.SettingsRequest).kind,
           wire.SettingsRequestKind.ReadDocument,
@@ -268,13 +274,17 @@ void main() {
           (requests[1].payload as wire.SettingsRequest).kind,
           wire.SettingsRequestKind.ReadKeyboard,
         );
+        expect(
+          (requests[2].payload as wire.SettingsRequest).kind,
+          wire.SettingsRequestKind.ReadInputDevices,
+        );
 
         await _sendToFlutter(
           messenger,
           _settingsDocumentResponse(
             requestId: requests[0].requestId,
             revision: 7,
-            document: '{"version":8,"revision":7}',
+            document: '{"version":9,"revision":7}',
           ),
         );
         final document = await documentFuture;
@@ -293,6 +303,18 @@ void main() {
         expect(keyboard.active.label, 'German');
         expect(keyboard.repeatDelayMs, 450);
         expect(keyboard.repeatRateHz, 30);
+
+        await _sendToFlutter(
+          messenger,
+          _inputDeviceCapabilitiesResponse(
+            requestId: requests[2].requestId,
+            hasTouchpad: true,
+          ),
+        );
+        final inputDevices = await inputDevicesFuture;
+        expect(inputDevices.hasTouchpad, isTrue);
+        expect(inputDevices.tapToClickEnabled, isTrue);
+        expect(inputDevices.naturalScrollEnabled, isFalse);
 
         final update = bridge.configureKeyboard(
           keyboard.copyWith(repeatRateHz: 40),
@@ -313,6 +335,37 @@ void main() {
         );
         expect((await update).revision, 8);
 
+        final touchpadUpdate = bridge.configureTouchpad(
+          inputDevices.copyWith(
+            tapToClickEnabled: false,
+            naturalScrollEnabled: true,
+          ),
+        );
+        final touchpadEnvelope = requests.last;
+        final touchpadRequest =
+            touchpadEnvelope.payload as wire.SettingsRequest;
+        expect(
+          touchpadRequest.kind,
+          wire.SettingsRequestKind.ConfigureTouchpad,
+        );
+        expect(touchpadRequest.expectedRevision, 7);
+        expect(touchpadRequest.touchpad!.tapToClickEnabled, isFalse);
+        expect(touchpadRequest.touchpad!.naturalScrollEnabled, isTrue);
+        await _sendToFlutter(
+          messenger,
+          _inputDeviceCapabilitiesResponse(
+            requestId: touchpadEnvelope.requestId,
+            revision: 9,
+            hasTouchpad: true,
+            tapToClickEnabled: false,
+            naturalScrollEnabled: true,
+          ),
+        );
+        final updatedTouchpad = await touchpadUpdate;
+        expect(updatedTouchpad.revision, 9);
+        expect(updatedTouchpad.tapToClickEnabled, isFalse);
+        expect(updatedTouchpad.naturalScrollEnabled, isTrue);
+
         await _sendToFlutter(
           messenger,
           _keyboardSettingsResponse(
@@ -325,8 +378,20 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         expect(keyboardEvents.last.active.label, 'German');
         expect(keyboardEvents.last.revision, 8);
+
+        await _sendToFlutter(
+          messenger,
+          _inputDeviceCapabilitiesResponse(
+            requestId: 0,
+            revision: 9,
+            hasTouchpad: false,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(inputDeviceEvents.last.hasTouchpad, isFalse);
       } finally {
         await subscription.cancel();
+        await inputDeviceSubscription.cancel();
         bridge.dispose();
         messenger.setMockMessageHandler(wire.denialWireToNativeChannel, null);
       }
@@ -1138,6 +1203,31 @@ Uint8List _keyboardSettingsResponse({
         repeatDelayMs: 450,
         repeatRateHz: repeatRateHz,
         activeLayout: activeLayout,
+      ),
+    ),
+    requestId: requestId,
+  );
+}
+
+Uint8List _inputDeviceCapabilitiesResponse({
+  required int requestId,
+  required bool hasTouchpad,
+  int revision = 7,
+  bool tapToClickEnabled = true,
+  bool naturalScrollEnabled = false,
+}) {
+  return _envelope(
+    wire.PayloadTypeId.SettingsResponse,
+    wire.SettingsResponseObjectBuilder(
+      kind: wire.SettingsResponseKind.InputDevices,
+      success: true,
+      revision: revision,
+      inputDevices: wire.InputDeviceCapabilitiesObjectBuilder(
+        hasTouchpad: hasTouchpad,
+        touchpad: wire.TouchpadConfigurationObjectBuilder(
+          tapToClickEnabled: tapToClickEnabled,
+          naturalScrollEnabled: naturalScrollEnabled,
+        ),
       ),
     ),
     requestId: requestId,
