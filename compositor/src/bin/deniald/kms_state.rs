@@ -973,24 +973,12 @@ fn common_xrgb8888_modifiers<'a>(
         .collect()
 }
 
-/// Return XR24 modifiers that every primary plane can scan out and EGL can
-/// render into. Plane order is retained: DRM exposes the driver's preferred
-/// tiled/compressed layouts first and LINEAR last on hardware that supports
-/// both. If EGL only advertises the legacy implicit modifier, restrict the
-/// result to LINEAR rather than guessing that a vendor modifier is renderable.
-pub(super) fn shared_atlas_modifiers(
-    scanouts: &[Scanout],
+fn compatible_xrgb8888_modifiers<'a>(
+    plane_formats: impl IntoIterator<Item = &'a FormatSet>,
     render_formats: &FormatSet,
-) -> Result<Vec<Modifier>, Box<dyn Error>> {
-    if scanouts.is_empty() {
-        return Err("shared atlas modifier selection needs at least one primary plane".into());
-    }
-
-    let mut modifiers = common_xrgb8888_modifiers(
-        scanouts
-            .iter()
-            .map(|scanout| &scanout.surface.plane_info().formats),
-    );
+) -> Vec<Modifier> {
+    let plane_formats = plane_formats.into_iter().collect::<Vec<_>>();
+    let mut modifiers = common_xrgb8888_modifiers(plane_formats.iter().copied());
     let renderer_has_explicit_modifiers = render_formats
         .iter()
         .any(|format| format.code == Fourcc::Xrgb8888 && format.modifier != Modifier::Invalid);
@@ -1004,6 +992,47 @@ pub(super) fn shared_atlas_modifiers(
     } else {
         modifiers.retain(|modifier| *modifier == Modifier::Linear);
     }
+
+    let implicit_xrgb8888 = Format {
+        code: Fourcc::Xrgb8888,
+        modifier: Modifier::Invalid,
+    };
+    if modifiers.is_empty()
+        && !plane_formats.is_empty()
+        && plane_formats
+            .iter()
+            .all(|formats| formats.contains(&implicit_xrgb8888))
+        && render_formats.contains(&implicit_xrgb8888)
+    {
+        // GBM may satisfy this through an explicit LINEAR allocation or its
+        // legacy implicit allocation path. Both are safe when every consumer
+        // advertises implicit XR24, unlike guessing a vendor modifier.
+        modifiers.push(Modifier::Linear);
+    }
+
+    modifiers
+}
+
+/// Return XR24 modifiers that every primary plane can scan out and EGL can
+/// render into. Plane order is retained: DRM exposes the driver's preferred
+/// tiled/compressed layouts first and LINEAR last on hardware that supports
+/// both. If there is no explicit intersection but every consumer advertises
+/// legacy implicit XR24, fall back to a LINEAR allocation request rather than
+/// guessing that a vendor modifier is renderable.
+pub(super) fn shared_atlas_modifiers(
+    scanouts: &[Scanout],
+    render_formats: &FormatSet,
+) -> Result<Vec<Modifier>, Box<dyn Error>> {
+    if scanouts.is_empty() {
+        return Err("shared atlas modifier selection needs at least one primary plane".into());
+    }
+
+    let modifiers = compatible_xrgb8888_modifiers(
+        scanouts
+            .iter()
+            .map(|scanout| &scanout.surface.plane_info().formats),
+        render_formats,
+    );
 
     if modifiers.is_empty() {
         let outputs = scanouts
@@ -1837,8 +1866,8 @@ mod tests {
     use super::{
         Format, FormatSet, Fourcc, GbmBufferFlags, Modifier, PixelSize, ScanoutIdentity,
         ScanoutIdentityError, atlas_gbm_flags, common_xrgb8888_modifiers,
-        inherited_plane_needs_release, smithay_opaque_alpha_for_maximum, validate_atlas_allocation,
-        validate_scanout_identities,
+        compatible_xrgb8888_modifiers, inherited_plane_needs_release,
+        smithay_opaque_alpha_for_maximum, validate_atlas_allocation, validate_scanout_identities,
     };
     #[cfg(feature = "flutter")]
     use super::{ensure_resident_jit_engine_matches, flutter_pool_length};
@@ -1935,6 +1964,53 @@ mod tests {
             common_xrgb8888_modifiers([&first, &second]),
             vec![preferred, Modifier::Linear]
         );
+    }
+
+    #[test]
+    fn atlas_modifier_selection_falls_back_to_linear_for_implicit_xr24() {
+        let plane = [Format {
+            code: Fourcc::Xrgb8888,
+            modifier: Modifier::Invalid,
+        }]
+        .into_iter()
+        .collect::<FormatSet>();
+        let renderer_modifier = Modifier::from(0x0200_0000_0082_0405_u64);
+        let renderer = [
+            Format {
+                code: Fourcc::Xrgb8888,
+                modifier: renderer_modifier,
+            },
+            Format {
+                code: Fourcc::Xrgb8888,
+                modifier: Modifier::Invalid,
+            },
+        ]
+        .into_iter()
+        .collect::<FormatSet>();
+
+        assert_eq!(
+            compatible_xrgb8888_modifiers([&plane], &renderer),
+            vec![Modifier::Linear]
+        );
+    }
+
+    #[test]
+    fn atlas_modifier_selection_requires_implicit_xr24_from_every_consumer() {
+        let implicit = [Format {
+            code: Fourcc::Xrgb8888,
+            modifier: Modifier::Invalid,
+        }]
+        .into_iter()
+        .collect::<FormatSet>();
+        let explicit_only = [Format {
+            code: Fourcc::Xrgb8888,
+            modifier: Modifier::from(0x0200_0000_0082_0405_u64),
+        }]
+        .into_iter()
+        .collect::<FormatSet>();
+
+        assert!(compatible_xrgb8888_modifiers([&implicit], &explicit_only).is_empty());
+        assert!(compatible_xrgb8888_modifiers([&implicit, &explicit_only], &implicit).is_empty());
     }
 
     #[test]
