@@ -385,7 +385,13 @@ enum SettingsRequestKind {
   ReadDocument(0),
   WriteDocument(1),
   ReadKeyboard(2),
-  ConfigureKeyboard(3);
+  ConfigureKeyboard(3),
+  ReadShortcuts(4),
+  ValidateShortcut(5),
+  AddShortcut(6),
+  UpdateShortcut(7),
+  RemoveShortcut(8),
+  RestoreShortcuts(9);
 
   final int value;
   const SettingsRequestKind(this.value);
@@ -396,6 +402,12 @@ enum SettingsRequestKind {
       case 1: return SettingsRequestKind.WriteDocument;
       case 2: return SettingsRequestKind.ReadKeyboard;
       case 3: return SettingsRequestKind.ConfigureKeyboard;
+      case 4: return SettingsRequestKind.ReadShortcuts;
+      case 5: return SettingsRequestKind.ValidateShortcut;
+      case 6: return SettingsRequestKind.AddShortcut;
+      case 7: return SettingsRequestKind.UpdateShortcut;
+      case 8: return SettingsRequestKind.RemoveShortcut;
+      case 9: return SettingsRequestKind.RestoreShortcuts;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -404,7 +416,7 @@ enum SettingsRequestKind {
       value == null ? null : SettingsRequestKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 3;
+  static const int maxValue = 9;
   static const fb.Reader<SettingsRequestKind> reader = _SettingsRequestKindReader();
 }
 
@@ -421,7 +433,9 @@ class _SettingsRequestKindReader extends fb.Reader<SettingsRequestKind> {
 
 enum SettingsResponseKind {
   Document(0),
-  Keyboard(1);
+  Keyboard(1),
+  Shortcuts(2),
+  ShortcutValidation(3);
 
   final int value;
   const SettingsResponseKind(this.value);
@@ -430,6 +444,8 @@ enum SettingsResponseKind {
     switch (value) {
       case 0: return SettingsResponseKind.Document;
       case 1: return SettingsResponseKind.Keyboard;
+      case 2: return SettingsResponseKind.Shortcuts;
+      case 3: return SettingsResponseKind.ShortcutValidation;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -438,7 +454,7 @@ enum SettingsResponseKind {
       value == null ? null : SettingsResponseKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 1;
+  static const int maxValue = 3;
   static const fb.Reader<SettingsResponseKind> reader = _SettingsResponseKindReader();
 }
 
@@ -451,6 +467,194 @@ class _SettingsResponseKindReader extends fb.Reader<SettingsResponseKind> {
   @override
   SettingsResponseKind read(fb.BufferContext bc, int offset) =>
       SettingsResponseKind.fromValue(const fb.Uint8Reader().read(bc, offset));
+}
+
+enum ShortcutActionKind {
+  Shutdown(0),
+  OpenApplications(1),
+  OpenOverview(2),
+  ToggleVerticalMaximize(3),
+  WindowSwitcher(4),
+  OpenClipboard(5),
+  CaptureRegion(6),
+  CloseWindow(7),
+  MinimizeWindow(8),
+  ToggleMaximize(9),
+  ToggleFullscreen(10),
+  ReleasePointer(11),
+  LockScreen(12),
+  VolumeUp(13),
+  VolumeDown(14),
+  VolumeMute(15),
+  BrightnessUp(16),
+  BrightnessDown(17),
+  NextKeyboardLayout(18),
+  PreviousKeyboardLayout(19);
+
+  final int value;
+  const ShortcutActionKind(this.value);
+
+  factory ShortcutActionKind.fromValue(int value) {
+    switch (value) {
+      case 0: return ShortcutActionKind.Shutdown;
+      case 1: return ShortcutActionKind.OpenApplications;
+      case 2: return ShortcutActionKind.OpenOverview;
+      case 3: return ShortcutActionKind.ToggleVerticalMaximize;
+      case 4: return ShortcutActionKind.WindowSwitcher;
+      case 5: return ShortcutActionKind.OpenClipboard;
+      case 6: return ShortcutActionKind.CaptureRegion;
+      case 7: return ShortcutActionKind.CloseWindow;
+      case 8: return ShortcutActionKind.MinimizeWindow;
+      case 9: return ShortcutActionKind.ToggleMaximize;
+      case 10: return ShortcutActionKind.ToggleFullscreen;
+      case 11: return ShortcutActionKind.ReleasePointer;
+      case 12: return ShortcutActionKind.LockScreen;
+      case 13: return ShortcutActionKind.VolumeUp;
+      case 14: return ShortcutActionKind.VolumeDown;
+      case 15: return ShortcutActionKind.VolumeMute;
+      case 16: return ShortcutActionKind.BrightnessUp;
+      case 17: return ShortcutActionKind.BrightnessDown;
+      case 18: return ShortcutActionKind.NextKeyboardLayout;
+      case 19: return ShortcutActionKind.PreviousKeyboardLayout;
+      default: throw StateError('Invalid value $value for bit flag enum');
+    }
+  }
+
+  static ShortcutActionKind? _createOrNull(int? value) =>
+      value == null ? null : ShortcutActionKind.fromValue(value);
+
+  static const int minValue = 0;
+  static const int maxValue = 19;
+  static const fb.Reader<ShortcutActionKind> reader = _ShortcutActionKindReader();
+}
+
+class _ShortcutActionKindReader extends fb.Reader<ShortcutActionKind> {
+  const _ShortcutActionKindReader();
+
+  @override
+  int get size => 1;
+
+  @override
+  ShortcutActionKind read(fb.BufferContext bc, int offset) =>
+      ShortcutActionKind.fromValue(const fb.Uint8Reader().read(bc, offset));
+}
+
+enum ShortcutInputKind {
+  Key(0),
+  Gesture(1);
+
+  final int value;
+  const ShortcutInputKind(this.value);
+
+  factory ShortcutInputKind.fromValue(int value) {
+    switch (value) {
+      case 0: return ShortcutInputKind.Key;
+      case 1: return ShortcutInputKind.Gesture;
+      default: throw StateError('Invalid value $value for bit flag enum');
+    }
+  }
+
+  static ShortcutInputKind? _createOrNull(int? value) =>
+      value == null ? null : ShortcutInputKind.fromValue(value);
+
+  static const int minValue = 0;
+  static const int maxValue = 1;
+  static const fb.Reader<ShortcutInputKind> reader = _ShortcutInputKindReader();
+}
+
+class _ShortcutInputKindReader extends fb.Reader<ShortcutInputKind> {
+  const _ShortcutInputKindReader();
+
+  @override
+  int get size => 1;
+
+  @override
+  ShortcutInputKind read(fb.BufferContext bc, int offset) =>
+      ShortcutInputKind.fromValue(const fb.Uint8Reader().read(bc, offset));
+}
+
+enum ShortcutInputCategory {
+  Modifier(0),
+  Navigation(1),
+  Editing(2),
+  Punctuation(3),
+  $Function(4),
+  Media(5),
+  Hardware(6),
+  Special(7),
+  Gesture(8);
+
+  final int value;
+  const ShortcutInputCategory(this.value);
+
+  factory ShortcutInputCategory.fromValue(int value) {
+    switch (value) {
+      case 0: return ShortcutInputCategory.Modifier;
+      case 1: return ShortcutInputCategory.Navigation;
+      case 2: return ShortcutInputCategory.Editing;
+      case 3: return ShortcutInputCategory.Punctuation;
+      case 4: return ShortcutInputCategory.$Function;
+      case 5: return ShortcutInputCategory.Media;
+      case 6: return ShortcutInputCategory.Hardware;
+      case 7: return ShortcutInputCategory.Special;
+      case 8: return ShortcutInputCategory.Gesture;
+      default: throw StateError('Invalid value $value for bit flag enum');
+    }
+  }
+
+  static ShortcutInputCategory? _createOrNull(int? value) =>
+      value == null ? null : ShortcutInputCategory.fromValue(value);
+
+  static const int minValue = 0;
+  static const int maxValue = 8;
+  static const fb.Reader<ShortcutInputCategory> reader = _ShortcutInputCategoryReader();
+}
+
+class _ShortcutInputCategoryReader extends fb.Reader<ShortcutInputCategory> {
+  const _ShortcutInputCategoryReader();
+
+  @override
+  int get size => 1;
+
+  @override
+  ShortcutInputCategory read(fb.BufferContext bc, int offset) =>
+      ShortcutInputCategory.fromValue(const fb.Uint8Reader().read(bc, offset));
+}
+
+enum ShortcutValidationKind {
+  Valid(0),
+  Conflict(1),
+  Invalid(2);
+
+  final int value;
+  const ShortcutValidationKind(this.value);
+
+  factory ShortcutValidationKind.fromValue(int value) {
+    switch (value) {
+      case 0: return ShortcutValidationKind.Valid;
+      case 1: return ShortcutValidationKind.Conflict;
+      case 2: return ShortcutValidationKind.Invalid;
+      default: throw StateError('Invalid value $value for bit flag enum');
+    }
+  }
+
+  static ShortcutValidationKind? _createOrNull(int? value) =>
+      value == null ? null : ShortcutValidationKind.fromValue(value);
+
+  static const int minValue = 0;
+  static const int maxValue = 2;
+  static const fb.Reader<ShortcutValidationKind> reader = _ShortcutValidationKindReader();
+}
+
+class _ShortcutValidationKindReader extends fb.Reader<ShortcutValidationKind> {
+  const _ShortcutValidationKindReader();
+
+  @override
+  int get size => 1;
+
+  @override
+  ShortcutValidationKind read(fb.BufferContext bc, int offset) =>
+      ShortcutValidationKind.fromValue(const fb.Uint8Reader().read(bc, offset));
 }
 
 enum DesktopNotificationEventKind {
@@ -599,6 +803,44 @@ class _SystemBarSideReader extends fb.Reader<SystemBarSide> {
   @override
   SystemBarSide read(fb.BufferContext bc, int offset) =>
       SystemBarSide.fromValue(const fb.Uint8Reader().read(bc, offset));
+}
+
+enum ShortcutTargetTypeId {
+  NONE(0),
+  ShortcutDenialActionTarget(1),
+  ShortcutSpawnTarget(2),
+  ShortcutSpawnShTarget(3);
+
+  final int value;
+  const ShortcutTargetTypeId(this.value);
+
+  factory ShortcutTargetTypeId.fromValue(int value) {
+    switch (value) {
+      case 0: return ShortcutTargetTypeId.NONE;
+      case 1: return ShortcutTargetTypeId.ShortcutDenialActionTarget;
+      case 2: return ShortcutTargetTypeId.ShortcutSpawnTarget;
+      case 3: return ShortcutTargetTypeId.ShortcutSpawnShTarget;
+      default: throw StateError('Invalid value $value for bit flag enum');
+    }
+  }
+
+  static ShortcutTargetTypeId? _createOrNull(int? value) =>
+      value == null ? null : ShortcutTargetTypeId.fromValue(value);
+
+  static const int minValue = 0;
+  static const int maxValue = 3;
+  static const fb.Reader<ShortcutTargetTypeId> reader = _ShortcutTargetTypeIdReader();
+}
+
+class _ShortcutTargetTypeIdReader extends fb.Reader<ShortcutTargetTypeId> {
+  const _ShortcutTargetTypeIdReader();
+
+  @override
+  int get size => 1;
+
+  @override
+  ShortcutTargetTypeId read(fb.BufferContext bc, int offset) =>
+      ShortcutTargetTypeId.fromValue(const fb.Uint8Reader().read(bc, offset));
 }
 
 enum PayloadTypeId {
@@ -3149,6 +3391,622 @@ class KeyboardConfigurationObjectBuilder extends fb.ObjectBuilder {
     return fbBuilder.buffer;
   }
 }
+class ShortcutDenialActionTarget {
+  ShortcutDenialActionTarget._(this._bc, this._bcOffset);
+  factory ShortcutDenialActionTarget(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<ShortcutDenialActionTarget> reader = _ShortcutDenialActionTargetReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  ShortcutActionKind get action => ShortcutActionKind.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 4, 0));
+
+  @override
+  String toString() {
+    return 'ShortcutDenialActionTarget{action: ${action}}';
+  }
+}
+
+class _ShortcutDenialActionTargetReader extends fb.TableReader<ShortcutDenialActionTarget> {
+  const _ShortcutDenialActionTargetReader();
+
+  @override
+  ShortcutDenialActionTarget createObject(fb.BufferContext bc, int offset) => 
+    ShortcutDenialActionTarget._(bc, offset);
+}
+
+class ShortcutDenialActionTargetBuilder {
+  ShortcutDenialActionTargetBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(1);
+  }
+
+  int addAction(ShortcutActionKind? action) {
+    fbBuilder.addUint8(0, action?.value);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class ShortcutDenialActionTargetObjectBuilder extends fb.ObjectBuilder {
+  final ShortcutActionKind? _action;
+
+  ShortcutDenialActionTargetObjectBuilder({
+    ShortcutActionKind? action,
+  })
+      : _action = action;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    fbBuilder.startTable(1);
+    fbBuilder.addUint8(0, _action?.value);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
+class ShortcutSpawnTarget {
+  ShortcutSpawnTarget._(this._bc, this._bcOffset);
+  factory ShortcutSpawnTarget(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<ShortcutSpawnTarget> reader = _ShortcutSpawnTargetReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  List<String>? get command => const fb.ListReader<String>(fb.StringReader()).vTableGetNullable(_bc, _bcOffset, 4);
+
+  @override
+  String toString() {
+    return 'ShortcutSpawnTarget{command: ${command}}';
+  }
+}
+
+class _ShortcutSpawnTargetReader extends fb.TableReader<ShortcutSpawnTarget> {
+  const _ShortcutSpawnTargetReader();
+
+  @override
+  ShortcutSpawnTarget createObject(fb.BufferContext bc, int offset) => 
+    ShortcutSpawnTarget._(bc, offset);
+}
+
+class ShortcutSpawnTargetBuilder {
+  ShortcutSpawnTargetBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(1);
+  }
+
+  int addCommandOffset(int? offset) {
+    fbBuilder.addOffset(0, offset);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class ShortcutSpawnTargetObjectBuilder extends fb.ObjectBuilder {
+  final List<String>? _command;
+
+  ShortcutSpawnTargetObjectBuilder({
+    List<String>? command,
+  })
+      : _command = command;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    final int? commandOffset = _command == null ? null
+        : fbBuilder.writeList(_command!.map(fbBuilder.writeString).toList());
+    fbBuilder.startTable(1);
+    fbBuilder.addOffset(0, commandOffset);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
+class ShortcutSpawnShTarget {
+  ShortcutSpawnShTarget._(this._bc, this._bcOffset);
+  factory ShortcutSpawnShTarget(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<ShortcutSpawnShTarget> reader = _ShortcutSpawnShTargetReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  String? get command => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 4);
+
+  @override
+  String toString() {
+    return 'ShortcutSpawnShTarget{command: ${command}}';
+  }
+}
+
+class _ShortcutSpawnShTargetReader extends fb.TableReader<ShortcutSpawnShTarget> {
+  const _ShortcutSpawnShTargetReader();
+
+  @override
+  ShortcutSpawnShTarget createObject(fb.BufferContext bc, int offset) => 
+    ShortcutSpawnShTarget._(bc, offset);
+}
+
+class ShortcutSpawnShTargetBuilder {
+  ShortcutSpawnShTargetBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(1);
+  }
+
+  int addCommandOffset(int? offset) {
+    fbBuilder.addOffset(0, offset);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class ShortcutSpawnShTargetObjectBuilder extends fb.ObjectBuilder {
+  final String? _command;
+
+  ShortcutSpawnShTargetObjectBuilder({
+    String? command,
+  })
+      : _command = command;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    final int? commandOffset = _command == null ? null
+        : fbBuilder.writeString(_command!);
+    fbBuilder.startTable(1);
+    fbBuilder.addOffset(0, commandOffset);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
+class ShortcutBinding {
+  ShortcutBinding._(this._bc, this._bcOffset);
+  factory ShortcutBinding(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<ShortcutBinding> reader = _ShortcutBindingReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  String? get shortcut => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 4);
+  ShortcutTargetTypeId? get targetType => ShortcutTargetTypeId._createOrNull(const fb.Uint8Reader().vTableGetNullable(_bc, _bcOffset, 6));
+  dynamic get target {
+    switch (targetType?.value) {
+      case 1: return ShortcutDenialActionTarget.reader.vTableGetNullable(_bc, _bcOffset, 8);
+      case 2: return ShortcutSpawnTarget.reader.vTableGetNullable(_bc, _bcOffset, 8);
+      case 3: return ShortcutSpawnShTarget.reader.vTableGetNullable(_bc, _bcOffset, 8);
+      default: return null;
+    }
+  }
+
+  @override
+  String toString() {
+    return 'ShortcutBinding{shortcut: ${shortcut}, targetType: ${targetType}, target: ${target}}';
+  }
+}
+
+class _ShortcutBindingReader extends fb.TableReader<ShortcutBinding> {
+  const _ShortcutBindingReader();
+
+  @override
+  ShortcutBinding createObject(fb.BufferContext bc, int offset) => 
+    ShortcutBinding._(bc, offset);
+}
+
+class ShortcutBindingBuilder {
+  ShortcutBindingBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(3);
+  }
+
+  int addShortcutOffset(int? offset) {
+    fbBuilder.addOffset(0, offset);
+    return fbBuilder.offset;
+  }
+  int addTargetType(ShortcutTargetTypeId? targetType) {
+    fbBuilder.addUint8(1, targetType?.value);
+    return fbBuilder.offset;
+  }
+  int addTargetOffset(int? offset) {
+    fbBuilder.addOffset(2, offset);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class ShortcutBindingObjectBuilder extends fb.ObjectBuilder {
+  final String? _shortcut;
+  final ShortcutTargetTypeId? _targetType;
+  final dynamic _target;
+
+  ShortcutBindingObjectBuilder({
+    String? shortcut,
+    ShortcutTargetTypeId? targetType,
+    dynamic target,
+  })
+      : _shortcut = shortcut,
+        _targetType = targetType,
+        _target = target;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    final int? shortcutOffset = _shortcut == null ? null
+        : fbBuilder.writeString(_shortcut!);
+    final int? targetOffset = _target?.getOrCreateOffset(fbBuilder);
+    fbBuilder.startTable(3);
+    fbBuilder.addOffset(0, shortcutOffset);
+    fbBuilder.addUint8(1, _targetType?.value);
+    fbBuilder.addOffset(2, targetOffset);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
+class ShortcutInput {
+  ShortcutInput._(this._bc, this._bcOffset);
+  factory ShortcutInput(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<ShortcutInput> reader = _ShortcutInputReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  String? get canonical => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 4);
+  ShortcutInputKind get kind => ShortcutInputKind.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 6, 0));
+  ShortcutInputCategory get category => ShortcutInputCategory.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 8, 2));
+  List<String>? get aliases => const fb.ListReader<String>(fb.StringReader()).vTableGetNullable(_bc, _bcOffset, 10);
+
+  @override
+  String toString() {
+    return 'ShortcutInput{canonical: ${canonical}, kind: ${kind}, category: ${category}, aliases: ${aliases}}';
+  }
+}
+
+class _ShortcutInputReader extends fb.TableReader<ShortcutInput> {
+  const _ShortcutInputReader();
+
+  @override
+  ShortcutInput createObject(fb.BufferContext bc, int offset) => 
+    ShortcutInput._(bc, offset);
+}
+
+class ShortcutInputBuilder {
+  ShortcutInputBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(4);
+  }
+
+  int addCanonicalOffset(int? offset) {
+    fbBuilder.addOffset(0, offset);
+    return fbBuilder.offset;
+  }
+  int addKind(ShortcutInputKind? kind) {
+    fbBuilder.addUint8(1, kind?.value);
+    return fbBuilder.offset;
+  }
+  int addCategory(ShortcutInputCategory? category) {
+    fbBuilder.addUint8(2, category?.value);
+    return fbBuilder.offset;
+  }
+  int addAliasesOffset(int? offset) {
+    fbBuilder.addOffset(3, offset);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class ShortcutInputObjectBuilder extends fb.ObjectBuilder {
+  final String? _canonical;
+  final ShortcutInputKind? _kind;
+  final ShortcutInputCategory? _category;
+  final List<String>? _aliases;
+
+  ShortcutInputObjectBuilder({
+    String? canonical,
+    ShortcutInputKind? kind,
+    ShortcutInputCategory? category,
+    List<String>? aliases,
+  })
+      : _canonical = canonical,
+        _kind = kind,
+        _category = category,
+        _aliases = aliases;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    final int? canonicalOffset = _canonical == null ? null
+        : fbBuilder.writeString(_canonical!);
+    final int? aliasesOffset = _aliases == null ? null
+        : fbBuilder.writeList(_aliases!.map(fbBuilder.writeString).toList());
+    fbBuilder.startTable(4);
+    fbBuilder.addOffset(0, canonicalOffset);
+    fbBuilder.addUint8(1, _kind?.value);
+    fbBuilder.addUint8(2, _category?.value);
+    fbBuilder.addOffset(3, aliasesOffset);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
+class ShortcutConfiguration {
+  ShortcutConfiguration._(this._bc, this._bcOffset);
+  factory ShortcutConfiguration(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<ShortcutConfiguration> reader = _ShortcutConfigurationReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  List<ShortcutBinding>? get shortcuts => const fb.ListReader<ShortcutBinding>(ShortcutBinding.reader).vTableGetNullable(_bc, _bcOffset, 4);
+  List<ShortcutActionKind>? get supportedActions => const fb.ListReader<ShortcutActionKind>(ShortcutActionKind.reader).vTableGetNullable(_bc, _bcOffset, 6);
+  List<ShortcutInput>? get supportedInputs => const fb.ListReader<ShortcutInput>(ShortcutInput.reader).vTableGetNullable(_bc, _bcOffset, 8);
+
+  @override
+  String toString() {
+    return 'ShortcutConfiguration{shortcuts: ${shortcuts}, supportedActions: ${supportedActions}, supportedInputs: ${supportedInputs}}';
+  }
+}
+
+class _ShortcutConfigurationReader extends fb.TableReader<ShortcutConfiguration> {
+  const _ShortcutConfigurationReader();
+
+  @override
+  ShortcutConfiguration createObject(fb.BufferContext bc, int offset) => 
+    ShortcutConfiguration._(bc, offset);
+}
+
+class ShortcutConfigurationBuilder {
+  ShortcutConfigurationBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(3);
+  }
+
+  int addShortcutsOffset(int? offset) {
+    fbBuilder.addOffset(0, offset);
+    return fbBuilder.offset;
+  }
+  int addSupportedActionsOffset(int? offset) {
+    fbBuilder.addOffset(1, offset);
+    return fbBuilder.offset;
+  }
+  int addSupportedInputsOffset(int? offset) {
+    fbBuilder.addOffset(2, offset);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class ShortcutConfigurationObjectBuilder extends fb.ObjectBuilder {
+  final List<ShortcutBindingObjectBuilder>? _shortcuts;
+  final List<ShortcutActionKind>? _supportedActions;
+  final List<ShortcutInputObjectBuilder>? _supportedInputs;
+
+  ShortcutConfigurationObjectBuilder({
+    List<ShortcutBindingObjectBuilder>? shortcuts,
+    List<ShortcutActionKind>? supportedActions,
+    List<ShortcutInputObjectBuilder>? supportedInputs,
+  })
+      : _shortcuts = shortcuts,
+        _supportedActions = supportedActions,
+        _supportedInputs = supportedInputs;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    final int? shortcutsOffset = _shortcuts == null ? null
+        : fbBuilder.writeList(_shortcuts!.map((b) => b.getOrCreateOffset(fbBuilder)).toList());
+    final int? supportedActionsOffset = _supportedActions == null ? null
+        : fbBuilder.writeListUint8(_supportedActions!.map((f) => f.value).toList());
+    final int? supportedInputsOffset = _supportedInputs == null ? null
+        : fbBuilder.writeList(_supportedInputs!.map((b) => b.getOrCreateOffset(fbBuilder)).toList());
+    fbBuilder.startTable(3);
+    fbBuilder.addOffset(0, shortcutsOffset);
+    fbBuilder.addOffset(1, supportedActionsOffset);
+    fbBuilder.addOffset(2, supportedInputsOffset);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
+class ShortcutValidation {
+  ShortcutValidation._(this._bc, this._bcOffset);
+  factory ShortcutValidation(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<ShortcutValidation> reader = _ShortcutValidationReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  ShortcutValidationKind get kind => ShortcutValidationKind.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 4, 0));
+  String? get canonical => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 6);
+  ShortcutBinding? get conflict => ShortcutBinding.reader.vTableGetNullable(_bc, _bcOffset, 8);
+  String? get error => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 10);
+
+  @override
+  String toString() {
+    return 'ShortcutValidation{kind: ${kind}, canonical: ${canonical}, conflict: ${conflict}, error: ${error}}';
+  }
+}
+
+class _ShortcutValidationReader extends fb.TableReader<ShortcutValidation> {
+  const _ShortcutValidationReader();
+
+  @override
+  ShortcutValidation createObject(fb.BufferContext bc, int offset) => 
+    ShortcutValidation._(bc, offset);
+}
+
+class ShortcutValidationBuilder {
+  ShortcutValidationBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(4);
+  }
+
+  int addKind(ShortcutValidationKind? kind) {
+    fbBuilder.addUint8(0, kind?.value);
+    return fbBuilder.offset;
+  }
+  int addCanonicalOffset(int? offset) {
+    fbBuilder.addOffset(1, offset);
+    return fbBuilder.offset;
+  }
+  int addConflictOffset(int? offset) {
+    fbBuilder.addOffset(2, offset);
+    return fbBuilder.offset;
+  }
+  int addErrorOffset(int? offset) {
+    fbBuilder.addOffset(3, offset);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class ShortcutValidationObjectBuilder extends fb.ObjectBuilder {
+  final ShortcutValidationKind? _kind;
+  final String? _canonical;
+  final ShortcutBindingObjectBuilder? _conflict;
+  final String? _error;
+
+  ShortcutValidationObjectBuilder({
+    ShortcutValidationKind? kind,
+    String? canonical,
+    ShortcutBindingObjectBuilder? conflict,
+    String? error,
+  })
+      : _kind = kind,
+        _canonical = canonical,
+        _conflict = conflict,
+        _error = error;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    final int? canonicalOffset = _canonical == null ? null
+        : fbBuilder.writeString(_canonical!);
+    final int? conflictOffset = _conflict?.getOrCreateOffset(fbBuilder);
+    final int? errorOffset = _error == null ? null
+        : fbBuilder.writeString(_error!);
+    fbBuilder.startTable(4);
+    fbBuilder.addUint8(0, _kind?.value);
+    fbBuilder.addOffset(1, canonicalOffset);
+    fbBuilder.addOffset(2, conflictOffset);
+    fbBuilder.addOffset(3, errorOffset);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
 class SettingsRequest {
   SettingsRequest._(this._bc, this._bcOffset);
   factory SettingsRequest(List<int> bytes) {
@@ -3165,10 +4023,12 @@ class SettingsRequest {
   int get expectedRevision => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 6, 0);
   String? get document => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 8);
   KeyboardConfiguration? get keyboard => KeyboardConfiguration.reader.vTableGetNullable(_bc, _bcOffset, 10);
+  ShortcutBinding? get shortcut => ShortcutBinding.reader.vTableGetNullable(_bc, _bcOffset, 12);
+  String? get existingShortcut => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 14);
 
   @override
   String toString() {
-    return 'SettingsRequest{kind: ${kind}, expectedRevision: ${expectedRevision}, document: ${document}, keyboard: ${keyboard}}';
+    return 'SettingsRequest{kind: ${kind}, expectedRevision: ${expectedRevision}, document: ${document}, keyboard: ${keyboard}, shortcut: ${shortcut}, existingShortcut: ${existingShortcut}}';
   }
 }
 
@@ -3186,7 +4046,7 @@ class SettingsRequestBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(4);
+    fbBuilder.startTable(6);
   }
 
   int addKind(SettingsRequestKind? kind) {
@@ -3205,6 +4065,14 @@ class SettingsRequestBuilder {
     fbBuilder.addOffset(3, offset);
     return fbBuilder.offset;
   }
+  int addShortcutOffset(int? offset) {
+    fbBuilder.addOffset(4, offset);
+    return fbBuilder.offset;
+  }
+  int addExistingShortcutOffset(int? offset) {
+    fbBuilder.addOffset(5, offset);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -3216,17 +4084,23 @@ class SettingsRequestObjectBuilder extends fb.ObjectBuilder {
   final int? _expectedRevision;
   final String? _document;
   final KeyboardConfigurationObjectBuilder? _keyboard;
+  final ShortcutBindingObjectBuilder? _shortcut;
+  final String? _existingShortcut;
 
   SettingsRequestObjectBuilder({
     SettingsRequestKind? kind,
     int? expectedRevision,
     String? document,
     KeyboardConfigurationObjectBuilder? keyboard,
+    ShortcutBindingObjectBuilder? shortcut,
+    String? existingShortcut,
   })
       : _kind = kind,
         _expectedRevision = expectedRevision,
         _document = document,
-        _keyboard = keyboard;
+        _keyboard = keyboard,
+        _shortcut = shortcut,
+        _existingShortcut = existingShortcut;
 
   /// Finish building, and store into the [fbBuilder].
   @override
@@ -3234,11 +4108,16 @@ class SettingsRequestObjectBuilder extends fb.ObjectBuilder {
     final int? documentOffset = _document == null ? null
         : fbBuilder.writeString(_document!);
     final int? keyboardOffset = _keyboard?.getOrCreateOffset(fbBuilder);
-    fbBuilder.startTable(4);
+    final int? shortcutOffset = _shortcut?.getOrCreateOffset(fbBuilder);
+    final int? existingShortcutOffset = _existingShortcut == null ? null
+        : fbBuilder.writeString(_existingShortcut!);
+    fbBuilder.startTable(6);
     fbBuilder.addUint8(0, _kind?.value);
     fbBuilder.addUint64(1, _expectedRevision);
     fbBuilder.addOffset(2, documentOffset);
     fbBuilder.addOffset(3, keyboardOffset);
+    fbBuilder.addOffset(4, shortcutOffset);
+    fbBuilder.addOffset(5, existingShortcutOffset);
     return fbBuilder.endTable();
   }
 
@@ -3268,10 +4147,12 @@ class SettingsResponse {
   String? get document => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 10);
   KeyboardConfiguration? get keyboard => KeyboardConfiguration.reader.vTableGetNullable(_bc, _bcOffset, 12);
   String? get error => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 14);
+  ShortcutConfiguration? get shortcuts => ShortcutConfiguration.reader.vTableGetNullable(_bc, _bcOffset, 16);
+  ShortcutValidation? get shortcutValidation => ShortcutValidation.reader.vTableGetNullable(_bc, _bcOffset, 18);
 
   @override
   String toString() {
-    return 'SettingsResponse{kind: ${kind}, success: ${success}, revision: ${revision}, document: ${document}, keyboard: ${keyboard}, error: ${error}}';
+    return 'SettingsResponse{kind: ${kind}, success: ${success}, revision: ${revision}, document: ${document}, keyboard: ${keyboard}, error: ${error}, shortcuts: ${shortcuts}, shortcutValidation: ${shortcutValidation}}';
   }
 }
 
@@ -3289,7 +4170,7 @@ class SettingsResponseBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(6);
+    fbBuilder.startTable(8);
   }
 
   int addKind(SettingsResponseKind? kind) {
@@ -3316,6 +4197,14 @@ class SettingsResponseBuilder {
     fbBuilder.addOffset(5, offset);
     return fbBuilder.offset;
   }
+  int addShortcutsOffset(int? offset) {
+    fbBuilder.addOffset(6, offset);
+    return fbBuilder.offset;
+  }
+  int addShortcutValidationOffset(int? offset) {
+    fbBuilder.addOffset(7, offset);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -3329,6 +4218,8 @@ class SettingsResponseObjectBuilder extends fb.ObjectBuilder {
   final String? _document;
   final KeyboardConfigurationObjectBuilder? _keyboard;
   final String? _error;
+  final ShortcutConfigurationObjectBuilder? _shortcuts;
+  final ShortcutValidationObjectBuilder? _shortcutValidation;
 
   SettingsResponseObjectBuilder({
     SettingsResponseKind? kind,
@@ -3337,13 +4228,17 @@ class SettingsResponseObjectBuilder extends fb.ObjectBuilder {
     String? document,
     KeyboardConfigurationObjectBuilder? keyboard,
     String? error,
+    ShortcutConfigurationObjectBuilder? shortcuts,
+    ShortcutValidationObjectBuilder? shortcutValidation,
   })
       : _kind = kind,
         _success = success,
         _revision = revision,
         _document = document,
         _keyboard = keyboard,
-        _error = error;
+        _error = error,
+        _shortcuts = shortcuts,
+        _shortcutValidation = shortcutValidation;
 
   /// Finish building, and store into the [fbBuilder].
   @override
@@ -3353,13 +4248,17 @@ class SettingsResponseObjectBuilder extends fb.ObjectBuilder {
     final int? keyboardOffset = _keyboard?.getOrCreateOffset(fbBuilder);
     final int? errorOffset = _error == null ? null
         : fbBuilder.writeString(_error!);
-    fbBuilder.startTable(6);
+    final int? shortcutsOffset = _shortcuts?.getOrCreateOffset(fbBuilder);
+    final int? shortcutValidationOffset = _shortcutValidation?.getOrCreateOffset(fbBuilder);
+    fbBuilder.startTable(8);
     fbBuilder.addUint8(0, _kind?.value);
     fbBuilder.addBool(1, _success);
     fbBuilder.addUint64(2, _revision);
     fbBuilder.addOffset(3, documentOffset);
     fbBuilder.addOffset(4, keyboardOffset);
     fbBuilder.addOffset(5, errorOffset);
+    fbBuilder.addOffset(6, shortcutsOffset);
+    fbBuilder.addOffset(7, shortcutValidationOffset);
     return fbBuilder.endTable();
   }
 

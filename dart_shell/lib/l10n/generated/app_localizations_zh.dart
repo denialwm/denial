@@ -1626,6 +1626,249 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsKeyboardInvalidLayouts => '请输入至少一个有效的 XKB 布局。';
 
   @override
+  String get settingsShortcutsSection => '快捷键';
+
+  @override
+  String get settingsShortcutsTitle => '选择按下快捷键时 Denial 执行的操作。';
+
+  @override
+  String settingsShortcutsConfigured(int count) {
+    return '$count 个快捷键';
+  }
+
+  @override
+  String get settingsShortcutsAdd => '添加快捷键';
+
+  @override
+  String get settingsShortcutsLoading => '正在从合成器读取快捷键…';
+
+  @override
+  String get settingsShortcutsUnavailable => '合成器快捷键配置不可用。';
+
+  @override
+  String get settingsShortcutsRetry => '重试';
+
+  @override
+  String get settingsShortcutsEmpty => '尚未配置快捷键。添加一个即可更快触发操作。';
+
+  @override
+  String settingsShortcutsRowSemantics(String shortcut, String action) {
+    return '$shortcut，$action';
+  }
+
+  @override
+  String settingsShortcutsDeleteTooltip(String shortcut) {
+    return '删除 $shortcut';
+  }
+
+  @override
+  String get settingsShortcutEditorAddTitle => '添加快捷键';
+
+  @override
+  String get settingsShortcutEditorEditTitle => '编辑快捷键';
+
+  @override
+  String get settingsShortcutEditorDescription => '输入快捷键并选择其运行内容，保存前由合成器检查。';
+
+  @override
+  String get settingsShortcutEditorShortcutLabel => '快捷键';
+
+  @override
+  String get settingsShortcutEditorShortcutHint => 'Super+K';
+
+  @override
+  String get settingsShortcutEditorShortcutExample =>
+      '示例：Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeUp';
+
+  @override
+  String get settingsShortcutEditorSupportedInputs => '支持的输入';
+
+  @override
+  String get settingsShortcutEditorTargetLabel => '运行';
+
+  @override
+  String get settingsShortcutEditorTargetAction => 'Denial 操作';
+
+  @override
+  String get settingsShortcutEditorTargetProgram => '程序';
+
+  @override
+  String get settingsShortcutEditorTargetShell => 'Shell 命令';
+
+  @override
+  String get settingsShortcutEditorProgramDescription =>
+      '直接运行程序，不经过 Shell。每个参数都会按原样传递。';
+
+  @override
+  String get settingsShortcutEditorProgramLabel => '程序';
+
+  @override
+  String get settingsShortcutEditorProgramHint => 'foot';
+
+  @override
+  String get settingsShortcutEditorArgumentsLabel => '参数';
+
+  @override
+  String get settingsShortcutEditorAddArgument => '添加参数';
+
+  @override
+  String get settingsShortcutEditorNoArguments => '无参数';
+
+  @override
+  String settingsShortcutEditorArgumentLabel(int index) {
+    return '参数 $index';
+  }
+
+  @override
+  String get settingsShortcutEditorArgumentHint => '--option';
+
+  @override
+  String settingsShortcutEditorRemoveArgument(int index) {
+    return '移除参数 $index';
+  }
+
+  @override
+  String get settingsShortcutEditorShellDescription =>
+      '通过 sh -c 运行一条命令。支持 Shell 变量、管道、重定向和命令串联。';
+
+  @override
+  String get settingsShortcutEditorShellCommandLabel => 'Shell 命令';
+
+  @override
+  String get settingsShortcutEditorShellCommandHint =>
+      'grim -g \"\$(slurp)\" ~/Pictures/capture.png';
+
+  @override
+  String get settingsShortcutEditorChooseAction => '选择操作';
+
+  @override
+  String get settingsShortcutEditorValidating => '正在通过合成器检查…';
+
+  @override
+  String settingsShortcutEditorValid(String shortcut) {
+    return '识别为 $shortcut';
+  }
+
+  @override
+  String settingsShortcutEditorConflict(String shortcut, String action) {
+    return '$shortcut 已分配给“$action”。';
+  }
+
+  @override
+  String get settingsShortcutEditorSearch => '搜索';
+
+  @override
+  String get settingsShortcutEditorNoResults => '没有匹配的项目。';
+
+  @override
+  String get settingsShortcutEditorBack => '返回快捷键编辑器';
+
+  @override
+  String get settingsShortcutEditorDone => '完成';
+
+  @override
+  String get settingsShortcutEditorCancel => '取消';
+
+  @override
+  String get settingsShortcutEditorSave => '保存';
+
+  @override
+  String get settingsShortcutEditorSaving => '正在保存…';
+
+  @override
+  String get settingsShortcutEditorDelete => '删除';
+
+  @override
+  String get settingsShortcutGestureThreeFingerSwipeUp => '三指向上轻扫';
+
+  @override
+  String get settingsShortcutInputCategoryModifier => '修饰键';
+
+  @override
+  String get settingsShortcutInputCategoryNavigation => '导航';
+
+  @override
+  String get settingsShortcutInputCategoryEditing => '编辑';
+
+  @override
+  String get settingsShortcutInputCategoryPunctuation => '标点';
+
+  @override
+  String get settingsShortcutInputCategoryFunction => '功能键';
+
+  @override
+  String get settingsShortcutInputCategoryMedia => '媒体';
+
+  @override
+  String get settingsShortcutInputCategoryHardware => '硬件';
+
+  @override
+  String get settingsShortcutInputCategorySpecial => '特殊键';
+
+  @override
+  String get settingsShortcutInputCategoryGesture => '手势';
+
+  @override
+  String get settingsShortcutActionShutdown => '关机';
+
+  @override
+  String get settingsShortcutActionOpenApplications => '打开应用列表';
+
+  @override
+  String get settingsShortcutActionOpenOverview => '打开概览';
+
+  @override
+  String get settingsShortcutActionToggleVerticalMaximize => '垂直最大化';
+
+  @override
+  String get settingsShortcutActionWindowSwitcher => '切换窗口';
+
+  @override
+  String get settingsShortcutActionOpenClipboard => '打开剪贴板';
+
+  @override
+  String get settingsShortcutActionCaptureRegion => '截取区域';
+
+  @override
+  String get settingsShortcutActionCloseWindow => '关闭窗口';
+
+  @override
+  String get settingsShortcutActionMinimizeWindow => '最小化窗口';
+
+  @override
+  String get settingsShortcutActionToggleMaximize => '最大化或还原';
+
+  @override
+  String get settingsShortcutActionToggleFullscreen => '进入或退出全屏';
+
+  @override
+  String get settingsShortcutActionReleasePointer => '释放指针';
+
+  @override
+  String get settingsShortcutActionLockScreen => '锁定屏幕';
+
+  @override
+  String get settingsShortcutActionVolumeUp => '增大音量';
+
+  @override
+  String get settingsShortcutActionVolumeDown => '减小音量';
+
+  @override
+  String get settingsShortcutActionVolumeMute => '静音或取消静音';
+
+  @override
+  String get settingsShortcutActionBrightnessUp => '提高亮度';
+
+  @override
+  String get settingsShortcutActionBrightnessDown => '降低亮度';
+
+  @override
+  String get settingsShortcutActionNextKeyboardLayout => '下一个键盘布局';
+
+  @override
+  String get settingsShortcutActionPreviousKeyboardLayout => '上一个键盘布局';
+
+  @override
   String get settingsLayoutDescription => '控制普通窗口和最大化窗口周围的预留间距。';
 
   @override
@@ -1851,6 +2094,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsNavigationKeyboard => '键盘';
+
+  @override
+  String get settingsNavigationShortcuts => '快捷键';
 
   @override
   String get settingsNavigationLockScreen => '锁屏';

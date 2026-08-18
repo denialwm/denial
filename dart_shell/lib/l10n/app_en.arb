@@ -2364,6 +2364,347 @@
   "@settingsKeyboardInvalidLayouts": {
     "description": "Validation error for the keyboard layouts field."
   },
+  "settingsShortcutsSection": "SHORTCUTS",
+  "@settingsShortcutsSection": {
+    "description": "Eyebrow label for the configured shortcuts page."
+  },
+  "settingsShortcutsTitle": "Choose what Denial does when a shortcut is pressed.",
+  "@settingsShortcutsTitle": {
+    "description": "Description of the configured shortcuts page."
+  },
+  "settingsShortcutsConfigured": "{count, plural, =0 {No shortcuts} =1 {1 shortcut} other {{count} shortcuts}}",
+  "@settingsShortcutsConfigured": {
+    "description": "Number of shortcuts currently configured.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsShortcutsAdd": "Add shortcut",
+  "@settingsShortcutsAdd": {
+    "description": "Button label for adding a shortcut."
+  },
+  "settingsShortcutsLoading": "Reading shortcuts from the compositor…",
+  "@settingsShortcutsLoading": {
+    "description": "Loading message for the configured shortcut list."
+  },
+  "settingsShortcutsUnavailable": "The compositor shortcut configuration is unavailable.",
+  "@settingsShortcutsUnavailable": {
+    "description": "Message shown when configured shortcuts cannot be loaded."
+  },
+  "settingsShortcutsRetry": "Retry",
+  "@settingsShortcutsRetry": {
+    "description": "Button label for retrying a shortcut configuration read."
+  },
+  "settingsShortcutsEmpty": "No shortcuts are configured. Add one to make an action easier to reach.",
+  "@settingsShortcutsEmpty": {
+    "description": "Empty state message for the configured shortcut list."
+  },
+  "settingsShortcutsRowSemantics": "{shortcut}, {action}",
+  "@settingsShortcutsRowSemantics": {
+    "description": "Accessibility summary for a configured shortcut row.",
+    "placeholders": {
+      "shortcut": {
+        "type": "String"
+      },
+      "action": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsShortcutsDeleteTooltip": "Delete {shortcut}",
+  "@settingsShortcutsDeleteTooltip": {
+    "description": "Tooltip for deleting a configured shortcut.",
+    "placeholders": {
+      "shortcut": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsShortcutEditorAddTitle": "Add shortcut",
+  "@settingsShortcutEditorAddTitle": {
+    "description": "Title of the shortcut editor when adding a binding."
+  },
+  "settingsShortcutEditorEditTitle": "Edit shortcut",
+  "@settingsShortcutEditorEditTitle": {
+    "description": "Title of the shortcut editor when editing a binding."
+  },
+  "settingsShortcutEditorDescription": "Write a shortcut, choose what it runs, and let the compositor check it before saving.",
+  "@settingsShortcutEditorDescription": {
+    "description": "Introductory text in the shortcut editor."
+  },
+  "settingsShortcutEditorShortcutLabel": "Shortcut",
+  "@settingsShortcutEditorShortcutLabel": {
+    "description": "Label for the shortcut expression field."
+  },
+  "settingsShortcutEditorShortcutHint": "Super+K",
+  "@settingsShortcutEditorShortcutHint": {
+    "description": "Example shown in an empty shortcut expression field."
+  },
+  "settingsShortcutEditorShortcutExample": "Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeUp",
+  "@settingsShortcutEditorShortcutExample": {
+    "description": "Persistent examples of accepted shortcut expression formats."
+  },
+  "settingsShortcutEditorSupportedInputs": "Supported inputs",
+  "@settingsShortcutEditorSupportedInputs": {
+    "description": "Button and catalog title for supported shortcut inputs."
+  },
+  "settingsShortcutEditorTargetLabel": "Runs",
+  "@settingsShortcutEditorTargetLabel": {
+    "description": "Label for choosing what a shortcut runs."
+  },
+  "settingsShortcutEditorTargetAction": "Denial action",
+  "@settingsShortcutEditorTargetAction": {
+    "description": "Shortcut target option for a built-in Denial action."
+  },
+  "settingsShortcutEditorTargetProgram": "Program",
+  "@settingsShortcutEditorTargetProgram": {
+    "description": "Shortcut target option for directly spawning a program."
+  },
+  "settingsShortcutEditorTargetShell": "Shell command",
+  "@settingsShortcutEditorTargetShell": {
+    "description": "Shortcut target option for a command run through sh."
+  },
+  "settingsShortcutEditorProgramDescription": "Run a program directly, without a shell. Every argument is passed exactly as written.",
+  "@settingsShortcutEditorProgramDescription": {
+    "description": "Explanation of direct Niri-style program execution."
+  },
+  "settingsShortcutEditorProgramLabel": "Program",
+  "@settingsShortcutEditorProgramLabel": {
+    "description": "Label for the directly executed program."
+  },
+  "settingsShortcutEditorProgramHint": "foot",
+  "@settingsShortcutEditorProgramHint": {
+    "description": "Example executable in the direct program field."
+  },
+  "settingsShortcutEditorArgumentsLabel": "Arguments",
+  "@settingsShortcutEditorArgumentsLabel": {
+    "description": "Label above a direct program's argument list."
+  },
+  "settingsShortcutEditorAddArgument": "Add argument",
+  "@settingsShortcutEditorAddArgument": {
+    "description": "Button for appending one direct program argument."
+  },
+  "settingsShortcutEditorNoArguments": "No arguments",
+  "@settingsShortcutEditorNoArguments": {
+    "description": "Empty state for a direct program's argument list."
+  },
+  "settingsShortcutEditorArgumentLabel": "Argument {index}",
+  "@settingsShortcutEditorArgumentLabel": {
+    "description": "Label for one direct program argument.",
+    "placeholders": {
+      "index": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsShortcutEditorArgumentHint": "--option",
+  "@settingsShortcutEditorArgumentHint": {
+    "description": "Example direct program argument."
+  },
+  "settingsShortcutEditorRemoveArgument": "Remove argument {index}",
+  "@settingsShortcutEditorRemoveArgument": {
+    "description": "Tooltip for removing one direct program argument.",
+    "placeholders": {
+      "index": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsShortcutEditorShellDescription": "Run one command through sh -c. Shell variables, pipelines, redirects, and command chaining are supported.",
+  "@settingsShortcutEditorShellDescription": {
+    "description": "Explanation of Niri-style shell command execution."
+  },
+  "settingsShortcutEditorShellCommandLabel": "Shell command",
+  "@settingsShortcutEditorShellCommandLabel": {
+    "description": "Label for the shell command field."
+  },
+  "settingsShortcutEditorShellCommandHint": "grim -g \"$(slurp)\" ~/Pictures/capture.png",
+  "@settingsShortcutEditorShellCommandHint": {
+    "description": "Example shell command."
+  },
+  "settingsShortcutEditorChooseAction": "Choose an action",
+  "@settingsShortcutEditorChooseAction": {
+    "description": "Title of the shortcut action catalog."
+  },
+  "settingsShortcutEditorValidating": "Checking with the compositor…",
+  "@settingsShortcutEditorValidating": {
+    "description": "Status shown while Rust validates a shortcut draft."
+  },
+  "settingsShortcutEditorValid": "Recognized as {shortcut}",
+  "@settingsShortcutEditorValid": {
+    "description": "Status shown for a valid canonical shortcut.",
+    "placeholders": {
+      "shortcut": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsShortcutEditorConflict": "{shortcut} is already assigned to {action}.",
+  "@settingsShortcutEditorConflict": {
+    "description": "Conflict reported by the native shortcut validator.",
+    "placeholders": {
+      "shortcut": {
+        "type": "String"
+      },
+      "action": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsShortcutEditorSearch": "Search",
+  "@settingsShortcutEditorSearch": {
+    "description": "Hint for shortcut editor catalog searches."
+  },
+  "settingsShortcutEditorNoResults": "No matching entries.",
+  "@settingsShortcutEditorNoResults": {
+    "description": "Empty result message for shortcut editor catalogs."
+  },
+  "settingsShortcutEditorBack": "Back to shortcut editor",
+  "@settingsShortcutEditorBack": {
+    "description": "Tooltip for returning from a shortcut catalog."
+  },
+  "settingsShortcutEditorDone": "Done",
+  "@settingsShortcutEditorDone": {
+    "description": "Button label for closing the supported input catalog."
+  },
+  "settingsShortcutEditorCancel": "Cancel",
+  "@settingsShortcutEditorCancel": {
+    "description": "Button label for closing the shortcut editor."
+  },
+  "settingsShortcutEditorSave": "Save",
+  "@settingsShortcutEditorSave": {
+    "description": "Button label for saving a shortcut."
+  },
+  "settingsShortcutEditorSaving": "Saving…",
+  "@settingsShortcutEditorSaving": {
+    "description": "Button label while a shortcut mutation is running."
+  },
+  "settingsShortcutEditorDelete": "Delete",
+  "@settingsShortcutEditorDelete": {
+    "description": "Button label for deleting the shortcut being edited."
+  },
+  "settingsShortcutGestureThreeFingerSwipeUp": "Three-finger swipe up",
+  "@settingsShortcutGestureThreeFingerSwipeUp": {
+    "description": "Friendly display name for the three-finger swipe-up gesture."
+  },
+  "settingsShortcutInputCategoryModifier": "Modifier",
+  "@settingsShortcutInputCategoryModifier": {
+    "description": "Supported shortcut input category."
+  },
+  "settingsShortcutInputCategoryNavigation": "Navigation",
+  "@settingsShortcutInputCategoryNavigation": {
+    "description": "Supported shortcut input category."
+  },
+  "settingsShortcutInputCategoryEditing": "Editing",
+  "@settingsShortcutInputCategoryEditing": {
+    "description": "Supported shortcut input category."
+  },
+  "settingsShortcutInputCategoryPunctuation": "Punctuation",
+  "@settingsShortcutInputCategoryPunctuation": {
+    "description": "Supported shortcut input category."
+  },
+  "settingsShortcutInputCategoryFunction": "Function",
+  "@settingsShortcutInputCategoryFunction": {
+    "description": "Supported shortcut input category."
+  },
+  "settingsShortcutInputCategoryMedia": "Media",
+  "@settingsShortcutInputCategoryMedia": {
+    "description": "Supported shortcut input category."
+  },
+  "settingsShortcutInputCategoryHardware": "Hardware",
+  "@settingsShortcutInputCategoryHardware": {
+    "description": "Supported shortcut input category."
+  },
+  "settingsShortcutInputCategorySpecial": "Special",
+  "@settingsShortcutInputCategorySpecial": {
+    "description": "Supported shortcut input category."
+  },
+  "settingsShortcutInputCategoryGesture": "Gesture",
+  "@settingsShortcutInputCategoryGesture": {
+    "description": "Supported shortcut input category."
+  },
+  "settingsShortcutActionShutdown": "Shut down",
+  "@settingsShortcutActionShutdown": {
+    "description": "Display name for the shutdown shortcut action."
+  },
+  "settingsShortcutActionOpenApplications": "Open applications",
+  "@settingsShortcutActionOpenApplications": {
+    "description": "Display name for the open applications shortcut action."
+  },
+  "settingsShortcutActionOpenOverview": "Open overview",
+  "@settingsShortcutActionOpenOverview": {
+    "description": "Display name for the open overview shortcut action."
+  },
+  "settingsShortcutActionToggleVerticalMaximize": "Maximize vertically",
+  "@settingsShortcutActionToggleVerticalMaximize": {
+    "description": "Display name for the vertical maximize shortcut action."
+  },
+  "settingsShortcutActionWindowSwitcher": "Switch windows",
+  "@settingsShortcutActionWindowSwitcher": {
+    "description": "Display name for the window switcher shortcut action."
+  },
+  "settingsShortcutActionOpenClipboard": "Open clipboard",
+  "@settingsShortcutActionOpenClipboard": {
+    "description": "Display name for the clipboard shortcut action."
+  },
+  "settingsShortcutActionCaptureRegion": "Capture region",
+  "@settingsShortcutActionCaptureRegion": {
+    "description": "Display name for the region capture shortcut action."
+  },
+  "settingsShortcutActionCloseWindow": "Close window",
+  "@settingsShortcutActionCloseWindow": {
+    "description": "Display name for the close window shortcut action."
+  },
+  "settingsShortcutActionMinimizeWindow": "Minimize window",
+  "@settingsShortcutActionMinimizeWindow": {
+    "description": "Display name for the minimize window shortcut action."
+  },
+  "settingsShortcutActionToggleMaximize": "Maximize or restore",
+  "@settingsShortcutActionToggleMaximize": {
+    "description": "Display name for the toggle maximize shortcut action."
+  },
+  "settingsShortcutActionToggleFullscreen": "Enter or leave fullscreen",
+  "@settingsShortcutActionToggleFullscreen": {
+    "description": "Display name for the toggle fullscreen shortcut action."
+  },
+  "settingsShortcutActionReleasePointer": "Release pointer",
+  "@settingsShortcutActionReleasePointer": {
+    "description": "Display name for the release pointer shortcut action."
+  },
+  "settingsShortcutActionLockScreen": "Lock screen",
+  "@settingsShortcutActionLockScreen": {
+    "description": "Display name for the lock screen shortcut action."
+  },
+  "settingsShortcutActionVolumeUp": "Increase volume",
+  "@settingsShortcutActionVolumeUp": {
+    "description": "Display name for the volume up shortcut action."
+  },
+  "settingsShortcutActionVolumeDown": "Decrease volume",
+  "@settingsShortcutActionVolumeDown": {
+    "description": "Display name for the volume down shortcut action."
+  },
+  "settingsShortcutActionVolumeMute": "Mute or unmute",
+  "@settingsShortcutActionVolumeMute": {
+    "description": "Display name for the volume mute shortcut action."
+  },
+  "settingsShortcutActionBrightnessUp": "Increase brightness",
+  "@settingsShortcutActionBrightnessUp": {
+    "description": "Display name for the brightness up shortcut action."
+  },
+  "settingsShortcutActionBrightnessDown": "Decrease brightness",
+  "@settingsShortcutActionBrightnessDown": {
+    "description": "Display name for the brightness down shortcut action."
+  },
+  "settingsShortcutActionNextKeyboardLayout": "Next keyboard layout",
+  "@settingsShortcutActionNextKeyboardLayout": {
+    "description": "Display name for the next keyboard layout shortcut action."
+  },
+  "settingsShortcutActionPreviousKeyboardLayout": "Previous keyboard layout",
+  "@settingsShortcutActionPreviousKeyboardLayout": {
+    "description": "Display name for the previous keyboard layout shortcut action."
+  },
   "settingsLayoutDescription": "Control the spacing reserved around ordinary and maximized windows.",
   "@settingsLayoutDescription": {
     "description": "English UI text for settingsLayoutDescription."
@@ -2656,6 +2997,10 @@
   "settingsNavigationKeyboard": "Keyboard",
   "@settingsNavigationKeyboard": {
     "description": "Settings navigation label for physical keyboard configuration."
+  },
+  "settingsNavigationShortcuts": "Shortcuts",
+  "@settingsNavigationShortcuts": {
+    "description": "Settings navigation label for configured shortcuts."
   },
   "settingsNavigationLockScreen": "Lock screen",
   "@settingsNavigationLockScreen": {

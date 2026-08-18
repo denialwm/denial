@@ -6,6 +6,7 @@ import 'package:denial_dart_shell/src/models/denial_window.dart';
 import 'package:denial_dart_shell/src/models/denial_window_snapshot.dart';
 import 'package:denial_dart_shell/src/models/shell_power_status.dart';
 import 'package:denial_dart_shell/src/localization/denial_localizations.dart';
+import 'package:denial_dart_shell/src/launcher/widgets/home_tiles.dart';
 import 'package:denial_dart_shell/src/platform/authentication_protocol.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/services/authentication_service.dart';
@@ -218,6 +219,55 @@ void main() {
         .setLockScreen(useSystemWallpaper: false);
     await tester.pump();
     expect(find.byType(ShellWallpaper), findsNothing);
+  });
+
+  testWidgets('lock screen reuses the centered Home clock presentation', (
+    tester,
+  ) async {
+    final service = _FakeAuthenticationService();
+    final bridge = _LayoutBridge(_singleOutputLayout);
+    addTearDown(() {
+      service.dispose();
+      bridge.dispose();
+    });
+
+    await tester.pumpWidget(_host(service: service, bridge: bridge));
+    service.emit(_state(locked: true));
+    await tester.pump();
+
+    final clock = find.byType(HomeClockWidget);
+    expect(clock, findsOneWidget);
+    final clockText = tester.widgetList<Text>(
+      find.descendant(of: clock, matching: find.byType(Text)),
+    );
+    expect(clockText, hasLength(2));
+    expect(
+      clockText.every((text) => text.textAlign == TextAlign.center),
+      isTrue,
+    );
+    expect(find.byIcon(Icons.memory_rounded), findsOneWidget);
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(LockScreenLayer)),
+    );
+    container
+        .read(shellSettingsProvider.notifier)
+        .setLockScreen(showSystemStatus: false);
+    await tester.pump();
+    expect(find.byIcon(Icons.memory_rounded), findsNothing);
+    expect(
+      tester.widget<HomeClockWidget>(find.byType(HomeClockWidget)).showStatus,
+      isFalse,
+    );
+
+    final gradients = tester
+        .widgetList<DecoratedBox>(find.byType(DecoratedBox))
+        .where(
+          (box) =>
+              box.decoration is BoxDecoration &&
+              (box.decoration as BoxDecoration).gradient != null,
+        );
+    expect(gradients, isEmpty);
   });
 }
 

@@ -31,6 +31,7 @@ import 'widgets/settings_lock_screen_page.dart';
 import 'widgets/settings_navigation.dart';
 import 'widgets/settings_overlays_page.dart';
 import 'widgets/settings_power_page.dart';
+import 'widgets/settings_shortcuts_page.dart';
 import 'widgets/settings_system_pages.dart';
 
 final _englishSettings = AppLocalizationsEn();
@@ -244,6 +245,7 @@ class _DenialSettingsApplicationState
         onReset: controller.resetLocalization,
       ),
       SettingsPageId.keyboard => const SettingsKeyboardPage(),
+      SettingsPageId.shortcuts => const SettingsShortcutsPage(),
       SettingsPageId.layout => SettingsLayoutPage(
         settings: settings.layout,
         displayLayout: displayLayout,

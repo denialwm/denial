@@ -54,6 +54,9 @@ mod settings;
 #[path = "deniald/system_controls.rs"]
 mod system_controls;
 #[cfg(feature = "flutter")]
+#[path = "deniald/touchpad_gestures.rs"]
+mod touchpad_gestures;
+#[cfg(feature = "flutter")]
 #[path = "deniald/ui_development.rs"]
 mod ui_development;
 #[path = "deniald/wayland_frontend.rs"]
@@ -140,7 +143,7 @@ use kms_state::{FlutterLaunchConfiguration, FlutterLauncher, flutter_pool_length
 use lifecycle::{
     InactiveDispatch, LifecycleState, ShutdownReason, TeardownGate, inactive_dispatch,
 };
-use native_shortcut::NativeEscapeShortcut;
+use native_shortcut::{NativeEscapeShortcut, ShortcutManager};
 #[cfg(feature = "flutter")]
 use notification_server::NotificationServer;
 use options::{Options, RuntimeLimit, SIMULATED_HOTPLUG_GAP_FRAMES};
@@ -305,6 +308,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         .wayland
         .then(settings::SettingsManager::load)
         .transpose()?;
+    let mut shortcuts = options.wayland.then(ShortcutManager::load).transpose()?;
     if let Some(settings) = settings.as_mut()
         && let Err(error) = settings.keyboard().compiled_layout_names()
     {
@@ -506,6 +510,9 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
             settings
                 .take()
                 .expect("Wayland settings were loaded before frontend startup"),
+            shortcuts
+                .take()
+                .expect("Wayland shortcuts were loaded before frontend startup"),
         )?;
         let x11_display = frontend.xdisplay_name();
         info!(
@@ -1314,11 +1321,15 @@ struct RuntimeState {
     #[cfg(feature = "flutter")]
     flutter_input: flutter_runtime::InputQueue,
     #[cfg(feature = "flutter")]
+    touchpad_gestures: touchpad_gestures::TouchpadGestureRecognizer,
+    #[cfg(feature = "flutter")]
     pending_window_events: PendingWindowEventQueue,
     #[cfg(feature = "flutter")]
     pending_unpublished_window_events: PendingWindowEventQueue,
     #[cfg(feature = "flutter")]
     pending_shell_actions: VecDeque<(wire::ShellAction, Option<i64>)>,
+    #[cfg(feature = "flutter")]
+    pending_shortcut_launches: VecDeque<native_shortcut::ShortcutTarget>,
     #[cfg(feature = "flutter")]
     pending_screenshot_selection: Option<OutputId>,
     #[cfg(feature = "flutter")]
@@ -2029,8 +2040,13 @@ fn run_frame_loop(
     let authentication = flutter
         .as_ref()
         .map(flutter_runtime::FlutterRuntime::authentication);
+    let native_escape_shortcut = wayland
+        .as_ref()
+        .map(|frontend| frontend.shortcuts.engine())
+        .unwrap_or_default();
     let mut events = RuntimeState {
         wayland,
+        native_escape_shortcut,
         #[cfg(feature = "flutter")]
         clipboard: flutter
             .as_ref()
@@ -2679,8 +2695,13 @@ fn run_flutter_event_loop(
     };
     let authentication = Some(flutter.authentication());
     let clipboard = flutter.clipboard();
+    let native_escape_shortcut = wayland
+        .as_ref()
+        .map(|frontend| frontend.shortcuts.engine())
+        .unwrap_or_default();
     let mut events = RuntimeState {
         wayland,
+        native_escape_shortcut,
         clipboard,
         system_controls,
         notification_server,
@@ -4536,9 +4557,31 @@ fn synchronize_flutter_window_management(
 ) -> Result<(), Box<dyn Error>> {
     if events.secure_session_locked() {
         events.pending_shell_actions.clear();
+        events.pending_shortcut_launches.clear();
         while runtime.take_application_launch().is_some() {}
         runtime.drain_window_commands().for_each(drop);
     } else {
+        while let Some(target) = events.pending_shortcut_launches.pop_front() {
+            let activation_token = events
+                .wayland
+                .as_mut()
+                .map(wayland_frontend::WaylandFrontend::create_launch_activation_token);
+            let result = match target {
+                native_shortcut::ShortcutTarget::Spawn { command } => {
+                    runtime.start_shortcut_application(command, false, activation_token.as_deref())
+                }
+                native_shortcut::ShortcutTarget::SpawnSh { command } => runtime
+                    .start_shortcut_application(
+                        vec!["sh".to_owned(), "-c".to_owned(), command],
+                        true,
+                        activation_token.as_deref(),
+                    ),
+                native_shortcut::ShortcutTarget::DenialAction { .. } => continue,
+            };
+            if let Err(error) = result {
+                warn!(%error, "could not launch command requested by shortcut");
+            }
+        }
         while let Some(launch) = runtime.take_application_launch() {
             let activation_token = events
                 .wayland
@@ -4761,6 +4804,79 @@ fn synchronize_settings(
                         .as_deref(),
                 )?;
             }
+            wire::SettingsCommand::ReadShortcuts { request_id } => {
+                send_shortcut_settings(runtime, events, request_id, None)?;
+            }
+            wire::SettingsCommand::ValidateShortcut {
+                request_id,
+                shortcut,
+                existing_shortcut,
+            } => {
+                let (revision, validation) = {
+                    let manager = &events
+                        .wayland
+                        .as_ref()
+                        .ok_or("shortcut validation has no Wayland frontend")?
+                        .shortcuts;
+                    (
+                        manager.revision(),
+                        manager.validate_shortcut(&shortcut, existing_shortcut.as_deref()),
+                    )
+                };
+                runtime.send_shortcut_validation_response(request_id, revision, &validation)?;
+            }
+            wire::SettingsCommand::AddShortcut {
+                request_id,
+                expected_revision,
+                shortcut,
+            } => {
+                let prepared = events
+                    .wayland
+                    .as_ref()
+                    .ok_or("shortcut update has no Wayland frontend")?
+                    .shortcuts
+                    .prepare_add(expected_revision, shortcut);
+                apply_shortcut_update(runtime, events, request_id, prepared)?;
+            }
+            wire::SettingsCommand::UpdateShortcut {
+                request_id,
+                expected_revision,
+                existing_shortcut,
+                shortcut,
+            } => {
+                let prepared = events
+                    .wayland
+                    .as_ref()
+                    .ok_or("shortcut update has no Wayland frontend")?
+                    .shortcuts
+                    .prepare_update(expected_revision, &existing_shortcut, shortcut);
+                apply_shortcut_update(runtime, events, request_id, prepared)?;
+            }
+            wire::SettingsCommand::RemoveShortcut {
+                request_id,
+                expected_revision,
+                shortcut,
+            } => {
+                let prepared = events
+                    .wayland
+                    .as_ref()
+                    .ok_or("shortcut removal has no Wayland frontend")?
+                    .shortcuts
+                    .prepare_remove(expected_revision, &shortcut);
+                apply_shortcut_update(runtime, events, request_id, prepared)?;
+            }
+            wire::SettingsCommand::RestoreShortcuts {
+                request_id,
+                expected_revision,
+            } => {
+                let prepared = events
+                    .wayland
+                    .as_ref()
+                    .ok_or("shortcut restore has no Wayland frontend")?
+                    .shortcuts
+                    .prepare_restore(expected_revision);
+                apply_shortcut_update(runtime, events, request_id, prepared)?;
+            }
         }
     }
 
@@ -4772,6 +4888,75 @@ fn synchronize_settings(
         send_keyboard_settings(runtime, events, 0, None)?;
     }
     Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn apply_shortcut_update(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &mut RuntimeState,
+    request_id: u64,
+    prepared: Result<native_shortcut::PreparedShortcutUpdate, native_shortcut::ShortcutError>,
+) -> Result<(), Box<dyn Error>> {
+    let result = match prepared {
+        Ok(mut prepared) => {
+            let candidate_engine = prepared.take_engine();
+            let previous_engine =
+                std::mem::replace(&mut events.native_escape_shortcut, candidate_engine);
+            let result = events
+                .wayland
+                .as_mut()
+                .ok_or("shortcut commit has no Wayland frontend")?
+                .shortcuts
+                .commit(prepared);
+            if result.is_err() {
+                events.native_escape_shortcut = previous_engine;
+            } else {
+                info!(
+                    revision = events
+                        .wayland
+                        .as_ref()
+                        .expect("missing Wayland frontend")
+                        .shortcuts
+                        .revision(),
+                    "applied persistent shortcut configuration"
+                );
+            }
+            result
+        }
+        Err(error) => Err(error),
+    };
+    send_shortcut_settings(
+        runtime,
+        events,
+        request_id,
+        result
+            .as_ref()
+            .err()
+            .map(|error| error.to_string())
+            .as_deref(),
+    )
+}
+
+#[cfg(feature = "flutter")]
+fn send_shortcut_settings(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &RuntimeState,
+    request_id: u64,
+    error: Option<&str>,
+) -> Result<(), Box<dyn Error>> {
+    let manager = &events
+        .wayland
+        .as_ref()
+        .ok_or("shortcut response has no Wayland frontend")?
+        .shortcuts;
+    let supported_inputs = native_shortcut::supported_inputs();
+    runtime.send_shortcut_configuration_response(
+        request_id,
+        manager.revision(),
+        &manager.file().shortcuts,
+        &supported_inputs,
+        error,
+    )
 }
 
 #[cfg(feature = "flutter")]

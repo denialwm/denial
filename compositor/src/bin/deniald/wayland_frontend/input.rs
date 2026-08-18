@@ -3,8 +3,8 @@ use std::error::Error;
 
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, AxisSource, ButtonState, Device, DeviceCapability, Event,
-    InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
-    PointerMotionEvent, TouchEvent,
+    GestureBeginEvent, GestureSwipeUpdateEvent, InputEvent, KeyState, KeyboardKeyEvent,
+    PointerAxisEvent, PointerButtonEvent, PointerMotionEvent, TouchEvent,
 };
 use smithay::backend::libinput::{LibinputInputBackend, LibinputSessionInterface};
 use smithay::backend::session::libseat::LibSeatSession;
@@ -22,9 +22,9 @@ use smithay::input::touch::{DownEvent, MotionEvent as TouchMotionEvent, UpEvent}
 use smithay::reexports::calloop::EventLoop;
 #[cfg(feature = "flutter")]
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
-use smithay::reexports::input::Libinput;
 use smithay::reexports::input::event::pointer::PointerEventTrait;
 use smithay::reexports::input::event::touch::TouchEventTrait;
+use smithay::reexports::input::{Device as LibinputDevice, Libinput, TapButtonMap};
 #[cfg(feature = "flutter")]
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 #[cfg(feature = "flutter")]
@@ -44,7 +44,7 @@ use super::super::lifecycle::LifecycleState;
 use super::super::lifecycle::ShutdownReason;
 #[cfg(test)]
 use super::super::native_shortcut::NativeEscapeShortcut;
-use super::super::native_shortcut::ShortcutDisposition;
+use super::super::native_shortcut::{ShortcutDisposition, ShortcutTarget};
 #[cfg(feature = "flutter")]
 use super::super::settings::KeyboardSettings;
 #[cfg(feature = "flutter")]
@@ -890,7 +890,105 @@ fn process_keyboard_transition(
     true
 }
 
-fn process_input_event(state: &mut RuntimeState, event: InputEvent<LibinputInputBackend>) -> bool {
+fn enable_tap_to_click(device: &mut LibinputDevice) {
+    let finger_count = device.config_tap_finger_count();
+    if finger_count == 0 {
+        return;
+    }
+
+    if let Err(error) = device.config_tap_set_button_map(TapButtonMap::LeftRightMiddle) {
+        // Keep tap-to-click usable if a device rejects explicit remapping;
+        // libinput's normal default is the same left/right/middle order.
+        warn!(
+            ?error,
+            device = %device.name(),
+            "could not configure multi-finger tap button mapping"
+        );
+    }
+
+    if let Err(error) = device.config_tap_set_enabled(true) {
+        warn!(
+            ?error,
+            device = %device.name(),
+            "could not enable touchpad tap-to-click"
+        );
+        return;
+    }
+
+    info!(
+        device = %device.name(),
+        finger_count,
+        two_finger_right_click = finger_count >= 2,
+        "enabled touchpad tap-to-click"
+    );
+}
+
+#[cfg(feature = "flutter")]
+fn process_touchpad_gesture_event(
+    state: &mut RuntimeState,
+    event: &InputEvent<LibinputInputBackend>,
+) -> Option<bool> {
+    if !state.flutter_active || state.secure_session_locked() {
+        if matches!(
+            event,
+            InputEvent::GestureSwipeBegin { .. }
+                | InputEvent::GestureSwipeUpdate { .. }
+                | InputEvent::GestureSwipeEnd { .. }
+        ) {
+            state.touchpad_gestures.reset();
+            return Some(false);
+        }
+        return None;
+    }
+
+    let gesture = match event {
+        InputEvent::GestureSwipeBegin { event } => {
+            let device = event.device();
+            state
+                .touchpad_gestures
+                .begin_swipe(device.sysname(), event.fingers());
+            None
+        }
+        InputEvent::GestureSwipeUpdate { event } => {
+            let device = event.device();
+            state
+                .touchpad_gestures
+                .update_swipe(device.sysname(), event.delta_x(), event.delta_y())
+        }
+        InputEvent::GestureSwipeEnd { event } => {
+            let device = event.device();
+            state.touchpad_gestures.end_swipe(device.sysname());
+            None
+        }
+        _ => return None,
+    };
+
+    if let Some(gesture) = gesture {
+        let disposition = state.native_escape_shortcut.observe_gesture(gesture);
+        let handled = execute_shortcut_disposition(state, disposition);
+        if handled {
+            info!(
+                ?gesture,
+                "recognized configured compositor shortcut gesture"
+            );
+        }
+        Some(handled)
+    } else {
+        Some(false)
+    }
+}
+
+fn process_input_event(
+    state: &mut RuntimeState,
+    mut event: InputEvent<LibinputInputBackend>,
+) -> bool {
+    if let InputEvent::DeviceAdded { device } = &mut event {
+        // libinput recognizes taps and emits ordinary BTN_LEFT transitions.
+        // Keeping recognition at the device boundary lets synthesized clicks
+        // use the exact same Flutter/Wayland focus and grab path as buttons.
+        enable_tap_to_click(device);
+    }
+
     if let InputEvent::DeviceRemoved { device } = &event {
         let reset = InputDeviceReset {
             keyboard: Device::has_capability(device, DeviceCapability::Keyboard),
@@ -919,6 +1017,11 @@ fn process_input_event(state: &mut RuntimeState, event: InputEvent<LibinputInput
     #[cfg(feature = "flutter")]
     if !matches!(&event, InputEvent::DeviceAdded { .. }) {
         state.note_user_activity();
+    }
+
+    #[cfg(feature = "flutter")]
+    if let Some(flush_clients) = process_touchpad_gesture_event(state, &event) {
+        return flush_clients;
     }
 
     #[cfg(not(feature = "flutter"))]
@@ -1013,6 +1116,10 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
         state.native_escape_shortcut.reset();
         #[cfg(feature = "flutter")]
         cancel_flutter_repeat(state);
+    }
+    #[cfg(feature = "flutter")]
+    if reset.pointer {
+        state.touchpad_gestures.reset();
     }
     #[cfg(feature = "flutter")]
     if state.flutter_active {
@@ -1211,6 +1318,14 @@ fn flutter_key_repeats(key: &smithay::input::keyboard::KeysymHandle<'_>) -> bool
 }
 
 #[cfg(feature = "flutter")]
+fn retained_flutter_xkb_keycode(keycode: u32) -> Keycode {
+    // flutter_keyboard_keys retains Smithay/XKB keycodes, which already
+    // include XKB's evdev + 8 offset. Replay that value unchanged; adding the
+    // offset again turns XKB Backspace (22) into XKB U (30).
+    Keycode::new(keycode)
+}
+
+#[cfg(feature = "flutter")]
 fn cancel_flutter_repeat(state: &mut RuntimeState) {
     let Some(frontend) = state.wayland.as_mut() else {
         return;
@@ -1282,7 +1397,7 @@ fn dispatch_flutter_repeat(state: &mut RuntimeState, keycode: u32) -> bool {
     if !owned {
         return false;
     }
-    let xkb_keycode = Keycode::new(keycode.saturating_add(8));
+    let xkb_keycode = retained_flutter_xkb_keycode(keycode);
     let keysym = keyboard.with_xkb_state(state, |context| {
         let xkb = context.xkb().lock().unwrap();
         // SAFETY: the state reference remains inside the XKB mutex guard.
@@ -1337,6 +1452,13 @@ fn intercept_native_escape(
             _ => true,
         };
     }
+    execute_shortcut_disposition(state, disposition)
+}
+
+fn execute_shortcut_disposition(
+    state: &mut RuntimeState,
+    disposition: ShortcutDisposition,
+) -> bool {
     match disposition {
         ShortcutDisposition::Forward => false,
         ShortcutDisposition::Consume => true,
@@ -1460,6 +1582,20 @@ fn intercept_native_escape(
         }
         ShortcutDisposition::RequestPreviousKeyboardLayout => {
             cycle_keyboard_layout(state, false);
+            true
+        }
+        ShortcutDisposition::Spawn(arguments) => {
+            #[cfg(feature = "flutter")]
+            state
+                .pending_shortcut_launches
+                .push_back(ShortcutTarget::Spawn { command: arguments });
+            true
+        }
+        ShortcutDisposition::SpawnSh(command) => {
+            #[cfg(feature = "flutter")]
+            state
+                .pending_shortcut_launches
+                .push_back(ShortcutTarget::SpawnSh { command });
             true
         }
     }
@@ -3578,6 +3714,16 @@ mod flutter_pointer_endpoint_tests {
 #[cfg(all(test, feature = "flutter"))]
 mod flutter_key_lifecycle_tests {
     use super::*;
+
+    #[test]
+    fn repeated_flutter_key_preserves_the_retained_xkb_keycode() {
+        const XKB_BACKSPACE: u32 = 22;
+
+        let keycode = retained_flutter_xkb_keycode(XKB_BACKSPACE);
+
+        assert_eq!(keycode.raw(), XKB_BACKSPACE);
+        assert_eq!(keycode.raw().saturating_sub(8), 14);
+    }
 
     #[test]
     fn compose_and_dead_keys_emit_only_the_completed_unicode_scalar() {

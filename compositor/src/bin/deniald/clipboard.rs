@@ -747,9 +747,7 @@ impl ClipboardManager {
         state.recalculate_history_bytes();
         state.pending_capture = None;
         match state.current {
-            CurrentSelection::Managed { item_id, .. }
-                if state.history_item(item_id).is_some() =>
-            {
+            CurrentSelection::Managed { item_id, .. } if state.history_item(item_id).is_some() => {
                 let retained_item = state.history_item(item_id).cloned();
                 state.managed = retained_item;
             }

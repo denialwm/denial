@@ -86,12 +86,66 @@ enum SettingsRequestKind : ubyte {
   ReadDocument = 0,
   WriteDocument = 1,
   ReadKeyboard = 2,
-  ConfigureKeyboard = 3
+  ConfigureKeyboard = 3,
+  ReadShortcuts = 4,
+  ValidateShortcut = 5,
+  AddShortcut = 6,
+  UpdateShortcut = 7,
+  RemoveShortcut = 8,
+  RestoreShortcuts = 9
 }
 
 enum SettingsResponseKind : ubyte {
   Document = 0,
-  Keyboard = 1
+  Keyboard = 1,
+  Shortcuts = 2,
+  ShortcutValidation = 3
+}
+
+enum ShortcutActionKind : ubyte {
+  Shutdown = 0,
+  OpenApplications = 1,
+  OpenOverview = 2,
+  ToggleVerticalMaximize = 3,
+  WindowSwitcher = 4,
+  OpenClipboard = 5,
+  CaptureRegion = 6,
+  CloseWindow = 7,
+  MinimizeWindow = 8,
+  ToggleMaximize = 9,
+  ToggleFullscreen = 10,
+  ReleasePointer = 11,
+  LockScreen = 12,
+  VolumeUp = 13,
+  VolumeDown = 14,
+  VolumeMute = 15,
+  BrightnessUp = 16,
+  BrightnessDown = 17,
+  NextKeyboardLayout = 18,
+  PreviousKeyboardLayout = 19
+}
+
+enum ShortcutInputKind : ubyte {
+  Key = 0,
+  Gesture = 1
+}
+
+enum ShortcutInputCategory : ubyte {
+  Modifier = 0,
+  Navigation = 1,
+  Editing = 2,
+  Punctuation = 3,
+  Function = 4,
+  Media = 5,
+  Hardware = 6,
+  Special = 7,
+  Gesture = 8
+}
+
+enum ShortcutValidationKind : ubyte {
+  Valid = 0,
+  Conflict = 1,
+  Invalid = 2
 }
 
 enum DesktopNotificationEventKind : ubyte {
@@ -393,6 +447,52 @@ table KeyboardConfiguration {
   active_layout:uint;
 }
 
+table ShortcutDenialActionTarget {
+  action:ShortcutActionKind = Shutdown;
+}
+
+table ShortcutSpawnTarget {
+  // Program followed by its exact argument vector.
+  command:[string];
+}
+
+table ShortcutSpawnShTarget {
+  // One command passed verbatim to `sh -c`.
+  command:string;
+}
+
+union ShortcutTarget {
+  ShortcutDenialActionTarget,
+  ShortcutSpawnTarget,
+  ShortcutSpawnShTarget
+}
+
+table ShortcutBinding {
+  // Canonical shortcut text is the binding's unique identity.
+  shortcut:string;
+  target:ShortcutTarget;
+}
+
+table ShortcutInput {
+  canonical:string;
+  kind:ShortcutInputKind = Key;
+  category:ShortcutInputCategory = Editing;
+  aliases:[string];
+}
+
+table ShortcutConfiguration {
+  shortcuts:[ShortcutBinding];
+  supported_actions:[ShortcutActionKind];
+  supported_inputs:[ShortcutInput];
+}
+
+table ShortcutValidation {
+  kind:ShortcutValidationKind = Valid;
+  canonical:string;
+  conflict:ShortcutBinding;
+  error:string;
+}
+
 table SettingsRequest {
   kind:SettingsRequestKind = ReadDocument;
   expected_revision:ulong;
@@ -400,6 +500,11 @@ table SettingsRequest {
   document:string;
   // ConfigureKeyboard only.
   keyboard:KeyboardConfiguration;
+  // ValidateShortcut, AddShortcut and UpdateShortcut.
+  shortcut:ShortcutBinding;
+  // The current canonical identity for editing/removing a binding. Validation
+  // uses it to exclude the row currently being edited from conflict checks.
+  existing_shortcut:string;
 }
 
 table SettingsResponse {
@@ -409,6 +514,8 @@ table SettingsResponse {
   document:string;
   keyboard:KeyboardConfiguration;
   error:string;
+  shortcuts:ShortcutConfiguration;
+  shortcut_validation:ShortcutValidation;
 }
 
 table DesktopNotificationAction {

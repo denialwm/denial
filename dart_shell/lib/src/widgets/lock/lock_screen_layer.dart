@@ -8,8 +8,9 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../input/shell_interaction_registry.dart';
+import '../../launcher/models/home_clock_info.dart';
+import '../../launcher/widgets/home_tiles.dart';
 import '../../localization/denial_localizations.dart';
-import '../../models/shell_clock_info.dart';
 import '../../models/shell_power_status.dart';
 import '../../platform/authentication_protocol.dart';
 import '../../settings/settings_controller.dart';
@@ -264,7 +265,7 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
     final gpus = widget.desktop && lockSettings.showSystemStatus
         ? ref.watch(gpuUsageProvider)
         : const <GpuLoad>[];
-    final clock = ShellClockInfo(
+    final clock = HomeClockInfo.fromShell(
       now: now,
       locale: ref.watch(clockLocaleProvider),
       power: power,
@@ -296,35 +297,6 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    const ColoredBox(color: Color(0x300b0f12)),
-                    const DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Color(0x1effffff),
-                            Color(0x08000000),
-                            Color(0x00000000),
-                          ],
-                          stops: [0.0, 0.28, 1.0],
-                        ),
-                      ),
-                    ),
-                    const Positioned(
-                      left: 0,
-                      right: 0,
-                      top: 0,
-                      height: 1,
-                      child: ColoredBox(color: Color(0x22ffffff)),
-                    ),
-                    Positioned(
-                      left: size.width * 0.14,
-                      right: size.width * 0.14,
-                      top: 22,
-                      height: 1,
-                      child: const ColoredBox(color: Color(0x16ffffff)),
-                    ),
                     if (lockSettings.showSystemStatus)
                       _LockStatusIcons(
                         power: power,
@@ -1395,19 +1367,8 @@ class _LockBackdrop extends ConsumerWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Color(0xff171a1f),
-                  Color(0xff0b0d12),
-                  Color(0xff050608),
-                ],
-                stops: [0.0, 0.54, 1.0],
-              ),
-            ),
+          const CustomPaint(
+            painter: _LockFillPainter(color: Color(0xff080a0e)),
           ),
           if (settings.useSystemWallpaper)
             ClipRect(
@@ -1419,14 +1380,37 @@ class _LockBackdrop extends ConsumerWidget {
                 child: const ShellWallpaper(),
               ),
             ),
-          ColoredBox(
-            color: const Color(
-              0xff000000,
-            ).withValues(alpha: settings.dimAmount),
+          CustomPaint(
+            painter: _LockFillPainter(
+              color: const Color(
+                0xff000000,
+              ).withValues(alpha: settings.dimAmount),
+            ),
           ),
         ],
       ),
     );
+  }
+}
+
+/// Uses round-rect geometry with an imperceptible radius so the backdrop obeys
+/// lock-stage transforms without entering Impeller's UberSDF rect path.
+class _LockFillPainter extends CustomPainter {
+  const _LockFillPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(0.01)),
+      Paint()..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _LockFillPainter oldDelegate) {
+    return oldDelegate.color != color;
   }
 }
 
@@ -1576,7 +1560,7 @@ class _LockClockBlock extends StatelessWidget {
     required this.showSystemStatus,
   });
 
-  final ShellClockInfo clock;
+  final HomeClockInfo clock;
   final bool desktop;
   final double scale;
   final bool showSystemStatus;
@@ -1588,259 +1572,26 @@ class _LockClockBlock extends StatelessWidget {
         ? math.max(72.0, size.height * 0.22)
         : math.max(48.0, size.height * 0.25 - 96.0);
     final horizontalInset = desktop ? math.max(48.0, size.width * 0.065) : 0.0;
+    final height = desktop
+        ? math.min(280.0, size.height * 0.36)
+        : math.min(250.0, size.height * 0.34);
 
     return Positioned(
       left: horizontalInset,
       right: desktop ? size.width * 0.48 : 0,
       top: top,
+      height: height,
       child: Transform.scale(
-        alignment: desktop ? Alignment.topLeft : Alignment.topCenter,
+        alignment: Alignment.center,
         scale: scale,
         child: Padding(
           padding: desktop
               ? EdgeInsets.zero
-              : const EdgeInsets.symmetric(horizontal: 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: desktop
-                ? CrossAxisAlignment.start
-                : CrossAxisAlignment.center,
-            children: [
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  localizedTime(context, clock.now),
-                  style: ShellText.lockClock,
-                ),
-              ),
-              const SizedBox(height: 10),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  localizedLongDate(context, clock.now),
-                  style: ShellText.lockDate,
-                ),
-              ),
-              if (showSystemStatus &&
-                  (clock.power.capacity != null ||
-                      clock.thermalReadings.isNotEmpty)) ...[
-                const SizedBox(height: 18),
-                _LockClockStatus(
-                  power: clock.power,
-                  thermalReadings: clock.thermalReadings,
-                ),
-              ],
-            ],
+              : const EdgeInsets.symmetric(horizontal: 24),
+          child: RepaintBoundary(
+            child: HomeClockWidget(clock: clock, showStatus: showSystemStatus),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _LockClockStatus extends StatelessWidget {
-  const _LockClockStatus({required this.power, required this.thermalReadings});
-
-  final ShellPowerStatus power;
-  final List<ShellThermalReading> thermalReadings;
-
-  @override
-  Widget build(BuildContext context) {
-    final displayLine = localizedBatteryLine(
-      context.l10n,
-      power.state,
-      power.capacity,
-    );
-    final accentColor = _batteryAccentColor(
-      power,
-      ShellTheme.of(context).accentPalette.primary,
-    );
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (displayLine.isNotEmpty)
-          SizedBox(
-            width: double.infinity,
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  _LockBatteryGlyph(
-                    level: power.batteryLevel,
-                    color: accentColor,
-                  ),
-                  if (power.chargeProtocol != null) ...[
-                    const SizedBox(width: 10),
-                    _LockProtocolLabel(power: power, color: accentColor),
-                  ],
-                  const SizedBox(width: 10),
-                  Text(
-                    displayLine,
-                    maxLines: 1,
-                    softWrap: false,
-                    style: ShellText.lockStatus.copyWith(
-                      color: accentColor.withValues(alpha: 0.95),
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        if (thermalReadings.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 10,
-            runSpacing: 5,
-            children: [
-              for (final reading in thermalReadings)
-                _LockThermalText(reading: reading),
-            ],
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _LockProtocolLabel extends StatelessWidget {
-  const _LockProtocolLabel({required this.power, required this.color});
-
-  final ShellPowerStatus power;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final protocol = power.chargeProtocol;
-    if (protocol == null) {
-      return const SizedBox.shrink();
-    }
-    final watts = power.chargeProtocolWatts;
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          localizedChargeProtocol(context.l10n, protocol),
-          maxLines: 1,
-          softWrap: false,
-          style: ShellText.lockChip.copyWith(
-            color: color,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-        if (watts != null) ...[
-          const SizedBox(width: 5),
-          Text(
-            context.l10n.powerWatts(watts),
-            maxLines: 1,
-            softWrap: false,
-            style: ShellText.lockChip.copyWith(
-              color: ShellColors.textPrimary.withValues(alpha: 0.9),
-              fontWeight: FontWeight.w700,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _LockThermalText extends StatelessWidget {
-  const _LockThermalText({required this.reading});
-
-  final ShellThermalReading reading;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _temperatureColor(reading.deciC);
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          localizedThermalSensor(context.l10n, reading.sensor),
-          maxLines: 1,
-          softWrap: false,
-          style: ShellText.lockChip.copyWith(
-            color: ShellColors.textSecondary.withValues(alpha: 0.8),
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-        const SizedBox(width: 5),
-        Text(
-          context.l10n.temperatureCelsius((reading.deciC / 10).round()),
-          maxLines: 1,
-          softWrap: false,
-          style: ShellText.lockChip.copyWith(
-            color: color,
-            fontSize: 13,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _LockBatteryGlyph extends StatelessWidget {
-  const _LockBatteryGlyph({required this.level, required this.color});
-
-  final double level;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 42,
-      height: 20,
-      child: Stack(
-        children: [
-          Positioned(
-            left: 0,
-            top: 2,
-            width: 35,
-            height: 16,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: const Color(0x12000000),
-                border: Border.all(color: color),
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-          ),
-          Positioned(
-            left: 3,
-            top: 5,
-            width: math.max(0.0, 29.0 * level),
-            height: 10,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.9),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          Positioned(
-            left: 37,
-            top: 7,
-            width: 4,
-            height: 7,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.8),
-                borderRadius: BorderRadius.circular(1),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -1878,32 +1629,4 @@ class _LockSwipePill extends StatelessWidget {
       ),
     );
   }
-}
-
-Color _batteryAccentColor(ShellPowerStatus power, Color shellAccent) {
-  if (power.voocCharging ||
-      power.ppsCharging ||
-      power.pdCharging ||
-      power.fastCharge ||
-      power.state == 'charging') {
-    return shellAccent;
-  }
-  final capacity = power.capacity;
-  if (capacity == null || capacity >= 20) {
-    return ShellColors.textPrimary;
-  }
-  if (capacity >= 15) {
-    return const Color(0xffffd166);
-  }
-  return const Color(0xffff6b6b);
-}
-
-Color _temperatureColor(int deciC) {
-  if (deciC >= 620) {
-    return const Color(0xffff6b6b);
-  }
-  if (deciC >= 500) {
-    return const Color(0xffffd166);
-  }
-  return ShellColors.textSecondary.withValues(alpha: 0.95);
 }

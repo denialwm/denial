@@ -105,6 +105,7 @@ use super::flutter_runtime::{ExternalTextureFrame, ShmSnapshotPool, ShmTextureFr
 use super::frame_scheduler::FrameTick;
 #[cfg(feature = "flutter")]
 use super::local_windows::{LocalFlutterWindows, LocalWindowError};
+use super::native_shortcut::ShortcutManager;
 use super::settings::SettingsManager;
 use super::window_grab::{
     MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, X11ResizeSurfaceGrab, checked_pointer_grab,
@@ -464,6 +465,7 @@ pub(super) struct WaylandFrontend {
     pub popups: PopupManager,
     pub seat: Seat<RuntimeState>,
     pub(super) settings: SettingsManager,
+    pub(super) shortcuts: ShortcutManager,
     pub(super) keyboard_layout_names: Vec<String>,
     pub(super) active_keyboard_layout: usize,
     pub(super) keyboard_configuration_changed: bool,
@@ -731,6 +733,7 @@ impl WaylandFrontend {
         drm_device: DrmDeviceFd,
         work_area: crate::options::WorkAreaOptions,
         settings: SettingsManager,
+        shortcuts: ShortcutManager,
     ) -> Result<Self, Box<dyn Error>> {
         let display = Display::<RuntimeState>::new()?;
         let display_handle = display.handle();
@@ -1182,6 +1185,7 @@ impl WaylandFrontend {
             popups,
             seat,
             settings,
+            shortcuts,
             keyboard_layout_names,
             active_keyboard_layout: 0,
             keyboard_configuration_changed: false,

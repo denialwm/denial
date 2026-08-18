@@ -12,6 +12,10 @@ use std::fmt;
 use denial_core::topology::{AtlasPlan, OutputId, SCALE_BASE, TopologySnapshot};
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 
+use super::native_shortcut::{
+    MAX_SHORTCUTS, MAX_SPAWN_ARGUMENTS, ShortcutAction, ShortcutBinding, ShortcutInputCategory,
+    ShortcutInputDefinition, ShortcutInputKind, ShortcutTarget, ShortcutValidation,
+};
 use super::notification_server::{
     Notification, NotificationEvent, NotificationEventKind, NotificationUrgency,
 };
@@ -56,6 +60,7 @@ const MAX_PENDING_SETTINGS_COMMANDS: usize = 64;
 const MAX_SETTINGS_DOCUMENT_BYTES: usize = 256 * 1024;
 const MAX_LOCAL_APP_ID_BYTES: usize = 256;
 const MAX_LOCAL_WINDOW_TITLE_BYTES: usize = 1024;
+const MAX_SHORTCUT_INPUTS: usize = 256;
 const WINDOW_PLACEMENT_PACKET_BYTES: usize = 80;
 const KEYBOARD_CTRL: u32 = 1 << 0;
 const KEYBOARD_PRESSED: u32 = 1 << 1;
@@ -139,6 +144,34 @@ pub enum SettingsCommand {
         request_id: u64,
         expected_revision: u64,
         keyboard: KeyboardSettings,
+    },
+    ReadShortcuts {
+        request_id: u64,
+    },
+    ValidateShortcut {
+        request_id: u64,
+        shortcut: ShortcutBinding,
+        existing_shortcut: Option<String>,
+    },
+    AddShortcut {
+        request_id: u64,
+        expected_revision: u64,
+        shortcut: ShortcutBinding,
+    },
+    UpdateShortcut {
+        request_id: u64,
+        expected_revision: u64,
+        existing_shortcut: String,
+        shortcut: ShortcutBinding,
+    },
+    RemoveShortcut {
+        request_id: u64,
+        expected_revision: u64,
+        shortcut: String,
+    },
+    RestoreShortcuts {
+        request_id: u64,
+        expected_revision: u64,
     },
 }
 
@@ -800,6 +833,8 @@ impl WireBridge {
             None,
             &[],
             0,
+            None,
+            None,
             error,
         )?;
         Ok(self.outbound_builder.finished_data())
@@ -835,7 +870,72 @@ impl WireBridge {
             Some(keyboard),
             display_names,
             active_layout,
+            None,
+            None,
             error,
+        )?;
+        Ok(self.outbound_builder.finished_data())
+    }
+
+    pub fn encode_shortcut_configuration_response(
+        &mut self,
+        request_id: u64,
+        revision: u64,
+        shortcuts: &[ShortcutBinding],
+        supported_inputs: &[ShortcutInputDefinition],
+        error: Option<&str>,
+    ) -> Result<&[u8], WireError> {
+        if request_id == 0 || revision == 0 || shortcuts.len() > MAX_SHORTCUTS {
+            return Err(WireError::Identity);
+        }
+        if supported_inputs.len() > MAX_SHORTCUT_INPUTS
+            || error.is_some_and(|error| error.len() > MAX_STRING_BYTES)
+        {
+            return Err(WireError::Count);
+        }
+        let sequence = self.take_sequence();
+        self.outbound_builder.reset();
+        encode_settings_response(
+            &mut self.outbound_builder,
+            sequence,
+            request_id,
+            fb::SettingsResponseKind::Shortcuts,
+            revision,
+            None,
+            None,
+            &[],
+            0,
+            Some((shortcuts, supported_inputs)),
+            None,
+            error,
+        )?;
+        Ok(self.outbound_builder.finished_data())
+    }
+
+    pub fn encode_shortcut_validation_response(
+        &mut self,
+        request_id: u64,
+        revision: u64,
+        validation: &ShortcutValidation,
+    ) -> Result<&[u8], WireError> {
+        if request_id == 0 || revision == 0 {
+            return Err(WireError::RequestId);
+        }
+        let sequence = self.take_sequence();
+        self.outbound_builder.reset();
+        encode_settings_response(
+            &mut self.outbound_builder,
+            sequence,
+            request_id,
+            fb::SettingsResponseKind::ShortcutValidation,
+            revision,
+            None,
+            None,
+            &[],
+            0,
+            None,
+            Some(validation),
+            None,
         )?;
         Ok(self.outbound_builder.finished_data())
     }
@@ -1172,6 +1272,8 @@ fn decode_settings_request(
             if request.expected_revision() != 0
                 || request.document().is_some()
                 || request.keyboard().is_some()
+                || request.shortcut().is_some()
+                || request.existing_shortcut().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -1183,6 +1285,8 @@ fn decode_settings_request(
                 || document.is_empty()
                 || document.len() > MAX_SETTINGS_DOCUMENT_BYTES
                 || request.keyboard().is_some()
+                || request.shortcut().is_some()
+                || request.existing_shortcut().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -1196,13 +1300,19 @@ fn decode_settings_request(
             if request.expected_revision() != 0
                 || request.document().is_some()
                 || request.keyboard().is_some()
+                || request.shortcut().is_some()
+                || request.existing_shortcut().is_some()
             {
                 return Err(WireError::Payload);
             }
             Ok(SettingsCommand::ReadKeyboard { request_id })
         }
         fb::SettingsRequestKind::ConfigureKeyboard => {
-            if request.expected_revision() == 0 || request.document().is_some() {
+            if request.expected_revision() == 0
+                || request.document().is_some()
+                || request.shortcut().is_some()
+                || request.existing_shortcut().is_some()
+            {
                 return Err(WireError::Payload);
             }
             let keyboard = decode_keyboard_settings(request.keyboard().ok_or(WireError::Payload)?)?;
@@ -1211,6 +1321,192 @@ fn decode_settings_request(
                 expected_revision: request.expected_revision(),
                 keyboard,
             })
+        }
+        fb::SettingsRequestKind::ReadShortcuts => {
+            if request.expected_revision() != 0
+                || request.document().is_some()
+                || request.keyboard().is_some()
+                || request.shortcut().is_some()
+                || request.existing_shortcut().is_some()
+            {
+                return Err(WireError::Payload);
+            }
+            Ok(SettingsCommand::ReadShortcuts { request_id })
+        }
+        fb::SettingsRequestKind::ValidateShortcut => {
+            if request.expected_revision() != 0
+                || request.document().is_some()
+                || request.keyboard().is_some()
+            {
+                return Err(WireError::Payload);
+            }
+            let shortcut = decode_shortcut_binding(request.shortcut().ok_or(WireError::Payload)?)?;
+            let existing_shortcut = request
+                .existing_shortcut()
+                .map(|shortcut| {
+                    if !valid_shortcut_wire_string(shortcut, false) {
+                        Err(WireError::String)
+                    } else {
+                        Ok(shortcut.to_owned())
+                    }
+                })
+                .transpose()?;
+            Ok(SettingsCommand::ValidateShortcut {
+                request_id,
+                shortcut,
+                existing_shortcut,
+            })
+        }
+        fb::SettingsRequestKind::AddShortcut => {
+            if request.expected_revision() == 0
+                || request.document().is_some()
+                || request.keyboard().is_some()
+                || request.existing_shortcut().is_some()
+            {
+                return Err(WireError::Payload);
+            }
+            Ok(SettingsCommand::AddShortcut {
+                request_id,
+                expected_revision: request.expected_revision(),
+                shortcut: decode_shortcut_binding(request.shortcut().ok_or(WireError::Payload)?)?,
+            })
+        }
+        fb::SettingsRequestKind::UpdateShortcut => {
+            if request.expected_revision() == 0
+                || request.document().is_some()
+                || request.keyboard().is_some()
+            {
+                return Err(WireError::Payload);
+            }
+            let existing_shortcut = request
+                .existing_shortcut()
+                .filter(|shortcut| valid_shortcut_wire_string(shortcut, false))
+                .ok_or(WireError::String)?
+                .to_owned();
+            Ok(SettingsCommand::UpdateShortcut {
+                request_id,
+                expected_revision: request.expected_revision(),
+                existing_shortcut,
+                shortcut: decode_shortcut_binding(request.shortcut().ok_or(WireError::Payload)?)?,
+            })
+        }
+        fb::SettingsRequestKind::RemoveShortcut => {
+            if request.expected_revision() == 0
+                || request.document().is_some()
+                || request.keyboard().is_some()
+                || request.shortcut().is_some()
+            {
+                return Err(WireError::Payload);
+            }
+            let shortcut = request
+                .existing_shortcut()
+                .filter(|shortcut| valid_shortcut_wire_string(shortcut, false))
+                .ok_or(WireError::String)?
+                .to_owned();
+            Ok(SettingsCommand::RemoveShortcut {
+                request_id,
+                expected_revision: request.expected_revision(),
+                shortcut,
+            })
+        }
+        fb::SettingsRequestKind::RestoreShortcuts => {
+            if request.expected_revision() == 0
+                || request.document().is_some()
+                || request.keyboard().is_some()
+                || request.shortcut().is_some()
+                || request.existing_shortcut().is_some()
+            {
+                return Err(WireError::Payload);
+            }
+            Ok(SettingsCommand::RestoreShortcuts {
+                request_id,
+                expected_revision: request.expected_revision(),
+            })
+        }
+        _ => Err(WireError::Enumeration),
+    }
+}
+
+fn decode_shortcut_binding(binding: fb::ShortcutBinding<'_>) -> Result<ShortcutBinding, WireError> {
+    let shortcut = binding
+        .shortcut()
+        .filter(|shortcut| valid_shortcut_wire_string(shortcut, true))
+        .ok_or(WireError::String)?;
+    let target = match binding.target_type() {
+        fb::ShortcutTarget::ShortcutDenialActionTarget => {
+            let target = binding
+                .target_as_shortcut_denial_action_target()
+                .ok_or(WireError::Payload)?;
+            ShortcutTarget::DenialAction {
+                action: shortcut_action_from_wire(target.action())?,
+            }
+        }
+        fb::ShortcutTarget::ShortcutSpawnTarget => {
+            let target = binding
+                .target_as_shortcut_spawn_target()
+                .ok_or(WireError::Payload)?;
+            let command = target.command().ok_or(WireError::Payload)?;
+            if command.len() > MAX_SPAWN_ARGUMENTS {
+                return Err(WireError::Count);
+            }
+            let mut arguments = Vec::with_capacity(command.len());
+            for argument in command {
+                if !valid_shortcut_wire_string(argument, true) {
+                    return Err(WireError::String);
+                }
+                arguments.push(argument.to_owned());
+            }
+            ShortcutTarget::Spawn { command: arguments }
+        }
+        fb::ShortcutTarget::ShortcutSpawnShTarget => {
+            let target = binding
+                .target_as_shortcut_spawn_sh_target()
+                .ok_or(WireError::Payload)?;
+            let command = target
+                .command()
+                .filter(|command| valid_shortcut_wire_string(command, true))
+                .ok_or(WireError::String)?;
+            ShortcutTarget::SpawnSh {
+                command: command.to_owned(),
+            }
+        }
+        _ => return Err(WireError::Enumeration),
+    };
+    Ok(ShortcutBinding {
+        shortcut: shortcut.to_owned(),
+        target,
+    })
+}
+
+fn valid_shortcut_wire_string(value: &str, empty_allowed: bool) -> bool {
+    (empty_allowed || !value.is_empty()) && value.len() <= MAX_STRING_BYTES && !value.contains('\0')
+}
+
+fn shortcut_action_from_wire(action: fb::ShortcutActionKind) -> Result<ShortcutAction, WireError> {
+    match action {
+        fb::ShortcutActionKind::Shutdown => Ok(ShortcutAction::Shutdown),
+        fb::ShortcutActionKind::OpenApplications => Ok(ShortcutAction::OpenApplications),
+        fb::ShortcutActionKind::OpenOverview => Ok(ShortcutAction::OpenOverview),
+        fb::ShortcutActionKind::ToggleVerticalMaximize => {
+            Ok(ShortcutAction::ToggleVerticalMaximize)
+        }
+        fb::ShortcutActionKind::WindowSwitcher => Ok(ShortcutAction::WindowSwitcher),
+        fb::ShortcutActionKind::OpenClipboard => Ok(ShortcutAction::OpenClipboard),
+        fb::ShortcutActionKind::CaptureRegion => Ok(ShortcutAction::CaptureRegion),
+        fb::ShortcutActionKind::CloseWindow => Ok(ShortcutAction::CloseWindow),
+        fb::ShortcutActionKind::MinimizeWindow => Ok(ShortcutAction::MinimizeWindow),
+        fb::ShortcutActionKind::ToggleMaximize => Ok(ShortcutAction::ToggleMaximize),
+        fb::ShortcutActionKind::ToggleFullscreen => Ok(ShortcutAction::ToggleFullscreen),
+        fb::ShortcutActionKind::ReleasePointer => Ok(ShortcutAction::ReleasePointer),
+        fb::ShortcutActionKind::LockScreen => Ok(ShortcutAction::LockScreen),
+        fb::ShortcutActionKind::VolumeUp => Ok(ShortcutAction::VolumeUp),
+        fb::ShortcutActionKind::VolumeDown => Ok(ShortcutAction::VolumeDown),
+        fb::ShortcutActionKind::VolumeMute => Ok(ShortcutAction::VolumeMute),
+        fb::ShortcutActionKind::BrightnessUp => Ok(ShortcutAction::BrightnessUp),
+        fb::ShortcutActionKind::BrightnessDown => Ok(ShortcutAction::BrightnessDown),
+        fb::ShortcutActionKind::NextKeyboardLayout => Ok(ShortcutAction::NextKeyboardLayout),
+        fb::ShortcutActionKind::PreviousKeyboardLayout => {
+            Ok(ShortcutAction::PreviousKeyboardLayout)
         }
         _ => Err(WireError::Enumeration),
     }
@@ -1928,6 +2224,8 @@ fn encode_settings_response(
     keyboard: Option<&KeyboardSettings>,
     display_names: &[String],
     active_layout: usize,
+    shortcut_configuration: Option<(&[ShortcutBinding], &[ShortcutInputDefinition])>,
+    shortcut_validation: Option<&ShortcutValidation>,
     error: Option<&str>,
 ) -> Result<(), WireError> {
     let document = document.map(|document| builder.create_string(document));
@@ -1965,6 +2263,79 @@ fn encode_settings_response(
             },
         )
     });
+    let shortcuts = shortcut_configuration.map(|(bindings, inputs)| {
+        let bindings = bindings
+            .iter()
+            .map(|binding| encode_shortcut_binding(builder, binding))
+            .collect::<Vec<_>>();
+        let bindings = builder.create_vector(&bindings);
+        let actions = ShortcutAction::ALL.map(shortcut_action_to_wire);
+        let actions = builder.create_vector(&actions);
+        let inputs = inputs
+            .iter()
+            .map(|input| {
+                let canonical = builder.create_string(&input.canonical);
+                let aliases = input
+                    .aliases
+                    .iter()
+                    .map(|alias| builder.create_string(alias))
+                    .collect::<Vec<_>>();
+                let aliases = builder.create_vector(&aliases);
+                fb::ShortcutInput::create(
+                    builder,
+                    &fb::ShortcutInputArgs {
+                        canonical: Some(canonical),
+                        kind: shortcut_input_kind_to_wire(input.kind),
+                        category: shortcut_input_category_to_wire(input.category),
+                        aliases: Some(aliases),
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let inputs = builder.create_vector(&inputs);
+        fb::ShortcutConfiguration::create(
+            builder,
+            &fb::ShortcutConfigurationArgs {
+                shortcuts: Some(bindings),
+                supported_actions: Some(actions),
+                supported_inputs: Some(inputs),
+            },
+        )
+    });
+    let shortcut_validation = shortcut_validation.map(|validation| {
+        let (kind, canonical, conflict, validation_error) = match validation {
+            ShortcutValidation::Valid { canonical } => (
+                fb::ShortcutValidationKind::Valid,
+                Some(canonical.as_str()),
+                None,
+                None,
+            ),
+            ShortcutValidation::Conflict { canonical, binding } => (
+                fb::ShortcutValidationKind::Conflict,
+                Some(canonical.as_str()),
+                Some(binding),
+                None,
+            ),
+            ShortcutValidation::Invalid { error } => (
+                fb::ShortcutValidationKind::Invalid,
+                None,
+                None,
+                Some(error.as_str()),
+            ),
+        };
+        let canonical = canonical.map(|canonical| builder.create_string(canonical));
+        let conflict = conflict.map(|binding| encode_shortcut_binding(builder, binding));
+        let validation_error = validation_error.map(|error| builder.create_string(error));
+        fb::ShortcutValidation::create(
+            builder,
+            &fb::ShortcutValidationArgs {
+                kind,
+                canonical,
+                conflict,
+                error: validation_error,
+            },
+        )
+    });
     let response = fb::SettingsResponse::create(
         builder,
         &fb::SettingsResponseArgs {
@@ -1974,6 +2345,8 @@ fn encode_settings_response(
             document,
             keyboard,
             error,
+            shortcuts,
+            shortcut_validation,
         },
     );
     let envelope = fb::Envelope::create(
@@ -1988,6 +2361,111 @@ fn encode_settings_response(
     );
     fb::finish_envelope_buffer(builder, envelope);
     validate_finished_message(builder)
+}
+
+fn encode_shortcut_binding<'a>(
+    builder: &mut FlatBufferBuilder<'a>,
+    binding: &ShortcutBinding,
+) -> WIPOffset<fb::ShortcutBinding<'a>> {
+    let shortcut = builder.create_string(&binding.shortcut);
+    let (target_type, target) = match &binding.target {
+        ShortcutTarget::DenialAction { action } => {
+            let target = fb::ShortcutDenialActionTarget::create(
+                builder,
+                &fb::ShortcutDenialActionTargetArgs {
+                    action: shortcut_action_to_wire(*action),
+                },
+            );
+            (
+                fb::ShortcutTarget::ShortcutDenialActionTarget,
+                target.as_union_value(),
+            )
+        }
+        ShortcutTarget::Spawn { command } => {
+            let command = command
+                .iter()
+                .map(|argument| builder.create_string(argument))
+                .collect::<Vec<_>>();
+            let command = builder.create_vector(&command);
+            let target = fb::ShortcutSpawnTarget::create(
+                builder,
+                &fb::ShortcutSpawnTargetArgs {
+                    command: Some(command),
+                },
+            );
+            (
+                fb::ShortcutTarget::ShortcutSpawnTarget,
+                target.as_union_value(),
+            )
+        }
+        ShortcutTarget::SpawnSh { command } => {
+            let command = builder.create_string(command);
+            let target = fb::ShortcutSpawnShTarget::create(
+                builder,
+                &fb::ShortcutSpawnShTargetArgs {
+                    command: Some(command),
+                },
+            );
+            (
+                fb::ShortcutTarget::ShortcutSpawnShTarget,
+                target.as_union_value(),
+            )
+        }
+    };
+    fb::ShortcutBinding::create(
+        builder,
+        &fb::ShortcutBindingArgs {
+            shortcut: Some(shortcut),
+            target_type,
+            target: Some(target),
+        },
+    )
+}
+
+fn shortcut_action_to_wire(action: ShortcutAction) -> fb::ShortcutActionKind {
+    match action {
+        ShortcutAction::Shutdown => fb::ShortcutActionKind::Shutdown,
+        ShortcutAction::OpenApplications => fb::ShortcutActionKind::OpenApplications,
+        ShortcutAction::OpenOverview => fb::ShortcutActionKind::OpenOverview,
+        ShortcutAction::ToggleVerticalMaximize => fb::ShortcutActionKind::ToggleVerticalMaximize,
+        ShortcutAction::WindowSwitcher => fb::ShortcutActionKind::WindowSwitcher,
+        ShortcutAction::OpenClipboard => fb::ShortcutActionKind::OpenClipboard,
+        ShortcutAction::CaptureRegion => fb::ShortcutActionKind::CaptureRegion,
+        ShortcutAction::CloseWindow => fb::ShortcutActionKind::CloseWindow,
+        ShortcutAction::MinimizeWindow => fb::ShortcutActionKind::MinimizeWindow,
+        ShortcutAction::ToggleMaximize => fb::ShortcutActionKind::ToggleMaximize,
+        ShortcutAction::ToggleFullscreen => fb::ShortcutActionKind::ToggleFullscreen,
+        ShortcutAction::ReleasePointer => fb::ShortcutActionKind::ReleasePointer,
+        ShortcutAction::LockScreen => fb::ShortcutActionKind::LockScreen,
+        ShortcutAction::VolumeUp => fb::ShortcutActionKind::VolumeUp,
+        ShortcutAction::VolumeDown => fb::ShortcutActionKind::VolumeDown,
+        ShortcutAction::VolumeMute => fb::ShortcutActionKind::VolumeMute,
+        ShortcutAction::BrightnessUp => fb::ShortcutActionKind::BrightnessUp,
+        ShortcutAction::BrightnessDown => fb::ShortcutActionKind::BrightnessDown,
+        ShortcutAction::NextKeyboardLayout => fb::ShortcutActionKind::NextKeyboardLayout,
+        ShortcutAction::PreviousKeyboardLayout => fb::ShortcutActionKind::PreviousKeyboardLayout,
+    }
+}
+
+fn shortcut_input_kind_to_wire(kind: ShortcutInputKind) -> fb::ShortcutInputKind {
+    match kind {
+        ShortcutInputKind::Key => fb::ShortcutInputKind::Key,
+        ShortcutInputKind::Gesture => fb::ShortcutInputKind::Gesture,
+    }
+}
+
+fn shortcut_input_category_to_wire(category: ShortcutInputCategory) -> fb::ShortcutInputCategory {
+    match category {
+        ShortcutInputCategory::Modifier => fb::ShortcutInputCategory::Modifier,
+        ShortcutInputCategory::Navigation => fb::ShortcutInputCategory::Navigation,
+        ShortcutInputCategory::Editing => fb::ShortcutInputCategory::Editing,
+        ShortcutInputCategory::Punctuation => fb::ShortcutInputCategory::Punctuation,
+        ShortcutInputCategory::Function => fb::ShortcutInputCategory::Function,
+        ShortcutInputCategory::Media => fb::ShortcutInputCategory::Media,
+        ShortcutInputCategory::Hardware => fb::ShortcutInputCategory::Hardware,
+        ShortcutInputCategory::Special => fb::ShortcutInputCategory::Special,
+        ShortcutInputCategory::Gesture => fb::ShortcutInputCategory::Gesture,
+    }
 }
 
 fn encode_notification_event(
@@ -2566,6 +3044,7 @@ mod tests {
                 expected_revision,
                 document,
                 keyboard,
+                ..Default::default()
             },
         );
         let envelope = fb::Envelope::create(

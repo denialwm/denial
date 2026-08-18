@@ -11,6 +11,7 @@ import '../models/desktop_notification.dart';
 import '../models/display_layout.dart';
 import '../models/keyboard_configuration.dart';
 import '../models/output_configuration.dart';
+import '../models/shortcut_configuration.dart';
 import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
 import '../models/denial_window_snapshot.dart';
@@ -163,6 +164,10 @@ class DenialBridge {
   _pendingSettingsDocumentRequests = {};
   final Map<int, Completer<DenialKeyboardConfiguration>>
   _pendingKeyboardSettingsRequests = {};
+  final Map<int, Completer<DenialShortcutConfiguration>>
+  _pendingShortcutRequests = {};
+  final Map<int, Completer<DenialShortcutValidation>>
+  _pendingShortcutValidationRequests = {};
   final Set<Completer<double?>> _pendingAudioReads = {};
   final StreamController<DenialWindowEvent> _windowEvents =
       StreamController<DenialWindowEvent>.broadcast(sync: true);
@@ -186,6 +191,8 @@ class DenialBridge {
       StreamController<DenialUiDevelopmentState>.broadcast(sync: true);
   final StreamController<DenialKeyboardConfiguration> _keyboardConfigurations =
       StreamController<DenialKeyboardConfiguration>.broadcast(sync: true);
+  final StreamController<DenialShortcutConfiguration> _shortcutConfigurations =
+      StreamController<DenialShortcutConfiguration>.broadcast(sync: true);
   final StreamController<DenialTextInputState> _textInputStates =
       StreamController<DenialTextInputState>.broadcast(sync: true);
   final wire.DenialWireCodec _wireCodec = wire.DenialWireCodec();
@@ -212,6 +219,8 @@ class DenialBridge {
       _uiDevelopmentStates.stream;
   Stream<DenialKeyboardConfiguration> get keyboardConfigurations =>
       _keyboardConfigurations.stream;
+  Stream<DenialShortcutConfiguration> get shortcutConfigurations =>
+      _shortcutConfigurations.stream;
   Stream<DenialTextInputState> get textInputStates => _textInputStates.stream;
 
   void start({
@@ -273,6 +282,18 @@ class DenialBridge {
       }
     }
     _pendingKeyboardSettingsRequests.clear();
+    for (final completer in _pendingShortcutRequests.values) {
+      if (!completer.isCompleted) {
+        completer.completeError(StateError('Denial bridge disposed'));
+      }
+    }
+    _pendingShortcutRequests.clear();
+    for (final completer in _pendingShortcutValidationRequests.values) {
+      if (!completer.isCompleted) {
+        completer.completeError(StateError('Denial bridge disposed'));
+      }
+    }
+    _pendingShortcutValidationRequests.clear();
     for (final completer in _pendingAudioReads) {
       if (!completer.isCompleted) {
         completer.complete(null);
@@ -293,6 +314,7 @@ class DenialBridge {
     unawaited(_notificationEvents.close());
     unawaited(_uiDevelopmentStates.close());
     unawaited(_keyboardConfigurations.close());
+    unawaited(_shortcutConfigurations.close());
     unawaited(_textInputStates.close());
   }
 
@@ -456,6 +478,122 @@ class DenialBridge {
       onTimeout: () {
         _pendingKeyboardSettingsRequests.remove(requestId);
         throw TimeoutException('Denial keyboard settings update timed out');
+      },
+    );
+  }
+
+  Future<DenialShortcutConfiguration> readShortcutConfiguration() {
+    final requestId = _nextRequestId++;
+    final completer = Completer<DenialShortcutConfiguration>();
+    _pendingShortcutRequests[requestId] = completer;
+    _sendWire(_wireCodec.encodeShortcutRead(requestId: requestId));
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingShortcutRequests.remove(requestId);
+        throw TimeoutException('Denial shortcut settings read timed out');
+      },
+    );
+  }
+
+  Future<DenialShortcutValidation> validateShortcut({
+    required DenialShortcutBinding shortcut,
+    String? existingShortcut,
+  }) {
+    final requestId = _nextRequestId++;
+    final bytes = _wireCodec.encodeShortcutValidation(
+      requestId: requestId,
+      shortcut: shortcut,
+      existingShortcut: existingShortcut,
+    );
+    if (bytes == null) {
+      return Future<DenialShortcutValidation>.error(
+        ArgumentError('shortcut validation request exceeds wire bounds'),
+      );
+    }
+    final completer = Completer<DenialShortcutValidation>();
+    _pendingShortcutValidationRequests[requestId] = completer;
+    _sendWire(bytes);
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingShortcutValidationRequests.remove(requestId);
+        throw TimeoutException('Denial shortcut validation timed out');
+      },
+    );
+  }
+
+  Future<DenialShortcutConfiguration> addShortcut({
+    required int expectedRevision,
+    required DenialShortcutBinding shortcut,
+  }) {
+    return _mutateShortcuts(
+      kind: wire.SettingsRequestKind.AddShortcut,
+      expectedRevision: expectedRevision,
+      shortcut: shortcut,
+    );
+  }
+
+  Future<DenialShortcutConfiguration> updateShortcut({
+    required int expectedRevision,
+    required String existingShortcut,
+    required DenialShortcutBinding shortcut,
+  }) {
+    return _mutateShortcuts(
+      kind: wire.SettingsRequestKind.UpdateShortcut,
+      expectedRevision: expectedRevision,
+      shortcut: shortcut,
+      existingShortcut: existingShortcut,
+    );
+  }
+
+  Future<DenialShortcutConfiguration> removeShortcut({
+    required int expectedRevision,
+    required String shortcut,
+  }) {
+    return _mutateShortcuts(
+      kind: wire.SettingsRequestKind.RemoveShortcut,
+      expectedRevision: expectedRevision,
+      existingShortcut: shortcut,
+    );
+  }
+
+  Future<DenialShortcutConfiguration> restoreDefaultShortcuts({
+    required int expectedRevision,
+  }) {
+    return _mutateShortcuts(
+      kind: wire.SettingsRequestKind.RestoreShortcuts,
+      expectedRevision: expectedRevision,
+    );
+  }
+
+  Future<DenialShortcutConfiguration> _mutateShortcuts({
+    required wire.SettingsRequestKind kind,
+    required int expectedRevision,
+    DenialShortcutBinding? shortcut,
+    String? existingShortcut,
+  }) {
+    final requestId = _nextRequestId++;
+    final bytes = _wireCodec.encodeShortcutMutation(
+      kind: kind,
+      requestId: requestId,
+      expectedRevision: expectedRevision,
+      shortcut: shortcut,
+      existingShortcut: existingShortcut,
+    );
+    if (bytes == null) {
+      return Future<DenialShortcutConfiguration>.error(
+        ArgumentError('shortcut mutation request exceeds wire bounds'),
+      );
+    }
+    final completer = Completer<DenialShortcutConfiguration>();
+    _pendingShortcutRequests[requestId] = completer;
+    _sendWire(bytes);
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingShortcutRequests.remove(requestId);
+        throw TimeoutException('Denial shortcut update timed out');
       },
     );
   }
@@ -1300,6 +1438,45 @@ class DenialBridge {
       completer.complete(
         DenialSettingsDocument(revision: response.revision, json: document),
       );
+      return;
+    }
+
+    if (response.kind == wire.SettingsResponseKind.Shortcuts) {
+      final configuration = _wireCodec.decodeShortcutConfiguration(response);
+      final completer = _pendingShortcutRequests.remove(requestId);
+      if (configuration != null && !_shortcutConfigurations.isClosed) {
+        _shortcutConfigurations.add(configuration);
+      }
+      if (requestId == 0 || completer == null || completer.isCompleted) {
+        return;
+      }
+      if (!response.success || configuration == null) {
+        completer.completeError(
+          StateError(response.error ?? 'Denial shortcut request failed'),
+        );
+      } else {
+        completer.complete(configuration);
+      }
+      return;
+    }
+
+    if (response.kind == wire.SettingsResponseKind.ShortcutValidation) {
+      final validation = _wireCodec.decodeShortcutValidation(response);
+      final completer = _pendingShortcutValidationRequests.remove(requestId);
+      if (completer == null || completer.isCompleted) {
+        return;
+      }
+      if (!response.success || validation == null) {
+        completer.completeError(
+          StateError(response.error ?? 'Denial shortcut validation failed'),
+        );
+      } else {
+        completer.complete(validation);
+      }
+      return;
+    }
+
+    if (response.kind != wire.SettingsResponseKind.Keyboard) {
       return;
     }
 

@@ -1693,6 +1693,266 @@ class AppLocalizationsEn extends AppLocalizations {
       'Enter at least one valid XKB layout.';
 
   @override
+  String get settingsShortcutsSection => 'SHORTCUTS';
+
+  @override
+  String get settingsShortcutsTitle =>
+      'Choose what Denial does when a shortcut is pressed.';
+
+  @override
+  String settingsShortcutsConfigured(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count shortcuts',
+      one: '1 shortcut',
+      zero: 'No shortcuts',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get settingsShortcutsAdd => 'Add shortcut';
+
+  @override
+  String get settingsShortcutsLoading =>
+      'Reading shortcuts from the compositor…';
+
+  @override
+  String get settingsShortcutsUnavailable =>
+      'The compositor shortcut configuration is unavailable.';
+
+  @override
+  String get settingsShortcutsRetry => 'Retry';
+
+  @override
+  String get settingsShortcutsEmpty =>
+      'No shortcuts are configured. Add one to make an action easier to reach.';
+
+  @override
+  String settingsShortcutsRowSemantics(String shortcut, String action) {
+    return '$shortcut, $action';
+  }
+
+  @override
+  String settingsShortcutsDeleteTooltip(String shortcut) {
+    return 'Delete $shortcut';
+  }
+
+  @override
+  String get settingsShortcutEditorAddTitle => 'Add shortcut';
+
+  @override
+  String get settingsShortcutEditorEditTitle => 'Edit shortcut';
+
+  @override
+  String get settingsShortcutEditorDescription =>
+      'Write a shortcut, choose what it runs, and let the compositor check it before saving.';
+
+  @override
+  String get settingsShortcutEditorShortcutLabel => 'Shortcut';
+
+  @override
+  String get settingsShortcutEditorShortcutHint => 'Super+K';
+
+  @override
+  String get settingsShortcutEditorShortcutExample =>
+      'Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeUp';
+
+  @override
+  String get settingsShortcutEditorSupportedInputs => 'Supported inputs';
+
+  @override
+  String get settingsShortcutEditorTargetLabel => 'Runs';
+
+  @override
+  String get settingsShortcutEditorTargetAction => 'Denial action';
+
+  @override
+  String get settingsShortcutEditorTargetProgram => 'Program';
+
+  @override
+  String get settingsShortcutEditorTargetShell => 'Shell command';
+
+  @override
+  String get settingsShortcutEditorProgramDescription =>
+      'Run a program directly, without a shell. Every argument is passed exactly as written.';
+
+  @override
+  String get settingsShortcutEditorProgramLabel => 'Program';
+
+  @override
+  String get settingsShortcutEditorProgramHint => 'foot';
+
+  @override
+  String get settingsShortcutEditorArgumentsLabel => 'Arguments';
+
+  @override
+  String get settingsShortcutEditorAddArgument => 'Add argument';
+
+  @override
+  String get settingsShortcutEditorNoArguments => 'No arguments';
+
+  @override
+  String settingsShortcutEditorArgumentLabel(int index) {
+    return 'Argument $index';
+  }
+
+  @override
+  String get settingsShortcutEditorArgumentHint => '--option';
+
+  @override
+  String settingsShortcutEditorRemoveArgument(int index) {
+    return 'Remove argument $index';
+  }
+
+  @override
+  String get settingsShortcutEditorShellDescription =>
+      'Run one command through sh -c. Shell variables, pipelines, redirects, and command chaining are supported.';
+
+  @override
+  String get settingsShortcutEditorShellCommandLabel => 'Shell command';
+
+  @override
+  String get settingsShortcutEditorShellCommandHint =>
+      'grim -g \"\$(slurp)\" ~/Pictures/capture.png';
+
+  @override
+  String get settingsShortcutEditorChooseAction => 'Choose an action';
+
+  @override
+  String get settingsShortcutEditorValidating =>
+      'Checking with the compositor…';
+
+  @override
+  String settingsShortcutEditorValid(String shortcut) {
+    return 'Recognized as $shortcut';
+  }
+
+  @override
+  String settingsShortcutEditorConflict(String shortcut, String action) {
+    return '$shortcut is already assigned to $action.';
+  }
+
+  @override
+  String get settingsShortcutEditorSearch => 'Search';
+
+  @override
+  String get settingsShortcutEditorNoResults => 'No matching entries.';
+
+  @override
+  String get settingsShortcutEditorBack => 'Back to shortcut editor';
+
+  @override
+  String get settingsShortcutEditorDone => 'Done';
+
+  @override
+  String get settingsShortcutEditorCancel => 'Cancel';
+
+  @override
+  String get settingsShortcutEditorSave => 'Save';
+
+  @override
+  String get settingsShortcutEditorSaving => 'Saving…';
+
+  @override
+  String get settingsShortcutEditorDelete => 'Delete';
+
+  @override
+  String get settingsShortcutGestureThreeFingerSwipeUp =>
+      'Three-finger swipe up';
+
+  @override
+  String get settingsShortcutInputCategoryModifier => 'Modifier';
+
+  @override
+  String get settingsShortcutInputCategoryNavigation => 'Navigation';
+
+  @override
+  String get settingsShortcutInputCategoryEditing => 'Editing';
+
+  @override
+  String get settingsShortcutInputCategoryPunctuation => 'Punctuation';
+
+  @override
+  String get settingsShortcutInputCategoryFunction => 'Function';
+
+  @override
+  String get settingsShortcutInputCategoryMedia => 'Media';
+
+  @override
+  String get settingsShortcutInputCategoryHardware => 'Hardware';
+
+  @override
+  String get settingsShortcutInputCategorySpecial => 'Special';
+
+  @override
+  String get settingsShortcutInputCategoryGesture => 'Gesture';
+
+  @override
+  String get settingsShortcutActionShutdown => 'Shut down';
+
+  @override
+  String get settingsShortcutActionOpenApplications => 'Open applications';
+
+  @override
+  String get settingsShortcutActionOpenOverview => 'Open overview';
+
+  @override
+  String get settingsShortcutActionToggleVerticalMaximize =>
+      'Maximize vertically';
+
+  @override
+  String get settingsShortcutActionWindowSwitcher => 'Switch windows';
+
+  @override
+  String get settingsShortcutActionOpenClipboard => 'Open clipboard';
+
+  @override
+  String get settingsShortcutActionCaptureRegion => 'Capture region';
+
+  @override
+  String get settingsShortcutActionCloseWindow => 'Close window';
+
+  @override
+  String get settingsShortcutActionMinimizeWindow => 'Minimize window';
+
+  @override
+  String get settingsShortcutActionToggleMaximize => 'Maximize or restore';
+
+  @override
+  String get settingsShortcutActionToggleFullscreen =>
+      'Enter or leave fullscreen';
+
+  @override
+  String get settingsShortcutActionReleasePointer => 'Release pointer';
+
+  @override
+  String get settingsShortcutActionLockScreen => 'Lock screen';
+
+  @override
+  String get settingsShortcutActionVolumeUp => 'Increase volume';
+
+  @override
+  String get settingsShortcutActionVolumeDown => 'Decrease volume';
+
+  @override
+  String get settingsShortcutActionVolumeMute => 'Mute or unmute';
+
+  @override
+  String get settingsShortcutActionBrightnessUp => 'Increase brightness';
+
+  @override
+  String get settingsShortcutActionBrightnessDown => 'Decrease brightness';
+
+  @override
+  String get settingsShortcutActionNextKeyboardLayout => 'Next keyboard layout';
+
+  @override
+  String get settingsShortcutActionPreviousKeyboardLayout =>
+      'Previous keyboard layout';
+
+  @override
   String get settingsLayoutDescription =>
       'Control the spacing reserved around ordinary and maximized windows.';
 
@@ -1929,6 +2189,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsNavigationKeyboard => 'Keyboard';
+
+  @override
+  String get settingsNavigationShortcuts => 'Shortcuts';
 
   @override
   String get settingsNavigationLockScreen => 'Lock screen';

@@ -5741,6 +5741,16 @@ impl FlutterRuntime {
             .start_application(launch, activation_token)
     }
 
+    pub fn start_shortcut_application(
+        &mut self,
+        arguments: Vec<String>,
+        shell: bool,
+        activation_token: Option<&str>,
+    ) -> Result<(), system_command::DispatchError> {
+        self.system_commands
+            .start_shortcut_application(arguments, shell, activation_token)
+    }
+
     pub fn take_screenshot_requested(&mut self) -> Option<system_command::ScreenshotRequest> {
         self.system_commands.take_screenshot_requested()
     }
@@ -5986,6 +5996,48 @@ impl FlutterRuntime {
             active_layout,
             error,
         )?;
+        engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, response)?;
+        Ok(())
+    }
+
+    pub fn send_shortcut_configuration_response(
+        &mut self,
+        request_id: u64,
+        revision: u64,
+        shortcuts: &[super::native_shortcut::ShortcutBinding],
+        supported_inputs: &[super::native_shortcut::ShortcutInputDefinition],
+        error: Option<&str>,
+    ) -> Result<(), Box<dyn Error>> {
+        let engine = self
+            .host
+            .as_ref()
+            .expect("Flutter runtime is shutting down")
+            .engine();
+        let response = self.wire.encode_shortcut_configuration_response(
+            request_id,
+            revision,
+            shortcuts,
+            supported_inputs,
+            error,
+        )?;
+        engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, response)?;
+        Ok(())
+    }
+
+    pub fn send_shortcut_validation_response(
+        &mut self,
+        request_id: u64,
+        revision: u64,
+        validation: &super::native_shortcut::ShortcutValidation,
+    ) -> Result<(), Box<dyn Error>> {
+        let engine = self
+            .host
+            .as_ref()
+            .expect("Flutter runtime is shutting down")
+            .engine();
+        let response = self
+            .wire
+            .encode_shortcut_validation_response(request_id, revision, validation)?;
         engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, response)?;
         Ok(())
     }
