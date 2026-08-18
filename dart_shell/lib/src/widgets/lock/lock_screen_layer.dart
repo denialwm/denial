@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
-import 'package:flutter/material.dart' show CircularProgressIndicator, Icons;
+import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -524,18 +524,10 @@ class _DesktopUnlockPrompt extends StatelessWidget {
                     maxWidth: math.min(420.0, size.width * 0.42),
                   ),
                   child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: theme.panelColor(const Color(0xff171b22)),
-                      borderRadius: BorderRadius.circular(theme.panelRadius),
-                      border: Border.all(color: accent.outline),
-                      boxShadow: const <BoxShadow>[
-                        BoxShadow(
-                          color: Color(0x99000000),
-                          blurRadius: 42,
-                          spreadRadius: 4,
-                          offset: Offset(0, 18),
-                        ),
-                      ],
+                    key: const ValueKey<String>('desktop-lock-welcome-panel'),
+                    decoration: _desktopLockPanelDecoration(
+                      theme: theme,
+                      accent: accent,
                     ),
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(28, 26, 28, 28),
@@ -681,18 +673,10 @@ class _LockAuthenticationPanel extends StatelessWidget {
               maxHeight: math.max(220.0, size.height * (desktop ? 0.86 : 0.72)),
             ),
             child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: const Color(0xf21a1e25),
-                borderRadius: BorderRadius.circular(theme.panelRadius),
-                border: Border.all(color: accent.outline),
-                boxShadow: const <BoxShadow>[
-                  BoxShadow(
-                    color: Color(0x99000000),
-                    blurRadius: 42,
-                    spreadRadius: 4,
-                    offset: Offset(0, 18),
-                  ),
-                ],
+              key: const ValueKey<String>('desktop-lock-authentication-panel'),
+              decoration: _desktopLockPanelDecoration(
+                theme: theme,
+                accent: accent,
               ),
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
@@ -743,15 +727,6 @@ class _LockAuthenticationPanel extends StatelessWidget {
                               ],
                             ),
                           ),
-                          if (state.busy)
-                            SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: accent.primary,
-                              ),
-                            ),
                         ],
                       ),
                       if (message != null && message.isNotEmpty) ...[
@@ -972,17 +947,6 @@ class _MobileLockAuthenticationPanel extends StatelessWidget {
                                 ),
                               ),
                             ),
-                            if (state.busy && !canRespond) ...[
-                              SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: accent.primary,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                            ],
                             _MobileLockCancelButton(
                               label: l10n.commonCancel,
                               onPressed: onCancel,
@@ -1353,6 +1317,25 @@ class _LockActionButtonState extends State<_LockActionButton> {
       ),
     );
   }
+}
+
+BoxDecoration _desktopLockPanelDecoration({
+  required ShellThemeData theme,
+  required ShellAccentPalette accent,
+}) {
+  return BoxDecoration(
+    color: theme.panelColor(const Color(0xff171b22)),
+    borderRadius: BorderRadius.circular(theme.panelRadius),
+    border: Border.all(color: accent.outline),
+    boxShadow: const <BoxShadow>[
+      BoxShadow(
+        color: Color(0x99000000),
+        blurRadius: 42,
+        spreadRadius: 4,
+        offset: Offset(0, 18),
+      ),
+    ],
+  );
 }
 
 class _LockBackdrop extends ConsumerWidget {

@@ -169,10 +169,17 @@ class _WallpaperScene extends StatelessWidget {
           ),
         ),
         for (final output in outputs)
-          if (assignment.outputOverrides[output.name] case final resource?)
+          if (assignment.outputOverrides.containsKey(output.name) ||
+              assignment.outputAlignmentOverrides.containsKey(output.name))
             Positioned.fromRect(
               rect: output.logicalRect,
-              child: _WallpaperImage(resource: resource),
+              child: _WallpaperImage(
+                resource: assignment.forOutput(output.name),
+                alignment: Alignment(
+                  assignment.alignmentForOutput(output.name).x,
+                  assignment.alignmentForOutput(output.name).y,
+                ),
+              ),
             ),
         if (outputs.isEmpty && assignment.allDarkness > 0.0)
           Positioned.fromRect(

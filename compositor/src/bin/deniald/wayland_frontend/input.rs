@@ -643,6 +643,23 @@ fn route_flutter_key_transition(
 }
 
 #[cfg(feature = "flutter")]
+fn route_input_method_key_transition(
+    active: &mut HashSet<u32>,
+    retired: &mut HashSet<u32>,
+    keycode: u32,
+    state: KeyState,
+    flutter_editor_active: bool,
+) -> FlutterKeyDisposition {
+    route_flutter_key_transition(
+        active,
+        retired,
+        keycode,
+        state,
+        flutter_editor_active && matches!(state, KeyState::Pressed),
+    )
+}
+
+#[cfg(feature = "flutter")]
 fn route_shell_key_transition(
     held: &mut HashSet<u32>,
     keycode: u32,
@@ -1263,6 +1280,12 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
     } else {
         HashSet::new()
     };
+    #[cfg(feature = "flutter")]
+    let active_input_method_keys = if reset.keyboard {
+        std::mem::take(&mut frontend.flutter_input_method_keys)
+    } else {
+        HashSet::new()
+    };
     if reset.keyboard {
         frontend.shell_keyboard_keys.clear();
     }
@@ -1279,6 +1302,10 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
         frontend
             .retired_keyboard_keys
             .extend(active_flutter_keys.iter().copied());
+        #[cfg(feature = "flutter")]
+        frontend
+            .retired_input_method_keys
+            .extend(active_input_method_keys.iter().copied());
     }
     if let Some(pointer) = pointer {
         let had_buttons = !pointer_buttons.is_empty();
@@ -1316,6 +1343,8 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
             let raw_keycode = keycode.raw();
             #[cfg(feature = "flutter")]
             let was_flutter = active_flutter_keys.contains(&raw_keycode);
+            #[cfg(feature = "flutter")]
+            let was_flutter_input_method = active_input_method_keys.contains(&raw_keycode);
             #[cfg(not(feature = "flutter"))]
             let was_flutter = false;
             let was_retired = previously_retired_keys.contains(&raw_keycode);
@@ -1329,7 +1358,7 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
                     #[cfg(not(feature = "flutter"))]
                     let _ = (&state, &modifiers, &key);
                     #[cfg(feature = "flutter")]
-                    if was_flutter && state.flutter_active {
+                    if (was_flutter || was_flutter_input_method) && state.flutter_active {
                         state
                             .flutter_input
                             .handle_keyboard(key, KeyState::Released, modifiers);
@@ -1489,6 +1518,55 @@ fn dispatch_flutter_repeat(state: &mut RuntimeState, keycode: u32) -> bool {
         &modifiers,
         unicode,
     );
+    true
+}
+
+/// Deliver a key returned by the external input method to its Flutter editor.
+///
+/// The physical transition has already updated Smithay's XKB state before the
+/// input-method grab received it. Reusing that state here avoids a second XKB
+/// transition and, critically, does not re-enter the input-method grab. Keys
+/// not owned by Flutter remain on the ordinary virtual-keyboard path.
+#[cfg(feature = "flutter")]
+pub(super) fn dispatch_input_method_key_to_flutter(
+    state: &mut RuntimeState,
+    keyboard: &KeyboardHandle<RuntimeState>,
+    keycode: Keycode,
+    key_state: KeyState,
+    flutter_editor_active: bool,
+) -> bool {
+    let disposition = {
+        let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+        route_input_method_key_transition(
+            &mut frontend.flutter_input_method_keys,
+            &mut frontend.retired_input_method_keys,
+            keycode.raw(),
+            key_state,
+            state.flutter_active && flutter_editor_active,
+        )
+    };
+    match disposition {
+        FlutterKeyDisposition::Forward => return false,
+        FlutterKeyDisposition::ConsumeRetired => return true,
+        FlutterKeyDisposition::Dispatch if !state.flutter_active => return true,
+        FlutterKeyDisposition::Dispatch => {}
+    }
+
+    let keysym = keyboard.with_xkb_state(state, |context| {
+        let xkb = context.xkb().lock().unwrap();
+        // SAFETY: the state reference remains inside the XKB mutex guard.
+        unsafe { xkb.state() }.key_get_one_sym(keycode)
+    });
+    let modifiers = keyboard.modifier_state();
+    let unicode = if matches!(key_state, KeyState::Pressed) {
+        let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+        flutter_unicode_for_keysym(frontend.flutter_compose.as_mut(), keysym)
+    } else {
+        keysym.key_char().map(u32::from).unwrap_or(0)
+    };
+    state
+        .flutter_input
+        .handle_keyboard_with_unicode(keycode.raw(), key_state, &modifiers, unicode);
     true
 }
 
@@ -3928,5 +4006,57 @@ mod flutter_key_lifecycle_tests {
             FlutterKeyDisposition::Dispatch
         );
         assert!(active.is_empty());
+    }
+
+    #[test]
+    fn returned_input_method_key_stays_with_its_flutter_press() {
+        let mut flutter_keys = HashSet::new();
+        let mut retired_flutter_keys = HashSet::new();
+        let mut input_method_keys = HashSet::new();
+        let mut retired_input_method_keys = HashSet::new();
+        let backspace = 22;
+
+        assert_eq!(
+            route_input_method_key_transition(
+                &mut input_method_keys,
+                &mut retired_input_method_keys,
+                backspace,
+                KeyState::Pressed,
+                true,
+            ),
+            FlutterKeyDisposition::Dispatch
+        );
+        assert_eq!(
+            route_flutter_key_transition(
+                &mut flutter_keys,
+                &mut retired_flutter_keys,
+                backspace,
+                KeyState::Released,
+                false,
+            ),
+            FlutterKeyDisposition::Forward
+        );
+        assert_eq!(
+            route_input_method_key_transition(
+                &mut input_method_keys,
+                &mut retired_input_method_keys,
+                backspace,
+                KeyState::Released,
+                false,
+            ),
+            FlutterKeyDisposition::Dispatch
+        );
+        assert!(input_method_keys.is_empty());
+
+        assert_eq!(
+            route_input_method_key_transition(
+                &mut input_method_keys,
+                &mut retired_input_method_keys,
+                backspace,
+                KeyState::Pressed,
+                false,
+            ),
+            FlutterKeyDisposition::Forward
+        );
     }
 }

@@ -11,13 +11,13 @@ import '../../state/display_layout.dart';
 import '../../state/shell_controller.dart';
 import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
-import '../../widgets/shade/range_bar.dart';
 import '../../widgets/shell_cursor.dart';
 import '../state/wallpaper_controller.dart';
 import '../wallpaper.dart';
 import 'wallpaper_darkness_control.dart';
 import 'wallpaper_image.dart';
 import 'wallpaper_search_controls.dart';
+import 'wallpaper_span_controls.dart';
 import 'wallpaper_target_selector.dart';
 
 enum _MobileWallpaperMode { browse, position, preview }
@@ -379,8 +379,10 @@ class _PositionSurface extends ConsumerStatefulWidget {
 }
 
 class _PositionSurfaceState extends ConsumerState<_PositionSurface> {
-  WallpaperSpanAlignment get _alignment =>
-      ref.read(wallpaperControllerProvider).assignment.spanAlignment;
+  WallpaperSpanAlignment get _alignment {
+    final state = ref.read(wallpaperControllerProvider);
+    return state.assignment.alignmentForTarget(state.target);
+  }
 
   WallpaperController get _controller =>
       ref.read(wallpaperControllerProvider.notifier);
@@ -448,7 +450,9 @@ class _PositionSurfaceState extends ConsumerState<_PositionSurface> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final alignment = widget.state.assignment.spanAlignment;
+    final alignment = widget.state.assignment.alignmentForTarget(
+      widget.state.target,
+    );
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -481,7 +485,7 @@ class _PositionSurfaceState extends ConsumerState<_PositionSurface> {
                   ),
                 ),
                 const SizedBox(height: 14),
-                _AlignmentSlider(
+                WallpaperAlignmentSlider(
                   label: l10n.wallpaperMobileHorizontalPosition,
                   icon: Icons.align_horizontal_center_rounded,
                   value: alignment.x,
@@ -489,7 +493,7 @@ class _PositionSurfaceState extends ConsumerState<_PositionSurface> {
                   onChangeEnd: (value) => _commit(x: value),
                 ),
                 const SizedBox(height: 10),
-                _AlignmentSlider(
+                WallpaperAlignmentSlider(
                   label: l10n.wallpaperMobileVerticalPosition,
                   icon: Icons.align_vertical_center_rounded,
                   value: alignment.y,
@@ -751,61 +755,6 @@ class _MobileWallpaperCandidateCard extends StatelessWidget {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _AlignmentSlider extends StatelessWidget {
-  const _AlignmentSlider({
-    required this.label,
-    required this.icon,
-    required this.value,
-    required this.onChanged,
-    required this.onChangeEnd,
-  });
-
-  final String label;
-  final IconData icon;
-  final double value;
-  final ValueChanged<double> onChanged;
-  final ValueChanged<double> onChangeEnd;
-
-  @override
-  Widget build(BuildContext context) {
-    final normalized = ((value.clamp(-1.0, 1.0) + 1.0) / 2.0).toDouble();
-    final percentage = (value.clamp(-1.0, 1.0) * 100).round();
-    final accent = ShellTheme.of(context).accentPalette;
-    return Semantics(
-      excludeSemantics: true,
-      slider: true,
-      label: label,
-      value: '$percentage%',
-      child: Row(
-        children: [
-          SizedBox(width: 84, child: Text(label, style: ShellText.cardTitle)),
-          Expanded(
-            child: RangeBar(
-              icon: icon,
-              value: normalized,
-              activeColor: accent.primary,
-              inactiveColor: ShellColors.wallpaperEffectTrack,
-              onChanged: (next) => onChanged(next * 2.0 - 1.0),
-              onChangeEnd: (next) => onChangeEnd(next * 2.0 - 1.0),
-              height: 38,
-            ),
-          ),
-          SizedBox(
-            width: 54,
-            child: Text(
-              '$percentage%',
-              textAlign: TextAlign.right,
-              style: ShellText.cardTitle.copyWith(
-                color: ShellColors.textSecondary,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

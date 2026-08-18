@@ -443,6 +443,8 @@ pub(super) struct WaylandFrontend {
     #[cfg(feature = "flutter")]
     flutter_keyboard_keys: HashSet<u32>,
     #[cfg(feature = "flutter")]
+    flutter_input_method_keys: HashSet<u32>,
+    #[cfg(feature = "flutter")]
     shell_keyboard_keys: HashSet<u32>,
     #[cfg(feature = "flutter")]
     flutter_compose: Option<xkb::compose::State>,
@@ -453,6 +455,8 @@ pub(super) struct WaylandFrontend {
     #[cfg(feature = "flutter")]
     flutter_repeat_token: Option<RegistrationToken>,
     retired_keyboard_keys: HashSet<u32>,
+    #[cfg(feature = "flutter")]
+    retired_input_method_keys: HashSet<u32>,
     #[cfg(feature = "flutter")]
     minimized_windows: HashSet<ObjectId>,
     window_placements: WindowPlacementStore,
@@ -1163,6 +1167,8 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             flutter_keyboard_keys: HashSet::new(),
             #[cfg(feature = "flutter")]
+            flutter_input_method_keys: HashSet::new(),
+            #[cfg(feature = "flutter")]
             shell_keyboard_keys: HashSet::new(),
             #[cfg(feature = "flutter")]
             flutter_compose,
@@ -1173,6 +1179,8 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             flutter_repeat_token: None,
             retired_keyboard_keys: HashSet::new(),
+            #[cfg(feature = "flutter")]
+            retired_input_method_keys: HashSet::new(),
             #[cfg(feature = "flutter")]
             minimized_windows: HashSet::new(),
             window_placements,
@@ -3633,6 +3641,10 @@ impl WaylandFrontend {
         input::retire_flutter_generation_keys(
             &mut self.flutter_keyboard_keys,
             &mut self.retired_keyboard_keys,
+        );
+        input::retire_flutter_generation_keys(
+            &mut self.flutter_input_method_keys,
+            &mut self.retired_input_method_keys,
         );
     }
 

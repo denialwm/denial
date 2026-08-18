@@ -18,9 +18,10 @@ import 'package:denial_dart_shell/src/state/authentication.dart';
 import 'package:denial_dart_shell/src/state/shell_controller.dart';
 import 'package:denial_dart_shell/src/state/shell_profile.dart';
 import 'package:denial_dart_shell/src/state/system_status.dart';
+import 'package:denial_dart_shell/src/theme/shell_theme.dart';
 import 'package:denial_dart_shell/src/widgets/lock/lock_screen_layer.dart';
 import 'package:denial_dart_shell/src/widgets/shell_wallpaper.dart';
-import 'package:flutter/material.dart' show Icons;
+import 'package:flutter/material.dart' show CircularProgressIndicator, Icons;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
@@ -221,6 +222,92 @@ void main() {
     expect(find.byType(ShellWallpaper), findsNothing);
   });
 
+  testWidgets(
+    'desktop authentication preserves its translucent card and accent contrast',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1600, 600);
+      addTearDown(tester.view.reset);
+      final service = _FakeAuthenticationService();
+      final bridge = _LayoutBridge(_dualOutputLayout);
+      addTearDown(() {
+        service.dispose();
+        bridge.dispose();
+      });
+      const theme = ShellThemeData(
+        accent: Color(0xffff0000),
+        panelOpacity: 0.42,
+      );
+
+      await tester.pumpWidget(
+        _host(service: service, bridge: bridge, theme: theme),
+      );
+      service.emit(_state(locked: true));
+      await tester.pump();
+
+      final welcomeDecoration =
+          tester
+                  .widget<DecoratedBox>(
+                    find.byKey(
+                      const ValueKey<String>('desktop-lock-welcome-panel'),
+                    ),
+                  )
+                  .decoration
+              as BoxDecoration;
+      expect(
+        tester.widget<Text>(find.text('Unlock')).style?.color,
+        const Color(0xffffffff),
+      );
+
+      await tester.tap(find.bySemanticsLabel('Sign in to Denial'));
+      service.emit(_prompt(attemptId: 20, sequence: 6));
+      await tester.pump();
+
+      final authenticationDecoration =
+          tester
+                  .widget<DecoratedBox>(
+                    find.byKey(
+                      const ValueKey<String>(
+                        'desktop-lock-authentication-panel',
+                      ),
+                    ),
+                  )
+                  .decoration
+              as BoxDecoration;
+      expect(authenticationDecoration.color, welcomeDecoration.color);
+      expect(authenticationDecoration.color?.a, closeTo(0.42, 0.001));
+      expect(
+        tester.widget<Text>(find.text('Unlock')).style?.color,
+        const Color(0xffffffff),
+      );
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    },
+  );
+
+  testWidgets('light accents use black Unlock button text', (tester) async {
+    final service = _FakeAuthenticationService();
+    final bridge = _LayoutBridge(_singleOutputLayout);
+    addTearDown(() {
+      service.dispose();
+      bridge.dispose();
+    });
+
+    await tester.pumpWidget(
+      _host(
+        service: service,
+        bridge: bridge,
+        theme: const ShellThemeData(accent: Color(0xffffd54f)),
+      ),
+    );
+    service.emit(_state(locked: true));
+    await tester.pump();
+
+    expect(
+      tester.widget<Text>(find.text('Unlock')).style?.color,
+      const Color(0xff000000),
+    );
+  });
+
   testWidgets('lock screen reuses the centered Home clock presentation', (
     tester,
   ) async {
@@ -275,6 +362,7 @@ Widget _host({
   required _FakeAuthenticationService service,
   required _LayoutBridge bridge,
   ShellProfile profile = ShellProfile.desktop,
+  ShellThemeData theme = const ShellThemeData(),
 }) {
   return ProviderScope(
     overrides: <Override>[
@@ -289,18 +377,21 @@ Widget _host({
         const _FakePowerStatusService(),
       ),
     ],
-    child: DenialLocalizationScope(
-      child: MediaQuery(
-        data: MediaQueryData(size: bridge.layout.logicalSize),
-        child: Overlay(
-          initialEntries: <OverlayEntry>[
-            OverlayEntry(
-              builder: (_) => const LockScreenLayer(
-                unlockProgress: AlwaysStoppedAnimation<double>(0),
-                animateDesktopEntrance: false,
+    child: ShellTheme(
+      data: theme,
+      child: DenialLocalizationScope(
+        child: MediaQuery(
+          data: MediaQueryData(size: bridge.layout.logicalSize),
+          child: Overlay(
+            initialEntries: <OverlayEntry>[
+              OverlayEntry(
+                builder: (_) => const LockScreenLayer(
+                  unlockProgress: AlwaysStoppedAnimation<double>(0),
+                  animateDesktopEntrance: false,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     ),
