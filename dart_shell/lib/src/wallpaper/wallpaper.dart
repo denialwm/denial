@@ -94,8 +94,8 @@ class WallpaperSpanAlignment {
       assert(y >= -1.0 && y <= 1.0);
 
   /// Continuous `BoxFit.cover` alignment, from the leading edge at `-1` to
-  /// the trailing edge at `1`. Desktop controls still select the three legacy
-  /// anchor values; mobile can retain every position between them.
+  /// the trailing edge at `1`. Desktop and mobile controls retain every
+  /// position between the legacy anchor values.
   final double x;
   final double y;
 
@@ -140,6 +140,8 @@ class WallpaperAssignment {
     this.allDarkness = 0.0,
     Map<String, WallpaperResource> outputOverrides =
         const <String, WallpaperResource>{},
+    Map<String, WallpaperSpanAlignment> outputAlignmentOverrides =
+        const <String, WallpaperSpanAlignment>{},
     Map<String, double> outputDarknessOverrides = const <String, double>{},
   }) : assert(allDarkness >= 0.0 && allDarkness <= 1.0),
        assert(
@@ -150,6 +152,10 @@ class WallpaperAssignment {
        outputOverrides = Map<String, WallpaperResource>.unmodifiable(
          outputOverrides,
        ),
+       outputAlignmentOverrides =
+           Map<String, WallpaperSpanAlignment>.unmodifiable(
+             outputAlignmentOverrides,
+           ),
        outputDarknessOverrides = Map<String, double>.unmodifiable(
          outputDarknessOverrides,
        );
@@ -162,6 +168,7 @@ class WallpaperAssignment {
   final WallpaperSpanAlignment spanAlignment;
   final double allDarkness;
   final Map<String, WallpaperResource> outputOverrides;
+  final Map<String, WallpaperSpanAlignment> outputAlignmentOverrides;
   final Map<String, double> outputDarknessOverrides;
 
   WallpaperResource forOutput(String outputName) {
@@ -171,6 +178,16 @@ class WallpaperAssignment {
   WallpaperResource forTarget(WallpaperTarget target) {
     final outputName = target.outputName;
     return outputName == null ? all : forOutput(outputName);
+  }
+
+  WallpaperSpanAlignment alignmentForOutput(String outputName) {
+    return outputAlignmentOverrides[outputName] ??
+        const WallpaperSpanAlignment();
+  }
+
+  WallpaperSpanAlignment alignmentForTarget(WallpaperTarget target) {
+    final outputName = target.outputName;
+    return outputName == null ? spanAlignment : alignmentForOutput(outputName);
   }
 
   double darknessForOutput(String outputName) {
@@ -192,6 +209,7 @@ class WallpaperAssignment {
         all: resource,
         spanAlignment: spanAlignment,
         allDarkness: allDarkness,
+        outputAlignmentOverrides: outputAlignmentOverrides,
         outputDarknessOverrides: outputDarknessOverrides,
       );
     }
@@ -206,11 +224,30 @@ class WallpaperAssignment {
       spanAlignment: spanAlignment,
       allDarkness: allDarkness,
       outputOverrides: updated,
+      outputAlignmentOverrides: outputAlignmentOverrides,
       outputDarknessOverrides: outputDarknessOverrides,
     );
   }
 
-  WallpaperAssignment withSpanAlignment(WallpaperSpanAlignment alignment) {
+  WallpaperAssignment withAlignment(
+    WallpaperTarget target,
+    WallpaperSpanAlignment alignment,
+  ) {
+    final outputName = target.outputName;
+    if (outputName != null) {
+      final updated = Map<String, WallpaperSpanAlignment>.of(
+        outputAlignmentOverrides,
+      );
+      updated[outputName] = alignment;
+      return WallpaperAssignment(
+        all: all,
+        spanAlignment: spanAlignment,
+        allDarkness: allDarkness,
+        outputOverrides: outputOverrides,
+        outputAlignmentOverrides: updated,
+        outputDarknessOverrides: outputDarknessOverrides,
+      );
+    }
     return WallpaperAssignment(
       all: all,
       spanAlignment: alignment,
@@ -231,6 +268,7 @@ class WallpaperAssignment {
         spanAlignment: spanAlignment,
         allDarkness: safeDarkness,
         outputOverrides: outputOverrides,
+        outputAlignmentOverrides: outputAlignmentOverrides,
       );
     }
 
@@ -245,6 +283,7 @@ class WallpaperAssignment {
       spanAlignment: spanAlignment,
       allDarkness: allDarkness,
       outputOverrides: outputOverrides,
+      outputAlignmentOverrides: outputAlignmentOverrides,
       outputDarknessOverrides: updated,
     );
   }
@@ -256,6 +295,7 @@ class WallpaperAssignment {
         other.spanAlignment == spanAlignment &&
         other.allDarkness == allDarkness &&
         mapEquals(other.outputOverrides, outputOverrides) &&
+        mapEquals(other.outputAlignmentOverrides, outputAlignmentOverrides) &&
         mapEquals(other.outputDarknessOverrides, outputDarknessOverrides);
   }
 
@@ -266,12 +306,20 @@ class WallpaperAssignment {
     final orderedDarknessEntries = outputDarknessOverrides.entries.toList(
       growable: false,
     )..sort((a, b) => a.key.compareTo(b.key));
+    final orderedAlignmentEntries = outputAlignmentOverrides.entries.toList(
+      growable: false,
+    )..sort((a, b) => a.key.compareTo(b.key));
     return Object.hash(
       all,
       spanAlignment,
       allDarkness,
       Object.hashAll(
         orderedEntries.map((entry) => Object.hash(entry.key, entry.value)),
+      ),
+      Object.hashAll(
+        orderedAlignmentEntries.map(
+          (entry) => Object.hash(entry.key, entry.value),
+        ),
       ),
       Object.hashAll(
         orderedDarknessEntries.map(

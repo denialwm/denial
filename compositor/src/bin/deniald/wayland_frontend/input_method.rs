@@ -614,7 +614,7 @@ impl InputMethodManager {
         }
     }
 
-    pub(super) fn active_editor(&self) -> Option<EditorSnapshot> {
+    fn active_editor_ref(&self) -> Option<&EditorSnapshot> {
         let instance = self
             .instance
             .as_ref()
@@ -624,7 +624,16 @@ impl InputMethodManager {
             .active_endpoint
             .as_ref()
             .is_some_and(|endpoint| endpoint.same_editor(&editor.endpoint))
-            .then(|| editor.clone())
+            .then_some(editor)
+    }
+
+    pub(super) fn active_editor(&self) -> Option<EditorSnapshot> {
+        self.active_editor_ref().cloned()
+    }
+
+    fn flutter_editor_active(&self) -> bool {
+        self.active_editor_ref()
+            .is_some_and(|editor| matches!(&editor.endpoint, EditorEndpoint::Flutter { .. }))
     }
 
     pub(super) fn owns_popup_surface(&self, surface: &WlSurface) -> bool {
@@ -867,19 +876,32 @@ impl Dispatch<ZwpVirtualKeyboardV1, VirtualKeyboardUserData> for RuntimeState {
                     warn!(key, "discarding out-of-range virtual-keyboard keycode");
                     return;
                 }
-                let Some((keyboard, route)) = state.wayland.as_ref().and_then(|frontend| {
-                    frontend
-                        .input_method
-                        .accepts_virtual_keyboard(resource)
-                        .then(|| {
-                            Some((
-                                frontend.seat.get_keyboard()?,
-                                frontend.input_method.keyboard_route(),
-                            ))
-                        })?
-                }) else {
+                let Some((keyboard, route, flutter_editor_active)) =
+                    state.wayland.as_ref().and_then(|frontend| {
+                        frontend
+                            .input_method
+                            .accepts_virtual_keyboard(resource)
+                            .then(|| {
+                                Some((
+                                    frontend.seat.get_keyboard()?,
+                                    frontend.input_method.keyboard_route(),
+                                    frontend.input_method.flutter_editor_active(),
+                                ))
+                            })?
+                    })
+                else {
                     return;
                 };
+                let keycode = Keycode::new(key + XKB_KEYCODE_OFFSET);
+                if super::input::dispatch_input_method_key_to_flutter(
+                    state,
+                    &keyboard,
+                    keycode,
+                    key_state,
+                    flutter_editor_active,
+                ) {
+                    return;
+                }
                 route.forward_virtual_key(&keyboard, state, key, key_state, time);
             }
             zwp_virtual_keyboard_v1::Request::Modifiers {

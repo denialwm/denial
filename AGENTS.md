@@ -27,6 +27,12 @@ repository. The tag is the sole source of every release package and runtime
 version; Cargo and Dart manifest versions are source metadata, and Flutter
 generation identifiers are compatibility metadata.
 
+Run every `gh`, `tools/denial-builder`, and networked Git command outside the
+sandbox. This includes authentication checks and Git fetch, pull, push, and
+remote inspection. Sandboxed credential or network failures are not
+authoritative; repeat the command outside the sandbox before diagnosing an
+authentication or connectivity problem.
+
 ## Graphical session control
 
 Never log out, terminate, restart, or otherwise stop the user's graphical

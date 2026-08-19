@@ -15,7 +15,7 @@ class SettingsPageLayout extends StatelessWidget {
     required this.eyebrow,
     required this.title,
     required this.children,
-    required this.onReset,
+    this.onReset,
     super.key,
   });
 
@@ -23,7 +23,7 @@ class SettingsPageLayout extends StatelessWidget {
   final String eyebrow;
   final String title;
   final List<Widget> children;
-  final VoidCallback onReset;
+  final VoidCallback? onReset;
 
   @override
   Widget build(BuildContext context) {
@@ -58,12 +58,14 @@ class SettingsPageLayout extends StatelessWidget {
                         ),
                       ),
                       const Spacer(),
-                      const SettingsSavedBadge(),
-                      const SizedBox(width: 8),
-                      SettingsTextButton(
-                        label: context.l10n.settingsResetPage,
-                        onPressed: onReset,
-                      ),
+                      if (onReset != null) ...[
+                        const SettingsSavedBadge(),
+                        const SizedBox(width: 8),
+                        SettingsTextButton(
+                          label: context.l10n.settingsResetPage,
+                          onPressed: onReset,
+                        ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 10),

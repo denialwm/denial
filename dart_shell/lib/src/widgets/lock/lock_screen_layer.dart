@@ -1,16 +1,16 @@
 import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
-import 'package:flutter/material.dart'
-    show CircularProgressIndicator, Icons, Tooltip;
+import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../input/shell_interaction_registry.dart';
+import '../../launcher/models/home_clock_info.dart';
+import '../../launcher/widgets/home_tiles.dart';
 import '../../localization/denial_localizations.dart';
-import '../../models/shell_clock_info.dart';
 import '../../models/shell_power_status.dart';
 import '../../platform/authentication_protocol.dart';
 import '../../settings/settings_controller.dart';
@@ -21,6 +21,7 @@ import '../../state/system_status.dart';
 import '../../theme/motion.dart';
 import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
+import '../edge_panel_layer.dart';
 import '../shell_wallpaper.dart';
 import '../shade/status_glyphs.dart';
 
@@ -221,7 +222,6 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
     debugLabel: 'lock-authentication-response',
   );
   bool _authenticationVisible = false;
-  bool _oskVisible = false;
   int? _focusedPromptSequence;
 
   @override
@@ -258,14 +258,14 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
       }
     }
     final now = ref.watch(clockProvider).value ?? DateTime.now();
-    final power = ref.watch(powerStatusProvider);
+    final power = ref.watch(effectivePowerStatusProvider);
     final cpu = widget.desktop && lockSettings.showSystemStatus
         ? ref.watch(cpuUsageProvider)
         : LoadSeries.empty;
     final gpus = widget.desktop && lockSettings.showSystemStatus
         ? ref.watch(gpuUsageProvider)
         : const <GpuLoad>[];
-    final clock = ShellClockInfo(
+    final clock = HomeClockInfo.fromShell(
       now: now,
       locale: ref.watch(clockLocaleProvider),
       power: power,
@@ -297,35 +297,6 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    const ColoredBox(color: Color(0x300b0f12)),
-                    const DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Color(0x1effffff),
-                            Color(0x08000000),
-                            Color(0x00000000),
-                          ],
-                          stops: [0.0, 0.28, 1.0],
-                        ),
-                      ),
-                    ),
-                    const Positioned(
-                      left: 0,
-                      right: 0,
-                      top: 0,
-                      height: 1,
-                      child: ColoredBox(color: Color(0x22ffffff)),
-                    ),
-                    Positioned(
-                      left: size.width * 0.14,
-                      right: size.width * 0.14,
-                      top: 22,
-                      height: 1,
-                      child: const ColoredBox(color: Color(0x16ffffff)),
-                    ),
                     if (lockSettings.showSystemStatus)
                       _LockStatusIcons(
                         power: power,
@@ -355,12 +326,6 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
                         state: authentication,
                         controller: _responseController,
                         focusNode: _responseFocus,
-                        oskVisible: _oskVisible,
-                        onToggleOsk: () {
-                          setState(() => _oskVisible = !_oskVisible);
-                        },
-                        onInsertText: _insertText,
-                        onBackspace: _backspace,
                         onSubmit: _submitResponse,
                         onBegin: ref
                             .read(authenticationProvider.notifier)
@@ -465,7 +430,6 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
     }
     final response = _responseController.text;
     _responseController.clear();
-    setState(() => _oskVisible = false);
     ref.read(authenticationProvider.notifier).respond(response);
   }
 
@@ -477,47 +441,8 @@ class _LockScreenPaneState extends ConsumerState<_LockScreenPane>
       ref.read(authenticationProvider.notifier).cancel();
     }
     if (mounted) {
-      setState(() {
-        _authenticationVisible = false;
-        _oskVisible = false;
-      });
+      setState(() => _authenticationVisible = false);
     }
-  }
-
-  void _insertText(String text) {
-    final value = _responseController.value;
-    final selection = value.selection.isValid
-        ? value.selection
-        : TextSelection.collapsed(offset: value.text.length);
-    final start = selection.start.clamp(0, value.text.length);
-    final end = selection.end.clamp(0, value.text.length);
-    final next = value.text.replaceRange(start, end, text);
-    _responseController.value = value.copyWith(
-      text: next,
-      selection: TextSelection.collapsed(offset: start + text.length),
-      composing: TextRange.empty,
-    );
-  }
-
-  void _backspace() {
-    final value = _responseController.value;
-    if (value.text.isEmpty) {
-      return;
-    }
-    final selection = value.selection.isValid
-        ? value.selection
-        : TextSelection.collapsed(offset: value.text.length);
-    var start = selection.start.clamp(0, value.text.length);
-    final end = selection.end.clamp(0, value.text.length);
-    if (start == end && start > 0) {
-      start -= 1;
-    }
-    final next = value.text.replaceRange(start, end, '');
-    _responseController.value = value.copyWith(
-      text: next,
-      selection: TextSelection.collapsed(offset: start),
-      composing: TextRange.empty,
-    );
   }
 
   void _cancelGesture() {
@@ -599,18 +524,10 @@ class _DesktopUnlockPrompt extends StatelessWidget {
                     maxWidth: math.min(420.0, size.width * 0.42),
                   ),
                   child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: theme.panelColor(const Color(0xff171b22)),
-                      borderRadius: BorderRadius.circular(theme.panelRadius),
-                      border: Border.all(color: accent.outline),
-                      boxShadow: const <BoxShadow>[
-                        BoxShadow(
-                          color: Color(0x99000000),
-                          blurRadius: 42,
-                          spreadRadius: 4,
-                          offset: Offset(0, 18),
-                        ),
-                      ],
+                    key: const ValueKey<String>('desktop-lock-welcome-panel'),
+                    decoration: _desktopLockPanelDecoration(
+                      theme: theme,
+                      accent: accent,
                     ),
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(28, 26, 28, 28),
@@ -696,10 +613,6 @@ class _LockAuthenticationPanel extends StatelessWidget {
     required this.state,
     required this.controller,
     required this.focusNode,
-    required this.oskVisible,
-    required this.onToggleOsk,
-    required this.onInsertText,
-    required this.onBackspace,
     required this.onSubmit,
     required this.onBegin,
     required this.onCancel,
@@ -709,10 +622,6 @@ class _LockAuthenticationPanel extends StatelessWidget {
   final AuthenticationState state;
   final TextEditingController controller;
   final FocusNode focusNode;
-  final bool oskVisible;
-  final VoidCallback onToggleOsk;
-  final ValueChanged<String> onInsertText;
-  final VoidCallback onBackspace;
   final VoidCallback onSubmit;
   final VoidCallback onBegin;
   final VoidCallback onCancel;
@@ -740,6 +649,17 @@ class _LockAuthenticationPanel extends StatelessWidget {
     final accent = theme.accentPalette;
     final size = MediaQuery.sizeOf(context);
 
+    if (!desktop) {
+      return _MobileLockAuthenticationPanel(
+        state: state,
+        controller: controller,
+        focusNode: focusNode,
+        onSubmit: onSubmit,
+        onBegin: onBegin,
+        onCancel: onCancel,
+      );
+    }
+
     return Positioned.fill(
       child: SafeArea(
         minimum: desktop
@@ -753,18 +673,10 @@ class _LockAuthenticationPanel extends StatelessWidget {
               maxHeight: math.max(220.0, size.height * (desktop ? 0.86 : 0.72)),
             ),
             child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: const Color(0xf21a1e25),
-                borderRadius: BorderRadius.circular(theme.panelRadius),
-                border: Border.all(color: accent.outline),
-                boxShadow: const <BoxShadow>[
-                  BoxShadow(
-                    color: Color(0x99000000),
-                    blurRadius: 42,
-                    spreadRadius: 4,
-                    offset: Offset(0, 18),
-                  ),
-                ],
+              key: const ValueKey<String>('desktop-lock-authentication-panel'),
+              decoration: _desktopLockPanelDecoration(
+                theme: theme,
+                accent: accent,
               ),
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
@@ -815,15 +727,6 @@ class _LockAuthenticationPanel extends StatelessWidget {
                               ],
                             ),
                           ),
-                          if (state.busy)
-                            SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: accent.primary,
-                              ),
-                            ),
                         ],
                       ),
                       if (message != null && message.isNotEmpty) ...[
@@ -900,57 +803,30 @@ class _LockAuthenticationPanel extends StatelessWidget {
                                 horizontal: 14,
                                 vertical: 4,
                               ),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: EditableText(
-                                      controller: controller,
-                                      focusNode: focusNode,
-                                      style: ShellText.base.copyWith(
-                                        fontSize: 16,
-                                        letterSpacing: prompt.obscure ? 2.5 : 0,
-                                      ),
-                                      cursorColor: accent.primary,
-                                      backgroundCursorColor:
-                                          ShellColors.textTertiary,
-                                      selectionColor: accent.selection,
-                                      obscureText: prompt.obscure,
-                                      obscuringCharacter: '•',
-                                      autocorrect: false,
-                                      enableSuggestions: false,
-                                      enableInteractiveSelection: false,
-                                      keyboardType:
-                                          TextInputType.visiblePassword,
-                                      textInputAction: TextInputAction.done,
-                                      inputFormatters: [
-                                        LengthLimitingTextInputFormatter(1024),
-                                      ],
-                                      onSubmitted: (_) => onSubmit(),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  _LockIconButton(
-                                    label: oskVisible
-                                        ? l10n.lockHideOnScreenKeyboard
-                                        : l10n.lockShowOnScreenKeyboard,
-                                    icon: oskVisible
-                                        ? Icons.keyboard_hide_rounded
-                                        : Icons.keyboard_rounded,
-                                    active: oskVisible,
-                                    onPressed: onToggleOsk,
-                                  ),
+                              child: EditableText(
+                                controller: controller,
+                                focusNode: focusNode,
+                                style: ShellText.base.copyWith(
+                                  fontSize: 16,
+                                  letterSpacing: prompt.obscure ? 2.5 : 0,
+                                ),
+                                cursorColor: accent.primary,
+                                backgroundCursorColor: ShellColors.textTertiary,
+                                selectionColor: accent.selection,
+                                obscureText: prompt.obscure,
+                                obscuringCharacter: '•',
+                                autocorrect: false,
+                                enableSuggestions: false,
+                                enableInteractiveSelection: false,
+                                keyboardType: TextInputType.visiblePassword,
+                                textInputAction: TextInputAction.done,
+                                inputFormatters: [
+                                  LengthLimitingTextInputFormatter(1024),
                                 ],
+                                onSubmitted: (_) => onSubmit(),
                               ),
                             ),
                           ),
-                        ),
-                      ],
-                      if (oskVisible && canRespond) ...[
-                        const SizedBox(height: 12),
-                        _LockOnScreenKeyboard(
-                          onText: onInsertText,
-                          onBackspace: onBackspace,
-                          onSubmit: onSubmit,
                         ),
                       ],
                       const SizedBox(height: 15),
@@ -984,6 +860,358 @@ class _LockAuthenticationPanel extends StatelessWidget {
                     ],
                   ),
                 ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileLockAuthenticationPanel extends StatelessWidget {
+  const _MobileLockAuthenticationPanel({
+    required this.state,
+    required this.controller,
+    required this.focusNode,
+    required this.onSubmit,
+    required this.onBegin,
+    required this.onCancel,
+  });
+
+  final AuthenticationState state;
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final VoidCallback onSubmit;
+  final VoidCallback onBegin;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final prompt = state.prompt;
+    final error =
+        state.resultIsError || prompt?.style == AuthenticationPromptStyle.error;
+    final canRespond =
+        state.available && state.busy && (prompt?.requiresResponse ?? false);
+    final canBegin =
+        state.available && state.locked && !state.busy && !state.rateLimited;
+    final promptLabel = prompt?.message.trim();
+    final message =
+        state.resultMessage ??
+        state.statusMessage ??
+        (error ? promptLabel : null) ??
+        (!canRespond && state.busy ? l10n.lockWaitingForAuthentication : null);
+    final cooldownSeconds = (state.cooldown.inMilliseconds / 1000).ceil().clamp(
+      1,
+      30,
+    );
+    final accent = ShellTheme.of(context).accentPalette;
+    final size = MediaQuery.sizeOf(context);
+
+    return Positioned.fill(
+      child: MobileKeyboardViewport(
+        child: SafeArea(
+          minimum: const EdgeInsets.fromLTRB(18, 12, 18, 22),
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: 480,
+                maxHeight: math.max(210.0, size.height * 0.58),
+              ),
+              child: DecoratedBox(
+                key: const ValueKey<String>('mobile-lock-authentication-panel'),
+                decoration: BoxDecoration(
+                  color: ShellColors.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: ShellColors.hairline),
+                ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                  child: FocusTraversalGroup(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                l10n.lockUnlockDenial,
+                                style: ShellText.base.copyWith(
+                                  fontSize: 23,
+                                  height: 1.1,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: -0.35,
+                                ),
+                              ),
+                            ),
+                            _MobileLockCancelButton(
+                              label: l10n.commonCancel,
+                              onPressed: onCancel,
+                            ),
+                          ],
+                        ),
+                        if (!state.available) ...[
+                          const SizedBox(height: 7),
+                          Text(
+                            l10n.lockAuthenticationUnavailable,
+                            style: ShellText.base.copyWith(
+                              color: ShellColors.textTertiary,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                        if (message != null && message.isNotEmpty) ...[
+                          const SizedBox(height: 13),
+                          Semantics(
+                            liveRegion: true,
+                            label: message,
+                            child: Text(
+                              message,
+                              style: ShellText.base.copyWith(
+                                color: error
+                                    ? ShellColors.performanceBad
+                                    : ShellColors.textSecondary,
+                                fontSize: 13,
+                                height: 1.3,
+                                fontWeight: error
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (state.rateLimited) ...[
+                          const SizedBox(height: 10),
+                          Semantics(
+                            liveRegion: true,
+                            child: Text(
+                              l10n.lockRetryInSeconds(cooldownSeconds),
+                              style: ShellText.base.copyWith(
+                                color: ShellColors.performanceWarning,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (canRespond) ...[
+                          const SizedBox(height: 16),
+                          Text(
+                            (promptLabel == null ||
+                                    promptLabel.isEmpty ||
+                                    error)
+                                ? l10n.lockAuthenticationResponse
+                                : promptLabel,
+                            style: ShellText.base.copyWith(
+                              color: ShellColors.textSecondary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 7),
+                          Semantics(
+                            label: prompt!.obscure
+                                ? l10n.lockPasswordObscured
+                                : l10n.lockAuthenticationResponse,
+                            textField: true,
+                            obscured: prompt.obscure,
+                            child: TextFieldTapRegion(
+                              child: AnimatedBuilder(
+                                animation: focusNode,
+                                builder: (context, child) => DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: ShellColors.background.withValues(
+                                      alpha: 0.72,
+                                    ),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: focusNode.hasFocus
+                                          ? accent.primary
+                                          : ShellColors.hairline,
+                                    ),
+                                  ),
+                                  child: child,
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    15,
+                                    5,
+                                    6,
+                                    5,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: EditableText(
+                                          key: const ValueKey<String>(
+                                            'lock-authentication-field',
+                                          ),
+                                          controller: controller,
+                                          focusNode: focusNode,
+                                          style: ShellText.base.copyWith(
+                                            fontSize: 17,
+                                            letterSpacing: prompt.obscure
+                                                ? 2.2
+                                                : 0,
+                                          ),
+                                          cursorColor: accent.primary,
+                                          backgroundCursorColor:
+                                              ShellColors.textTertiary,
+                                          selectionColor: accent.selection,
+                                          obscureText: prompt.obscure,
+                                          obscuringCharacter: '•',
+                                          autocorrect: false,
+                                          enableSuggestions: false,
+                                          enableInteractiveSelection: false,
+                                          keyboardType:
+                                              TextInputType.visiblePassword,
+                                          textInputAction: TextInputAction.done,
+                                          inputFormatters: [
+                                            LengthLimitingTextInputFormatter(
+                                              1024,
+                                            ),
+                                          ],
+                                          onSubmitted: (_) => onSubmit(),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      _MobileLockSubmitButton(
+                                        label: l10n.lockUnlock,
+                                        onPressed: onSubmit,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ] else ...[
+                          const SizedBox(height: 16),
+                          _MobileLockPrimaryButton(
+                            label: state.busy
+                                ? l10n.lockAuthenticating
+                                : state.rateLimited
+                                ? l10n.lockPleaseWait
+                                : l10n.lockTryAgain,
+                            enabled: canBegin,
+                            onPressed: onBegin,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileLockCancelButton extends StatelessWidget {
+  const _MobileLockCancelButton({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 8),
+          child: Text(
+            label,
+            style: ShellText.base.copyWith(
+              color: ShellColors.textSecondary,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileLockSubmitButton extends StatelessWidget {
+  const _MobileLockSubmitButton({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accentPalette;
+    return Semantics(
+      button: true,
+      label: label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onPressed,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: accent.primary,
+            borderRadius: BorderRadius.circular(11),
+          ),
+          child: SizedBox(
+            width: 42,
+            height: 42,
+            child: Icon(
+              Icons.arrow_forward_rounded,
+              size: 19,
+              color: accent.onPrimary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileLockPrimaryButton extends StatelessWidget {
+  const _MobileLockPrimaryButton({
+    required this.label,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final String label;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accentPalette;
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: enabled ? onPressed : null,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: enabled ? accent.primary : accent.subtle,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: ShellText.base.copyWith(
+                color: enabled ? accent.onPrimary : ShellColors.textTertiary,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
@@ -1091,274 +1319,23 @@ class _LockActionButtonState extends State<_LockActionButton> {
   }
 }
 
-class _LockIconButton extends StatelessWidget {
-  const _LockIconButton({
-    required this.label,
-    required this.icon,
-    required this.onPressed,
-    required this.active,
-  });
-
-  final String label;
-  final IconData icon;
-  final VoidCallback onPressed;
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = ShellTheme.of(context).accentPalette;
-    return Semantics(
-      button: true,
-      label: label,
-      child: Tooltip(
-        message: label,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onPressed,
-          child: FocusableActionDetector(
-            mouseCursor: SystemMouseCursors.click,
-            shortcuts: const <ShortcutActivator, Intent>{
-              SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-              SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-            },
-            actions: <Type, Action<Intent>>{
-              ActivateIntent: CallbackAction<ActivateIntent>(
-                onInvoke: (_) {
-                  onPressed();
-                  return null;
-                },
-              ),
-            },
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: active
-                    ? accent.subtle
-                    : ShellColors.surfaceContainerHigh,
-                shape: BoxShape.circle,
-                border: Border.all(color: ShellColors.hairlineSoft),
-              ),
-              child: SizedBox(
-                width: 38,
-                height: 38,
-                child: Icon(
-                  icon,
-                  size: 19,
-                  color: active ? accent.primary : ShellColors.textSecondary,
-                ),
-              ),
-            ),
-          ),
-        ),
+BoxDecoration _desktopLockPanelDecoration({
+  required ShellThemeData theme,
+  required ShellAccentPalette accent,
+}) {
+  return BoxDecoration(
+    color: theme.panelColor(const Color(0xff171b22)),
+    borderRadius: BorderRadius.circular(theme.panelRadius),
+    border: Border.all(color: accent.outline),
+    boxShadow: const <BoxShadow>[
+      BoxShadow(
+        color: Color(0x99000000),
+        blurRadius: 42,
+        spreadRadius: 4,
+        offset: Offset(0, 18),
       ),
-    );
-  }
-}
-
-class _LockOnScreenKeyboard extends StatefulWidget {
-  const _LockOnScreenKeyboard({
-    required this.onText,
-    required this.onBackspace,
-    required this.onSubmit,
-  });
-
-  final ValueChanged<String> onText;
-  final VoidCallback onBackspace;
-  final VoidCallback onSubmit;
-
-  @override
-  State<_LockOnScreenKeyboard> createState() => _LockOnScreenKeyboardState();
-}
-
-class _LockOnScreenKeyboardState extends State<_LockOnScreenKeyboard> {
-  bool _shift = false;
-  bool _symbols = false;
-
-  static const List<List<String>> _letters = <List<String>>[
-    <String>['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
-    <String>['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
-    <String>['z', 'x', 'c', 'v', 'b', 'n', 'm'],
-  ];
-  static const List<List<String>> _symbolKeys = <List<String>>[
-    <String>['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-    <String>['!', '@', '#', r'$', '%', '^', '&', '*', '(', ')'],
-    <String>['-', '_', '=', '+', '[', ']', '{', '}', '?'],
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final rows = _symbols ? _symbolKeys : _letters;
-    final l10n = context.l10n;
-    return Semantics(
-      container: true,
-      label: l10n.lockOnScreenKeyboard,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: const Color(0x66101318),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: ShellColors.hairlineSoft),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(7),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (final row in rows) ...[
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    for (final key in row)
-                      Expanded(
-                        child: _LockKeyboardKey(
-                          label: _shift && !_symbols ? key.toUpperCase() : key,
-                          onPressed: () => widget.onText(
-                            _shift && !_symbols ? key.toUpperCase() : key,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-              ],
-              Row(
-                children: [
-                  _LockKeyboardKey(
-                    label: _symbols
-                        ? l10n.lockKeyboardLetters
-                        : l10n.lockKeyboardSymbols,
-                    wide: true,
-                    onPressed: () => setState(() => _symbols = !_symbols),
-                  ),
-                  const SizedBox(width: 4),
-                  _LockKeyboardKey(
-                    label: l10n.lockKeyboardShift,
-                    icon: Icons.arrow_upward_rounded,
-                    active: _shift,
-                    onPressed: () => setState(() => _shift = !_shift),
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: _LockKeyboardKey(
-                      label: l10n.lockKeyboardSpace,
-                      onPressed: () => widget.onText(' '),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  _LockKeyboardKey(
-                    label: l10n.lockKeyboardBackspace,
-                    icon: Icons.backspace_outlined,
-                    onPressed: widget.onBackspace,
-                  ),
-                  const SizedBox(width: 4),
-                  _LockKeyboardKey(
-                    label: l10n.lockUnlock,
-                    icon: Icons.keyboard_return_rounded,
-                    active: true,
-                    onPressed: widget.onSubmit,
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LockKeyboardKey extends StatefulWidget {
-  const _LockKeyboardKey({
-    required this.label,
-    required this.onPressed,
-    this.icon,
-    this.active = false,
-    this.wide = false,
-  });
-
-  final String label;
-  final VoidCallback onPressed;
-  final IconData? icon;
-  final bool active;
-  final bool wide;
-
-  @override
-  State<_LockKeyboardKey> createState() => _LockKeyboardKeyState();
-}
-
-class _LockKeyboardKeyState extends State<_LockKeyboardKey> {
-  bool _highlighted = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = ShellTheme.of(context).accentPalette;
-    final child = Semantics(
-      button: true,
-      label: widget.label,
-      child: Tooltip(
-        message: widget.label,
-        child: FocusableActionDetector(
-          mouseCursor: SystemMouseCursors.click,
-          onShowFocusHighlight: (value) {
-            setState(() => _highlighted = value);
-          },
-          onShowHoverHighlight: (value) {
-            setState(() => _highlighted = value);
-          },
-          shortcuts: const <ShortcutActivator, Intent>{
-            SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-            SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-          },
-          actions: <Type, Action<Intent>>{
-            ActivateIntent: CallbackAction<ActivateIntent>(
-              onInvoke: (_) {
-                widget.onPressed();
-                return null;
-              },
-            ),
-          },
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: widget.onPressed,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: widget.active
-                    ? accent.subtle
-                    : _highlighted
-                    ? ShellColors.surfaceContainerHighest
-                    : ShellColors.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(9),
-                border: Border.all(
-                  color: _highlighted
-                      ? accent.primary
-                      : ShellColors.hairlineSoft,
-                ),
-              ),
-              child: SizedBox(
-                height: 34,
-                child: Center(
-                  child: widget.icon == null
-                      ? Text(
-                          widget.label,
-                          style: ShellText.base.copyWith(
-                            fontSize: widget.label.length == 1 ? 14 : 10,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        )
-                      : Icon(
-                          widget.icon,
-                          size: 16,
-                          color: widget.active
-                              ? accent.primary
-                              : ShellColors.textSecondary,
-                        ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    return SizedBox(width: widget.wide ? 52 : 38, child: child);
-  }
+    ],
+  );
 }
 
 class _LockBackdrop extends ConsumerWidget {
@@ -1373,19 +1350,8 @@ class _LockBackdrop extends ConsumerWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Color(0xff171a1f),
-                  Color(0xff0b0d12),
-                  Color(0xff050608),
-                ],
-                stops: [0.0, 0.54, 1.0],
-              ),
-            ),
+          const CustomPaint(
+            painter: _LockFillPainter(color: Color(0xff080a0e)),
           ),
           if (settings.useSystemWallpaper)
             ClipRect(
@@ -1397,14 +1363,37 @@ class _LockBackdrop extends ConsumerWidget {
                 child: const ShellWallpaper(),
               ),
             ),
-          ColoredBox(
-            color: const Color(
-              0xff000000,
-            ).withValues(alpha: settings.dimAmount),
+          CustomPaint(
+            painter: _LockFillPainter(
+              color: const Color(
+                0xff000000,
+              ).withValues(alpha: settings.dimAmount),
+            ),
           ),
         ],
       ),
     );
+  }
+}
+
+/// Uses round-rect geometry with an imperceptible radius so the backdrop obeys
+/// lock-stage transforms without entering Impeller's UberSDF rect path.
+class _LockFillPainter extends CustomPainter {
+  const _LockFillPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(0.01)),
+      Paint()..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _LockFillPainter oldDelegate) {
+    return oldDelegate.color != color;
   }
 }
 
@@ -1554,7 +1543,7 @@ class _LockClockBlock extends StatelessWidget {
     required this.showSystemStatus,
   });
 
-  final ShellClockInfo clock;
+  final HomeClockInfo clock;
   final bool desktop;
   final double scale;
   final bool showSystemStatus;
@@ -1566,259 +1555,26 @@ class _LockClockBlock extends StatelessWidget {
         ? math.max(72.0, size.height * 0.22)
         : math.max(48.0, size.height * 0.25 - 96.0);
     final horizontalInset = desktop ? math.max(48.0, size.width * 0.065) : 0.0;
+    final height = desktop
+        ? math.min(280.0, size.height * 0.36)
+        : math.min(250.0, size.height * 0.34);
 
     return Positioned(
       left: horizontalInset,
       right: desktop ? size.width * 0.48 : 0,
       top: top,
+      height: height,
       child: Transform.scale(
-        alignment: desktop ? Alignment.topLeft : Alignment.topCenter,
+        alignment: Alignment.center,
         scale: scale,
         child: Padding(
           padding: desktop
               ? EdgeInsets.zero
-              : const EdgeInsets.symmetric(horizontal: 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: desktop
-                ? CrossAxisAlignment.start
-                : CrossAxisAlignment.center,
-            children: [
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  localizedTime(context, clock.now),
-                  style: ShellText.lockClock,
-                ),
-              ),
-              const SizedBox(height: 10),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  localizedLongDate(context, clock.now),
-                  style: ShellText.lockDate,
-                ),
-              ),
-              if (showSystemStatus &&
-                  (clock.power.capacity != null ||
-                      clock.thermalReadings.isNotEmpty)) ...[
-                const SizedBox(height: 18),
-                _LockClockStatus(
-                  power: clock.power,
-                  thermalReadings: clock.thermalReadings,
-                ),
-              ],
-            ],
+              : const EdgeInsets.symmetric(horizontal: 24),
+          child: RepaintBoundary(
+            child: HomeClockWidget(clock: clock, showStatus: showSystemStatus),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _LockClockStatus extends StatelessWidget {
-  const _LockClockStatus({required this.power, required this.thermalReadings});
-
-  final ShellPowerStatus power;
-  final List<ShellThermalReading> thermalReadings;
-
-  @override
-  Widget build(BuildContext context) {
-    final displayLine = localizedBatteryLine(
-      context.l10n,
-      power.state,
-      power.capacity,
-    );
-    final accentColor = _batteryAccentColor(
-      power,
-      ShellTheme.of(context).accentPalette.primary,
-    );
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (displayLine.isNotEmpty)
-          SizedBox(
-            width: double.infinity,
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  _LockBatteryGlyph(
-                    level: power.batteryLevel,
-                    color: accentColor,
-                  ),
-                  if (power.chargeProtocol != null) ...[
-                    const SizedBox(width: 10),
-                    _LockProtocolLabel(power: power, color: accentColor),
-                  ],
-                  const SizedBox(width: 10),
-                  Text(
-                    displayLine,
-                    maxLines: 1,
-                    softWrap: false,
-                    style: ShellText.lockStatus.copyWith(
-                      color: accentColor.withValues(alpha: 0.95),
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        if (thermalReadings.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 10,
-            runSpacing: 5,
-            children: [
-              for (final reading in thermalReadings)
-                _LockThermalText(reading: reading),
-            ],
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _LockProtocolLabel extends StatelessWidget {
-  const _LockProtocolLabel({required this.power, required this.color});
-
-  final ShellPowerStatus power;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final protocol = power.chargeProtocol;
-    if (protocol == null) {
-      return const SizedBox.shrink();
-    }
-    final watts = power.chargeProtocolWatts;
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          localizedChargeProtocol(context.l10n, protocol),
-          maxLines: 1,
-          softWrap: false,
-          style: ShellText.lockChip.copyWith(
-            color: color,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-        if (watts != null) ...[
-          const SizedBox(width: 5),
-          Text(
-            context.l10n.powerWatts(watts),
-            maxLines: 1,
-            softWrap: false,
-            style: ShellText.lockChip.copyWith(
-              color: ShellColors.textPrimary.withValues(alpha: 0.9),
-              fontWeight: FontWeight.w700,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _LockThermalText extends StatelessWidget {
-  const _LockThermalText({required this.reading});
-
-  final ShellThermalReading reading;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _temperatureColor(reading.deciC);
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          localizedThermalSensor(context.l10n, reading.sensor),
-          maxLines: 1,
-          softWrap: false,
-          style: ShellText.lockChip.copyWith(
-            color: ShellColors.textSecondary.withValues(alpha: 0.8),
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-        const SizedBox(width: 5),
-        Text(
-          context.l10n.temperatureCelsius((reading.deciC / 10).round()),
-          maxLines: 1,
-          softWrap: false,
-          style: ShellText.lockChip.copyWith(
-            color: color,
-            fontSize: 13,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _LockBatteryGlyph extends StatelessWidget {
-  const _LockBatteryGlyph({required this.level, required this.color});
-
-  final double level;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 42,
-      height: 20,
-      child: Stack(
-        children: [
-          Positioned(
-            left: 0,
-            top: 2,
-            width: 35,
-            height: 16,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: const Color(0x12000000),
-                border: Border.all(color: color),
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-          ),
-          Positioned(
-            left: 3,
-            top: 5,
-            width: math.max(0.0, 29.0 * level),
-            height: 10,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.9),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          Positioned(
-            left: 37,
-            top: 7,
-            width: 4,
-            height: 7,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.8),
-                borderRadius: BorderRadius.circular(1),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -1856,32 +1612,4 @@ class _LockSwipePill extends StatelessWidget {
       ),
     );
   }
-}
-
-Color _batteryAccentColor(ShellPowerStatus power, Color shellAccent) {
-  if (power.voocCharging ||
-      power.ppsCharging ||
-      power.pdCharging ||
-      power.fastCharge ||
-      power.state == 'charging') {
-    return shellAccent;
-  }
-  final capacity = power.capacity;
-  if (capacity == null || capacity >= 20) {
-    return ShellColors.textPrimary;
-  }
-  if (capacity >= 15) {
-    return const Color(0xffffd166);
-  }
-  return const Color(0xffff6b6b);
-}
-
-Color _temperatureColor(int deciC) {
-  if (deciC >= 620) {
-    return const Color(0xffff6b6b);
-  }
-  if (deciC >= 500) {
-    return const Color(0xffffd166);
-  }
-  return ShellColors.textSecondary.withValues(alpha: 0.95);
 }

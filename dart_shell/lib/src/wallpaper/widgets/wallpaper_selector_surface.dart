@@ -98,6 +98,7 @@ class _WallpaperSelectorSurfaceState
   final FocusNode _searchFocusNode = FocusNode(debugLabel: 'wallpaper-search');
   late final int _previousImageCacheBytes;
   var _focusedIndex = 0;
+  var _adjustingWallpaper = false;
 
   @override
   void initState() {
@@ -274,6 +275,20 @@ class _WallpaperSelectorSurfaceState
     return KeyEventResult.ignored;
   }
 
+  void _beginWallpaperAdjustment() {
+    if (_adjustingWallpaper) {
+      return;
+    }
+    setState(() => _adjustingWallpaper = true);
+  }
+
+  void _endWallpaperAdjustment() {
+    if (!_adjustingWallpaper) {
+      return;
+    }
+    setState(() => _adjustingWallpaper = false);
+  }
+
   @override
   void dispose() {
     _searchController
@@ -299,7 +314,7 @@ class _WallpaperSelectorSurfaceState
       _focusedIndex = candidates.length - 1;
     }
     final carouselTop = math.max(36.0, widget.displaySize.height * 0.10);
-    final bottomReserve = state.target.isAll ? 302.0 : 252.0;
+    final bottomReserve = widget.displaySize.width >= 580 ? 302.0 : 390.0;
     final maximumCarouselHeight = math.max(
       240.0,
       widget.displaySize.height - carouselTop - bottomReserve,
@@ -323,42 +338,60 @@ class _WallpaperSelectorSurfaceState
             right: 0,
             top: carouselTop,
             height: carouselHeight,
-            child: candidates.isEmpty
-                ? WallpaperEmptyState(
-                    loading: state.loading,
-                    error: state.error,
-                  )
-                : PageView.builder(
-                    controller: _pageController,
-                    physics: const WallpaperCarouselPhysics(),
-                    pageSnapping: false,
-                    padEnds: true,
-                    allowImplicitScrolling: true,
-                    itemCount: candidates.length,
-                    onPageChanged: (index) {
-                      setState(() => _focusedIndex = index);
-                    },
-                    itemBuilder: (context, index) {
-                      final candidate = candidates[index];
-                      final focused = index == _focusedIndex;
-                      return AnimatedScale(
-                        duration: Motion.cardSettle,
-                        curve: Motion.md3EmphasizedDecelerate,
-                        scale: focused ? 1.0 : 0.91,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 7),
-                          child: WallpaperStrip(
-                            candidate: candidate,
-                            current: candidate.resource == state.current,
-                            downloading: state.downloadingKey == candidate.key,
-                            downloadProgress: state.downloadProgress,
-                            onTapUp: (origin) =>
-                                _applyCandidate(candidate, origin),
-                          ),
-                        ),
-                      );
-                    },
+            child: IgnorePointer(
+              ignoring: _adjustingWallpaper,
+              child: RepaintBoundary(
+                child: AnimatedOpacity(
+                  key: const ValueKey<String>(
+                    'desktop-wallpaper-tiles-opacity',
                   ),
+                  opacity: _adjustingWallpaper ? 0.0 : 1.0,
+                  duration: MediaQuery.disableAnimationsOf(context)
+                      ? Duration.zero
+                      : Motion.wallpaperTilesFade,
+                  curve: Motion.wallpaperTilesFadeCurve,
+                  child: candidates.isEmpty
+                      ? WallpaperEmptyState(
+                          loading: state.loading,
+                          error: state.error,
+                        )
+                      : PageView.builder(
+                          controller: _pageController,
+                          physics: const WallpaperCarouselPhysics(),
+                          pageSnapping: false,
+                          padEnds: true,
+                          allowImplicitScrolling: true,
+                          itemCount: candidates.length,
+                          onPageChanged: (index) {
+                            setState(() => _focusedIndex = index);
+                          },
+                          itemBuilder: (context, index) {
+                            final candidate = candidates[index];
+                            final focused = index == _focusedIndex;
+                            return AnimatedScale(
+                              duration: Motion.cardSettle,
+                              curve: Motion.md3EmphasizedDecelerate,
+                              scale: focused ? 1.0 : 0.91,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 7,
+                                ),
+                                child: WallpaperStrip(
+                                  candidate: candidate,
+                                  current: candidate.resource == state.current,
+                                  downloading:
+                                      state.downloadingKey == candidate.key,
+                                  downloadProgress: state.downloadProgress,
+                                  onTapUp: (origin) =>
+                                      _applyCandidate(candidate, origin),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ),
+            ),
           ),
           Positioned(
             left: 24,
@@ -396,22 +429,31 @@ class _WallpaperSelectorSurfaceState
                     const SizedBox(height: 10),
                     WallpaperDarknessControl(
                       value: state.assignment.darknessForTarget(state.target),
+                      onChangeStart: _beginWallpaperAdjustment,
                       onChanged: ref
                           .read(wallpaperControllerProvider.notifier)
                           .setDarkness,
-                      onChangeEnd: ref
-                          .read(wallpaperControllerProvider.notifier)
-                          .commitDarkness,
-                    ),
-                    if (state.target.isAll) ...[
-                      const SizedBox(height: 10),
-                      WallpaperSpanAlignmentSelector(
-                        value: state.assignment.spanAlignment,
-                        onChanged: ref
+                      onChangeEnd: (value) {
+                        ref
                             .read(wallpaperControllerProvider.notifier)
-                            .setSpanAlignment,
-                      ),
-                    ],
+                            .commitDarkness(value);
+                        _endWallpaperAdjustment();
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    WallpaperSpanAlignmentSelector(
+                      value: state.assignment.alignmentForTarget(state.target),
+                      onChangeStart: _beginWallpaperAdjustment,
+                      onChanged: ref
+                          .read(wallpaperControllerProvider.notifier)
+                          .previewSpanAlignment,
+                      onChangeEnd: (value) {
+                        ref
+                            .read(wallpaperControllerProvider.notifier)
+                            .commitSpanAlignment(value);
+                        _endWallpaperAdjustment();
+                      },
+                    ),
                     const SizedBox(height: 10),
                     WallpaperSearchField(
                       controller: _searchController,

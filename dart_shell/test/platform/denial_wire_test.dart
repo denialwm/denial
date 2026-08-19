@@ -11,6 +11,22 @@ import 'package:denial_dart_shell/src/platform/denial_wire.dart'
     hide InputWindowRegion;
 
 void main() {
+  test('keyboard key lifecycle preserves tap, press, and release', () {
+    final codec = DenialWireCodec();
+    for (final expectation in <(DenialKeyboardKeyPhase, int)>[
+      (DenialKeyboardKeyPhase.tap, 0),
+      (DenialKeyboardKeyPhase.pressed, 1 << 1),
+      (DenialKeyboardKeyPhase.released, 1 << 2),
+    ]) {
+      final bytes = codec.encodeKeyboardKey('BackSpace', phase: expectation.$1);
+      final envelope = Envelope(bytes);
+      final command = envelope.payload as KeyboardCommand;
+      expect(command.kind, KeyboardCommandKind.Key);
+      expect(command.key, 'BackSpace');
+      expect(command.flags, expectation.$2);
+    }
+  });
+
   test('system bar configuration encodes its edge and selected outputs', () {
     final codec = DenialWireCodec();
     final bytes = codec.encodeSystemBarConfiguration(
@@ -69,6 +85,25 @@ void main() {
     },
   );
 
+  test('routing comparison includes software keyboard regions', () {
+    const original = InputLayoutSnapshot(
+      epoch: 1,
+      shellRegions: <Rect>[],
+      windows: <InputWindowRegion>[],
+    );
+    const withKeyboard = InputLayoutSnapshot(
+      epoch: 2,
+      shellRegions: <Rect>[],
+      softwareKeyboardRegions: <Rect>[
+        Rect.fromLTWH(0, 700, 400, 300),
+        Rect.fromLTWH(382, 0, 18, 700),
+      ],
+      windows: <InputWindowRegion>[],
+    );
+
+    expect(original.hasSameRoutingAs(withKeyboard), isFalse);
+  });
+
   test('Dart input goldens are current and decode in Dart', () {
     for (final count in <int>[0, 1, 8, 32]) {
       final codec = DenialWireCodec();
@@ -115,6 +150,24 @@ void main() {
     expect(layout.shellRegions, hasLength(1));
     expect(layout.shellRegions!.single.width, 0.25);
     expect(layout.shellRegions!.single.height, 0.5);
+  });
+
+  test('input layout carries software keyboard preservation regions', () {
+    final codec = DenialWireCodec();
+    final bytes = codec.encodeInputLayout(
+      const InputLayoutSnapshot(
+        epoch: 1,
+        shellRegions: <Rect>[Rect.fromLTWH(0, 700, 400, 300)],
+        softwareKeyboardRegions: <Rect>[Rect.fromLTWH(0, 700, 400, 300)],
+        windows: <InputWindowRegion>[],
+      ),
+    );
+
+    expect(bytes, isNotNull);
+    final layout = Envelope(bytes!).payload as InputLayout;
+    expect(layout.softwareKeyboardRegions, hasLength(1));
+    expect(layout.softwareKeyboardRegions!.single.y, 700);
+    expect(layout.softwareKeyboardRegions!.single.height, 300);
   });
 
   test('input layout preserves hit testing as the missing-bit default', () {
@@ -237,6 +290,8 @@ void main() {
         expect(windows.first.statusColorArgb, 0xff123456);
         expect(windows.first.pinned, isFalse);
         expect(windows.first.suppressAnimations, isFalse);
+        expect(windows.first.restoredAcrossFlutterRestart, isFalse);
+        expect(windows.first.shouldAnimateEntrance, isTrue);
         expect(windows.first.serverSideDecorated, isTrue);
         expect(windows.first.opacity, 1.0);
         expect(
@@ -310,6 +365,58 @@ void main() {
     expect(
       windows.single.opacityClass,
       DenialWindowOpacityClass.borderAlphaOnly,
+    );
+  });
+
+  test('runtime-restored windows suppress only their entrance', () {
+    Uint8List snapshot({required int restoredWindowId}) =>
+        EnvelopeObjectBuilder(
+          protocolVersion: 1,
+          sequence: 1,
+          payloadType: PayloadTypeId.WindowSnapshot,
+          payload: WindowSnapshotObjectBuilder(
+            windows: <WindowObjectBuilder>[
+              WindowObjectBuilder(
+                objectId: 1,
+                surfaceId: 2,
+                windowId: 3,
+                textureId: 0,
+                title: 'Settings',
+                appId: 'dev.denial.settings',
+                width: 100,
+                height: 80,
+                surfaceWidth: 100,
+                surfaceHeight: 80,
+                geometryWidth: 100,
+                geometryHeight: 80,
+                contentWidth: 100,
+                contentHeight: 80,
+                contentKind: WindowContentKind.LocalFlutter,
+              ),
+            ],
+            restoredWindowIds: <int>[restoredWindowId],
+          ),
+        ).toBytes('DENW');
+
+    final codec = DenialWireCodec();
+    final decoded = codec.decodeStructured(
+      ByteData.sublistView(snapshot(restoredWindowId: 3)),
+    );
+    final window = codec
+        .decodeWindows(decoded!.payload as WindowSnapshot)!
+        .single;
+
+    expect(window.suppressAnimations, isFalse);
+    expect(window.restoredAcrossFlutterRestart, isTrue);
+    expect(window.shouldAnimateEntrance, isFalse);
+
+    final invalidCodec = DenialWireCodec();
+    final invalid = invalidCodec.decodeStructured(
+      ByteData.sublistView(snapshot(restoredWindowId: 99)),
+    );
+    expect(
+      invalidCodec.decodeWindows(invalid!.payload as WindowSnapshot),
+      isNull,
     );
   });
 

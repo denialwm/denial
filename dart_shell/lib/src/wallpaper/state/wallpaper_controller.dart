@@ -212,7 +212,7 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
   }
 
   void setSpanAlignment(WallpaperSpanAlignment alignment) {
-    if (state.assignment.spanAlignment == alignment) {
+    if (state.assignment.alignmentForTarget(state.target) == alignment) {
       return;
     }
     previewSpanAlignment(alignment);
@@ -220,7 +220,7 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
   }
 
   void previewSpanAlignment(WallpaperSpanAlignment alignment) {
-    final assignment = state.assignment.withSpanAlignment(alignment);
+    final assignment = state.assignment.withAlignment(state.target, alignment);
     if (assignment == state.assignment) {
       return;
     }
@@ -543,11 +543,29 @@ class WallpaperStore {
           darknessOverrides[name] = darkness;
         }
       }
+      final alignmentOverrides = <String, WallpaperSpanAlignment>{};
+      final rawAlignmentOverrides = decoded['outputAlignments'];
+      if (rawAlignmentOverrides is Map) {
+        for (final entry in rawAlignmentOverrides.entries) {
+          final name = entry.key;
+          final value = entry.value;
+          if (name is! String || name.isEmpty || value is! Map) {
+            continue;
+          }
+          final x = _alignmentPosition(value['x']);
+          final y = _alignmentPosition(value['y']);
+          if (x == null || y == null) {
+            continue;
+          }
+          alignmentOverrides[name] = WallpaperSpanAlignment.precise(x: x, y: y);
+        }
+      }
       return WallpaperAssignment(
         all: all,
         spanAlignment: alignment,
         allDarkness: allDarkness,
         outputOverrides: overrides,
+        outputAlignmentOverrides: alignmentOverrides,
         outputDarknessOverrides: darknessOverrides,
       );
     } on FileSystemException catch (_) {
@@ -568,7 +586,7 @@ class WallpaperStore {
       final file = await _paths.wallpaperStateFile();
       final temporary = File('${file.path}.tmp');
       final payload = jsonEncode(<String, Object>{
-        'version': 4,
+        'version': 5,
         'all': assignment.all.persistenceValue,
         'horizontalAlignment': assignment.spanAlignment.horizontal.name,
         'verticalAlignment': assignment.spanAlignment.vertical.name,
@@ -578,6 +596,10 @@ class WallpaperStore {
         'outputs': <String, String>{
           for (final entry in assignment.outputOverrides.entries)
             entry.key: entry.value.persistenceValue,
+        },
+        'outputAlignments': <String, Map<String, double>>{
+          for (final entry in assignment.outputAlignmentOverrides.entries)
+            entry.key: <String, double>{'x': entry.value.x, 'y': entry.value.y},
         },
         'outputDarkness': assignment.outputDarknessOverrides,
       });

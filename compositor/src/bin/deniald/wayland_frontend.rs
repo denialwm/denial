@@ -105,6 +105,7 @@ use super::flutter_runtime::{ExternalTextureFrame, ShmSnapshotPool, ShmTextureFr
 use super::frame_scheduler::FrameTick;
 #[cfg(feature = "flutter")]
 use super::local_windows::{LocalFlutterWindows, LocalWindowError};
+use super::native_shortcut::ShortcutManager;
 use super::settings::SettingsManager;
 use super::window_grab::{
     MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, X11ResizeSurfaceGrab, checked_pointer_grab,
@@ -135,7 +136,7 @@ mod input;
 #[path = "wayland_frontend/input_method.rs"]
 pub(super) mod input_method;
 #[cfg(feature = "flutter")]
-pub(super) use input::{dispatch_shell_keyboard_fallback, reconcile_flutter_pointer_route};
+pub(super) use input::{dispatch_shell_keyboard, reconcile_flutter_pointer_route};
 #[path = "wayland_frontend/input_source.rs"]
 mod input_source;
 #[path = "wayland_frontend/output_power.rs"]
@@ -167,18 +168,16 @@ use handlers::{MAX_WAYLAND_CLIENTS, WaylandClientBudget};
 #[cfg(feature = "flutter")]
 use idle_inhibit::IdleInhibitors;
 #[cfg(feature = "flutter")]
-pub(super) use input::install_keyboard_settings;
-#[cfg(feature = "flutter")]
 use input::{ClientInputRoute, RoutedPointerTarget};
 pub(super) use input::{init_libinput, reset_all_input_devices};
+#[cfg(feature = "flutter")]
+pub(super) use input::{install_keyboard_settings, install_touchpad_settings};
 #[cfg(feature = "flutter")]
 use input_method::EditorEndpoint;
 use input_method::InputMethodManager;
 use output_power::OutputPowerManager;
 #[cfg(feature = "flutter")]
 use surface_snapshot::{rgba_payload_len, shm_cache_budget_for_atlas, snapshot_shm_buffer};
-#[cfg(feature = "flutter")]
-pub(super) use text_input::ShellCommandTarget;
 use text_input::{SeatFocusKind, TextInputManager};
 pub(super) use topology::saturating_point_add;
 use topology::{
@@ -289,6 +288,20 @@ fn accepted_flutter_cursor_shape(
     matches!(target, RoutedPointerTarget::Flutter).then_some(shape)
 }
 
+#[cfg(feature = "flutter")]
+fn cursor_shape_for_modality(pointer_visible: bool, active_shape: &'static str) -> &'static str {
+    if pointer_visible {
+        active_shape
+    } else {
+        "none"
+    }
+}
+
+#[cfg(feature = "flutter")]
+fn cursor_position_for_modality(pointer_visible: bool, position: (f64, f64)) -> Option<(f64, f64)> {
+    pointer_visible.then_some(position)
+}
+
 pub(super) struct WaylandFrontend {
     pub start_time: Instant,
     socket_name: OsString,
@@ -362,6 +375,7 @@ pub(super) struct WaylandFrontend {
     surfaces_by_id: HashMap<u64, WlSurface>,
     next_surface_id: u64,
     configured_window_geometries: HashMap<ObjectId, Rectangle<i32, Logical>>,
+    exact_window_geometries: HashMap<ObjectId, Rectangle<i32, Logical>>,
     restore_window_geometries: HashMap<ObjectId, Rectangle<i32, Logical>>,
     #[cfg(feature = "flutter")]
     shell_maximize_restore_geometries: HashMap<ObjectId, Rectangle<i32, Logical>>,
@@ -400,6 +414,14 @@ pub(super) struct WaylandFrontend {
     wayland_pointer_buttons: HashSet<u32>,
     #[cfg(feature = "flutter")]
     routed_pointer_target: RoutedPointerTarget,
+    /// Whether the most recent pointing modality is a physical pointer.
+    ///
+    /// Layout reconciliation may route Smithay's stored pointer location even
+    /// when no mouse or touchpad has produced input.  Keep that protocol state
+    /// independent from cursor visibility so opening a client cannot invent a
+    /// cursor on a touch-only system.
+    #[cfg(feature = "flutter")]
+    pointer_cursor_visible: bool,
     /// Last-writer-wins handoff from the routed pointer owner's cursor request
     /// to the Flutter-owned software cursor.
     #[cfg(feature = "flutter")]
@@ -421,6 +443,10 @@ pub(super) struct WaylandFrontend {
     #[cfg(feature = "flutter")]
     flutter_keyboard_keys: HashSet<u32>,
     #[cfg(feature = "flutter")]
+    flutter_input_method_keys: HashSet<u32>,
+    #[cfg(feature = "flutter")]
+    shell_keyboard_keys: HashSet<u32>,
+    #[cfg(feature = "flutter")]
     flutter_compose: Option<xkb::compose::State>,
     #[cfg(feature = "flutter")]
     flutter_repeat_key: Option<u32>,
@@ -429,6 +455,8 @@ pub(super) struct WaylandFrontend {
     #[cfg(feature = "flutter")]
     flutter_repeat_token: Option<RegistrationToken>,
     retired_keyboard_keys: HashSet<u32>,
+    #[cfg(feature = "flutter")]
+    retired_input_method_keys: HashSet<u32>,
     #[cfg(feature = "flutter")]
     minimized_windows: HashSet<ObjectId>,
     window_placements: WindowPlacementStore,
@@ -441,6 +469,7 @@ pub(super) struct WaylandFrontend {
     pub popups: PopupManager,
     pub seat: Seat<RuntimeState>,
     pub(super) settings: SettingsManager,
+    pub(super) shortcuts: ShortcutManager,
     pub(super) keyboard_layout_names: Vec<String>,
     pub(super) active_keyboard_layout: usize,
     pub(super) keyboard_configuration_changed: bool,
@@ -654,6 +683,7 @@ fn input_routing_changed(
     current.is_none_or(|current| {
         current.flags != next.flags
             || current.shell_regions != next.shell_regions
+            || current.software_keyboard_regions != next.software_keyboard_regions
             || current.windows != next.windows
     })
 }
@@ -707,6 +737,7 @@ impl WaylandFrontend {
         drm_device: DrmDeviceFd,
         work_area: crate::options::WorkAreaOptions,
         settings: SettingsManager,
+        shortcuts: ShortcutManager,
     ) -> Result<Self, Box<dyn Error>> {
         let display = Display::<RuntimeState>::new()?;
         let display_handle = display.handle();
@@ -1080,6 +1111,7 @@ impl WaylandFrontend {
             surfaces_by_id: HashMap::new(),
             next_surface_id: 1,
             configured_window_geometries: HashMap::new(),
+            exact_window_geometries: HashMap::new(),
             restore_window_geometries: HashMap::new(),
             #[cfg(feature = "flutter")]
             shell_maximize_restore_geometries: HashMap::new(),
@@ -1119,7 +1151,9 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             routed_pointer_target: RoutedPointerTarget::Flutter,
             #[cfg(feature = "flutter")]
-            pending_cursor_shape: None,
+            pointer_cursor_visible: false,
+            #[cfg(feature = "flutter")]
+            pending_cursor_shape: Some("none"),
             #[cfg(feature = "flutter")]
             published_cursor_shape: None,
             #[cfg(feature = "flutter")]
@@ -1133,6 +1167,10 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             flutter_keyboard_keys: HashSet::new(),
             #[cfg(feature = "flutter")]
+            flutter_input_method_keys: HashSet::new(),
+            #[cfg(feature = "flutter")]
+            shell_keyboard_keys: HashSet::new(),
+            #[cfg(feature = "flutter")]
             flutter_compose,
             #[cfg(feature = "flutter")]
             flutter_repeat_key: None,
@@ -1141,6 +1179,8 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             flutter_repeat_token: None,
             retired_keyboard_keys: HashSet::new(),
+            #[cfg(feature = "flutter")]
+            retired_input_method_keys: HashSet::new(),
             #[cfg(feature = "flutter")]
             minimized_windows: HashSet::new(),
             window_placements,
@@ -1153,6 +1193,7 @@ impl WaylandFrontend {
             popups,
             seat,
             settings,
+            shortcuts,
             keyboard_layout_names,
             active_keyboard_layout: 0,
             keyboard_configuration_changed: false,
@@ -1187,7 +1228,9 @@ impl WaylandFrontend {
             software_cursor_shape(&image)
         };
         self.cursor_status = image;
-        if matches!(self.routed_pointer_target, RoutedPointerTarget::Client(_)) {
+        if self.pointer_cursor_visible
+            && matches!(self.routed_pointer_target, RoutedPointerTarget::Client(_))
+        {
             self.queue_cursor_shape(shape);
         }
     }
@@ -1204,6 +1247,9 @@ impl WaylandFrontend {
 
     #[cfg(feature = "flutter")]
     pub(super) fn request_flutter_cursor_shape(&mut self, shape: &'static str) {
+        if !self.pointer_cursor_visible {
+            return;
+        }
         if self.clipboard_drag_active {
             self.queue_cursor_shape("default");
             return;
@@ -1216,14 +1262,16 @@ impl WaylandFrontend {
     #[cfg(feature = "flutter")]
     pub(super) fn set_clipboard_drag_active(&mut self, active: bool) {
         if self.clipboard_drag_active == active {
-            if active {
+            if active && self.pointer_cursor_visible {
                 self.queue_cursor_shape("default");
             }
             return;
         }
         self.clipboard_drag_active = active;
         self.published_cursor_shape = None;
-        self.pending_cursor_shape = if active {
+        self.pending_cursor_shape = if !self.pointer_cursor_visible {
+            Some("none")
+        } else if active {
             Some("default")
         } else {
             match self.routed_pointer_target {
@@ -1240,6 +1288,11 @@ impl WaylandFrontend {
         }
         self.routed_pointer_target = target;
         self.published_cursor_shape = None;
+        if !self.pointer_cursor_visible {
+            self.pending_cursor_shape = Some("none");
+            self.pending_cursor_position = None;
+            return;
+        }
         if self.clipboard_drag_active {
             self.pending_cursor_shape = Some("default");
             return;
@@ -1264,7 +1317,38 @@ impl WaylandFrontend {
 
     #[cfg(feature = "flutter")]
     fn queue_cursor_position(&mut self) {
-        self.pending_cursor_position = Some(self.flutter_scene_pointer_position());
+        self.pending_cursor_position = cursor_position_for_modality(
+            self.pointer_cursor_visible,
+            self.flutter_scene_pointer_position(),
+        );
+    }
+
+    #[cfg(feature = "flutter")]
+    fn set_pointer_cursor_visible(&mut self, visible: bool) {
+        if self.pointer_cursor_visible == visible {
+            return;
+        }
+        self.pointer_cursor_visible = visible;
+        self.published_cursor_shape = None;
+        if !visible {
+            self.pending_cursor_shape = Some("none");
+            self.pending_cursor_position = None;
+            return;
+        }
+
+        let active_shape = if self.clipboard_drag_active {
+            "default"
+        } else {
+            match self.routed_pointer_target {
+                RoutedPointerTarget::Flutter => "default",
+                RoutedPointerTarget::Client(_) => software_cursor_shape(&self.cursor_status),
+            }
+        };
+        self.pending_cursor_shape = Some(cursor_shape_for_modality(visible, active_shape));
+        self.pending_cursor_position = cursor_position_for_modality(
+            visible && matches!(self.routed_pointer_target, RoutedPointerTarget::Client(_)),
+            self.flutter_scene_pointer_position(),
+        );
     }
 
     #[cfg(feature = "flutter")]
@@ -1352,12 +1436,16 @@ impl WaylandFrontend {
 
     #[cfg(feature = "flutter")]
     pub(super) fn window_geometry_locked(&self, window: &Window) -> bool {
-        if self.window_shell_fullscreen_locked(window) {
-            return true;
-        }
         let Some(root_surface) = self.window_root_surface(window) else {
             return false;
         };
+        if self.shell_fullscreen_locks.contains(&root_surface.id())
+            || self
+                .exact_window_geometries
+                .contains_key(&root_surface.id())
+        {
+            return true;
+        }
         let Some(window_id) = self.surface_id(&root_surface) else {
             return false;
         };
@@ -1367,6 +1455,12 @@ impl WaylandFrontend {
                 .iter()
                 .any(|region| region.window_id == window_id && region.geometry_locked())
         })
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn exact_window_geometry(&self, window: &Window) -> Option<Rectangle<i32, Logical>> {
+        self.window_root_surface(window)
+            .and_then(|surface| self.exact_window_geometries.get(&surface.id()).copied())
     }
 
     #[cfg(feature = "flutter")]
@@ -1791,8 +1885,9 @@ impl WaylandFrontend {
     pub(super) fn window_geometry_target(&self, window: &Window) -> Rectangle<i32, Logical> {
         self.window_root_surface(window)
             .and_then(|surface| {
-                self.configured_window_geometries
+                self.exact_window_geometries
                     .get(&surface.id())
+                    .or_else(|| self.configured_window_geometries.get(&surface.id()))
                     .copied()
             })
             .or_else(|| self.space.element_geometry(window))
@@ -1874,12 +1969,33 @@ impl WaylandFrontend {
         self.update_window_output_membership(window);
     }
 
+    #[cfg(feature = "flutter")]
+    pub(super) fn set_window_geometry_target_policy(
+        &mut self,
+        window: &Window,
+        target: Rectangle<i32, Logical>,
+        exact: bool,
+    ) {
+        let Some(root_surface) = self.window_root_surface(window) else {
+            return;
+        };
+        if exact {
+            self.exact_window_geometries
+                .insert(root_surface.id(), target);
+        } else {
+            self.exact_window_geometries.remove(&root_surface.id());
+        }
+        self.set_window_geometry_target(window, target);
+    }
+
     fn reconcile_committed_window_geometry(&mut self, window: &Window) {
         let Some(root_surface) = self.window_root_surface(window) else {
             return;
         };
         let surface_id = root_surface.id();
-        let Some(target) = self.configured_window_geometries.get(&surface_id).copied() else {
+        let exact = self.exact_window_geometries.get(&surface_id).copied();
+        let target = exact.or_else(|| self.configured_window_geometries.get(&surface_id).copied());
+        let Some(target) = target else {
             return;
         };
         let committed = window.geometry();
@@ -1889,6 +2005,23 @@ impl WaylandFrontend {
         self.space.relocate_element(window, target.loc);
         if committed.size == target.size {
             self.configured_window_geometries.remove(&surface_id);
+        } else if exact.is_some() {
+            if let Some(toplevel) = window.toplevel() {
+                toplevel.with_pending_state(|pending| {
+                    pending.states.unset(xdg_toplevel::State::Fullscreen);
+                    pending.states.unset(xdg_toplevel::State::Maximized);
+                    pending.states.unset(xdg_toplevel::State::Resizing);
+                    pending.fullscreen_output = None;
+                    pending.size = Some(target.size);
+                });
+                toplevel.send_pending_configure();
+            } else if let Some(x11) = window.x11_surface()
+                && !x11.is_override_redirect()
+                && x11.last_configure() != target
+                && let Err(error) = x11.configure(target)
+            {
+                warn!(%error, window = x11.window_id(), "could not reassert exact X11 geometry");
+            }
         }
     }
 
@@ -2175,6 +2308,7 @@ impl WaylandFrontend {
 
         self.surface_buffers.remove(&object_id);
         self.configured_window_geometries.remove(&object_id);
+        self.exact_window_geometries.remove(&object_id);
         self.restore_window_geometries.remove(&object_id);
         self.restored_window_positions.remove(&object_id);
         self.client_geometry_state_requests.remove(&object_id);
@@ -3469,6 +3603,11 @@ impl WaylandFrontend {
     #[cfg(feature = "flutter")]
     fn queue_cursor_state_for_flutter_generation(&mut self) {
         self.published_cursor_shape = None;
+        if !self.pointer_cursor_visible {
+            self.pending_cursor_shape = Some("none");
+            self.pending_cursor_position = None;
+            return;
+        }
         match self.routed_pointer_target {
             RoutedPointerTarget::Flutter => {
                 self.pending_cursor_shape = None;
@@ -3502,6 +3641,10 @@ impl WaylandFrontend {
         input::retire_flutter_generation_keys(
             &mut self.flutter_keyboard_keys,
             &mut self.retired_keyboard_keys,
+        );
+        input::retire_flutter_generation_keys(
+            &mut self.flutter_input_method_keys,
+            &mut self.retired_input_method_keys,
         );
     }
 
@@ -3850,9 +3993,9 @@ mod tests {
     #[cfg(feature = "flutter")]
     use super::{
         CursorImageStatus, RoutedPointerTarget, ShellFullscreenTransition,
-        accepted_flutter_cursor_shape, classify_window_opacity, input_routing_changed,
-        input_visibility_changed, shell_fullscreen_transition, software_cursor_shape,
-        window_expects_sample,
+        accepted_flutter_cursor_shape, classify_window_opacity, cursor_position_for_modality,
+        cursor_shape_for_modality, input_routing_changed, input_visibility_changed,
+        shell_fullscreen_transition, software_cursor_shape, window_expects_sample,
     };
     use super::{
         InitialXdgPlacementPolicy, MAX_PENDING_DMABUF_IMPORTS, dmabuf_import_queue_has_capacity,
@@ -4090,6 +4233,18 @@ mod tests {
         assert_eq!(
             accepted_flutter_cursor_shape(RoutedPointerTarget::Client(42), "text"),
             None
+        );
+    }
+
+    #[cfg(feature = "flutter")]
+    #[test]
+    fn touch_modality_suppresses_replayed_cursor_shape_and_position() {
+        assert_eq!(cursor_shape_for_modality(false, "text"), "none");
+        assert_eq!(cursor_position_for_modality(false, (32.0, 64.0)), None);
+        assert_eq!(cursor_shape_for_modality(true, "text"), "text");
+        assert_eq!(
+            cursor_position_for_modality(true, (32.0, 64.0)),
+            Some((32.0, 64.0))
         );
     }
 

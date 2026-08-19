@@ -34,7 +34,6 @@ class QuickSettingsTiles extends StatelessWidget {
     required this.onToggleRotation,
     required this.onToggleDnd,
     required this.onCycleProfile,
-    required this.onOpenKeyboard,
   });
 
   final bool wifi;
@@ -56,7 +55,6 @@ class QuickSettingsTiles extends StatelessWidget {
   final VoidCallback onToggleRotation;
   final VoidCallback onToggleDnd;
   final VoidCallback onCycleProfile;
-  final VoidCallback onOpenKeyboard;
 
   @override
   Widget build(BuildContext context) {
@@ -143,7 +141,7 @@ class QuickSettingsTiles extends StatelessWidget {
             Row(
               children: [
                 SizedBox(
-                  width: wide,
+                  width: constraints.maxWidth,
                   height: 68,
                   child: QuickTile(
                     icon: Icons.screen_rotation_rounded,
@@ -153,19 +151,6 @@ class QuickSettingsTiles extends StatelessWidget {
                         : l10n.quickSettingsAutomatic,
                     active: !rotationLock,
                     onTap: onToggleRotation,
-                    wide: true,
-                  ),
-                ),
-                const SizedBox(width: gap),
-                SizedBox(
-                  width: wide,
-                  height: 68,
-                  child: QuickTile(
-                    icon: Icons.keyboard_rounded,
-                    title: l10n.quickSettingsKeyboard,
-                    subtitle: l10n.quickSettingsOpenOnScreen,
-                    active: false,
-                    onTap: onOpenKeyboard,
                     wide: true,
                   ),
                 ),
@@ -213,15 +198,11 @@ class _QuickTileState extends State<QuickTile> {
 
   @override
   Widget build(BuildContext context) {
-    final accent = ShellTheme.of(context).accent;
-    final background = widget.active
-        ? ShellColors.primaryContainer
-        : ShellColors.tileOff;
-    final foreground = widget.active
-        ? ShellColors.onPrimaryContainer
-        : ShellColors.panelText;
+    final accent = ShellTheme.of(context).accentPalette;
+    final background = widget.active ? accent.primary : ShellColors.tileOff;
+    final foreground = widget.active ? accent.onPrimary : ShellColors.panelText;
     final secondary = widget.active
-        ? ShellColors.onPrimaryContainerSecondary
+        ? accent.onPrimary.withValues(alpha: 0.78)
         : ShellColors.textTertiary;
     final radius = widget.wide ? ShellRadii.tileWide : ShellRadii.tile;
 
@@ -267,9 +248,9 @@ class _QuickTileState extends State<QuickTile> {
               borderRadius: BorderRadius.circular(radius),
               border: Border.all(
                 color: _focused
-                    ? accent
+                    ? accent.primary
                     : widget.active
-                    ? ShellColors.surfaceTint
+                    ? accent.primary
                     : ShellColors.hairlineSoft,
                 width: _focused ? 1.5 : 1,
               ),
@@ -481,7 +462,8 @@ class _TileDetailsButtonState extends State<_TileDetailsButton> {
   }
 }
 
-/// The shade footer: an "app active" chip plus two round action buttons.
+/// Compact shade actions. Application-count prose belongs in the overview,
+/// not in quick settings.
 class ShadeFooter extends StatelessWidget {
   const ShadeFooter({super.key, required this.onOpenPower});
 
@@ -489,71 +471,20 @@ class ShadeFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
     return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
       children: [
-        Container(
-          height: 42,
-          padding: const EdgeInsets.only(left: 8, right: 16),
-          decoration: BoxDecoration(
-            color: ShellColors.chip,
-            borderRadius: BorderRadius.circular(ShellRadii.chip),
-            border: Border.all(color: ShellColors.hairlineSoft),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const _FooterStatusIcon(),
-              const SizedBox(width: 10),
-              Text(
-                l10n.quickSettingsOneAppActive,
-                style: const TextStyle(
-                  color: ShellColors.panelText,
-                  fontSize: 14,
-                  height: 1,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0,
-                  decoration: TextDecoration.none,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const Spacer(),
         _RoundButton(
-          label: l10n.quickSettingsSettingsUnavailable,
+          label: context.l10n.quickSettingsSettingsUnavailable,
           icon: Icons.settings_rounded,
         ),
         const SizedBox(width: 12),
         _RoundButton(
-          label: l10n.desktopOpenPowerControls,
+          label: context.l10n.desktopOpenPowerControls,
           icon: Icons.power_settings_new_rounded,
           onPressed: onOpenPower,
         ),
       ],
-    );
-  }
-}
-
-class _FooterStatusIcon extends StatelessWidget {
-  const _FooterStatusIcon();
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: ShellColors.secondaryContainer,
-        borderRadius: BorderRadius.circular(13),
-      ),
-      child: const SizedBox(
-        width: 26,
-        height: 26,
-        child: Icon(
-          Icons.info_rounded,
-          color: ShellColors.onSecondaryContainer,
-          size: 17,
-        ),
-      ),
     );
   }
 }

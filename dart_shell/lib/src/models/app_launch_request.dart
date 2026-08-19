@@ -1,9 +1,10 @@
 import 'denial_window.dart';
 
-/// A launcher-owned request waiting for one specific app to create a window.
+/// A launcher-owned transition to one specific application window.
 ///
-/// Existing object ids are captured when the icon is tapped, so reordering or
-/// refreshing an already-open window cannot accidentally satisfy the request.
+/// A new launch captures the existing object ids so a refresh cannot satisfy
+/// it accidentally. Activating an existing instance instead records that
+/// window explicitly, allowing both paths to use the same visual transition.
 class AppLaunchRequest {
   AppLaunchRequest({
     required this.requestId,
@@ -11,6 +12,7 @@ class AppLaunchRequest {
     required this.iconPath,
     required Iterable<String> expectedAppIds,
     required Iterable<int> existingObjectIds,
+    this.targetObjectId,
   }) : expectedAppIds = Set<String>.unmodifiable(
          expectedAppIds
              .map(normalizeAppId)
@@ -23,9 +25,17 @@ class AppLaunchRequest {
   final String? iconPath;
   final Set<String> expectedAppIds;
   final Set<int> existingObjectIds;
+  final int? targetObjectId;
 
-  bool matchesNewWindow(DenialWindow window) {
-    if (!window.isUserApp || existingObjectIds.contains(window.objectId)) {
+  bool matchesWindow(DenialWindow window) {
+    if (!window.isUserApp) {
+      return false;
+    }
+    final target = targetObjectId;
+    if (target != null) {
+      return window.objectId == target;
+    }
+    if (existingObjectIds.contains(window.objectId)) {
       return false;
     }
     return expectedAppIds.contains(normalizeAppId(window.appId));

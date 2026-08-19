@@ -126,16 +126,19 @@ click on its window.
 Physical placement is configuration, not connector-order policy. An output
 file contains one `NAME=X,Y[,REFRESH_HZ]` assignment per line. When refresh is
 configured, Denial selects the matching mode at the connector's native
-resolution; otherwise it selects the fastest native mode. Add `vrr=NAME` for
-each output that should use variable refresh rate, or `disabled=NAME` to leave
-a connected output outside the KMS and Wayland topology. Denial validates VRR
-support on enabled connectors before committing the KMS state. Unlisted
-outputs use the deterministic left-to-right fallback. Command-line position
-assignments override the file:
+resolution; otherwise it selects the fastest native mode. Use
+`transform=NAME,normal|90|180|270|flipped|flipped-90|flipped-180|flipped-270`
+for rotation and reflection. Add `vrr=NAME` for each output that should use
+variable refresh rate, or `disabled=NAME` to leave a connected output outside
+the KMS and Wayland topology. Denial validates transforms and VRR on enabled
+connectors with an atomic `TEST_ONLY` commit before changing the live KMS
+state. Unlisted outputs use the deterministic left-to-right fallback.
+Command-line position assignments override the file:
 
 ```text
 # ~/.config/denial/outputs.conf
 DP-5=0,0,200
+transform=DP-5,90
 DP-4=2560,0,180
 vrr=DP-4
 disabled=HDMI-A-1

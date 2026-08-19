@@ -27,7 +27,7 @@ class HomeGridItemCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return switch (item.type) {
-      HomeGridItemType.clock => _HomeClockTile(
+      HomeGridItemType.clock => HomeClockWidget(
         clock: ref.watch(homeClockProvider),
       ),
       HomeGridItemType.batteryDischarge => _HomeBatteryDischargeTile(
@@ -45,10 +45,19 @@ class HomeGridItemCard extends ConsumerWidget {
   }
 }
 
-class _HomeClockTile extends StatelessWidget {
-  const _HomeClockTile({required this.clock});
+/// The centered clock, date, and power summary used by the Home grid.
+///
+/// Other shell surfaces should reuse this widget when they need the same
+/// presentation rather than maintaining a visually divergent copy.
+class HomeClockWidget extends StatelessWidget {
+  const HomeClockWidget({
+    super.key,
+    required this.clock,
+    this.showStatus = true,
+  });
 
   final HomeClockInfo clock;
+  final bool showStatus;
 
   @override
   Widget build(BuildContext context) {
@@ -102,11 +111,12 @@ class _HomeClockTile extends StatelessWidget {
                       letterSpacing: 0,
                     ),
                   ),
-                  _HomeClockStatus(
-                    power: clock.power,
-                    thermalReadings: clock.thermalReadings,
-                    scale: detailScale,
-                  ),
+                  if (showStatus)
+                    _HomeClockStatus(
+                      power: clock.power,
+                      thermalReadings: clock.thermalReadings,
+                      scale: detailScale,
+                    ),
                 ],
               ),
             ),

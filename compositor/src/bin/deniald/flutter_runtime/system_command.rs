@@ -345,6 +345,32 @@ impl SystemCommandHandler {
         Ok(())
     }
 
+    pub(super) fn start_shortcut_application(
+        &self,
+        mut arguments: Vec<String>,
+        shell: bool,
+        activation_token: Option<&str>,
+    ) -> Result<(), DispatchError> {
+        let display = self
+            .wayland_display
+            .as_deref()
+            .ok_or(DispatchError::WaylandUnavailable)?;
+        if !shell {
+            expand_shortcut_program_home(&mut arguments[0]);
+        }
+        let executable = arguments[0].clone();
+        let pid = launch_application(
+            &arguments,
+            None,
+            activation_token,
+            display,
+            self.x11_display.as_deref(),
+            self.output_control_socket.as_deref(),
+        )?;
+        info!(pid, executable, shell, "launched command from shortcut");
+        Ok(())
+    }
+
     pub fn take_screenshot_requested(&mut self) -> Option<ScreenshotRequest> {
         self.screenshot_requested.take()
     }
@@ -356,6 +382,28 @@ impl SystemCommandHandler {
     pub fn take_screenshot_cancelled(&mut self) -> Option<NonZeroU64> {
         self.screenshot_cancelled.take()
     }
+}
+
+fn expand_shortcut_program_home(program: &mut String) {
+    let suffix = if program == "~" {
+        Some("")
+    } else {
+        program.strip_prefix("~/")
+    };
+    let Some(suffix) = suffix else {
+        return;
+    };
+    let Ok(home) = std::env::var("HOME") else {
+        return;
+    };
+    if home.is_empty() {
+        return;
+    }
+    *program = if suffix.is_empty() {
+        home
+    } else {
+        format!("{home}/{suffix}")
+    };
 }
 
 fn decode(packet: &[u8]) -> Result<Request, DecodeError> {

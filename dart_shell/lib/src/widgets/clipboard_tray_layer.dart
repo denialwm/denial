@@ -392,6 +392,9 @@ class _ClipboardTraySurface extends ConsumerWidget {
                         }
                       },
                       onDelete: (entry) => controller.delete(entry.id),
+                      onSetPinned: (entry, pinned) =>
+                          controller.setPinned(entry.id, pinned: pinned),
+                      onClearAll: controller.clear,
                       onEntryDragStart: onEntryDragStart,
                       onEntryDragUpdate: onEntryDragUpdate,
                       onEntryDragEnd: onEntryDragEnd,
@@ -483,6 +486,8 @@ class _ClipboardHistoryBody extends StatelessWidget {
     required this.draggedEntryId,
     required this.onActivate,
     required this.onDelete,
+    required this.onSetPinned,
+    required this.onClearAll,
     required this.onEntryDragStart,
     required this.onEntryDragUpdate,
     required this.onEntryDragEnd,
@@ -494,6 +499,8 @@ class _ClipboardHistoryBody extends StatelessWidget {
   final int? draggedEntryId;
   final ValueChanged<ClipboardHistoryEntry> onActivate;
   final ValueChanged<ClipboardHistoryEntry> onDelete;
+  final void Function(ClipboardHistoryEntry entry, bool pinned) onSetPinned;
+  final VoidCallback onClearAll;
   final _ClipboardEntryDragStart onEntryDragStart;
   final _ClipboardEntryDragUpdate onEntryDragUpdate;
   final _ClipboardEntryDragEnd onEntryDragEnd;
@@ -539,44 +546,106 @@ class _ClipboardHistoryBody extends StatelessWidget {
       ...state.entries.where((entry) => entry.pinned),
       ...state.entries.where((entry) => !entry.pinned),
     ];
-    return Stack(
+    final clearable = entries.any((entry) => !entry.pinned);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ListView.separated(
-          scrollDirection: horizontal ? Axis.horizontal : Axis.vertical,
-          physics: draggedEntryId == null
-              ? null
-              : const NeverScrollableScrollPhysics(),
-          padding: const EdgeInsets.only(bottom: 6),
-          itemCount: entries.length,
-          separatorBuilder: (_, _) =>
-              SizedBox(width: horizontal ? 12 : 0, height: horizontal ? 0 : 12),
-          itemBuilder: (context, index) {
-            final entry = entries[index];
-            return Align(
-              alignment: horizontal
-                  ? Alignment.centerLeft
-                  : Alignment.topCenter,
-              child: _ClipboardHistoryCard(
-                entry: entry,
-                busy: state.busyItemIds.contains(entry.id),
-                dragging: draggedEntryId == entry.id,
-                onActivate: () => onActivate(entry),
-                onDelete: () => onDelete(entry),
-                onEntryDragStart: onEntryDragStart,
-                onEntryDragUpdate: onEntryDragUpdate,
-                onEntryDragEnd: onEntryDragEnd,
-              ),
-            );
-          },
-        ),
-        if (state.loading)
-          const Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: LinearProgressIndicator(minHeight: 2),
+        Align(
+          alignment: Alignment.centerRight,
+          child: _ClipboardClearAllButton(
+            enabled: clearable && !state.clearing,
+            clearing: state.clearing,
+            onPressed: onClearAll,
           ),
+        ),
+        const SizedBox(height: 4),
+        Expanded(
+          child: Stack(
+            children: [
+              ListView.separated(
+                scrollDirection: horizontal ? Axis.horizontal : Axis.vertical,
+                physics: draggedEntryId == null
+                    ? null
+                    : const NeverScrollableScrollPhysics(),
+                padding: const EdgeInsets.only(bottom: 6),
+                itemCount: entries.length,
+                separatorBuilder: (_, _) => SizedBox(
+                  width: horizontal ? 12 : 0,
+                  height: horizontal ? 0 : 12,
+                ),
+                itemBuilder: (context, index) {
+                  final entry = entries[index];
+                  return Align(
+                    alignment: horizontal
+                        ? Alignment.centerLeft
+                        : Alignment.topCenter,
+                    child: _ClipboardHistoryCard(
+                      entry: entry,
+                      busy: state.busyItemIds.contains(entry.id),
+                      dragging: draggedEntryId == entry.id,
+                      onActivate: () => onActivate(entry),
+                      onDelete: () => onDelete(entry),
+                      onTogglePinned: () => onSetPinned(entry, !entry.pinned),
+                      onEntryDragStart: onEntryDragStart,
+                      onEntryDragUpdate: onEntryDragUpdate,
+                      onEntryDragEnd: onEntryDragEnd,
+                    ),
+                  );
+                },
+              ),
+              if (state.loading)
+                const Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: LinearProgressIndicator(minHeight: 2),
+                ),
+            ],
+          ),
+        ),
       ],
+    );
+  }
+}
+
+class _ClipboardClearAllButton extends StatelessWidget {
+  const _ClipboardClearAllButton({
+    required this.enabled,
+    required this.clearing,
+    required this.onPressed,
+  });
+
+  final bool enabled;
+  final bool clearing;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = context.l10n.clipboardClearAll;
+    return Tooltip(
+      message: label,
+      child: TextButton.icon(
+        key: const ValueKey<String>('clipboard-clear-all'),
+        onPressed: enabled ? onPressed : null,
+        style: TextButton.styleFrom(
+          minimumSize: const Size(0, 34),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          foregroundColor: ShellColors.textSecondary,
+          disabledForegroundColor: ShellColors.glyphInactive,
+          backgroundColor: ShellColors.surfaceContainerHigh,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: ShellColors.hairlineSoft),
+          ),
+        ),
+        icon: clearing
+            ? const SizedBox.square(
+                dimension: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.clear_all_rounded, size: 18),
+        label: Text(label),
+      ),
     );
   }
 }
@@ -588,6 +657,7 @@ class _ClipboardHistoryCard extends StatefulWidget {
     required this.dragging,
     required this.onActivate,
     required this.onDelete,
+    required this.onTogglePinned,
     required this.onEntryDragStart,
     required this.onEntryDragUpdate,
     required this.onEntryDragEnd,
@@ -598,6 +668,7 @@ class _ClipboardHistoryCard extends StatefulWidget {
   final bool dragging;
   final VoidCallback onActivate;
   final VoidCallback onDelete;
+  final VoidCallback onTogglePinned;
   final _ClipboardEntryDragStart onEntryDragStart;
   final _ClipboardEntryDragUpdate onEntryDragUpdate;
   final _ClipboardEntryDragEnd onEntryDragEnd;
@@ -710,6 +781,8 @@ class _ClipboardHistoryCardState extends State<_ClipboardHistoryCard> {
       child: _ClipboardEntryItem(
         visible: !widget.dragging,
         onDelete: widget.busy ? null : widget.onDelete,
+        pinned: entry.pinned,
+        onTogglePinned: widget.busy ? null : widget.onTogglePinned,
         child: Semantics(
           key: ValueKey<String>('clipboard-history-card-${entry.id}'),
           button: true,
@@ -758,14 +831,20 @@ class _ClipboardEntryItem extends StatelessWidget {
   const _ClipboardEntryItem({
     required this.child,
     required this.onDelete,
+    required this.pinned,
+    required this.onTogglePinned,
     this.visible = true,
     this.showDelete = true,
+    this.showPin = true,
   });
 
   final Widget child;
   final VoidCallback? onDelete;
+  final bool pinned;
+  final VoidCallback? onTogglePinned;
   final bool visible;
   final bool showDelete;
+  final bool showPin;
 
   @override
   Widget build(BuildContext context) {
@@ -786,7 +865,68 @@ class _ClipboardEntryItem extends StatelessWidget {
             top: 0,
             child: maintainLayout(_ClipboardDeleteButton(onPressed: onDelete)),
           ),
+        if (showPin)
+          Positioned(
+            right: 0,
+            top: 0,
+            child: maintainLayout(
+              _ClipboardPinButton(pinned: pinned, onPressed: onTogglePinned),
+            ),
+          ),
       ],
+    );
+  }
+}
+
+class _ClipboardPinButton extends StatelessWidget {
+  const _ClipboardPinButton({required this.pinned, required this.onPressed});
+
+  final bool pinned;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accentPalette;
+    final tooltip = pinned
+        ? context.l10n.clipboardUnpin
+        : context.l10n.clipboardPin;
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        toggled: pinned,
+        label: pinned
+            ? context.l10n.clipboardUnpinItem
+            : context.l10n.clipboardPinItem,
+        child: SizedBox.square(
+          key: ValueKey<String>('clipboard-pin-${pinned ? 'on' : 'off'}'),
+          dimension: 20,
+          child: Material(
+            color: Color.alphaBlend(
+              accent.primary.withValues(alpha: pinned ? 0.34 : 0.18),
+              ShellColors.surfaceContainerHigh,
+            ).withValues(alpha: 0.94),
+            shape: CircleBorder(
+              side: BorderSide(
+                color: accent.primary.withValues(alpha: pinned ? 0.7 : 0.38),
+              ),
+            ),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onPressed,
+              child: Icon(
+                pinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
+                size: 13,
+                color: onPressed == null
+                    ? ShellColors.textTertiary
+                    : pinned
+                    ? accent.primary
+                    : ShellColors.textPrimary,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1257,7 +1397,10 @@ class _DraggedClipboardEntry extends StatelessWidget {
           child: RepaintBoundary(
             child: _ClipboardEntryItem(
               onDelete: () {},
+              pinned: state.entry.pinned,
+              onTogglePinned: () {},
               showDelete: false,
+              showPin: false,
               child: _ClipboardEntryVisual(entry: state.entry, lifted: true),
             ),
           ),

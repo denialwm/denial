@@ -2476,7 +2476,7 @@ class _DesktopWindowFrame extends ConsumerWidget {
       dragging: placement.dragging,
       child: DesktopWindowReveal(
         key: ValueKey<String>('desktop-window-content-${window.objectId}'),
-        enabled: !window.suppressAnimations,
+        enabled: window.shouldAnimateEntrance,
         child: IgnorePointer(
           ignoring: minimized || (desktopWidget && overviewActive),
           child: AnimatedSlide(

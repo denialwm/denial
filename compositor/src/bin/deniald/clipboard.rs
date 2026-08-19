@@ -743,10 +743,14 @@ impl ClipboardManager {
         if state.locked {
             return Err(ClipboardError::Locked);
         }
-        state.history.clear();
-        state.history_bytes = 0;
+        state.history.retain(|item| item.pinned);
+        state.recalculate_history_bytes();
         state.pending_capture = None;
         match state.current {
+            CurrentSelection::Managed { item_id, .. } if state.history_item(item_id).is_some() => {
+                let retained_item = state.history_item(item_id).cloned();
+                state.managed = retained_item;
+            }
             CurrentSelection::Managed { .. } => {
                 let epoch = state.new_epoch();
                 state.current = CurrentSelection::None;
@@ -754,10 +758,15 @@ impl ClipboardManager {
                 state.actions.clear();
                 state.actions.push_back(ClipboardAction::Clear { epoch });
             }
-            CurrentSelection::External { epoch, .. } => {
+            CurrentSelection::External {
+                epoch,
+                history_item_id,
+            } => {
+                let retained_item_id =
+                    history_item_id.filter(|item_id| state.history_item(*item_id).is_some());
                 state.current = CurrentSelection::External {
                     epoch,
-                    history_item_id: None,
+                    history_item_id: retained_item_id,
                 };
                 state.managed = None;
             }
@@ -1625,6 +1634,36 @@ mod tests {
             manager
                 .retained_data(item_id, "text/plain;charset=utf-8")
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn clear_retains_pinned_history_and_active_selection() {
+        let manager = ClipboardManager::default();
+        capture_text(&manager, "discard me", ClipboardOrigin::Wayland);
+        let pinned_id = capture_text(&manager, "keep me", ClipboardOrigin::Wayland);
+        manager.set_pinned(pinned_id, true).unwrap();
+        manager.activate(pinned_id).unwrap();
+        manager.take_actions();
+
+        let response = manager.handle_control_packet(&request(COMMAND_CLEAR, |_| {}));
+        assert_eq!(response_kind(&response), (RESPONSE_ACK, STATUS_OK));
+        let state = manager.lock();
+        assert_eq!(state.history.len(), 1);
+        assert_eq!(state.history.front().unwrap().id, pinned_id);
+        assert_eq!(state.history_bytes, state.history.front().unwrap().byte_len);
+        assert!(matches!(
+            state.current,
+            CurrentSelection::Managed { item_id, .. } if item_id == pinned_id
+        ));
+        assert!(state.actions.is_empty());
+        drop(state);
+        assert_eq!(
+            manager
+                .retained_data(pinned_id, "text/plain;charset=utf-8")
+                .unwrap()
+                .as_ref(),
+            b"keep me"
         );
     }
 

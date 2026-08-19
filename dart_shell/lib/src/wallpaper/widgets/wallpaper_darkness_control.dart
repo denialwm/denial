@@ -14,11 +14,13 @@ class WallpaperDarknessControl extends StatefulWidget {
     required this.value,
     required this.onChanged,
     required this.onChangeEnd,
+    this.onChangeStart,
   });
 
   final double value;
   final ValueChanged<double> onChanged;
   final ValueChanged<double> onChangeEnd;
+  final VoidCallback? onChangeStart;
 
   @override
   State<WallpaperDarknessControl> createState() =>
@@ -117,6 +119,7 @@ class _WallpaperDarknessControlState extends State<WallpaperDarknessControl> {
                   inactiveColor: ShellColors.wallpaperEffectTrack,
                   onChanged: widget.onChanged,
                   onChangeEnd: widget.onChangeEnd,
+                  onChangeStart: widget.onChangeStart,
                   height: 38,
                 ),
               ),

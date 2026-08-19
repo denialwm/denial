@@ -25,6 +25,7 @@ class Motion {
   static const Duration pill = Duration(milliseconds: 90);
   static const Duration cardSettle = Duration(milliseconds: 220);
   static const Duration wallpaperSelector = Duration(milliseconds: 360);
+  static const Duration wallpaperTilesFade = Duration(milliseconds: 300);
   static const Duration wallpaperReveal = Duration(milliseconds: 720);
   static const Duration desktopWindowRevealLeadIn = Duration(milliseconds: 64);
   static const Duration desktopWindowReveal = Duration(milliseconds: 320);
@@ -47,6 +48,7 @@ class Motion {
 
   // Curves -------------------------------------------------------------------
   static const Curve standard = Curves.easeOutCubic;
+  static const Curve wallpaperTilesFadeCurve = Curves.easeInOut;
 
   /// Symmetric session motion with enough travel in the terminal tenth to
   /// remain visibly continuous on high-refresh displays. The steeper

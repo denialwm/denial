@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
@@ -8,7 +9,10 @@ import '../input/input_layout.dart';
 import '../models/denial_drag_icon.dart';
 import '../models/desktop_notification.dart';
 import '../models/display_layout.dart';
+import '../models/input_device_capabilities.dart';
 import '../models/keyboard_configuration.dart';
+import '../models/output_configuration.dart';
+import '../models/shortcut_configuration.dart';
 import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
 import '../models/denial_window_snapshot.dart';
@@ -79,6 +83,22 @@ class DenialBrightnessState {
   final double level;
 }
 
+class DenialTextInputState {
+  const DenialTextInputState({
+    required this.active,
+    required this.inputPanelVisible,
+    required this.legacy,
+    required this.contentHint,
+    required this.contentPurpose,
+  });
+
+  final bool active;
+  final bool inputPanelVisible;
+  final bool legacy;
+  final int contentHint;
+  final int contentPurpose;
+}
+
 class DenialSettingsDocument {
   const DenialSettingsDocument({required this.revision, required this.json});
 
@@ -91,6 +111,7 @@ class DenialBridge {
   static const String _audioChannel = 'denial/audio';
   static const String _brightnessChannel = 'denial/brightness';
   static const String _idlePolicyChannel = 'denial/idle_policy';
+  static const String _displayPowerChannel = 'denial/display_power';
   static const String _systemCommandChannel = 'denial/system_command';
   static const String _windowCloseCompleteChannel =
       'denial/window_close_complete';
@@ -116,6 +137,8 @@ class DenialBridge {
   static const int _maxSystemCommandBytes = 64 * 1024;
   static const int _maxSystemCommandArguments = 64;
   static const int _maxSystemCommandArgumentBytes = 4096;
+  static const int _maxOutputControlBytes = 256 * 1024;
+  static const Duration _outputControlTimeout = Duration(seconds: 20);
 
   DenialBridge() {
     ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
@@ -142,6 +165,12 @@ class DenialBridge {
   _pendingSettingsDocumentRequests = {};
   final Map<int, Completer<DenialKeyboardConfiguration>>
   _pendingKeyboardSettingsRequests = {};
+  final Map<int, Completer<DenialInputDeviceCapabilities>>
+  _pendingInputDeviceRequests = {};
+  final Map<int, Completer<DenialShortcutConfiguration>>
+  _pendingShortcutRequests = {};
+  final Map<int, Completer<DenialShortcutValidation>>
+  _pendingShortcutValidationRequests = {};
   final Set<Completer<double?>> _pendingAudioReads = {};
   final StreamController<DenialWindowEvent> _windowEvents =
       StreamController<DenialWindowEvent>.broadcast(sync: true);
@@ -165,6 +194,13 @@ class DenialBridge {
       StreamController<DenialUiDevelopmentState>.broadcast(sync: true);
   final StreamController<DenialKeyboardConfiguration> _keyboardConfigurations =
       StreamController<DenialKeyboardConfiguration>.broadcast(sync: true);
+  final StreamController<DenialInputDeviceCapabilities>
+  _inputDeviceCapabilities =
+      StreamController<DenialInputDeviceCapabilities>.broadcast(sync: true);
+  final StreamController<DenialShortcutConfiguration> _shortcutConfigurations =
+      StreamController<DenialShortcutConfiguration>.broadcast(sync: true);
+  final StreamController<DenialTextInputState> _textInputStates =
+      StreamController<DenialTextInputState>.broadcast(sync: true);
   final wire.DenialWireCodec _wireCodec = wire.DenialWireCodec();
   final DenialUiDevelopmentProtocol _uiDevelopmentProtocol =
       DenialUiDevelopmentProtocol();
@@ -189,6 +225,11 @@ class DenialBridge {
       _uiDevelopmentStates.stream;
   Stream<DenialKeyboardConfiguration> get keyboardConfigurations =>
       _keyboardConfigurations.stream;
+  Stream<DenialInputDeviceCapabilities> get inputDeviceCapabilities =>
+      _inputDeviceCapabilities.stream;
+  Stream<DenialShortcutConfiguration> get shortcutConfigurations =>
+      _shortcutConfigurations.stream;
+  Stream<DenialTextInputState> get textInputStates => _textInputStates.stream;
 
   void start({
     required VoidCallback onWindowsChanged,
@@ -249,6 +290,24 @@ class DenialBridge {
       }
     }
     _pendingKeyboardSettingsRequests.clear();
+    for (final completer in _pendingInputDeviceRequests.values) {
+      if (!completer.isCompleted) {
+        completer.completeError(StateError('Denial bridge disposed'));
+      }
+    }
+    _pendingInputDeviceRequests.clear();
+    for (final completer in _pendingShortcutRequests.values) {
+      if (!completer.isCompleted) {
+        completer.completeError(StateError('Denial bridge disposed'));
+      }
+    }
+    _pendingShortcutRequests.clear();
+    for (final completer in _pendingShortcutValidationRequests.values) {
+      if (!completer.isCompleted) {
+        completer.completeError(StateError('Denial bridge disposed'));
+      }
+    }
+    _pendingShortcutValidationRequests.clear();
     for (final completer in _pendingAudioReads) {
       if (!completer.isCompleted) {
         completer.complete(null);
@@ -269,6 +328,9 @@ class DenialBridge {
     unawaited(_notificationEvents.close());
     unawaited(_uiDevelopmentStates.close());
     unawaited(_keyboardConfigurations.close());
+    unawaited(_inputDeviceCapabilities.close());
+    unawaited(_shortcutConfigurations.close());
+    unawaited(_textInputStates.close());
   }
 
   Future<DenialWindowSnapshot> listWindows(List<DenialWindow> fallback) {
@@ -410,6 +472,50 @@ class DenialBridge {
     );
   }
 
+  Future<DenialInputDeviceCapabilities> readInputDeviceCapabilities() {
+    final requestId = _nextRequestId++;
+    final completer = Completer<DenialInputDeviceCapabilities>();
+    _pendingInputDeviceRequests[requestId] = completer;
+    _sendWire(
+      _wireCodec.encodeSettingsRead(
+        wire.SettingsRequestKind.ReadInputDevices,
+        requestId: requestId,
+      ),
+    );
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingInputDeviceRequests.remove(requestId);
+        throw TimeoutException('Denial input device detection timed out');
+      },
+    );
+  }
+
+  Future<DenialInputDeviceCapabilities> configureTouchpad(
+    DenialInputDeviceCapabilities capabilities,
+  ) {
+    final requestId = _nextRequestId++;
+    final bytes = _wireCodec.encodeTouchpadConfiguration(
+      requestId: requestId,
+      capabilities: capabilities,
+    );
+    if (bytes == null) {
+      return Future<DenialInputDeviceCapabilities>.error(
+        ArgumentError('invalid Denial touchpad configuration'),
+      );
+    }
+    final completer = Completer<DenialInputDeviceCapabilities>();
+    _pendingInputDeviceRequests[requestId] = completer;
+    _sendWire(bytes);
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingInputDeviceRequests.remove(requestId);
+        throw TimeoutException('Denial touchpad settings update timed out');
+      },
+    );
+  }
+
   Future<DenialKeyboardConfiguration> configureKeyboard(
     DenialKeyboardConfiguration configuration,
   ) {
@@ -431,6 +537,122 @@ class DenialBridge {
       onTimeout: () {
         _pendingKeyboardSettingsRequests.remove(requestId);
         throw TimeoutException('Denial keyboard settings update timed out');
+      },
+    );
+  }
+
+  Future<DenialShortcutConfiguration> readShortcutConfiguration() {
+    final requestId = _nextRequestId++;
+    final completer = Completer<DenialShortcutConfiguration>();
+    _pendingShortcutRequests[requestId] = completer;
+    _sendWire(_wireCodec.encodeShortcutRead(requestId: requestId));
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingShortcutRequests.remove(requestId);
+        throw TimeoutException('Denial shortcut settings read timed out');
+      },
+    );
+  }
+
+  Future<DenialShortcutValidation> validateShortcut({
+    required DenialShortcutBinding shortcut,
+    String? existingShortcut,
+  }) {
+    final requestId = _nextRequestId++;
+    final bytes = _wireCodec.encodeShortcutValidation(
+      requestId: requestId,
+      shortcut: shortcut,
+      existingShortcut: existingShortcut,
+    );
+    if (bytes == null) {
+      return Future<DenialShortcutValidation>.error(
+        ArgumentError('shortcut validation request exceeds wire bounds'),
+      );
+    }
+    final completer = Completer<DenialShortcutValidation>();
+    _pendingShortcutValidationRequests[requestId] = completer;
+    _sendWire(bytes);
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingShortcutValidationRequests.remove(requestId);
+        throw TimeoutException('Denial shortcut validation timed out');
+      },
+    );
+  }
+
+  Future<DenialShortcutConfiguration> addShortcut({
+    required int expectedRevision,
+    required DenialShortcutBinding shortcut,
+  }) {
+    return _mutateShortcuts(
+      kind: wire.SettingsRequestKind.AddShortcut,
+      expectedRevision: expectedRevision,
+      shortcut: shortcut,
+    );
+  }
+
+  Future<DenialShortcutConfiguration> updateShortcut({
+    required int expectedRevision,
+    required String existingShortcut,
+    required DenialShortcutBinding shortcut,
+  }) {
+    return _mutateShortcuts(
+      kind: wire.SettingsRequestKind.UpdateShortcut,
+      expectedRevision: expectedRevision,
+      shortcut: shortcut,
+      existingShortcut: existingShortcut,
+    );
+  }
+
+  Future<DenialShortcutConfiguration> removeShortcut({
+    required int expectedRevision,
+    required String shortcut,
+  }) {
+    return _mutateShortcuts(
+      kind: wire.SettingsRequestKind.RemoveShortcut,
+      expectedRevision: expectedRevision,
+      existingShortcut: shortcut,
+    );
+  }
+
+  Future<DenialShortcutConfiguration> restoreDefaultShortcuts({
+    required int expectedRevision,
+  }) {
+    return _mutateShortcuts(
+      kind: wire.SettingsRequestKind.RestoreShortcuts,
+      expectedRevision: expectedRevision,
+    );
+  }
+
+  Future<DenialShortcutConfiguration> _mutateShortcuts({
+    required wire.SettingsRequestKind kind,
+    required int expectedRevision,
+    DenialShortcutBinding? shortcut,
+    String? existingShortcut,
+  }) {
+    final requestId = _nextRequestId++;
+    final bytes = _wireCodec.encodeShortcutMutation(
+      kind: kind,
+      requestId: requestId,
+      expectedRevision: expectedRevision,
+      shortcut: shortcut,
+      existingShortcut: existingShortcut,
+    );
+    if (bytes == null) {
+      return Future<DenialShortcutConfiguration>.error(
+        ArgumentError('shortcut mutation request exceeds wire bounds'),
+      );
+    }
+    final completer = Completer<DenialShortcutConfiguration>();
+    _pendingShortcutRequests[requestId] = completer;
+    _sendWire(bytes);
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingShortcutRequests.remove(requestId);
+        throw TimeoutException('Denial shortcut update timed out');
       },
     );
   }
@@ -503,7 +725,11 @@ class DenialBridge {
     );
   }
 
-  void configureWindow(DenialWindow window, Rect contentRect) {
+  void configureWindow(
+    DenialWindow window,
+    Rect contentRect, {
+    bool exact = false,
+  }) {
     if (window.windowId <= 0 ||
         contentRect.width < 1.0 ||
         contentRect.height < 1.0) {
@@ -520,6 +746,7 @@ class DenialBridge {
         wire.WindowRequestKind.ConfigureWindow,
         windowId: window.windowId,
         geometry: geometry,
+        flags: exact ? 1 : 0,
       ),
     );
   }
@@ -538,6 +765,32 @@ class DenialBridge {
     }
 
     _sendWire(_wireCodec.encodeKeyboardKey(key, ctrl: ctrl));
+  }
+
+  void pressKeyboardKey(String key) {
+    if (key.isEmpty) {
+      return;
+    }
+
+    _sendWire(
+      _wireCodec.encodeKeyboardKey(
+        key,
+        phase: wire.DenialKeyboardKeyPhase.pressed,
+      ),
+    );
+  }
+
+  void releaseKeyboardKey(String key) {
+    if (key.isEmpty) {
+      return;
+    }
+
+    _sendWire(
+      _wireCodec.encodeKeyboardKey(
+        key,
+        phase: wire.DenialKeyboardKeyPhase.released,
+      ),
+    );
   }
 
   bool requestBrightness({required int monitorId, required String connector}) {
@@ -596,6 +849,15 @@ class DenialBridge {
     final data = ByteData(8)..setUint64(0, milliseconds, Endian.little);
     ServicesBinding.instance.defaultBinaryMessenger
         .send(_idlePolicyChannel, data)
+        ?.catchError((Object _) => null);
+  }
+
+  /// Requests compositor-owned DPMS-off for every currently powered output.
+  /// The next physical input wakes outputs through the native idle policy.
+  void requestDpmsOff() {
+    final data = ByteData(1)..setUint8(0, 1);
+    ServicesBinding.instance.defaultBinaryMessenger
+        .send(_displayPowerChannel, data)
         ?.catchError((Object _) => null);
   }
 
@@ -723,6 +985,150 @@ class DenialBridge {
   /// This is deliberately not a process launch: deniald terminates its own
   /// Wayland loop and executes the normal runtime/compositor teardown path.
   bool requestLogout() => _sendSystemCommand(_logoutCommand);
+
+  Future<DenialOutputConfiguration> readOutputConfiguration() async {
+    final result = await _sendOutputControlRequest('outputs.get');
+    return DenialOutputConfiguration.fromJson(result);
+  }
+
+  Future<DenialOutputConfiguration> applyOutputConfiguration({
+    required int serial,
+    required List<DenialOutput> outputs,
+    required bool persistent,
+    int? confirmationTimeoutMilliseconds,
+  }) async {
+    final result = await _sendOutputControlRequest(
+      'outputs.apply',
+      parameters: <String, Object>{
+        'serial': serial,
+        'persistent': persistent,
+        'confirmation_timeout_milliseconds': ?confirmationTimeoutMilliseconds,
+        'outputs': <Map<String, Object>>[
+          for (final output in outputs) output.toApplyJson(),
+        ],
+      },
+    );
+    return DenialOutputConfiguration.fromJson(result);
+  }
+
+  Future<void> confirmOutputConfiguration(int token) async {
+    await _sendOutputControlRequest(
+      'outputs.confirm',
+      parameters: <String, Object>{'token': token},
+    );
+  }
+
+  Future<void> rollbackOutputConfiguration(int token) async {
+    await _sendOutputControlRequest(
+      'outputs.rollback',
+      parameters: <String, Object>{'token': token},
+    );
+  }
+
+  Future<Map<String, Object?>> _sendOutputControlRequest(
+    String method, {
+    Map<String, Object>? parameters,
+  }) async {
+    final path = _outputControlSocketPath();
+    if (path == null) {
+      throw const DenialOutputControlException(
+        'unavailable',
+        'The Denial output control socket is unavailable.',
+      );
+    }
+    final requestId = _nextRequestId++;
+    final request = jsonEncode(<String, Object>{
+      'version': 1,
+      'id': requestId,
+      'method': method,
+      'params': ?parameters,
+    });
+    if (utf8.encode(request).length + 1 > _maxOutputControlBytes) {
+      throw const DenialOutputControlException(
+        'invalid_request',
+        'The output configuration is too large.',
+      );
+    }
+
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        InternetAddress(path, type: InternetAddressType.unix),
+        0,
+        timeout: _outputControlTimeout,
+      );
+      socket.add(utf8.encode('$request\n'));
+      await socket.flush();
+      final responseBytes = <int>[];
+      await for (final chunk in socket.timeout(_outputControlTimeout)) {
+        responseBytes.addAll(chunk);
+        if (responseBytes.length > _maxOutputControlBytes) {
+          throw const DenialOutputControlException(
+            'invalid_response',
+            'The compositor output response is too large.',
+          );
+        }
+      }
+      final decoded = jsonDecode(utf8.decode(responseBytes));
+      if (decoded is! Map<String, Object?> ||
+          decoded['version'] != 1 ||
+          decoded['id'] != requestId) {
+        throw const DenialOutputControlException(
+          'invalid_response',
+          'The compositor returned an invalid output response.',
+        );
+      }
+      if (decoded['ok'] != true) {
+        final error = decoded['error'];
+        if (error is Map<String, Object?>) {
+          throw DenialOutputControlException(
+            error['code'] is String ? error['code']! as String : 'failed',
+            error['message'] is String
+                ? error['message']! as String
+                : 'The compositor rejected the output configuration.',
+          );
+        }
+        throw const DenialOutputControlException(
+          'failed',
+          'The compositor rejected the output configuration.',
+        );
+      }
+      final result = decoded['result'];
+      if (result is Map<String, Object?>) {
+        return result;
+      }
+      throw const DenialOutputControlException(
+        'invalid_response',
+        'The compositor returned no output configuration.',
+      );
+    } on DenialOutputControlException {
+      rethrow;
+    } on Object catch (error) {
+      throw DenialOutputControlException(
+        'unavailable',
+        'Could not reach Denial output control: $error',
+      );
+    } finally {
+      socket?.destroy();
+    }
+  }
+
+  String? _outputControlSocketPath() {
+    final environment = Platform.environment;
+    final explicit = environment['DENIAL_SOCKET'];
+    if (explicit != null &&
+        explicit.startsWith('/') &&
+        !explicit.contains('\u0000')) {
+      return explicit;
+    }
+    final runtime = environment['XDG_RUNTIME_DIR'];
+    if (runtime == null ||
+        !runtime.startsWith('/') ||
+        runtime.contains('\u0000')) {
+      return null;
+    }
+    return '${runtime.replaceFirst(RegExp(r'/+$'), '')}/denial/control.sock';
+  }
 
   bool _sendSystemCommand(
     int command, {
@@ -1043,6 +1449,19 @@ class DenialBridge {
             !_cursorPositions.isClosed) {
           _cursorPositions.add(Offset(payload.x, payload.y));
         }
+      } else if (payload is wire.TextInputState) {
+        if ((!payload.inputPanelVisible || payload.active) &&
+            !_textInputStates.isClosed) {
+          _textInputStates.add(
+            DenialTextInputState(
+              active: payload.active,
+              inputPanelVisible: payload.inputPanelVisible,
+              legacy: payload.legacy,
+              contentHint: payload.contentHint,
+              contentPurpose: payload.contentPurpose,
+            ),
+          );
+        }
       } else if (payload is wire.DesktopNotificationEvent) {
         final event = _wireCodec.decodeNotificationEvent(payload);
         if (event != null && !_notificationEvents.isClosed) {
@@ -1078,6 +1497,64 @@ class DenialBridge {
       completer.complete(
         DenialSettingsDocument(revision: response.revision, json: document),
       );
+      return;
+    }
+
+    if (response.kind == wire.SettingsResponseKind.Shortcuts) {
+      final configuration = _wireCodec.decodeShortcutConfiguration(response);
+      final completer = _pendingShortcutRequests.remove(requestId);
+      if (configuration != null && !_shortcutConfigurations.isClosed) {
+        _shortcutConfigurations.add(configuration);
+      }
+      if (requestId == 0 || completer == null || completer.isCompleted) {
+        return;
+      }
+      if (!response.success || configuration == null) {
+        completer.completeError(
+          StateError(response.error ?? 'Denial shortcut request failed'),
+        );
+      } else {
+        completer.complete(configuration);
+      }
+      return;
+    }
+
+    if (response.kind == wire.SettingsResponseKind.ShortcutValidation) {
+      final validation = _wireCodec.decodeShortcutValidation(response);
+      final completer = _pendingShortcutValidationRequests.remove(requestId);
+      if (completer == null || completer.isCompleted) {
+        return;
+      }
+      if (!response.success || validation == null) {
+        completer.completeError(
+          StateError(response.error ?? 'Denial shortcut validation failed'),
+        );
+      } else {
+        completer.complete(validation);
+      }
+      return;
+    }
+
+    if (response.kind == wire.SettingsResponseKind.InputDevices) {
+      final capabilities = _wireCodec.decodeInputDeviceCapabilities(response);
+      final completer = _pendingInputDeviceRequests.remove(requestId);
+      if (capabilities != null && !_inputDeviceCapabilities.isClosed) {
+        _inputDeviceCapabilities.add(capabilities);
+      }
+      if (requestId == 0 || completer == null || completer.isCompleted) {
+        return;
+      }
+      if (capabilities == null) {
+        completer.completeError(
+          StateError(response.error ?? 'Denial input device detection failed'),
+        );
+      } else {
+        completer.complete(capabilities);
+      }
+      return;
+    }
+
+    if (response.kind != wire.SettingsResponseKind.Keyboard) {
       return;
     }
 
@@ -1188,4 +1665,14 @@ class DenialBridge {
       completer.complete(layout);
     }
   }
+}
+
+class DenialOutputControlException implements Exception {
+  const DenialOutputControlException(this.code, this.message);
+
+  final String code;
+  final String message;
+
+  @override
+  String toString() => message;
 }

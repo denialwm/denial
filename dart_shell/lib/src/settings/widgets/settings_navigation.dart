@@ -12,6 +12,8 @@ enum SettingsPageId {
   appearance,
   language,
   keyboard,
+  touchpad,
+  shortcuts,
   animations,
   layout,
   overlays,
@@ -31,6 +33,8 @@ extension SettingsPageIdPresentation on SettingsPageId {
     SettingsPageId.appearance => context.l10n.settingsNavigationAppearance,
     SettingsPageId.language => context.l10n.settingsNavigationLanguage,
     SettingsPageId.keyboard => context.l10n.settingsNavigationKeyboard,
+    SettingsPageId.touchpad => context.l10n.settingsNavigationTouchpad,
+    SettingsPageId.shortcuts => context.l10n.settingsNavigationShortcuts,
     SettingsPageId.animations => context.l10n.settingsNavigationAnimations,
     SettingsPageId.layout => context.l10n.settingsNavigationDesktopLayout,
     SettingsPageId.overlays => context.l10n.settingsNavigationOverlays,
@@ -48,6 +52,8 @@ extension SettingsPageIdPresentation on SettingsPageId {
     SettingsPageId.appearance => Icons.palette_outlined,
     SettingsPageId.language => Icons.translate_rounded,
     SettingsPageId.keyboard => Icons.keyboard_rounded,
+    SettingsPageId.touchpad => Icons.touch_app_rounded,
+    SettingsPageId.shortcuts => Icons.keyboard_command_key_rounded,
     SettingsPageId.animations => Icons.animation_rounded,
     SettingsPageId.layout => Icons.space_dashboard_outlined,
     SettingsPageId.overlays => Icons.picture_in_picture_alt_outlined,
@@ -66,12 +72,14 @@ class SettingsNavigation extends StatelessWidget {
     required this.selected,
     required this.onSelected,
     required this.compact,
+    this.showTouchpad = false,
     super.key,
   });
 
   final SettingsPageId selected;
   final ValueChanged<SettingsPageId> onSelected;
   final bool compact;
+  final bool showTouchpad;
 
   @override
   Widget build(BuildContext context) {
@@ -83,7 +91,7 @@ class SettingsNavigation extends StatelessWidget {
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
           children: [
-            for (final page in SettingsPageId.values)
+            for (final page in _visiblePages)
               Padding(
                 padding: const EdgeInsets.only(right: 5),
                 child: _NavigationDestination(
@@ -128,7 +136,7 @@ class SettingsNavigation extends StatelessWidget {
                   key: settingsNavigationListKey,
                   padding: EdgeInsets.zero,
                   children: [
-                    for (final page in SettingsPageId.values) ...[
+                    for (final page in _visiblePages) ...[
                       _NavigationDestination(
                         page: page,
                         selected: page == selected,
@@ -158,6 +166,10 @@ class SettingsNavigation extends StatelessWidget {
       ),
     );
   }
+
+  Iterable<SettingsPageId> get _visiblePages => SettingsPageId.values.where(
+    (page) => page != SettingsPageId.touchpad || showTouchpad,
+  );
 }
 
 class _NavigationDestination extends StatefulWidget {

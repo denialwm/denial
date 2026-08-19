@@ -18,7 +18,6 @@ import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../connectivity/bluetooth_detail_surface.dart';
 import '../connectivity/wifi_detail_surface.dart';
-import '../notification_center.dart';
 import '../session/power_session_surface.dart';
 import '../shell_backdrop_blur.dart';
 import '../shell_surface_host.dart';
@@ -44,50 +43,51 @@ class QuickSettingsShade extends ConsumerWidget {
 
     return IgnorePointer(
       ignoring: linearProgress < 0.02,
-      child: Transform.translate(
-        offset: Offset(0.0, -panelHeight * (1.0 - linearProgress)),
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: Focus(
-            autofocus: true,
-            onKeyEvent: (_, event) {
-              if (event is KeyDownEvent &&
-                  event.logicalKey == LogicalKeyboardKey.escape) {
-                controller.closeQuickSettings();
-                return KeyEventResult.handled;
-              }
-              return KeyEventResult.ignored;
-            },
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () {},
-              child: SizedBox(
-                width: double.infinity,
-                height: panelHeight,
-                child: const _ControlPanel(),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: controller.closeQuickSettings,
+            child: const SizedBox.expand(),
+          ),
+          Transform.translate(
+            offset: Offset(0.0, -panelHeight * (1.0 - linearProgress)),
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Focus(
+                autofocus: true,
+                onKeyEvent: (_, event) {
+                  if (event is KeyDownEvent &&
+                      event.logicalKey == LogicalKeyboardKey.escape) {
+                    controller.closeQuickSettings();
+                    return KeyEventResult.handled;
+                  }
+                  return KeyEventResult.ignored;
+                },
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {},
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: panelHeight,
+                    child: const _ControlPanel(),
+                  ),
+                ),
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
 }
 
-enum _ShadeSection { controls, notifications }
-
-class _ControlPanel extends ConsumerStatefulWidget {
+class _ControlPanel extends ConsumerWidget {
   const _ControlPanel();
 
   @override
-  ConsumerState<_ControlPanel> createState() => _ControlPanelState();
-}
-
-class _ControlPanelState extends ConsumerState<_ControlPanel> {
-  _ShadeSection _section = _ShadeSection.controls;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final qs = ref.watch(quickSettingsProvider);
     final qsController = ref.read(quickSettingsProvider.notifier);
     final network = ref.watch(networkConnectivityProvider);
@@ -131,7 +131,6 @@ class _ControlPanelState extends ConsumerState<_ControlPanel> {
           ),
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final wide = constraints.maxWidth >= 900;
               final controls = _ControlContents(
                 quickSettings: qs,
                 controller: qsController,
@@ -171,39 +170,7 @@ class _ControlPanelState extends ConsumerState<_ControlPanel> {
                   children: [
                     const _ShadeHeader(),
                     const SizedBox(height: 12),
-                    if (!wide) ...[
-                      _ShadeSectionSwitcher(
-                        selected: _section,
-                        unreadCount: notifications.unreadCount,
-                        onSelected: (section) {
-                          if (_section != section) {
-                            setState(() => _section = section);
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 11),
-                    ],
-                    Expanded(
-                      child: wide
-                          ? Row(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Expanded(child: controls),
-                                const SizedBox(width: 20),
-                                const SizedBox(
-                                  width: 1,
-                                  child: ColoredBox(
-                                    color: ShellColors.hairlineSoft,
-                                  ),
-                                ),
-                                const SizedBox(width: 20),
-                                const Expanded(child: NotificationCenter()),
-                              ],
-                            )
-                          : _section == _ShadeSection.controls
-                          ? controls
-                          : const NotificationCenter(),
-                    ),
+                    Expanded(child: controls),
                     const SizedBox(height: 8),
                     const Center(child: _ShadeHandle()),
                   ],
@@ -289,7 +256,6 @@ class _ControlContents extends StatelessWidget {
           onToggleRotation: controller.toggleRotation,
           onToggleDnd: onToggleDoNotDisturb,
           onCycleProfile: controller.cycleProfile,
-          onOpenKeyboard: () => controller.openKeyboard(),
         ),
         const SizedBox(height: 14),
         RangeBar(
@@ -315,140 +281,6 @@ class _ControlContents extends StatelessWidget {
         const SizedBox(height: 12),
         ShadeFooter(onOpenPower: onOpenPower),
       ],
-    );
-  }
-}
-
-class _ShadeSectionSwitcher extends StatelessWidget {
-  const _ShadeSectionSwitcher({
-    required this.selected,
-    required this.unreadCount,
-    required this.onSelected,
-  });
-
-  final _ShadeSection selected;
-  final int unreadCount;
-  final ValueChanged<_ShadeSection> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return Row(
-      children: [
-        Expanded(
-          child: _ShadeSectionButton(
-            label: l10n.quickSettingsControls,
-            icon: Icons.tune_rounded,
-            selected: selected == _ShadeSection.controls,
-            onPressed: () => onSelected(_ShadeSection.controls),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _ShadeSectionButton(
-            label: unreadCount > 0
-                ? l10n.quickSettingsNotificationsCount(unreadCount)
-                : l10n.notificationsTitle,
-            icon: Icons.notifications_rounded,
-            selected: selected == _ShadeSection.notifications,
-            onPressed: () => onSelected(_ShadeSection.notifications),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ShadeSectionButton extends StatefulWidget {
-  const _ShadeSectionButton({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onPressed,
-  });
-
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onPressed;
-
-  @override
-  State<_ShadeSectionButton> createState() => _ShadeSectionButtonState();
-}
-
-class _ShadeSectionButtonState extends State<_ShadeSectionButton> {
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = ShellTheme.of(context).accent;
-    return Semantics(
-      button: true,
-      selected: widget.selected,
-      label: widget.label,
-      child: FocusableActionDetector(
-        mouseCursor: SystemMouseCursors.click,
-        onShowFocusHighlight: (focused) => setState(() => _focused = focused),
-        shortcuts: const <ShortcutActivator, Intent>{
-          SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
-          SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-        },
-        actions: <Type, Action<Intent>>{
-          ActivateIntent: CallbackAction<ActivateIntent>(
-            onInvoke: (_) {
-              widget.onPressed();
-              return null;
-            },
-          ),
-        },
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onPressed,
-          child: AnimatedContainer(
-            duration: MediaQuery.disableAnimationsOf(context)
-                ? Duration.zero
-                : const Duration(milliseconds: 160),
-            height: 36,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: widget.selected
-                  ? ShellColors.primaryContainer
-                  : ShellColors.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(13),
-              border: Border.all(
-                color: _focused ? accent : ShellColors.hairlineSoft,
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  widget.icon,
-                  size: 16,
-                  color: widget.selected
-                      ? ShellColors.onPrimaryContainer
-                      : ShellColors.textSecondary,
-                ),
-                const SizedBox(width: 7),
-                Flexible(
-                  child: Text(
-                    widget.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: ShellText.base.copyWith(
-                      color: widget.selected
-                          ? ShellColors.onPrimaryContainer
-                          : ShellColors.textSecondary,
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

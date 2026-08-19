@@ -3,6 +3,8 @@
 use std::{fs, path::PathBuf, sync::OnceLock};
 
 pub mod topology;
+#[cfg(feature = "kms")]
+pub mod volition;
 
 /// The identity compiled into a candidate binary.
 ///

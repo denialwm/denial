@@ -156,6 +156,15 @@ class _BottomGestureHandleState extends ConsumerState<BottomGestureHandle>
     final hasForeground = currentState.foregroundWindow != null;
     final upTravel = -drag.dy;
     final screenHeight = MediaQuery.sizeOf(context).height;
+    if (currentState.launchTransitionActive) {
+      if (velocity.dy < -_homeFlickVelocity ||
+          upTravel > screenHeight * _recentsTravelFraction) {
+        controller.goHome();
+      } else {
+        controller.resetGestureDrag();
+      }
+      return;
+    }
     if (hasForeground && velocity.dy < -_homeFlickVelocity) {
       controller.goHome();
     } else if (upTravel > screenHeight * _recentsTravelFraction) {

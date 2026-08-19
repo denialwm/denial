@@ -548,6 +548,12 @@ abstract class AppLocalizations {
   /// **'Close clipboard history'**
   String get clipboardCloseHistory;
 
+  /// Label for clearing all unpinned clipboard-history entries.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear all'**
+  String get clipboardClearAll;
+
   /// Tooltip for deleting a clipboard-history entry.
   ///
   /// In en, this message translates to:
@@ -620,6 +626,18 @@ abstract class AppLocalizations {
   /// **'{type} clipboard item. {preview}'**
   String clipboardItemSemantics(String type, String preview);
 
+  /// Tooltip for pinning a clipboard-history entry.
+  ///
+  /// In en, this message translates to:
+  /// **'Pin'**
+  String get clipboardPin;
+
+  /// Accessible label for pinning a clipboard-history entry.
+  ///
+  /// In en, this message translates to:
+  /// **'Pin clipboard item'**
+  String get clipboardPinItem;
+
   /// Guidance shown when clipboard search has no results.
   ///
   /// In en, this message translates to:
@@ -655,6 +673,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'TEXT'**
   String get clipboardTypeText;
+
+  /// Tooltip for unpinning a clipboard-history entry.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpin'**
+  String get clipboardUnpin;
+
+  /// Accessible label for unpinning a clipboard-history entry.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpin clipboard item'**
+  String get clipboardUnpinItem;
 
   /// Explanation shown when the native clipboard-history service is unavailable.
   ///
@@ -2585,6 +2615,78 @@ abstract class AppLocalizations {
   /// **'Disconnect'**
   String get settingsDisconnect;
 
+  /// Busy label shown while a display configuration is being applied.
+  ///
+  /// In en, this message translates to:
+  /// **'Applying…'**
+  String get settingsApplying;
+
+  /// Button label that applies the edited monitor configuration.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply changes'**
+  String get settingsApplyDisplayConfiguration;
+
+  /// Explains that display changes will be persisted.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep changes to update this session and outputs.conf.'**
+  String get settingsDisplayApplyPersistentHint;
+
+  /// Explains that display changes cannot be persisted.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep changes to use them for this session.'**
+  String get settingsDisplayApplySessionHint;
+
+  /// Title of the timed display configuration confirmation dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep these display settings?'**
+  String get settingsDisplayConfirmationTitle;
+
+  /// Countdown shown before an unconfirmed display configuration is rolled back.
+  ///
+  /// In en, this message translates to:
+  /// **'The previous display settings will be restored automatically in {seconds} s.'**
+  String settingsDisplayConfirmationMessage(int seconds);
+
+  /// Button that confirms a newly applied display configuration.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep changes'**
+  String get settingsDisplayKeepChanges;
+
+  /// Button that immediately restores the previous display configuration.
+  ///
+  /// In en, this message translates to:
+  /// **'Revert now'**
+  String get settingsDisplayRevertNow;
+
+  /// Accessibility label for the draggable monitor arrangement.
+  ///
+  /// In en, this message translates to:
+  /// **'Monitor arrangement editor'**
+  String get settingsDisplayArrangementSemantics;
+
+  /// Instruction shown above the pannable monitor arrangement canvas.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag empty space to move the canvas. Use the mouse wheel to zoom.'**
+  String get settingsDisplayCanvasPanHint;
+
+  /// Accessibility label for the draggable background of the monitor arrangement.
+  ///
+  /// In en, this message translates to:
+  /// **'Pannable monitor canvas'**
+  String get settingsDisplayCanvasPanSemantics;
+
+  /// Heading for output modes, scale, rotation, and arrangement.
+  ///
+  /// In en, this message translates to:
+  /// **'Monitor configuration'**
+  String get settingsDisplayArrangementTitle;
+
   /// English UI text for settingsDisplayBrightnessDescription.
   ///
   /// In en, this message translates to:
@@ -2631,6 +2733,102 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Displays and video.'**
   String get settingsDisplaysTitle;
+
+  /// Logical position of one monitor in the desktop layout.
+  ///
+  /// In en, this message translates to:
+  /// **'Position {x}, {y}'**
+  String settingsDisplayPosition(int x, int y);
+
+  /// Label for the monitor refresh-rate selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh rate'**
+  String get settingsDisplayRefreshRate;
+
+  /// Label for the monitor resolution selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Resolution'**
+  String get settingsDisplayResolution;
+
+  /// Label for the monitor rotation selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Rotation'**
+  String get settingsDisplayRotation;
+
+  /// Label for an unrotated monitor.
+  ///
+  /// In en, this message translates to:
+  /// **'Landscape'**
+  String get settingsDisplayRotationNormal;
+
+  /// Label for a monitor rotated by 90 degrees.
+  ///
+  /// In en, this message translates to:
+  /// **'90° clockwise'**
+  String get settingsDisplayRotation90;
+
+  /// Label for a monitor rotated by 180 degrees.
+  ///
+  /// In en, this message translates to:
+  /// **'Upside down'**
+  String get settingsDisplayRotation180;
+
+  /// Label for a monitor rotated by 270 degrees.
+  ///
+  /// In en, this message translates to:
+  /// **'90° counterclockwise'**
+  String get settingsDisplayRotation270;
+
+  /// Label for the monitor scale selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Scale'**
+  String get settingsDisplayScale;
+
+  /// Tooltip for fitting the complete monitor layout in the canvas.
+  ///
+  /// In en, this message translates to:
+  /// **'Fit all monitors'**
+  String get settingsDisplayZoomFit;
+
+  /// Tooltip for increasing monitor canvas zoom.
+  ///
+  /// In en, this message translates to:
+  /// **'Zoom in'**
+  String get settingsDisplayZoomIn;
+
+  /// Accessibility label for the current monitor canvas zoom.
+  ///
+  /// In en, this message translates to:
+  /// **'Canvas zoom {percent}%'**
+  String settingsDisplayZoomLevel(int percent);
+
+  /// Tooltip for decreasing monitor canvas zoom.
+  ///
+  /// In en, this message translates to:
+  /// **'Zoom out'**
+  String get settingsDisplayZoomOut;
+
+  /// Loading notice on the monitor settings page.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading monitor configuration…'**
+  String get settingsLoadingDisplays;
+
+  /// Accessibility hint for a draggable monitor tile.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag to arrange, or use the arrow keys to move.'**
+  String get settingsMonitorDragHint;
+
+  /// Accessibility label for one monitor tile.
+  ///
+  /// In en, this message translates to:
+  /// **'Monitor {name}'**
+  String settingsMonitorSemantics(String name);
 
   /// English UI text for settingsEdgeDistance.
   ///
@@ -2865,6 +3063,492 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Enter at least one valid XKB layout.'**
   String get settingsKeyboardInvalidLayouts;
+
+  /// Eyebrow label for touchpad settings.
+  ///
+  /// In en, this message translates to:
+  /// **'INPUT'**
+  String get settingsTouchpadSection;
+
+  /// Description of the touchpad settings page.
+  ///
+  /// In en, this message translates to:
+  /// **'Use your touchpad across the desktop.'**
+  String get settingsTouchpadTitle;
+
+  /// Label for the touchpad tap-to-click toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap to click'**
+  String get settingsTouchpadTapToClick;
+
+  /// Description of the touchpad tap-to-click toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap the touchpad to press the primary mouse button.'**
+  String get settingsTouchpadTapToClickDescription;
+
+  /// Label for the touchpad natural scrolling toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Reverse two-finger scrolling'**
+  String get settingsTouchpadNaturalScroll;
+
+  /// Description of the touchpad natural scrolling toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Move content in the same direction as your fingers.'**
+  String get settingsTouchpadNaturalScrollDescription;
+
+  /// Eyebrow label for the configured shortcuts page.
+  ///
+  /// In en, this message translates to:
+  /// **'SHORTCUTS'**
+  String get settingsShortcutsSection;
+
+  /// Description of the configured shortcuts page.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose what Denial does when a shortcut is pressed.'**
+  String get settingsShortcutsTitle;
+
+  /// Number of shortcuts currently configured.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0 {No shortcuts} =1 {1 shortcut} other {{count} shortcuts}}'**
+  String settingsShortcutsConfigured(int count);
+
+  /// Button label for adding a shortcut.
+  ///
+  /// In en, this message translates to:
+  /// **'Add shortcut'**
+  String get settingsShortcutsAdd;
+
+  /// Loading message for the configured shortcut list.
+  ///
+  /// In en, this message translates to:
+  /// **'Reading shortcuts from the compositor…'**
+  String get settingsShortcutsLoading;
+
+  /// Message shown when configured shortcuts cannot be loaded.
+  ///
+  /// In en, this message translates to:
+  /// **'The compositor shortcut configuration is unavailable.'**
+  String get settingsShortcutsUnavailable;
+
+  /// Button label for retrying a shortcut configuration read.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get settingsShortcutsRetry;
+
+  /// Empty state message for the configured shortcut list.
+  ///
+  /// In en, this message translates to:
+  /// **'No shortcuts are configured. Add one to make an action easier to reach.'**
+  String get settingsShortcutsEmpty;
+
+  /// Accessibility summary for a configured shortcut row.
+  ///
+  /// In en, this message translates to:
+  /// **'{shortcut}, {action}'**
+  String settingsShortcutsRowSemantics(String shortcut, String action);
+
+  /// Tooltip for deleting a configured shortcut.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete {shortcut}'**
+  String settingsShortcutsDeleteTooltip(String shortcut);
+
+  /// Title of the shortcut editor when adding a binding.
+  ///
+  /// In en, this message translates to:
+  /// **'Add shortcut'**
+  String get settingsShortcutEditorAddTitle;
+
+  /// Title of the shortcut editor when editing a binding.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit shortcut'**
+  String get settingsShortcutEditorEditTitle;
+
+  /// Introductory text in the shortcut editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Write a shortcut, choose what it runs, and let the compositor check it before saving.'**
+  String get settingsShortcutEditorDescription;
+
+  /// Label for the shortcut expression field.
+  ///
+  /// In en, this message translates to:
+  /// **'Shortcut'**
+  String get settingsShortcutEditorShortcutLabel;
+
+  /// Example shown in an empty shortcut expression field.
+  ///
+  /// In en, this message translates to:
+  /// **'Super+K'**
+  String get settingsShortcutEditorShortcutHint;
+
+  /// Persistent examples of accepted shortcut expression formats.
+  ///
+  /// In en, this message translates to:
+  /// **'Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeUp'**
+  String get settingsShortcutEditorShortcutExample;
+
+  /// Button and catalog title for supported shortcut inputs.
+  ///
+  /// In en, this message translates to:
+  /// **'Supported inputs'**
+  String get settingsShortcutEditorSupportedInputs;
+
+  /// Label for choosing what a shortcut runs.
+  ///
+  /// In en, this message translates to:
+  /// **'Runs'**
+  String get settingsShortcutEditorTargetLabel;
+
+  /// Shortcut target option for a built-in Denial action.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial action'**
+  String get settingsShortcutEditorTargetAction;
+
+  /// Shortcut target option for directly spawning a program.
+  ///
+  /// In en, this message translates to:
+  /// **'Program'**
+  String get settingsShortcutEditorTargetProgram;
+
+  /// Shortcut target option for a command run through sh.
+  ///
+  /// In en, this message translates to:
+  /// **'Shell command'**
+  String get settingsShortcutEditorTargetShell;
+
+  /// Explanation of direct Niri-style program execution.
+  ///
+  /// In en, this message translates to:
+  /// **'Run a program directly, without a shell. Every argument is passed exactly as written.'**
+  String get settingsShortcutEditorProgramDescription;
+
+  /// Label for the directly executed program.
+  ///
+  /// In en, this message translates to:
+  /// **'Program'**
+  String get settingsShortcutEditorProgramLabel;
+
+  /// Example executable in the direct program field.
+  ///
+  /// In en, this message translates to:
+  /// **'foot'**
+  String get settingsShortcutEditorProgramHint;
+
+  /// Label above a direct program's argument list.
+  ///
+  /// In en, this message translates to:
+  /// **'Arguments'**
+  String get settingsShortcutEditorArgumentsLabel;
+
+  /// Button for appending one direct program argument.
+  ///
+  /// In en, this message translates to:
+  /// **'Add argument'**
+  String get settingsShortcutEditorAddArgument;
+
+  /// Empty state for a direct program's argument list.
+  ///
+  /// In en, this message translates to:
+  /// **'No arguments'**
+  String get settingsShortcutEditorNoArguments;
+
+  /// Label for one direct program argument.
+  ///
+  /// In en, this message translates to:
+  /// **'Argument {index}'**
+  String settingsShortcutEditorArgumentLabel(int index);
+
+  /// Example direct program argument.
+  ///
+  /// In en, this message translates to:
+  /// **'--option'**
+  String get settingsShortcutEditorArgumentHint;
+
+  /// Tooltip for removing one direct program argument.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove argument {index}'**
+  String settingsShortcutEditorRemoveArgument(int index);
+
+  /// Explanation of Niri-style shell command execution.
+  ///
+  /// In en, this message translates to:
+  /// **'Run one command through sh -c. Shell variables, pipelines, redirects, and command chaining are supported.'**
+  String get settingsShortcutEditorShellDescription;
+
+  /// Label for the shell command field.
+  ///
+  /// In en, this message translates to:
+  /// **'Shell command'**
+  String get settingsShortcutEditorShellCommandLabel;
+
+  /// Example shell command.
+  ///
+  /// In en, this message translates to:
+  /// **'grim -g \"\$(slurp)\" ~/Pictures/capture.png'**
+  String get settingsShortcutEditorShellCommandHint;
+
+  /// Title of the shortcut action catalog.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose an action'**
+  String get settingsShortcutEditorChooseAction;
+
+  /// Status shown while Rust validates a shortcut draft.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking with the compositor…'**
+  String get settingsShortcutEditorValidating;
+
+  /// Status shown for a valid canonical shortcut.
+  ///
+  /// In en, this message translates to:
+  /// **'Recognized as {shortcut}'**
+  String settingsShortcutEditorValid(String shortcut);
+
+  /// Conflict reported by the native shortcut validator.
+  ///
+  /// In en, this message translates to:
+  /// **'{shortcut} is already assigned to {action}.'**
+  String settingsShortcutEditorConflict(String shortcut, String action);
+
+  /// Hint for shortcut editor catalog searches.
+  ///
+  /// In en, this message translates to:
+  /// **'Search'**
+  String get settingsShortcutEditorSearch;
+
+  /// Empty result message for shortcut editor catalogs.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching entries.'**
+  String get settingsShortcutEditorNoResults;
+
+  /// Tooltip for returning from a shortcut catalog.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to shortcut editor'**
+  String get settingsShortcutEditorBack;
+
+  /// Button label for closing the supported input catalog.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get settingsShortcutEditorDone;
+
+  /// Button label for closing the shortcut editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get settingsShortcutEditorCancel;
+
+  /// Button label for saving a shortcut.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get settingsShortcutEditorSave;
+
+  /// Button label while a shortcut mutation is running.
+  ///
+  /// In en, this message translates to:
+  /// **'Saving…'**
+  String get settingsShortcutEditorSaving;
+
+  /// Button label for deleting the shortcut being edited.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get settingsShortcutEditorDelete;
+
+  /// Friendly display name for the three-finger swipe-up gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Three-finger swipe up'**
+  String get settingsShortcutGestureThreeFingerSwipeUp;
+
+  /// Supported shortcut input category.
+  ///
+  /// In en, this message translates to:
+  /// **'Modifier'**
+  String get settingsShortcutInputCategoryModifier;
+
+  /// Supported shortcut input category.
+  ///
+  /// In en, this message translates to:
+  /// **'Navigation'**
+  String get settingsShortcutInputCategoryNavigation;
+
+  /// Supported shortcut input category.
+  ///
+  /// In en, this message translates to:
+  /// **'Editing'**
+  String get settingsShortcutInputCategoryEditing;
+
+  /// Supported shortcut input category.
+  ///
+  /// In en, this message translates to:
+  /// **'Punctuation'**
+  String get settingsShortcutInputCategoryPunctuation;
+
+  /// Supported shortcut input category.
+  ///
+  /// In en, this message translates to:
+  /// **'Function'**
+  String get settingsShortcutInputCategoryFunction;
+
+  /// Supported shortcut input category.
+  ///
+  /// In en, this message translates to:
+  /// **'Media'**
+  String get settingsShortcutInputCategoryMedia;
+
+  /// Supported shortcut input category.
+  ///
+  /// In en, this message translates to:
+  /// **'Hardware'**
+  String get settingsShortcutInputCategoryHardware;
+
+  /// Supported shortcut input category.
+  ///
+  /// In en, this message translates to:
+  /// **'Special'**
+  String get settingsShortcutInputCategorySpecial;
+
+  /// Supported shortcut input category.
+  ///
+  /// In en, this message translates to:
+  /// **'Gesture'**
+  String get settingsShortcutInputCategoryGesture;
+
+  /// Display name for the shutdown shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Shut down'**
+  String get settingsShortcutActionShutdown;
+
+  /// Display name for the open applications shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Open applications'**
+  String get settingsShortcutActionOpenApplications;
+
+  /// Display name for the open overview shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Open overview'**
+  String get settingsShortcutActionOpenOverview;
+
+  /// Display name for the vertical maximize shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Maximize vertically'**
+  String get settingsShortcutActionToggleVerticalMaximize;
+
+  /// Display name for the window switcher shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch windows'**
+  String get settingsShortcutActionWindowSwitcher;
+
+  /// Display name for the clipboard shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Open clipboard'**
+  String get settingsShortcutActionOpenClipboard;
+
+  /// Display name for the region capture shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Capture region'**
+  String get settingsShortcutActionCaptureRegion;
+
+  /// Display name for the close window shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Close window'**
+  String get settingsShortcutActionCloseWindow;
+
+  /// Display name for the minimize window shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Minimize window'**
+  String get settingsShortcutActionMinimizeWindow;
+
+  /// Display name for the toggle maximize shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Maximize or restore'**
+  String get settingsShortcutActionToggleMaximize;
+
+  /// Display name for the toggle fullscreen shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter or leave fullscreen'**
+  String get settingsShortcutActionToggleFullscreen;
+
+  /// Display name for the release pointer shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Release pointer'**
+  String get settingsShortcutActionReleasePointer;
+
+  /// Display name for the lock screen shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock screen'**
+  String get settingsShortcutActionLockScreen;
+
+  /// Display name for the volume up shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Increase volume'**
+  String get settingsShortcutActionVolumeUp;
+
+  /// Display name for the volume down shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Decrease volume'**
+  String get settingsShortcutActionVolumeDown;
+
+  /// Display name for the volume mute shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Mute or unmute'**
+  String get settingsShortcutActionVolumeMute;
+
+  /// Display name for the brightness up shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Increase brightness'**
+  String get settingsShortcutActionBrightnessUp;
+
+  /// Display name for the brightness down shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Decrease brightness'**
+  String get settingsShortcutActionBrightnessDown;
+
+  /// Display name for the next keyboard layout shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Next keyboard layout'**
+  String get settingsShortcutActionNextKeyboardLayout;
+
+  /// Display name for the previous keyboard layout shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous keyboard layout'**
+  String get settingsShortcutActionPreviousKeyboardLayout;
 
   /// English UI text for settingsLayoutDescription.
   ///
@@ -3297,6 +3981,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Keyboard'**
   String get settingsNavigationKeyboard;
+
+  /// Settings navigation label for touchpad information.
+  ///
+  /// In en, this message translates to:
+  /// **'Touchpad'**
+  String get settingsNavigationTouchpad;
+
+  /// Settings navigation label for configured shortcuts.
+  ///
+  /// In en, this message translates to:
+  /// **'Shortcuts'**
+  String get settingsNavigationShortcuts;
 
   /// English UI text for settingsNavigationLockScreen.
   ///

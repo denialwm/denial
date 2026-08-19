@@ -179,6 +179,69 @@ void main() {
     await pumpEventQueue();
   });
 
+  test(
+    'alignment supports per-monitor overrides and All resets them',
+    () async {
+      final temporary = await Directory.systemTemp.createTemp(
+        'denial-wallpaper-alignment-test-',
+      );
+      addTearDown(() => temporary.delete(recursive: true));
+      final harness = WallpaperControllerTestHarness(
+        sources: const <WallpaperProvider>[],
+        store: WallpaperStore(
+          RuntimePaths(environment: <String, String>{'HOME': temporary.path}),
+        ),
+      );
+      final controller = harness.controller;
+
+      controller.openSelector(targetPixelSize: const Size(5120, 1440));
+      controller.commitSpanAlignment(
+        const WallpaperSpanAlignment.precise(x: 0.25, y: -0.4),
+      );
+      controller.selectTarget(
+        target: const WallpaperTarget.output('DP-5'),
+        targetPixelSize: const Size(2560, 1440),
+      );
+
+      expect(
+        harness.state.assignment.alignmentForTarget(harness.state.target),
+        const WallpaperSpanAlignment(),
+      );
+
+      controller.commitSpanAlignment(
+        const WallpaperSpanAlignment.precise(x: -0.7, y: 0.6),
+      );
+
+      expect(
+        harness.state.assignment.spanAlignment,
+        const WallpaperSpanAlignment.precise(x: 0.25, y: -0.4),
+      );
+      expect(
+        harness.state.assignment.alignmentForOutput('DP-5'),
+        const WallpaperSpanAlignment.precise(x: -0.7, y: 0.6),
+      );
+      expect(
+        harness.state.assignment.alignmentForOutput('DP-4'),
+        const WallpaperSpanAlignment(),
+      );
+
+      controller.selectTarget(
+        target: const WallpaperTarget.all(),
+        targetPixelSize: const Size(5120, 1440),
+      );
+      controller.commitSpanAlignment(
+        const WallpaperSpanAlignment.precise(x: 0.1, y: 0.2),
+      );
+
+      expect(harness.state.assignment.outputAlignmentOverrides, isEmpty);
+      expect(
+        harness.state.assignment.spanAlignment,
+        const WallpaperSpanAlignment.precise(x: 0.1, y: 0.2),
+      );
+      await pumpEventQueue();
+    },
+  );
+
   test('wallpaper assignments persist and legacy values migrate', () async {
     final temporary = await Directory.systemTemp.createTemp(
       'denial-wallpaper-store-test-',
@@ -205,6 +268,9 @@ void main() {
       spanAlignment: const WallpaperSpanAlignment.precise(x: 0.37, y: -0.64),
       allDarkness: 0.3,
       outputOverrides: <String, WallpaperResource>{'DP-4': right},
+      outputAlignmentOverrides: const <String, WallpaperSpanAlignment>{
+        'DP-4': WallpaperSpanAlignment.precise(x: -0.45, y: 0.72),
+      },
       outputDarknessOverrides: const <String, double>{'DP-4': 0.65},
     );
     await store.write(assignment);

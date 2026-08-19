@@ -31,6 +31,20 @@ void main() {
     );
   });
 
+  test('accent foreground is automatically pure black or white', () {
+    const lightAccent = Color(0xffffd54f);
+    const redAccent = Color(0xffff0000);
+
+    expect(
+      ShellAccentPalette.from(lightAccent).onPrimary,
+      const Color(0xff000000),
+    );
+    expect(
+      ShellAccentPalette.from(redAccent).onPrimary,
+      const Color(0xffffffff),
+    );
+  });
+
   test('accent-owned surfaces cannot reference legacy accent colors', () {
     const guardedSourceFiles = <String>[
       'lib/src/desktop/desktop_shell.dart',

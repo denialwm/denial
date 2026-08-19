@@ -233,7 +233,11 @@ class _LauncherBridge extends DenialBridge {
   Rect? configuredGeometry;
 
   @override
-  void configureWindow(DenialWindow window, Rect contentRect) {
+  void configureWindow(
+    DenialWindow window,
+    Rect contentRect, {
+    bool exact = false,
+  }) {
     configuredWindow = window;
     configuredGeometry = contentRect;
   }

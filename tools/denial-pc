@@ -564,7 +564,9 @@ run_compositor() {
     export RUST_BACKTRACE=1
     export RUST_LOG="${DENIA_RUST_LOG:-deniald=info,smithay=warn}"
 
-    exec "$BINARY" \
+    command -v systemd-cat >/dev/null 2>&1 \
+        || die "systemd-cat is required to retain compositor diagnostics"
+    exec systemd-cat --identifier=deniald "$BINARY" \
         --device "$drm_device" \
         --output-config "$OUTPUT_CONFIG" \
         --wayland \
@@ -659,6 +661,7 @@ show_session_state() {
         printf 'missing  %-18s %s\n' "session entry" "$SESSION_FILE"
     elif grep -Fqx "X-Denial-Launcher=$SCRIPT_DIR/denial-pc" "$SESSION_FILE" \
         && grep -Fqx "DesktopNames=Denial" "$SESSION_FILE" \
+        && grep -Fqx "TryExec=/usr/bin/bash" "$SESSION_FILE" \
         && grep -Fqx \
             "Exec=$SCRIPT_DIR/denial-pc session" \
             "$SESSION_FILE"; then

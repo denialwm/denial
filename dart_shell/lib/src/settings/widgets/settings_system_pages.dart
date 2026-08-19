@@ -3,14 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/generated/app_localizations.dart';
 import '../../localization/denial_localizations.dart';
-import '../../models/display_layout.dart';
 import '../../services/audio_service.dart';
 import '../../services/bluetooth_service.dart';
 import '../../services/network_manager_service.dart';
 import '../../state/app_audio.dart';
 import '../../state/bluetooth.dart';
-import '../../state/display_brightness.dart';
-import '../../state/display_layout.dart';
 import '../../state/network_connectivity.dart';
 import '../../state/quick_settings.dart';
 import '../../theme/shell_theme.dart';
@@ -152,123 +149,6 @@ class _ApplicationAudioSlider extends StatelessWidget {
       valueLabel: context.l10n.settingsPercent((stream.level * 100).round()),
       onChanged: (value) => onChanged(stream.id, value),
       onChangeEnd: (value) => onChangeEnd(stream.id, value),
-    );
-  }
-}
-
-class SettingsDisplaysPage extends ConsumerWidget {
-  const SettingsDisplaysPage({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final l10n = context.l10n;
-    final layout = ref.watch(displayLayoutProvider);
-    final brightness = ref.watch(displayBrightnessProvider);
-    final brightnessController = ref.read(displayBrightnessProvider.notifier);
-    return SettingsPageLayout(
-      icon: Icons.monitor_rounded,
-      eyebrow: l10n.settingsDisplaysSection,
-      title: l10n.settingsDisplaysTitle,
-      onReset: brightnessController.reset,
-      children: [
-        SettingsCardGroup(
-          children: [
-            SettingsSection(
-              title: l10n.settingsDisplayBrightnessTitle,
-              child: layout == null || layout.outputs.isEmpty
-                  ? _SettingsNotice(
-                      icon: Icons.brightness_6_outlined,
-                      message: l10n.settingsDisplayInformationUnavailable,
-                    )
-                  : Column(
-                      children: [
-                        for (
-                          var index = 0;
-                          index < layout.outputs.length;
-                          index++
-                        ) ...[
-                          Builder(
-                            builder: (context) {
-                              final output = layout.outputs[index];
-                              final level =
-                                  brightness.levels[output.monitorId] ?? 0.72;
-                              return SettingsSlider(
-                                label: l10n.outputBrightnessSemantics(
-                                  output.name,
-                                ),
-                                value: level,
-                                minimum: 0.01,
-                                maximum: 1,
-                                divisions: 99,
-                                valueLabel: l10n.settingsPercent(
-                                  (level * 100).round(),
-                                ),
-                                enabled: !brightness.loading.contains(
-                                  output.monitorId,
-                                ),
-                                onChanged: (value) => brightnessController
-                                    .setLevel(output, value),
-                                onChangeEnd: (value) => brightnessController
-                                    .commitLevel(output, value),
-                              );
-                            },
-                          ),
-                          if (index != layout.outputs.length - 1)
-                            const Divider(
-                              height: 18,
-                              color: ShellColors.hairlineSoft,
-                            ),
-                        ],
-                      ],
-                    ),
-            ),
-            SettingsSection(
-              title: l10n.settingsConnectedDisplaysTitle,
-              child: layout == null || layout.outputs.isEmpty
-                  ? _SettingsNotice(
-                      icon: Icons.monitor_outlined,
-                      message: l10n.settingsDisplayInformationUnavailable,
-                    )
-                  : Column(
-                      children: [
-                        for (
-                          var index = 0;
-                          index < layout.outputs.length;
-                          index++
-                        ) ...[
-                          _DisplayRow(output: layout.outputs[index]),
-                          if (index != layout.outputs.length - 1)
-                            const Divider(
-                              height: 20,
-                              color: ShellColors.hairlineSoft,
-                            ),
-                        ],
-                      ],
-                    ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _DisplayRow extends StatelessWidget {
-  const _DisplayRow({required this.output});
-
-  final DisplayOutput output;
-
-  @override
-  Widget build(BuildContext context) {
-    return _StatusRow(
-      icon: Icons.desktop_windows_outlined,
-      title: output.name,
-      subtitle: context.l10n.settingsDisplayDetails(
-        output.pixelSize.width.round(),
-        output.pixelSize.height.round(),
-        output.refreshRate.toStringAsFixed(0),
-        output.scale.toStringAsFixed(2),
-      ),
     );
   }
 }

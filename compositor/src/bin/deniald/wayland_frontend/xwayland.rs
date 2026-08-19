@@ -118,6 +118,37 @@ fn x11_shell_geometry_locked(state: &RuntimeState, surface: &X11Surface) -> bool
         .is_some_and(|frontend| frontend.window_shell_fullscreen_locked(&window))
 }
 
+#[cfg(feature = "flutter")]
+fn reassert_exact_x11_geometry(state: &mut RuntimeState, surface: &X11Surface) -> bool {
+    let Some(window) = window_for_x11(state, surface) else {
+        return false;
+    };
+    let exact = state
+        .wayland
+        .as_ref()
+        .and_then(|frontend| frontend.exact_window_geometry(&window));
+    let Some(exact) = exact else {
+        return false;
+    };
+    if surface.is_fullscreen()
+        && let Err(error) = surface.set_fullscreen(false)
+    {
+        warn!(%error, window = surface.window_id(), "could not clear exact X11 fullscreen state");
+    }
+    if surface.is_maximized()
+        && let Err(error) = surface.set_maximized(false)
+    {
+        warn!(%error, window = surface.window_id(), "could not clear exact X11 maximized state");
+    }
+    state
+        .wayland
+        .as_mut()
+        .expect("missing Wayland frontend")
+        .set_window_geometry_target(&window, exact);
+    state.scene_sync.mark_dirty();
+    true
+}
+
 fn window_for_x11(state: &RuntimeState, surface: &X11Surface) -> Option<Window> {
     state
         .wayland
@@ -714,6 +745,10 @@ impl XwmHandler for RuntimeState {
 
     fn maximize_request(&mut self, _xwm: XwmId, window: X11Surface) {
         #[cfg(feature = "flutter")]
+        if reassert_exact_x11_geometry(self, &window) {
+            return;
+        }
+        #[cfg(feature = "flutter")]
         let shell_geometry_locked = x11_shell_geometry_locked(self, &window);
         let was_fullscreen = window.is_fullscreen();
         let was_maximized = window.is_maximized();
@@ -743,6 +778,10 @@ impl XwmHandler for RuntimeState {
 
     fn unmaximize_request(&mut self, _xwm: XwmId, window: X11Surface) {
         #[cfg(feature = "flutter")]
+        if reassert_exact_x11_geometry(self, &window) {
+            return;
+        }
+        #[cfg(feature = "flutter")]
         let shell_geometry_locked = x11_shell_geometry_locked(self, &window);
         if !window.is_maximized() {
             return;
@@ -763,6 +802,10 @@ impl XwmHandler for RuntimeState {
     }
 
     fn fullscreen_request(&mut self, _xwm: XwmId, window: X11Surface) {
+        #[cfg(feature = "flutter")]
+        if reassert_exact_x11_geometry(self, &window) {
+            return;
+        }
         #[cfg(feature = "flutter")]
         let shell_geometry_locked = x11_shell_geometry_locked(self, &window);
         let was_maximized = window.is_maximized();
@@ -792,6 +835,10 @@ impl XwmHandler for RuntimeState {
     }
 
     fn unfullscreen_request(&mut self, _xwm: XwmId, window: X11Surface) {
+        #[cfg(feature = "flutter")]
+        if reassert_exact_x11_geometry(self, &window) {
+            return;
+        }
         #[cfg(feature = "flutter")]
         let shell_geometry_locked = x11_shell_geometry_locked(self, &window);
         if !window.is_fullscreen() {

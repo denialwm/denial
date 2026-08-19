@@ -947,14 +947,22 @@ impl flatbuffers::SimpleToVerifyInSlice for KeyboardCommandKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SETTINGS_REQUEST_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SETTINGS_REQUEST_KIND: u8 = 3;
+pub const ENUM_MAX_SETTINGS_REQUEST_KIND: u8 = 11;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SETTINGS_REQUEST_KIND: [SettingsRequestKind; 4] = [
+pub const ENUM_VALUES_SETTINGS_REQUEST_KIND: [SettingsRequestKind; 12] = [
   SettingsRequestKind::ReadDocument,
   SettingsRequestKind::WriteDocument,
   SettingsRequestKind::ReadKeyboard,
   SettingsRequestKind::ConfigureKeyboard,
+  SettingsRequestKind::ReadShortcuts,
+  SettingsRequestKind::ValidateShortcut,
+  SettingsRequestKind::AddShortcut,
+  SettingsRequestKind::UpdateShortcut,
+  SettingsRequestKind::RemoveShortcut,
+  SettingsRequestKind::RestoreShortcuts,
+  SettingsRequestKind::ReadInputDevices,
+  SettingsRequestKind::ConfigureTouchpad,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -966,14 +974,30 @@ impl SettingsRequestKind {
   pub const WriteDocument: Self = Self(1);
   pub const ReadKeyboard: Self = Self(2);
   pub const ConfigureKeyboard: Self = Self(3);
+  pub const ReadShortcuts: Self = Self(4);
+  pub const ValidateShortcut: Self = Self(5);
+  pub const AddShortcut: Self = Self(6);
+  pub const UpdateShortcut: Self = Self(7);
+  pub const RemoveShortcut: Self = Self(8);
+  pub const RestoreShortcuts: Self = Self(9);
+  pub const ReadInputDevices: Self = Self(10);
+  pub const ConfigureTouchpad: Self = Self(11);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 3;
+  pub const ENUM_MAX: u8 = 11;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::ReadDocument,
     Self::WriteDocument,
     Self::ReadKeyboard,
     Self::ConfigureKeyboard,
+    Self::ReadShortcuts,
+    Self::ValidateShortcut,
+    Self::AddShortcut,
+    Self::UpdateShortcut,
+    Self::RemoveShortcut,
+    Self::RestoreShortcuts,
+    Self::ReadInputDevices,
+    Self::ConfigureTouchpad,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -982,6 +1006,14 @@ impl SettingsRequestKind {
       Self::WriteDocument => Some("WriteDocument"),
       Self::ReadKeyboard => Some("ReadKeyboard"),
       Self::ConfigureKeyboard => Some("ConfigureKeyboard"),
+      Self::ReadShortcuts => Some("ReadShortcuts"),
+      Self::ValidateShortcut => Some("ValidateShortcut"),
+      Self::AddShortcut => Some("AddShortcut"),
+      Self::UpdateShortcut => Some("UpdateShortcut"),
+      Self::RemoveShortcut => Some("RemoveShortcut"),
+      Self::RestoreShortcuts => Some("RestoreShortcuts"),
+      Self::ReadInputDevices => Some("ReadInputDevices"),
+      Self::ConfigureTouchpad => Some("ConfigureTouchpad"),
       _ => None,
     }
   }
@@ -1040,12 +1072,15 @@ impl flatbuffers::SimpleToVerifyInSlice for SettingsRequestKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SETTINGS_RESPONSE_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SETTINGS_RESPONSE_KIND: u8 = 1;
+pub const ENUM_MAX_SETTINGS_RESPONSE_KIND: u8 = 4;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SETTINGS_RESPONSE_KIND: [SettingsResponseKind; 2] = [
+pub const ENUM_VALUES_SETTINGS_RESPONSE_KIND: [SettingsResponseKind; 5] = [
   SettingsResponseKind::Document,
   SettingsResponseKind::Keyboard,
+  SettingsResponseKind::Shortcuts,
+  SettingsResponseKind::ShortcutValidation,
+  SettingsResponseKind::InputDevices,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1055,18 +1090,27 @@ pub struct SettingsResponseKind(pub u8);
 impl SettingsResponseKind {
   pub const Document: Self = Self(0);
   pub const Keyboard: Self = Self(1);
+  pub const Shortcuts: Self = Self(2);
+  pub const ShortcutValidation: Self = Self(3);
+  pub const InputDevices: Self = Self(4);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 1;
+  pub const ENUM_MAX: u8 = 4;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Document,
     Self::Keyboard,
+    Self::Shortcuts,
+    Self::ShortcutValidation,
+    Self::InputDevices,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
     match self {
       Self::Document => Some("Document"),
       Self::Keyboard => Some("Keyboard"),
+      Self::Shortcuts => Some("Shortcuts"),
+      Self::ShortcutValidation => Some("ShortcutValidation"),
+      Self::InputDevices => Some("InputDevices"),
       _ => None,
     }
   }
@@ -1122,6 +1166,450 @@ impl<'a> flatbuffers::Verifiable for SettingsResponseKind {
 }
 
 impl flatbuffers::SimpleToVerifyInSlice for SettingsResponseKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_SHORTCUT_ACTION_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_SHORTCUT_ACTION_KIND: u8 = 19;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 20] = [
+  ShortcutActionKind::Shutdown,
+  ShortcutActionKind::OpenApplications,
+  ShortcutActionKind::OpenOverview,
+  ShortcutActionKind::ToggleVerticalMaximize,
+  ShortcutActionKind::WindowSwitcher,
+  ShortcutActionKind::OpenClipboard,
+  ShortcutActionKind::CaptureRegion,
+  ShortcutActionKind::CloseWindow,
+  ShortcutActionKind::MinimizeWindow,
+  ShortcutActionKind::ToggleMaximize,
+  ShortcutActionKind::ToggleFullscreen,
+  ShortcutActionKind::ReleasePointer,
+  ShortcutActionKind::LockScreen,
+  ShortcutActionKind::VolumeUp,
+  ShortcutActionKind::VolumeDown,
+  ShortcutActionKind::VolumeMute,
+  ShortcutActionKind::BrightnessUp,
+  ShortcutActionKind::BrightnessDown,
+  ShortcutActionKind::NextKeyboardLayout,
+  ShortcutActionKind::PreviousKeyboardLayout,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct ShortcutActionKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl ShortcutActionKind {
+  pub const Shutdown: Self = Self(0);
+  pub const OpenApplications: Self = Self(1);
+  pub const OpenOverview: Self = Self(2);
+  pub const ToggleVerticalMaximize: Self = Self(3);
+  pub const WindowSwitcher: Self = Self(4);
+  pub const OpenClipboard: Self = Self(5);
+  pub const CaptureRegion: Self = Self(6);
+  pub const CloseWindow: Self = Self(7);
+  pub const MinimizeWindow: Self = Self(8);
+  pub const ToggleMaximize: Self = Self(9);
+  pub const ToggleFullscreen: Self = Self(10);
+  pub const ReleasePointer: Self = Self(11);
+  pub const LockScreen: Self = Self(12);
+  pub const VolumeUp: Self = Self(13);
+  pub const VolumeDown: Self = Self(14);
+  pub const VolumeMute: Self = Self(15);
+  pub const BrightnessUp: Self = Self(16);
+  pub const BrightnessDown: Self = Self(17);
+  pub const NextKeyboardLayout: Self = Self(18);
+  pub const PreviousKeyboardLayout: Self = Self(19);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 19;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Shutdown,
+    Self::OpenApplications,
+    Self::OpenOverview,
+    Self::ToggleVerticalMaximize,
+    Self::WindowSwitcher,
+    Self::OpenClipboard,
+    Self::CaptureRegion,
+    Self::CloseWindow,
+    Self::MinimizeWindow,
+    Self::ToggleMaximize,
+    Self::ToggleFullscreen,
+    Self::ReleasePointer,
+    Self::LockScreen,
+    Self::VolumeUp,
+    Self::VolumeDown,
+    Self::VolumeMute,
+    Self::BrightnessUp,
+    Self::BrightnessDown,
+    Self::NextKeyboardLayout,
+    Self::PreviousKeyboardLayout,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Shutdown => Some("Shutdown"),
+      Self::OpenApplications => Some("OpenApplications"),
+      Self::OpenOverview => Some("OpenOverview"),
+      Self::ToggleVerticalMaximize => Some("ToggleVerticalMaximize"),
+      Self::WindowSwitcher => Some("WindowSwitcher"),
+      Self::OpenClipboard => Some("OpenClipboard"),
+      Self::CaptureRegion => Some("CaptureRegion"),
+      Self::CloseWindow => Some("CloseWindow"),
+      Self::MinimizeWindow => Some("MinimizeWindow"),
+      Self::ToggleMaximize => Some("ToggleMaximize"),
+      Self::ToggleFullscreen => Some("ToggleFullscreen"),
+      Self::ReleasePointer => Some("ReleasePointer"),
+      Self::LockScreen => Some("LockScreen"),
+      Self::VolumeUp => Some("VolumeUp"),
+      Self::VolumeDown => Some("VolumeDown"),
+      Self::VolumeMute => Some("VolumeMute"),
+      Self::BrightnessUp => Some("BrightnessUp"),
+      Self::BrightnessDown => Some("BrightnessDown"),
+      Self::NextKeyboardLayout => Some("NextKeyboardLayout"),
+      Self::PreviousKeyboardLayout => Some("PreviousKeyboardLayout"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for ShortcutActionKind {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for ShortcutActionKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for ShortcutActionKind {
+    type Output = ShortcutActionKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { flatbuffers::emplace_scalar::<u8>(dst, self.0); }
+    }
+}
+
+impl flatbuffers::EndianScalar for ShortcutActionKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for ShortcutActionKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for ShortcutActionKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_SHORTCUT_INPUT_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_SHORTCUT_INPUT_KIND: u8 = 1;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_SHORTCUT_INPUT_KIND: [ShortcutInputKind; 2] = [
+  ShortcutInputKind::Key,
+  ShortcutInputKind::Gesture,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct ShortcutInputKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl ShortcutInputKind {
+  pub const Key: Self = Self(0);
+  pub const Gesture: Self = Self(1);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 1;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Key,
+    Self::Gesture,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Key => Some("Key"),
+      Self::Gesture => Some("Gesture"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for ShortcutInputKind {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for ShortcutInputKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for ShortcutInputKind {
+    type Output = ShortcutInputKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { flatbuffers::emplace_scalar::<u8>(dst, self.0); }
+    }
+}
+
+impl flatbuffers::EndianScalar for ShortcutInputKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for ShortcutInputKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for ShortcutInputKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_SHORTCUT_INPUT_CATEGORY: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_SHORTCUT_INPUT_CATEGORY: u8 = 8;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_SHORTCUT_INPUT_CATEGORY: [ShortcutInputCategory; 9] = [
+  ShortcutInputCategory::Modifier,
+  ShortcutInputCategory::Navigation,
+  ShortcutInputCategory::Editing,
+  ShortcutInputCategory::Punctuation,
+  ShortcutInputCategory::Function,
+  ShortcutInputCategory::Media,
+  ShortcutInputCategory::Hardware,
+  ShortcutInputCategory::Special,
+  ShortcutInputCategory::Gesture,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct ShortcutInputCategory(pub u8);
+#[allow(non_upper_case_globals)]
+impl ShortcutInputCategory {
+  pub const Modifier: Self = Self(0);
+  pub const Navigation: Self = Self(1);
+  pub const Editing: Self = Self(2);
+  pub const Punctuation: Self = Self(3);
+  pub const Function: Self = Self(4);
+  pub const Media: Self = Self(5);
+  pub const Hardware: Self = Self(6);
+  pub const Special: Self = Self(7);
+  pub const Gesture: Self = Self(8);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 8;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Modifier,
+    Self::Navigation,
+    Self::Editing,
+    Self::Punctuation,
+    Self::Function,
+    Self::Media,
+    Self::Hardware,
+    Self::Special,
+    Self::Gesture,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Modifier => Some("Modifier"),
+      Self::Navigation => Some("Navigation"),
+      Self::Editing => Some("Editing"),
+      Self::Punctuation => Some("Punctuation"),
+      Self::Function => Some("Function"),
+      Self::Media => Some("Media"),
+      Self::Hardware => Some("Hardware"),
+      Self::Special => Some("Special"),
+      Self::Gesture => Some("Gesture"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for ShortcutInputCategory {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for ShortcutInputCategory {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for ShortcutInputCategory {
+    type Output = ShortcutInputCategory;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { flatbuffers::emplace_scalar::<u8>(dst, self.0); }
+    }
+}
+
+impl flatbuffers::EndianScalar for ShortcutInputCategory {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for ShortcutInputCategory {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for ShortcutInputCategory {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_SHORTCUT_VALIDATION_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_SHORTCUT_VALIDATION_KIND: u8 = 2;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_SHORTCUT_VALIDATION_KIND: [ShortcutValidationKind; 3] = [
+  ShortcutValidationKind::Valid,
+  ShortcutValidationKind::Conflict,
+  ShortcutValidationKind::Invalid,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct ShortcutValidationKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl ShortcutValidationKind {
+  pub const Valid: Self = Self(0);
+  pub const Conflict: Self = Self(1);
+  pub const Invalid: Self = Self(2);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Valid,
+    Self::Conflict,
+    Self::Invalid,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Valid => Some("Valid"),
+      Self::Conflict => Some("Conflict"),
+      Self::Invalid => Some("Invalid"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for ShortcutValidationKind {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for ShortcutValidationKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for ShortcutValidationKind {
+    type Output = ShortcutValidationKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { flatbuffers::emplace_scalar::<u8>(dst, self.0); }
+    }
+}
+
+impl flatbuffers::EndianScalar for ShortcutValidationKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for ShortcutValidationKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for ShortcutValidationKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_DESKTOP_NOTIFICATION_EVENT_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
@@ -1487,12 +1975,107 @@ impl<'a> flatbuffers::Verifiable for SystemBarSide {
 
 impl flatbuffers::SimpleToVerifyInSlice for SystemBarSide {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MIN_PAYLOAD: u8 = 0;
+pub const ENUM_MIN_SHORTCUT_TARGET: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_PAYLOAD: u8 = 14;
+pub const ENUM_MAX_SHORTCUT_TARGET: u8 = 3;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_PAYLOAD: [Payload; 15] = [
+pub const ENUM_VALUES_SHORTCUT_TARGET: [ShortcutTarget; 4] = [
+  ShortcutTarget::NONE,
+  ShortcutTarget::ShortcutDenialActionTarget,
+  ShortcutTarget::ShortcutSpawnTarget,
+  ShortcutTarget::ShortcutSpawnShTarget,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct ShortcutTarget(pub u8);
+#[allow(non_upper_case_globals)]
+impl ShortcutTarget {
+  pub const NONE: Self = Self(0);
+  pub const ShortcutDenialActionTarget: Self = Self(1);
+  pub const ShortcutSpawnTarget: Self = Self(2);
+  pub const ShortcutSpawnShTarget: Self = Self(3);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 3;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::NONE,
+    Self::ShortcutDenialActionTarget,
+    Self::ShortcutSpawnTarget,
+    Self::ShortcutSpawnShTarget,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::NONE => Some("NONE"),
+      Self::ShortcutDenialActionTarget => Some("ShortcutDenialActionTarget"),
+      Self::ShortcutSpawnTarget => Some("ShortcutSpawnTarget"),
+      Self::ShortcutSpawnShTarget => Some("ShortcutSpawnShTarget"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for ShortcutTarget {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for ShortcutTarget {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for ShortcutTarget {
+    type Output = ShortcutTarget;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { flatbuffers::emplace_scalar::<u8>(dst, self.0); }
+    }
+}
+
+impl flatbuffers::EndianScalar for ShortcutTarget {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for ShortcutTarget {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for ShortcutTarget {}
+pub struct ShortcutTargetUnionTableOffset {}
+
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_PAYLOAD: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_PAYLOAD: u8 = 15;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_PAYLOAD: [Payload; 16] = [
   Payload::NONE,
   Payload::InputLayout,
   Payload::WindowSnapshot,
@@ -1508,6 +2091,7 @@ pub const ENUM_VALUES_PAYLOAD: [Payload; 15] = [
   Payload::DesktopNotificationCommand,
   Payload::SettingsRequest,
   Payload::SettingsResponse,
+  Payload::TextInputState,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1530,9 +2114,10 @@ impl Payload {
   pub const DesktopNotificationCommand: Self = Self(12);
   pub const SettingsRequest: Self = Self(13);
   pub const SettingsResponse: Self = Self(14);
+  pub const TextInputState: Self = Self(15);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 14;
+  pub const ENUM_MAX: u8 = 15;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::NONE,
     Self::InputLayout,
@@ -1549,6 +2134,7 @@ impl Payload {
     Self::DesktopNotificationCommand,
     Self::SettingsRequest,
     Self::SettingsResponse,
+    Self::TextInputState,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -1568,6 +2154,7 @@ impl Payload {
       Self::DesktopNotificationCommand => Some("DesktopNotificationCommand"),
       Self::SettingsRequest => Some("SettingsRequest"),
       Self::SettingsResponse => Some("SettingsResponse"),
+      Self::TextInputState => Some("TextInputState"),
       _ => None,
     }
   }
@@ -2348,6 +2935,7 @@ impl<'a> InputLayout<'a> {
   pub const VT_SHELL_REGIONS: flatbuffers::VOffsetT = 8;
   pub const VT_WINDOWS: flatbuffers::VOffsetT = 10;
   pub const VT_VISIBLE_SURFACE_IDS: flatbuffers::VOffsetT = 12;
+  pub const VT_SOFTWARE_KEYBOARD_REGIONS: flatbuffers::VOffsetT = 14;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -2360,6 +2948,7 @@ impl<'a> InputLayout<'a> {
   ) -> flatbuffers::WIPOffset<InputLayout<'bldr>> {
     let mut builder = InputLayoutBuilder::new(_fbb);
     builder.add_epoch(args.epoch);
+    if let Some(x) = args.software_keyboard_regions { builder.add_software_keyboard_regions(x); }
     if let Some(x) = args.visible_surface_ids { builder.add_visible_surface_ids(x); }
     if let Some(x) = args.windows { builder.add_windows(x); }
     if let Some(x) = args.shell_regions { builder.add_shell_regions(x); }
@@ -2403,6 +2992,13 @@ impl<'a> InputLayout<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u64>>>(InputLayout::VT_VISIBLE_SURFACE_IDS, None)}
   }
+  #[inline]
+  pub fn software_keyboard_regions(&self) -> Option<flatbuffers::Vector<'a, WireRect>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, WireRect>>>(InputLayout::VT_SOFTWARE_KEYBOARD_REGIONS, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for InputLayout<'_> {
@@ -2417,6 +3013,7 @@ impl flatbuffers::Verifiable for InputLayout<'_> {
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, WireRect>>>("shell_regions", Self::VT_SHELL_REGIONS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, InputWindowRegion>>>("windows", Self::VT_WINDOWS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u64>>>("visible_surface_ids", Self::VT_VISIBLE_SURFACE_IDS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, WireRect>>>("software_keyboard_regions", Self::VT_SOFTWARE_KEYBOARD_REGIONS, false)?
      .finish();
     Ok(())
   }
@@ -2427,6 +3024,7 @@ pub struct InputLayoutArgs<'a> {
     pub shell_regions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, WireRect>>>,
     pub windows: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, InputWindowRegion>>>,
     pub visible_surface_ids: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u64>>>,
+    pub software_keyboard_regions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, WireRect>>>,
 }
 impl<'a> Default for InputLayoutArgs<'a> {
   #[inline]
@@ -2437,6 +3035,7 @@ impl<'a> Default for InputLayoutArgs<'a> {
       shell_regions: None,
       windows: None,
       visible_surface_ids: None,
+      software_keyboard_regions: None,
     }
   }
 }
@@ -2467,6 +3066,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> InputLayoutBuilder<'a, 'b, A> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(InputLayout::VT_VISIBLE_SURFACE_IDS, visible_surface_ids);
   }
   #[inline]
+  pub fn add_software_keyboard_regions(&mut self, software_keyboard_regions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , WireRect>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(InputLayout::VT_SOFTWARE_KEYBOARD_REGIONS, software_keyboard_regions);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> InputLayoutBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     InputLayoutBuilder {
@@ -2489,6 +3092,7 @@ impl core::fmt::Debug for InputLayout<'_> {
       ds.field("shell_regions", &self.shell_regions());
       ds.field("windows", &self.windows());
       ds.field("visible_surface_ids", &self.visible_surface_ids());
+      ds.field("software_keyboard_regions", &self.software_keyboard_regions());
       ds.finish()
   }
 }
@@ -3638,6 +4242,7 @@ impl<'a> flatbuffers::Follow<'a> for WindowSnapshot<'a> {
 
 impl<'a> WindowSnapshot<'a> {
   pub const VT_WINDOWS: flatbuffers::VOffsetT = 4;
+  pub const VT_RESTORED_WINDOW_IDS: flatbuffers::VOffsetT = 6;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -3649,6 +4254,7 @@ impl<'a> WindowSnapshot<'a> {
     args: &'args WindowSnapshotArgs<'args>
   ) -> flatbuffers::WIPOffset<WindowSnapshot<'bldr>> {
     let mut builder = WindowSnapshotBuilder::new(_fbb);
+    if let Some(x) = args.restored_window_ids { builder.add_restored_window_ids(x); }
     if let Some(x) = args.windows { builder.add_windows(x); }
     builder.finish()
   }
@@ -3661,6 +4267,13 @@ impl<'a> WindowSnapshot<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Window>>>>(WindowSnapshot::VT_WINDOWS, None)}
   }
+  #[inline]
+  pub fn restored_window_ids(&self) -> Option<flatbuffers::Vector<'a, u64>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u64>>>(WindowSnapshot::VT_RESTORED_WINDOW_IDS, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for WindowSnapshot<'_> {
@@ -3671,18 +4284,21 @@ impl flatbuffers::Verifiable for WindowSnapshot<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Window>>>>("windows", Self::VT_WINDOWS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u64>>>("restored_window_ids", Self::VT_RESTORED_WINDOW_IDS, false)?
      .finish();
     Ok(())
   }
 }
 pub struct WindowSnapshotArgs<'a> {
     pub windows: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Window<'a>>>>>,
+    pub restored_window_ids: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u64>>>,
 }
 impl<'a> Default for WindowSnapshotArgs<'a> {
   #[inline]
   fn default() -> Self {
     WindowSnapshotArgs {
       windows: None,
+      restored_window_ids: None,
     }
   }
 }
@@ -3695,6 +4311,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WindowSnapshotBuilder<'a, 'b, A
   #[inline]
   pub fn add_windows(&mut self, windows: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Window<'b >>>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WindowSnapshot::VT_WINDOWS, windows);
+  }
+  #[inline]
+  pub fn add_restored_window_ids(&mut self, restored_window_ids: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u64>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WindowSnapshot::VT_RESTORED_WINDOW_IDS, restored_window_ids);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WindowSnapshotBuilder<'a, 'b, A> {
@@ -3715,6 +4335,7 @@ impl core::fmt::Debug for WindowSnapshot<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("WindowSnapshot");
       ds.field("windows", &self.windows());
+      ds.field("restored_window_ids", &self.restored_window_ids());
       ds.finish()
   }
 }
@@ -4224,6 +4845,7 @@ impl<'a> WindowRequest<'a> {
   pub const VT_TITLE: flatbuffers::VOffsetT = 12;
   pub const VT_SYSTEM_BAR_SIDE: flatbuffers::VOffsetT = 14;
   pub const VT_SYSTEM_BAR_MONITOR_IDS: flatbuffers::VOffsetT = 16;
+  pub const VT_FLAGS: flatbuffers::VOffsetT = 18;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -4236,6 +4858,7 @@ impl<'a> WindowRequest<'a> {
   ) -> flatbuffers::WIPOffset<WindowRequest<'bldr>> {
     let mut builder = WindowRequestBuilder::new(_fbb);
     builder.add_window_id(args.window_id);
+    builder.add_flags(args.flags);
     if let Some(x) = args.system_bar_monitor_ids { builder.add_system_bar_monitor_ids(x); }
     if let Some(x) = args.title { builder.add_title(x); }
     if let Some(x) = args.app_id { builder.add_app_id(x); }
@@ -4295,6 +4918,13 @@ impl<'a> WindowRequest<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, i64>>>(WindowRequest::VT_SYSTEM_BAR_MONITOR_IDS, None)}
   }
+  #[inline]
+  pub fn flags(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(WindowRequest::VT_FLAGS, Some(0)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for WindowRequest<'_> {
@@ -4311,6 +4941,7 @@ impl flatbuffers::Verifiable for WindowRequest<'_> {
      .visit_field::<flatbuffers::ForwardsUOffset<&str>>("title", Self::VT_TITLE, false)?
      .visit_field::<SystemBarSide>("system_bar_side", Self::VT_SYSTEM_BAR_SIDE, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, i64>>>("system_bar_monitor_ids", Self::VT_SYSTEM_BAR_MONITOR_IDS, false)?
+     .visit_field::<u32>("flags", Self::VT_FLAGS, false)?
      .finish();
     Ok(())
   }
@@ -4323,6 +4954,7 @@ pub struct WindowRequestArgs<'a> {
     pub title: Option<flatbuffers::WIPOffset<&'a str>>,
     pub system_bar_side: SystemBarSide,
     pub system_bar_monitor_ids: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, i64>>>,
+    pub flags: u32,
 }
 impl<'a> Default for WindowRequestArgs<'a> {
   #[inline]
@@ -4335,6 +4967,7 @@ impl<'a> Default for WindowRequestArgs<'a> {
       title: None,
       system_bar_side: SystemBarSide::Top,
       system_bar_monitor_ids: None,
+      flags: 0,
     }
   }
 }
@@ -4373,6 +5006,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WindowRequestBuilder<'a, 'b, A>
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WindowRequest::VT_SYSTEM_BAR_MONITOR_IDS, system_bar_monitor_ids);
   }
   #[inline]
+  pub fn add_flags(&mut self, flags: u32) {
+    self.fbb_.push_slot::<u32>(WindowRequest::VT_FLAGS, flags, 0);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WindowRequestBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     WindowRequestBuilder {
@@ -4397,6 +5034,7 @@ impl core::fmt::Debug for WindowRequest<'_> {
       ds.field("title", &self.title());
       ds.field("system_bar_side", &self.system_bar_side());
       ds.field("system_bar_monitor_ids", &self.system_bar_monitor_ids());
+      ds.field("flags", &self.flags());
       ds.finish()
   }
 }
@@ -5055,6 +5693,171 @@ impl core::fmt::Debug for CursorPosition<'_> {
       ds.finish()
   }
 }
+pub enum TextInputStateOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct TextInputState<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for TextInputState<'a> {
+  type Inner = TextInputState<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> TextInputState<'a> {
+  pub const VT_ACTIVE: flatbuffers::VOffsetT = 4;
+  pub const VT_INPUT_PANEL_VISIBLE: flatbuffers::VOffsetT = 6;
+  pub const VT_LEGACY: flatbuffers::VOffsetT = 8;
+  pub const VT_CONTENT_HINT: flatbuffers::VOffsetT = 10;
+  pub const VT_CONTENT_PURPOSE: flatbuffers::VOffsetT = 12;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    TextInputState { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args TextInputStateArgs
+  ) -> flatbuffers::WIPOffset<TextInputState<'bldr>> {
+    let mut builder = TextInputStateBuilder::new(_fbb);
+    builder.add_content_purpose(args.content_purpose);
+    builder.add_content_hint(args.content_hint);
+    builder.add_legacy(args.legacy);
+    builder.add_input_panel_visible(args.input_panel_visible);
+    builder.add_active(args.active);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn active(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(TextInputState::VT_ACTIVE, Some(false)).unwrap()}
+  }
+  #[inline]
+  pub fn input_panel_visible(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(TextInputState::VT_INPUT_PANEL_VISIBLE, Some(false)).unwrap()}
+  }
+  #[inline]
+  pub fn legacy(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(TextInputState::VT_LEGACY, Some(false)).unwrap()}
+  }
+  #[inline]
+  pub fn content_hint(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(TextInputState::VT_CONTENT_HINT, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn content_purpose(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(TextInputState::VT_CONTENT_PURPOSE, Some(0)).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for TextInputState<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<bool>("active", Self::VT_ACTIVE, false)?
+     .visit_field::<bool>("input_panel_visible", Self::VT_INPUT_PANEL_VISIBLE, false)?
+     .visit_field::<bool>("legacy", Self::VT_LEGACY, false)?
+     .visit_field::<u32>("content_hint", Self::VT_CONTENT_HINT, false)?
+     .visit_field::<u32>("content_purpose", Self::VT_CONTENT_PURPOSE, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct TextInputStateArgs {
+    pub active: bool,
+    pub input_panel_visible: bool,
+    pub legacy: bool,
+    pub content_hint: u32,
+    pub content_purpose: u32,
+}
+impl<'a> Default for TextInputStateArgs {
+  #[inline]
+  fn default() -> Self {
+    TextInputStateArgs {
+      active: false,
+      input_panel_visible: false,
+      legacy: false,
+      content_hint: 0,
+      content_purpose: 0,
+    }
+  }
+}
+
+pub struct TextInputStateBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> TextInputStateBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_active(&mut self, active: bool) {
+    self.fbb_.push_slot::<bool>(TextInputState::VT_ACTIVE, active, false);
+  }
+  #[inline]
+  pub fn add_input_panel_visible(&mut self, input_panel_visible: bool) {
+    self.fbb_.push_slot::<bool>(TextInputState::VT_INPUT_PANEL_VISIBLE, input_panel_visible, false);
+  }
+  #[inline]
+  pub fn add_legacy(&mut self, legacy: bool) {
+    self.fbb_.push_slot::<bool>(TextInputState::VT_LEGACY, legacy, false);
+  }
+  #[inline]
+  pub fn add_content_hint(&mut self, content_hint: u32) {
+    self.fbb_.push_slot::<u32>(TextInputState::VT_CONTENT_HINT, content_hint, 0);
+  }
+  #[inline]
+  pub fn add_content_purpose(&mut self, content_purpose: u32) {
+    self.fbb_.push_slot::<u32>(TextInputState::VT_CONTENT_PURPOSE, content_purpose, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> TextInputStateBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    TextInputStateBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<TextInputState<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for TextInputState<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("TextInputState");
+      ds.field("active", &self.active());
+      ds.field("input_panel_visible", &self.input_panel_visible());
+      ds.field("legacy", &self.legacy());
+      ds.field("content_hint", &self.content_hint());
+      ds.field("content_purpose", &self.content_purpose());
+      ds.finish()
+  }
+}
 pub enum KeyboardCommandOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -5499,6 +6302,1160 @@ impl core::fmt::Debug for KeyboardConfiguration<'_> {
       ds.finish()
   }
 }
+pub enum ShortcutDenialActionTargetOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ShortcutDenialActionTarget<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ShortcutDenialActionTarget<'a> {
+  type Inner = ShortcutDenialActionTarget<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ShortcutDenialActionTarget<'a> {
+  pub const VT_ACTION: flatbuffers::VOffsetT = 4;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    ShortcutDenialActionTarget { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ShortcutDenialActionTargetArgs
+  ) -> flatbuffers::WIPOffset<ShortcutDenialActionTarget<'bldr>> {
+    let mut builder = ShortcutDenialActionTargetBuilder::new(_fbb);
+    builder.add_action(args.action);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn action(&self) -> ShortcutActionKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<ShortcutActionKind>(ShortcutDenialActionTarget::VT_ACTION, Some(ShortcutActionKind::Shutdown)).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for ShortcutDenialActionTarget<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<ShortcutActionKind>("action", Self::VT_ACTION, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ShortcutDenialActionTargetArgs {
+    pub action: ShortcutActionKind,
+}
+impl<'a> Default for ShortcutDenialActionTargetArgs {
+  #[inline]
+  fn default() -> Self {
+    ShortcutDenialActionTargetArgs {
+      action: ShortcutActionKind::Shutdown,
+    }
+  }
+}
+
+pub struct ShortcutDenialActionTargetBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ShortcutDenialActionTargetBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_action(&mut self, action: ShortcutActionKind) {
+    self.fbb_.push_slot::<ShortcutActionKind>(ShortcutDenialActionTarget::VT_ACTION, action, ShortcutActionKind::Shutdown);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ShortcutDenialActionTargetBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ShortcutDenialActionTargetBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<ShortcutDenialActionTarget<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for ShortcutDenialActionTarget<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("ShortcutDenialActionTarget");
+      ds.field("action", &self.action());
+      ds.finish()
+  }
+}
+pub enum ShortcutSpawnTargetOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ShortcutSpawnTarget<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ShortcutSpawnTarget<'a> {
+  type Inner = ShortcutSpawnTarget<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ShortcutSpawnTarget<'a> {
+  pub const VT_COMMAND: flatbuffers::VOffsetT = 4;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    ShortcutSpawnTarget { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ShortcutSpawnTargetArgs<'args>
+  ) -> flatbuffers::WIPOffset<ShortcutSpawnTarget<'bldr>> {
+    let mut builder = ShortcutSpawnTargetBuilder::new(_fbb);
+    if let Some(x) = args.command { builder.add_command(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn command(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>>>(ShortcutSpawnTarget::VT_COMMAND, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for ShortcutSpawnTarget<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<&'_ str>>>>("command", Self::VT_COMMAND, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ShortcutSpawnTargetArgs<'a> {
+    pub command: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>>>,
+}
+impl<'a> Default for ShortcutSpawnTargetArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ShortcutSpawnTargetArgs {
+      command: None,
+    }
+  }
+}
+
+pub struct ShortcutSpawnTargetBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ShortcutSpawnTargetBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_command(&mut self, command: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<&'b  str>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ShortcutSpawnTarget::VT_COMMAND, command);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ShortcutSpawnTargetBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ShortcutSpawnTargetBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<ShortcutSpawnTarget<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for ShortcutSpawnTarget<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("ShortcutSpawnTarget");
+      ds.field("command", &self.command());
+      ds.finish()
+  }
+}
+pub enum ShortcutSpawnShTargetOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ShortcutSpawnShTarget<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ShortcutSpawnShTarget<'a> {
+  type Inner = ShortcutSpawnShTarget<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ShortcutSpawnShTarget<'a> {
+  pub const VT_COMMAND: flatbuffers::VOffsetT = 4;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    ShortcutSpawnShTarget { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ShortcutSpawnShTargetArgs<'args>
+  ) -> flatbuffers::WIPOffset<ShortcutSpawnShTarget<'bldr>> {
+    let mut builder = ShortcutSpawnShTargetBuilder::new(_fbb);
+    if let Some(x) = args.command { builder.add_command(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn command(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(ShortcutSpawnShTarget::VT_COMMAND, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for ShortcutSpawnShTarget<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("command", Self::VT_COMMAND, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ShortcutSpawnShTargetArgs<'a> {
+    pub command: Option<flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for ShortcutSpawnShTargetArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ShortcutSpawnShTargetArgs {
+      command: None,
+    }
+  }
+}
+
+pub struct ShortcutSpawnShTargetBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ShortcutSpawnShTargetBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_command(&mut self, command: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ShortcutSpawnShTarget::VT_COMMAND, command);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ShortcutSpawnShTargetBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ShortcutSpawnShTargetBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<ShortcutSpawnShTarget<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for ShortcutSpawnShTarget<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("ShortcutSpawnShTarget");
+      ds.field("command", &self.command());
+      ds.finish()
+  }
+}
+pub enum ShortcutBindingOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ShortcutBinding<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ShortcutBinding<'a> {
+  type Inner = ShortcutBinding<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ShortcutBinding<'a> {
+  pub const VT_SHORTCUT: flatbuffers::VOffsetT = 4;
+  pub const VT_TARGET_TYPE: flatbuffers::VOffsetT = 6;
+  pub const VT_TARGET: flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    ShortcutBinding { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ShortcutBindingArgs<'args>
+  ) -> flatbuffers::WIPOffset<ShortcutBinding<'bldr>> {
+    let mut builder = ShortcutBindingBuilder::new(_fbb);
+    if let Some(x) = args.target { builder.add_target(x); }
+    if let Some(x) = args.shortcut { builder.add_shortcut(x); }
+    builder.add_target_type(args.target_type);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn shortcut(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(ShortcutBinding::VT_SHORTCUT, None)}
+  }
+  #[inline]
+  pub fn target_type(&self) -> ShortcutTarget {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<ShortcutTarget>(ShortcutBinding::VT_TARGET_TYPE, Some(ShortcutTarget::NONE)).unwrap()}
+  }
+  #[inline]
+  pub fn target(&self) -> Option<flatbuffers::Table<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Table<'a>>>(ShortcutBinding::VT_TARGET, None)}
+  }
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn target_as_shortcut_denial_action_target(&self) -> Option<ShortcutDenialActionTarget<'a>> {
+    if self.target_type() == ShortcutTarget::ShortcutDenialActionTarget {
+      self.target().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { ShortcutDenialActionTarget::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn target_as_shortcut_spawn_target(&self) -> Option<ShortcutSpawnTarget<'a>> {
+    if self.target_type() == ShortcutTarget::ShortcutSpawnTarget {
+      self.target().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { ShortcutSpawnTarget::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn target_as_shortcut_spawn_sh_target(&self) -> Option<ShortcutSpawnShTarget<'a>> {
+    if self.target_type() == ShortcutTarget::ShortcutSpawnShTarget {
+      self.target().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { ShortcutSpawnShTarget::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
+}
+
+impl flatbuffers::Verifiable for ShortcutBinding<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("shortcut", Self::VT_SHORTCUT, false)?
+     .visit_union::<ShortcutTarget, _>("target_type", Self::VT_TARGET_TYPE, "target", Self::VT_TARGET, false, |key, v, pos| {
+        match key {
+          ShortcutTarget::ShortcutDenialActionTarget => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ShortcutDenialActionTarget>>("ShortcutTarget::ShortcutDenialActionTarget", pos),
+          ShortcutTarget::ShortcutSpawnTarget => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ShortcutSpawnTarget>>("ShortcutTarget::ShortcutSpawnTarget", pos),
+          ShortcutTarget::ShortcutSpawnShTarget => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ShortcutSpawnShTarget>>("ShortcutTarget::ShortcutSpawnShTarget", pos),
+          _ => Ok(()),
+        }
+     })?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ShortcutBindingArgs<'a> {
+    pub shortcut: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub target_type: ShortcutTarget,
+    pub target: Option<flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>>,
+}
+impl<'a> Default for ShortcutBindingArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ShortcutBindingArgs {
+      shortcut: None,
+      target_type: ShortcutTarget::NONE,
+      target: None,
+    }
+  }
+}
+
+pub struct ShortcutBindingBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ShortcutBindingBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_shortcut(&mut self, shortcut: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ShortcutBinding::VT_SHORTCUT, shortcut);
+  }
+  #[inline]
+  pub fn add_target_type(&mut self, target_type: ShortcutTarget) {
+    self.fbb_.push_slot::<ShortcutTarget>(ShortcutBinding::VT_TARGET_TYPE, target_type, ShortcutTarget::NONE);
+  }
+  #[inline]
+  pub fn add_target(&mut self, target: flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ShortcutBinding::VT_TARGET, target);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ShortcutBindingBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ShortcutBindingBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<ShortcutBinding<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for ShortcutBinding<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("ShortcutBinding");
+      ds.field("shortcut", &self.shortcut());
+      ds.field("target_type", &self.target_type());
+      match self.target_type() {
+        ShortcutTarget::ShortcutDenialActionTarget => {
+          if let Some(x) = self.target_as_shortcut_denial_action_target() {
+            ds.field("target", &x)
+          } else {
+            ds.field("target", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        ShortcutTarget::ShortcutSpawnTarget => {
+          if let Some(x) = self.target_as_shortcut_spawn_target() {
+            ds.field("target", &x)
+          } else {
+            ds.field("target", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        ShortcutTarget::ShortcutSpawnShTarget => {
+          if let Some(x) = self.target_as_shortcut_spawn_sh_target() {
+            ds.field("target", &x)
+          } else {
+            ds.field("target", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        _ => {
+          let x: Option<()> = None;
+          ds.field("target", &x)
+        },
+      };
+      ds.finish()
+  }
+}
+pub enum ShortcutInputOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ShortcutInput<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ShortcutInput<'a> {
+  type Inner = ShortcutInput<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ShortcutInput<'a> {
+  pub const VT_CANONICAL: flatbuffers::VOffsetT = 4;
+  pub const VT_KIND: flatbuffers::VOffsetT = 6;
+  pub const VT_CATEGORY: flatbuffers::VOffsetT = 8;
+  pub const VT_ALIASES: flatbuffers::VOffsetT = 10;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    ShortcutInput { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ShortcutInputArgs<'args>
+  ) -> flatbuffers::WIPOffset<ShortcutInput<'bldr>> {
+    let mut builder = ShortcutInputBuilder::new(_fbb);
+    if let Some(x) = args.aliases { builder.add_aliases(x); }
+    if let Some(x) = args.canonical { builder.add_canonical(x); }
+    builder.add_category(args.category);
+    builder.add_kind(args.kind);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn canonical(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(ShortcutInput::VT_CANONICAL, None)}
+  }
+  #[inline]
+  pub fn kind(&self) -> ShortcutInputKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<ShortcutInputKind>(ShortcutInput::VT_KIND, Some(ShortcutInputKind::Key)).unwrap()}
+  }
+  #[inline]
+  pub fn category(&self) -> ShortcutInputCategory {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<ShortcutInputCategory>(ShortcutInput::VT_CATEGORY, Some(ShortcutInputCategory::Editing)).unwrap()}
+  }
+  #[inline]
+  pub fn aliases(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>>>(ShortcutInput::VT_ALIASES, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for ShortcutInput<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("canonical", Self::VT_CANONICAL, false)?
+     .visit_field::<ShortcutInputKind>("kind", Self::VT_KIND, false)?
+     .visit_field::<ShortcutInputCategory>("category", Self::VT_CATEGORY, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<&'_ str>>>>("aliases", Self::VT_ALIASES, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ShortcutInputArgs<'a> {
+    pub canonical: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub kind: ShortcutInputKind,
+    pub category: ShortcutInputCategory,
+    pub aliases: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>>>,
+}
+impl<'a> Default for ShortcutInputArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ShortcutInputArgs {
+      canonical: None,
+      kind: ShortcutInputKind::Key,
+      category: ShortcutInputCategory::Editing,
+      aliases: None,
+    }
+  }
+}
+
+pub struct ShortcutInputBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ShortcutInputBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_canonical(&mut self, canonical: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ShortcutInput::VT_CANONICAL, canonical);
+  }
+  #[inline]
+  pub fn add_kind(&mut self, kind: ShortcutInputKind) {
+    self.fbb_.push_slot::<ShortcutInputKind>(ShortcutInput::VT_KIND, kind, ShortcutInputKind::Key);
+  }
+  #[inline]
+  pub fn add_category(&mut self, category: ShortcutInputCategory) {
+    self.fbb_.push_slot::<ShortcutInputCategory>(ShortcutInput::VT_CATEGORY, category, ShortcutInputCategory::Editing);
+  }
+  #[inline]
+  pub fn add_aliases(&mut self, aliases: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<&'b  str>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ShortcutInput::VT_ALIASES, aliases);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ShortcutInputBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ShortcutInputBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<ShortcutInput<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for ShortcutInput<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("ShortcutInput");
+      ds.field("canonical", &self.canonical());
+      ds.field("kind", &self.kind());
+      ds.field("category", &self.category());
+      ds.field("aliases", &self.aliases());
+      ds.finish()
+  }
+}
+pub enum ShortcutConfigurationOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ShortcutConfiguration<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ShortcutConfiguration<'a> {
+  type Inner = ShortcutConfiguration<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ShortcutConfiguration<'a> {
+  pub const VT_SHORTCUTS: flatbuffers::VOffsetT = 4;
+  pub const VT_SUPPORTED_ACTIONS: flatbuffers::VOffsetT = 6;
+  pub const VT_SUPPORTED_INPUTS: flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    ShortcutConfiguration { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ShortcutConfigurationArgs<'args>
+  ) -> flatbuffers::WIPOffset<ShortcutConfiguration<'bldr>> {
+    let mut builder = ShortcutConfigurationBuilder::new(_fbb);
+    if let Some(x) = args.supported_inputs { builder.add_supported_inputs(x); }
+    if let Some(x) = args.supported_actions { builder.add_supported_actions(x); }
+    if let Some(x) = args.shortcuts { builder.add_shortcuts(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn shortcuts(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ShortcutBinding<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ShortcutBinding>>>>(ShortcutConfiguration::VT_SHORTCUTS, None)}
+  }
+  #[inline]
+  pub fn supported_actions(&self) -> Option<flatbuffers::Vector<'a, ShortcutActionKind>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, ShortcutActionKind>>>(ShortcutConfiguration::VT_SUPPORTED_ACTIONS, None)}
+  }
+  #[inline]
+  pub fn supported_inputs(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ShortcutInput<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ShortcutInput>>>>(ShortcutConfiguration::VT_SUPPORTED_INPUTS, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for ShortcutConfiguration<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<ShortcutBinding>>>>("shortcuts", Self::VT_SHORTCUTS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, ShortcutActionKind>>>("supported_actions", Self::VT_SUPPORTED_ACTIONS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<ShortcutInput>>>>("supported_inputs", Self::VT_SUPPORTED_INPUTS, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ShortcutConfigurationArgs<'a> {
+    pub shortcuts: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ShortcutBinding<'a>>>>>,
+    pub supported_actions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, ShortcutActionKind>>>,
+    pub supported_inputs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<ShortcutInput<'a>>>>>,
+}
+impl<'a> Default for ShortcutConfigurationArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ShortcutConfigurationArgs {
+      shortcuts: None,
+      supported_actions: None,
+      supported_inputs: None,
+    }
+  }
+}
+
+pub struct ShortcutConfigurationBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ShortcutConfigurationBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_shortcuts(&mut self, shortcuts: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<ShortcutBinding<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ShortcutConfiguration::VT_SHORTCUTS, shortcuts);
+  }
+  #[inline]
+  pub fn add_supported_actions(&mut self, supported_actions: flatbuffers::WIPOffset<flatbuffers::Vector<'b , ShortcutActionKind>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ShortcutConfiguration::VT_SUPPORTED_ACTIONS, supported_actions);
+  }
+  #[inline]
+  pub fn add_supported_inputs(&mut self, supported_inputs: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<ShortcutInput<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ShortcutConfiguration::VT_SUPPORTED_INPUTS, supported_inputs);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ShortcutConfigurationBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ShortcutConfigurationBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<ShortcutConfiguration<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for ShortcutConfiguration<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("ShortcutConfiguration");
+      ds.field("shortcuts", &self.shortcuts());
+      ds.field("supported_actions", &self.supported_actions());
+      ds.field("supported_inputs", &self.supported_inputs());
+      ds.finish()
+  }
+}
+pub enum ShortcutValidationOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ShortcutValidation<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ShortcutValidation<'a> {
+  type Inner = ShortcutValidation<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ShortcutValidation<'a> {
+  pub const VT_KIND: flatbuffers::VOffsetT = 4;
+  pub const VT_CANONICAL: flatbuffers::VOffsetT = 6;
+  pub const VT_CONFLICT: flatbuffers::VOffsetT = 8;
+  pub const VT_ERROR: flatbuffers::VOffsetT = 10;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    ShortcutValidation { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ShortcutValidationArgs<'args>
+  ) -> flatbuffers::WIPOffset<ShortcutValidation<'bldr>> {
+    let mut builder = ShortcutValidationBuilder::new(_fbb);
+    if let Some(x) = args.error { builder.add_error(x); }
+    if let Some(x) = args.conflict { builder.add_conflict(x); }
+    if let Some(x) = args.canonical { builder.add_canonical(x); }
+    builder.add_kind(args.kind);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn kind(&self) -> ShortcutValidationKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<ShortcutValidationKind>(ShortcutValidation::VT_KIND, Some(ShortcutValidationKind::Valid)).unwrap()}
+  }
+  #[inline]
+  pub fn canonical(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(ShortcutValidation::VT_CANONICAL, None)}
+  }
+  #[inline]
+  pub fn conflict(&self) -> Option<ShortcutBinding<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<ShortcutBinding>>(ShortcutValidation::VT_CONFLICT, None)}
+  }
+  #[inline]
+  pub fn error(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(ShortcutValidation::VT_ERROR, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for ShortcutValidation<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<ShortcutValidationKind>("kind", Self::VT_KIND, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("canonical", Self::VT_CANONICAL, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<ShortcutBinding>>("conflict", Self::VT_CONFLICT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("error", Self::VT_ERROR, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ShortcutValidationArgs<'a> {
+    pub kind: ShortcutValidationKind,
+    pub canonical: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub conflict: Option<flatbuffers::WIPOffset<ShortcutBinding<'a>>>,
+    pub error: Option<flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for ShortcutValidationArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    ShortcutValidationArgs {
+      kind: ShortcutValidationKind::Valid,
+      canonical: None,
+      conflict: None,
+      error: None,
+    }
+  }
+}
+
+pub struct ShortcutValidationBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ShortcutValidationBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_kind(&mut self, kind: ShortcutValidationKind) {
+    self.fbb_.push_slot::<ShortcutValidationKind>(ShortcutValidation::VT_KIND, kind, ShortcutValidationKind::Valid);
+  }
+  #[inline]
+  pub fn add_canonical(&mut self, canonical: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ShortcutValidation::VT_CANONICAL, canonical);
+  }
+  #[inline]
+  pub fn add_conflict(&mut self, conflict: flatbuffers::WIPOffset<ShortcutBinding<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<ShortcutBinding>>(ShortcutValidation::VT_CONFLICT, conflict);
+  }
+  #[inline]
+  pub fn add_error(&mut self, error: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ShortcutValidation::VT_ERROR, error);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ShortcutValidationBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ShortcutValidationBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<ShortcutValidation<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for ShortcutValidation<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("ShortcutValidation");
+      ds.field("kind", &self.kind());
+      ds.field("canonical", &self.canonical());
+      ds.field("conflict", &self.conflict());
+      ds.field("error", &self.error());
+      ds.finish()
+  }
+}
+pub enum InputDeviceCapabilitiesOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct InputDeviceCapabilities<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for InputDeviceCapabilities<'a> {
+  type Inner = InputDeviceCapabilities<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> InputDeviceCapabilities<'a> {
+  pub const VT_HAS_TOUCHPAD: flatbuffers::VOffsetT = 4;
+  pub const VT_TOUCHPAD: flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    InputDeviceCapabilities { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args InputDeviceCapabilitiesArgs<'args>
+  ) -> flatbuffers::WIPOffset<InputDeviceCapabilities<'bldr>> {
+    let mut builder = InputDeviceCapabilitiesBuilder::new(_fbb);
+    if let Some(x) = args.touchpad { builder.add_touchpad(x); }
+    builder.add_has_touchpad(args.has_touchpad);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn has_touchpad(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(InputDeviceCapabilities::VT_HAS_TOUCHPAD, Some(false)).unwrap()}
+  }
+  #[inline]
+  pub fn touchpad(&self) -> Option<TouchpadConfiguration<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<TouchpadConfiguration>>(InputDeviceCapabilities::VT_TOUCHPAD, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for InputDeviceCapabilities<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<bool>("has_touchpad", Self::VT_HAS_TOUCHPAD, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<TouchpadConfiguration>>("touchpad", Self::VT_TOUCHPAD, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct InputDeviceCapabilitiesArgs<'a> {
+    pub has_touchpad: bool,
+    pub touchpad: Option<flatbuffers::WIPOffset<TouchpadConfiguration<'a>>>,
+}
+impl<'a> Default for InputDeviceCapabilitiesArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    InputDeviceCapabilitiesArgs {
+      has_touchpad: false,
+      touchpad: None,
+    }
+  }
+}
+
+pub struct InputDeviceCapabilitiesBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> InputDeviceCapabilitiesBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_has_touchpad(&mut self, has_touchpad: bool) {
+    self.fbb_.push_slot::<bool>(InputDeviceCapabilities::VT_HAS_TOUCHPAD, has_touchpad, false);
+  }
+  #[inline]
+  pub fn add_touchpad(&mut self, touchpad: flatbuffers::WIPOffset<TouchpadConfiguration<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<TouchpadConfiguration>>(InputDeviceCapabilities::VT_TOUCHPAD, touchpad);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> InputDeviceCapabilitiesBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    InputDeviceCapabilitiesBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<InputDeviceCapabilities<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for InputDeviceCapabilities<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("InputDeviceCapabilities");
+      ds.field("has_touchpad", &self.has_touchpad());
+      ds.field("touchpad", &self.touchpad());
+      ds.finish()
+  }
+}
+pub enum TouchpadConfigurationOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct TouchpadConfiguration<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for TouchpadConfiguration<'a> {
+  type Inner = TouchpadConfiguration<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> TouchpadConfiguration<'a> {
+  pub const VT_TAP_TO_CLICK_ENABLED: flatbuffers::VOffsetT = 4;
+  pub const VT_NATURAL_SCROLL_ENABLED: flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    TouchpadConfiguration { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args TouchpadConfigurationArgs
+  ) -> flatbuffers::WIPOffset<TouchpadConfiguration<'bldr>> {
+    let mut builder = TouchpadConfigurationBuilder::new(_fbb);
+    builder.add_natural_scroll_enabled(args.natural_scroll_enabled);
+    builder.add_tap_to_click_enabled(args.tap_to_click_enabled);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn tap_to_click_enabled(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(TouchpadConfiguration::VT_TAP_TO_CLICK_ENABLED, Some(true)).unwrap()}
+  }
+  #[inline]
+  pub fn natural_scroll_enabled(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(TouchpadConfiguration::VT_NATURAL_SCROLL_ENABLED, Some(false)).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for TouchpadConfiguration<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<bool>("tap_to_click_enabled", Self::VT_TAP_TO_CLICK_ENABLED, false)?
+     .visit_field::<bool>("natural_scroll_enabled", Self::VT_NATURAL_SCROLL_ENABLED, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct TouchpadConfigurationArgs {
+    pub tap_to_click_enabled: bool,
+    pub natural_scroll_enabled: bool,
+}
+impl<'a> Default for TouchpadConfigurationArgs {
+  #[inline]
+  fn default() -> Self {
+    TouchpadConfigurationArgs {
+      tap_to_click_enabled: true,
+      natural_scroll_enabled: false,
+    }
+  }
+}
+
+pub struct TouchpadConfigurationBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> TouchpadConfigurationBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_tap_to_click_enabled(&mut self, tap_to_click_enabled: bool) {
+    self.fbb_.push_slot::<bool>(TouchpadConfiguration::VT_TAP_TO_CLICK_ENABLED, tap_to_click_enabled, true);
+  }
+  #[inline]
+  pub fn add_natural_scroll_enabled(&mut self, natural_scroll_enabled: bool) {
+    self.fbb_.push_slot::<bool>(TouchpadConfiguration::VT_NATURAL_SCROLL_ENABLED, natural_scroll_enabled, false);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> TouchpadConfigurationBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    TouchpadConfigurationBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<TouchpadConfiguration<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for TouchpadConfiguration<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("TouchpadConfiguration");
+      ds.field("tap_to_click_enabled", &self.tap_to_click_enabled());
+      ds.field("natural_scroll_enabled", &self.natural_scroll_enabled());
+      ds.finish()
+  }
+}
 pub enum SettingsRequestOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -5519,6 +7476,9 @@ impl<'a> SettingsRequest<'a> {
   pub const VT_EXPECTED_REVISION: flatbuffers::VOffsetT = 6;
   pub const VT_DOCUMENT: flatbuffers::VOffsetT = 8;
   pub const VT_KEYBOARD: flatbuffers::VOffsetT = 10;
+  pub const VT_SHORTCUT: flatbuffers::VOffsetT = 12;
+  pub const VT_EXISTING_SHORTCUT: flatbuffers::VOffsetT = 14;
+  pub const VT_TOUCHPAD: flatbuffers::VOffsetT = 16;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -5531,6 +7491,9 @@ impl<'a> SettingsRequest<'a> {
   ) -> flatbuffers::WIPOffset<SettingsRequest<'bldr>> {
     let mut builder = SettingsRequestBuilder::new(_fbb);
     builder.add_expected_revision(args.expected_revision);
+    if let Some(x) = args.touchpad { builder.add_touchpad(x); }
+    if let Some(x) = args.existing_shortcut { builder.add_existing_shortcut(x); }
+    if let Some(x) = args.shortcut { builder.add_shortcut(x); }
     if let Some(x) = args.keyboard { builder.add_keyboard(x); }
     if let Some(x) = args.document { builder.add_document(x); }
     builder.add_kind(args.kind);
@@ -5566,6 +7529,27 @@ impl<'a> SettingsRequest<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<KeyboardConfiguration>>(SettingsRequest::VT_KEYBOARD, None)}
   }
+  #[inline]
+  pub fn shortcut(&self) -> Option<ShortcutBinding<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<ShortcutBinding>>(SettingsRequest::VT_SHORTCUT, None)}
+  }
+  #[inline]
+  pub fn existing_shortcut(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(SettingsRequest::VT_EXISTING_SHORTCUT, None)}
+  }
+  #[inline]
+  pub fn touchpad(&self) -> Option<TouchpadConfiguration<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<TouchpadConfiguration>>(SettingsRequest::VT_TOUCHPAD, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for SettingsRequest<'_> {
@@ -5579,6 +7563,9 @@ impl flatbuffers::Verifiable for SettingsRequest<'_> {
      .visit_field::<u64>("expected_revision", Self::VT_EXPECTED_REVISION, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<&str>>("document", Self::VT_DOCUMENT, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<KeyboardConfiguration>>("keyboard", Self::VT_KEYBOARD, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<ShortcutBinding>>("shortcut", Self::VT_SHORTCUT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("existing_shortcut", Self::VT_EXISTING_SHORTCUT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<TouchpadConfiguration>>("touchpad", Self::VT_TOUCHPAD, false)?
      .finish();
     Ok(())
   }
@@ -5588,6 +7575,9 @@ pub struct SettingsRequestArgs<'a> {
     pub expected_revision: u64,
     pub document: Option<flatbuffers::WIPOffset<&'a str>>,
     pub keyboard: Option<flatbuffers::WIPOffset<KeyboardConfiguration<'a>>>,
+    pub shortcut: Option<flatbuffers::WIPOffset<ShortcutBinding<'a>>>,
+    pub existing_shortcut: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub touchpad: Option<flatbuffers::WIPOffset<TouchpadConfiguration<'a>>>,
 }
 impl<'a> Default for SettingsRequestArgs<'a> {
   #[inline]
@@ -5597,6 +7587,9 @@ impl<'a> Default for SettingsRequestArgs<'a> {
       expected_revision: 0,
       document: None,
       keyboard: None,
+      shortcut: None,
+      existing_shortcut: None,
+      touchpad: None,
     }
   }
 }
@@ -5623,6 +7616,18 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> SettingsRequestBuilder<'a, 'b, 
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<KeyboardConfiguration>>(SettingsRequest::VT_KEYBOARD, keyboard);
   }
   #[inline]
+  pub fn add_shortcut(&mut self, shortcut: flatbuffers::WIPOffset<ShortcutBinding<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<ShortcutBinding>>(SettingsRequest::VT_SHORTCUT, shortcut);
+  }
+  #[inline]
+  pub fn add_existing_shortcut(&mut self, existing_shortcut: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(SettingsRequest::VT_EXISTING_SHORTCUT, existing_shortcut);
+  }
+  #[inline]
+  pub fn add_touchpad(&mut self, touchpad: flatbuffers::WIPOffset<TouchpadConfiguration<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<TouchpadConfiguration>>(SettingsRequest::VT_TOUCHPAD, touchpad);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> SettingsRequestBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     SettingsRequestBuilder {
@@ -5644,6 +7649,9 @@ impl core::fmt::Debug for SettingsRequest<'_> {
       ds.field("expected_revision", &self.expected_revision());
       ds.field("document", &self.document());
       ds.field("keyboard", &self.keyboard());
+      ds.field("shortcut", &self.shortcut());
+      ds.field("existing_shortcut", &self.existing_shortcut());
+      ds.field("touchpad", &self.touchpad());
       ds.finish()
   }
 }
@@ -5669,6 +7677,9 @@ impl<'a> SettingsResponse<'a> {
   pub const VT_DOCUMENT: flatbuffers::VOffsetT = 10;
   pub const VT_KEYBOARD: flatbuffers::VOffsetT = 12;
   pub const VT_ERROR: flatbuffers::VOffsetT = 14;
+  pub const VT_SHORTCUTS: flatbuffers::VOffsetT = 16;
+  pub const VT_SHORTCUT_VALIDATION: flatbuffers::VOffsetT = 18;
+  pub const VT_INPUT_DEVICES: flatbuffers::VOffsetT = 20;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -5681,6 +7692,9 @@ impl<'a> SettingsResponse<'a> {
   ) -> flatbuffers::WIPOffset<SettingsResponse<'bldr>> {
     let mut builder = SettingsResponseBuilder::new(_fbb);
     builder.add_revision(args.revision);
+    if let Some(x) = args.input_devices { builder.add_input_devices(x); }
+    if let Some(x) = args.shortcut_validation { builder.add_shortcut_validation(x); }
+    if let Some(x) = args.shortcuts { builder.add_shortcuts(x); }
     if let Some(x) = args.error { builder.add_error(x); }
     if let Some(x) = args.keyboard { builder.add_keyboard(x); }
     if let Some(x) = args.document { builder.add_document(x); }
@@ -5732,6 +7746,27 @@ impl<'a> SettingsResponse<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(SettingsResponse::VT_ERROR, None)}
   }
+  #[inline]
+  pub fn shortcuts(&self) -> Option<ShortcutConfiguration<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<ShortcutConfiguration>>(SettingsResponse::VT_SHORTCUTS, None)}
+  }
+  #[inline]
+  pub fn shortcut_validation(&self) -> Option<ShortcutValidation<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<ShortcutValidation>>(SettingsResponse::VT_SHORTCUT_VALIDATION, None)}
+  }
+  #[inline]
+  pub fn input_devices(&self) -> Option<InputDeviceCapabilities<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<InputDeviceCapabilities>>(SettingsResponse::VT_INPUT_DEVICES, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for SettingsResponse<'_> {
@@ -5747,6 +7782,9 @@ impl flatbuffers::Verifiable for SettingsResponse<'_> {
      .visit_field::<flatbuffers::ForwardsUOffset<&str>>("document", Self::VT_DOCUMENT, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<KeyboardConfiguration>>("keyboard", Self::VT_KEYBOARD, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<&str>>("error", Self::VT_ERROR, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<ShortcutConfiguration>>("shortcuts", Self::VT_SHORTCUTS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<ShortcutValidation>>("shortcut_validation", Self::VT_SHORTCUT_VALIDATION, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<InputDeviceCapabilities>>("input_devices", Self::VT_INPUT_DEVICES, false)?
      .finish();
     Ok(())
   }
@@ -5758,6 +7796,9 @@ pub struct SettingsResponseArgs<'a> {
     pub document: Option<flatbuffers::WIPOffset<&'a str>>,
     pub keyboard: Option<flatbuffers::WIPOffset<KeyboardConfiguration<'a>>>,
     pub error: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub shortcuts: Option<flatbuffers::WIPOffset<ShortcutConfiguration<'a>>>,
+    pub shortcut_validation: Option<flatbuffers::WIPOffset<ShortcutValidation<'a>>>,
+    pub input_devices: Option<flatbuffers::WIPOffset<InputDeviceCapabilities<'a>>>,
 }
 impl<'a> Default for SettingsResponseArgs<'a> {
   #[inline]
@@ -5769,6 +7810,9 @@ impl<'a> Default for SettingsResponseArgs<'a> {
       document: None,
       keyboard: None,
       error: None,
+      shortcuts: None,
+      shortcut_validation: None,
+      input_devices: None,
     }
   }
 }
@@ -5803,6 +7847,18 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> SettingsResponseBuilder<'a, 'b,
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(SettingsResponse::VT_ERROR, error);
   }
   #[inline]
+  pub fn add_shortcuts(&mut self, shortcuts: flatbuffers::WIPOffset<ShortcutConfiguration<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<ShortcutConfiguration>>(SettingsResponse::VT_SHORTCUTS, shortcuts);
+  }
+  #[inline]
+  pub fn add_shortcut_validation(&mut self, shortcut_validation: flatbuffers::WIPOffset<ShortcutValidation<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<ShortcutValidation>>(SettingsResponse::VT_SHORTCUT_VALIDATION, shortcut_validation);
+  }
+  #[inline]
+  pub fn add_input_devices(&mut self, input_devices: flatbuffers::WIPOffset<InputDeviceCapabilities<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<InputDeviceCapabilities>>(SettingsResponse::VT_INPUT_DEVICES, input_devices);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> SettingsResponseBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     SettingsResponseBuilder {
@@ -5826,6 +7882,9 @@ impl core::fmt::Debug for SettingsResponse<'_> {
       ds.field("document", &self.document());
       ds.field("keyboard", &self.keyboard());
       ds.field("error", &self.error());
+      ds.field("shortcuts", &self.shortcuts());
+      ds.field("shortcut_validation", &self.shortcut_validation());
+      ds.field("input_devices", &self.input_devices());
       ds.finish()
   }
 }
@@ -7195,6 +9254,21 @@ impl<'a> Envelope<'a> {
     }
   }
 
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_text_input_state(&self) -> Option<TextInputState<'a>> {
+    if self.payload_type() == Payload::TextInputState {
+      self.payload().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { TextInputState::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
 }
 
 impl flatbuffers::Verifiable for Envelope<'_> {
@@ -7223,6 +9297,7 @@ impl flatbuffers::Verifiable for Envelope<'_> {
           Payload::DesktopNotificationCommand => v.verify_union_variant::<flatbuffers::ForwardsUOffset<DesktopNotificationCommand>>("Payload::DesktopNotificationCommand", pos),
           Payload::SettingsRequest => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SettingsRequest>>("Payload::SettingsRequest", pos),
           Payload::SettingsResponse => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SettingsResponse>>("Payload::SettingsResponse", pos),
+          Payload::TextInputState => v.verify_union_variant::<flatbuffers::ForwardsUOffset<TextInputState>>("Payload::TextInputState", pos),
           _ => Ok(()),
         }
      })?
@@ -7391,6 +9466,13 @@ impl core::fmt::Debug for Envelope<'_> {
         },
         Payload::SettingsResponse => {
           if let Some(x) = self.payload_as_settings_response() {
+            ds.field("payload", &x)
+          } else {
+            ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        Payload::TextInputState => {
+          if let Some(x) = self.payload_as_text_input_state() {
             ds.field("payload", &x)
           } else {
             ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")

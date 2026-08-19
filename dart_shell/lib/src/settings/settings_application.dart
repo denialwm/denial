@@ -8,6 +8,8 @@ import '../local_apps/local_flutter_application.dart';
 import '../localization/denial_localizations.dart';
 import '../models/display_layout.dart';
 import '../state/display_layout.dart';
+import '../state/input_device_capabilities.dart';
+import '../state/output_configuration.dart';
 import '../state/ui_development.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -22,6 +24,7 @@ import 'widgets/settings_about_page.dart';
 import 'widgets/settings_appearance_page.dart';
 import 'widgets/settings_animations_page.dart';
 import 'widgets/settings_developer_page.dart';
+import 'widgets/settings_displays_page.dart';
 import 'widgets/settings_layout_page.dart';
 import 'widgets/settings_keyboard_page.dart';
 import 'widgets/settings_language_page.dart';
@@ -29,7 +32,9 @@ import 'widgets/settings_lock_screen_page.dart';
 import 'widgets/settings_navigation.dart';
 import 'widgets/settings_overlays_page.dart';
 import 'widgets/settings_power_page.dart';
+import 'widgets/settings_shortcuts_page.dart';
 import 'widgets/settings_system_pages.dart';
+import 'widgets/settings_touchpad_page.dart';
 
 final _englishSettings = AppLocalizationsEn();
 
@@ -85,6 +90,13 @@ class _DenialSettingsApplicationState
   var _page = SettingsPageId.appearance;
   var _colorPickerOpen = false;
 
+  void _selectPage(SettingsPageId page) {
+    if (_page == page) {
+      return;
+    }
+    setState(() => _page = page);
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(shellSettingsProvider);
@@ -92,6 +104,29 @@ class _DenialSettingsApplicationState
     final displayLayout = ref.watch(displayLayoutProvider);
     final displayController = ref.read(displayLayoutProvider.notifier);
     final extractedAccent = ref.watch(wallpaperAccentProvider).color;
+    final outputState = ref.watch(outputConfigurationProvider);
+    final outputController = ref.read(outputConfigurationProvider.notifier);
+    final hasTouchpad = ref.watch(
+      inputDeviceCapabilitiesProvider.select(
+        (state) => state.capabilities.hasTouchpad,
+      ),
+    );
+    final pendingOutputConfirmation =
+        outputState.configuration?.pendingConfirmation;
+    if (pendingOutputConfirmation != null && _page != SettingsPageId.displays) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _selectPage(SettingsPageId.displays);
+        }
+      });
+    }
+    if (!hasTouchpad && _page == SettingsPageId.touchpad) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _page == SettingsPageId.touchpad) {
+          _selectPage(SettingsPageId.keyboard);
+        }
+      });
+    }
     final wallpaper = _wallpaperFor(
       ref.watch(
         wallpaperControllerProvider.select((state) => state.assignment),
@@ -116,7 +151,8 @@ class _DenialSettingsApplicationState
                   SettingsNavigation(
                     selected: _page,
                     compact: true,
-                    onSelected: (page) => setState(() => _page = page),
+                    showTouchpad: hasTouchpad,
+                    onSelected: _selectPage,
                   ),
                   const Divider(height: 1, color: ShellColors.hairlineSoft),
                 ],
@@ -128,7 +164,8 @@ class _DenialSettingsApplicationState
                         SettingsNavigation(
                           selected: _page,
                           compact: false,
-                          onSelected: (page) => setState(() => _page = page),
+                          showTouchpad: hasTouchpad,
+                          onSelected: _selectPage,
                         ),
                       Expanded(
                         child: AnimatedSwitcher(
@@ -171,6 +208,17 @@ class _DenialSettingsApplicationState
                     child: _buildColorPicker(settings, settingsController),
                   ),
                 ),
+                if (pendingOutputConfirmation != null)
+                  Positioned.fill(
+                    child: SettingsDisplayConfirmationDialog(
+                      confirmation: pendingOutputConfirmation,
+                      busy: outputState.applying,
+                      onKeep: () => unawaited(outputController.keepChanges()),
+                      onRevert: () =>
+                          unawaited(outputController.rollbackChanges()),
+                      onExpired: () => unawaited(outputController.refresh()),
+                    ),
+                  ),
               ],
             );
           },
@@ -213,6 +261,8 @@ class _DenialSettingsApplicationState
         onReset: controller.resetLocalization,
       ),
       SettingsPageId.keyboard => const SettingsKeyboardPage(),
+      SettingsPageId.touchpad => const SettingsTouchpadPage(),
+      SettingsPageId.shortcuts => const SettingsShortcutsPage(),
       SettingsPageId.layout => SettingsLayoutPage(
         settings: settings.layout,
         displayLayout: displayLayout,

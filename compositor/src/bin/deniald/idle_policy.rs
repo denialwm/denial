@@ -13,8 +13,10 @@ use std::time::{Duration, Instant};
 use denial_core::topology::OutputId;
 
 pub(super) const CHANNEL: &CStr = c"denial/idle_policy";
+pub(super) const DISPLAY_POWER_CHANNEL: &CStr = c"denial/display_power";
 
 const PACKET_BYTES: usize = size_of::<u64>();
+const DISPLAY_POWER_OFF: u8 = 1;
 const MAX_TIMEOUT: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -45,6 +47,27 @@ impl fmt::Display for IdlePolicyPacketError {
 }
 
 impl Error for IdlePolicyPacketError {}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum DisplayPowerPacketError {
+    InvalidPacket,
+}
+
+impl fmt::Display for DisplayPowerPacketError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("display power packet must contain the one-byte DPMS-off command")
+    }
+}
+
+impl Error for DisplayPowerPacketError {}
+
+pub(super) fn decode_display_power_off(packet: &[u8]) -> Result<(), DisplayPowerPacketError> {
+    if packet == [DISPLAY_POWER_OFF] {
+        Ok(())
+    } else {
+        Err(DisplayPowerPacketError::InvalidPacket)
+    }
+}
 
 pub(super) fn decode_timeout(packet: &[u8]) -> Result<Option<Duration>, IdlePolicyPacketError> {
     let bytes: [u8; PACKET_BYTES] = packet
@@ -84,6 +107,24 @@ impl Default for IdleDpmsPolicy {
 }
 
 impl IdleDpmsPolicy {
+    /// Blanks every powered output explicitly while retaining native
+    /// input-to-wake semantics independently of the configured idle timeout.
+    pub(super) fn blank_now(
+        &mut self,
+        outputs: impl IntoIterator<Item = (OutputId, bool)>,
+    ) -> Vec<IdlePowerRequest> {
+        let mut requests = Vec::new();
+        for (output, powered) in outputs {
+            if powered && self.blanked_outputs.insert(output) {
+                requests.push(IdlePowerRequest {
+                    output,
+                    powered: false,
+                });
+            }
+        }
+        requests
+    }
+
     pub(super) fn configure(
         &mut self,
         timeout: Option<Duration>,
@@ -201,6 +242,43 @@ mod tests {
             decode_timeout(&too_large.to_le_bytes()),
             Err(IdlePolicyPacketError::TimeoutTooLarge(value)) if value == too_large
         ));
+    }
+
+    #[test]
+    fn display_power_packet_accepts_only_the_exact_off_command() {
+        assert_eq!(decode_display_power_off(&[DISPLAY_POWER_OFF]), Ok(()));
+        assert_eq!(
+            decode_display_power_off(&[]),
+            Err(DisplayPowerPacketError::InvalidPacket)
+        );
+        assert_eq!(
+            decode_display_power_off(&[0]),
+            Err(DisplayPowerPacketError::InvalidPacket)
+        );
+        assert_eq!(
+            decode_display_power_off(&[DISPLAY_POWER_OFF, 0]),
+            Err(DisplayPowerPacketError::InvalidPacket)
+        );
+    }
+
+    #[test]
+    fn explicit_blank_uses_native_input_to_wake_without_an_idle_timeout() {
+        let started = Instant::now();
+        let mut policy = IdleDpmsPolicy::default();
+        assert_eq!(
+            policy.blank_now([(output(1), true), (output(2), false)]),
+            [IdlePowerRequest {
+                output: output(1),
+                powered: false,
+            }]
+        );
+        assert_eq!(
+            policy.note_activity(started),
+            [IdlePowerRequest {
+                output: output(1),
+                powered: true,
+            }]
+        );
     }
 
     #[test]

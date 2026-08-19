@@ -103,6 +103,17 @@ void main() {
     );
   });
 
+  test('lock-and-blank secures the session before requesting DPMS-off', () {
+    final bridge = _TestBridge();
+    final service = _TestAuthenticationService();
+    final harness = _shellHarness(bridge, service);
+
+    harness.controller.lockAndBlankDisplays();
+
+    expect(service.lockCount, 1);
+    expect(bridge.dpmsOffCount, 1);
+  });
+
   test('a pending built-in app launch binds its local window', () {
     final bridge = _TestBridge();
     final service = _TestAuthenticationService();
@@ -121,6 +132,156 @@ void main() {
     expect(state.launchingObjectId, _settingsWindow.objectId);
     expect(state.launchingWindow, _settingsWindow);
     expect(bridge.focusedWindowIds, <int>[_settingsWindow.windowId]);
+  });
+
+  test('launcher activation animates an existing application window', () {
+    final bridge = _TestBridge();
+    final service = _TestAuthenticationService();
+    final harness = _shellHarness(bridge, service);
+    bridge.publish(const <DenialWindow>[_mainWindow]);
+    bridge.focusedWindowIds.clear();
+
+    final requestId = harness.controller.activateAppFromLauncher(
+      window: _mainWindow,
+      appName: 'Steam',
+      iconPath: null,
+    );
+
+    var state = harness.container.read(shellControllerProvider);
+    expect(requestId, isNotNull);
+    expect(state.launchRequest?.targetObjectId, _mainWindow.objectId);
+    expect(state.launchingWindow, _mainWindow);
+    expect(state.foregroundWindow, _mainWindow);
+    expect(bridge.focusedWindowIds, <int>[_mainWindow.windowId]);
+
+    harness.controller.completeLaunchTransition(
+      requestId!,
+      _mainWindow.objectId,
+    );
+    state = harness.container.read(shellControllerProvider);
+    expect(state.launchRequest, isNull);
+    expect(state.launchingWindow, isNull);
+    expect(state.foregroundWindow, _mainWindow);
+  });
+
+  test(
+    'mobile text input state opens and closes the software keyboard',
+    () async {
+      final bridge = _TestBridge();
+      final service = _TestAuthenticationService();
+      final harness = _shellHarness(
+        bridge,
+        service,
+        environment: StartupEnvironment(const {
+          'DENIA_SHELL_PROFILE': 'mobile',
+        }),
+      );
+
+      bridge.publishTextInput(active: true, inputPanelVisible: true);
+      expect(
+        harness.container.read(shellControllerProvider).edgePanelVisible,
+        isTrue,
+      );
+
+      bridge.publishTextInput(active: false, inputPanelVisible: false);
+      expect(
+        harness.container.read(shellControllerProvider).edgePanelVisible,
+        isTrue,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 32));
+      expect(
+        harness.container.read(shellControllerProvider).edgePanelVisible,
+        isFalse,
+      );
+    },
+  );
+
+  test('mobile field handoff does not bounce the software keyboard', () async {
+    final bridge = _TestBridge();
+    final service = _TestAuthenticationService();
+    final harness = _shellHarness(
+      bridge,
+      service,
+      environment: StartupEnvironment(const {'DENIA_SHELL_PROFILE': 'mobile'}),
+    );
+
+    bridge.publishTextInput(active: true, inputPanelVisible: true);
+    bridge.publishTextInput(active: false, inputPanelVisible: false);
+    bridge.publishTextInput(active: true, inputPanelVisible: true);
+    await Future<void>.delayed(const Duration(milliseconds: 32));
+
+    expect(
+      harness.container.read(shellControllerProvider).edgePanelVisible,
+      isTrue,
+    );
+  });
+
+  test(
+    'mobile legacy keyboard fallback is limited to registered terminals',
+    () {
+      final bridge = _TestBridge();
+      final service = _TestAuthenticationService();
+      final harness = _shellHarness(
+        bridge,
+        service,
+        environment: StartupEnvironment(const {
+          'DENIA_SHELL_PROFILE': 'mobile',
+        }),
+      );
+      bridge.publish(const <DenialWindow>[_mainWindow]);
+      harness.controller.focusWindow(_mainWindow);
+
+      bridge.publishTextInput(
+        active: true,
+        inputPanelVisible: true,
+        legacy: true,
+      );
+      expect(
+        harness.container.read(shellControllerProvider).edgePanelVisible,
+        isFalse,
+      );
+
+      harness.controller.registerLegacyTextInputAppIds(const <String>['steam']);
+      bridge.publishTextInput(
+        active: true,
+        inputPanelVisible: true,
+        legacy: true,
+      );
+      expect(
+        harness.container.read(shellControllerProvider).edgePanelVisible,
+        isTrue,
+      );
+    },
+  );
+
+  test('mobile lock screen accepts compositor-authorized keyboard taps', () {
+    final bridge = _TestBridge();
+    final service = _TestAuthenticationService();
+    final harness = _shellHarness(
+      bridge,
+      service,
+      environment: StartupEnvironment(const {'DENIA_SHELL_PROFILE': 'mobile'}),
+    );
+
+    service.emit(_authenticationState(locked: true));
+    bridge.publishTextInput(active: true, inputPanelVisible: true);
+
+    expect(
+      harness.container.read(shellControllerProvider).edgePanelVisible,
+      isTrue,
+    );
+  });
+
+  test('desktop profile ignores software keyboard visibility', () {
+    final bridge = _TestBridge();
+    final service = _TestAuthenticationService();
+    final harness = _shellHarness(bridge, service);
+
+    bridge.publishTextInput(active: true, inputPanelVisible: true);
+    expect(
+      harness.container.read(shellControllerProvider).edgePanelVisible,
+      isFalse,
+    );
   });
 }
 
@@ -150,6 +311,12 @@ class _TestBridge extends DenialBridge {
   ValueChanged<DenialWindowSnapshot>? _onWindowSnapshot;
   final List<int> focusedWindowIds = <int>[];
   int _sequence = 0;
+  int dpmsOffCount = 0;
+  final StreamController<DenialTextInputState> _textInput =
+      StreamController<DenialTextInputState>.broadcast(sync: true);
+
+  @override
+  Stream<DenialTextInputState> get textInputStates => _textInput.stream;
 
   @override
   void start({
@@ -170,10 +337,37 @@ class _TestBridge extends DenialBridge {
     focusedWindowIds.add(window.windowId);
   }
 
+  @override
+  void requestDpmsOff() {
+    dpmsOffCount += 1;
+  }
+
   void publish(List<DenialWindow> windows) {
     _onWindowSnapshot?.call(
       DenialWindowSnapshot(sequence: ++_sequence, windows: windows),
     );
+  }
+
+  void publishTextInput({
+    required bool active,
+    required bool inputPanelVisible,
+    bool legacy = false,
+  }) {
+    _textInput.add(
+      DenialTextInputState(
+        active: active,
+        inputPanelVisible: inputPanelVisible,
+        legacy: legacy,
+        contentHint: 0,
+        contentPurpose: 0,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    unawaited(_textInput.close());
+    super.dispose();
   }
 }
 
@@ -201,6 +395,7 @@ class _TestAuthenticationService implements AuthenticationService {
   final StreamController<AuthenticationPacket> _events =
       StreamController<AuthenticationPacket>.broadcast(sync: true);
   int beginCount = 0;
+  int lockCount = 0;
 
   @override
   Stream<AuthenticationPacket> get events => _events.stream;
@@ -214,7 +409,7 @@ class _TestAuthenticationService implements AuthenticationService {
   void cancel({required int attemptId}) {}
 
   @override
-  void lock() {}
+  void lock() => lockCount += 1;
 
   @override
   void respond({

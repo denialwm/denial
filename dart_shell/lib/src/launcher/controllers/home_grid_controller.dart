@@ -48,7 +48,7 @@ final homeClockProvider = Provider<HomeClockInfo>((ref) {
   return HomeClockInfo.fromShell(
     now: ref.watch(clockProvider).value ?? DateTime.now(),
     locale: locale,
-    power: ref.watch(powerStatusProvider),
+    power: ref.watch(effectivePowerStatusProvider),
   );
 }, isAutoDispose: true);
 

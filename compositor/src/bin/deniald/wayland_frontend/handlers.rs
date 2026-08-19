@@ -6,8 +6,8 @@ use super::window_management::{
 #[cfg(feature = "flutter")]
 use super::window_management::{
     queue_client_window_placement_for_monitor, queue_restored_window_state, queue_window_action,
-    queue_window_placement, release_window_focus, set_toplevel_suspended,
-    toplevel_shell_geometry_locked,
+    queue_window_placement, reassert_exact_toplevel_geometry, release_window_focus,
+    set_toplevel_suspended, toplevel_shell_geometry_locked,
 };
 use super::*;
 use smithay::wayland::selection::{SelectionSource, SelectionTarget};
@@ -1394,6 +1394,9 @@ impl XdgShellHandler for RuntimeState {
     }
 
     fn maximize_request(&mut self, surface: ToplevelSurface) {
+        if reassert_exact_toplevel_geometry(self, &surface) {
+            return;
+        }
         self.wayland
             .as_mut()
             .expect("missing Wayland frontend")
@@ -1416,6 +1419,9 @@ impl XdgShellHandler for RuntimeState {
     }
 
     fn unmaximize_request(&mut self, surface: ToplevelSurface) {
+        if reassert_exact_toplevel_geometry(self, &surface) {
+            return;
+        }
         self.wayland
             .as_mut()
             .expect("missing Wayland frontend")
@@ -1437,6 +1443,9 @@ impl XdgShellHandler for RuntimeState {
         surface: ToplevelSurface,
         output: Option<wl_output::WlOutput>,
     ) {
+        if reassert_exact_toplevel_geometry(self, &surface) {
+            return;
+        }
         self.wayland
             .as_mut()
             .expect("missing Wayland frontend")
@@ -1463,6 +1472,9 @@ impl XdgShellHandler for RuntimeState {
     }
 
     fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
+        if reassert_exact_toplevel_geometry(self, &surface) {
+            return;
+        }
         self.wayland
             .as_mut()
             .expect("missing Wayland frontend")

@@ -8,6 +8,7 @@ import 'package:denial_dart_shell/src/input/shell_interaction_registry.dart';
 import 'package:denial_dart_shell/src/launcher/runtime_paths.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/state/shell_controller.dart';
+import 'package:denial_dart_shell/src/theme/motion.dart';
 import 'package:denial_dart_shell/src/theme/shell_theme.dart';
 import 'package:denial_dart_shell/src/wallpaper/state/wallpaper_controller.dart';
 import 'package:denial_dart_shell/src/wallpaper/wallpaper.dart';
@@ -47,6 +48,7 @@ void main() {
       store: WallpaperStore(
         RuntimePaths(environment: <String, String>{'HOME': temporary.path}),
       ),
+      displayLayout: _desktopDisplayLayout,
     );
     addTearDown(harness.container.dispose);
     harness.controller.openSelector(targetPixelSize: const Size(1264, 2780));
@@ -86,6 +88,53 @@ void main() {
           .hasFocus,
       isTrue,
     );
+
+    await tester.tap(find.text('DP-4'));
+    await tester.pump();
+
+    expect(harness.state.target, const WallpaperTarget.output('DP-4'));
+    expect(find.byType(WallpaperSpanAlignmentSelector), findsOneWidget);
+
+    final tileOpacity = find.byKey(
+      const ValueKey<String>('desktop-wallpaper-tiles-opacity'),
+    );
+    expect(tester.widget<AnimatedOpacity>(tileOpacity).opacity, 1.0);
+
+    final darknessRect = tester.getRect(find.byType(RangeBar).first);
+    final darknessGesture = await tester.startGesture(darknessRect.center);
+    await darknessGesture.moveBy(const Offset(24, 0));
+    await tester.pump();
+    final opacityWidget = tester.widget<AnimatedOpacity>(tileOpacity);
+    expect(opacityWidget.opacity, 0.0);
+    expect(opacityWidget.duration, Motion.wallpaperTilesFade);
+
+    await tester.pump(const Duration(milliseconds: 150));
+    final renderedOpacity = tester
+        .widget<FadeTransition>(
+          find
+              .descendant(
+                of: tileOpacity,
+                matching: find.byType(FadeTransition),
+              )
+              .first,
+        )
+        .opacity
+        .value;
+    expect(renderedOpacity, closeTo(0.5, 0.08));
+
+    await darknessGesture.up();
+    await tester.pump();
+    expect(tester.widget<AnimatedOpacity>(tileOpacity).opacity, 1.0);
+
+    final alignmentRect = tester.getRect(find.byType(RangeBar).at(1));
+    final alignmentGesture = await tester.startGesture(alignmentRect.center);
+    await alignmentGesture.moveBy(const Offset(24, 0));
+    await tester.pump();
+    expect(tester.widget<AnimatedOpacity>(tileOpacity).opacity, 0.0);
+
+    await alignmentGesture.up();
+    await tester.pump();
+    expect(tester.widget<AnimatedOpacity>(tileOpacity).opacity, 1.0);
     expect(tester.takeException(), isNull);
   });
 
@@ -452,8 +501,11 @@ void main() {
     expect(selected, const WallpaperTarget.output('DP-4'));
   });
 
-  testWidgets('span alignment controls update both axes', (tester) async {
+  testWidgets('span alignment controls preview and commit both axes', (
+    tester,
+  ) async {
     var alignment = const WallpaperSpanAlignment();
+    var committed = const WallpaperSpanAlignment();
 
     await tester.pumpWidget(
       DenialLocalizationScope(
@@ -462,6 +514,7 @@ void main() {
           builder: (context, setState) => WallpaperSpanAlignmentSelector(
             value: alignment,
             onChanged: (value) => setState(() => alignment = value),
+            onChangeEnd: (value) => committed = value,
           ),
         ),
       ),
@@ -470,18 +523,29 @@ void main() {
         .element(find.byType(WallpaperSpanAlignmentSelector))
         .l10n;
 
-    await tester.tap(find.bySemanticsLabel(l10n.wallpaperAlignRight));
-    await tester.pump();
-    await tester.tap(find.bySemanticsLabel(l10n.wallpaperAlignBottom));
+    final sliders = find.byType(RangeBar);
+    expect(sliders, findsNWidgets(2));
+
+    final horizontal = tester.getRect(sliders.first);
+    await tester.tapAt(
+      Offset(horizontal.left + horizontal.width * 0.75, horizontal.center.dy),
+    );
     await tester.pump();
 
-    expect(
-      alignment,
-      const WallpaperSpanAlignment(
-        horizontal: WallpaperHorizontalAlignment.right,
-        vertical: WallpaperVerticalAlignment.bottom,
-      ),
+    final vertical = tester.getRect(sliders.last);
+    await tester.tapAt(
+      Offset(vertical.left + vertical.width * 0.25, vertical.center.dy),
     );
+    await tester.pump();
+
+    expect(alignment, const WallpaperSpanAlignment.precise(x: 0.5, y: -0.5));
+    expect(committed, alignment);
+
+    await tester.tap(find.bySemanticsLabel(l10n.wallpaperMobileCenterPosition));
+    await tester.pump();
+
+    expect(alignment, const WallpaperSpanAlignment());
+    expect(committed, alignment);
   });
 
   testWidgets('darkness control previews, commits, and exposes semantics', (
@@ -557,6 +621,27 @@ class _FixedWallpaperProvider implements WallpaperProvider {
   @override
   void dispose() {}
 }
+
+const _desktopDisplayLayout = DisplayLayout(
+  epoch: 1,
+  globalOrigin: Offset.zero,
+  logicalSize: Size(500, 800),
+  pixelSize: Size(500, 800),
+  engineScale: 1,
+  tickerMonitorId: 0,
+  systemBarMonitorId: 0,
+  systemBarSide: SystemBarSide.top,
+  outputs: <DisplayOutput>[
+    DisplayOutput(
+      monitorId: 0,
+      name: 'DP-4',
+      logicalRect: Rect.fromLTWH(0, 0, 500, 800),
+      pixelSize: Size(500, 800),
+      scale: 1,
+      refreshRate: 60,
+    ),
+  ],
+);
 
 class _KeyboardDismissingUnderlay extends ConsumerWidget {
   const _KeyboardDismissingUnderlay();

@@ -12,6 +12,7 @@ import 'package:denial_dart_shell/src/models/denial_window.dart';
 import 'package:denial_dart_shell/src/models/denial_window_event.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart'
     show SystemBarSide;
+import 'package:denial_dart_shell/src/models/input_device_capabilities.dart';
 import 'package:denial_dart_shell/src/models/keyboard_configuration.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/platform/denial_wire.dart' as wire;
@@ -25,6 +26,7 @@ void main() {
     final systemMessages = <ByteData>[];
     final brightnessMessages = <ByteData>[];
     final idlePolicyMessages = <ByteData>[];
+    final displayPowerMessages = <ByteData>[];
     messenger.setMockMessageHandler('denial/system_command', (message) async {
       systemMessages.add(message!);
       return null;
@@ -35,6 +37,10 @@ void main() {
     });
     messenger.setMockMessageHandler('denial/idle_policy', (message) async {
       idlePolicyMessages.add(message!);
+      return null;
+    });
+    messenger.setMockMessageHandler('denial/display_power', (message) async {
+      displayPowerMessages.add(message!);
       return null;
     });
 
@@ -78,6 +84,7 @@ void main() {
       );
       bridge.setIdleDpmsTimeout(const Duration(minutes: 17));
       bridge.setIdleDpmsTimeout(null);
+      bridge.requestDpmsOff();
 
       expect(systemMessages, hasLength(6));
       final launch = systemMessages[0];
@@ -131,11 +138,15 @@ void main() {
         const Duration(minutes: 17).inMilliseconds,
       );
       expect(idlePolicyMessages.last.getUint64(0, Endian.little), 0);
+      expect(displayPowerMessages, hasLength(1));
+      expect(displayPowerMessages.single.lengthInBytes, 1);
+      expect(displayPowerMessages.single.getUint8(0), 1);
     } finally {
       bridge.dispose();
       messenger.setMockMessageHandler('denial/system_command', null);
       messenger.setMockMessageHandler('denial/brightness', null);
       messenger.setMockMessageHandler('denial/idle_policy', null);
+      messenger.setMockMessageHandler('denial/display_power', null);
     }
   });
 
@@ -246,10 +257,15 @@ void main() {
       final subscription = bridge.keyboardConfigurations.listen(
         keyboardEvents.add,
       );
+      final inputDeviceEvents = <DenialInputDeviceCapabilities>[];
+      final inputDeviceSubscription = bridge.inputDeviceCapabilities.listen(
+        inputDeviceEvents.add,
+      );
       try {
         final documentFuture = bridge.readSettingsDocument();
         final keyboardFuture = bridge.readKeyboardConfiguration();
-        expect(requests, hasLength(2));
+        final inputDevicesFuture = bridge.readInputDeviceCapabilities();
+        expect(requests, hasLength(3));
         expect(
           (requests[0].payload as wire.SettingsRequest).kind,
           wire.SettingsRequestKind.ReadDocument,
@@ -258,13 +274,17 @@ void main() {
           (requests[1].payload as wire.SettingsRequest).kind,
           wire.SettingsRequestKind.ReadKeyboard,
         );
+        expect(
+          (requests[2].payload as wire.SettingsRequest).kind,
+          wire.SettingsRequestKind.ReadInputDevices,
+        );
 
         await _sendToFlutter(
           messenger,
           _settingsDocumentResponse(
             requestId: requests[0].requestId,
             revision: 7,
-            document: '{"version":8,"revision":7}',
+            document: '{"version":9,"revision":7}',
           ),
         );
         final document = await documentFuture;
@@ -283,6 +303,18 @@ void main() {
         expect(keyboard.active.label, 'German');
         expect(keyboard.repeatDelayMs, 450);
         expect(keyboard.repeatRateHz, 30);
+
+        await _sendToFlutter(
+          messenger,
+          _inputDeviceCapabilitiesResponse(
+            requestId: requests[2].requestId,
+            hasTouchpad: true,
+          ),
+        );
+        final inputDevices = await inputDevicesFuture;
+        expect(inputDevices.hasTouchpad, isTrue);
+        expect(inputDevices.tapToClickEnabled, isTrue);
+        expect(inputDevices.naturalScrollEnabled, isFalse);
 
         final update = bridge.configureKeyboard(
           keyboard.copyWith(repeatRateHz: 40),
@@ -303,6 +335,37 @@ void main() {
         );
         expect((await update).revision, 8);
 
+        final touchpadUpdate = bridge.configureTouchpad(
+          inputDevices.copyWith(
+            tapToClickEnabled: false,
+            naturalScrollEnabled: true,
+          ),
+        );
+        final touchpadEnvelope = requests.last;
+        final touchpadRequest =
+            touchpadEnvelope.payload as wire.SettingsRequest;
+        expect(
+          touchpadRequest.kind,
+          wire.SettingsRequestKind.ConfigureTouchpad,
+        );
+        expect(touchpadRequest.expectedRevision, 7);
+        expect(touchpadRequest.touchpad!.tapToClickEnabled, isFalse);
+        expect(touchpadRequest.touchpad!.naturalScrollEnabled, isTrue);
+        await _sendToFlutter(
+          messenger,
+          _inputDeviceCapabilitiesResponse(
+            requestId: touchpadEnvelope.requestId,
+            revision: 9,
+            hasTouchpad: true,
+            tapToClickEnabled: false,
+            naturalScrollEnabled: true,
+          ),
+        );
+        final updatedTouchpad = await touchpadUpdate;
+        expect(updatedTouchpad.revision, 9);
+        expect(updatedTouchpad.tapToClickEnabled, isFalse);
+        expect(updatedTouchpad.naturalScrollEnabled, isTrue);
+
         await _sendToFlutter(
           messenger,
           _keyboardSettingsResponse(
@@ -315,8 +378,20 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         expect(keyboardEvents.last.active.label, 'German');
         expect(keyboardEvents.last.revision, 8);
+
+        await _sendToFlutter(
+          messenger,
+          _inputDeviceCapabilitiesResponse(
+            requestId: 0,
+            revision: 9,
+            hasTouchpad: false,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(inputDeviceEvents.last.hasTouchpad, isFalse);
       } finally {
         await subscription.cancel();
+        await inputDeviceSubscription.cancel();
         bridge.dispose();
         messenger.setMockMessageHandler(wire.denialWireToNativeChannel, null);
       }
@@ -576,6 +651,62 @@ void main() {
       }
     },
   );
+
+  test('native text input state drives the typed bridge stream', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final bridge = _startedBridge();
+    final states = <DenialTextInputState>[];
+    final subscription = bridge.textInputStates.listen(states.add);
+    try {
+      await _sendToFlutter(
+        messenger,
+        _envelope(
+          wire.PayloadTypeId.TextInputState,
+          wire.TextInputStateObjectBuilder(
+            active: true,
+            inputPanelVisible: true,
+            legacy: true,
+            contentHint: 3,
+            contentPurpose: 6,
+          ),
+        ),
+      );
+      await _sendToFlutter(
+        messenger,
+        _envelope(
+          wire.PayloadTypeId.TextInputState,
+          wire.TextInputStateObjectBuilder(
+            active: false,
+            inputPanelVisible: false,
+          ),
+        ),
+      );
+      await _sendToFlutter(
+        messenger,
+        _envelope(
+          wire.PayloadTypeId.TextInputState,
+          wire.TextInputStateObjectBuilder(
+            active: false,
+            inputPanelVisible: true,
+          ),
+        ),
+      );
+
+      expect(states, hasLength(2));
+      expect(states.first.active, isTrue);
+      expect(states.first.inputPanelVisible, isTrue);
+      expect(states.first.legacy, isTrue);
+      expect(states.first.contentHint, 3);
+      expect(states.first.contentPurpose, 6);
+      expect(states.last.active, isFalse);
+      expect(states.last.inputPanelVisible, isFalse);
+      expect(states.last.legacy, isFalse);
+    } finally {
+      await subscription.cancel();
+      bridge.dispose();
+    }
+  });
 
   test(
     'native drag-icon textures are forwarded and cleared in wire order',
@@ -1072,6 +1203,31 @@ Uint8List _keyboardSettingsResponse({
         repeatDelayMs: 450,
         repeatRateHz: repeatRateHz,
         activeLayout: activeLayout,
+      ),
+    ),
+    requestId: requestId,
+  );
+}
+
+Uint8List _inputDeviceCapabilitiesResponse({
+  required int requestId,
+  required bool hasTouchpad,
+  int revision = 7,
+  bool tapToClickEnabled = true,
+  bool naturalScrollEnabled = false,
+}) {
+  return _envelope(
+    wire.PayloadTypeId.SettingsResponse,
+    wire.SettingsResponseObjectBuilder(
+      kind: wire.SettingsResponseKind.InputDevices,
+      success: true,
+      revision: revision,
+      inputDevices: wire.InputDeviceCapabilitiesObjectBuilder(
+        hasTouchpad: hasTouchpad,
+        touchpad: wire.TouchpadConfigurationObjectBuilder(
+          tapToClickEnabled: tapToClickEnabled,
+          naturalScrollEnabled: naturalScrollEnabled,
+        ),
       ),
     ),
     requestId: requestId,

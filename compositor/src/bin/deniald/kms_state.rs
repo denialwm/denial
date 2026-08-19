@@ -32,6 +32,7 @@ pub(super) struct ConnectedOutput {
     pub(super) connector: connector::Handle,
     pub(super) crtc: crtc::Handle,
     pub(super) mode: Mode,
+    pub(super) transform: OutputTransform,
     pub(super) vrr_enabled: bool,
 }
 
@@ -246,6 +247,7 @@ pub(super) struct AtlasPlaneProperties {
     pub(super) source_y: property::Handle,
     pub(super) source_width: property::Handle,
     pub(super) source_height: property::Handle,
+    pub(super) rotation: Option<property::Handle>,
     pub(super) in_fence_fd: Option<property::Handle>,
     pub(super) smithay_opaque_alpha: f32,
 }
@@ -274,9 +276,45 @@ impl AtlasPlaneProperties {
             source_y: named_property(drm, plane, "SRC_Y")?,
             source_width: named_property(drm, plane, "SRC_W")?,
             source_height: named_property(drm, plane, "SRC_H")?,
+            rotation: optional_named_property(drm, plane, "rotation")?,
             in_fence_fd: optional_named_property(drm, plane, "IN_FENCE_FD")?,
             smithay_opaque_alpha,
         })
+    }
+}
+
+impl Scanout {
+    pub(super) fn rotation_property(
+        &self,
+    ) -> Result<Option<(property::Handle, u64)>, Box<dyn Error>> {
+        match self.plane_properties.rotation {
+            Some(property) => Ok(Some((property, drm_rotation(self.output.transform)))),
+            None if self.output.transform == OutputTransform::Normal => Ok(None),
+            None => Err(format!(
+                "{} primary plane does not expose the DRM rotation property required for {:?}",
+                self.output.name, self.output.transform
+            )
+            .into()),
+        }
+    }
+}
+
+const fn drm_rotation(transform: OutputTransform) -> u64 {
+    const ROTATE_0: u64 = 1 << 0;
+    const ROTATE_90: u64 = 1 << 1;
+    const ROTATE_180: u64 = 1 << 2;
+    const ROTATE_270: u64 = 1 << 3;
+    const REFLECT_Y: u64 = 1 << 5;
+
+    match transform {
+        OutputTransform::Normal => ROTATE_0,
+        OutputTransform::Rotate90 => ROTATE_90,
+        OutputTransform::Rotate180 => ROTATE_180,
+        OutputTransform::Rotate270 => ROTATE_270,
+        OutputTransform::Flipped => REFLECT_Y,
+        OutputTransform::Flipped90 => REFLECT_Y | ROTATE_90,
+        OutputTransform::Flipped180 => REFLECT_Y | ROTATE_180,
+        OutputTransform::Flipped270 => REFLECT_Y | ROTATE_270,
     }
 }
 
@@ -361,14 +399,49 @@ impl AtlasAllocator {
         &mut self,
         size: PixelSize,
         modifiers: &[Modifier],
+        linear_render_target: bool,
     ) -> Result<AtlasBuffer, Box<dyn Error>> {
-        AtlasBuffer::allocate_gbm(
+        let mut buffer = AtlasBuffer::allocate_gbm(
             &mut self.allocator,
             &self.drm_fd,
             self.cross_device,
             size,
             modifiers,
-        )
+        )?;
+        if linear_render_target {
+            buffer.render_target = Some(LinearRenderBuffer::allocate(&mut self.allocator, size)?);
+        }
+        Ok(buffer)
+    }
+}
+
+struct LinearRenderBuffer {
+    dmabuf: Dmabuf,
+    _buffer: GbmBuffer,
+}
+
+impl LinearRenderBuffer {
+    fn allocate(
+        allocator: &mut GbmAllocator<DrmDeviceFd>,
+        size: PixelSize,
+    ) -> Result<Self, Box<dyn Error>> {
+        let buffer = allocator.create_buffer(
+            size.width,
+            size.height,
+            Fourcc::Xrgb8888,
+            &[Modifier::Linear],
+        )?;
+        let format = smithay::backend::allocator::Buffer::format(&buffer);
+        if format.code != Fourcc::Xrgb8888 || format.modifier != Modifier::Linear {
+            return Err(
+                format!("offscreen Flutter render target is not linear XR24: {format:?}").into(),
+            );
+        }
+        let dmabuf = buffer.export()?;
+        Ok(Self {
+            dmabuf,
+            _buffer: buffer,
+        })
     }
 }
 
@@ -377,6 +450,7 @@ pub(super) struct AtlasBuffer {
     framebuffer: AtlasFramebuffer,
     pub(super) dmabuf: Dmabuf,
     format: Format,
+    render_target: Option<LinearRenderBuffer>,
     _buffer: GbmBuffer,
 }
 
@@ -401,6 +475,7 @@ impl AtlasBuffer {
             framebuffer,
             dmabuf,
             format,
+            render_target: None,
             _buffer: buffer,
         })
     }
@@ -411,6 +486,14 @@ impl AtlasBuffer {
 
     pub(super) fn format(&self) -> Format {
         self.format
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn flutter_target_dmabufs(&self) -> (&Dmabuf, Option<&Dmabuf>) {
+        (
+            &self.dmabuf,
+            self.render_target.as_ref().map(|target| &target.dmabuf),
+        )
     }
 }
 
@@ -525,6 +608,7 @@ pub(super) struct LayoutTransition {
 pub(super) struct FlutterLauncher {
     factory: Option<flutter_runtime::FlutterRuntimeFactory>,
     renderer_backend: denial_flutter_engine::RendererBackend,
+    offscreen_blit: bool,
     active_mode: ui_development::UiRuntimeMode,
     resident_jit_engine_fingerprint: Option<[u8; 32]>,
     ui_development: ui_development::UiDevelopmentController,
@@ -542,6 +626,7 @@ pub(super) struct FlutterLauncher {
 pub(super) struct FlutterLaunchConfiguration<'a> {
     pub(super) bundle: &'a Path,
     pub(super) renderer_backend: denial_flutter_engine::RendererBackend,
+    pub(super) offscreen_blit: bool,
     pub(super) debug_bundle: Option<PathBuf>,
     pub(super) ui_workspace: Option<PathBuf>,
 }
@@ -569,6 +654,7 @@ impl FlutterLauncher {
                 configuration.renderer_backend,
             )?),
             renderer_backend: configuration.renderer_backend,
+            offscreen_blit: configuration.offscreen_blit,
             active_mode: ui_development::UiRuntimeMode::OfficialOptimized,
             resident_jit_engine_fingerprint: None,
             ui_development,
@@ -581,6 +667,10 @@ impl FlutterLauncher {
             work_area,
             generation: 0,
         })
+    }
+
+    pub(super) fn uses_offscreen_blit(&self) -> bool {
+        self.offscreen_blit
     }
 
     pub(super) fn start(
@@ -613,7 +703,10 @@ impl FlutterLauncher {
             .ok_or("Flutter runtime has no output refresh")?;
         let runtime = self.start_with_current_factory(
             renderer.egl_context(),
-            swapchain.buffers.iter().map(|buffer| &buffer.dmabuf),
+            swapchain
+                .buffers
+                .iter()
+                .map(AtlasBuffer::flutter_target_dmabufs),
             swapchain.current,
             swapchain.size,
             snapshot,
@@ -635,7 +728,10 @@ impl FlutterLauncher {
                 self.replace_factory(ui_development::UiRuntimeMode::OfficialOptimized)?;
                 self.start_with_current_factory(
                     renderer.egl_context(),
-                    swapchain.buffers.iter().map(|buffer| &buffer.dmabuf),
+                    swapchain
+                        .buffers
+                        .iter()
+                        .map(AtlasBuffer::flutter_target_dmabufs),
                     swapchain.current,
                     swapchain.size,
                     snapshot,
@@ -656,7 +752,7 @@ impl FlutterLauncher {
     fn start_with_current_factory<'a>(
         &self,
         shared_context: &EGLContext,
-        dmabufs: impl IntoIterator<Item = &'a Dmabuf>,
+        dmabufs: impl IntoIterator<Item = (&'a Dmabuf, Option<&'a Dmabuf>)>,
         initial_scanout: usize,
         size: PixelSize,
         snapshot: &TopologySnapshot,
@@ -664,6 +760,16 @@ impl FlutterLauncher {
         scanouts: &[Scanout],
         refresh_millihz: u32,
     ) -> Result<flutter_runtime::FlutterRuntime, Box<dyn Error>> {
+        if let Some(scanout) = scanouts
+            .iter()
+            .find(|scanout| scanout.plane_properties.in_fence_fd.is_none())
+        {
+            return Err(format!(
+                "{} primary KMS plane does not advertise IN_FENCE_FD; Denial requires explicit scanout fencing",
+                scanout.output.name
+            )
+            .into());
+        }
         flutter_runtime::FlutterRuntime::start(
             shared_context,
             dmabufs,
@@ -672,6 +778,7 @@ impl FlutterLauncher {
             snapshot,
             atlas,
             refresh_millihz,
+            self.offscreen_blit,
             self.factory
                 .as_ref()
                 .ok_or("Flutter launcher has no active runtime factory")?,
@@ -680,9 +787,6 @@ impl FlutterLauncher {
             self.clipboard.clone(),
             self.work_area.clone(),
             self.generation,
-            scanouts
-                .iter()
-                .all(|scanout| scanout.plane_properties.in_fence_fd.is_some()),
             self.wayland_display.clone(),
             self.x11_display.clone(),
             self.output_control_socket.clone(),
@@ -869,24 +973,12 @@ fn common_xrgb8888_modifiers<'a>(
         .collect()
 }
 
-/// Return XR24 modifiers that every primary plane can scan out and EGL can
-/// render into. Plane order is retained: DRM exposes the driver's preferred
-/// tiled/compressed layouts first and LINEAR last on hardware that supports
-/// both. If EGL only advertises the legacy implicit modifier, restrict the
-/// result to LINEAR rather than guessing that a vendor modifier is renderable.
-pub(super) fn shared_atlas_modifiers(
-    scanouts: &[Scanout],
+fn compatible_xrgb8888_modifiers<'a>(
+    plane_formats: impl IntoIterator<Item = &'a FormatSet>,
     render_formats: &FormatSet,
-) -> Result<Vec<Modifier>, Box<dyn Error>> {
-    if scanouts.is_empty() {
-        return Err("shared atlas modifier selection needs at least one primary plane".into());
-    }
-
-    let mut modifiers = common_xrgb8888_modifiers(
-        scanouts
-            .iter()
-            .map(|scanout| &scanout.surface.plane_info().formats),
-    );
+) -> Vec<Modifier> {
+    let plane_formats = plane_formats.into_iter().collect::<Vec<_>>();
+    let mut modifiers = common_xrgb8888_modifiers(plane_formats.iter().copied());
     let renderer_has_explicit_modifiers = render_formats
         .iter()
         .any(|format| format.code == Fourcc::Xrgb8888 && format.modifier != Modifier::Invalid);
@@ -900,6 +992,47 @@ pub(super) fn shared_atlas_modifiers(
     } else {
         modifiers.retain(|modifier| *modifier == Modifier::Linear);
     }
+
+    let implicit_xrgb8888 = Format {
+        code: Fourcc::Xrgb8888,
+        modifier: Modifier::Invalid,
+    };
+    if modifiers.is_empty()
+        && !plane_formats.is_empty()
+        && plane_formats
+            .iter()
+            .all(|formats| formats.contains(&implicit_xrgb8888))
+        && render_formats.contains(&implicit_xrgb8888)
+    {
+        // GBM may satisfy this through an explicit LINEAR allocation or its
+        // legacy implicit allocation path. Both are safe when every consumer
+        // advertises implicit XR24, unlike guessing a vendor modifier.
+        modifiers.push(Modifier::Linear);
+    }
+
+    modifiers
+}
+
+/// Return XR24 modifiers that every primary plane can scan out and EGL can
+/// render into. Plane order is retained: DRM exposes the driver's preferred
+/// tiled/compressed layouts first and LINEAR last on hardware that supports
+/// both. If there is no explicit intersection but every consumer advertises
+/// legacy implicit XR24, fall back to a LINEAR allocation request rather than
+/// guessing that a vendor modifier is renderable.
+pub(super) fn shared_atlas_modifiers(
+    scanouts: &[Scanout],
+    render_formats: &FormatSet,
+) -> Result<Vec<Modifier>, Box<dyn Error>> {
+    if scanouts.is_empty() {
+        return Err("shared atlas modifier selection needs at least one primary plane".into());
+    }
+
+    let modifiers = compatible_xrgb8888_modifiers(
+        scanouts
+            .iter()
+            .map(|scanout| &scanout.surface.plane_info().formats),
+        render_formats,
+    );
 
     if modifiers.is_empty() {
         let outputs = scanouts
@@ -921,7 +1054,7 @@ impl AtlasSwapchain {
         size: PixelSize,
         modifiers: &[Modifier],
     ) -> Result<Self, Box<dyn Error>> {
-        Self::allocate_pool(allocator, size, 2, modifiers)
+        Self::allocate_pool(allocator, size, 2, modifiers, false)
     }
 
     pub(super) fn allocate_pool(
@@ -929,6 +1062,7 @@ impl AtlasSwapchain {
         size: PixelSize,
         length: usize,
         modifiers: &[Modifier],
+        linear_render_targets: bool,
     ) -> Result<Self, Box<dyn Error>> {
         if length < 2 {
             return Err("an atlas swapchain needs at least two buffers".into());
@@ -946,7 +1080,7 @@ impl AtlasSwapchain {
 
         let allocate = |allocator: &mut AtlasAllocator, modifiers: &[Modifier]| {
             (0..length)
-                .map(|_| allocator.allocate(size, modifiers))
+                .map(|_| allocator.allocate(size, modifiers, linear_render_targets))
                 .collect::<Result<Vec<_>, _>>()
         };
         let buffers = if optimized.is_empty() {
@@ -1732,8 +1866,8 @@ mod tests {
     use super::{
         Format, FormatSet, Fourcc, GbmBufferFlags, Modifier, PixelSize, ScanoutIdentity,
         ScanoutIdentityError, atlas_gbm_flags, common_xrgb8888_modifiers,
-        inherited_plane_needs_release, smithay_opaque_alpha_for_maximum, validate_atlas_allocation,
-        validate_scanout_identities,
+        compatible_xrgb8888_modifiers, inherited_plane_needs_release,
+        smithay_opaque_alpha_for_maximum, validate_atlas_allocation, validate_scanout_identities,
     };
     #[cfg(feature = "flutter")]
     use super::{ensure_resident_jit_engine_matches, flutter_pool_length};
@@ -1830,6 +1964,53 @@ mod tests {
             common_xrgb8888_modifiers([&first, &second]),
             vec![preferred, Modifier::Linear]
         );
+    }
+
+    #[test]
+    fn atlas_modifier_selection_falls_back_to_linear_for_implicit_xr24() {
+        let plane = [Format {
+            code: Fourcc::Xrgb8888,
+            modifier: Modifier::Invalid,
+        }]
+        .into_iter()
+        .collect::<FormatSet>();
+        let renderer_modifier = Modifier::from(0x0200_0000_0082_0405_u64);
+        let renderer = [
+            Format {
+                code: Fourcc::Xrgb8888,
+                modifier: renderer_modifier,
+            },
+            Format {
+                code: Fourcc::Xrgb8888,
+                modifier: Modifier::Invalid,
+            },
+        ]
+        .into_iter()
+        .collect::<FormatSet>();
+
+        assert_eq!(
+            compatible_xrgb8888_modifiers([&plane], &renderer),
+            vec![Modifier::Linear]
+        );
+    }
+
+    #[test]
+    fn atlas_modifier_selection_requires_implicit_xr24_from_every_consumer() {
+        let implicit = [Format {
+            code: Fourcc::Xrgb8888,
+            modifier: Modifier::Invalid,
+        }]
+        .into_iter()
+        .collect::<FormatSet>();
+        let explicit_only = [Format {
+            code: Fourcc::Xrgb8888,
+            modifier: Modifier::from(0x0200_0000_0082_0405_u64),
+        }]
+        .into_iter()
+        .collect::<FormatSet>();
+
+        assert!(compatible_xrgb8888_modifiers([&implicit], &explicit_only).is_empty());
+        assert!(compatible_xrgb8888_modifiers([&implicit, &explicit_only], &implicit).is_empty());
     }
 
     #[test]

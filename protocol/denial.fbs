@@ -86,12 +86,69 @@ enum SettingsRequestKind : ubyte {
   ReadDocument = 0,
   WriteDocument = 1,
   ReadKeyboard = 2,
-  ConfigureKeyboard = 3
+  ConfigureKeyboard = 3,
+  ReadShortcuts = 4,
+  ValidateShortcut = 5,
+  AddShortcut = 6,
+  UpdateShortcut = 7,
+  RemoveShortcut = 8,
+  RestoreShortcuts = 9,
+  ReadInputDevices = 10,
+  ConfigureTouchpad = 11
 }
 
 enum SettingsResponseKind : ubyte {
   Document = 0,
-  Keyboard = 1
+  Keyboard = 1,
+  Shortcuts = 2,
+  ShortcutValidation = 3,
+  InputDevices = 4
+}
+
+enum ShortcutActionKind : ubyte {
+  Shutdown = 0,
+  OpenApplications = 1,
+  OpenOverview = 2,
+  ToggleVerticalMaximize = 3,
+  WindowSwitcher = 4,
+  OpenClipboard = 5,
+  CaptureRegion = 6,
+  CloseWindow = 7,
+  MinimizeWindow = 8,
+  ToggleMaximize = 9,
+  ToggleFullscreen = 10,
+  ReleasePointer = 11,
+  LockScreen = 12,
+  VolumeUp = 13,
+  VolumeDown = 14,
+  VolumeMute = 15,
+  BrightnessUp = 16,
+  BrightnessDown = 17,
+  NextKeyboardLayout = 18,
+  PreviousKeyboardLayout = 19
+}
+
+enum ShortcutInputKind : ubyte {
+  Key = 0,
+  Gesture = 1
+}
+
+enum ShortcutInputCategory : ubyte {
+  Modifier = 0,
+  Navigation = 1,
+  Editing = 2,
+  Punctuation = 3,
+  Function = 4,
+  Media = 5,
+  Hardware = 6,
+  Special = 7,
+  Gesture = 8
+}
+
+enum ShortcutValidationKind : ubyte {
+  Valid = 0,
+  Conflict = 1,
+  Invalid = 2
 }
 
 enum DesktopNotificationEventKind : ubyte {
@@ -165,6 +222,9 @@ table InputLayout {
   // independent from hit-test regions: a negative-z subsurface can be visible
   // without ever being the input target.
   visible_surface_ids:[ulong];
+  // Compositor-owned software-keyboard surfaces. Touching these regions must
+  // preserve the active client editor instead of behaving like an outside tap.
+  software_keyboard_regions:[WireRect];
 }
 
 table SurfaceLayer {
@@ -254,6 +314,11 @@ table Window {
 
 table WindowSnapshot {
   windows:[Window];
+  // Windows already published to the Flutter runtime that this one replaced.
+  // The replacement shell reconstructs them without replaying their entrance;
+  // windows mapped after the replacement are intentionally absent.
+  // Appended for wire compatibility: older senders/receivers default empty.
+  restored_window_ids:[ulong];
 }
 
 table DisplayOutput {
@@ -301,6 +366,11 @@ table WindowRequest {
   // the native compositor remains authoritative over the resolved layout.
   system_bar_side:SystemBarSide = Top;
   system_bar_monitor_ids:[long];
+  // ConfigureWindow.flags bit 0 requests an exact compositor-owned viewport.
+  // The native compositor ignores client size hints and retains this geometry
+  // across client-authored maximize/fullscreen requests until a later normal
+  // ConfigureWindow releases it.
+  flags:uint;
 }
 
 table WindowResponse {
@@ -338,7 +408,24 @@ table CursorPosition {
   y:double;
 }
 
-// KeyboardCommand.flags bit 0 means Ctrl is held.
+// Native-authoritative editor and software-keyboard state. An active editor
+// is the protocol-level answer to whether the focused control accepts text;
+// input_panel_visible additionally respects explicit client show/hide hints.
+// Content metadata lets future keyboard layouts select text, number, URL,
+// email, and password arrangements without inferring from application names.
+table TextInputState {
+  active:bool;
+  input_panel_visible:bool;
+  // True only for Denial's protocol-free focused-seat fallback. Consumers
+  // may restrict that fallback without weakening real text-input clients.
+  legacy:bool;
+  content_hint:uint;
+  content_purpose:uint;
+}
+
+// KeyboardCommand.flags: bit 0 means Ctrl is held; bit 1 is key press; bit 2
+// is key release. Neither phase bit means a complete tap. Press and release
+// are mutually exclusive, and modifiers are carried only by complete taps.
 table KeyboardCommand {
   kind:KeyboardCommandKind = Text;
   text:string;
@@ -363,6 +450,62 @@ table KeyboardConfiguration {
   active_layout:uint;
 }
 
+table ShortcutDenialActionTarget {
+  action:ShortcutActionKind = Shutdown;
+}
+
+table ShortcutSpawnTarget {
+  // Program followed by its exact argument vector.
+  command:[string];
+}
+
+table ShortcutSpawnShTarget {
+  // One command passed verbatim to `sh -c`.
+  command:string;
+}
+
+union ShortcutTarget {
+  ShortcutDenialActionTarget,
+  ShortcutSpawnTarget,
+  ShortcutSpawnShTarget
+}
+
+table ShortcutBinding {
+  // Canonical shortcut text is the binding's unique identity.
+  shortcut:string;
+  target:ShortcutTarget;
+}
+
+table ShortcutInput {
+  canonical:string;
+  kind:ShortcutInputKind = Key;
+  category:ShortcutInputCategory = Editing;
+  aliases:[string];
+}
+
+table ShortcutConfiguration {
+  shortcuts:[ShortcutBinding];
+  supported_actions:[ShortcutActionKind];
+  supported_inputs:[ShortcutInput];
+}
+
+table ShortcutValidation {
+  kind:ShortcutValidationKind = Valid;
+  canonical:string;
+  conflict:ShortcutBinding;
+  error:string;
+}
+
+table InputDeviceCapabilities {
+  has_touchpad:bool;
+  touchpad:TouchpadConfiguration;
+}
+
+table TouchpadConfiguration {
+  tap_to_click_enabled:bool = true;
+  natural_scroll_enabled:bool;
+}
+
 table SettingsRequest {
   kind:SettingsRequestKind = ReadDocument;
   expected_revision:ulong;
@@ -370,6 +513,13 @@ table SettingsRequest {
   document:string;
   // ConfigureKeyboard only.
   keyboard:KeyboardConfiguration;
+  // ValidateShortcut, AddShortcut and UpdateShortcut.
+  shortcut:ShortcutBinding;
+  // The current canonical identity for editing/removing a binding. Validation
+  // uses it to exclude the row currently being edited from conflict checks.
+  existing_shortcut:string;
+  // ConfigureTouchpad only.
+  touchpad:TouchpadConfiguration;
 }
 
 table SettingsResponse {
@@ -379,6 +529,9 @@ table SettingsResponse {
   document:string;
   keyboard:KeyboardConfiguration;
   error:string;
+  shortcuts:ShortcutConfiguration;
+  shortcut_validation:ShortcutValidation;
+  input_devices:InputDeviceCapabilities;
 }
 
 table DesktopNotificationAction {
@@ -452,7 +605,8 @@ union Payload {
   DesktopNotificationEvent,
   DesktopNotificationCommand,
   SettingsRequest,
-  SettingsResponse
+  SettingsResponse,
+  TextInputState
 }
 
 table Envelope {

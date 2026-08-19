@@ -5,7 +5,10 @@
 //! lets the shell, Wayland clients, and an external engine meet at one
 //! routing boundary.
 
-use std::mem;
+use std::{
+    mem,
+    time::{Duration, Instant},
+};
 
 use smithay::input::Seat;
 use smithay::reexports::wayland_protocols::wp::text_input::zv3::server::{
@@ -18,7 +21,7 @@ use smithay::reexports::wayland_server::{
     Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
 };
 use smithay::utils::Rectangle;
-use tracing::{debug, warn};
+use tracing::debug;
 
 #[cfg(feature = "flutter")]
 use super::super::flutter_runtime::TextInputSnapshot;
@@ -29,7 +32,7 @@ const MANAGER_VERSION: u32 = 2;
 const MAX_TEXT_INPUTS: usize = 1024;
 const MAX_TEXT_INPUTS_PER_CLIENT: usize = 16;
 const MAX_SURROUNDING_TEXT_BYTES: usize = 4000;
-const MAX_COMMIT_STRING_BYTES: usize = 4000;
+const TOUCH_AUTHORIZATION_WINDOW: Duration = Duration::from_millis(250);
 
 #[cfg(feature = "flutter")]
 fn finite_i32(value: f64) -> i32 {
@@ -92,6 +95,8 @@ struct Instance<I, C> {
     pending: PendingState,
     current: EditorState,
     input_panel_visible_hint: Option<bool>,
+    touch_dismissed: bool,
+    touch_authorization_deadline: Option<Instant>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -162,6 +167,8 @@ where
             pending: PendingState::default(),
             current: EditorState::default(),
             input_panel_visible_hint: None,
+            touch_dismissed: true,
+            touch_authorization_deadline: None,
         });
         entered
     }
@@ -190,6 +197,8 @@ where
             instance.pending = PendingState::default();
             instance.current = EditorState::default();
             instance.input_panel_visible_hint = None;
+            instance.touch_dismissed = true;
+            instance.touch_authorization_deadline = None;
         }
 
         self.focus = focus;
@@ -277,10 +286,50 @@ where
             .instances
             .iter_mut()
             .find(|instance| &instance.id == id && instance.entered)
-            && instance.input_panel_visible_hint != Some(visible)
         {
-            instance.input_panel_visible_hint = Some(visible);
+            if instance.input_panel_visible_hint != Some(visible) {
+                instance.input_panel_visible_hint = Some(visible);
+            }
+            let touch_authorized = instance
+                .touch_authorization_deadline
+                .is_some_and(|deadline| Instant::now() <= deadline);
+            if visible && touch_authorized {
+                instance.touch_dismissed = false;
+            } else if !visible {
+                instance.touch_authorization_deadline = None;
+                instance.touch_dismissed = true;
+            }
         }
+    }
+
+    /// Start a short-lived authorization transaction for a client touch.
+    ///
+    /// The client gets the touch immediately afterward. An editor must commit
+    /// fresh state before the authorization expires. Programmatic focus and
+    /// delayed lifecycle updates therefore cannot open the software keyboard.
+    fn begin_touch_authorization(&mut self) -> bool {
+        let deadline = Instant::now() + TOUCH_AUTHORIZATION_WINDOW;
+        let active = self.active.clone();
+        let mut has_protocol_endpoint = false;
+        for instance in self
+            .instances
+            .iter_mut()
+            .filter(|instance| instance.entered)
+        {
+            has_protocol_endpoint = true;
+            instance.touch_authorization_deadline = Some(deadline);
+            if active.as_ref() == Some(&instance.id) {
+                instance.touch_dismissed = true;
+            }
+        }
+        has_protocol_endpoint
+    }
+
+    fn consume_touch_authorization(instance: &mut Instance<I, C>) -> bool {
+        instance
+            .touch_authorization_deadline
+            .take()
+            .is_some_and(|deadline| Instant::now() <= deadline)
     }
 
     fn commit(&mut self, id: &I) -> CommitEffect {
@@ -297,6 +346,11 @@ where
         }
 
         let pending = mem::take(&mut self.instances[index].pending);
+        let touch_authorized = Self::consume_touch_authorization(&mut self.instances[index]);
+        let editor_engaged = pending.enabled == Some(true)
+            || pending.surrounding.is_some()
+            || pending.content_type.is_some()
+            || pending.cursor_rectangle.is_some();
         match pending.enabled {
             Some(true) => {
                 if self.active.as_ref().is_some_and(|active| active != id) {
@@ -305,6 +359,7 @@ where
                 self.active = Some(id.clone());
                 self.instances[index].current = EditorState::default();
                 Self::apply_pending(&mut self.instances[index], pending);
+                self.instances[index].touch_dismissed = !touch_authorized;
                 CommitEffect::Activated
             }
             Some(false) => {
@@ -312,6 +367,7 @@ where
                     self.active = None;
                     self.instances[index].current = EditorState::default();
                     self.instances[index].input_panel_visible_hint = None;
+                    self.instances[index].touch_dismissed = true;
                     CommitEffect::Deactivated
                 } else {
                     CommitEffect::Ignored
@@ -322,6 +378,9 @@ where
                     return CommitEffect::Ignored;
                 }
                 Self::apply_pending(&mut self.instances[index], pending);
+                if editor_engaged && touch_authorized {
+                    self.instances[index].touch_dismissed = false;
+                }
                 CommitEffect::Updated
             }
         }
@@ -396,6 +455,7 @@ struct FlutterEditor {
     revision: u64,
     client_id: i64,
     active: bool,
+    input_panel_visible: bool,
     secure: bool,
     surrounding_text: Option<(String, u32, u32)>,
     content_hint: u32,
@@ -403,24 +463,22 @@ struct FlutterEditor {
     cursor_rectangle: Option<CursorRectangle>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ShellCommandTarget {
-    Flutter,
-    WaylandText,
-    Seat,
-    Captured,
-    None,
-}
-
 #[derive(Debug, Default)]
 struct TextSessionBroker {
     seat_focus: SeatFocusKind,
     shell_capture: bool,
     flutter: Option<FlutterEditor>,
+    legacy_touch_keyboard: bool,
+    flutter_panel_authorized: bool,
+    flutter_touch_authorization_deadline: Option<Instant>,
+    activation_serial: u64,
 }
 
 impl TextSessionBroker {
     fn set_seat_focus(&mut self, focus: SeatFocusKind) {
+        if self.seat_focus != focus {
+            self.legacy_touch_keyboard = false;
+        }
         self.seat_focus = focus;
     }
 
@@ -428,8 +486,25 @@ impl TextSessionBroker {
         self.shell_capture = capture;
     }
 
+    fn note_client_touch(&mut self, protocol_available: bool) {
+        self.activation_serial = self.activation_serial.wrapping_add(1);
+        self.legacy_touch_keyboard = !protocol_available
+            && matches!(
+                self.seat_focus,
+                SeatFocusKind::Wayland | SeatFocusKind::Xwayland
+            );
+    }
+
+    fn note_flutter_touch(&mut self) {
+        self.legacy_touch_keyboard = false;
+        self.flutter_touch_authorization_deadline =
+            Some(Instant::now() + TOUCH_AUTHORIZATION_WINDOW);
+    }
+
     fn retire_flutter_generation(&mut self) {
         self.flutter = None;
+        self.flutter_panel_authorized = false;
+        self.flutter_touch_authorization_deadline = None;
     }
 
     #[cfg(feature = "flutter")]
@@ -440,6 +515,20 @@ impl TextSessionBroker {
         }) {
             return false;
         }
+        if self
+            .flutter_touch_authorization_deadline
+            .is_some_and(|deadline| Instant::now() > deadline)
+        {
+            self.flutter_touch_authorization_deadline = None;
+        }
+        if snapshot.active && snapshot.input_panel_visible {
+            if self.flutter_touch_authorization_deadline.take().is_some() {
+                self.flutter_panel_authorized = true;
+                self.activation_serial = self.activation_serial.wrapping_add(1);
+            }
+        } else {
+            self.flutter_panel_authorized = false;
+        }
         let revision = snapshot.revision;
         self.flutter = Some(FlutterEditor {
             generation,
@@ -447,6 +536,7 @@ impl TextSessionBroker {
             revision,
             client_id: snapshot.client_id,
             active: snapshot.active,
+            input_panel_visible: snapshot.input_panel_visible,
             secure: snapshot.secure,
             surrounding_text: snapshot
                 .surrounding_text
@@ -463,40 +553,20 @@ impl TextSessionBroker {
         true
     }
 
+    #[cfg(test)]
     fn flutter_editor_active(&self) -> bool {
         self.flutter.as_ref().is_some_and(|editor| editor.active)
     }
+}
 
-    fn text_target(&self, wayland_editor_active: bool) -> ShellCommandTarget {
-        if self.shell_capture {
-            return if self.flutter_editor_active() {
-                ShellCommandTarget::Flutter
-            } else {
-                ShellCommandTarget::Captured
-            };
-        }
-        match self.seat_focus {
-            SeatFocusKind::Wayland if wayland_editor_active => ShellCommandTarget::WaylandText,
-            SeatFocusKind::Wayland | SeatFocusKind::Xwayland => ShellCommandTarget::Seat,
-            SeatFocusKind::None if self.flutter_editor_active() => ShellCommandTarget::Flutter,
-            SeatFocusKind::None => ShellCommandTarget::None,
-        }
-    }
-
-    fn key_target(&self) -> ShellCommandTarget {
-        if self.shell_capture {
-            return if self.flutter_editor_active() {
-                ShellCommandTarget::Flutter
-            } else {
-                ShellCommandTarget::Captured
-            };
-        }
-        match self.seat_focus {
-            SeatFocusKind::Wayland | SeatFocusKind::Xwayland => ShellCommandTarget::Seat,
-            SeatFocusKind::None if self.flutter_editor_active() => ShellCommandTarget::Flutter,
-            SeatFocusKind::None => ShellCommandTarget::None,
-        }
-    }
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct SoftwareKeyboardState {
+    pub active: bool,
+    pub input_panel_visible: bool,
+    pub legacy: bool,
+    pub content_hint: u32,
+    pub content_purpose: u32,
+    pub activation_serial: u64,
 }
 
 #[derive(Debug)]
@@ -552,10 +622,13 @@ impl TextInputManager {
         surface: Option<WlSurface>,
         focus_kind: SeatFocusKind,
     ) {
+        let surface_changed =
+            self.focus_surface.as_ref().map(Resource::id) != surface.as_ref().map(Resource::id);
         self.broker.set_seat_focus(focus_kind);
-        if self.focus_surface.as_ref().map(Resource::id) == surface.as_ref().map(Resource::id) {
+        if !surface_changed {
             return;
         }
+        self.broker.legacy_touch_keyboard = false;
 
         let old_surface = self.focus_surface.take();
         let left = self.sessions.set_focus(None).left;
@@ -607,13 +680,82 @@ impl TextInputManager {
         self.broker.retire_flutter_generation();
     }
 
-    pub(super) fn text_target(&self) -> ShellCommandTarget {
-        self.broker
-            .text_target(self.sessions.active_serial().is_some())
+    /// Begin compositor software-keyboard policy for a client touch.
+    ///
+    /// Protocol-aware editors must publish fresh state after the touch to
+    /// reopen. Clients with no text-input protocol endpoint use the focused
+    /// seat fallback, which is required for terminals and Xwayland apps.
+    pub(super) fn note_client_touch(&mut self) {
+        let protocol_available = self.sessions.begin_touch_authorization();
+        self.broker.note_client_touch(protocol_available);
     }
 
-    pub(super) fn key_target(&self) -> ShellCommandTarget {
-        self.broker.key_target()
+    /// A compositor-owned touch is outside the client editor boundary.
+    pub(super) fn note_flutter_touch(&mut self) {
+        self.sessions.begin_touch_authorization();
+        self.broker.note_flutter_touch();
+    }
+
+    pub(super) fn software_keyboard_state(&self) -> SoftwareKeyboardState {
+        if self.broker.shell_capture {
+            return self.flutter_software_keyboard_state();
+        }
+        match self.broker.seat_focus {
+            SeatFocusKind::Wayland => self.wayland_software_keyboard_state(),
+            SeatFocusKind::Xwayland => self.legacy_software_keyboard_state(),
+            SeatFocusKind::None => self.flutter_software_keyboard_state(),
+        }
+    }
+
+    fn wayland_software_keyboard_state(&self) -> SoftwareKeyboardState {
+        let Some(active) = self.sessions.active.as_ref() else {
+            return self.legacy_software_keyboard_state();
+        };
+        let Some(instance) = self
+            .sessions
+            .instances
+            .iter()
+            .find(|instance| &instance.id == active && instance.entered)
+        else {
+            return self.legacy_software_keyboard_state();
+        };
+        let (content_hint, content_purpose) = instance.current.content_type.unwrap_or_default();
+        SoftwareKeyboardState {
+            active: true,
+            input_panel_visible: instance.input_panel_visible_hint.unwrap_or(true)
+                && !instance.touch_dismissed,
+            legacy: false,
+            content_hint,
+            content_purpose,
+            activation_serial: self.broker.activation_serial,
+        }
+    }
+
+    fn legacy_software_keyboard_state(&self) -> SoftwareKeyboardState {
+        SoftwareKeyboardState {
+            active: self.broker.legacy_touch_keyboard,
+            input_panel_visible: self.broker.legacy_touch_keyboard,
+            legacy: true,
+            activation_serial: self.broker.activation_serial,
+            ..SoftwareKeyboardState::default()
+        }
+    }
+
+    fn flutter_software_keyboard_state(&self) -> SoftwareKeyboardState {
+        let Some(editor) = self.broker.flutter.as_ref().filter(|editor| editor.active) else {
+            return SoftwareKeyboardState {
+                activation_serial: self.broker.activation_serial,
+                ..SoftwareKeyboardState::default()
+            };
+        };
+        SoftwareKeyboardState {
+            active: true,
+            input_panel_visible: editor.input_panel_visible && self.broker.flutter_panel_authorized,
+            legacy: false,
+            content_hint: editor.content_hint,
+            content_purpose: editor.content_purpose,
+            activation_serial: self.broker.activation_serial,
+        }
     }
 
     pub(super) fn input_method_snapshot(&self) -> Option<EditorSnapshot> {
@@ -684,28 +826,6 @@ impl TextInputManager {
                 )
             }),
         })
-    }
-
-    pub(super) fn commit_text(&mut self, text: &str) -> bool {
-        let Some((id, serial)) = self.sessions.active_serial() else {
-            return false;
-        };
-        let Some(resource) = self.resource(&id).cloned() else {
-            self.sessions.remove(&id);
-            return false;
-        };
-        if text.contains('\0') {
-            warn!("refused a NUL-containing text-input commit");
-            return false;
-        }
-        if text.is_empty() {
-            return true;
-        }
-        for chunk in utf8_chunks(text, MAX_COMMIT_STRING_BYTES) {
-            resource.commit_string(Some(chunk.to_owned()));
-            resource.done(serial);
-        }
-        true
     }
 
     #[allow(dead_code)]
@@ -865,7 +985,10 @@ impl Dispatch<ZwpTextInputV3, TextInputUserData> for RuntimeState {
                 },
             ),
             zwp_text_input_v3::Request::Commit => {
-                sessions.commit(&id);
+                let effect = sessions.commit(&id);
+                if matches!(effect, CommitEffect::Activated | CommitEffect::Updated) {
+                    frontend.text_input.broker.legacy_touch_keyboard = false;
+                }
             }
             zwp_text_input_v3::Request::SetAvailableActions { available_actions } => {
                 match parse_available_actions(&available_actions) {
@@ -943,22 +1066,6 @@ fn parse_available_actions(bytes: &[u8]) -> Option<Vec<u32>> {
     Some(actions)
 }
 
-fn utf8_chunks(text: &str, max_bytes: usize) -> impl Iterator<Item = &str> {
-    let mut remaining = text;
-    std::iter::from_fn(move || {
-        if remaining.is_empty() {
-            return None;
-        }
-        let mut end = remaining.len().min(max_bytes.max(1));
-        while !remaining.is_char_boundary(end) {
-            end -= 1;
-        }
-        let (chunk, rest) = remaining.split_at(end);
-        remaining = rest;
-        Some(chunk)
-    })
-}
-
 impl WaylandFrontend {
     pub(super) fn synchronize_input_method(&mut self) -> bool {
         let snapshot = self.text_input.input_method_snapshot();
@@ -970,18 +1077,8 @@ impl WaylandFrontend {
     }
 
     #[cfg(feature = "flutter")]
-    pub(crate) fn text_input_target_for_text(&self) -> ShellCommandTarget {
-        self.text_input.text_target()
-    }
-
-    #[cfg(feature = "flutter")]
-    pub(crate) fn text_input_target_for_key(&self) -> ShellCommandTarget {
-        self.text_input.key_target()
-    }
-
-    #[cfg(feature = "flutter")]
-    pub(crate) fn commit_text_input(&mut self, text: &str) -> bool {
-        self.text_input.commit_text(text)
+    pub(crate) fn software_keyboard_state(&self) -> SoftwareKeyboardState {
+        self.text_input.software_keyboard_state()
     }
 
     #[cfg(feature = "flutter")]
@@ -1013,6 +1110,7 @@ mod tests {
             lifecycle_revision: revision,
             client_id: 17,
             active,
+            input_panel_visible: active,
             secure: false,
             surrounding_text: Some("ni".to_owned()),
             cursor: 2,
@@ -1077,6 +1175,42 @@ mod tests {
     }
 
     #[test]
+    fn client_touch_requires_fresh_editor_state_to_reopen_the_panel() {
+        let mut sessions = focused_sessions();
+        sessions.request_enablement(&100, true);
+        sessions.set_surrounding(
+            &100,
+            SurroundingText {
+                text: "first".into(),
+                cursor: 5,
+                anchor: 5,
+            },
+        );
+        assert_eq!(sessions.commit(&100), CommitEffect::Activated);
+        assert!(sessions.instance(&100).unwrap().touch_dismissed);
+
+        assert!(sessions.begin_touch_authorization());
+        assert!(sessions.instance(&100).unwrap().touch_dismissed);
+
+        // An inert client area may still issue a no-op commit. That must not
+        // reinterpret the touch as selecting an editor.
+        assert_eq!(sessions.commit(&100), CommitEffect::Updated);
+        assert!(sessions.instance(&100).unwrap().touch_dismissed);
+
+        assert!(sessions.begin_touch_authorization());
+        sessions.set_surrounding(
+            &100,
+            SurroundingText {
+                text: "second".into(),
+                cursor: 6,
+                anchor: 6,
+            },
+        );
+        assert_eq!(sessions.commit(&100), CommitEffect::Updated);
+        assert!(!sessions.instance(&100).unwrap().touch_dismissed);
+    }
+
+    #[test]
     fn a_second_object_cannot_replace_the_active_editor() {
         let mut sessions = focused_sessions();
         sessions.register(101, 1, 2);
@@ -1130,27 +1264,44 @@ mod tests {
     }
 
     #[test]
-    fn utf8_commit_chunks_never_split_a_code_point() {
-        assert_eq!(
-            utf8_chunks("ab中文cd", 5).collect::<Vec<_>>(),
-            vec!["ab中", "文cd"]
-        );
+    fn broker_opens_the_seat_fallback_only_without_a_protocol_editor() {
+        let mut broker = TextSessionBroker::default();
+        broker.set_seat_focus(SeatFocusKind::Wayland);
+        broker.note_client_touch(false);
+        assert!(broker.legacy_touch_keyboard);
+        let first_activation = broker.activation_serial;
+
+        broker.note_client_touch(false);
+        assert!(broker.activation_serial > first_activation);
+
+        broker.note_client_touch(true);
+        assert!(!broker.legacy_touch_keyboard);
+
+        broker.set_seat_focus(SeatFocusKind::Xwayland);
+        broker.note_client_touch(false);
+        assert!(broker.legacy_touch_keyboard);
+
+        broker.note_flutter_touch();
+        assert!(!broker.legacy_touch_keyboard);
     }
 
     #[test]
-    fn broker_routes_by_capture_focus_and_editor_identity() {
+    fn flutter_keyboard_visibility_requires_a_current_touch() {
         let mut broker = TextSessionBroker::default();
-        broker.set_seat_focus(SeatFocusKind::Wayland);
-        assert_eq!(broker.text_target(false), ShellCommandTarget::Seat);
-        assert_eq!(broker.text_target(true), ShellCommandTarget::WaylandText);
-
         assert!(broker.observe_flutter_editor(4, flutter_snapshot(1, true)));
-        // A native focus remains authoritative until Flutter owns capture.
-        assert_eq!(broker.text_target(true), ShellCommandTarget::WaylandText);
-        broker.set_shell_capture(true);
-        assert_eq!(broker.text_target(true), ShellCommandTarget::Flutter);
-        broker.observe_flutter_editor(4, flutter_snapshot(2, false));
-        assert_eq!(broker.text_target(true), ShellCommandTarget::Captured);
+        assert!(!broker.flutter_panel_authorized);
+
+        broker.note_flutter_touch();
+        assert!(broker.observe_flutter_editor(4, flutter_snapshot(2, true)));
+        assert!(broker.flutter_panel_authorized);
+        let first_activation = broker.activation_serial;
+
+        broker.note_flutter_touch();
+        assert!(broker.observe_flutter_editor(4, flutter_snapshot(3, true)));
+        assert!(broker.activation_serial > first_activation);
+
+        assert!(broker.observe_flutter_editor(4, flutter_snapshot(4, false)));
+        assert!(!broker.flutter_panel_authorized);
     }
 
     #[test]

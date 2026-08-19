@@ -28,6 +28,9 @@ mod lifecycle;
 #[cfg(feature = "flutter")]
 #[path = "deniald/local_windows.rs"]
 mod local_windows;
+#[cfg(feature = "flutter")]
+#[path = "deniald/native_app_plugin.rs"]
+mod native_app_plugin;
 #[path = "deniald/native_shortcut.rs"]
 mod native_shortcut;
 #[cfg(feature = "flutter")]
@@ -50,6 +53,9 @@ mod screenshot;
 mod settings;
 #[path = "deniald/system_controls.rs"]
 mod system_controls;
+#[cfg(feature = "flutter")]
+#[path = "deniald/touchpad_gestures.rs"]
+mod touchpad_gestures;
 #[cfg(feature = "flutter")]
 #[path = "deniald/ui_development.rs"]
 mod ui_development;
@@ -83,7 +89,7 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 #[cfg(feature = "flutter")]
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use calloop::signals::{Signal, Signals};
 use denial_core::topology::{
@@ -100,7 +106,7 @@ use smithay::backend::drm::{
 };
 use smithay::backend::egl::EGLDisplay;
 use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::backend::renderer::{Bind, Color32F, Frame, Renderer};
+use smithay::backend::renderer::{Bind, Color32F, Frame, ImportDma, Renderer};
 use smithay::backend::session::libseat::LibSeatSession;
 use smithay::backend::session::{Event as SessionEvent, Session};
 use smithay::backend::udev::{UdevBackend, UdevEvent};
@@ -137,12 +143,15 @@ use kms_state::{FlutterLaunchConfiguration, FlutterLauncher, flutter_pool_length
 use lifecycle::{
     InactiveDispatch, LifecycleState, ShutdownReason, TeardownGate, inactive_dispatch,
 };
-use native_shortcut::NativeEscapeShortcut;
+use native_shortcut::{NativeEscapeShortcut, ShortcutManager};
 #[cfg(feature = "flutter")]
 use notification_server::NotificationServer;
 use options::{Options, RuntimeLimit, SIMULATED_HOTPLUG_GAP_FRAMES};
 #[cfg(feature = "flutter")]
-use output_control::{ControlEvent, OutputControlServer, PendingOutputApply, PendingUiDevelopment};
+use output_control::{
+    ControlEvent, OutputConfirmationAction, OutputControlServer, PendingOutputApply,
+    PendingOutputConfirmation, PendingUiDevelopment,
+};
 use scene_sync::SceneSyncState;
 #[cfg(feature = "flutter")]
 use scene_sync::{WindowEventDisposition, window_event_disposition};
@@ -164,6 +173,12 @@ const SYSTEMD_DBUS_NAME: &str = "org.freedesktop.systemd1";
 const NOTIFICATION_EVENT_QUEUE_CAPACITY: usize = 512;
 #[cfg(feature = "flutter")]
 const DPMS_WAKE_TOPOLOGY_GRACE: Duration = Duration::from_secs(5);
+#[cfg(feature = "flutter")]
+const KMS_PRESENTATION_RECOVERY_RETRY: Duration = Duration::from_millis(250);
+#[cfg(feature = "flutter")]
+const COMPOSITOR_BACKGROUND_SLICE: Duration = Duration::from_millis(2);
+#[cfg(feature = "flutter")]
+const MAX_FLUTTER_EVENTS_PER_ITERATION: usize = 128;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct OutputModePreference {
@@ -217,7 +232,7 @@ impl RuntimeOutputConfiguration {
             positions: options.positions.clone(),
             modes,
             scales_120: options.scales_120.clone(),
-            transforms: BTreeMap::new(),
+            transforms: options.transforms.clone(),
             vrr_outputs: options.vrr_outputs.clone(),
             disabled_outputs: options.disabled_outputs.clone(),
         }
@@ -240,7 +255,18 @@ fn render_audit_enabled() -> bool {
     })
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() {
+    if let Err(error) = denial_main() {
+        // Returning Result::Err from main becomes status 1, which display
+        // managers can mistake for an orderly session exit. Preserve the
+        // abnormal-termination distinction (and a usable core dump) for the
+        // failures which cannot be recovered inside the compositor.
+        eprintln!("deniald: fatal error: {error}");
+        std::process::abort();
+    }
+}
+
+fn denial_main() -> Result<(), Box<dyn Error>> {
     let options = Options::parse()?;
     if options.start_locked {
         // SAFETY: option parsing happens on the process's only thread, before
@@ -282,6 +308,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         .wayland
         .then(settings::SettingsManager::load)
         .transpose()?;
+    let mut shortcuts = options.wayland.then(ShortcutManager::load).transpose()?;
     if let Some(settings) = settings.as_mut()
         && let Err(error) = settings.keyboard().compiled_layout_names()
     {
@@ -483,6 +510,9 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
             settings
                 .take()
                 .expect("Wayland settings were loaded before frontend startup"),
+            shortcuts
+                .take()
+                .expect("Wayland shortcuts were loaded before frontend startup"),
         )?;
         let x11_display = frontend.xdisplay_name();
         info!(
@@ -591,6 +621,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         atlas.pixel_size,
         atlas_pool_length,
         &atlas_modifiers,
+        options.flutter_offscreen_blit,
     )
     .map_err(|error| {
         format!(
@@ -683,6 +714,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
                 &topology,
                 &output_configuration,
                 options.output_config.is_some(),
+                None,
             )?;
             let (server, source) = OutputControlServer::start(initial)?;
             frame_event_loop
@@ -694,6 +726,9 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
                         match request {
                             ControlEvent::OutputApply(request) => {
                                 state.pending_output_applies.push_back(request);
+                            }
+                            ControlEvent::OutputConfirmation(request) => {
+                                state.pending_output_confirmations.push_back(request);
                             }
                             ControlEvent::UiDevelopment(request) => {
                                 state.pending_ui_development.push_back(request);
@@ -729,6 +764,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
             FlutterLaunchConfiguration {
                 bundle,
                 renderer_backend: options.flutter_renderer,
+                offscreen_blit: options.flutter_offscreen_blit,
                 debug_bundle: options.flutter_debug_bundle.clone(),
                 ui_workspace: options.flutter_ui_workspace.clone(),
             },
@@ -1253,7 +1289,25 @@ struct RuntimeState {
     #[cfg(feature = "flutter")]
     sampled_buffer_releases: Vec<(Option<OwnedFd>, flutter_runtime::SampledBufferHoldBatch)>,
     #[cfg(feature = "flutter")]
+    native_app_plugins: Option<native_app_plugin::NativeAppPluginManager>,
+    #[cfg(feature = "flutter")]
+    native_plugin_actions: VecDeque<native_app_plugin::NativePluginAction>,
+    #[cfg(feature = "flutter")]
+    native_release_commands: VecDeque<native_app_plugin::NativeReleaseCommand>,
+    #[cfg(feature = "flutter")]
+    native_ready_frames: Vec<native_app_plugin::NativeFrameKey>,
+    #[cfg(feature = "flutter")]
+    native_release_sender: Option<
+        smithay::reexports::calloop::channel::Sender<native_app_plugin::NativeReleaseCommand>,
+    >,
+    #[cfg(feature = "flutter")]
+    native_plugin_formats: Vec<native_app_plugin::NativeAppFormatV1>,
+    #[cfg(feature = "flutter")]
+    native_plugin_default_size: (u32, u32),
+    #[cfg(feature = "flutter")]
     ready_fence_signals: Vec<output_scheduler::ReadyFenceSignal>,
+    #[cfg(feature = "flutter")]
+    volition_events: Vec<denial_core::volition::Event>,
     #[cfg(feature = "flutter")]
     flutter_channel_closed: bool,
     #[cfg(feature = "flutter")]
@@ -1267,21 +1321,33 @@ struct RuntimeState {
     #[cfg(feature = "flutter")]
     flutter_input: flutter_runtime::InputQueue,
     #[cfg(feature = "flutter")]
+    touchpad_gestures: touchpad_gestures::TouchpadGestureRecognizer,
+    #[cfg(feature = "flutter")]
+    touchpad_devices: BTreeMap<String, smithay::reexports::input::Device>,
+    #[cfg(feature = "flutter")]
+    input_device_capabilities_changed: bool,
+    #[cfg(feature = "flutter")]
     pending_window_events: PendingWindowEventQueue,
     #[cfg(feature = "flutter")]
     pending_unpublished_window_events: PendingWindowEventQueue,
     #[cfg(feature = "flutter")]
     pending_shell_actions: VecDeque<(wire::ShellAction, Option<i64>)>,
     #[cfg(feature = "flutter")]
+    pending_shortcut_launches: VecDeque<native_shortcut::ShortcutTarget>,
+    #[cfg(feature = "flutter")]
     pending_screenshot_selection: Option<OutputId>,
     #[cfg(feature = "flutter")]
     published_window_ids: HashSet<u64>,
+    #[cfg(feature = "flutter")]
+    restored_window_ids: BTreeSet<u64>,
     #[cfg(feature = "flutter")]
     notification_server: Option<NotificationServer>,
     #[cfg(feature = "flutter")]
     pending_notification_events: VecDeque<notification_server::NotificationEvent>,
     #[cfg(feature = "flutter")]
     pending_output_applies: VecDeque<PendingOutputApply>,
+    #[cfg(feature = "flutter")]
+    pending_output_confirmations: VecDeque<PendingOutputConfirmation>,
     #[cfg(feature = "flutter")]
     output_control_dirty: bool,
     #[cfg(feature = "flutter")]
@@ -1340,6 +1406,29 @@ impl RuntimeState {
             return;
         };
         self.flutter_input.synchronize_pointer_position(x, y);
+    }
+
+    /// Starts a new Flutter generation without making the existing Wayland
+    /// scene look newly mapped. The replacement runtime receives this exact
+    /// set with its first window snapshot and can suppress entrance effects
+    /// without changing lasting animation policy for those windows.
+    fn begin_replacement_flutter_generation(&mut self, size: PixelSize) {
+        self.restored_window_ids.clear();
+        self.restored_window_ids
+            .extend(self.published_window_ids.drain());
+        self.flutter_input.resize(size);
+        if let Some(frontend) = self.wayland.as_mut() {
+            frontend.reset_flutter_input_generation();
+        }
+        self.synchronize_flutter_pointer_position();
+        self.flutter_channel_closed = false;
+        self.scene_sync.invalidate_runtime();
+        self.pending_window_events.clear();
+        self.pending_unpublished_window_events.clear();
+        if let Some(frontend) = self.wayland.as_ref() {
+            self.pending_window_events
+                .extend(frontend.replay_window_state_events());
+        }
     }
 
     fn note_user_activity(&mut self) {
@@ -1441,6 +1530,30 @@ fn service_session_lifecycle(
     }
 
     drm.activate(false)?;
+    rebase_kms_scanouts(
+        drm,
+        scanouts,
+        framebuffer,
+        events,
+        "libseat reactivated the KMS session",
+    )
+}
+
+/// Establishes a synchronous scanout baseline after the DRM event stream can
+/// no longer be trusted.  A DPMS wake can leave an atomic commit accepted by
+/// the kernel but without its corresponding page-flip event while a display
+/// link is still training.  The Flutter scheduler owns page-flip generations,
+/// so it must be rebuilt after this operation.
+fn rebase_kms_scanouts(
+    drm: &mut DrmDevice,
+    scanouts: &[Scanout],
+    framebuffer: framebuffer::Handle,
+    events: &mut RuntimeState,
+    reason: &'static str,
+) -> Result<(), Box<dyn Error>> {
+    if !drm.is_active() {
+        return Err("cannot rebase scanouts while the DRM device is inactive".into());
+    }
     for scanout in scanouts.iter().filter(|scanout| scanout.powered) {
         scanout
             .surface
@@ -1464,9 +1577,81 @@ fn service_session_lifecycle(
     events.topology_dirty = true;
     info!(
         outputs = scanouts.iter().filter(|scanout| scanout.powered).count(),
-        "libseat reactivated the KMS session"
+        %reason,
+        "rebased KMS scanouts"
     );
     Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn recover_stalled_kms_presentation(
+    drm: &mut DrmDevice,
+    event_loop: &mut EventLoop<'_, RuntimeState>,
+    events: &mut RuntimeState,
+) -> Result<(), Box<dyn Error>> {
+    loop {
+        if events.lifecycle.shutdown_reason().is_some() {
+            return Ok(());
+        }
+        if events.device_removed {
+            return Err("the active DRM device was removed during presentation recovery".into());
+        }
+
+        if events.lifecycle.take_pause_pending() {
+            if drm.is_active() {
+                drm.pause();
+            }
+            events.pending.clear();
+            events.completed_page_flips.clear();
+        }
+
+        let recovery = if !events.lifecycle.seat_active() {
+            Err("the libseat session is inactive".into())
+        } else {
+            (|| -> Result<(), Box<dyn Error>> {
+                if drm.is_active() {
+                    drm.pause();
+                }
+                // Reset every connector, CRTC, and plane in one synchronous
+                // atomic transaction. Re-committing the old per-output state
+                // here can wait forever when DPMS wake also removed a
+                // connector, which is precisely the failure this path must
+                // recover from. The normal topology transaction will rescan
+                // and enable only hardware which is actually connected.
+                drm.activate(true)?;
+                events.pending.clear();
+                events.completed_page_flips.clear();
+                events.scanout_rebased = true;
+                events.topology_dirty = true;
+                info!("reset KMS state after a stalled DPMS-wake presentation");
+                Ok(())
+            })()
+        };
+        match recovery {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                // A connector can remain transient for several seconds after
+                // its USB hub and display link start waking.  Recovery failure
+                // is therefore backpressure, not a session-ending error. Keep
+                // resetting the device atomically until the hardware accepts
+                // a synchronous all-disabled baseline.
+                warn!(
+                    %error,
+                    retry_ms = KMS_PRESENTATION_RECOVERY_RETRY.as_millis(),
+                    "KMS presentation recovery is waiting for the display hardware"
+                );
+                if let Some(event_error) = events.error.take() {
+                    warn!(
+                        error = event_error,
+                        "discarding DRM event error during presentation recovery"
+                    );
+                }
+                events.pending.clear();
+                events.completed_page_flips.clear();
+                event_loop.dispatch(KMS_PRESENTATION_RECOVERY_RETRY, events)?;
+            }
+        }
+    }
 }
 
 fn log_shutdown(reason: ShutdownReason) {
@@ -1547,6 +1732,24 @@ fn synchronize_idle_dpms_configuration(
 }
 
 #[cfg(feature = "flutter")]
+fn synchronize_requested_dpms_off(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    scanouts: &[Scanout],
+    events: &mut RuntimeState,
+) {
+    if !runtime.take_dpms_off_requested() {
+        return;
+    }
+    let requests = events.idle_dpms.blank_now(
+        scanouts
+            .iter()
+            .map(|scanout| (scanout.output.id, scanout.powered)),
+    );
+    events.queue_idle_power_requests(requests);
+    info!("requested immediate compositor-owned display power-off");
+}
+
+#[cfg(feature = "flutter")]
 fn apply_output_power_requests(
     runtime: &mut flutter_runtime::FlutterRuntime,
     scheduler: &mut output_scheduler::OutputScheduler,
@@ -1556,6 +1759,8 @@ fn apply_output_power_requests(
 ) -> Result<(), Box<dyn Error>> {
     let requests = std::mem::take(&mut events.output_power_requests);
     let mut deferred = BTreeMap::new();
+    let mut power_off = Vec::new();
+    let mut power_on = Vec::new();
 
     for (output, powered) in requests {
         let Some(scanout_index) = scanouts
@@ -1579,75 +1784,188 @@ fn apply_output_power_requests(
             continue;
         }
 
-        if !powered {
-            if scheduler.begin_power_off(runtime, output, scanouts)? {
-                deferred.insert(output, false);
-                continue;
-            }
-            if let Err(error) = scanouts[scanout_index].surface.clear() {
-                scheduler.cancel_power_off(output, scanouts);
-                events.idle_dpms.note_power_failure(output, Instant::now());
-                warn!(
-                    output = scanouts[scanout_index].output.name,
-                    %error,
-                    "failed to power off KMS output"
-                );
-                if let Some(frontend) = events.wayland.as_mut() {
-                    frontend.fail_output_power(output);
-                }
-                continue;
-            }
-            scheduler.power_off(runtime, output, scanouts)?;
-            scanouts[scanout_index].powered = false;
-            events.output_control_dirty = true;
-            swapchain.present(scheduler.stable_framebuffer_index());
-            events.pending.remove(&scanouts[scanout_index].output.crtc);
-            info!(
-                output = scanouts[scanout_index].output.name,
-                "powered off KMS output"
-            );
+        if powered {
+            power_on.push((output, scanout_index));
         } else {
-            let framebuffer_index = scheduler.stable_framebuffer_index();
-            let framebuffer = swapchain
-                .buffers
-                .get(framebuffer_index)
-                .ok_or("DPMS wake framebuffer exceeds the atlas pool")?
-                .framebuffer();
-            let wake = scanouts[scanout_index]
-                .surface
-                .test_state([plane_state(&scanouts[scanout_index], framebuffer)], true)
-                .and_then(|()| {
-                    scanouts[scanout_index]
-                        .surface
-                        .commit([plane_state(&scanouts[scanout_index], framebuffer)], false)
-                });
-            if let Err(error) = wake {
-                events.idle_dpms.note_power_failure(output, Instant::now());
-                warn!(
-                    output = scanouts[scanout_index].output.name,
-                    %error,
-                    "failed to power on KMS output"
-                );
-                if let Some(frontend) = events.wayland.as_mut() {
-                    frontend.fail_output_power(output);
-                }
-                continue;
-            }
-            scanouts[scanout_index].powered = true;
-            events.output_control_dirty = true;
-            events.note_dpms_wake(Instant::now());
-            scheduler.power_on(runtime, scanout_index, framebuffer_index, scanouts)?;
-            swapchain.present(framebuffer_index);
-            info!(
-                output = scanouts[scanout_index].output.name,
-                "powered on KMS output"
-            );
-        }
-
-        if let Some(frontend) = events.wayland.as_mut() {
-            frontend.output_power_applied(output, powered);
+            power_off.push((output, scanout_index));
         }
     }
+
+    // Stop every affected pipeline before clearing any CRTC. This keeps one
+    // slow output from turning a multi-output blank into a staggered series of
+    // independently visible transitions.
+    let mut waiting_for_power_off = false;
+    for &(output, _) in &power_off {
+        waiting_for_power_off |= scheduler.begin_power_off(runtime, output, scanouts)?;
+    }
+    if waiting_for_power_off {
+        deferred.extend(power_off.iter().map(|(output, _)| (*output, false)));
+    } else if !power_off.is_empty() {
+        let mut targets = Vec::with_capacity(power_off.len());
+        for &(output, scanout_index) in &power_off {
+            let framebuffer_index = scheduler
+                .scanning_framebuffer_index(output, scanouts)
+                .ok_or("DPMS power-off output has no scheduler framebuffer")?;
+            targets.push((output, scanout_index, framebuffer_index));
+        }
+
+        let mut cleared = Vec::with_capacity(targets.len());
+        let mut failure = None;
+        for &(output, scanout_index, framebuffer_index) in &targets {
+            match scanouts[scanout_index].surface.clear() {
+                Ok(()) => cleared.push((output, scanout_index, framebuffer_index)),
+                Err(error) => {
+                    failure = Some((scanout_index, error.to_string()));
+                    break;
+                }
+            }
+        }
+
+        if let Some((failed_index, error)) = failure {
+            let mut rollback_failures = Vec::new();
+            for &(_, scanout_index, framebuffer_index) in &cleared {
+                let framebuffer = swapchain
+                    .buffers
+                    .get(framebuffer_index)
+                    .ok_or("DPMS rollback framebuffer exceeds the atlas pool")?
+                    .framebuffer();
+                let restore = scanouts[scanout_index]
+                    .surface
+                    .test_state([plane_state(&scanouts[scanout_index], framebuffer)], true)
+                    .and_then(|()| {
+                        scanouts[scanout_index]
+                            .surface
+                            .commit([plane_state(&scanouts[scanout_index], framebuffer)], false)
+                    });
+                if let Err(rollback_error) = restore {
+                    rollback_failures.push(format!(
+                        "{}: {rollback_error}",
+                        scanouts[scanout_index].output.name
+                    ));
+                }
+            }
+            for &(output, _) in &power_off {
+                scheduler.cancel_power_off(output, scanouts);
+                events.idle_dpms.note_power_failure(output, Instant::now());
+                if let Some(frontend) = events.wayland.as_mut() {
+                    frontend.fail_output_power(output);
+                }
+            }
+            warn!(
+                output = scanouts[failed_index].output.name,
+                %error,
+                restored_outputs = cleared.len(),
+                requested_outputs = power_off.len(),
+                "aborted compositor-owned display power-off batch"
+            );
+            if !rollback_failures.is_empty() {
+                return Err(format!(
+                    "DPMS power-off rollback failed after {} rejected the transition ({error}): {}",
+                    scanouts[failed_index].output.name,
+                    rollback_failures.join("; ")
+                )
+                .into());
+            }
+        } else {
+            for &(output, scanout_index, _) in &targets {
+                scheduler.power_off(runtime, output, scanouts)?;
+                scanouts[scanout_index].powered = false;
+                events.output_control_dirty = true;
+                events.pending.remove(&scanouts[scanout_index].output.crtc);
+                info!(
+                    output = scanouts[scanout_index].output.name,
+                    "powered off KMS output"
+                );
+                if let Some(frontend) = events.wayland.as_mut() {
+                    frontend.output_power_applied(output, false);
+                }
+            }
+            swapchain.present(scheduler.stable_framebuffer_index());
+        }
+    }
+
+    if !power_on.is_empty() {
+        let framebuffer_index = scheduler.stable_framebuffer_index();
+        let framebuffer = swapchain
+            .buffers
+            .get(framebuffer_index)
+            .ok_or("DPMS wake framebuffer exceeds the atlas pool")?
+            .framebuffer();
+        let mut failure = None;
+        for &(_, scanout_index) in &power_on {
+            if let Err(error) = scanouts[scanout_index]
+                .surface
+                .test_state([plane_state(&scanouts[scanout_index], framebuffer)], true)
+            {
+                failure = Some((scanout_index, error.to_string(), false));
+                break;
+            }
+        }
+
+        let mut committed = Vec::with_capacity(power_on.len());
+        if failure.is_none() {
+            for &(output, scanout_index) in &power_on {
+                if let Err(error) = scanouts[scanout_index]
+                    .surface
+                    .commit([plane_state(&scanouts[scanout_index], framebuffer)], false)
+                {
+                    failure = Some((scanout_index, error.to_string(), true));
+                    break;
+                }
+                committed.push((output, scanout_index));
+            }
+        }
+
+        if let Some((failed_index, error, commit_failed)) = failure {
+            let mut rollback_failures = Vec::new();
+            for &(_, scanout_index) in &committed {
+                if let Err(rollback_error) = scanouts[scanout_index].surface.clear() {
+                    rollback_failures.push(format!(
+                        "{}: {rollback_error}",
+                        scanouts[scanout_index].output.name
+                    ));
+                }
+            }
+            for &(output, _) in &power_on {
+                events.idle_dpms.note_power_failure(output, Instant::now());
+                if let Some(frontend) = events.wayland.as_mut() {
+                    frontend.fail_output_power(output);
+                }
+            }
+            warn!(
+                output = scanouts[failed_index].output.name,
+                %error,
+                phase = if commit_failed { "commit" } else { "test" },
+                restored_outputs = committed.len(),
+                requested_outputs = power_on.len(),
+                "aborted compositor-owned display wake batch"
+            );
+            if !rollback_failures.is_empty() {
+                return Err(format!(
+                    "DPMS wake rollback failed after {} rejected the transition ({error}): {}",
+                    scanouts[failed_index].output.name,
+                    rollback_failures.join("; ")
+                )
+                .into());
+            }
+        } else {
+            for &(output, scanout_index) in &power_on {
+                scanouts[scanout_index].powered = true;
+                scheduler.power_on(runtime, scanout_index, framebuffer_index, scanouts)?;
+                events.output_control_dirty = true;
+                info!(
+                    output = scanouts[scanout_index].output.name,
+                    "powered on KMS output"
+                );
+                if let Some(frontend) = events.wayland.as_mut() {
+                    frontend.output_power_applied(output, true);
+                }
+            }
+            events.note_dpms_wake(Instant::now());
+            swapchain.present(framebuffer_index);
+        }
+    }
+
     runtime.set_outputs_visible(scanouts.iter().any(|scanout| scanout.powered))?;
     events.output_power_requests = deferred;
     Ok(())
@@ -1726,8 +2044,13 @@ fn run_frame_loop(
     let authentication = flutter
         .as_ref()
         .map(flutter_runtime::FlutterRuntime::authentication);
+    let native_escape_shortcut = wayland
+        .as_ref()
+        .map(|frontend| frontend.shortcuts.engine())
+        .unwrap_or_default();
     let mut events = RuntimeState {
         wayland,
+        native_escape_shortcut,
         #[cfg(feature = "flutter")]
         clipboard: flutter
             .as_ref()
@@ -2069,6 +2392,7 @@ fn run_frame_loop(
                             scanout.output.crtc != output.crtc
                                 || scanout.output.mode != output.mode
                                 || scanout.output.connector != output.connector
+                                || scanout.output.transform != output.transform
                                 || scanout.output.vrr_enabled != output.vrr_enabled
                         })
                 });
@@ -2121,6 +2445,61 @@ fn run_frame_loop(
 }
 
 #[cfg(feature = "flutter")]
+fn service_native_app_plugins(
+    event_loop: &mut EventLoop<'_, RuntimeState>,
+    events: &mut RuntimeState,
+    allocator: &mut GbmAllocator<DrmDeviceFd>,
+) -> Result<(), Box<dyn Error>> {
+    let Some(mut manager) = events.native_app_plugins.take() else {
+        events.native_plugin_actions.clear();
+        events.native_release_commands.clear();
+        events.native_ready_frames.clear();
+        return Ok(());
+    };
+
+    for release in events.native_release_commands.drain(..) {
+        if let Err(error) = manager.handle_release_command(release) {
+            warn!(%error, "native application plugin release command failed");
+        }
+    }
+    for key in events.native_ready_frames.drain(..) {
+        manager.activate_frame(key);
+    }
+
+    let default_size = events.native_plugin_default_size;
+    let formats = &events.native_plugin_formats;
+    manager.refresh_dirty_target_pools(formats, allocator)?;
+    let release_sender = events
+        .native_release_sender
+        .as_ref()
+        .ok_or("native application release channel disappeared")?;
+    for action in events.native_plugin_actions.drain(..) {
+        let watch =
+            match manager.handle_action(action, default_size, formats, allocator, release_sender) {
+                Ok(watch) => watch,
+                Err(error) => {
+                    warn!(%error, "rejected native application plugin event");
+                    continue;
+                }
+            };
+        let Some(watch) = watch else {
+            continue;
+        };
+        let key = watch.key;
+        event_loop.handle().insert_source(
+            Generic::new(watch.fence, Interest::READ, PollMode::Level),
+            move |_, _, state: &mut RuntimeState| {
+                state.native_ready_frames.push(key);
+                Ok(PostAction::Remove)
+            },
+        )?;
+    }
+
+    events.native_app_plugins = Some(manager);
+    Ok(())
+}
+
+#[cfg(feature = "flutter")]
 fn install_sampled_buffer_releases(
     event_loop: &mut EventLoop<'_, RuntimeState>,
     events: &mut RuntimeState,
@@ -2128,16 +2507,23 @@ fn install_sampled_buffer_releases(
     for (fence, batch) in events.sampled_buffer_releases.drain(..) {
         let Some(fence) = fence else {
             // The raster thread already used glFinish. Drop the guards here so
-            // wl_buffer.release remains on the compositor/Wayland thread.
+            // producer release remains on the compositor thread.
+            batch.complete_native_releases_without_fence()?;
             drop(batch);
             continue;
         };
+        batch.materialize_native_releases(fence.as_fd())?;
         let mut batch = Some(batch);
         event_loop.handle().insert_source(
             Generic::new(fence, Interest::READ, PollMode::Level),
             move |_, _, _| {
                 // A sync_file becomes readable only after every preceding
                 // Flutter sample command has completed on the GPU.
+                if let Some(batch) = batch.as_ref()
+                    && let Err(error) = batch.complete_native_releases()
+                {
+                    error!(%error, "could not complete a native plugin buffer release");
+                }
                 drop(batch.take());
                 Ok(PostAction::Remove)
             },
@@ -2155,8 +2541,8 @@ fn install_ready_fence_watch(
     event_loop.handle().insert_source(
         Generic::new(fence, Interest::READ, PollMode::Level),
         move |_, _, state: &mut RuntimeState| {
-            // Readability either makes an unconsumed atlas reusable or allows
-            // a capability fallback to submit it without IN_FENCE_FD.
+            // Readability makes an unconsumed atlas reusable and authorizes
+            // fence-free Volition lookahead after an earlier KMS submission.
             state.ready_fence_signals.push(signal);
             Ok(PostAction::Remove)
         },
@@ -2167,17 +2553,53 @@ fn install_ready_fence_watch(
 #[cfg(feature = "flutter")]
 fn submit_ready_frames(
     scheduler: &mut output_scheduler::OutputScheduler,
-    drm: &DrmDevice,
     swapchain: &AtlasSwapchain,
     scanouts: &[Scanout],
-    event_loop: &mut EventLoop<'_, RuntimeState>,
     events: &mut RuntimeState,
 ) -> Result<usize, Box<dyn Error>> {
-    let submission = scheduler.submit_ready(drm, swapchain, scanouts, events)?;
-    if let Some(watch) = submission.fence_watch {
-        install_ready_fence_watch(event_loop, watch)?;
-    }
+    let submission = scheduler.submit_ready(swapchain, scanouts, events)?;
     Ok(submission.submitted)
+}
+
+#[cfg(feature = "flutter")]
+#[derive(Debug)]
+struct ActiveOutputConfirmation {
+    state: output_control::OutputControlConfirmation,
+    deadline: Instant,
+    rollback_configuration: RuntimeOutputConfiguration,
+    rollback_power: BTreeMap<OutputId, bool>,
+    prepared_persistence: Option<options::PreparedOutputConfig>,
+}
+
+#[cfg(feature = "flutter")]
+fn confirmation_deadline_unix_milliseconds(timeout: Duration) -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .saturating_add(timeout)
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
+}
+
+#[cfg(feature = "flutter")]
+fn begin_output_confirmation(
+    serial: u64,
+    timeout: Duration,
+    rollback_configuration: RuntimeOutputConfiguration,
+    rollback_power: BTreeMap<OutputId, bool>,
+    prepared_persistence: Option<options::PreparedOutputConfig>,
+) -> ActiveOutputConfirmation {
+    ActiveOutputConfirmation {
+        state: output_control::OutputControlConfirmation {
+            token: output_control::next_serial(serial),
+            deadline_unix_milliseconds: confirmation_deadline_unix_milliseconds(timeout),
+        },
+        deadline: Instant::now() + timeout,
+        rollback_configuration,
+        rollback_power,
+        prepared_persistence,
+    }
 }
 
 #[cfg(feature = "flutter")]
@@ -2202,9 +2624,35 @@ fn run_flutter_event_loop(
     duration: Option<Duration>,
     event_loop: &mut EventLoop<'_, RuntimeState>,
 ) -> Result<framebuffer::Handle, Box<dyn Error>> {
-    use smithay::reexports::calloop::channel::{Event as ChannelEvent, sync_channel};
+    use smithay::reexports::calloop::channel::{Event as ChannelEvent, channel, sync_channel};
 
     let persistence_available = output_config.is_some();
+    let native_app_snapshot = topology.snapshot();
+    let native_app_atlas = AtlasPlan::for_snapshot(&native_app_snapshot)
+        .ok_or("native application plugin initialization has no output atlas")?;
+    let native_app_refresh_millihz = ticker_refresh_millihz(&native_app_snapshot)?;
+    let native_app_plugins = native_app_plugin::NativeAppPluginManager::load_configured(
+        drm.as_fd(),
+        native_app_atlas.engine_scale_120,
+        SCALE_BASE,
+        native_app_refresh_millihz,
+    )?;
+    let native_plugin_poll_descriptors = native_app_plugins
+        .as_ref()
+        .map(native_app_plugin::NativeAppPluginManager::poll_descriptors)
+        .transpose()?
+        .unwrap_or_default();
+    let native_plugin_formats = renderer
+        .dmabuf_formats()
+        .iter()
+        .filter(|format| format.modifier != Modifier::Invalid)
+        .take(native_app_plugin::MAX_FORMATS)
+        .map(|format| native_app_plugin::NativeAppFormatV1 {
+            format: format.code as u32,
+            modifier: u64::from(format.modifier),
+        })
+        .collect::<Vec<_>>();
+    let (native_release_sender, native_release_source) = channel();
     let started = Instant::now();
     let deadline = duration
         .map(|duration| {
@@ -2251,22 +2699,70 @@ fn run_flutter_event_loop(
     };
     let authentication = Some(flutter.authentication());
     let clipboard = flutter.clipboard();
+    let native_escape_shortcut = wayland
+        .as_ref()
+        .map(|frontend| frontend.shortcuts.engine())
+        .unwrap_or_default();
     let mut events = RuntimeState {
         wayland,
+        native_escape_shortcut,
         clipboard,
         system_controls,
         notification_server,
         authentication,
         flutter_active: true,
         flutter_input: flutter_runtime::InputQueue::new(swapchain.size),
+        native_app_plugins,
+        native_release_sender: Some(native_release_sender),
+        native_plugin_formats,
+        native_plugin_default_size: (swapchain.size.width, swapchain.size.height),
         ..RuntimeState::default()
     };
+    event_loop.handle().insert_source(
+        native_release_source,
+        |event, _, state: &mut RuntimeState| {
+            if let ChannelEvent::Msg(command) = event {
+                state.native_release_commands.push_back(command);
+            }
+        },
+    )?;
+    for (plugin_index, descriptor) in native_plugin_poll_descriptors {
+        event_loop.handle().insert_source(
+            Generic::new(descriptor, Interest::READ, PollMode::Level),
+            move |_, _, state: &mut RuntimeState| {
+                let mut actions = std::mem::take(&mut state.native_plugin_actions);
+                let result = match state.native_app_plugins.as_mut() {
+                    Some(manager) => manager
+                        .dispatch(plugin_index, &mut actions)
+                        .map_err(|error| error.to_string()),
+                    None => Err("native application plugin manager disappeared".to_owned()),
+                };
+                state.native_plugin_actions = actions;
+                if let Err(error) = result {
+                    warn!(plugin_index, %error, "disabled failed native application plugin event source");
+                    return Ok(PostAction::Remove);
+                }
+                Ok(PostAction::Continue)
+            },
+        )?;
+    }
+    let (volition_event_sender, volition_event_source) = sync_channel(8);
+    event_loop.handle().insert_source(
+        volition_event_source,
+        |event, _, state: &mut RuntimeState| {
+            if let ChannelEvent::Msg(event) = event {
+                state.volition_events.push(event);
+            }
+        },
+    )?;
     events.synchronize_flutter_pointer_position();
     let mut raster_frames = 0u64;
     let mut delivered_vsyncs = 0u64;
     let mut retired_output_flips = 0u64;
     let mut flutter = Some(flutter);
     let mut scheduler = output_scheduler::OutputScheduler::new(
+        drm,
+        volition_event_sender.clone(),
         scanouts,
         swapchain.current,
         swapchain.buffers.len(),
@@ -2286,6 +2782,9 @@ fn run_flutter_event_loop(
     };
     let mut ready_output_apply: Option<(PendingOutputApply, Vec<ConnectedConnector>)> = None;
     let mut pending_output_success: Option<PendingOutputApply> = None;
+    let mut pending_output_confirmation_success: VecDeque<PendingOutputConfirmation> =
+        VecDeque::new();
+    let mut active_output_confirmation: Option<ActiveOutputConfirmation> = None;
 
     // Any native helper inadvertently created by an elevated Flutter thread
     // is normalized before the compositor itself becomes realtime.
@@ -2301,6 +2800,7 @@ fn run_flutter_event_loop(
             &mut events,
             deadline,
         )?;
+        service_native_app_plugins(event_loop, &mut events, allocator)?;
         events.service_topology_recheck_deadline(Instant::now());
         install_sampled_buffer_releases(event_loop, &mut events)?;
         scheduler.acknowledge_ready_fences(
@@ -2309,6 +2809,37 @@ fn run_flutter_event_loop(
                 .ok_or("Flutter runtime disappeared during fence acknowledgement")?,
             events.ready_fence_signals.drain(..),
         )?;
+        let volition_events = std::mem::take(&mut events.volition_events);
+        if let Some(stall) =
+            scheduler.acknowledge_volition_events(volition_events, scanouts, &mut events)?
+        {
+            let commit = stall.commit();
+            error!(
+                stream = commit.stream,
+                framebuffer_index = commit.frame,
+                %stall,
+                "KMS lookahead remained busy; rebuilding the DRM and render stack in this session"
+            );
+            scheduler.shutdown_volition();
+            recover_stalled_kms_presentation(drm, event_loop, &mut events)?;
+            continue;
+        }
+        if active_output_confirmation
+            .as_ref()
+            .is_some_and(|pending| Instant::now() >= pending.deadline)
+        {
+            let pending = active_output_confirmation
+                .take()
+                .expect("expired output confirmation exists");
+            output_configuration = pending.rollback_configuration;
+            events.output_power_requests.extend(pending.rollback_power);
+            events.kms_reconfigure_requested = true;
+            events.output_control_dirty = true;
+            info!(
+                token = pending.state.token,
+                "rolling back unconfirmed output configuration"
+            );
+        }
         let needs_output_snapshot =
             ready_output_apply.is_some() || pending_output_success.is_some();
         let mut current_output_snapshot =
@@ -2319,6 +2850,9 @@ fn run_flutter_event_loop(
                     topology,
                     &output_configuration,
                     persistence_available,
+                    active_output_confirmation
+                        .as_ref()
+                        .map(|pending| pending.state),
                 )
             })?;
         if needs_output_snapshot && current_output_snapshot.is_none() {
@@ -2329,6 +2863,9 @@ fn run_flutter_event_loop(
                 .as_ref()
                 .expect("successful output apply has a publication snapshot")
                 .clone()));
+        }
+        while let Some(request) = pending_output_confirmation_success.pop_front() {
+            request.reply(Ok(()));
         }
         if let Some(reason) = events.lifecycle.shutdown_reason() {
             log_shutdown(reason);
@@ -2356,9 +2893,95 @@ fn run_flutter_event_loop(
                 .as_mut()
                 .ok_or("Flutter runtime disappeared during page-flip completion")?;
             scheduler.handle_completions(runtime, swapchain, scanouts, &mut events)?;
+            if drm.is_active()
+                && let Some(stall) = scheduler.presentation_stall(Instant::now())
+            {
+                let output = scanouts
+                    .get(stall.scanout_index)
+                    .map(|scanout| scanout.output.name.as_str())
+                    .unwrap_or("unknown");
+                error!(
+                    output,
+                    framebuffer_index = stall.framebuffer_index,
+                    pending_frames = stall.pending_frames,
+                    stalled_ms = stall.elapsed.as_millis(),
+                    "KMS presentation stopped making progress; rebuilding the DRM and render stack in this session"
+                );
+                // A monitor waking from DPMS can accept an atomic commit while
+                // its link is still training, then withhold the matching
+                // page-flip event.  Do not return an error here: a display
+                // manager interprets the compositor's non-zero exit as an
+                // ordinary ended session and drops the user onto a getty.
+                // Reset to a synchronous KMS baseline instead; the topology
+                // branch below rescans the connectors and recreates Flutter
+                // and its per-output scheduler.
+                scheduler.shutdown_volition();
+                recover_stalled_kms_presentation(drm, event_loop, &mut events)?;
+                continue;
+            }
             for presentation in scheduler.presented_outputs().iter().copied() {
                 frame_scheduler.observe_presentation(presentation);
             }
+
+            // Deadline-critical lane. Raster completion is published before
+            // its callback wakeup, so retire that wakeup without servicing
+            // unrelated Flutter messages, transfer the finished atlas, and
+            // authorize the next animation frame directly from this physical
+            // display edge. Input and compositor bookkeeping deliberately run
+            // only after this lane.
+            runtime.observe_frame_ready_events(&mut events.flutter_events);
+
+            // A page flip can retire the submitted generation while an older
+            // completed generation already occupies the scheduler's Ready
+            // slot and a newer one waits in Flutter's broker. Submit that
+            // scheduler-owned frame first so the broker handoff below can
+            // drain before authorizing Flutter to render again. Otherwise the
+            // broker remains Ready for one more display edge and Flutter must
+            // skip that edge even when another atlas target is free.
+            submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
+
+            if scheduler.can_accept_ready()
+                && let Some(ready) = runtime.take_ready()
+            {
+                if let Some(watch) = scheduler.publish_ready(runtime, ready, scanouts)? {
+                    install_ready_fence_watch(event_loop, watch)?;
+                }
+                raster_frames = raster_frames.saturating_add(1);
+            }
+
+            let frame_action = frame_scheduler.step(Instant::now(), runtime.pending_frame());
+            match frame_action {
+                frame_scheduler::FrameAction::Skip => {}
+                frame_scheduler::FrameAction::RequestFlutter => {
+                    if !runtime.request_flutter_for_app_updates()? {
+                        frame_scheduler.cancel_flutter_request();
+                    }
+                }
+                frame_scheduler::FrameAction::Render(tick) => {
+                    if runtime.render_authorized_frame(tick)? {
+                        delivered_vsyncs = delivered_vsyncs.saturating_add(1);
+                    }
+                }
+            }
+
+            // Queue any atlas which was complete when this iteration began.
+            // This remains ahead of input, Wayland traversal, and background
+            // shell synchronization, but follows frame-clock authorization so
+            // those tasks cannot perturb Flutter's animation timestamp.
+            submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
+            for tick in frame_scheduler.output_ticks().iter().copied() {
+                if let Some(frontend) = events.wayland.as_mut() {
+                    frontend.frame_tick(tick)?;
+                }
+                scheduler.process_screencopies_at_tick(
+                    tick,
+                    renderer,
+                    swapchain,
+                    scanouts,
+                    &mut events,
+                )?;
+            }
+
             // Freeze the tagged atlas as part of the page-flip completion that
             // made it visible. Display-clock ticks may be deduplicated against
             // that same completion; waiting for a later tick would let another
@@ -2397,6 +3020,8 @@ fn run_flutter_event_loop(
         if let Some(error) = events.error.take() {
             return Err(format!("DRM event error in Flutter event loop: {error}").into());
         }
+
+        let background_started = Instant::now();
 
         collect_output_power_requests(&mut events);
         synchronize_idle_dpms(scanouts, &mut events);
@@ -2444,6 +3069,62 @@ fn run_flutter_event_loop(
             }
         }
 
+        let mut output_confirmation_handled = false;
+        while let Some(request) = events.pending_output_confirmations.pop_front() {
+            let Some(pending) = active_output_confirmation.take() else {
+                request.reply(Err(output_control::OutputControlFailure::new(
+                    "stale_confirmation",
+                    "there is no output configuration awaiting confirmation",
+                )));
+                continue;
+            };
+            if request.token != pending.state.token {
+                active_output_confirmation = Some(pending);
+                request.reply(Err(output_control::OutputControlFailure::new(
+                    "stale_confirmation",
+                    "the output confirmation token is stale",
+                )));
+                continue;
+            }
+
+            output_confirmation_handled = true;
+            match request.action {
+                OutputConfirmationAction::Keep => {
+                    if let Some(prepared) = pending.prepared_persistence
+                        && let Err(error) = prepared.commit()
+                    {
+                        output_configuration = pending.rollback_configuration;
+                        events.output_power_requests.extend(pending.rollback_power);
+                        events.kms_reconfigure_requested = true;
+                        events.output_control_dirty = true;
+                        warn!(%error, "could not persist confirmed output configuration; rolling it back");
+                        request.reply(Err(output_control::OutputControlFailure::new(
+                            "persistence_failed",
+                            error,
+                        )));
+                        continue;
+                    }
+                    events.output_control_dirty = true;
+                    info!(token = pending.state.token, "kept output configuration");
+                    pending_output_confirmation_success.push_back(request);
+                }
+                OutputConfirmationAction::Rollback => {
+                    output_configuration = pending.rollback_configuration;
+                    events.output_power_requests.extend(pending.rollback_power);
+                    events.kms_reconfigure_requested = true;
+                    events.output_control_dirty = true;
+                    info!(
+                        token = pending.state.token,
+                        "rolling back output configuration on request"
+                    );
+                    pending_output_confirmation_success.push_back(request);
+                }
+            }
+        }
+        if output_confirmation_handled {
+            continue;
+        }
+
         if scanout_rebased && let Some((request, _)) = ready_output_apply.take() {
             // A VT resume invalidates the scheduler and any connector view
             // prepared against it. Re-scan the request after topology repair.
@@ -2454,15 +3135,15 @@ fn run_flutter_event_loop(
             && ready_output_apply.is_none()
             && let Some(request) = events.pending_output_applies.pop_front()
         {
+            if active_output_confirmation.is_some() {
+                request.reply(Err(output_control::OutputControlFailure::new(
+                    "confirmation_pending",
+                    "keep or roll back the current output configuration before applying another",
+                )));
+                continue;
+            }
             if scheduler.has_pending_scanout_work() {
-                submit_ready_frames(
-                    &mut scheduler,
-                    drm,
-                    swapchain,
-                    scanouts,
-                    event_loop,
-                    &mut events,
-                )?;
+                submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
                 events.pending_output_applies.push_front(request);
                 let now = Instant::now();
                 let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
@@ -2507,6 +3188,20 @@ fn run_flutter_event_loop(
                 events.topology_dirty = true;
                 continue;
             }
+            let confirmation_rollback = request
+                .configuration
+                .confirmation_timeout_milliseconds
+                .map(|timeout_milliseconds| {
+                    let rollback_power = scanouts
+                        .iter()
+                        .map(|scanout| (scanout.output.id, scanout.powered))
+                        .collect::<BTreeMap<_, _>>();
+                    (
+                        output_configuration.clone(),
+                        rollback_power,
+                        Duration::from_millis(timeout_milliseconds),
+                    )
+                });
             let (staged_configuration, desired_power) = match configuration_from_output_request(
                 &request.configuration,
                 &connectors,
@@ -2568,6 +3263,7 @@ fn run_flutter_event_loop(
                         height: output.mode.height,
                         refresh_millihz: output.mode.refresh_millihz,
                         scale_120: (output.scale * f64::from(SCALE_BASE)).round() as u32,
+                        transform: output_transform_from_name(output.transform),
                         adaptive_sync: output.adaptive_sync,
                     })
                     .collect::<Vec<_>>();
@@ -2612,7 +3308,17 @@ fn run_flutter_event_loop(
                     &mut events,
                 )?;
                 frame_scheduler.reconfigure(scanouts, Instant::now());
-                if let Some(prepared) = prepared_persistence {
+                if let Some((rollback_configuration, rollback_power, timeout)) =
+                    confirmation_rollback
+                {
+                    active_output_confirmation = Some(begin_output_confirmation(
+                        current_snapshot.serial,
+                        timeout,
+                        rollback_configuration,
+                        rollback_power,
+                        prepared_persistence,
+                    ));
+                } else if let Some(prepared) = prepared_persistence {
                     events.output_control_dirty = true;
                     if let Err(error) = prepared.commit() {
                         request.reply(Err(output_control::OutputControlFailure::new(
@@ -2676,6 +3382,8 @@ fn run_flutter_event_loop(
             output_configuration = staged_configuration;
             events.output_control_dirty = true;
             scheduler = output_scheduler::OutputScheduler::new(
+                drm,
+                volition_event_sender.clone(),
                 scanouts,
                 swapchain.current,
                 swapchain.buffers.len(),
@@ -2696,7 +3404,15 @@ fn run_flutter_event_loop(
                 &mut events,
             )?;
             frame_scheduler.reconfigure(scanouts, Instant::now());
-            if let Some(prepared) = prepared_persistence {
+            if let Some((rollback_configuration, rollback_power, timeout)) = confirmation_rollback {
+                active_output_confirmation = Some(begin_output_confirmation(
+                    current_snapshot.serial,
+                    timeout,
+                    rollback_configuration,
+                    rollback_power,
+                    prepared_persistence,
+                ));
+            } else if let Some(prepared) = prepared_persistence {
                 events.output_control_dirty = true;
                 if let Err(error) = prepared.commit() {
                     request.reply(Err(output_control::OutputControlFailure::new(
@@ -2777,16 +3493,9 @@ fn run_flutter_event_loop(
                     if !scanout_rebased && scheduler.has_pending_scanout_work() {
                         // Finish any ready old-topology atlas before creating the
                         // common rollback point used by the hotplug transaction.
-                        // A signalled userspace fence can be submitted now; an
-                        // unfinished one will wake this loop through calloop.
-                        submit_ready_frames(
-                            &mut scheduler,
-                            drm,
-                            swapchain,
-                            scanouts,
-                            event_loop,
-                            &mut events,
-                        )?;
+                        // A signalled ready fence can enter Volition lookahead;
+                        // an unfinished one will wake this loop through calloop.
+                        submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
                         events.topology_dirty = true;
                         events.kms_reconfigure_requested = kms_reconfigure_requested;
                         let now = Instant::now();
@@ -2809,7 +3518,7 @@ fn run_flutter_event_loop(
                     }
                     retired_output_flips =
                         retired_output_flips.saturating_add(scheduler.presented_frames());
-                    apply_hotplug_topology(
+                    let topology_apply = apply_hotplug_topology(
                         renderer,
                         atlas_allocator,
                         drm,
@@ -2824,8 +3533,30 @@ fn run_flutter_event_loop(
                         &mut events,
                         &mut flutter,
                         Some(flutter_launcher),
-                    )?;
+                    );
+                    if let Err(error) = topology_apply {
+                        if scanout_rebased && flutter.is_some() {
+                            // Recovery may reach this transaction while a
+                            // monitor is still link-training.  Its synchronous
+                            // baseline was accepted, but the transaction's
+                            // first event-producing flip can still time out.
+                            // Keep the login and retry from a fresh connector
+                            // scan instead of returning status 1 to SDDM.
+                            warn!(
+                                %error,
+                                retry_ms = KMS_PRESENTATION_RECOVERY_RETRY.as_millis(),
+                                "KMS topology rebuild is waiting for the display hardware"
+                            );
+                            events.scanout_rebased = true;
+                            events.topology_dirty = true;
+                            event_loop.dispatch(KMS_PRESENTATION_RECOVERY_RETRY, &mut events)?;
+                            continue;
+                        }
+                        return Err(error);
+                    }
                     scheduler = output_scheduler::OutputScheduler::new(
+                        drm,
+                        volition_event_sender.clone(),
                         scanouts,
                         swapchain.current,
                         swapchain.buffers.len(),
@@ -2869,14 +3600,7 @@ fn run_flutter_event_loop(
                 // every affected CRTC. A ready fence or page flip will wake
                 // this loop through calloop, without disturbing clients or
                 // the graphical session.
-                submit_ready_frames(
-                    &mut scheduler,
-                    drm,
-                    swapchain,
-                    scanouts,
-                    event_loop,
-                    &mut events,
-                )?;
+                submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
                 let now = Instant::now();
                 let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
                     Duration::from_millis(50).min(deadline.saturating_duration_since(now))
@@ -2906,6 +3630,8 @@ fn run_flutter_event_loop(
                 flutter_launcher,
             )?;
             scheduler = output_scheduler::OutputScheduler::new(
+                drm,
+                volition_event_sender.clone(),
                 scanouts,
                 swapchain.current,
                 swapchain.buffers.len(),
@@ -2926,16 +3652,25 @@ fn run_flutter_event_loop(
         let runtime = flutter
             .as_mut()
             .ok_or("Flutter runtime disappeared from event loop")?;
-        runtime.process_input(&mut events.flutter_input)?;
+        runtime.process_input_batch(&mut events.flutter_input)?;
         // Drain in place so the callback queue keeps its allocation across
         // frame/engine dispatches. AwaitVSync and platform-task traffic is a
         // steady-state hot path and must not rebuild this Vec every time.
-        runtime.process_events(events.flutter_events.drain(..))?;
+        let flutter_event_batch = events
+            .flutter_events
+            .len()
+            .min(MAX_FLUTTER_EVENTS_PER_ITERATION);
+        runtime.process_events(events.flutter_events.drain(..flutter_event_batch))?;
+        if background_started.elapsed() >= COMPOSITOR_BACKGROUND_SLICE {
+            event_loop.dispatch(Duration::ZERO, &mut events)?;
+            continue;
+        }
         if flutter_launcher.synchronize_ui_development(runtime)? {
             events.flutter_reload_requested = true;
         }
         synchronize_idle_dpms_configuration(runtime, &mut events);
         synchronize_authentication_boundary(&mut events);
+        synchronize_requested_dpms_off(runtime, scanouts, &mut events);
         let screenshot_is_invalid = screenshot_manager.as_ref().is_some_and(|manager| {
             events.secure_session_locked()
                 || manager.topology_epoch() != Some(topology.snapshot().epoch)
@@ -2959,10 +3694,18 @@ fn run_flutter_event_loop(
         synchronize_shell_keyboard(runtime, &mut events)?;
         synchronize_settings(runtime, &mut events)?;
         synchronize_system_bar_configuration(runtime, &mut events, Some(flutter_launcher));
+        if background_started.elapsed() >= COMPOSITOR_BACKGROUND_SLICE {
+            event_loop.dispatch(Duration::ZERO, &mut events)?;
+            continue;
+        }
         synchronize_flutter_window_management(runtime, &mut events)?;
         synchronize_flutter_scene(runtime, &mut events)?;
-        synchronize_flutter_input_layout(runtime, &mut events);
+        synchronize_flutter_input_layout(runtime, &mut events)?;
         synchronize_wayland_cursor(runtime, &mut events)?;
+        if background_started.elapsed() >= COMPOSITOR_BACKGROUND_SLICE {
+            event_loop.dispatch(Duration::ZERO, &mut events)?;
+            continue;
+        }
         let screenshot_prepared = runtime.take_screenshot_prepared();
         let screenshot_cancelled = runtime.take_screenshot_cancelled();
         let screenshot_request = runtime.take_screenshot_requested();
@@ -3085,67 +3828,16 @@ fn run_flutter_event_loop(
             runtime.send_screenshot_action(wire::ShellAction::ScreenshotDone, request_id, None)?;
         }
 
-        // Queue the candidate before accepting its successor. Native GPU work
-        // normally travels with the atomic commit through IN_FENCE_FD. If a
-        // driver advertises that property but rejects real fenced commits, the
-        // scheduler first waits for the same fence in calloop and then queues
-        // the framebuffer, preserving the producer ownership boundary.
-        submit_ready_frames(
-            &mut scheduler,
-            drm,
-            swapchain,
-            scanouts,
-            event_loop,
-            &mut events,
-        )?;
-        if scheduler.can_accept_ready()
-            && let Some(ready) = runtime.take_ready()
-        {
-            if let Some(watch) = scheduler.publish_ready(runtime, ready, scanouts)? {
-                install_ready_fence_watch(event_loop, watch)?;
-            }
-            raster_frames = raster_frames.saturating_add(1);
-            // Leave the newly published frame queued (or watched by calloop)
-            // before servicing the next display tick.
-            submit_ready_frames(
-                &mut scheduler,
-                drm,
-                swapchain,
-                scanouts,
-                event_loop,
-                &mut events,
-            )?;
-        }
-        let frame_action = frame_scheduler.step(Instant::now(), runtime.pending_frame());
-        for tick in frame_scheduler.output_ticks().iter().copied() {
-            if let Some(frontend) = events.wayland.as_mut() {
-                frontend.frame_tick(tick)?;
-            }
-            scheduler.process_screencopies_at_tick(
-                tick,
-                renderer,
-                swapchain,
-                scanouts,
-                &mut events,
-            )?;
-        }
-        match frame_action {
-            frame_scheduler::FrameAction::Skip => {}
-            frame_scheduler::FrameAction::RequestFlutter => {
-                if !runtime.request_flutter_for_app_updates()? {
-                    frame_scheduler.cancel_flutter_request();
-                }
-            }
-            frame_scheduler::FrameAction::Render(tick) => {
-                if runtime.render_authorized_frame(tick)? {
-                    delivered_vsyncs = delivered_vsyncs.saturating_add(1);
-                }
-            }
-        }
-
         let now = Instant::now();
         let mut next_dispatch_timeout =
             frame_scheduler.limit_dispatch_timeout(now, runtime.next_dispatch_timeout());
+        if drm.is_active() {
+            next_dispatch_timeout =
+                scheduler.limit_presentation_watchdog_timeout(now, next_dispatch_timeout);
+        }
+        if events.flutter_input.has_pending() || !events.flutter_events.is_empty() {
+            next_dispatch_timeout = Duration::ZERO;
+        }
         if let Some(recheck_at) = events.topology_recheck_at {
             next_dispatch_timeout =
                 next_dispatch_timeout.min(recheck_at.saturating_duration_since(now));
@@ -3187,6 +3879,7 @@ fn run_flutter_event_loop(
         // after a successful drain.
         duration.is_none(),
     );
+    scheduler.shutdown_volition();
 
     flutter
         .take()
@@ -3255,7 +3948,7 @@ fn reload_flutter_runtime(
         synchronize_settings(&mut old_runtime, events)?;
         synchronize_system_bar_configuration(&mut old_runtime, events, Some(flutter_launcher));
         synchronize_flutter_window_management(&mut old_runtime, events)?;
-        synchronize_flutter_input_layout(&mut old_runtime, events);
+        synchronize_flutter_input_layout(&mut old_runtime, events)?;
         Ok(())
     })();
     let shutdown = old_runtime.shutdown();
@@ -3277,21 +3970,7 @@ fn reload_flutter_runtime(
     }
 
     *flutter = Some(flutter_launcher.start(renderer, swapchain, scanouts, &snapshot, &atlas)?);
-    events.flutter_input.resize(swapchain.size);
-    if let Some(frontend) = events.wayland.as_mut() {
-        frontend.reset_flutter_input_generation();
-    }
-    events.synchronize_flutter_pointer_position();
-    events.flutter_channel_closed = false;
-    events.scene_sync.invalidate_runtime();
-    events.published_window_ids.clear();
-    events.pending_window_events.clear();
-    events.pending_unpublished_window_events.clear();
-    if let Some(frontend) = events.wayland.as_ref() {
-        events
-            .pending_window_events
-            .extend(frontend.replay_window_state_events());
-    }
+    events.begin_replacement_flutter_generation(swapchain.size);
     Ok(())
 }
 
@@ -3458,7 +4137,7 @@ fn wait_for_flutter_frame(
         synchronize_system_bar_configuration(runtime, events, flutter_launcher.as_deref_mut());
         synchronize_flutter_window_management(runtime, events)?;
         synchronize_flutter_scene(runtime, events)?;
-        synchronize_flutter_input_layout(runtime, events);
+        synchronize_flutter_input_layout(runtime, events)?;
         synchronize_wayland_cursor(runtime, events)?;
         if let Some(index) = runtime.take_ready() {
             return Ok(Some(index));
@@ -3491,31 +4170,32 @@ fn synchronize_flutter_scene(
 ) -> Result<(), Box<dyn Error>> {
     let mut metadata_revision = events.scene_sync.pending_metadata_revision();
     let pending_buffer_revision = events.scene_sync.pending_buffer_revision();
-    if metadata_revision.is_none() && pending_buffer_revision.is_none() {
-        return Ok(());
+    let native_scene_dirty = events
+        .native_app_plugins
+        .as_ref()
+        .is_some_and(native_app_plugin::NativeAppPluginManager::scene_dirty);
+    if native_scene_dirty && metadata_revision.is_none() {
+        events.scene_sync.mark_dirty();
+        metadata_revision = events.scene_sync.pending_metadata_revision();
     }
-    if events.wayland.is_none() {
+    if metadata_revision.is_none() && pending_buffer_revision.is_none() && !native_scene_dirty {
         return Ok(());
     }
 
     if metadata_revision.is_none() {
         let buffer_revision = pending_buffer_revision
             .expect("a scene sync without metadata must contain buffer work");
-        let textures = {
+        let textures = if let Some(frontend) = events.wayland.as_mut() {
             let scene_sync = &events.scene_sync;
-            events
-                .wayland
-                .as_mut()
-                .expect("Wayland frontend was present above")
-                .flutter_dirty_textures(scene_sync.dirty_surface_ids(buffer_revision))
+            frontend.flutter_dirty_textures(scene_sync.dirty_surface_ids(buffer_revision))
+        } else {
+            None
         };
         if let Some(textures) = textures {
             let textures = runtime.sync_wayland_buffers(textures)?;
-            events
-                .wayland
-                .as_mut()
-                .expect("Wayland frontend cannot disappear while synchronizing")
-                .recycle_flutter_dirty_textures(textures);
+            if let Some(frontend) = events.wayland.as_mut() {
+                frontend.recycle_flutter_dirty_textures(textures);
+            }
             events.scene_sync.mark_buffers_synchronized(buffer_revision);
             return Ok(());
         }
@@ -3529,25 +4209,32 @@ fn synchronize_flutter_scene(
 
     let revision = metadata_revision.expect("metadata fallback must be pending");
     let buffer_revision = events.scene_sync.buffer_revision();
-    let frontend = events
-        .wayland
-        .as_ref()
-        .expect("Wayland frontend was present above");
     // Building the live-ID set walks every toplevel. It is only needed to
     // classify events which arrived before their first renderable buffer;
     // the steady-state scene publication normally has none.
-    let live_window_ids = (!events.pending_unpublished_window_events.is_empty())
-        .then(|| frontend.live_toplevel_ids());
-    let (windows, textures) = events
+    let live_window_ids = (!events.pending_unpublished_window_events.is_empty()).then(|| {
+        events
+            .wayland
+            .as_ref()
+            .map(wayland_frontend::WaylandFrontend::live_toplevel_ids)
+            .unwrap_or_default()
+    });
+    let (mut windows, mut textures) = events
         .wayland
         .as_mut()
-        .expect("Wayland frontend was present above")
-        .flutter_scene()?;
+        .map(wayland_frontend::WaylandFrontend::flutter_scene)
+        .transpose()?
+        .unwrap_or_default();
+    if let Some(manager) = events.native_app_plugins.as_ref() {
+        let (native_windows, native_textures) = manager.scene();
+        windows.extend(native_windows);
+        textures.extend(native_textures);
+    }
     let flutter_runtime::SyncedWaylandScene {
         windows,
         textures,
         window_snapshot_changed,
-    } = runtime.sync_wayland_scene(windows, textures)?;
+    } = runtime.sync_wayland_scene(windows, textures, &events.restored_window_ids)?;
     if window_snapshot_changed {
         // Buffer-only revisions leave WireBridge's metadata snapshot equal.
         // Rehash IDs only when that authoritative snapshot actually changes.
@@ -3555,12 +4242,17 @@ fn synchronize_flutter_scene(
         published_window_ids.clear();
         published_window_ids.extend(runtime.synced_window_ids());
         events.published_window_ids = published_window_ids;
+        let published_window_ids = &events.published_window_ids;
+        events
+            .restored_window_ids
+            .retain(|window_id| published_window_ids.contains(window_id));
     }
-    events
-        .wayland
-        .as_mut()
-        .expect("Wayland frontend cannot disappear while synchronizing")
-        .recycle_flutter_scene(windows, textures);
+    if let Some(frontend) = events.wayland.as_mut() {
+        frontend.recycle_flutter_scene(windows, textures);
+    }
+    if let Some(manager) = events.native_app_plugins.as_mut() {
+        manager.mark_scene_synchronized();
+    }
     // A later Wayland commit has a newer revision, so acknowledging this
     // captured revision cannot erase work that arrived while Flutter/KMS was
     // processing the previous frame.
@@ -3601,12 +4293,18 @@ fn synchronize_flutter_scene(
 fn synchronize_flutter_input_layout(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &mut RuntimeState,
-) {
+) -> Result<(), Box<dyn Error>> {
     let Some(layout) = runtime.take_input_layout_update() else {
-        return;
+        return Ok(());
     };
+    if let Some(manager) = events.native_app_plugins.as_mut()
+        && let Err(error) = manager.apply_input_layout(&layout)
+    {
+        warn!(%error, "could not apply native plugin input visibility");
+    }
     let Some(frontend) = events.wayland.as_mut() else {
-        return;
+        runtime.recycle_input_layout(layout);
+        return Ok(());
     };
     let (previous, sampling_changed, routing_changed) = frontend.install_input_layout(layout);
     if let Some(previous) = previous {
@@ -3622,6 +4320,10 @@ fn synchronize_flutter_input_layout(
     if routing_changed {
         wayland_frontend::reconcile_flutter_pointer_route(events);
     }
+    // InputLayout owns shell keyboard capture. Publish again after applying
+    // it so releasing a local Flutter surface exposes an already-active
+    // Wayland editor in this iteration instead of waiting for unrelated input.
+    publish_software_keyboard_state(runtime, events)
 }
 
 #[cfg(feature = "flutter")]
@@ -3810,61 +4512,46 @@ fn synchronize_shell_keyboard(
     {
         events.scene_sync.mark_dirty();
     }
+    publish_software_keyboard_state(runtime, events)?;
     let commands = runtime.drain_keyboard_commands().collect::<Vec<_>>();
-    if events.secure_session_locked() {
-        return Ok(());
-    }
-
+    // The OSK is a virtual keyboard source. Rust converts each intent into
+    // complete key transitions and feeds the same focus/XKB/seat-or-Flutter
+    // router used by libinput; there is no separate text-delivery path.
+    let mut flush_wayland_clients = false;
     for command in commands {
-        let target = events
-            .wayland
-            .as_ref()
-            .map(|frontend| match &command {
-                wire::KeyboardCommand::Text(_) => frontend.text_input_target_for_text(),
-                wire::KeyboardCommand::Key { .. } => frontend.text_input_target_for_key(),
-            })
-            .unwrap_or(wayland_frontend::ShellCommandTarget::None);
-        match target {
-            wayland_frontend::ShellCommandTarget::Flutter => {
-                runtime.dispatch_keyboard_command_to_flutter(&command)?;
-            }
-            wayland_frontend::ShellCommandTarget::WaylandText => {
-                let wire::KeyboardCommand::Text(text) = &command else {
-                    unreachable!("named keys never select the Wayland text endpoint")
-                };
-                let delivered = events
-                    .wayland
-                    .as_mut()
-                    .is_some_and(|frontend| frontend.commit_text_input(text));
-                if !delivered
-                    && !wayland_frontend::dispatch_shell_keyboard_fallback(events, &command)
-                {
-                    warn!(
-                        ?command,
-                        "Wayland text endpoint disappeared and its seat fallback was unavailable"
-                    );
-                }
-            }
-            wayland_frontend::ShellCommandTarget::Seat => {
-                if !wayland_frontend::dispatch_shell_keyboard_fallback(events, &command) {
-                    warn!(?command, "seat fallback had no focused input target");
-                }
-            }
-            wayland_frontend::ShellCommandTarget::Captured => {
-                debug!(
-                    ?command,
-                    "shell captured keyboard input without an active editor"
-                );
-            }
-            wayland_frontend::ShellCommandTarget::None => {
-                warn!(
-                    ?command,
-                    "shell keyboard command had no focused input target"
-                );
-            }
+        let delivered = wayland_frontend::dispatch_shell_keyboard(events, &command);
+        flush_wayland_clients |= delivered;
+        if !delivered {
+            warn!(
+                ?command,
+                "virtual keyboard could not produce this key transition"
+            );
         }
     }
+    if flush_wayland_clients && let Some(frontend) = events.wayland.as_mut() {
+        frontend.display_handle.flush_clients()?;
+    }
     Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn publish_software_keyboard_state(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &RuntimeState,
+) -> Result<(), Box<dyn Error>> {
+    let keyboard = events
+        .wayland
+        .as_ref()
+        .map(|frontend| frontend.software_keyboard_state())
+        .unwrap_or_default();
+    runtime.publish_text_input_state(
+        keyboard.active,
+        keyboard.input_panel_visible,
+        keyboard.legacy,
+        keyboard.content_hint,
+        keyboard.content_purpose,
+        keyboard.activation_serial,
+    )
 }
 
 #[cfg(feature = "flutter")]
@@ -3874,9 +4561,31 @@ fn synchronize_flutter_window_management(
 ) -> Result<(), Box<dyn Error>> {
     if events.secure_session_locked() {
         events.pending_shell_actions.clear();
+        events.pending_shortcut_launches.clear();
         while runtime.take_application_launch().is_some() {}
         runtime.drain_window_commands().for_each(drop);
     } else {
+        while let Some(target) = events.pending_shortcut_launches.pop_front() {
+            let activation_token = events
+                .wayland
+                .as_mut()
+                .map(wayland_frontend::WaylandFrontend::create_launch_activation_token);
+            let result = match target {
+                native_shortcut::ShortcutTarget::Spawn { command } => {
+                    runtime.start_shortcut_application(command, false, activation_token.as_deref())
+                }
+                native_shortcut::ShortcutTarget::SpawnSh { command } => runtime
+                    .start_shortcut_application(
+                        vec!["sh".to_owned(), "-c".to_owned(), command],
+                        true,
+                        activation_token.as_deref(),
+                    ),
+                native_shortcut::ShortcutTarget::DenialAction { .. } => continue,
+            };
+            if let Err(error) = result {
+                warn!(%error, "could not launch command requested by shortcut");
+            }
+        }
         while let Some(launch) = runtime.take_application_launch() {
             let activation_token = events
                 .wayland
@@ -3889,7 +4598,32 @@ fn synchronize_flutter_window_management(
         while let Some((action, monitor_id)) = events.pending_shell_actions.pop_front() {
             runtime.send_shell_action(action, monitor_id)?;
         }
-        wayland_frontend::apply_window_commands(events, runtime.drain_window_commands());
+        let commands = runtime.drain_window_commands().collect::<Vec<_>>();
+        let mut wayland_commands = Vec::with_capacity(commands.len());
+        for command in commands {
+            let native_owned = command.window_id().is_some_and(|window_id| {
+                events
+                    .native_app_plugins
+                    .as_ref()
+                    .is_some_and(|manager| manager.owns_window(window_id))
+            });
+            if native_owned {
+                if let Some(manager) = events.native_app_plugins.as_mut()
+                    && let Err(error) = manager.apply_window_command(&command)
+                {
+                    warn!(%error, "native application plugin window command failed");
+                }
+            } else {
+                if matches!(command, wire::WindowCommand::Focus { .. })
+                    && let Some(manager) = events.native_app_plugins.as_mut()
+                    && let Err(error) = manager.clear_focus()
+                {
+                    warn!(%error, "could not clear native application focus");
+                }
+                wayland_commands.push(command);
+            }
+        }
+        wayland_frontend::apply_window_commands(events, wayland_commands);
     }
     if events.pending_window_events.is_empty() {
         return Ok(());
@@ -3963,8 +4697,8 @@ fn synchronize_settings(
                 let (revision, document) = {
                     let frontend = events.wayland.as_mut().expect("missing Wayland frontend");
                     if result.is_ok() {
-                        // The keyboard values are unchanged, but its revision
-                        // token advanced with the shared document.
+                        // The native-owned values are unchanged, but their
+                        // revision token advanced with the shared document.
                         frontend.keyboard_configuration_changed = true;
                     }
                     (
@@ -3985,9 +4719,19 @@ fn synchronize_settings(
                         .map(|error| error.to_string())
                         .as_deref(),
                 )?;
+                if result.is_ok() {
+                    events.input_device_capabilities_changed = true;
+                }
             }
             wire::SettingsCommand::ReadKeyboard { request_id } => {
                 send_keyboard_settings(runtime, events, request_id, None)?;
+                if let Some(frontend) = events.wayland.as_mut() {
+                    frontend.keyboard_configuration_changed = false;
+                }
+            }
+            wire::SettingsCommand::ReadInputDevices { request_id } => {
+                send_input_device_settings(runtime, events, request_id, None)?;
+                events.input_device_capabilities_changed = false;
             }
             wire::SettingsCommand::ConfigureKeyboard {
                 request_id,
@@ -4073,6 +4817,175 @@ fn synchronize_settings(
                         .map(|error| error.to_string())
                         .as_deref(),
                 )?;
+                if result.is_ok() {
+                    events.input_device_capabilities_changed = true;
+                }
+            }
+            wire::SettingsCommand::ConfigureTouchpad {
+                request_id,
+                expected_revision,
+                touchpad,
+            } => {
+                let prepared = events
+                    .wayland
+                    .as_ref()
+                    .ok_or("touchpad update has no Wayland frontend")?
+                    .settings
+                    .prepare_touchpad_update(expected_revision, touchpad);
+                let result = match prepared {
+                    Ok(prepared) => {
+                        let previous = events
+                            .wayland
+                            .as_ref()
+                            .expect("missing Wayland frontend")
+                            .settings
+                            .touchpad()
+                            .clone();
+                        let next = prepared.touchpad().clone();
+                        match wayland_frontend::install_touchpad_settings(events, &next) {
+                            Ok(()) => {
+                                let commit = events
+                                    .wayland
+                                    .as_mut()
+                                    .expect("missing Wayland frontend")
+                                    .settings
+                                    .commit(prepared);
+                                if let Err(error) = commit {
+                                    if let Err(rollback_error) =
+                                        wayland_frontend::install_touchpad_settings(
+                                            events, &previous,
+                                        )
+                                    {
+                                        return Err(format!(
+                                            "touchpad settings commit failed ({error}) and the live configuration rollback failed ({rollback_error})"
+                                        )
+                                        .into());
+                                    }
+                                    Err(error)
+                                } else {
+                                    info!(
+                                        revision = events
+                                            .wayland
+                                            .as_ref()
+                                            .expect("missing Wayland frontend")
+                                            .settings
+                                            .revision(),
+                                        tap_to_click = next.tap_to_click_enabled,
+                                        natural_scroll = next.natural_scroll_enabled,
+                                        "applied persistent touchpad settings"
+                                    );
+                                    Ok(())
+                                }
+                            }
+                            Err(error) => {
+                                if let Err(rollback_error) =
+                                    wayland_frontend::install_touchpad_settings(events, &previous)
+                                {
+                                    return Err(format!(
+                                        "touchpad configuration failed ({error}) and the live configuration rollback failed ({rollback_error})"
+                                    )
+                                    .into());
+                                }
+                                send_input_device_settings(
+                                    runtime,
+                                    events,
+                                    request_id,
+                                    Some(&error),
+                                )?;
+                                continue;
+                            }
+                        }
+                    }
+                    Err(error) => Err(error),
+                };
+                send_input_device_settings(
+                    runtime,
+                    events,
+                    request_id,
+                    result
+                        .as_ref()
+                        .err()
+                        .map(|error| error.to_string())
+                        .as_deref(),
+                )?;
+                if result.is_ok()
+                    && let Some(frontend) = events.wayland.as_mut()
+                {
+                    frontend.keyboard_configuration_changed = true;
+                }
+            }
+            wire::SettingsCommand::ReadShortcuts { request_id } => {
+                send_shortcut_settings(runtime, events, request_id, None)?;
+            }
+            wire::SettingsCommand::ValidateShortcut {
+                request_id,
+                shortcut,
+                existing_shortcut,
+            } => {
+                let (revision, validation) = {
+                    let manager = &events
+                        .wayland
+                        .as_ref()
+                        .ok_or("shortcut validation has no Wayland frontend")?
+                        .shortcuts;
+                    (
+                        manager.revision(),
+                        manager.validate_shortcut(&shortcut, existing_shortcut.as_deref()),
+                    )
+                };
+                runtime.send_shortcut_validation_response(request_id, revision, &validation)?;
+            }
+            wire::SettingsCommand::AddShortcut {
+                request_id,
+                expected_revision,
+                shortcut,
+            } => {
+                let prepared = events
+                    .wayland
+                    .as_ref()
+                    .ok_or("shortcut update has no Wayland frontend")?
+                    .shortcuts
+                    .prepare_add(expected_revision, shortcut);
+                apply_shortcut_update(runtime, events, request_id, prepared)?;
+            }
+            wire::SettingsCommand::UpdateShortcut {
+                request_id,
+                expected_revision,
+                existing_shortcut,
+                shortcut,
+            } => {
+                let prepared = events
+                    .wayland
+                    .as_ref()
+                    .ok_or("shortcut update has no Wayland frontend")?
+                    .shortcuts
+                    .prepare_update(expected_revision, &existing_shortcut, shortcut);
+                apply_shortcut_update(runtime, events, request_id, prepared)?;
+            }
+            wire::SettingsCommand::RemoveShortcut {
+                request_id,
+                expected_revision,
+                shortcut,
+            } => {
+                let prepared = events
+                    .wayland
+                    .as_ref()
+                    .ok_or("shortcut removal has no Wayland frontend")?
+                    .shortcuts
+                    .prepare_remove(expected_revision, &shortcut);
+                apply_shortcut_update(runtime, events, request_id, prepared)?;
+            }
+            wire::SettingsCommand::RestoreShortcuts {
+                request_id,
+                expected_revision,
+            } => {
+                let prepared = events
+                    .wayland
+                    .as_ref()
+                    .ok_or("shortcut restore has no Wayland frontend")?
+                    .shortcuts
+                    .prepare_restore(expected_revision);
+                apply_shortcut_update(runtime, events, request_id, prepared)?;
             }
         }
     }
@@ -4084,7 +4997,79 @@ fn synchronize_settings(
     if changed {
         send_keyboard_settings(runtime, events, 0, None)?;
     }
+    if std::mem::take(&mut events.input_device_capabilities_changed) {
+        send_input_device_settings(runtime, events, 0, None)?;
+    }
     Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn apply_shortcut_update(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &mut RuntimeState,
+    request_id: u64,
+    prepared: Result<native_shortcut::PreparedShortcutUpdate, native_shortcut::ShortcutError>,
+) -> Result<(), Box<dyn Error>> {
+    let result = match prepared {
+        Ok(mut prepared) => {
+            let candidate_engine = prepared.take_engine();
+            let previous_engine =
+                std::mem::replace(&mut events.native_escape_shortcut, candidate_engine);
+            let result = events
+                .wayland
+                .as_mut()
+                .ok_or("shortcut commit has no Wayland frontend")?
+                .shortcuts
+                .commit(prepared);
+            if result.is_err() {
+                events.native_escape_shortcut = previous_engine;
+            } else {
+                info!(
+                    revision = events
+                        .wayland
+                        .as_ref()
+                        .expect("missing Wayland frontend")
+                        .shortcuts
+                        .revision(),
+                    "applied persistent shortcut configuration"
+                );
+            }
+            result
+        }
+        Err(error) => Err(error),
+    };
+    send_shortcut_settings(
+        runtime,
+        events,
+        request_id,
+        result
+            .as_ref()
+            .err()
+            .map(|error| error.to_string())
+            .as_deref(),
+    )
+}
+
+#[cfg(feature = "flutter")]
+fn send_shortcut_settings(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &RuntimeState,
+    request_id: u64,
+    error: Option<&str>,
+) -> Result<(), Box<dyn Error>> {
+    let manager = &events
+        .wayland
+        .as_ref()
+        .ok_or("shortcut response has no Wayland frontend")?
+        .shortcuts;
+    let supported_inputs = native_shortcut::supported_inputs();
+    runtime.send_shortcut_configuration_response(
+        request_id,
+        manager.revision(),
+        &manager.file().shortcuts,
+        &supported_inputs,
+        error,
+    )
 }
 
 #[cfg(feature = "flutter")]
@@ -4104,6 +5089,26 @@ fn send_keyboard_settings(
         frontend.settings.keyboard(),
         &frontend.keyboard_layout_names,
         frontend.active_keyboard_layout,
+        error,
+    )
+}
+
+#[cfg(feature = "flutter")]
+fn send_input_device_settings(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &RuntimeState,
+    request_id: u64,
+    error: Option<&str>,
+) -> Result<(), Box<dyn Error>> {
+    let frontend = events
+        .wayland
+        .as_ref()
+        .ok_or("touchpad settings response has no Wayland frontend")?;
+    runtime.send_input_device_capabilities_response(
+        request_id,
+        frontend.settings.revision(),
+        !events.touchpad_devices.is_empty(),
+        frontend.settings.touchpad(),
         error,
     )
 }
@@ -4177,6 +5182,12 @@ fn apply_hotplug_topology(
     let old_snapshot = topology.snapshot();
     let mut progress = HotplugProgress::default();
     let reconciliation = reconcile_scanouts(drm, scanouts, restore_state, outputs, &atlas)?;
+    #[cfg(not(feature = "flutter"))]
+    let linear_render_targets = false;
+    #[cfg(feature = "flutter")]
+    let linear_render_targets = flutter_launcher
+        .as_deref()
+        .is_some_and(FlutterLauncher::uses_offscreen_blit);
     let atlas_modifiers = match shared_atlas_modifiers(
         reconciliation.scanouts(),
         renderer.egl_context().dmabuf_render_formats(),
@@ -4193,6 +5204,7 @@ fn apply_hotplug_topology(
         atlas.pixel_size,
         pool_length,
         &atlas_modifiers,
+        linear_render_targets,
     ) {
         Ok(staged) => staged,
         Err(error) => {
@@ -4314,7 +5326,7 @@ fn apply_hotplug_topology(
                 flutter_launcher.as_deref_mut(),
             );
             synchronize_flutter_window_management(&mut old_runtime, events)?;
-            synchronize_flutter_input_layout(&mut old_runtime, events);
+            synchronize_flutter_input_layout(&mut old_runtime, events)?;
             Ok(())
         })();
         let shutdown = old_runtime.shutdown();
@@ -4378,6 +5390,17 @@ fn apply_hotplug_topology(
         events.output_control_dirty = true;
     }
     let retired = std::mem::replace(swapchain, staged);
+    #[cfg(feature = "flutter")]
+    {
+        events.native_plugin_default_size = (swapchain.size.width, swapchain.size.height);
+        if let Some(manager) = events.native_app_plugins.as_mut() {
+            manager.set_configure_properties(
+                atlas.engine_scale_120,
+                SCALE_BASE,
+                ticker_refresh_millihz(&snapshot)?,
+            )?;
+        }
+    }
     progress.mark_finalized();
     drop(retired_scanouts);
 
@@ -4386,21 +5409,7 @@ fn apply_hotplug_topology(
         drop(retired);
         let launcher = flutter_launcher.ok_or("dynamic Flutter topology has no launcher")?;
         *flutter = Some(launcher.start(renderer, swapchain, scanouts, &snapshot, &atlas)?);
-        events.flutter_input.resize(swapchain.size);
-        if let Some(frontend) = events.wayland.as_mut() {
-            frontend.reset_flutter_input_generation();
-        }
-        events.synchronize_flutter_pointer_position();
-        events.flutter_channel_closed = false;
-        events.scene_sync.invalidate_runtime();
-        events.published_window_ids.clear();
-        events.pending_window_events.clear();
-        events.pending_unpublished_window_events.clear();
-        if let Some(frontend) = events.wayland.as_ref() {
-            events
-                .pending_window_events
-                .extend(frontend.replay_window_state_events());
-        }
+        events.begin_replacement_flutter_generation(swapchain.size);
         info!(
             generation = launcher.generation,
             "restarted Flutter on the reconfigured KMS atlas"
@@ -4421,6 +5430,20 @@ fn apply_hotplug_topology(
         "committed hotplug atlas transaction"
     );
     Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn ticker_refresh_millihz(snapshot: &TopologySnapshot) -> Result<u32, Box<dyn Error>> {
+    let ticker = snapshot
+        .ticker
+        .ok_or("native application timing has no ticker output")?;
+    snapshot
+        .outputs
+        .iter()
+        .find(|output| output.id == ticker)
+        .map(|output| output.refresh_millihz)
+        .filter(|refresh| *refresh > 0 && *refresh <= 1_000_000)
+        .ok_or_else(|| "native application ticker output has an invalid refresh rate".into())
 }
 
 fn reconcile_scanouts<'a>(
@@ -4727,7 +5750,7 @@ fn queue_atlas_page_flip(
 ) -> Result<(), Box<dyn Error>> {
     drm.atomic_commit(
         AtomicCommitFlags::PAGE_FLIP_EVENT | AtomicCommitFlags::NONBLOCK,
-        atlas_plane_request(scanouts, framebuffer, fence),
+        atlas_plane_request(scanouts, framebuffer, fence)?,
     )?;
     Ok(())
 }
@@ -4743,7 +5766,7 @@ fn commit_atlas_now(
     }
     drm.atomic_commit(
         AtomicCommitFlags::empty(),
-        atlas_plane_request(scanouts, framebuffer, None),
+        atlas_plane_request(scanouts, framebuffer, None)?,
     )?;
     Ok(())
 }
@@ -4755,7 +5778,7 @@ fn test_atlas_page_flip(
 ) -> Result<(), Box<dyn Error>> {
     drm.atomic_commit(
         AtomicCommitFlags::TEST_ONLY,
-        atlas_plane_request(scanouts, framebuffer, None),
+        atlas_plane_request(scanouts, framebuffer, None)?,
     )?;
     Ok(())
 }
@@ -4764,7 +5787,7 @@ fn atlas_plane_request(
     scanouts: &[Scanout],
     framebuffer: framebuffer::Handle,
     fence: Option<BorrowedFd<'_>>,
-) -> AtomicModeReq {
+) -> Result<AtomicModeReq, Box<dyn Error>> {
     let mut request = AtomicModeReq::new();
     for scanout in scanouts.iter().filter(|scanout| scanout.powered) {
         let properties = scanout.plane_properties;
@@ -4794,6 +5817,9 @@ fn atlas_plane_request(
             properties.source_height,
             u64::from(scanout.source_rect.height) << 16,
         );
+        if let Some((property, value)) = scanout.rotation_property()? {
+            request.add_raw_property(plane, property, value);
+        }
         if let Some(property) = properties.in_fence_fd {
             let value = fence
                 .map(|fence| (i64::from(fence.as_raw_fd())) as u64)
@@ -4801,7 +5827,7 @@ fn atlas_plane_request(
             request.add_raw_property(plane, property, value);
         }
     }
-    request
+    Ok(request)
 }
 
 fn connected_outputs(
@@ -4931,12 +5957,18 @@ fn configured_outputs(
                 vrr_enabled,
                 "connected KMS output"
             );
+            let transform = configuration
+                .transforms
+                .get(&name)
+                .copied()
+                .unwrap_or(OutputTransform::Normal);
             Ok(ConnectedOutput {
                 id: OutputId(u64::from(u32::from(connector.info.handle()))),
                 name,
                 connector: connector.info.handle(),
                 crtc: connector.crtc,
                 mode,
+                transform,
                 vrr_enabled,
             })
         })
@@ -4950,6 +5982,7 @@ fn output_control_state(
     topology: &TopologyManager,
     configuration: &RuntimeOutputConfiguration,
     persistence_available: bool,
+    pending_confirmation: Option<output_control::OutputControlConfirmation>,
 ) -> Result<output_control::OutputControlState, Box<dyn Error>> {
     let snapshot = topology.snapshot();
     let mut outputs = Vec::new();
@@ -5019,6 +6052,7 @@ fn output_control_state(
     Ok(output_control::OutputControlState {
         capabilities,
         outputs,
+        pending_confirmation,
     })
 }
 
@@ -5118,6 +6152,20 @@ fn output_transform_name(transform: OutputTransform) -> output_control::OutputTr
 }
 
 #[cfg(feature = "flutter")]
+fn output_transform_from_name(transform: output_control::OutputTransformName) -> OutputTransform {
+    match transform {
+        output_control::OutputTransformName::Normal => OutputTransform::Normal,
+        output_control::OutputTransformName::Rotate90 => OutputTransform::Rotate90,
+        output_control::OutputTransformName::Rotate180 => OutputTransform::Rotate180,
+        output_control::OutputTransformName::Rotate270 => OutputTransform::Rotate270,
+        output_control::OutputTransformName::Flipped => OutputTransform::Flipped,
+        output_control::OutputTransformName::Flipped90 => OutputTransform::Flipped90,
+        output_control::OutputTransformName::Flipped180 => OutputTransform::Flipped180,
+        output_control::OutputTransformName::Flipped270 => OutputTransform::Flipped270,
+    }
+}
+
+#[cfg(feature = "flutter")]
 fn configuration_from_output_request(
     request: &output_control::ApplyOutputConfiguration,
     connectors: &[ConnectedConnector],
@@ -5130,11 +6178,27 @@ fn configuration_from_output_request(
 > {
     const MIN_SCALE: f64 = 0.25;
     const MAX_SCALE: f64 = 8.0;
+    const MIN_CONFIRMATION_TIMEOUT_MILLISECONDS: u64 = 1_000;
+    const MAX_CONFIRMATION_TIMEOUT_MILLISECONDS: u64 = 60_000;
 
     if request.persistent && !persistence_available {
         return Err(output_control::OutputControlFailure::new(
             "unsupported",
             "persistent output configuration requires deniald --output-config",
+        ));
+    }
+    if request
+        .confirmation_timeout_milliseconds
+        .is_some_and(|timeout| {
+            !(MIN_CONFIRMATION_TIMEOUT_MILLISECONDS..=MAX_CONFIRMATION_TIMEOUT_MILLISECONDS)
+                .contains(&timeout)
+        })
+    {
+        return Err(output_control::OutputControlFailure::new(
+            "invalid_configuration",
+            format!(
+                "output confirmation timeout must be within [{MIN_CONFIRMATION_TIMEOUT_MILLISECONDS}, {MAX_CONFIRMATION_TIMEOUT_MILLISECONDS}] milliseconds"
+            ),
         ));
     }
     if request.outputs.len() != connectors.len() {
@@ -5232,15 +6296,6 @@ fn configuration_from_output_request(
                 format!("{name} scale must be finite and within [{MIN_SCALE}, {MAX_SCALE}]"),
             ));
         }
-        if output.transform != output_control::OutputTransformName::Normal {
-            return Err(output_control::OutputControlFailure::new(
-                "unsupported",
-                format!(
-                    "{name} requests transform {:?}, but protocol version 1 only supports normal",
-                    output.transform
-                ),
-            ));
-        }
         let mode = OutputModePreference {
             width: Some(output.mode.width),
             height: Some(output.mode.height),
@@ -5262,7 +6317,9 @@ fn configuration_from_output_request(
             .insert(name.clone(), LogicalPoint::new(output.x, output.y));
         staged.modes.insert(name.clone(), mode);
         staged.scales_120.insert(name.clone(), scale_120);
-        staged.transforms.remove(&name);
+        staged
+            .transforms
+            .insert(name.clone(), output_transform_from_name(output.transform));
         if output.enabled {
             staged.disabled_outputs.remove(&name);
             power.insert(
@@ -5496,11 +6553,6 @@ fn output_specs(
             .get(&output.name)
             .copied()
             .unwrap_or(SCALE_BASE);
-        let transform = configuration
-            .transforms
-            .get(&output.name)
-            .copied()
-            .unwrap_or(OutputTransform::Normal);
         let spec = OutputSpec {
             id: output.id,
             name: output.name.clone(),
@@ -5508,7 +6560,7 @@ fn output_specs(
             mode: PixelSize::new(width, height),
             scale_120,
             refresh_millihz: u32::try_from(mode.refresh)?,
-            transform,
+            transform: output.transform,
         };
         let logical_width = spec.logical_rect().width.ceil();
         specs.push(spec);
@@ -5621,7 +6673,7 @@ fn plane_state_for_mode(
             dst: Rectangle::<i32, Physical>::from_size(
                 (i32::from(width), i32::from(height)).into(),
             ),
-            transform: Transform::Normal,
+            transform: smithay_output_transform(scanout.output.transform),
             alpha: scanout.plane_properties.smithay_opaque_alpha,
             damage_clips: None,
             fb: framebuffer,
@@ -5635,4 +6687,17 @@ fn physical_rect(rect: PixelRect) -> Result<Rectangle<i32, Physical>, Box<dyn Er
         (i32::try_from(rect.x)?, i32::try_from(rect.y)?).into(),
         (i32::try_from(rect.width)?, i32::try_from(rect.height)?).into(),
     ))
+}
+
+fn smithay_output_transform(transform: OutputTransform) -> Transform {
+    match transform {
+        OutputTransform::Normal => Transform::Normal,
+        OutputTransform::Rotate90 => Transform::_90,
+        OutputTransform::Rotate180 => Transform::_180,
+        OutputTransform::Rotate270 => Transform::_270,
+        OutputTransform::Flipped => Transform::Flipped,
+        OutputTransform::Flipped90 => Transform::Flipped90,
+        OutputTransform::Flipped180 => Transform::Flipped180,
+        OutputTransform::Flipped270 => Transform::Flipped270,
+    }
 }

@@ -1,0 +1,228 @@
+//! Compositor-owned touchpad gesture recognition.
+//!
+//! Libinput decides whether a hardware sequence is a swipe, pinch, or hold.
+//! This module deliberately starts one level above that hardware policy: it
+//! turns gesture streams into shortcut triggers. Keeping the recognizer
+//! independent from Smithay and the wire protocol makes gestures easy to
+//! extend and the state machine deterministic to test.
+
+use std::collections::HashMap;
+
+use super::native_shortcut::ShortcutGesture;
+
+const DIRECTION_DOMINANCE: f64 = 1.5;
+const THREE_FINGER_SWIPE_DISTANCE: f64 = 100.0;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SwipeDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SwipeBinding {
+    fingers: u32,
+    direction: SwipeDirection,
+    minimum_distance: f64,
+    gesture: ShortcutGesture,
+}
+
+// Adding a supported swipe trigger should normally require only another
+// binding here. Its action belongs to the user's shortcut configuration.
+// Pinch and hold lifecycles can be added beside `active_swipes` without
+// coupling their state to input routing or Flutter serialization.
+const SWIPE_BINDINGS: &[SwipeBinding] = &[SwipeBinding {
+    fingers: 3,
+    direction: SwipeDirection::Up,
+    minimum_distance: THREE_FINGER_SWIPE_DISTANCE,
+    gesture: ShortcutGesture::ThreeFingerSwipeUp,
+}];
+
+#[derive(Clone, Copy, Debug)]
+struct ActiveSwipe {
+    fingers: u32,
+    delta_x: f64,
+    delta_y: f64,
+}
+
+impl ActiveSwipe {
+    fn new(fingers: u32) -> Self {
+        Self {
+            fingers,
+            delta_x: 0.0,
+            delta_y: 0.0,
+        }
+    }
+
+    fn update(&mut self, delta_x: f64, delta_y: f64) -> bool {
+        let next_x = self.delta_x + delta_x;
+        let next_y = self.delta_y + delta_y;
+        if !next_x.is_finite() || !next_y.is_finite() {
+            return false;
+        }
+        self.delta_x = next_x;
+        self.delta_y = next_y;
+        true
+    }
+
+    fn direction_and_distance(self) -> Option<(SwipeDirection, f64)> {
+        let absolute_x = self.delta_x.abs();
+        let absolute_y = self.delta_y.abs();
+        let (direction, primary, cross_axis) = if absolute_x > absolute_y {
+            let direction = if self.delta_x < 0.0 {
+                SwipeDirection::Left
+            } else {
+                SwipeDirection::Right
+            };
+            (direction, absolute_x, absolute_y)
+        } else {
+            let direction = if self.delta_y < 0.0 {
+                SwipeDirection::Up
+            } else {
+                SwipeDirection::Down
+            };
+            (direction, absolute_y, absolute_x)
+        };
+        (primary >= cross_axis * DIRECTION_DOMINANCE).then_some((direction, primary))
+    }
+
+    fn recognized_gesture(self) -> Option<ShortcutGesture> {
+        let (direction, distance) = self.direction_and_distance()?;
+        SWIPE_BINDINGS
+            .iter()
+            .find(|binding| {
+                binding.fingers == self.fingers
+                    && binding.direction == direction
+                    && distance >= binding.minimum_distance
+            })
+            .map(|binding| binding.gesture)
+    }
+}
+
+#[derive(Debug, Default)]
+pub(super) struct TouchpadGestureRecognizer {
+    active_swipes: HashMap<String, ActiveSwipe>,
+}
+
+impl TouchpadGestureRecognizer {
+    pub(super) fn begin_swipe(&mut self, device: &str, fingers: u32) {
+        self.active_swipes
+            .insert(device.to_owned(), ActiveSwipe::new(fingers));
+    }
+
+    pub(super) fn update_swipe(
+        &mut self,
+        device: &str,
+        delta_x: f64,
+        delta_y: f64,
+    ) -> Option<ShortcutGesture> {
+        let (valid, gesture) = self
+            .active_swipes
+            .get_mut(device)
+            .map_or((false, None), |swipe| {
+                let valid = swipe.update(delta_x, delta_y);
+                (valid, valid.then(|| swipe.recognized_gesture()).flatten())
+            });
+        if !valid || gesture.is_some() {
+            // Removing a recognized swipe makes every binding one-shot while
+            // libinput continues to send updates for the physical gesture.
+            self.active_swipes.remove(device);
+        }
+        gesture
+    }
+
+    pub(super) fn end_swipe(&mut self, device: &str) {
+        self.active_swipes.remove(device);
+    }
+
+    pub(super) fn reset(&mut self) {
+        self.active_swipes.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DEVICE: &str = "event-touchpad";
+
+    fn update_swipe(
+        recognizer: &mut TouchpadGestureRecognizer,
+        fingers: u32,
+        delta_x: f64,
+        delta_y: f64,
+    ) -> Option<ShortcutGesture> {
+        recognizer.begin_swipe(DEVICE, fingers);
+        recognizer.update_swipe(DEVICE, delta_x, delta_y)
+    }
+
+    #[test]
+    fn three_finger_swipe_up_opens_overview_during_cumulative_travel() {
+        let mut recognizer = TouchpadGestureRecognizer::default();
+        recognizer.begin_swipe(DEVICE, 3);
+        assert_eq!(recognizer.update_swipe(DEVICE, 6.0, -45.0), None);
+
+        assert_eq!(
+            recognizer.update_swipe(DEVICE, -4.0, -55.0),
+            Some(ShortcutGesture::ThreeFingerSwipeUp)
+        );
+    }
+
+    #[test]
+    fn direction_finger_count_and_distance_must_match_a_binding() {
+        let mut recognizer = TouchpadGestureRecognizer::default();
+
+        assert_eq!(update_swipe(&mut recognizer, 2, 0.0, -120.0), None);
+        assert_eq!(update_swipe(&mut recognizer, 3, 0.0, -99.9), None);
+        assert_eq!(update_swipe(&mut recognizer, 3, 0.0, 120.0), None);
+        assert_eq!(update_swipe(&mut recognizer, 3, 120.0, 0.0), None);
+    }
+
+    #[test]
+    fn ambiguous_diagonal_swipe_does_not_trigger() {
+        let mut recognizer = TouchpadGestureRecognizer::default();
+
+        assert_eq!(update_swipe(&mut recognizer, 3, 81.0, -120.0), None);
+    }
+
+    #[test]
+    fn ended_and_invalid_sequences_fail_closed() {
+        let mut recognizer = TouchpadGestureRecognizer::default();
+        recognizer.begin_swipe(DEVICE, 3);
+        assert_eq!(recognizer.update_swipe(DEVICE, 0.0, -80.0), None);
+        recognizer.end_swipe(DEVICE);
+        assert_eq!(recognizer.update_swipe(DEVICE, 0.0, -40.0), None);
+
+        recognizer.begin_swipe(DEVICE, 3);
+        assert_eq!(recognizer.update_swipe(DEVICE, f64::NAN, -120.0), None);
+        assert_eq!(recognizer.update_swipe(DEVICE, 0.0, -120.0), None);
+    }
+
+    #[test]
+    fn devices_have_independent_lifecycles_and_actions_are_one_shot() {
+        let mut recognizer = TouchpadGestureRecognizer::default();
+        recognizer.begin_swipe("event-a", 3);
+        recognizer.begin_swipe("event-b", 3);
+        assert_eq!(
+            recognizer.update_swipe("event-a", 0.0, -120.0),
+            Some(ShortcutGesture::ThreeFingerSwipeUp)
+        );
+        assert_eq!(recognizer.update_swipe("event-a", 0.0, -120.0), None);
+        assert_eq!(recognizer.update_swipe("event-b", 0.0, 120.0), None);
+    }
+
+    #[test]
+    fn reset_cancels_every_active_device() {
+        let mut recognizer = TouchpadGestureRecognizer::default();
+        recognizer.begin_swipe("event-a", 3);
+        recognizer.begin_swipe("event-b", 3);
+        assert_eq!(recognizer.update_swipe("event-a", 0.0, -80.0), None);
+        assert_eq!(recognizer.update_swipe("event-b", 0.0, -80.0), None);
+        recognizer.reset();
+
+        assert_eq!(recognizer.update_swipe("event-a", 0.0, -40.0), None);
+        assert_eq!(recognizer.update_swipe("event-b", 0.0, -40.0), None);
+    }
+}

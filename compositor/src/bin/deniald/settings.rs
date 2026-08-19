@@ -17,7 +17,7 @@ use serde_json::{Map, Value};
 use smithay::input::keyboard::xkb;
 use tracing::warn;
 
-pub(super) const SETTINGS_SCHEMA_VERSION: u64 = 8;
+pub(super) const SETTINGS_SCHEMA_VERSION: u64 = 9;
 const MAX_SETTINGS_BYTES: usize = 256 * 1024;
 const MAX_KEYBOARD_LAYOUTS: usize = 8;
 const MAX_KEYBOARD_OPTIONS: usize = 32;
@@ -173,6 +173,22 @@ impl KeyboardSettings {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct TouchpadSettings {
+    pub(super) tap_to_click_enabled: bool,
+    pub(super) natural_scroll_enabled: bool,
+}
+
+impl Default for TouchpadSettings {
+    fn default() -> Self {
+        Self {
+            tap_to_click_enabled: true,
+            natural_scroll_enabled: false,
+        }
+    }
+}
+
 fn validate_xkb_name(value: &str, empty_allowed: bool, field: &str) -> Result<(), SettingsError> {
     if (!empty_allowed && value.is_empty())
         || value.len() > MAX_XKB_NAME_BYTES
@@ -257,6 +273,7 @@ pub(super) struct SettingsManager {
     document: Map<String, Value>,
     revision: u64,
     keyboard: KeyboardSettings,
+    touchpad: TouchpadSettings,
     /// Exact bytes last observed or committed by deniald. This catches an
     /// editor changing the file while the session is live, even if it forgets
     /// to update the human-visible revision field.
@@ -272,15 +289,18 @@ impl SettingsManager {
         let existing = read_settings_file(&path)?;
         if let Some(bytes) = existing.as_deref() {
             match parse_document(bytes) {
-                Ok((mut document, revision, keyboard, migrated)) => {
+                Ok(parsed) => {
                     let mut manager = Self {
                         path,
-                        document: std::mem::take(&mut document),
-                        revision,
-                        keyboard,
+                        document: parsed.document,
+                        revision: parsed.revision,
+                        keyboard: parsed.keyboard,
+                        touchpad: parsed.touchpad,
                         persisted_bytes: existing,
                     };
-                    if migrated && let Err(error) = manager.persist_current() {
+                    if parsed.migrated
+                        && let Err(error) = manager.persist_current()
+                    {
                         warn!(%error, path = %manager.path.display(), "could not persist migrated Denial settings");
                     }
                     return Ok(manager);
@@ -291,12 +311,13 @@ impl SettingsManager {
             }
         }
 
-        let (document, revision, keyboard) = default_document();
+        let (document, revision, keyboard, touchpad) = default_document();
         let mut manager = Self {
             path,
             document,
             revision,
             keyboard,
+            touchpad,
             persisted_bytes: existing,
         };
         if manager.persisted_bytes.is_none()
@@ -317,6 +338,10 @@ impl SettingsManager {
 
     pub(super) fn keyboard(&self) -> &KeyboardSettings {
         &self.keyboard
+    }
+
+    pub(super) fn touchpad(&self) -> &TouchpadSettings {
+        &self.touchpad
     }
 
     pub(super) fn document_json(&self) -> Result<String, SettingsError> {
@@ -363,13 +388,18 @@ impl SettingsManager {
         // replaced through the shell-document request.
         incoming.remove("revision");
         incoming.remove("keyboard");
+        incoming.remove("touchpad");
         incoming.insert("version".to_owned(), Value::from(SETTINGS_SCHEMA_VERSION));
         incoming.insert("revision".to_owned(), Value::from(self.next_revision()?));
         incoming.insert(
             "keyboard".to_owned(),
             serde_json::to_value(&self.keyboard).expect("validated keyboard settings serialize"),
         );
-        self.prepare(incoming, self.keyboard.clone())
+        incoming.insert(
+            "touchpad".to_owned(),
+            serde_json::to_value(&self.touchpad).expect("validated touchpad settings serialize"),
+        );
+        self.prepare(incoming, self.keyboard.clone(), self.touchpad.clone())
     }
 
     pub(super) fn prepare_keyboard_update(
@@ -385,7 +415,22 @@ impl SettingsManager {
             "keyboard".to_owned(),
             serde_json::to_value(&keyboard).expect("validated keyboard settings serialize"),
         );
-        self.prepare(document, keyboard)
+        self.prepare(document, keyboard, self.touchpad.clone())
+    }
+
+    pub(super) fn prepare_touchpad_update(
+        &self,
+        expected_revision: u64,
+        touchpad: TouchpadSettings,
+    ) -> Result<PreparedSettingsUpdate, SettingsError> {
+        self.check_revision(expected_revision)?;
+        let mut document = self.document.clone();
+        document.insert("revision".to_owned(), Value::from(self.next_revision()?));
+        document.insert(
+            "touchpad".to_owned(),
+            serde_json::to_value(&touchpad).expect("validated touchpad settings serialize"),
+        );
+        self.prepare(document, self.keyboard.clone(), touchpad)
     }
 
     pub(super) fn commit(
@@ -405,6 +450,7 @@ impl SettingsManager {
         self.document = std::mem::take(&mut prepared.document);
         self.revision = prepared.revision;
         self.keyboard = std::mem::take(&mut prepared.keyboard);
+        self.touchpad = std::mem::take(&mut prepared.touchpad);
         self.persisted_bytes = Some(std::mem::take(&mut prepared.bytes));
         // Rename is the transaction's point of no return. Keep memory and the
         // live keyboard aligned with the renamed file even on filesystems
@@ -436,6 +482,7 @@ impl SettingsManager {
         &self,
         document: Map<String, Value>,
         keyboard: KeyboardSettings,
+        touchpad: TouchpadSettings,
     ) -> Result<PreparedSettingsUpdate, SettingsError> {
         let revision = document
             .get("revision")
@@ -449,6 +496,7 @@ impl SettingsManager {
             document,
             revision,
             keyboard,
+            touchpad,
             bytes,
             committed: false,
         })
@@ -476,6 +524,7 @@ pub(super) struct PreparedSettingsUpdate {
     document: Map<String, Value>,
     revision: u64,
     keyboard: KeyboardSettings,
+    touchpad: TouchpadSettings,
     bytes: Vec<u8>,
     committed: bool,
 }
@@ -483,6 +532,10 @@ pub(super) struct PreparedSettingsUpdate {
 impl PreparedSettingsUpdate {
     pub(super) fn keyboard(&self) -> &KeyboardSettings {
         &self.keyboard
+    }
+
+    pub(super) fn touchpad(&self) -> &TouchpadSettings {
+        &self.touchpad
     }
 }
 
@@ -494,9 +547,15 @@ impl Drop for PreparedSettingsUpdate {
     }
 }
 
-fn parse_document(
-    bytes: &[u8],
-) -> Result<(Map<String, Value>, u64, KeyboardSettings, bool), SettingsError> {
+struct ParsedSettingsDocument {
+    document: Map<String, Value>,
+    revision: u64,
+    keyboard: KeyboardSettings,
+    touchpad: TouchpadSettings,
+    migrated: bool,
+}
+
+fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError> {
     if bytes.len() > MAX_SETTINGS_BYTES {
         return Err(SettingsError::Document(format!(
             "settings document exceeds {MAX_SETTINGS_BYTES} bytes"
@@ -525,21 +584,37 @@ fn parse_document(
         None => KeyboardSettings::default(),
     };
     keyboard.validate()?;
+    let touchpad = match document.get("touchpad") {
+        Some(value) => serde_json::from_value::<TouchpadSettings>(value.clone())?,
+        None => TouchpadSettings::default(),
+    };
     let migrated = version != SETTINGS_SCHEMA_VERSION
         || !document.contains_key("revision")
-        || !document.contains_key("keyboard");
+        || !document.contains_key("keyboard")
+        || !document.contains_key("touchpad");
     document.insert("version".to_owned(), Value::from(SETTINGS_SCHEMA_VERSION));
     document.insert("revision".to_owned(), Value::from(revision));
     document.insert(
         "keyboard".to_owned(),
         serde_json::to_value(&keyboard).expect("validated keyboard settings serialize"),
     );
-    Ok((document, revision, keyboard, migrated))
+    document.insert(
+        "touchpad".to_owned(),
+        serde_json::to_value(&touchpad).expect("validated touchpad settings serialize"),
+    );
+    Ok(ParsedSettingsDocument {
+        document,
+        revision,
+        keyboard,
+        touchpad,
+        migrated,
+    })
 }
 
-fn default_document() -> (Map<String, Value>, u64, KeyboardSettings) {
+fn default_document() -> (Map<String, Value>, u64, KeyboardSettings, TouchpadSettings) {
     let revision = 1;
     let keyboard = KeyboardSettings::default();
+    let touchpad = TouchpadSettings::default();
     let mut document = Map::new();
     document.insert("version".to_owned(), Value::from(SETTINGS_SCHEMA_VERSION));
     document.insert("revision".to_owned(), Value::from(revision));
@@ -547,7 +622,11 @@ fn default_document() -> (Map<String, Value>, u64, KeyboardSettings) {
         "keyboard".to_owned(),
         serde_json::to_value(&keyboard).expect("default keyboard settings serialize"),
     );
-    (document, revision, keyboard)
+    document.insert(
+        "touchpad".to_owned(),
+        serde_json::to_value(&touchpad).expect("default touchpad settings serialize"),
+    );
+    (document, revision, keyboard, touchpad)
 }
 
 fn settings_path() -> Result<PathBuf, SettingsError> {
@@ -700,10 +779,12 @@ mod tests {
         let manager = SettingsManager::load_path(path.clone()).unwrap();
         assert_eq!(manager.revision(), 1);
         assert_eq!(manager.keyboard(), &KeyboardSettings::default());
+        assert_eq!(manager.touchpad(), &TouchpadSettings::default());
         let document: Value = serde_json::from_str(&manager.document_json().unwrap()).unwrap();
         assert_eq!(document["version"], SETTINGS_SCHEMA_VERSION);
         assert_eq!(document["appearance"]["windowRadius"], 31);
         assert!(document.get("keyboard").is_some());
+        assert!(document.get("touchpad").is_some());
         assert_eq!(
             fs::metadata(path).unwrap().permissions().mode() & 0o777,
             0o600
@@ -720,6 +801,7 @@ mod tests {
 
         let manager = SettingsManager::load_path(path.clone()).unwrap();
         assert_eq!(manager.keyboard(), &KeyboardSettings::default());
+        assert_eq!(manager.touchpad(), &TouchpadSettings::default());
         assert_eq!(fs::read(path).unwrap(), malformed);
     }
 
@@ -744,16 +826,38 @@ mod tests {
         let update = manager
             .prepare_shell_update(
                 old_revision,
-                r#"{"version":8,"revision":999,"keyboard":{"layouts":[]},"power":{"idleDpmsEnabled":false}}"#,
+                r#"{"version":9,"revision":999,"keyboard":{"layouts":[]},"touchpad":{"tapToClickEnabled":false},"power":{"idleDpmsEnabled":false}}"#,
             )
             .unwrap();
         manager.commit(update).unwrap();
         assert_eq!(manager.keyboard(), &configured);
         assert_eq!(manager.revision(), old_revision + 1);
         assert!(matches!(
-            manager.prepare_shell_update(old_revision, r#"{"version":8}"#),
+            manager.prepare_shell_update(old_revision, r#"{"version":9}"#),
             Err(SettingsError::Revision { .. })
         ));
+    }
+
+    #[test]
+    fn touchpad_update_is_persistent_and_revisioned() {
+        let temporary = TemporaryDirectory::new("settings-touchpad-update");
+        let path = temporary.settings_path();
+        let mut manager = SettingsManager::load_path(path.clone()).unwrap();
+        let configured = TouchpadSettings {
+            tap_to_click_enabled: false,
+            natural_scroll_enabled: true,
+        };
+        let old_revision = manager.revision();
+        let update = manager
+            .prepare_touchpad_update(old_revision, configured.clone())
+            .unwrap();
+        manager.commit(update).unwrap();
+
+        assert_eq!(manager.revision(), old_revision + 1);
+        assert_eq!(manager.touchpad(), &configured);
+        let reloaded = SettingsManager::load_path(path).unwrap();
+        assert_eq!(reloaded.revision(), old_revision + 1);
+        assert_eq!(reloaded.touchpad(), &configured);
     }
 
     #[test]
@@ -762,9 +866,9 @@ mod tests {
         let path = temporary.settings_path();
         let mut manager = SettingsManager::load_path(path.clone()).unwrap();
         let prepared = manager
-            .prepare_shell_update(manager.revision(), r#"{"version":8}"#)
+            .prepare_shell_update(manager.revision(), r#"{"version":9}"#)
             .unwrap();
-        fs::write(&path, b"{\"version\":8,\"revision\":77}\n").unwrap();
+        fs::write(&path, b"{\"version\":9,\"revision\":77}\n").unwrap();
         assert!(matches!(
             manager.commit(prepared),
             Err(SettingsError::Conflict)

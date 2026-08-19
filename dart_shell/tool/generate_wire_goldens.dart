@@ -16,9 +16,9 @@ void main() {
     };
     File('${output.path}/dart_input_$label.denw').writeAsBytesSync(bytes);
   }
-  File('${output.path}/dart_system_bar.denw').writeAsBytesSync(
-    _systemBarConfiguration(),
-  );
+  File(
+    '${output.path}/dart_system_bar.denw',
+  ).writeAsBytesSync(_systemBarConfiguration());
 }
 
 List<int> _systemBarConfiguration() {
@@ -71,6 +71,7 @@ List<int> _inputLayout(int count) {
         for (final index in indexes) _inputWindow(index),
       ],
       visibleSurfaceIds: const <int>[],
+      softwareKeyboardRegions: const <wire.WireRectObjectBuilder>[],
     ),
   ).toBytes('DENW');
 }
@@ -82,6 +83,7 @@ class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
     required this.shellRegions,
     required this.windows,
     required this.visibleSurfaceIds,
+    required this.softwareKeyboardRegions,
   });
 
   final int epoch;
@@ -89,24 +91,27 @@ class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
   final List<wire.WireRectObjectBuilder> shellRegions;
   final List<wire.InputWindowRegionObjectBuilder> windows;
   final List<int> visibleSurfaceIds;
+  final List<wire.WireRectObjectBuilder> softwareKeyboardRegions;
 
   @override
   int finish(fb.Builder builder) {
-    final shellRegionsOffset = _writeAlignedStructVector(
-      builder,
-      shellRegions,
-    );
+    final shellRegionsOffset = _writeAlignedStructVector(builder, shellRegions);
     final windowsOffset = _writeAlignedStructVector(builder, windows);
     final visibleSurfaceIdsOffset = _writeAlignedUint64Vector(
       builder,
       visibleSurfaceIds,
     );
-    builder.startTable(5);
+    final softwareKeyboardRegionsOffset = _writeAlignedStructVector(
+      builder,
+      softwareKeyboardRegions,
+    );
+    builder.startTable(6);
     builder.addUint64(0, epoch);
     builder.addUint32(1, flags);
     builder.addOffset(2, shellRegionsOffset);
     builder.addOffset(3, windowsOffset);
     builder.addOffset(4, visibleSurfaceIdsOffset);
+    builder.addOffset(5, softwareKeyboardRegionsOffset);
     return builder.endTable();
   }
 

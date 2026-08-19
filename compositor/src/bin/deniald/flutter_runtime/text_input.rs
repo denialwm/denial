@@ -41,6 +41,7 @@ const KEY_DELETE: u32 = 111;
 pub struct TextInputPlugin {
     client: Option<TextInputClient>,
     client_scratch: Option<TextInputClient>,
+    input_panel_visible: bool,
     lifecycle_revision: u64,
     state_revision: u64,
     state_dirty: bool,
@@ -54,6 +55,7 @@ impl Default for TextInputPlugin {
         Self {
             client: None,
             client_scratch: None,
+            input_panel_visible: false,
             lifecycle_revision: 0,
             state_revision: 0,
             state_dirty: true,
@@ -111,6 +113,7 @@ pub(crate) struct TextInputSnapshot {
     pub lifecycle_revision: u64,
     pub client_id: i64,
     pub active: bool,
+    pub input_panel_visible: bool,
     pub secure: bool,
     pub surrounding_text: Option<String>,
     pub cursor: u32,
@@ -172,6 +175,7 @@ impl TextInputPlugin {
                 lifecycle_revision: self.lifecycle_revision,
                 client_id: 0,
                 active: false,
+                input_panel_visible: false,
                 secure: false,
                 surrounding_text: None,
                 cursor: 0,
@@ -192,6 +196,7 @@ impl TextInputPlugin {
             lifecycle_revision: self.lifecycle_revision,
             client_id: client.id,
             active: true,
+            input_panel_visible: self.input_panel_visible,
             secure: client.obscure_text,
             surrounding_text,
             cursor,
@@ -225,11 +230,25 @@ impl TextInputPlugin {
         }
 
         let result = match method {
-            SHOW | HIDE => Ok(()),
+            SHOW => {
+                if self.client.is_some() && !self.input_panel_visible {
+                    self.input_panel_visible = true;
+                    self.note_state_change();
+                }
+                Ok(())
+            }
+            HIDE => {
+                if self.input_panel_visible {
+                    self.input_panel_visible = false;
+                    self.note_state_change();
+                }
+                Ok(())
+            }
             CLEAR_CLIENT => {
                 if let Some(mut client) = self.client.take() {
                     client.clear();
                     self.client_scratch = Some(client);
+                    self.input_panel_visible = false;
                     self.note_client_change();
                 }
                 Ok(())
@@ -305,6 +324,7 @@ impl TextInputPlugin {
         &self.messages[..message_count]
     }
 
+    #[cfg(test)]
     pub fn insert_text(&mut self, text: &str) -> &[Vec<u8>] {
         let Some(client) = self.client.as_mut() else {
             return &[];
@@ -382,6 +402,7 @@ impl TextInputPlugin {
         client.reset_geometry();
         client.model.clear();
         self.client = Some(client);
+        self.input_panel_visible = false;
         self.note_client_change();
         Ok(())
     }
@@ -966,6 +987,7 @@ impl TextInputModel {
         true
     }
 
+    #[cfg(test)]
     fn add_text(&mut self, text: &str) -> bool {
         self.replacement_scratch.clear();
         self.replacement_scratch.extend(text.encode_utf16());
@@ -1505,6 +1527,35 @@ mod tests {
         let snapshot = plugin.take_state_change().unwrap();
         assert_eq!((snapshot.lifecycle_revision, snapshot.active), (3, false));
         assert!(plugin.take_state_change().is_none());
+    }
+
+    #[test]
+    fn flutter_show_and_hide_publish_input_panel_visibility() {
+        let mut plugin = TextInputPlugin::default();
+        plugin.take_state_change();
+        assert_eq!(
+            plugin.handle_platform_message(&call(
+                SET_CLIENT,
+                json!([1, {
+                    "inputAction": "TextInputAction.done",
+                    "inputType": {"name": "TextInputType.text"}
+                }]),
+            )),
+            b"[null]"
+        );
+        assert!(!plugin.take_state_change().unwrap().input_panel_visible);
+
+        assert_eq!(
+            plugin.handle_platform_message(&call(SHOW, Value::Null)),
+            b"[null]"
+        );
+        assert!(plugin.take_state_change().unwrap().input_panel_visible);
+
+        assert_eq!(
+            plugin.handle_platform_message(&call(HIDE, Value::Null)),
+            b"[null]"
+        );
+        assert!(!plugin.take_state_change().unwrap().input_panel_visible);
     }
 
     #[test]

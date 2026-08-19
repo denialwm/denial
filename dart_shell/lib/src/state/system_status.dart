@@ -12,6 +12,10 @@ import '../services/cpu_usage_service.dart';
 import '../services/gpu_usage_service.dart';
 import '../services/power_status_service.dart';
 
+final batteryServiceProvider = Provider<BatteryService>((ref) {
+  return const BatteryService();
+});
+
 final clockLocaleProvider = Provider<String>((ref) {
   return ShellClockInfo.localeFromEnvironment(
     ref.watch(startupEnvironmentProvider).values,
@@ -50,6 +54,15 @@ final powerStatusProvider =
       PowerStatusController.new,
       isAutoDispose: true,
     );
+
+/// Shell power state with battery capacity/state sourced exclusively from the
+/// standard Linux power-supply interface. Protocol and thermal metadata remain
+/// available from the optional extended status source.
+final effectivePowerStatusProvider = Provider<ShellPowerStatus>((ref) {
+  return ref
+      .watch(powerStatusProvider)
+      .withStandardBattery(ref.watch(batteryProvider));
+}, isAutoDispose: true);
 
 /// Aggregate CPU load plus a short history window for the bar sparkline.
 final cpuUsageProvider = NotifierProvider<CpuUsageController, LoadSeries>(

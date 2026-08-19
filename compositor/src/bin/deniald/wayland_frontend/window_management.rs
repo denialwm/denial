@@ -37,6 +37,23 @@ fn bound_geometry_size(mut geometry: Rectangle<i32, Logical>) -> Rectangle<i32, 
     geometry
 }
 
+#[cfg(feature = "flutter")]
+fn configured_window_size(
+    requested: Size<i32, Logical>,
+    minimum: Size<i32, Logical>,
+    maximum: Size<i32, Logical>,
+    exact: bool,
+) -> Size<i32, Logical> {
+    if exact {
+        requested
+    } else {
+        Size::from((
+            constrain_dimension(requested.w, minimum.w, maximum.w),
+            constrain_dimension(requested.h, minimum.h, maximum.h),
+        ))
+    }
+}
+
 fn client_restore_geometry(
     initial_configure_sent: bool,
     geometry: Rectangle<i32, Logical>,
@@ -339,13 +356,15 @@ pub(in super::super) fn apply_window_commands(
             WindowCommand::Focus { .. } => {
                 activate_window(state, &window, SERIAL_COUNTER.next_serial());
             }
-            WindowCommand::Configure { geometry, .. } => {
+            WindowCommand::Configure {
+                geometry, exact, ..
+            } => {
                 let requested_size = Size::<i32, Logical>::from((
                     geometry.width.round() as i32,
                     geometry.height.round() as i32,
                 ));
                 let (minimum, maximum) = if let Some(toplevel) = window.toplevel() {
-                    if toplevel_has_state(toplevel, xdg_toplevel::State::Resizing) {
+                    if !exact && toplevel_has_state(toplevel, xdg_toplevel::State::Resizing) {
                         warn!(
                             window_id,
                             "ignored Flutter configure during an active XDG resize"
@@ -372,10 +391,7 @@ pub(in super::super) fn apply_window_commands(
                 } else {
                     continue;
                 };
-                let size = Size::<i32, Logical>::from((
-                    constrain_dimension(requested_size.w, minimum.w, maximum.w),
-                    constrain_dimension(requested_size.h, minimum.h, maximum.h),
-                ));
+                let size = configured_window_size(requested_size, minimum, maximum, exact);
                 let scene_origin = state
                     .wayland
                     .as_ref()
@@ -397,11 +413,12 @@ pub(in super::super) fn apply_window_commands(
                             toplevel_has_state(toplevel, xdg_toplevel::State::Fullscreen)
                         }) || window.x11_surface().is_some_and(|x11| x11.is_fullscreen());
                     let current_target = frontend.window_geometry_target(&window);
-                    let preserve_client_fullscreen = preserves_client_fullscreen_geometry(
-                        client_fullscreen,
-                        current_target,
-                        target,
-                    );
+                    let preserve_client_fullscreen = !exact
+                        && preserves_client_fullscreen_geometry(
+                            client_fullscreen,
+                            current_target,
+                            target,
+                        );
                     let output_transfer = frontend
                         .output_for_geometry(current_target)
                         .and_then(|source| {
@@ -465,11 +482,16 @@ pub(in super::super) fn apply_window_commands(
                         .remove(&root_surface.id());
                 }
                 if let Some(toplevel) = window.toplevel() {
-                    toplevel.with_pending_state(|pending| pending.size = Some(size));
+                    toplevel.with_pending_state(|pending| {
+                        if exact {
+                            pending.states.unset(xdg_toplevel::State::Resizing);
+                        }
+                        pending.size = Some(size);
+                    });
                     toplevel.send_pending_configure();
                 }
                 let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
-                frontend.set_window_geometry_target(&window, target);
+                frontend.set_window_geometry_target_policy(&window, target, exact);
                 if transferred_shell_restore {
                     frontend.remember_window_placement(&window);
                 }
@@ -668,6 +690,33 @@ pub(super) fn toplevel_shell_geometry_locked(
             .as_ref()
             .is_some_and(|window| frontend.window_shell_fullscreen_locked(window))
     })
+}
+
+#[cfg(feature = "flutter")]
+pub(super) fn reassert_exact_toplevel_geometry(
+    state: &mut RuntimeState,
+    surface: &ToplevelSurface,
+) -> bool {
+    let exact = state.wayland.as_ref().and_then(|frontend| {
+        frontend
+            .window_for_root_surface(surface.wl_surface())
+            .and_then(|window| frontend.exact_window_geometry(&window))
+    });
+    let Some(exact) = exact else {
+        return false;
+    };
+    surface.with_pending_state(|pending| {
+        pending.states.unset(xdg_toplevel::State::Fullscreen);
+        pending.states.unset(xdg_toplevel::State::Maximized);
+        pending.states.unset(xdg_toplevel::State::Resizing);
+        pending.fullscreen_output = None;
+        pending.size = Some(exact.size);
+    });
+    if surface.is_initial_configure_sent() {
+        surface.send_configure();
+    }
+    state.scene_sync.mark_dirty();
+    true
 }
 
 #[cfg(feature = "flutter")]
@@ -1393,6 +1442,23 @@ mod tests {
         assert!(!preserves_client_fullscreen_geometry(
             true, fullscreen, moved
         ));
+    }
+
+    #[cfg(feature = "flutter")]
+    #[test]
+    fn exact_mobile_viewport_ignores_client_size_hints() {
+        let requested = Size::from((632, 1342));
+        let minimum = Size::from((900, 700));
+        let maximum = Size::from((1200, 1000));
+
+        assert_eq!(
+            configured_window_size(requested, minimum, maximum, true),
+            requested
+        );
+        assert_eq!(
+            configured_window_size(requested, minimum, maximum, false),
+            Size::from((900, 1000))
+        );
     }
 
     #[test]

@@ -10,7 +10,9 @@ import '../input/input_layout.dart';
 import '../models/display_layout.dart';
 import '../models/denial_drag_icon.dart';
 import '../models/desktop_notification.dart' as model;
+import '../models/input_device_capabilities.dart';
 import '../models/keyboard_configuration.dart';
+import '../models/shortcut_configuration.dart';
 import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
 
@@ -27,6 +29,9 @@ const int denialWireMaxNotificationImageBytes = 512 * 1024;
 const int denialWireMaxLocalAppIdBytes = 256;
 const int denialWireMaxLocalWindowTitleBytes = 1024;
 const int denialWireMaxSettingsDocumentBytes = 256 * 1024;
+const int _maxShortcutBindings = 256;
+const int _maxShortcutInputs = 256;
+const int _maxShortcutCommandArguments = 64;
 
 const String denialWireToNativeChannel = 'denial/wire/to_native';
 const String denialWireToFlutterChannel = 'denial/wire/to_flutter';
@@ -37,8 +42,12 @@ const int _inputWindowVisible = 1 << 0;
 const int _inputWindowHitTestDisabled = 1 << 1;
 const int _inputWindowGeometryLocked = 1 << 2;
 const int _keyboardCtrl = 1 << 0;
+const int _keyboardPressed = 1 << 1;
+const int _keyboardReleased = 1 << 2;
 const int _placementPacketBytes = 80;
 const int _dragIconPacketBytes = 128;
+
+enum DenialKeyboardKeyPhase { tap, pressed, released }
 
 bool isDenialPlacementPacket(ByteData? data) {
   return data != null &&
@@ -82,6 +91,7 @@ class DenialWireCodec {
 
   Uint8List? encodeInputLayout(InputLayoutSnapshot snapshot) {
     if (snapshot.shellRegions.length > denialWireMaxRegions ||
+        snapshot.softwareKeyboardRegions.length > denialWireMaxRegions ||
         snapshot.windows.length > denialWireMaxRegions ||
         snapshot.visibleSurfaceIds.length > denialWireMaxSurfaces ||
         snapshot.visibleSurfaceIds.any((surfaceId) => surfaceId <= 0)) {
@@ -94,6 +104,14 @@ class DenialWireCodec {
         return null;
       }
       shellRegions.add(_rectBuilder(rect));
+    }
+
+    final softwareKeyboardRegions = <generated.WireRectObjectBuilder>[];
+    for (final rect in snapshot.softwareKeyboardRegions) {
+      if (!_validRect(rect)) {
+        return null;
+      }
+      softwareKeyboardRegions.add(_rectBuilder(rect));
     }
 
     final orderedWindows = _inputWindowsAreOrdered(snapshot.windows)
@@ -150,6 +168,7 @@ class DenialWireCodec {
         shellRegions: shellRegions,
         windows: windows,
         visibleSurfaceIds: snapshot.visibleSurfaceIds,
+        softwareKeyboardRegions: softwareKeyboardRegions,
       ),
     );
   }
@@ -163,6 +182,7 @@ class DenialWireCodec {
     String? title,
     generated.SystemBarSide? systemBarSide,
     List<int>? systemBarMonitorIds,
+    int flags = 0,
   }) {
     return _encodeEnvelope(
       generated.PayloadTypeId.WindowRequest,
@@ -174,6 +194,7 @@ class DenialWireCodec {
         title: title,
         systemBarSide: systemBarSide,
         systemBarMonitorIds: systemBarMonitorIds,
+        flags: flags,
       ),
       requestId: requestId,
     );
@@ -245,13 +266,22 @@ class DenialWireCodec {
     );
   }
 
-  Uint8List encodeKeyboardKey(String key, {bool ctrl = false}) {
+  Uint8List encodeKeyboardKey(
+    String key, {
+    bool ctrl = false,
+    DenialKeyboardKeyPhase phase = DenialKeyboardKeyPhase.tap,
+  }) {
+    final phaseFlag = switch (phase) {
+      DenialKeyboardKeyPhase.tap => 0,
+      DenialKeyboardKeyPhase.pressed => _keyboardPressed,
+      DenialKeyboardKeyPhase.released => _keyboardReleased,
+    };
     return _encodeEnvelope(
       generated.PayloadTypeId.KeyboardCommand,
       generated.KeyboardCommandObjectBuilder(
         kind: generated.KeyboardCommandKind.Key,
         key: key,
-        flags: ctrl ? _keyboardCtrl : 0,
+        flags: (ctrl ? _keyboardCtrl : 0) | phaseFlag,
       ),
     );
   }
@@ -262,7 +292,8 @@ class DenialWireCodec {
   }) {
     if (requestId <= 0 ||
         (kind != generated.SettingsRequestKind.ReadDocument &&
-            kind != generated.SettingsRequestKind.ReadKeyboard)) {
+            kind != generated.SettingsRequestKind.ReadKeyboard &&
+            kind != generated.SettingsRequestKind.ReadInputDevices)) {
       throw ArgumentError('invalid settings read request');
     }
     return _encodeEnvelope(
@@ -345,6 +376,122 @@ class DenialWireCodec {
     );
   }
 
+  Uint8List? encodeTouchpadConfiguration({
+    required int requestId,
+    required DenialInputDeviceCapabilities capabilities,
+  }) {
+    if (requestId <= 0 || capabilities.revision <= 0) {
+      return null;
+    }
+    return _encodeEnvelope(
+      generated.PayloadTypeId.SettingsRequest,
+      generated.SettingsRequestObjectBuilder(
+        kind: generated.SettingsRequestKind.ConfigureTouchpad,
+        expectedRevision: capabilities.revision,
+        touchpad: generated.TouchpadConfigurationObjectBuilder(
+          tapToClickEnabled: capabilities.tapToClickEnabled,
+          naturalScrollEnabled: capabilities.naturalScrollEnabled,
+        ),
+      ),
+      requestId: requestId,
+    );
+  }
+
+  Uint8List encodeShortcutRead({required int requestId}) {
+    if (requestId <= 0) {
+      throw ArgumentError('invalid shortcut read request');
+    }
+    return _encodeEnvelope(
+      generated.PayloadTypeId.SettingsRequest,
+      generated.SettingsRequestObjectBuilder(
+        kind: generated.SettingsRequestKind.ReadShortcuts,
+      ),
+      requestId: requestId,
+    );
+  }
+
+  Uint8List? encodeShortcutValidation({
+    required int requestId,
+    required DenialShortcutBinding shortcut,
+    String? existingShortcut,
+  }) {
+    if (requestId <= 0 ||
+        !_validShortcutBindingWire(shortcut, emptyShortcutAllowed: true) ||
+        (existingShortcut != null &&
+            !_validShortcutWireString(existingShortcut))) {
+      return null;
+    }
+    return _encodeEnvelope(
+      generated.PayloadTypeId.SettingsRequest,
+      generated.SettingsRequestObjectBuilder(
+        kind: generated.SettingsRequestKind.ValidateShortcut,
+        shortcut: _shortcutBindingBuilder(shortcut),
+        existingShortcut: existingShortcut,
+      ),
+      requestId: requestId,
+    );
+  }
+
+  Uint8List? encodeShortcutMutation({
+    required generated.SettingsRequestKind kind,
+    required int requestId,
+    required int expectedRevision,
+    DenialShortcutBinding? shortcut,
+    String? existingShortcut,
+  }) {
+    final shapeIsValid = switch (kind) {
+      generated.SettingsRequestKind.AddShortcut =>
+        shortcut != null && existingShortcut == null,
+      generated.SettingsRequestKind.UpdateShortcut =>
+        shortcut != null && existingShortcut != null,
+      generated.SettingsRequestKind.RemoveShortcut =>
+        shortcut == null && existingShortcut != null,
+      generated.SettingsRequestKind.RestoreShortcuts =>
+        shortcut == null && existingShortcut == null,
+      _ => false,
+    };
+    if (!shapeIsValid ||
+        requestId <= 0 ||
+        expectedRevision <= 0 ||
+        (shortcut != null &&
+            !_validShortcutBindingWire(shortcut, emptyShortcutAllowed: true)) ||
+        (existingShortcut != null &&
+            !_validShortcutWireString(existingShortcut))) {
+      return null;
+    }
+    return _encodeEnvelope(
+      generated.PayloadTypeId.SettingsRequest,
+      generated.SettingsRequestObjectBuilder(
+        kind: kind,
+        expectedRevision: expectedRevision,
+        shortcut: shortcut == null ? null : _shortcutBindingBuilder(shortcut),
+        existingShortcut: existingShortcut,
+      ),
+      requestId: requestId,
+    );
+  }
+
+  DenialInputDeviceCapabilities? decodeInputDeviceCapabilities(
+    generated.SettingsResponse response,
+  ) {
+    final inputDevices = response.inputDevices;
+    final touchpad = inputDevices?.touchpad;
+    if (!response.success ||
+        response.kind != generated.SettingsResponseKind.InputDevices ||
+        response.revision <= 0 ||
+        inputDevices == null ||
+        touchpad == null) {
+      rejectedStructuredMessages += 1;
+      return null;
+    }
+    return DenialInputDeviceCapabilities(
+      revision: response.revision,
+      hasTouchpad: inputDevices.hasTouchpad,
+      tapToClickEnabled: touchpad.tapToClickEnabled,
+      naturalScrollEnabled: touchpad.naturalScrollEnabled,
+    );
+  }
+
   DenialKeyboardConfiguration? decodeKeyboardConfiguration(
     generated.SettingsResponse response,
   ) {
@@ -399,6 +546,125 @@ class DenialWireCodec {
       repeatDelayMs: keyboard.repeatDelayMs,
       repeatRateHz: keyboard.repeatRateHz,
       activeLayout: keyboard.activeLayout,
+    );
+  }
+
+  DenialShortcutConfiguration? decodeShortcutConfiguration(
+    generated.SettingsResponse response,
+  ) {
+    final configuration = response.shortcuts;
+    final sourceShortcuts = configuration?.shortcuts;
+    final sourceActions = configuration?.supportedActions;
+    final sourceInputs = configuration?.supportedInputs;
+    if (response.kind != generated.SettingsResponseKind.Shortcuts ||
+        response.revision <= 0 ||
+        configuration == null ||
+        sourceShortcuts == null ||
+        sourceShortcuts.length > _maxShortcutBindings ||
+        sourceActions == null ||
+        sourceActions.isEmpty ||
+        sourceActions.length > DenialShortcutAction.values.length ||
+        sourceInputs == null ||
+        sourceInputs.length > _maxShortcutInputs) {
+      rejectedStructuredMessages += 1;
+      return null;
+    }
+
+    final shortcuts = <DenialShortcutBinding>[];
+    final shortcutIdentities = <String>{};
+    for (final source in sourceShortcuts) {
+      final binding = _decodeShortcutBinding(source);
+      if (binding == null || !shortcutIdentities.add(binding.shortcut)) {
+        rejectedStructuredMessages += 1;
+        return null;
+      }
+      shortcuts.add(binding);
+    }
+
+    final actions = sourceActions.map(_shortcutActionFromWire).toList();
+    if (actions.toSet().length != actions.length) {
+      rejectedStructuredMessages += 1;
+      return null;
+    }
+
+    final inputs = <DenialShortcutInput>[];
+    final inputIdentities = <String>{};
+    for (final source in sourceInputs) {
+      final canonical = source.canonical;
+      final aliases = source.aliases;
+      if (canonical == null ||
+          !_validShortcutWireString(canonical) ||
+          aliases == null ||
+          aliases.any((alias) => !_validShortcutWireString(alias)) ||
+          aliases.toSet().length != aliases.length ||
+          !inputIdentities.add(canonical)) {
+        rejectedStructuredMessages += 1;
+        return null;
+      }
+      inputs.add(
+        DenialShortcutInput(
+          canonical: canonical,
+          kind: _shortcutInputKindFromWire(source.kind),
+          category: _shortcutInputCategoryFromWire(source.category),
+          aliases: aliases,
+        ),
+      );
+    }
+
+    return DenialShortcutConfiguration(
+      revision: response.revision,
+      shortcuts: shortcuts,
+      supportedActions: actions,
+      supportedInputs: inputs,
+    );
+  }
+
+  DenialShortcutValidation? decodeShortcutValidation(
+    generated.SettingsResponse response,
+  ) {
+    final validation = response.shortcutValidation;
+    if (!response.success ||
+        response.kind != generated.SettingsResponseKind.ShortcutValidation ||
+        response.revision <= 0 ||
+        validation == null) {
+      rejectedStructuredMessages += 1;
+      return null;
+    }
+    final canonical = validation.canonical;
+    final conflict = validation.conflict == null
+        ? null
+        : _decodeShortcutBinding(validation.conflict!);
+    final error = validation.error;
+    final kind = switch (validation.kind) {
+      generated.ShortcutValidationKind.Valid =>
+        DenialShortcutValidationKind.valid,
+      generated.ShortcutValidationKind.Conflict =>
+        DenialShortcutValidationKind.conflict,
+      generated.ShortcutValidationKind.Invalid =>
+        DenialShortcutValidationKind.invalid,
+    };
+    final shapeIsValid = switch (kind) {
+      DenialShortcutValidationKind.valid =>
+        canonical != null && conflict == null && error == null,
+      DenialShortcutValidationKind.conflict =>
+        canonical != null && conflict != null && error == null,
+      DenialShortcutValidationKind.invalid =>
+        canonical == null &&
+            conflict == null &&
+            error != null &&
+            _validShortcutWireString(error),
+    };
+    if (!shapeIsValid ||
+        (canonical != null && !_validShortcutWireString(canonical))) {
+      rejectedStructuredMessages += 1;
+      return null;
+    }
+    return DenialShortcutValidation(
+      revision: response.revision,
+      kind: kind,
+      canonical: canonical,
+      conflict: conflict,
+      error: error,
     );
   }
 
@@ -785,12 +1051,19 @@ class DenialWireCodec {
 
   List<DenialWindow>? decodeWindows(generated.WindowSnapshot snapshot) {
     final source = snapshot.windows ?? const <generated.Window>[];
-    if (source.length > denialWireMaxWindows) {
+    final restoredSource = snapshot.restoredWindowIds ?? const <int>[];
+    final restoredWindowIds = <int>{};
+    if (source.length > denialWireMaxWindows ||
+        restoredSource.length > source.length ||
+        restoredSource.any(
+          (windowId) => windowId <= 0 || !restoredWindowIds.add(windowId),
+        )) {
       rejectedStructuredMessages += 1;
       return null;
     }
 
     final windows = <DenialWindow>[];
+    final windowIds = <int>{};
     var surfaceCount = 0;
     for (final window in source) {
       final title = window.title ?? '';
@@ -798,6 +1071,7 @@ class DenialWireCodec {
       if (window.objectId <= 0 ||
           window.surfaceId <= 0 ||
           window.windowId <= 0 ||
+          !windowIds.add(window.windowId) ||
           window.width <= 0 ||
           window.height <= 0 ||
           title.length > denialWireMaxStringLength ||
@@ -893,6 +1167,9 @@ class DenialWireCodec {
           scale120: window.scale120,
           pinned: window.pinned,
           suppressAnimations: window.suppressAnimations,
+          restoredAcrossFlutterRestart: restoredWindowIds.contains(
+            window.windowId,
+          ),
           serverSideDecorated: window.serverSideDecorated,
           opacity: window.opacity,
           statusColorArgb: window.hasStatusColor
@@ -914,6 +1191,10 @@ class DenialWireCodec {
           },
         ),
       );
+    }
+    if (!windowIds.containsAll(restoredWindowIds)) {
+      rejectedStructuredMessages += 1;
+      return null;
     }
     return List<DenialWindow>.unmodifiable(windows);
   }
@@ -1061,6 +1342,7 @@ class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
     required this.shellRegions,
     required this.windows,
     required this.visibleSurfaceIds,
+    required this.softwareKeyboardRegions,
   });
 
   final int epoch;
@@ -1068,6 +1350,7 @@ class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
   final List<generated.WireRectObjectBuilder> shellRegions;
   final List<generated.InputWindowRegionObjectBuilder> windows;
   final List<int> visibleSurfaceIds;
+  final List<generated.WireRectObjectBuilder> softwareKeyboardRegions;
 
   @override
   int finish(fb.Builder builder) {
@@ -1077,12 +1360,17 @@ class _AlignedInputLayoutObjectBuilder extends fb.ObjectBuilder {
       builder,
       visibleSurfaceIds,
     );
-    builder.startTable(5);
+    final softwareKeyboardRegionsOffset = _writeAlignedStructVector(
+      builder,
+      softwareKeyboardRegions,
+    );
+    builder.startTable(6);
     builder.addUint64(0, epoch);
     builder.addUint32(1, flags);
     builder.addOffset(2, shellRegionsOffset);
     builder.addOffset(3, windowsOffset);
     builder.addOffset(4, visibleSurfaceIdsOffset);
+    builder.addOffset(5, softwareKeyboardRegionsOffset);
     return builder.endTable();
   }
 
@@ -1160,6 +1448,227 @@ generated.WireRectObjectBuilder _rectBuilder(Rect rect) {
   );
 }
 
+generated.ShortcutBindingObjectBuilder _shortcutBindingBuilder(
+  DenialShortcutBinding binding,
+) {
+  return switch (binding.target) {
+    DenialShortcutActionTarget(:final action) =>
+      generated.ShortcutBindingObjectBuilder(
+        shortcut: binding.shortcut,
+        targetType: generated.ShortcutTargetTypeId.ShortcutDenialActionTarget,
+        target: generated.ShortcutDenialActionTargetObjectBuilder(
+          action: _shortcutActionToWire(action),
+        ),
+      ),
+    DenialShortcutSpawnTarget(:final command) =>
+      generated.ShortcutBindingObjectBuilder(
+        shortcut: binding.shortcut,
+        targetType: generated.ShortcutTargetTypeId.ShortcutSpawnTarget,
+        target: generated.ShortcutSpawnTargetObjectBuilder(command: command),
+      ),
+    DenialShortcutSpawnShTarget(:final command) =>
+      generated.ShortcutBindingObjectBuilder(
+        shortcut: binding.shortcut,
+        targetType: generated.ShortcutTargetTypeId.ShortcutSpawnShTarget,
+        target: generated.ShortcutSpawnShTargetObjectBuilder(command: command),
+      ),
+  };
+}
+
+DenialShortcutBinding? _decodeShortcutBinding(
+  generated.ShortcutBinding binding,
+) {
+  final shortcut = binding.shortcut;
+  if (shortcut == null || !_validShortcutWireString(shortcut)) {
+    return null;
+  }
+  final target = binding.target;
+  return switch ((binding.targetType, target)) {
+    (
+      generated.ShortcutTargetTypeId.ShortcutDenialActionTarget,
+      generated.ShortcutDenialActionTarget(:final action),
+    ) =>
+      DenialShortcutBinding(
+        shortcut: shortcut,
+        target: DenialShortcutActionTarget(_shortcutActionFromWire(action)),
+      ),
+    (
+      generated.ShortcutTargetTypeId.ShortcutSpawnTarget,
+      generated.ShortcutSpawnTarget(command: final command?),
+    )
+        when command.isNotEmpty &&
+            command.length <= _maxShortcutCommandArguments &&
+            command.every(
+              (argument) =>
+                  _validShortcutWireString(argument, emptyAllowed: true),
+            ) &&
+            command.first.isNotEmpty =>
+      DenialShortcutBinding(
+        shortcut: shortcut,
+        target: DenialShortcutSpawnTarget(command),
+      ),
+    (
+      generated.ShortcutTargetTypeId.ShortcutSpawnShTarget,
+      generated.ShortcutSpawnShTarget(command: final command?),
+    )
+        when _validShortcutWireString(command) =>
+      DenialShortcutBinding(
+        shortcut: shortcut,
+        target: DenialShortcutSpawnShTarget(command),
+      ),
+    _ => null,
+  };
+}
+
+generated.ShortcutActionKind _shortcutActionToWire(
+  DenialShortcutAction action,
+) {
+  return switch (action) {
+    DenialShortcutAction.shutdown => generated.ShortcutActionKind.Shutdown,
+    DenialShortcutAction.openApplications =>
+      generated.ShortcutActionKind.OpenApplications,
+    DenialShortcutAction.openOverview =>
+      generated.ShortcutActionKind.OpenOverview,
+    DenialShortcutAction.toggleVerticalMaximize =>
+      generated.ShortcutActionKind.ToggleVerticalMaximize,
+    DenialShortcutAction.windowSwitcher =>
+      generated.ShortcutActionKind.WindowSwitcher,
+    DenialShortcutAction.openClipboard =>
+      generated.ShortcutActionKind.OpenClipboard,
+    DenialShortcutAction.captureRegion =>
+      generated.ShortcutActionKind.CaptureRegion,
+    DenialShortcutAction.closeWindow =>
+      generated.ShortcutActionKind.CloseWindow,
+    DenialShortcutAction.minimizeWindow =>
+      generated.ShortcutActionKind.MinimizeWindow,
+    DenialShortcutAction.toggleMaximize =>
+      generated.ShortcutActionKind.ToggleMaximize,
+    DenialShortcutAction.toggleFullscreen =>
+      generated.ShortcutActionKind.ToggleFullscreen,
+    DenialShortcutAction.releasePointer =>
+      generated.ShortcutActionKind.ReleasePointer,
+    DenialShortcutAction.lockScreen => generated.ShortcutActionKind.LockScreen,
+    DenialShortcutAction.volumeUp => generated.ShortcutActionKind.VolumeUp,
+    DenialShortcutAction.volumeDown => generated.ShortcutActionKind.VolumeDown,
+    DenialShortcutAction.volumeMute => generated.ShortcutActionKind.VolumeMute,
+    DenialShortcutAction.brightnessUp =>
+      generated.ShortcutActionKind.BrightnessUp,
+    DenialShortcutAction.brightnessDown =>
+      generated.ShortcutActionKind.BrightnessDown,
+    DenialShortcutAction.nextKeyboardLayout =>
+      generated.ShortcutActionKind.NextKeyboardLayout,
+    DenialShortcutAction.previousKeyboardLayout =>
+      generated.ShortcutActionKind.PreviousKeyboardLayout,
+  };
+}
+
+DenialShortcutAction _shortcutActionFromWire(
+  generated.ShortcutActionKind action,
+) {
+  return switch (action) {
+    generated.ShortcutActionKind.Shutdown => DenialShortcutAction.shutdown,
+    generated.ShortcutActionKind.OpenApplications =>
+      DenialShortcutAction.openApplications,
+    generated.ShortcutActionKind.OpenOverview =>
+      DenialShortcutAction.openOverview,
+    generated.ShortcutActionKind.ToggleVerticalMaximize =>
+      DenialShortcutAction.toggleVerticalMaximize,
+    generated.ShortcutActionKind.WindowSwitcher =>
+      DenialShortcutAction.windowSwitcher,
+    generated.ShortcutActionKind.OpenClipboard =>
+      DenialShortcutAction.openClipboard,
+    generated.ShortcutActionKind.CaptureRegion =>
+      DenialShortcutAction.captureRegion,
+    generated.ShortcutActionKind.CloseWindow =>
+      DenialShortcutAction.closeWindow,
+    generated.ShortcutActionKind.MinimizeWindow =>
+      DenialShortcutAction.minimizeWindow,
+    generated.ShortcutActionKind.ToggleMaximize =>
+      DenialShortcutAction.toggleMaximize,
+    generated.ShortcutActionKind.ToggleFullscreen =>
+      DenialShortcutAction.toggleFullscreen,
+    generated.ShortcutActionKind.ReleasePointer =>
+      DenialShortcutAction.releasePointer,
+    generated.ShortcutActionKind.LockScreen => DenialShortcutAction.lockScreen,
+    generated.ShortcutActionKind.VolumeUp => DenialShortcutAction.volumeUp,
+    generated.ShortcutActionKind.VolumeDown => DenialShortcutAction.volumeDown,
+    generated.ShortcutActionKind.VolumeMute => DenialShortcutAction.volumeMute,
+    generated.ShortcutActionKind.BrightnessUp =>
+      DenialShortcutAction.brightnessUp,
+    generated.ShortcutActionKind.BrightnessDown =>
+      DenialShortcutAction.brightnessDown,
+    generated.ShortcutActionKind.NextKeyboardLayout =>
+      DenialShortcutAction.nextKeyboardLayout,
+    generated.ShortcutActionKind.PreviousKeyboardLayout =>
+      DenialShortcutAction.previousKeyboardLayout,
+  };
+}
+
+DenialShortcutInputKind _shortcutInputKindFromWire(
+  generated.ShortcutInputKind kind,
+) {
+  return switch (kind) {
+    generated.ShortcutInputKind.Key => DenialShortcutInputKind.key,
+    generated.ShortcutInputKind.Gesture => DenialShortcutInputKind.gesture,
+  };
+}
+
+DenialShortcutInputCategory _shortcutInputCategoryFromWire(
+  generated.ShortcutInputCategory category,
+) {
+  return switch (category) {
+    generated.ShortcutInputCategory.Modifier =>
+      DenialShortcutInputCategory.modifier,
+    generated.ShortcutInputCategory.Navigation =>
+      DenialShortcutInputCategory.navigation,
+    generated.ShortcutInputCategory.Editing =>
+      DenialShortcutInputCategory.editing,
+    generated.ShortcutInputCategory.Punctuation =>
+      DenialShortcutInputCategory.punctuation,
+    generated.ShortcutInputCategory.$Function =>
+      DenialShortcutInputCategory.function,
+    generated.ShortcutInputCategory.Media => DenialShortcutInputCategory.media,
+    generated.ShortcutInputCategory.Hardware =>
+      DenialShortcutInputCategory.hardware,
+    generated.ShortcutInputCategory.Special =>
+      DenialShortcutInputCategory.special,
+    generated.ShortcutInputCategory.Gesture =>
+      DenialShortcutInputCategory.gesture,
+  };
+}
+
+bool _validShortcutWireString(String value, {bool emptyAllowed = false}) {
+  final bytes = utf8.encode(value);
+  return (emptyAllowed || bytes.isNotEmpty) &&
+      bytes.length <= denialWireMaxStringLength &&
+      !bytes.contains(0);
+}
+
+bool _validShortcutBindingWire(
+  DenialShortcutBinding binding, {
+  bool emptyShortcutAllowed = false,
+}) {
+  if (!_validShortcutWireString(
+    binding.shortcut,
+    emptyAllowed: emptyShortcutAllowed,
+  )) {
+    return false;
+  }
+  return switch (binding.target) {
+    DenialShortcutActionTarget() => true,
+    DenialShortcutSpawnTarget(:final command) =>
+      command.length <= _maxShortcutCommandArguments &&
+          command.every(
+            (argument) =>
+                _validShortcutWireString(argument, emptyAllowed: true),
+          ),
+    DenialShortcutSpawnShTarget(:final command) => _validShortcutWireString(
+      command,
+      emptyAllowed: true,
+    ),
+  };
+}
+
 bool _validRect(Rect rect) {
   return rect.left.isFinite &&
       rect.top.isFinite &&
@@ -1193,6 +1702,7 @@ bool _nativePayloadType(generated.PayloadTypeId type) {
       type == generated.PayloadTypeId.ShellAction ||
       type == generated.PayloadTypeId.CursorShape ||
       type == generated.PayloadTypeId.CursorPosition ||
+      type == generated.PayloadTypeId.TextInputState ||
       type == generated.PayloadTypeId.DesktopNotificationEvent ||
       type == generated.PayloadTypeId.SettingsResponse;
 }

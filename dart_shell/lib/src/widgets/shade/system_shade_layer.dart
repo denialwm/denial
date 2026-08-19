@@ -13,7 +13,9 @@ import 'status_bar.dart';
 /// once released. All control state lives in providers, so this widget stays a
 /// thin animation host.
 class SystemShadeLayer extends ConsumerStatefulWidget {
-  const SystemShadeLayer({super.key});
+  const SystemShadeLayer({super.key, this.ignoring = false});
+
+  final bool ignoring;
 
   @override
   ConsumerState<SystemShadeLayer> createState() => _SystemShadeLayerState();
@@ -70,21 +72,24 @@ class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
     );
 
     return Positioned.fill(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          const ShadeStatusBar(),
-          AnimatedBuilder(
-            animation: _controller,
-            builder: (context, _) {
-              final progress = unit(_controller.value);
-              if (progress <= 0.001) {
-                return const SizedBox.expand();
-              }
-              return QuickSettingsShade(progress: progress);
-            },
-          ),
-        ],
+      child: IgnorePointer(
+        ignoring: widget.ignoring,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            const ShadeStatusBar(),
+            AnimatedBuilder(
+              animation: _controller,
+              builder: (context, _) {
+                final progress = unit(_controller.value);
+                if (progress <= 0.001) {
+                  return const SizedBox.expand();
+                }
+                return QuickSettingsShade(progress: progress);
+              },
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -24,7 +24,7 @@ class ShellAccentPalette {
     final onContainer = _contrastForeground(container);
     return ShellAccentPalette._(
       primary: primary,
-      onPrimary: _contrastForeground(primary),
+      onPrimary: _accentForeground(primary),
       container: container,
       onContainer: onContainer,
       onContainerSecondary: onContainer.withValues(alpha: 0.78),
@@ -127,9 +127,17 @@ Color _tintedSurface(Color accent, double amount) {
   );
 }
 
+Color _accentForeground(Color background) {
+  const dark = Color(0xff000000);
+  const light = Color(0xffffffff);
+  final perceivedBrightness =
+      background.r * 0.299 + background.g * 0.587 + background.b * 0.114;
+  return perceivedBrightness > 0.5 ? dark : light;
+}
+
 Color _contrastForeground(Color background) {
-  const dark = Color(0xff101318);
-  const light = ShellColors.textPrimary;
+  const dark = Color(0xff000000);
+  const light = Color(0xffffffff);
   final backgroundLuminance = background.computeLuminance();
   final darkContrast = _contrastRatio(
     backgroundLuminance,

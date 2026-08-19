@@ -1,5 +1,6 @@
 import 'package:path/path.dart' as p;
 
+import '../../models/denial_window.dart';
 import '../../platform/denial_bridge.dart';
 import '../models/desktop_app.dart';
 import 'desktop_exec_parser.dart';
@@ -49,6 +50,23 @@ class AppLauncher {
     return List<String>.unmodifiable(candidates);
   }
 
+  DenialWindow? findOpenWindow(DesktopApp app, Iterable<DenialWindow> windows) {
+    final expected = expectedWindowAppIds(app).map(_normalizeIdentity).toSet();
+    for (final window in windows) {
+      if (window.isUserApp &&
+          expected.contains(_normalizeIdentity(window.appId))) {
+        return window;
+      }
+    }
+    return null;
+  }
+
+  bool usesLegacyTextInput(DesktopApp app) {
+    return app.categories.any(
+      (category) => category.toLowerCase() == 'terminalemulator',
+    );
+  }
+
   Future<bool> launch(DesktopApp app, {int? launchRequestId}) async {
     final argv = _execParser.parse(app.exec, app);
     if (argv.isEmpty) {
@@ -76,4 +94,6 @@ class AppLauncher {
     }
     return index < argv.length ? argv[index] : null;
   }
+
+  String _normalizeIdentity(String value) => value.trim().toLowerCase();
 }

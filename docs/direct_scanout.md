@@ -40,11 +40,11 @@ feedback; it bypasses Flutter and GPU composition, not the compositor.
 
 ## Existing foundation and required changes
 
-- `output_scheduler.rs` already has independent per-CRTC mailboxes and submits
-  only primary-plane `FB_ID`, `SRC_*`, and optional `IN_FENCE_FD` properties
-  without `ALLOW_MODESET`. Generalize its atlas-only `OutputFrame` into a
-  retained plane/frame lease that can own either an atlas slot or an imported
-  client framebuffer.
+- `output_scheduler.rs` already has independent per-CRTC mailboxes, while
+  `denial_core::volition` owns submission of primary-plane `FB_ID`, `SRC_*`,
+  and optional `IN_FENCE_FD` properties without `ALLOW_MODESET`. Generalize
+  the scheduler's atlas-only `OutputFrame` into a retained plane/frame lease
+  that can own either an atlas slot or an imported client framebuffer.
 - `kms_state.rs` allocates a shared `Xrgb8888` atlas and selects modifiers
   common to every primary plane. Transparent shell composition needs either:
   an ARGB atlas with opaque and alpha KMS framebuffer views of each buffer, or

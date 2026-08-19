@@ -12,7 +12,7 @@ deniald
   Rust compositor
     Smithay Wayland frontend and Xwayland
     libseat/libinput/udev session and input
-    GBM/EGL and atomic DRM/KMS presentation
+    GBM/EGL rendering and Volition atomic DRM/KMS presentation
     window, focus, grab and buffer lifetime state
     persistent native system controls
 
@@ -63,6 +63,13 @@ connects it directly to the rotating compositor-owned FBOs, preserves atlas
 damage, and keeps external client textures alive through native GPU fences.
 Skia/Ganesh remains compiled into the same engine as an explicit compatibility
 fallback.
+
+Atomic presentation synchronization lives in the in-tree
+`denial_core::volition` library module at `compositor/src/volition/`. Volition
+owns the DRM file descriptor, reusable plane commits, and alternating KMS
+lookahead lanes. Denial's output scheduler remains the caller: it chooses the
+frame, retains buffer ownership through page-flip completion, and handles
+Flutter, Wayland, DPMS, and screenshot policy.
 
 Topology changes are validated atomically before allocation. Atlas axes above
 16,384 pixels and complete pools above 1 GiB are rejected. The compositor
@@ -131,7 +138,7 @@ Keyboard settings live in the native-owned `keyboard` section:
 
 ```json
 {
-  "version": 8,
+  "version": 9,
   "revision": 3,
   "keyboard": {
     "layouts": [
@@ -148,6 +155,21 @@ Keyboard settings live in the native-owned `keyboard` section:
 Rust syntax-checks and compiles a candidate keymap before it changes either
 the seat or the file. A failed live install keeps the previous configuration;
 a persistence conflict rolls the live seat back.
+
+Touchpad preferences live in the native-owned `touchpad` section:
+
+```json
+{
+  "touchpad": {
+    "tapToClickEnabled": true,
+    "naturalScrollEnabled": false
+  }
+}
+```
+
+Denial applies these preferences through libinput when a touchpad appears and
+on every live update. The shell receives touchpad presence separately so it
+only exposes the touchpad page when suitable hardware is connected.
 
 ## Platform bridge
 
