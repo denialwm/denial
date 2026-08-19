@@ -16,9 +16,81 @@ use libloading::Library;
 mod host;
 
 pub use host::{
-    DartRuntimeMode, EngineEvent, EngineHost, EngineProject, HostError, OpenGlHandler,
-    ParseRendererBackendError, PlatformMessage, PresentFrame, RendererBackend, ScheduledTask,
+    BackingStoreRequest, CompositorBackingStore, DartRuntimeMode, EngineEvent, EngineHost,
+    EngineProject, HostError, OpenGlHandler, ParseRendererBackendError, PlatformMessage,
+    PresentFrame, PresentView, RendererBackend, ScheduledTask,
 };
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RenderOutputTransform {
+    Normal,
+    Rotate90,
+    Rotate180,
+    Rotate270,
+    Flipped,
+    Flipped90,
+    Flipped180,
+    Flipped270,
+}
+
+impl RenderOutputTransform {
+    fn as_ffi(self) -> sys::DenialFlutterOutputTransform {
+        match self {
+            Self::Normal => sys::DenialFlutterOutputTransform_kDenialFlutterOutputTransformNormal,
+            Self::Rotate90 => {
+                sys::DenialFlutterOutputTransform_kDenialFlutterOutputTransformRotate90
+            }
+            Self::Rotate180 => {
+                sys::DenialFlutterOutputTransform_kDenialFlutterOutputTransformRotate180
+            }
+            Self::Rotate270 => {
+                sys::DenialFlutterOutputTransform_kDenialFlutterOutputTransformRotate270
+            }
+            Self::Flipped => sys::DenialFlutterOutputTransform_kDenialFlutterOutputTransformFlipped,
+            Self::Flipped90 => {
+                sys::DenialFlutterOutputTransform_kDenialFlutterOutputTransformFlipped90
+            }
+            Self::Flipped180 => {
+                sys::DenialFlutterOutputTransform_kDenialFlutterOutputTransformFlipped180
+            }
+            Self::Flipped270 => {
+                sys::DenialFlutterOutputTransform_kDenialFlutterOutputTransformFlipped270
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RenderOutput {
+    pub render_view_id: i64,
+    pub configuration_generation: u64,
+    pub source_physical_x: f64,
+    pub source_physical_y: f64,
+    pub source_physical_width: f64,
+    pub source_physical_height: f64,
+    pub target_width: usize,
+    pub target_height: usize,
+    pub scale_120: u32,
+    pub transform: RenderOutputTransform,
+}
+
+impl RenderOutput {
+    fn as_ffi(self) -> sys::DenialFlutterRenderOutput {
+        sys::DenialFlutterRenderOutput {
+            struct_size: mem::size_of::<sys::DenialFlutterRenderOutput>(),
+            render_view_id: self.render_view_id,
+            configuration_generation: self.configuration_generation,
+            source_physical_x: self.source_physical_x,
+            source_physical_y: self.source_physical_y,
+            source_physical_width: self.source_physical_width,
+            source_physical_height: self.source_physical_height,
+            target_width: self.target_width,
+            target_height: self.target_height,
+            scale_120: self.scale_120,
+            transform: self.transform.as_ffi(),
+        }
+    }
+}
 
 #[allow(
     clippy::all,
@@ -106,8 +178,25 @@ impl Error for EngineError {}
 
 pub struct EngineLibrary {
     table: sys::FlutterEngineProcTable,
+    set_render_outputs: unsafe extern "C" fn(
+        sys::FlutterEngine,
+        *const sys::DenialFlutterRenderOutput,
+        usize,
+    ) -> sys::FlutterEngineResult,
+    request_frame_for_external_textures:
+        unsafe extern "C" fn(sys::FlutterEngine) -> sys::FlutterEngineResult,
     schedule_frame_for_external_textures:
         unsafe extern "C" fn(sys::FlutterEngine, *const i64, usize) -> sys::FlutterEngineResult,
+    render_outputs: unsafe extern "C" fn(
+        sys::FlutterEngine,
+        *const i64,
+        usize,
+        *const i64,
+        usize,
+        bool,
+        u64,
+        u64,
+    ) -> sys::FlutterEngineResult,
     set_external_texture_gl_state_callback: unsafe extern "C" fn(
         sys::FlutterEngine,
         Option<unsafe extern "C" fn(*mut c_void, i64) -> bool>,
@@ -134,6 +223,17 @@ impl EngineLibrary {
                 .get::<GetProcAddresses>(b"FlutterEngineGetProcAddresses\0")
                 .map_err(LoadError::Symbol)?
         };
+        type RequestFrameForExternalTextures =
+            unsafe extern "C" fn(sys::FlutterEngine) -> sys::FlutterEngineResult;
+        // SAFETY: this Denial-specific symbol is declared by the versioned
+        // embedder header shipped with our coupled Flutter engine.
+        let request_frame_for_external_textures = unsafe {
+            *library
+                .get::<RequestFrameForExternalTextures>(
+                    b"DenialFlutterEngineRequestFrameForExternalTextures\0",
+                )
+                .map_err(LoadError::Symbol)?
+        };
         type ScheduleFrameForExternalTextures =
             unsafe extern "C" fn(sys::FlutterEngine, *const i64, usize) -> sys::FlutterEngineResult;
         // SAFETY: this Denial-specific symbol is declared by the versioned
@@ -143,6 +243,35 @@ impl EngineLibrary {
                 .get::<ScheduleFrameForExternalTextures>(
                     b"DenialFlutterEngineScheduleFrameForExternalTextures\0",
                 )
+                .map_err(LoadError::Symbol)?
+        };
+        type RenderOutputs = unsafe extern "C" fn(
+            sys::FlutterEngine,
+            *const i64,
+            usize,
+            *const i64,
+            usize,
+            bool,
+            u64,
+            u64,
+        ) -> sys::FlutterEngineResult;
+        // SAFETY: this Denial-specific symbol is declared by the versioned
+        // embedder header shipped with our coupled Flutter engine.
+        let render_outputs = unsafe {
+            *library
+                .get::<RenderOutputs>(b"DenialFlutterEngineRenderOutputs\0")
+                .map_err(LoadError::Symbol)?
+        };
+        type SetRenderOutputs = unsafe extern "C" fn(
+            sys::FlutterEngine,
+            *const sys::DenialFlutterRenderOutput,
+            usize,
+        ) -> sys::FlutterEngineResult;
+        // SAFETY: this Denial-specific symbol is declared by the versioned
+        // embedder header shipped with our coupled Flutter engine.
+        let set_render_outputs = unsafe {
+            *library
+                .get::<SetRenderOutputs>(b"DenialFlutterEngineSetRenderOutputs\0")
                 .map_err(LoadError::Symbol)?
         };
         type SetExternalTextureGlStateCallback = unsafe extern "C" fn(
@@ -198,7 +327,10 @@ impl EngineLibrary {
         require_proc!(NotifyDisplayUpdate);
         Ok(Self {
             table,
+            set_render_outputs,
+            request_frame_for_external_textures,
             schedule_frame_for_external_textures,
+            render_outputs,
             set_external_texture_gl_state_callback,
             _library: library,
         })
@@ -429,6 +561,28 @@ impl RunningEngine {
         unsafe { function() }
     }
 
+    /// Atomically replaces the complete physical-output raster snapshot.
+    /// Flutter copies the slice before this call returns and installs it on
+    /// the raster runner between frame transactions.
+    pub fn set_render_outputs(&self, outputs: &[RenderOutput]) -> Result<(), EngineError> {
+        let function = self.library.set_render_outputs;
+        let outputs = outputs
+            .iter()
+            .copied()
+            .map(RenderOutput::as_ffi)
+            .collect::<Vec<_>>();
+        let pointer = if outputs.is_empty() {
+            ptr::null()
+        } else {
+            outputs.as_ptr()
+        };
+        // SAFETY: the live engine synchronously copies this bounded slice;
+        // null is supplied only for the explicitly supported empty snapshot.
+        check_result("SetRenderOutputs", unsafe {
+            function(self.handle, pointer, outputs.len())
+        })
+    }
+
     pub fn on_vsync(
         &self,
         baton: isize,
@@ -614,6 +768,17 @@ impl RunningEngine {
         })
     }
 
+    /// Requests one texture-only frame without publishing dirty texture IDs.
+    /// Denial uses this to obtain AwaitVSync while the previous raster frame
+    /// finishes, then publishes the new texture generations at authorization.
+    pub fn request_frame_for_external_textures(&self) -> Result<(), EngineError> {
+        let function = self.library.request_frame_for_external_textures;
+        // SAFETY: the engine handle is live for this synchronous request.
+        check_result("RequestFrameForExternalTextures", unsafe {
+            function(self.handle)
+        })
+    }
+
     /// Schedules one texture-only frame for the complete set of updates
     /// collected by Denial's frame clock. A framework-requested layer-tree
     /// rebuild already pending in Flutter remains authoritative and coalesces
@@ -630,6 +795,42 @@ impl RunningEngine {
         // custom API synchronously copies all texture identifiers.
         check_result("ScheduleFrameForExternalTextures", unsafe {
             function(self.handle, texture_ids.as_ptr(), texture_ids.len())
+        })
+    }
+
+    /// Authorizes exactly the specified physical outputs for one raster
+    /// transaction. When `rebuild_scene` is false, the engine reuses the
+    /// latest scene without involving Dart.
+    pub fn render_outputs(
+        &self,
+        render_view_ids: &[i64],
+        texture_ids: &[i64],
+        rebuild_scene: bool,
+        frame_start_nanos: u64,
+        frame_target_nanos: u64,
+    ) -> Result<(), EngineError> {
+        if render_view_ids.is_empty() {
+            return Ok(());
+        }
+        let function = self.library.render_outputs;
+        let texture_ids_ptr = if texture_ids.is_empty() {
+            ptr::null()
+        } else {
+            texture_ids.as_ptr()
+        };
+        // SAFETY: the engine is live and both slices remain readable while
+        // the custom API synchronously copies their contents.
+        check_result("RenderOutputs", unsafe {
+            function(
+                self.handle,
+                render_view_ids.as_ptr(),
+                render_view_ids.len(),
+                texture_ids_ptr,
+                texture_ids.len(),
+                rebuild_scene,
+                frame_start_nanos,
+                frame_target_nanos,
+            )
         })
     }
 

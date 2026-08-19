@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/widgets.dart';
@@ -9,6 +10,35 @@ import '../theme/tokens.dart';
 const SvgTheme _desktopAppSvgTheme = SvgTheme(
   currentColor: ShellColors.fallbackAppIcon,
 );
+
+/// Loads a desktop SVG with a cache identity based on its stable file path.
+///
+/// [SvgFileLoader] compares [File] instances by object identity. App icons
+/// create a fresh [File] for precache and paint, so the default loader starts
+/// duplicate isolate work for the same path. This loader lets both phases, and
+/// later launcher openings, share one decoded cache entry.
+@immutable
+class DesktopAppSvgLoader extends SvgLoader<void> {
+  const DesktopAppSvgLoader(this.path) : super(theme: _desktopAppSvgTheme);
+
+  final String path;
+
+  @override
+  String provideSvg(void message) {
+    return utf8.decode(File(path).readAsBytesSync(), allowMalformed: true);
+  }
+
+  @override
+  int get hashCode => Object.hash(path, theme, colorMapper);
+
+  @override
+  bool operator ==(Object other) {
+    return other is DesktopAppSvgLoader &&
+        other.path == path &&
+        other.theme == theme &&
+        other.colorMapper == colorMapper;
+  }
+}
 
 /// Renders a resolved desktop-app icon with the shell's bundled fallback.
 class AppIconImage extends StatelessWidget {
@@ -26,10 +56,9 @@ class AppIconImage extends StatelessWidget {
       return const _FallbackAppIcon();
     }
     if (path.toLowerCase().endsWith('.svg')) {
-      return SvgPicture.file(
-        File(path),
+      return SvgPicture(
+        DesktopAppSvgLoader(path),
         fit: BoxFit.contain,
-        theme: _desktopAppSvgTheme,
         placeholderBuilder: (_) => const _FallbackAppIcon(),
         errorBuilder: (_, _, _) => const _FallbackAppIcon(),
       );
@@ -149,10 +178,7 @@ Future<void> _precacheAppIcon(BuildContext context, String? iconPath) async {
     return;
   }
   if (path.toLowerCase().endsWith('.svg')) {
-    await SvgFileLoader(
-      File(path),
-      theme: _desktopAppSvgTheme,
-    ).loadBytes(context);
+    await DesktopAppSvgLoader(path).loadBytes(context);
     return;
   }
 

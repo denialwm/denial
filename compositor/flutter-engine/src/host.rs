@@ -73,12 +73,68 @@ pub struct PresentFrame<'a> {
     pub buffer_damage: &'a [sys::FlutterRect],
 }
 
+/// A render target requested by Flutter's external-view compositor.
+///
+/// The handler owns the OpenGL object and any value encoded in `user_data`.
+/// Flutter borrows both until the matching collect callback. The embedder host
+/// deliberately exposes only framebuffer backing stores: Denial composites
+/// Wayland clients as Flutter external textures and never publishes platform
+/// view layers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CompositorBackingStore {
+    pub framebuffer: u32,
+    pub format: u32,
+    pub user_data: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BackingStoreRequest {
+    pub view_id: i64,
+    pub width: usize,
+    pub height: usize,
+}
+
+#[derive(Clone, Copy)]
+pub struct PresentView<'a> {
+    pub view_id: i64,
+    pub backing_store: CompositorBackingStore,
+    pub offset_x: f64,
+    pub offset_y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub paint_region: &'a [sys::FlutterRect],
+    pub presentation_time_nanos: u64,
+}
+
 pub trait OpenGlHandler: Send + Sync + 'static {
     fn make_current(&self) -> bool;
     fn clear_current(&self) -> bool;
     fn make_resource_current(&self) -> bool;
     fn framebuffer(&self, width: u32, height: u32) -> u32;
     fn present(&self, frame: PresentFrame<'_>) -> bool;
+
+    /// Supplies one framebuffer to FlutterCompositor. Returning `None`
+    /// applies ordinary producer backpressure and causes the raster pass to be
+    /// skipped without inventing a default framebuffer target.
+    fn create_backing_store(
+        &self,
+        _request: BackingStoreRequest,
+    ) -> Option<CompositorBackingStore> {
+        None
+    }
+
+    /// Releases Flutter's borrow of a backing-store description. The handler
+    /// may keep the underlying allocation in its own output pool.
+    fn collect_backing_store(&self, _backing_store: CompositorBackingStore) -> bool {
+        true
+    }
+
+    /// Publishes the single Flutter backing-store layer for one render view.
+    /// Denial has no embedder platform views, so the host rejects mixed or
+    /// multi-layer compositions before this method is called.
+    fn present_view(&self, _view: PresentView<'_>) -> bool {
+        false
+    }
     fn populate_existing_damage(&self, framebuffer: isize, damage: &mut Vec<sys::FlutterRect>);
     fn resolve_proc(&self, name: &CStr) -> *mut c_void;
     fn event(&self, event: EngineEvent);
@@ -430,6 +486,7 @@ struct EngineHostState {
     _renderer: Box<sys::FlutterRendererConfig>,
     _platform_runner: Box<sys::FlutterTaskRunnerDescription>,
     _custom_runners: Box<sys::FlutterCustomTaskRunners>,
+    _compositor: Box<sys::FlutterCompositor>,
     _project_args: Box<sys::FlutterProjectArgs>,
     _assets: CString,
     _icu_data: CString,
@@ -547,6 +604,18 @@ impl EngineHost {
             thread_priority_setter,
             ui_task_runner: ptr::null(),
         });
+        let compositor = Box::new(sys::FlutterCompositor {
+            struct_size: mem::size_of::<sys::FlutterCompositor>(),
+            user_data: state,
+            create_backing_store_callback: Some(create_backing_store),
+            collect_backing_store_callback: Some(collect_backing_store),
+            present_layers_callback: None,
+            // Denial owns rotating scanout pools and chooses a free target for
+            // every raster pass. Engine-side caching would pin one FBO to a
+            // render view and bypass that ownership decision on later frames.
+            avoid_backing_store_cache: true,
+            present_view_callback: Some(present_view),
+        });
         let project_args = Box::new(sys::FlutterProjectArgs {
             struct_size: mem::size_of::<sys::FlutterProjectArgs>(),
             assets_path: assets.as_ptr(),
@@ -563,6 +632,7 @@ impl EngineHost {
             vsync_callback: Some(request_vsync),
             custom_task_runners: &*custom_runners,
             log_message_callback: Some(log_message),
+            compositor: &*compositor,
             ..sys::FlutterProjectArgs::default()
         });
 
@@ -586,6 +656,7 @@ impl EngineHost {
                 _renderer: renderer,
                 _platform_runner: platform_runner,
                 _custom_runners: custom_runners,
+                _compositor: compositor,
                 _project_args: project_args,
                 _assets: assets,
                 _icu_data: icu_data,
@@ -753,6 +824,198 @@ unsafe extern "C" fn present(data: *mut c_void, info: *const sys::FlutterPresent
             buffer_damage,
         })
     })
+}
+
+unsafe extern "C" fn backing_store_released(_user_data: *mut c_void) {}
+
+unsafe extern "C" fn create_backing_store(
+    config: *const sys::FlutterBackingStoreConfig,
+    backing_store_out: *mut sys::FlutterBackingStore,
+    data: *mut c_void,
+) -> bool {
+    if config.is_null() || backing_store_out.is_null() {
+        return false;
+    }
+    dispatch(data, false, |state| {
+        // SAFETY: Flutter keeps both full-size structures readable/writable
+        // for this synchronous compositor callback.
+        let config = unsafe { &*config };
+        if config.struct_size < mem::size_of::<sys::FlutterBackingStoreConfig>() {
+            return false;
+        }
+        let Some(width) = compositor_dimension(config.size.width) else {
+            return false;
+        };
+        let Some(height) = compositor_dimension(config.size.height) else {
+            return false;
+        };
+        let request = BackingStoreRequest {
+            view_id: config.view_id,
+            width,
+            height,
+        };
+        let Some(store) = state.handler.create_backing_store(request) else {
+            return false;
+        };
+        if store.framebuffer == 0 {
+            return false;
+        }
+        let framebuffer = sys::FlutterOpenGLFramebuffer {
+            target: store.format,
+            name: store.framebuffer,
+            user_data: store.user_data as *mut c_void,
+            // Both Skia and Impeller require a callable release hook. Native
+            // allocation ownership stays with Denial and is returned through
+            // collect_backing_store instead of this render-target borrow.
+            destruction_callback: Some(backing_store_released),
+        };
+        let open_gl = sys::FlutterOpenGLBackingStore {
+            type_: sys::FlutterOpenGLTargetType_kFlutterOpenGLTargetTypeFramebuffer,
+            __bindgen_anon_1: sys::FlutterOpenGLBackingStore__bindgen_ty_1 { framebuffer },
+        };
+        // SAFETY: Flutter supplied this exclusive out-parameter and consumes
+        // the complete value only after the callback returns true.
+        unsafe {
+            *backing_store_out = sys::FlutterBackingStore {
+                struct_size: mem::size_of::<sys::FlutterBackingStore>(),
+                user_data: store.user_data as *mut c_void,
+                type_: sys::FlutterBackingStoreType_kFlutterBackingStoreTypeOpenGL,
+                did_update: true,
+                __bindgen_anon_1: sys::FlutterBackingStore__bindgen_ty_1 { open_gl },
+            };
+        }
+        true
+    })
+}
+
+fn compositor_dimension(value: f64) -> Option<usize> {
+    if !value.is_finite() || value <= 0.0 || value.fract() != 0.0 || value > usize::MAX as f64 {
+        return None;
+    }
+    Some(value as usize)
+}
+
+unsafe extern "C" fn collect_backing_store(
+    backing_store: *const sys::FlutterBackingStore,
+    data: *mut c_void,
+) -> bool {
+    // SAFETY: Flutter owns the backing-store structure for the duration of
+    // this callback; the decoder validates its pointer, size, and union tags.
+    let Some(store) = (unsafe { decode_backing_store(backing_store) }) else {
+        return false;
+    };
+    dispatch(data, false, |state| {
+        state.handler.collect_backing_store(store)
+    })
+}
+
+unsafe extern "C" fn present_view(info: *const sys::FlutterPresentViewInfo) -> bool {
+    if info.is_null() {
+        return false;
+    }
+    // SAFETY: Flutter owns the info and layer-pointer array for this callback.
+    let info = unsafe { &*info };
+    if info.struct_size < mem::size_of::<sys::FlutterPresentViewInfo>()
+        || info.layers_count != 1
+        || info.layers.is_null()
+        || !(info.layers as usize).is_multiple_of(mem::align_of::<*const sys::FlutterLayer>())
+    {
+        return false;
+    }
+    // SAFETY: the validated one-element pointer array is readable for the
+    // callback, and Flutter guarantees that every published layer is non-null.
+    let layer = unsafe { *info.layers };
+    if layer.is_null() {
+        return false;
+    }
+    // SAFETY: `layer` is owned by Flutter for this synchronous callback.
+    let layer = unsafe { &*layer };
+    if layer.struct_size < mem::size_of::<sys::FlutterLayer>()
+        || layer.type_ != sys::FlutterLayerContentType_kFlutterLayerContentTypeBackingStore
+        || layer.backing_store_present_info.is_null()
+    {
+        return false;
+    }
+    // SAFETY: the active union member follows from the validated layer type.
+    let backing_store = unsafe { layer.__bindgen_anon_1.backing_store };
+    // SAFETY: Flutter owns the referenced store for this callback; the
+    // decoder validates its pointer, size, and union tags before reading it.
+    let Some(backing_store) = (unsafe { decode_backing_store(backing_store) }) else {
+        return false;
+    };
+    // SAFETY: Flutter owns this present-info structure and its region for the
+    // duration of the callback.
+    let present_info = unsafe { &*layer.backing_store_present_info };
+    if present_info.struct_size < mem::size_of::<sys::FlutterBackingStorePresentInfo>() {
+        return false;
+    }
+    // SAFETY: the validated present-info structure owns the region and its
+    // rectangle array for the duration of this synchronous callback.
+    let Some(paint_region) = (unsafe { region_slice(present_info.paint_region) }) else {
+        return false;
+    };
+    dispatch(info.user_data, false, |state| {
+        state.handler.present_view(PresentView {
+            view_id: info.view_id,
+            backing_store,
+            offset_x: layer.offset.x,
+            offset_y: layer.offset.y,
+            width: layer.size.width,
+            height: layer.size.height,
+            paint_region,
+            presentation_time_nanos: layer.presentation_time,
+        })
+    })
+}
+
+unsafe fn decode_backing_store(
+    backing_store: *const sys::FlutterBackingStore,
+) -> Option<CompositorBackingStore> {
+    if backing_store.is_null() {
+        return None;
+    }
+    // SAFETY: the caller establishes callback-scoped readability.
+    let backing_store = unsafe { &*backing_store };
+    if backing_store.struct_size < mem::size_of::<sys::FlutterBackingStore>()
+        || backing_store.type_ != sys::FlutterBackingStoreType_kFlutterBackingStoreTypeOpenGL
+    {
+        return None;
+    }
+    // SAFETY: the active union member follows from the validated store type.
+    let open_gl = unsafe { backing_store.__bindgen_anon_1.open_gl };
+    if open_gl.type_ != sys::FlutterOpenGLTargetType_kFlutterOpenGLTargetTypeFramebuffer {
+        return None;
+    }
+    // SAFETY: the active union member follows from the validated GL target.
+    let framebuffer = unsafe { open_gl.__bindgen_anon_1.framebuffer };
+    (framebuffer.name != 0).then_some(CompositorBackingStore {
+        framebuffer: framebuffer.name,
+        format: framebuffer.target,
+        user_data: framebuffer.user_data as usize,
+    })
+}
+
+unsafe fn region_slice<'a>(region: *mut sys::FlutterRegion) -> Option<&'a [sys::FlutterRect]> {
+    if region.is_null() {
+        return Some(&[]);
+    }
+    // SAFETY: the caller establishes callback-scoped readability. The
+    // returned lifetime is narrowed immediately when building PresentView.
+    let region = unsafe { &*region };
+    if region.struct_size < mem::size_of::<sys::FlutterRegion>() {
+        return None;
+    }
+    if region.rects_count == 0 {
+        return Some(&[]);
+    }
+    if region.rects.is_null()
+        || region.rects_count > MAX_FLUTTER_DAMAGE_RECTS
+        || !(region.rects as usize).is_multiple_of(mem::align_of::<sys::FlutterRect>())
+    {
+        return None;
+    }
+    // SAFETY: Flutter owns a readable bounded array for the callback.
+    Some(unsafe { slice::from_raw_parts(region.rects, region.rects_count) })
 }
 
 unsafe fn damage_slice(damage: &sys::FlutterDamage) -> Option<&[sys::FlutterRect]> {

@@ -146,7 +146,9 @@ mod presentation;
 #[path = "wayland_frontend/screencopy.rs"]
 mod screencopy;
 #[cfg(feature = "flutter")]
-pub(crate) use screencopy::{copy_atlas_region_to_memory, copy_atlas_to_dmabuf};
+pub(crate) use screencopy::{
+    OutputCompositeSource, compose_output_targets_to_atlas, copy_atlas_region_to_memory,
+};
 #[cfg(feature = "flutter")]
 #[path = "wayland_frontend/surface_snapshot.rs"]
 mod surface_snapshot;
@@ -729,6 +731,7 @@ fn flutter_compose_state() -> Option<xkb::compose::State> {
 }
 
 impl WaylandFrontend {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         event_loop: &mut EventLoop<'static, RuntimeState>,
         snapshot: &TopologySnapshot,
@@ -3831,9 +3834,7 @@ impl WaylandFrontend {
 
     #[cfg(feature = "flutter")]
     pub fn frame_tick(&mut self, tick: FrameTick) -> Result<(), Box<dyn Error>> {
-        let callback_time = tick
-            .presented_at
-            .unwrap_or_else(|| self.presentation.monotonic_now());
+        let callback_time = self.presentation.timeline_time(tick.render_deadline);
         let mut sent = 0usize;
         for window in self.output_window_membership.windows(tick.output) {
             sent = sent.saturating_add(presentation::send_window_frame_callbacks(

@@ -7,6 +7,23 @@ pub const SCALE_BASE: u32 = 120;
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct OutputId(pub u64);
 
+/// Flutter reserves non-negative view IDs for real Dart views. Denial maps a
+/// physical output into the disjoint negative namespace without depending on
+/// connector enumeration order.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RenderViewId(i64);
+
+impl RenderViewId {
+    pub fn for_output(output: OutputId) -> Option<Self> {
+        let output = i64::try_from(output.0).ok()?;
+        output.checked_add(1)?.checked_neg().map(Self)
+    }
+
+    pub const fn get(self) -> i64 {
+        self.0
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LogicalPoint {
     pub x: i32,
@@ -345,6 +362,19 @@ pub struct AtlasPlan {
     pub outputs: Vec<AtlasOutput>,
 }
 
+/// One immutable physical raster projection derived from the same topology
+/// generation as the Dart desktop atlas.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RenderOutputPlan {
+    pub output_id: OutputId,
+    pub render_view_id: RenderViewId,
+    pub configuration_generation: u64,
+    pub source_rect: PixelRect,
+    pub target_size: PixelSize,
+    pub scale_120: u32,
+    pub transform: OutputTransform,
+}
+
 impl AtlasPlan {
     pub fn for_snapshot(snapshot: &TopologySnapshot) -> Option<Self> {
         let bounds = snapshot.logical_bounds?;
@@ -396,6 +426,35 @@ impl AtlasPlan {
             outputs,
         })
     }
+
+    pub fn render_outputs(&self, snapshot: &TopologySnapshot) -> Option<Vec<RenderOutputPlan>> {
+        if self.topology_epoch == 0
+            || self.topology_epoch != snapshot.epoch
+            || self.outputs.len() != snapshot.outputs.len()
+        {
+            return None;
+        }
+
+        snapshot
+            .outputs
+            .iter()
+            .map(|output| {
+                let atlas_output = self
+                    .outputs
+                    .iter()
+                    .find(|planned| planned.id == output.id)?;
+                Some(RenderOutputPlan {
+                    output_id: output.id,
+                    render_view_id: RenderViewId::for_output(output.id)?,
+                    configuration_generation: snapshot.epoch,
+                    source_rect: atlas_output.source_rect,
+                    target_size: output.transformed_pixel_size(),
+                    scale_120: output.scale_120,
+                    transform: output.transform,
+                })
+            })
+            .collect()
+    }
 }
 
 fn scaled_edge(value: f64, scale: f64) -> u32 {
@@ -445,6 +504,34 @@ mod tests {
         assert_eq!(atlas.outputs[0].source_rect.y, 360);
         assert_eq!(atlas.outputs[1].source_rect.x, 1920);
         assert_eq!(atlas.outputs[1].source_rect.y, 0);
+    }
+
+    #[test]
+    fn assigns_stable_negative_render_view_ids() {
+        assert_eq!(RenderViewId::for_output(OutputId(0)).unwrap().get(), -1);
+        assert_eq!(RenderViewId::for_output(OutputId(41)).unwrap().get(), -42);
+        assert!(RenderViewId::for_output(OutputId(i64::MAX as u64)).is_none());
+    }
+
+    #[test]
+    fn derives_native_render_targets_from_the_atlas_geometry() {
+        let manager = TopologyManager::new([
+            output(0, "left", (0, 0), (1920, 1080), 120, 60_000),
+            output(1, "right", (1920, 0), (2560, 1440), 180, 60_000),
+        ])
+        .unwrap();
+        let snapshot = manager.snapshot();
+        let atlas = AtlasPlan::for_snapshot(&snapshot).unwrap();
+        let outputs = atlas.render_outputs(&snapshot).unwrap();
+
+        assert_eq!(outputs.len(), 2);
+        assert_eq!(outputs[0].render_view_id.get(), -1);
+        assert_eq!(outputs[0].target_size, PixelSize::new(1920, 1080));
+        assert_eq!(outputs[0].scale_120, 120);
+        assert_eq!(outputs[1].render_view_id.get(), -2);
+        assert_eq!(outputs[1].target_size, PixelSize::new(2560, 1440));
+        assert_eq!(outputs[1].scale_120, 180);
+        assert_eq!(outputs[1].configuration_generation, snapshot.epoch);
     }
 
     #[test]

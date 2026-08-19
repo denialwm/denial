@@ -213,22 +213,11 @@ impl WaylandFrontend {
                 .iter()
                 .find(|output| output.id == spec.id)
                 .ok_or("Wayland output is missing from the atlas plan")?;
-            let capture_source = Rectangle::new(
-                (
-                    i32::try_from(capture.source_rect.x)?,
-                    i32::try_from(capture.source_rect.y)?,
-                )
-                    .into(),
-                (
-                    i32::try_from(capture.source_rect.width)?,
-                    i32::try_from(capture.source_rect.height)?,
-                )
-                    .into(),
-            );
             let capture_size = Size::from((
                 i32::try_from(capture.scanout_size.width)?,
                 i32::try_from(capture.scanout_size.height)?,
             ));
+            let capture_source = Rectangle::from_size(capture_size);
             if let Some(existing) = self.outputs.iter_mut().find(|entry| entry.id == spec.id) {
                 configure_output(&existing.output, spec)?;
                 self.space

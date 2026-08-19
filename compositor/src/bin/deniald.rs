@@ -134,12 +134,13 @@ use hotplug_transaction::{
     plan_reconcile,
 };
 use kms_state::{
-    AtlasAllocator, AtlasPlaneProperties, AtlasSwapchain, ConnectedOutput, KmsContext,
-    LayoutTransition, PreviousScanoutState, ReconciledScanoutOrigin, RestoreState, Scanout,
-    ScanoutReconciliation, atlas_gbm_flags, shared_atlas_modifiers,
+    AtlasPlaneProperties, AtlasSwapchain, ConnectedOutput, KmsContext, LayoutTransition,
+    PreviousScanoutState, ReconciledScanoutOrigin, RenderSwapchains, RestoreState, Scanout,
+    ScanoutAllocator, ScanoutReconciliation, ScanoutRollbackFramebuffers, scanout_gbm_flags,
+    shared_atlas_modifiers,
 };
 #[cfg(feature = "flutter")]
-use kms_state::{FlutterLaunchConfiguration, FlutterLauncher, flutter_pool_length};
+use kms_state::{FlutterLaunchConfiguration, FlutterLauncher, OutputSwapchains};
 use lifecycle::{
     InactiveDispatch, LifecycleState, ShutdownReason, TeardownGate, inactive_dispatch,
 };
@@ -380,7 +381,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     if !preserves_predecessor_kms_state(runtime_limit) {
         // A display manager can leave cursor or overlay planes latched when it
         // releases DRM master. Denial composites its cursor into the Flutter
-        // scene, so take ownership of those planes before the first atlas
+        // scene, so take ownership of those planes before the first Denial
         // commit. Bounded diagnostics keep every predecessor plane untouched
         // because their restore snapshot owns primary planes only.
         kms_state::release_inherited_planes(&drm);
@@ -588,8 +589,8 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     })?;
     let gbm_flags = GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT;
     let mut allocator = GbmAllocator::new(gbm.clone(), gbm_flags);
-    let mut atlas_allocator = AtlasAllocator::gbm(
-        GbmAllocator::new(gbm.clone(), atlas_gbm_flags(cross_device_rendering)),
+    let mut scanout_allocator = ScanoutAllocator::gbm(
+        GbmAllocator::new(gbm.clone(), scanout_gbm_flags(cross_device_rendering)),
         drm_fd.clone(),
         cross_device_rendering,
     );
@@ -602,34 +603,42 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
             render_device.display()
         )
     })?;
-    let atlas_modifiers =
-        shared_atlas_modifiers(&kms.scanouts, egl_display.dmabuf_render_formats())?;
-    let atlas_pool_length = if options.flutter_bundle.is_some() {
+    let mut swapchains = if options.flutter_bundle.is_some() {
         #[cfg(feature = "flutter")]
         {
-            flutter_pool_length(kms.scanouts.len())?
+            let render_outputs = atlas
+                .render_outputs(&snapshot)
+                .ok_or("initial Flutter output plans do not match topology")?;
+            RenderSwapchains::Outputs {
+                desktop_size: atlas.pixel_size,
+                swapchains: OutputSwapchains::allocate(
+                    &mut scanout_allocator,
+                    &render_outputs,
+                    &kms.scanouts,
+                    egl_display.dmabuf_render_formats(),
+                    options.flutter_offscreen_blit,
+                )?,
+            }
         }
         #[cfg(not(feature = "flutter"))]
-        {
-            return Err("Flutter feature was checked before acquiring DRM".into());
-        }
+        return Err("Flutter feature was checked before allocating scanout buffers".into());
     } else {
-        2
-    };
-    let mut atlas_swapchain = AtlasSwapchain::allocate_pool(
-        &mut atlas_allocator,
-        atlas.pixel_size,
-        atlas_pool_length,
-        &atlas_modifiers,
-        options.flutter_offscreen_blit,
-    )
-    .map_err(|error| {
-        format!(
-            "could not allocate atlas on render device {} for KMS device {}: {error}",
-            render_device.display(),
-            options.device.display()
+        let atlas_modifiers =
+            shared_atlas_modifiers(&kms.scanouts, egl_display.dmabuf_render_formats())?;
+        let atlas_swapchain = AtlasSwapchain::allocate(
+            &mut scanout_allocator,
+            atlas.pixel_size,
+            &atlas_modifiers,
         )
-    })?;
+        .map_err(|error| {
+            format!(
+                "could not allocate diagnostic atlas on render device {} for KMS device {}: {error}",
+                render_device.display(),
+                options.device.display()
+            )
+        })?;
+        RenderSwapchains::Atlas(atlas_swapchain)
+    };
     let egl_context = egl_context::create_render_context(&egl_display)?;
     // SAFETY: `egl_context` is current only through this renderer and remains
     // alive for the renderer's entire lifetime.
@@ -638,12 +647,22 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         frontend.init_renderer(&mut renderer)?;
     }
     if options.flutter_bundle.is_some() {
-        render_blank_atlas(
-            &mut renderer,
-            &mut atlas_swapchain.buffers[atlas_swapchain.current].dmabuf,
-            atlas_swapchain.size,
-        )?;
+        #[cfg(feature = "flutter")]
+        for pool in &mut swapchains
+            .outputs_mut()
+            .ok_or("Flutter output pools were not allocated")?
+            .outputs
+        {
+            render_blank_target(
+                &mut renderer,
+                &mut pool.buffers[pool.current].dmabuf,
+                pool.size,
+            )?;
+        }
     } else {
+        let atlas_swapchain = swapchains
+            .atlas_mut()
+            .ok_or("diagnostic rendering has no atlas swapchain")?;
         render_diagnostic_atlas(
             &mut renderer,
             &mut atlas_swapchain.buffers[atlas_swapchain.current].dmabuf,
@@ -653,7 +672,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         )?;
     }
 
-    let fb = atlas_swapchain.current_framebuffer();
+    let fb = swapchains.representative_framebuffer();
 
     info!(
         device = %options.device.display(),
@@ -661,13 +680,12 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         outputs = kms.scanouts.len(),
         atlas_width = atlas.pixel_size.width,
         atlas_height = atlas.pixel_size.height,
-        framebuffer = ?fb,
-        modifiers = ?atlas_swapchain
-            .buffers
-            .iter()
-            .map(|buffer| buffer.format().modifier)
-            .collect::<Vec<_>>(),
-        "testing shared-atlas atomic state"
+        presentation = if options.flutter_bundle.is_some() {
+            "native-output-pools"
+        } else {
+            "diagnostic-atlas"
+        },
+        "testing initial atomic scanout state"
     );
 
     let mut restore_state = if !preserves_predecessor_kms_state(runtime_limit) {
@@ -690,7 +708,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     };
 
     for scanout in &kms.scanouts {
-        let state = plane_state(scanout, fb);
+        let (framebuffer, state) = current_scanout_state(scanout, &swapchains)?;
         scanout.surface.test_state([state], true)?;
         let mode: OutputMode = scanout.output.mode.into();
         info!(
@@ -698,48 +716,48 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
             crtc = ?scanout.output.crtc,
             plane = ?scanout.surface.plane(),
             source = ?scanout.source_rect,
+            ?framebuffer,
             refresh_millihz = mode.refresh,
             "atomic TEST_ONLY accepted"
         );
     }
 
     #[cfg(feature = "flutter")]
-    let output_control =
-        if options.flutter_bundle.is_some() && !matches!(runtime_limit, RuntimeLimit::Frames(_)) {
-            use smithay::reexports::calloop::channel::Event as ChannelEvent;
+    let output_control = if options.flutter_bundle.is_some() {
+        use smithay::reexports::calloop::channel::Event as ChannelEvent;
 
-            let initial = output_control_state(
-                &drm_scanner,
-                &kms.scanouts,
-                &topology,
-                &output_configuration,
-                options.output_config.is_some(),
-                None,
-            )?;
-            let (server, source) = OutputControlServer::start(initial)?;
-            frame_event_loop
-                .as_mut()
-                .ok_or("output control has no event loop")?
-                .handle()
-                .insert_source(source, |event, _, state: &mut RuntimeState| {
-                    if let ChannelEvent::Msg(request) = event {
-                        match request {
-                            ControlEvent::OutputApply(request) => {
-                                state.pending_output_applies.push_back(request);
-                            }
-                            ControlEvent::OutputConfirmation(request) => {
-                                state.pending_output_confirmations.push_back(request);
-                            }
-                            ControlEvent::UiDevelopment(request) => {
-                                state.pending_ui_development.push_back(request);
-                            }
+        let initial = output_control_state(
+            &drm_scanner,
+            &kms.scanouts,
+            &topology,
+            &output_configuration,
+            options.output_config.is_some(),
+            None,
+        )?;
+        let (server, source) = OutputControlServer::start(initial)?;
+        frame_event_loop
+            .as_mut()
+            .ok_or("output control has no event loop")?
+            .handle()
+            .insert_source(source, |event, _, state: &mut RuntimeState| {
+                if let ChannelEvent::Msg(request) = event {
+                    match request {
+                        ControlEvent::OutputApply(request) => {
+                            state.pending_output_applies.push_back(request);
+                        }
+                        ControlEvent::OutputConfirmation(request) => {
+                            state.pending_output_confirmations.push_back(request);
+                        }
+                        ControlEvent::UiDevelopment(request) => {
+                            state.pending_ui_development.push_back(request);
                         }
                     }
-                })?;
-            Some(server)
-        } else {
-            None
-        };
+                }
+            })?;
+        Some(server)
+    } else {
+        None
+    };
 
     #[cfg(feature = "flutter")]
     let mut flutter_launcher = if let Some(bundle) = options.flutter_bundle.as_deref() {
@@ -784,13 +802,17 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     };
     #[cfg(feature = "flutter")]
     let flutter = if let Some(launcher) = flutter_launcher.as_mut() {
-        Some(launcher.start(
-            &renderer,
-            &atlas_swapchain,
-            &kms.scanouts,
-            &snapshot,
-            &atlas,
-        )?)
+        Some(
+            launcher.start(
+                &renderer,
+                swapchains
+                    .outputs()
+                    .ok_or("Flutter launcher has no physical output pools")?,
+                &kms.scanouts,
+                &snapshot,
+                &atlas,
+            )?,
+        )
     } else {
         None
     };
@@ -804,9 +826,10 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
     let mut graphical_session_started = false;
     let runtime_outcome = catch_unwind(AssertUnwindSafe(|| -> Result<_, Box<dyn Error>> {
         for scanout in &kms.scanouts {
+            let (_, state) = current_scanout_state(scanout, &swapchains)?;
             scanout
                 .surface
-                .commit([plane_state(scanout, fb)], false)
+                .commit([state], false)
                 .map_err(|error| format!("initial KMS commit failed: {error}"))?;
         }
         // A display manager, D-Bus activated desktop services, and optional
@@ -831,13 +854,58 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
                 }
             }
         }
-        if let RuntimeLimit::Frames(frame_count) = runtime_limit {
+        if options.flutter_bundle.is_some() {
+            #[cfg(feature = "flutter")]
+            {
+                let (duration, frame_limit) = match runtime_limit {
+                    RuntimeLimit::Frames(frame_count) => (None, Some(frame_count)),
+                    RuntimeLimit::Duration(duration) => (Some(duration), None),
+                    RuntimeLimit::UntilLogout => (None, None),
+                    _ => {
+                        return Err(
+                            "Flutter loop selected with an incompatible runtime limit".into()
+                        );
+                    }
+                };
+                run_flutter_event_loop(
+                    &mut renderer,
+                    &mut kms.drm,
+                    &mut swapchains,
+                    &mut kms.scanouts,
+                    &mut restore_state,
+                    &mut drm_scanner,
+                    &mut allocator,
+                    &mut scanout_allocator,
+                    &mut topology,
+                    options.max_outputs,
+                    output_configuration,
+                    options.output_config.clone(),
+                    output_control
+                        .as_ref()
+                        .ok_or("Flutter output control was not initialized")?
+                        .publisher(),
+                    wayland,
+                    flutter.ok_or("Flutter runtime was not initialized")?,
+                    flutter_launcher
+                        .as_mut()
+                        .ok_or("Flutter launcher was not initialized")?,
+                    duration,
+                    frame_limit,
+                    frame_event_loop
+                        .as_mut()
+                        .ok_or("Flutter event loop has no event source")?,
+                )
+                .map_err(|error| format!("Flutter event loop failed: {error}").into())
+            }
+            #[cfg(not(feature = "flutter"))]
+            return Err("Flutter feature was checked before acquiring DRM".into());
+        } else if let RuntimeLimit::Frames(frame_count) = runtime_limit {
             run_frame_loop(
                 &mut renderer,
-                &mut atlas_allocator,
+                &mut scanout_allocator,
                 &mut kms.drm,
                 &mut drm_scanner,
-                &mut atlas_swapchain,
+                &mut swapchains,
                 &mut kms.scanouts,
                 &mut restore_state,
                 wayland,
@@ -857,49 +925,6 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
                     .ok_or("frame loop has no event source")?,
             )
             .map_err(|error| format!("frame loop failed: {error}").into())
-        } else if options.flutter_bundle.is_some() {
-            #[cfg(feature = "flutter")]
-            {
-                let duration = match runtime_limit {
-                    RuntimeLimit::Duration(duration) => Some(duration),
-                    RuntimeLimit::UntilLogout => None,
-                    _ => {
-                        return Err(
-                            "Flutter loop selected with an incompatible runtime limit".into()
-                        );
-                    }
-                };
-                run_flutter_event_loop(
-                    &mut renderer,
-                    &mut kms.drm,
-                    &mut atlas_swapchain,
-                    &mut kms.scanouts,
-                    &mut restore_state,
-                    &mut drm_scanner,
-                    &mut allocator,
-                    &mut atlas_allocator,
-                    &mut topology,
-                    options.max_outputs,
-                    output_configuration,
-                    options.output_config.clone(),
-                    output_control
-                        .as_ref()
-                        .ok_or("Flutter output control was not initialized")?
-                        .publisher(),
-                    wayland,
-                    flutter.ok_or("Flutter runtime was not initialized")?,
-                    flutter_launcher
-                        .as_mut()
-                        .ok_or("Flutter launcher was not initialized")?,
-                    duration,
-                    frame_event_loop
-                        .as_mut()
-                        .ok_or("Flutter event loop has no event source")?,
-                )
-                .map_err(|error| format!("Flutter event loop failed: {error}").into())
-            }
-            #[cfg(not(feature = "flutter"))]
-            return Err("Flutter feature was checked before acquiring DRM".into());
         } else {
             let RuntimeLimit::Duration(duration) = runtime_limit else {
                 return Err("finite KMS hold selected with an incompatible runtime limit".into());
@@ -925,7 +950,7 @@ fn run(options: Options) -> Result<(), Box<dyn Error>> {
         .ok()
         .and_then(|result| result.as_ref().ok())
         .copied()
-        .unwrap_or_else(|| atlas_swapchain.current_framebuffer());
+        .unwrap_or_else(|| swapchains.representative_framebuffer());
 
     if runtime_limit == RuntimeLimit::UntilLogout {
         // This is the last-resort teardown boundary for a real login session.
@@ -1480,10 +1505,26 @@ impl RuntimeState {
     }
 }
 
+trait ScanoutFramebufferSource {
+    fn plane_state(&self, scanout: &Scanout) -> Result<PlaneState<'static>, Box<dyn Error>>;
+}
+
+impl ScanoutFramebufferSource for framebuffer::Handle {
+    fn plane_state(&self, scanout: &Scanout) -> Result<PlaneState<'static>, Box<dyn Error>> {
+        Ok(plane_state(scanout, *self))
+    }
+}
+
+impl ScanoutFramebufferSource for RenderSwapchains {
+    fn plane_state(&self, scanout: &Scanout) -> Result<PlaneState<'static>, Box<dyn Error>> {
+        current_scanout_state(scanout, self).map(|(_, state)| state)
+    }
+}
+
 fn service_session_lifecycle(
     drm: &mut DrmDevice,
     scanouts: &[Scanout],
-    framebuffer: framebuffer::Handle,
+    framebuffers: &dyn ScanoutFramebufferSource,
     event_loop: &mut EventLoop<'_, RuntimeState>,
     events: &mut RuntimeState,
     inactive_deadline: Option<Instant>,
@@ -1533,7 +1574,7 @@ fn service_session_lifecycle(
     rebase_kms_scanouts(
         drm,
         scanouts,
-        framebuffer,
+        framebuffers,
         events,
         "libseat reactivated the KMS session",
     )
@@ -1547,7 +1588,7 @@ fn service_session_lifecycle(
 fn rebase_kms_scanouts(
     drm: &mut DrmDevice,
     scanouts: &[Scanout],
-    framebuffer: framebuffer::Handle,
+    framebuffers: &dyn ScanoutFramebufferSource,
     events: &mut RuntimeState,
     reason: &'static str,
 ) -> Result<(), Box<dyn Error>> {
@@ -1557,7 +1598,7 @@ fn rebase_kms_scanouts(
     for scanout in scanouts.iter().filter(|scanout| scanout.powered) {
         scanout
             .surface
-            .test_state([plane_state(scanout, framebuffer)], true)?;
+            .test_state([framebuffers.plane_state(scanout)?], true)?;
     }
     for scanout in scanouts.iter().filter(|scanout| scanout.powered) {
         // Atomic modeset commits are synchronous here. Do not request a
@@ -1566,7 +1607,7 @@ fn rebase_kms_scanouts(
         // later frame appear complete before KMS actually scans it out.
         scanout
             .surface
-            .commit([plane_state(scanout, framebuffer)], false)?;
+            .commit([framebuffers.plane_state(scanout)?], false)?;
     }
     events.pending.clear();
     events.completed_page_flips.clear();
@@ -1753,7 +1794,7 @@ fn synchronize_requested_dpms_off(
 fn apply_output_power_requests(
     runtime: &mut flutter_runtime::FlutterRuntime,
     scheduler: &mut output_scheduler::OutputScheduler,
-    swapchain: &mut AtlasSwapchain,
+    swapchain: &mut RenderSwapchains,
     scanouts: &mut [Scanout],
     events: &mut RuntimeState,
 ) -> Result<(), Box<dyn Error>> {
@@ -1823,20 +1864,21 @@ fn apply_output_power_requests(
 
         if let Some((failed_index, error)) = failure {
             let mut rollback_failures = Vec::new();
-            for &(_, scanout_index, framebuffer_index) in &cleared {
-                let framebuffer = swapchain
+            for &(output, scanout_index, framebuffer_index) in &cleared {
+                let pool = swapchain
+                    .outputs()
+                    .and_then(|outputs| outputs.for_output(output))
+                    .ok_or("DPMS rollback output has no physical buffer pool")?;
+                let framebuffer = pool
                     .buffers
                     .get(framebuffer_index)
-                    .ok_or("DPMS rollback framebuffer exceeds the atlas pool")?
+                    .ok_or("DPMS rollback framebuffer exceeds its output pool")?
                     .framebuffer();
+                let state = output_plane_state(&scanouts[scanout_index], framebuffer, pool.size);
                 let restore = scanouts[scanout_index]
                     .surface
-                    .test_state([plane_state(&scanouts[scanout_index], framebuffer)], true)
-                    .and_then(|()| {
-                        scanouts[scanout_index]
-                            .surface
-                            .commit([plane_state(&scanouts[scanout_index], framebuffer)], false)
-                    });
+                    .test_state([state.clone()], true)
+                    .and_then(|()| scanouts[scanout_index].surface.commit([state], false));
                 if let Err(rollback_error) = restore {
                     rollback_failures.push(format!(
                         "{}: {rollback_error}",
@@ -1880,23 +1922,44 @@ fn apply_output_power_requests(
                     frontend.output_power_applied(output, false);
                 }
             }
-            swapchain.present(scheduler.stable_framebuffer_index());
         }
     }
 
     if !power_on.is_empty() {
-        let framebuffer_index = scheduler.stable_framebuffer_index();
-        let framebuffer = swapchain
-            .buffers
-            .get(framebuffer_index)
-            .ok_or("DPMS wake framebuffer exceeds the atlas pool")?
-            .framebuffer();
+        let targets = power_on
+            .iter()
+            .map(|&(output, scanout_index)| {
+                let framebuffer_index = scheduler
+                    .stable_framebuffer_index(output)
+                    .ok_or("DPMS wake output has no parked framebuffer")?;
+                let pool = swapchain
+                    .outputs()
+                    .and_then(|outputs| outputs.for_output(output))
+                    .ok_or("DPMS wake output has no physical buffer pool")?;
+                let framebuffer = pool
+                    .buffers
+                    .get(framebuffer_index)
+                    .ok_or("DPMS wake framebuffer exceeds its output pool")?
+                    .framebuffer();
+                Ok::<_, Box<dyn Error>>((
+                    output,
+                    scanout_index,
+                    framebuffer_index,
+                    framebuffer,
+                    pool.size,
+                ))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let mut failure = None;
-        for &(_, scanout_index) in &power_on {
-            if let Err(error) = scanouts[scanout_index]
-                .surface
-                .test_state([plane_state(&scanouts[scanout_index], framebuffer)], true)
-            {
+        for &(_, scanout_index, _, framebuffer, size) in &targets {
+            if let Err(error) = scanouts[scanout_index].surface.test_state(
+                [output_plane_state(
+                    &scanouts[scanout_index],
+                    framebuffer,
+                    size,
+                )],
+                true,
+            ) {
                 failure = Some((scanout_index, error.to_string(), false));
                 break;
             }
@@ -1904,11 +1967,15 @@ fn apply_output_power_requests(
 
         let mut committed = Vec::with_capacity(power_on.len());
         if failure.is_none() {
-            for &(output, scanout_index) in &power_on {
-                if let Err(error) = scanouts[scanout_index]
-                    .surface
-                    .commit([plane_state(&scanouts[scanout_index], framebuffer)], false)
-                {
+            for &(output, scanout_index, _, framebuffer, size) in &targets {
+                if let Err(error) = scanouts[scanout_index].surface.commit(
+                    [output_plane_state(
+                        &scanouts[scanout_index],
+                        framebuffer,
+                        size,
+                    )],
+                    false,
+                ) {
                     failure = Some((scanout_index, error.to_string(), true));
                     break;
                 }
@@ -1949,9 +2016,17 @@ fn apply_output_power_requests(
                 .into());
             }
         } else {
-            for &(output, scanout_index) in &power_on {
+            for &(output, scanout_index, framebuffer_index, _, _) in &targets {
                 scanouts[scanout_index].powered = true;
-                scheduler.power_on(runtime, scanout_index, framebuffer_index, scanouts)?;
+                scheduler.power_on(
+                    runtime,
+                    scanout_index,
+                    framebuffer_index,
+                    scanouts,
+                    swapchain
+                        .outputs()
+                        .ok_or("DPMS wake has no physical output pools")?,
+                )?;
                 events.output_control_dirty = true;
                 info!(
                     output = scanouts[scanout_index].output.name,
@@ -1962,7 +2037,6 @@ fn apply_output_power_requests(
                 }
             }
             events.note_dpms_wake(Instant::now());
-            swapchain.present(framebuffer_index);
         }
     }
 
@@ -1987,7 +2061,7 @@ fn hold_static_scanout(
         service_session_lifecycle(
             drm,
             scanouts,
-            framebuffer,
+            &framebuffer,
             event_loop,
             &mut events,
             Some(deadline),
@@ -2013,10 +2087,10 @@ fn hold_static_scanout(
 #[allow(clippy::too_many_arguments)]
 fn run_frame_loop(
     renderer: &mut GlesRenderer,
-    atlas_allocator: &mut AtlasAllocator,
+    scanout_allocator: &mut ScanoutAllocator,
     drm: &mut DrmDevice,
     drm_scanner: &mut DrmScanner<SimpleCrtcMapper>,
-    swapchain: &mut AtlasSwapchain,
+    swapchain: &mut RenderSwapchains,
     scanouts: &mut Vec<Scanout>,
     restore_state: &mut RestoreState,
     wayland: Option<wayland_frontend::WaylandFrontend>,
@@ -2040,10 +2114,6 @@ fn run_frame_loop(
         .as_ref()
         .map(|_| SystemControls::new())
         .transpose()?;
-    #[cfg(feature = "flutter")]
-    let authentication = flutter
-        .as_ref()
-        .map(flutter_runtime::FlutterRuntime::authentication);
     let native_escape_shortcut = wayland
         .as_ref()
         .map(|frontend| frontend.shortcuts.engine())
@@ -2052,17 +2122,14 @@ fn run_frame_loop(
         wayland,
         native_escape_shortcut,
         #[cfg(feature = "flutter")]
-        clipboard: flutter
-            .as_ref()
-            .map(flutter_runtime::FlutterRuntime::clipboard)
-            .unwrap_or_default(),
+        clipboard: Default::default(),
         system_controls,
         #[cfg(feature = "flutter")]
-        authentication,
+        authentication: None,
         #[cfg(feature = "flutter")]
-        flutter_active: flutter.is_some(),
+        flutter_active: false,
         #[cfg(feature = "flutter")]
-        flutter_input: flutter_runtime::InputQueue::new(swapchain.size),
+        flutter_input: flutter_runtime::InputQueue::new(swapchain.desktop_size()),
         ..RuntimeState::default()
     };
     #[cfg(feature = "flutter")]
@@ -2070,17 +2137,10 @@ fn run_frame_loop(
     let mut active_configuration = initial_configuration.clone();
 
     for frame_number in 1..=frame_count {
-        service_session_lifecycle(
-            drm,
-            scanouts,
-            swapchain.current_framebuffer(),
-            event_loop,
-            &mut events,
-            None,
-        )?;
+        service_session_lifecycle(drm, scanouts, swapchain, event_loop, &mut events, None)?;
         if let Some(reason) = events.lifecycle.shutdown_reason() {
             log_shutdown(reason);
-            return Ok(swapchain.current_framebuffer());
+            return Ok(swapchain.representative_framebuffer());
         }
         let render_started = Instant::now();
         let mut normal_next = None;
@@ -2093,79 +2153,16 @@ fn run_frame_loop(
             transitioned_configuration
                 .positions
                 .clone_from(&transition.positions);
-            #[cfg(feature = "flutter")]
-            if flutter.is_some() {
-                let outputs = scanouts
-                    .iter()
-                    .map(|scanout| scanout.output.clone())
-                    .collect();
-                apply_hotplug_topology(
-                    renderer,
-                    atlas_allocator,
-                    drm,
-                    swapchain,
-                    scanouts,
-                    restore_state,
-                    topology,
-                    outputs,
-                    &transitioned_configuration,
-                    frame_number,
-                    event_loop,
-                    &mut events,
-                    &mut flutter,
-                    flutter_launcher.as_deref_mut(),
-                )?;
-                active_configuration = transitioned_configuration;
-            } else {
-                let outputs = scanouts
-                    .iter()
-                    .map(|scanout| scanout.output.clone())
-                    .collect::<Vec<_>>();
-                let snapshot =
-                    update_topology_for_outputs(topology, &outputs, &transitioned_configuration)?;
-                let atlas = AtlasPlan::for_snapshot(&snapshot)
-                    .ok_or("reconfigured topology produced no atlas")?;
-                planned_layout = Some((snapshot, atlas));
-            }
-            #[cfg(not(feature = "flutter"))]
-            {
-                let outputs = scanouts
-                    .iter()
-                    .map(|scanout| scanout.output.clone())
-                    .collect::<Vec<_>>();
-                let snapshot =
-                    update_topology_for_outputs(topology, &outputs, &transitioned_configuration)?;
-                let atlas = AtlasPlan::for_snapshot(&snapshot)
-                    .ok_or("reconfigured topology produced no atlas")?;
-                planned_layout = Some((snapshot, atlas));
-            }
+            let outputs = scanouts
+                .iter()
+                .map(|scanout| scanout.output.clone())
+                .collect::<Vec<_>>();
+            let snapshot =
+                update_topology_for_outputs(topology, &outputs, &transitioned_configuration)?;
+            let atlas = AtlasPlan::for_snapshot(&snapshot)
+                .ok_or("reconfigured topology produced no atlas")?;
+            planned_layout = Some((snapshot, atlas));
         }
-        #[cfg(feature = "flutter")]
-        let flutter_ready = if let Some(runtime) = flutter.as_mut() {
-            if let Some(frontend) = events.wayland.as_mut() {
-                frontend.process_pending_dmabufs(renderer)?;
-            }
-            let Some(frame) = wait_for_flutter_frame(
-                runtime,
-                frame_number,
-                drm,
-                scanouts,
-                swapchain.current_framebuffer(),
-                event_loop,
-                &mut events,
-                flutter_launcher.as_deref_mut(),
-            )?
-            else {
-                return Ok(swapchain.current_framebuffer());
-            };
-            Some(frame)
-        } else {
-            None
-        };
-        #[cfg(feature = "flutter")]
-        let flutter_next = flutter_ready.as_ref().map(|frame| frame.index);
-        #[cfg(not(feature = "flutter"))]
-        let flutter_next: Option<usize> = None;
         let framebuffer = if let Some((_, transition_atlas)) = planned_layout.as_ref() {
             let source_rects = source_rects_for_atlas(transition_atlas, scanouts)?;
             let atlas_modifiers =
@@ -2179,7 +2176,7 @@ fn run_frame_loop(
             }
 
             let mut staged = match AtlasSwapchain::allocate(
-                atlas_allocator,
+                scanout_allocator,
                 transition_atlas.pixel_size,
                 &atlas_modifiers,
             ) {
@@ -2206,25 +2203,25 @@ fn run_frame_loop(
             }
             staged_swapchain = Some((staged, previous_rects));
             framebuffer
-        } else if let Some(next) = flutter_next {
-            normal_next = Some(next);
-            swapchain.buffers[next].framebuffer()
         } else {
-            let next = swapchain.next_index();
+            let atlas_swapchain = swapchain
+                .atlas_mut()
+                .ok_or("diagnostic frame loop lost its atlas swapchain")?;
+            let next = atlas_swapchain.next_index();
             if let Some(frontend) = events.wayland.as_mut() {
                 frontend.process_pending_dmabufs(renderer)?;
-                frontend.render(renderer, &mut swapchain.buffers[next].dmabuf)?;
+                frontend.render(renderer, &mut atlas_swapchain.buffers[next].dmabuf)?;
             } else {
                 render_diagnostic_atlas(
                     renderer,
-                    &mut swapchain.buffers[next].dmabuf,
-                    swapchain.size,
+                    &mut atlas_swapchain.buffers[next].dmabuf,
+                    atlas_swapchain.size,
                     scanouts,
                     frame_number,
                 )?;
             }
             normal_next = Some(next);
-            swapchain.buffers[next].framebuffer()
+            atlas_swapchain.buffers[next].framebuffer()
         };
         let rendered = render_started.elapsed();
         total_render += rendered;
@@ -2234,19 +2231,8 @@ fn run_frame_loop(
         for scanout in scanouts.iter() {
             events.pending.insert(scanout.output.crtc);
         }
-        #[cfg(feature = "flutter")]
-        let render_fence = flutter_ready
-            .as_ref()
-            .and_then(|frame| frame.fence.as_ref().map(AsFd::as_fd));
-        #[cfg(not(feature = "flutter"))]
         let render_fence = None;
         if let Err(error) = queue_atlas_page_flip(drm, scanouts, framebuffer, render_fence) {
-            #[cfg(feature = "flutter")]
-            if let Some(index) = flutter_next
-                && let Some(runtime) = flutter.as_ref()
-            {
-                runtime.cancel_flip(index);
-            }
             if let Some((_, previous_rects)) = staged_swapchain {
                 restore_source_rects(scanouts, &previous_rects);
             }
@@ -2260,9 +2246,9 @@ fn run_frame_loop(
         }
 
         let retired_swapchain = if let Some((staged, _)) = staged_swapchain {
-            let old_size = swapchain.size;
+            let old_size = swapchain.desktop_size();
             let new_size = staged.size;
-            let retired = std::mem::replace(swapchain, staged);
+            let retired = std::mem::replace(swapchain, RenderSwapchains::Atlas(staged));
             info!(
                 frame = frame_number,
                 old_width = old_size.width,
@@ -2283,7 +2269,7 @@ fn run_frame_loop(
             service_session_lifecycle(
                 drm,
                 scanouts,
-                framebuffer,
+                &framebuffer,
                 event_loop,
                 &mut events,
                 Some(deadline),
@@ -2304,15 +2290,10 @@ fn run_frame_loop(
         total_wait += waited;
         longest_wait = longest_wait.max(waited);
         if let Some(next) = normal_next {
-            #[cfg(feature = "flutter")]
-            let previous = swapchain.current;
-            swapchain.present(next);
-            #[cfg(feature = "flutter")]
-            if flutter_next == Some(next)
-                && let Some(runtime) = flutter.as_ref()
-            {
-                runtime.complete_flip(previous, next)?;
-            }
+            swapchain
+                .atlas_mut()
+                .ok_or("diagnostic frame loop lost its atlas after presentation")?
+                .present(next);
         } else if let Some((transition_snapshot, _)) = planned_layout.as_ref() {
             let transition = layout_change
                 .ok_or("internal topology error: a planned layout has no matching transition")?;
@@ -2328,7 +2309,7 @@ fn run_frame_loop(
         }
         if let Some(reason) = events.lifecycle.shutdown_reason() {
             log_shutdown(reason);
-            return Ok(swapchain.current_framebuffer());
+            return Ok(swapchain.representative_framebuffer());
         }
 
         let simulated_disconnect = simulate_hotplug_at_frame == Some(frame_number);
@@ -2358,7 +2339,7 @@ fn run_frame_loop(
             }
             apply_hotplug_topology(
                 renderer,
-                atlas_allocator,
+                scanout_allocator,
                 drm,
                 swapchain,
                 scanouts,
@@ -2405,7 +2386,7 @@ fn run_frame_loop(
             if changed || forced_rescan {
                 apply_hotplug_topology(
                     renderer,
-                    atlas_allocator,
+                    scanout_allocator,
                     drm,
                     swapchain,
                     scanouts,
@@ -2441,7 +2422,7 @@ fn run_frame_loop(
         "vblank-driven shared-atlas frame loop complete"
     );
 
-    Ok(swapchain.current_framebuffer())
+    Ok(swapchain.representative_framebuffer())
 }
 
 #[cfg(feature = "flutter")]
@@ -2541,7 +2522,7 @@ fn install_ready_fence_watch(
     event_loop.handle().insert_source(
         Generic::new(fence, Interest::READ, PollMode::Level),
         move |_, _, state: &mut RuntimeState| {
-            // Readability makes an unconsumed atlas reusable and authorizes
+            // Readability makes an unconsumed output target reusable and authorizes
             // fence-free Volition lookahead after an earlier KMS submission.
             state.ready_fence_signals.push(signal);
             Ok(PostAction::Remove)
@@ -2553,12 +2534,13 @@ fn install_ready_fence_watch(
 #[cfg(feature = "flutter")]
 fn submit_ready_frames(
     scheduler: &mut output_scheduler::OutputScheduler,
-    swapchain: &AtlasSwapchain,
-    scanouts: &[Scanout],
-    events: &mut RuntimeState,
-) -> Result<usize, Box<dyn Error>> {
-    let submission = scheduler.submit_ready(swapchain, scanouts, events)?;
-    Ok(submission.submitted)
+    swapchain: &RenderSwapchains,
+) -> Result<(), Box<dyn Error>> {
+    scheduler.submit_ready(
+        swapchain
+            .outputs()
+            .ok_or("ready submission has no physical output pools")?,
+    )
 }
 
 #[cfg(feature = "flutter")]
@@ -2607,12 +2589,12 @@ fn begin_output_confirmation(
 fn run_flutter_event_loop(
     renderer: &mut GlesRenderer,
     drm: &mut DrmDevice,
-    swapchain: &mut AtlasSwapchain,
+    swapchain: &mut RenderSwapchains,
     scanouts: &mut Vec<Scanout>,
     restore_state: &mut RestoreState,
     drm_scanner: &mut DrmScanner<SimpleCrtcMapper>,
     allocator: &mut GbmAllocator<DrmDeviceFd>,
-    atlas_allocator: &mut AtlasAllocator,
+    scanout_allocator: &mut ScanoutAllocator,
     topology: &mut TopologyManager,
     max_outputs: usize,
     mut output_configuration: RuntimeOutputConfiguration,
@@ -2622,6 +2604,7 @@ fn run_flutter_event_loop(
     flutter: flutter_runtime::FlutterRuntime,
     flutter_launcher: &mut FlutterLauncher,
     duration: Option<Duration>,
+    frame_limit: Option<u64>,
     event_loop: &mut EventLoop<'_, RuntimeState>,
 ) -> Result<framebuffer::Handle, Box<dyn Error>> {
     use smithay::reexports::calloop::channel::{Event as ChannelEvent, channel, sync_channel};
@@ -2711,11 +2694,14 @@ fn run_flutter_event_loop(
         notification_server,
         authentication,
         flutter_active: true,
-        flutter_input: flutter_runtime::InputQueue::new(swapchain.size),
+        flutter_input: flutter_runtime::InputQueue::new(swapchain.desktop_size()),
         native_app_plugins,
         native_release_sender: Some(native_release_sender),
         native_plugin_formats,
-        native_plugin_default_size: (swapchain.size.width, swapchain.size.height),
+        native_plugin_default_size: (
+            swapchain.desktop_size().width,
+            swapchain.desktop_size().height,
+        ),
         ..RuntimeState::default()
     };
     event_loop.handle().insert_source(
@@ -2764,8 +2750,9 @@ fn run_flutter_event_loop(
         drm,
         volition_event_sender.clone(),
         scanouts,
-        swapchain.current,
-        swapchain.buffers.len(),
+        swapchain
+            .outputs()
+            .ok_or("output scheduler has no physical output pools")?,
         flutter
             .as_mut()
             .ok_or("Flutter runtime disappeared before output scheduling")?,
@@ -2792,14 +2779,7 @@ fn run_flutter_event_loop(
     cpu_scheduling::promote_compositor_thread();
 
     loop {
-        service_session_lifecycle(
-            drm,
-            scanouts,
-            swapchain.current_framebuffer(),
-            event_loop,
-            &mut events,
-            deadline,
-        )?;
+        service_session_lifecycle(drm, scanouts, swapchain, event_loop, &mut events, deadline)?;
         service_native_app_plugins(event_loop, &mut events, allocator)?;
         events.service_topology_recheck_deadline(Instant::now());
         install_sampled_buffer_releases(event_loop, &mut events)?;
@@ -2874,6 +2854,9 @@ fn run_flutter_event_loop(
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             break;
         }
+        if frame_limit.is_some_and(|limit| raster_frames >= limit) {
+            break;
+        }
         if events.device_removed {
             return Err("the active DRM device was removed in Flutter event loop".into());
         }
@@ -2892,7 +2875,14 @@ fn run_flutter_event_loop(
             let runtime = flutter
                 .as_mut()
                 .ok_or("Flutter runtime disappeared during page-flip completion")?;
-            scheduler.handle_completions(runtime, swapchain, scanouts, &mut events)?;
+            scheduler.handle_completions(
+                runtime,
+                swapchain
+                    .outputs_mut()
+                    .ok_or("page-flip completion has no physical output pools")?,
+                scanouts,
+                &mut events,
+            )?;
             if drm.is_active()
                 && let Some(stall) = scheduler.presentation_stall(Instant::now())
             {
@@ -2919,56 +2909,73 @@ fn run_flutter_event_loop(
                 recover_stalled_kms_presentation(drm, event_loop, &mut events)?;
                 continue;
             }
-            for presentation in scheduler.presented_outputs().iter().copied() {
-                frame_scheduler.observe_presentation(presentation);
-            }
-
             // Deadline-critical lane. Raster completion is published before
             // its callback wakeup, so retire that wakeup without servicing
-            // unrelated Flutter messages, transfer the finished atlas, and
-            // authorize the next animation frame directly from this physical
-            // display edge. Input and compositor bookkeeping deliberately run
-            // only after this lane.
+            // unrelated Flutter messages and transfer the finished output
+            // batch before the sole output-timeline decision below. Physical
+            // presentations retire resources but never authorize rendering.
+            // Input and compositor bookkeeping deliberately run afterward.
             runtime.observe_frame_ready_events(&mut events.flutter_events);
 
-            // A page flip can retire the submitted generation while an older
-            // completed generation already occupies the scheduler's Ready
-            // slot and a newer one waits in Flutter's broker. Submit that
-            // scheduler-owned frame first so the broker handoff below can
-            // drain before authorizing Flutter to render again. Otherwise the
-            // broker remains Ready for one more display edge and Flutter must
-            // skip that edge even when another atlas target is free.
-            submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
+            // A page flip can retire the sole submitted generation while its
+            // following frame already occupies Ready. Move that frame into
+            // the now-free Volition slot before the timer decision, exposing
+            // the third pool entry for exactly one new raster lookahead.
+            submit_ready_frames(&mut scheduler, swapchain)?;
 
-            if scheduler.can_accept_ready()
-                && let Some(ready) = runtime.take_ready()
-            {
-                if let Some(watch) = scheduler.publish_ready(runtime, ready, scanouts)? {
+            loop {
+                let Some(ready) =
+                    runtime.take_ready_frame(|output| scheduler.ready_handoff_available(output))
+                else {
+                    break;
+                };
+                let output = ready.output_id;
+                let dirty_serial = ready.request.dirty_serial;
+                if let Some(watch) = scheduler.publish_ready(runtime, ready)? {
                     install_ready_fence_watch(event_loop, watch)?;
                 }
+                frame_scheduler.complete_render(output, dirty_serial);
                 raster_frames = raster_frames.saturating_add(1);
             }
 
-            let frame_action = frame_scheduler.step(Instant::now(), runtime.pending_frame());
-            match frame_action {
-                frame_scheduler::FrameAction::Skip => {}
-                frame_scheduler::FrameAction::RequestFlutter => {
-                    if !runtime.request_flutter_for_app_updates()? {
-                        frame_scheduler.cancel_flutter_request();
-                    }
-                }
-                frame_scheduler::FrameAction::Render(tick) => {
-                    if runtime.render_authorized_frame(tick)? {
-                        delivered_vsyncs = delivered_vsyncs.saturating_add(1);
+            // A Wayland buffer commit can wake calloop immediately before an
+            // output deadline. Publish that already-committed source before
+            // consuming the tick, so the timer observes the app's dirty state
+            // in the same iteration. Metadata rebuilds remain in the
+            // background lane below; this is only the steady-state buffer
+            // handoff required by the central scheduling decision.
+            try_synchronize_flutter_buffers(runtime, &mut events)?;
+            collect_flutter_output_damage(runtime, &mut frame_scheduler);
+
+            if frame_limit.is_none_or(|limit| raster_frames < limit) {
+                let frame_action = frame_scheduler.step_with_output_availability(
+                    Instant::now(),
+                    runtime.pending_frame(),
+                    |output| {
+                        scheduler.render_available(output)
+                            && runtime.output_target_available(output)
+                    },
+                );
+                match frame_action {
+                    frame_scheduler::FrameAction::Skip => {}
+                    frame_scheduler::FrameAction::Render { flutter_output } => {
+                        if runtime.render_authorized_outputs(
+                            frame_scheduler.render_requests(),
+                            frame_scheduler.render_texture_ids(),
+                            flutter_output,
+                        )? {
+                            frame_scheduler.flutter_frame_dispatched();
+                            delivered_vsyncs = delivered_vsyncs.saturating_add(1);
+                        }
                     }
                 }
             }
 
-            // Queue any atlas which was complete when this iteration began.
+            // Queue any output targets which were complete when this iteration began.
             // This remains ahead of input, Wayland traversal, and background
             // shell synchronization, but follows frame-clock authorization so
             // those tasks cannot perturb Flutter's animation timestamp.
-            submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
+            submit_ready_frames(&mut scheduler, swapchain)?;
             for tick in frame_scheduler.output_ticks().iter().copied() {
                 if let Some(frontend) = events.wayland.as_mut() {
                     frontend.frame_tick(tick)?;
@@ -2976,28 +2983,36 @@ fn run_flutter_event_loop(
                 scheduler.process_screencopies_at_tick(
                     tick,
                     renderer,
-                    swapchain,
+                    swapchain
+                        .outputs_mut()
+                        .ok_or("screencopy has no physical output pools")?,
                     scanouts,
                     &mut events,
                 )?;
             }
 
-            // Freeze the tagged atlas as part of the page-flip completion that
-            // made it visible. Display-clock ticks may be deduplicated against
-            // that same completion; waiting for a later tick would let another
-            // frame replace the tagged scanout first.
+            // Freeze a tagged output batch as soon as its page-flip completion
+            // makes it visible. Waiting for a later timeline tick would let
+            // another frame replace the tagged scanout first.
             if let Some(manager) = screenshot_manager.as_mut()
                 && let Some(target_output) = manager.target_output()
                 && let Some(request_id) = manager.request_id()
-                && let Some(buffer_index) =
-                    scheduler.screenshot_framebuffer_for_output(target_output, request_id, scanouts)
+                && scheduler
+                    .screenshot_framebuffer_for_output(target_output, request_id, scanouts)
+                    .is_some()
             {
-                match manager.capture_prepared_frame(
-                    renderer,
-                    runtime,
-                    target_output,
-                    &mut swapchain.buffers[buffer_index].dmabuf,
-                ) {
+                let snapshot = topology.snapshot();
+                let atlas = AtlasPlan::for_snapshot(&snapshot)
+                    .ok_or("prepared screenshot has no desktop atlas")?;
+                let mut sources = screenshot_composite_sources(
+                    &scheduler,
+                    swapchain
+                        .outputs()
+                        .ok_or("prepared screenshot has no physical output pools")?,
+                    &atlas,
+                )?;
+                match manager.capture_prepared_frame(renderer, runtime, target_output, &mut sources)
+                {
                     Ok(Some((request_id, texture_id))) => runtime.send_screenshot_action(
                         wire::ShellAction::ScreenshotTextureReady,
                         request_id,
@@ -3143,7 +3158,7 @@ fn run_flutter_event_loop(
                 continue;
             }
             if scheduler.has_pending_scanout_work() {
-                submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
+                submit_ready_frames(&mut scheduler, swapchain)?;
                 events.pending_output_applies.push_front(request);
                 let now = Instant::now();
                 let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
@@ -3334,19 +3349,11 @@ fn run_flutter_event_loop(
             }
 
             if !scanout_rebased {
-                scheduler.converge_for_topology(
-                    flutter
-                        .as_ref()
-                        .ok_or("Flutter runtime disappeared before output reconfiguration")?,
-                    drm,
-                    swapchain,
-                    scanouts,
-                    &mut events,
-                )?;
+                scheduler.prepare_reconfiguration(scanouts, &mut events)?;
             }
             let apply = apply_hotplug_topology(
                 renderer,
-                atlas_allocator,
+                scanout_allocator,
                 drm,
                 swapchain,
                 scanouts,
@@ -3385,8 +3392,9 @@ fn run_flutter_event_loop(
                 drm,
                 volition_event_sender.clone(),
                 scanouts,
-                swapchain.current,
-                swapchain.buffers.len(),
+                swapchain
+                    .outputs()
+                    .ok_or("output scheduler has no physical output pools")?,
                 flutter
                     .as_mut()
                     .ok_or("Flutter runtime was not restarted after output reconfiguration")?,
@@ -3435,16 +3443,16 @@ fn run_flutter_event_loop(
             events.topology_dirty = false;
             let outputs = connected_outputs(drm_scanner, drm, max_outputs, &output_configuration)?;
             let now = Instant::now();
-            let transient_removals = (!scanout_rebased && !kms_reconfigure_requested)
-                .then(|| {
-                    transient_dpms_output_removal_count(
-                        events.dpms_wake_topology_grace_until,
-                        now,
-                        scanouts.iter().map(|scanout| scanout.output.id),
-                        outputs.iter().map(|output| output.id),
-                    )
-                })
-                .unwrap_or(0);
+            let transient_removals = if !scanout_rebased && !kms_reconfigure_requested {
+                transient_dpms_output_removal_count(
+                    events.dpms_wake_topology_grace_until,
+                    now,
+                    scanouts.iter().map(|scanout| scanout.output.id),
+                    outputs.iter().map(|output| output.id),
+                )
+            } else {
+                0
+            };
             if transient_removals > 0 {
                 let recheck_at = events
                     .dpms_wake_topology_grace_until
@@ -3491,11 +3499,11 @@ fn run_flutter_event_loop(
                         "display topology changed",
                     )?;
                     if !scanout_rebased && scheduler.has_pending_scanout_work() {
-                        // Finish any ready old-topology atlas before creating the
+                        // Finish any ready old-topology batch before creating the
                         // common rollback point used by the hotplug transaction.
                         // A signalled ready fence can enter Volition lookahead;
                         // an unfinished one will wake this loop through calloop.
-                        submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
+                        submit_ready_frames(&mut scheduler, swapchain)?;
                         events.topology_dirty = true;
                         events.kms_reconfigure_requested = kms_reconfigure_requested;
                         let now = Instant::now();
@@ -3506,21 +3514,13 @@ fn run_flutter_event_loop(
                         continue;
                     }
                     if !scanout_rebased {
-                        scheduler.converge_for_topology(
-                            flutter
-                                .as_ref()
-                                .ok_or("Flutter runtime disappeared before topology convergence")?,
-                            drm,
-                            swapchain,
-                            scanouts,
-                            &mut events,
-                        )?;
+                        scheduler.prepare_reconfiguration(scanouts, &mut events)?;
                     }
                     retired_output_flips =
                         retired_output_flips.saturating_add(scheduler.presented_frames());
                     let topology_apply = apply_hotplug_topology(
                         renderer,
-                        atlas_allocator,
+                        scanout_allocator,
                         drm,
                         swapchain,
                         scanouts,
@@ -3558,8 +3558,9 @@ fn run_flutter_event_loop(
                         drm,
                         volition_event_sender.clone(),
                         scanouts,
-                        swapchain.current,
-                        swapchain.buffers.len(),
+                        swapchain
+                            .outputs()
+                            .ok_or("output scheduler has no physical output pools")?,
                         flutter
                             .as_mut()
                             .ok_or("Flutter runtime was not restarted after topology change")?,
@@ -3596,11 +3597,11 @@ fn run_flutter_event_loop(
                 "Flutter runtime is refreshing",
             )?;
             if scheduler.has_pending_scanout_work() {
-                // Stop servicing the producer while its last atlas reaches
+                // Stop servicing the producer while its last output batch reaches
                 // every affected CRTC. A ready fence or page flip will wake
                 // this loop through calloop, without disturbing clients or
                 // the graphical session.
-                submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
+                submit_ready_frames(&mut scheduler, swapchain)?;
                 let now = Instant::now();
                 let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
                     Duration::from_millis(50).min(deadline.saturating_duration_since(now))
@@ -3609,15 +3610,7 @@ fn run_flutter_event_loop(
                 continue;
             }
 
-            scheduler.converge_for_topology(
-                flutter
-                    .as_ref()
-                    .ok_or("Flutter runtime disappeared before bundle refresh")?,
-                drm,
-                swapchain,
-                scanouts,
-                &mut events,
-            )?;
+            scheduler.prepare_reconfiguration(scanouts, &mut events)?;
             retired_output_flips =
                 retired_output_flips.saturating_add(scheduler.presented_frames());
             reload_flutter_runtime(
@@ -3633,8 +3626,9 @@ fn run_flutter_event_loop(
                 drm,
                 volition_event_sender.clone(),
                 scanouts,
-                swapchain.current,
-                swapchain.buffers.len(),
+                swapchain
+                    .outputs()
+                    .ok_or("output scheduler has no physical output pools")?,
                 flutter
                     .as_mut()
                     .ok_or("Flutter runtime was not restarted after bundle refresh")?,
@@ -3700,6 +3694,7 @@ fn run_flutter_event_loop(
         }
         synchronize_flutter_window_management(runtime, &mut events)?;
         synchronize_flutter_scene(runtime, &mut events)?;
+        collect_flutter_output_damage(runtime, &mut frame_scheduler);
         synchronize_flutter_input_layout(runtime, &mut events)?;
         synchronize_wayland_cursor(runtime, &mut events)?;
         if background_started.elapsed() >= COMPOSITOR_BACKGROUND_SLICE {
@@ -3725,13 +3720,18 @@ fn run_flutter_event_loop(
                 let snapshot = topology.snapshot();
                 let atlas = AtlasPlan::for_snapshot(&snapshot)
                     .ok_or("screenshot preparation has no atlas")?;
-                let Some(buffer_index) =
-                    scheduler.framebuffer_index_for_output(target_output, scanouts)
-                else {
+                if scheduler
+                    .framebuffer_index_for_output(target_output, scanouts)
+                    .is_none()
+                {
                     warn!(?target_output, "screenshot target output is not powered");
                     continue;
-                };
-                let modifier = swapchain.buffers[buffer_index].format().modifier;
+                }
+                let output_swapchains = swapchain
+                    .outputs()
+                    .ok_or("screenshot selection has no physical output pools")?;
+                let modifier =
+                    screenshot_buffer_modifier(&scheduler, output_swapchains, target_output)?;
                 match manager.begin_selection(allocator, target_output, atlas, modifier) {
                     Ok(Some(request_id)) => {
                         if let Err(error) = runtime.send_screenshot_action(
@@ -3773,7 +3773,8 @@ fn run_flutter_event_loop(
                 continue;
             }
             if manager.prepared(request_id.get()) {
-                runtime.arm_screenshot_frame(request_id.get())?;
+                runtime.arm_screenshot_frame(target_output, request_id.get())?;
+                frame_scheduler.mark_output_dirty(target_output);
             } else {
                 warn!(
                     request_id = request_id.get(),
@@ -3784,14 +3785,9 @@ fn run_flutter_event_loop(
 
         if let Some(request_id) = screenshot_cancelled
             && let Some(manager) = screenshot_manager.as_mut()
+            && let Some(request_id) = manager.cancel_selection(runtime, Some(request_id.get()))?
         {
-            if let Some(request_id) = manager.cancel_selection(runtime, Some(request_id.get()))? {
-                runtime.send_screenshot_action(
-                    wire::ShellAction::ScreenshotDone,
-                    request_id,
-                    None,
-                )?;
-            }
+            runtime.send_screenshot_action(wire::ShellAction::ScreenshotDone, request_id, None)?;
         }
 
         if let Some(request) = screenshot_request {
@@ -3799,11 +3795,27 @@ fn run_flutter_event_loop(
                 if request.request_id.is_none() {
                     let snapshot = topology.snapshot();
                     if let Some(atlas) = AtlasPlan::for_snapshot(&snapshot) {
-                        let buffer_index = scheduler.stable_framebuffer_index();
+                        let output_swapchains = swapchain
+                            .outputs()
+                            .ok_or("live screenshot has no physical output pools")?;
+                        let mut sources =
+                            screenshot_composite_sources(&scheduler, output_swapchains, &atlas)?;
+                        let source_output = atlas
+                            .outputs
+                            .first()
+                            .ok_or("live screenshot atlas has no outputs")?
+                            .id;
+                        let modifier = screenshot_buffer_modifier(
+                            &scheduler,
+                            output_swapchains,
+                            source_output,
+                        )?;
                         if let Err(error) = manager.capture_live(
                             renderer,
-                            &mut swapchain.buffers[buffer_index].dmabuf,
+                            allocator,
                             &atlas,
+                            modifier,
+                            &mut sources,
                             request,
                         ) {
                             warn!(%error, "screenshot capture failed");
@@ -3898,7 +3910,7 @@ fn run_flutter_event_loop(
         finite = duration.is_some(),
         "independently clocked Flutter KMS session complete"
     );
-    Ok(swapchain.current_framebuffer())
+    Ok(swapchain.representative_framebuffer())
 }
 
 #[cfg(feature = "flutter")]
@@ -3922,10 +3934,53 @@ fn cancel_active_screenshot(
 }
 
 #[cfg(feature = "flutter")]
+fn screenshot_buffer_modifier(
+    scheduler: &output_scheduler::OutputScheduler,
+    swapchains: &OutputSwapchains,
+    output: OutputId,
+) -> Result<Modifier, Box<dyn Error>> {
+    let index = scheduler
+        .stable_framebuffer_index(output)
+        .ok_or("screenshot output has no stable framebuffer")?;
+    swapchains
+        .for_output(output)
+        .and_then(|pool| pool.buffers.get(index))
+        .map(|buffer| buffer.format().modifier)
+        .ok_or_else(|| "screenshot output buffer exceeds its native pool".into())
+}
+
+#[cfg(feature = "flutter")]
+fn screenshot_composite_sources(
+    scheduler: &output_scheduler::OutputScheduler,
+    swapchains: &OutputSwapchains,
+    atlas: &AtlasPlan,
+) -> Result<Vec<wayland_frontend::OutputCompositeSource>, Box<dyn Error>> {
+    atlas
+        .outputs
+        .iter()
+        .map(|output| {
+            let index = scheduler
+                .stable_framebuffer_index(output.id)
+                .ok_or("screenshot output has no stable framebuffer")?;
+            let dmabuf = swapchains
+                .for_output(output.id)
+                .and_then(|pool| pool.buffers.get(index))
+                .ok_or("screenshot output buffer exceeds its native pool")?
+                .dmabuf
+                .clone();
+            Ok(wayland_frontend::OutputCompositeSource {
+                dmabuf,
+                destination: physical_rect(output.source_rect)?,
+            })
+        })
+        .collect()
+}
+
+#[cfg(feature = "flutter")]
 #[allow(clippy::too_many_arguments)]
 fn reload_flutter_runtime(
     renderer: &mut GlesRenderer,
-    swapchain: &AtlasSwapchain,
+    swapchain: &RenderSwapchains,
     scanouts: &[Scanout],
     topology: &TopologyManager,
     events: &mut RuntimeState,
@@ -3969,8 +4024,18 @@ fn reload_flutter_runtime(
         }
     }
 
-    *flutter = Some(flutter_launcher.start(renderer, swapchain, scanouts, &snapshot, &atlas)?);
-    events.begin_replacement_flutter_generation(swapchain.size);
+    *flutter = Some(
+        flutter_launcher.start(
+            renderer,
+            swapchain
+                .outputs()
+                .ok_or("Flutter bundle refresh has no physical output pools")?,
+            scanouts,
+            &snapshot,
+            &atlas,
+        )?,
+    );
+    events.begin_replacement_flutter_generation(swapchain.desktop_size());
     Ok(())
 }
 
@@ -3980,7 +4045,7 @@ fn quiesce_flutter_page_flips(
     runtime: &mut flutter_runtime::FlutterRuntime,
     scheduler: &mut output_scheduler::OutputScheduler,
     drm: &mut DrmDevice,
-    swapchain: &mut AtlasSwapchain,
+    swapchain: &mut RenderSwapchains,
     scanouts: &[Scanout],
     event_loop: &mut EventLoop<'_, RuntimeState>,
     events: &mut RuntimeState,
@@ -4012,14 +4077,9 @@ fn quiesce_flutter_page_flips(
             drm.pause();
             return;
         }
-        if let Err(error) = service_session_lifecycle(
-            drm,
-            scanouts,
-            swapchain.current_framebuffer(),
-            event_loop,
-            events,
-            Some(deadline),
-        ) {
+        if let Err(error) =
+            service_session_lifecycle(drm, scanouts, swapchain, event_loop, events, Some(deadline))
+        {
             warn!(
                 %error,
                 "session transition failed while draining shutdown page flips; releasing DRM master"
@@ -4052,8 +4112,13 @@ fn quiesce_flutter_page_flips(
             drm.pause();
             break;
         }
+        let Some(output_swapchains) = swapchain.outputs_mut() else {
+            warn!("shutdown retirement lost its physical output pools");
+            drm.pause();
+            return;
+        };
         if let Err(error) =
-            scheduler.retire_completions_for_shutdown(runtime, swapchain, scanouts, events)
+            scheduler.retire_completions_for_shutdown(runtime, output_swapchains, scanouts, events)
         {
             warn!(
                 %error,
@@ -4077,90 +4142,50 @@ fn quiesce_flutter_page_flips(
 }
 
 #[cfg(feature = "flutter")]
-// The wait loop coordinates independent Flutter, DRM, calloop, and launcher
-// state; keeping those borrows explicit is clearer than hiding them in a
-// single-use context wrapper.
-#[allow(clippy::too_many_arguments)]
-fn wait_for_flutter_frame(
+fn collect_flutter_output_damage(
     runtime: &mut flutter_runtime::FlutterRuntime,
-    frame_number: u64,
-    drm: &mut DrmDevice,
-    scanouts: &[Scanout],
-    framebuffer: framebuffer::Handle,
-    event_loop: &mut EventLoop<'_, RuntimeState>,
-    events: &mut RuntimeState,
-    mut flutter_launcher: Option<&mut FlutterLauncher>,
-) -> Result<Option<flutter_runtime::ReadyFrame>, Box<dyn Error>> {
-    let timeout = if frame_number == 1 {
-        Duration::from_secs(15)
-    } else {
-        Duration::from_secs(3)
-    };
-    let deadline = Instant::now() + timeout;
-
-    loop {
-        service_session_lifecycle(
-            drm,
-            scanouts,
-            framebuffer,
-            event_loop,
-            events,
-            Some(deadline),
-        )?;
-        install_sampled_buffer_releases(event_loop, events)?;
-        if let Some(reason) = events.lifecycle.shutdown_reason() {
-            log_shutdown(reason);
-            return Ok(None);
-        }
-        if events.device_removed {
-            return Err("the active DRM device was removed while waiting for Flutter".into());
-        }
-        if !events.lifecycle.seat_active() {
-            return Err(format!(
-                "timed out after {timeout:?} waiting for the KMS seat while awaiting Flutter frame {frame_number}"
-            )
-            .into());
-        }
-        runtime.process_input(&mut events.flutter_input)?;
-        runtime.process_events(events.flutter_events.drain(..))?;
-        if let Some(launcher) = flutter_launcher.as_deref_mut()
-            && launcher.synchronize_ui_development(runtime)?
-        {
-            events.flutter_reload_requested = true;
-        }
-        synchronize_authentication_boundary(events);
-        synchronize_clipboard(runtime, events)?;
-        synchronize_system_control_events(runtime, events)?;
-        synchronize_notification_events(runtime, events)?;
-        synchronize_shell_keyboard(runtime, events)?;
-        synchronize_settings(runtime, events)?;
-        synchronize_system_bar_configuration(runtime, events, flutter_launcher.as_deref_mut());
-        synchronize_flutter_window_management(runtime, events)?;
-        synchronize_flutter_scene(runtime, events)?;
-        synchronize_flutter_input_layout(runtime, events)?;
-        synchronize_wayland_cursor(runtime, events)?;
-        if let Some(index) = runtime.take_ready() {
-            return Ok(Some(index));
-        }
-        if events.flutter_channel_closed {
-            return Err("Flutter callback channel closed while the engine was running".into());
-        }
-        if let Some(error) = events.error.take() {
-            return Err(format!("DRM event error while waiting for Flutter: {error}").into());
-        }
-
-        let now = Instant::now();
-        if now >= deadline {
-            return Err(format!(
-                "timed out after {timeout:?} waiting for Flutter raster frame {frame_number}"
-            )
-            .into());
-        }
-        let dispatch_timeout = runtime
-            .next_dispatch_timeout()
-            .min(deadline.saturating_duration_since(now));
-        event_loop.dispatch(dispatch_timeout, events)?;
+    scheduler: &mut frame_scheduler::FrameScheduler,
+) {
+    let updates = runtime.take_output_updates();
+    for (output, texture_ids) in &updates {
+        scheduler.mark_app_dirty(*output, texture_ids.iter().copied());
     }
+    runtime.recycle_output_updates(updates);
+}
+
+#[cfg(feature = "flutter")]
+fn try_synchronize_flutter_buffers(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &mut RuntimeState,
+) -> Result<bool, Box<dyn Error>> {
+    if events.scene_sync.pending_metadata_revision().is_some()
+        || events
+            .native_app_plugins
+            .as_ref()
+            .is_some_and(native_app_plugin::NativeAppPluginManager::scene_dirty)
+    {
+        return Ok(false);
+    }
+
+    let Some(buffer_revision) = events.scene_sync.pending_buffer_revision() else {
+        return Ok(true);
+    };
+    let textures = if let Some(frontend) = events.wayland.as_mut() {
+        let scene_sync = &events.scene_sync;
+        frontend.flutter_dirty_textures(scene_sync.dirty_surface_ids(buffer_revision))
+    } else {
+        None
+    };
+    let Some(textures) = textures else {
+        return Ok(false);
+    };
+
+    let textures = runtime.sync_wayland_buffers(textures)?;
+    if let Some(frontend) = events.wayland.as_mut() {
+        frontend.recycle_flutter_dirty_textures(textures);
+    }
+    events.scene_sync.mark_buffers_synchronized(buffer_revision);
+    Ok(true)
 }
 
 #[cfg(feature = "flutter")]
@@ -4182,24 +4207,11 @@ fn synchronize_flutter_scene(
         return Ok(());
     }
 
-    if metadata_revision.is_none() {
-        let buffer_revision = pending_buffer_revision
-            .expect("a scene sync without metadata must contain buffer work");
-        let textures = if let Some(frontend) = events.wayland.as_mut() {
-            let scene_sync = &events.scene_sync;
-            frontend.flutter_dirty_textures(scene_sync.dirty_surface_ids(buffer_revision))
-        } else {
-            None
-        };
-        if let Some(textures) = textures {
-            let textures = runtime.sync_wayland_buffers(textures)?;
-            if let Some(frontend) = events.wayland.as_mut() {
-                frontend.recycle_flutter_dirty_textures(textures);
-            }
-            events.scene_sync.mark_buffers_synchronized(buffer_revision);
-            return Ok(());
-        }
+    if metadata_revision.is_none() && try_synchronize_flutter_buffers(runtime, events)? {
+        return Ok(());
+    }
 
+    if metadata_revision.is_none() {
         // The surface index changed before this queued source could be
         // resolved. Fall back within the same dispatch and repair both the
         // metadata snapshot and texture registration set.
@@ -5148,9 +5160,9 @@ fn send_flutter_window_event(
 #[allow(clippy::too_many_arguments)]
 fn apply_hotplug_topology(
     renderer: &mut GlesRenderer,
-    allocator: &mut AtlasAllocator,
+    allocator: &mut ScanoutAllocator,
     drm: &mut DrmDevice,
-    swapchain: &mut AtlasSwapchain,
+    swapchain: &mut RenderSwapchains,
     scanouts: &mut Vec<Scanout>,
     restore_state: &mut RestoreState,
     topology: &mut TopologyManager,
@@ -5171,91 +5183,116 @@ fn apply_hotplug_topology(
     let mut staged_topology = topology.clone();
     let snapshot = update_topology_for_outputs(&mut staged_topology, &outputs, configuration)?;
     let atlas = AtlasPlan::for_snapshot(&snapshot).ok_or("hotplug topology produced no atlas")?;
-    let pool_length = 2;
-    #[cfg(feature = "flutter")]
-    let pool_length = if flutter.is_some() {
-        flutter_pool_length(outputs.len())?
-    } else {
-        pool_length
-    };
-    let old_framebuffer = swapchain.current_framebuffer();
+    let old_framebuffers = scanout_rollback_framebuffers(swapchain)?;
     let old_snapshot = topology.snapshot();
     let mut progress = HotplugProgress::default();
     let reconciliation = reconcile_scanouts(drm, scanouts, restore_state, outputs, &atlas)?;
-    #[cfg(not(feature = "flutter"))]
-    let linear_render_targets = false;
     #[cfg(feature = "flutter")]
     let linear_render_targets = flutter_launcher
         .as_deref()
         .is_some_and(FlutterLauncher::uses_offscreen_blit);
-    let atlas_modifiers = match shared_atlas_modifiers(
+
+    #[cfg(feature = "flutter")]
+    let staged: Result<RenderSwapchains, Box<dyn Error>> = if flutter.is_some() {
+        let plans = atlas
+            .render_outputs(&snapshot)
+            .ok_or_else(|| -> Box<dyn Error> {
+                "hotplug topology produced invalid physical render targets".into()
+            });
+        plans.and_then(|plans| {
+            OutputSwapchains::allocate(
+                allocator,
+                &plans,
+                reconciliation.scanouts(),
+                renderer.egl_context().dmabuf_render_formats(),
+                linear_render_targets,
+            )
+            .map(|swapchains| RenderSwapchains::Outputs {
+                desktop_size: atlas.pixel_size,
+                swapchains,
+            })
+        })
+    } else {
+        shared_atlas_modifiers(
+            reconciliation.scanouts(),
+            renderer.egl_context().dmabuf_render_formats(),
+        )
+        .and_then(|modifiers| {
+            AtlasSwapchain::allocate(allocator, atlas.pixel_size, &modifiers)
+                .map(RenderSwapchains::Atlas)
+        })
+    };
+    #[cfg(not(feature = "flutter"))]
+    let staged = shared_atlas_modifiers(
         reconciliation.scanouts(),
         renderer.egl_context().dmabuf_render_formats(),
-    ) {
-        Ok(modifiers) => modifiers,
-        Err(error) => {
-            let failures =
-                rollback_hotplug_scanouts(reconciliation, old_framebuffer, &mut progress, events);
-            return Err(hotplug_transaction_error(error.to_string(), failures));
-        }
-    };
-    let mut staged = match AtlasSwapchain::allocate_pool(
-        allocator,
-        atlas.pixel_size,
-        pool_length,
-        &atlas_modifiers,
-        linear_render_targets,
-    ) {
+    )
+    .and_then(|modifiers| {
+        AtlasSwapchain::allocate(allocator, atlas.pixel_size, &modifiers)
+            .map(RenderSwapchains::Atlas)
+    });
+    let mut staged = match staged {
         Ok(staged) => staged,
         Err(error) => {
             let failures =
-                rollback_hotplug_scanouts(reconciliation, old_framebuffer, &mut progress, events);
+                rollback_hotplug_scanouts(reconciliation, &old_framebuffers, &mut progress, events);
             return Err(hotplug_transaction_error(error.to_string(), failures));
         }
     };
 
     #[cfg(feature = "flutter")]
     let render_result = if flutter.is_some() {
-        render_blank_atlas(
+        render_blank_output_swapchains(
             renderer,
-            &mut staged.buffers[staged.current].dmabuf,
-            staged.size,
+            staged
+                .outputs_mut()
+                .ok_or("hotplug staging lost its physical output pools")?,
         )
     } else {
+        let staged_atlas = staged
+            .atlas_mut()
+            .ok_or("hotplug diagnostic staging has no atlas swapchain")?;
         render_diagnostic_atlas(
             renderer,
-            &mut staged.buffers[staged.current].dmabuf,
-            staged.size,
+            &mut staged_atlas.buffers[staged_atlas.current].dmabuf,
+            staged_atlas.size,
             reconciliation.scanouts(),
             frame_number,
         )
     };
     #[cfg(not(feature = "flutter"))]
-    let render_result = render_diagnostic_atlas(
-        renderer,
-        &mut staged.buffers[staged.current].dmabuf,
-        staged.size,
-        reconciliation.scanouts(),
-        frame_number,
-    );
+    let render_result = {
+        let staged_atlas = staged
+            .atlas_mut()
+            .ok_or("hotplug diagnostic staging has no atlas swapchain")?;
+        render_diagnostic_atlas(
+            renderer,
+            &mut staged_atlas.buffers[staged_atlas.current].dmabuf,
+            staged_atlas.size,
+            reconciliation.scanouts(),
+            frame_number,
+        )
+    };
     if let Err(error) = render_result {
         let failures =
-            rollback_hotplug_scanouts(reconciliation, old_framebuffer, &mut progress, events);
+            rollback_hotplug_scanouts(reconciliation, &old_framebuffers, &mut progress, events);
         return Err(hotplug_transaction_error(error.to_string(), failures));
     }
-    let framebuffer = staged.current_framebuffer();
     for candidate in reconciliation
         .scanouts()
         .iter()
         .filter(|candidate| candidate.powered)
     {
         let output_name = candidate.output.name.clone();
-        if let Err(error) = candidate
-            .surface
-            .test_state([plane_state(candidate, framebuffer)], true)
-        {
+        let state = current_scanout_state(candidate, &staged).map(|(_, state)| state);
+        if let Err(error) = state.and_then(|state| {
+            candidate
+                .surface
+                .test_state([state], true)
+                .map_err(Into::into)
+        }) {
             let failures =
-                rollback_hotplug_scanouts(reconciliation, old_framebuffer, &mut progress, events);
+                rollback_hotplug_scanouts(reconciliation, &old_framebuffers, &mut progress, events);
             return Err(hotplug_transaction_error(
                 format!("{output_name} TEST_ONLY failed: {error}"),
                 failures,
@@ -5270,13 +5307,13 @@ fn apply_hotplug_topology(
         .iter()
         .filter(|candidate| candidate.powered)
     {
-        if let Err(error) = candidate
-            .surface
-            .commit([plane_state(candidate, framebuffer)], true)
+        let state = current_scanout_state(candidate, &staged).map(|(_, state)| state);
+        if let Err(error) =
+            state.and_then(|state| candidate.surface.commit([state], true).map_err(Into::into))
         {
             let output_name = candidate.output.name.clone();
             let failures =
-                rollback_hotplug_scanouts(reconciliation, old_framebuffer, &mut progress, events);
+                rollback_hotplug_scanouts(reconciliation, &old_framebuffers, &mut progress, events);
             return Err(hotplug_transaction_error(
                 format!("{output_name} commit failed: {error}"),
                 failures,
@@ -5286,16 +5323,12 @@ fn apply_hotplug_topology(
         progress.record_commit();
     }
 
-    let old_size = swapchain.size;
-    if let Err(error) = wait_for_page_flips(
-        drm,
-        reconciliation.scanouts(),
-        framebuffer,
-        event_loop,
-        events,
-    ) {
+    let old_size = swapchain.desktop_size();
+    if let Err(error) =
+        wait_for_page_flips(drm, reconciliation.scanouts(), &staged, event_loop, events)
+    {
         let failures =
-            rollback_hotplug_scanouts(reconciliation, old_framebuffer, &mut progress, events);
+            rollback_hotplug_scanouts(reconciliation, &old_framebuffers, &mut progress, events);
         return Err(hotplug_transaction_error(error.to_string(), failures));
     }
     progress.mark_presented();
@@ -5343,7 +5376,7 @@ fn apply_hotplug_topology(
         };
         if let Some(error) = restart_error {
             let failures =
-                rollback_hotplug_scanouts(reconciliation, old_framebuffer, &mut progress, events);
+                rollback_hotplug_scanouts(reconciliation, &old_framebuffers, &mut progress, events);
             return Err(hotplug_transaction_error(error, failures));
         }
         true
@@ -5354,7 +5387,7 @@ fn apply_hotplug_topology(
     let retired_clear_failures = reconciliation.clear_retired();
     if !retired_clear_failures.is_empty() {
         let mut failures =
-            rollback_hotplug_scanouts(reconciliation, old_framebuffer, &mut progress, events);
+            rollback_hotplug_scanouts(reconciliation, &old_framebuffers, &mut progress, events);
         failures.splice(0..0, retired_clear_failures);
         return Err(hotplug_transaction_error(
             "failed to disable retired CRTCs".into(),
@@ -5369,7 +5402,7 @@ fn apply_hotplug_topology(
         .map(|error| error.to_string());
     if let Some(error) = frontend_error {
         let mut failures =
-            rollback_hotplug_scanouts(reconciliation, old_framebuffer, &mut progress, events);
+            rollback_hotplug_scanouts(reconciliation, &old_framebuffers, &mut progress, events);
         if let Some(frontend) = events.wayland.as_mut()
             && let Err(rollback_error) = frontend.update_topology(&old_snapshot)
         {
@@ -5392,7 +5425,8 @@ fn apply_hotplug_topology(
     let retired = std::mem::replace(swapchain, staged);
     #[cfg(feature = "flutter")]
     {
-        events.native_plugin_default_size = (swapchain.size.width, swapchain.size.height);
+        let desktop_size = swapchain.desktop_size();
+        events.native_plugin_default_size = (desktop_size.width, desktop_size.height);
         if let Some(manager) = events.native_app_plugins.as_mut() {
             manager.set_configure_properties(
                 atlas.engine_scale_120,
@@ -5408,11 +5442,21 @@ fn apply_hotplug_topology(
     if restart_flutter {
         drop(retired);
         let launcher = flutter_launcher.ok_or("dynamic Flutter topology has no launcher")?;
-        *flutter = Some(launcher.start(renderer, swapchain, scanouts, &snapshot, &atlas)?);
-        events.begin_replacement_flutter_generation(swapchain.size);
+        *flutter = Some(
+            launcher.start(
+                renderer,
+                swapchain
+                    .outputs()
+                    .ok_or("reconfigured Flutter topology has no physical output pools")?,
+                scanouts,
+                &snapshot,
+                &atlas,
+            )?,
+        );
+        events.begin_replacement_flutter_generation(swapchain.desktop_size());
         info!(
             generation = launcher.generation,
-            "restarted Flutter on the reconfigured KMS atlas"
+            "restarted Flutter with reconfigured native output pools"
         );
     } else {
         drop(retired);
@@ -5427,7 +5471,7 @@ fn apply_hotplug_topology(
         new_width = atlas.pixel_size.width,
         new_height = atlas.pixel_size.height,
         topology_epoch = atlas.topology_epoch,
-        "committed hotplug atlas transaction"
+        "committed hotplug scanout transaction"
     );
     Ok(())
 }
@@ -5648,15 +5692,42 @@ fn reconcile_scanouts<'a>(
     })
 }
 
+fn scanout_rollback_framebuffers(
+    swapchain: &RenderSwapchains,
+) -> Result<ScanoutRollbackFramebuffers, Box<dyn Error>> {
+    #[cfg(feature = "flutter")]
+    if let Some(swapchains) = swapchain.outputs() {
+        let outputs = swapchains
+            .outputs
+            .iter()
+            .map(|pool| {
+                let framebuffer = pool
+                    .buffers
+                    .get(pool.current)
+                    .ok_or("physical output rollback index exceeds its pool")?
+                    .framebuffer();
+                Ok((pool.output_id, (framebuffer, pool.size)))
+            })
+            .collect::<Result<BTreeMap<_, _>, Box<dyn Error>>>()?;
+        return Ok(ScanoutRollbackFramebuffers::Outputs(outputs));
+    }
+    Ok(ScanoutRollbackFramebuffers::Atlas(
+        swapchain
+            .atlas()
+            .ok_or("diagnostic rollback has no atlas swapchain")?
+            .current_framebuffer(),
+    ))
+}
+
 fn rollback_hotplug_scanouts(
     reconciliation: ScanoutReconciliation<'_>,
-    old_framebuffer: framebuffer::Handle,
+    old_framebuffers: &ScanoutRollbackFramebuffers,
     progress: &mut HotplugProgress,
     events: &mut RuntimeState,
 ) -> Vec<String> {
     events.pending.clear();
     let hardware = progress.rollback_required();
-    let failures = reconciliation.rollback(old_framebuffer, hardware);
+    let failures = reconciliation.rollback(old_framebuffers, hardware);
     if hardware {
         progress.mark_rolled_back();
     }
@@ -5678,7 +5749,7 @@ fn hotplug_transaction_error(cause: String, rollback_failures: Vec<String>) -> B
 fn wait_for_page_flips(
     drm: &mut DrmDevice,
     scanouts: &[Scanout],
-    framebuffer: framebuffer::Handle,
+    framebuffers: &dyn ScanoutFramebufferSource,
     event_loop: &mut EventLoop<'_, RuntimeState>,
     events: &mut RuntimeState,
 ) -> Result<(), Box<dyn Error>> {
@@ -5688,7 +5759,7 @@ fn wait_for_page_flips(
         service_session_lifecycle(
             drm,
             scanouts,
-            framebuffer,
+            framebuffers,
             event_loop,
             events,
             Some(deadline),
@@ -5751,22 +5822,6 @@ fn queue_atlas_page_flip(
     drm.atomic_commit(
         AtomicCommitFlags::PAGE_FLIP_EVENT | AtomicCommitFlags::NONBLOCK,
         atlas_plane_request(scanouts, framebuffer, fence)?,
-    )?;
-    Ok(())
-}
-
-#[cfg(feature = "flutter")]
-fn commit_atlas_now(
-    drm: &DrmDevice,
-    scanouts: &[Scanout],
-    framebuffer: framebuffer::Handle,
-) -> Result<(), Box<dyn Error>> {
-    if !scanouts.iter().any(|scanout| scanout.powered) {
-        return Ok(());
-    }
-    drm.atomic_commit(
-        AtomicCommitFlags::empty(),
-        atlas_plane_request(scanouts, framebuffer, None)?,
     )?;
     Ok(())
 }
@@ -6626,14 +6681,14 @@ fn render_diagnostic_atlas(
     Ok(())
 }
 
-fn render_blank_atlas(
+fn render_blank_target(
     renderer: &mut GlesRenderer,
     dmabuf: &mut Dmabuf,
-    atlas_size: PixelSize,
+    target_size: PixelSize,
 ) -> Result<(), Box<dyn Error>> {
     let render_size = (
-        i32::try_from(atlas_size.width)?,
-        i32::try_from(atlas_size.height)?,
+        i32::try_from(target_size.width)?,
+        i32::try_from(target_size.height)?,
     )
         .into();
     let mut framebuffer = renderer.bind(dmabuf)?;
@@ -6646,11 +6701,76 @@ fn render_blank_atlas(
     Ok(())
 }
 
+#[cfg(feature = "flutter")]
+fn render_blank_output_swapchains(
+    renderer: &mut GlesRenderer,
+    swapchains: &mut OutputSwapchains,
+) -> Result<(), Box<dyn Error>> {
+    for pool in &mut swapchains.outputs {
+        let buffer = pool
+            .buffers
+            .get_mut(pool.current)
+            .ok_or("physical output's initial scanout index exceeds its pool")?;
+        render_blank_target(renderer, &mut buffer.dmabuf, pool.size)?;
+    }
+    Ok(())
+}
+
 fn plane_state(
     scanout: &Scanout,
     framebuffer: smithay::reexports::drm::control::framebuffer::Handle,
 ) -> PlaneState<'static> {
-    plane_state_for_mode(scanout, framebuffer, scanout.output.mode)
+    plane_state_for_mode_and_source(
+        scanout,
+        framebuffer,
+        scanout.output.mode,
+        scanout.source_rect,
+    )
+}
+
+fn current_scanout_state(
+    scanout: &Scanout,
+    swapchain: &RenderSwapchains,
+) -> Result<(framebuffer::Handle, PlaneState<'static>), Box<dyn Error>> {
+    #[cfg(feature = "flutter")]
+    if let Some(outputs) = swapchain.outputs() {
+        let pool = outputs
+            .for_output(scanout.output.id)
+            .ok_or("scanout has no physical Flutter buffer pool")?;
+        let framebuffer = pool
+            .buffers
+            .get(pool.current)
+            .ok_or("physical Flutter scanout index exceeds its pool")?
+            .framebuffer();
+        return Ok((
+            framebuffer,
+            output_plane_state(scanout, framebuffer, pool.size),
+        ));
+    }
+    let framebuffer = swapchain
+        .atlas()
+        .ok_or("diagnostic scanout has no atlas swapchain")?
+        .current_framebuffer();
+    Ok((framebuffer, plane_state(scanout, framebuffer)))
+}
+
+#[cfg(feature = "flutter")]
+fn output_plane_state(
+    scanout: &Scanout,
+    framebuffer: framebuffer::Handle,
+    size: PixelSize,
+) -> PlaneState<'static> {
+    plane_state_for_mode_and_source(
+        scanout,
+        framebuffer,
+        scanout.output.mode,
+        PixelRect {
+            x: 0,
+            y: 0,
+            width: size.width,
+            height: size.height,
+        },
+    )
 }
 
 fn plane_state_for_mode(
@@ -6658,17 +6778,22 @@ fn plane_state_for_mode(
     framebuffer: smithay::reexports::drm::control::framebuffer::Handle,
     mode: Mode,
 ) -> PlaneState<'static> {
+    plane_state_for_mode_and_source(scanout, framebuffer, mode, scanout.source_rect)
+}
+
+fn plane_state_for_mode_and_source(
+    scanout: &Scanout,
+    framebuffer: framebuffer::Handle,
+    mode: Mode,
+    source: PixelRect,
+) -> PlaneState<'static> {
     let (width, height) = mode.size();
     PlaneState {
         handle: scanout.surface.plane(),
         config: Some(PlaneConfig {
             src: Rectangle::<f64, Buffer>::new(
-                (scanout.source_rect.x as f64, scanout.source_rect.y as f64).into(),
-                (
-                    scanout.source_rect.width as f64,
-                    scanout.source_rect.height as f64,
-                )
-                    .into(),
+                (source.x as f64, source.y as f64).into(),
+                (source.width as f64, source.height as f64).into(),
             ),
             dst: Rectangle::<i32, Physical>::from_size(
                 (i32::from(width), i32::from(height)).into(),

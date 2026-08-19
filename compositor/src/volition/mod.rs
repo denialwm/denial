@@ -2,8 +2,8 @@
 //!
 //! Volition is Denial's in-tree display synchronization library. It owns the
 //! DRM file descriptor, atomic plane requests, and a bounded deadline scheduler
-//! which approaches each physical display edge without blocking in a DRM
-//! ioctl. The compositor remains responsible for deciding *what*
+//! which approaches each compositor-selected physical display edge without
+//! blocking in a DRM ioctl. The compositor remains responsible for deciding *what*
 //! to present, retaining buffers until page-flip completion, and observing
 //! render fences before submitting lookahead work.
 //!
@@ -14,7 +14,7 @@ use std::cmp::Ordering as CmpOrdering;
 use std::collections::BinaryHeap;
 use std::fmt;
 use std::io;
-use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{
@@ -31,15 +31,17 @@ use smithay::reexports::drm::control::{
 use crate::topology::PixelRect;
 
 const MAX_ATOMIC_PLANE_PROPERTIES: usize = 7;
+const LOOKAHEAD_SUBMIT_LEAD: Duration = Duration::from_micros(400);
 const LOOKAHEAD_RETRY_INTERVAL: Duration = Duration::from_micros(100);
 const LOOKAHEAD_MAX_WAIT: Duration = Duration::from_millis(100);
 static NEXT_INSTANCE: AtomicU64 = AtomicU64::new(1);
 
 /// Maximum number of generations Denial may retain for one output stream.
 ///
-/// One generation is currently scanning toward completion while the second
-/// may sleep in Volition until DRM can legally advance it.
-pub const MAX_IN_FLIGHT_COMMITS_PER_STREAM: usize = 2;
+/// The compositor owns the scanning generation. Volition may own exactly one
+/// successor, either sleeping until its target or submitted to DRM awaiting
+/// page-flip completion.
+pub const MAX_IN_FLIGHT_COMMITS_PER_STREAM: usize = 1;
 
 fn next_instance() -> u64 {
     loop {
@@ -111,23 +113,14 @@ impl PlaneCommit {
         self.property_count += 1;
     }
 
-    fn submit(
-        &mut self,
-        drm: BorrowedFd<'_>,
-        framebuffer: framebuffer::Handle,
-        fence: Option<BorrowedFd<'_>>,
-        commit_mode: CommitMode,
-    ) -> io::Result<()> {
+    fn submit(&mut self, drm: BorrowedFd<'_>, framebuffer: framebuffer::Handle) -> io::Result<()> {
         self.values[0] = u64::from(u32::from(framebuffer));
-        debug_assert!(fence.is_none() || self.fence_index.is_some());
         if let Some(index) = self.fence_index {
-            self.values[index] = fence
-                .map(|fence| i64::from(fence.as_raw_fd()) as u64)
-                .unwrap_or(u64::MAX);
+            self.values[index] = u64::MAX;
         }
         drm_mode::atomic_commit(
             drm,
-            commit_flags(commit_mode).bits(),
+            commit_flags().bits(),
             &mut self.objects,
             &mut self.property_counts,
             &mut self.properties[..self.property_count],
@@ -136,23 +129,11 @@ impl PlaneCommit {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum CommitMode {
-    Immediate,
-    Lookahead,
-}
-
-fn commit_flags(mode: CommitMode) -> AtomicCommitFlags {
-    let flags = AtomicCommitFlags::PAGE_FLIP_EVENT;
-    match mode {
-        CommitMode::Immediate => flags | AtomicCommitFlags::NONBLOCK,
-        // A synchronous atomic ioctl can sleep uninterruptibly while waiting
-        // for the preceding commit. That makes a compositor process
-        // impossible to tear down reliably. Volition instead approaches the
-        // predicted edge in userspace and retries this bounded nonblocking
-        // ioctl until DRM accepts the next generation.
-        CommitMode::Lookahead => flags | AtomicCommitFlags::NONBLOCK,
-    }
+fn commit_flags() -> AtomicCommitFlags {
+    // A synchronous atomic ioctl can sleep uninterruptibly while waiting for
+    // a preceding commit. Volition approaches the caller-selected edge in
+    // userspace and retries a bounded nonblocking ioctl instead.
+    AtomicCommitFlags::PAGE_FLIP_EVENT | AtomicCommitFlags::NONBLOCK
 }
 
 /// Identifies one commit in the compositor-owned presentation streams.
@@ -462,12 +443,11 @@ fn run_scheduler(
         let expires_at = *scheduled
             .expires_at
             .get_or_insert(attempted_at + LOOKAHEAD_MAX_WAIT);
-        match scheduled.job.request.submit(
-            drm.as_fd(),
-            scheduled.job.framebuffer,
-            None,
-            CommitMode::Lookahead,
-        ) {
+        match scheduled
+            .job
+            .request
+            .submit(drm.as_fd(), scheduled.job.framebuffer)
+        {
             Ok(()) => finish_job(
                 pending,
                 report_event,
@@ -529,10 +509,16 @@ fn is_retryable_lookahead_error(error: &io::Error) -> bool {
     )
 }
 
+fn lookahead_not_before(presentation_target: Instant, now: Instant) -> Instant {
+    presentation_target
+        .checked_sub(LOOKAHEAD_SUBMIT_LEAD)
+        .unwrap_or(now)
+        .max(now)
+}
+
 /// Ordered atomic-KMS presentation engine used by Denial.
 pub struct Volition {
     instance: u64,
-    drm: OwnedFd,
     scheduler: CommitScheduler,
 }
 
@@ -551,47 +537,36 @@ impl Volition {
     where
         F: Fn(Event) + Send + Sync + 'static,
     {
-        let drm = drm.try_clone_to_owned()?;
         let report_event: EventReporter = Arc::new(report_event);
         let scheduler = CommitScheduler::start(
-            drm.as_fd().try_clone_to_owned()?,
+            drm.try_clone_to_owned()?,
             initialize_thread,
             report_event,
             lookahead_capacity,
         )?;
         Ok(Self {
             instance: next_instance(),
-            drm,
             scheduler,
         })
     }
 
-    /// Submits the first generation immediately with an optional render fence.
-    pub fn submit_immediate(
-        &self,
-        request: &mut PlaneCommit,
-        framebuffer: framebuffer::Handle,
-        fence: Option<BorrowedFd<'_>>,
-    ) -> io::Result<()> {
-        request.submit(self.drm.as_fd(), framebuffer, fence, CommitMode::Immediate)
-    }
-
-    /// Queues a render-complete generation behind the current hardware commit.
+    /// Queues a render-complete generation for the compositor-selected edge.
     ///
     /// The caller must observe the frame's render fence before invoking this
-    /// method. Volition approaches the predicted presentation edge on a
+    /// method. Volition approaches the caller's presentation target on a
     /// single deadline scheduler, then retries a nonblocking atomic ioctl
     /// until DRM accepts the generation. Retryable work is reinserted so a
     /// busy output cannot hold another output behind it. This preserves
     /// edge-adjacent submission without allowing a kernel wait to pin the
     /// compositor during shutdown.
-    pub fn submit_lookahead(
+    pub fn submit_for_target(
         &mut self,
         commit: CommitId,
         request: &PlaneCommit,
         framebuffer: framebuffer::Handle,
-        not_before: Instant,
+        presentation_target: Instant,
     ) -> io::Result<Submission> {
+        let not_before = lookahead_not_before(presentation_target, Instant::now());
         self.scheduler.try_submit(CommitJob {
             instance: self.instance,
             commit,
@@ -627,20 +602,29 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::{
-        CommitMode, LookaheadFailureDisposition, Submission, commit_flags,
-        is_retryable_lookahead_error, lookahead_failure_disposition, schedule_order,
+        LOOKAHEAD_SUBMIT_LEAD, LookaheadFailureDisposition, MAX_IN_FLIGHT_COMMITS_PER_STREAM,
+        Submission, commit_flags, is_retryable_lookahead_error, lookahead_failure_disposition,
+        lookahead_not_before, schedule_order,
     };
     use smithay::reexports::drm::control::AtomicCommitFlags;
 
     #[test]
     fn every_volition_ioctl_is_nonblocking() {
-        let immediate = commit_flags(CommitMode::Immediate);
-        assert!(immediate.contains(AtomicCommitFlags::PAGE_FLIP_EVENT));
-        assert!(immediate.contains(AtomicCommitFlags::NONBLOCK));
+        let flags = commit_flags();
+        assert!(flags.contains(AtomicCommitFlags::PAGE_FLIP_EVENT));
+        assert!(flags.contains(AtomicCommitFlags::NONBLOCK));
+    }
 
-        let lookahead = commit_flags(CommitMode::Lookahead);
-        assert!(lookahead.contains(AtomicCommitFlags::PAGE_FLIP_EVENT));
-        assert!(lookahead.contains(AtomicCommitFlags::NONBLOCK));
+    #[test]
+    fn lookahead_derives_its_deadline_from_the_explicit_presentation_target() {
+        let now = Instant::now();
+        let target = now + Duration::from_millis(7);
+
+        assert_eq!(
+            lookahead_not_before(target, now),
+            target - LOOKAHEAD_SUBMIT_LEAD
+        );
+        assert_eq!(lookahead_not_before(now, now), now);
     }
 
     #[test]
@@ -680,6 +664,11 @@ mod tests {
     #[test]
     fn queue_result_is_explicit_backpressure_not_an_error() {
         assert_ne!(Submission::Queued, Submission::Backpressured);
+    }
+
+    #[test]
+    fn each_output_stream_retains_only_one_volition_generation() {
+        assert_eq!(MAX_IN_FLIGHT_COMMITS_PER_STREAM, 1);
     }
 
     #[test]

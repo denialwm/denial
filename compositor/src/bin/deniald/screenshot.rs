@@ -9,7 +9,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use denial_core::topology::{AtlasPlan, OutputId};
 use smithay::backend::allocator::Modifier;
-use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::allocator::gbm::GbmAllocator;
 use smithay::backend::drm::DrmDeviceFd;
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -20,6 +19,7 @@ use super::clipboard::ClipboardManager;
 use super::flutter_runtime::FlutterRuntime;
 use super::flutter_runtime::system_command::ScreenshotRequest;
 use super::kms_state::ScreenshotBuffer;
+use super::wayland_frontend::OutputCompositeSource;
 
 const MAX_PENDING_SCREENSHOT_WRITES: usize = 2;
 const BYTES_PER_PIXEL: usize = 4;
@@ -120,7 +120,7 @@ impl ScreenshotManager {
         renderer: &mut GlesRenderer,
         runtime: &mut FlutterRuntime,
         output: OutputId,
-        atlas_buffer: &mut Dmabuf,
+        sources: &mut [OutputCompositeSource],
     ) -> Result<Option<(u64, i64)>, Box<dyn Error>> {
         let Some(selection) = self.selection.as_mut() else {
             return Ok(None);
@@ -132,9 +132,9 @@ impl ScreenshotManager {
             return Ok(None);
         }
         let atlas_size = atlas_physical_size(&selection.atlas)?;
-        super::wayland_frontend::copy_atlas_to_dmabuf(
+        super::wayland_frontend::compose_output_targets_to_atlas(
             renderer,
-            atlas_buffer,
+            sources,
             atlas_size,
             &mut selection.buffer.dmabuf,
         )?;
@@ -154,8 +154,10 @@ impl ScreenshotManager {
     pub(super) fn capture_live(
         &self,
         renderer: &mut GlesRenderer,
-        atlas_buffer: &mut Dmabuf,
+        allocator: &mut GbmAllocator<DrmDeviceFd>,
         atlas: &AtlasPlan,
+        modifier: Modifier,
+        sources: &mut [OutputCompositeSource],
         request: ScreenshotRequest,
     ) -> Result<(), Box<dyn Error>> {
         if request.request_id.is_some() {
@@ -164,9 +166,16 @@ impl ScreenshotManager {
         let source = project_request(request, atlas)
             .ok_or_else(|| io::Error::other("screenshot region is outside the canvas"))?;
         let atlas_size = atlas_physical_size(atlas)?;
+        let mut buffer = ScreenshotBuffer::allocate(allocator, atlas.pixel_size, modifier)?;
+        super::wayland_frontend::compose_output_targets_to_atlas(
+            renderer,
+            sources,
+            atlas_size,
+            &mut buffer.dmabuf,
+        )?;
         let pixels = super::wayland_frontend::copy_atlas_region_to_memory(
             renderer,
-            atlas_buffer,
+            &mut buffer.dmabuf,
             atlas_size,
             source,
         )?;

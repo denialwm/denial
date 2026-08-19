@@ -13,7 +13,7 @@ checksum, GN configuration, upstream compatibility revisions, and licenses.
 engine source:
 
 - Denial Flutter fork:
-  `5b799268a6757b03e8621d8835bab0d353ef3872`
+  `83f9bff17d53a8bb071b07b8bb740d3f25e0fed2`
 - Denial Skia fork:
   `0ee042f542b3e79f5ac49115387718c6bb3d7d34`
 - Upstream Flutter compatibility base:
@@ -62,7 +62,8 @@ The equivalent direct release commands are:
 
 Generated arguments must match `args.gn`, and the output must match
 `libflutter_engine.so.sha256`. It must export
-`FlutterEngineGetProcAddresses` and
+`FlutterEngineGetProcAddresses`,
+`DenialFlutterEngineRequestFrameForExternalTextures`, and
 `DenialFlutterEngineScheduleFrameForExternalTextures`.
 
 Linux builds enable Flutter's Fontconfig backend. The shipped engine therefore

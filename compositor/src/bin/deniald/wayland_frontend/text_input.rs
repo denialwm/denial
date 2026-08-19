@@ -912,10 +912,8 @@ impl Dispatch<ZwpTextInputManagerV3, ()> for RuntimeState {
                         && frontend.text_input.can_register(&client.id())
                 });
                 let resource = data_init.init(id, TextInputUserData { accepted });
-                if accepted {
-                    if let Some(frontend) = state.wayland.as_mut() {
-                        frontend.text_input.register(resource, client.id());
-                    }
+                if accepted && let Some(frontend) = state.wayland.as_mut() {
+                    frontend.text_input.register(resource, client.id());
                 }
             }
             zwp_text_input_manager_v3::Request::Destroy => {}

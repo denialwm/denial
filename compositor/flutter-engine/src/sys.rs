@@ -11,6 +11,38 @@ pub const FlutterEngineResult_kInvalidLibraryVersion: FlutterEngineResult = 1;
 pub const FlutterEngineResult_kInvalidArguments: FlutterEngineResult = 2;
 pub const FlutterEngineResult_kInternalInconsistency: FlutterEngineResult = 3;
 pub type FlutterEngineResult = ::std::os::raw::c_uint;
+pub const DenialFlutterOutputTransform_kDenialFlutterOutputTransformNormal:
+    DenialFlutterOutputTransform = 0;
+pub const DenialFlutterOutputTransform_kDenialFlutterOutputTransformRotate90:
+    DenialFlutterOutputTransform = 1;
+pub const DenialFlutterOutputTransform_kDenialFlutterOutputTransformRotate180:
+    DenialFlutterOutputTransform = 2;
+pub const DenialFlutterOutputTransform_kDenialFlutterOutputTransformRotate270:
+    DenialFlutterOutputTransform = 3;
+pub const DenialFlutterOutputTransform_kDenialFlutterOutputTransformFlipped:
+    DenialFlutterOutputTransform = 4;
+pub const DenialFlutterOutputTransform_kDenialFlutterOutputTransformFlipped90:
+    DenialFlutterOutputTransform = 5;
+pub const DenialFlutterOutputTransform_kDenialFlutterOutputTransformFlipped180:
+    DenialFlutterOutputTransform = 6;
+pub const DenialFlutterOutputTransform_kDenialFlutterOutputTransformFlipped270:
+    DenialFlutterOutputTransform = 7;
+pub type DenialFlutterOutputTransform = ::std::os::raw::c_uint;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct DenialFlutterRenderOutput {
+    pub struct_size: usize,
+    pub render_view_id: i64,
+    pub configuration_generation: u64,
+    pub source_physical_x: f64,
+    pub source_physical_y: f64,
+    pub source_physical_width: f64,
+    pub source_physical_height: f64,
+    pub target_width: usize,
+    pub target_height: usize,
+    pub scale_120: u32,
+    pub transform: DenialFlutterOutputTransform,
+}
 pub const FlutterRendererType_kOpenGL: FlutterRendererType = 0;
 pub const FlutterRendererType_kSoftware: FlutterRendererType = 1;
 pub const FlutterRendererType_kMetal: FlutterRendererType = 2;

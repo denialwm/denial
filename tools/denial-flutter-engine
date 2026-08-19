@@ -169,6 +169,7 @@ verify_engine_exports() {
   local symbol
 
   for symbol in \
+    DenialFlutterEngineRequestFrameForExternalTextures \
     DenialFlutterEngineScheduleFrameForExternalTextures \
     FlutterEngineGetProcAddresses \
     FlutterEngineRunsAOTCompiledDartCode; do

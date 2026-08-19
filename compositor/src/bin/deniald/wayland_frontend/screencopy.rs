@@ -1,10 +1,9 @@
 //! `zwlr-screencopy-unstable-v1` output capture.
 //!
-//! Denial's physical outputs scan out regions of one Flutter-owned atlas.
-//! Requests are therefore journaled by the Wayland dispatcher and fulfilled
-//! only after the target output presents. This both makes the selected atlas
-//! buffer safe to read and naturally paces screen recorders at the output
-//! refresh rate.
+//! Each physical output scans out its own native Flutter raster target.
+//! Requests are journaled by the Wayland dispatcher and fulfilled only after
+//! the target output presents. This both makes that output buffer safe to read
+//! and naturally paces screen recorders at the output refresh rate.
 
 use std::error::Error;
 use std::io;
@@ -15,7 +14,9 @@ use denial_core::topology::OutputId;
 use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::{Buffer as AllocatorBuffer, Fourcc, dmabuf::Dmabuf};
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
-use smithay::backend::renderer::{Bind, Blit, ExportMem, Offscreen, TextureFilter};
+use smithay::backend::renderer::{
+    Bind, Blit, Color32F, ExportMem, Frame, Offscreen, Renderer, TextureFilter,
+};
 use smithay::output::Output;
 use smithay::reexports::wayland_protocols_wlr::screencopy::v1::server::{
     zwlr_screencopy_frame_v1::{self, ZwlrScreencopyFrameV1},
@@ -28,7 +29,7 @@ use smithay::reexports::wayland_server::protocol::{
 use smithay::reexports::wayland_server::{
     Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
 };
-use smithay::utils::{Buffer as BufferCoords, Logical, Physical, Rectangle, Size};
+use smithay::utils::{Buffer as BufferCoords, Logical, Physical, Rectangle, Size, Transform};
 use smithay::wayland::dmabuf::get_dmabuf;
 use smithay::wayland::shm::{with_buffer_contents, with_buffer_contents_mut};
 use tracing::{debug, warn};
@@ -40,14 +41,17 @@ const BYTES_PER_PIXEL: i32 = 4;
 const MAX_PENDING_SCREENCOPIES: usize = 64;
 const MAX_COPIES_PER_PRESENTATION: usize = 4;
 
+pub(crate) struct OutputCompositeSource {
+    pub(crate) dmabuf: Dmabuf,
+    pub(crate) destination: Rectangle<i32, Physical>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct CaptureTarget {
     output: OutputId,
-    /// Region within the complete Flutter atlas, in top-left pixel
-    /// coordinates.
+    /// Region within the output-local Flutter target, in top-left pixels.
     source: Rectangle<i32, Physical>,
-    /// Client buffer size. This can differ from `source.size` when the atlas
-    /// uses a higher internal scale than the physical output.
+    /// Client buffer size in the output's transformed physical pixels.
     size: Size<i32, Physical>,
     overlay_cursor: bool,
 }
@@ -388,9 +392,9 @@ pub(crate) fn copy_atlas_region_to_memory(
     Ok(pixels[..expected].to_vec())
 }
 
-pub(crate) fn copy_atlas_to_dmabuf(
+pub(crate) fn compose_output_targets_to_atlas(
     renderer: &mut GlesRenderer,
-    atlas: &mut Dmabuf,
+    sources: &mut [OutputCompositeSource],
     atlas_size: Size<i32, Physical>,
     destination: &mut Dmabuf,
 ) -> Result<(), Box<dyn Error>> {
@@ -399,19 +403,43 @@ pub(crate) fn copy_atlas_to_dmabuf(
     {
         return Err(io::Error::other("screenshot DMA-BUF does not match the atlas size").into());
     }
-    let source = framebuffer_source_rect(Rectangle::from_size(atlas_size), atlas_size)
-        .ok_or_else(|| io::Error::other("screenshot source is outside the atlas"))?;
-    let source_framebuffer = renderer.bind(atlas)?;
-    let mut destination_framebuffer = renderer.bind(destination)?;
-    renderer
-        .blit(
-            &source_framebuffer,
-            &mut destination_framebuffer,
-            source,
-            Rectangle::from_size(atlas_size),
-            TextureFilter::Nearest,
-        )?
-        .wait()?;
+
+    {
+        let mut destination_framebuffer = renderer.bind(destination)?;
+        let mut frame =
+            renderer.render(&mut destination_framebuffer, atlas_size, Transform::Normal)?;
+        frame.clear(
+            Color32F::new(0.0, 0.0, 0.0, 1.0),
+            &[Rectangle::from_size(atlas_size)],
+        )?;
+        frame.finish()?.wait()?;
+    }
+
+    for source in sources {
+        let source_size: Size<i32, Physical> = (
+            i32::try_from(source.dmabuf.width())?,
+            i32::try_from(source.dmabuf.height())?,
+        )
+            .into();
+        if framebuffer_source_rect(source.destination, atlas_size).is_none() {
+            return Err(io::Error::other("output destination is outside screenshot atlas").into());
+        }
+        let source_framebuffer = renderer.bind(&mut source.dmabuf)?;
+        let mut destination_framebuffer = renderer.bind(destination)?;
+        renderer
+            .blit(
+                &source_framebuffer,
+                &mut destination_framebuffer,
+                Rectangle::from_size(source_size),
+                source.destination,
+                if source_size == source.destination.size {
+                    TextureFilter::Nearest
+                } else {
+                    TextureFilter::Linear
+                },
+            )?
+            .wait()?;
+    }
     Ok(())
 }
 
@@ -575,10 +603,15 @@ impl WaylandFrontend {
     pub(crate) fn process_screencopies(
         &mut self,
         renderer: &mut GlesRenderer,
-        atlas: &mut Dmabuf,
+        output_buffer: &mut Dmabuf,
         output: OutputId,
         presented: Duration,
     ) -> Result<(), Box<dyn Error>> {
+        let output_size: Size<i32, Physical> = (
+            i32::try_from(output_buffer.width())?,
+            i32::try_from(output_buffer.height())?,
+        )
+            .into();
         let mut retained = Vec::with_capacity(self.screencopy.pending.len());
         let mut copied = 0usize;
         for mut request in std::mem::take(&mut self.screencopy.pending) {
@@ -603,10 +636,10 @@ impl WaylandFrontend {
             let dmabuf = matches!(request.buffer, PendingBuffer::Dmabuf { .. });
             let result = match &mut request.buffer {
                 PendingBuffer::Shm(buffer) => {
-                    copy_to_shm(renderer, atlas, self.atlas_size, request.target, buffer)
+                    copy_to_shm(renderer, output_buffer, output_size, request.target, buffer)
                 }
                 PendingBuffer::Dmabuf { dmabuf, .. } => {
-                    copy_to_dmabuf(renderer, atlas, self.atlas_size, request.target, dmabuf)
+                    copy_to_dmabuf(renderer, output_buffer, output_size, request.target, dmabuf)
                 }
             };
             request.buffer.release();

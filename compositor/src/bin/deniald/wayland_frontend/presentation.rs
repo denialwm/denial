@@ -1,4 +1,6 @@
 use std::time::Duration;
+#[cfg(feature = "flutter")]
+use std::time::Instant;
 
 use smithay::desktop::{PopupManager, Window, utils::SurfacePresentationFeedback};
 use smithay::output::{Output, WeakOutput};
@@ -73,7 +75,7 @@ impl OutputPresentationBatch {
     pub(super) fn submit_window(&mut self, output: &Output, window: &Window) {
         // Presentation feedback belongs to the buffer accepted by KMS and is
         // therefore captured at submission. wl_surface.frame is deliberately
-        // not drained here; Denial's display clock releases that scheduling
+        // not drained here; Denial's output timeline releases that scheduling
         // hint independently of whether the scanout buffer changes.
         if self.active == self.slots.len() {
             self.slots
@@ -92,8 +94,8 @@ impl OutputPresentationBatch {
 /// protocol boundaries.
 ///
 /// `wl_surface.frame` tells a client when it is useful to start producing the
-/// *next* frame and is dispatched by Denial's KMS-derived display clock.
-/// `wp_presentation` describes the submitted atlas and is captured when KMS
+/// *next* frame and is dispatched by Denial's output timeline.
+/// `wp_presentation` describes the submitted output buffer and is captured when KMS
 /// accepts it, then retained until that same page-flip event.
 pub(super) struct PresentationTracker {
     _state: PresentationState,
@@ -148,6 +150,13 @@ impl PresentationTracker {
 
     pub(super) fn monotonic_now(&self) -> Duration {
         self.clock.now().into()
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn timeline_time(&self, deadline: Instant) -> Duration {
+        let observed_now = Instant::now();
+        let monotonic_now: Duration = self.clock.now().into();
+        monotonic_now.saturating_sub(observed_now.saturating_duration_since(deadline))
     }
 
     #[cfg(feature = "flutter")]
@@ -239,7 +248,7 @@ fn collect_surface_presentation_feedback(
     );
 }
 
-/// Advance every outstanding client frame callback on one display-clock tick.
+/// Advance every outstanding client frame callback on one output-timeline tick.
 /// The returned count lets the caller avoid refreshing and flushing an idle
 /// Wayland space.
 pub(super) fn send_window_frame_callbacks(window: &Window, callback_time: Duration) -> usize {

@@ -173,6 +173,24 @@ impl DamageRegion {
         self.len
     }
 
+    pub(crate) fn matches_size(&self, width: u32, height: u32) -> bool {
+        self.bounds.left == 0.0
+            && self.bounds.top == 0.0
+            && self.bounds.right == f64::from(width)
+            && self.bounds.bottom == f64::from(height)
+    }
+
+    #[cfg(test)]
+    pub(super) fn intersects_pixel_rect(&self, x: u32, y: u32, width: u32, height: u32) -> bool {
+        let left = f64::from(x);
+        let top = f64::from(y);
+        let right = left + f64::from(width);
+        let bottom = top + f64::from(height);
+        self.as_slice().iter().any(|damage| {
+            damage.left < right && damage.right > left && damage.top < bottom && damage.bottom > top
+        })
+    }
+
     /// Returns the conservative number of damaged pixels represented by this
     /// normalized region. Coalescing can include undamaged pixels, but never
     /// excludes pixels Flutter asked the embedder to repair.
@@ -204,16 +222,6 @@ impl DamageRegion {
             })
             .collect::<Vec<_>>()
             .join(";")
-    }
-
-    pub(crate) fn intersects_pixel_rect(&self, x: u32, y: u32, width: u32, height: u32) -> bool {
-        let left = f64::from(x);
-        let top = f64::from(y);
-        let right = left + f64::from(width);
-        let bottom = top + f64::from(height);
-        self.as_slice().iter().any(|damage| {
-            damage.left < right && damage.right > left && damage.top < bottom && damage.bottom > top
-        })
     }
 
     fn clip(&self, rect: sys::FlutterRect) -> ClippedRect {
@@ -251,20 +259,17 @@ impl DamageRegion {
 
         // Coalesce only when the union is exactly rectangular. Bounding two
         // merely touching or overlapping rectangles can fill an L-shaped gap;
-        // on a multi-output atlas that gap can be most of the desktop.
-        loop {
-            let Some((index, merged)) =
-                self.as_slice()
-                    .iter()
-                    .enumerate()
-                    .find_map(|(index, rect)| {
-                        incoming
-                            .merge_without_overdraw(*rect)
-                            .map(|merged| (index, merged))
-                    })
-            else {
-                break;
-            };
+        // on a large native output that gap can be a material overdraw cost.
+        while let Some((index, merged)) =
+            self.as_slice()
+                .iter()
+                .enumerate()
+                .find_map(|(index, rect)| {
+                    incoming
+                        .merge_without_overdraw(*rect)
+                        .map(|merged| (index, merged))
+                })
+        {
             incoming = merged;
             self.remove(index);
         }
