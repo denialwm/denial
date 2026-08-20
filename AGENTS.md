@@ -35,26 +35,28 @@ authentication or connectivity problem.
 
 ## Graphical session control
 
-Never log out, terminate, restart, or otherwise stop the user's graphical
-session on the user's behalf. In particular, do not terminate a login session,
-stop its user-session targets, kill the compositor to force an exit, reboot, or
-power off the machine. When testing requires a fresh Denial session, tell the
-user that a restart is required and wait for the user to log off and return to
-SDDM themselves. Continue only after the user confirms that they have logged
-back in. Perform session-control actions only when the user explicitly asks
-for that exact action.
+Never log out, terminate, restart, or otherwise stop the user's local graphical
+session on the user's behalf. In particular, do not terminate a local login
+session, stop its user-session targets, kill the local compositor to force an
+exit, reboot, or power off the local machine. When testing requires a fresh
+local Denial session, tell the user that a restart is required and wait for the
+user to log off and return to SDDM themselves. Continue only after the user
+confirms that they have logged back in. Perform local session-control actions
+only when the user explicitly asks for that exact action.
 
-This restriction does not apply to the dedicated unattended test host
-`192.168.1.18` (`.18`). For Denial validation, agents may autonomously stop or
-restart its compositor, greetd/login session, launch test applications, and
-reboot it when required. Treat `.18` as a disposable lab host, not as the
-user's active graphical session.
+This restriction does not apply to the dedicated remote Denial hosts
+`192.168.1.18` (`.18`) and `192.168.1.183` (`.183`). Agents may autonomously
+stop or restart their compositor, greetd/login session, launch test
+applications, and reboot them when required. After deploying a compositor or
+Flutter bundle to either host, the agent is responsible for restarting its
+Denial session and confirming that a new `deniald` process is running; no
+additional authorization is required. Treat both machines as agent-managed
+test hosts, not as the user's local graphical session.
 
-When a restart of the greetd-backed Denial session on `192.168.1.183` (`.183`)
-is explicitly authorized, restart `greetd.service` directly and confirm that a
-new `deniald` process is running. Do not terminate the login session first or
-wait for Denial to return: greetd runs its configured `initial_session` only
-once per daemon start and otherwise falls back to its greeter.
+On the greetd-backed `.183`, restart `greetd.service` directly. Do not
+terminate the login session first or wait for Denial to return: greetd runs its
+configured `initial_session` only once per daemon start and otherwise falls
+back to its greeter.
 
 ## Why Denial
 
