@@ -348,6 +348,13 @@ impl FrameScheduler {
         self.outputs.ticks()
     }
 
+    pub(super) fn output_tick_due(&self, now: Instant) -> bool {
+        self.outputs
+            .timelines
+            .iter()
+            .any(|timeline| now >= timeline.next_tick)
+    }
+
     pub(super) fn render_requests(&self) -> &[OutputFrameRequest] {
         &self.render_requests
     }

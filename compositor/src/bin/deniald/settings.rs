@@ -27,6 +27,9 @@ const MAX_REPEAT_DELAY_MS: u32 = 5_000;
 const MAX_REPEAT_RATE_HZ: u32 = 100;
 const DEFAULT_REPEAT_DELAY_MS: u32 = 600;
 const DEFAULT_REPEAT_RATE_HZ: u32 = 25;
+pub(super) const MIN_TOUCHPAD_SCROLL_SPEED_FACTOR: f64 = 0.05;
+pub(super) const MAX_TOUCHPAD_SCROLL_SPEED_FACTOR: f64 = 5.0;
+const DEFAULT_TOUCHPAD_SCROLL_SPEED_FACTOR: f64 = 1.0;
 static SETTINGS_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -173,11 +176,12 @@ impl KeyboardSettings {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct TouchpadSettings {
     pub(super) tap_to_click_enabled: bool,
     pub(super) natural_scroll_enabled: bool,
+    pub(super) scroll_speed_factor: f64,
 }
 
 impl Default for TouchpadSettings {
@@ -185,7 +189,22 @@ impl Default for TouchpadSettings {
         Self {
             tap_to_click_enabled: true,
             natural_scroll_enabled: false,
+            scroll_speed_factor: DEFAULT_TOUCHPAD_SCROLL_SPEED_FACTOR,
         }
+    }
+}
+
+impl TouchpadSettings {
+    pub(super) fn validate(&self) -> Result<(), SettingsError> {
+        if !self.scroll_speed_factor.is_finite()
+            || !(MIN_TOUCHPAD_SCROLL_SPEED_FACTOR..=MAX_TOUCHPAD_SCROLL_SPEED_FACTOR)
+                .contains(&self.scroll_speed_factor)
+        {
+            return Err(SettingsError::Touchpad(format!(
+                "touchpad scroll speed factor must be within {MIN_TOUCHPAD_SCROLL_SPEED_FACTOR}..={MAX_TOUCHPAD_SCROLL_SPEED_FACTOR}"
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -224,6 +243,7 @@ pub(super) enum SettingsError {
     Json(serde_json::Error),
     Document(String),
     Keyboard(String),
+    Touchpad(String),
     Revision { expected: u64, actual: u64 },
     Conflict,
 }
@@ -231,9 +251,10 @@ pub(super) enum SettingsError {
 impl fmt::Display for SettingsError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Path(reason) | Self::Document(reason) | Self::Keyboard(reason) => {
-                formatter.write_str(reason)
-            }
+            Self::Path(reason)
+            | Self::Document(reason)
+            | Self::Keyboard(reason)
+            | Self::Touchpad(reason) => formatter.write_str(reason),
             Self::Io(error) => write!(formatter, "settings I/O failed: {error}"),
             Self::Json(error) => write!(formatter, "settings JSON is invalid: {error}"),
             Self::Revision { expected, actual } => write!(
@@ -424,6 +445,7 @@ impl SettingsManager {
         touchpad: TouchpadSettings,
     ) -> Result<PreparedSettingsUpdate, SettingsError> {
         self.check_revision(expected_revision)?;
+        touchpad.validate()?;
         let mut document = self.document.clone();
         document.insert("revision".to_owned(), Value::from(self.next_revision()?));
         document.insert(
@@ -588,6 +610,7 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         Some(value) => serde_json::from_value::<TouchpadSettings>(value.clone())?,
         None => TouchpadSettings::default(),
     };
+    touchpad.validate()?;
     let migrated = version != SETTINGS_SCHEMA_VERSION
         || !document.contains_key("revision")
         || !document.contains_key("keyboard")
@@ -846,6 +869,7 @@ mod tests {
         let configured = TouchpadSettings {
             tap_to_click_enabled: false,
             natural_scroll_enabled: true,
+            scroll_speed_factor: 2.5,
         };
         let old_revision = manager.revision();
         let update = manager
@@ -858,6 +882,22 @@ mod tests {
         let reloaded = SettingsManager::load_path(path).unwrap();
         assert_eq!(reloaded.revision(), old_revision + 1);
         assert_eq!(reloaded.touchpad(), &configured);
+    }
+
+    #[test]
+    fn rejects_touchpad_scroll_speed_outside_supported_range() {
+        let temporary = TemporaryDirectory::new("settings-touchpad-scroll-speed");
+        let manager = SettingsManager::load_path(temporary.settings_path()).unwrap();
+        for scroll_speed_factor in [0.049, 5.001, f64::NAN] {
+            let configured = TouchpadSettings {
+                scroll_speed_factor,
+                ..TouchpadSettings::default()
+            };
+            assert!(matches!(
+                manager.prepare_touchpad_update(manager.revision(), configured),
+                Err(SettingsError::Touchpad(_))
+            ));
+        }
     }
 
     #[test]

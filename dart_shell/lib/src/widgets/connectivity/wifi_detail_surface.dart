@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/generated/app_localizations.dart';
 import '../../localization/denial_localizations.dart';
-import '../../services/network_manager_service.dart';
+import '../../services/network_backend.dart';
 import '../../state/network_connectivity.dart';
 import '../../theme/motion.dart';
 import '../../theme/shell_theme.dart';

@@ -109,6 +109,22 @@ do not run `bindgen`. Arch packaging uses the verified output selected by that
 tool, so the engine package and Denial package always derive from the same
 checked input.
 
+There are two deliberately separate commands:
+
+```sh
+# Routine build or deployment; unchanged engines are an exact cache hit.
+tools/denial-flutter-engine build
+
+# Run exactly once after deliberately advancing SOURCE_LOCK.json.
+tools/denial-flutter-engine refresh-metadata
+```
+
+`refresh-metadata` regenerates every mode's tracked `args.gn` and canonical
+checksum in one transaction, incrementally rebuilds invalidated targets,
+populates the new revision-keyed cache entry, and stages all verified engines
+below `prebuilt/`. Do not invoke the routine `build` command and manually fix
+successive release, debug, and profile checksum failures during a lock advance.
+
 During a controlled engine upgrade, regenerate and check the committed
 bindings with:
 

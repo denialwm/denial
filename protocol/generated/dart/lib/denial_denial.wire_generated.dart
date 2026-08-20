@@ -4108,10 +4108,11 @@ class TouchpadConfiguration {
 
   bool get tapToClickEnabled => const fb.BoolReader().vTableGet(_bc, _bcOffset, 4, true);
   bool get naturalScrollEnabled => const fb.BoolReader().vTableGet(_bc, _bcOffset, 6, false);
+  double get scrollSpeedFactor => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 8, 1.0);
 
   @override
   String toString() {
-    return 'TouchpadConfiguration{tapToClickEnabled: ${tapToClickEnabled}, naturalScrollEnabled: ${naturalScrollEnabled}}';
+    return 'TouchpadConfiguration{tapToClickEnabled: ${tapToClickEnabled}, naturalScrollEnabled: ${naturalScrollEnabled}, scrollSpeedFactor: ${scrollSpeedFactor}}';
   }
 }
 
@@ -4129,7 +4130,7 @@ class TouchpadConfigurationBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(2);
+    fbBuilder.startTable(3);
   }
 
   int addTapToClickEnabled(bool? tapToClickEnabled) {
@@ -4138,6 +4139,10 @@ class TouchpadConfigurationBuilder {
   }
   int addNaturalScrollEnabled(bool? naturalScrollEnabled) {
     fbBuilder.addBool(1, naturalScrollEnabled);
+    return fbBuilder.offset;
+  }
+  int addScrollSpeedFactor(double? scrollSpeedFactor) {
+    fbBuilder.addFloat64(2, scrollSpeedFactor);
     return fbBuilder.offset;
   }
 
@@ -4149,20 +4154,24 @@ class TouchpadConfigurationBuilder {
 class TouchpadConfigurationObjectBuilder extends fb.ObjectBuilder {
   final bool? _tapToClickEnabled;
   final bool? _naturalScrollEnabled;
+  final double? _scrollSpeedFactor;
 
   TouchpadConfigurationObjectBuilder({
     bool? tapToClickEnabled,
     bool? naturalScrollEnabled,
+    double? scrollSpeedFactor,
   })
       : _tapToClickEnabled = tapToClickEnabled,
-        _naturalScrollEnabled = naturalScrollEnabled;
+        _naturalScrollEnabled = naturalScrollEnabled,
+        _scrollSpeedFactor = scrollSpeedFactor;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
-    fbBuilder.startTable(2);
+    fbBuilder.startTable(3);
     fbBuilder.addBool(0, _tapToClickEnabled);
     fbBuilder.addBool(1, _naturalScrollEnabled);
+    fbBuilder.addFloat64(2, _scrollSpeedFactor);
     return fbBuilder.endTable();
   }
 

@@ -187,18 +187,20 @@ The request is rejected unless:
   capability.
 
 Version 1 accepts `normal`, `90`, `180`, `270`, `flipped`, `flipped-90`,
-`flipped-180`, and `flipped-270`. Denial programs the primary plane's DRM
-rotation property for every atlas commit. A transform unsupported by the
-selected plane is rejected by the atomic `TEST_ONLY` validation and leaves the
-previous display configuration active.
+`flipped-180`, and `flipped-270`. Flutter applies the output projection while
+rendering into the connector's native, unrotated buffer. Transform-only
+changes therefore do not depend on the primary plane's DRM rotation property,
+do not change the modeset, and retain the existing buffer pool and modifier.
 
 Mode, position, scale, enable state, and adaptive sync are staged through
-Denial's topology transaction. The compositor allocates the candidate atlas,
-renders it, performs KMS `TEST_ONLY`, commits all active CRTCs, waits for
-vblank, publishes the Wayland topology, and installs the configuration only
-after success. Failures before finalization restore the previous scanout.
-DPMS changes follow that topology commit; the returned `powered` fields are
-the authoritative result.
+Denial's topology transaction. If connector identities, modes, and adaptive
+sync are unchanged, logical geometry is updated in place and the resident
+Flutter output pools are reused. Hardware changes allocate candidate output
+pools, render them, perform KMS `TEST_ONLY`, commit all active CRTCs, wait for
+vblank, publish the Wayland topology, and install the configuration only after
+success. Failures before finalization restore the previous scanout. DPMS
+changes follow that topology commit; the returned `powered` fields are the
+authoritative result.
 
 The `persistent` capability is true when `deniald` was started with
 `--output-config PATH`. A request with `persistent: false` changes only the

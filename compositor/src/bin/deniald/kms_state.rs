@@ -311,13 +311,14 @@ impl AtlasPlaneProperties {
 impl Scanout {
     pub(super) fn rotation_property(
         &self,
+        transform: OutputTransform,
     ) -> Result<Option<(property::Handle, u64)>, Box<dyn Error>> {
         match self.plane_properties.rotation {
-            Some(property) => Ok(Some((property, drm_rotation(self.output.transform)))),
-            None if self.output.transform == OutputTransform::Normal => Ok(None),
+            Some(property) => Ok(Some((property, drm_rotation(transform)))),
+            None if transform == OutputTransform::Normal => Ok(None),
             None => Err(format!(
                 "{} primary plane does not expose the DRM rotation property required for {:?}",
-                self.output.name, self.output.transform
+                self.output.name, transform
             )
             .into()),
         }
@@ -737,6 +738,17 @@ impl RenderSwapchains {
             Self::Atlas(atlas) => atlas.size,
             #[cfg(feature = "flutter")]
             Self::Outputs { desktop_size, .. } => *desktop_size,
+        }
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn set_desktop_size(&mut self, size: PixelSize) -> Result<(), &'static str> {
+        match self {
+            Self::Outputs { desktop_size, .. } => {
+                *desktop_size = size;
+                Ok(())
+            }
+            Self::Atlas(_) => Err("diagnostic atlas has no Flutter desktop size"),
         }
     }
 

@@ -50,6 +50,12 @@ restart its compositor, greetd/login session, launch test applications, and
 reboot it when required. Treat `.18` as a disposable lab host, not as the
 user's active graphical session.
 
+When a restart of the greetd-backed Denial session on `192.168.1.183` (`.183`)
+is explicitly authorized, restart `greetd.service` directly and confirm that a
+new `deniald` process is running. Do not terminate the login session first or
+wait for Denial to return: greetd runs its configured `initial_session` only
+once per daemon start and otherwise falls back to its greeter.
+
 ## Why Denial
 
 **Denial** is an English word. The name contains **Denia**, followed by one
@@ -128,6 +134,13 @@ checksums, build metadata, and licenses live below `prebuilt/flutter-engine/`.
 fork checkouts, and keeps a revision-keyed artifact cache plus stable
 mode-specific Ninja outputs. An unchanged lock and build configuration is a
 verified no-op; changed commits rebuild only targets invalidated by Ninja.
+Routine builds use `build`, which also stages the verified cache artifacts
+below `prebuilt/` for `tools/denial-pc`. Immediately after deliberately
+advancing `SOURCE_LOCK.json`, run
+`tools/denial-flutter-engine refresh-metadata` once instead: it regenerates
+all modes' tracked `args.gn` and canonical checksums, builds the invalidated
+targets, populates the new immutable cache entry, and stages its artifacts.
+Never repair an expected checksum one mode at a time.
 
 Denial-owned Flutter and Skia commits use
 `Doctor Logix <doctor.logix@gmail.com>`. Set that identity locally in source

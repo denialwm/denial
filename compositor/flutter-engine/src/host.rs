@@ -448,7 +448,6 @@ fn engine_command_line(project: &EngineProject) -> Vec<CString> {
     if project.renderer_backend.uses_impeller() {
         for argument in [
             "--enable-impeller=true",
-            "--impeller-use-sdfs",
             "--denial-gl-fbo-zero-is-no-target",
         ] {
             arguments.push(CString::new(argument).expect("static argv has no NUL"));
@@ -1475,7 +1474,7 @@ mod tests {
     }
 
     #[test]
-    fn impeller_is_default_and_adds_only_the_gl_atlas_contract() {
+    fn impeller_is_default_without_experimental_sdfs() {
         assert_eq!(RendererBackend::default(), RendererBackend::ImpellerGles);
         let project = EngineProject {
             engine_library: PathBuf::from("/engine"),
@@ -1496,7 +1495,6 @@ mod tests {
             [
                 "deniald",
                 "--enable-impeller=true",
-                "--impeller-use-sdfs",
                 "--denial-gl-fbo-zero-is-no-target"
             ]
         );

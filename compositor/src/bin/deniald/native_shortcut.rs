@@ -1303,7 +1303,7 @@ pub(super) enum ShortcutDisposition {
     RequestOverview,
     RequestToggleVerticalMaximize,
     RequestWindowSwitcherNext,
-    RequestWindowSwitcherEnd,
+    RequestWindowSwitcherEnd { forward: bool },
     RequestClipboard,
     RequestScreenshotRegion,
     RequestClose,
@@ -1323,6 +1323,12 @@ pub(super) enum ShortcutDisposition {
     SpawnSh(String),
 }
 
+#[derive(Clone, Copy, Debug)]
+enum WindowSwitcherRelease {
+    Modifier(Modifier),
+    Key(u32),
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct ShortcutEngine {
     bindings: Vec<CompiledShortcut>,
@@ -1331,7 +1337,7 @@ pub(super) struct ShortcutEngine {
     shift_keys: u8,
     logo_keys: u8,
     logo_chorded: bool,
-    window_switcher_active: bool,
+    window_switcher_release: Option<WindowSwitcherRelease>,
     captured_keys: HashMap<u32, ShortcutTarget>,
 }
 
@@ -1350,7 +1356,7 @@ impl ShortcutEngine {
             shift_keys: 0,
             logo_keys: 0,
             logo_chorded: false,
-            window_switcher_active: false,
+            window_switcher_release: None,
             captured_keys: HashMap::new(),
         })
     }
@@ -1383,12 +1389,12 @@ impl ShortcutEngine {
             .unwrap_or(ShortcutDisposition::Forward)
     }
 
-    fn target_for_key(&self, evdev_keycode: u32) -> Option<ShortcutTarget> {
+    fn target_for_key(&self, evdev_keycode: u32) -> Option<(ShortcutTarget, u8)> {
         let modifiers = self.active_modifiers();
         self.bindings.iter().find_map(|binding| {
             (binding.trigger.modifiers == modifiers
                 && binding.trigger.key == TriggerKey::Evdev(evdev_keycode))
-            .then(|| binding.target.clone())
+            .then(|| (binding.target.clone(), binding.trigger.modifiers))
         })
     }
 
@@ -1416,12 +1422,15 @@ impl ShortcutEngine {
             }
 
             self.logo_keys &= !bit;
-            if self.window_switcher_active {
-                self.window_switcher_active = false;
+            if matches!(
+                self.window_switcher_release,
+                Some(WindowSwitcherRelease::Modifier(Modifier::Super))
+            ) {
+                self.window_switcher_release = None;
                 if self.logo_keys == 0 {
                     self.logo_chorded = false;
                 }
-                return ShortcutDisposition::RequestWindowSwitcherEnd;
+                return ShortcutDisposition::RequestWindowSwitcherEnd { forward: false };
             }
             if self.logo_keys == 0 {
                 let chorded = std::mem::take(&mut self.logo_chorded);
@@ -1437,24 +1446,47 @@ impl ShortcutEngine {
         }
 
         let modifier = match evdev_keycode {
-            KEY_LEFT_CTRL => Some((&mut self.ctrl_keys, LEFT_MODIFIER)),
-            KEY_RIGHT_CTRL => Some((&mut self.ctrl_keys, RIGHT_MODIFIER)),
-            KEY_LEFT_ALT => Some((&mut self.alt_keys, LEFT_MODIFIER)),
-            KEY_RIGHT_ALT => Some((&mut self.alt_keys, RIGHT_MODIFIER)),
-            KEY_LEFT_SHIFT => Some((&mut self.shift_keys, LEFT_MODIFIER)),
-            KEY_RIGHT_SHIFT => Some((&mut self.shift_keys, RIGHT_MODIFIER)),
+            KEY_LEFT_CTRL => Some((Modifier::Ctrl, LEFT_MODIFIER)),
+            KEY_RIGHT_CTRL => Some((Modifier::Ctrl, RIGHT_MODIFIER)),
+            KEY_LEFT_ALT => Some((Modifier::Alt, LEFT_MODIFIER)),
+            KEY_RIGHT_ALT => Some((Modifier::Alt, RIGHT_MODIFIER)),
+            KEY_LEFT_SHIFT => Some((Modifier::Shift, LEFT_MODIFIER)),
+            KEY_RIGHT_SHIFT => Some((Modifier::Shift, RIGHT_MODIFIER)),
             _ => None,
         };
-        if let Some((keys, bit)) = modifier {
+        if let Some((modifier, bit)) = modifier {
+            let keys = match modifier {
+                Modifier::Ctrl => &mut self.ctrl_keys,
+                Modifier::Alt => &mut self.alt_keys,
+                Modifier::Shift => &mut self.shift_keys,
+                Modifier::Super => unreachable!("SUPER modifiers are handled above"),
+            };
             if pressed {
                 *keys |= bit;
             } else {
                 *keys &= !bit;
             }
+            if !pressed
+                && matches!(
+                    self.window_switcher_release,
+                    Some(WindowSwitcherRelease::Modifier(owner)) if owner == modifier
+                )
+            {
+                self.window_switcher_release = None;
+                return ShortcutDisposition::RequestWindowSwitcherEnd { forward: true };
+            }
             return ShortcutDisposition::Forward;
         }
         if !pressed {
-            return if self.captured_keys.remove(&evdev_keycode).is_some() {
+            let captured = self.captured_keys.remove(&evdev_keycode).is_some();
+            if matches!(
+                self.window_switcher_release,
+                Some(WindowSwitcherRelease::Key(owner)) if owner == evdev_keycode
+            ) {
+                self.window_switcher_release = None;
+                return ShortcutDisposition::RequestWindowSwitcherEnd { forward: false };
+            }
+            return if captured {
                 ShortcutDisposition::Consume
             } else {
                 ShortcutDisposition::Forward
@@ -1468,7 +1500,7 @@ impl ShortcutEngine {
                 ShortcutDisposition::Consume
             };
         }
-        let Some(target) = self.target_for_key(evdev_keycode) else {
+        let Some((target, modifiers)) = self.target_for_key(evdev_keycode) else {
             return ShortcutDisposition::Forward;
         };
 
@@ -1477,8 +1509,22 @@ impl ShortcutEngine {
             == (ShortcutTarget::DenialAction {
                 action: ShortcutAction::WindowSwitcher,
             })
+            && self.window_switcher_release.is_none()
         {
-            self.window_switcher_active = true;
+            self.window_switcher_release = Some(
+                [
+                    Modifier::Super,
+                    Modifier::Ctrl,
+                    Modifier::Alt,
+                    Modifier::Shift,
+                ]
+                .into_iter()
+                .find(|modifier| modifiers & modifier.flag() != 0)
+                .map_or(
+                    WindowSwitcherRelease::Key(evdev_keycode),
+                    WindowSwitcherRelease::Modifier,
+                ),
+            );
         }
         target.into()
     }
@@ -1504,7 +1550,7 @@ impl ShortcutEngine {
         self.shift_keys = 0;
         self.logo_keys = 0;
         self.logo_chorded = false;
-        self.window_switcher_active = false;
+        self.window_switcher_release = None;
         self.captured_keys.clear();
     }
 }
@@ -1558,6 +1604,20 @@ mod tests {
 
     fn release(shortcut: &mut NativeEscapeShortcut, keycode: u32) -> ShortcutDisposition {
         shortcut.observe(keycode, false)
+    }
+
+    fn window_switcher_engine(shortcut: &str) -> NativeEscapeShortcut {
+        NativeEscapeShortcut::from_file(&ShortcutFile {
+            version: SHORTCUT_SCHEMA_VERSION,
+            revision: 1,
+            shortcuts: vec![ShortcutBinding {
+                shortcut: shortcut.to_owned(),
+                target: ShortcutTarget::DenialAction {
+                    action: ShortcutAction::WindowSwitcher,
+                },
+            }],
+        })
+        .expect("window-switcher shortcut must compile")
     }
 
     #[test]
@@ -1902,7 +1962,7 @@ mod tests {
         );
         assert_eq!(
             release(&mut shortcut, KEY_LEFT_META),
-            ShortcutDisposition::RequestWindowSwitcherEnd
+            ShortcutDisposition::RequestWindowSwitcherEnd { forward: false }
         );
         assert_eq!(press(&mut shortcut, KEY_TAB), ShortcutDisposition::Consume);
         assert_eq!(
@@ -1921,11 +1981,76 @@ mod tests {
         release(&mut shortcut, KEY_TAB);
         assert_eq!(
             release(&mut shortcut, KEY_LEFT_META),
-            ShortcutDisposition::RequestWindowSwitcherEnd
+            ShortcutDisposition::RequestWindowSwitcherEnd { forward: false }
         );
         assert_eq!(
             release(&mut shortcut, KEY_RIGHT_META),
             ShortcutDisposition::Consume
+        );
+    }
+
+    #[test]
+    fn alt_tab_ends_on_alt_release_and_forwards_the_modifier_release() {
+        for alt in [KEY_LEFT_ALT, KEY_RIGHT_ALT] {
+            let mut shortcut = window_switcher_engine("Alt+Tab");
+
+            assert_eq!(press(&mut shortcut, alt), ShortcutDisposition::Forward);
+            assert_eq!(
+                press(&mut shortcut, KEY_TAB),
+                ShortcutDisposition::RequestWindowSwitcherNext
+            );
+            assert_eq!(
+                release(&mut shortcut, alt),
+                ShortcutDisposition::RequestWindowSwitcherEnd { forward: true }
+            );
+            assert_eq!(
+                release(&mut shortcut, KEY_TAB),
+                ShortcutDisposition::Consume
+            );
+        }
+    }
+
+    #[test]
+    fn window_switcher_ends_only_on_the_first_shortcut_modifier() {
+        let mut shortcut = window_switcher_engine("Ctrl+Alt+Tab");
+
+        assert_eq!(
+            press(&mut shortcut, KEY_LEFT_CTRL),
+            ShortcutDisposition::Forward
+        );
+        assert_eq!(
+            press(&mut shortcut, KEY_LEFT_ALT),
+            ShortcutDisposition::Forward
+        );
+        assert_eq!(
+            press(&mut shortcut, KEY_TAB),
+            ShortcutDisposition::RequestWindowSwitcherNext
+        );
+        assert_eq!(
+            release(&mut shortcut, KEY_LEFT_ALT),
+            ShortcutDisposition::Forward
+        );
+        assert_eq!(
+            release(&mut shortcut, KEY_LEFT_CTRL),
+            ShortcutDisposition::RequestWindowSwitcherEnd { forward: true }
+        );
+        assert_eq!(
+            release(&mut shortcut, KEY_TAB),
+            ShortcutDisposition::Consume
+        );
+    }
+
+    #[test]
+    fn modifierless_window_switcher_ends_on_the_trigger_release() {
+        let mut shortcut = window_switcher_engine("Tab");
+
+        assert_eq!(
+            press(&mut shortcut, KEY_TAB),
+            ShortcutDisposition::RequestWindowSwitcherNext
+        );
+        assert_eq!(
+            release(&mut shortcut, KEY_TAB),
+            ShortcutDisposition::RequestWindowSwitcherEnd { forward: false }
         );
     }
 

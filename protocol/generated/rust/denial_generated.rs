@@ -7360,6 +7360,7 @@ impl<'a> flatbuffers::Follow<'a> for TouchpadConfiguration<'a> {
 impl<'a> TouchpadConfiguration<'a> {
   pub const VT_TAP_TO_CLICK_ENABLED: flatbuffers::VOffsetT = 4;
   pub const VT_NATURAL_SCROLL_ENABLED: flatbuffers::VOffsetT = 6;
+  pub const VT_SCROLL_SPEED_FACTOR: flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -7371,6 +7372,7 @@ impl<'a> TouchpadConfiguration<'a> {
     args: &'args TouchpadConfigurationArgs
   ) -> flatbuffers::WIPOffset<TouchpadConfiguration<'bldr>> {
     let mut builder = TouchpadConfigurationBuilder::new(_fbb);
+    builder.add_scroll_speed_factor(args.scroll_speed_factor);
     builder.add_natural_scroll_enabled(args.natural_scroll_enabled);
     builder.add_tap_to_click_enabled(args.tap_to_click_enabled);
     builder.finish()
@@ -7391,6 +7393,13 @@ impl<'a> TouchpadConfiguration<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<bool>(TouchpadConfiguration::VT_NATURAL_SCROLL_ENABLED, Some(false)).unwrap()}
   }
+  #[inline]
+  pub fn scroll_speed_factor(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(TouchpadConfiguration::VT_SCROLL_SPEED_FACTOR, Some(1.0)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for TouchpadConfiguration<'_> {
@@ -7402,6 +7411,7 @@ impl flatbuffers::Verifiable for TouchpadConfiguration<'_> {
     v.visit_table(pos)?
      .visit_field::<bool>("tap_to_click_enabled", Self::VT_TAP_TO_CLICK_ENABLED, false)?
      .visit_field::<bool>("natural_scroll_enabled", Self::VT_NATURAL_SCROLL_ENABLED, false)?
+     .visit_field::<f64>("scroll_speed_factor", Self::VT_SCROLL_SPEED_FACTOR, false)?
      .finish();
     Ok(())
   }
@@ -7409,6 +7419,7 @@ impl flatbuffers::Verifiable for TouchpadConfiguration<'_> {
 pub struct TouchpadConfigurationArgs {
     pub tap_to_click_enabled: bool,
     pub natural_scroll_enabled: bool,
+    pub scroll_speed_factor: f64,
 }
 impl<'a> Default for TouchpadConfigurationArgs {
   #[inline]
@@ -7416,6 +7427,7 @@ impl<'a> Default for TouchpadConfigurationArgs {
     TouchpadConfigurationArgs {
       tap_to_click_enabled: true,
       natural_scroll_enabled: false,
+      scroll_speed_factor: 1.0,
     }
   }
 }
@@ -7432,6 +7444,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> TouchpadConfigurationBuilder<'a
   #[inline]
   pub fn add_natural_scroll_enabled(&mut self, natural_scroll_enabled: bool) {
     self.fbb_.push_slot::<bool>(TouchpadConfiguration::VT_NATURAL_SCROLL_ENABLED, natural_scroll_enabled, false);
+  }
+  #[inline]
+  pub fn add_scroll_speed_factor(&mut self, scroll_speed_factor: f64) {
+    self.fbb_.push_slot::<f64>(TouchpadConfiguration::VT_SCROLL_SPEED_FACTOR, scroll_speed_factor, 1.0);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> TouchpadConfigurationBuilder<'a, 'b, A> {
@@ -7453,6 +7469,7 @@ impl core::fmt::Debug for TouchpadConfiguration<'_> {
     let mut ds = f.debug_struct("TouchpadConfiguration");
       ds.field("tap_to_click_enabled", &self.tap_to_click_enabled());
       ds.field("natural_scroll_enabled", &self.natural_scroll_enabled());
+      ds.field("scroll_speed_factor", &self.scroll_speed_factor());
       ds.finish()
   }
 }

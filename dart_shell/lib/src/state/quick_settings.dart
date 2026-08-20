@@ -63,7 +63,7 @@ final quickSettingsProvider =
 ///
 /// Rotation remains a migration placeholder until its authoritative service
 /// lands. Connectivity and DND live in their own signal-driven providers so
-/// their tiles cannot disagree with NetworkManager, BlueZ, or notification
+/// their tiles cannot disagree with the network service, BlueZ, or notification
 /// policy.
 class QuickSettingsController extends Notifier<QuickSettingsState>
     with NotifierLifecycle<QuickSettingsState> {

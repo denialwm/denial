@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:denial_dart_shell/src/desktop/desktop_system_bar.dart';
 import 'package:denial_dart_shell/src/localization/denial_localizations.dart';
+import 'package:denial_dart_shell/src/models/battery_status.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/services/media_player_service.dart';
 import 'package:denial_dart_shell/src/state/system_status.dart';
@@ -75,6 +76,45 @@ void main() {
 
     expect(_sparklineFinder, findsOneWidget);
     expect(find.text('CPU'), findsOneWidget);
+  });
+
+  testWidgets('battery card sits immediately left of GPU and CPU cards', (
+    tester,
+  ) async {
+    var openPowerSettingsCount = 0;
+    await _pumpBar(
+      tester,
+      cpuUsage: 0.23,
+      battery: const BatteryStatus(capacity: 64, charging: true),
+      onOpenPowerSettings: () => openPowerSettingsCount += 1,
+      gpus: const [
+        GpuLoad(
+          id: 'card2',
+          label: 'AMD',
+          series: LoadSeries(current: 0.42, history: [0.3, 0.42]),
+        ),
+      ],
+    );
+
+    expect(_batteryGaugeFinder, findsOneWidget);
+    expect(find.text('64%'), findsOneWidget);
+    expect(find.bySemanticsLabel('Battery, Charging 64%'), findsOneWidget);
+
+    final batteryRect = tester.getRect(find.text('64%'));
+    final gpuRect = tester.getRect(find.text('AMD'));
+    final cpuRect = tester.getRect(find.text('CPU'));
+    expect(batteryRect.right, lessThan(gpuRect.left));
+    expect(gpuRect.right, lessThan(cpuRect.left));
+
+    await tester.tap(find.byKey(systemBarBatteryButtonKey));
+    expect(openPowerSettingsCount, 1);
+  });
+
+  testWidgets('battery card waits for a real capacity reading', (tester) async {
+    await _pumpBar(tester, cpuUsage: 0.23);
+
+    expect(_batteryGaugeFinder, findsNothing);
+    expect(find.byKey(const ValueKey('system-bar-battery')), findsNothing);
   });
 
   testWidgets('every autodetected GPU gets a labelled sparkline card', (
@@ -211,6 +251,7 @@ void main() {
       tester,
       cpuUsage: 0.23,
       cpuTemperatureC: 54,
+      battery: const BatteryStatus(capacity: 74, charging: true),
       history: wave,
       gpus: [
         GpuLoad(
@@ -255,10 +296,18 @@ final Finder _sparklineFinder = find.byWidgetPredicate(
       '${widget.painter.runtimeType}' == '_SparklinePainter',
 );
 
+final Finder _batteryGaugeFinder = find.byWidgetPredicate(
+  (widget) =>
+      widget is CustomPaint &&
+      '${widget.painter.runtimeType}' == '_BatteryLevelPainter',
+);
+
 Future<void> _pumpBar(
   WidgetTester tester, {
   required double? cpuUsage,
   double? cpuTemperatureC,
+  BatteryStatus battery = BatteryStatus.unknown,
+  VoidCallback? onOpenPowerSettings,
   List<double>? history,
   List<GpuLoad> gpus = const <GpuLoad>[],
   bool withWallpaper = false,
@@ -279,6 +328,7 @@ Future<void> _pumpBar(
           (ref, controller) => const WallpaperAccent(Color(0xff64d8cb)),
         ),
         cpuUsageProvider.overrideWithBuild((ref, controller) => cpuLoad),
+        batteryProvider.overrideWithBuild((ref, controller) => battery),
         gpuUsageProvider.overrideWithBuild((ref, controller) => gpus),
         mediaPlaybackProvider.overrideWith(
           (ref) => Stream<MprisPlaybackState>.value(
@@ -320,7 +370,10 @@ Future<void> _pumpBar(
                   right: 0,
                   top: 0,
                   height: 32,
-                  child: DesktopSystemBar(side: SystemBarSide.top),
+                  child: DesktopSystemBar(
+                    side: SystemBarSide.top,
+                    onOpenPowerSettings: onOpenPowerSettings ?? () {},
+                  ),
                 ),
               ],
             ),

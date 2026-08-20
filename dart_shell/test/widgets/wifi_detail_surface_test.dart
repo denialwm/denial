@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:denial_dart_shell/src/localization/denial_localizations.dart';
-import 'package:denial_dart_shell/src/services/network_manager_service.dart';
+import 'package:denial_dart_shell/src/services/network_service.dart';
 import 'package:denial_dart_shell/src/state/network_connectivity.dart';
 import 'package:denial_dart_shell/src/theme/tokens.dart';
 import 'package:denial_dart_shell/src/widgets/connectivity/wifi_detail_surface.dart';
@@ -11,20 +11,18 @@ import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('surface is truthful without NetworkManager or an adapter', (
+  testWidgets('surface is truthful without a network service or adapter', (
     tester,
   ) async {
-    final backend = _FakeNetworkBackend(NetworkManagerSnapshot.unavailable());
+    final backend = _FakeNetworkBackend(NetworkSnapshot.unavailable());
     addTearDown(backend.dispose);
     final container = ProviderContainer.test(
-      overrides: <Override>[
-        networkManagerServiceProvider.overrideWithValue(backend),
-      ],
+      overrides: <Override>[networkServiceProvider.overrideWithValue(backend)],
     );
 
     await tester.pumpWidget(_host(container));
     await tester.pump();
-    expect(find.text('NetworkManager is unavailable'), findsOneWidget);
+    expect(find.text('Network service is unavailable'), findsOneWidget);
 
     backend.emit(_snapshot(networks: const <WifiNetwork>[], hasAdapter: false));
     await tester.pump();
@@ -39,15 +37,13 @@ void main() {
       _snapshot(
         networks: <WifiNetwork>[
           _network('Secure', security: WifiSecurity.wpaPersonal),
-          _network('Saved', connected: true, savedConnectionPath: '/saved/1'),
+          _network('Saved', connected: true, savedNetworkPath: '/saved/1'),
         ],
       ),
     );
     addTearDown(backend.dispose);
     final container = ProviderContainer.test(
-      overrides: <Override>[
-        networkManagerServiceProvider.overrideWithValue(backend),
-      ],
+      overrides: <Override>[networkServiceProvider.overrideWithValue(backend)],
     );
 
     await tester.pumpWidget(_host(container, textScale: 1.3));
@@ -106,24 +102,24 @@ Widget _host(ProviderContainer container, {double textScale = 1}) {
 
 void _noop() {}
 
-class _FakeNetworkBackend implements NetworkManagerBackend {
+class _FakeNetworkBackend implements NetworkBackend {
   _FakeNetworkBackend(this._current);
 
-  final StreamController<NetworkManagerSnapshot> _snapshots =
-      StreamController<NetworkManagerSnapshot>.broadcast(sync: true);
-  NetworkManagerSnapshot _current;
+  final StreamController<NetworkSnapshot> _snapshots =
+      StreamController<NetworkSnapshot>.broadcast(sync: true);
+  NetworkSnapshot _current;
   int connectCalls = 0;
   int disconnectCalls = 0;
   int forgetCalls = 0;
   bool passwordMatched = false;
 
   @override
-  NetworkManagerSnapshot get currentSnapshot => _current;
+  NetworkSnapshot get currentSnapshot => _current;
 
   @override
-  Stream<NetworkManagerSnapshot> get snapshots => _snapshots.stream;
+  Stream<NetworkSnapshot> get snapshots => _snapshots.stream;
 
-  void emit(NetworkManagerSnapshot snapshot) {
+  void emit(NetworkSnapshot snapshot) {
     _current = snapshot;
     _snapshots.add(snapshot);
   }
@@ -162,12 +158,12 @@ class _FakeNetworkBackend implements NetworkManagerBackend {
   Future<void> dispose() => _snapshots.close();
 }
 
-NetworkManagerSnapshot _snapshot({
+NetworkSnapshot _snapshot({
   required List<WifiNetwork> networks,
   bool hasAdapter = true,
   bool enabled = true,
 }) {
-  return NetworkManagerSnapshot(
+  return NetworkSnapshot(
     serviceAvailable: true,
     wifiDeviceAvailable: hasAdapter,
     wirelessHardwareEnabled: true,
@@ -176,7 +172,7 @@ NetworkManagerSnapshot _snapshot({
         ? NetworkConnectivityStatus.online
         : NetworkConnectivityStatus.disabled,
     networks: networks,
-    activeConnectionPath: networks.any((network) => network.connected)
+    activeNetworkPath: networks.any((network) => network.connected)
         ? '/active/1'
         : null,
     devicePath: hasAdapter ? '/device/1' : null,
@@ -191,7 +187,7 @@ WifiNetwork _network(
   String ssid, {
   WifiSecurity security = WifiSecurity.open,
   bool connected = false,
-  String? savedConnectionPath,
+  String? savedNetworkPath,
 }) {
   return WifiNetwork(
     ssid: ssid,
@@ -200,8 +196,8 @@ WifiNetwork _network(
     strength: 72,
     frequency: 5180,
     devicePath: '/device/1',
-    accessPointPath: '/access/$ssid',
-    savedConnectionPath: savedConnectionPath,
+    networkPath: '/access/$ssid',
+    savedNetworkPath: savedNetworkPath,
     connected: connected,
     available: true,
   );

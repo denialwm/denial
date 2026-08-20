@@ -15,7 +15,7 @@ use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::{Buffer as AllocatorBuffer, Fourcc, dmabuf::Dmabuf};
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::backend::renderer::{
-    Bind, Blit, Color32F, ExportMem, Frame, Offscreen, Renderer, TextureFilter,
+    Bind, Blit, Color32F, ExportMem, Frame, ImportDma, Offscreen, Renderer, TextureFilter,
 };
 use smithay::output::Output;
 use smithay::reexports::wayland_protocols_wlr::screencopy::v1::server::{
@@ -44,6 +44,7 @@ const MAX_COPIES_PER_PRESENTATION: usize = 4;
 pub(crate) struct OutputCompositeSource {
     pub(crate) dmabuf: Dmabuf,
     pub(crate) destination: Rectangle<i32, Physical>,
+    pub(crate) transform: Transform,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -53,6 +54,10 @@ struct CaptureTarget {
     source: Rectangle<i32, Physical>,
     /// Client buffer size in the output's transformed physical pixels.
     size: Size<i32, Physical>,
+    /// Complete output extent in transformed physical pixels.
+    output_size: Size<i32, Physical>,
+    /// Mapping Flutter applied from this logical pixel space into scanout.
+    transform: Transform,
     overlay_cursor: bool,
 }
 
@@ -139,6 +144,7 @@ fn project_capture_region(
     scanout_size: Size<i32, Physical>,
     logical_size: Size<i32, Logical>,
     requested: Option<Rectangle<i32, Logical>>,
+    transform: Transform,
     overlay_cursor: bool,
 ) -> Option<CaptureTarget> {
     let requested = requested.unwrap_or_else(|| Rectangle::from_size(logical_size));
@@ -192,6 +198,8 @@ fn project_capture_region(
         output,
         source,
         size,
+        output_size: scanout_size,
+        transform,
         overlay_cursor,
     })
 }
@@ -271,6 +279,16 @@ fn framebuffer_source_rect(
         .then_some(source)
 }
 
+fn capture_source_rect(
+    target: CaptureTarget,
+    scanout_size: Size<i32, Physical>,
+) -> Option<Rectangle<i32, Physical>> {
+    let source = target
+        .transform
+        .transform_rect_in(target.source, &target.output_size);
+    framebuffer_source_rect(source, scanout_size)
+}
+
 fn as_buffer_rect(rect: Rectangle<i32, Physical>) -> Rectangle<i32, BufferCoords> {
     Rectangle::new(
         (rect.loc.x, rect.loc.y).into(),
@@ -327,11 +345,11 @@ fn copy_to_shm(
     target: CaptureTarget,
     buffer: &WlBuffer,
 ) -> Result<(), Box<dyn Error>> {
-    let source = framebuffer_source_rect(target.source, atlas_size)
+    let source = capture_source_rect(target, atlas_size)
         .ok_or_else(|| io::Error::other("capture source is outside the atlas"))?;
-    let source_framebuffer = renderer.bind(atlas)?;
 
-    if source.size == target.size {
+    if target.transform == Transform::Normal && source.size == target.size {
+        let source_framebuffer = renderer.bind(atlas)?;
         let mapping = renderer.copy_framebuffer(
             &source_framebuffer,
             as_buffer_rect(source),
@@ -349,15 +367,33 @@ fn copy_to_shm(
     )?;
     let mut scaled_framebuffer = renderer.bind(&mut scaled)?;
     let destination = Rectangle::new((0, 0).into(), target.size);
-    renderer
-        .blit(
-            &source_framebuffer,
-            &mut scaled_framebuffer,
-            source,
+    if target.transform == Transform::Normal {
+        let source_framebuffer = renderer.bind(atlas)?;
+        renderer
+            .blit(
+                &source_framebuffer,
+                &mut scaled_framebuffer,
+                source,
+                destination,
+                TextureFilter::Linear,
+            )?
+            .wait()?;
+    } else {
+        let texture = renderer.import_dmabuf(atlas, None)?;
+        let mut frame = renderer.render(&mut scaled_framebuffer, target.size, Transform::Normal)?;
+        frame.render_texture_from_to(
+            &texture,
+            as_buffer_rect(source).to_f64(),
             destination,
-            TextureFilter::Linear,
-        )?
-        .wait()?;
+            &[destination],
+            &[destination],
+            target.transform,
+            1.0,
+            None,
+            &[],
+        )?;
+        frame.finish()?.wait()?;
+    }
     let mapping = renderer.copy_framebuffer(
         &scaled_framebuffer,
         as_buffer_rect(destination),
@@ -424,21 +460,44 @@ pub(crate) fn compose_output_targets_to_atlas(
         if framebuffer_source_rect(source.destination, atlas_size).is_none() {
             return Err(io::Error::other("output destination is outside screenshot atlas").into());
         }
-        let source_framebuffer = renderer.bind(&mut source.dmabuf)?;
+        if source.transform == Transform::Normal {
+            let source_framebuffer = renderer.bind(&mut source.dmabuf)?;
+            let mut destination_framebuffer = renderer.bind(destination)?;
+            renderer
+                .blit(
+                    &source_framebuffer,
+                    &mut destination_framebuffer,
+                    Rectangle::from_size(source_size),
+                    source.destination,
+                    if source_size == source.destination.size {
+                        TextureFilter::Nearest
+                    } else {
+                        TextureFilter::Linear
+                    },
+                )?
+                .wait()?;
+            continue;
+        }
+
+        let texture = renderer.import_dmabuf(&source.dmabuf, None)?;
         let mut destination_framebuffer = renderer.bind(destination)?;
-        renderer
-            .blit(
-                &source_framebuffer,
-                &mut destination_framebuffer,
-                Rectangle::from_size(source_size),
-                source.destination,
-                if source_size == source.destination.size {
-                    TextureFilter::Nearest
-                } else {
-                    TextureFilter::Linear
-                },
-            )?
-            .wait()?;
+        let mut frame =
+            renderer.render(&mut destination_framebuffer, atlas_size, Transform::Normal)?;
+        let source_rect = Rectangle::<f64, BufferCoords>::from_size(
+            (f64::from(source_size.w), f64::from(source_size.h)).into(),
+        );
+        frame.render_texture_from_to(
+            &texture,
+            source_rect,
+            source.destination,
+            &[source.destination],
+            &[source.destination],
+            source.transform,
+            1.0,
+            None,
+            &[],
+        )?;
+        frame.finish()?.wait()?;
     }
     Ok(())
 }
@@ -450,8 +509,28 @@ fn copy_to_dmabuf(
     target: CaptureTarget,
     destination: &mut Dmabuf,
 ) -> Result<(), Box<dyn Error>> {
-    let source = framebuffer_source_rect(target.source, atlas_size)
+    let source = capture_source_rect(target, atlas_size)
         .ok_or_else(|| io::Error::other("capture source is outside the atlas"))?;
+    if target.transform != Transform::Normal {
+        let texture = renderer.import_dmabuf(atlas, None)?;
+        let mut destination_framebuffer = renderer.bind(destination)?;
+        let destination_rect = Rectangle::new((0, 0).into(), target.size);
+        let mut frame =
+            renderer.render(&mut destination_framebuffer, target.size, Transform::Normal)?;
+        frame.render_texture_from_to(
+            &texture,
+            as_buffer_rect(source).to_f64(),
+            destination_rect,
+            &[destination_rect],
+            &[destination_rect],
+            target.transform,
+            1.0,
+            None,
+            &[],
+        )?;
+        frame.finish()?.wait()?;
+        return Ok(());
+    }
     let source_framebuffer = renderer.bind(atlas)?;
     let mut destination_framebuffer = renderer.bind(destination)?;
     renderer
@@ -488,6 +567,7 @@ impl WaylandFrontend {
             entry.capture_size,
             entry.logical_geometry.size,
             requested,
+            entry.output.current_transform(),
             overlay_cursor,
         )
     }
@@ -823,6 +903,7 @@ mod tests {
             (1920, 1080).into(),
             (1920, 1080).into(),
             Some(Rectangle::new((-100, 100).into(), (1060, 540).into())),
+            Transform::Normal,
             false,
         )
         .unwrap();
@@ -846,6 +927,7 @@ mod tests {
                 scanout,
                 logical,
                 Some(Rectangle::new((50, 50).into(), (0, 100).into())),
+                Transform::Normal,
                 false,
             )
             .is_none()
@@ -857,9 +939,29 @@ mod tests {
                 scanout,
                 logical,
                 Some(Rectangle::new((2000, 0).into(), (100, 100).into())),
+                Transform::Normal,
                 false,
             )
             .is_none()
+        );
+    }
+
+    #[test]
+    fn maps_logical_capture_regions_back_into_rotated_scanout_buffers() {
+        let target = project_capture_region(
+            OutputId(1),
+            Rectangle::from_size((1920, 1200).into()),
+            (1920, 1200).into(),
+            (1920, 1200).into(),
+            Some(Rectangle::new((100, 200).into(), (300, 400).into())),
+            Transform::_90,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(
+            capture_source_rect(target, (1200, 1920).into()),
+            Some(Rectangle::new((600, 100).into(), (400, 300).into()))
         );
     }
 

@@ -214,8 +214,8 @@ impl WaylandFrontend {
                 .find(|output| output.id == spec.id)
                 .ok_or("Wayland output is missing from the atlas plan")?;
             let capture_size = Size::from((
-                i32::try_from(capture.scanout_size.width)?,
-                i32::try_from(capture.scanout_size.height)?,
+                i32::try_from(capture.pixel_size.width)?,
+                i32::try_from(capture.pixel_size.height)?,
             ));
             let capture_source = Rectangle::from_size(capture_size);
             if let Some(existing) = self.outputs.iter_mut().find(|entry| entry.id == spec.id) {
@@ -373,6 +373,11 @@ impl WaylandFrontend {
             .first()
             .map(output_logical_bounds)
             .unwrap_or(desktop_bounds);
+        self.touch_transform = snapshot
+            .outputs
+            .first()
+            .map(|output| output.transform)
+            .unwrap_or(OutputTransform::Normal);
         self.atlas_origin = Point::from(atlas.logical_origin);
         self.atlas_scale = atlas.engine_scale_120 as f64 / denial_core::topology::SCALE_BASE as f64;
         self.atlas_size = Size::from((

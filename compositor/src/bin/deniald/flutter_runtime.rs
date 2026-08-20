@@ -26,8 +26,8 @@ use denial_core::topology::{
 use denial_flutter_engine::{
     BackingStoreRequest, CompositorBackingStore, DartRuntimeMode, EngineError, EngineEvent,
     EngineHost, EngineLibrary, EngineLocale, EngineProject, OpenGlHandler, PlatformMessage,
-    PresentFrame, PresentView, RenderOutput, RenderOutputTransform, RendererBackend, ScheduledTask,
-    sys,
+    PresentFrame, PresentView, RenderOutput, RenderOutputFfiScratch, RenderOutputTransform,
+    RendererBackend, ScheduledTask, sys,
 };
 use sha2::{Digest, Sha256};
 use smithay::backend::allocator::dmabuf::Dmabuf;
@@ -36,8 +36,8 @@ use smithay::backend::egl::display::EGLDisplayHandle;
 use smithay::backend::egl::fence::EGLFence;
 use smithay::backend::egl::{EGLContext, ffi as egl_ffi, get_proc_address};
 use smithay::backend::input::{
-    AbsolutePositionEvent, Axis, ButtonState, InputEvent as SmithayInputEvent, KeyState,
-    PointerAxisEvent, PointerButtonEvent, TouchEvent,
+    AbsolutePositionEvent, Axis, AxisSource, ButtonState, InputEvent as SmithayInputEvent,
+    KeyState, PointerAxisEvent, PointerButtonEvent, TouchEvent,
 };
 use smithay::backend::libinput::LibinputInputBackend;
 use smithay::backend::renderer::gles::ffi as gl;
@@ -107,6 +107,8 @@ const MAX_PENDING_UI_DEVELOPMENT_COMMANDS: usize = 64;
 const WINDOW_CLOSE_LEASE_TIMEOUT: Duration = Duration::from_secs(5);
 const RENDER_AUDIT_INTERVAL: Duration = Duration::from_secs(1);
 const FLUTTER_RESOURCE_CACHE_MAX_BYTES_THRESHOLD: usize = 256 * 1024 * 1024;
+const OUTPUT_ROTATION_ANIMATION_DURATION: Duration = Duration::from_millis(300);
+const OUTPUT_ROTATION_RESIZE_PROGRESS: f64 = 0.78;
 
 /// Borrowed native storage used only while constructing the Flutter EGL
 /// target table. KMS keeps ownership of every DMA-BUF and framebuffer.
@@ -117,19 +119,6 @@ pub(super) struct OutputRenderTargetPool<'a> {
     pub size: PixelSize,
     pub initial_scanout: usize,
     pub dmabufs: Vec<(&'a Dmabuf, Option<&'a Dmabuf>)>,
-}
-
-fn render_output_transform(transform: OutputTransform) -> RenderOutputTransform {
-    match transform {
-        OutputTransform::Normal => RenderOutputTransform::Normal,
-        OutputTransform::Rotate90 => RenderOutputTransform::Rotate90,
-        OutputTransform::Rotate180 => RenderOutputTransform::Rotate180,
-        OutputTransform::Rotate270 => RenderOutputTransform::Rotate270,
-        OutputTransform::Flipped => RenderOutputTransform::Flipped,
-        OutputTransform::Flipped90 => RenderOutputTransform::Flipped90,
-        OutputTransform::Flipped180 => RenderOutputTransform::Flipped180,
-        OutputTransform::Flipped270 => RenderOutputTransform::Flipped270,
-    }
 }
 
 #[derive(Debug)]
@@ -544,15 +533,25 @@ enum InputRecord {
     Keyboard(KeyboardRecord),
 }
 
-fn flutter_scroll_delta(amount: Option<f64>, v120: Option<f64>) -> f64 {
+fn flutter_scroll_delta(
+    amount: Option<f64>,
+    v120: Option<f64>,
+    source: AxisSource,
+    scroll_speed_factor: f64,
+) -> f64 {
     // Smithay reports finger/continuous scrolling in pixels, but mouse-wheel
     // `amount` is the physical angle (normally 15 degrees per click). Prefer
     // the logical v120 step for wheels and match Flutter's Linux embedder,
     // which maps one wheel click to 53 physical pixels.
-    v120.map_or_else(
+    let delta = v120.map_or_else(
         || amount.unwrap_or(0.0),
         |value| value * FLUTTER_MOUSE_WHEEL_SCROLL_PIXELS / V120_UNITS_PER_WHEEL_STEP,
-    )
+    );
+    if source == AxisSource::Finger {
+        delta * scroll_speed_factor
+    } else {
+        delta
+    }
 }
 
 #[derive(Debug)]
@@ -604,11 +603,34 @@ impl InputQueue {
         self.touch_positions.clear();
     }
 
+    /// Updates the desktop bounds without synthesizing a new input device
+    /// generation. Transform-only topology changes keep the engine alive, so
+    /// pressed buttons and touch contacts must remain coherent.
+    pub fn resize_preserving_state(&mut self, size: PixelSize) {
+        let width = i32::try_from(size.width).unwrap_or(i32::MAX).max(1);
+        let height = i32::try_from(size.height).unwrap_or(i32::MAX).max(1);
+        self.size = (width, height).into();
+        self.pointer_x = self.pointer_x.clamp(0.0, f64::from(width));
+        self.pointer_y = self.pointer_y.clamp(0.0, f64::from(height));
+        for position in self.touch_positions.values_mut() {
+            position.0 = position.0.clamp(0.0, f64::from(width));
+            position.1 = position.1.clamp(0.0, f64::from(height));
+        }
+    }
+
     pub fn has_pending(&self) -> bool {
         !self.events.is_empty()
     }
 
     pub fn handle(&mut self, event: &SmithayInputEvent<LibinputInputBackend>) {
+        self.handle_with_scroll_speed_factor(event, 1.0);
+    }
+
+    pub fn handle_with_scroll_speed_factor(
+        &mut self,
+        event: &SmithayInputEvent<LibinputInputBackend>,
+        scroll_speed_factor: f64,
+    ) {
         match event {
             // Mouse motion must enter through `handle_pointer_motion_at`.
             // Libinput deltas are not an absolute-position authority: the
@@ -642,10 +664,14 @@ impl InputQueue {
                 let scroll_x = flutter_scroll_delta(
                     event.amount(Axis::Horizontal),
                     event.amount_v120(Axis::Horizontal),
+                    event.source(),
+                    scroll_speed_factor,
                 );
                 let scroll_y = flutter_scroll_delta(
                     event.amount(Axis::Vertical),
                     event.amount_v120(Axis::Vertical),
+                    event.source(),
+                    scroll_speed_factor,
                 );
                 if scroll_x != 0.0 || scroll_y != 0.0 {
                     self.push(InputRecord::Pointer(PointerRecord {
@@ -712,6 +738,34 @@ impl InputQueue {
                 self.push_touch(sys::FlutterPointerPhase_kRemove, x, y, device, false);
             }
             _ => {}
+        }
+    }
+
+    /// Queues a touch position already projected into Flutter's physical
+    /// desktop pixels. Output rotation is owned by the compositor, so passing
+    /// libinput's native-axis coordinates through `position_transformed`
+    /// would make Flutter disagree with Wayland hit testing.
+    pub fn handle_touch_at(
+        &mut self,
+        event: &SmithayInputEvent<LibinputInputBackend>,
+        x: f64,
+        y: f64,
+    ) {
+        let x = x.clamp(0.0, f64::from(self.size.w));
+        let y = y.clamp(0.0, f64::from(self.size.h));
+        match event {
+            SmithayInputEvent::TouchDown { event, .. } => {
+                let device = touch_device(event.slot());
+                self.touch_positions.insert(device, (x, y));
+                self.push_touch(sys::FlutterPointerPhase_kAdd, x, y, device, false);
+                self.push_touch(sys::FlutterPointerPhase_kDown, x, y, device, false);
+            }
+            SmithayInputEvent::TouchMotion { event, .. } => {
+                let device = touch_device(event.slot());
+                self.touch_positions.insert(device, (x, y));
+                self.push_touch(sys::FlutterPointerPhase_kMove, x, y, device, true);
+            }
+            _ => debug_assert!(false, "touch position supplied for a non-positional event"),
         }
     }
 
@@ -2611,6 +2665,9 @@ pub(super) struct SyncedWaylandScene {
 struct RuntimeRenderOutput {
     output_id: OutputId,
     render_view_id: RenderViewId,
+    configuration_generation: u64,
+    target_size: PixelSize,
+    transform: OutputTransform,
     logical_x: f64,
     logical_y: f64,
     logical_width: f64,
@@ -2625,6 +2682,232 @@ impl RuntimeRenderOutput {
             && y < self.logical_y + self.logical_height
             && x + width > self.logical_x
             && y + height > self.logical_y
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum OutputGeometryTransition {
+    Immediate,
+    AnimatedRotation,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct OutputRotationAdvance {
+    pub(super) advanced: bool,
+    pub(super) geometry_published: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct AnimatedOutputRotation {
+    frame_index: usize,
+    initial_angle: f64,
+    initial_scale_x: f64,
+    initial_scale_y: f64,
+}
+
+#[derive(Debug)]
+struct OutputRotationAnimation {
+    started_at: Instant,
+    before_resize_targets: Vec<RenderOutput>,
+    after_resize_targets: Vec<RenderOutput>,
+    frame: Vec<RenderOutput>,
+    outputs: Vec<AnimatedOutputRotation>,
+    resized: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct OutputRotationSample {
+    complete: bool,
+    geometry_resize_due: bool,
+}
+
+#[derive(Debug)]
+struct PendingOutputGeometry {
+    snapshot: TopologySnapshot,
+    atlas: AtlasPlan,
+    ffi_outputs: Vec<RenderOutput>,
+    runtime_outputs: Vec<RuntimeRenderOutput>,
+}
+
+impl OutputRotationAnimation {
+    fn new(
+        previous: &[RuntimeRenderOutput],
+        previous_targets: &[RenderOutput],
+        current: &[RuntimeRenderOutput],
+        targets: &[RenderOutput],
+        now: Instant,
+    ) -> Option<Self> {
+        if previous.len() != previous_targets.len() || current.len() != targets.len() {
+            return None;
+        }
+        let mut before_resize_targets = Vec::with_capacity(targets.len());
+        let mut outputs = Vec::new();
+        for (frame_index, output) in current.iter().enumerate() {
+            let previous = previous
+                .iter()
+                .find(|previous| previous.output_id == output.output_id)?;
+            let mut before_target = *previous_targets
+                .iter()
+                .find(|target| target.render_view_id == previous.render_view_id.get())?;
+            let delta = shortest_rotation_delta(previous.transform, output.transform);
+            if delta != 0 {
+                let (initial_scale_x, initial_scale_y) = if delta.unsigned_abs() & 1 == 1 {
+                    (
+                        f64::from(output.target_size.width) / f64::from(output.target_size.height),
+                        f64::from(output.target_size.height) / f64::from(output.target_size.width),
+                    )
+                } else {
+                    (1.0, 1.0)
+                };
+                debug_assert_eq!(
+                    targets[frame_index].render_view_id,
+                    output.render_view_id.get()
+                );
+                let animation = AnimatedOutputRotation {
+                    frame_index,
+                    initial_angle: -f64::from(delta) * std::f64::consts::FRAC_PI_2,
+                    initial_scale_x,
+                    initial_scale_y,
+                };
+                before_target.source_to_target_transform = rotated_render_transform(
+                    before_target.source_to_target_transform,
+                    before_target.target_width as f64,
+                    before_target.target_height as f64,
+                    -animation.initial_angle,
+                    animation.initial_scale_x,
+                    animation.initial_scale_y,
+                );
+                outputs.push(animation);
+            }
+            before_resize_targets.push(before_target);
+        }
+        if outputs.is_empty() {
+            return None;
+        }
+        let after_resize_targets = targets.to_vec();
+        let frame = before_resize_targets.clone();
+        Some(Self {
+            started_at: now,
+            before_resize_targets,
+            after_resize_targets,
+            frame,
+            outputs,
+            resized: false,
+        })
+    }
+
+    fn sample(&mut self, now: Instant) -> (&[RenderOutput], OutputRotationSample) {
+        let linear = now.saturating_duration_since(self.started_at).as_secs_f64()
+            / OUTPUT_ROTATION_ANIMATION_DURATION.as_secs_f64();
+        let complete = linear >= 1.0;
+        let eased = ease_in_out_cubic(linear.clamp(0.0, 1.0));
+        let geometry_resize_due = !self.resized && eased >= OUTPUT_ROTATION_RESIZE_PROGRESS;
+        self.resized |= geometry_resize_due;
+        let targets = if self.resized {
+            &self.after_resize_targets
+        } else {
+            &self.before_resize_targets
+        };
+        self.frame.copy_from_slice(targets);
+        for animated in &self.outputs {
+            let output = &mut self.frame[animated.frame_index];
+            output.source_to_target_transform = animated_rotation_transform(
+                output.source_to_target_transform,
+                output.target_width as f64,
+                output.target_height as f64,
+                *animated,
+                eased,
+            );
+        }
+        (
+            &self.frame,
+            OutputRotationSample {
+                complete,
+                geometry_resize_due,
+            },
+        )
+    }
+}
+
+fn transform_turns(transform: OutputTransform) -> i8 {
+    match transform {
+        OutputTransform::Normal | OutputTransform::Flipped => 0,
+        OutputTransform::Rotate90 | OutputTransform::Flipped90 => 1,
+        OutputTransform::Rotate180 | OutputTransform::Flipped180 => 2,
+        OutputTransform::Rotate270 | OutputTransform::Flipped270 => 3,
+    }
+}
+
+fn shortest_rotation_delta(previous: OutputTransform, current: OutputTransform) -> i8 {
+    match (transform_turns(current) - transform_turns(previous)).rem_euclid(4) {
+        0 => 0,
+        1 => 1,
+        2 => 2,
+        3 => -1,
+        _ => unreachable!(),
+    }
+}
+
+fn ease_in_out_cubic(progress: f64) -> f64 {
+    if progress < 0.5 {
+        4.0 * progress * progress * progress
+    } else {
+        1.0 - (-2.0 * progress + 2.0).powi(3) / 2.0
+    }
+}
+
+fn animated_rotation_transform(
+    target: RenderOutputTransform,
+    target_width: f64,
+    target_height: f64,
+    animation: AnimatedOutputRotation,
+    progress: f64,
+) -> RenderOutputTransform {
+    let remaining = 1.0 - progress;
+    let angle = animation.initial_angle * remaining;
+    let scale_x = animation.initial_scale_x.powf(remaining);
+    let scale_y = animation.initial_scale_y.powf(remaining);
+    rotated_render_transform(target, target_width, target_height, angle, scale_x, scale_y)
+}
+
+fn rotated_render_transform(
+    target: RenderOutputTransform,
+    target_width: f64,
+    target_height: f64,
+    angle: f64,
+    scale_x: f64,
+    scale_y: f64,
+) -> RenderOutputTransform {
+    let (sin, cos) = angle.sin_cos();
+    let center_x = target_width * 0.5;
+    let center_y = target_height * 0.5;
+    let presentation = RenderOutputTransform {
+        scale_x: scale_x * cos,
+        skew_x: -scale_x * sin,
+        translate_x: center_x - scale_x * cos * center_x + scale_x * sin * center_y,
+        skew_y: scale_y * sin,
+        scale_y: scale_y * cos,
+        translate_y: center_y - scale_y * sin * center_x - scale_y * cos * center_y,
+    };
+    compose_render_transforms(presentation, target)
+}
+
+/// Returns `after(before(point))` in Flutter's affine field layout.
+fn compose_render_transforms(
+    after: RenderOutputTransform,
+    before: RenderOutputTransform,
+) -> RenderOutputTransform {
+    RenderOutputTransform {
+        scale_x: after.scale_x * before.scale_x + after.skew_x * before.skew_y,
+        skew_x: after.scale_x * before.skew_x + after.skew_x * before.scale_y,
+        translate_x: after.scale_x * before.translate_x
+            + after.skew_x * before.translate_y
+            + after.translate_x,
+        skew_y: after.skew_y * before.scale_x + after.scale_y * before.skew_y,
+        scale_y: after.skew_y * before.skew_x + after.scale_y * before.scale_y,
+        translate_y: after.skew_y * before.translate_x
+            + after.scale_y * before.translate_y
+            + after.translate_y,
     }
 }
 
@@ -5301,6 +5584,10 @@ pub struct FlutterRuntime {
     registered_external_textures: HashSet<i64>,
     scene_texture_ids: HashSet<i64>,
     render_outputs: Vec<RuntimeRenderOutput>,
+    render_output_configuration: Vec<RenderOutput>,
+    output_rotation_animation: Option<OutputRotationAnimation>,
+    pending_output_geometry: Option<PendingOutputGeometry>,
+    render_output_ffi_scratch: RenderOutputFfiScratch,
     texture_output_membership: HashMap<i64, Vec<OutputId>>,
     pending_output_updates: BTreeMap<OutputId, BTreeSet<i64>>,
     changed_texture_scratch: Vec<i64>,
@@ -5352,9 +5639,17 @@ impl FlutterRuntime {
                     .iter()
                     .find(|candidate| candidate.id == output.output_id)
                     .expect("validated render output is absent from its atlas");
+                let snapshot_output = snapshot
+                    .outputs
+                    .iter()
+                    .find(|candidate| candidate.id == output.output_id)
+                    .expect("validated render output is absent from its topology");
                 RuntimeRenderOutput {
                     output_id: output.output_id,
                     render_view_id: output.render_view_id,
+                    configuration_generation: output.configuration_generation,
+                    target_size: output.target_size,
+                    transform: snapshot_output.transform,
                     logical_x: atlas_output.logical_rect.x - atlas.logical_origin.0,
                     logical_y: atlas_output.logical_rect.y - atlas.logical_origin.1,
                     logical_width: atlas_output.logical_rect.width,
@@ -5421,10 +5716,18 @@ impl FlutterRuntime {
                 target_width: output.target_size.width as usize,
                 target_height: output.target_size.height as usize,
                 scale_120: output.scale_120,
-                transform: render_output_transform(output.transform),
+                source_to_target_transform: RenderOutputTransform {
+                    scale_x: output.source_to_target_transform.scale_x,
+                    skew_x: output.source_to_target_transform.skew_x,
+                    translate_x: output.source_to_target_transform.translate_x,
+                    skew_y: output.source_to_target_transform.skew_y,
+                    scale_y: output.source_to_target_transform.scale_y,
+                    translate_y: output.source_to_target_transform.translate_y,
+                },
             })
             .collect::<Vec<_>>();
         host.engine().set_render_outputs(&render_outputs)?;
+        let render_output_count = render_outputs.len();
         let frame_interval = Duration::from_secs_f64(1.0 / refresh_hz.max(1.0));
         info!(
             bundle = %factory.bundle.display(),
@@ -5466,10 +5769,14 @@ impl FlutterRuntime {
             registered_external_textures: HashSet::new(),
             scene_texture_ids: HashSet::new(),
             render_outputs: runtime_render_outputs,
+            render_output_configuration: render_outputs,
+            output_rotation_animation: None,
+            pending_output_geometry: None,
+            render_output_ffi_scratch: RenderOutputFfiScratch::with_capacity(render_output_count),
             texture_output_membership: HashMap::new(),
             pending_output_updates: BTreeMap::new(),
             changed_texture_scratch: Vec::new(),
-            render_view_scratch: Vec::with_capacity(render_outputs.len()),
+            render_view_scratch: Vec::with_capacity(render_output_count),
             render_texture_scratch: Vec::new(),
             screenshot_texture_id: None,
             pending_screenshot_frame: None,
@@ -5753,6 +6060,199 @@ impl FlutterRuntime {
             "synchronized Flutter desktop visibility"
         );
         Ok(())
+    }
+
+    /// Installs new logical geometry while retaining the engine, EGL contexts
+    /// and native output pools. This path is valid only when connector IDs and
+    /// native target extents are unchanged, as is the case for compositor-side
+    /// rotation.
+    pub fn reconfigure_output_geometry(
+        &mut self,
+        snapshot: &TopologySnapshot,
+        atlas: &AtlasPlan,
+        transition: OutputGeometryTransition,
+    ) -> Result<(), Box<dyn Error>> {
+        let plans = atlas
+            .render_outputs(snapshot)
+            .ok_or("Flutter render outputs do not match the updated topology")?;
+        if plans.len() != self.render_outputs.len() {
+            return Err("transform-only topology changed the physical output set".into());
+        }
+
+        let mut ffi_outputs = Vec::with_capacity(plans.len());
+        let mut runtime_outputs = Vec::with_capacity(plans.len());
+        for plan in plans {
+            let resident = self
+                .render_outputs
+                .iter()
+                .find(|output| output.output_id == plan.output_id)
+                .ok_or("updated topology has no resident Flutter output")?;
+            let atlas_output = atlas
+                .outputs
+                .iter()
+                .find(|output| output.id == plan.output_id)
+                .ok_or("updated Flutter output is absent from its atlas")?;
+            let snapshot_output = snapshot
+                .outputs
+                .iter()
+                .find(|output| output.id == plan.output_id)
+                .ok_or("updated Flutter output is absent from its topology")?;
+            if resident.render_view_id != plan.render_view_id
+                || resident.target_size != plan.target_size
+            {
+                return Err("updated topology changed a resident physical render target".into());
+            }
+            ffi_outputs.push(RenderOutput {
+                render_view_id: plan.render_view_id.get(),
+                // Pool identity is structural. A logical projection update
+                // must continue to match frames to the resident pool.
+                configuration_generation: resident.configuration_generation,
+                source_physical_x: f64::from(plan.source_rect.x),
+                source_physical_y: f64::from(plan.source_rect.y),
+                source_physical_width: f64::from(plan.source_rect.width),
+                source_physical_height: f64::from(plan.source_rect.height),
+                target_width: plan.target_size.width as usize,
+                target_height: plan.target_size.height as usize,
+                scale_120: plan.scale_120,
+                source_to_target_transform: RenderOutputTransform {
+                    scale_x: plan.source_to_target_transform.scale_x,
+                    skew_x: plan.source_to_target_transform.skew_x,
+                    translate_x: plan.source_to_target_transform.translate_x,
+                    skew_y: plan.source_to_target_transform.skew_y,
+                    scale_y: plan.source_to_target_transform.scale_y,
+                    translate_y: plan.source_to_target_transform.translate_y,
+                },
+            });
+            runtime_outputs.push(RuntimeRenderOutput {
+                output_id: plan.output_id,
+                render_view_id: plan.render_view_id,
+                configuration_generation: resident.configuration_generation,
+                target_size: resident.target_size,
+                transform: snapshot_output.transform,
+                logical_x: atlas_output.logical_rect.x - atlas.logical_origin.0,
+                logical_y: atlas_output.logical_rect.y - atlas.logical_origin.1,
+                logical_width: atlas_output.logical_rect.width,
+                logical_height: atlas_output.logical_rect.height,
+            });
+        }
+
+        let host = self
+            .host
+            .as_ref()
+            .ok_or("Flutter runtime is shutting down")?;
+        let mut rotation_animation = (transition == OutputGeometryTransition::AnimatedRotation)
+            .then(|| {
+                OutputRotationAnimation::new(
+                    &self.render_outputs,
+                    &self.render_output_configuration,
+                    &runtime_outputs,
+                    &ffi_outputs,
+                    Instant::now(),
+                )
+            })
+            .flatten();
+        if let Some(animation) = rotation_animation.as_mut() {
+            let (initial_outputs, sample) = animation.sample(animation.started_at);
+            debug_assert!(!sample.complete);
+            debug_assert!(!sample.geometry_resize_due);
+            host.engine()
+                .set_render_outputs_reusing(initial_outputs, &mut self.render_output_ffi_scratch)?;
+            self.output_rotation_animation = rotation_animation;
+            self.pending_output_geometry = Some(PendingOutputGeometry {
+                snapshot: snapshot.clone(),
+                atlas: atlas.clone(),
+                ffi_outputs,
+                runtime_outputs,
+            });
+            return Ok(());
+        }
+
+        host.engine()
+            .set_render_outputs_reusing(&ffi_outputs, &mut self.render_output_ffi_scratch)?;
+        self.output_rotation_animation = None;
+        self.pending_output_geometry = None;
+        self.publish_output_geometry(snapshot, atlas, ffi_outputs, runtime_outputs)
+    }
+
+    fn publish_output_geometry(
+        &mut self,
+        snapshot: &TopologySnapshot,
+        atlas: &AtlasPlan,
+        ffi_outputs: Vec<RenderOutput>,
+        runtime_outputs: Vec<RuntimeRenderOutput>,
+    ) -> Result<(), Box<dyn Error>> {
+        let host = self
+            .host
+            .as_ref()
+            .ok_or("Flutter runtime is shutting down")?;
+        host.engine()
+            .send_window_metrics(&sys::FlutterWindowMetricsEvent {
+                struct_size: mem::size_of::<sys::FlutterWindowMetricsEvent>(),
+                width: atlas.pixel_size.width as usize,
+                height: atlas.pixel_size.height as usize,
+                pixel_ratio: f64::from(atlas.engine_scale_120) / f64::from(SCALE_BASE),
+                display_id: 0,
+                view_id: 0,
+                ..sys::FlutterWindowMetricsEvent::default()
+            })?;
+        let layout_update = self.wire.update_topology(snapshot, atlas)?;
+        host.engine()
+            .send_platform_message(wire::TO_FLUTTER_CHANNEL, layout_update)?;
+
+        self.render_output_configuration = ffi_outputs;
+        self.render_outputs = runtime_outputs;
+        self.texture_output_membership.clear();
+        for output in &self.render_outputs {
+            self.pending_output_updates
+                .entry(output.output_id)
+                .or_default()
+                .extend(self.scene_texture_ids.iter().copied());
+        }
+        Ok(())
+    }
+
+    pub fn output_rotation_animation_active(&self) -> bool {
+        self.output_rotation_animation.is_some()
+    }
+
+    /// Advances only the synthetic output projection. The engine applies this
+    /// to its retained layer tree, so the Dart scene, external textures, EGL
+    /// targets and native scanout buffers remain untouched between samples.
+    pub fn advance_output_rotation_animation(
+        &mut self,
+        now: Instant,
+    ) -> Result<OutputRotationAdvance, Box<dyn Error>> {
+        let Some(animation) = self.output_rotation_animation.as_mut() else {
+            return Ok(OutputRotationAdvance::default());
+        };
+        let (outputs, sample) = animation.sample(now);
+        self.host
+            .as_ref()
+            .ok_or("Flutter runtime is shutting down")?
+            .engine()
+            .set_render_outputs_reusing(outputs, &mut self.render_output_ffi_scratch)?;
+        if sample.geometry_resize_due {
+            let pending = self
+                .pending_output_geometry
+                .take()
+                .ok_or("output rotation reached its resize point without pending geometry")?;
+            self.publish_output_geometry(
+                &pending.snapshot,
+                &pending.atlas,
+                pending.ffi_outputs,
+                pending.runtime_outputs,
+            )?;
+        }
+        if sample.complete {
+            if self.pending_output_geometry.is_some() {
+                return Err("output rotation completed before publishing pending geometry".into());
+            }
+            self.output_rotation_animation = None;
+        }
+        Ok(OutputRotationAdvance {
+            advanced: true,
+            geometry_published: sample.geometry_resize_due,
+        })
     }
 
     pub fn publish_output(&self, output: &ReadyOutputFrame) -> Result<(), Box<dyn Error>> {
@@ -7095,6 +7595,153 @@ fn first_file(paths: &[PathBuf]) -> Option<PathBuf> {
 mod tests {
     use super::*;
 
+    fn assert_near(actual: f64, expected: f64) {
+        assert!(
+            (actual - expected).abs() < 1.0e-9,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    #[test]
+    fn output_rotation_uses_the_shortest_cardinal_path() {
+        assert_eq!(
+            shortest_rotation_delta(OutputTransform::Normal, OutputTransform::Rotate90),
+            1
+        );
+        assert_eq!(
+            shortest_rotation_delta(OutputTransform::Normal, OutputTransform::Rotate270),
+            -1
+        );
+        assert_eq!(
+            shortest_rotation_delta(OutputTransform::Rotate270, OutputTransform::Normal),
+            1
+        );
+        assert_eq!(
+            shortest_rotation_delta(OutputTransform::Flipped90, OutputTransform::Flipped270),
+            2
+        );
+    }
+
+    #[test]
+    fn animated_projection_has_exact_filled_cardinal_endpoints() {
+        let target = RenderOutputTransform {
+            scale_x: 0.0,
+            skew_x: -1.0,
+            translate_x: 1920.0,
+            skew_y: 1.0,
+            scale_y: 0.0,
+            translate_y: 0.0,
+        };
+        let animation = AnimatedOutputRotation {
+            frame_index: 0,
+            initial_angle: -std::f64::consts::FRAC_PI_2,
+            initial_scale_x: 1920.0 / 1080.0,
+            initial_scale_y: 1080.0 / 1920.0,
+        };
+
+        let initial = animated_rotation_transform(target, 1920.0, 1080.0, animation, 0.0);
+        assert_near(initial.scale_x, 1920.0 / 1080.0);
+        assert_near(initial.skew_x, 0.0);
+        assert_near(initial.translate_x, 0.0);
+        assert_near(initial.skew_y, 0.0);
+        assert_near(initial.scale_y, 1080.0 / 1920.0);
+        assert_near(initial.translate_y, 0.0);
+
+        let final_projection = animated_rotation_transform(target, 1920.0, 1080.0, animation, 1.0);
+        assert_eq!(final_projection, target);
+    }
+
+    #[test]
+    fn output_rotation_defers_canvas_resize_until_the_final_quarter() {
+        let output_id = OutputId(1);
+        let render_view_id = RenderViewId::for_output(output_id).unwrap();
+        let previous_runtime = RuntimeRenderOutput {
+            output_id,
+            render_view_id,
+            configuration_generation: 7,
+            target_size: PixelSize::new(1080, 1920),
+            transform: OutputTransform::Normal,
+            logical_x: 0.0,
+            logical_y: 0.0,
+            logical_width: 1080.0,
+            logical_height: 1920.0,
+        };
+        let current_runtime = RuntimeRenderOutput {
+            transform: OutputTransform::Rotate90,
+            logical_width: 1920.0,
+            logical_height: 1080.0,
+            ..previous_runtime
+        };
+        let identity = RenderOutputTransform {
+            scale_x: 1.0,
+            skew_x: 0.0,
+            translate_x: 0.0,
+            skew_y: 0.0,
+            scale_y: 1.0,
+            translate_y: 0.0,
+        };
+        let previous_target = RenderOutput {
+            render_view_id: render_view_id.get(),
+            configuration_generation: 7,
+            source_physical_x: 0.0,
+            source_physical_y: 0.0,
+            source_physical_width: 1080.0,
+            source_physical_height: 1920.0,
+            target_width: 1080,
+            target_height: 1920,
+            scale_120: SCALE_BASE,
+            source_to_target_transform: identity,
+        };
+        let final_transform = RenderOutputTransform {
+            scale_x: 0.0,
+            skew_x: -1.0,
+            translate_x: 1080.0,
+            skew_y: 1.0,
+            scale_y: 0.0,
+            translate_y: 0.0,
+        };
+        let current_target = RenderOutput {
+            source_physical_width: 1920.0,
+            source_physical_height: 1080.0,
+            source_to_target_transform: final_transform,
+            ..previous_target
+        };
+        let started_at = Instant::now();
+        let mut animation = OutputRotationAnimation::new(
+            &[previous_runtime],
+            &[previous_target],
+            &[current_runtime],
+            &[current_target],
+            started_at,
+        )
+        .unwrap();
+
+        let (frame, sample) = animation.sample(started_at);
+        assert!(!sample.geometry_resize_due);
+        assert_eq!(frame[0].source_physical_width, 1080.0);
+        assert_near(frame[0].source_to_target_transform.scale_x, 1.0);
+        assert_near(frame[0].source_to_target_transform.skew_x, 0.0);
+        assert_near(frame[0].source_to_target_transform.translate_x, 0.0);
+        assert_near(frame[0].source_to_target_transform.skew_y, 0.0);
+        assert_near(frame[0].source_to_target_transform.scale_y, 1.0);
+        assert_near(frame[0].source_to_target_transform.translate_y, 0.0);
+
+        let (frame, sample) = animation.sample(started_at + Duration::from_millis(180));
+        assert!(!sample.geometry_resize_due);
+        assert_eq!(frame[0].source_physical_width, 1080.0);
+
+        let (frame, sample) = animation.sample(started_at + Duration::from_millis(200));
+        assert!(sample.geometry_resize_due);
+        assert_eq!(frame[0].source_physical_width, 1920.0);
+
+        let (_, sample) = animation.sample(started_at + Duration::from_millis(220));
+        assert!(!sample.geometry_resize_due);
+
+        let (frame, sample) = animation.sample(started_at + OUTPUT_ROTATION_ANIMATION_DURATION);
+        assert!(sample.complete);
+        assert_eq!(frame[0], current_target);
+    }
+
     #[test]
     fn producer_request_expires_only_after_the_no_raster_grace_period() {
         let producer = ProducerArbiter::new();
@@ -7187,11 +7834,27 @@ mod tests {
     }
 
     #[test]
-    fn flutter_scroll_delta_normalizes_wheels_and_preserves_smooth_pixels() {
-        assert_eq!(flutter_scroll_delta(Some(15.0), Some(120.0)), 53.0);
-        assert_eq!(flutter_scroll_delta(Some(-15.0), Some(-60.0)), -26.5);
-        assert_eq!(flutter_scroll_delta(Some(7.25), None), 7.25);
-        assert_eq!(flutter_scroll_delta(None, None), 0.0);
+    fn flutter_scroll_delta_scales_only_finger_scroll() {
+        assert_eq!(
+            flutter_scroll_delta(Some(15.0), Some(120.0), AxisSource::Wheel, 5.0),
+            53.0
+        );
+        assert_eq!(
+            flutter_scroll_delta(Some(-15.0), Some(-60.0), AxisSource::Wheel, 0.05),
+            -26.5
+        );
+        assert_eq!(
+            flutter_scroll_delta(Some(7.25), None, AxisSource::Finger, 2.0),
+            14.5
+        );
+        assert_eq!(
+            flutter_scroll_delta(Some(7.25), None, AxisSource::Continuous, 2.0),
+            7.25
+        );
+        assert_eq!(
+            flutter_scroll_delta(None, None, AxisSource::Finger, 5.0),
+            0.0
+        );
     }
 
     #[test]

@@ -5,7 +5,7 @@ import '../../../l10n/generated/app_localizations.dart';
 import '../../localization/denial_localizations.dart';
 import '../../services/audio_service.dart';
 import '../../services/bluetooth_service.dart';
-import '../../services/network_manager_service.dart';
+import '../../services/network_backend.dart';
 import '../../state/app_audio.dart';
 import '../../state/bluetooth.dart';
 import '../../state/network_connectivity.dart';
@@ -214,8 +214,9 @@ class SettingsNetworkPage extends ConsumerWidget {
                               final network = snapshot.networks[index];
                               if (network.connected) {
                                 controller.disconnect(network);
-                              } else if (network.saved ||
-                                  !network.security.requiresPassword) {
+                              } else if (network.connectable &&
+                                  (network.saved ||
+                                      !network.security.requiresPassword)) {
                                 controller.connect(network);
                               }
                             },
@@ -252,8 +253,8 @@ class _NetworkRow extends StatelessWidget {
     final l10n = context.l10n;
     final canConnect =
         network.connected ||
-        network.saved ||
-        !network.security.requiresPassword;
+        (network.connectable &&
+            (network.saved || !network.security.requiresPassword));
     return _StatusRow(
       icon: network.connected ? Icons.wifi_rounded : Icons.wifi_outlined,
       title: network.ssid,

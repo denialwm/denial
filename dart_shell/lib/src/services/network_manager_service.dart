@@ -3,299 +3,12 @@ import 'dart:convert';
 
 import 'package:dbus/dbus.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-final networkManagerServiceProvider = Provider<NetworkManagerBackend>((ref) {
-  final service = NetworkManagerService();
-  ref.onDispose(() => unawaited(service.dispose()));
-  return service;
-});
+import 'network_backend.dart';
 
-enum NetworkConnectivityStatus {
-  unavailable,
-  disabled,
-  disconnected,
-  connecting,
-  local,
-  limited,
-  captivePortal,
-  online,
-}
+export 'network_backend.dart';
 
-enum NetworkPermission { allowed, authenticationRequired, denied, unknown }
-
-enum WifiSecurity {
-  open,
-  wep,
-  wpaPersonal,
-  wpa3Personal,
-  owe,
-  enterprise,
-  unknown;
-
-  bool get requiresPassword => switch (this) {
-    WifiSecurity.wep ||
-    WifiSecurity.wpaPersonal ||
-    WifiSecurity.wpa3Personal => true,
-    _ => false,
-  };
-
-  bool get canCreateProfile => this != enterprise && this != unknown;
-
-  String get identityGroup => switch (this) {
-    WifiSecurity.wpaPersonal || WifiSecurity.wpa3Personal => 'personal',
-    _ => name,
-  };
-
-  String get label => switch (this) {
-    WifiSecurity.open => 'Open',
-    WifiSecurity.wep => 'WEP',
-    WifiSecurity.wpaPersonal => 'WPA/WPA2 Personal',
-    WifiSecurity.wpa3Personal => 'WPA3 Personal',
-    WifiSecurity.owe => 'Enhanced Open',
-    WifiSecurity.enterprise => 'Enterprise',
-    WifiSecurity.unknown => 'Unsupported security',
-  };
-}
-
-@immutable
-class WifiNetwork {
-  WifiNetwork({
-    required this.ssid,
-    required List<int> ssidBytes,
-    required this.security,
-    required this.strength,
-    required this.frequency,
-    required this.devicePath,
-    required this.accessPointPath,
-    required this.savedConnectionPath,
-    required this.connected,
-    required this.available,
-  }) : ssidBytes = List<int>.unmodifiable(ssidBytes),
-       identity = identityFor(ssidBytes, security);
-
-  final String identity;
-  final String ssid;
-  final List<int> ssidBytes;
-  final WifiSecurity security;
-  final int strength;
-  final int frequency;
-  final String devicePath;
-  final String accessPointPath;
-  final String? savedConnectionPath;
-  final bool connected;
-  final bool available;
-
-  bool get saved => savedConnectionPath != null;
-
-  bool get connectable =>
-      devicePath.isNotEmpty &&
-      (saved || (available && security.canCreateProfile));
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is WifiNetwork &&
-          other.identity == identity &&
-          other.ssid == ssid &&
-          listEquals(other.ssidBytes, ssidBytes) &&
-          other.security == security &&
-          other.strength == strength &&
-          other.frequency == frequency &&
-          other.devicePath == devicePath &&
-          other.accessPointPath == accessPointPath &&
-          other.savedConnectionPath == savedConnectionPath &&
-          other.connected == connected &&
-          other.available == available;
-
-  @override
-  int get hashCode => Object.hash(
-    identity,
-    ssid,
-    Object.hashAll(ssidBytes),
-    security,
-    strength,
-    frequency,
-    devicePath,
-    accessPointPath,
-    savedConnectionPath,
-    connected,
-    available,
-  );
-
-  WifiNetwork copyWith({
-    String? devicePath,
-    String? accessPointPath,
-    String? savedConnectionPath,
-    bool? connected,
-    bool? available,
-  }) {
-    return WifiNetwork(
-      ssid: ssid,
-      ssidBytes: ssidBytes,
-      security: security,
-      strength: strength,
-      frequency: frequency,
-      devicePath: devicePath ?? this.devicePath,
-      accessPointPath: accessPointPath ?? this.accessPointPath,
-      savedConnectionPath: savedConnectionPath ?? this.savedConnectionPath,
-      connected: connected ?? this.connected,
-      available: available ?? this.available,
-    );
-  }
-
-  static String identityFor(List<int> ssidBytes, WifiSecurity security) {
-    final encoded = base64Url.encode(ssidBytes).replaceAll('=', '');
-    return '$encoded:${security.identityGroup}';
-  }
-}
-
-@immutable
-class SavedWifiConnectionInfo {
-  SavedWifiConnectionInfo({
-    required this.objectPath,
-    required this.name,
-    required List<int> ssidBytes,
-    required this.security,
-  }) : ssidBytes = List<int>.unmodifiable(ssidBytes),
-       identity = WifiNetwork.identityFor(ssidBytes, security);
-
-  final String objectPath;
-  final String name;
-  final List<int> ssidBytes;
-  final WifiSecurity security;
-  final String identity;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is SavedWifiConnectionInfo &&
-          other.objectPath == objectPath &&
-          other.name == name &&
-          listEquals(other.ssidBytes, ssidBytes) &&
-          other.security == security &&
-          other.identity == identity;
-
-  @override
-  int get hashCode => Object.hash(
-    objectPath,
-    name,
-    Object.hashAll(ssidBytes),
-    security,
-    identity,
-  );
-}
-
-@immutable
-class NetworkManagerSnapshot {
-  NetworkManagerSnapshot({
-    required this.serviceAvailable,
-    required this.wifiDeviceAvailable,
-    required this.wirelessHardwareEnabled,
-    required this.wirelessEnabled,
-    required this.status,
-    required List<WifiNetwork> networks,
-    required this.activeConnectionPath,
-    required this.devicePath,
-    required this.lastScan,
-    required this.radioPermission,
-    required this.controlPermission,
-    required this.modifyPermission,
-  }) : networks = List<WifiNetwork>.unmodifiable(networks);
-
-  const NetworkManagerSnapshot.unavailable()
-    : serviceAvailable = false,
-      wifiDeviceAvailable = false,
-      wirelessHardwareEnabled = false,
-      wirelessEnabled = false,
-      status = NetworkConnectivityStatus.unavailable,
-      networks = const <WifiNetwork>[],
-      activeConnectionPath = null,
-      devicePath = null,
-      lastScan = -1,
-      radioPermission = NetworkPermission.unknown,
-      controlPermission = NetworkPermission.unknown,
-      modifyPermission = NetworkPermission.unknown;
-
-  final bool serviceAvailable;
-  final bool wifiDeviceAvailable;
-  final bool wirelessHardwareEnabled;
-  final bool wirelessEnabled;
-  final NetworkConnectivityStatus status;
-  final List<WifiNetwork> networks;
-  final String? activeConnectionPath;
-  final String? devicePath;
-  final int lastScan;
-  final NetworkPermission radioPermission;
-  final NetworkPermission controlPermission;
-  final NetworkPermission modifyPermission;
-
-  WifiNetwork? get connectedNetwork {
-    for (final network in networks) {
-      if (network.connected) {
-        return network;
-      }
-    }
-    return null;
-  }
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is NetworkManagerSnapshot &&
-          other.serviceAvailable == serviceAvailable &&
-          other.wifiDeviceAvailable == wifiDeviceAvailable &&
-          other.wirelessHardwareEnabled == wirelessHardwareEnabled &&
-          other.wirelessEnabled == wirelessEnabled &&
-          other.status == status &&
-          listEquals(other.networks, networks) &&
-          other.activeConnectionPath == activeConnectionPath &&
-          other.devicePath == devicePath &&
-          other.lastScan == lastScan &&
-          other.radioPermission == radioPermission &&
-          other.controlPermission == controlPermission &&
-          other.modifyPermission == modifyPermission;
-
-  @override
-  int get hashCode => Object.hash(
-    serviceAvailable,
-    wifiDeviceAvailable,
-    wirelessHardwareEnabled,
-    wirelessEnabled,
-    status,
-    Object.hashAll(networks),
-    activeConnectionPath,
-    devicePath,
-    lastScan,
-    radioPermission,
-    controlPermission,
-    modifyPermission,
-  );
-}
-
-abstract interface class NetworkManagerBackend {
-  Stream<NetworkManagerSnapshot> get snapshots;
-
-  NetworkManagerSnapshot get currentSnapshot;
-
-  Future<void> start();
-
-  Future<void> refresh();
-
-  Future<void> setWirelessEnabled(bool enabled);
-
-  Future<void> requestScan();
-
-  Future<void> connect(WifiNetwork network, {String? password});
-
-  Future<void> disconnect();
-
-  Future<void> forget(WifiNetwork network);
-
-  Future<void> dispose();
-}
-
-class NetworkManagerService implements NetworkManagerBackend {
+class NetworkManagerService implements NetworkBackend {
   factory NetworkManagerService({DBusClient? client}) {
     return NetworkManagerService._(client ?? DBusClient.system());
   }
@@ -338,8 +51,8 @@ class NetworkManagerService implements NetworkManagerBackend {
   final DBusClient _client;
   final DBusRemoteObject _root;
   final DBusRemoteObject _settings;
-  final StreamController<NetworkManagerSnapshot> _snapshots =
-      StreamController<NetworkManagerSnapshot>.broadcast(sync: true);
+  final StreamController<NetworkSnapshot> _snapshots =
+      StreamController<NetworkSnapshot>.broadcast(sync: true);
 
   StreamSubscription<DBusSignal>? _signalSubscription;
   StreamSubscription<DBusNameOwnerChangedEvent>? _ownerSubscription;
@@ -348,13 +61,13 @@ class NetworkManagerService implements NetworkManagerBackend {
   bool _disposed = false;
   bool _refreshing = false;
   bool _refreshAgain = false;
-  NetworkManagerSnapshot _current = NetworkManagerSnapshot.unavailable();
+  NetworkSnapshot _current = NetworkSnapshot.unavailable();
 
   @override
-  Stream<NetworkManagerSnapshot> get snapshots => _snapshots.stream;
+  Stream<NetworkSnapshot> get snapshots => _snapshots.stream;
 
   @override
-  NetworkManagerSnapshot get currentSnapshot => _current;
+  NetworkSnapshot get currentSnapshot => _current;
 
   @override
   Future<void> start() async {
@@ -372,7 +85,7 @@ class NetworkManagerService implements NetworkManagerBackend {
         .listen((event) {
           if (event.newOwner == null) {
             _refreshTimer?.cancel();
-            _emit(NetworkManagerSnapshot.unavailable());
+            _emit(NetworkSnapshot.unavailable());
           } else {
             _scheduleRefresh(immediate: true);
           }
@@ -397,7 +110,7 @@ class NetworkManagerService implements NetworkManagerBackend {
       }
     } on Object {
       if (!_disposed) {
-        _emit(NetworkManagerSnapshot.unavailable());
+        _emit(NetworkSnapshot.unavailable());
       }
     } finally {
       _refreshing = false;
@@ -436,9 +149,9 @@ class NetworkManagerService implements NetworkManagerBackend {
     }
     final device = DBusObjectPath(network.devicePath);
     final accessPoint = DBusObjectPath(
-      network.accessPointPath.isEmpty ? '/' : network.accessPointPath,
+      network.networkPath.isEmpty ? '/' : network.networkPath,
     );
-    final saved = network.savedConnectionPath;
+    final saved = network.savedNetworkPath;
     if (saved != null) {
       await _root
           .callMethod(
@@ -469,7 +182,7 @@ class NetworkManagerService implements NetworkManagerBackend {
 
   @override
   Future<void> disconnect() async {
-    final activeConnection = _current.activeConnectionPath;
+    final activeConnection = _current.activeNetworkPath;
     if (activeConnection == null || activeConnection == '/') {
       return;
     }
@@ -485,7 +198,7 @@ class NetworkManagerService implements NetworkManagerBackend {
 
   @override
   Future<void> forget(WifiNetwork network) async {
-    final path = network.savedConnectionPath;
+    final path = network.savedNetworkPath;
     if (path == null) {
       return;
     }
@@ -502,9 +215,9 @@ class NetworkManagerService implements NetworkManagerBackend {
         .timeout(_methodTimeout);
   }
 
-  Future<NetworkManagerSnapshot> _readSnapshot() async {
+  Future<NetworkSnapshot> _readSnapshot() async {
     if (!await _client.nameHasOwner(_serviceName).timeout(_readTimeout)) {
-      return NetworkManagerSnapshot.unavailable();
+      return NetworkSnapshot.unavailable();
     }
 
     final rootProperties = await _root
@@ -537,7 +250,7 @@ class NetworkManagerService implements NetworkManagerBackend {
       return _WifiDeviceSnapshot(
         path: path.value,
         state: _uint32(deviceProperties, 'State'),
-        activeConnectionPath: _objectPath(deviceProperties, 'ActiveConnection'),
+        activeNetworkPath: _objectPath(deviceProperties, 'ActiveConnection'),
         activeAccessPointPath: _objectPath(
           wirelessProperties,
           'ActiveAccessPoint',
@@ -553,14 +266,14 @@ class NetworkManagerService implements NetworkManagerBackend {
     final wirelessEnabled = _boolean(rootProperties, 'WirelessEnabled');
     final hardwareEnabled = _boolean(rootProperties, 'WirelessHardwareEnabled');
     if (wifiDevices.isEmpty) {
-      return NetworkManagerSnapshot(
+      return NetworkSnapshot(
         serviceAvailable: true,
         wifiDeviceAvailable: false,
         wirelessHardwareEnabled: hardwareEnabled,
         wirelessEnabled: wirelessEnabled,
         status: NetworkConnectivityStatus.unavailable,
         networks: const <WifiNetwork>[],
-        activeConnectionPath: null,
+        activeNetworkPath: null,
         devicePath: null,
         lastScan: -1,
         radioPermission: permissions.radio,
@@ -570,24 +283,24 @@ class NetworkManagerService implements NetworkManagerBackend {
     }
 
     wifiDevices.sort((left, right) {
-      final leftActive = left.activeConnectionPath != null ? 1 : 0;
-      final rightActive = right.activeConnectionPath != null ? 1 : 0;
+      final leftActive = left.activeNetworkPath != null ? 1 : 0;
+      final rightActive = right.activeNetworkPath != null ? 1 : 0;
       return rightActive.compareTo(leftActive);
     });
     final primaryDevice = wifiDevices.first;
-    final accessPointPaths = <String>[];
+    final networkPaths = <String>[];
     for (final device in wifiDevices) {
       for (final path in device.accessPoints) {
-        if (accessPointPaths.length == _maxAccessPoints) {
+        if (networkPaths.length == _maxAccessPoints) {
           break;
         }
-        if (!accessPointPaths.contains(path)) {
-          accessPointPaths.add(path);
+        if (!networkPaths.contains(path)) {
+          networkPaths.add(path);
         }
       }
     }
 
-    final candidates = (await _mapInBatches(accessPointPaths, _readBatchSize, (
+    final candidates = (await _mapInBatches(networkPaths, _readBatchSize, (
       path,
     ) async {
       final properties = await _tryGetAll(path, _accessPointInterface);
@@ -611,8 +324,8 @@ class NetworkManagerService implements NetworkManagerBackend {
         strength: _byte(properties, 'Strength'),
         frequency: _uint32(properties, 'Frequency'),
         devicePath: device.path,
-        accessPointPath: path,
-        savedConnectionPath: null,
+        networkPath: path,
+        savedNetworkPath: null,
         connected: device.activeAccessPointPath == path,
         available: true,
       );
@@ -625,7 +338,7 @@ class NetworkManagerService implements NetworkManagerBackend {
       defaultDevicePath: primaryDevice.path,
     );
     final activeConnection = wifiDevices
-        .map((device) => device.activeConnectionPath)
+        .map((device) => device.activeNetworkPath)
         .whereType<String>()
         .firstOrNull;
     final deviceState = wifiDevices
@@ -637,7 +350,7 @@ class NetworkManagerService implements NetworkManagerBackend {
         .map((device) => device.lastScan)
         .fold<int>(-1, (current, value) => value > current ? value : current);
 
-    return NetworkManagerSnapshot(
+    return NetworkSnapshot(
       serviceAvailable: true,
       wifiDeviceAvailable: true,
       wirelessHardwareEnabled: hardwareEnabled,
@@ -650,7 +363,7 @@ class NetworkManagerService implements NetworkManagerBackend {
         deviceState: deviceState,
       ),
       networks: networks,
-      activeConnectionPath: activeConnection,
+      activeNetworkPath: activeConnection,
       devicePath: primaryDevice.path,
       lastScan: lastScan,
       radioPermission: permissions.radio,
@@ -777,7 +490,7 @@ class NetworkManagerService implements NetworkManagerBackend {
     });
   }
 
-  void _emit(NetworkManagerSnapshot snapshot) {
+  void _emit(NetworkSnapshot snapshot) {
     if (snapshot == _current) {
       return;
     }
@@ -867,74 +580,6 @@ NetworkConnectivityStatus classifyNetworkConnectivity({
       NetworkConnectivityStatus.local,
     _ => NetworkConnectivityStatus.disconnected,
   };
-}
-
-@visibleForTesting
-List<WifiNetwork> normalizeWifiNetworks(
-  Iterable<WifiNetwork> candidates,
-  Iterable<SavedWifiConnectionInfo> savedConnections, {
-  required String defaultDevicePath,
-  int maximum = 64,
-}) {
-  final visible = <String, WifiNetwork>{};
-  for (final candidate in candidates) {
-    final current = visible[candidate.identity];
-    if (current == null ||
-        (!current.connected && candidate.connected) ||
-        (current.connected == candidate.connected &&
-            candidate.strength > current.strength)) {
-      visible[candidate.identity] = candidate;
-    }
-  }
-
-  final savedByIdentity = <String, SavedWifiConnectionInfo>{};
-  for (final saved in savedConnections) {
-    savedByIdentity.putIfAbsent(saved.identity, () => saved);
-  }
-  for (final entry in visible.entries.toList(growable: false)) {
-    final saved = savedByIdentity.remove(entry.key);
-    if (saved != null) {
-      visible[entry.key] = entry.value.copyWith(
-        savedConnectionPath: saved.objectPath,
-      );
-    }
-  }
-  for (final saved in savedByIdentity.values) {
-    visible[saved.identity] = WifiNetwork(
-      ssid: saved.name,
-      ssidBytes: saved.ssidBytes,
-      security: saved.security,
-      strength: 0,
-      frequency: 0,
-      devicePath: defaultDevicePath,
-      accessPointPath: '/',
-      savedConnectionPath: saved.objectPath,
-      connected: false,
-      available: false,
-    );
-  }
-
-  final networks = visible.values.toList(growable: false)
-    ..sort((left, right) {
-      final connected = _trueFirst(left.connected, right.connected);
-      if (connected != 0) {
-        return connected;
-      }
-      final saved = _trueFirst(left.saved, right.saved);
-      if (saved != 0) {
-        return saved;
-      }
-      final available = _trueFirst(left.available, right.available);
-      if (available != 0) {
-        return available;
-      }
-      final strength = right.strength.compareTo(left.strength);
-      if (strength != 0) {
-        return strength;
-      }
-      return left.ssid.toLowerCase().compareTo(right.ssid.toLowerCase());
-    });
-  return List<WifiNetwork>.unmodifiable(networks.take(maximum));
 }
 
 @visibleForTesting
@@ -1115,18 +760,11 @@ NetworkPermission _strongestPermission(
   return priority[left]! >= priority[right]! ? left : right;
 }
 
-int _trueFirst(bool left, bool right) {
-  if (left == right) {
-    return 0;
-  }
-  return left ? -1 : 1;
-}
-
 class _WifiDeviceSnapshot {
   const _WifiDeviceSnapshot({
     required this.path,
     required this.state,
-    required this.activeConnectionPath,
+    required this.activeNetworkPath,
     required this.activeAccessPointPath,
     required this.accessPoints,
     required this.lastScan,
@@ -1134,7 +772,7 @@ class _WifiDeviceSnapshot {
 
   final String path;
   final int state;
-  final String? activeConnectionPath;
+  final String? activeNetworkPath;
   final String? activeAccessPointPath;
   final List<String> accessPoints;
   final int lastScan;

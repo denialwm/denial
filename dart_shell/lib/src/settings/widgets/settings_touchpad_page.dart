@@ -2,22 +2,36 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../localization/denial_localizations.dart';
+import '../../models/input_device_capabilities.dart';
 import '../../state/input_device_capabilities.dart';
 import '../../theme/tokens.dart';
 import 'settings_controls.dart';
 
 const settingsTapToClickToggleKey = Key('settings-touchpad-tap-to-click');
 const settingsNaturalScrollToggleKey = Key('settings-touchpad-natural-scroll');
+const settingsScrollSpeedSliderKey = Key('settings-touchpad-scroll-speed');
 
-class SettingsTouchpadPage extends ConsumerWidget {
+class SettingsTouchpadPage extends ConsumerStatefulWidget {
   const SettingsTouchpadPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsTouchpadPage> createState() =>
+      _SettingsTouchpadPageState();
+}
+
+class _SettingsTouchpadPageState extends ConsumerState<SettingsTouchpadPage> {
+  double? _draftScrollSpeedFactor;
+  var _changingScrollSpeed = false;
+
+  @override
+  Widget build(BuildContext context) {
     final l10n = context.l10n;
     final state = ref.watch(inputDeviceCapabilitiesProvider);
     final controller = ref.read(inputDeviceCapabilitiesProvider.notifier);
     final capabilities = state.capabilities;
+    final scrollSpeedFactor = _changingScrollSpeed || state.busy
+        ? _draftScrollSpeedFactor ?? capabilities.scrollSpeedFactor
+        : capabilities.scrollSpeedFactor;
     return SettingsPageLayout(
       icon: Icons.touch_app_rounded,
       eyebrow: l10n.settingsTouchpadSection,
@@ -34,6 +48,34 @@ class SettingsTouchpadPage extends ConsumerWidget {
                 value: capabilities.tapToClickEnabled,
                 enabled: !state.busy,
                 onChanged: controller.setTapToClick,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: SettingsSlider(
+                key: settingsScrollSpeedSliderKey,
+                label: l10n.settingsTouchpadScrollSpeed,
+                value: scrollSpeedFactor,
+                minimum: touchpadScrollSpeedFactorMinimum,
+                maximum: touchpadScrollSpeedFactorMaximum,
+                divisions: 99,
+                valueLabel: '${scrollSpeedFactor.toStringAsFixed(2)}×',
+                enabled: !state.busy,
+                onChangeStart: (value) => setState(() {
+                  _changingScrollSpeed = true;
+                  _draftScrollSpeedFactor = _normalizedFactor(value);
+                }),
+                onChanged: (value) => setState(
+                  () => _draftScrollSpeedFactor = _normalizedFactor(value),
+                ),
+                onChangeEnd: (value) {
+                  final factor = _normalizedFactor(value);
+                  setState(() {
+                    _changingScrollSpeed = false;
+                    _draftScrollSpeedFactor = factor;
+                  });
+                  controller.setScrollSpeedFactor(factor);
+                },
               ),
             ),
             Padding(
@@ -60,4 +102,8 @@ class SettingsTouchpadPage extends ConsumerWidget {
       ],
     );
   }
+
+  double _normalizedFactor(double value) => ((value * 20).round() / 20)
+      .clamp(touchpadScrollSpeedFactorMinimum, touchpadScrollSpeedFactorMaximum)
+      .toDouble();
 }

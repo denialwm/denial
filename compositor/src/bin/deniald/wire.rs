@@ -127,7 +127,7 @@ pub enum KeyboardCommand {
     },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SettingsCommand {
     ReadDocument {
         request_id: u64,
@@ -571,6 +571,31 @@ impl WireBridge {
         })
     }
 
+    /// Replaces display geometry in place and emits an unsolicited layout
+    /// response (`request_id == 0`). The Dart bridge treats that form as a
+    /// state update, allowing transform-only changes to keep the engine and
+    /// physical render-target pools resident.
+    pub fn update_topology(
+        &mut self,
+        snapshot: &TopologySnapshot,
+        atlas: &AtlasPlan,
+    ) -> Result<&[u8], WireError> {
+        validate_topology(snapshot, atlas)?;
+        self.snapshot = snapshot.clone();
+        self.atlas = atlas.clone();
+        let sequence = self.take_sequence();
+        self.outbound_builder.reset();
+        encode_display_layout(
+            &mut self.outbound_builder,
+            sequence,
+            0,
+            &self.snapshot,
+            &self.atlas,
+            &self.work_area,
+        )?;
+        Ok(self.outbound_builder.finished_data())
+    }
+
     /// Updates the authoritative snapshot and returns the displaced storage.
     /// The compositor scene builder uses that vector as its next scratch
     /// generation, keeping application-frame-rate metadata off the allocator.
@@ -866,6 +891,7 @@ impl WireBridge {
             &fb::TouchpadConfigurationArgs {
                 tap_to_click_enabled: touchpad.tap_to_click_enabled,
                 natural_scroll_enabled: touchpad.natural_scroll_enabled,
+                scroll_speed_factor: touchpad.scroll_speed_factor,
             },
         );
         let input_devices = fb::InputDeviceCapabilities::create(
@@ -1523,6 +1549,7 @@ fn decode_settings_request(
                 touchpad: TouchpadSettings {
                     tap_to_click_enabled: touchpad.tap_to_click_enabled(),
                     natural_scroll_enabled: touchpad.natural_scroll_enabled(),
+                    scroll_speed_factor: touchpad.scroll_speed_factor(),
                 },
             })
         }
@@ -2719,8 +2746,8 @@ fn encode_display_layout(
             planned.logical_rect.height,
         );
         let pixels = fb::WireSize::new(
-            f64::from(planned.scanout_size.width),
-            f64::from(planned.scanout_size.height),
+            f64::from(planned.pixel_size.width),
+            f64::from(planned.pixel_size.height),
         );
         let source = fb::WireRect::new(
             f64::from(planned.source_rect.x),
@@ -3170,6 +3197,7 @@ mod tests {
         expected_revision: u64,
         tap_to_click_enabled: bool,
         natural_scroll_enabled: bool,
+        scroll_speed_factor: f64,
     ) -> Vec<u8> {
         let mut builder = FlatBufferBuilder::new();
         let touchpad = fb::TouchpadConfiguration::create(
@@ -3177,6 +3205,7 @@ mod tests {
             &fb::TouchpadConfigurationArgs {
                 tap_to_click_enabled,
                 natural_scroll_enabled,
+                scroll_speed_factor,
             },
         );
         let request = fb::SettingsRequest::create(
@@ -4031,7 +4060,7 @@ mod tests {
             ))
             .unwrap();
         bridge
-            .handle(&touchpad_settings_request(45, 9, false, true))
+            .handle(&touchpad_settings_request(45, 9, false, true, 2.5))
             .unwrap();
         bridge
             .handle(&settings_request(
@@ -4076,6 +4105,7 @@ mod tests {
                     touchpad: TouchpadSettings {
                         tap_to_click_enabled: false,
                         natural_scroll_enabled: true,
+                        scroll_speed_factor: 2.5,
                     },
                 },
                 SettingsCommand::ReadInputDevices { request_id: 44 },
@@ -4164,6 +4194,7 @@ mod tests {
                 &TouchpadSettings {
                     tap_to_click_enabled: false,
                     natural_scroll_enabled: true,
+                    scroll_speed_factor: 2.5,
                 },
                 None,
             )
@@ -4179,6 +4210,7 @@ mod tests {
         let touchpad = input_devices.touchpad().unwrap();
         assert!(!touchpad.tap_to_click_enabled());
         assert!(touchpad.natural_scroll_enabled());
+        assert_eq!(touchpad.scroll_speed_factor(), 2.5);
     }
 
     #[test]

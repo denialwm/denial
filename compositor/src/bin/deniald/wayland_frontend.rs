@@ -7,7 +7,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use denial_core::topology::{AtlasPlan, OutputId, TopologySnapshot};
+use denial_core::topology::{AtlasPlan, OutputId, OutputTransform, TopologySnapshot};
 #[cfg(feature = "flutter")]
 use smithay::backend::allocator::Buffer as AllocatorBuffer;
 use smithay::backend::allocator::dmabuf::Dmabuf;
@@ -494,6 +494,7 @@ pub(super) struct WaylandFrontend {
     next_window_offset: i32,
     desktop_bounds: smithay::utils::Rectangle<i32, Logical>,
     touch_bounds: smithay::utils::Rectangle<i32, Logical>,
+    touch_transform: OutputTransform,
     pointer_location: Point<f64, Logical>,
     cursor_status: CursorImageStatus,
     atlas_origin: Point<f64, Logical>,
@@ -843,6 +844,11 @@ impl WaylandFrontend {
                 )
             })
             .unwrap_or(desktop_bounds);
+        let touch_transform = snapshot
+            .outputs
+            .first()
+            .map(|output| output.transform)
+            .unwrap_or(OutputTransform::Normal);
 
         let atlas = AtlasPlan::for_snapshot(snapshot).ok_or("Wayland topology has no atlas")?;
         let mut outputs = Vec::with_capacity(snapshot.outputs.len());
@@ -871,21 +877,16 @@ impl WaylandFrontend {
                 output,
                 global,
                 logical_geometry: output_logical_bounds(spec),
-                capture_source: Rectangle::new(
+                capture_source: Rectangle::from_size(
                     (
-                        i32::try_from(capture.source_rect.x)?,
-                        i32::try_from(capture.source_rect.y)?,
-                    )
-                        .into(),
-                    (
-                        i32::try_from(capture.source_rect.width)?,
-                        i32::try_from(capture.source_rect.height)?,
+                        i32::try_from(capture.pixel_size.width)?,
+                        i32::try_from(capture.pixel_size.height)?,
                     )
                         .into(),
                 ),
                 capture_size: (
-                    i32::try_from(capture.scanout_size.width)?,
-                    i32::try_from(capture.scanout_size.height)?,
+                    i32::try_from(capture.pixel_size.width)?,
+                    i32::try_from(capture.pixel_size.height)?,
                 )
                     .into(),
                 powered: true,
@@ -1223,6 +1224,7 @@ impl WaylandFrontend {
             next_window_offset: 48,
             desktop_bounds,
             touch_bounds,
+            touch_transform,
             pointer_location,
             cursor_status: CursorImageStatus::default_named(),
             atlas_origin,

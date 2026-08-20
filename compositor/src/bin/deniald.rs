@@ -39,6 +39,9 @@ mod notification_server;
 #[path = "deniald/options.rs"]
 mod options;
 #[cfg(feature = "flutter")]
+#[path = "deniald/orientation_sensor.rs"]
+mod orientation_sensor;
+#[cfg(feature = "flutter")]
 #[path = "deniald/output_control.rs"]
 mod output_control;
 #[cfg(feature = "flutter")]
@@ -194,6 +197,9 @@ struct RuntimeOutputConfiguration {
     modes: BTreeMap<String, OutputModePreference>,
     scales_120: BTreeMap<String, u32>,
     transforms: BTreeMap<String, OutputTransform>,
+    /// Transient device rotation from iio-sensor-proxy. `transforms` remains
+    /// the persistent panel-mount baseline.
+    sensor_rotation: OutputTransform,
     vrr_outputs: BTreeSet<String>,
     disabled_outputs: BTreeSet<String>,
 }
@@ -234,10 +240,36 @@ impl RuntimeOutputConfiguration {
             modes,
             scales_120: options.scales_120.clone(),
             transforms: options.transforms.clone(),
+            sensor_rotation: OutputTransform::Normal,
             vrr_outputs: options.vrr_outputs.clone(),
             disabled_outputs: options.disabled_outputs.clone(),
         }
     }
+
+    fn effective_transform(&self, name: &str) -> OutputTransform {
+        let baseline = self
+            .transforms
+            .get(name)
+            .copied()
+            .unwrap_or(OutputTransform::Normal);
+        if orientation_sensor_output(name) {
+            baseline.rotated_by(self.sensor_rotation)
+        } else {
+            baseline
+        }
+    }
+
+    fn baseline_transform(&self, name: &str, effective: OutputTransform) -> OutputTransform {
+        if orientation_sensor_output(name) {
+            effective.rotated_by(self.sensor_rotation.inverse_rotation())
+        } else {
+            effective
+        }
+    }
+}
+
+fn orientation_sensor_output(name: &str) -> bool {
+    name.starts_with("DSI-") || name.starts_with("eDP-") || name.starts_with("LVDS-")
 }
 
 #[cfg(feature = "flutter")]
@@ -1047,19 +1079,6 @@ fn update_dbus_activation_environment(
     proxy.call("UpdateActivationEnvironment", environment)
 }
 
-fn dbus_name_has_owner(
-    connection: &zbus::blocking::Connection,
-    name: &str,
-) -> Result<bool, zbus::Error> {
-    let proxy = zbus::blocking::Proxy::new(
-        connection,
-        "org.freedesktop.DBus",
-        "/org/freedesktop/DBus",
-        "org.freedesktop.DBus",
-    )?;
-    proxy.call("NameHasOwner", &(name))
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SessionActivation {
     Dbus,
@@ -1067,13 +1086,17 @@ enum SessionActivation {
 }
 
 impl SessionActivation {
-    fn for_systemd_name_owner(has_owner: bool) -> Self {
-        if has_owner { Self::Systemd } else { Self::Dbus }
-    }
-
     fn starts_systemd_target(self) -> bool {
         self == Self::Systemd
     }
+}
+
+fn systemd_user_manager_runtime_available(runtime_dir: Option<&OsStr>) -> bool {
+    let Some(runtime_dir) = runtime_dir else {
+        return false;
+    };
+    let runtime_dir = Path::new(runtime_dir);
+    runtime_dir.is_absolute() && runtime_dir.join("systemd").is_dir()
 }
 
 fn update_systemd_activation_environment(
@@ -1082,7 +1105,7 @@ fn update_systemd_activation_environment(
 ) -> Result<(), zbus::Error> {
     let proxy = zbus::blocking::Proxy::new(
         connection,
-        "org.freedesktop.systemd1",
+        SYSTEMD_DBUS_NAME,
         "/org/freedesktop/systemd1",
         "org.freedesktop.systemd1.Manager",
     )?;
@@ -1096,26 +1119,25 @@ fn change_systemd_graphical_session(
     connection: &zbus::blocking::Connection,
     method: &'static str,
     target: &'static str,
-) -> Result<(), zbus::Error> {
+) -> Result<zbus::zvariant::OwnedObjectPath, zbus::Error> {
     let proxy = zbus::blocking::Proxy::new(
         connection,
-        "org.freedesktop.systemd1",
+        SYSTEMD_DBUS_NAME,
         "/org/freedesktop/systemd1",
         "org.freedesktop.systemd1.Manager",
     )?;
-    let _: zbus::zvariant::OwnedObjectPath = proxy.call(method, &(target, "replace"))?;
-    Ok(())
+    proxy.call(method, &(target, "replace"))
 }
 
 fn start_systemd_graphical_session(
     connection: &zbus::blocking::Connection,
-) -> Result<(), zbus::Error> {
+) -> Result<zbus::zvariant::OwnedObjectPath, zbus::Error> {
     change_systemd_graphical_session(connection, "StartUnit", DENIAL_SESSION_TARGET)
 }
 
 fn stop_systemd_graphical_session() -> Result<(), Box<dyn Error>> {
     let connection = zbus::blocking::Connection::session()?;
-    change_systemd_graphical_session(&connection, "StopUnit", GRAPHICAL_SESSION_TARGET)?;
+    let _job = change_systemd_graphical_session(&connection, "StopUnit", GRAPHICAL_SESSION_TARGET)?;
     Ok(())
 }
 
@@ -1129,28 +1151,34 @@ fn publish_session_activation_environment(
     let connection = zbus::blocking::Connection::session()?;
     update_dbus_activation_environment(&connection, &environment)?;
 
-    let activation = SessionActivation::for_systemd_name_owner(dbus_name_has_owner(
-        &connection,
-        SYSTEMD_DBUS_NAME,
-    )?);
-    match activation {
-        SessionActivation::Dbus => info!(
+    if !systemd_user_manager_runtime_available(std::env::var_os("XDG_RUNTIME_DIR").as_deref()) {
+        info!(
             wayland_display = ?wayland_display,
             x11_display = ?x11_display,
-            "published the compositor session to D-Bus activation"
-        ),
-        SessionActivation::Systemd => {
-            update_systemd_activation_environment(&connection, &environment)?;
-            start_systemd_graphical_session(&connection)?;
-            info!(
-                wayland_display = ?wayland_display,
-                x11_display = ?x11_display,
-                target = DENIAL_SESSION_TARGET,
-                "published the compositor session and activated its graphical-session target"
-            );
-        }
+            "published the compositor session to D-Bus activation; no systemd user manager runtime is available"
+        );
+        return Ok(SessionActivation::Dbus);
     }
-    Ok(activation)
+
+    // NameHasOwner is deliberately not used as a capability test here. The
+    // user manager can already be running while its well-known D-Bus name is
+    // still activatable or being acquired during an early login. Sending the
+    // manager calls directly lets D-Bus synchronize that startup instead of
+    // permanently selecting the D-Bus-only path from a transient snapshot.
+    update_systemd_activation_environment(&connection, &environment).map_err(|error| {
+        format!("could not publish the session environment to systemd: {error}")
+    })?;
+    let job = start_systemd_graphical_session(&connection).map_err(|error| {
+        format!("could not start {DENIAL_SESSION_TARGET} through systemd: {error}")
+    })?;
+    info!(
+        wayland_display = ?wayland_display,
+        x11_display = ?x11_display,
+        target = DENIAL_SESSION_TARGET,
+        job = %job,
+        "published the compositor session and queued its graphical-session target"
+    );
+    Ok(SessionActivation::Systemd)
 }
 
 #[cfg(test)]
@@ -1204,17 +1232,27 @@ mod session_activation_tests {
     }
 
     #[test]
-    fn session_lifecycle_follows_the_available_activation_manager() {
-        assert_eq!(
-            SessionActivation::for_systemd_name_owner(false),
-            SessionActivation::Dbus
-        );
-        assert_eq!(
-            SessionActivation::for_systemd_name_owner(true),
-            SessionActivation::Systemd
-        );
+    fn session_lifecycle_tracks_whether_the_systemd_target_started() {
         assert!(!SessionActivation::Dbus.starts_systemd_target());
         assert!(SessionActivation::Systemd.starts_systemd_target());
+    }
+
+    #[test]
+    fn systemd_runtime_detection_does_not_depend_on_dbus_name_ownership() {
+        let runtime =
+            std::env::temp_dir().join(format!("denial-systemd-runtime-{}", std::process::id()));
+        let systemd_runtime = runtime.join("systemd");
+        std::fs::create_dir_all(&systemd_runtime).expect("create fake systemd runtime");
+
+        assert!(systemd_user_manager_runtime_available(Some(
+            runtime.as_os_str()
+        )));
+        assert!(!systemd_user_manager_runtime_available(None));
+        assert!(!systemd_user_manager_runtime_available(Some(OsStr::new(
+            "relative/runtime"
+        ))));
+
+        std::fs::remove_dir_all(&runtime).expect("remove fake systemd runtime");
     }
 }
 
@@ -1302,6 +1340,8 @@ struct RuntimeState {
     output_power_requests: BTreeMap<OutputId, bool>,
     #[cfg(feature = "flutter")]
     kms_reconfigure_requested: bool,
+    #[cfg(feature = "flutter")]
+    resident_geometry_reconfigure_requested: bool,
     device_removed: bool,
     wayland: Option<wayland_frontend::WaylandFrontend>,
     clipboard: clipboard::ClipboardManager,
@@ -1374,6 +1414,8 @@ struct RuntimeState {
     pending_output_applies: VecDeque<PendingOutputApply>,
     #[cfg(feature = "flutter")]
     pending_output_confirmations: VecDeque<PendingOutputConfirmation>,
+    #[cfg(feature = "flutter")]
+    pending_orientation: Option<orientation_sensor::Orientation>,
     #[cfg(feature = "flutter")]
     output_control_dirty: bool,
     #[cfg(feature = "flutter")]
@@ -2708,6 +2750,22 @@ fn run_flutter_event_loop(
         ),
         ..RuntimeState::default()
     };
+    let _orientation_sensor = match orientation_sensor::OrientationSensor::start() {
+        Ok((sensor, source)) => {
+            event_loop
+                .handle()
+                .insert_source(source, |event, _, state: &mut RuntimeState| {
+                    if let ChannelEvent::Msg(orientation) = event {
+                        state.pending_orientation = Some(orientation);
+                    }
+                })?;
+            Some(sensor)
+        }
+        Err(error) => {
+            warn!(%error, "could not start the orientation sensor worker");
+            None
+        }
+    };
     event_loop.handle().insert_source(
         native_release_source,
         |event, _, state: &mut RuntimeState| {
@@ -2780,6 +2838,7 @@ fn run_flutter_event_loop(
     let mut pending_output_confirmation_success: VecDeque<PendingOutputConfirmation> =
         VecDeque::new();
     let mut active_output_confirmation: Option<ActiveOutputConfirmation> = None;
+    let mut pending_sensor_rotation = output_configuration.sensor_rotation;
 
     // Any native helper inadvertently created by an elevated Flutter thread
     // is normalized before the compositor itself becomes realtime.
@@ -2790,6 +2849,10 @@ fn run_flutter_event_loop(
         service_session_lifecycle(drm, scanouts, swapchain, event_loop, &mut events, deadline)?;
         service_native_app_plugins(event_loop, &mut events, allocator)?;
         let iteration_now = Instant::now();
+        if let Some(orientation) = events.pending_orientation.take() {
+            pending_sensor_rotation = orientation.output_rotation();
+            debug!(?orientation, rotation = ?pending_sensor_rotation, "observed device orientation");
+        }
         events.service_topology_recheck_deadline(iteration_now);
         install_sampled_buffer_releases(event_loop, &mut events)?;
         scheduler.acknowledge_ready_fences(
@@ -2813,6 +2876,33 @@ fn run_flutter_event_loop(
             recover_stalled_kms_presentation(drm, event_loop, &mut events)?;
             continue;
         }
+        let orientation_targets_idle = flutter.as_ref().is_some_and(|runtime| {
+            !runtime.output_rotation_animation_active()
+                && scanouts
+                    .iter()
+                    .all(|scanout| runtime.output_target_available(scanout.output.id))
+        });
+        if pending_sensor_rotation != output_configuration.sensor_rotation
+            && !scheduler.has_pending_scanout_work()
+            && orientation_targets_idle
+        {
+            scheduler.prepare_reconfiguration(scanouts, &mut events)?;
+            apply_automatic_orientation(
+                scanouts,
+                swapchain,
+                topology,
+                &mut output_configuration,
+                pending_sensor_rotation,
+                &mut events,
+                flutter
+                    .as_mut()
+                    .ok_or("Flutter runtime disappeared during automatic orientation")?,
+            )?;
+            if let Some(pending) = active_output_confirmation.as_mut() {
+                pending.rollback_configuration.sensor_rotation = pending_sensor_rotation;
+            }
+            frame_scheduler.reconfigure(scanouts, iteration_now);
+        }
         if active_output_confirmation
             .as_ref()
             .is_some_and(|pending| iteration_now >= pending.deadline)
@@ -2822,7 +2912,7 @@ fn run_flutter_event_loop(
                 .expect("expired output confirmation exists");
             output_configuration = pending.rollback_configuration;
             events.output_power_requests.extend(pending.rollback_power);
-            events.kms_reconfigure_requested = true;
+            events.resident_geometry_reconfigure_requested = true;
             events.output_control_dirty = true;
             info!(
                 token = pending.state.token,
@@ -2965,11 +3055,31 @@ fn run_flutter_event_loop(
             // background lane below; this is only the steady-state buffer
             // handoff required by the central scheduling decision.
             try_synchronize_flutter_buffers(runtime, &mut events)?;
+            let frame_now = Instant::now();
+            if runtime.output_rotation_animation_active()
+                && frame_scheduler.output_tick_due(frame_now)
+            {
+                let advance = runtime.advance_output_rotation_animation(frame_now)?;
+                if advance.advanced {
+                    // Projection-only frames reuse Flutter's retained scene.
+                    // No Dart vsync, external-texture advance or buffer
+                    // allocation is needed before the late geometry handoff.
+                    frame_scheduler.mark_all_dirty();
+                }
+                if advance.geometry_published {
+                    let snapshot = topology.snapshot();
+                    let atlas = AtlasPlan::for_snapshot(&snapshot)
+                        .ok_or("animated output resize produced no Flutter desktop geometry")?;
+                    synchronize_resident_flutter_geometry_state(&mut events, &atlas);
+                }
+            }
             collect_flutter_output_damage(runtime, &mut frame_scheduler);
 
-            if frame_limit.is_none_or(|limit| raster_frames < limit) {
+            let output_apply_waiting =
+                ready_output_apply.is_some() || !events.pending_output_applies.is_empty();
+            if !output_apply_waiting && frame_limit.is_none_or(|limit| raster_frames < limit) {
                 let frame_action = frame_scheduler.step_with_output_availability(
-                    Instant::now(),
+                    frame_now,
                     runtime.pending_frame(),
                     |output| {
                         scheduler.render_available(output)
@@ -3132,7 +3242,7 @@ fn run_flutter_event_loop(
                     {
                         output_configuration = pending.rollback_configuration;
                         events.output_power_requests.extend(pending.rollback_power);
-                        events.kms_reconfigure_requested = true;
+                        events.resident_geometry_reconfigure_requested = true;
                         events.output_control_dirty = true;
                         warn!(%error, "could not persist confirmed output configuration; rolling it back");
                         request.reply(Err(output_control::OutputControlFailure::new(
@@ -3148,7 +3258,7 @@ fn run_flutter_event_loop(
                 OutputConfirmationAction::Rollback => {
                     output_configuration = pending.rollback_configuration;
                     events.output_power_requests.extend(pending.rollback_power);
-                    events.kms_reconfigure_requested = true;
+                    events.resident_geometry_reconfigure_requested = true;
                     events.output_control_dirty = true;
                     info!(
                         token = pending.state.token,
@@ -3210,6 +3320,28 @@ fn run_flutter_event_loop(
         }
 
         if !scanout_rebased && let Some((request, connectors)) = ready_output_apply.take() {
+            let scanout_work_pending = scheduler.has_pending_scanout_work();
+            let resident_targets_idle = flutter.as_ref().is_some_and(|runtime| {
+                scanouts
+                    .iter()
+                    .all(|scanout| runtime.output_target_available(scanout.output.id))
+            });
+            if scanout_work_pending || !resident_targets_idle {
+                // Connector discovery deliberately spans an event-loop
+                // iteration. A Flutter frame which was already in flight can
+                // become ready or submitted during that boundary. Keep the
+                // prepared request as a render barrier and drain that final
+                // old-geometry frame instead of treating normal scheduler
+                // ownership as a fatal reconfiguration error.
+                ready_output_apply = Some((request, connectors));
+                submit_ready_frames(&mut scheduler, swapchain)?;
+                let now = Instant::now();
+                let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
+                    Duration::from_millis(50).min(deadline.saturating_duration_since(now))
+                });
+                event_loop.dispatch(timeout, &mut events)?;
+                continue;
+            }
             let current_snapshot = current_output_snapshot
                 .as_ref()
                 .expect("prepared output apply has a publication snapshot");
@@ -3225,6 +3357,10 @@ fn run_flutter_event_loop(
                 events.topology_dirty = true;
                 continue;
             }
+            let transform_only_request = output_request_changes_only_transforms(
+                &current_snapshot.outputs,
+                &request.configuration.outputs,
+            );
             let confirmation_rollback = request
                 .configuration
                 .confirmation_timeout_milliseconds
@@ -3300,7 +3436,11 @@ fn run_flutter_event_loop(
                         height: output.mode.height,
                         refresh_millihz: output.mode.refresh_millihz,
                         scale_120: (output.scale * f64::from(SCALE_BASE)).round() as u32,
-                        transform: output_transform_from_name(output.transform),
+                        transform: staged_configuration
+                            .transforms
+                            .get(&output.name)
+                            .copied()
+                            .unwrap_or(OutputTransform::Normal),
                         adaptive_sync: output.adaptive_sync,
                     })
                     .collect::<Vec<_>>();
@@ -3334,6 +3474,79 @@ fn run_flutter_event_loop(
             if !scanout_rebased && !hardware_changed && !topology_changed {
                 output_configuration = staged_configuration;
                 events.output_control_dirty = true;
+                events.output_power_requests.extend(desired_power);
+                let power_changed = apply_output_power_requests(
+                    flutter
+                        .as_mut()
+                        .ok_or("Flutter runtime disappeared during output power application")?,
+                    &mut scheduler,
+                    swapchain,
+                    scanouts,
+                    &mut events,
+                )?;
+                if power_changed {
+                    frame_scheduler.reconfigure(scanouts, Instant::now());
+                }
+                if let Some((rollback_configuration, rollback_power, timeout)) =
+                    confirmation_rollback
+                {
+                    active_output_confirmation = Some(begin_output_confirmation(
+                        current_snapshot.serial,
+                        timeout,
+                        rollback_configuration,
+                        rollback_power,
+                        prepared_persistence,
+                    ));
+                } else if let Some(prepared) = prepared_persistence {
+                    events.output_control_dirty = true;
+                    if let Err(error) = prepared.commit() {
+                        request.reply(Err(output_control::OutputControlFailure::new(
+                            "persistence_failed",
+                            &error,
+                        )));
+                        warn!(%error, "output configuration applied but could not be persisted");
+                        continue;
+                    }
+                }
+                pending_output_success = Some(request);
+                continue;
+            }
+
+            if !scanout_rebased && !hardware_changed {
+                scheduler.prepare_reconfiguration(scanouts, &mut events)?;
+                // Output transforms on resident Flutter pools are compositor
+                // projections, never KMS plane rotations. Give Settings the
+                // same retained-layer transition used by sensor orientation;
+                // mixed layout, scale and mode transactions remain immediate.
+                let transition = if transform_only_request {
+                    flutter_runtime::OutputGeometryTransition::AnimatedRotation
+                } else {
+                    flutter_runtime::OutputGeometryTransition::Immediate
+                };
+                let apply = apply_resident_output_geometry(
+                    scanouts,
+                    swapchain,
+                    topology,
+                    &mut output_configuration,
+                    outputs,
+                    staged_configuration,
+                    transition,
+                    &mut events,
+                    flutter.as_mut().ok_or(
+                        "Flutter runtime disappeared during resident output reconfiguration",
+                    )?,
+                );
+                if let Err(error) = apply {
+                    let message = error.to_string();
+                    events.output_control_dirty = true;
+                    request.reply(Err(output_control::OutputControlFailure::new(
+                        "apply_failed",
+                        &message,
+                    )));
+                    warn!(%message, "rejected resident output reconfiguration");
+                    continue;
+                }
+                frame_scheduler.reconfigure(scanouts, Instant::now());
                 events.output_power_requests.extend(desired_power);
                 let power_changed = apply_output_power_requests(
                     flutter
@@ -3465,7 +3678,14 @@ fn run_flutter_event_loop(
 
         let kms_reconfigure_requested = events.kms_reconfigure_requested;
         events.kms_reconfigure_requested = false;
-        if events.topology_dirty || scanout_rebased || kms_reconfigure_requested {
+        let resident_geometry_reconfigure_requested =
+            events.resident_geometry_reconfigure_requested;
+        events.resident_geometry_reconfigure_requested = false;
+        if events.topology_dirty
+            || scanout_rebased
+            || kms_reconfigure_requested
+            || resident_geometry_reconfigure_requested
+        {
             events.topology_dirty = false;
             let outputs = connected_outputs(drm_scanner, drm, max_outputs, &output_configuration)?;
             let now = Instant::now();
@@ -3513,9 +3733,14 @@ fn run_flutter_event_loop(
                     changed,
                     resumed = scanout_rebased,
                     forced = kms_reconfigure_requested,
+                    resident_geometry = resident_geometry_reconfigure_requested,
                     "completed event-driven DRM topology rescan"
                 );
-                if changed || scanout_rebased || kms_reconfigure_requested {
+                if changed
+                    || scanout_rebased
+                    || kms_reconfigure_requested
+                    || resident_geometry_reconfigure_requested
+                {
                     cancel_active_screenshot(
                         &mut screenshot_manager,
                         flutter
@@ -3524,7 +3749,17 @@ fn run_flutter_event_loop(
                         true,
                         "display topology changed",
                     )?;
-                    if !scanout_rebased && scheduler.has_pending_scanout_work() {
+                    let resident_targets_busy = resident_geometry_reconfigure_requested
+                        && !changed
+                        && !kms_reconfigure_requested
+                        && flutter.as_ref().is_none_or(|runtime| {
+                            scanouts
+                                .iter()
+                                .any(|scanout| !runtime.output_target_available(scanout.output.id))
+                        });
+                    if !scanout_rebased
+                        && (scheduler.has_pending_scanout_work() || resident_targets_busy)
+                    {
                         // Finish any ready old-topology batch before creating the
                         // common rollback point used by the hotplug transaction.
                         // A signalled ready fence can enter Volition lookahead;
@@ -3532,6 +3767,8 @@ fn run_flutter_event_loop(
                         submit_ready_frames(&mut scheduler, swapchain)?;
                         events.topology_dirty = true;
                         events.kms_reconfigure_requested = kms_reconfigure_requested;
+                        events.resident_geometry_reconfigure_requested =
+                            resident_geometry_reconfigure_requested;
                         let now = Instant::now();
                         let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
                             Duration::from_millis(50).min(deadline.saturating_duration_since(now))
@@ -3541,6 +3778,29 @@ fn run_flutter_event_loop(
                     }
                     if !scanout_rebased {
                         scheduler.prepare_reconfiguration(scanouts, &mut events)?;
+                    }
+                    if resident_geometry_reconfigure_requested
+                        && !changed
+                        && !scanout_rebased
+                        && !kms_reconfigure_requested
+                    {
+                        let staged_configuration = output_configuration.clone();
+                        apply_resident_output_geometry(
+                            scanouts,
+                            swapchain,
+                            topology,
+                            &mut output_configuration,
+                            outputs,
+                            staged_configuration,
+                            flutter_runtime::OutputGeometryTransition::Immediate,
+                            &mut events,
+                            flutter.as_mut().ok_or(
+                                "Flutter runtime disappeared during resident geometry rollback",
+                            )?,
+                        )?;
+                        frame_scheduler.reconfigure(scanouts, Instant::now());
+                        events.scanout_rebased = false;
+                        continue;
                     }
                     retired_output_flips =
                         retired_output_flips.saturating_add(scheduler.presented_frames());
@@ -4001,6 +4261,7 @@ fn screenshot_composite_sources(
             Ok(wayland_frontend::OutputCompositeSource {
                 dmabuf,
                 destination: physical_rect(output.source_rect)?,
+                transform: smithay_output_transform(output.transform),
             })
         })
         .collect()
@@ -4914,6 +5175,7 @@ fn synchronize_settings(
                                             .revision(),
                                         tap_to_click = next.tap_to_click_enabled,
                                         natural_scroll = next.natural_scroll_enabled,
+                                        scroll_speed_factor = next.scroll_speed_factor,
                                         "applied persistent touchpad settings"
                                     );
                                     Ok(())
@@ -5185,6 +5447,177 @@ fn send_flutter_window_event(
         }
         PendingWindowEvent::Placement(placement) => runtime.send_window_placement(placement),
     }
+}
+
+#[cfg(feature = "flutter")]
+fn apply_automatic_orientation(
+    scanouts: &mut [Scanout],
+    swapchain: &mut RenderSwapchains,
+    topology: &mut TopologyManager,
+    configuration: &mut RuntimeOutputConfiguration,
+    rotation: OutputTransform,
+    events: &mut RuntimeState,
+    flutter: &mut flutter_runtime::FlutterRuntime,
+) -> Result<(), Box<dyn Error>> {
+    let mut staged_configuration = configuration.clone();
+    staged_configuration.sensor_rotation = rotation;
+    let outputs = scanouts
+        .iter()
+        .map(|scanout| {
+            let mut output = scanout.output.clone();
+            output.transform = staged_configuration.effective_transform(&output.name);
+            output
+        })
+        .collect::<Vec<_>>();
+    if outputs
+        .iter()
+        .zip(scanouts.iter())
+        .all(|(output, scanout)| output.transform == scanout.output.transform)
+    {
+        configuration.sensor_rotation = rotation;
+        return Ok(());
+    }
+
+    apply_resident_output_geometry(
+        scanouts,
+        swapchain,
+        topology,
+        configuration,
+        outputs,
+        staged_configuration,
+        flutter_runtime::OutputGeometryTransition::AnimatedRotation,
+        events,
+        flutter,
+    )?;
+    info!(
+        ?rotation,
+        "applied automatic orientation to resident Flutter output pools"
+    );
+    Ok(())
+}
+
+#[cfg(feature = "flutter")]
+#[allow(clippy::too_many_arguments)]
+fn apply_resident_output_geometry(
+    scanouts: &mut [Scanout],
+    swapchain: &mut RenderSwapchains,
+    topology: &mut TopologyManager,
+    configuration: &mut RuntimeOutputConfiguration,
+    outputs: Vec<ConnectedOutput>,
+    staged_configuration: RuntimeOutputConfiguration,
+    transition: flutter_runtime::OutputGeometryTransition,
+    events: &mut RuntimeState,
+    flutter: &mut flutter_runtime::FlutterRuntime,
+) -> Result<(), Box<dyn Error>> {
+    let previous_snapshot = topology.snapshot();
+    let previous_atlas = AtlasPlan::for_snapshot(&previous_snapshot)
+        .ok_or("resident output rollback has no previous Flutter desktop geometry")?;
+    let mut staged_topology = topology.clone();
+    let snapshot =
+        update_topology_for_outputs(&mut staged_topology, &outputs, &staged_configuration)?;
+    let atlas = AtlasPlan::for_snapshot(&snapshot)
+        .ok_or("resident reconfiguration produced no Flutter desktop geometry")?;
+    let plans = atlas
+        .render_outputs(&snapshot)
+        .ok_or("resident reconfiguration produced invalid render projections")?;
+    let pools = swapchain
+        .outputs()
+        .ok_or("resident reconfiguration has no physical Flutter output pools")?;
+    if plans.len() != pools.outputs.len()
+        || plans.iter().any(|plan| {
+            pools
+                .for_output(plan.output_id)
+                .is_none_or(|pool| pool.size != plan.target_size)
+        })
+    {
+        return Err("resident reconfiguration changed a native output target".into());
+    }
+    let staged_scanouts = scanouts
+        .iter()
+        .map(|scanout| {
+            let output = outputs
+                .iter()
+                .find(|output| output.id == scanout.output.id)
+                .cloned()
+                .ok_or("resident reconfiguration omitted a scanout")?;
+            let source_rect = atlas
+                .outputs
+                .iter()
+                .find(|planned| planned.id == output.id)
+                .map(|planned| planned.source_rect)
+                .ok_or("resident reconfiguration omitted an atlas output")?;
+            Ok((output, source_rect))
+        })
+        .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
+
+    if let Some(frontend) = events.wayland.as_mut()
+        && let Err(error) = frontend.update_topology(&snapshot)
+    {
+        if let Err(rollback_error) = frontend.update_topology(&previous_snapshot) {
+            return Err(format!(
+                "resident Wayland geometry update failed ({error}); rollback failed: {rollback_error}"
+            )
+            .into());
+        }
+        return Err(error);
+    }
+    if let Err(error) = flutter.reconfigure_output_geometry(&snapshot, &atlas, transition) {
+        let flutter_rollback = flutter.reconfigure_output_geometry(
+            &previous_snapshot,
+            &previous_atlas,
+            flutter_runtime::OutputGeometryTransition::Immediate,
+        );
+        let wayland_rollback = events
+            .wayland
+            .as_mut()
+            .map(|frontend| frontend.update_topology(&previous_snapshot))
+            .transpose();
+        if let Err(rollback_error) = flutter_rollback {
+            return Err(format!(
+                "resident Flutter geometry update failed ({error}); Flutter rollback failed: {rollback_error}"
+            )
+            .into());
+        }
+        if let Err(rollback_error) = wayland_rollback {
+            return Err(format!(
+                "resident Flutter geometry update failed ({error}); Wayland rollback failed: {rollback_error}"
+            )
+            .into());
+        }
+        return Err(error);
+    }
+
+    for (scanout, (output, source_rect)) in scanouts.iter_mut().zip(staged_scanouts) {
+        scanout.output = output;
+        scanout.source_rect = source_rect;
+    }
+    swapchain.set_desktop_size(atlas.pixel_size)?;
+    let animation_started = flutter.output_rotation_animation_active();
+    if !animation_started {
+        synchronize_resident_flutter_geometry_state(events, &atlas);
+    }
+    events.output_control_dirty = true;
+    *topology = staged_topology;
+    *configuration = staged_configuration;
+    info!(
+        outputs = scanouts.len(),
+        width = atlas.pixel_size.width,
+        height = atlas.pixel_size.height,
+        topology_epoch = atlas.topology_epoch,
+        animated = animation_started,
+        "updated Flutter output geometry without reallocating native buffers"
+    );
+    Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn synchronize_resident_flutter_geometry_state(events: &mut RuntimeState, atlas: &AtlasPlan) {
+    events
+        .flutter_input
+        .resize_preserving_state(atlas.pixel_size);
+    events.native_plugin_default_size = (atlas.pixel_size.width, atlas.pixel_size.height);
+    events.synchronize_flutter_pointer_position();
+    events.scene_sync.mark_dirty();
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -5902,7 +6335,7 @@ fn atlas_plane_request(
             properties.source_height,
             u64::from(scanout.source_rect.height) << 16,
         );
-        if let Some((property, value)) = scanout.rotation_property()? {
+        if let Some((property, value)) = scanout.rotation_property(scanout.output.transform)? {
             request.add_raw_property(plane, property, value);
         }
         if let Some(property) = properties.in_fence_fd {
@@ -6042,11 +6475,7 @@ fn configured_outputs(
                 vrr_enabled,
                 "connected KMS output"
             );
-            let transform = configuration
-                .transforms
-                .get(&name)
-                .copied()
-                .unwrap_or(OutputTransform::Normal);
+            let transform = configuration.effective_transform(&name);
             Ok(ConnectedOutput {
                 id: OutputId(u64::from(u32::from(connector.info.handle()))),
                 name,
@@ -6087,8 +6516,7 @@ fn output_control_state(
             .unwrap_or(SCALE_BASE);
         let transform = spec
             .map(|output| output.transform)
-            .or_else(|| configuration.transforms.get(&name).copied())
-            .unwrap_or(OutputTransform::Normal);
+            .unwrap_or_else(|| configuration.effective_transform(&name));
         let position = spec
             .map(|output| output.position)
             .or_else(|| configuration.positions.get(&name).copied())
@@ -6251,6 +6679,43 @@ fn output_transform_from_name(transform: output_control::OutputTransformName) ->
 }
 
 #[cfg(feature = "flutter")]
+fn output_request_changes_only_transforms(
+    current: &[output_control::OutputControlOutput],
+    requested: &[output_control::RequestedOutput],
+) -> bool {
+    if current.len() != requested.len() {
+        return false;
+    }
+
+    let mut transform_changed = false;
+    for requested in requested {
+        let Some(current) = current
+            .iter()
+            .find(|current| current.name == requested.name)
+        else {
+            return false;
+        };
+        let Some(mode) = current.current_mode else {
+            return false;
+        };
+        if current.enabled != requested.enabled
+            || current.powered != requested.powered
+            || current.x != requested.x
+            || current.y != requested.y
+            || mode.width != requested.mode.width
+            || mode.height != requested.mode.height
+            || mode.refresh_millihz != requested.mode.refresh_millihz
+            || current.scale != requested.scale
+            || current.adaptive_sync != requested.adaptive_sync
+        {
+            return false;
+        }
+        transform_changed |= current.transform != requested.transform;
+    }
+    transform_changed
+}
+
+#[cfg(feature = "flutter")]
 fn configuration_from_output_request(
     request: &output_control::ApplyOutputConfiguration,
     connectors: &[ConnectedConnector],
@@ -6402,9 +6867,11 @@ fn configuration_from_output_request(
             .insert(name.clone(), LogicalPoint::new(output.x, output.y));
         staged.modes.insert(name.clone(), mode);
         staged.scales_120.insert(name.clone(), scale_120);
-        staged
-            .transforms
-            .insert(name.clone(), output_transform_from_name(output.transform));
+        let effective_transform = output_transform_from_name(output.transform);
+        staged.transforms.insert(
+            name.clone(),
+            current.baseline_transform(&name, effective_transform),
+        );
         if output.enabled {
             staged.disabled_outputs.remove(&name);
             power.insert(
@@ -6591,6 +7058,87 @@ mod output_mode_tests {
     }
 }
 
+#[cfg(all(test, feature = "flutter"))]
+mod output_rotation_request_tests {
+    use super::{output_control, output_request_changes_only_transforms};
+
+    fn mode() -> output_control::OutputControlMode {
+        output_control::OutputControlMode {
+            width: 1920,
+            height: 1080,
+            refresh_millihz: 60_000,
+            preferred: true,
+        }
+    }
+
+    fn current() -> output_control::OutputControlOutput {
+        output_control::OutputControlOutput {
+            name: "eDP-1".to_owned(),
+            description: "eDP-1".to_owned(),
+            connected: true,
+            enabled: true,
+            powered: true,
+            x: 0,
+            y: 0,
+            logical_width: 1920,
+            logical_height: 1080,
+            physical_width_mm: None,
+            physical_height_mm: None,
+            scale: 1.0,
+            transform: output_control::OutputTransformName::Normal,
+            adaptive_sync: false,
+            current_mode: Some(mode()),
+            modes: vec![mode()],
+        }
+    }
+
+    fn requested(
+        transform: output_control::OutputTransformName,
+    ) -> output_control::RequestedOutput {
+        output_control::RequestedOutput {
+            name: "eDP-1".to_owned(),
+            enabled: true,
+            powered: true,
+            x: 0,
+            y: 0,
+            mode: output_control::RequestedOutputMode {
+                width: 1920,
+                height: 1080,
+                refresh_millihz: 60_000,
+            },
+            scale: 1.0,
+            transform,
+            adaptive_sync: false,
+        }
+    }
+
+    #[test]
+    fn settings_rotation_uses_the_sensor_animation_path() {
+        assert!(output_request_changes_only_transforms(
+            &[current()],
+            &[requested(output_control::OutputTransformName::Rotate90)],
+        ));
+    }
+
+    #[test]
+    fn mixed_geometry_change_is_not_a_rotation_transition() {
+        let mut request = requested(output_control::OutputTransformName::Rotate90);
+        request.scale = 2.0;
+        assert!(!output_request_changes_only_transforms(
+            &[current()],
+            &[request],
+        ));
+    }
+
+    #[test]
+    fn unchanged_transform_does_not_start_a_rotation_transition() {
+        assert!(!output_request_changes_only_transforms(
+            &[current()],
+            &[requested(output_control::OutputTransformName::Normal)],
+        ));
+    }
+}
+
 fn topology_for_outputs(
     outputs: &[ConnectedOutput],
     configuration: &RuntimeOutputConfiguration,
@@ -6755,6 +7303,7 @@ fn plane_state(
         framebuffer,
         scanout.output.mode,
         scanout.source_rect,
+        smithay_output_transform(scanout.output.transform),
     )
 }
 
@@ -6800,15 +7349,22 @@ fn output_plane_state(
             width: size.width,
             height: size.height,
         },
+        Transform::Normal,
     )
 }
 
 fn plane_state_for_mode(
     scanout: &Scanout,
-    framebuffer: smithay::reexports::drm::control::framebuffer::Handle,
+    framebuffer: framebuffer::Handle,
     mode: Mode,
 ) -> PlaneState<'static> {
-    plane_state_for_mode_and_source(scanout, framebuffer, mode, scanout.source_rect)
+    plane_state_for_mode_and_source(
+        scanout,
+        framebuffer,
+        mode,
+        scanout.source_rect,
+        smithay_output_transform(scanout.output.transform),
+    )
 }
 
 fn plane_state_for_mode_and_source(
@@ -6816,6 +7372,7 @@ fn plane_state_for_mode_and_source(
     framebuffer: framebuffer::Handle,
     mode: Mode,
     source: PixelRect,
+    transform: Transform,
 ) -> PlaneState<'static> {
     let (width, height) = mode.size();
     PlaneState {
@@ -6828,7 +7385,7 @@ fn plane_state_for_mode_and_source(
             dst: Rectangle::<i32, Physical>::from_size(
                 (i32::from(width), i32::from(height)).into(),
             ),
-            transform: smithay_output_transform(scanout.output.transform),
+            transform,
             alpha: scanout.plane_properties.smithay_opaque_alpha,
             damage_clips: None,
             fb: framebuffer,

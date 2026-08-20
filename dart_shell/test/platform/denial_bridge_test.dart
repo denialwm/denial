@@ -240,6 +240,23 @@ void main() {
     }
   });
 
+  test('unsolicited display layout replies publish live topology', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final bridge = _startedBridge();
+    try {
+      final update = bridge.displayLayouts.first;
+      await _sendToFlutter(messenger, _displayResponse(requestId: 0));
+
+      final display = await update;
+      expect(display.epoch, 0x100000001);
+      expect(display.logicalSize, const Size(1920, 1080));
+      expect(display.outputs.single.name, 'eDP-1');
+    } finally {
+      bridge.dispose();
+    }
+  });
+
   test(
     'settings and keyboard replies stay revisioned on the typed bridge',
     () async {
@@ -315,6 +332,7 @@ void main() {
         expect(inputDevices.hasTouchpad, isTrue);
         expect(inputDevices.tapToClickEnabled, isTrue);
         expect(inputDevices.naturalScrollEnabled, isFalse);
+        expect(inputDevices.scrollSpeedFactor, 1);
 
         final update = bridge.configureKeyboard(
           keyboard.copyWith(repeatRateHz: 40),
@@ -339,6 +357,7 @@ void main() {
           inputDevices.copyWith(
             tapToClickEnabled: false,
             naturalScrollEnabled: true,
+            scrollSpeedFactor: 2.5,
           ),
         );
         final touchpadEnvelope = requests.last;
@@ -351,6 +370,7 @@ void main() {
         expect(touchpadRequest.expectedRevision, 7);
         expect(touchpadRequest.touchpad!.tapToClickEnabled, isFalse);
         expect(touchpadRequest.touchpad!.naturalScrollEnabled, isTrue);
+        expect(touchpadRequest.touchpad!.scrollSpeedFactor, 2.5);
         await _sendToFlutter(
           messenger,
           _inputDeviceCapabilitiesResponse(
@@ -359,12 +379,14 @@ void main() {
             hasTouchpad: true,
             tapToClickEnabled: false,
             naturalScrollEnabled: true,
+            scrollSpeedFactor: 2.5,
           ),
         );
         final updatedTouchpad = await touchpadUpdate;
         expect(updatedTouchpad.revision, 9);
         expect(updatedTouchpad.tapToClickEnabled, isFalse);
         expect(updatedTouchpad.naturalScrollEnabled, isTrue);
+        expect(updatedTouchpad.scrollSpeedFactor, 2.5);
 
         await _sendToFlutter(
           messenger,
@@ -1215,6 +1237,7 @@ Uint8List _inputDeviceCapabilitiesResponse({
   int revision = 7,
   bool tapToClickEnabled = true,
   bool naturalScrollEnabled = false,
+  double scrollSpeedFactor = 1,
 }) {
   return _envelope(
     wire.PayloadTypeId.SettingsResponse,
@@ -1227,6 +1250,7 @@ Uint8List _inputDeviceCapabilitiesResponse({
         touchpad: wire.TouchpadConfigurationObjectBuilder(
           tapToClickEnabled: tapToClickEnabled,
           naturalScrollEnabled: naturalScrollEnabled,
+          scrollSpeedFactor: scrollSpeedFactor,
         ),
       ),
     ),

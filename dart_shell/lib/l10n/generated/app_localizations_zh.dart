@@ -1273,6 +1273,156 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsAvailableNetworksTitle => '可用网络';
 
   @override
+  String get settingsBatteryChargeCycles => '充电循环';
+
+  @override
+  String get settingsBatteryChargeEnd => '停止';
+
+  @override
+  String get settingsBatteryChargeLevel => '电量';
+
+  @override
+  String get settingsBatteryChargeLimit => '充电限制';
+
+  @override
+  String get settingsBatteryChargeLimitDescription => '限制充满电量，以减少电池损耗。';
+
+  @override
+  String settingsBatteryChargeLimitEndDescription(int percent) {
+    return '充至 $percent% 时停止，以减少电池损耗。';
+  }
+
+  @override
+  String get settingsBatteryChargeLimitLevelsReadOnly =>
+      '阈值由系统提供，在 UPower 中为只读。';
+
+  @override
+  String get settingsBatteryChargeLimitOptimizedDescription =>
+      '由固件选择有助于保护电池的充电方式。';
+
+  @override
+  String settingsBatteryChargeLimitStartEndDescription(int start, int end) {
+    return '低于 $start% 时恢复充电，达到 $end% 时停止，以减少电池损耗。';
+  }
+
+  @override
+  String get settingsBatteryChargeStart => '开始';
+
+  @override
+  String get settingsBatteryCritical => '电池电量严重不足';
+
+  @override
+  String get settingsBatteryDevice => '设备';
+
+  @override
+  String settingsBatteryDuration(int hours, int minutes) {
+    return '$hours 小时 $minutes 分钟';
+  }
+
+  @override
+  String get settingsBatteryEmpty => '电量耗尽';
+
+  @override
+  String get settingsBatteryFirmwareOptimized => '固件优化';
+
+  @override
+  String get settingsBatteryFullCapacity => '充满容量';
+
+  @override
+  String settingsBatteryFullCapacityValue(String full, String design) {
+    return '$full / $design Wh';
+  }
+
+  @override
+  String get settingsBatteryFullyCharged => '已充满';
+
+  @override
+  String get settingsBatteryHealth => '健康度';
+
+  @override
+  String get settingsBatteryInformationTitle => '电池信息';
+
+  @override
+  String get settingsBatteryLeadAcid => '铅酸';
+
+  @override
+  String get settingsBatteryLithiumIon => '锂离子';
+
+  @override
+  String get settingsBatteryLithiumIronPhosphate => '磷酸铁锂';
+
+  @override
+  String get settingsBatteryLithiumPolymer => '锂聚合物';
+
+  @override
+  String get settingsBatteryLoading => '正在读取电池信息…';
+
+  @override
+  String get settingsBatteryLow => '电池电量低';
+
+  @override
+  String get settingsBatteryNickelCadmium => '镍镉';
+
+  @override
+  String get settingsBatteryNickelMetalHydride => '镍氢';
+
+  @override
+  String get settingsBatteryNoSystemBattery => '未检测到系统电池。';
+
+  @override
+  String get settingsBatteryOnBatteryPower => '使用电池供电';
+
+  @override
+  String get settingsBatteryPendingCharge => '等待充电';
+
+  @override
+  String get settingsBatteryPendingDischarge => '等待放电';
+
+  @override
+  String get settingsBatteryPluggedIn => '已接通电源';
+
+  @override
+  String get settingsBatteryPowerRate => '功率';
+
+  @override
+  String get settingsBatteryRefreshing => '正在刷新…';
+
+  @override
+  String get settingsBatterySerial => '序列号';
+
+  @override
+  String get settingsBatteryServiceUnavailable => 'UPower 电池信息不可用。';
+
+  @override
+  String get settingsBatteryStoredEnergy => '当前电量';
+
+  @override
+  String get settingsBatteryTechnology => '电池类型';
+
+  @override
+  String get settingsBatteryTemperature => '温度';
+
+  @override
+  String get settingsBatteryTimeRemaining => '剩余时间';
+
+  @override
+  String get settingsBatteryTimeToFull => '充满所需时间';
+
+  @override
+  String get settingsBatteryUnknownDevice => '系统电池';
+
+  @override
+  String get settingsBatteryUpdateFailed => 'UPower 无法刷新或更改电池设置。';
+
+  @override
+  String get settingsBatteryVoltage => '电压';
+
+  @override
+  String settingsBatteryWattHours(String value) {
+    return '$value Wh';
+  }
+
+  @override
   String get settingsBackdropBlur => '背景模糊';
 
   @override
@@ -1662,6 +1812,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsTouchpadNaturalScrollDescription => '让内容沿手指移动的方向滚动。';
+
+  @override
+  String get settingsTouchpadScrollSpeed => '手指滚动速度';
 
   @override
   String get settingsShortcutsSection => '快捷键';
@@ -2729,7 +2882,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get wifiSecurityWpaPersonal => 'WPA/WPA2 个人版';
 
   @override
-  String get wifiServiceUnavailable => 'NetworkManager 不可用';
+  String get wifiServiceUnavailable => '网络服务不可用';
 
   @override
   String get wifiServiceUnavailableDescription => '网络服务启动后，Wi-Fi 控件将恢复。';

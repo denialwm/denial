@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::ffi::OsStr;
 
+use denial_core::topology::OutputTransform;
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, AxisSource, ButtonState, Device, DeviceCapability, Event,
     GestureBeginEvent, GestureSwipeUpdateEvent, InputEvent, KeyState, KeyboardKeyEvent,
@@ -31,9 +32,9 @@ use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 #[cfg(feature = "flutter")]
 use smithay::reexports::wayland_server::Resource;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
-use smithay::utils::{Logical, Point, SERIAL_COUNTER};
 #[cfg(feature = "flutter")]
-use smithay::utils::{Rectangle, Serial};
+use smithay::utils::Serial;
+use smithay::utils::{Logical, Point, Rectangle, SERIAL_COUNTER};
 use smithay::wayland::pointer_constraints::{PointerConstraint, with_pointer_constraint};
 use tracing::{info, warn};
 
@@ -65,6 +66,24 @@ use super::WaylandFrontend;
 #[cfg(feature = "flutter")]
 use super::input_source::init_joystick_activity;
 use super::input_source::{InputBatchEvent, LibinputBatchSource};
+
+fn output_bound_absolute_position<E>(
+    event: &E,
+    bounds: Rectangle<i32, Logical>,
+    transform: OutputTransform,
+) -> Point<f64, Logical>
+where
+    E: AbsolutePositionEvent<LibinputInputBackend>,
+{
+    let (x, y) = transform.native_to_logical(
+        event.x_transformed(1).clamp(0.0, 1.0),
+        event.y_transformed(1).clamp(0.0, 1.0),
+    );
+    Point::from((
+        f64::from(bounds.loc.x) + x * f64::from(bounds.size.w),
+        f64::from(bounds.loc.y) + y * f64::from(bounds.size.h),
+    ))
+}
 
 #[cfg(feature = "flutter")]
 const BTN_LEFT: u32 = 0x110;
@@ -1650,10 +1669,10 @@ fn execute_shortcut_disposition(
             }
             true
         }
-        ShortcutDisposition::RequestWindowSwitcherEnd => {
+        ShortcutDisposition::RequestWindowSwitcherEnd { forward } => {
             #[cfg(feature = "flutter")]
             state.queue_shell_action(super::super::wire::ShellAction::WindowSwitcherEnd, None);
-            true
+            !forward
         }
         ShortcutDisposition::RequestClipboard => {
             #[cfg(feature = "flutter")]
@@ -2305,7 +2324,16 @@ fn process_flutter_input_event(
             };
             if flutter_target && (secure_locked || !pointer_grabbed) {
                 state.synchronize_flutter_pointer_position();
-                state.flutter_input.handle(&event);
+                let scroll_speed_factor = state
+                    .wayland
+                    .as_ref()
+                    .expect("missing Wayland frontend")
+                    .settings
+                    .touchpad()
+                    .scroll_speed_factor;
+                state
+                    .flutter_input
+                    .handle_with_scroll_speed_factor(&event, scroll_speed_factor);
                 false
             } else {
                 route_pointer_axis(state, axis);
@@ -2320,8 +2348,11 @@ fn process_flutter_input_event(
             let (position, scene_position, software_keyboard_touch) = {
                 let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
                 frontend.set_pointer_cursor_visible(false);
-                let local = touch_event.position_transformed(frontend.touch_bounds.size);
-                let position = local + frontend.touch_bounds.loc.to_f64();
+                let position = output_bound_absolute_position(
+                    touch_event,
+                    frontend.touch_bounds,
+                    frontend.touch_transform,
+                );
                 let scene_position = position - frontend.atlas_origin;
                 (
                     position,
@@ -2388,7 +2419,12 @@ fn process_flutter_input_event(
                         frontend.text_input.note_flutter_touch();
                     }
                     frontend.flutter_touch_slots.insert(slot);
-                    state.flutter_input.handle(&event);
+                    let scale = frontend.atlas_scale;
+                    state.flutter_input.handle_touch_at(
+                        &event,
+                        scene_position.x * scale,
+                        scene_position.y * scale,
+                    );
                     false
                 }
                 InputTarget::Client(route) => {
@@ -2441,8 +2477,11 @@ fn process_flutter_input_event(
             let slot = i32::from(touch_event.slot());
             let (position, scene_position) = {
                 let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
-                let local = touch_event.position_transformed(frontend.touch_bounds.size);
-                let position = local + frontend.touch_bounds.loc.to_f64();
+                let position = output_bound_absolute_position(
+                    touch_event,
+                    frontend.touch_bounds,
+                    frontend.touch_transform,
+                );
                 (position, position - frontend.atlas_origin)
             };
             let native_routed = state.native_app_plugins.as_mut().map(|manager| {
@@ -2468,7 +2507,16 @@ fn process_flutter_input_event(
                 .flutter_touch_slots
                 .contains(&slot);
             if flutter_target {
-                state.flutter_input.handle(&event);
+                let scale = state
+                    .wayland
+                    .as_ref()
+                    .expect("missing Wayland frontend")
+                    .atlas_scale;
+                state.flutter_input.handle_touch_at(
+                    &event,
+                    scene_position.x * scale,
+                    scene_position.y * scale,
+                );
                 return false;
             }
             let focus = {
@@ -2869,9 +2917,20 @@ fn route_pointer_axis<E: PointerAxisEvent<LibinputInputBackend>>(
     let vertical_amount = event.amount(Axis::Vertical);
     let horizontal_v120 = event.amount_v120(Axis::Horizontal);
     let vertical_v120 = event.amount_v120(Axis::Vertical);
-    let horizontal =
-        horizontal_amount.unwrap_or_else(|| horizontal_v120.unwrap_or(0.0) * 15.0 / 120.0);
-    let vertical = vertical_amount.unwrap_or_else(|| vertical_v120.unwrap_or(0.0) * 15.0 / 120.0);
+    let scroll_speed_factor = state
+        .wayland
+        .as_ref()
+        .expect("missing Wayland frontend")
+        .settings
+        .touchpad()
+        .scroll_speed_factor;
+    let horizontal = scaled_axis_amount(
+        source,
+        horizontal_amount,
+        horizontal_v120,
+        scroll_speed_factor,
+    );
+    let vertical = scaled_axis_amount(source, vertical_amount, vertical_v120, scroll_speed_factor);
     let mut frame = AxisFrame::new(event.time_msec()).source(source);
     if horizontal != 0.0 {
         frame = frame.value(Axis::Horizontal, horizontal);
@@ -2902,6 +2961,20 @@ fn route_pointer_axis<E: PointerAxisEvent<LibinputInputBackend>>(
         .expect("seat has no pointer");
     pointer.axis(state, frame);
     pointer.frame(state);
+}
+
+fn scaled_axis_amount(
+    source: AxisSource,
+    amount: Option<f64>,
+    v120: Option<f64>,
+    scroll_speed_factor: f64,
+) -> f64 {
+    let amount = amount.unwrap_or_else(|| v120.unwrap_or(0.0) * 15.0 / 120.0);
+    if source == AxisSource::Finger {
+        amount * scroll_speed_factor
+    } else {
+        amount
+    }
 }
 
 #[cfg(feature = "flutter")]
@@ -3405,8 +3478,11 @@ fn process_wayland_input_event(state: &mut RuntimeState, event: InputEvent<Libin
             let serial = SERIAL_COUNTER.next_serial();
             let (position, window) = {
                 let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
-                let local = event.position_transformed(frontend.touch_bounds.size);
-                let position = local + frontend.touch_bounds.loc.to_f64();
+                let position = output_bound_absolute_position(
+                    &event,
+                    frontend.touch_bounds,
+                    frontend.touch_transform,
+                );
                 let window = frontend
                     .space
                     .element_under(position)
@@ -3460,8 +3536,11 @@ fn process_wayland_input_event(state: &mut RuntimeState, event: InputEvent<Libin
         InputEvent::TouchMotion { event, .. } => {
             let (position, under) = {
                 let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
-                let local = event.position_transformed(frontend.touch_bounds.size);
-                let position = local + frontend.touch_bounds.loc.to_f64();
+                let position = output_bound_absolute_position(
+                    &event,
+                    frontend.touch_bounds,
+                    frontend.touch_transform,
+                );
                 (position, frontend.surface_under(position))
             };
             let touch = state
@@ -3519,6 +3598,31 @@ fn process_wayland_input_event(state: &mut RuntimeState, event: InputEvent<Libin
             touch.cancel(state);
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod axis_scroll_tests {
+    use super::*;
+
+    #[test]
+    fn scroll_speed_factor_applies_only_to_finger_source() {
+        assert_eq!(
+            scaled_axis_amount(AxisSource::Finger, Some(3.0), None, 2.5),
+            7.5
+        );
+        assert_eq!(
+            scaled_axis_amount(AxisSource::Wheel, Some(15.0), Some(120.0), 5.0),
+            15.0
+        );
+        assert_eq!(
+            scaled_axis_amount(AxisSource::Continuous, Some(3.0), None, 5.0),
+            3.0
+        );
+        assert_eq!(
+            scaled_axis_amount(AxisSource::Finger, Some(0.0), None, 5.0),
+            0.0
+        );
     }
 }
 

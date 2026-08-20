@@ -1890,6 +1890,224 @@
   "@settingsAvailableNetworksTitle": {
     "description": "English UI text for settingsAvailableNetworksTitle."
   },
+  "settingsBatteryChargeCycles": "Charge cycles",
+  "@settingsBatteryChargeCycles": {
+    "description": "Label for a battery's completed charge-cycle count."
+  },
+  "settingsBatteryChargeEnd": "Stop",
+  "@settingsBatteryChargeEnd": {
+    "description": "Label for the battery charge end-threshold value."
+  },
+  "settingsBatteryChargeLevel": "Charge level",
+  "@settingsBatteryChargeLevel": {
+    "description": "Accessibility label for the battery percentage indicator."
+  },
+  "settingsBatteryChargeLimit": "Charge limit",
+  "@settingsBatteryChargeLimit": {
+    "description": "Toggle label for UPower battery charge-threshold support."
+  },
+  "settingsBatteryChargeLimitDescription": "Limit the full charge level to reduce battery wear.",
+  "@settingsBatteryChargeLimitDescription": {
+    "description": "Fallback description for the battery charge-limit toggle."
+  },
+  "settingsBatteryChargeLimitEndDescription": "Stop charging at {percent}% to reduce battery wear.",
+  "@settingsBatteryChargeLimitEndDescription": {
+    "description": "Charge-limit description when the system exposes only an end threshold.",
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsBatteryChargeLimitLevelsReadOnly": "Threshold levels are supplied by the system and are read-only in UPower.",
+  "@settingsBatteryChargeLimitLevelsReadOnly": {
+    "description": "Explanation that UPower exposes threshold levels without setters."
+  },
+  "settingsBatteryChargeLimitOptimizedDescription": "Let the firmware choose a battery-preserving charging pattern.",
+  "@settingsBatteryChargeLimitOptimizedDescription": {
+    "description": "Charge-limit description for firmware-optimized charging."
+  },
+  "settingsBatteryChargeLimitStartEndDescription": "Resume charging below {start}% and stop at {end}% to reduce battery wear.",
+  "@settingsBatteryChargeLimitStartEndDescription": {
+    "description": "Charge-limit description when start and end thresholds are available.",
+    "placeholders": {
+      "start": {
+        "type": "int"
+      },
+      "end": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsBatteryChargeStart": "Start",
+  "@settingsBatteryChargeStart": {
+    "description": "Label for the battery charge start-threshold value."
+  },
+  "settingsBatteryCritical": "Critical battery",
+  "@settingsBatteryCritical": {
+    "description": "Battery status shown for critical and action warning levels."
+  },
+  "settingsBatteryDevice": "Device",
+  "@settingsBatteryDevice": {
+    "description": "Label for the native UPower battery device path."
+  },
+  "settingsBatteryDuration": "{hours} h {minutes} min",
+  "@settingsBatteryDuration": {
+    "description": "Compact battery time estimate with hours and minutes.",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsBatteryEmpty": "Empty",
+  "@settingsBatteryEmpty": {
+    "description": "UPower empty-battery state."
+  },
+  "settingsBatteryFirmwareOptimized": "Firmware optimized",
+  "@settingsBatteryFirmwareOptimized": {
+    "description": "Battery capability label for firmware-managed optimized charging."
+  },
+  "settingsBatteryFullCapacity": "Full capacity",
+  "@settingsBatteryFullCapacity": {
+    "description": "Label for current full battery energy compared with design energy."
+  },
+  "settingsBatteryFullCapacityValue": "{full} / {design} Wh",
+  "@settingsBatteryFullCapacityValue": {
+    "description": "Current full battery energy followed by design energy.",
+    "placeholders": {
+      "full": {
+        "type": "String"
+      },
+      "design": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsBatteryFullyCharged": "Fully charged",
+  "@settingsBatteryFullyCharged": {
+    "description": "UPower fully charged battery state."
+  },
+  "settingsBatteryHealth": "Health",
+  "@settingsBatteryHealth": {
+    "description": "Label for battery full capacity as a percentage of design capacity."
+  },
+  "settingsBatteryInformationTitle": "Battery information",
+  "@settingsBatteryInformationTitle": {
+    "description": "Title for the UPower battery information and controls section."
+  },
+  "settingsBatteryLeadAcid": "Lead acid",
+  "@settingsBatteryLeadAcid": {
+    "description": "Battery chemistry label."
+  },
+  "settingsBatteryLithiumIon": "Lithium ion",
+  "@settingsBatteryLithiumIon": {
+    "description": "Battery chemistry label."
+  },
+  "settingsBatteryLithiumIronPhosphate": "Lithium iron phosphate",
+  "@settingsBatteryLithiumIronPhosphate": {
+    "description": "Battery chemistry label."
+  },
+  "settingsBatteryLithiumPolymer": "Lithium polymer",
+  "@settingsBatteryLithiumPolymer": {
+    "description": "Battery chemistry label."
+  },
+  "settingsBatteryLoading": "Reading battery information…",
+  "@settingsBatteryLoading": {
+    "description": "Loading message shown while querying UPower."
+  },
+  "settingsBatteryLow": "Low battery",
+  "@settingsBatteryLow": {
+    "description": "Battery status shown for UPower's low warning level."
+  },
+  "settingsBatteryNickelCadmium": "Nickel cadmium",
+  "@settingsBatteryNickelCadmium": {
+    "description": "Battery chemistry label."
+  },
+  "settingsBatteryNickelMetalHydride": "Nickel metal hydride",
+  "@settingsBatteryNickelMetalHydride": {
+    "description": "Battery chemistry label."
+  },
+  "settingsBatteryNoSystemBattery": "No system battery was detected.",
+  "@settingsBatteryNoSystemBattery": {
+    "description": "Empty state shown when UPower reports no system battery."
+  },
+  "settingsBatteryOnBatteryPower": "On battery",
+  "@settingsBatteryOnBatteryPower": {
+    "description": "UPower source status when external power is disconnected."
+  },
+  "settingsBatteryPendingCharge": "Waiting to charge",
+  "@settingsBatteryPendingCharge": {
+    "description": "UPower pending-charge battery state."
+  },
+  "settingsBatteryPendingDischarge": "Waiting to discharge",
+  "@settingsBatteryPendingDischarge": {
+    "description": "UPower pending-discharge battery state."
+  },
+  "settingsBatteryPluggedIn": "Plugged in",
+  "@settingsBatteryPluggedIn": {
+    "description": "UPower source status when external power is connected."
+  },
+  "settingsBatteryPowerRate": "Power rate",
+  "@settingsBatteryPowerRate": {
+    "description": "Label for the current UPower battery energy rate in watts."
+  },
+  "settingsBatteryRefreshing": "Refreshing…",
+  "@settingsBatteryRefreshing": {
+    "description": "Status shown while refreshing UPower battery information."
+  },
+  "settingsBatterySerial": "Serial",
+  "@settingsBatterySerial": {
+    "description": "Label for a battery serial number."
+  },
+  "settingsBatteryServiceUnavailable": "UPower battery information is unavailable.",
+  "@settingsBatteryServiceUnavailable": {
+    "description": "Error shown when the UPower system D-Bus service cannot be reached."
+  },
+  "settingsBatteryStoredEnergy": "Stored energy",
+  "@settingsBatteryStoredEnergy": {
+    "description": "Label for currently stored battery energy."
+  },
+  "settingsBatteryTechnology": "Technology",
+  "@settingsBatteryTechnology": {
+    "description": "Label for battery chemistry."
+  },
+  "settingsBatteryTemperature": "Temperature",
+  "@settingsBatteryTemperature": {
+    "description": "Label for battery temperature."
+  },
+  "settingsBatteryTimeRemaining": "Time remaining",
+  "@settingsBatteryTimeRemaining": {
+    "description": "Label for UPower's estimated time until the battery is empty."
+  },
+  "settingsBatteryTimeToFull": "Time to full",
+  "@settingsBatteryTimeToFull": {
+    "description": "Label for UPower's estimated time until the battery is full."
+  },
+  "settingsBatteryUnknownDevice": "System battery",
+  "@settingsBatteryUnknownDevice": {
+    "description": "Fallback name for a battery without vendor, model, or native path."
+  },
+  "settingsBatteryUpdateFailed": "UPower could not refresh or change the battery settings.",
+  "@settingsBatteryUpdateFailed": {
+    "description": "Error shown after a UPower refresh or charge-limit operation fails."
+  },
+  "settingsBatteryVoltage": "Voltage",
+  "@settingsBatteryVoltage": {
+    "description": "Label for current battery voltage."
+  },
+  "settingsBatteryWattHours": "{value} Wh",
+  "@settingsBatteryWattHours": {
+    "description": "Battery energy value in watt-hours.",
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
   "settingsBackdropBlur": "Backdrop blur",
   "@settingsBackdropBlur": {
     "description": "English UI text for settingsBackdropBlur."
@@ -2414,6 +2632,10 @@
   "settingsTouchpadNaturalScrollDescription": "Move content in the same direction as your fingers.",
   "@settingsTouchpadNaturalScrollDescription": {
     "description": "Description of the touchpad natural scrolling toggle."
+  },
+  "settingsTouchpadScrollSpeed": "Finger scroll speed",
+  "@settingsTouchpadScrollSpeed": {
+    "description": "Label for the continuous touchpad scroll speed slider."
   },
   "settingsShortcutsSection": "SHORTCUTS",
   "@settingsShortcutsSection": {
@@ -3914,7 +4136,7 @@
   "@wifiSecurityWpaPersonal": {
     "description": "English UI text for wifiSecurityWpaPersonal."
   },
-  "wifiServiceUnavailable": "NetworkManager is unavailable",
+  "wifiServiceUnavailable": "Network service is unavailable",
   "@wifiServiceUnavailable": {
     "description": "English UI text for wifiServiceUnavailable."
   },

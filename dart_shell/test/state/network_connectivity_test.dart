@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:denial_dart_shell/src/services/network_manager_service.dart';
+import 'package:denial_dart_shell/src/services/network_service.dart';
 import 'package:denial_dart_shell/src/state/network_connectivity.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,10 +9,10 @@ void main() {
   test(
     'controller follows service signals and serializes user operations',
     () async {
-      final service = _FakeNetworkManager();
+      final service = _FakeNetworkBackend();
       addTearDown(service.dispose);
       final container = ProviderContainer.test(
-        overrides: [networkManagerServiceProvider.overrideWithValue(service)],
+        overrides: [networkServiceProvider.overrideWithValue(service)],
       );
       final controller = container.read(networkConnectivityProvider.notifier);
       await _settle();
@@ -56,7 +56,7 @@ void main() {
       await controller.disconnect(network);
       expect(
         container.read(networkConnectivityProvider).error,
-        'NetworkManager could not complete the request',
+        'The network service could not complete the request',
       );
       expect(
         container.read(networkConnectivityProvider).error,
@@ -66,15 +66,15 @@ void main() {
   );
 
   test('service loss is reflected without reopening the surface', () async {
-    final service = _FakeNetworkManager();
+    final service = _FakeNetworkBackend();
     addTearDown(service.dispose);
     final container = ProviderContainer.test(
-      overrides: [networkManagerServiceProvider.overrideWithValue(service)],
+      overrides: [networkServiceProvider.overrideWithValue(service)],
     );
     container.read(networkConnectivityProvider.notifier);
     await _settle();
 
-    service.emit(NetworkManagerSnapshot.unavailable());
+    service.emit(NetworkSnapshot.unavailable());
     expect(
       container.read(networkConnectivityProvider).snapshot.serviceAvailable,
       isFalse,
@@ -85,10 +85,10 @@ void main() {
   test(
     'denied permissions prevent actions before D-Bus receives them',
     () async {
-      final service = _FakeNetworkManager();
+      final service = _FakeNetworkBackend();
       addTearDown(service.dispose);
       final container = ProviderContainer.test(
-        overrides: [networkManagerServiceProvider.overrideWithValue(service)],
+        overrides: [networkServiceProvider.overrideWithValue(service)],
       );
       final controller = container.read(networkConnectivityProvider.notifier);
       await _settle();
@@ -121,11 +121,11 @@ void main() {
   );
 }
 
-class _FakeNetworkManager implements NetworkManagerBackend {
-  final StreamController<NetworkManagerSnapshot> _snapshots =
-      StreamController<NetworkManagerSnapshot>.broadcast(sync: true);
+class _FakeNetworkBackend implements NetworkBackend {
+  final StreamController<NetworkSnapshot> _snapshots =
+      StreamController<NetworkSnapshot>.broadcast(sync: true);
 
-  NetworkManagerSnapshot _current = _snapshot(enabled: false, lastScan: 1);
+  NetworkSnapshot _current = _snapshot(enabled: false, lastScan: 1);
   bool started = false;
   final List<bool> radioWrites = <bool>[];
   int connectCalls = 0;
@@ -134,12 +134,12 @@ class _FakeNetworkManager implements NetworkManagerBackend {
   Object? operationError;
 
   @override
-  NetworkManagerSnapshot get currentSnapshot => _current;
+  NetworkSnapshot get currentSnapshot => _current;
 
   @override
-  Stream<NetworkManagerSnapshot> get snapshots => _snapshots.stream;
+  Stream<NetworkSnapshot> get snapshots => _snapshots.stream;
 
-  void emit(NetworkManagerSnapshot snapshot) {
+  void emit(NetworkSnapshot snapshot) {
     _current = snapshot;
     _snapshots.add(snapshot);
   }
@@ -187,13 +187,13 @@ class _FakeNetworkManager implements NetworkManagerBackend {
   Future<void> dispose() => _snapshots.close();
 }
 
-NetworkManagerSnapshot _snapshot({
+NetworkSnapshot _snapshot({
   required bool enabled,
   required int lastScan,
   NetworkPermission controlPermission = NetworkPermission.allowed,
   NetworkPermission modifyPermission = NetworkPermission.allowed,
 }) {
-  return NetworkManagerSnapshot(
+  return NetworkSnapshot(
     serviceAvailable: true,
     wifiDeviceAvailable: true,
     wirelessHardwareEnabled: true,
@@ -209,13 +209,13 @@ NetworkManagerSnapshot _snapshot({
         strength: 75,
         frequency: 5180,
         devicePath: '/device/1',
-        accessPointPath: '/access/1',
-        savedConnectionPath: null,
+        networkPath: '/access/1',
+        savedNetworkPath: null,
         connected: false,
         available: true,
       ),
     ],
-    activeConnectionPath: null,
+    activeNetworkPath: null,
     devicePath: '/device/1',
     lastScan: lastScan,
     radioPermission: NetworkPermission.allowed,

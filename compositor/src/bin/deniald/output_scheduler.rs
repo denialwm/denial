@@ -3,7 +3,7 @@ use std::os::fd::{AsFd, OwnedFd};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use denial_core::topology::{OutputId, PixelRect, PixelSize, RenderViewId};
+use denial_core::topology::{OutputId, OutputTransform, PixelRect, PixelSize, RenderViewId};
 use denial_core::volition::{self, CommitId, PlaneCommit, PlaneProperties, Submission, Volition};
 use smithay::backend::drm::DrmDevice;
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -275,7 +275,7 @@ fn plane_commit(scanout: &Scanout, size: PixelSize) -> Result<PlaneCommit, Box<d
             source_y: properties.source_y,
             source_width: properties.source_width,
             source_height: properties.source_height,
-            rotation: scanout.rotation_property()?,
+            rotation: scanout.rotation_property(OutputTransform::Normal)?,
             in_fence_fd: properties.in_fence_fd,
         },
         PixelRect {

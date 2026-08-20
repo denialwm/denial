@@ -504,6 +504,7 @@ table InputDeviceCapabilities {
 table TouchpadConfiguration {
   tap_to_click_enabled:bool = true;
   natural_scroll_enabled:bool;
+  scroll_speed_factor:double = 1.0;
 }
 
 table SettingsRequest {

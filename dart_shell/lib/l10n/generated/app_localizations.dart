@@ -2351,6 +2351,282 @@ abstract class AppLocalizations {
   /// **'Available networks'**
   String get settingsAvailableNetworksTitle;
 
+  /// Label for a battery's completed charge-cycle count.
+  ///
+  /// In en, this message translates to:
+  /// **'Charge cycles'**
+  String get settingsBatteryChargeCycles;
+
+  /// Label for the battery charge end-threshold value.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop'**
+  String get settingsBatteryChargeEnd;
+
+  /// Accessibility label for the battery percentage indicator.
+  ///
+  /// In en, this message translates to:
+  /// **'Charge level'**
+  String get settingsBatteryChargeLevel;
+
+  /// Toggle label for UPower battery charge-threshold support.
+  ///
+  /// In en, this message translates to:
+  /// **'Charge limit'**
+  String get settingsBatteryChargeLimit;
+
+  /// Fallback description for the battery charge-limit toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Limit the full charge level to reduce battery wear.'**
+  String get settingsBatteryChargeLimitDescription;
+
+  /// Charge-limit description when the system exposes only an end threshold.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop charging at {percent}% to reduce battery wear.'**
+  String settingsBatteryChargeLimitEndDescription(int percent);
+
+  /// Explanation that UPower exposes threshold levels without setters.
+  ///
+  /// In en, this message translates to:
+  /// **'Threshold levels are supplied by the system and are read-only in UPower.'**
+  String get settingsBatteryChargeLimitLevelsReadOnly;
+
+  /// Charge-limit description for firmware-optimized charging.
+  ///
+  /// In en, this message translates to:
+  /// **'Let the firmware choose a battery-preserving charging pattern.'**
+  String get settingsBatteryChargeLimitOptimizedDescription;
+
+  /// Charge-limit description when start and end thresholds are available.
+  ///
+  /// In en, this message translates to:
+  /// **'Resume charging below {start}% and stop at {end}% to reduce battery wear.'**
+  String settingsBatteryChargeLimitStartEndDescription(int start, int end);
+
+  /// Label for the battery charge start-threshold value.
+  ///
+  /// In en, this message translates to:
+  /// **'Start'**
+  String get settingsBatteryChargeStart;
+
+  /// Battery status shown for critical and action warning levels.
+  ///
+  /// In en, this message translates to:
+  /// **'Critical battery'**
+  String get settingsBatteryCritical;
+
+  /// Label for the native UPower battery device path.
+  ///
+  /// In en, this message translates to:
+  /// **'Device'**
+  String get settingsBatteryDevice;
+
+  /// Compact battery time estimate with hours and minutes.
+  ///
+  /// In en, this message translates to:
+  /// **'{hours} h {minutes} min'**
+  String settingsBatteryDuration(int hours, int minutes);
+
+  /// UPower empty-battery state.
+  ///
+  /// In en, this message translates to:
+  /// **'Empty'**
+  String get settingsBatteryEmpty;
+
+  /// Battery capability label for firmware-managed optimized charging.
+  ///
+  /// In en, this message translates to:
+  /// **'Firmware optimized'**
+  String get settingsBatteryFirmwareOptimized;
+
+  /// Label for current full battery energy compared with design energy.
+  ///
+  /// In en, this message translates to:
+  /// **'Full capacity'**
+  String get settingsBatteryFullCapacity;
+
+  /// Current full battery energy followed by design energy.
+  ///
+  /// In en, this message translates to:
+  /// **'{full} / {design} Wh'**
+  String settingsBatteryFullCapacityValue(String full, String design);
+
+  /// UPower fully charged battery state.
+  ///
+  /// In en, this message translates to:
+  /// **'Fully charged'**
+  String get settingsBatteryFullyCharged;
+
+  /// Label for battery full capacity as a percentage of design capacity.
+  ///
+  /// In en, this message translates to:
+  /// **'Health'**
+  String get settingsBatteryHealth;
+
+  /// Title for the UPower battery information and controls section.
+  ///
+  /// In en, this message translates to:
+  /// **'Battery information'**
+  String get settingsBatteryInformationTitle;
+
+  /// Battery chemistry label.
+  ///
+  /// In en, this message translates to:
+  /// **'Lead acid'**
+  String get settingsBatteryLeadAcid;
+
+  /// Battery chemistry label.
+  ///
+  /// In en, this message translates to:
+  /// **'Lithium ion'**
+  String get settingsBatteryLithiumIon;
+
+  /// Battery chemistry label.
+  ///
+  /// In en, this message translates to:
+  /// **'Lithium iron phosphate'**
+  String get settingsBatteryLithiumIronPhosphate;
+
+  /// Battery chemistry label.
+  ///
+  /// In en, this message translates to:
+  /// **'Lithium polymer'**
+  String get settingsBatteryLithiumPolymer;
+
+  /// Loading message shown while querying UPower.
+  ///
+  /// In en, this message translates to:
+  /// **'Reading battery information…'**
+  String get settingsBatteryLoading;
+
+  /// Battery status shown for UPower's low warning level.
+  ///
+  /// In en, this message translates to:
+  /// **'Low battery'**
+  String get settingsBatteryLow;
+
+  /// Battery chemistry label.
+  ///
+  /// In en, this message translates to:
+  /// **'Nickel cadmium'**
+  String get settingsBatteryNickelCadmium;
+
+  /// Battery chemistry label.
+  ///
+  /// In en, this message translates to:
+  /// **'Nickel metal hydride'**
+  String get settingsBatteryNickelMetalHydride;
+
+  /// Empty state shown when UPower reports no system battery.
+  ///
+  /// In en, this message translates to:
+  /// **'No system battery was detected.'**
+  String get settingsBatteryNoSystemBattery;
+
+  /// UPower source status when external power is disconnected.
+  ///
+  /// In en, this message translates to:
+  /// **'On battery'**
+  String get settingsBatteryOnBatteryPower;
+
+  /// UPower pending-charge battery state.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting to charge'**
+  String get settingsBatteryPendingCharge;
+
+  /// UPower pending-discharge battery state.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting to discharge'**
+  String get settingsBatteryPendingDischarge;
+
+  /// UPower source status when external power is connected.
+  ///
+  /// In en, this message translates to:
+  /// **'Plugged in'**
+  String get settingsBatteryPluggedIn;
+
+  /// Label for the current UPower battery energy rate in watts.
+  ///
+  /// In en, this message translates to:
+  /// **'Power rate'**
+  String get settingsBatteryPowerRate;
+
+  /// Status shown while refreshing UPower battery information.
+  ///
+  /// In en, this message translates to:
+  /// **'Refreshing…'**
+  String get settingsBatteryRefreshing;
+
+  /// Label for a battery serial number.
+  ///
+  /// In en, this message translates to:
+  /// **'Serial'**
+  String get settingsBatterySerial;
+
+  /// Error shown when the UPower system D-Bus service cannot be reached.
+  ///
+  /// In en, this message translates to:
+  /// **'UPower battery information is unavailable.'**
+  String get settingsBatteryServiceUnavailable;
+
+  /// Label for currently stored battery energy.
+  ///
+  /// In en, this message translates to:
+  /// **'Stored energy'**
+  String get settingsBatteryStoredEnergy;
+
+  /// Label for battery chemistry.
+  ///
+  /// In en, this message translates to:
+  /// **'Technology'**
+  String get settingsBatteryTechnology;
+
+  /// Label for battery temperature.
+  ///
+  /// In en, this message translates to:
+  /// **'Temperature'**
+  String get settingsBatteryTemperature;
+
+  /// Label for UPower's estimated time until the battery is empty.
+  ///
+  /// In en, this message translates to:
+  /// **'Time remaining'**
+  String get settingsBatteryTimeRemaining;
+
+  /// Label for UPower's estimated time until the battery is full.
+  ///
+  /// In en, this message translates to:
+  /// **'Time to full'**
+  String get settingsBatteryTimeToFull;
+
+  /// Fallback name for a battery without vendor, model, or native path.
+  ///
+  /// In en, this message translates to:
+  /// **'System battery'**
+  String get settingsBatteryUnknownDevice;
+
+  /// Error shown after a UPower refresh or charge-limit operation fails.
+  ///
+  /// In en, this message translates to:
+  /// **'UPower could not refresh or change the battery settings.'**
+  String get settingsBatteryUpdateFailed;
+
+  /// Label for current battery voltage.
+  ///
+  /// In en, this message translates to:
+  /// **'Voltage'**
+  String get settingsBatteryVoltage;
+
+  /// Battery energy value in watt-hours.
+  ///
+  /// In en, this message translates to:
+  /// **'{value} Wh'**
+  String settingsBatteryWattHours(String value);
+
   /// English UI text for settingsBackdropBlur.
   ///
   /// In en, this message translates to:
@@ -3099,6 +3375,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Move content in the same direction as your fingers.'**
   String get settingsTouchpadNaturalScrollDescription;
+
+  /// Label for the continuous touchpad scroll speed slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Finger scroll speed'**
+  String get settingsTouchpadScrollSpeed;
 
   /// Eyebrow label for the configured shortcuts page.
   ///
@@ -5077,7 +5359,7 @@ abstract class AppLocalizations {
   /// English UI text for wifiServiceUnavailable.
   ///
   /// In en, this message translates to:
-  /// **'NetworkManager is unavailable'**
+  /// **'Network service is unavailable'**
   String get wifiServiceUnavailable;
 
   /// English UI text for wifiServiceUnavailableDescription.

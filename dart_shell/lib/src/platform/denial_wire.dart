@@ -380,7 +380,11 @@ class DenialWireCodec {
     required int requestId,
     required DenialInputDeviceCapabilities capabilities,
   }) {
-    if (requestId <= 0 || capabilities.revision <= 0) {
+    if (requestId <= 0 ||
+        capabilities.revision <= 0 ||
+        !capabilities.scrollSpeedFactor.isFinite ||
+        capabilities.scrollSpeedFactor < touchpadScrollSpeedFactorMinimum ||
+        capabilities.scrollSpeedFactor > touchpadScrollSpeedFactorMaximum) {
       return null;
     }
     return _encodeEnvelope(
@@ -391,6 +395,7 @@ class DenialWireCodec {
         touchpad: generated.TouchpadConfigurationObjectBuilder(
           tapToClickEnabled: capabilities.tapToClickEnabled,
           naturalScrollEnabled: capabilities.naturalScrollEnabled,
+          scrollSpeedFactor: capabilities.scrollSpeedFactor,
         ),
       ),
       requestId: requestId,
@@ -476,11 +481,16 @@ class DenialWireCodec {
   ) {
     final inputDevices = response.inputDevices;
     final touchpad = inputDevices?.touchpad;
+    final scrollSpeedFactor = touchpad?.scrollSpeedFactor;
     if (!response.success ||
         response.kind != generated.SettingsResponseKind.InputDevices ||
         response.revision <= 0 ||
         inputDevices == null ||
-        touchpad == null) {
+        touchpad == null ||
+        scrollSpeedFactor == null ||
+        !scrollSpeedFactor.isFinite ||
+        scrollSpeedFactor < touchpadScrollSpeedFactorMinimum ||
+        scrollSpeedFactor > touchpadScrollSpeedFactorMaximum) {
       rejectedStructuredMessages += 1;
       return null;
     }
@@ -489,6 +499,7 @@ class DenialWireCodec {
       hasTouchpad: inputDevices.hasTouchpad,
       tapToClickEnabled: touchpad.tapToClickEnabled,
       naturalScrollEnabled: touchpad.naturalScrollEnabled,
+      scrollSpeedFactor: scrollSpeedFactor,
     );
   }
 

@@ -201,6 +201,8 @@ class DenialBridge {
       StreamController<DenialShortcutConfiguration>.broadcast(sync: true);
   final StreamController<DenialTextInputState> _textInputStates =
       StreamController<DenialTextInputState>.broadcast(sync: true);
+  final StreamController<DisplayLayout> _displayLayouts =
+      StreamController<DisplayLayout>.broadcast(sync: true);
   final wire.DenialWireCodec _wireCodec = wire.DenialWireCodec();
   final DenialUiDevelopmentProtocol _uiDevelopmentProtocol =
       DenialUiDevelopmentProtocol();
@@ -230,6 +232,7 @@ class DenialBridge {
   Stream<DenialShortcutConfiguration> get shortcutConfigurations =>
       _shortcutConfigurations.stream;
   Stream<DenialTextInputState> get textInputStates => _textInputStates.stream;
+  Stream<DisplayLayout> get displayLayouts => _displayLayouts.stream;
 
   void start({
     required VoidCallback onWindowsChanged,
@@ -331,6 +334,7 @@ class DenialBridge {
     unawaited(_inputDeviceCapabilities.close());
     unawaited(_shortcutConfigurations.close());
     unawaited(_textInputStates.close());
+    unawaited(_displayLayouts.close());
   }
 
   Future<DenialWindowSnapshot> listWindows(List<DenialWindow> fallback) {
@@ -1663,6 +1667,8 @@ class DenialBridge {
     final completer = _pendingDisplayRequests.remove(requestId);
     if (completer != null && !completer.isCompleted) {
       completer.complete(layout);
+    } else if (requestId == 0 && !_displayLayouts.isClosed) {
+      _displayLayouts.add(layout);
     }
   }
 }

@@ -40,7 +40,7 @@ fn generate() -> Result<(), Box<dyn Error>> {
     let bindings = bindgen::Builder::default()
         .header(header.to_string_lossy())
         .allowlist_function("FlutterEngine.*")
-        .allowlist_type("Flutter.*")
+        .allowlist_type("(Flutter|DenialFlutter).*")
         .allowlist_var("FLUTTER_ENGINE_VERSION")
         .derive_default(true)
         .generate_comments(false)

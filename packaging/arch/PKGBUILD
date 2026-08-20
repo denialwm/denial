@@ -41,8 +41,9 @@ depends=(
 )
 optdepends=(
   'denial-ui-development: live Flutter UI editing and hot reload'
+  'iwd: Wi-Fi controls without NetworkManager'
   'lact: AMD GPU performance controls'
-  'networkmanager: Wi-Fi and network controls'
+  'networkmanager: Wi-Fi and network controls through NetworkManager'
   'pipewire-pulse: desktop audio controls'
   'power-profiles-daemon: system power profiles'
   'sddm: graphical login and session selection'

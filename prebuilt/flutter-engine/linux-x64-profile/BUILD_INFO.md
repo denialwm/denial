@@ -7,17 +7,9 @@ using a debug or JIT runtime.
 ## Source identity
 
 The authoritative source input is
-[`SOURCE_LOCK.json`](../SOURCE_LOCK.json):
-
-- Denial Flutter fork:
-  `ce225d5bd9c635ce8cf233f6f3a0877f27a98254`
-- Denial Skia fork:
-  `0ee042f542b3e79f5ac49115387718c6bb3d7d34`
-- Upstream Flutter compatibility base:
-  `84fc5cbb223bc12f83d65b647ff8a56caf779ffd` (Flutter `3.44.7`)
-- Engine artifact revision:
-  `69c8c61792f04cc809dfef0c910414fb9afc06cd`
-- Dart: `3.12.2`
+[`SOURCE_LOCK.json`](../SOURCE_LOCK.json). Generated `args.gn` and the adjacent
+revision files record the derived build and ABI identities without duplicating
+mutable lock values in this document.
 
 All Denial changes are normal fork commits. The relevant performance and
 hardware results are retained in the

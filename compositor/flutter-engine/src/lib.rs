@@ -21,41 +21,28 @@ pub use host::{
     PresentFrame, PresentView, RendererBackend, ScheduledTask,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RenderOutputTransform {
-    Normal,
-    Rotate90,
-    Rotate180,
-    Rotate270,
-    Flipped,
-    Flipped90,
-    Flipped180,
-    Flipped270,
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RenderOutputTransform {
+    pub scale_x: f64,
+    pub skew_x: f64,
+    pub translate_x: f64,
+    pub skew_y: f64,
+    pub scale_y: f64,
+    pub translate_y: f64,
 }
 
 impl RenderOutputTransform {
-    fn as_ffi(self) -> sys::DenialFlutterOutputTransform {
-        match self {
-            Self::Normal => sys::DenialFlutterOutputTransform_kDenialFlutterOutputTransformNormal,
-            Self::Rotate90 => {
-                sys::DenialFlutterOutputTransform_kDenialFlutterOutputTransformRotate90
-            }
-            Self::Rotate180 => {
-                sys::DenialFlutterOutputTransform_kDenialFlutterOutputTransformRotate180
-            }
-            Self::Rotate270 => {
-                sys::DenialFlutterOutputTransform_kDenialFlutterOutputTransformRotate270
-            }
-            Self::Flipped => sys::DenialFlutterOutputTransform_kDenialFlutterOutputTransformFlipped,
-            Self::Flipped90 => {
-                sys::DenialFlutterOutputTransform_kDenialFlutterOutputTransformFlipped90
-            }
-            Self::Flipped180 => {
-                sys::DenialFlutterOutputTransform_kDenialFlutterOutputTransformFlipped180
-            }
-            Self::Flipped270 => {
-                sys::DenialFlutterOutputTransform_kDenialFlutterOutputTransformFlipped270
-            }
+    fn as_ffi(self) -> sys::FlutterTransformation {
+        sys::FlutterTransformation {
+            scaleX: self.scale_x,
+            skewX: self.skew_x,
+            transX: self.translate_x,
+            skewY: self.skew_y,
+            scaleY: self.scale_y,
+            transY: self.translate_y,
+            pers0: 0.0,
+            pers1: 0.0,
+            pers2: 1.0,
         }
     }
 }
@@ -71,7 +58,7 @@ pub struct RenderOutput {
     pub target_width: usize,
     pub target_height: usize,
     pub scale_120: u32,
-    pub transform: RenderOutputTransform,
+    pub source_to_target_transform: RenderOutputTransform,
 }
 
 impl RenderOutput {
@@ -87,7 +74,20 @@ impl RenderOutput {
             target_width: self.target_width,
             target_height: self.target_height,
             scale_120: self.scale_120,
-            transform: self.transform.as_ffi(),
+            source_to_target_transform: self.source_to_target_transform.as_ffi(),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct RenderOutputFfiScratch {
+    outputs: Vec<sys::DenialFlutterRenderOutput>,
+}
+
+impl RenderOutputFfiScratch {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            outputs: Vec::with_capacity(capacity),
         }
     }
 }
@@ -565,21 +565,31 @@ impl RunningEngine {
     /// Flutter copies the slice before this call returns and installs it on
     /// the raster runner between frame transactions.
     pub fn set_render_outputs(&self, outputs: &[RenderOutput]) -> Result<(), EngineError> {
+        let mut scratch = RenderOutputFfiScratch::with_capacity(outputs.len());
+        self.set_render_outputs_reusing(outputs, &mut scratch)
+    }
+
+    /// Variant for display-clock animation paths which retain their FFI
+    /// storage between projection samples.
+    pub fn set_render_outputs_reusing(
+        &self,
+        outputs: &[RenderOutput],
+        scratch: &mut RenderOutputFfiScratch,
+    ) -> Result<(), EngineError> {
         let function = self.library.set_render_outputs;
-        let outputs = outputs
-            .iter()
-            .copied()
-            .map(RenderOutput::as_ffi)
-            .collect::<Vec<_>>();
-        let pointer = if outputs.is_empty() {
+        scratch.outputs.clear();
+        scratch
+            .outputs
+            .extend(outputs.iter().copied().map(RenderOutput::as_ffi));
+        let pointer = if scratch.outputs.is_empty() {
             ptr::null()
         } else {
-            outputs.as_ptr()
+            scratch.outputs.as_ptr()
         };
         // SAFETY: the live engine synchronously copies this bounded slice;
         // null is supplied only for the explicitly supported empty snapshot.
         check_result("SetRenderOutputs", unsafe {
-            function(self.handle, pointer, outputs.len())
+            function(self.handle, pointer, scratch.outputs.len())
         })
     }
 

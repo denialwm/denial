@@ -27,6 +27,7 @@ import '../services/audio_service.dart';
 import '../services/power_profile_service.dart';
 import '../settings/settings_application.dart';
 import '../settings/settings_controller.dart';
+import '../settings/widgets/settings_navigation.dart';
 import '../state/app_audio.dart';
 import '../state/bluetooth.dart';
 import '../state/clipboard_tray.dart';
@@ -542,6 +543,13 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     _launchLocalApp(denialSettingsApplication);
   }
 
+  void _openPowerSettings() {
+    ref
+        .read(settingsPageOpenRequestProvider.notifier)
+        .request(SettingsPageId.power);
+    _openSettings();
+  }
+
   Future<void> _showWallpaperSelector() async {
     var displayLayout = ref.read(displayLayoutProvider);
     displayLayout ??= await ref
@@ -743,6 +751,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
             onCloseWallpaperSelector: _closeWallpaperSelector,
             onOpenAppVolumeManager: _openAppVolumeManager,
             onOpenSettings: _openSettings,
+            onOpenPowerSettings: _openPowerSettings,
             onCancelPanelClose: _cancelPanelClose,
             onSchedulePanelClose: _schedulePanelClose,
             onLaunchApp: _launchApp,
@@ -1092,6 +1101,7 @@ class _DesktopScene extends ConsumerStatefulWidget {
     required this.onCloseWallpaperSelector,
     required this.onOpenAppVolumeManager,
     required this.onOpenSettings,
+    required this.onOpenPowerSettings,
     required this.onCancelPanelClose,
     required this.onSchedulePanelClose,
     required this.onLaunchApp,
@@ -1125,6 +1135,7 @@ class _DesktopScene extends ConsumerStatefulWidget {
   final VoidCallback onCloseWallpaperSelector;
   final VoidCallback onOpenAppVolumeManager;
   final VoidCallback onOpenSettings;
+  final VoidCallback onOpenPowerSettings;
   final VoidCallback onCancelPanelClose;
   final VoidCallback onSchedulePanelClose;
   final ValueChanged<DesktopApp> onLaunchApp;
@@ -1226,6 +1237,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     final onDismissLauncher = widget.onDismissLauncher;
     final onOpenDashboard = widget.onOpenDashboard;
     final onOpenSettings = widget.onOpenSettings;
+    final onOpenPowerSettings = widget.onOpenPowerSettings;
     final onOpenWallpaperSelector = widget.onOpenWallpaperSelector;
     final onCloseWallpaperSelector = widget.onCloseWallpaperSelector;
     final onOpenAppVolumeManager = widget.onOpenAppVolumeManager;
@@ -1375,7 +1387,10 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                     Positioned.fromRect(
                       key: ValueKey<String>('system-bar-${bar.monitorId}'),
                       rect: bar.rect,
-                      child: DesktopSystemBar(side: bar.side),
+                      child: DesktopSystemBar(
+                        side: bar.side,
+                        onOpenPowerSettings: onOpenPowerSettings,
+                      ),
                     ),
                   Positioned.fill(
                     child: ShellInputRegion(
