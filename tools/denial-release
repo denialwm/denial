@@ -473,7 +473,7 @@ source_audit() {
     )"
     check_equal \
       'repository-level Rust toolchain is pinned' \
-      '1.95.0' \
+      '1.98.0' \
       "$rust_toolchain_channel"
   else
     fail 'repository-level rust-toolchain.toml is missing'

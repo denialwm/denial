@@ -144,6 +144,27 @@ all modes' tracked `args.gn` and canonical checksums, builds the invalidated
 targets, populates the new immutable cache entry, and stages its artifacts.
 Never repair an expected checksum one mode at a time.
 
+Iterate on local engine experiments before advancing the source lock or
+running that full release procedure. Use only the release-engine fast path:
+
+```sh
+tools/denial-pc engine-test-build
+tools/denial-pc engine-test-check
+tools/denial-pc engine-test-arm
+```
+
+This builds the current clean canonical Flutter checkout with the existing
+release Ninja output, copies the known-good shell bundle into a revisioned,
+read-only cache directory, verifies the experimental engine ABI and AOT data,
+and arms it for the next `Denial (development)` login only. The launcher
+consumes the test flag before starting `deniald`, so a later login returns to
+the pinned known-good engine automatically. Use
+`tools/denial-pc engine-test-cancel` to disarm it. Never copy or install an
+experimental `libflutter_engine.so` over the normal bundle, and especially
+never overwrite a library mapped by the running Denial process; truncating a
+mapped shared library can crash the live compositor. Advance the source lock
+and run the full metadata refresh only after the isolated engine is accepted.
+
 Denial-owned Flutter and Skia commits use
 `Doctor Logix <doctor.logix@gmail.com>`. Set that identity locally in source
 forks and temporary repositories; never rely on the host's global Git config.

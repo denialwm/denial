@@ -55,7 +55,7 @@ port are recorded in the
   Debian 13 can load it, but a future rolling-distribution build could raise
   that requirement again. The Flutter engine itself currently requires glibc
   2.18 and Fontconfig for distribution-native system-font discovery.
-- Denial pins Rust 1.95, newer than Debian 13's packaged Rust compiler. A
+- Denial pins Rust 1.98, newer than Debian 13's packaged Rust compiler. A
   Debian builder must provision the pinned toolchain, while the resulting
   runtime package must not depend on a Rust installation.
 - The graphical session requires a logind-compatible seat and session API and

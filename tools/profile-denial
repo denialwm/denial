@@ -756,6 +756,7 @@ def parse_perf_samples(perf: str, data: Path) -> tuple[int, dict[SampleLocation,
 
 def symbolize_offsets(
     addr2line: str,
+    demangler: str,
     elf: Path,
     offsets: Iterable[int],
 ) -> dict[int, ResolvedLocation]:
@@ -767,7 +768,6 @@ def symbolize_offsets(
             addr2line,
             "--addresses",
             "--functions",
-            "--demangle",
             "--pretty-print",
             "--executable",
             str(elf),
@@ -776,6 +776,7 @@ def symbolize_offsets(
         result = subprocess.run(command, capture_output=True, text=True, check=False)
         if result.returncode != 0:
             continue
+        locations: list[tuple[int, str, str]] = []
         for line in result.stdout.splitlines():
             match = ADDR2LINE_RE.match(line)
             if match is None:
@@ -783,6 +784,24 @@ def symbolize_offsets(
             address = int(match.group("address"), 16)
             function = match.group("function").strip()
             source = match.group("source").strip()
+            locations.append((address, function, source))
+
+        if not locations:
+            continue
+        functions = [function for _address, function, _source in locations]
+        demangled = subprocess.run(
+            [demangler],
+            input="\n".join(functions) + "\n",
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        demangled_functions = demangled.stdout.splitlines()
+        if demangled.returncode != 0 or len(demangled_functions) != len(functions):
+            demangled_functions = functions
+        for (address, _function, source), function in zip(
+            locations, demangled_functions, strict=True
+        ):
             if function != "??":
                 resolved[address] = ResolvedLocation(function, source)
     return resolved
@@ -826,6 +845,7 @@ def dso_label(path: str) -> str:
 
 def resolve_sample_locations(
     addr2line: str,
+    demangler: str,
     samples: dict[SampleLocation, int],
     debug_elfs: dict[str, Path],
 ) -> dict[tuple[str, int], ResolvedLocation]:
@@ -848,6 +868,7 @@ def resolve_sample_locations(
         }
         symbolized = symbolize_offsets(
             addr2line,
+            demangler,
             debug_elfs[key],
             translated.values(),
         )
@@ -1363,6 +1384,7 @@ def main() -> int:
 
     perf = require_tool("perf")
     addr2line = require_tool("eu-addr2line")
+    demangler = shutil.which("llvm-cxxfilt") or require_tool("c++filt")
     require_tool("sleep")
     pid = find_denial_pid(args.pid)
 
@@ -1461,10 +1483,10 @@ def main() -> int:
         encoding="utf-8",
     )
     cpu_resolved = resolve_sample_locations(
-        addr2line, cpu_samples, debug_elfs
+        addr2line, demangler, cpu_samples, debug_elfs
     )
     instruction_resolved = resolve_sample_locations(
-        addr2line, instruction_samples, debug_elfs
+        addr2line, demangler, instruction_samples, debug_elfs
     )
     cpu_aggregates = aggregate_samples(cpu_total, cpu_samples, cpu_resolved)
     instruction_aggregates = aggregate_samples(
