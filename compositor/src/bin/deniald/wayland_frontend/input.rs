@@ -868,8 +868,9 @@ impl WaylandFrontend {
         Some(TouchWindowTarget {
             window_id: region.window_id,
             geometry,
-            in_top_strip: scene_position.y
-                < region.rect.y + WINDOW_TOUCH_STRIP_HEIGHT.min(region.rect.height),
+            in_gesture_strip: scene_position.y
+                >= region.rect.y + region.rect.height
+                    - WINDOW_TOUCH_STRIP_HEIGHT.min(region.rect.height),
             geometry_locked: region.geometry_locked(),
         })
     }
@@ -1676,7 +1677,7 @@ fn intercept_native_escape(
     execute_shortcut_disposition(state, disposition)
 }
 
-fn execute_shortcut_disposition(
+pub(super) fn execute_shortcut_disposition(
     state: &mut RuntimeState,
     disposition: ShortcutDisposition,
 ) -> bool {

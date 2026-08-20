@@ -15,15 +15,21 @@ use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
 use super::super::RuntimeState;
+use super::super::native_shortcut::ShortcutGesture;
 use super::super::window_grab::constrain_dimension;
 use super::super::wire::{WindowGeometry, WindowPlacementChange, WindowPlacementPhase};
 use super::window_management;
 
-/// The invisible gesture affordance at the top of a normal window.
+/// The invisible gesture affordance at the bottom of a normal window.
 pub(super) const WINDOW_TOUCH_STRIP_HEIGHT: f64 = 48.0;
 
 const MOVE_SLOP: f64 = 4.0;
 const MINIMIZE_SWIPE_DISTANCE: f64 = 96.0;
+const PINCH_SLOP: f64 = 16.0;
+const PINCH_TRANSLATION_DOMINANCE: f64 = 1.5;
+const THREE_FINGER_TAP_SLOP: f64 = 12.0;
+const THREE_FINGER_SWIPE_DISTANCE: f64 = 100.0;
+const SWIPE_DIRECTION_DOMINANCE: f64 = 1.5;
 const MIN_LOCAL_WINDOW_DIMENSION: f64 = 64.0;
 const MAX_WINDOW_DIMENSION: f64 = 16_384.0;
 
@@ -31,7 +37,7 @@ const MAX_WINDOW_DIMENSION: f64 = 16_384.0;
 pub(super) struct TouchWindowTarget {
     pub window_id: u64,
     pub geometry: WindowGeometry,
-    pub in_top_strip: bool,
+    pub in_gesture_strip: bool,
     pub geometry_locked: bool,
 }
 
@@ -49,6 +55,7 @@ pub(super) enum TouchWindowAction {
     Close {
         window_id: u64,
     },
+    Gesture(ShortcutGesture),
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -61,6 +68,7 @@ pub(super) struct TouchGestureUpdate {
 
 #[derive(Clone, Copy, Debug)]
 struct Contact {
+    origin: Point<f64, Logical>,
     position: Point<f64, Logical>,
     target: Option<TouchWindowTarget>,
     captured: bool,
@@ -77,10 +85,17 @@ enum Gesture {
         started: bool,
         geometry_locked: bool,
     },
+    PinchCandidate {
+        slots: [i32; 2],
+        window_id: u64,
+        initial_positions: [Point<f64, Logical>; 2],
+        initial_geometry: WindowGeometry,
+        moved: [bool; 2],
+    },
     Pinch {
         slots: [i32; 2],
         window_id: u64,
-        initial_distance: f64,
+        initial_positions: [Point<f64, Logical>; 2],
         initial_geometry: WindowGeometry,
         last_geometry: WindowGeometry,
     },
@@ -89,16 +104,24 @@ enum Gesture {
         window_id: u64,
         origin: Point<f64, Logical>,
     },
+    ThreeFinger {
+        slots: [i32; 3],
+        window_id: u64,
+        origin: Point<f64, Logical>,
+        tap_to_close: bool,
+    },
     /// Keep every participant compositor-owned until all fingers are lifted.
-    Blocked { window_id: u64, close_emitted: bool },
+    Blocked { window_id: u64 },
 }
 
 impl Gesture {
     fn window_id(self) -> u64 {
         match self {
             Self::Move { window_id, .. }
+            | Self::PinchCandidate { window_id, .. }
             | Self::Pinch { window_id, .. }
             | Self::MinimizeSwipe { window_id, .. }
+            | Self::ThreeFinger { window_id, .. }
             | Self::Blocked { window_id, .. } => window_id,
         }
     }
@@ -108,7 +131,10 @@ impl Gesture {
             Self::Move {
                 slot: gesture_slot, ..
             } => gesture_slot == slot,
-            Self::Pinch { slots, .. } | Self::MinimizeSwipe { slots, .. } => slots.contains(&slot),
+            Self::PinchCandidate { slots, .. }
+            | Self::Pinch { slots, .. }
+            | Self::MinimizeSwipe { slots, .. } => slots.contains(&slot),
+            Self::ThreeFinger { slots, .. } => slots.contains(&slot),
             Self::Blocked { .. } => true,
         }
     }
@@ -157,6 +183,7 @@ impl TouchGestureState {
         self.contacts.insert(
             slot,
             Contact {
+                origin: position,
                 position,
                 target,
                 captured: false,
@@ -166,13 +193,8 @@ impl TouchGestureState {
             return TouchGestureUpdate::default();
         };
 
-        if matches!(
-            self.gesture,
-            Some(Gesture::Blocked {
-                window_id,
-                close_emitted: true,
-            }) if window_id == target.window_id
-        ) {
+        if matches!(self.gesture, Some(Gesture::Blocked { window_id }) if window_id == target.window_id)
+        {
             return TouchGestureUpdate {
                 consume: true,
                 captured_slots: self.capture_slots(&[slot]),
@@ -181,25 +203,19 @@ impl TouchGestureState {
         }
 
         let same_window = self.window_slots(target.window_id);
-        if same_window.len() >= 3 {
-            let mut update = TouchGestureUpdate {
-                consume: true,
-                captured_slots: self.capture_slots(&same_window),
-                actions: Vec::with_capacity(2),
-            };
-            if let Some(gesture) = self.gesture.take()
-                && let Some(action) = gesture.finish_action()
-            {
-                update.actions.push(action);
+        if same_window.len() >= 3
+            && self
+                .gesture
+                .is_none_or(|gesture| gesture.window_id() == target.window_id)
+        {
+            if matches!(self.gesture, Some(Gesture::ThreeFinger { .. })) {
+                return TouchGestureUpdate {
+                    consume: true,
+                    captured_slots: self.capture_slots(&[slot]),
+                    actions: Vec::new(),
+                };
             }
-            update.actions.push(TouchWindowAction::Close {
-                window_id: target.window_id,
-            });
-            self.gesture = Some(Gesture::Blocked {
-                window_id: target.window_id,
-                close_emitted: true,
-            });
-            return update;
+            return self.begin_three_finger(same_window, target.window_id);
         }
 
         if let Some(gesture) = self.gesture
@@ -233,10 +249,10 @@ impl TouchGestureState {
             if target.geometry_locked {
                 return TouchGestureUpdate::default();
             }
-            return self.begin_pinch([uncaptured[0], uncaptured[1]], target.geometry);
+            return self.begin_pinch_candidate([uncaptured[0], uncaptured[1]], target.geometry);
         }
 
-        if target.in_top_strip {
+        if target.in_gesture_strip {
             let captured_slots = self.capture_slots(&[slot]);
             self.gesture = Some(Gesture::Move {
                 slot,
@@ -266,7 +282,79 @@ impl TouchGestureState {
             return TouchGestureUpdate::default();
         };
         contact.position = position;
-        if !contact.captured {
+        let captured = contact.captured;
+
+        if matches!(
+            self.gesture,
+            Some(Gesture::PinchCandidate { slots, .. }) if slots.contains(&slot)
+        ) {
+            let Some(Gesture::PinchCandidate {
+                slots,
+                window_id,
+                initial_positions,
+                initial_geometry,
+                mut moved,
+            }) = self.gesture.take()
+            else {
+                unreachable!();
+            };
+            let moved_slot = slots
+                .iter()
+                .position(|candidate| *candidate == slot)
+                .expect("pinch candidate lost its moving contact");
+            moved[moved_slot] = true;
+            let current_positions = self.contact_positions(slots);
+            if moved.iter().all(|contact_moved| *contact_moved)
+                && current_positions
+                    .is_some_and(|current| intentional_pinch(initial_positions, current))
+            {
+                let current_positions = current_positions.expect("pinch contacts disappeared");
+                let geometry = directional_pinch_geometry(
+                    initial_geometry,
+                    initial_positions,
+                    current_positions,
+                );
+                let captured_slots = self.capture_slots(&slots);
+                self.gesture = Some(Gesture::Pinch {
+                    slots,
+                    window_id,
+                    initial_positions,
+                    initial_geometry,
+                    last_geometry: geometry,
+                });
+                return TouchGestureUpdate {
+                    consume: true,
+                    captured_slots,
+                    actions: vec![
+                        TouchWindowAction::Placement {
+                            window_id,
+                            phase: WindowPlacementPhase::Begin,
+                            change: WindowPlacementChange::Resize,
+                            geometry: initial_geometry,
+                        },
+                        TouchWindowAction::Placement {
+                            window_id,
+                            phase: WindowPlacementPhase::Update,
+                            change: WindowPlacementChange::Resize,
+                            geometry,
+                        },
+                    ],
+                };
+            }
+            self.gesture = Some(Gesture::PinchCandidate {
+                slots,
+                window_id,
+                initial_positions,
+                initial_geometry,
+                moved,
+            });
+            return TouchGestureUpdate {
+                consume: captured,
+                ..TouchGestureUpdate::default()
+            };
+        }
+
+        if !captured {
             return TouchGestureUpdate::default();
         }
 
@@ -314,13 +402,16 @@ impl TouchGestureState {
             Gesture::Pinch {
                 slots,
                 window_id,
-                initial_distance,
+                initial_positions,
                 initial_geometry,
                 last_geometry,
             } if slots.contains(&slot) => {
-                if let Some(distance) = self.contact_distance(*slots) {
-                    let scale = (distance / *initial_distance).clamp(0.05, 20.0);
-                    *last_geometry = scaled_about_center(*initial_geometry, scale);
+                if let Some(current_positions) = self.contact_positions(*slots) {
+                    *last_geometry = directional_pinch_geometry(
+                        *initial_geometry,
+                        *initial_positions,
+                        current_positions,
+                    );
                     update.actions.push(TouchWindowAction::Placement {
                         window_id: *window_id,
                         phase: WindowPlacementPhase::Update,
@@ -342,7 +433,30 @@ impl TouchGestureState {
                         });
                         gesture = Gesture::Blocked {
                             window_id: *window_id,
-                            close_emitted: false,
+                        };
+                    }
+                }
+            }
+            Gesture::ThreeFinger {
+                slots,
+                window_id,
+                origin,
+                tap_to_close,
+            } if slots.contains(&slot) => {
+                if self.contact_travel(slot) > THREE_FINGER_TAP_SLOP {
+                    *tap_to_close = false;
+                }
+                if let Some(center) = self.three_contact_center(*slots) {
+                    let delta = center - *origin;
+                    let upward = -delta.y;
+                    if upward >= THREE_FINGER_SWIPE_DISTANCE
+                        && upward >= delta.x.abs() * SWIPE_DIRECTION_DOMINANCE
+                    {
+                        update.actions.push(TouchWindowAction::Gesture(
+                            ShortcutGesture::ThreeFingerSwipeUp,
+                        ));
+                        gesture = Gesture::Blocked {
+                            window_id: *window_id,
                         };
                     }
                 }
@@ -354,15 +468,19 @@ impl TouchGestureState {
     }
 
     pub(super) fn up(&mut self, slot: i32) -> TouchGestureUpdate {
+        self.finish_contact(slot, true)
+    }
+
+    pub(super) fn cancel(&mut self, slot: i32) -> TouchGestureUpdate {
+        self.finish_contact(slot, false)
+    }
+
+    fn finish_contact(&mut self, slot: i32, allow_tap: bool) -> TouchGestureUpdate {
         let Some(contact) = self.contacts.remove(&slot) else {
             return TouchGestureUpdate::default();
         };
-        if !contact.captured {
-            return TouchGestureUpdate::default();
-        }
-
         let mut update = TouchGestureUpdate {
-            consume: true,
+            consume: contact.captured,
             ..TouchGestureUpdate::default()
         };
         let Some(gesture) = self.gesture.take() else {
@@ -372,28 +490,39 @@ impl TouchGestureState {
             self.gesture = Some(gesture);
             return update;
         }
-        if let Some(action) = gesture.finish_action() {
-            update.actions.push(action);
+        if matches!(gesture, Gesture::PinchCandidate { .. }) {
+            return update;
         }
-        if matches!(
-            gesture,
-            Gesture::Pinch { .. } | Gesture::MinimizeSwipe { .. }
-        ) || matches!(gesture, Gesture::Blocked { .. })
-            && self.has_captured_window_contact(gesture.window_id())
+
+        match gesture {
+            Gesture::ThreeFinger {
+                window_id,
+                tap_to_close: true,
+                ..
+            } if allow_tap => update.actions.push(TouchWindowAction::Close { window_id }),
+            _ => {
+                if let Some(action) = gesture.finish_action() {
+                    update.actions.push(action);
+                }
+            }
+        }
+        if self.has_captured_window_contact(gesture.window_id())
+            && matches!(
+                gesture,
+                Gesture::Pinch { .. }
+                    | Gesture::MinimizeSwipe { .. }
+                    | Gesture::ThreeFinger { .. }
+                    | Gesture::Blocked { .. }
+            )
         {
             self.gesture = Some(match gesture {
                 Gesture::Blocked { .. } => gesture,
                 _ => Gesture::Blocked {
                     window_id: gesture.window_id(),
-                    close_emitted: false,
                 },
             });
         }
         update
-    }
-
-    pub(super) fn cancel(&mut self, slot: i32) -> TouchGestureUpdate {
-        self.up(slot)
     }
 
     pub(super) fn cancel_all(&mut self) -> Vec<TouchWindowAction> {
@@ -415,18 +544,17 @@ impl TouchGestureState {
     ) -> TouchGestureUpdate {
         slots.sort_unstable();
         let slots = [slots[0], slots[1]];
-        let both_in_top_strip = slots.iter().all(|slot| {
+        let both_in_gesture_strip = slots.iter().all(|slot| {
             self.contacts
                 .get(slot)
                 .and_then(|contact| contact.target)
-                .is_some_and(|contact_target| contact_target.in_top_strip)
+                .is_some_and(|contact_target| contact_target.in_gesture_strip)
         });
-        if !both_in_top_strip && target.geometry_locked {
+        if !both_in_gesture_strip && target.geometry_locked {
             return TouchGestureUpdate::default();
         }
-        let captured_slots = self.capture_slots(&slots);
-        let mut actions = move_gesture.finish_action().into_iter().collect::<Vec<_>>();
-        if both_in_top_strip {
+        let actions = move_gesture.finish_action().into_iter().collect::<Vec<_>>();
+        if both_in_gesture_strip {
             let origin = self
                 .contact_center(slots)
                 .expect("two contacts disappeared");
@@ -435,54 +563,76 @@ impl TouchGestureState {
                 window_id: target.window_id,
                 origin,
             });
+            TouchGestureUpdate {
+                consume: true,
+                captured_slots: self.capture_slots(&slots),
+                actions,
+            }
         } else {
             let initial_geometry = match move_gesture {
                 Gesture::Move { last_geometry, .. } => last_geometry,
                 _ => unreachable!(),
             };
-            let mut pinch = self.begin_pinch(slots, initial_geometry);
-            actions.append(&mut pinch.actions);
-        }
-        TouchGestureUpdate {
-            consume: true,
-            captured_slots,
-            actions,
+            self.begin_pinch_candidate(slots, initial_geometry);
+            TouchGestureUpdate {
+                actions,
+                ..TouchGestureUpdate::default()
+            }
         }
     }
 
-    fn begin_pinch(
+    fn begin_pinch_candidate(
         &mut self,
         mut slots: [i32; 2],
         initial_geometry: WindowGeometry,
     ) -> TouchGestureUpdate {
         slots.sort_unstable();
-        let Some(initial_distance) = self
-            .contact_distance(slots)
-            .filter(|distance| *distance > 0.0)
-        else {
+        let Some(initial_positions) = self.contact_positions(slots) else {
             return TouchGestureUpdate::default();
         };
         let window_id = self.contacts[&slots[0]]
             .target
             .expect("pinch contact lost its window")
             .window_id;
-        let captured_slots = self.capture_slots(&slots);
-        self.gesture = Some(Gesture::Pinch {
+        self.gesture = Some(Gesture::PinchCandidate {
             slots,
             window_id,
-            initial_distance,
+            initial_positions,
             initial_geometry,
-            last_geometry: initial_geometry,
+            moved: [false; 2],
+        });
+        TouchGestureUpdate::default()
+    }
+
+    fn begin_three_finger(&mut self, mut slots: Vec<i32>, window_id: u64) -> TouchGestureUpdate {
+        slots.sort_unstable();
+        let slots = [slots[0], slots[1], slots[2]];
+        let origin = self
+            .three_contact_center(slots)
+            .expect("three-finger contacts disappeared");
+        let tap_to_close = slots.iter().all(|slot| {
+            self.contacts.get(slot).is_some_and(|contact| {
+                contact.target.is_some_and(|target| target.in_gesture_strip)
+                    && self.contact_travel(*slot) <= THREE_FINGER_TAP_SLOP
+            })
+        });
+        let actions = self
+            .gesture
+            .take()
+            .and_then(Gesture::finish_action)
+            .into_iter()
+            .collect();
+        let captured_slots = self.capture_slots(&slots);
+        self.gesture = Some(Gesture::ThreeFinger {
+            slots,
+            window_id,
+            origin,
+            tap_to_close,
         });
         TouchGestureUpdate {
             consume: true,
             captured_slots,
-            actions: vec![TouchWindowAction::Placement {
-                window_id,
-                phase: WindowPlacementPhase::Begin,
-                change: WindowPlacementChange::Resize,
-                geometry: initial_geometry,
-            }],
+            actions,
         }
     }
 
@@ -517,18 +667,31 @@ impl TouchGestureState {
     }
 
     fn contact_center(&self, slots: [i32; 2]) -> Option<Point<f64, Logical>> {
+        self.contact_positions(slots).map(center_of_two)
+    }
+
+    fn contact_positions(&self, slots: [i32; 2]) -> Option<[Point<f64, Logical>; 2]> {
+        Some([
+            self.contacts.get(&slots[0])?.position,
+            self.contacts.get(&slots[1])?.position,
+        ])
+    }
+
+    fn three_contact_center(&self, slots: [i32; 3]) -> Option<Point<f64, Logical>> {
         let first = self.contacts.get(&slots[0])?.position;
         let second = self.contacts.get(&slots[1])?.position;
+        let third = self.contacts.get(&slots[2])?.position;
         Some(Point::from((
-            (first.x + second.x) * 0.5,
-            (first.y + second.y) * 0.5,
+            (first.x + second.x + third.x) / 3.0,
+            (first.y + second.y + third.y) / 3.0,
         )))
     }
 
-    fn contact_distance(&self, slots: [i32; 2]) -> Option<f64> {
-        let first = self.contacts.get(&slots[0])?.position;
-        let second = self.contacts.get(&slots[1])?.position;
-        Some((second.x - first.x).hypot(second.y - first.y))
+    fn contact_travel(&self, slot: i32) -> f64 {
+        self.contacts.get(&slot).map_or(0.0, |contact| {
+            let delta = contact.position - contact.origin;
+            delta.x.hypot(delta.y)
+        })
     }
 
     fn has_captured_window_contact(&self, window_id: u64) -> bool {
@@ -541,15 +704,57 @@ impl TouchGestureState {
     }
 }
 
-fn scaled_about_center(geometry: WindowGeometry, scale: f64) -> WindowGeometry {
-    let width = geometry.width * scale;
-    let height = geometry.height * scale;
+fn intentional_pinch(initial: [Point<f64, Logical>; 2], current: [Point<f64, Logical>; 2]) -> bool {
+    let first_motion = current[0] - initial[0];
+    let second_motion = current[1] - initial[1];
+    let opposing_motion =
+        first_motion.x * second_motion.x + first_motion.y * second_motion.y <= 0.0;
+    let initial_distance = point_distance(initial[0], initial[1]);
+    let current_distance = point_distance(current[0], current[1]);
+    let separation_change = (current_distance - initial_distance).abs();
+    let translation = center_of_two(current) - center_of_two(initial);
+    opposing_motion
+        && separation_change >= PINCH_SLOP
+        && separation_change >= translation.x.hypot(translation.y) * PINCH_TRANSLATION_DOMINANCE
+}
+
+fn directional_pinch_geometry(
+    geometry: WindowGeometry,
+    initial: [Point<f64, Logical>; 2],
+    current: [Point<f64, Logical>; 2],
+) -> WindowGeometry {
+    let initial_center = center_of_two(initial);
+    let current_center = center_of_two(current);
+    let center_delta = current_center - initial_center;
+    let initial_separation = initial[1] - initial[0];
+    let current_separation = current[1] - current[0];
+    let width = finite_dimension(
+        geometry.width + current_separation.x.abs() - initial_separation.x.abs(),
+        MIN_LOCAL_WINDOW_DIMENSION,
+    );
+    let height = finite_dimension(
+        geometry.height + current_separation.y.abs() - initial_separation.y.abs(),
+        MIN_LOCAL_WINDOW_DIMENSION,
+    );
+    let center_x = geometry.x + geometry.width * 0.5 + center_delta.x;
+    let center_y = geometry.y + geometry.height * 0.5 + center_delta.y;
     WindowGeometry {
-        x: geometry.x + (geometry.width - width) * 0.5,
-        y: geometry.y + (geometry.height - height) * 0.5,
+        x: center_x - width * 0.5,
+        y: center_y - height * 0.5,
         width,
         height,
     }
+}
+
+fn center_of_two(points: [Point<f64, Logical>; 2]) -> Point<f64, Logical> {
+    Point::from((
+        (points[0].x + points[1].x) * 0.5,
+        (points[0].y + points[1].y) * 0.5,
+    ))
+}
+
+fn point_distance(first: Point<f64, Logical>, second: Point<f64, Logical>) -> f64 {
+    (second.x - first.x).hypot(second.y - first.y)
 }
 
 pub(super) fn apply_actions(
@@ -569,6 +774,10 @@ pub(super) fn apply_actions(
             }
             TouchWindowAction::Close { window_id } => {
                 window_management::close_toplevel_by_id(state, window_id);
+            }
+            TouchWindowAction::Gesture(gesture) => {
+                let disposition = state.native_escape_shortcut.observe_gesture(gesture);
+                super::input::execute_shortcut_disposition(state, disposition);
             }
         }
     }
@@ -768,11 +977,11 @@ mod tests {
         }
     }
 
-    fn target(in_top_strip: bool) -> TouchWindowTarget {
+    fn target(in_gesture_strip: bool) -> TouchWindowTarget {
         TouchWindowTarget {
             window_id: 7,
             geometry: geometry(),
-            in_top_strip,
+            in_gesture_strip,
             geometry_locked: false,
         }
     }
@@ -782,14 +991,14 @@ mod tests {
     }
 
     #[test]
-    fn one_finger_top_strip_drag_emits_normal_move_phases() {
+    fn one_finger_bottom_strip_drag_emits_normal_move_phases() {
         let mut gestures = TouchGestureState::default();
-        let down = gestures.down(0, point(180.0, 90.0), Some(target(true)));
+        let down = gestures.down(0, point(180.0, 350.0), Some(target(true)));
         assert!(down.consume);
         assert_eq!(down.captured_slots, [0]);
         assert!(down.actions.is_empty());
 
-        let motion = gestures.motion(0, point(230.0, 130.0));
+        let motion = gestures.motion(0, point(230.0, 390.0));
         assert_eq!(motion.actions.len(), 2);
         assert!(matches!(
             motion.actions[0],
@@ -824,7 +1033,7 @@ mod tests {
     }
 
     #[test]
-    fn two_body_contacts_capture_the_existing_route_and_pinch_from_the_center() {
+    fn directional_pinch_waits_for_intent_then_follows_both_axes() {
         let mut gestures = TouchGestureState::default();
         assert!(
             !gestures
@@ -832,31 +1041,36 @@ mod tests {
                 .consume
         );
         let second = gestures.down(1, point(250.0, 180.0), Some(target(false)));
-        assert!(second.consume);
-        assert_eq!(second.captured_slots, [0, 1]);
+        assert!(!second.consume);
+        assert!(second.captured_slots.is_empty());
+        assert!(second.actions.is_empty());
+
+        assert!(!gestures.motion(0, point(130.0, 160.0)).consume);
+        let motion = gestures.motion(1, point(280.0, 200.0));
+        assert!(motion.consume);
+        assert_eq!(motion.captured_slots, [0, 1]);
         assert!(matches!(
-            second.actions.as_slice(),
-            [TouchWindowAction::Placement {
+            motion.actions.first(),
+            Some(TouchWindowAction::Placement {
                 phase: WindowPlacementPhase::Begin,
                 change: WindowPlacementChange::Resize,
                 ..
-            }]
+            })
         ));
 
-        let motion = gestures.motion(1, point(350.0, 180.0));
         assert_eq!(
-            motion.actions,
-            [TouchWindowAction::Placement {
+            motion.actions[1],
+            TouchWindowAction::Placement {
                 window_id: 7,
                 phase: WindowPlacementPhase::Update,
                 change: WindowPlacementChange::Resize,
                 geometry: WindowGeometry {
-                    x: -100.0,
-                    y: -70.0,
-                    width: 800.0,
-                    height: 600.0,
+                    x: 80.0,
+                    y: 60.0,
+                    width: 450.0,
+                    height: 340.0,
                 },
-            }]
+            }
         );
         assert!(matches!(
             gestures.up(1).actions.as_slice(),
@@ -870,44 +1084,109 @@ mod tests {
     }
 
     #[test]
-    fn two_top_strip_contacts_minimize_only_after_a_downward_swipe() {
+    fn parallel_two_finger_scroll_is_not_captured_as_a_pinch() {
         let mut gestures = TouchGestureState::default();
-        gestures.down(0, point(160.0, 90.0), Some(target(true)));
-        gestures.down(1, point(240.0, 90.0), Some(target(true)));
-
-        assert!(gestures.motion(0, point(160.0, 170.0)).actions.is_empty());
-        assert_eq!(
-            gestures.motion(1, point(240.0, 210.0)).actions,
-            [TouchWindowAction::Minimize { window_id: 7 }]
+        assert!(
+            !gestures
+                .down(0, point(150.0, 180.0), Some(target(false)))
+                .consume
         );
-        assert!(gestures.motion(0, point(160.0, 260.0)).actions.is_empty());
+        assert!(
+            !gestures
+                .down(1, point(250.0, 180.0), Some(target(false)))
+                .consume
+        );
+
+        assert!(!gestures.motion(0, point(150.0, 220.0)).consume);
+        assert!(!gestures.motion(1, point(250.0, 220.0)).consume);
+        assert!(!gestures.up(0).consume);
+        assert!(!gestures.up(1).consume);
     }
 
     #[test]
-    fn third_contact_closes_the_touched_window_once() {
+    fn uneven_parallel_scroll_is_not_captured_between_contact_updates() {
         let mut gestures = TouchGestureState::default();
-        gestures.down(0, point(150.0, 180.0), Some(target(false)));
-        gestures.down(1, point(250.0, 180.0), Some(target(false)));
-        let third = gestures.down(2, point(200.0, 250.0), Some(target(false)));
+        gestures.down(0, point(200.0, 150.0), Some(target(false)));
+        gestures.down(1, point(200.0, 250.0), Some(target(false)));
+
+        assert!(!gestures.motion(0, point(200.0, 210.0)).consume);
+        let update = gestures.motion(1, point(200.0, 255.0));
+        assert!(!update.consume);
+        assert!(update.captured_slots.is_empty());
+        assert!(update.actions.is_empty());
+    }
+
+    #[test]
+    fn two_bottom_strip_contacts_minimize_only_after_a_downward_swipe() {
+        let mut gestures = TouchGestureState::default();
+        gestures.down(0, point(160.0, 350.0), Some(target(true)));
+        gestures.down(1, point(240.0, 350.0), Some(target(true)));
+
+        assert!(gestures.motion(0, point(160.0, 430.0)).actions.is_empty());
+        assert_eq!(
+            gestures.motion(1, point(240.0, 470.0)).actions,
+            [TouchWindowAction::Minimize { window_id: 7 }]
+        );
+        assert!(gestures.motion(0, point(160.0, 520.0)).actions.is_empty());
+    }
+
+    #[test]
+    fn three_finger_bottom_strip_tap_closes_on_release_once() {
+        let mut gestures = TouchGestureState::default();
+        gestures.down(0, point(150.0, 350.0), Some(target(true)));
+        gestures.down(1, point(250.0, 350.0), Some(target(true)));
+        let third = gestures.down(2, point(200.0, 360.0), Some(target(true)));
         assert!(third.consume);
-        assert!(matches!(
-            third.actions.as_slice(),
-            [
-                TouchWindowAction::Placement {
-                    phase: WindowPlacementPhase::End,
-                    change: WindowPlacementChange::Resize,
-                    ..
-                },
-                TouchWindowAction::Close { window_id: 7 }
-            ]
-        ));
-        assert!(gestures.up(2).consume);
-        let fourth = gestures.down(3, point(210.0, 240.0), Some(target(false)));
+        assert!(third.actions.is_empty());
+        let release = gestures.up(2);
+        assert!(release.consume);
+        assert_eq!(release.actions, [TouchWindowAction::Close { window_id: 7 }]);
+
+        let fourth = gestures.down(3, point(210.0, 360.0), Some(target(true)));
         assert!(fourth.consume);
         assert!(fourth.actions.is_empty());
         assert!(gestures.up(3).consume);
         assert!(gestures.up(1).consume);
         assert!(gestures.up(0).consume);
+    }
+
+    #[test]
+    fn three_finger_body_tap_does_not_close() {
+        let mut gestures = TouchGestureState::default();
+        gestures.down(0, point(150.0, 180.0), Some(target(false)));
+        gestures.down(1, point(250.0, 180.0), Some(target(false)));
+        let third = gestures.down(2, point(200.0, 250.0), Some(target(false)));
+        assert!(third.consume);
+        assert_eq!(third.captured_slots, [0, 1, 2]);
+        assert!(gestures.up(2).actions.is_empty());
+    }
+
+    #[test]
+    fn three_finger_swipe_up_emits_the_touchpad_gesture() {
+        let mut gestures = TouchGestureState::default();
+        gestures.down(0, point(150.0, 250.0), Some(target(false)));
+        gestures.down(1, point(250.0, 250.0), Some(target(false)));
+        gestures.down(2, point(200.0, 250.0), Some(target(false)));
+
+        assert!(gestures.motion(0, point(150.0, 130.0)).actions.is_empty());
+        assert!(gestures.motion(1, point(250.0, 130.0)).actions.is_empty());
+        assert_eq!(
+            gestures.motion(2, point(200.0, 130.0)).actions,
+            [TouchWindowAction::Gesture(
+                ShortcutGesture::ThreeFingerSwipeUp
+            )]
+        );
+        assert!(gestures.up(2).actions.is_empty());
+    }
+
+    #[test]
+    fn canceled_three_finger_contact_never_closes() {
+        let mut gestures = TouchGestureState::default();
+        gestures.down(0, point(150.0, 350.0), Some(target(true)));
+        gestures.down(1, point(250.0, 350.0), Some(target(true)));
+        gestures.down(2, point(200.0, 360.0), Some(target(true)));
+
+        assert!(gestures.cancel(2).actions.is_empty());
     }
 
     #[test]
@@ -920,7 +1199,7 @@ mod tests {
         };
         assert!(!gestures.down(1, point(650.0, 180.0), Some(other)).consume);
         let same_other_window = gestures.down(2, point(700.0, 220.0), Some(other));
-        assert!(same_other_window.consume);
+        assert!(!same_other_window.consume);
         assert!(
             !same_other_window
                 .actions
@@ -936,13 +1215,22 @@ mod tests {
             ..target(true)
         };
         let mut gestures = TouchGestureState::default();
-        gestures.down(0, point(160.0, 90.0), Some(locked));
-        assert!(gestures.motion(0, point(220.0, 140.0)).actions.is_empty());
-        gestures.down(1, point(240.0, 90.0), Some(locked));
-        gestures.motion(0, point(160.0, 270.0));
+        gestures.down(0, point(160.0, 350.0), Some(locked));
+        assert!(gestures.motion(0, point(220.0, 400.0)).actions.is_empty());
+        gestures.down(1, point(240.0, 350.0), Some(locked));
+        gestures.motion(0, point(160.0, 530.0));
         assert_eq!(
-            gestures.motion(1, point(240.0, 270.0)).actions,
+            gestures.motion(1, point(240.0, 530.0)).actions,
             [TouchWindowAction::Minimize { window_id: 7 }]
+        );
+
+        let mut close_gestures = TouchGestureState::default();
+        close_gestures.down(0, point(160.0, 350.0), Some(locked));
+        close_gestures.down(1, point(240.0, 350.0), Some(locked));
+        close_gestures.down(2, point(200.0, 360.0), Some(locked));
+        assert_eq!(
+            close_gestures.up(2).actions,
+            [TouchWindowAction::Close { window_id: 7 }]
         );
     }
 }
