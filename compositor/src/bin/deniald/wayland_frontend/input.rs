@@ -66,6 +66,10 @@ use super::WaylandFrontend;
 #[cfg(feature = "flutter")]
 use super::input_source::init_joystick_activity;
 use super::input_source::{InputBatchEvent, LibinputBatchSource};
+#[cfg(feature = "flutter")]
+use super::touch_gestures::{
+    self, TouchGestureUpdate, TouchWindowTarget, WINDOW_TOUCH_STRIP_HEIGHT,
+};
 
 fn output_bound_absolute_position<E>(
     event: &E,
@@ -834,6 +838,42 @@ impl WaylandFrontend {
             .filter(|region| self.local_windows.contains(region.window_id))
     }
 
+    fn touch_window_target_at(&self, position: Point<f64, Logical>) -> Option<TouchWindowTarget> {
+        let layout = self.input_layout.as_ref()?;
+        let scene_position = position - self.atlas_origin;
+        if layout.exclusive_shell()
+            || layout
+                .shell_regions
+                .iter()
+                .any(|region| region.contains(scene_position.x, scene_position.y))
+        {
+            return None;
+        }
+        let region = layout
+            .windows
+            .iter()
+            .find(|region| region_accepts_input(region, scene_position))?;
+        let geometry = if self.local_windows.contains(region.window_id) {
+            self.local_flutter_window_geometry(region.window_id)?
+        } else {
+            let window = self.window_for_id(region.window_id)?;
+            let geometry = self.window_geometry_target(&window);
+            super::super::wire::WindowGeometry {
+                x: f64::from(geometry.loc.x),
+                y: f64::from(geometry.loc.y),
+                width: f64::from(geometry.size.w),
+                height: f64::from(geometry.size.h),
+            }
+        };
+        Some(TouchWindowTarget {
+            window_id: region.window_id,
+            geometry,
+            in_top_strip: scene_position.y
+                < region.rect.y + WINDOW_TOUCH_STRIP_HEIGHT.min(region.rect.height),
+            geometry_locked: region.geometry_locked(),
+        })
+    }
+
     fn input_target(&mut self, position: Point<f64, Logical>) -> InputTarget {
         self.input_route(position)
             .cloned()
@@ -1231,6 +1271,15 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
     #[cfg(feature = "flutter")]
     if reset.pointer {
         state.touchpad_gestures.reset();
+    }
+    #[cfg(feature = "flutter")]
+    if reset.touch {
+        let actions = state
+            .wayland
+            .as_mut()
+            .map(|frontend| frontend.touch_gestures.cancel_all())
+            .unwrap_or_default();
+        touch_gestures::apply_actions(state, actions);
     }
     #[cfg(feature = "flutter")]
     if state.flutter_active {
@@ -2038,6 +2087,46 @@ fn process_flutter_keyboard_transition(
 }
 
 #[cfg(feature = "flutter")]
+fn apply_touch_gesture_update(state: &mut RuntimeState, update: TouchGestureUpdate) -> bool {
+    let actions_pending = !update.actions.is_empty();
+    let canceled_client_route = cancel_captured_touch_routes(state, &update.captured_slots);
+    touch_gestures::apply_actions(state, update.actions);
+    canceled_client_route || actions_pending
+}
+
+#[cfg(feature = "flutter")]
+fn cancel_captured_touch_routes(state: &mut RuntimeState, slots: &[i32]) -> bool {
+    if slots.is_empty() {
+        return false;
+    }
+    let (flutter_slots, cancel_client, touch) = {
+        let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+        let flutter_slots = slots
+            .iter()
+            .copied()
+            .filter(|slot| frontend.flutter_touch_slots.remove(slot))
+            .collect::<Vec<_>>();
+        let cancel_client = slots
+            .iter()
+            .any(|slot| frontend.client_touch_routes.contains_key(slot));
+        if cancel_client {
+            frontend.client_touch_routes.clear();
+            frontend.client_touch_frame_pending = false;
+        }
+        let touch = cancel_client.then(|| frontend.seat.get_touch().expect("seat has no touch"));
+        (flutter_slots, cancel_client, touch)
+    };
+    state.flutter_input.cancel_touch_slots(&flutter_slots);
+    if let Some(touch) = touch {
+        touch.cancel(state);
+        if touch.is_grabbed() {
+            touch.unset_grab(state);
+        }
+    }
+    cancel_client
+}
+
+#[cfg(feature = "flutter")]
 fn process_flutter_input_event(
     state: &mut RuntimeState,
     event: InputEvent<LibinputInputBackend>,
@@ -2403,6 +2492,18 @@ fn process_flutter_input_event(
                 state.scene_sync.mark_dirty();
                 return false;
             }
+            let gesture = {
+                let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+                let target = (!secure_locked)
+                    .then(|| frontend.touch_window_target_at(position))
+                    .flatten();
+                frontend.touch_gestures.down(slot, position, target)
+            };
+            let gesture_consumed = gesture.consume;
+            let flush_clients = apply_touch_gesture_update(state, gesture);
+            if gesture_consumed {
+                return flush_clients;
+            }
             let target = if secure_locked {
                 InputTarget::Flutter
             } else {
@@ -2500,6 +2601,17 @@ fn process_flutter_input_event(
                 }
                 Some(Ok(false)) | None => {}
             }
+            let gesture = state
+                .wayland
+                .as_mut()
+                .expect("missing Wayland frontend")
+                .touch_gestures
+                .motion(slot, position);
+            let gesture_consumed = gesture.consume;
+            let flush_clients = apply_touch_gesture_update(state, gesture);
+            if gesture_consumed {
+                return flush_clients;
+            }
             let flutter_target = state
                 .wayland
                 .as_ref()
@@ -2567,6 +2679,17 @@ fn process_flutter_input_event(
                     return false;
                 }
                 Some(Ok(false)) | None => {}
+            }
+            let gesture = state
+                .wayland
+                .as_mut()
+                .expect("missing Wayland frontend")
+                .touch_gestures
+                .up(slot);
+            let gesture_consumed = gesture.consume;
+            let flush_clients = apply_touch_gesture_update(state, gesture);
+            if gesture_consumed {
+                return flush_clients;
             }
             let flutter_target = state
                 .wayland
@@ -2643,6 +2766,17 @@ fn process_flutter_input_event(
                     return false;
                 }
                 Some(Ok(false)) | None => {}
+            }
+            let gesture = state
+                .wayland
+                .as_mut()
+                .expect("missing Wayland frontend")
+                .touch_gestures
+                .cancel(slot);
+            let gesture_consumed = gesture.consume;
+            let flush_clients = apply_touch_gesture_update(state, gesture);
+            if gesture_consumed {
+                return flush_clients;
             }
             let flutter_target = state
                 .wayland

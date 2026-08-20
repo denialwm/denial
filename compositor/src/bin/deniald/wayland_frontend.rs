@@ -156,6 +156,9 @@ mod surface_snapshot;
 mod text_input;
 #[path = "wayland_frontend/topology.rs"]
 mod topology;
+#[cfg(feature = "flutter")]
+#[path = "wayland_frontend/touch_gestures.rs"]
+mod touch_gestures;
 #[path = "wayland_frontend/window_management.rs"]
 mod window_management;
 #[path = "wayland_frontend/xwayland.rs"]
@@ -442,6 +445,8 @@ pub(super) struct WaylandFrontend {
     client_touch_routes: HashMap<i32, ClientInputRoute>,
     #[cfg(feature = "flutter")]
     client_touch_frame_pending: bool,
+    #[cfg(feature = "flutter")]
+    touch_gestures: touch_gestures::TouchGestureState,
     #[cfg(feature = "flutter")]
     flutter_keyboard_keys: HashSet<u32>,
     #[cfg(feature = "flutter")]
@@ -1172,6 +1177,8 @@ impl WaylandFrontend {
             client_touch_routes: HashMap::new(),
             #[cfg(feature = "flutter")]
             client_touch_frame_pending: false,
+            #[cfg(feature = "flutter")]
+            touch_gestures: touch_gestures::TouchGestureState::default(),
             #[cfg(feature = "flutter")]
             flutter_keyboard_keys: HashSet::new(),
             #[cfg(feature = "flutter")]

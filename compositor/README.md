@@ -121,6 +121,14 @@ pointer lock or grab without forwarding Escape, keeps replacement constraints
 disabled, and lets that client capture the pointer again only after a plain
 click on its window.
 
+Direct touch uses a small compositor-owned gesture vocabulary over normal
+windows. Dragging within the top 48 logical pixels moves the window, pinching
+anywhere resizes it about its center, a two-finger downward swipe begun in that
+top strip minimizes it, and three simultaneous contacts close it. Recognition
+is resolved before ordinary touch routing; when a later finger promotes a
+client touch to a window gesture, Denial cancels that client sequence and emits
+the same placement, minimize, and close actions used by non-touch controls.
+
 `--frames` and `--commit-seconds` remain available for bounded diagnostics.
 
 Physical placement is configuration, not connector-order policy. An output

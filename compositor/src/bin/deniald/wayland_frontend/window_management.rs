@@ -795,21 +795,44 @@ fn queue_local_window_action(state: &mut RuntimeState, window_id: u64, action: W
 #[cfg(feature = "flutter")]
 pub(super) fn minimize_focused_toplevel(state: &mut RuntimeState) -> bool {
     if let Some(window_id) = focused_local_window(state) {
-        state
-            .wayland
-            .as_mut()
-            .expect("missing Wayland frontend")
-            .clear_local_flutter_focus();
-        queue_local_window_action(state, window_id, WindowAction::Minimize);
-        return true;
+        return minimize_toplevel_by_id(state, window_id);
     }
     let Some(window) = focused_window(state) else {
         return false;
     };
+    minimize_window(state, &window)
+}
+
+#[cfg(feature = "flutter")]
+pub(super) fn minimize_toplevel_by_id(state: &mut RuntimeState, window_id: u64) -> bool {
+    let local = state
+        .wayland
+        .as_ref()
+        .is_some_and(|frontend| frontend.is_local_flutter_window(window_id));
+    if local {
+        let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+        if frontend.focused_local_flutter_window() == Some(window_id) {
+            frontend.clear_local_flutter_focus();
+        }
+        queue_local_window_action(state, window_id, WindowAction::Minimize);
+        return true;
+    }
+    let Some(window) = state
+        .wayland
+        .as_ref()
+        .and_then(|frontend| frontend.window_for_id(window_id))
+    else {
+        return false;
+    };
+    minimize_window(state, &window)
+}
+
+#[cfg(feature = "flutter")]
+fn minimize_window(state: &mut RuntimeState, window: &Window) -> bool {
     let Some(root) = state
         .wayland
         .as_ref()
-        .and_then(|frontend| frontend.window_root_surface(&window))
+        .and_then(|frontend| frontend.window_root_surface(window))
     else {
         return false;
     };
@@ -827,8 +850,8 @@ pub(super) fn minimize_focused_toplevel(state: &mut RuntimeState) -> bool {
     // advertises IconicState/_NET_WM_STATE_HIDDEN and explicitly permits the
     // application to stop rendering, which would make its live Flutter texture
     // stale or black. Keep the client mapped and producing frames.
-    queue_window_action_for_window(state, &window, WindowAction::Minimize);
-    release_window_focus(state, &window);
+    queue_window_action_for_window(state, window, WindowAction::Minimize);
+    release_window_focus(state, window);
     state.scene_sync.mark_dirty();
     true
 }
@@ -836,6 +859,21 @@ pub(super) fn minimize_focused_toplevel(state: &mut RuntimeState) -> bool {
 #[cfg(feature = "flutter")]
 pub(super) fn close_focused_toplevel(state: &mut RuntimeState) -> bool {
     if let Some(window_id) = focused_local_window(state) {
+        return close_toplevel_by_id(state, window_id);
+    }
+    let Some(window) = focused_window(state) else {
+        return false;
+    };
+    close_window(&window)
+}
+
+#[cfg(feature = "flutter")]
+pub(super) fn close_toplevel_by_id(state: &mut RuntimeState, window_id: u64) -> bool {
+    let local = state
+        .wayland
+        .as_ref()
+        .is_some_and(|frontend| frontend.is_local_flutter_window(window_id));
+    if local {
         let removed = state
             .wayland
             .as_mut()
@@ -846,15 +884,24 @@ pub(super) fn close_focused_toplevel(state: &mut RuntimeState) -> bool {
         }
         return removed;
     }
-    let Some(window) = focused_window(state) else {
+    let Some(window) = state
+        .wayland
+        .as_ref()
+        .and_then(|frontend| frontend.window_for_id(window_id))
+    else {
         return false;
     };
+    close_window(&window)
+}
+
+#[cfg(feature = "flutter")]
+fn close_window(window: &Window) -> bool {
     if let Some(toplevel) = window.toplevel() {
         toplevel.send_close();
         true
     } else if let Some(x11) = window.x11_surface() {
         if let Err(error) = x11.close() {
-            warn!(%error, "could not close focused X11 window");
+            warn!(%error, "could not close X11 window");
             return false;
         }
         true

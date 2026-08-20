@@ -846,6 +846,19 @@ impl InputQueue {
         }
     }
 
+    /// Retires only the Flutter touch contacts claimed by a compositor
+    /// gesture, leaving unrelated fingers and the mouse lifecycle intact.
+    pub fn cancel_touch_slots(&mut self, slots: &[i32]) {
+        for slot in slots {
+            let device = touch_device_from_slot(*slot);
+            let Some((x, y)) = self.touch_positions.remove(&device) else {
+                continue;
+            };
+            self.push_touch(sys::FlutterPointerPhase_kCancel, x, y, device, false);
+            self.push_touch(sys::FlutterPointerPhase_kRemove, x, y, device, false);
+        }
+    }
+
     pub fn handle_keyboard(
         &mut self,
         key: KeysymHandle<'_>,
@@ -1068,7 +1081,11 @@ fn mouse_button_mask(button: u32) -> Option<i64> {
 }
 
 fn touch_device(slot: smithay::backend::input::TouchSlot) -> i32 {
-    i32::from(slot).saturating_add(1).max(1)
+    touch_device_from_slot(i32::from(slot))
+}
+
+fn touch_device_from_slot(slot: i32) -> i32 {
+    slot.saturating_add(1).max(1)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -8381,6 +8398,32 @@ mod tests {
                 (0, sys::FlutterPointerPhase_kRemove),
                 (4, sys::FlutterPointerPhase_kCancel),
                 (4, sys::FlutterPointerPhase_kRemove),
+            ]
+        );
+    }
+
+    #[test]
+    fn compositor_gesture_cancels_only_its_flutter_touch_slots() {
+        let mut input = InputQueue::new(PixelSize::new(1920, 1080));
+        input.touch_positions.insert(1, (100.0, 200.0));
+        input.touch_positions.insert(2, (300.0, 400.0));
+
+        input.cancel_touch_slots(&[1]);
+
+        assert_eq!(input.touch_positions, HashMap::from([(1, (100.0, 200.0))]));
+        let terminal_phases = input
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                InputRecord::Pointer(event) => Some((event.device, event.phase)),
+                InputRecord::Keyboard(_) => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            terminal_phases,
+            vec![
+                (2, sys::FlutterPointerPhase_kCancel),
+                (2, sys::FlutterPointerPhase_kRemove),
             ]
         );
     }
