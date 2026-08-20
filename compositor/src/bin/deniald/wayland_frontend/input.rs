@@ -68,7 +68,8 @@ use super::input_source::init_joystick_activity;
 use super::input_source::{InputBatchEvent, LibinputBatchSource};
 #[cfg(feature = "flutter")]
 use super::touch_gestures::{
-    self, TouchGestureUpdate, TouchWindowTarget, WINDOW_TOUCH_STRIP_HEIGHT,
+    self, TouchGestureUpdate, TouchWindowTarget, WINDOW_TOUCH_CORNER_SIZE,
+    WINDOW_TOUCH_STRIP_HEIGHT,
 };
 
 fn output_bound_absolute_position<E>(
@@ -871,6 +872,15 @@ impl WaylandFrontend {
             in_gesture_strip: scene_position.y
                 >= region.rect.y + region.rect.height
                     - WINDOW_TOUCH_STRIP_HEIGHT.min(region.rect.height),
+            in_move_corner: {
+                let corner_width = WINDOW_TOUCH_CORNER_SIZE.min(region.rect.width * 0.5);
+                let corner_height = WINDOW_TOUCH_CORNER_SIZE.min(region.rect.height * 0.5);
+                let on_horizontal_edge = scene_position.x < region.rect.x + corner_width
+                    || scene_position.x >= region.rect.x + region.rect.width - corner_width;
+                let on_vertical_edge = scene_position.y < region.rect.y + corner_height
+                    || scene_position.y >= region.rect.y + region.rect.height - corner_height;
+                on_horizontal_edge && on_vertical_edge
+            },
             geometry_locked: region.geometry_locked(),
         })
     }
