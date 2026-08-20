@@ -103,12 +103,20 @@ pub(super) struct PresentationTracker {
     clock_id: u32,
     sequence: u64,
     shared_pending: Vec<PendingPresentation>,
+    #[cfg(feature = "flutter")]
+    timeline_instant_anchor: Instant,
+    #[cfg(feature = "flutter")]
+    timeline_clock_anchor: Duration,
 }
 
 impl PresentationTracker {
     pub(super) fn new(display: &DisplayHandle) -> Self {
         let clock = Clock::<Monotonic>::new();
         let clock_id = clock.id() as u32;
+        #[cfg(feature = "flutter")]
+        let timeline_instant_anchor = Instant::now();
+        #[cfg(feature = "flutter")]
+        let timeline_clock_anchor = clock.now().into();
         let state = PresentationState::new::<RuntimeState>(display, clock_id);
         Self {
             _state: state,
@@ -116,6 +124,10 @@ impl PresentationTracker {
             clock_id,
             sequence: 0,
             shared_pending: Vec::new(),
+            #[cfg(feature = "flutter")]
+            timeline_instant_anchor,
+            #[cfg(feature = "flutter")]
+            timeline_clock_anchor,
         }
     }
 
@@ -154,9 +166,11 @@ impl PresentationTracker {
 
     #[cfg(feature = "flutter")]
     pub(super) fn timeline_time(&self, deadline: Instant) -> Duration {
-        let observed_now = Instant::now();
-        let monotonic_now: Duration = self.clock.now().into();
-        monotonic_now.saturating_sub(observed_now.saturating_duration_since(deadline))
+        timeline_time_from_anchor(
+            self.timeline_instant_anchor,
+            self.timeline_clock_anchor,
+            deadline,
+        )
     }
 
     #[cfg(feature = "flutter")]
@@ -171,7 +185,7 @@ impl PresentationTracker {
         kernel_timestamp: Option<Duration>,
         observation_delay: Duration,
         kernel_sequence: Option<u64>,
-    ) {
+    ) -> bool {
         let sequence = kernel_sequence.unwrap_or_else(|| {
             self.sequence = next_presentation_sequence(self.sequence);
             self.sequence
@@ -182,11 +196,28 @@ impl PresentationTracker {
                 now.saturating_sub(observation_delay)
             })
             .into();
+        let delivered = batch.slots[..batch.active]
+            .iter()
+            .any(|pending| !pending.feedbacks.is_empty());
         for feedback in &mut batch.slots[..batch.active] {
             present_feedback(feedback, presented_at, self.clock_id, sequence);
         }
         batch.active = 0;
         batch.slots.truncate(MAX_REUSABLE_OUTPUT_FEEDBACKS);
+        delivered
+    }
+}
+
+#[cfg(feature = "flutter")]
+fn timeline_time_from_anchor(
+    instant_anchor: Instant,
+    clock_anchor: Duration,
+    deadline: Instant,
+) -> Duration {
+    if deadline >= instant_anchor {
+        clock_anchor.saturating_add(deadline.duration_since(instant_anchor))
+    } else {
+        clock_anchor.saturating_sub(instant_anchor.duration_since(deadline))
     }
 }
 
@@ -308,8 +339,8 @@ const fn next_presentation_sequence(current: u64) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{next_presentation_sequence, refresh_interval};
-    use std::time::Duration;
+    use super::{next_presentation_sequence, refresh_interval, timeline_time_from_anchor};
+    use std::time::{Duration, Instant};
 
     #[test]
     fn physical_refresh_is_converted_from_millihertz() {
@@ -317,6 +348,28 @@ mod tests {
         assert_eq!(interval, Duration::from_nanos(5_555_555));
         assert_eq!(refresh_interval(0), None);
         assert_eq!(refresh_interval(-1), None);
+    }
+
+    #[test]
+    fn timeline_conversion_uses_one_stable_monotonic_anchor() {
+        let instant_anchor = Instant::now();
+        let clock_anchor = Duration::from_secs(100);
+        assert_eq!(
+            timeline_time_from_anchor(
+                instant_anchor,
+                clock_anchor,
+                instant_anchor + Duration::from_millis(4),
+            ),
+            Duration::from_millis(100_004)
+        );
+        assert_eq!(
+            timeline_time_from_anchor(
+                instant_anchor,
+                clock_anchor,
+                instant_anchor - Duration::from_millis(4),
+            ),
+            Duration::from_millis(99_996)
+        );
     }
 
     #[test]

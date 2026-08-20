@@ -867,8 +867,7 @@ impl XwmHandler for RuntimeState {
             self.wayland
                 .as_mut()
                 .expect("missing Wayland frontend")
-                .minimized_windows
-                .insert(root.id());
+                .set_surface_minimized(root.id(), true);
         }
         #[cfg(feature = "flutter")]
         if let Some(window) = window.as_ref() {
@@ -888,8 +887,7 @@ impl XwmHandler for RuntimeState {
             self.wayland
                 .as_mut()
                 .expect("missing Wayland frontend")
-                .minimized_windows
-                .remove(&root.id());
+                .set_surface_minimized(root.id(), false);
         }
         #[cfg(feature = "flutter")]
         queue_x11_action(self, &window, WindowAction::Restore);

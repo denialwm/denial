@@ -52,38 +52,42 @@ impl IdleInhibitors {
         self.surfaces.remove(&surface.id());
     }
 
-    fn live_surfaces(&mut self) -> Vec<WlSurface> {
+    fn prune(&mut self) {
         self.surfaces
             .retain(|_, entry| entry.count > 0 && entry.surface.is_alive());
-        self.surfaces
-            .values()
-            .map(|entry| entry.surface.clone())
-            .collect()
     }
 }
 
 impl WaylandFrontend {
+    pub(super) fn invalidate_idle_inhibition(&mut self) {
+        self.idle_inhibition_dirty = true;
+    }
+
     /// Whether a mapped, visible client surface currently asks Denial to keep
     /// the displays awake. Hidden/minimized videos do not inhibit DPMS.
     pub(crate) fn idle_inhibited(&mut self) -> bool {
-        self.idle_inhibitors
-            .live_surfaces()
-            .into_iter()
-            .any(|surface| {
-                let Some(root) = self.owning_toplevel_surface(&surface) else {
-                    return false;
-                };
-                if self.minimized_windows.contains(&root.id()) {
-                    return false;
-                }
-                self.surface_id(&root).is_some_and(|window_id| {
-                    window_expects_sample(
-                        self.input_visibility_known,
-                        &self.visible_window_ids,
-                        window_id,
-                    )
-                })
+        if !self.idle_inhibition_dirty {
+            return self.idle_inhibition_cached;
+        }
+        self.idle_inhibitors.prune();
+        let inhibited = self.idle_inhibitors.surfaces.values().any(|entry| {
+            let Some(root) = self.owning_toplevel_surface(&entry.surface) else {
+                return false;
+            };
+            if self.minimized_windows.contains(&root.id()) {
+                return false;
+            }
+            self.surface_id(&root).is_some_and(|window_id| {
+                window_expects_sample(
+                    self.input_visibility_known,
+                    &self.visible_window_ids,
+                    window_id,
+                )
             })
+        });
+        self.idle_inhibition_cached = inhibited;
+        self.idle_inhibition_dirty = false;
+        inhibited
     }
 }
 
@@ -91,12 +95,14 @@ impl IdleInhibitHandler for RuntimeState {
     fn inhibit(&mut self, surface: WlSurface) {
         if let Some(frontend) = self.wayland.as_mut() {
             frontend.idle_inhibitors.inhibit(surface);
+            frontend.invalidate_idle_inhibition();
         }
     }
 
     fn uninhibit(&mut self, surface: WlSurface) {
         if let Some(frontend) = self.wayland.as_mut() {
             frontend.idle_inhibitors.uninhibit(&surface);
+            frontend.invalidate_idle_inhibition();
         }
     }
 }

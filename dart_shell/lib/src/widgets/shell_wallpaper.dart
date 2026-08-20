@@ -37,6 +37,9 @@ class ShellWallpaper extends ConsumerWidget {
         final canvas = Offset.zero & constraints.biggest;
         final outputs = _visibleOutputs(displayLayout, canvas);
         final spanRect = _spanRect(outputs, canvas);
+        final spanPixelSize =
+            displayLayout?.pixelSize ??
+            spanRect.size * MediaQuery.devicePixelRatioOf(context);
         final transitionRect = _transitionRect(
           wallpaper.transitionTarget,
           outputs,
@@ -61,6 +64,7 @@ class ShellWallpaper extends ConsumerWidget {
                   assignment: wallpaper.assignment,
                   outputs: outputs,
                   spanRect: spanRect,
+                  spanPixelSize: spanPixelSize,
                 ),
                 if (animateOutgoing)
                   TweenAnimationBuilder<double>(
@@ -88,6 +92,7 @@ class ShellWallpaper extends ConsumerWidget {
                       assignment: outgoing,
                       outputs: outputs,
                       spanRect: spanRect,
+                      spanPixelSize: spanPixelSize,
                     ),
                   ),
               ],
@@ -147,11 +152,13 @@ class _WallpaperScene extends StatelessWidget {
     required this.assignment,
     required this.outputs,
     required this.spanRect,
+    required this.spanPixelSize,
   });
 
   final WallpaperAssignment assignment;
   final List<DisplayOutput> outputs;
   final Rect spanRect;
+  final Size spanPixelSize;
 
   @override
   Widget build(BuildContext context) {
@@ -162,6 +169,7 @@ class _WallpaperScene extends StatelessWidget {
           rect: spanRect,
           child: _WallpaperImage(
             resource: assignment.all,
+            targetPixelSize: spanPixelSize,
             alignment: Alignment(
               assignment.spanAlignment.x,
               assignment.spanAlignment.y,
@@ -175,6 +183,7 @@ class _WallpaperScene extends StatelessWidget {
               rect: output.logicalRect,
               child: _WallpaperImage(
                 resource: assignment.forOutput(output.name),
+                targetPixelSize: output.pixelSize,
                 alignment: Alignment(
                   assignment.alignmentForOutput(output.name).x,
                   assignment.alignmentForOutput(output.name).y,
@@ -221,23 +230,28 @@ class _WallpaperDarknessLayer extends StatelessWidget {
 class _WallpaperImage extends StatelessWidget {
   const _WallpaperImage({
     required this.resource,
+    required this.targetPixelSize,
     this.alignment = Alignment.center,
   });
 
   final WallpaperResource resource;
+  final Size targetPixelSize;
   final Alignment alignment;
 
   @override
   Widget build(BuildContext context) {
     return Image(
-      image: wallpaperImageProvider(resource),
+      image: wallpaperImageProvider(resource, targetPixelSize: targetPixelSize),
       fit: BoxFit.cover,
       alignment: alignment,
       filterQuality: FilterQuality.low,
       gaplessPlayback: true,
       excludeFromSemantics: true,
       errorBuilder: (context, error, stackTrace) => Image(
-        image: const AssetImage(defaultShellWallpaperAsset),
+        image: wallpaperImageProvider(
+          WallpaperResource.defaultWallpaper,
+          targetPixelSize: targetPixelSize,
+        ),
         fit: BoxFit.cover,
         alignment: alignment,
         filterQuality: FilterQuality.low,

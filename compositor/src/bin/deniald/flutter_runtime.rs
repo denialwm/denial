@@ -2497,6 +2497,7 @@ impl ProducerArbiter {
         previous
     }
 
+    #[cfg(test)]
     fn recover_no_raster(&self, now: Instant, timeout: Duration) -> bool {
         if FlutterProducerState::from_u8(self.state.load(Ordering::Acquire))
             != FlutterProducerState::Requested
@@ -2526,6 +2527,7 @@ impl ProducerArbiter {
         true
     }
 
+    #[cfg(test)]
     fn is_busy(&self) -> bool {
         FlutterProducerState::from_u8(self.state.load(Ordering::Acquire))
             != FlutterProducerState::Idle

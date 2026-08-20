@@ -153,7 +153,9 @@ class _WallpaperSelectorSurfaceState
     WallpaperCandidate candidate,
     Offset globalOrigin,
   ) async {
-    final target = ref.read(wallpaperControllerProvider).target;
+    final wallpaperState = ref.read(wallpaperControllerProvider);
+    final target = wallpaperState.target;
+    final targetPixelSize = wallpaperState.targetPixelSize;
     final outputs =
         ref.read(displayLayoutProvider)?.outputs ?? const <DisplayOutput>[];
     final revealOriginFraction = _revealOriginFraction(
@@ -168,7 +170,10 @@ class _WallpaperSelectorSurfaceState
     }
     final decodeError = context.l10n.wallpaperDecodeError;
     try {
-      await precacheImage(wallpaperImageProvider(resource), context);
+      await precacheImage(
+        wallpaperImageProvider(resource, targetPixelSize: targetPixelSize),
+        context,
+      );
     } on Object {
       if (mounted) {
         controller.reportError(decodeError);

@@ -1234,6 +1234,7 @@ struct PresentedOutput {
     observed_at: Instant,
     presented_at: Option<Duration>,
     sequence: Option<u64>,
+    timeline_target: Instant,
 }
 
 fn monotonic_now() -> Option<Duration> {
@@ -1737,13 +1738,13 @@ fn transient_dpms_output_removal_count(
 }
 
 #[cfg(feature = "flutter")]
-fn synchronize_idle_dpms(scanouts: &[Scanout], events: &mut RuntimeState) {
+fn synchronize_idle_dpms(scanouts: &[Scanout], events: &mut RuntimeState, now: Instant) {
     let inhibited = events
         .wayland
         .as_mut()
         .is_some_and(wayland_frontend::WaylandFrontend::idle_inhibited);
     let requests = events.idle_dpms.evaluate(
-        Instant::now(),
+        now,
         inhibited,
         scanouts
             .iter()
@@ -1797,11 +1798,12 @@ fn apply_output_power_requests(
     swapchain: &mut RenderSwapchains,
     scanouts: &mut [Scanout],
     events: &mut RuntimeState,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<bool, Box<dyn Error>> {
     let requests = std::mem::take(&mut events.output_power_requests);
     let mut deferred = BTreeMap::new();
     let mut power_off = Vec::new();
     let mut power_on = Vec::new();
+    let mut power_changed = false;
 
     for (output, powered) in requests {
         let Some(scanout_index) = scanouts
@@ -1912,6 +1914,7 @@ fn apply_output_power_requests(
             for &(output, scanout_index, _) in &targets {
                 scheduler.power_off(runtime, output, scanouts)?;
                 scanouts[scanout_index].powered = false;
+                power_changed = true;
                 events.output_control_dirty = true;
                 events.pending.remove(&scanouts[scanout_index].output.crtc);
                 info!(
@@ -2018,6 +2021,7 @@ fn apply_output_power_requests(
         } else {
             for &(output, scanout_index, framebuffer_index, _, _) in &targets {
                 scanouts[scanout_index].powered = true;
+                power_changed = true;
                 scheduler.power_on(
                     runtime,
                     scanout_index,
@@ -2042,7 +2046,7 @@ fn apply_output_power_requests(
 
     runtime.set_outputs_visible(scanouts.iter().any(|scanout| scanout.powered))?;
     events.output_power_requests = deferred;
-    Ok(())
+    Ok(power_changed)
 }
 
 fn hold_static_scanout(
@@ -2758,6 +2762,10 @@ fn run_flutter_event_loop(
             .ok_or("Flutter runtime disappeared before output scheduling")?,
         &mut events,
     )?;
+    flutter
+        .as_mut()
+        .ok_or("Flutter runtime disappeared during initial visibility publication")?
+        .set_outputs_visible(scanouts.iter().any(|scanout| scanout.powered))?;
     let mut frame_scheduler = frame_scheduler::FrameScheduler::new(scanouts, Instant::now());
     let mut screenshot_manager = match screenshot::ScreenshotManager::new(events.clipboard.clone())
     {
@@ -2781,7 +2789,8 @@ fn run_flutter_event_loop(
     loop {
         service_session_lifecycle(drm, scanouts, swapchain, event_loop, &mut events, deadline)?;
         service_native_app_plugins(event_loop, &mut events, allocator)?;
-        events.service_topology_recheck_deadline(Instant::now());
+        let iteration_now = Instant::now();
+        events.service_topology_recheck_deadline(iteration_now);
         install_sampled_buffer_releases(event_loop, &mut events)?;
         scheduler.acknowledge_ready_fences(
             flutter
@@ -2806,7 +2815,7 @@ fn run_flutter_event_loop(
         }
         if active_output_confirmation
             .as_ref()
-            .is_some_and(|pending| Instant::now() >= pending.deadline)
+            .is_some_and(|pending| iteration_now >= pending.deadline)
         {
             let pending = active_output_confirmation
                 .take()
@@ -2851,7 +2860,7 @@ fn run_flutter_event_loop(
             log_shutdown(reason);
             break;
         }
-        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        if deadline.is_some_and(|deadline| iteration_now >= deadline) {
             break;
         }
         if frame_limit.is_some_and(|limit| raster_frames >= limit) {
@@ -2883,8 +2892,19 @@ fn run_flutter_event_loop(
                 scanouts,
                 &mut events,
             )?;
+            for presented in scheduler
+                .presented_outputs()
+                .iter()
+                .filter(|presented| presented.presented_at.is_some())
+            {
+                frame_scheduler.observe_presentation(
+                    presented.id,
+                    presented.timeline_target,
+                    presented.observed_at,
+                );
+            }
             if drm.is_active()
-                && let Some(stall) = scheduler.presentation_stall(Instant::now())
+                && let Some(stall) = scheduler.presentation_stall(iteration_now)
             {
                 let output = scanouts
                     .get(stall.scanout_index)
@@ -3039,12 +3059,12 @@ fn run_flutter_event_loop(
         let background_started = Instant::now();
 
         collect_output_power_requests(&mut events);
-        synchronize_idle_dpms(scanouts, &mut events);
+        synchronize_idle_dpms(scanouts, &mut events, background_started);
         // The synchronous VT-resume commit invalidated the old scheduler's
         // per-output buffer ownership. Preserve requests until the topology
         // path below recreates that scheduler.
-        if !scanout_rebased {
-            apply_output_power_requests(
+        if !scanout_rebased && !events.output_power_requests.is_empty() {
+            let power_changed = apply_output_power_requests(
                 flutter
                     .as_mut()
                     .ok_or("Flutter runtime disappeared during DPMS dispatch")?,
@@ -3053,7 +3073,9 @@ fn run_flutter_event_loop(
                 scanouts,
                 &mut events,
             )?;
-            frame_scheduler.reconfigure(scanouts, Instant::now());
+            if power_changed {
+                frame_scheduler.reconfigure(scanouts, Instant::now());
+            }
         }
         if events.output_control_dirty {
             // Publish DPMS changes at the single loop-boundary gate above
@@ -3313,7 +3335,7 @@ fn run_flutter_event_loop(
                 output_configuration = staged_configuration;
                 events.output_control_dirty = true;
                 events.output_power_requests.extend(desired_power);
-                apply_output_power_requests(
+                let power_changed = apply_output_power_requests(
                     flutter
                         .as_mut()
                         .ok_or("Flutter runtime disappeared during output power application")?,
@@ -3322,7 +3344,9 @@ fn run_flutter_event_loop(
                     scanouts,
                     &mut events,
                 )?;
-                frame_scheduler.reconfigure(scanouts, Instant::now());
+                if power_changed {
+                    frame_scheduler.reconfigure(scanouts, Instant::now());
+                }
                 if let Some((rollback_configuration, rollback_power, timeout)) =
                     confirmation_rollback
                 {
@@ -3402,7 +3426,7 @@ fn run_flutter_event_loop(
             )?;
             frame_scheduler = frame_scheduler::FrameScheduler::new(scanouts, Instant::now());
             events.output_power_requests.extend(desired_power);
-            apply_output_power_requests(
+            let power_changed = apply_output_power_requests(
                 flutter
                     .as_mut()
                     .ok_or("Flutter runtime disappeared during output power application")?,
@@ -3411,7 +3435,9 @@ fn run_flutter_event_loop(
                 scanouts,
                 &mut events,
             )?;
-            frame_scheduler.reconfigure(scanouts, Instant::now());
+            if power_changed {
+                frame_scheduler.reconfigure(scanouts, Instant::now());
+            }
             if let Some((rollback_configuration, rollback_power, timeout)) = confirmation_rollback {
                 active_output_confirmation = Some(begin_output_confirmation(
                     current_snapshot.serial,
@@ -3666,13 +3692,14 @@ fn run_flutter_event_loop(
         synchronize_authentication_boundary(&mut events);
         synchronize_requested_dpms_off(runtime, scanouts, &mut events);
         let screenshot_is_invalid = screenshot_manager.as_ref().is_some_and(|manager| {
-            events.secure_session_locked()
-                || manager.topology_epoch() != Some(topology.snapshot().epoch)
-                || manager.target_output().is_some_and(|output| {
-                    scheduler
-                        .framebuffer_index_for_output(output, scanouts)
-                        .is_none()
-                })
+            manager.request_id().is_some()
+                && (events.secure_session_locked()
+                    || manager.topology_epoch() != Some(topology.epoch())
+                    || manager.target_output().is_some_and(|output| {
+                        scheduler
+                            .framebuffer_index_for_output(output, scanouts)
+                            .is_none()
+                    }))
         });
         if screenshot_is_invalid {
             cancel_active_screenshot(
@@ -3843,6 +3870,9 @@ fn run_flutter_event_loop(
         let now = Instant::now();
         let mut next_dispatch_timeout =
             frame_scheduler.limit_dispatch_timeout(now, runtime.next_dispatch_timeout());
+        next_dispatch_timeout = events
+            .idle_dpms
+            .limit_dispatch_timeout(now, next_dispatch_timeout);
         if drm.is_active() {
             next_dispatch_timeout =
                 scheduler.limit_presentation_watchdog_timeout(now, next_dispatch_timeout);

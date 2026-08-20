@@ -1501,8 +1501,7 @@ impl XdgShellHandler for RuntimeState {
             self.wayland
                 .as_mut()
                 .expect("missing Wayland frontend")
-                .minimized_windows
-                .insert(_surface.wl_surface().id());
+                .set_surface_minimized(_surface.wl_surface().id(), true);
             if set_toplevel_suspended(&_surface, true) {
                 _surface.send_pending_configure();
             }

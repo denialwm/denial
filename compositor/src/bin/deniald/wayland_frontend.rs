@@ -478,6 +478,10 @@ pub(super) struct WaylandFrontend {
     presentation: presentation::PresentationTracker,
     #[cfg(feature = "flutter")]
     idle_inhibitors: IdleInhibitors,
+    #[cfg(feature = "flutter")]
+    idle_inhibition_dirty: bool,
+    #[cfg(feature = "flutter")]
+    idle_inhibition_cached: bool,
     output_power: OutputPowerManager,
     screencopy: screencopy::ScreencopyManager,
     text_input: TextInputManager,
@@ -1203,6 +1207,10 @@ impl WaylandFrontend {
             presentation,
             #[cfg(feature = "flutter")]
             idle_inhibitors,
+            #[cfg(feature = "flutter")]
+            idle_inhibition_dirty: true,
+            #[cfg(feature = "flutter")]
+            idle_inhibition_cached: false,
             output_power,
             screencopy,
             text_input,
@@ -2295,12 +2303,27 @@ impl WaylandFrontend {
         self.local_windows.remove(window_id)
     }
 
+    #[cfg(feature = "flutter")]
+    pub(super) fn set_surface_minimized(&mut self, surface: ObjectId, minimized: bool) -> bool {
+        let changed = if minimized {
+            self.minimized_windows.insert(surface)
+        } else {
+            self.minimized_windows.remove(&surface)
+        };
+        if changed {
+            self.invalidate_idle_inhibition();
+        }
+        changed
+    }
+
     fn remove_surface_state(&mut self, surface: &WlSurface, remove_identity: bool) {
         let object_id = surface.id();
         #[cfg(feature = "flutter")]
         self.remove_window_output_membership(surface);
         #[cfg(feature = "flutter")]
         self.idle_inhibitors.remove_surface(surface);
+        #[cfg(feature = "flutter")]
+        self.invalidate_idle_inhibition();
         #[cfg(feature = "flutter")]
         let stable_id = self.surface_ids.get(&object_id).copied();
         #[cfg(feature = "flutter")]
@@ -3585,6 +3608,7 @@ impl WaylandFrontend {
             }
             self.input_root_ids_scratch = root_ids;
             self.visible_window_ids = visible_window_ids;
+            self.invalidate_idle_inhibition();
         }
         self.input_visibility_known = true;
         let previous = self.input_layout.replace(layout);
@@ -3635,6 +3659,7 @@ impl WaylandFrontend {
         self.synchronize_input_method();
         self.visible_window_ids.clear();
         self.input_visibility_known = false;
+        self.invalidate_idle_inhibition();
         self.client_input_route_cache = None;
         self.flutter_touch_slots.clear();
         // Cursor publication belongs to the Flutter engine generation too.
@@ -3797,7 +3822,9 @@ impl WaylandFrontend {
                 }
             }
         }
-        self.display_handle.flush_clients()?;
+        // Submission only captures presentation-feedback objects. Protocol
+        // events are emitted by the matching page flip, so there is nothing
+        // to flush on this boundary.
         Ok(())
     }
 
@@ -3806,7 +3833,10 @@ impl WaylandFrontend {
         &mut self,
         outputs: &[super::PresentedOutput],
     ) -> Result<(), Box<dyn Error>> {
-        let mut presented = false;
+        if outputs.is_empty() {
+            return Ok(());
+        }
+        let mut feedback_delivered = false;
         let observed_now = Instant::now();
         for presented_output in outputs.iter().copied() {
             if let Some(entry) = self
@@ -3814,21 +3844,17 @@ impl WaylandFrontend {
                 .iter_mut()
                 .find(|entry| entry.id == presented_output.id)
             {
-                self.presentation.presented_output(
+                feedback_delivered |= self.presentation.presented_output(
                     &mut entry.presentation_batch,
                     presented_output.presented_at,
                     observed_now.saturating_duration_since(presented_output.observed_at),
                     presented_output.sequence,
                 );
-                presented = true;
             }
         }
-        if !presented {
-            return Ok(());
+        if feedback_delivered {
+            self.display_handle.flush_clients()?;
         }
-        self.space.refresh();
-        self.popups.cleanup();
-        self.display_handle.flush_clients()?;
         Ok(())
     }
 

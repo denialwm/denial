@@ -221,7 +221,7 @@ pub(super) fn activate_window(
         #[cfg(feature = "flutter")]
         let resumed = frontend
             .window_root_surface(window)
-            .is_some_and(|surface| frontend.minimized_windows.remove(&surface.id()))
+            .is_some_and(|surface| frontend.set_surface_minimized(surface.id(), false))
             && window
                 .toplevel()
                 .is_some_and(|toplevel| set_toplevel_suspended(toplevel, false));
@@ -817,8 +817,7 @@ pub(super) fn minimize_focused_toplevel(state: &mut RuntimeState) -> bool {
         .wayland
         .as_mut()
         .expect("missing Wayland frontend")
-        .minimized_windows
-        .insert(root.id());
+        .set_surface_minimized(root.id(), true);
     if let Some(toplevel) = window.toplevel()
         && set_toplevel_suspended(toplevel, true)
     {

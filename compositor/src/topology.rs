@@ -275,6 +275,10 @@ impl TopologyManager {
             outputs,
         }
     }
+
+    pub const fn epoch(&self) -> u64 {
+        self.epoch
+    }
 }
 
 fn validate_outputs<'a>(

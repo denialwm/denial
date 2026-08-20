@@ -67,6 +67,15 @@ the canonical Flutter fork and Denial's `dev` branch.
   their own output. On the validated 240/100 Hz system both UFO tests remain
   pinned to their output refresh, motion is visually smooth, and measured GPU
   use is approximately 12--13% at 55 W with 3% effective utilization.
+- **Steady-state CPU cleanup implemented and staged for user validation.**
+  The compositor no longer clones topology without an active screenshot,
+  polls unchanged DPMS/output-timeline state, reads two monotonic clocks per
+  output callback, refreshes the Smithay space on page flip, or flushes
+  Wayland clients at submission when no protocol event was emitted. Idle
+  inhibition is cached and invalidated by its actual surface/visibility edges,
+  while its timeout contributes one absolute event-loop deadline. These
+  changes leave render authorization, Volition submission, and page-flip
+  retirement unchanged.
 - The narrow Phase 5 single-root Denial compositor fast path and Phase 6
   single-sample target contract were completed as dependencies of Phase 3.
   They remove the generic platform-view layer partitioning and implicit 4x MSAA

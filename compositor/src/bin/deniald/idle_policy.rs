@@ -152,17 +152,10 @@ impl IdleDpmsPolicy {
         inhibited: bool,
         outputs: impl IntoIterator<Item = (OutputId, bool)>,
     ) -> Vec<IdlePowerRequest> {
-        let outputs = outputs.into_iter().collect::<Vec<_>>();
-        let live_outputs = outputs
-            .iter()
-            .map(|(output, _)| *output)
-            .collect::<BTreeSet<_>>();
-        self.blanked_outputs
-            .retain(|output| live_outputs.contains(output));
-
         if inhibited {
-            self.inhibited = true;
-            self.last_activity = now;
+            if !std::mem::replace(&mut self.inhibited, true) {
+                self.last_activity = now;
+            }
             // If playback starts remotely or between the timeout edge and the
             // KMS transition, honor it immediately rather than requiring a
             // separate physical input event.
@@ -176,9 +169,16 @@ impl IdleDpmsPolicy {
         let Some(timeout) = self.timeout else {
             return Vec::new();
         };
-        if !self.blanked_outputs.is_empty()
-            || now.saturating_duration_since(self.last_activity) < timeout
-        {
+        if !self.blanked_outputs.is_empty() {
+            let live_outputs = outputs
+                .into_iter()
+                .map(|(output, _)| output)
+                .collect::<BTreeSet<_>>();
+            self.blanked_outputs
+                .retain(|output| live_outputs.contains(output));
+            return Vec::new();
+        }
+        if now.saturating_duration_since(self.last_activity) < timeout {
             return Vec::new();
         }
 
@@ -192,6 +192,22 @@ impl IdleDpmsPolicy {
             }
         }
         requests
+    }
+
+    /// The next instant at which inactivity can change display power.
+    ///
+    /// Input, inhibitor, configuration, and explicit power events wake the
+    /// compositor independently. Between those edges the idle policy needs no
+    /// polling; this deadline is the only timer it contributes.
+    pub(super) fn next_deadline(&self) -> Option<Instant> {
+        let timeout = self.timeout?;
+        (!self.inhibited && self.blanked_outputs.is_empty()).then(|| self.last_activity + timeout)
+    }
+
+    pub(super) fn limit_dispatch_timeout(&self, now: Instant, timeout: Duration) -> Duration {
+        self.next_deadline().map_or(timeout, |deadline| {
+            timeout.min(deadline.saturating_duration_since(now))
+        })
     }
 
     pub(super) fn note_external_power_request(&mut self, output: OutputId, _powered: bool) {
@@ -387,6 +403,36 @@ mod tests {
             policy
                 .note_activity(started + Duration::from_secs(2))
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn idle_deadline_is_the_only_timer_between_policy_edges() {
+        let started = Instant::now();
+        let mut policy = IdleDpmsPolicy::default();
+        assert_eq!(policy.next_deadline(), None);
+
+        policy.configure(Some(Duration::from_secs(60)), started);
+        assert_eq!(
+            policy.next_deadline(),
+            Some(started + Duration::from_secs(60))
+        );
+        assert_eq!(
+            policy.limit_dispatch_timeout(started, Duration::from_secs(120)),
+            Duration::from_secs(60)
+        );
+
+        policy.evaluate(started + Duration::from_secs(10), true, [(output(1), true)]);
+        assert_eq!(policy.next_deadline(), None);
+
+        policy.evaluate(
+            started + Duration::from_secs(30),
+            false,
+            [(output(1), true)],
+        );
+        assert_eq!(
+            policy.next_deadline(),
+            Some(started + Duration::from_secs(90))
         );
     }
 }

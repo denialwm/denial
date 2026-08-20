@@ -4,8 +4,9 @@
 //! Every powered output owns one timeline for Wayland callbacks, raster
 //! deadlines, and presentation targets. The fastest powered output is also the
 //! sole clock for the one Dart scene; slower outputs directly replay its latest
-//! retained projection. Physical presentations are feedback; they never
-//! authorize or rephase rendering. All due outputs are coalesced into one
+//! retained projection. Physical presentations never authorize rendering;
+//! monotonic KMS timestamps only apply a bounded phase correction to a future
+//! edge of the same output timeline. All due outputs are coalesced into one
 //! linear decision:
 //!
 //! `output timelines -> client callbacks`
@@ -21,6 +22,9 @@ use tracing::info;
 use super::kms_state::Scanout;
 
 const FRAME_SCHEDULER_AUDIT_INTERVAL: Duration = Duration::from_secs(1);
+const PHASE_LOCK_DEADBAND: Duration = Duration::from_micros(50);
+const PHASE_LOCK_MAX_ADJUSTMENT: Duration = Duration::from_micros(250);
+const PHASE_LOCK_GAIN_DIVISOR: i128 = 8;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct FrameTick {
@@ -57,6 +61,7 @@ struct DirtyOutput {
 #[derive(Debug)]
 pub(super) struct FrameScheduler {
     outputs: OutputTimelines,
+    configured_outputs: BTreeSet<OutputId>,
     dirty_outputs: BTreeMap<OutputId, DirtyOutput>,
     render_requests: Vec<OutputFrameRequest>,
     render_texture_ids: BTreeSet<i64>,
@@ -128,6 +133,7 @@ impl FrameScheduler {
     pub(super) fn new(scanouts: &[Scanout], now: Instant) -> Self {
         Self {
             outputs: OutputTimelines::new(scanouts, now),
+            configured_outputs: scanouts.iter().map(|scanout| scanout.output.id).collect(),
             dirty_outputs: BTreeMap::new(),
             render_requests: Vec::with_capacity(scanouts.len()),
             render_texture_ids: BTreeSet::new(),
@@ -142,9 +148,37 @@ impl FrameScheduler {
     }
 
     pub(super) fn reconfigure(&mut self, scanouts: &[Scanout], now: Instant) {
-        self.outputs.reconfigure(scanouts, now);
+        let configured_outputs = scanouts.iter().map(|scanout| scanout.output.id).collect();
+        let powered_sources = scanouts
+            .iter()
+            .filter(|scanout| scanout.powered)
+            .map(timeline_source)
+            .collect();
+        self.reconfigure_sources(configured_outputs, powered_sources, now);
+    }
+
+    fn reconfigure_sources(
+        &mut self,
+        configured_outputs: BTreeSet<OutputId>,
+        powered_sources: Vec<TimelineSource>,
+        now: Instant,
+    ) {
+        let activated_outputs = powered_sources
+            .iter()
+            .filter(|source| !self.outputs.contains(source.output))
+            .map(|source| source.output)
+            .collect::<Vec<_>>();
+        self.configured_outputs = configured_outputs;
+        self.outputs.reconfigure(&powered_sources, now);
         self.dirty_outputs
-            .retain(|output, _| self.outputs.contains(*output));
+            .retain(|output, _| self.configured_outputs.contains(output));
+        for output in activated_outputs {
+            // The stable framebuffer restored by DPMS may predate a source
+            // already queued while this output was parked. Force one fresh
+            // projection even when no client submits another buffer after
+            // wake; any retained texture damage remains attached below.
+            self.mark_output_dirty(output);
+        }
         if self.outputs.is_parked() {
             self.flutter_request_latched = false;
             self.flutter_outputs_dirty = false;
@@ -157,7 +191,7 @@ impl FrameScheduler {
         output: OutputId,
         texture_ids: impl IntoIterator<Item = i64>,
     ) {
-        if !self.outputs.contains(output) {
+        if !self.configured_outputs.contains(&output) {
             return;
         }
         let serial = self.allocate_dirty_serial();
@@ -189,6 +223,16 @@ impl FrameScheduler {
         {
             self.dirty_outputs.remove(&output);
         }
+    }
+
+    pub(super) fn observe_presentation(
+        &mut self,
+        output: OutputId,
+        presentation_target: Instant,
+        presented_at: Instant,
+    ) {
+        self.outputs
+            .observe_presentation(output, presentation_target, presented_at);
     }
 
     pub(super) fn flutter_frame_dispatched(&mut self) {
@@ -331,35 +375,35 @@ impl OutputTimelines {
             ticks: Vec::with_capacity(scanouts.len()),
             flutter_output: None,
         };
-        timelines.replace(scanouts, now);
+        let powered_sources = scanouts
+            .iter()
+            .filter(|scanout| scanout.powered)
+            .map(timeline_source)
+            .collect::<Vec<_>>();
+        timelines.replace(&powered_sources, now);
         timelines
     }
 
-    fn reconfigure(&mut self, scanouts: &[Scanout], now: Instant) {
-        let powered_outputs = scanouts.iter().filter(|scanout| scanout.powered).count();
-        let sources_match = self.timelines.len() == powered_outputs
-            && scanouts
-                .iter()
-                .filter(|scanout| scanout.powered)
-                .map(timeline_source)
-                .all(|source| {
-                    self.timelines
-                        .iter()
-                        .any(|timeline| timeline.source == source)
-                });
+    fn reconfigure(&mut self, sources: &[TimelineSource], now: Instant) {
+        let sources_match = self.timelines.len() == sources.len()
+            && sources.iter().all(|source| {
+                self.timelines
+                    .iter()
+                    .any(|timeline| timeline.source == *source)
+            });
         if sources_match {
             return;
         }
-        self.replace(scanouts, now);
+        self.replace(sources, now);
     }
 
-    fn replace(&mut self, scanouts: &[Scanout], now: Instant) {
+    fn replace(&mut self, sources: &[TimelineSource], now: Instant) {
         self.timelines.clear();
         self.timelines.extend(
-            scanouts
+            sources
                 .iter()
-                .filter(|scanout| scanout.powered)
-                .map(|scanout| OutputTimeline::new(timeline_source(scanout), now)),
+                .copied()
+                .map(|source| OutputTimeline::new(source, now)),
         );
         self.flutter_output = self
             .timelines
@@ -401,6 +445,21 @@ impl OutputTimelines {
             .any(|timeline| timeline.source.output == output)
     }
 
+    fn observe_presentation(
+        &mut self,
+        output: OutputId,
+        presentation_target: Instant,
+        presented_at: Instant,
+    ) {
+        if let Some(timeline) = self
+            .timelines
+            .iter_mut()
+            .find(|timeline| timeline.source.output == output)
+        {
+            timeline.observe_presentation(presentation_target, presented_at);
+        }
+    }
+
     fn limit_dispatch_timeout(&self, now: Instant, timeout: Duration) -> Duration {
         self.timelines.iter().fold(timeout, |timeout, timeline| {
             timeout.min(timeline.next_tick.saturating_duration_since(now))
@@ -419,6 +478,7 @@ struct OutputTimeline {
     source: TimelineSource,
     next_tick: Instant,
     next_sequence: u64,
+    pending_phase_adjustment_nanos: i64,
 }
 
 impl OutputTimeline {
@@ -427,7 +487,23 @@ impl OutputTimeline {
             source,
             next_tick: now,
             next_sequence: 1,
+            pending_phase_adjustment_nanos: 0,
         }
+    }
+
+    fn observe_presentation(&mut self, presentation_target: Instant, presented_at: Instant) {
+        let phase_error = nearest_phase_error(
+            signed_instant_delta(presented_at, presentation_target),
+            self.source.interval,
+        );
+        if phase_error.unsigned_abs() <= PHASE_LOCK_DEADBAND.as_nanos() {
+            return;
+        }
+
+        let limit = PHASE_LOCK_MAX_ADJUSTMENT.as_nanos() as i128;
+        let correction = (phase_error / PHASE_LOCK_GAIN_DIVISOR).clamp(-limit, limit);
+        let pending = i128::from(self.pending_phase_adjustment_nanos) + correction;
+        self.pending_phase_adjustment_nanos = pending.clamp(-limit, limit) as i64;
     }
 
     fn take_tick(&mut self, now: Instant) -> Option<FrameTick> {
@@ -441,15 +517,48 @@ impl OutputTimeline {
         let render_deadline =
             advance_deadline(self.next_tick, self.source.interval, missed_periods);
         let sequence = self.next_sequence.wrapping_add(missed_periods as u64);
-        self.next_tick = render_deadline + self.source.interval;
+        let nominal_next_tick = render_deadline + self.source.interval;
+        self.next_tick = shift_instant(
+            nominal_next_tick,
+            std::mem::take(&mut self.pending_phase_adjustment_nanos),
+        );
         self.next_sequence = sequence.wrapping_add(1);
+        let presentation_target = self.next_tick;
         Some(FrameTick {
             output: self.source.output,
             sequence,
-            interval: self.source.interval,
+            interval: presentation_target.saturating_duration_since(render_deadline),
             render_deadline,
-            presentation_target: self.next_tick,
+            presentation_target,
         })
+    }
+}
+
+fn signed_instant_delta(lhs: Instant, rhs: Instant) -> i128 {
+    if lhs >= rhs {
+        lhs.duration_since(rhs).as_nanos() as i128
+    } else {
+        -(rhs.duration_since(lhs).as_nanos() as i128)
+    }
+}
+
+fn nearest_phase_error(delta_nanos: i128, interval: Duration) -> i128 {
+    let period = interval.as_nanos().max(1) as i128;
+    let mut error = delta_nanos % period;
+    let half_period = period / 2;
+    if error > half_period {
+        error -= period;
+    } else if error < -half_period {
+        error += period;
+    }
+    error
+}
+
+fn shift_instant(instant: Instant, adjustment_nanos: i64) -> Instant {
+    if adjustment_nanos >= 0 {
+        instant + Duration::from_nanos(adjustment_nanos as u64)
+    } else {
+        instant - Duration::from_nanos(adjustment_nanos.unsigned_abs())
     }
 }
 
@@ -530,6 +639,7 @@ mod tests {
                 ticks: Vec::with_capacity(sources.len()),
                 flutter_output,
             },
+            configured_outputs: sources.iter().map(|(output, _)| *output).collect(),
             dirty_outputs: BTreeMap::new(),
             render_requests: Vec::with_capacity(sources.len()),
             render_texture_ids: BTreeSet::new(),
@@ -682,15 +792,149 @@ mod tests {
     }
 
     #[test]
-    fn each_tick_targets_the_following_absolute_edge() {
+    fn each_tick_targets_the_following_presentation_edge() {
         let now = Instant::now();
         let mut scheduler = scheduler(now);
         scheduler.step(now + Duration::from_millis(1), pending(false, false, true));
 
         let tick = scheduler.output_ticks()[0];
         assert_eq!(tick.sequence, 1);
+        assert_eq!(tick.interval, INTERVAL);
         assert_eq!(tick.render_deadline, now);
         assert_eq!(tick.presentation_target, now + INTERVAL);
+    }
+
+    #[test]
+    fn presentation_feedback_corrects_only_the_following_edge() {
+        let now = Instant::now();
+        let mut timeline = OutputTimeline::new(
+            TimelineSource {
+                output: FAST_OUTPUT,
+                interval: INTERVAL,
+            },
+            now,
+        );
+        let first = timeline.take_tick(now).unwrap();
+
+        timeline.observe_presentation(
+            first.presentation_target,
+            first.presentation_target + Duration::from_millis(4),
+        );
+
+        assert!(
+            timeline
+                .take_tick(now + INTERVAL - Duration::from_nanos(1))
+                .is_none()
+        );
+        let corrected = timeline.take_tick(now + INTERVAL).unwrap();
+        assert_eq!(corrected.render_deadline, now + INTERVAL);
+        assert_eq!(
+            corrected.presentation_target,
+            now + INTERVAL * 2 + PHASE_LOCK_MAX_ADJUSTMENT
+        );
+        assert_eq!(corrected.interval, INTERVAL + PHASE_LOCK_MAX_ADJUSTMENT);
+    }
+
+    #[test]
+    fn presentation_feedback_ignores_complete_missed_periods() {
+        let now = Instant::now();
+        let mut timeline = OutputTimeline::new(
+            TimelineSource {
+                output: FAST_OUTPUT,
+                interval: INTERVAL,
+            },
+            now,
+        );
+        let first = timeline.take_tick(now).unwrap();
+
+        timeline.observe_presentation(
+            first.presentation_target,
+            first.presentation_target + INTERVAL + Duration::from_millis(2),
+        );
+
+        let corrected = timeline.take_tick(now + INTERVAL).unwrap();
+        assert_eq!(
+            corrected.presentation_target,
+            now + INTERVAL * 2 + PHASE_LOCK_MAX_ADJUSTMENT
+        );
+    }
+
+    #[test]
+    fn presentation_feedback_can_advance_the_following_phase() {
+        let now = Instant::now();
+        let mut timeline = OutputTimeline::new(
+            TimelineSource {
+                output: FAST_OUTPUT,
+                interval: INTERVAL,
+            },
+            now,
+        );
+        let first = timeline.take_tick(now).unwrap();
+
+        timeline.observe_presentation(
+            first.presentation_target,
+            first.presentation_target - Duration::from_millis(4),
+        );
+
+        let corrected = timeline.take_tick(now + INTERVAL).unwrap();
+        assert_eq!(
+            corrected.presentation_target,
+            now + INTERVAL * 2 - PHASE_LOCK_MAX_ADJUSTMENT
+        );
+        assert_eq!(corrected.interval, INTERVAL - PHASE_LOCK_MAX_ADJUSTMENT);
+    }
+
+    #[test]
+    fn presentation_jitter_inside_the_deadband_does_not_move_the_timeline() {
+        let now = Instant::now();
+        let mut timeline = OutputTimeline::new(
+            TimelineSource {
+                output: FAST_OUTPUT,
+                interval: INTERVAL,
+            },
+            now,
+        );
+        let first = timeline.take_tick(now).unwrap();
+
+        timeline.observe_presentation(
+            first.presentation_target,
+            first.presentation_target + PHASE_LOCK_DEADBAND,
+        );
+
+        let next = timeline.take_tick(now + INTERVAL).unwrap();
+        assert_eq!(next.presentation_target, now + INTERVAL * 2);
+        assert_eq!(next.interval, INTERVAL);
+    }
+
+    #[test]
+    fn presentation_feedback_adjusts_only_its_output_timeline() {
+        let now = Instant::now();
+        let mut scheduler = mixed_scheduler(now);
+        scheduler.step(now, pending(false, false, true));
+
+        scheduler.step(now + FAST_INTERVAL, pending(false, false, true));
+        scheduler.observe_presentation(
+            SLOW_OUTPUT,
+            now + INTERVAL,
+            now + INTERVAL + Duration::from_millis(4),
+        );
+        scheduler.step(now + INTERVAL, pending(false, false, true));
+
+        let fast = scheduler
+            .output_ticks()
+            .iter()
+            .find(|tick| tick.output == FAST_OUTPUT)
+            .unwrap();
+        let slow = scheduler
+            .output_ticks()
+            .iter()
+            .find(|tick| tick.output == SLOW_OUTPUT)
+            .unwrap();
+        assert_eq!(fast.presentation_target, now + FAST_INTERVAL * 3);
+        assert_eq!(
+            slow.presentation_target,
+            now + INTERVAL * 2 + PHASE_LOCK_MAX_ADJUSTMENT
+        );
     }
 
     #[test]
@@ -844,7 +1088,7 @@ mod tests {
         assert_eq!(scheduler.last_flutter_target, Some(first_target));
 
         assert_eq!(
-            scheduler.step(now + INTERVAL, pending(true, false, true)),
+            scheduler.step(now + INTERVAL * 2, pending(true, false, true)),
             FrameAction::Render {
                 flutter_output: Some(FAST_OUTPUT)
             }
@@ -973,18 +1217,93 @@ mod tests {
     }
 
     #[test]
-    fn powering_off_every_output_drops_stale_dirty_state() {
+    fn parked_output_retains_texture_damage_until_its_wake_tick() {
         let now = Instant::now();
         let mut scheduler = scheduler(now);
         scheduler.mark_app_dirty(FAST_OUTPUT, [9]);
 
-        scheduler.reconfigure(&[], now + Duration::from_millis(1));
+        scheduler.reconfigure_sources(
+            BTreeSet::from([FAST_OUTPUT]),
+            Vec::new(),
+            now + Duration::from_millis(1),
+        );
+        scheduler.mark_app_dirty(FAST_OUTPUT, [11]);
 
         assert_eq!(
-            scheduler.step(now + Duration::from_millis(2), pending(true, false, true)),
+            scheduler.step(now + Duration::from_millis(2), pending(false, false, true)),
             FrameAction::Skip
         );
         assert!(scheduler.output_ticks().is_empty());
+        assert_eq!(
+            scheduler
+                .dirty_outputs
+                .get(&FAST_OUTPUT)
+                .unwrap()
+                .texture_ids
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![9, 11]
+        );
+
+        let wake = now + Duration::from_millis(3);
+        scheduler.reconfigure_sources(
+            BTreeSet::from([FAST_OUTPUT]),
+            vec![TimelineSource {
+                output: FAST_OUTPUT,
+                interval: INTERVAL,
+            }],
+            wake,
+        );
+
+        assert_eq!(
+            scheduler.step(wake, pending(false, false, true)),
+            FrameAction::Render {
+                flutter_output: None
+            }
+        );
+        assert_eq!(
+            scheduler.render_texture_ids().collect::<Vec<_>>(),
+            vec![9, 11]
+        );
+    }
+
+    #[test]
+    fn waking_a_clean_output_forces_one_fresh_projection() {
+        let now = Instant::now();
+        let mut scheduler = scheduler(now);
+        scheduler.reconfigure_sources(
+            BTreeSet::from([FAST_OUTPUT]),
+            Vec::new(),
+            now + Duration::from_millis(1),
+        );
+        let wake = now + Duration::from_millis(2);
+        scheduler.reconfigure_sources(
+            BTreeSet::from([FAST_OUTPUT]),
+            vec![TimelineSource {
+                output: FAST_OUTPUT,
+                interval: INTERVAL,
+            }],
+            wake,
+        );
+
+        assert_eq!(
+            scheduler.step(wake, pending(false, false, true)),
+            FrameAction::Render {
+                flutter_output: None
+            }
+        );
+        assert!(scheduler.render_texture_ids().next().is_none());
+    }
+
+    #[test]
+    fn removing_an_output_drops_its_parked_damage() {
+        let now = Instant::now();
+        let mut scheduler = scheduler(now);
+        scheduler.mark_app_dirty(FAST_OUTPUT, [9]);
+
+        scheduler.reconfigure_sources(BTreeSet::new(), Vec::new(), now + Duration::from_millis(1));
+
         assert!(scheduler.dirty_outputs.is_empty());
     }
 }

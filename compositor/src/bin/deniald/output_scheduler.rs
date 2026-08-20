@@ -722,12 +722,8 @@ impl OutputScheduler {
                 .get(output.index)
                 .is_none_or(|slot| !slot.is_available())
             || output.request.tick.output != output.output_id
-            || output
-                .request
-                .tick
-                .presentation_target
-                .saturating_duration_since(output.request.tick.render_deadline)
-                != output.request.tick.interval
+            || output.request.tick.presentation_target
+                != output.request.tick.render_deadline + output.request.tick.interval
         {
             return Err("Flutter output metadata does not match its native pool".into());
         }
@@ -1030,6 +1026,7 @@ impl OutputScheduler {
                 observed_at: completion.observed_at,
                 presented_at: completion.presented_at,
                 sequence: completion.sequence,
+                timeline_target: presented.request.tick.presentation_target,
             };
             if let Some(audit) = self.audit.as_mut() {
                 audit.record_presentation(
@@ -1314,6 +1311,10 @@ impl OutputScheduler {
 
     pub(super) fn presented_frames(&self) -> u64 {
         self.presented_frames
+    }
+
+    pub(super) fn presented_outputs(&self) -> &[PresentedOutput] {
+        &self.presented_outputs
     }
 }
 

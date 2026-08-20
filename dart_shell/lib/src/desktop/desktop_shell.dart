@@ -64,6 +64,7 @@ import 'desktop_overview_target.dart';
 import 'desktop_home_layout.dart';
 import 'desktop_panel_transition.dart';
 import 'desktop_pixel_alignment.dart';
+import 'retained_animated_positioned.dart';
 import 'desktop_system_bar.dart';
 import 'desktop_texture_resize.dart';
 import 'desktop_window_coordinator.dart';
@@ -2577,7 +2578,7 @@ class _DesktopAnimatedWindowPositionState
         : Offset.zero;
     final suppressPositionAnimation = _suppressNextPositionAnimation;
     _suppressNextPositionAnimation = false;
-    return AnimatedPositioned.fromRect(
+    return RetainedAnimatedPositioned(
       duration: widget.dragging || suppressPositionAnimation
           ? Duration.zero
           : widget.duration,

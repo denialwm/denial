@@ -150,11 +150,18 @@ class _LockPreview extends StatelessWidget {
                     sigmaX: settings.blurRadius / 2,
                     sigmaY: settings.blurRadius / 2,
                   ),
-                  child: Image(
-                    image: wallpaperImageProvider(wallpaper),
-                    fit: BoxFit.cover,
-                    filterQuality: FilterQuality.low,
-                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => Image(
+                      image: wallpaperImageProvider(
+                        wallpaper,
+                        targetPixelSize:
+                            constraints.biggest *
+                            MediaQuery.devicePixelRatioOf(context),
+                      ),
+                      fit: BoxFit.cover,
+                      filterQuality: FilterQuality.low,
+                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                    ),
                   ),
                 ),
               ColoredBox(
