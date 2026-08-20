@@ -943,9 +943,9 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     state = state.copyWith(placements: next);
   }
 
-  void applyNativePlacement(int objectId, DenialWindowPlacementEvent event) {
+  bool applyNativePlacement(int objectId, DenialWindowPlacementEvent event) {
     if (state.overviewActive) {
-      return;
+      return false;
     }
     if (event.phase == DenialWindowPlacementPhase.begin) {
       activate(objectId);
@@ -953,7 +953,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     final placement = state.placements[objectId];
     if (placement == null ||
         event.sequence <= (_nativeSequences[objectId] ?? 0)) {
-      return;
+      return false;
     }
     _pendingNativeFrames.remove(objectId);
 
@@ -969,13 +969,13 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
         );
         _nativeSequences[objectId] = event.sequence;
         state = state.copyWith(placements: next);
-        return;
+        return true;
       }
       final fullscreenFrame = event.contentRect.intersect(
         Offset.zero & state.viewSize,
       );
       if (fullscreenFrame.isEmpty) {
-        return;
+        return false;
       }
       final delta = fullscreenFrame.topLeft - placement.frame.topLeft;
       final next = Map<int, DesktopWindowPlacement>.of(state.placements);
@@ -990,7 +990,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
       );
       _nativeSequences[objectId] = event.sequence;
       state = state.copyWith(placements: next);
-      return;
+      return true;
     }
 
     // This is compositor-owned geometry. Mirror it exactly, including
@@ -1014,6 +1014,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     );
     _nativeSequences[objectId] = event.sequence;
     state = state.copyWith(placements: next);
+    return true;
   }
 
   void minimize(int objectId) {

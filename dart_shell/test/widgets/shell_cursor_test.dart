@@ -355,25 +355,80 @@ void main() {
     await tester.pump();
 
     Image cursorImage() => tester.widget<Image>(find.byType(Image));
-    Positioned cursorPosition() => tester.widget<Positioned>(
-      find.ancestor(of: find.byType(Image), matching: find.byType(Positioned)),
-    );
+    Offset cursorPosition() => tester.getTopLeft(find.byType(Image));
 
     expect(cursorImage().width, 32);
     expect(cursorImage().height, 32);
-    expect(cursorPosition().left, 94);
-    expect(cursorPosition().top, 78);
+    expect(cursorPosition(), const Offset(94, 78));
 
     await tester.pumpWidget(host(2));
     expect(cursorImage().width, 16);
     expect(cursorImage().height, 16);
     expect(cursorImage().width! * 2, 32);
-    expect(cursorPosition().left, 97);
-    expect(cursorPosition().top, 79);
+    expect(cursorPosition(), const Offset(97, 79));
 
     await tester.pumpWidget(host(1.5));
     expect(cursorImage().width! * 1.5, closeTo(32, 0.001));
     expect(cursorImage().height! * 1.5, closeTo(32, 0.001));
+  });
+
+  testWidgets('same-output motion retains the cursor artwork subtree', (
+    tester,
+  ) async {
+    final positions = StreamController<Offset>.broadcast(sync: true);
+    addTearDown(positions.close);
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: ShellCursorHost(
+          theme: ShellCursorThemes.bibataModernIce,
+          displayLayout: _cursorLayout(1),
+          platformCursorPositions: positions.stream,
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+    positions.add(const Offset(100, 80));
+    await tester.pump();
+    final artwork = tester.widget<Image>(find.byType(Image));
+
+    positions.add(const Offset(150, 90));
+    await tester.pump();
+
+    expect(tester.widget<Image>(find.byType(Image)), same(artwork));
+    expect(tester.getTopLeft(find.byType(Image)), const Offset(144, 88));
+  });
+
+  testWidgets('cross-output motion rebuilds artwork for the new scale', (
+    tester,
+  ) async {
+    final positions = StreamController<Offset>.broadcast(sync: true);
+    addTearDown(positions.close);
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: ShellCursorHost(
+          theme: ShellCursorThemes.bibataModernIce,
+          cursorSize: 32,
+          displayLayout: _twoScaleCursorLayout(),
+          platformCursorPositions: positions.stream,
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+    positions.add(const Offset(100, 80));
+    await tester.pump();
+    final firstArtwork = tester.widget<Image>(find.byType(Image));
+    expect(firstArtwork.width, 32);
+
+    positions.add(const Offset(250, 80));
+    await tester.pump();
+
+    expect(tester.widget<Image>(find.byType(Image)), isNot(same(firstArtwork)));
+    expect(tester.widget<Image>(find.byType(Image)).width, 16);
+    expect(tester.getTopLeft(find.byType(Image)), const Offset(247, 79));
   });
 
   testWidgets('screenshot preparation hides only the cursor artwork', (
@@ -432,25 +487,19 @@ void main() {
     dragIcons.add(_dragIcon());
     await tester.pump();
 
-    Positioned dragPosition() => tester.widget<Positioned>(
-      find
-          .ancestor(
-            of: find.byType(SurfaceLayerTexture),
-            matching: find.byType(Positioned),
-          )
-          .first,
-    );
+    Offset dragPosition() =>
+        tester.getTopLeft(find.byType(SurfaceLayerTexture));
 
     expect(find.byType(SurfaceLayerTexture), findsOneWidget);
-    expect(dragPosition().left, 87.5);
-    expect(dragPosition().top, 88.25);
-    expect(dragPosition().width, 160);
-    expect(dragPosition().height, 120);
+    expect(dragPosition(), const Offset(87.5, 88.25));
+    expect(
+      tester.getSize(find.byType(SurfaceLayerTexture)),
+      const Size(160, 120),
+    );
 
     positions.add(const Offset(150, 110));
     await tester.pump();
-    expect(dragPosition().left, 137.5);
-    expect(dragPosition().top, 118.25);
+    expect(dragPosition(), const Offset(137.5, 118.25));
 
     dragIcons.add(null);
     await tester.pump();
@@ -537,6 +586,37 @@ DisplayLayout _cursorLayout(double scale) {
         logicalRect: const Rect.fromLTWH(0, 0, 200, 120),
         pixelSize: Size(200 * scale, 120 * scale),
         scale: scale,
+        refreshRate: 60,
+      ),
+    ],
+  );
+}
+
+DisplayLayout _twoScaleCursorLayout() {
+  return const DisplayLayout(
+    epoch: 1,
+    globalOrigin: Offset.zero,
+    logicalSize: Size(400, 120),
+    pixelSize: Size(600, 240),
+    engineScale: 1,
+    tickerMonitorId: 1,
+    systemBarMonitorId: 1,
+    systemBarSide: SystemBarSide.top,
+    outputs: <DisplayOutput>[
+      DisplayOutput(
+        monitorId: 1,
+        name: 'scale-1',
+        logicalRect: Rect.fromLTWH(0, 0, 200, 120),
+        pixelSize: Size(200, 120),
+        scale: 1,
+        refreshRate: 60,
+      ),
+      DisplayOutput(
+        monitorId: 2,
+        name: 'scale-2',
+        logicalRect: Rect.fromLTWH(200, 0, 200, 120),
+        pixelSize: Size(400, 240),
+        scale: 2,
         refreshRate: 60,
       ),
     ],

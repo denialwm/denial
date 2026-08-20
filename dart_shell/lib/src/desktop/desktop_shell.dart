@@ -49,6 +49,7 @@ import '../widgets/desktop_window_switcher.dart';
 import '../widgets/desktop_window_reveal.dart';
 import '../widgets/main_output_centered_surface.dart';
 import '../widgets/notification_center.dart';
+import '../widgets/retained_translation.dart';
 import '../widgets/session/power_session_surface.dart';
 import '../widgets/shell_backdrop_blur.dart';
 import 'window_backdrop_blur_policy.dart';
@@ -2172,7 +2173,6 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
                         duration: duration,
                         rect: window.mapSurfaceRect(layer, contentRect),
                         placementObjectId: placement.objectId,
-                        placementFrame: placement.frame,
                         overview: overview,
                         switching: switching,
                         dragging: placement.dragging,
@@ -2365,7 +2365,6 @@ class _DesktopWindowFrame extends ConsumerWidget {
       duration: placement.dragging ? Duration.zero : duration,
       rect: frame,
       placementObjectId: placement.objectId,
-      placementFrame: placement.frame,
       overview: overview,
       switching: switching,
       desktopWidget: desktopWidget,
@@ -2476,7 +2475,6 @@ class _DesktopAnimatedWindowPosition extends ConsumerStatefulWidget {
     required this.duration,
     required this.rect,
     required this.placementObjectId,
-    required this.placementFrame,
     required this.overview,
     required this.switching,
     this.desktopWidget = false,
@@ -2489,7 +2487,6 @@ class _DesktopAnimatedWindowPosition extends ConsumerStatefulWidget {
   final Duration duration;
   final Rect rect;
   final int placementObjectId;
-  final Rect placementFrame;
   final bool overview;
   final bool switching;
   final bool desktopWidget;
@@ -2506,7 +2503,6 @@ class _DesktopAnimatedWindowPosition extends ConsumerStatefulWidget {
 class _DesktopAnimatedWindowPositionState
     extends ConsumerState<_DesktopAnimatedWindowPosition> {
   late Curve _curve;
-  Rect? _dragAnchorRect;
   bool _overviewTransitionActive = false;
   bool _suppressNextPositionAnimation = false;
 
@@ -2514,18 +2510,12 @@ class _DesktopAnimatedWindowPositionState
   void initState() {
     super.initState();
     _curve = widget.overview ? Motion.overviewEnterCurve : Motion.md3Emphasized;
-    if (widget.dragging) {
-      _dragAnchorRect = widget.rect;
-    }
   }
 
   @override
   void didUpdateWidget(covariant _DesktopAnimatedWindowPosition oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!oldWidget.dragging && widget.dragging) {
-      _dragAnchorRect = widget.rect;
-    } else if (oldWidget.dragging && !widget.dragging) {
-      _dragAnchorRect = null;
+    if (oldWidget.dragging && !widget.dragging) {
       _suppressNextPositionAnimation = true;
     }
     final interruptedOverviewTransition = _overviewTransitionActive;
@@ -2553,44 +2543,21 @@ class _DesktopAnimatedWindowPositionState
 
   @override
   Widget build(BuildContext context) {
-    final livePlacement = ref.watch(
-      desktopWorkspaceProvider.select(
-        (state) => state.placements[widget.placementObjectId],
-      ),
-    );
     var rect = widget.rect;
-    final followsLivePlacement =
-        widget.dragging && livePlacement?.dragging == true;
-    if (followsLivePlacement) {
-      rect = desktopLivePlacementVisualFrame(
-        visualFrame: rect,
-        placementFrame: widget.placementFrame,
-        livePlacementFrame: livePlacement!.frame,
-      );
-    }
     final pixelAlignmentInset = widget.pixelAlignmentInset;
+    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
     if (pixelAlignmentInset != null) {
       rect = desktopPixelAlignedWindowFrame(
         frame: rect,
         contentInset: pixelAlignmentInset,
-        devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+        devicePixelRatio: devicePixelRatio,
         enabled: !widget.overview && !widget.switching && !widget.desktopWidget,
         alignSize: widget.alignSizeToDevicePixels,
       );
     }
-    final liveMove =
-        followsLivePlacement &&
-        livePlacement!.frame.size == widget.placementFrame.size;
-    final dragAnchorRect = _dragAnchorRect;
-    final translatesLiveMove =
-        liveMove &&
-        dragAnchorRect != null &&
-        dragAnchorRect.width == rect.width &&
-        dragAnchorRect.height == rect.height;
-    final positionedRect = translatesLiveMove ? dragAnchorRect : rect;
-    final translation = translatesLiveMove
-        ? rect.topLeft - dragAnchorRect.topLeft
-        : Offset.zero;
+    final liveTranslation = ref
+        .read(desktopLiveWindowPlacementsProvider)
+        .translationFor(widget.placementObjectId);
     final suppressPositionAnimation = _suppressNextPositionAnimation;
     _suppressNextPositionAnimation = false;
     return RetainedAnimatedPositioned(
@@ -2598,9 +2565,14 @@ class _DesktopAnimatedWindowPositionState
           ? Duration.zero
           : widget.duration,
       curve: _curve,
-      rect: positionedRect,
+      rect: rect,
       onEnd: () => _overviewTransitionActive = false,
-      child: Transform.translate(offset: translation, child: widget.child),
+      child: RetainedTranslation(
+        translation: liveTranslation,
+        enabled: widget.dragging,
+        devicePixelRatio: pixelAlignmentInset == null ? null : devicePixelRatio,
+        child: widget.child,
+      ),
     );
   }
 }
