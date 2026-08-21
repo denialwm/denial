@@ -192,6 +192,16 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install --yes bubblewrap libarchive-tools jq
+          # Ubuntu 24.04 AppArmor blocks rootless user namespaces by default.
+          # This VM is privileged and ephemeral, so enable them for this job.
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap \
+            --die-with-parent \
+            --unshare-user \
+            --ro-bind / / \
+            -- /bin/true
 
       - name: Check out the exact signed source tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
