@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+readonly ROOT
+
+fail() {
+  printf 'test-denial-apk-publication: %s\n' "$*" >&2
+  exit 1
+}
+
+if (($# != 3)); then
+  printf '%s\n' \
+    'Usage: test-denial-apk-publication PACKAGE_ROOT VERSION RELEASE' \
+    >&2
+  exit 2
+fi
+
+for command_name in \
+  awk basename cp find gpg gpgconf install mktemp realpath rm sort; do
+  command -v "$command_name" >/dev/null 2>&1 \
+    || fail "$command_name is required"
+done
+
+PACKAGE_ROOT="$(realpath -e -- "$1")"
+VERSION="$2"
+RELEASE="$3"
+readonly PACKAGE_ROOT VERSION RELEASE
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+  || fail 'version must be semantic'
+[[ "$RELEASE" =~ ^[0-9]+$ ]] \
+  || fail 'release must be numeric'
+
+mapfile -d '' packages < <(
+  find "$PACKAGE_ROOT" \
+    -maxdepth 1 -type f -name '*.apk' -print0 | sort -z
+)
+((${#packages[@]} == 2)) \
+  || fail "expected two promoted APKs, found ${#packages[@]}"
+
+work_root="$(mktemp -d "${TMPDIR:-/tmp}/denial-apk-rehearsal.XXXXXX")"
+cleanup() {
+  gpgconf --homedir "$work_root/gnupg" --kill all >/dev/null 2>&1 || true
+  if [[ "$work_root" == \
+    "${TMPDIR:-/tmp}"/denial-apk-rehearsal.* ]]; then
+    rm -rf --one-file-system -- "$work_root"
+  fi
+}
+trap cleanup EXIT
+
+export GNUPGHOME="$work_root/gnupg"
+signed_root="$work_root/signed"
+download_root="$signed_root/downloads/x86_64"
+install -d -m 0700 "$GNUPGHOME"
+install -d -m 0755 "$download_root"
+
+gpg \
+  --batch \
+  --passphrase '' \
+  --quick-generate-key \
+  'Denial disposable APK publication rehearsal' \
+  ed25519 \
+  sign \
+  1d
+fingerprint="$(
+  gpg --batch --with-colons --fingerprint --list-secret-keys \
+    | awk -F: '$1 == "fpr" { print toupper($10); exit }'
+)"
+[[ "$fingerprint" =~ ^[0-9A-F]{40,64}$ ]] \
+  || fail 'disposable signing key has no complete fingerprint'
+gpg --batch --armor --export "$fingerprint" \
+  >"$signed_root/denial-repo-key.asc"
+
+for package in "${packages[@]}"; do
+  destination="$download_root/$(basename -- "$package")"
+  cp --reflink=auto -- "$package" "$destination"
+  gpg \
+    --batch \
+    --yes \
+    --local-user "$fingerprint" \
+    --detach-sign \
+    --output "${destination}.sig" \
+    "$destination"
+done
+
+"$ROOT/tools/verify-denial-published-apk-packages" \
+  "$signed_root" \
+  "$fingerprint" \
+  "$VERSION" \
+  "$RELEASE"
+
+printf 'Disposable signed APK publication rehearsal passed.\n'

@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fail() {
+  printf 'prepare-denial-apk-promotion-host: %s\n' "$*" >&2
+  exit 1
+}
+
+for command_name in bwrap sudo sysctl; do
+  command -v "$command_name" >/dev/null 2>&1 \
+    || fail "$command_name is required"
+done
+
+# Ubuntu 24.04 AppArmor blocks rootless user namespaces by default. GitHub's
+# hosted VM is privileged and ephemeral, so enable them for this job before
+# exercising the same Bubblewrap namespace used by APK promotion.
+if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+  sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+fi
+
+bwrap \
+  --die-with-parent \
+  --unshare-user \
+  --ro-bind / / \
+  -- /bin/true
+
+printf 'Bubblewrap APK promotion host is ready.\n'

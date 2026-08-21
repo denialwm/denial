@@ -651,6 +651,25 @@ source_audit() {
   else
     fail 'main validation does not identify its production candidate'
   fi
+  if grep -Fq \
+      'tools/prepare-denial-apk-promotion-host' \
+      "$ROOT/.github/workflows/branch-validation.yml" \
+    && grep -Fq \
+      'tools/promote-denial-apk-candidate' \
+      "$ROOT/.github/workflows/branch-validation.yml" \
+    && grep -Fq \
+      'tools/test-denial-apk-publication' \
+      "$ROOT/.github/workflows/branch-validation.yml" \
+    && grep -Fq \
+      'id -u' \
+      "$ROOT/.github/workflows/branch-validation.yml" \
+    && grep -Fq \
+      'tools/prepare-denial-apk-promotion-host' \
+      "$ROOT/.github/workflows/release.yml"; then
+    pass 'main validation rehearses hosted APK promotion and root publication verification'
+  else
+    fail 'main validation does not rehearse the release-only APK path'
+  fi
   if grep -R -Fq \
       '/srv/denial-builder/artifacts/flutter-engine/' \
       "$ROOT/.github/workflows" \
@@ -879,12 +898,14 @@ source_audit() {
     "$ROOT/tools/package-denial-deb" \
     "$ROOT/tools/package-denial-native" \
     "$ROOT/tools/package-denial-rpm" \
+    "$ROOT/tools/prepare-denial-apk-promotion-host" \
     "$ROOT/tools/promote-denial-arch-candidate" \
     "$ROOT/tools/promote-denial-apk-candidate" \
     "$ROOT/tools/promote-denial-native-candidate" \
     "$ROOT/tools/read-denial-native-metadata" \
     "$ROOT/tools/run-denial-promotion-no-build" \
     "$ROOT/tools/stage-denial-runtime" \
+    "$ROOT/tools/test-denial-apk-publication" \
     "$ROOT/tools/test-denial-native-metadata" \
     "$ROOT/tools/test-denial-promotion-no-build" \
     "$ROOT/tools/test-denial-repository-generators" \
