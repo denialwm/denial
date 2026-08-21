@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Denial
+Comment=Flutter-native Wayland compositor
+Exec=/usr/bin/denial-alpine-session
+Type=Application
+DesktopNames=Denial

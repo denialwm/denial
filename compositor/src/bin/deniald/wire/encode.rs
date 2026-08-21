@@ -227,6 +227,34 @@ impl WireBridge {
         Ok(self.outbound_builder.finished_data())
     }
 
+    pub fn encode_xembed_tray_event(
+        &mut self,
+        event: &XEmbedTrayEvent,
+    ) -> Result<&[u8], WireError> {
+        if event.window_id == 0
+            || event.icon.as_ref().is_some_and(|icon| {
+                icon.window_id != event.window_id
+                    || icon.title.len() > MAX_STRING_BYTES
+                    || icon.width == 0
+                    || icon.height == 0
+                    || icon.width > 512
+                    || icon.height > 512
+                    || icon.rgba.len()
+                        != (icon.width as usize)
+                            .saturating_mul(icon.height as usize)
+                            .saturating_mul(4)
+                    || icon.rgba.len() > 512 * 1024
+            })
+            || (event.kind == XEmbedTrayEventKind::Removed) != event.icon.is_none()
+        {
+            return Err(WireError::Payload);
+        }
+        let sequence = self.take_sequence();
+        self.outbound_builder.reset();
+        encode_xembed_tray_event(&mut self.outbound_builder, sequence, event)?;
+        Ok(self.outbound_builder.finished_data())
+    }
+
     pub fn encode_settings_document_response(
         &mut self,
         request_id: u64,
@@ -1008,6 +1036,52 @@ fn encode_notification_event(
             sequence,
             request_id: 0,
             payload_type: fb::Payload::DesktopNotificationEvent,
+            payload: Some(event.as_union_value()),
+        },
+    );
+    fb::finish_envelope_buffer(builder, envelope);
+    validate_finished_message(builder)
+}
+
+fn encode_xembed_tray_event(
+    builder: &mut FlatBufferBuilder<'_>,
+    sequence: u64,
+    event: &XEmbedTrayEvent,
+) -> Result<(), WireError> {
+    let icon = event.icon.as_ref().map(|source| {
+        let title = builder.create_string(&source.title);
+        let rgba = builder.create_vector(&source.rgba);
+        fb::XEmbedTrayIcon::create(
+            builder,
+            &fb::XEmbedTrayIconArgs {
+                window_id: source.window_id,
+                title: Some(title),
+                width: source.width,
+                height: source.height,
+                rgba: Some(rgba),
+            },
+        )
+    });
+    let kind = match event.kind {
+        XEmbedTrayEventKind::Added => fb::XEmbedTrayEventKind::Added,
+        XEmbedTrayEventKind::Updated => fb::XEmbedTrayEventKind::Updated,
+        XEmbedTrayEventKind::Removed => fb::XEmbedTrayEventKind::Removed,
+    };
+    let event = fb::XEmbedTrayEvent::create(
+        builder,
+        &fb::XEmbedTrayEventArgs {
+            kind,
+            window_id: event.window_id,
+            icon,
+        },
+    );
+    let envelope = fb::Envelope::create(
+        builder,
+        &fb::EnvelopeArgs {
+            protocol_version: PROTOCOL_VERSION,
+            sequence,
+            request_id: 0,
+            payload_type: fb::Payload::XEmbedTrayEvent,
             payload: Some(event.as_union_value()),
         },
     );

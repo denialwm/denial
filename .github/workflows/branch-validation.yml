@@ -90,6 +90,8 @@ jobs:
               '/srv/denial-builder/cache/rust-target'
             printf 'DENIAL_FLUTTER_ENGINE_CACHE_ROOT=%s\n' \
               '/srv/denial-builder/cache/flutter-engine'
+            printf 'DENIAL_ALPINE_CACHE_ROOT=%s\n' \
+              '/srv/denial-builder/cache/alpine'
             printf 'DENIAL_FLUTTER_ENGINE_JOBS=%s\n' '16'
             printf 'EVIDENCE_ROOT=%s\n' \
               "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-evidence"
@@ -103,6 +105,10 @@ jobs:
               "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-makepkg"
             printf 'DENIAL_PC_PACKAGE_INPUT_ROOT=%s\n' \
               "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-package-input"
+            printf 'DENIAL_PC_ALPINE_ROOT=%s\n' \
+              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-alpine"
+            printf 'DENIAL_ALPINE_EVIDENCE_FILE=%s\n' \
+              "$RUNNER_TEMP/denial-${VALIDATION_BRANCH}-evidence/alpine-build-environment.txt"
           } >>"$GITHUB_ENV"
 
       - name: Check out the exact pushed commit
@@ -204,6 +210,7 @@ jobs:
         shell: bash
         env:
           DENIAL_PACKAGE_PACKAGER: Doctor Logix <doctor.logix@gmail.com>
+          DENIAL_PACKAGE_SKIP_STAGE: "1"
           DENIAL_REBUILD_ENGINE_PACKAGE: "1"
         run: |
           set -euo pipefail
@@ -212,6 +219,7 @@ jobs:
             time cargo xtask ui-development-package
             time tools/denial-pc arch-package
             time tools/denial-pc native-packages
+            time tools/denial-pc alpine-package
           } 2>&1 | tee "$EVIDENCE_ROOT/package-build.txt"
 
       - name: Collect failed build diagnostics
@@ -273,6 +281,14 @@ jobs:
               -print0 \
               | sort -z
           )
+          mapfile -d '' apk_packages < <(
+            find "$package_root" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.apk' \
+              -print0 \
+              | sort -z
+          )
           if ((${#arch_packages[@]} != 3)); then
             printf 'Expected three Arch packages, found %d\n' \
               "${#arch_packages[@]}" >&2
@@ -288,15 +304,24 @@ jobs:
               "${#rpm_packages[@]}" >&2
             exit 1
           fi
+          if ((${#apk_packages[@]} != 2)); then
+            printf 'Expected two Alpine packages, found %d\n' \
+              "${#apk_packages[@]}" >&2
+            exit 1
+          fi
           packages=(
             "${arch_packages[@]}"
             "${deb_packages[@]}"
             "${rpm_packages[@]}"
+            "${apk_packages[@]}"
           )
           cp --reflink=auto -- "${packages[@]}" "$CANDIDATE_ROOT/packages/"
           cp -a -- \
             "$DENIAL_PC_PACKAGE_INPUT_ROOT/native" \
             "$CANDIDATE_ROOT/native-payload"
+          cp -a -- \
+            "$DENIAL_PC_PACKAGE_INPUT_ROOT/alpine" \
+            "$CANDIDATE_ROOT/alpine-payload"
           (
             cd "$CANDIDATE_ROOT/native-payload"
             mapfile -d '' native_files < <(
@@ -304,6 +329,10 @@ jobs:
             )
             sha256sum -- "${native_files[@]}" >NATIVE-SHA256SUMS
             sha256sum --check --strict NATIVE-SHA256SUMS
+          )
+          (
+            cd "$CANDIDATE_ROOT/alpine-payload"
+            sha256sum --check --strict ALPINE-SHA256SUMS
           )
 
           for package in "${arch_packages[@]}"; do
@@ -327,6 +356,11 @@ jobs:
               "$package" \
               >"$CANDIDATE_ROOT/evidence/package-metadata/${package_name}.rpm"
           done
+          for package in "${apk_packages[@]}"; do
+            package_name="$(basename -- "$package")"
+            bsdtar -xOf "$package" .PKGINFO \
+              >"$CANDIDATE_ROOT/evidence/package-metadata/${package_name}.PKGINFO"
+          done
 
           {
             printf 'artifact_class=%s\n' "$CANDIDATE_CLASS"
@@ -335,8 +369,9 @@ jobs:
               "$RELEASE_SIGNING_ELIGIBLE"
             printf 'signature_status=unsigned\n'
             printf 'package_release=%s\n' "$DENIAL_PACKAGE_RELEASE"
-            printf 'package_formats=arch,deb,rpm\n'
+            printf 'package_formats=arch,deb,rpm,apk\n'
             printf 'native_payload_schema=1\n'
+            printf 'alpine_payload_schema=1\n'
             printf 'compile_mode=%s\n' "$CANDIDATE_COMPILE_MODE"
             printf 'build_identity=%s\n' "$DENIAL_BUILD_IDENTITY"
             printf 'source_commit=%s\n' "$GITHUB_SHA"
@@ -375,7 +410,7 @@ jobs:
 
           (
             cd "$CANDIDATE_ROOT/packages"
-            sha256sum -- *.pkg.tar.zst *.deb *.rpm >SHA256SUMS
+            sha256sum -- *.pkg.tar.zst *.deb *.rpm *.apk >SHA256SUMS
             sha256sum --check --strict SHA256SUMS
           )
           namcap "$CANDIDATE_ROOT"/packages/*.pkg.tar.zst \
@@ -477,8 +512,9 @@ jobs:
           grep -Fxq \
             "package_release=$expected_package_release" \
             "$provenance"
-          grep -Fxq 'package_formats=arch,deb,rpm' "$provenance"
+          grep -Fxq 'package_formats=arch,deb,rpm,apk' "$provenance"
           grep -Fxq 'native_payload_schema=1' "$provenance"
+          grep -Fxq 'alpine_payload_schema=1' "$provenance"
           grep -Fxq "compile_mode=$expected_compile_mode" "$provenance"
           grep -Fxq "source_commit=$GITHUB_SHA" "$provenance"
           grep -Fxq "source_ref=$GITHUB_REF" "$provenance"
@@ -512,6 +548,14 @@ jobs:
               -print0 \
               | sort -z
           )
+          mapfile -d '' apk_packages < <(
+            find "$CANDIDATE_ROOT/packages" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.apk' \
+              -print0 \
+              | sort -z
+          )
           if ((${#deb_packages[@]} != 2)); then
             printf 'Expected two candidate Debian packages, found %d\n' \
               "${#deb_packages[@]}" >&2
@@ -520,6 +564,11 @@ jobs:
           if ((${#rpm_packages[@]} != 2)); then
             printf 'Expected two candidate RPM packages, found %d\n' \
               "${#rpm_packages[@]}" >&2
+            exit 1
+          fi
+          if ((${#apk_packages[@]} != 2)); then
+            printf 'Expected two candidate Alpine packages, found %d\n' \
+              "${#apk_packages[@]}" >&2
             exit 1
           fi
           (
@@ -819,6 +868,82 @@ jobs:
             rpm_names+=("$package_name")
           done
           test "${rpm_names[*]}" = 'denial denial-flutter-engine'
+
+          alpine_payload="$CANDIDATE_ROOT/alpine-payload"
+          test -d "$alpine_payload/denial"
+          test -d "$alpine_payload/denial-flutter-engine"
+          test -f "$alpine_payload/metadata.json"
+          test -f "$alpine_payload/adapter.txt"
+          (
+            cd "$alpine_payload"
+            sha256sum --check --strict ALPINE-SHA256SUMS
+          )
+          cmp -- \
+            "$native_payload/metadata.json" \
+            "$alpine_payload/metadata.json"
+          apk_version="$(
+            sed -n 's/^apk_package_version=//p' \
+              "$alpine_payload/adapter.txt"
+          )"
+          candidate_revision="${PACKAGE_VERSION#*.r}"
+          candidate_revision="${candidate_revision%%.g*}"
+          test "$apk_version" = \
+            "${PACKAGE_VERSION%%.r*}_git${candidate_revision}"
+          [[ "$apk_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+_git[0-9]+$ ]]
+          apk_names=()
+          for package in "${apk_packages[@]}"; do
+            if bsdtar -tf "$package" | grep -Eq '^\.SIGN\.'; then
+              printf 'Candidate APK is unexpectedly signed: %s\n' \
+                "$package" >&2
+              exit 1
+            fi
+            package_info="$(bsdtar -xOf "$package" .PKGINFO)"
+            package_name="$(
+              sed -n 's/^pkgname = //p' <<<"$package_info"
+            )"
+            package_version="$(
+              sed -n 's/^pkgver = //p' <<<"$package_info"
+            )"
+            package_arch="$(
+              sed -n 's/^arch = //p' <<<"$package_info"
+            )"
+            test "$package_arch" = x86_64
+            test "$package_version" = "$apk_version-r$PACKAGE_RELEASE"
+            case "$package_name" in
+              denial)
+                test "$(basename -- "$package")" = \
+                  "denial-${apk_version}-r${PACKAGE_RELEASE}.apk"
+                grep -Fxq \
+                  "depend = denial-flutter-engine=${apk_version}-r${PACKAGE_RELEASE}" \
+                  <<<"$package_info"
+                bsdtar -tf "$package" | grep -Fxq usr/bin/deniald
+                bsdtar -tf "$package" \
+                  | grep -Fxq \
+                    usr/lib/denial/alpine/libdenial-resolver-bridge.so.0
+                if bsdtar -tf "$package" \
+                  | grep -Fxq usr/share/denial/version; then
+                  printf 'Candidate APK predicts a public runtime version\n' >&2
+                  exit 1
+                fi
+                ;;
+              denial-flutter-engine)
+                test "$(basename -- "$package")" = \
+                  "denial-flutter-engine-${apk_version}-r${PACKAGE_RELEASE}.apk"
+                grep -Fxq \
+                  'provides = denial-flutter-engine-abi-3.44.7.denial1' \
+                  <<<"$package_info"
+                ;;
+              *)
+                printf 'Unexpected Alpine package: %s\n' "$package_name" >&2
+                exit 1
+                ;;
+            esac
+            tools/verify-denial-package-payload \
+              apk "$package" "$alpine_payload/$package_name"
+            apk_names+=("$package_name")
+          done
+          test "$(printf '%s\n' "${apk_names[@]}" | sort | paste -sd' ' -)" = \
+            'denial denial-flutter-engine'
 
       - name: Rehearse signed APT and DNF repository generation
         shell: bash

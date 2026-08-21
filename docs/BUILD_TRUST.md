@@ -8,7 +8,7 @@ package signature, or maintainer-owned builder as proof that a binary is safe.
 
 ## Current status
 
-As of 2026-08-12:
+As of 2026-08-21:
 
 - the x86-64 source-built Flutter Engine and split Pacman package prototype
   have passed source reconstruction, tests, package transactions, and
@@ -25,6 +25,10 @@ As of 2026-08-12:
   runtime/engine pairs from one GLIBC-gated staging tree; the signed-tag path
   republishes those exact payloads through signed APT and DNF repositories and
   as signed GitHub Release downloads without compiling them again;
+- the same CachyOS runner builds Alpine APKs in a checksum-pinned, rootless
+  Alpine 3.24.1 minirootfs, retains the adapted musl/gcompat payload, and lets
+  the tag workflow repackage it without compilation; the first-party APKs are
+  OpenPGP-signed direct downloads rather than a native APK repository;
 - no Stage 1 development or disposable-key package is presented as a public
   release;
 - complete offline dependency closure and package reproducibility remain
@@ -90,12 +94,12 @@ No individual item replaces the others.
 Every public-beta release publishes:
 
 - a signed, immutable source tag;
-- literal package metadata (`.PKGINFO`/`.BUILDINFO`, Debian control fields,
-  and RPM identity fields);
+- literal package metadata (Arch and Alpine `.PKGINFO`, Arch `.BUILDINFO`,
+  Debian control fields, and RPM identity fields);
 - the source revision, runner disclosure, compiler and Flutter versions, host
   package inventory, test logs, Namcap output, and artifact hashes;
 - embedded or detached OpenPGP signatures for packages and signed Pacman,
-  APT, and DNF repository metadata;
+  APT and DNF repository metadata, plus direct Alpine APKs;
 - a signed complete SHA-256 manifest;
 - the full public key and fingerprint;
 - explicit non-claims for offline closure, reproducibility, independent
@@ -106,6 +110,9 @@ one `denial-flutter-engine`, one `denial`, and one optional
 `denial-ui-development`; it also contains a `denial-flutter-engine`/`denial`
 pair for Debian-family systems and another pair for Fedora. The development
 archive remains available only through Pacman and is not installed by default.
+The set also contains a `denial-flutter-engine`/`denial` APK pair for Alpine
+3.24. Those APKs have adjacent OpenPGP signatures; APK-native RSA signatures
+and an APKINDEX are not claimed yet.
 Every archive takes its package identity directly from the verified signed tag. The
 engine's `denial-flutter-engine-abi` capability is an independent
 compatibility contract; its one-time epoch only preserves Pacman ordering

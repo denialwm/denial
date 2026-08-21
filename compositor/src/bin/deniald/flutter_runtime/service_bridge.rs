@@ -53,6 +53,12 @@ impl FlutterRuntime {
         self.wire.drain_notification_commands()
     }
 
+    pub fn drain_xembed_tray_commands(
+        &mut self,
+    ) -> impl Iterator<Item = crate::xembed_tray::XEmbedTrayCommand> + '_ {
+        self.wire.drain_xembed_tray_commands()
+    }
+
     pub fn drain_settings_commands(&mut self) -> impl Iterator<Item = wire::SettingsCommand> + '_ {
         self.wire.drain_settings_commands()
     }
@@ -292,6 +298,20 @@ impl FlutterRuntime {
             .expect("Flutter runtime is shutting down")
             .engine();
         let update = self.wire.encode_notification_event(event)?;
+        engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, update)?;
+        Ok(())
+    }
+
+    pub fn send_xembed_tray_event(
+        &mut self,
+        event: &crate::xembed_tray::XEmbedTrayEvent,
+    ) -> Result<(), Box<dyn Error>> {
+        let engine = self
+            .host
+            .as_ref()
+            .expect("Flutter runtime is shutting down")
+            .engine();
+        let update = self.wire.encode_xembed_tray_event(event)?;
         engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, update)?;
         Ok(())
     }

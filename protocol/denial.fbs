@@ -74,7 +74,8 @@ enum ShellActionKind : ubyte {
   Clipboard = 4,
   ScreenshotRegion = 5,
   ScreenshotTextureReady = 6,
-  ScreenshotDone = 7
+  ScreenshotDone = 7,
+  ClientPointerPressed = 8
 }
 
 enum KeyboardCommandKind : ubyte {
@@ -169,6 +170,18 @@ enum DesktopNotificationCommandKind : ubyte {
   InvokeDefault = 2
 }
 
+enum XEmbedTrayEventKind : ubyte {
+  Added = 0,
+  Updated = 1,
+  Removed = 2
+}
+
+enum XEmbedTrayCommandKind : ubyte {
+  Activate = 0,
+  SecondaryActivate = 1,
+  ContextMenu = 2
+}
+
 enum SystemBarSide : ubyte {
   Left = 0,
   Right = 1,
@@ -197,6 +210,7 @@ struct WireSize {
 // InputLayout.flags:
 //   bit 0: Flutter captures the keyboard
 //   bit 1: Flutter shell is exclusive
+//   bit 2: Flutter observes client pointer presses without consuming them
 // InputWindowRegion.flags:
 //   bit 0: visible
 //   bit 1: hit-test disabled
@@ -592,6 +606,30 @@ table DesktopNotificationCommand {
   action_key:string;
 }
 
+// A bounded snapshot of one legacy XEmbed icon hosted inside Xwayland. Pixels
+// are premultiplied RGBA8888 so Flutter never has to sample an off-screen X11
+// surface directly.
+table XEmbedTrayIcon {
+  window_id:uint;
+  title:string;
+  width:uint;
+  height:uint;
+  rgba:[ubyte];
+}
+
+table XEmbedTrayEvent {
+  kind:XEmbedTrayEventKind = Added;
+  window_id:uint;
+  icon:XEmbedTrayIcon;
+}
+
+table XEmbedTrayCommand {
+  kind:XEmbedTrayCommandKind = Activate;
+  window_id:uint;
+  x:int;
+  y:int;
+}
+
 union Payload {
   InputLayout,
   WindowSnapshot,
@@ -607,7 +645,9 @@ union Payload {
   DesktopNotificationCommand,
   SettingsRequest,
   SettingsResponse,
-  TextInputState
+  TextInputState,
+  XEmbedTrayEvent,
+  XEmbedTrayCommand
 }
 
 table Envelope {

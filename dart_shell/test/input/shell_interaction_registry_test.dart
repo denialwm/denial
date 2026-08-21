@@ -40,6 +40,7 @@ void main() {
           pointerPolicy: ShellPointerPolicy.fullScene,
           keyboardPolicy: ShellKeyboardPolicy.capture,
           compositorPolicy: ShellCompositorPolicy.exclusive,
+          observeClientPointerPresses: true,
         ),
       );
       expect(
@@ -54,6 +55,12 @@ void main() {
         container.read(shellInteractionRegistryProvider).compositorExclusive,
         isTrue,
       );
+      expect(
+        container
+            .read(shellInteractionRegistryProvider)
+            .observesClientPointerPresses,
+        isTrue,
+      );
 
       registry.remove(modalId);
       expect(
@@ -62,6 +69,12 @@ void main() {
       );
       expect(
         container.read(shellInteractionRegistryProvider).capturesKeyboard,
+        isFalse,
+      );
+      expect(
+        container
+            .read(shellInteractionRegistryProvider)
+            .observesClientPointerPresses,
         isFalse,
       );
     },

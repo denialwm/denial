@@ -208,13 +208,15 @@ class _DenialShellAppState extends ConsumerState<DenialShellApp> {
             fit: StackFit.expand,
             children: [
               ShellSurfaceHost(
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    DesktopShell(),
-                    SystemLevelHudLayer(),
-                    NotificationBannerLayer(),
-                  ],
+                child: _DesktopSceneOverlayHost(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      DesktopShell(),
+                      SystemLevelHudLayer(),
+                      NotificationBannerLayer(),
+                    ],
+                  ),
                 ),
               ),
               ScreenshotSelectionLayer(),
@@ -304,6 +306,49 @@ class _ShellOverlayHostState extends State<_ShellOverlayHost> {
     if (_sceneEntry.mounted) {
       _sceneEntry.remove();
     }
+    _sceneEntry.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Overlay(initialEntries: <OverlayEntry>[_sceneEntry]);
+  }
+}
+
+/// Keeps desktop popups inside the desktop scene's paint plane.
+///
+/// The screenshot selection layer is a sibling above this overlay. Its frozen
+/// texture therefore contains open menus, while its selection controls always
+/// paint and receive input above those menus.
+class _DesktopSceneOverlayHost extends StatefulWidget {
+  const _DesktopSceneOverlayHost({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_DesktopSceneOverlayHost> createState() =>
+      _DesktopSceneOverlayHostState();
+}
+
+class _DesktopSceneOverlayHostState extends State<_DesktopSceneOverlayHost> {
+  late final OverlayEntry _sceneEntry;
+
+  @override
+  void initState() {
+    super.initState();
+    _sceneEntry = OverlayEntry(builder: (_) => widget.child);
+  }
+
+  @override
+  void didUpdateWidget(covariant _DesktopSceneOverlayHost oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _sceneEntry.markNeedsBuild();
+  }
+
+  @override
+  void dispose() {
+    _sceneEntry.remove();
     _sceneEntry.dispose();
     super.dispose();
   }

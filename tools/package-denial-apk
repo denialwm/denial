@@ -1,0 +1,431 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+readonly ROOT
+
+readonly ALPINE_VERSION='3.24.1'
+readonly ALPINE_BRANCH='v3.24'
+readonly ALPINE_ARCH='x86_64'
+readonly MINIROOTFS_NAME="alpine-minirootfs-${ALPINE_VERSION}-${ALPINE_ARCH}.tar.gz"
+readonly MINIROOTFS_URL="https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/releases/${ALPINE_ARCH}/${MINIROOTFS_NAME}"
+readonly MINIROOTFS_SHA256='41f73e3cf5fa919b8aa5ca6b30dc48f0da2720776d7423e2a7748211456fe081'
+
+fail() {
+  printf 'package-denial-apk: %s\n' "$*" >&2
+  exit 1
+}
+
+CACHE_ROOT="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
+BUILD_ROOT="$(readlink -m -- "${DENIAL_PC_BUILD_ROOT:-$CACHE_ROOT/denial/pc-build}")"
+PACKAGE_INPUT_ROOT="$(readlink -m -- "${DENIAL_PC_PACKAGE_INPUT_ROOT:-$BUILD_ROOT/package-input}")"
+NATIVE_STAGE="$(readlink -m -- "${DENIAL_PACKAGE_STAGE_ROOT:-$PACKAGE_INPUT_ROOT/native}")"
+ALPINE_STAGE="$(readlink -m -- "${DENIAL_PACKAGE_ALPINE_STAGE_ROOT:-$PACKAGE_INPUT_ROOT/alpine}")"
+PACKAGE_ROOT="$(readlink -m -- "${DENIAL_PC_PACKAGE_ROOT:-$BUILD_ROOT/packages}")"
+ALPINE_ROOT="$(readlink -m -- "${DENIAL_PC_ALPINE_ROOT:-$BUILD_ROOT/alpine-package}")"
+ALPINE_CACHE_ROOT="$(readlink -m -- "${DENIAL_ALPINE_CACHE_ROOT:-$CACHE_ROOT/denial/alpine}")"
+PREPARED_STAGE="${DENIAL_ALPINE_PREPARED_STAGE_ROOT:-}"
+PACKAGER="${DENIAL_PACKAGE_PACKAGER:-Doctor Logix <doctor.logix@gmail.com>}"
+EVIDENCE_FILE="${DENIAL_ALPINE_EVIDENCE_FILE:-}"
+
+for required_command in \
+  basename bsdtar bwrap cat chmod cp curl dirname find grep head install jq \
+  mktemp mv readlink realpath rm sed sha256sum sort xargs; do
+  command -v "$required_command" >/dev/null 2>&1 \
+    || fail "missing command: $required_command"
+done
+
+for path in \
+  "$BUILD_ROOT" "$PACKAGE_INPUT_ROOT" "$NATIVE_STAGE" "$ALPINE_STAGE" \
+  "$PACKAGE_ROOT" "$ALPINE_ROOT" "$ALPINE_CACHE_ROOT"; do
+  [[ "$path" == /* && "$path" != / && "$path" != /home \
+    && "$path" != "${HOME:-}" ]] || fail "unsafe build path: $path"
+done
+[[ "$NATIVE_STAGE" == "$PACKAGE_INPUT_ROOT/native" ]] \
+  || fail 'native stage must be the native child of the package-input root'
+[[ "$ALPINE_STAGE" == "$PACKAGE_INPUT_ROOT/alpine" ]] \
+  || fail 'Alpine stage must be the alpine child of the package-input root'
+
+if [[ -n "$PREPARED_STAGE" ]]; then
+  PREPARED_STAGE="$(realpath -e -- "$PREPARED_STAGE")"
+  [[ -d "$PREPARED_STAGE/denial" \
+    && -d "$PREPARED_STAGE/denial-flutter-engine" \
+    && -f "$PREPARED_STAGE/metadata.json" ]] \
+    || fail "prepared Alpine stage is incomplete: $PREPARED_STAGE"
+elif [[ "${DENIAL_PROMOTION_MODE:-0}" == 1 ]]; then
+  fail 'promotion requires DENIAL_ALPINE_PREPARED_STAGE_ROOT'
+elif [[ "${DENIAL_PACKAGE_SKIP_STAGE:-0}" != 1 ]]; then
+  "$ROOT/tools/stage-denial-runtime"
+fi
+
+metadata_root="${PREPARED_STAGE:-$NATIVE_STAGE}"
+[[ -f "$metadata_root/metadata.json" ]] \
+  || fail "staged metadata is missing: $metadata_root/metadata.json"
+mapfile -t native_metadata < <(
+  "$ROOT/tools/read-denial-native-metadata" "$metadata_root/metadata.json"
+)
+((${#native_metadata[@]} == 7)) || fail 'staged metadata is invalid'
+PACKAGE_VERSION="${native_metadata[0]}"
+PACKAGE_RELEASE="${native_metadata[1]}"
+BUILD_IDENTITY="${native_metadata[2]}"
+SOURCE_DATE_EPOCH="${native_metadata[3]}"
+FLUTTER_ENGINE_ABI="${native_metadata[5]}"
+readonly PACKAGE_VERSION PACKAGE_RELEASE BUILD_IDENTITY SOURCE_DATE_EPOCH
+readonly FLUTTER_ENGINE_ABI
+
+[[ "$PACKAGE_VERSION" != *-* ]] \
+  || fail 'Alpine package versions cannot contain a hyphen'
+[[ "$PACKAGE_RELEASE" =~ ^[0-9]+$ ]] \
+  || fail 'package release must be numeric'
+if [[ "$PACKAGE_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.r([0-9]+)\.g[0-9a-f]{8}$ ]]; then
+  # Alpine accepts its ordered _git suffix, but not Denial's cross-format
+  # .rCOUNT.gCOMMIT development identity. The full source identity remains in
+  # metadata and provenance; the APK version uses the monotonic commit count.
+  APK_VERSION="${BASH_REMATCH[1]}_git${BASH_REMATCH[2]}"
+elif [[ "$PACKAGE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  APK_VERSION="$PACKAGE_VERSION"
+else
+  fail "cannot map package version to Alpine syntax: $PACKAGE_VERSION"
+fi
+readonly APK_VERSION
+if [[ -n "$PREPARED_STAGE" ]]; then
+  [[ -f "$PREPARED_STAGE/denial/usr/share/denial/version" ]] \
+    || fail 'prepared release payload has no installed runtime version'
+fi
+
+install -d -m 0755 "$PACKAGE_ROOT" "$ALPINE_ROOT" "$ALPINE_CACHE_ROOT"
+archive="${DENIAL_ALPINE_MINIROOTFS:-$ALPINE_CACHE_ROOT/$MINIROOTFS_NAME}"
+if [[ -n "${DENIAL_ALPINE_MINIROOTFS:-}" ]]; then
+  archive="$(realpath -e -- "$archive")"
+elif [[ ! -f "$archive" ]]; then
+  partial="$archive.partial.$$"
+  cleanup_partial() {
+    [[ "$partial" == "$ALPINE_CACHE_ROOT/$MINIROOTFS_NAME.partial."* ]] \
+      && rm -f -- "$partial"
+  }
+  trap cleanup_partial EXIT
+  curl \
+    --fail \
+    --location \
+    --proto '=https' \
+    --tlsv1.2 \
+    --output "$partial" \
+    "$MINIROOTFS_URL"
+  printf '%s  %s\n' "$MINIROOTFS_SHA256" "$partial" \
+    | sha256sum --check --strict -
+  mv -- "$partial" "$archive"
+  trap - EXIT
+fi
+printf '%s  %s\n' "$MINIROOTFS_SHA256" "$archive" \
+  | sha256sum --check --strict -
+
+work_root="$(mktemp -d "$ALPINE_ROOT/build.XXXXXX")"
+cleanup() {
+  if [[ "$work_root" == "$ALPINE_ROOT/build."* ]]; then
+    rm -rf --one-file-system -- "$work_root"
+  fi
+}
+trap cleanup EXIT
+
+rootfs="$work_root/rootfs"
+build_mount="$work_root/build"
+package_mount="$work_root/packages"
+install -d -m 0755 \
+  "$rootfs" "$build_mount/repository/denial" "$package_mount"
+(
+  umask 022
+  bsdtar -xpf "$archive" -C "$rootfs"
+)
+printf '%s\n' \
+  "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/main" \
+  "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/community" \
+  >"$rootfs/etc/apk/repositories"
+
+run_alpine() {
+  local network="$1"
+  shift
+  local -a command=(
+    bwrap
+    --die-with-parent
+    --unshare-user
+    --unshare-pid
+    --unshare-ipc
+    --unshare-uts
+    --new-session
+    --bind "$rootfs" /
+    --bind "$build_mount" /build
+    --bind "$package_mount" /packages
+    # The runner service exposes a ProtectProc=invisible procfs.  Reuse that
+    # already restricted view read-only: mounting a fresh procfs is rejected
+    # inside the fully hardened service even though user namespaces work.
+    --ro-bind /proc /proc
+    --dev /dev
+    --tmpfs /tmp
+    --setenv HOME /root
+    --setenv PATH /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    --setenv CBUILD "$ALPINE_ARCH"
+    --setenv CHOST "$ALPINE_ARCH"
+    --setenv CARCH "$ALPINE_ARCH"
+    --setenv PACKAGER "$PACKAGER"
+    --setenv SOURCE_DATE_EPOCH "$SOURCE_DATE_EPOCH"
+    --setenv DENIAL_PACKAGE_VERSION "$APK_VERSION"
+    --setenv DENIAL_PACKAGE_RELEASE "$PACKAGE_RELEASE"
+  )
+  if [[ "$network" == online ]]; then
+    command+=(--ro-bind /etc/resolv.conf /etc/resolv.conf)
+  elif [[ "$network" == offline ]]; then
+    command+=(--unshare-net)
+  else
+    fail "invalid Alpine network policy: $network"
+  fi
+  if [[ -n "$PREPARED_STAGE" ]]; then
+    command+=(
+      --ro-bind "$PREPARED_STAGE" /prepared
+      --setenv DENIAL_ALPINE_PREPARED_STAGE_ROOT /prepared
+    )
+  else
+    command+=(
+      --ro-bind "$NATIVE_STAGE" /stage
+      --setenv DENIAL_PACKAGE_STAGE_ROOT /stage
+    )
+  fi
+  command+=(-- "$@")
+  "${command[@]}"
+}
+
+if [[ -n "$PREPARED_STAGE" ]]; then
+  run_alpine online \
+    /sbin/apk add --no-cache '!abuild-sudo' abuild coreutils
+else
+  # abuild-sudo is an install_if subpackage rather than a dependency of
+  # abuild.  The rootless package build does not use it, and the runner
+  # deliberately enforces RestrictSUIDSGID=yes, so exclude that helper and
+  # request only the actual build tools instead of the alpine-sdk metapackage.
+  run_alpine online \
+    /sbin/apk add --no-cache \
+    '!abuild-sudo' abuild build-base coreutils patchelf
+fi
+
+for source_file in \
+  APKBUILD \
+  denial-alpine-session \
+  denial-pthread-stack.c \
+  denial-resolver-bridge.c \
+  denial-runtime-dirs \
+  denial.desktop \
+  denial.post-install \
+  denial.pre-deinstall; do
+  install -m 0644 \
+    "$ROOT/packaging/alpine/$source_file" \
+    "$build_mount/repository/denial/$source_file"
+done
+chmod 0755 \
+  "$build_mount/repository/denial/denial-alpine-session" \
+  "$build_mount/repository/denial/denial-runtime-dirs" \
+  "$build_mount/repository/denial/denial.post-install" \
+  "$build_mount/repository/denial/denial.pre-deinstall"
+
+# abuild always signs its control stream. Use a throwaway key during assembly,
+# then remove that stream so branch candidates and promotion outputs remain
+# explicitly unsigned until the normal release-signing job.
+run_alpine offline /bin/sh -eu -c '
+  install -d -m 0700 /root/.abuild
+  openssl genrsa -out /root/.abuild/denial-candidate.rsa 2048 >/dev/null 2>&1
+  openssl rsa \
+    -in /root/.abuild/denial-candidate.rsa \
+    -pubout \
+    -out /root/.abuild/denial-candidate.rsa.pub >/dev/null 2>&1
+  cp /root/.abuild/denial-candidate.rsa.pub \
+    /etc/apk/keys/denial-candidate.rsa.pub
+  printf "%s\n" \
+    "PACKAGER_PRIVKEY=/root/.abuild/denial-candidate.rsa" \
+    > /root/.abuild/abuild.conf
+'
+
+if [[ -n "$PREPARED_STAGE" ]]; then
+  build_command=(rootpkg)
+else
+  build_command=()
+fi
+run_alpine offline \
+  /usr/bin/abuild \
+    -F \
+    -d \
+    -P /packages \
+    -C /build/repository/denial \
+    "${build_command[@]}"
+
+mapfile -d '' built_packages < <(
+  find "$package_mount" -type f -name '*.apk' -print0 | sort -z
+)
+((${#built_packages[@]} == 2)) \
+  || fail "expected two APK outputs, found ${#built_packages[@]}"
+
+strip_signature() {
+  local package="$1"
+  local split_root="$work_root/split"
+  rm -rf --one-file-system -- "$split_root"
+  install -d -m 0755 "$split_root" "$rootfs/split"
+  cp -- "$package" "$split_root/input.apk"
+  bwrap \
+    --die-with-parent \
+    --unshare-user \
+    --unshare-pid \
+    --unshare-net \
+    --unshare-ipc \
+    --unshare-uts \
+    --new-session \
+    --ro-bind "$rootfs" / \
+    --bind "$split_root" /split \
+    --ro-bind /proc /proc \
+    --dev /dev \
+    --tmpfs /tmp \
+    --chdir /split \
+    --setenv PATH /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    -- /bin/sh -eu -c '/usr/bin/abuild-gzsplit < input.apk'
+  [[ -f "$split_root/control.tar.gz" \
+    && -f "$split_root/data.tar.gz" \
+    && -f "$split_root/signatures.tar.gz" ]] \
+    || fail "could not split APK signature: $package"
+  cat "$split_root/control.tar.gz" "$split_root/data.tar.gz" \
+    >"$split_root/unsigned.apk"
+  chmod 0644 "$split_root/unsigned.apk"
+  cp -- "$split_root/unsigned.apk" "$PACKAGE_ROOT/$(basename -- "$package")"
+}
+
+for package in "${built_packages[@]}"; do
+  strip_signature "$package"
+done
+
+expected_files=(
+  "$PACKAGE_ROOT/denial-${APK_VERSION}-r${PACKAGE_RELEASE}.apk"
+  "$PACKAGE_ROOT/denial-flutter-engine-${APK_VERSION}-r${PACKAGE_RELEASE}.apk"
+)
+for package in "${expected_files[@]}"; do
+  [[ -f "$package" ]] || fail "expected APK is missing: $package"
+  if bsdtar -tf "$package" | grep -Eq '^\.SIGN\.'; then
+    fail "APK retained a development signature: $package"
+  fi
+done
+
+write_manifest() (
+  cd -- "$1"
+  find . -type f -print0 | sort -z | xargs -0 sha256sum >"$2"
+)
+
+write_inventory() (
+  cd -- "$1"
+  find . -mindepth 1 \
+    \( -type l -printf '%m %y %p -> %l\n' \
+       -o -printf '%m %y %p\n' \) \
+    | sort >"$2"
+)
+
+if [[ -z "$PREPARED_STAGE" ]]; then
+  stage_parent="$(dirname -- "$ALPINE_STAGE")"
+  install -d -m 0755 "$stage_parent"
+  temporary_stage="$(mktemp -d "$stage_parent/alpine.XXXXXX")"
+  for package in "${expected_files[@]}"; do
+    package_name="$(
+      bsdtar -xOf "$package" .PKGINFO \
+        | sed -n 's/^pkgname = //p' \
+        | head -n 1
+    )"
+    case "$package_name" in
+      denial | denial-flutter-engine) ;;
+      *) fail "unexpected APK package name: ${package_name:-unset}" ;;
+    esac
+    install -d -m 0755 "$temporary_stage/$package_name"
+    bsdtar \
+      -xpf "$package" \
+      -C "$temporary_stage/$package_name" \
+      --exclude '.*'
+  done
+  install -m 0644 "$NATIVE_STAGE/metadata.json" \
+    "$temporary_stage/metadata.json"
+  {
+    printf 'adapter_schema=1\n'
+    printf 'alpine_version=%s\n' "$ALPINE_VERSION"
+    printf 'alpine_branch=%s\n' "$ALPINE_BRANCH"
+    printf 'alpine_arch=%s\n' "$ALPINE_ARCH"
+    printf 'minirootfs_sha256=%s\n' "$MINIROOTFS_SHA256"
+    printf 'source_build_identity=%s\n' "$BUILD_IDENTITY"
+    printf 'native_package_version=%s\n' "$PACKAGE_VERSION"
+    printf 'apk_package_version=%s\n' "$APK_VERSION"
+  } >"$temporary_stage/adapter.txt"
+  for package_name in denial denial-flutter-engine; do
+    write_manifest \
+      "$temporary_stage/$package_name" \
+      "$temporary_stage/$package_name.sha256"
+    write_inventory \
+      "$temporary_stage/$package_name" \
+      "$temporary_stage/$package_name.inventory"
+  done
+  (
+    cd "$temporary_stage"
+    mapfile -d '' stage_files < <(
+      find . -type f ! -name ALPINE-SHA256SUMS -print0 | sort -z
+    )
+    sha256sum -- "${stage_files[@]}" >ALPINE-SHA256SUMS
+    sha256sum --check --strict ALPINE-SHA256SUMS
+  )
+  if [[ -e "$ALPINE_STAGE" ]]; then
+    [[ -d "$ALPINE_STAGE" && ! -L "$ALPINE_STAGE" ]] \
+      || fail "existing Alpine stage is unsafe: $ALPINE_STAGE"
+    rm -rf --one-file-system -- "$ALPINE_STAGE"
+  fi
+  mv -- "$temporary_stage" "$ALPINE_STAGE"
+fi
+
+for package in "${expected_files[@]}"; do
+  package_name="$(
+    bsdtar -xOf "$package" .PKGINFO \
+      | sed -n 's/^pkgname = //p' \
+      | head -n 1
+  )"
+  package_version="$(
+    bsdtar -xOf "$package" .PKGINFO \
+      | sed -n 's/^pkgver = //p' \
+      | head -n 1
+  )"
+  package_arch="$(
+    bsdtar -xOf "$package" .PKGINFO \
+      | sed -n 's/^arch = //p' \
+      | head -n 1
+  )"
+  [[ "$package_version" == "$APK_VERSION-r$PACKAGE_RELEASE" ]] \
+    || fail "APK has unexpected version: $package_version"
+  [[ "$package_arch" == "$ALPINE_ARCH" ]] \
+    || fail "APK has unexpected architecture: $package_arch"
+  "$ROOT/tools/verify-denial-package-payload" \
+    apk "$package" "${PREPARED_STAGE:-$ALPINE_STAGE}/$package_name"
+done
+
+if [[ -n "$EVIDENCE_FILE" ]]; then
+  EVIDENCE_FILE="$(readlink -m -- "$EVIDENCE_FILE")"
+  [[ ! -e "$EVIDENCE_FILE" ]] \
+    || fail "evidence output already exists: $EVIDENCE_FILE"
+  install -d -m 0755 "$(dirname -- "$EVIDENCE_FILE")"
+  {
+    printf 'alpine_version=%s\n' "$ALPINE_VERSION"
+    printf 'alpine_branch=%s\n' "$ALPINE_BRANCH"
+    printf 'alpine_arch=%s\n' "$ALPINE_ARCH"
+    printf 'minirootfs_url=%s\n' "$MINIROOTFS_URL"
+    printf 'minirootfs_sha256=%s\n' "$MINIROOTFS_SHA256"
+    printf 'package_version=%s\n' "$PACKAGE_VERSION"
+    printf 'apk_package_version=%s\n' "$APK_VERSION"
+    printf 'package_release=%s\n' "$PACKAGE_RELEASE"
+    printf 'prepared_payload=%s\n' "$([[ -n "$PREPARED_STAGE" ]] && printf true || printf false)"
+    printf '\n[installed build environment]\n'
+    run_alpine offline /sbin/apk --no-network info -vv
+  } >"$EVIDENCE_FILE"
+fi
+
+printf '%s\n' \
+  "Alpine ${ALPINE_VERSION} packages ready:" \
+  "${expected_files[0]}" \
+  "${expected_files[1]}"
+if [[ -z "$PREPARED_STAGE" ]]; then
+  printf 'Adapted Alpine payload: %s\n' "$ALPINE_STAGE"
+fi

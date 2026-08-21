@@ -14,6 +14,8 @@ import 'package:denial_dart_shell/src/models/display_layout.dart'
     show SystemBarSide;
 import 'package:denial_dart_shell/src/models/input_device_capabilities.dart';
 import 'package:denial_dart_shell/src/models/keyboard_configuration.dart';
+import 'package:denial_dart_shell/src/models/system_tray_item.dart'
+    as tray_model;
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/platform/denial_wire.dart' as wire;
 
@@ -649,6 +651,31 @@ void main() {
     },
   );
 
+  test('client pointer press notifications reach the shell', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final bridge = _startedBridge();
+    final events = <DenialShellActionEvent>[];
+    final subscription = bridge.shellActions.listen(events.add);
+    try {
+      await _sendToFlutter(
+        messenger,
+        _envelope(
+          wire.PayloadTypeId.ShellAction,
+          wire.ShellActionObjectBuilder(
+            action: wire.ShellActionKind.ClientPointerPressed,
+          ),
+        ),
+      );
+
+      expect(events, hasLength(1));
+      expect(events.single.action, DenialShellAction.clientPointerPressed);
+    } finally {
+      await subscription.cancel();
+      bridge.dispose();
+    }
+  });
+
   test(
     'native cursor positions are forwarded without pointer synthesis',
     () async {
@@ -885,6 +912,102 @@ void main() {
         wire.DesktopNotificationCommandKind.InvokeDefault,
       );
       expect(commands[2].actionKey, isNull);
+    } finally {
+      bridge.dispose();
+      messenger.setMockMessageHandler(wire.denialWireToNativeChannel, null);
+    }
+  });
+
+  test('XEmbed tray events are cached and forwarded', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final bridge = _startedBridge();
+    try {
+      await _sendToFlutter(
+        messenger,
+        _envelope(
+          wire.PayloadTypeId.XEmbedTrayEvent,
+          wire.XembedTrayEventObjectBuilder(
+            kind: wire.XembedTrayEventKind.Added,
+            windowId: 42,
+            icon: wire.XembedTrayIconObjectBuilder(
+              windowId: 42,
+              title: 'Steam',
+              width: 1,
+              height: 1,
+              rgba: const <int>[10, 20, 30, 255],
+            ),
+          ),
+        ),
+      );
+
+      expect(bridge.xembedTrayItems.keys, <int>[42]);
+      expect(bridge.xembedTrayItems[42]!.title, 'Steam');
+      expect(
+        bridge.xembedTrayItems[42]!.source,
+        tray_model.SystemTrayItemSource.xEmbed,
+      );
+
+      final events = <tray_model.XEmbedTrayEvent>[];
+      final subscription = bridge.xembedTrayEvents.listen(events.add);
+      await _sendToFlutter(
+        messenger,
+        _envelope(
+          wire.PayloadTypeId.XEmbedTrayEvent,
+          wire.XembedTrayEventObjectBuilder(
+            kind: wire.XembedTrayEventKind.Removed,
+            windowId: 42,
+          ),
+        ),
+      );
+      expect(events.single.kind, tray_model.XEmbedTrayEventKind.removed);
+      expect(bridge.xembedTrayItems, isEmpty);
+      await subscription.cancel();
+    } finally {
+      bridge.dispose();
+    }
+  });
+
+  test('XEmbed tray actions are encoded for native', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final commands = <wire.XembedTrayCommand>[];
+    messenger.setMockMessageHandler(wire.denialWireToNativeChannel, (
+      message,
+    ) async {
+      final envelope = wire.Envelope(_bytes(message!));
+      expect(envelope.payloadType, wire.PayloadTypeId.XEmbedTrayCommand);
+      commands.add(envelope.payload as wire.XembedTrayCommand);
+      return null;
+    });
+    final bridge = _startedBridge();
+    try {
+      expect(
+        bridge.invokeXEmbedTrayAction(
+          42,
+          tray_model.SystemTrayAction.secondaryActivate,
+          const Offset(-320, 1440),
+        ),
+        isTrue,
+      );
+      expect(
+        bridge.invokeXEmbedTrayAction(
+          0,
+          tray_model.SystemTrayAction.activate,
+          Offset.zero,
+        ),
+        isFalse,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(commands, hasLength(1));
+      expect(
+        commands.single.kind,
+        wire.XembedTrayCommandKind.SecondaryActivate,
+      );
+      expect(commands.single.windowId, 42);
+      expect(commands.single.x, -320);
+      expect(commands.single.y, 1440);
     } finally {
       bridge.dispose();
       messenger.setMockMessageHandler(wire.denialWireToNativeChannel, null);

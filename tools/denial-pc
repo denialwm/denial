@@ -114,6 +114,7 @@ Commands:
   arch-package      Build an installable Arch Linux package
   debian-package    Build installable Debian-family packages
   fedora-package    Build installable Fedora RPM packages
+  alpine-package    Build installable Alpine Linux APK packages
   native-packages   Build Debian-family and Fedora packages from one payload
   test              Run the Rust compositor test suite
   session           Run the real DRM session (normally invoked by a display manager)
@@ -1062,6 +1063,7 @@ case "${1:-}" in
     arch-package) "$ROOT/tools/package-denial-arch" ;;
     debian-package) "$ROOT/tools/package-denial-deb" ;;
     fedora-package) "$ROOT/tools/package-denial-rpm" ;;
+    alpine-package) "$ROOT/tools/package-denial-apk" ;;
     native-packages) "$ROOT/tools/package-denial-native" ;;
     test) test_compositor ;;
     session) run_display_manager_session ;;

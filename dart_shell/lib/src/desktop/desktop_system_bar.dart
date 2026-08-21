@@ -17,6 +17,8 @@ import '../wallpaper/state/wallpaper_accent.dart';
 import '../widgets/notification_media.dart';
 import '../widgets/shell_backdrop_blur.dart';
 import '../widgets/shell_cursor.dart';
+import '../state/system_tray.dart';
+import 'system_tray_module.dart';
 
 /// The desktop system bar. Its strip is reserved from the window work area,
 /// so windows maximize beside it while true fullscreen covers it.
@@ -55,6 +57,7 @@ class DesktopSystemBar extends ConsumerWidget {
     final batteryVisible = battery.capacity != null;
     final cpuVisible = cpu.current != null;
     final mediaVisible = media.available;
+    final trayItems = ref.watch(systemTrayProvider);
     return Padding(
       padding: horizontal
           ? const EdgeInsets.symmetric(
@@ -69,6 +72,30 @@ class DesktopSystemBar extends ConsumerWidget {
         direction: horizontal ? Axis.horizontal : Axis.vertical,
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
+          if (trayItems.isNotEmpty)
+            Expanded(
+              child: Align(
+                alignment: horizontal
+                    ? Alignment.centerLeft
+                    : Alignment.topCenter,
+                child: SingleChildScrollView(
+                  scrollDirection: horizontal ? Axis.horizontal : Axis.vertical,
+                  child: _SystemBarEntrance(
+                    key: const ValueKey('system-bar-tray'),
+                    index: 0,
+                    horizontal: horizontal,
+                    child: _SystemBarCard(
+                      accent: accent,
+                      child: SystemTrayModule(
+                        horizontal: horizontal,
+                        accent: accent.color,
+                        items: trayItems,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           if (mediaVisible)
             _SystemBarEntrance(
               key: const ValueKey('system-bar-media'),

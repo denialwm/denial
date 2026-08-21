@@ -1,0 +1,286 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+readonly ROOT
+
+fail() {
+  printf 'promote-denial-apk-candidate: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ "${DENIAL_PROMOTION_MODE:-0}" == 1 ]] \
+  || fail 'must run through tools/run-denial-promotion-no-build'
+
+if (($# != 5)); then
+  printf '%s\n' \
+    'Usage: tools/promote-denial-apk-candidate CANDIDATE_ROOT OUTPUT_ROOT RELEASE_TAG SOURCE_SHA EVIDENCE_FILE' \
+    >&2
+  exit 2
+fi
+
+for required_command in \
+  basename bsdtar cat cmp cp diff dirname find git grep head install jq mktemp \
+  paste realpath rm rmdir sed sha256sum sort touch xargs; do
+  command -v "$required_command" >/dev/null 2>&1 \
+    || fail "missing command: $required_command"
+done
+
+CANDIDATE_ROOT="$(realpath -e -- "$1")"
+OUTPUT_ROOT="$(realpath -m -- "$2")"
+RELEASE_TAG="$3"
+SOURCE_SHA="$4"
+EVIDENCE_FILE="$(realpath -m -- "$5")"
+readonly CANDIDATE_ROOT OUTPUT_ROOT RELEASE_TAG SOURCE_SHA EVIDENCE_FILE
+readonly CANDIDATE_PACKAGES="$CANDIDATE_ROOT/packages"
+readonly CANDIDATE_STAGE="$CANDIDATE_ROOT/alpine-payload"
+readonly CANDIDATE_PROVENANCE="$CANDIDATE_ROOT/evidence/provenance.txt"
+
+[[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+  || fail 'release tag must have the form vMAJOR.MINOR.PATCH'
+[[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] \
+  || fail 'source commit must be a complete Git commit ID'
+[[ -d "$CANDIDATE_PACKAGES" \
+  && -d "$CANDIDATE_STAGE/denial" \
+  && -d "$CANDIDATE_STAGE/denial-flutter-engine" \
+  && -f "$CANDIDATE_STAGE/metadata.json" \
+  && -f "$CANDIDATE_STAGE/ALPINE-SHA256SUMS" ]] \
+  || fail 'candidate Alpine package handoff is incomplete'
+[[ -f "$CANDIDATE_PROVENANCE" ]] \
+  || fail 'candidate provenance is missing'
+[[ "$(git -C "$ROOT" rev-parse HEAD)" == "$SOURCE_SHA" ]] \
+  || fail 'checked-out source does not match the candidate commit'
+[[ "$(git -C "$ROOT" rev-parse "${RELEASE_TAG}^{commit}")" == "$SOURCE_SHA" ]] \
+  || fail 'signed release tag does not identify the candidate commit'
+if ! git -C "$ROOT" diff --quiet \
+  || ! git -C "$ROOT" diff --cached --quiet; then
+  fail 'tracked release source contains changes'
+fi
+
+for expected in \
+  'artifact_class=production-release-candidate' \
+  'publication_authorized=false' \
+  'release_signing_eligible=true' \
+  'signature_status=unsigned' \
+  'package_release=0' \
+  'package_formats=arch,deb,rpm,apk' \
+  'native_payload_schema=1' \
+  'alpine_payload_schema=1' \
+  "build_identity=main.g$SOURCE_SHA" \
+  "source_commit=$SOURCE_SHA" \
+  'source_ref=refs/heads/main' \
+  'workflow_event=push' \
+  'compile_mode=release'; do
+  grep -Fxq "$expected" "$CANDIDATE_PROVENANCE" \
+    || fail "candidate provenance is missing: $expected"
+done
+(
+  cd "$CANDIDATE_PACKAGES"
+  sha256sum --check --strict SHA256SUMS
+) || fail 'candidate package checksums failed'
+(
+  cd "$CANDIDATE_STAGE"
+  sha256sum --check --strict ALPINE-SHA256SUMS
+) || fail 'candidate Alpine payload checksums failed'
+
+mapfile -t native_metadata < <(
+  "$ROOT/tools/read-denial-native-metadata" \
+    "$CANDIDATE_STAGE/metadata.json"
+)
+((${#native_metadata[@]} == 7)) \
+  || fail 'candidate Alpine metadata is invalid'
+CANDIDATE_VERSION="${native_metadata[0]}"
+CANDIDATE_RELEASE="${native_metadata[1]}"
+BUILD_IDENTITY="${native_metadata[2]}"
+SOURCE_DATE_EPOCH="${native_metadata[3]}"
+GLIBC_BASELINE="${native_metadata[4]}"
+FLUTTER_ENGINE_ABI="${native_metadata[5]}"
+FLUTTER_ENGINE_SHA256="${native_metadata[6]}"
+readonly CANDIDATE_VERSION CANDIDATE_RELEASE BUILD_IDENTITY SOURCE_DATE_EPOCH
+readonly GLIBC_BASELINE FLUTTER_ENGINE_ABI FLUTTER_ENGINE_SHA256
+[[ "$CANDIDATE_RELEASE" == 0 ]] \
+  || fail 'Alpine candidate payload is not package-release 0'
+[[ "$BUILD_IDENTITY" == "main.g$SOURCE_SHA" ]] \
+  || fail 'Alpine candidate build identity does not match main'
+[[ "$SOURCE_DATE_EPOCH" == "$(git -C "$ROOT" show -s --format=%ct "$SOURCE_SHA")" ]] \
+  || fail 'Alpine candidate timestamp does not match main'
+[[ ! -e "$CANDIDATE_STAGE/denial/usr/share/denial/version" ]] \
+  || fail 'main Alpine candidate predicts a public runtime version'
+for package_name in denial denial-flutter-engine; do
+  (
+    cd "$CANDIDATE_STAGE/$package_name"
+    sha256sum --check --strict --quiet \
+      "$CANDIDATE_STAGE/$package_name.sha256"
+  ) || fail "candidate Alpine $package_name payload hashes failed"
+done
+
+mapfile -d '' candidate_apks < <(
+  find "$CANDIDATE_PACKAGES" \
+    -maxdepth 1 -type f -name '*.apk' -print0 | sort -z
+)
+((${#candidate_apks[@]} == 2)) \
+  || fail "expected two candidate APKs, found ${#candidate_apks[@]}"
+candidate_names=()
+for package in "${candidate_apks[@]}"; do
+  if bsdtar -tf "$package" | grep -Eq '^\.SIGN\.'; then
+    fail "candidate APK is unexpectedly signed: $package"
+  fi
+  package_name="$(
+    bsdtar -xOf "$package" .PKGINFO \
+      | sed -n 's/^pkgname = //p' \
+      | head -n 1
+  )"
+  case "$package_name" in
+    denial | denial-flutter-engine) ;;
+    *) fail "unexpected candidate APK: ${package_name:-unset}" ;;
+  esac
+  "$ROOT/tools/verify-denial-package-payload" \
+    apk "$package" "$CANDIDATE_STAGE/$package_name"
+  candidate_names+=("$package_name")
+done
+[[ "$(printf '%s\n' "${candidate_names[@]}" | sort | paste -sd' ' -)" == \
+  'denial denial-flutter-engine' ]] \
+  || fail 'candidate APK set is incomplete'
+
+[[ ! -e "$EVIDENCE_FILE" ]] \
+  || fail "evidence output already exists: $EVIDENCE_FILE"
+install -d -m 0755 "$OUTPUT_ROOT" "$(dirname -- "$EVIDENCE_FILE")"
+work_root="$(mktemp -d "${TMPDIR:-/tmp}/denial-apk-promotion.XXXXXX")"
+cleanup() {
+  if [[ "$work_root" == "${TMPDIR:-/tmp}"/denial-apk-promotion.* ]]; then
+    rm -rf --one-file-system -- "$work_root"
+  fi
+}
+trap cleanup EXIT
+
+release_version="${RELEASE_TAG#v}"
+source_date_epoch="$(git -C "$ROOT" show -s --format=%ct "$SOURCE_SHA")"
+release_stage="$work_root/alpine"
+cp -a -- "$CANDIDATE_STAGE" "$release_stage"
+install -Dm644 /dev/null "$release_stage/denial/usr/share/denial/version"
+printf '%s\n' "$release_version" \
+  >"$release_stage/denial/usr/share/denial/version"
+find "$release_stage/denial" "$release_stage/denial-flutter-engine" -print0 \
+  | xargs -0 touch --no-dereference --date="@$source_date_epoch"
+
+jq \
+  --arg package_version "$release_version" \
+  --argjson package_release 1 \
+  --argjson source_date_epoch "$source_date_epoch" \
+  '.package_version = $package_version
+    | .package_release = $package_release
+    | .source_date_epoch = $source_date_epoch' \
+  "$CANDIDATE_STAGE/metadata.json" \
+  >"$release_stage/metadata.json"
+"$ROOT/tools/read-denial-native-metadata" \
+  "$release_stage/metadata.json" >/dev/null
+{
+  printf 'adapter_schema=1\n'
+  printf 'alpine_version=3.24.1\n'
+  printf 'alpine_branch=v3.24\n'
+  printf 'alpine_arch=x86_64\n'
+  printf 'minirootfs_sha256=41f73e3cf5fa919b8aa5ca6b30dc48f0da2720776d7423e2a7748211456fe081\n'
+  printf 'source_build_identity=%s\n' "$BUILD_IDENTITY"
+  printf 'native_package_version=%s\n' "$release_version"
+  printf 'apk_package_version=%s\n' "$release_version"
+} >"$release_stage/adapter.txt"
+
+write_manifest() (
+  cd -- "$1"
+  find . -type f -print0 | sort -z | xargs -0 sha256sum >"$2"
+)
+
+write_inventory() (
+  cd -- "$1"
+  find . -mindepth 1 \
+    \( -type l -printf '%m %y %p -> %l\n' \
+       -o -printf '%m %y %p\n' \) \
+    | sort >"$2"
+)
+
+for package_name in denial denial-flutter-engine; do
+  write_manifest \
+    "$release_stage/$package_name" \
+    "$release_stage/$package_name.sha256"
+  write_inventory \
+    "$release_stage/$package_name" \
+    "$release_stage/$package_name.inventory"
+done
+(
+  cd "$release_stage"
+  mapfile -d '' stage_files < <(
+    find . -type f ! -name ALPINE-SHA256SUMS -print0 | sort -z
+  )
+  sha256sum -- "${stage_files[@]}" >ALPINE-SHA256SUMS
+  sha256sum --check --strict ALPINE-SHA256SUMS
+)
+
+environment_evidence="$work_root/environment.txt"
+env \
+  LC_ALL=C \
+  DENIAL_PACKAGE_SKIP_STAGE=1 \
+  "DENIAL_ALPINE_PREPARED_STAGE_ROOT=$release_stage" \
+  "DENIAL_PC_BUILD_ROOT=$work_root/build" \
+  "DENIAL_PC_PACKAGE_INPUT_ROOT=$work_root/input" \
+  "DENIAL_PC_PACKAGE_ROOT=$OUTPUT_ROOT" \
+  "DENIAL_PC_ALPINE_ROOT=$work_root/abuild" \
+  "DENIAL_ALPINE_CACHE_ROOT=$work_root/cache" \
+  "DENIAL_ALPINE_EVIDENCE_FILE=$environment_evidence" \
+  "$ROOT/tools/package-denial-apk"
+
+expected_packages=(
+  "$OUTPUT_ROOT/denial-${release_version}-r1.apk"
+  "$OUTPUT_ROOT/denial-flutter-engine-${release_version}-r1.apk"
+)
+for package in "${expected_packages[@]}"; do
+  [[ -f "$package" ]] || fail "promoted APK is missing: $package"
+done
+
+comparison_root="$work_root/comparison"
+cp -a -- "$release_stage/denial" "$comparison_root"
+rm -- "$comparison_root/usr/share/denial/version"
+rmdir --ignore-fail-on-non-empty "$comparison_root/usr/share/denial"
+candidate_manifest="$work_root/candidate-denial.manifest"
+release_manifest="$work_root/release-denial.manifest"
+write_manifest "$CANDIDATE_STAGE/denial" "$candidate_manifest"
+write_manifest "$comparison_root" "$release_manifest"
+if ! cmp -- "$candidate_manifest" "$release_manifest"; then
+  diff -u -- "$candidate_manifest" "$release_manifest" >&2 || true
+  fail 'Alpine Denial payload changed during promotion'
+fi
+candidate_engine_manifest="$work_root/candidate-engine.manifest"
+release_engine_manifest="$work_root/release-engine.manifest"
+write_manifest \
+  "$CANDIDATE_STAGE/denial-flutter-engine" "$candidate_engine_manifest"
+write_manifest \
+  "$release_stage/denial-flutter-engine" "$release_engine_manifest"
+cmp -- "$candidate_engine_manifest" "$release_engine_manifest" \
+  || fail 'Alpine Flutter Engine payload changed during promotion'
+
+{
+  printf 'promotion_schema=1\n'
+  printf 'release_tag=%s\n' "$RELEASE_TAG"
+  printf 'release_version=%s\n' "$release_version"
+  printf 'source_commit=%s\n' "$SOURCE_SHA"
+  printf 'candidate_artifact_class=production-release-candidate\n'
+  printf 'package_formats=apk\n'
+  printf 'alpine_version=3.24.1\n'
+  printf 'cross_format_payloads_verified=true\n'
+  printf 'compiled_payloads_changed=false\n'
+  printf 'tag_metadata_only=true\n'
+  printf 'native_apk_signature=false\n'
+  printf 'detached_openpgp_signature_at_publication=true\n'
+  for package in "${expected_packages[@]}"; do
+    printf '\nrelease_file=%s\n' "$(basename -- "$package")"
+    printf 'release_sha256=%s\n' \
+      "$(sha256sum "$package" | awk '{ print $1 }')"
+  done
+  printf '\n[packaging environment]\n'
+  cat "$environment_evidence"
+} >"$EVIDENCE_FILE"
+
+printf '%s\n' \
+  "Promoted exact Alpine main-candidate payloads for $RELEASE_TAG" \
+  "Packages: $OUTPUT_ROOT" \
+  "Evidence: $EVIDENCE_FILE"

@@ -379,6 +379,31 @@ fn notification_command(
     builder.finished_data().to_vec()
 }
 
+fn xembed_tray_command(kind: fb::XEmbedTrayCommandKind, window_id: u32, x: i32, y: i32) -> Vec<u8> {
+    let mut builder = FlatBufferBuilder::new();
+    let command = fb::XEmbedTrayCommand::create(
+        &mut builder,
+        &fb::XEmbedTrayCommandArgs {
+            kind,
+            window_id,
+            x,
+            y,
+        },
+    );
+    let envelope = fb::Envelope::create(
+        &mut builder,
+        &fb::EnvelopeArgs {
+            protocol_version: PROTOCOL_VERSION,
+            sequence: 14,
+            payload_type: fb::Payload::XEmbedTrayCommand,
+            payload: Some(command.as_union_value()),
+            ..Default::default()
+        },
+    );
+    fb::finish_envelope_buffer(&mut builder, envelope);
+    builder.finished_data().to_vec()
+}
+
 fn envelope_without_payload(payload_type: fb::Payload) -> Vec<u8> {
     let mut builder = FlatBufferBuilder::new();
     let envelope = fb::Envelope::create(
@@ -1114,6 +1139,60 @@ fn validates_keyboard_and_notification_command_payloads() {
 }
 
 #[test]
+fn validates_xembed_tray_commands() {
+    let mut bridge = bridge();
+    for (kind, action) in [
+        (
+            fb::XEmbedTrayCommandKind::Activate,
+            XEmbedTrayAction::Activate,
+        ),
+        (
+            fb::XEmbedTrayCommandKind::SecondaryActivate,
+            XEmbedTrayAction::SecondaryActivate,
+        ),
+        (
+            fb::XEmbedTrayCommandKind::ContextMenu,
+            XEmbedTrayAction::ContextMenu,
+        ),
+    ] {
+        bridge
+            .handle(&xembed_tray_command(kind, 42, -320, 1440))
+            .unwrap();
+        assert_eq!(
+            bridge.drain_xembed_tray_commands().collect::<Vec<_>>(),
+            vec![XEmbedTrayCommand {
+                action,
+                window_id: 42,
+                x: -320,
+                y: 1440,
+            }]
+        );
+    }
+    assert!(matches!(
+        bridge.handle(&xembed_tray_command(
+            fb::XEmbedTrayCommandKind::Activate,
+            0,
+            0,
+            0,
+        )),
+        Err(WireError::Identity)
+    ));
+    assert!(matches!(
+        bridge.handle(&xembed_tray_command(
+            fb::XEmbedTrayCommandKind(255),
+            42,
+            0,
+            0,
+        )),
+        Err(WireError::Identity | WireError::Enumeration)
+    ));
+    assert!(matches!(
+        bridge.handle(&envelope_without_payload(fb::Payload::XEmbedTrayCommand)),
+        Err(WireError::Payload | WireError::FlatBuffer(_))
+    ));
+}
+
+#[test]
 fn rapid_keyboard_commands_remain_individual_and_ordered() {
     let mut bridge = bridge();
     let expected = "thequickbrownfox";
@@ -1387,6 +1466,27 @@ fn enforces_message_collection_and_command_queue_limits() {
         )),
         Err(WireError::Count)
     ));
+
+    bridge.pending_xembed_tray_commands = vec![
+        XEmbedTrayCommand {
+            action: XEmbedTrayAction::Activate,
+            window_id: 1,
+            x: 0,
+            y: 0,
+        };
+        MAX_PENDING_XEMBED_TRAY_COMMANDS
+    ]
+    .into_iter()
+    .collect();
+    assert!(matches!(
+        bridge.handle(&xembed_tray_command(
+            fb::XEmbedTrayCommandKind::Activate,
+            1,
+            0,
+            0,
+        )),
+        Err(WireError::Count)
+    ));
 }
 
 #[test]
@@ -1453,6 +1553,57 @@ fn encodes_notification_events_for_flutter() {
     assert_eq!(encoded.kind(), fb::DesktopNotificationEventKind::Closed);
     assert!(encoded.notification().is_none());
     assert_eq!(encoded.close_reason(), 2);
+}
+
+#[test]
+fn encodes_xembed_tray_events_for_flutter() {
+    let mut bridge = bridge();
+    let added = XEmbedTrayEvent {
+        kind: XEmbedTrayEventKind::Added,
+        window_id: 42,
+        icon: Some(super::super::xembed_tray::XEmbedTrayIcon {
+            window_id: 42,
+            title: "Steam".into(),
+            width: 1,
+            height: 1,
+            rgba: vec![10, 20, 30, 255],
+        }),
+    };
+    let envelope = fb::root_as_envelope(bridge.encode_xembed_tray_event(&added).unwrap()).unwrap();
+    let encoded = envelope.payload_as_xembed_tray_event().unwrap();
+    let icon = encoded.icon().unwrap();
+    assert_eq!(envelope.payload_type(), fb::Payload::XEmbedTrayEvent);
+    assert_eq!(encoded.kind(), fb::XEmbedTrayEventKind::Added);
+    assert_eq!(encoded.window_id(), 42);
+    assert_eq!(icon.title(), Some("Steam"));
+    assert_eq!(icon.rgba().unwrap().bytes(), &[10, 20, 30, 255]);
+
+    let removed = XEmbedTrayEvent {
+        kind: XEmbedTrayEventKind::Removed,
+        window_id: 42,
+        icon: None,
+    };
+    let envelope =
+        fb::root_as_envelope(bridge.encode_xembed_tray_event(&removed).unwrap()).unwrap();
+    let encoded = envelope.payload_as_xembed_tray_event().unwrap();
+    assert_eq!(encoded.kind(), fb::XEmbedTrayEventKind::Removed);
+    assert!(encoded.icon().is_none());
+
+    let malformed = XEmbedTrayEvent {
+        kind: XEmbedTrayEventKind::Updated,
+        window_id: 42,
+        icon: Some(super::super::xembed_tray::XEmbedTrayIcon {
+            window_id: 42,
+            title: "bad".into(),
+            width: 2,
+            height: 2,
+            rgba: vec![0; 4],
+        }),
+    };
+    assert!(matches!(
+        bridge.encode_xembed_tray_event(&malformed),
+        Err(WireError::Payload)
+    ));
 }
 
 #[test]
@@ -1550,6 +1701,14 @@ fn encodes_shell_actions_with_optional_monitor_and_ordered_sequence() {
     assert_eq!(envelope.sequence(), 3);
     assert_eq!(action.action(), fb::ShellActionKind::ScreenshotRegion);
     assert!(!action.has_monitor_id());
+
+    let bytes = bridge
+        .encode_shell_action(ShellAction::ClientPointerPressed, None)
+        .unwrap();
+    let envelope = fb::root_as_envelope(bytes).unwrap();
+    let action = envelope.payload_as_shell_action().unwrap();
+    assert_eq!(envelope.sequence(), 4);
+    assert_eq!(action.action(), fb::ShellActionKind::ClientPointerPressed);
 }
 
 #[test]

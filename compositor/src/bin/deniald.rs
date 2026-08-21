@@ -110,6 +110,9 @@ mod window_placement_store;
 #[cfg(feature = "flutter")]
 #[path = "deniald/wire.rs"]
 mod wire;
+#[cfg(feature = "flutter")]
+#[path = "deniald/xembed_tray.rs"]
+mod xembed_tray;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::error::Error;
@@ -185,6 +188,7 @@ use flutter_scene_sync::{
 use flutter_service_sync::{
     publish_software_keyboard_state, synchronize_authentication_boundary, synchronize_clipboard,
     synchronize_notification_events, synchronize_shell_keyboard, synchronize_system_control_events,
+    synchronize_xembed_tray,
 };
 #[cfg(feature = "flutter")]
 use flutter_session::{

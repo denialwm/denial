@@ -63,6 +63,7 @@ pub(super) struct RuntimeState {
     pub(super) flutter_input: flutter_runtime::InputQueue,
     #[cfg(feature = "flutter")]
     pub(super) touchpad_gestures: touchpad_gestures::TouchpadGestureRecognizer,
+    pub(super) keyboard_devices: BTreeMap<String, smithay::reexports::input::Device>,
     #[cfg(feature = "flutter")]
     pub(super) touchpad_devices: BTreeMap<String, smithay::reexports::input::Device>,
     #[cfg(feature = "flutter")]
@@ -175,6 +176,9 @@ impl RuntimeState {
         if let Some(frontend) = self.wayland.as_ref() {
             self.pending_window_events
                 .extend(frontend.replay_window_state_events());
+            if let Some(tray) = frontend.xembed_tray.as_ref() {
+                tray.request_replay();
+            }
         }
     }
 

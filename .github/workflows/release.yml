@@ -179,9 +179,95 @@ jobs:
             printf -- '- Compilation requested by this workflow: **no**\n'
           } >>"$GITHUB_STEP_SUMMARY"
 
+  promote-apk:
+    name: Promote exact Alpine payload without compilation
+    needs: resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Install isolated Alpine packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap libarchive-tools jq
+
+      - name: Check out the exact signed source tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.release_tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify promotion checkout
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.resolve.outputs.source_sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Download independently verified main candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.resolve.outputs.candidate_artifact }}
+          path: ${{ runner.temp }}/denial-main-candidate-transfer
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.resolve.outputs.candidate_run_id }}
+
+      - name: Extract exact main candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 0755 "$RUNNER_TEMP/denial-main-candidate"
+          tar \
+            --extract \
+            --file="$RUNNER_TEMP/denial-main-candidate-transfer/denial-main-candidate.tar" \
+            --directory="$RUNNER_TEMP/denial-main-candidate" \
+            --no-same-owner
+
+      - name: Repackage the pre-adapted Alpine payload
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          output_root="$RUNNER_TEMP/denial-promoted-apk/packages"
+          evidence_root="$RUNNER_TEMP/denial-promoted-apk/evidence"
+          install -d -m 0755 "$output_root" "$evidence_root"
+          tools/run-denial-promotion-no-build \
+            tools/promote-denial-apk-candidate \
+            "$RUNNER_TEMP/denial-main-candidate" \
+            "$output_root" \
+            "$RELEASE_TAG" \
+            "$SOURCE_SHA" \
+            "$evidence_root/apk-promotion.txt"
+          (
+            cd "$output_root"
+            sha256sum -- *.apk >SHA256SUMS
+            sha256sum --check --strict SHA256SUMS
+          )
+          tar \
+            --create \
+            --file="$RUNNER_TEMP/denial-promoted-apk.tar" \
+            --directory="$RUNNER_TEMP/denial-promoted-apk" \
+            .
+
+      - name: Upload promoted Alpine packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denial-release-apk-unsigned-${{ github.run_id }}
+          path: ${{ runner.temp }}/denial-promoted-apk.tar
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
   promote:
     name: Promote exact main payloads to tag-derived packages
-    needs: resolve
+    needs:
+      - resolve
+      - promote-apk
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     container:
@@ -216,6 +302,12 @@ jobs:
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
           run-id: ${{ needs.resolve.outputs.candidate_run_id }}
+
+      - name: Download promoted Alpine packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: denial-release-apk-unsigned-${{ github.run_id }}
+          path: ${{ runner.temp }}/denial-promoted-apk-transfer
 
       - name: Define isolated promotion paths
         shell: bash
@@ -264,8 +356,9 @@ jobs:
             'release_signing_eligible=true' \
             'signature_status=unsigned' \
             'package_release=0' \
-            'package_formats=arch,deb,rpm' \
+            'package_formats=arch,deb,rpm,apk' \
             'native_payload_schema=1' \
+            'alpine_payload_schema=1' \
             'compile_mode=release' \
             "source_commit=$SOURCE_SHA" \
             'source_ref=refs/heads/main' \
@@ -281,6 +374,22 @@ jobs:
             cd "$CANDIDATE_ROOT/native-payload"
             sha256sum --check --strict NATIVE-SHA256SUMS
           )
+          (
+            cd "$CANDIDATE_ROOT/alpine-payload"
+            sha256sum --check --strict ALPINE-SHA256SUMS
+          )
+          install -d -m 0755 "$RUNNER_TEMP/denial-promoted-apk"
+          tar \
+            --extract \
+            --file="$RUNNER_TEMP/denial-promoted-apk-transfer/denial-promoted-apk.tar" \
+            --directory="$RUNNER_TEMP/denial-promoted-apk" \
+            --no-same-owner
+          (
+            cd "$RUNNER_TEMP/denial-promoted-apk/packages"
+            sha256sum --check --strict SHA256SUMS
+          )
+          grep -Fxq 'compiled_payloads_changed=false' \
+            "$RUNNER_TEMP/denial-promoted-apk/evidence/apk-promotion.txt"
           printf 'Resolved retained artifact: %s\n' "$CANDIDATE_ARTIFACT"
 
       - name: Repackage exact payloads with signed-tag identity
@@ -355,6 +464,9 @@ jobs:
           install -m 0644 \
             "$NATIVE_PROMOTION_EVIDENCE" \
             "$UNSIGNED_ROOT/evidence/native-promotion.txt"
+          install -m 0644 \
+            "$RUNNER_TEMP/denial-promoted-apk/evidence/apk-promotion.txt" \
+            "$UNSIGNED_ROOT/evidence/apk-promotion.txt"
 
           mapfile -d '' packages < <(
             find "$PROMOTED_PACKAGE_ROOT" \
@@ -400,6 +512,28 @@ jobs:
           cp --reflink=auto -- \
             "${native_packages[@]}" "$UNSIGNED_ROOT/packages/"
 
+          mapfile -d '' apk_packages < <(
+            find "$RUNNER_TEMP/denial-promoted-apk/packages" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.apk' \
+              -print0 \
+              | sort -z
+          )
+          if ((${#apk_packages[@]} != 2)); then
+            printf 'Expected two promoted Alpine packages, found %d\n' \
+              "${#apk_packages[@]}" >&2
+            exit 1
+          fi
+          for expected_package in \
+            "denial-${RELEASE_VERSION}-r1.apk" \
+            "denial-flutter-engine-${RELEASE_VERSION}-r1.apk"; do
+            test -f \
+              "$RUNNER_TEMP/denial-promoted-apk/packages/$expected_package"
+          done
+          cp --reflink=auto -- \
+            "${apk_packages[@]}" "$UNSIGNED_ROOT/packages/"
+
           for package in "${packages[@]}"; do
             package_name="$(basename -- "$package")"
             bsdtar -xOf "$package" .PKGINFO \
@@ -424,6 +558,11 @@ jobs:
                 ;;
             esac
           done
+          for package in "${apk_packages[@]}"; do
+            package_name="$(basename -- "$package")"
+            bsdtar -xOf "$package" .PKGINFO \
+              >"$UNSIGNED_ROOT/evidence/package-metadata/${package_name}.PKGINFO"
+          done
 
           {
             printf 'public_beta=true\n'
@@ -435,7 +574,7 @@ jobs:
             printf 'promotion_workflow_run=%s\n' "$GITHUB_RUN_ID"
             printf 'promotion_workflow_attempt=%s\n' "$GITHUB_RUN_ATTEMPT"
             printf 'compiled_payloads_changed=false\n'
-            printf 'package_formats=arch,deb,rpm\n'
+            printf 'package_formats=arch,deb,rpm,apk\n'
             printf 'promotion_runner_os=%s\n' "$RUNNER_OS"
             printf 'promotion_runner_arch=%s\n' "$RUNNER_ARCH"
             printf 'promoted_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -443,7 +582,7 @@ jobs:
 
           (
             cd "$UNSIGNED_ROOT/packages"
-            sha256sum -- *.pkg.tar.zst *.deb *.rpm >SHA256SUMS
+            sha256sum -- *.pkg.tar.zst *.deb *.rpm *.apk >SHA256SUMS
             sha256sum --check --strict SHA256SUMS
           )
           namcap "$UNSIGNED_ROOT"/packages/*.pkg.tar.zst \
@@ -539,13 +678,15 @@ jobs:
             "main_candidate_run=$CANDIDATE_RUN_ID" \
             "promotion_workflow_run=$GITHUB_RUN_ID" \
             'compiled_payloads_changed=false' \
-            'package_formats=arch,deb,rpm'; do
+            'package_formats=arch,deb,rpm,apk'; do
             grep -Fxq "$expected" "$provenance"
           done
           grep -Fxq 'compiled_payloads_changed=false' \
             "$UNSIGNED_ROOT/evidence/promotion.txt"
           grep -Fxq 'compiled_payloads_changed=false' \
             "$UNSIGNED_ROOT/evidence/native-promotion.txt"
+          grep -Fxq 'compiled_payloads_changed=false' \
+            "$UNSIGNED_ROOT/evidence/apk-promotion.txt"
           (
             cd "$UNSIGNED_ROOT/packages"
             sha256sum --check --strict SHA256SUMS
@@ -683,11 +824,67 @@ jobs:
             "$RELEASE_VERSION" \
             1
 
+  verify-apk-publication:
+    name: Independently verify Alpine APK publication input
+    needs:
+      - resolve
+      - sign
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container:
+      image: archlinux:base-devel
+
+    steps:
+      - name: Install Alpine and OpenPGP verification tools
+        shell: bash
+        run: pacman -Syu --needed --noconfirm apk-tools git gnupg
+
+      - name: Check out the exact signed source tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.release_tag }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download signed repository
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: denial-release-signed-${{ github.run_id }}
+          path: ${{ runner.temp }}/denial-release-signed-transfer
+
+      - name: Extract signed repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 0755 "$RUNNER_TEMP/denial-release-signed"
+          tar \
+            --extract \
+            --file="$RUNNER_TEMP/denial-release-signed-transfer/denial-release-signed.tar" \
+            --directory="$RUNNER_TEMP/denial-release-signed" \
+            --no-same-owner
+
+      - name: Verify APK metadata, signatures, and dependency resolution
+        shell: bash
+        env:
+          EXPECTED_FINGERPRINT: ${{ vars.DENIAL_RELEASE_SIGNING_FINGERPRINT }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          test "$(
+            git -c safe.directory="$GITHUB_WORKSPACE" rev-parse HEAD
+          )" = "${{ needs.resolve.outputs.source_sha }}"
+          tools/verify-denial-published-apk-packages \
+            "$RUNNER_TEMP/denial-release-signed" \
+            "$EXPECTED_FINGERPRINT" \
+            "$RELEASE_VERSION" \
+            1
+
   publish:
     name: Publish GitHub Release and package repositories
     needs:
       - resolve
       - sign
+      - verify-apk-publication
       - verify-rpm-publication
     runs-on: ubuntu-24.04
     timeout-minutes: 30

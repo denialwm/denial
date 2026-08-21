@@ -1134,6 +1134,19 @@ fn process_input_event(
     mut event: InputEvent<LibinputInputBackend>,
 ) -> bool {
     if let InputEvent::DeviceAdded { device } = &mut event {
+        if Device::has_capability(device, DeviceCapability::Keyboard) {
+            if let Some(led_state) = state
+                .wayland
+                .as_ref()
+                .and_then(|frontend| frontend.seat.get_keyboard())
+                .map(|keyboard| keyboard.led_state())
+            {
+                device.led_update(led_state.into());
+            }
+            state
+                .keyboard_devices
+                .insert(device.sysname().to_owned(), device.clone());
+        }
         let touchpad = is_touchpad_device(device);
         if touchpad {
             let settings = state
@@ -1161,6 +1174,9 @@ fn process_input_event(
     }
 
     if let InputEvent::DeviceRemoved { device } = &event {
+        if Device::has_capability(device, DeviceCapability::Keyboard) {
+            state.keyboard_devices.remove(device.sysname());
+        }
         #[cfg(feature = "flutter")]
         {
             let previous_count = state.touchpad_devices.len();

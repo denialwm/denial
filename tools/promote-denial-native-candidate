@@ -79,7 +79,7 @@ for expected in \
   'release_signing_eligible=true' \
   'signature_status=unsigned' \
   'package_release=0' \
-  'package_formats=arch,deb,rpm' \
+  'package_formats=arch,deb,rpm,apk' \
   'native_payload_schema=1' \
   "build_identity=main.g$SOURCE_SHA" \
   "source_commit=$SOURCE_SHA" \

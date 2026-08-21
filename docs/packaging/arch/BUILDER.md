@@ -136,6 +136,9 @@ build outputs may survive jobs. Each ephemeral job resolves Flutter and Skia
 from the exact commits in `SOURCE_LOCK.json`, validating any retained detached
 projection before use; no cached source checkout is editable or authoritative.
 A matching verified artifact entry skips the engine build entirely.
+A separately checksum-verified Alpine minirootfs archive may survive below
+`/srv/denial-builder/cache/alpine`; each job re-extracts it into disposable
+storage and installs its declared APK build dependencies afresh.
 
 Audit the machine as the unprivileged runner account:
 

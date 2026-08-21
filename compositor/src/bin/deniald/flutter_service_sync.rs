@@ -122,6 +122,50 @@ pub(super) fn synchronize_notification_events(
 }
 
 #[cfg(feature = "flutter")]
+pub(super) fn synchronize_xembed_tray(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &mut RuntimeState,
+) -> Result<(), Box<dyn Error>> {
+    if let Some(tray) = events
+        .wayland
+        .as_ref()
+        .and_then(|frontend| frontend.xembed_tray.as_ref())
+    {
+        while let Some(event) = tray.try_event() {
+            if let Err(error) = runtime.send_xembed_tray_event(&event) {
+                warn!(
+                    %error,
+                    window = event.window_id,
+                    kind = ?event.kind,
+                    "dropping XEmbed tray event that Flutter could not accept"
+                );
+            }
+        }
+    }
+
+    let commands = runtime.drain_xembed_tray_commands().collect::<Vec<_>>();
+    if events.secure_session_locked() {
+        return Ok(());
+    }
+    let Some(tray) = events
+        .wayland
+        .as_ref()
+        .and_then(|frontend| frontend.xembed_tray.as_ref())
+    else {
+        return Ok(());
+    };
+    for command in commands {
+        if !tray.invoke(command) {
+            warn!(
+                window = command.window_id,
+                "could not queue Flutter XEmbed tray command"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "flutter")]
 pub(super) fn synchronize_shell_keyboard(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &mut RuntimeState,

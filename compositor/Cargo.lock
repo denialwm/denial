@@ -423,6 +423,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "winit",
+ "x11rb",
  "zbus",
 ]
 

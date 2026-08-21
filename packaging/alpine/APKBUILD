@@ -1,0 +1,154 @@
+# Maintainer: Doctor Logix <doctor.logix@gmail.com>
+
+pkgname=denial
+pkgver="${DENIAL_PACKAGE_VERSION:-0}"
+pkgrel="${DENIAL_PACKAGE_RELEASE:-0}"
+pkgdesc="Flutter-native Wayland compositor and desktop shell"
+url="https://github.com/denialwm/denial"
+arch="x86_64"
+license="GPL-3.0-or-later AND CC-BY-SA-4.0 AND GPL-3.0-only AND OFL-1.1"
+options="!check !strip !tracedeps"
+subpackages="$pkgname-flutter-engine:_flutter_engine"
+builddir="$srcdir"
+install="$pkgname.post-install $pkgname.pre-deinstall"
+
+# apk has no weak Recommends tier.  These fonts are therefore part of the
+# usable shell contract: Latin UI, Denial's Simplified Chinese locale, and
+# color emoji must render immediately after the package transaction.
+depends="
+	bash
+	coreutils
+	dbus
+	dbus-x11
+	denial-flutter-engine=$pkgver-r$pkgrel
+	elogind
+	eudev-libs
+	font-noto
+	font-noto-cjk
+	font-noto-emoji
+	gcompat
+	libgcc
+	libinput
+	libpulse
+	libseat
+	libxkbcommon
+	mesa-dri-gallium
+	mesa-egl
+	mesa-gbm
+	mesa-gles
+	openrc
+	pipewire
+	pipewire-pulse
+	polkit-elogind
+	polkit-gnome
+	rtkit
+	seatd
+	wireplumber
+	xdg-desktop-portal
+	xdg-desktop-portal-gtk
+	xdg-desktop-portal-wlr
+	xkeyboard-config
+	xwayland
+	"
+prepared_stage="${DENIAL_ALPINE_PREPARED_STAGE_ROOT:-}"
+if [ -n "$prepared_stage" ]; then
+	# Signed-tag promotion consumes the already adapted main-candidate payload.
+	# Keeping this branch free of build dependencies lets the promotion guard
+	# prove that no bridge or Denial binary is compiled again.
+	makedepends=""
+else
+	makedepends="coreutils gcc musl-dev patchelf"
+fi
+
+source="
+	denial-alpine-session
+	denial-pthread-stack.c
+	denial-resolver-bridge.c
+	denial-runtime-dirs
+	denial.desktop
+	"
+
+build() {
+	[ -z "$prepared_stage" ] || return 0
+
+	cc $CFLAGS $LDFLAGS -fPIC -shared \
+		-Wl,-soname,libdenial-resolver-bridge.so.0 \
+		-o libdenial-resolver-bridge.so.0 \
+		"$srcdir/denial-resolver-bridge.c"
+	cc $CFLAGS $LDFLAGS -fPIC -shared \
+		-Wl,-soname,libdenial-pthread-stack.so.0 \
+		-o libdenial-pthread-stack.so.0 \
+		"$srcdir/denial-pthread-stack.c" -pthread
+}
+
+package() {
+	if [ -n "$prepared_stage" ]; then
+		[ -d "$prepared_stage/denial" ] || return 1
+		[ -d "$prepared_stage/denial-flutter-engine" ] || return 1
+		install -d -m 0755 "$pkgdir"
+		cp -a --no-preserve=ownership \
+			"$prepared_stage/denial/." "$pkgdir/"
+		cp -a --no-preserve=ownership \
+			"$prepared_stage/denial-flutter-engine/." "$pkgdir/"
+		return 0
+	fi
+
+	local stage_root="${DENIAL_PACKAGE_STAGE_ROOT:?set DENIAL_PACKAGE_STAGE_ROOT to the staged native payload}"
+
+	[ -d "$stage_root/denial" ] || return 1
+	[ -d "$stage_root/denial-flutter-engine" ] || return 1
+	install -d -m 0755 "$pkgdir"
+	cp -a --no-preserve=ownership "$stage_root/denial/." "$pkgdir/"
+	cp -a --no-preserve=ownership \
+		"$stage_root/denial-flutter-engine/." "$pkgdir/"
+	# The neutral payload may have been staged by an older adapter that used
+	# Arch's /usr/bin/bash path.  Alpine installs Bash at /bin/bash.
+	sed -i '1s|^#!/usr/bin/bash$|#!/usr/bin/env bash|' \
+		"$pkgdir/usr/bin/denial-session"
+	grep -Fqx '#!/usr/bin/env bash' "$pkgdir/usr/bin/denial-session"
+
+	install -Dm755 "$srcdir/denial-alpine-session" \
+		"$pkgdir/usr/bin/denial-alpine-session"
+	install -Dm755 "$srcdir/denial-runtime-dirs" \
+		"$pkgdir/etc/init.d/denial-runtime-dirs"
+	install -Dm644 "$srcdir/denial.desktop" \
+		"$pkgdir/usr/share/wayland-sessions/denial.desktop"
+	install -Dm755 libdenial-resolver-bridge.so.0 \
+		"$pkgdir/usr/lib/denial/alpine/libdenial-resolver-bridge.so.0"
+	install -Dm755 libdenial-pthread-stack.so.0 \
+		"$pkgdir/usr/lib/denial/alpine/libdenial-pthread-stack.so.0"
+
+	patchelf --set-rpath /usr/lib/denial/alpine \
+		--add-needed libgcompat.so.0 \
+		--add-needed libdenial-resolver-bridge.so.0 \
+		--add-needed libdenial-pthread-stack.so.0 \
+		"$pkgdir/usr/bin/deniald"
+
+	# This target has meaning only to a systemd user manager.  Alpine uses the
+	# launcher's already-supported direct-child lifecycle instead.
+	rm -f "$pkgdir/usr/lib/systemd/user/denial-session.target"
+	rmdir -p --ignore-fail-on-non-empty \
+		"$pkgdir/usr/lib/systemd/user" 2>/dev/null || true
+}
+
+_flutter_engine() {
+	pkgdesc="Pinned Flutter Engine runtime for Denial"
+	license="BSD-3-Clause"
+	depends="fontconfig gcompat"
+	# Alpine versions cannot encode Denial's dotted engine-generation token as
+	# a version relation, so preserve it losslessly in the capability name.
+	provides="denial-flutter-engine-abi-3.44.7.denial1"
+	amove usr/lib/denial/flutter/data/icudtl.dat
+	amove usr/lib/denial/flutter/lib/libflutter_engine.so
+	amove usr/share/denial/flutter-engine
+	amove usr/share/doc/denial-flutter-engine
+	amove usr/share/licenses/denial-flutter-engine
+}
+
+sha512sums="
+8217ee1dedcbfc525c6c79ab4bf28a941e940ad5604cd38081cba1ca67c7d6911d9ff8444cd778d0a7f909c7e82c118ed020cdf05dfc10cbc116cc1b204aa204  denial-alpine-session
+e52a383dec45436cd3b620c161eea9d0db14be494dbe7bf2eb573a6d42552c9176e1e7b96581424d7d12e84aecd8fab62d094843fcc0b9efb5463fe61569f316  denial-pthread-stack.c
+e9b1fc3728bdfc128d3e517e18e7e15d20eaa4643eef3623d71defa53ed5f9335b025fa74e514cd21955207f3de004caf4c69e0b953c0780dedb6a32f74ed161  denial-resolver-bridge.c
+bc0d2106ca0820c6ea45be62c413a3d05d5234beceb6b321124c38a27527479c2261ff5652db3e009db5c41162767b5ebb570b4ed773f32c4164402564fa5e92  denial-runtime-dirs
+38c5a72ab4f519373c7e7d6e2ff650eb24d957b521d6c4525ef5aeb7d8a4531b7106b7dba280532a5ed0936d61ccf6aed981ce3ee45dd63c7a6d8b3ea50a9473  denial.desktop
+"

@@ -68,6 +68,7 @@ import 'desktop_panel_transition.dart';
 import 'desktop_pixel_alignment.dart';
 import 'retained_animated_positioned.dart';
 import 'desktop_system_bar.dart';
+import 'system_tray_module.dart';
 import 'desktop_texture_resize.dart';
 import 'desktop_window_coordinator.dart';
 import 'desktop_window_frame_painter.dart';
@@ -237,6 +238,8 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         }
       case DenialShellAction.screenshotDone:
         ref.read(screenshotSelectionProvider.notifier).done(event.requestId);
+      case DenialShellAction.clientPointerPressed:
+        dismissOpenSystemTrayMenu(ref);
     }
   }
 
@@ -1452,6 +1455,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                           windowsById[windowSwitcher.selectedObjectId],
                       stageBounds: switcherStageBounds,
                     ),
+                  const Positioned.fill(child: SystemTrayMenuDismissLayer()),
                   Positioned.fill(
                     key: const ValueKey<String>(
                       'desktop-launcher-dismiss-barrier',
@@ -2566,6 +2570,10 @@ class _DesktopAnimatedWindowPositionState
           : widget.duration,
       curve: _curve,
       rect: rect,
+      // Overview shadows and frames must follow the interpolated layout. A
+      // destination-first retained transform changes their geometry in the
+      // first frame and makes SUPER+A look like a scene replacement.
+      layoutDuringAnimation: _overviewTransitionActive,
       onEnd: () => _overviewTransitionActive = false,
       child: RetainedTranslation(
         translation: liveTranslation,

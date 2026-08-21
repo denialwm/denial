@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fail() {
+  printf 'verify-denial-published-apk-packages: %s\n' "$*" >&2
+  exit 1
+}
+
+if (($# != 4)); then
+  printf '%s\n' \
+    'Usage: verify-denial-published-apk-packages SIGNED_ROOT FINGERPRINT VERSION RELEASE' \
+    >&2
+  exit 2
+fi
+
+for command_name in \
+  apk awk basename bsdtar find gpg gpgconf grep head install mktemp paste \
+  realpath rm sed sort; do
+  command -v "$command_name" >/dev/null 2>&1 \
+    || fail "$command_name is required"
+done
+
+SIGNED_ROOT="$(realpath -e -- "$1")"
+FINGERPRINT="${2^^}"
+VERSION="$3"
+RELEASE="$4"
+readonly SIGNED_ROOT FINGERPRINT VERSION RELEASE
+
+[[ "$FINGERPRINT" =~ ^[0-9A-F]{40,64}$ ]] \
+  || fail 'fingerprint must be a complete OpenPGP fingerprint'
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+  || fail 'release version must be semantic'
+[[ "$RELEASE" =~ ^[0-9]+$ ]] \
+  || fail 'release must be numeric'
+
+work_root="$(
+  mktemp -d "${TMPDIR:-/tmp}/denial-apk-publish-verify.XXXXXX"
+)"
+cleanup() {
+  gpgconf --homedir "$work_root/gnupg" --kill all >/dev/null 2>&1 || true
+  if [[ "$work_root" == \
+    "${TMPDIR:-/tmp}"/denial-apk-publish-verify.* ]]; then
+    rm -rf --one-file-system -- "$work_root"
+  fi
+}
+trap cleanup EXIT
+
+export GNUPGHOME="$work_root/gnupg"
+install -d -m 0700 "$GNUPGHOME"
+actual_fingerprint="$(
+  gpg \
+    --batch \
+    --show-keys \
+    --with-colons \
+    --fingerprint \
+    "$SIGNED_ROOT/denial-repo-key.asc" \
+    | awk -F: '$1 == "fpr" { print toupper($10); exit }'
+)"
+[[ "$actual_fingerprint" == "$FINGERPRINT" ]] \
+  || fail "public key fingerprint is $actual_fingerprint"
+gpg --batch --import "$SIGNED_ROOT/denial-repo-key.asc"
+
+mapfile -d '' packages < <(
+  find "$SIGNED_ROOT/downloads/x86_64" \
+    -maxdepth 1 -type f -name '*.apk' -print0 | sort -z
+)
+((${#packages[@]} == 2)) \
+  || fail "expected two direct APKs, found ${#packages[@]}"
+
+names=()
+denial_package=''
+engine_package=''
+for package in "${packages[@]}"; do
+  [[ -f "${package}.sig" ]] \
+    || fail "detached signature is missing: $package"
+  gpg --batch --verify "${package}.sig" "$package"
+  if bsdtar -tf "$package" | grep -Eq '^\.SIGN\.'; then
+    fail "direct APK unexpectedly carries an unconfigured native signature"
+  fi
+  package_info="$(bsdtar -xOf "$package" .PKGINFO)"
+  package_name="$(
+    sed -n 's/^pkgname = //p' <<<"$package_info" | head -n 1
+  )"
+  package_version="$(
+    sed -n 's/^pkgver = //p' <<<"$package_info" | head -n 1
+  )"
+  package_arch="$(
+    sed -n 's/^arch = //p' <<<"$package_info" | head -n 1
+  )"
+  [[ "$package_version" == "$VERSION-r$RELEASE" ]] \
+    || fail "$(basename -- "$package") has version $package_version"
+  [[ "$package_arch" == x86_64 ]] \
+    || fail "$(basename -- "$package") targets $package_arch"
+  case "$package_name" in
+    denial)
+      denial_package="$package"
+      grep -Fqx \
+        "depend = denial-flutter-engine=$VERSION-r$RELEASE" \
+        <<<"$package_info" \
+        || fail 'Denial APK does not require its exact engine package'
+      [[ "$(
+        bsdtar -xOf "$package" usr/share/denial/version
+      )" == "$VERSION" ]] \
+        || fail 'installed runtime version does not match the release'
+      ;;
+    denial-flutter-engine)
+      engine_package="$package"
+      grep -Fqx \
+        'provides = denial-flutter-engine-abi-3.44.7.denial1' \
+        <<<"$package_info" \
+        || fail 'engine APK does not provide the expected ABI'
+      ;;
+    *) fail "unexpected APK package name: ${package_name:-unset}" ;;
+  esac
+  [[ "$(basename -- "$package")" == \
+    "${package_name}-${VERSION}-r${RELEASE}.apk" ]] \
+    || fail "unexpected APK filename: $(basename -- "$package")"
+  names+=("$package_name")
+done
+[[ "$(printf '%s\n' "${names[@]}" | sort | paste -sd' ' -)" == \
+  'denial denial-flutter-engine' ]] \
+  || fail 'direct APK set is incomplete'
+
+apk_root="$work_root/apk-root"
+install -d -m 0755 "$apk_root"
+apk \
+  --root "$apk_root" \
+  --arch x86_64 \
+  add \
+  --initdb \
+  --usermode
+apk \
+  --root "$apk_root" \
+  --arch x86_64 \
+  --allow-untrusted \
+  --repository 'https://dl-cdn.alpinelinux.org/alpine/v3.24/main' \
+  --repository 'https://dl-cdn.alpinelinux.org/alpine/v3.24/community' \
+  update
+apk \
+  --root "$apk_root" \
+  --arch x86_64 \
+  --allow-untrusted \
+  --force-non-repository \
+  --repository 'https://dl-cdn.alpinelinux.org/alpine/v3.24/main' \
+  --repository 'https://dl-cdn.alpinelinux.org/alpine/v3.24/community' \
+  add \
+  --simulate \
+  "$engine_package" \
+  "$denial_package"
+
+printf 'Verified Alpine 3.24 APK metadata, OpenPGP signatures, and dependency closure: %s\n' \
+  "$SIGNED_ROOT"

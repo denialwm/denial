@@ -21,6 +21,9 @@ use super::notification_server::{
 };
 use super::options::{SystemBarOptions, SystemBarSide, WorkAreaOptions};
 use super::settings::{KeyboardLayout, KeyboardSettings, TouchpadSettings};
+use super::xembed_tray::{
+    XEmbedTrayAction, XEmbedTrayCommand, XEmbedTrayEvent, XEmbedTrayEventKind,
+};
 
 #[allow(
     clippy::all,
@@ -64,6 +67,7 @@ const MAX_SURFACES: usize = 32768;
 const MAX_PENDING_WINDOW_COMMANDS: usize = 4096;
 const MAX_PENDING_KEYBOARD_COMMANDS: usize = 256;
 const MAX_PENDING_NOTIFICATION_COMMANDS: usize = 256;
+const MAX_PENDING_XEMBED_TRAY_COMMANDS: usize = 256;
 const MAX_PENDING_SETTINGS_COMMANDS: usize = 64;
 const MAX_SETTINGS_DOCUMENT_BYTES: usize = 256 * 1024;
 const MAX_LOCAL_APP_ID_BYTES: usize = 256;
@@ -78,6 +82,7 @@ const KEYBOARD_FLAGS_MASK: u32 = KEYBOARD_CTRL | KEYBOARD_PHASE_MASK;
 
 pub const INPUT_LAYOUT_KEYBOARD_CAPTURE: u32 = 1 << 0;
 pub const INPUT_LAYOUT_EXCLUSIVE_SHELL: u32 = 1 << 1;
+pub const INPUT_LAYOUT_OBSERVE_CLIENT_POINTER_PRESSES: u32 = 1 << 2;
 pub const INPUT_WINDOW_VISIBLE: u32 = 1 << 0;
 pub const INPUT_WINDOW_HIT_TEST_DISABLED: u32 = 1 << 1;
 pub const INPUT_WINDOW_GEOMETRY_LOCKED: u32 = 1 << 2;
@@ -227,6 +232,7 @@ pub enum ShellAction {
     ScreenshotRegion,
     ScreenshotTextureReady,
     ScreenshotDone,
+    ClientPointerPressed,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -254,6 +260,7 @@ impl ShellAction {
             Self::ScreenshotRegion => fb::ShellActionKind::ScreenshotRegion,
             Self::ScreenshotTextureReady => fb::ShellActionKind::ScreenshotTextureReady,
             Self::ScreenshotDone => fb::ShellActionKind::ScreenshotDone,
+            Self::ClientPointerPressed => fb::ShellActionKind::ClientPointerPressed,
         }
     }
 }
@@ -354,6 +361,10 @@ impl InputLayoutSnapshot {
 
     pub fn exclusive_shell(&self) -> bool {
         self.flags & INPUT_LAYOUT_EXCLUSIVE_SHELL != 0
+    }
+
+    pub fn observes_client_pointer_presses(&self) -> bool {
+        self.flags & INPUT_LAYOUT_OBSERVE_CLIENT_POINTER_PRESSES != 0
     }
 }
 
@@ -548,6 +559,7 @@ pub struct WireBridge {
     pending_window_commands: VecDeque<WindowCommand>,
     pending_keyboard_commands: VecDeque<KeyboardCommand>,
     pending_notification_commands: VecDeque<NotificationCommand>,
+    pending_xembed_tray_commands: VecDeque<XEmbedTrayCommand>,
     pending_settings_commands: VecDeque<SettingsCommand>,
     pending_work_area: Option<WorkAreaOptions>,
     next_sequence: u64,
@@ -573,6 +585,7 @@ impl WireBridge {
             pending_window_commands: VecDeque::new(),
             pending_keyboard_commands: VecDeque::new(),
             pending_notification_commands: VecDeque::new(),
+            pending_xembed_tray_commands: VecDeque::new(),
             pending_settings_commands: VecDeque::new(),
             pending_work_area: None,
             next_sequence: 1,
@@ -607,6 +620,10 @@ impl WireBridge {
         &mut self,
     ) -> impl Iterator<Item = NotificationCommand> + '_ {
         self.pending_notification_commands.drain(..)
+    }
+
+    pub fn drain_xembed_tray_commands(&mut self) -> impl Iterator<Item = XEmbedTrayCommand> + '_ {
+        self.pending_xembed_tray_commands.drain(..)
     }
 
     pub fn drain_settings_commands(&mut self) -> impl Iterator<Item = SettingsCommand> + '_ {

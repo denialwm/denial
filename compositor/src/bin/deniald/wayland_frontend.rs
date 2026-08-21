@@ -333,6 +333,8 @@ pub(super) struct WaylandFrontend {
     _viewporter_state: ViewporterState,
     _fractional_scale_manager_state: FractionalScaleManagerState,
     pub xwm: Option<X11Wm>,
+    #[cfg(feature = "flutter")]
+    pub xembed_tray: Option<super::xembed_tray::XEmbedTray>,
     xwayland_client: Client,
     xwayland_scale: u32,
     xdisplay: u32,

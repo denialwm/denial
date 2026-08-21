@@ -58,5 +58,10 @@ expect_blocked \
   'requires DENIAL_PACKAGE_SKIP_STAGE=1' \
   "$ROOT/tools/run-denial-promotion-no-build" \
     "$ROOT/tools/package-denial-rpm"
+expect_blocked \
+  'APK implicit adaptation' \
+  'promotion requires DENIAL_ALPINE_PREPARED_STAGE_ROOT' \
+  "$ROOT/tools/run-denial-promotion-no-build" \
+    "$ROOT/tools/package-denial-apk"
 
 printf 'Verified signed-tag promotion compile and staging guards.\n'

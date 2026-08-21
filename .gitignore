@@ -1,6 +1,7 @@
 /compositor/target/
 /compositor/flutter-engine/target/
 /tools/xtask/target/
+/tools/flutter-embedder-bindings/target/
 /dart_shell/.dart_tool/
 /dart_shell/build/
 /dart_shell/.flutter-plugins

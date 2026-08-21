@@ -753,10 +753,10 @@ impl flatbuffers::SimpleToVerifyInSlice for WindowActionKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SHELL_ACTION_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 7;
+pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 8;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 8] = [
+pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 9] = [
   ShellActionKind::Applications,
   ShellActionKind::Overview,
   ShellActionKind::WindowSwitcherNext,
@@ -765,6 +765,7 @@ pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 8] = [
   ShellActionKind::ScreenshotRegion,
   ShellActionKind::ScreenshotTextureReady,
   ShellActionKind::ScreenshotDone,
+  ShellActionKind::ClientPointerPressed,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -780,9 +781,10 @@ impl ShellActionKind {
   pub const ScreenshotRegion: Self = Self(5);
   pub const ScreenshotTextureReady: Self = Self(6);
   pub const ScreenshotDone: Self = Self(7);
+  pub const ClientPointerPressed: Self = Self(8);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 7;
+  pub const ENUM_MAX: u8 = 8;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Applications,
     Self::Overview,
@@ -792,6 +794,7 @@ impl ShellActionKind {
     Self::ScreenshotRegion,
     Self::ScreenshotTextureReady,
     Self::ScreenshotDone,
+    Self::ClientPointerPressed,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -804,6 +807,7 @@ impl ShellActionKind {
       Self::ScreenshotRegion => Some("ScreenshotRegion"),
       Self::ScreenshotTextureReady => Some("ScreenshotTextureReady"),
       Self::ScreenshotDone => Some("ScreenshotDone"),
+      Self::ClientPointerPressed => Some("ClientPointerPressed"),
       _ => None,
     }
   }
@@ -1878,6 +1882,184 @@ impl<'a> flatbuffers::Verifiable for DesktopNotificationCommandKind {
 
 impl flatbuffers::SimpleToVerifyInSlice for DesktopNotificationCommandKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_XEMBED_TRAY_EVENT_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_XEMBED_TRAY_EVENT_KIND: u8 = 2;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_XEMBED_TRAY_EVENT_KIND: [XEmbedTrayEventKind; 3] = [
+  XEmbedTrayEventKind::Added,
+  XEmbedTrayEventKind::Updated,
+  XEmbedTrayEventKind::Removed,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct XEmbedTrayEventKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl XEmbedTrayEventKind {
+  pub const Added: Self = Self(0);
+  pub const Updated: Self = Self(1);
+  pub const Removed: Self = Self(2);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Added,
+    Self::Updated,
+    Self::Removed,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Added => Some("Added"),
+      Self::Updated => Some("Updated"),
+      Self::Removed => Some("Removed"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for XEmbedTrayEventKind {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for XEmbedTrayEventKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for XEmbedTrayEventKind {
+    type Output = XEmbedTrayEventKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { flatbuffers::emplace_scalar::<u8>(dst, self.0); }
+    }
+}
+
+impl flatbuffers::EndianScalar for XEmbedTrayEventKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for XEmbedTrayEventKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for XEmbedTrayEventKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_XEMBED_TRAY_COMMAND_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_XEMBED_TRAY_COMMAND_KIND: u8 = 2;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_XEMBED_TRAY_COMMAND_KIND: [XEmbedTrayCommandKind; 3] = [
+  XEmbedTrayCommandKind::Activate,
+  XEmbedTrayCommandKind::SecondaryActivate,
+  XEmbedTrayCommandKind::ContextMenu,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct XEmbedTrayCommandKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl XEmbedTrayCommandKind {
+  pub const Activate: Self = Self(0);
+  pub const SecondaryActivate: Self = Self(1);
+  pub const ContextMenu: Self = Self(2);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Activate,
+    Self::SecondaryActivate,
+    Self::ContextMenu,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Activate => Some("Activate"),
+      Self::SecondaryActivate => Some("SecondaryActivate"),
+      Self::ContextMenu => Some("ContextMenu"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for XEmbedTrayCommandKind {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for XEmbedTrayCommandKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for XEmbedTrayCommandKind {
+    type Output = XEmbedTrayCommandKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { flatbuffers::emplace_scalar::<u8>(dst, self.0); }
+    }
+}
+
+impl flatbuffers::EndianScalar for XEmbedTrayCommandKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for XEmbedTrayCommandKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for XEmbedTrayCommandKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SYSTEM_BAR_SIDE: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MAX_SYSTEM_BAR_SIDE: u8 = 4;
@@ -2072,10 +2254,10 @@ pub struct ShortcutTargetUnionTableOffset {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_PAYLOAD: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_PAYLOAD: u8 = 15;
+pub const ENUM_MAX_PAYLOAD: u8 = 17;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_PAYLOAD: [Payload; 16] = [
+pub const ENUM_VALUES_PAYLOAD: [Payload; 18] = [
   Payload::NONE,
   Payload::InputLayout,
   Payload::WindowSnapshot,
@@ -2092,6 +2274,8 @@ pub const ENUM_VALUES_PAYLOAD: [Payload; 16] = [
   Payload::SettingsRequest,
   Payload::SettingsResponse,
   Payload::TextInputState,
+  Payload::XEmbedTrayEvent,
+  Payload::XEmbedTrayCommand,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -2115,9 +2299,11 @@ impl Payload {
   pub const SettingsRequest: Self = Self(13);
   pub const SettingsResponse: Self = Self(14);
   pub const TextInputState: Self = Self(15);
+  pub const XEmbedTrayEvent: Self = Self(16);
+  pub const XEmbedTrayCommand: Self = Self(17);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 15;
+  pub const ENUM_MAX: u8 = 17;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::NONE,
     Self::InputLayout,
@@ -2135,6 +2321,8 @@ impl Payload {
     Self::SettingsRequest,
     Self::SettingsResponse,
     Self::TextInputState,
+    Self::XEmbedTrayEvent,
+    Self::XEmbedTrayCommand,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -2155,6 +2343,8 @@ impl Payload {
       Self::SettingsRequest => Some("SettingsRequest"),
       Self::SettingsResponse => Some("SettingsResponse"),
       Self::TextInputState => Some("TextInputState"),
+      Self::XEmbedTrayEvent => Some("XEmbedTrayEvent"),
+      Self::XEmbedTrayCommand => Some("XEmbedTrayCommand"),
       _ => None,
     }
   }
@@ -8985,6 +9175,450 @@ impl core::fmt::Debug for DesktopNotificationCommand<'_> {
       ds.finish()
   }
 }
+pub enum XEmbedTrayIconOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct XEmbedTrayIcon<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for XEmbedTrayIcon<'a> {
+  type Inner = XEmbedTrayIcon<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> XEmbedTrayIcon<'a> {
+  pub const VT_WINDOW_ID: flatbuffers::VOffsetT = 4;
+  pub const VT_TITLE: flatbuffers::VOffsetT = 6;
+  pub const VT_WIDTH: flatbuffers::VOffsetT = 8;
+  pub const VT_HEIGHT: flatbuffers::VOffsetT = 10;
+  pub const VT_RGBA: flatbuffers::VOffsetT = 12;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    XEmbedTrayIcon { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args XEmbedTrayIconArgs<'args>
+  ) -> flatbuffers::WIPOffset<XEmbedTrayIcon<'bldr>> {
+    let mut builder = XEmbedTrayIconBuilder::new(_fbb);
+    if let Some(x) = args.rgba { builder.add_rgba(x); }
+    builder.add_height(args.height);
+    builder.add_width(args.width);
+    if let Some(x) = args.title { builder.add_title(x); }
+    builder.add_window_id(args.window_id);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn window_id(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(XEmbedTrayIcon::VT_WINDOW_ID, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn title(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(XEmbedTrayIcon::VT_TITLE, None)}
+  }
+  #[inline]
+  pub fn width(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(XEmbedTrayIcon::VT_WIDTH, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn height(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(XEmbedTrayIcon::VT_HEIGHT, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn rgba(&self) -> Option<flatbuffers::Vector<'a, u8>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(XEmbedTrayIcon::VT_RGBA, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for XEmbedTrayIcon<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<u32>("window_id", Self::VT_WINDOW_ID, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("title", Self::VT_TITLE, false)?
+     .visit_field::<u32>("width", Self::VT_WIDTH, false)?
+     .visit_field::<u32>("height", Self::VT_HEIGHT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u8>>>("rgba", Self::VT_RGBA, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct XEmbedTrayIconArgs<'a> {
+    pub window_id: u32,
+    pub title: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u8>>>,
+}
+impl<'a> Default for XEmbedTrayIconArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    XEmbedTrayIconArgs {
+      window_id: 0,
+      title: None,
+      width: 0,
+      height: 0,
+      rgba: None,
+    }
+  }
+}
+
+pub struct XEmbedTrayIconBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> XEmbedTrayIconBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_window_id(&mut self, window_id: u32) {
+    self.fbb_.push_slot::<u32>(XEmbedTrayIcon::VT_WINDOW_ID, window_id, 0);
+  }
+  #[inline]
+  pub fn add_title(&mut self, title: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(XEmbedTrayIcon::VT_TITLE, title);
+  }
+  #[inline]
+  pub fn add_width(&mut self, width: u32) {
+    self.fbb_.push_slot::<u32>(XEmbedTrayIcon::VT_WIDTH, width, 0);
+  }
+  #[inline]
+  pub fn add_height(&mut self, height: u32) {
+    self.fbb_.push_slot::<u32>(XEmbedTrayIcon::VT_HEIGHT, height, 0);
+  }
+  #[inline]
+  pub fn add_rgba(&mut self, rgba: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u8>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(XEmbedTrayIcon::VT_RGBA, rgba);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> XEmbedTrayIconBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    XEmbedTrayIconBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<XEmbedTrayIcon<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for XEmbedTrayIcon<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("XEmbedTrayIcon");
+      ds.field("window_id", &self.window_id());
+      ds.field("title", &self.title());
+      ds.field("width", &self.width());
+      ds.field("height", &self.height());
+      ds.field("rgba", &self.rgba());
+      ds.finish()
+  }
+}
+pub enum XEmbedTrayEventOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct XEmbedTrayEvent<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for XEmbedTrayEvent<'a> {
+  type Inner = XEmbedTrayEvent<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> XEmbedTrayEvent<'a> {
+  pub const VT_KIND: flatbuffers::VOffsetT = 4;
+  pub const VT_WINDOW_ID: flatbuffers::VOffsetT = 6;
+  pub const VT_ICON: flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    XEmbedTrayEvent { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args XEmbedTrayEventArgs<'args>
+  ) -> flatbuffers::WIPOffset<XEmbedTrayEvent<'bldr>> {
+    let mut builder = XEmbedTrayEventBuilder::new(_fbb);
+    if let Some(x) = args.icon { builder.add_icon(x); }
+    builder.add_window_id(args.window_id);
+    builder.add_kind(args.kind);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn kind(&self) -> XEmbedTrayEventKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<XEmbedTrayEventKind>(XEmbedTrayEvent::VT_KIND, Some(XEmbedTrayEventKind::Added)).unwrap()}
+  }
+  #[inline]
+  pub fn window_id(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(XEmbedTrayEvent::VT_WINDOW_ID, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn icon(&self) -> Option<XEmbedTrayIcon<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<XEmbedTrayIcon>>(XEmbedTrayEvent::VT_ICON, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for XEmbedTrayEvent<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<XEmbedTrayEventKind>("kind", Self::VT_KIND, false)?
+     .visit_field::<u32>("window_id", Self::VT_WINDOW_ID, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<XEmbedTrayIcon>>("icon", Self::VT_ICON, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct XEmbedTrayEventArgs<'a> {
+    pub kind: XEmbedTrayEventKind,
+    pub window_id: u32,
+    pub icon: Option<flatbuffers::WIPOffset<XEmbedTrayIcon<'a>>>,
+}
+impl<'a> Default for XEmbedTrayEventArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    XEmbedTrayEventArgs {
+      kind: XEmbedTrayEventKind::Added,
+      window_id: 0,
+      icon: None,
+    }
+  }
+}
+
+pub struct XEmbedTrayEventBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> XEmbedTrayEventBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_kind(&mut self, kind: XEmbedTrayEventKind) {
+    self.fbb_.push_slot::<XEmbedTrayEventKind>(XEmbedTrayEvent::VT_KIND, kind, XEmbedTrayEventKind::Added);
+  }
+  #[inline]
+  pub fn add_window_id(&mut self, window_id: u32) {
+    self.fbb_.push_slot::<u32>(XEmbedTrayEvent::VT_WINDOW_ID, window_id, 0);
+  }
+  #[inline]
+  pub fn add_icon(&mut self, icon: flatbuffers::WIPOffset<XEmbedTrayIcon<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<XEmbedTrayIcon>>(XEmbedTrayEvent::VT_ICON, icon);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> XEmbedTrayEventBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    XEmbedTrayEventBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<XEmbedTrayEvent<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for XEmbedTrayEvent<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("XEmbedTrayEvent");
+      ds.field("kind", &self.kind());
+      ds.field("window_id", &self.window_id());
+      ds.field("icon", &self.icon());
+      ds.finish()
+  }
+}
+pub enum XEmbedTrayCommandOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct XEmbedTrayCommand<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for XEmbedTrayCommand<'a> {
+  type Inner = XEmbedTrayCommand<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> XEmbedTrayCommand<'a> {
+  pub const VT_KIND: flatbuffers::VOffsetT = 4;
+  pub const VT_WINDOW_ID: flatbuffers::VOffsetT = 6;
+  pub const VT_X: flatbuffers::VOffsetT = 8;
+  pub const VT_Y: flatbuffers::VOffsetT = 10;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    XEmbedTrayCommand { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args XEmbedTrayCommandArgs
+  ) -> flatbuffers::WIPOffset<XEmbedTrayCommand<'bldr>> {
+    let mut builder = XEmbedTrayCommandBuilder::new(_fbb);
+    builder.add_y(args.y);
+    builder.add_x(args.x);
+    builder.add_window_id(args.window_id);
+    builder.add_kind(args.kind);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn kind(&self) -> XEmbedTrayCommandKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<XEmbedTrayCommandKind>(XEmbedTrayCommand::VT_KIND, Some(XEmbedTrayCommandKind::Activate)).unwrap()}
+  }
+  #[inline]
+  pub fn window_id(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(XEmbedTrayCommand::VT_WINDOW_ID, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn x(&self) -> i32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<i32>(XEmbedTrayCommand::VT_X, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn y(&self) -> i32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<i32>(XEmbedTrayCommand::VT_Y, Some(0)).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for XEmbedTrayCommand<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<XEmbedTrayCommandKind>("kind", Self::VT_KIND, false)?
+     .visit_field::<u32>("window_id", Self::VT_WINDOW_ID, false)?
+     .visit_field::<i32>("x", Self::VT_X, false)?
+     .visit_field::<i32>("y", Self::VT_Y, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct XEmbedTrayCommandArgs {
+    pub kind: XEmbedTrayCommandKind,
+    pub window_id: u32,
+    pub x: i32,
+    pub y: i32,
+}
+impl<'a> Default for XEmbedTrayCommandArgs {
+  #[inline]
+  fn default() -> Self {
+    XEmbedTrayCommandArgs {
+      kind: XEmbedTrayCommandKind::Activate,
+      window_id: 0,
+      x: 0,
+      y: 0,
+    }
+  }
+}
+
+pub struct XEmbedTrayCommandBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> XEmbedTrayCommandBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_kind(&mut self, kind: XEmbedTrayCommandKind) {
+    self.fbb_.push_slot::<XEmbedTrayCommandKind>(XEmbedTrayCommand::VT_KIND, kind, XEmbedTrayCommandKind::Activate);
+  }
+  #[inline]
+  pub fn add_window_id(&mut self, window_id: u32) {
+    self.fbb_.push_slot::<u32>(XEmbedTrayCommand::VT_WINDOW_ID, window_id, 0);
+  }
+  #[inline]
+  pub fn add_x(&mut self, x: i32) {
+    self.fbb_.push_slot::<i32>(XEmbedTrayCommand::VT_X, x, 0);
+  }
+  #[inline]
+  pub fn add_y(&mut self, y: i32) {
+    self.fbb_.push_slot::<i32>(XEmbedTrayCommand::VT_Y, y, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> XEmbedTrayCommandBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    XEmbedTrayCommandBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<XEmbedTrayCommand<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for XEmbedTrayCommand<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("XEmbedTrayCommand");
+      ds.field("kind", &self.kind());
+      ds.field("window_id", &self.window_id());
+      ds.field("x", &self.x());
+      ds.field("y", &self.y());
+      ds.finish()
+  }
+}
 pub enum EnvelopeOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -9286,6 +9920,36 @@ impl<'a> Envelope<'a> {
     }
   }
 
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_xembed_tray_event(&self) -> Option<XEmbedTrayEvent<'a>> {
+    if self.payload_type() == Payload::XEmbedTrayEvent {
+      self.payload().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { XEmbedTrayEvent::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_xembed_tray_command(&self) -> Option<XEmbedTrayCommand<'a>> {
+    if self.payload_type() == Payload::XEmbedTrayCommand {
+      self.payload().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { XEmbedTrayCommand::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
 }
 
 impl flatbuffers::Verifiable for Envelope<'_> {
@@ -9315,6 +9979,8 @@ impl flatbuffers::Verifiable for Envelope<'_> {
           Payload::SettingsRequest => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SettingsRequest>>("Payload::SettingsRequest", pos),
           Payload::SettingsResponse => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SettingsResponse>>("Payload::SettingsResponse", pos),
           Payload::TextInputState => v.verify_union_variant::<flatbuffers::ForwardsUOffset<TextInputState>>("Payload::TextInputState", pos),
+          Payload::XEmbedTrayEvent => v.verify_union_variant::<flatbuffers::ForwardsUOffset<XEmbedTrayEvent>>("Payload::XEmbedTrayEvent", pos),
+          Payload::XEmbedTrayCommand => v.verify_union_variant::<flatbuffers::ForwardsUOffset<XEmbedTrayCommand>>("Payload::XEmbedTrayCommand", pos),
           _ => Ok(()),
         }
      })?
@@ -9490,6 +10156,20 @@ impl core::fmt::Debug for Envelope<'_> {
         },
         Payload::TextInputState => {
           if let Some(x) = self.payload_as_text_input_state() {
+            ds.field("payload", &x)
+          } else {
+            ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        Payload::XEmbedTrayEvent => {
+          if let Some(x) = self.payload_as_xembed_tray_event() {
+            ds.field("payload", &x)
+          } else {
+            ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        Payload::XEmbedTrayCommand => {
+          if let Some(x) = self.payload_as_xembed_tray_command() {
             ds.field("payload", &x)
           } else {
             ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")

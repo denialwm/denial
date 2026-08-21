@@ -68,6 +68,17 @@ impl WireBridge {
                 self.pending_notification_commands.push_back(command);
                 Ok(None)
             }
+            fb::Payload::XEmbedTrayCommand => {
+                let command = envelope
+                    .payload_as_xembed_tray_command()
+                    .ok_or(WireError::Payload)?;
+                if self.pending_xembed_tray_commands.len() >= MAX_PENDING_XEMBED_TRAY_COMMANDS {
+                    return Err(WireError::Count);
+                }
+                self.pending_xembed_tray_commands
+                    .push_back(decode_xembed_tray_command(command)?);
+                Ok(None)
+            }
             fb::Payload::SettingsRequest => {
                 if envelope.request_id() == 0 {
                     return Err(WireError::RequestId);
@@ -670,6 +681,26 @@ fn decode_notification_command(
         }
         _ => Err(WireError::Enumeration),
     }
+}
+
+fn decode_xembed_tray_command(
+    command: fb::XEmbedTrayCommand<'_>,
+) -> Result<XEmbedTrayCommand, WireError> {
+    if command.kind().variant_name().is_none() || command.window_id() == 0 {
+        return Err(WireError::Identity);
+    }
+    let action = match command.kind() {
+        fb::XEmbedTrayCommandKind::Activate => XEmbedTrayAction::Activate,
+        fb::XEmbedTrayCommandKind::SecondaryActivate => XEmbedTrayAction::SecondaryActivate,
+        fb::XEmbedTrayCommandKind::ContextMenu => XEmbedTrayAction::ContextMenu,
+        _ => return Err(WireError::Enumeration),
+    };
+    Ok(XEmbedTrayCommand {
+        action,
+        window_id: command.window_id(),
+        x: command.x(),
+        y: command.y(),
+    })
 }
 
 pub(super) fn validate_notification_event(event: &NotificationEvent) -> Result<(), WireError> {

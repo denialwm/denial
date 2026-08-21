@@ -289,6 +289,13 @@ impl WaylandFrontend {
                             error!(%error, "could not publish Xwayland DPI settings");
                         }
                         frontend.xwm = Some(xwm);
+                        match super::super::xembed_tray::XEmbedTray::start(frontend.xdisplay_name())
+                        {
+                            Ok(tray) => frontend.xembed_tray = Some(tray),
+                            Err(error) => {
+                                warn!(%error, "could not start the XEmbed tray host")
+                            }
+                        }
                         info!(
                             display = %format_args!(":{display_number}"),
                             scale = frontend.xwayland_scale,
@@ -329,6 +336,8 @@ impl WaylandFrontend {
             _viewporter_state: viewporter_state,
             _fractional_scale_manager_state: fractional_scale_manager_state,
             xwm: None,
+            #[cfg(feature = "flutter")]
+            xembed_tray: None,
             xwayland_client,
             xwayland_scale,
             xdisplay,

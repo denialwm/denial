@@ -137,6 +137,7 @@ class InputLayoutSnapshot {
     this.softwareKeyboardRegions = const <Rect>[],
     this.keyboardCapture = false,
     this.exclusiveShellMode = false,
+    this.observeClientPointerPresses = false,
   });
 
   final int epoch;
@@ -146,10 +147,12 @@ class InputLayoutSnapshot {
   final List<Rect> softwareKeyboardRegions;
   final bool keyboardCapture;
   final bool exclusiveShellMode;
+  final bool observeClientPointerPresses;
 
   bool hasSameRoutingAs(InputLayoutSnapshot other) {
     if (keyboardCapture != other.keyboardCapture ||
         exclusiveShellMode != other.exclusiveShellMode ||
+        observeClientPointerPresses != other.observeClientPointerPresses ||
         shellRegions.length != other.shellRegions.length ||
         softwareKeyboardRegions.length !=
             other.softwareKeyboardRegions.length ||

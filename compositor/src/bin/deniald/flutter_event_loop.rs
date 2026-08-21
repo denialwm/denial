@@ -238,6 +238,7 @@ pub(super) fn run_flutter_event_loop(
         VecDeque::new();
     let mut active_output_confirmation: Option<ActiveOutputConfirmation> = None;
     let mut pending_sensor_rotation = output_configuration.sensor_rotation;
+    let mut outputs_disconnected = false;
 
     // Any native helper inadvertently created by an elevated Flutter thread
     // is normalized before the compositor itself becomes realtime.
@@ -359,7 +360,13 @@ pub(super) fn run_flutter_event_loop(
             return Err("the active DRM device was removed in Flutter event loop".into());
         }
 
-        let scanout_rebased = events.scanout_rebased;
+        // A powered scanout whose connector vanished has no valid
+        // presentation target, so keep its old scheduler quiescent until a
+        // fresh scan can rebuild it. Already-powered-off scanouts must remain
+        // serviceable: their queued DPMS wake commit is what can bring a sink
+        // (and therefore its connector) back in the first place.
+        let scanout_rebased = events.scanout_rebased
+            || (outputs_disconnected && scanouts.iter().any(|scanout| scanout.powered));
         events.scanout_rebased = false;
         if scanout_rebased && let Some(runtime) = flutter.as_mut() {
             cancel_active_screenshot(
@@ -1088,6 +1095,30 @@ pub(super) fn run_flutter_event_loop(
             events.topology_dirty = false;
             let outputs = connected_outputs(drm_scanner, drm, max_outputs, &output_configuration)?;
             let now = Instant::now();
+            if outputs.is_empty() {
+                if !outputs_disconnected {
+                    outputs_disconnected = true;
+                    events.output_control_dirty = true;
+                    flutter
+                        .as_mut()
+                        .ok_or("Flutter runtime disappeared while outputs were disconnected")?
+                        .set_outputs_visible(false)?;
+                    warn!(
+                        retry_ms = KMS_PRESENTATION_RECOVERY_RETRY.as_millis(),
+                        "all DRM outputs disconnected; keeping the session alive until one reconnects"
+                    );
+                }
+                events.topology_dirty = true;
+                event_loop.dispatch(KMS_PRESENTATION_RECOVERY_RETRY, &mut events)?;
+                continue;
+            }
+            if outputs_disconnected {
+                outputs_disconnected = false;
+                info!(
+                    connected_outputs = outputs.len(),
+                    "DRM output reconnected; rebuilding presentation state"
+                );
+            }
             let transient_removals = if !scanout_rebased && !kms_reconfigure_requested {
                 transient_dpms_output_removal_count(
                     events.dpms_wake_topology_grace_until,
@@ -1371,6 +1402,7 @@ pub(super) fn run_flutter_event_loop(
         synchronize_clipboard(runtime, &mut events)?;
         synchronize_system_control_events(runtime, &mut events)?;
         synchronize_notification_events(runtime, &mut events)?;
+        synchronize_xembed_tray(runtime, &mut events)?;
         synchronize_shell_keyboard(runtime, &mut events)?;
         synchronize_settings(runtime, &mut events)?;
         synchronize_system_bar_configuration(runtime, &mut events, Some(flutter_launcher));

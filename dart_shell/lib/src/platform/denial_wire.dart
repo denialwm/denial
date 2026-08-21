@@ -13,6 +13,7 @@ import '../models/desktop_notification.dart' as model;
 import '../models/input_device_capabilities.dart';
 import '../models/keyboard_configuration.dart';
 import '../models/shortcut_configuration.dart';
+import '../models/system_tray_item.dart' as tray_model;
 import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
 
@@ -26,6 +27,7 @@ const int denialWireMaxSurfaces = 32768;
 const int denialWireMaxStringLength = 4096;
 const int denialWireMaxNotificationActions = 16;
 const int denialWireMaxNotificationImageBytes = 512 * 1024;
+const int denialWireMaxTrayIconBytes = 512 * 1024;
 const int denialWireMaxLocalAppIdBytes = 256;
 const int denialWireMaxLocalWindowTitleBytes = 1024;
 const int denialWireMaxSettingsDocumentBytes = 256 * 1024;
@@ -38,6 +40,7 @@ const String denialWireToFlutterChannel = 'denial/wire/to_flutter';
 
 const int _inputLayoutKeyboardCapture = 1 << 0;
 const int _inputLayoutExclusiveShell = 1 << 1;
+const int _inputLayoutObserveClientPointerPresses = 1 << 2;
 const int _inputWindowVisible = 1 << 0;
 const int _inputWindowHitTestDisabled = 1 << 1;
 const int _inputWindowGeometryLocked = 1 << 2;
@@ -158,6 +161,9 @@ class DenialWireCodec {
     }
     if (snapshot.exclusiveShellMode) {
       flags |= _inputLayoutExclusiveShell;
+    }
+    if (snapshot.observeClientPointerPresses) {
+      flags |= _inputLayoutObserveClientPointerPresses;
     }
 
     return _encodeEnvelope(
@@ -705,6 +711,94 @@ class DenialWireCodec {
         kind: kind,
         notificationId: notificationId,
         actionKey: invokesNamedAction ? actionKey : null,
+      ),
+    );
+  }
+
+  Uint8List? encodeXEmbedTrayCommand(
+    generated.XembedTrayCommandKind kind,
+    int windowId,
+    Offset position,
+  ) {
+    if (windowId <= 0 ||
+        windowId > 0xffffffff ||
+        !position.dx.isFinite ||
+        !position.dy.isFinite) {
+      return null;
+    }
+    final x = position.dx.round();
+    final y = position.dy.round();
+    if (x < -0x80000000 ||
+        x > 0x7fffffff ||
+        y < -0x80000000 ||
+        y > 0x7fffffff) {
+      return null;
+    }
+    return _encodeEnvelope(
+      generated.PayloadTypeId.XEmbedTrayCommand,
+      generated.XembedTrayCommandObjectBuilder(
+        kind: kind,
+        windowId: windowId,
+        x: x,
+        y: y,
+      ),
+    );
+  }
+
+  tray_model.XEmbedTrayEvent? decodeXEmbedTrayEvent(
+    generated.XembedTrayEvent event,
+  ) {
+    if (event.windowId <= 0) {
+      rejectedStructuredMessages += 1;
+      return null;
+    }
+    final kind = switch (event.kind) {
+      generated.XembedTrayEventKind.Added =>
+        tray_model.XEmbedTrayEventKind.added,
+      generated.XembedTrayEventKind.Updated =>
+        tray_model.XEmbedTrayEventKind.updated,
+      generated.XembedTrayEventKind.Removed =>
+        tray_model.XEmbedTrayEventKind.removed,
+    };
+    if (kind == tray_model.XEmbedTrayEventKind.removed) {
+      if (event.icon != null) {
+        rejectedStructuredMessages += 1;
+        return null;
+      }
+      return tray_model.XEmbedTrayEvent(kind: kind, windowId: event.windowId);
+    }
+    final icon = event.icon;
+    final rgba = icon?.rgba;
+    if (icon == null ||
+        icon.windowId != event.windowId ||
+        icon.width <= 0 ||
+        icon.height <= 0 ||
+        icon.width > 512 ||
+        icon.height > 512 ||
+        (icon.title?.length ?? 0) > denialWireMaxStringLength ||
+        rgba == null ||
+        rgba.length != icon.width * icon.height * 4 ||
+        rgba.length > denialWireMaxTrayIconBytes) {
+      rejectedStructuredMessages += 1;
+      return null;
+    }
+    return tray_model.XEmbedTrayEvent(
+      kind: kind,
+      windowId: event.windowId,
+      item: tray_model.SystemTrayItem(
+        id: 'xembed:${event.windowId}',
+        source: tray_model.SystemTrayItemSource.xEmbed,
+        title: icon.title ?? 'X11 tray icon',
+        status: tray_model.SystemTrayStatus.active,
+        iconName: '',
+        iconThemePath: '',
+        iconPixmap: tray_model.SystemTrayIconPixmap(
+          width: icon.width,
+          height: icon.height,
+          rgba: Uint8List.fromList(rgba),
+        ),
+        menuAvailable: true,
+        primaryOpensMenu: false,
       ),
     );
   }
@@ -1715,7 +1809,8 @@ bool _nativePayloadType(generated.PayloadTypeId type) {
       type == generated.PayloadTypeId.CursorPosition ||
       type == generated.PayloadTypeId.TextInputState ||
       type == generated.PayloadTypeId.DesktopNotificationEvent ||
-      type == generated.PayloadTypeId.SettingsResponse;
+      type == generated.PayloadTypeId.SettingsResponse ||
+      type == generated.PayloadTypeId.XEmbedTrayEvent;
 }
 
 bool _validXkbName(String value, {required bool emptyAllowed}) {

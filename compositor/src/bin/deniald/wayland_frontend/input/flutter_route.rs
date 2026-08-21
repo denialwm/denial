@@ -219,6 +219,19 @@ pub(super) fn process_flutter_input_event(
                 state.scene_sync.mark_dirty();
             }
             let mut scene_changed = false;
+            if button.state() == ButtonState::Pressed
+                && matches!(&target, InputTarget::Client(_))
+                && state
+                    .wayland
+                    .as_ref()
+                    .and_then(|frontend| frontend.input_layout.as_ref())
+                    .is_some_and(InputLayoutSnapshot::observes_client_pointer_presses)
+            {
+                state.queue_shell_action(
+                    super::super::super::wire::ShellAction::ClientPointerPressed,
+                    None,
+                );
+            }
             if matches!(&target, InputTarget::Flutter) {
                 let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
                 match button.state() {

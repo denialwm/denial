@@ -17,7 +17,8 @@ Usage:
 
 UNSIGNED_ROOT must contain packages/ and evidence/. The command signs one
 x86-64 public-beta package set, creates complete static Pacman, APT, and DNF
-repositories, and publishes signed direct downloads below OUTPUT_ROOT.
+repositories, and publishes signed direct downloads, including Alpine APKs,
+below OUTPUT_ROOT.
 
 Required environment:
   DENIAL_RELEASE_BUILD_RUN
@@ -39,7 +40,7 @@ fi
 for required_command in \
   awk basename bsdtar cat cmp cp date dirname dpkg-deb find gpg gpg-connect-agent \
   gpgconf grep head install readlink realpath repo-add rm rpm sed sh sha256sum \
-  sort tr; do
+  sort paste tr; do
   command -v "$required_command" >/dev/null 2>&1 \
     || fail "missing command: $required_command"
 done
@@ -96,7 +97,7 @@ for expected in \
   "main_candidate_run=$BUILD_RUN" \
   "promotion_workflow_run=$WORKFLOW_RUN" \
   'compiled_payloads_changed=false' \
-  'package_formats=arch,deb,rpm'; do
+  'package_formats=arch,deb,rpm,apk'; do
   grep -Fxq "$expected" "$EVIDENCE_INPUT/provenance.txt" \
     || fail "unsigned promotion provenance is missing: $expected"
 done
@@ -348,10 +349,20 @@ mapfile -d '' rpm_inputs < <(
     -print0 \
     | sort -z
 )
+mapfile -d '' apk_inputs < <(
+  find "$PACKAGE_INPUT" \
+    -maxdepth 1 \
+    -type f \
+    -name '*.apk' \
+    -print0 \
+    | sort -z
+)
 ((${#deb_inputs[@]} == 2)) \
   || fail "expected exactly two Debian packages, found ${#deb_inputs[@]}"
 ((${#rpm_inputs[@]} == 2)) \
   || fail "expected exactly two RPM packages, found ${#rpm_inputs[@]}"
+((${#apk_inputs[@]} == 2)) \
+  || fail "expected exactly two Alpine packages, found ${#apk_inputs[@]}"
 
 deb_names=()
 for package in "${deb_inputs[@]}"; do
@@ -406,6 +417,54 @@ for package in "${rpm_inputs[@]}"; do
 done
 [[ "${rpm_names[*]}" == 'denial denial-flutter-engine' ]] \
   || fail 'RPM package set is incomplete'
+
+apk_names=()
+for package in "${apk_inputs[@]}"; do
+  if bsdtar -tf "$package" | grep -Eq '^\.SIGN\.'; then
+    fail "unsigned promotion APK contains a native signature: $package"
+  fi
+  package_info="$(bsdtar -xOf "$package" .PKGINFO)"
+  package_name="$(
+    sed -n 's/^pkgname = //p' <<<"$package_info" | head -n 1
+  )"
+  package_version="$(
+    sed -n 's/^pkgver = //p' <<<"$package_info" | head -n 1
+  )"
+  package_arch="$(
+    sed -n 's/^arch = //p' <<<"$package_info" | head -n 1
+  )"
+  [[ "$package_arch" == x86_64 ]] \
+    || fail "$(basename -- "$package") targets $package_arch, expected x86_64"
+  [[ "$package_version" == "${release_version}-r1" ]] \
+    || fail "$(basename -- "$package") has version $package_version"
+  case "$package_name" in
+    denial)
+      expected_filename="denial-${release_version}-r1.apk"
+      grep -Fqx \
+        "depend = denial-flutter-engine=${release_version}-r1" \
+        <<<"$package_info" \
+        || fail 'Alpine Denial package has the wrong engine dependency'
+      [[ "$(
+        bsdtar -xOf "$package" usr/share/denial/version
+      )" == "$release_version" ]] \
+        || fail 'Alpine Denial runtime version does not match its tag'
+      ;;
+    denial-flutter-engine)
+      expected_filename="denial-flutter-engine-${release_version}-r1.apk"
+      grep -Fqx \
+        'provides = denial-flutter-engine-abi-3.44.7.denial1' \
+        <<<"$package_info" \
+        || fail 'Alpine engine package has the wrong ABI capability'
+      ;;
+    *) fail "unexpected Alpine package: ${package_name:-unset}" ;;
+  esac
+  [[ "$(basename -- "$package")" == "$expected_filename" ]] \
+    || fail "unexpected Alpine package filename: $(basename -- "$package")"
+  apk_names+=("$package_name")
+done
+[[ "$(printf '%s\n' "${apk_names[@]}" | sort | paste -sd' ' -)" == \
+  'denial denial-flutter-engine' ]] \
+  || fail 'Alpine package set is incomplete'
 
 readonly INSTALLER="${ROOT}/install.sh"
 [[ -f "$INSTALLER" ]] || fail "guided installer is missing: $INSTALLER"
@@ -464,7 +523,7 @@ for package in "${package_inputs[@]}"; do
 done
 
 signed_native_packages=()
-for package in "${deb_inputs[@]}"; do
+for package in "${deb_inputs[@]}" "${apk_inputs[@]}"; do
   destination="${DOWNLOAD_ROOT}/$(basename -- "$package")"
   cp --reflink=auto -- "$package" "$destination"
   gpg \
@@ -598,7 +657,8 @@ Build disclosure:
   runtime versions while preserving those exact compiled payloads.
   Arch packages and repository databases, APT Release metadata, RPM headers,
   DNF repository metadata, and every direct download are signed by the Denial
-  release key. Direct downloads also use adjacent detached OpenPGP signatures.
+  release key. Direct downloads, including Alpine APKs, use adjacent detached
+  OpenPGP signatures. The current release does not publish a native APKINDEX.
   This release does not claim an offline dependency closure, reproducible
   packages, independent rebuilding, an SBOM, or AArch64 binary packages.
 EOF
@@ -630,7 +690,7 @@ This is a signed x86-64 public-beta release of Denial.
 - Signing fingerprint: \`${FINGERPRINT}\`
 - Required packages: \`denial\` and \`denial-flutter-engine\`
 - Optional live-development package: \`denial-ui-development\`
-- Direct downloads: Arch, Debian-family (Debian 13 / Ubuntu 24.04), and Fedora
+- Direct downloads: Arch, Alpine 3.24, Debian-family (Debian 13 / Ubuntu 24.04), and Fedora
 - Every direct package has an adjacent detached OpenPGP signature
 - APT repository: Debian 13 (trixie) and Ubuntu 24.04 (noble)
 - DNF repository: Fedora 44 x86-64
@@ -641,7 +701,9 @@ The production binaries were built and independently checked from \`main\` on
 Denial's owner-operated x86-64 runner. This signed tag promoted those exact
 compiled payloads, assigned their package and runtime versions, and signed and
 re-verified the Pacman, APT, and DNF repositories plus every direct download
-in GitHub-hosted jobs. This release does not yet
+in GitHub-hosted jobs. The Alpine packages are direct downloads with detached
+OpenPGP signatures; a native RSA-signed APKINDEX is not published yet. This
+release does not yet
 claim an offline dependency closure, reproducible packages, independent
 rebuilding, an SBOM, or AArch64 binary packages.
 

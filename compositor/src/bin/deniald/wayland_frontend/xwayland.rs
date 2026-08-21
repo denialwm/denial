@@ -235,6 +235,13 @@ fn map_x11_window(state: &mut RuntimeState, surface: X11Surface, override_redire
     if window_for_x11(state, &surface).is_some() {
         return;
     }
+    if override_redirect && surface.class() == "denial-xembed-tray" {
+        info!(
+            window = surface.window_id(),
+            "mapped the hidden XEmbed tray host"
+        );
+        return;
+    }
 
     let geometry = surface.last_configure();
     let window = Window::new_x11_window(surface.clone());
