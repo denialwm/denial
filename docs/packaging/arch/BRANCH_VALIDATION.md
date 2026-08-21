@@ -10,13 +10,17 @@ uses package release `0` and is explicitly ineligible for signing or
 publication. Its build policy may intentionally diverge from production in
 the future, for example by enabling additional diagnostics.
 
-`main` has two gates. A GitHub-hosted authorization job first accepts only a
+`main` has three gates. A GitHub-hosted authorization job first accepts only a
 two-parent merge whose tree is exactly its validated `dev` parent, whose
 first parent is the previous `main`, and whose `dev` commit has a successful
 push validation. The owner-operated runner then independently performs the
 production build from that exact `main` commit, with release-mode Flutter AOT
 and Rust artifacts. A separate hosted job verifies the resulting unsigned
-production candidate.
+production candidate. Finally, GitHub-hosted jobs rehearse the release-only
+Alpine path: Ubuntu 24.04 promotes the exact candidate under the no-build
+guard using disposable version metadata, then a root Arch container signs the
+two APKs with an ephemeral key and runs the same metadata, OpenPGP, and Alpine
+dependency verifier used by publication. No rehearsal artifact is published.
 
 The version is deliberately still undecided at this point. Only after the
 production candidate is green may a maintainer choose and sign a
@@ -49,6 +53,12 @@ metadata, engine ABI dependencies, version bounds, and required runtime and
 development payloads. The candidate also contains separately hashed neutral
 and Alpine-adapted staging trees, so the verifier compares every APK file and
 mode with the exact post-`gcompat`/`patchelf` payload.
+
+For `main`, two additional hosted jobs then execute the actual APK promotion
+script on Ubuntu 24.04, including its Bubblewrap/AppArmor setup, and execute
+the actual final APK publication verifier as root. They use the synthetic
+local tag `v0.0.0` and a one-day disposable signing key, so the release-only
+mechanics are proven before a public version tag exists.
 
 The CachyOS host does not need to boot Alpine. `tools/package-denial-apk`
 verifies a pinned official Alpine 3.24.1 minirootfs, enters it through rootless

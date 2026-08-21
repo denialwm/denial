@@ -123,12 +123,17 @@ done
 
 apk_root="$work_root/apk-root"
 install -d -m 0755 "$apk_root"
+apk_init_options=(--initdb)
+# The hosted publication verifier runs as root, while local verification may
+# use a writable root without privilege. apk rejects --usermode for root.
+if ((EUID != 0)); then
+  apk_init_options+=(--usermode)
+fi
 apk \
   --root "$apk_root" \
   --arch x86_64 \
   add \
-  --initdb \
-  --usermode
+  "${apk_init_options[@]}"
 apk \
   --root "$apk_root" \
   --arch x86_64 \
