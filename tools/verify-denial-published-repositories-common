@@ -80,12 +80,13 @@ mapfile -d '' direct_packages < <(
     "$SIGNED_ROOT/downloads/x86_64" \
     -maxdepth 1 \
     -type f \
-    \( -name '*.pkg.tar.zst' -o -name '*.deb' -o -name '*.rpm' \) \
+    \( -name '*.pkg.tar.zst' -o -name '*.deb' -o -name '*.rpm' \
+       -o -name '*.apk' \) \
     -print0 \
     | sort -z
 )
-((${#direct_packages[@]} == 7)) \
-  || fail "expected seven direct packages, found ${#direct_packages[@]}"
+((${#direct_packages[@]} == 9)) \
+  || fail "expected nine direct packages, found ${#direct_packages[@]}"
 for signed_file in \
   "${direct_packages[@]}" \
   "$SIGNED_ROOT/x86_64/denial.db.tar.zst" \

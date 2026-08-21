@@ -13,6 +13,7 @@ import '../models/input_device_capabilities.dart';
 import '../models/keyboard_configuration.dart';
 import '../models/output_configuration.dart';
 import '../models/shortcut_configuration.dart';
+import '../models/system_tray_item.dart';
 import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
 import '../models/denial_window_snapshot.dart';
@@ -29,6 +30,7 @@ enum DenialShellAction {
   screenshotPrepare,
   screenshotTextureReady,
   screenshotDone,
+  clientPointerPressed,
 }
 
 class DenialShellActionEvent {
@@ -190,6 +192,9 @@ class DenialBridge {
       StreamController<DenialBrightnessState>.broadcast(sync: true);
   final StreamController<DesktopNotificationEvent> _notificationEvents =
       StreamController<DesktopNotificationEvent>.broadcast(sync: true);
+  final StreamController<XEmbedTrayEvent> _xembedTrayEvents =
+      StreamController<XEmbedTrayEvent>.broadcast(sync: true);
+  final Map<int, SystemTrayItem> _xembedTrayItems = <int, SystemTrayItem>{};
   final StreamController<DenialUiDevelopmentState> _uiDevelopmentStates =
       StreamController<DenialUiDevelopmentState>.broadcast(sync: true);
   final StreamController<DenialKeyboardConfiguration> _keyboardConfigurations =
@@ -201,6 +206,8 @@ class DenialBridge {
       StreamController<DenialShortcutConfiguration>.broadcast(sync: true);
   final StreamController<DenialTextInputState> _textInputStates =
       StreamController<DenialTextInputState>.broadcast(sync: true);
+  final StreamController<DisplayLayout> _displayLayouts =
+      StreamController<DisplayLayout>.broadcast(sync: true);
   final wire.DenialWireCodec _wireCodec = wire.DenialWireCodec();
   final DenialUiDevelopmentProtocol _uiDevelopmentProtocol =
       DenialUiDevelopmentProtocol();
@@ -221,6 +228,9 @@ class DenialBridge {
       _brightnessStates.stream;
   Stream<DesktopNotificationEvent> get notificationEvents =>
       _notificationEvents.stream;
+  Stream<XEmbedTrayEvent> get xembedTrayEvents => _xembedTrayEvents.stream;
+  Map<int, SystemTrayItem> get xembedTrayItems =>
+      Map<int, SystemTrayItem>.unmodifiable(_xembedTrayItems);
   Stream<DenialUiDevelopmentState> get uiDevelopmentStates =>
       _uiDevelopmentStates.stream;
   Stream<DenialKeyboardConfiguration> get keyboardConfigurations =>
@@ -230,6 +240,7 @@ class DenialBridge {
   Stream<DenialShortcutConfiguration> get shortcutConfigurations =>
       _shortcutConfigurations.stream;
   Stream<DenialTextInputState> get textInputStates => _textInputStates.stream;
+  Stream<DisplayLayout> get displayLayouts => _displayLayouts.stream;
 
   void start({
     required VoidCallback onWindowsChanged,
@@ -326,11 +337,13 @@ class DenialBridge {
     unawaited(_audioStreamStates.close());
     unawaited(_brightnessStates.close());
     unawaited(_notificationEvents.close());
+    unawaited(_xembedTrayEvents.close());
     unawaited(_uiDevelopmentStates.close());
     unawaited(_keyboardConfigurations.close());
     unawaited(_inputDeviceCapabilities.close());
     unawaited(_shortcutConfigurations.close());
     unawaited(_textInputStates.close());
+    unawaited(_displayLayouts.close());
   }
 
   Future<DenialWindowSnapshot> listWindows(List<DenialWindow> fallback) {
@@ -1197,6 +1210,25 @@ class DenialBridge {
     );
   }
 
+  bool invokeXEmbedTrayAction(
+    int windowId,
+    SystemTrayAction action,
+    Offset position,
+  ) {
+    final kind = switch (action) {
+      SystemTrayAction.activate => wire.XembedTrayCommandKind.Activate,
+      SystemTrayAction.secondaryActivate =>
+        wire.XembedTrayCommandKind.SecondaryActivate,
+      SystemTrayAction.contextMenu => wire.XembedTrayCommandKind.ContextMenu,
+    };
+    final bytes = _wireCodec.encodeXEmbedTrayCommand(kind, windowId, position);
+    if (bytes == null) {
+      return false;
+    }
+    _sendWire(bytes);
+    return true;
+  }
+
   void prewarmHaptics() {
     ServicesBinding.instance.defaultBinaryMessenger.send(
       _hapticsChannel,
@@ -1425,6 +1457,8 @@ class DenialBridge {
             DenialShellAction.screenshotTextureReady,
           wire.ShellActionKind.ScreenshotDone =>
             DenialShellAction.screenshotDone,
+          wire.ShellActionKind.ClientPointerPressed =>
+            DenialShellAction.clientPointerPressed,
         };
         if (!_shellActions.isClosed) {
           _shellActions.add(
@@ -1466,6 +1500,18 @@ class DenialBridge {
         final event = _wireCodec.decodeNotificationEvent(payload);
         if (event != null && !_notificationEvents.isClosed) {
           _notificationEvents.add(event);
+        }
+      } else if (payload is wire.XembedTrayEvent) {
+        final event = _wireCodec.decodeXEmbedTrayEvent(payload);
+        if (event != null) {
+          if (event.kind == XEmbedTrayEventKind.removed) {
+            _xembedTrayItems.remove(event.windowId);
+          } else if (event.item case final item?) {
+            _xembedTrayItems[event.windowId] = item;
+          }
+          if (!_xembedTrayEvents.isClosed) {
+            _xembedTrayEvents.add(event);
+          }
         }
       } else if (payload is wire.SettingsResponse) {
         _handleSettingsResponse(decoded.requestId, payload);
@@ -1663,6 +1709,8 @@ class DenialBridge {
     final completer = _pendingDisplayRequests.remove(requestId);
     if (completer != null && !completer.isCompleted) {
       completer.complete(layout);
+    } else if (requestId == 0 && !_displayLayouts.isClosed) {
+      _displayLayouts.add(layout);
     }
   }
 }

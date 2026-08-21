@@ -309,7 +309,8 @@ enum ShellActionKind {
   Clipboard(4),
   ScreenshotRegion(5),
   ScreenshotTextureReady(6),
-  ScreenshotDone(7);
+  ScreenshotDone(7),
+  ClientPointerPressed(8);
 
   final int value;
   const ShellActionKind(this.value);
@@ -324,6 +325,7 @@ enum ShellActionKind {
       case 5: return ShellActionKind.ScreenshotRegion;
       case 6: return ShellActionKind.ScreenshotTextureReady;
       case 7: return ShellActionKind.ScreenshotDone;
+      case 8: return ShellActionKind.ClientPointerPressed;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -332,7 +334,7 @@ enum ShellActionKind {
       value == null ? null : ShellActionKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 7;
+  static const int maxValue = 8;
   static const fb.Reader<ShellActionKind> reader = _ShellActionKindReader();
 }
 
@@ -771,6 +773,78 @@ class _DesktopNotificationCommandKindReader extends fb.Reader<DesktopNotificatio
       DesktopNotificationCommandKind.fromValue(const fb.Uint8Reader().read(bc, offset));
 }
 
+enum XembedTrayEventKind {
+  Added(0),
+  Updated(1),
+  Removed(2);
+
+  final int value;
+  const XembedTrayEventKind(this.value);
+
+  factory XembedTrayEventKind.fromValue(int value) {
+    switch (value) {
+      case 0: return XembedTrayEventKind.Added;
+      case 1: return XembedTrayEventKind.Updated;
+      case 2: return XembedTrayEventKind.Removed;
+      default: throw StateError('Invalid value $value for bit flag enum');
+    }
+  }
+
+  static XembedTrayEventKind? _createOrNull(int? value) =>
+      value == null ? null : XembedTrayEventKind.fromValue(value);
+
+  static const int minValue = 0;
+  static const int maxValue = 2;
+  static const fb.Reader<XembedTrayEventKind> reader = _XembedTrayEventKindReader();
+}
+
+class _XembedTrayEventKindReader extends fb.Reader<XembedTrayEventKind> {
+  const _XembedTrayEventKindReader();
+
+  @override
+  int get size => 1;
+
+  @override
+  XembedTrayEventKind read(fb.BufferContext bc, int offset) =>
+      XembedTrayEventKind.fromValue(const fb.Uint8Reader().read(bc, offset));
+}
+
+enum XembedTrayCommandKind {
+  Activate(0),
+  SecondaryActivate(1),
+  ContextMenu(2);
+
+  final int value;
+  const XembedTrayCommandKind(this.value);
+
+  factory XembedTrayCommandKind.fromValue(int value) {
+    switch (value) {
+      case 0: return XembedTrayCommandKind.Activate;
+      case 1: return XembedTrayCommandKind.SecondaryActivate;
+      case 2: return XembedTrayCommandKind.ContextMenu;
+      default: throw StateError('Invalid value $value for bit flag enum');
+    }
+  }
+
+  static XembedTrayCommandKind? _createOrNull(int? value) =>
+      value == null ? null : XembedTrayCommandKind.fromValue(value);
+
+  static const int minValue = 0;
+  static const int maxValue = 2;
+  static const fb.Reader<XembedTrayCommandKind> reader = _XembedTrayCommandKindReader();
+}
+
+class _XembedTrayCommandKindReader extends fb.Reader<XembedTrayCommandKind> {
+  const _XembedTrayCommandKindReader();
+
+  @override
+  int get size => 1;
+
+  @override
+  XembedTrayCommandKind read(fb.BufferContext bc, int offset) =>
+      XembedTrayCommandKind.fromValue(const fb.Uint8Reader().read(bc, offset));
+}
+
 enum SystemBarSide {
   Left(0),
   Right(1),
@@ -865,7 +939,9 @@ enum PayloadTypeId {
   DesktopNotificationCommand(12),
   SettingsRequest(13),
   SettingsResponse(14),
-  TextInputState(15);
+  TextInputState(15),
+  XEmbedTrayEvent(16),
+  XEmbedTrayCommand(17);
 
   final int value;
   const PayloadTypeId(this.value);
@@ -888,6 +964,8 @@ enum PayloadTypeId {
       case 13: return PayloadTypeId.SettingsRequest;
       case 14: return PayloadTypeId.SettingsResponse;
       case 15: return PayloadTypeId.TextInputState;
+      case 16: return PayloadTypeId.XEmbedTrayEvent;
+      case 17: return PayloadTypeId.XEmbedTrayCommand;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -896,7 +974,7 @@ enum PayloadTypeId {
       value == null ? null : PayloadTypeId.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 15;
+  static const int maxValue = 17;
   static const fb.Reader<PayloadTypeId> reader = _PayloadTypeIdReader();
 }
 
@@ -4108,10 +4186,11 @@ class TouchpadConfiguration {
 
   bool get tapToClickEnabled => const fb.BoolReader().vTableGet(_bc, _bcOffset, 4, true);
   bool get naturalScrollEnabled => const fb.BoolReader().vTableGet(_bc, _bcOffset, 6, false);
+  double get scrollSpeedFactor => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 8, 1.0);
 
   @override
   String toString() {
-    return 'TouchpadConfiguration{tapToClickEnabled: ${tapToClickEnabled}, naturalScrollEnabled: ${naturalScrollEnabled}}';
+    return 'TouchpadConfiguration{tapToClickEnabled: ${tapToClickEnabled}, naturalScrollEnabled: ${naturalScrollEnabled}, scrollSpeedFactor: ${scrollSpeedFactor}}';
   }
 }
 
@@ -4129,7 +4208,7 @@ class TouchpadConfigurationBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(2);
+    fbBuilder.startTable(3);
   }
 
   int addTapToClickEnabled(bool? tapToClickEnabled) {
@@ -4138,6 +4217,10 @@ class TouchpadConfigurationBuilder {
   }
   int addNaturalScrollEnabled(bool? naturalScrollEnabled) {
     fbBuilder.addBool(1, naturalScrollEnabled);
+    return fbBuilder.offset;
+  }
+  int addScrollSpeedFactor(double? scrollSpeedFactor) {
+    fbBuilder.addFloat64(2, scrollSpeedFactor);
     return fbBuilder.offset;
   }
 
@@ -4149,20 +4232,24 @@ class TouchpadConfigurationBuilder {
 class TouchpadConfigurationObjectBuilder extends fb.ObjectBuilder {
   final bool? _tapToClickEnabled;
   final bool? _naturalScrollEnabled;
+  final double? _scrollSpeedFactor;
 
   TouchpadConfigurationObjectBuilder({
     bool? tapToClickEnabled,
     bool? naturalScrollEnabled,
+    double? scrollSpeedFactor,
   })
       : _tapToClickEnabled = tapToClickEnabled,
-        _naturalScrollEnabled = naturalScrollEnabled;
+        _naturalScrollEnabled = naturalScrollEnabled,
+        _scrollSpeedFactor = scrollSpeedFactor;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
-    fbBuilder.startTable(2);
+    fbBuilder.startTable(3);
     fbBuilder.addBool(0, _tapToClickEnabled);
     fbBuilder.addBool(1, _naturalScrollEnabled);
+    fbBuilder.addFloat64(2, _scrollSpeedFactor);
     return fbBuilder.endTable();
   }
 
@@ -5159,6 +5246,305 @@ class DesktopNotificationCommandObjectBuilder extends fb.ObjectBuilder {
     return fbBuilder.buffer;
   }
 }
+class XembedTrayIcon {
+  XembedTrayIcon._(this._bc, this._bcOffset);
+  factory XembedTrayIcon(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<XembedTrayIcon> reader = _XembedTrayIconReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  int get windowId => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 4, 0);
+  String? get title => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 6);
+  int get width => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 8, 0);
+  int get height => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 10, 0);
+  List<int>? get rgba => const fb.Uint8ListReader().vTableGetNullable(_bc, _bcOffset, 12);
+
+  @override
+  String toString() {
+    return 'XembedTrayIcon{windowId: ${windowId}, title: ${title}, width: ${width}, height: ${height}, rgba: ${rgba}}';
+  }
+}
+
+class _XembedTrayIconReader extends fb.TableReader<XembedTrayIcon> {
+  const _XembedTrayIconReader();
+
+  @override
+  XembedTrayIcon createObject(fb.BufferContext bc, int offset) => 
+    XembedTrayIcon._(bc, offset);
+}
+
+class XembedTrayIconBuilder {
+  XembedTrayIconBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(5);
+  }
+
+  int addWindowId(int? windowId) {
+    fbBuilder.addUint32(0, windowId);
+    return fbBuilder.offset;
+  }
+  int addTitleOffset(int? offset) {
+    fbBuilder.addOffset(1, offset);
+    return fbBuilder.offset;
+  }
+  int addWidth(int? width) {
+    fbBuilder.addUint32(2, width);
+    return fbBuilder.offset;
+  }
+  int addHeight(int? height) {
+    fbBuilder.addUint32(3, height);
+    return fbBuilder.offset;
+  }
+  int addRgbaOffset(int? offset) {
+    fbBuilder.addOffset(4, offset);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class XembedTrayIconObjectBuilder extends fb.ObjectBuilder {
+  final int? _windowId;
+  final String? _title;
+  final int? _width;
+  final int? _height;
+  final List<int>? _rgba;
+
+  XembedTrayIconObjectBuilder({
+    int? windowId,
+    String? title,
+    int? width,
+    int? height,
+    List<int>? rgba,
+  })
+      : _windowId = windowId,
+        _title = title,
+        _width = width,
+        _height = height,
+        _rgba = rgba;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    final int? titleOffset = _title == null ? null
+        : fbBuilder.writeString(_title!);
+    final int? rgbaOffset = _rgba == null ? null
+        : fbBuilder.writeListUint8(_rgba!);
+    fbBuilder.startTable(5);
+    fbBuilder.addUint32(0, _windowId);
+    fbBuilder.addOffset(1, titleOffset);
+    fbBuilder.addUint32(2, _width);
+    fbBuilder.addUint32(3, _height);
+    fbBuilder.addOffset(4, rgbaOffset);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
+class XembedTrayEvent {
+  XembedTrayEvent._(this._bc, this._bcOffset);
+  factory XembedTrayEvent(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<XembedTrayEvent> reader = _XembedTrayEventReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  XembedTrayEventKind get kind => XembedTrayEventKind.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 4, 0));
+  int get windowId => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 6, 0);
+  XembedTrayIcon? get icon => XembedTrayIcon.reader.vTableGetNullable(_bc, _bcOffset, 8);
+
+  @override
+  String toString() {
+    return 'XembedTrayEvent{kind: ${kind}, windowId: ${windowId}, icon: ${icon}}';
+  }
+}
+
+class _XembedTrayEventReader extends fb.TableReader<XembedTrayEvent> {
+  const _XembedTrayEventReader();
+
+  @override
+  XembedTrayEvent createObject(fb.BufferContext bc, int offset) => 
+    XembedTrayEvent._(bc, offset);
+}
+
+class XembedTrayEventBuilder {
+  XembedTrayEventBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(3);
+  }
+
+  int addKind(XembedTrayEventKind? kind) {
+    fbBuilder.addUint8(0, kind?.value);
+    return fbBuilder.offset;
+  }
+  int addWindowId(int? windowId) {
+    fbBuilder.addUint32(1, windowId);
+    return fbBuilder.offset;
+  }
+  int addIconOffset(int? offset) {
+    fbBuilder.addOffset(2, offset);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class XembedTrayEventObjectBuilder extends fb.ObjectBuilder {
+  final XembedTrayEventKind? _kind;
+  final int? _windowId;
+  final XembedTrayIconObjectBuilder? _icon;
+
+  XembedTrayEventObjectBuilder({
+    XembedTrayEventKind? kind,
+    int? windowId,
+    XembedTrayIconObjectBuilder? icon,
+  })
+      : _kind = kind,
+        _windowId = windowId,
+        _icon = icon;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    final int? iconOffset = _icon?.getOrCreateOffset(fbBuilder);
+    fbBuilder.startTable(3);
+    fbBuilder.addUint8(0, _kind?.value);
+    fbBuilder.addUint32(1, _windowId);
+    fbBuilder.addOffset(2, iconOffset);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
+class XembedTrayCommand {
+  XembedTrayCommand._(this._bc, this._bcOffset);
+  factory XembedTrayCommand(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<XembedTrayCommand> reader = _XembedTrayCommandReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  XembedTrayCommandKind get kind => XembedTrayCommandKind.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 4, 0));
+  int get windowId => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 6, 0);
+  int get x => const fb.Int32Reader().vTableGet(_bc, _bcOffset, 8, 0);
+  int get y => const fb.Int32Reader().vTableGet(_bc, _bcOffset, 10, 0);
+
+  @override
+  String toString() {
+    return 'XembedTrayCommand{kind: ${kind}, windowId: ${windowId}, x: ${x}, y: ${y}}';
+  }
+}
+
+class _XembedTrayCommandReader extends fb.TableReader<XembedTrayCommand> {
+  const _XembedTrayCommandReader();
+
+  @override
+  XembedTrayCommand createObject(fb.BufferContext bc, int offset) => 
+    XembedTrayCommand._(bc, offset);
+}
+
+class XembedTrayCommandBuilder {
+  XembedTrayCommandBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(4);
+  }
+
+  int addKind(XembedTrayCommandKind? kind) {
+    fbBuilder.addUint8(0, kind?.value);
+    return fbBuilder.offset;
+  }
+  int addWindowId(int? windowId) {
+    fbBuilder.addUint32(1, windowId);
+    return fbBuilder.offset;
+  }
+  int addX(int? x) {
+    fbBuilder.addInt32(2, x);
+    return fbBuilder.offset;
+  }
+  int addY(int? y) {
+    fbBuilder.addInt32(3, y);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class XembedTrayCommandObjectBuilder extends fb.ObjectBuilder {
+  final XembedTrayCommandKind? _kind;
+  final int? _windowId;
+  final int? _x;
+  final int? _y;
+
+  XembedTrayCommandObjectBuilder({
+    XembedTrayCommandKind? kind,
+    int? windowId,
+    int? x,
+    int? y,
+  })
+      : _kind = kind,
+        _windowId = windowId,
+        _x = x,
+        _y = y;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    fbBuilder.startTable(4);
+    fbBuilder.addUint8(0, _kind?.value);
+    fbBuilder.addUint32(1, _windowId);
+    fbBuilder.addInt32(2, _x);
+    fbBuilder.addInt32(3, _y);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
 class Envelope {
   Envelope._(this._bc, this._bcOffset);
   factory Envelope(List<int> bytes) {
@@ -5192,6 +5578,8 @@ class Envelope {
       case 13: return SettingsRequest.reader.vTableGetNullable(_bc, _bcOffset, 12);
       case 14: return SettingsResponse.reader.vTableGetNullable(_bc, _bcOffset, 12);
       case 15: return TextInputState.reader.vTableGetNullable(_bc, _bcOffset, 12);
+      case 16: return XembedTrayEvent.reader.vTableGetNullable(_bc, _bcOffset, 12);
+      case 17: return XembedTrayCommand.reader.vTableGetNullable(_bc, _bcOffset, 12);
       default: return null;
     }
   }

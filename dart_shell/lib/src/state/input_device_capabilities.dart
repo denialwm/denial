@@ -78,6 +78,12 @@ class InputDeviceCapabilitiesController
     );
   }
 
+  void setScrollSpeedFactor(double factor) {
+    unawaited(
+      _configure(state.capabilities.copyWith(scrollSpeedFactor: factor)),
+    );
+  }
+
   Future<void> _refresh(int generation) async {
     try {
       final capabilities = await _bridge.readInputDeviceCapabilities();

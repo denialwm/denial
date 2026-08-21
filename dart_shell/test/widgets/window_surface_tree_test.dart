@@ -81,6 +81,48 @@ void main() {
     expect(tester.widget<Opacity>(find.byType(Opacity)).opacity, 0.4);
   });
 
+  testWidgets('fractional-scale buffers retain one logical pixel per DPR', (
+    tester,
+  ) async {
+    final layer = _fractionalLayer();
+
+    await _pumpPositionedLayer(tester, layer: layer);
+
+    final texture = find.byType(Texture);
+    expect(tester.getSize(texture), const Size(602 / 1.5, 452 / 1.5));
+    final textureOrigin = tester.getTopLeft(texture);
+    expect(textureOrigin.dx * 1.5, closeTo(151, 0.001));
+    expect(textureOrigin.dy * 1.5, closeTo(61, 0.001));
+  });
+
+  testWidgets('smoothed transforms keep the ordinary fitted texture path', (
+    tester,
+  ) async {
+    final layer = _fractionalLayer();
+
+    await _pumpPositionedLayer(
+      tester,
+      layer: layer,
+      filterQuality: FilterQuality.medium,
+    );
+
+    final texture = find.byType(Texture);
+    expect(tester.getSize(texture), const Size(401, 301));
+    expect(tester.getTopLeft(texture), const Offset(101, 41));
+  });
+
+  testWidgets('undersized buffers are fitted instead of exposing an edge', (
+    tester,
+  ) async {
+    final layer = _fractionalLayer(width: 601, height: 451);
+
+    await _pumpPositionedLayer(tester, layer: layer);
+
+    final texture = find.byType(Texture);
+    expect(tester.getSize(texture), const Size(401, 301));
+    expect(tester.getTopLeft(texture), const Offset(101, 41));
+  });
+
   testWidgets('client-decorated previews suppress server radius and border', (
     tester,
   ) async {
@@ -108,6 +150,60 @@ void main() {
     expect(texture.borderRadius, BorderRadius.zero);
     expect(find.byType(Stack), findsNothing);
   });
+}
+
+DenialSurfaceLayer _fractionalLayer({int width = 602, int height = 452}) {
+  return DenialSurfaceLayer(
+    surfaceId: 1,
+    parentSurfaceId: 0,
+    popupRootSurfaceId: 0,
+    role: DenialSurfaceRole.root,
+    textureId: 7,
+    width: width,
+    height: height,
+    surfaceX: 0,
+    surfaceY: 0,
+    surfaceWidth: 401,
+    surfaceHeight: 301,
+    textureSourceX: 0,
+    textureSourceY: 0,
+    textureSourceWidth: width.toDouble(),
+    textureSourceHeight: height.toDouble(),
+    transform: 0,
+    scale120: 120,
+    compositionOrder: 0,
+  );
+}
+
+Future<void> _pumpPositionedLayer(
+  WidgetTester tester, {
+  required DenialSurfaceLayer layer,
+  FilterQuality filterQuality = FilterQuality.none,
+}) {
+  tester.view.devicePixelRatio = 1.5;
+  addTearDown(tester.view.resetDevicePixelRatio);
+  return tester.pumpWidget(
+    MediaQuery(
+      data: const MediaQueryData(devicePixelRatio: 1.5),
+      child: Directionality(
+        textDirection: TextDirection.ltr,
+        child: Stack(
+          children: [
+            Positioned(
+              left: 101,
+              top: 41,
+              width: 401,
+              height: 301,
+              child: SurfaceLayerTexture(
+                layer: layer,
+                filterQuality: filterQuality,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 DenialWindow _window({

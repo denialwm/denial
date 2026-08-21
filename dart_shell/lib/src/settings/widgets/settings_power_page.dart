@@ -1,10 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/generated/app_localizations.dart';
 import '../../localization/denial_localizations.dart';
+import '../../state/upower.dart';
 import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../shell_settings.dart';
+import 'settings_battery_section.dart';
 import 'settings_controls.dart';
 
 const settingsIdleDpmsToggleKey = ValueKey<String>('settings-idle-dpms-toggle');
@@ -12,7 +17,7 @@ const settingsIdleDpmsTimeoutKey = ValueKey<String>(
   'settings-idle-dpms-timeout',
 );
 
-class SettingsPowerPage extends StatelessWidget {
+class SettingsPowerPage extends ConsumerWidget {
   const SettingsPowerPage({
     required this.settings,
     required this.onEnabledChanged,
@@ -27,15 +32,28 @@ class SettingsPowerPage extends StatelessWidget {
   final VoidCallback onReset;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
+    final upower = ref.watch(upowerProvider);
+    final upowerController = ref.read(upowerProvider.notifier);
     return SettingsPageLayout(
       icon: Icons.power_settings_new_rounded,
       eyebrow: l10n.settingsPowerSection,
       title: l10n.settingsPowerTitle,
       onReset: onReset,
       children: <Widget>[
-        SettingsCardGroup(children: <Widget>[_displayPowerSection(context)]),
+        SettingsCardGroup(
+          children: <Widget>[
+            SettingsBatterySection(
+              state: upower,
+              onRefresh: () => unawaited(upowerController.refresh()),
+              onChargeThresholdChanged: (battery, enabled) => unawaited(
+                upowerController.setChargeThresholdEnabled(battery, enabled),
+              ),
+            ),
+            _displayPowerSection(context),
+          ],
+        ),
       ],
     );
   }

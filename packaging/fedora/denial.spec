@@ -28,12 +28,13 @@ Requires:       xdg-desktop-portal-wlr
 Requires:       zenity
 Recommends:     google-noto-sans-cjk-vf-fonts
 Recommends:     libddcutil.so.5()(64bit)
-Recommends:     NetworkManager
 Recommends:     pipewire-pulseaudio
 Recommends:     power-profiles-daemon
 Recommends:     upower
 Suggests:       ddcutil
 Suggests:       gdm
+Suggests:       iwd
+Suggests:       NetworkManager
 Conflicts:      denial-git
 Requires(post): systemd
 Requires(preun): systemd

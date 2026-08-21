@@ -28,6 +28,19 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
     _configuredMaximizePadding = null;
     _buildGeneration = beginBuildGeneration();
     final generation = _buildGeneration;
+    cancelOnDispose(
+      _bridge.displayLayouts.listen((layout) {
+        if (!isBuildGenerationActive(generation) || layout.outputs.isEmpty) {
+          return;
+        }
+        _retryAttempt = 0;
+        _retryTimer?.cancel();
+        _retryTimer = null;
+        final configured = _applyConfiguredValues(layout);
+        state = configured;
+        _publishConfiguredSystemBar(layout, configured);
+      }),
+    );
     ref.onDispose(() {
       _retryTimer?.cancel();
       _retryTimer = null;

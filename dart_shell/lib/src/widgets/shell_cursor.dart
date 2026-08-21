@@ -9,6 +9,7 @@ import '../models/denial_drag_icon.dart';
 import '../models/display_layout.dart';
 import '../theme/cursor_themes.dart';
 import '../theme/tokens.dart';
+import 'retained_translation.dart';
 import 'window_surface_tree.dart';
 
 /// Cursor intents for Flutter-owned shell regions.
@@ -171,6 +172,7 @@ class ShellCursorHost extends StatefulWidget {
 
 class _ShellCursorHostState extends State<ShellCursorHost> {
   final _cursorController = _ShellCursorController.instance;
+  final _cursorTranslation = ValueNotifier<Offset>(Offset.zero);
   Offset? _position;
   ShellCursorKind _kind = ShellCursorKind.normal;
   bool _visible = true;
@@ -232,6 +234,7 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
     unawaited(_platformPositionSubscription?.cancel());
     unawaited(_platformDragIconSubscription?.cancel());
     _cursorController.removeListener(_handleCursorKindChanged);
+    _cursorTranslation.dispose();
     super.dispose();
   }
 
@@ -290,19 +293,7 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
     if (!mounted || !position.dx.isFinite || !position.dy.isFinite) {
       return;
     }
-    final wasHidden = _position == null;
-    if (position == _position) {
-      return;
-    }
-    setState(() {
-      _position = position;
-      if (wasHidden) {
-        _frame = 0;
-      }
-    });
-    if (wasHidden) {
-      _syncFrameTimer();
-    }
+    _setPosition(position);
   }
 
   void _updatePosition(PointerEvent event) {
@@ -310,13 +301,28 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
         event.localPosition == _position) {
       return;
     }
+    _setPosition(event.localPosition);
+  }
+
+  void _setPosition(Offset position) {
+    final previous = _position;
+    if (position == previous) {
+      return;
+    }
     final wasHidden = _position == null;
-    setState(() {
-      _position = event.localPosition;
-      if (wasHidden) {
-        _frame = 0;
-      }
-    });
+    final outputScaleChanged =
+        previous != null &&
+        _cursorOutputScale(widget.displayLayout, previous, 1.0) !=
+            _cursorOutputScale(widget.displayLayout, position, 1.0);
+    _position = position;
+    _cursorTranslation.value = position;
+    if (wasHidden || outputScaleChanged) {
+      setState(() {
+        if (wasHidden) {
+          _frame = 0;
+        }
+      });
+    }
     if (wasHidden) {
       _syncFrameTimer();
     }
@@ -392,38 +398,44 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
             widget.child,
             if (position != null && dragIcon != null)
               Positioned(
-                left: position.dx + dragIcon.offset.dx,
-                top: position.dy + dragIcon.offset.dy,
+                left: dragIcon.offset.dx,
+                top: dragIcon.offset.dy,
                 width: dragIcon.size.width,
                 height: dragIcon.size.height,
-                child: IgnorePointer(
-                  child: ExcludeSemantics(
-                    child: RepaintBoundary(
-                      child: SurfaceLayerTexture(layer: dragIcon.layer),
+                child: RetainedTranslation(
+                  translation: _cursorTranslation,
+                  child: IgnorePointer(
+                    child: ExcludeSemantics(
+                      child: RepaintBoundary(
+                        child: SurfaceLayerTexture(layer: dragIcon.layer),
+                      ),
                     ),
                   ),
                 ),
               ),
             if (position != null && _visible && !widget.hideCursor)
               Positioned(
-                left: position.dx - hotspot.dx,
-                top: position.dy - hotspot.dy,
-                child: IgnorePointer(
-                  child: ExcludeSemantics(
-                    child: RepaintBoundary(
-                      child: assetRole != null
-                          ? Image.asset(
-                              widget.theme.assetPath(_kind, _frame),
-                              width: artworkSize.width,
-                              height: artworkSize.height,
-                              filterQuality: FilterQuality.none,
-                              gaplessPlayback: true,
-                              excludeFromSemantics: true,
-                            )
-                          : CustomPaint(
-                              size: artworkSize,
-                              painter: const _ShellCursorPainter(),
-                            ),
+                left: -hotspot.dx,
+                top: -hotspot.dy,
+                child: RetainedTranslation(
+                  translation: _cursorTranslation,
+                  child: IgnorePointer(
+                    child: ExcludeSemantics(
+                      child: RepaintBoundary(
+                        child: assetRole != null
+                            ? Image.asset(
+                                widget.theme.assetPath(_kind, _frame),
+                                width: artworkSize.width,
+                                height: artworkSize.height,
+                                filterQuality: FilterQuality.none,
+                                gaplessPlayback: true,
+                                excludeFromSemantics: true,
+                              )
+                            : CustomPaint(
+                                size: artworkSize,
+                                painter: const _ShellCursorPainter(),
+                              ),
+                      ),
                     ),
                   ),
                 ),

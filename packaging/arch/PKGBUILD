@@ -41,8 +41,9 @@ depends=(
 )
 optdepends=(
   'denial-ui-development: live Flutter UI editing and hot reload'
+  'iwd: Wi-Fi controls without NetworkManager'
   'lact: AMD GPU performance controls'
-  'networkmanager: Wi-Fi and network controls'
+  'networkmanager: Wi-Fi and network controls through NetworkManager'
   'pipewire-pulse: desktop audio controls'
   'power-profiles-daemon: system power profiles'
   'sddm: graphical login and session selection'
@@ -65,7 +66,7 @@ source=(
   'xdg-desktop-portal-wlr-Denial'
 )
 sha256sums=(
-  'e024d6797f6e93a2cc10eaddde4e5acf4a774a95f89a42135fb003507e5f02db'
+  '718aa3afc5d832c015c6c0874f200aac4b0c53827b569997ab929c3dd7e4558e'
   '0b70d097f9ebd30e3851d608cb284173fa3dc8e8d15354cfca5799b2c1e26294'
   'b4fa50a715fdf36737a72241596c307534cb8665d42b8a947b28df54ab04a0b1'
   '92d54e0cce7ef20febd0dcbfdd2fd8578aa0996e50a78ac0160e3b8fcaa6c99f'

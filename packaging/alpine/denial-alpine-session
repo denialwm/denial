@@ -1,0 +1,45 @@
+#!/bin/sh
+set -eu
+umask 077
+
+export XDG_SESSION_TYPE=wayland
+export XDG_SESSION_DESKTOP=Denial
+export XDG_CURRENT_DESKTOP=Denial
+export LIBSEAT_BACKEND=seatd
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/denial"
+mkdir -p "$state_dir"
+chmod 0700 "$state_dir"
+exec >>"$state_dir/alpine-session.log" 2>&1
+printf '\n=== Alpine Denial session %s ===\n' "$(date -Iseconds)"
+
+if [ -z "${XDG_RUNTIME_DIR:-}" ] || [ ! -d "$XDG_RUNTIME_DIR" ]; then
+    printf '%s\n' \
+        'denial-alpine-session: XDG_RUNTIME_DIR is unavailable' >&2
+    exit 1
+fi
+
+# Alpine does not provide a systemd user manager.  The login session owns one
+# user bus and its desktop services, while denial-session remains the direct
+# parent of the compositor and performs its normal bounded shutdown handoff.
+exec dbus-run-session -- /bin/sh -c '
+    pipewire &
+    wireplumber &
+    pipewire-pulse &
+    (
+        agent=/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1
+        [ -x "$agent" ] || exit 0
+        attempts=100
+        while [ "$attempts" -gt 0 ]; do
+            for socket in "$XDG_RUNTIME_DIR"/wayland-*; do
+                [ -S "$socket" ] || continue
+                export WAYLAND_DISPLAY="${socket##*/}"
+                export GDK_BACKEND=wayland
+                exec "$agent"
+            done
+            attempts=$((attempts - 1))
+            sleep 0.1
+        done
+    ) &
+    exec /usr/bin/denial-session --start-locked
+'

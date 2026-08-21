@@ -287,7 +287,11 @@ class _WallpaperThumbnail extends StatelessWidget {
         child: ClipRRect(
           borderRadius: radius,
           child: Image(
-            image: wallpaperImageProvider(wallpaper),
+            image: wallpaperImageProvider(
+              wallpaper,
+              targetPixelSize:
+                  const Size(54, 40) * MediaQuery.devicePixelRatioOf(context),
+            ),
             fit: BoxFit.cover,
             filterQuality: FilterQuality.low,
             excludeFromSemantics: true,

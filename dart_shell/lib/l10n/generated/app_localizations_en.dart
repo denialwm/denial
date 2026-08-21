@@ -1315,6 +1315,160 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsAvailableNetworksTitle => 'Available networks';
 
   @override
+  String get settingsBatteryChargeCycles => 'Charge cycles';
+
+  @override
+  String get settingsBatteryChargeEnd => 'Stop';
+
+  @override
+  String get settingsBatteryChargeLevel => 'Charge level';
+
+  @override
+  String get settingsBatteryChargeLimit => 'Charge limit';
+
+  @override
+  String get settingsBatteryChargeLimitDescription =>
+      'Limit the full charge level to reduce battery wear.';
+
+  @override
+  String settingsBatteryChargeLimitEndDescription(int percent) {
+    return 'Stop charging at $percent% to reduce battery wear.';
+  }
+
+  @override
+  String get settingsBatteryChargeLimitLevelsReadOnly =>
+      'Threshold levels are supplied by the system and are read-only in UPower.';
+
+  @override
+  String get settingsBatteryChargeLimitOptimizedDescription =>
+      'Let the firmware choose a battery-preserving charging pattern.';
+
+  @override
+  String settingsBatteryChargeLimitStartEndDescription(int start, int end) {
+    return 'Resume charging below $start% and stop at $end% to reduce battery wear.';
+  }
+
+  @override
+  String get settingsBatteryChargeStart => 'Start';
+
+  @override
+  String get settingsBatteryCritical => 'Critical battery';
+
+  @override
+  String get settingsBatteryDevice => 'Device';
+
+  @override
+  String settingsBatteryDuration(int hours, int minutes) {
+    return '$hours h $minutes min';
+  }
+
+  @override
+  String get settingsBatteryEmpty => 'Empty';
+
+  @override
+  String get settingsBatteryFirmwareOptimized => 'Firmware optimized';
+
+  @override
+  String get settingsBatteryFullCapacity => 'Full capacity';
+
+  @override
+  String settingsBatteryFullCapacityValue(String full, String design) {
+    return '$full / $design Wh';
+  }
+
+  @override
+  String get settingsBatteryFullyCharged => 'Fully charged';
+
+  @override
+  String get settingsBatteryHealth => 'Health';
+
+  @override
+  String get settingsBatteryInformationTitle => 'Battery information';
+
+  @override
+  String get settingsBatteryLeadAcid => 'Lead acid';
+
+  @override
+  String get settingsBatteryLithiumIon => 'Lithium ion';
+
+  @override
+  String get settingsBatteryLithiumIronPhosphate => 'Lithium iron phosphate';
+
+  @override
+  String get settingsBatteryLithiumPolymer => 'Lithium polymer';
+
+  @override
+  String get settingsBatteryLoading => 'Reading battery information…';
+
+  @override
+  String get settingsBatteryLow => 'Low battery';
+
+  @override
+  String get settingsBatteryNickelCadmium => 'Nickel cadmium';
+
+  @override
+  String get settingsBatteryNickelMetalHydride => 'Nickel metal hydride';
+
+  @override
+  String get settingsBatteryNoSystemBattery =>
+      'No system battery was detected.';
+
+  @override
+  String get settingsBatteryOnBatteryPower => 'On battery';
+
+  @override
+  String get settingsBatteryPendingCharge => 'Waiting to charge';
+
+  @override
+  String get settingsBatteryPendingDischarge => 'Waiting to discharge';
+
+  @override
+  String get settingsBatteryPluggedIn => 'Plugged in';
+
+  @override
+  String get settingsBatteryPowerRate => 'Power rate';
+
+  @override
+  String get settingsBatteryRefreshing => 'Refreshing…';
+
+  @override
+  String get settingsBatterySerial => 'Serial';
+
+  @override
+  String get settingsBatteryServiceUnavailable =>
+      'UPower battery information is unavailable.';
+
+  @override
+  String get settingsBatteryStoredEnergy => 'Stored energy';
+
+  @override
+  String get settingsBatteryTechnology => 'Technology';
+
+  @override
+  String get settingsBatteryTemperature => 'Temperature';
+
+  @override
+  String get settingsBatteryTimeRemaining => 'Time remaining';
+
+  @override
+  String get settingsBatteryTimeToFull => 'Time to full';
+
+  @override
+  String get settingsBatteryUnknownDevice => 'System battery';
+
+  @override
+  String get settingsBatteryUpdateFailed =>
+      'UPower could not refresh or change the battery settings.';
+
+  @override
+  String get settingsBatteryVoltage => 'Voltage';
+
+  @override
+  String settingsBatteryWattHours(String value) {
+    return '$value Wh';
+  }
+
+  @override
   String get settingsBackdropBlur => 'Backdrop blur';
 
   @override
@@ -1732,6 +1886,9 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get settingsTouchpadNaturalScrollDescription =>
       'Move content in the same direction as your fingers.';
+
+  @override
+  String get settingsTouchpadScrollSpeed => 'Finger scroll speed';
 
   @override
   String get settingsShortcutsSection => 'SHORTCUTS';
@@ -2851,7 +3008,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get wifiSecurityWpaPersonal => 'WPA/WPA2 Personal';
 
   @override
-  String get wifiServiceUnavailable => 'NetworkManager is unavailable';
+  String get wifiServiceUnavailable => 'Network service is unavailable';
 
   @override
   String get wifiServiceUnavailableDescription =>

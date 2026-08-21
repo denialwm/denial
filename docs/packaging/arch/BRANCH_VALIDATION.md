@@ -36,16 +36,24 @@ For either trusted branch, the owner-operated x86-64 runner:
 4. bootstraps the pinned Flutter and Rust toolchains;
 5. builds the Flutter integration bundle;
 6. runs the Rust and Flutter test suites;
-7. builds and internally validates the two required runtime packages and the
-   optional UI-development package;
+7. builds and internally validates the two required runtime packages as Arch,
+   Debian, RPM, and Alpine archives, plus the optional Arch UI-development
+   package;
 8. records package metadata, host inputs, checksums, toolchain versions, and
    build logs; and
 9. uploads the unsigned candidate artifact.
 
 A separate GitHub-hosted Arch job downloads that artifact and independently
-checks its source identity, checksums, architecture, three-package set,
-package ownership metadata, engine ABI dependencies, version bounds, and
-required runtime and development payloads.
+checks its source identity, checksums, all nine archives, package ownership
+metadata, engine ABI dependencies, version bounds, and required runtime and
+development payloads. The candidate also contains separately hashed neutral
+and Alpine-adapted staging trees, so the verifier compares every APK file and
+mode with the exact post-`gcompat`/`patchelf` payload.
+
+The CachyOS host does not need to boot Alpine. `tools/package-denial-apk`
+verifies a pinned official Alpine 3.24.1 minirootfs, enters it through rootless
+Bubblewrap, installs declared build dependencies, then disables networking
+while `abuild` compiles the two small musl bridges and assembles the APKs.
 
 The artifacts are named:
 
@@ -122,4 +130,7 @@ This controller does not arm the builder. `.github/workflows/release.yml`
 resolves the successful exact-commit `main` push run, promotes its retained
 payloads to tag-derived `pkgver`/`pkgrel` metadata, verifies payload identity,
 signs in the protected `release-signing` environment, independently verifies
-the signed repository, and publishes only after every release gate passes.
+the signed repository and direct APK downloads, and publishes only after every
+release gate passes. Alpine promotion consumes the already adapted payload and
+runs only `abuild rootpkg` under the no-compilation guard; no bridge or Denial
+binary is rebuilt.

@@ -1,8 +1,8 @@
 # Distribution support
 
 Denial targets Linux rather than one distribution. Arch Linux, CachyOS,
-Fedora 44, Debian 13, NixOS 26.05, Void Linux, and Ubuntu 24.04 LTS have
-completed runtime validation.
+Alpine Linux 3.24, Fedora 44, Debian 13, NixOS 26.05, Void Linux, and Ubuntu
+24.04 LTS have completed runtime validation.
 
 ## Architecture support
 
@@ -22,6 +22,7 @@ the same compositor, Flutter engine, and shell from source.
 | Debian 13 (trixie) | ✅ | ✅ |
 | Ubuntu 24.04 LTS (noble) | ✅ | ✅ |
 | Fedora 44 | ✅ | ✅ |
+| Alpine Linux 3.24 | ✅ | ✅ |
 | NixOS 26.05 | ✅ | ❌ |
 | Void Linux | ✅ | ❌ |
 
@@ -29,8 +30,10 @@ Debian-family and Fedora package adapters consume one byte-identical runtime
 staging tree. Signed APT repositories serve Debian 13 and Ubuntu 24.04, and a
 signed DNF repository serves Fedora 44; the same packages are retained as
 direct GitHub Release downloads. Arch Linux and CachyOS use the signed Pacman
-repository. NixOS and Void native adapters remain deferred. The packaging
-boundary remains reusable for other distributions.
+repository. Alpine packages are retained as signed direct GitHub Release
+downloads; a native RSA-signed APK repository is not published yet. NixOS and
+Void do not yet have first-party binary repositories. The packaging boundary
+remains reusable for other distributions.
 
 The first real GDM port and the compatibility requirements it exposed are
 recorded in the [Fedora 44 validation](../packaging/fedora/VALIDATION.md).
@@ -44,6 +47,9 @@ recorded in the [Void Linux validation](../packaging/void/VALIDATION.md).
 The Ubuntu desktop stack and hybrid-graphics topology exercised by the fifth
 port are recorded in the
 [Ubuntu 24.04 LTS validation](../packaging/ubuntu/VALIDATION.md).
+The musl/gcompat boundary, OpenRC session model, thin-provisioned boot path,
+and automatic font dependency policy exercised by the sixth port are recorded
+in the [Alpine Linux 3.24 validation](../packaging/alpine/VALIDATION.md).
 
 ## Current limitations
 
@@ -55,7 +61,12 @@ port are recorded in the
   Debian 13 can load it, but a future rolling-distribution build could raise
   that requirement again. The Flutter engine itself currently requires glibc
   2.18 and Fontconfig for distribution-native system-font discovery.
-- Denial pins Rust 1.95, newer than Debian 13's packaged Rust compiler. A
+- Alpine uses musl rather than glibc. Its package adapter runs the same
+  x86-64 payload through Alpine's `gcompat`, with two Denial-process-only
+  bridges for Flutter's resolver symbol and Dart's required thread-stack
+  headroom. The first-party APK is currently a direct download authenticated
+  by its adjacent OpenPGP signature rather than by a native APKINDEX.
+- Denial pins Rust 1.98, newer than Debian 13's packaged Rust compiler. A
   Debian builder must provision the pinned toolchain, while the resulting
   runtime package must not depend on a Rust installation.
 - The graphical session requires a logind-compatible seat and session API and

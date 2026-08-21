@@ -104,6 +104,25 @@ void main() {
     expect(original.hasSameRoutingAs(withKeyboard), isFalse);
   });
 
+  test('input layout carries passive client pointer press observation', () {
+    const original = InputLayoutSnapshot(
+      epoch: 1,
+      shellRegions: <Rect>[],
+      windows: <InputWindowRegion>[],
+    );
+    const observing = InputLayoutSnapshot(
+      epoch: 2,
+      shellRegions: <Rect>[],
+      windows: <InputWindowRegion>[],
+      observeClientPointerPresses: true,
+    );
+
+    expect(original.hasSameRoutingAs(observing), isFalse);
+    final bytes = DenialWireCodec().encodeInputLayout(observing);
+    expect(bytes, isNotNull);
+    expect((Envelope(bytes!).payload as InputLayout).flags, 1 << 2);
+  });
+
   test('Dart input goldens are current and decode in Dart', () {
     for (final count in <int>[0, 1, 8, 32]) {
       final codec = DenialWireCodec();

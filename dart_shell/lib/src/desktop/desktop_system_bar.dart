@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../input/shell_interaction_registry.dart';
 import '../models/display_layout.dart';
 import '../localization/denial_localizations.dart';
+import '../models/battery_status.dart';
 import '../services/media_player_service.dart';
 import '../state/system_status.dart';
 import '../theme/motion.dart';
@@ -16,6 +17,8 @@ import '../wallpaper/state/wallpaper_accent.dart';
 import '../widgets/notification_media.dart';
 import '../widgets/shell_backdrop_blur.dart';
 import '../widgets/shell_cursor.dart';
+import '../state/system_tray.dart';
+import 'system_tray_module.dart';
 
 /// The desktop system bar. Its strip is reserved from the window work area,
 /// so windows maximize beside it while true fullscreen covers it.
@@ -24,27 +27,37 @@ import '../widgets/shell_cursor.dart';
 /// over the bare wallpaper, and every card follows the wallpaper's extracted
 /// accent. Cards cluster at the trailing edge of the strip and spring in one
 /// after another when the bar mounts.
+const systemBarBatteryButtonKey = ValueKey<String>('system-bar-battery-button');
+
 class DesktopSystemBar extends ConsumerWidget {
-  const DesktopSystemBar({required this.side, super.key});
+  const DesktopSystemBar({
+    required this.side,
+    required this.onOpenPowerSettings,
+    super.key,
+  });
 
   static const double _edgePadding = 8.0;
   static const double _cardMargin = 5.0;
   static const double _cardGap = 8.0;
 
   final SystemBarSide side;
+  final VoidCallback onOpenPowerSettings;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final accent = ref.watch(shellAccentProvider);
     final now = ref.watch(clockProvider).value ?? DateTime.now();
+    final battery = ref.watch(batteryProvider);
     final cpu = ref.watch(cpuUsageProvider);
     final gpus = ref.watch(gpuUsageProvider);
     final media =
         ref.watch(mediaPlaybackProvider).value ??
         MprisPlaybackState.unavailable();
     final horizontal = side.isHorizontal;
+    final batteryVisible = battery.capacity != null;
     final cpuVisible = cpu.current != null;
     final mediaVisible = media.available;
+    final trayItems = ref.watch(systemTrayProvider);
     return Padding(
       padding: horizontal
           ? const EdgeInsets.symmetric(
@@ -59,10 +72,38 @@ class DesktopSystemBar extends ConsumerWidget {
         direction: horizontal ? Axis.horizontal : Axis.vertical,
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
+          if (trayItems.isNotEmpty)
+            Expanded(
+              child: Align(
+                alignment: horizontal
+                    ? Alignment.centerLeft
+                    : Alignment.topCenter,
+                child: SingleChildScrollView(
+                  scrollDirection: horizontal ? Axis.horizontal : Axis.vertical,
+                  child: _SystemBarEntrance(
+                    key: const ValueKey('system-bar-tray'),
+                    index: 0,
+                    horizontal: horizontal,
+                    child: _SystemBarCard(
+                      accent: accent,
+                      child: SystemTrayModule(
+                        horizontal: horizontal,
+                        accent: accent.color,
+                        items: trayItems,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           if (mediaVisible)
             _SystemBarEntrance(
               key: const ValueKey('system-bar-media'),
-              index: (cpuVisible ? 1 : 0) + gpus.length + 1,
+              index:
+                  (cpuVisible ? 1 : 0) +
+                  gpus.length +
+                  (batteryVisible ? 1 : 0) +
+                  1,
               horizontal: horizontal,
               child: Padding(
                 padding: horizontal
@@ -75,6 +116,22 @@ class DesktopSystemBar extends ConsumerWidget {
                     side: side,
                     playback: media,
                   ),
+                ),
+              ),
+            ),
+          if (batteryVisible)
+            _SystemBarEntrance(
+              key: const ValueKey('system-bar-battery'),
+              index: (cpuVisible ? 1 : 0) + gpus.length + 1,
+              horizontal: horizontal,
+              child: Padding(
+                padding: horizontal
+                    ? const EdgeInsets.only(right: _cardGap)
+                    : const EdgeInsets.only(bottom: _cardGap),
+                child: _BatteryActionCard(
+                  accent: accent,
+                  status: battery,
+                  onPressed: onOpenPowerSettings,
                 ),
               ),
             ),
@@ -810,6 +867,119 @@ class _ClockModule extends StatelessWidget {
   }
 }
 
+/// A compact battery gauge whose cell fills with the wallpaper accent. The
+/// charging bolt is drawn inside the cell, leaving the module calm and
+/// readable without spending horizontal space on a second status icon.
+class _BatteryActionCard extends StatefulWidget {
+  const _BatteryActionCard({
+    required this.accent,
+    required this.status,
+    required this.onPressed,
+  });
+
+  final WallpaperAccent accent;
+  final BatteryStatus status;
+  final VoidCallback onPressed;
+
+  @override
+  State<_BatteryActionCard> createState() => _BatteryActionCardState();
+}
+
+class _BatteryActionCardState extends State<_BatteryActionCard> {
+  var _hovered = false;
+  var _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final capacity = widget.status.capacity ?? 0;
+    final state = widget.status.charging ? 'charging' : 'discharging';
+    final statusLabel = localizedBatteryLine(context.l10n, state, capacity);
+    return Semantics(
+      button: true,
+      label: '${context.l10n.batteryTitle}, $statusLabel',
+      onTap: widget.onPressed,
+      child: ExcludeSemantics(
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            key: systemBarBatteryButtonKey,
+            borderRadius: const BorderRadius.all(Radius.circular(999)),
+            mouseCursor: ShellMouseCursors.link,
+            splashFactory: NoSplash.splashFactory,
+            overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+            onTap: widget.onPressed,
+            onHover: (value) => setState(() => _hovered = value),
+            onFocusChange: (value) => setState(() => _focused = value),
+            child: _SystemBarCard(
+              accent: widget.accent,
+              highlighted: _hovered || _focused,
+              focused: _focused,
+              child: _BatteryModule(
+                accent: widget.accent,
+                status: widget.status,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BatteryModule extends StatelessWidget {
+  const _BatteryModule({required this.accent, required this.status});
+
+  final WallpaperAccent accent;
+  final BatteryStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final capacity = status.capacity ?? 0;
+    final level = (capacity / 100).clamp(0.0, 1.0).toDouble();
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: 0.0, end: level),
+          duration: Motion.pill,
+          curve: Motion.standard,
+          builder: (context, value, _) => RepaintBoundary(
+            child: CustomPaint(
+              size: const Size(24, 14),
+              painter: _BatteryLevelPainter(
+                level: value,
+                charging: status.charging,
+                accent: accent.color,
+                outline: accent.captionColor,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 7),
+        SizedBox(
+          width: 34,
+          child: Text.rich(
+            TextSpan(
+              text: context.l10n.numberValue(capacity),
+              style: ShellText.systemBarValue,
+              children: [
+                TextSpan(
+                  text: context.l10n.percentSign,
+                  style: ShellText.systemBarCaption.copyWith(
+                    color: accent.captionColor,
+                  ),
+                ),
+              ],
+            ),
+            textAlign: TextAlign.right,
+            maxLines: 1,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// One load meter: a caption tag naming the source, a sparkline of the recent
 /// history, the animated percentage, and an optional direct sensor reading.
 /// Identity comes from the tag, never from the line color alone.
@@ -911,15 +1081,28 @@ class _TemperatureValue extends StatelessWidget {
 /// top-lit gradient animates between wallpaper accents at the wallpaper
 /// reveal's pace so the bar re-themes as part of the same gesture.
 class _SystemBarCard extends StatelessWidget {
-  const _SystemBarCard({required this.accent, required this.child});
+  const _SystemBarCard({
+    required this.accent,
+    required this.child,
+    this.highlighted = false,
+    this.focused = false,
+  });
 
   final WallpaperAccent accent;
   final Widget child;
+  final bool highlighted;
+  final bool focused;
 
   @override
   Widget build(BuildContext context) {
     const radius = BorderRadius.all(Radius.circular(999));
     final theme = ShellTheme.of(context);
+    final topFill = highlighted
+        ? Color.lerp(accent.cardFillTop, accent.color, 0.12)!
+        : accent.cardFillTop;
+    final bottomFill = highlighted
+        ? Color.lerp(accent.cardFill, accent.color, 0.08)!
+        : accent.cardFill;
     return ShellBackdropBlur(
       borderRadius: radius,
       child: AnimatedContainer(
@@ -930,12 +1113,12 @@ class _SystemBarCard extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              theme.panelColor(accent.cardFillTop),
-              theme.panelColor(accent.cardFill),
-            ],
+            colors: [theme.panelColor(topFill), theme.panelColor(bottomFill)],
           ),
           borderRadius: radius,
+          border: focused
+              ? Border.all(color: accent.color.withValues(alpha: 0.78))
+              : null,
         ),
         alignment: Alignment.center,
         child: child,
@@ -1068,6 +1251,84 @@ class _SparklinePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _SparklinePainter oldDelegate) {
     return oldDelegate.history != history || oldDelegate.accent != accent;
+  }
+}
+
+/// Draws a small battery silhouette with an animated charge fill and an
+/// integrated bolt. All geometry is vector-based so the gauge stays crisp at
+/// fractional desktop scale factors.
+class _BatteryLevelPainter extends CustomPainter {
+  const _BatteryLevelPainter({
+    required this.level,
+    required this.charging,
+    required this.accent,
+    required this.outline,
+  });
+
+  final double level;
+  final bool charging;
+  final Color accent;
+  final Color outline;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final body = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0.75, 1.25, size.width - 4.0, size.height - 2.5),
+      const Radius.circular(3.0),
+    );
+    canvas.drawRRect(
+      body,
+      Paint()
+        ..color = outline
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.35,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          size.width - 2.55,
+          size.height * 0.34,
+          1.8,
+          size.height * 0.32,
+        ),
+        const Radius.circular(0.8),
+      ),
+      Paint()..color = outline,
+    );
+
+    final fillBounds = Rect.fromLTWH(
+      body.left + 2.0,
+      body.top + 2.0,
+      math.max(0.0, (body.width - 4.0) * level.clamp(0.0, 1.0)),
+      body.height - 4.0,
+    );
+    if (fillBounds.width > 0.0) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(fillBounds, const Radius.circular(1.5)),
+        Paint()..color = accent,
+      );
+    }
+
+    if (charging) {
+      final center = body.center;
+      final bolt = Path()
+        ..moveTo(center.dx + 0.6, body.top + 1.7)
+        ..lineTo(center.dx - 3.0, center.dy + 0.4)
+        ..lineTo(center.dx - 0.6, center.dy + 0.4)
+        ..lineTo(center.dx - 1.5, body.bottom - 1.6)
+        ..lineTo(center.dx + 3.0, center.dy - 0.8)
+        ..lineTo(center.dx + 0.5, center.dy - 0.8)
+        ..close();
+      canvas.drawPath(bolt, Paint()..color = ShellColors.textPrimary);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BatteryLevelPainter oldDelegate) {
+    return oldDelegate.level != level ||
+        oldDelegate.charging != charging ||
+        oldDelegate.accent != accent ||
+        oldDelegate.outline != outline;
   }
 }
 

@@ -14,6 +14,8 @@ import 'package:denial_dart_shell/src/models/display_layout.dart'
     show SystemBarSide;
 import 'package:denial_dart_shell/src/models/input_device_capabilities.dart';
 import 'package:denial_dart_shell/src/models/keyboard_configuration.dart';
+import 'package:denial_dart_shell/src/models/system_tray_item.dart'
+    as tray_model;
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/platform/denial_wire.dart' as wire;
 
@@ -240,6 +242,23 @@ void main() {
     }
   });
 
+  test('unsolicited display layout replies publish live topology', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final bridge = _startedBridge();
+    try {
+      final update = bridge.displayLayouts.first;
+      await _sendToFlutter(messenger, _displayResponse(requestId: 0));
+
+      final display = await update;
+      expect(display.epoch, 0x100000001);
+      expect(display.logicalSize, const Size(1920, 1080));
+      expect(display.outputs.single.name, 'eDP-1');
+    } finally {
+      bridge.dispose();
+    }
+  });
+
   test(
     'settings and keyboard replies stay revisioned on the typed bridge',
     () async {
@@ -315,6 +334,7 @@ void main() {
         expect(inputDevices.hasTouchpad, isTrue);
         expect(inputDevices.tapToClickEnabled, isTrue);
         expect(inputDevices.naturalScrollEnabled, isFalse);
+        expect(inputDevices.scrollSpeedFactor, 1);
 
         final update = bridge.configureKeyboard(
           keyboard.copyWith(repeatRateHz: 40),
@@ -339,6 +359,7 @@ void main() {
           inputDevices.copyWith(
             tapToClickEnabled: false,
             naturalScrollEnabled: true,
+            scrollSpeedFactor: 2.5,
           ),
         );
         final touchpadEnvelope = requests.last;
@@ -351,6 +372,7 @@ void main() {
         expect(touchpadRequest.expectedRevision, 7);
         expect(touchpadRequest.touchpad!.tapToClickEnabled, isFalse);
         expect(touchpadRequest.touchpad!.naturalScrollEnabled, isTrue);
+        expect(touchpadRequest.touchpad!.scrollSpeedFactor, 2.5);
         await _sendToFlutter(
           messenger,
           _inputDeviceCapabilitiesResponse(
@@ -359,12 +381,14 @@ void main() {
             hasTouchpad: true,
             tapToClickEnabled: false,
             naturalScrollEnabled: true,
+            scrollSpeedFactor: 2.5,
           ),
         );
         final updatedTouchpad = await touchpadUpdate;
         expect(updatedTouchpad.revision, 9);
         expect(updatedTouchpad.tapToClickEnabled, isFalse);
         expect(updatedTouchpad.naturalScrollEnabled, isTrue);
+        expect(updatedTouchpad.scrollSpeedFactor, 2.5);
 
         await _sendToFlutter(
           messenger,
@@ -627,6 +651,31 @@ void main() {
     },
   );
 
+  test('client pointer press notifications reach the shell', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final bridge = _startedBridge();
+    final events = <DenialShellActionEvent>[];
+    final subscription = bridge.shellActions.listen(events.add);
+    try {
+      await _sendToFlutter(
+        messenger,
+        _envelope(
+          wire.PayloadTypeId.ShellAction,
+          wire.ShellActionObjectBuilder(
+            action: wire.ShellActionKind.ClientPointerPressed,
+          ),
+        ),
+      );
+
+      expect(events, hasLength(1));
+      expect(events.single.action, DenialShellAction.clientPointerPressed);
+    } finally {
+      await subscription.cancel();
+      bridge.dispose();
+    }
+  });
+
   test(
     'native cursor positions are forwarded without pointer synthesis',
     () async {
@@ -863,6 +912,102 @@ void main() {
         wire.DesktopNotificationCommandKind.InvokeDefault,
       );
       expect(commands[2].actionKey, isNull);
+    } finally {
+      bridge.dispose();
+      messenger.setMockMessageHandler(wire.denialWireToNativeChannel, null);
+    }
+  });
+
+  test('XEmbed tray events are cached and forwarded', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final bridge = _startedBridge();
+    try {
+      await _sendToFlutter(
+        messenger,
+        _envelope(
+          wire.PayloadTypeId.XEmbedTrayEvent,
+          wire.XembedTrayEventObjectBuilder(
+            kind: wire.XembedTrayEventKind.Added,
+            windowId: 42,
+            icon: wire.XembedTrayIconObjectBuilder(
+              windowId: 42,
+              title: 'Steam',
+              width: 1,
+              height: 1,
+              rgba: const <int>[10, 20, 30, 255],
+            ),
+          ),
+        ),
+      );
+
+      expect(bridge.xembedTrayItems.keys, <int>[42]);
+      expect(bridge.xembedTrayItems[42]!.title, 'Steam');
+      expect(
+        bridge.xembedTrayItems[42]!.source,
+        tray_model.SystemTrayItemSource.xEmbed,
+      );
+
+      final events = <tray_model.XEmbedTrayEvent>[];
+      final subscription = bridge.xembedTrayEvents.listen(events.add);
+      await _sendToFlutter(
+        messenger,
+        _envelope(
+          wire.PayloadTypeId.XEmbedTrayEvent,
+          wire.XembedTrayEventObjectBuilder(
+            kind: wire.XembedTrayEventKind.Removed,
+            windowId: 42,
+          ),
+        ),
+      );
+      expect(events.single.kind, tray_model.XEmbedTrayEventKind.removed);
+      expect(bridge.xembedTrayItems, isEmpty);
+      await subscription.cancel();
+    } finally {
+      bridge.dispose();
+    }
+  });
+
+  test('XEmbed tray actions are encoded for native', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final commands = <wire.XembedTrayCommand>[];
+    messenger.setMockMessageHandler(wire.denialWireToNativeChannel, (
+      message,
+    ) async {
+      final envelope = wire.Envelope(_bytes(message!));
+      expect(envelope.payloadType, wire.PayloadTypeId.XEmbedTrayCommand);
+      commands.add(envelope.payload as wire.XembedTrayCommand);
+      return null;
+    });
+    final bridge = _startedBridge();
+    try {
+      expect(
+        bridge.invokeXEmbedTrayAction(
+          42,
+          tray_model.SystemTrayAction.secondaryActivate,
+          const Offset(-320, 1440),
+        ),
+        isTrue,
+      );
+      expect(
+        bridge.invokeXEmbedTrayAction(
+          0,
+          tray_model.SystemTrayAction.activate,
+          Offset.zero,
+        ),
+        isFalse,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(commands, hasLength(1));
+      expect(
+        commands.single.kind,
+        wire.XembedTrayCommandKind.SecondaryActivate,
+      );
+      expect(commands.single.windowId, 42);
+      expect(commands.single.x, -320);
+      expect(commands.single.y, 1440);
     } finally {
       bridge.dispose();
       messenger.setMockMessageHandler(wire.denialWireToNativeChannel, null);
@@ -1215,6 +1360,7 @@ Uint8List _inputDeviceCapabilitiesResponse({
   int revision = 7,
   bool tapToClickEnabled = true,
   bool naturalScrollEnabled = false,
+  double scrollSpeedFactor = 1,
 }) {
   return _envelope(
     wire.PayloadTypeId.SettingsResponse,
@@ -1227,6 +1373,7 @@ Uint8List _inputDeviceCapabilitiesResponse({
         touchpad: wire.TouchpadConfigurationObjectBuilder(
           tapToClickEnabled: tapToClickEnabled,
           naturalScrollEnabled: naturalScrollEnabled,
+          scrollSpeedFactor: scrollSpeedFactor,
         ),
       ),
     ),

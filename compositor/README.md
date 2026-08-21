@@ -121,6 +121,14 @@ pointer lock or grab without forwarding Escape, keeps replacement constraints
 disabled, and lets that client capture the pointer again only after a plain
 click on its window.
 
+Direct touch uses a small compositor-owned gesture vocabulary over normal
+windows. Dragging within the top 48 logical pixels moves the window, pinching
+anywhere resizes it about its center, a two-finger downward swipe begun in that
+top strip minimizes it, and three simultaneous contacts close it. Recognition
+is resolved before ordinary touch routing; when a later finger promotes a
+client touch to a window gesture, Denial cancels that client sequence and emits
+the same placement, minimize, and close actions used by non-touch controls.
+
 `--frames` and `--commit-seconds` remain available for bounded diagnostics.
 
 Physical placement is configuration, not connector-order policy. An output
@@ -130,9 +138,22 @@ resolution; otherwise it selects the fastest native mode. Use
 `transform=NAME,normal|90|180|270|flipped|flipped-90|flipped-180|flipped-270`
 for rotation and reflection. Add `vrr=NAME` for each output that should use
 variable refresh rate, or `disabled=NAME` to leave a connected output outside
-the KMS and Wayland topology. Denial validates transforms and VRR on enabled
-connectors with an atomic `TEST_ONLY` commit before changing the live KMS
-state. Unlisted outputs use the deterministic left-to-right fallback.
+the KMS and Wayland topology. Flutter projects transformed outputs directly
+into their native, unrotated scanout buffers; the KMS mode and primary-plane
+rotation remain unchanged, including for 90/270-degree transforms. Denial
+validates mode and VRR changes with an atomic `TEST_ONLY` commit before
+changing live KMS state. Unlisted outputs use the deterministic left-to-right
+fallback.
+
+When `iio-sensor-proxy` exposes an accelerometer, Denial automatically rotates
+built-in `DSI-*`, `eDP-*`, and `LVDS-*` panels. The configured `transform=` is
+the panel's fixed mounting transform; sensor rotation is transient and is not
+written back to the output file. Sensor and manual transform-only changes keep
+the Flutter engine, native output buffers, and compressed/tiled modifiers
+resident. Automatic cardinal changes animate the retained composited scene for
+300 ms on the physical output clock. The old-size scene starts rotating first;
+Flutter receives the new logical canvas during the final quarter. Projection-
+only frames do not drive Dart or advance client textures.
 Command-line position assignments override the file:
 
 ```text

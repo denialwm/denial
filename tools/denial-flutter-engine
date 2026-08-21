@@ -54,11 +54,15 @@ usage() {
 Usage:
   tools/denial-flutter-engine cache-key
   tools/denial-flutter-engine build [--github-env FILE]
+  tools/denial-flutter-engine refresh-metadata
   tools/denial-flutter-engine verify [--github-env FILE]
 
 Commands:
   cache-key  Print the immutable cache key for the locked source and GN args.
-  build      Reuse an exact artifact hit, or incrementally build all modes.
+  build      Reuse/build all modes and stage them into prebuilt/ for local use.
+  refresh-metadata
+             After deliberately advancing SOURCE_LOCK.json, regenerate GN
+             arguments and canonical checksums, then build and stage all modes.
   verify     Require and verify an existing exact artifact hit.
 
 Environment:
@@ -83,6 +87,10 @@ managed checkout fallback for isolated CI builders.
 
 Interactive machines leave two logical CPUs free by default. GitHub Actions
 and explicitly dedicated builders may use every available CPU.
+
+Routine builds must use `build`. `refresh-metadata` is the one-time maintainer
+operation for a controlled Flutter/Skia lock advance; it intentionally updates
+tracked args.gn and libflutter_engine.so.sha256 files.
 EOF
 }
 
@@ -169,6 +177,7 @@ verify_engine_exports() {
   local symbol
 
   for symbol in \
+    DenialFlutterEngineRequestFrameForExternalTextures \
     DenialFlutterEngineScheduleFrameForExternalTextures \
     FlutterEngineGetProcAddresses \
     FlutterEngineRunsAOTCompiledDartCode; do
@@ -211,9 +220,31 @@ normalize_generated_args() {
   fi
   if ! cmp -s "$normalized" "$expected"; then
     rm -f -- "$normalized"
-    fail "$mode GN arguments differ from $expected"
+    fail "$mode GN arguments differ from $expected; after a deliberate source-lock advance run '$0 refresh-metadata'"
   fi
   mv -- "$normalized" "$generated"
+}
+
+refresh_generated_args() {
+  local mode="$1"
+  local generated="$2"
+  local reference="$3"
+  local destination="$4"
+  local expected_jobs
+  local normalized="${generated}.denial-refresh.$$"
+
+  expected_jobs="$(
+    awk '$1 == "concurrent_toolchain_jobs" && $2 == "=" { print $3 }' \
+      "$reference"
+  )"
+  [[ "$expected_jobs" =~ ^[1-9][0-9]*$ ]] \
+    || fail "$mode expected args have no canonical toolchain job count"
+  awk -v jobs="$expected_jobs" '
+    $1 == "concurrent_toolchain_jobs" && $2 == "=" { $3 = jobs }
+    { print }
+  ' "$generated" >"$normalized"
+  mv -- "$normalized" "$generated"
+  install -m 0644 -- "$generated" "$destination"
 }
 
 validate_source_lock() {
@@ -289,6 +320,24 @@ verify_artifacts() {
     [[ "$(jq -er --arg mode "$mode" '.artifacts[$mode].sha256' \
       "$artifact_dir/manifest.json")" == "$expected" ]] || return 1
   done
+}
+
+stage_artifacts() {
+  local key="$1"
+  local artifact_dir
+  local destination
+  local mode
+  local source
+
+  artifact_dir="$(artifact_dir_for_key "$key")"
+  verify_artifacts "$key" \
+    || fail "cannot stage unverified Flutter engine cache entry: $key"
+  for mode in "${MODES[@]}"; do
+    source="$artifact_dir/$mode/libflutter_engine.so"
+    destination="$ROOT/prebuilt/flutter-engine/linux-x64-$mode/libflutter_engine.so"
+    install -m 0755 -- "$source" "$destination"
+  done
+  printf 'Staged verified Flutter engines into prebuilt/ for local builds: %s\n' "$key"
 }
 
 write_github_env() {
@@ -633,7 +682,7 @@ build_artifacts() {
       "$llvm_objcopy"
     [[ "$(file_sha256 "$output/libflutter_engine.so")" \
       == "$(expected_engine_sha256 "$mode")" ]] \
-      || fail "$mode engine checksum differs from committed metadata"
+      || fail "$mode engine checksum differs from committed metadata; after a deliberate source-lock advance run '$0 refresh-metadata'"
     verify_engine_exports "$output/libflutter_engine.so" \
       || fail "$mode engine is missing a required embedder export"
     install -d -m 0700 "$staging/$mode"
@@ -667,6 +716,93 @@ build_artifacts() {
   chmod 0600 "$staging/manifest.json"
   mv -- "$staging" "$artifact_dir"
   ARTIFACT_STAGING=''
+  trap - EXIT
+}
+
+refresh_metadata() {
+  local build_root
+  local checkout_depot
+  local expected_args
+  local llvm_objcopy
+  local metadata_stage
+  local mode
+  local output
+  local source_state
+  local target
+
+  install -d -m 0700 "$CACHE_ROOT" "$ARTIFACT_ROOT" "$STATE_ROOT"
+  exec 9>"$CACHE_ROOT/build.lock"
+  flock 9
+  source_state="$(file_sha256 "$SOURCE_LOCK")"
+  prepare_checkout "$source_state"
+
+  build_root="$CHECKOUT/engine/src"
+  checkout_depot="$build_root/flutter/third_party/depot_tools"
+  llvm_objcopy="$build_root/flutter/buildtools/linux-x64/clang/bin/llvm-objcopy"
+  metadata_stage="$(mktemp -d -- "$CACHE_ROOT/.metadata-refresh.XXXXXX")"
+  trap '[[ -z "${metadata_stage:-}" ]] || rm -rf --one-file-system -- "$metadata_stage"' EXIT
+
+  for mode in "${MODES[@]}"; do
+    target="denial_host_$mode"
+    output="$BUILD_ROOT/out/$target"
+    expected_args="$ROOT/prebuilt/flutter-engine/linux-x64-$mode/args.gn"
+    install -d -m 0700 "$metadata_stage/$mode"
+    printf 'Refreshing %s engine build metadata\n' "$mode"
+    (
+      cd "$build_root"
+      PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
+        DEPOT_TOOLS_UPDATE=0 \
+        VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
+        ./flutter/tools/gn \
+          --runtime-mode="$mode" \
+          --enable-fontconfig \
+          --out-dir="$BUILD_ROOT" \
+          --target-dir="$target"
+    )
+    refresh_generated_args \
+      "$mode" \
+      "$output/args.gn" \
+      "$expected_args" \
+      "$metadata_stage/$mode/args.gn"
+    (
+      cd "$build_root"
+      PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
+        DEPOT_TOOLS_UPDATE=0 \
+        VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
+        ./flutter/third_party/gn/gn gen --check "$output"
+    )
+    PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
+      DEPOT_TOOLS_UPDATE=0 \
+      VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
+      /usr/bin/ninja -C "$output" -j "$BUILD_JOBS" libflutter_engine.so
+    canonicalize_engine_build_id \
+      "$mode" \
+      "$output/libflutter_engine.so" \
+      "$llvm_objcopy"
+    verify_engine_exports "$output/libflutter_engine.so" \
+      || fail "$mode engine is missing a required embedder export"
+    printf '%s  libflutter_engine.so\n' \
+      "$(file_sha256 "$output/libflutter_engine.so")" \
+      >"$metadata_stage/$mode/libflutter_engine.so.sha256"
+    install -m 0755 \
+      "$output/libflutter_engine.so" \
+      "$metadata_stage/$mode/libflutter_engine.so"
+  done
+
+  for mode in "${MODES[@]}"; do
+    install -m 0644 \
+      "$metadata_stage/$mode/args.gn" \
+      "$ROOT/prebuilt/flutter-engine/linux-x64-$mode/args.gn"
+    install -m 0644 \
+      "$metadata_stage/$mode/libflutter_engine.so.sha256" \
+      "$ROOT/prebuilt/flutter-engine/linux-x64-$mode/libflutter_engine.so.sha256"
+    install -m 0755 \
+      "$metadata_stage/$mode/libflutter_engine.so" \
+      "$ROOT/prebuilt/flutter-engine/linux-x64-$mode/libflutter_engine.so"
+  done
+  printf 'Refreshed tracked Flutter engine metadata for source lock %s\n' \
+    "$(file_sha256 "$SOURCE_LOCK")"
+  rm -rf --one-file-system -- "$metadata_stage"
   trap - EXIT
 }
 
@@ -741,6 +877,14 @@ main() {
       ;;
     build)
       resolve_artifacts 1 "$github_env"
+      stage_artifacts "$(cache_key)"
+      ;;
+    refresh-metadata)
+      [[ -z "$github_env" ]] \
+        || fail 'refresh-metadata does not accept --github-env'
+      refresh_metadata
+      resolve_artifacts 1 ''
+      stage_artifacts "$(cache_key)"
       ;;
     verify)
       resolve_artifacts 0 "$github_env"

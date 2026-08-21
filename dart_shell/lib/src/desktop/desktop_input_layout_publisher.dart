@@ -240,6 +240,7 @@ class _DesktopInputLayoutPublisherState
       visibleSurfaceIds: visibleSurfaceIds.toList(growable: false),
       keyboardCapture: interactions.capturesKeyboard,
       exclusiveShellMode: interactions.compositorExclusive,
+      observeClientPointerPresses: interactions.observesClientPointerPresses,
     );
     if (_lastSnapshot?.hasSameRoutingAs(snapshot) ?? false) {
       return;

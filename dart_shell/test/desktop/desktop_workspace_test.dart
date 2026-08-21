@@ -735,6 +735,66 @@ void main() {
     },
   );
 
+  test('native grab geometry ignores interleaved title snapshots', () {
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWorkspaceProvider.notifier);
+    controller.syncWindows(
+      <DenialWindow>[
+        _window(objectId: 1, windowId: 11, monitorId: 1, title: 'Thinking ⠼'),
+      ],
+      viewSize,
+      1,
+      snapshotSequence: 10,
+    );
+    controller.applyNativePlacement(
+      1,
+      _placementEvent(
+        sequence: 11,
+        contentRect: const Rect.fromLTWH(100, 100, 300, 200),
+        monitorId: 1,
+        workspaceId: 1,
+        phase: DenialWindowPlacementPhase.begin,
+      ),
+    );
+    final grabAnchor = container.read(desktopWorkspaceProvider);
+    expect(grabAnchor.placements[1]!.dragging, isTrue);
+
+    controller.syncWindows(
+      <DenialWindow>[
+        _window(
+          objectId: 1,
+          windowId: 11,
+          monitorId: 1,
+          title: 'Thinking ⠴',
+          geometry: const Rect.fromLTWH(460, 380, 300, 200),
+        ),
+      ],
+      viewSize,
+      1,
+      snapshotSequence: 12,
+    );
+
+    expect(container.read(desktopWorkspaceProvider), same(grabAnchor));
+    expect(
+      container.read(desktopWorkspaceProvider).placements[1]!.contentRect,
+      const Rect.fromLTWH(100, 100, 300, 200),
+    );
+
+    controller.applyNativePlacement(
+      1,
+      _placementEvent(
+        sequence: 13,
+        contentRect: const Rect.fromLTWH(460, 380, 300, 200),
+        monitorId: 1,
+        workspaceId: 1,
+        phase: DenialWindowPlacementPhase.end,
+      ),
+    );
+    final settled = container.read(desktopWorkspaceProvider).placements[1]!;
+    expect(settled.dragging, isFalse);
+    expect(settled.contentRect, const Rect.fromLTWH(460, 380, 300, 200));
+  });
+
   test(
     'live placement geometry does not invalidate static scene structure',
     () {

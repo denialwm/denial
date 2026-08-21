@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 readonly CONFIG_FILE=/etc/denial/session.conf

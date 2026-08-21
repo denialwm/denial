@@ -9,9 +9,13 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:denial_dart_shell/src/desktop/desktop_system_bar.dart';
+import 'package:denial_dart_shell/src/desktop/system_tray_module.dart';
 import 'package:denial_dart_shell/src/localization/denial_localizations.dart';
+import 'package:denial_dart_shell/src/models/battery_status.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
+import 'package:denial_dart_shell/src/models/system_tray_item.dart';
 import 'package:denial_dart_shell/src/services/media_player_service.dart';
+import 'package:denial_dart_shell/src/state/system_tray.dart';
 import 'package:denial_dart_shell/src/state/system_status.dart';
 import 'package:denial_dart_shell/src/wallpaper/state/wallpaper_accent.dart';
 
@@ -75,6 +79,79 @@ void main() {
 
     expect(_sparklineFinder, findsOneWidget);
     expect(find.text('CPU'), findsOneWidget);
+  });
+
+  testWidgets('tray icons sit at the leading edge away from status cards', (
+    tester,
+  ) async {
+    final trayItem = SystemTrayItem(
+      id: 'xembed:42',
+      source: SystemTrayItemSource.xEmbed,
+      title: 'Steam',
+      status: SystemTrayStatus.active,
+      iconName: '',
+      iconThemePath: '',
+      iconPixmap: SystemTrayIconPixmap(
+        width: 1,
+        height: 1,
+        rgba: Uint8List.fromList(<int>[255, 255, 255, 255]),
+      ),
+      menuAvailable: true,
+      primaryOpensMenu: false,
+    );
+    await _pumpBar(
+      tester,
+      cpuUsage: 0.23,
+      trayItems: <SystemTrayItem>[trayItem],
+    );
+
+    final trayRect = tester.getRect(
+      find.byKey(systemTrayItemButtonKey(trayItem.id)),
+    );
+    final cpuRect = tester.getRect(find.text('CPU'));
+    expect(trayRect.left, closeTo(20, 2));
+    expect(trayRect.right, lessThan(cpuRect.left));
+    expect(find.bySemanticsLabel('Steam'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('battery card sits immediately left of GPU and CPU cards', (
+    tester,
+  ) async {
+    var openPowerSettingsCount = 0;
+    await _pumpBar(
+      tester,
+      cpuUsage: 0.23,
+      battery: const BatteryStatus(capacity: 64, charging: true),
+      onOpenPowerSettings: () => openPowerSettingsCount += 1,
+      gpus: const [
+        GpuLoad(
+          id: 'card2',
+          label: 'AMD',
+          series: LoadSeries(current: 0.42, history: [0.3, 0.42]),
+        ),
+      ],
+    );
+
+    expect(_batteryGaugeFinder, findsOneWidget);
+    expect(find.text('64%'), findsOneWidget);
+    expect(find.bySemanticsLabel('Battery, Charging 64%'), findsOneWidget);
+
+    final batteryRect = tester.getRect(find.text('64%'));
+    final gpuRect = tester.getRect(find.text('AMD'));
+    final cpuRect = tester.getRect(find.text('CPU'));
+    expect(batteryRect.right, lessThan(gpuRect.left));
+    expect(gpuRect.right, lessThan(cpuRect.left));
+
+    await tester.tap(find.byKey(systemBarBatteryButtonKey));
+    expect(openPowerSettingsCount, 1);
+  });
+
+  testWidgets('battery card waits for a real capacity reading', (tester) async {
+    await _pumpBar(tester, cpuUsage: 0.23);
+
+    expect(_batteryGaugeFinder, findsNothing);
+    expect(find.byKey(const ValueKey('system-bar-battery')), findsNothing);
   });
 
   testWidgets('every autodetected GPU gets a labelled sparkline card', (
@@ -211,6 +288,7 @@ void main() {
       tester,
       cpuUsage: 0.23,
       cpuTemperatureC: 54,
+      battery: const BatteryStatus(capacity: 74, charging: true),
       history: wave,
       gpus: [
         GpuLoad(
@@ -232,8 +310,21 @@ void main() {
           ),
         ),
       ],
+      trayItems: <SystemTrayItem>[
+        _previewTrayItem('Steam', const Color(0xff66c0f4)),
+        _previewTrayItem('Sync', const Color(0xff8fd694)),
+        _previewTrayItem(
+          'Updates',
+          const Color(0xffffb45c),
+          status: SystemTrayStatus.needsAttention,
+        ),
+      ],
       withWallpaper: true,
     );
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await tester.pump();
     final boundary = tester.renderObject<RenderRepaintBoundary>(
       find.byKey(_previewBoundaryKey),
     );
@@ -255,12 +346,53 @@ final Finder _sparklineFinder = find.byWidgetPredicate(
       '${widget.painter.runtimeType}' == '_SparklinePainter',
 );
 
+final Finder _batteryGaugeFinder = find.byWidgetPredicate(
+  (widget) =>
+      widget is CustomPaint &&
+      '${widget.painter.runtimeType}' == '_BatteryLevelPainter',
+);
+
+SystemTrayItem _previewTrayItem(
+  String title,
+  Color color, {
+  SystemTrayStatus status = SystemTrayStatus.active,
+}) {
+  const size = 8;
+  final rgba = Uint8List(size * size * 4);
+  for (var y = 0; y < size; y += 1) {
+    for (var x = 0; x < size; x += 1) {
+      final dx = x - 3.5;
+      final dy = y - 3.5;
+      final alpha = dx * dx + dy * dy <= 12.25 ? 255 : 0;
+      final offset = (y * size + x) * 4;
+      rgba[offset] = (color.r * alpha).round();
+      rgba[offset + 1] = (color.g * alpha).round();
+      rgba[offset + 2] = (color.b * alpha).round();
+      rgba[offset + 3] = alpha;
+    }
+  }
+  return SystemTrayItem(
+    id: 'preview:$title',
+    source: SystemTrayItemSource.xEmbed,
+    title: title,
+    status: status,
+    iconName: '',
+    iconThemePath: '',
+    iconPixmap: SystemTrayIconPixmap(width: size, height: size, rgba: rgba),
+    menuAvailable: true,
+    primaryOpensMenu: false,
+  );
+}
+
 Future<void> _pumpBar(
   WidgetTester tester, {
   required double? cpuUsage,
   double? cpuTemperatureC,
+  BatteryStatus battery = BatteryStatus.unknown,
+  VoidCallback? onOpenPowerSettings,
   List<double>? history,
   List<GpuLoad> gpus = const <GpuLoad>[],
+  List<SystemTrayItem> trayItems = const <SystemTrayItem>[],
   bool withWallpaper = false,
 }) async {
   await tester.binding.setSurfaceSize(const Size(1280, 120));
@@ -279,7 +411,9 @@ Future<void> _pumpBar(
           (ref, controller) => const WallpaperAccent(Color(0xff64d8cb)),
         ),
         cpuUsageProvider.overrideWithBuild((ref, controller) => cpuLoad),
+        batteryProvider.overrideWithBuild((ref, controller) => battery),
         gpuUsageProvider.overrideWithBuild((ref, controller) => gpus),
+        systemTrayProvider.overrideWithBuild((ref, controller) => trayItems),
         mediaPlaybackProvider.overrideWith(
           (ref) => Stream<MprisPlaybackState>.value(
             MprisPlaybackState.unavailable(),
@@ -294,36 +428,45 @@ Future<void> _pumpBar(
         locale: const Locale('it'),
         child: Directionality(
           textDirection: TextDirection.ltr,
-          child: RepaintBoundary(
-            key: _previewBoundaryKey,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: withWallpaper
-                        ? const LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              Color(0xff0f2350),
-                              Color(0xff3b1f5e),
-                              Color(0xffb0326a),
-                            ],
-                          )
-                        : null,
-                    color: withWallpaper ? null : const Color(0xff101318),
+          child: Overlay(
+            initialEntries: <OverlayEntry>[
+              OverlayEntry(
+                builder: (_) => RepaintBoundary(
+                  key: _previewBoundaryKey,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: withWallpaper
+                              ? const LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    Color(0xff0f2350),
+                                    Color(0xff3b1f5e),
+                                    Color(0xffb0326a),
+                                  ],
+                                )
+                              : null,
+                          color: withWallpaper ? null : const Color(0xff101318),
+                        ),
+                      ),
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        top: 0,
+                        height: 32,
+                        child: DesktopSystemBar(
+                          side: SystemBarSide.top,
+                          onOpenPowerSettings: onOpenPowerSettings ?? () {},
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  top: 0,
-                  height: 32,
-                  child: DesktopSystemBar(side: SystemBarSide.top),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

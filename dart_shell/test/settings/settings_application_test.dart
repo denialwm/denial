@@ -148,6 +148,14 @@ void main() {
     expect(find.text('Gesture shortcuts'), findsNothing);
     expect(find.text('Tap to click'), findsOneWidget);
     expect(find.text('Reverse two-finger scrolling'), findsOneWidget);
+    expect(find.text('Finger scroll speed'), findsOneWidget);
+
+    final scrollSpeedSlider = tester.widget<SettingsSlider>(
+      find.byKey(settingsScrollSpeedSliderKey),
+    );
+    expect(scrollSpeedSlider.minimum, 0.05);
+    expect(scrollSpeedSlider.maximum, 5);
+    expect(scrollSpeedSlider.value, 1);
 
     await tester.tap(find.byKey(settingsTapToClickToggleKey));
     await tester.pumpAndSettle();
@@ -158,6 +166,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(bridge.touchpad.naturalScrollEnabled, isTrue);
     expect(bridge.touchpadConfigureCount, 2);
+
+    scrollSpeedSlider.onChangeStart?.call(1);
+    scrollSpeedSlider.onChanged(2.5);
+    scrollSpeedSlider.onChangeEnd?.call(2.5);
+    await tester.pumpAndSettle();
+    expect(bridge.touchpad.scrollSpeedFactor, 2.5);
+    expect(bridge.touchpadConfigureCount, 3);
 
     bridge.setHasTouchpad(false);
     await tester.pumpAndSettle();
@@ -180,7 +195,46 @@ void main() {
     expect(powerTop, closeTo(appearanceTop, 0.01));
     expect(powerTop, lessThan(100));
     expect(find.byType(SettingsCardGroup), findsOneWidget);
-    expect(find.byType(SettingsSection), findsOneWidget);
+    expect(find.byType(SettingsSection), findsNWidgets(2));
+  });
+
+  testWidgets('page open request selects Power when Settings mounts', (
+    tester,
+  ) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    container
+        .read(settingsPageOpenRequestProvider.notifier)
+        .request(SettingsPageId.power);
+
+    await _pumpSettings(tester, container, size: const Size(980, 700));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<SettingsNavigation>(find.byType(SettingsNavigation))
+          .selected,
+      SettingsPageId.power,
+    );
+    expect(find.byKey(settingsIdleDpmsToggleKey), findsOneWidget);
+    expect(container.read(settingsPageOpenRequestProvider), isNull);
+
+    tester
+        .widget<SettingsNavigation>(find.byType(SettingsNavigation))
+        .onSelected(SettingsPageId.appearance);
+    await tester.pumpAndSettle();
+    container
+        .read(settingsPageOpenRequestProvider.notifier)
+        .request(SettingsPageId.power);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<SettingsNavigation>(find.byType(SettingsNavigation))
+          .selected,
+      SettingsPageId.power,
+    );
+    expect(container.read(settingsPageOpenRequestProvider), isNull);
   });
 
   testWidgets('localized settings tabs fit the minimum application size', (
@@ -960,6 +1014,7 @@ class _SettingsBridge extends DenialBridge {
     hasTouchpad: false,
     tapToClickEnabled: true,
     naturalScrollEnabled: false,
+    scrollSpeedFactor: 1,
   );
   int touchpadConfigureCount = 0;
   int outputApplyCount = 0;

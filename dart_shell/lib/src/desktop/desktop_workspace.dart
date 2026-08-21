@@ -497,7 +497,14 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
         var monitorId = existing.monitorId;
         final decorationChanged =
             existing.serverSideDecorated != window.serverSideDecorated;
-        if (nativeGeometry != null) {
+        // Rust owns geometry throughout a native grab. A presentation or
+        // metadata snapshot (for example, an animating title) can carry the
+        // latest native rectangle before Flutter receives the matching
+        // placement packet. Rebasing the workspace here would combine that
+        // rectangle with the retained live-move delta and visibly apply the
+        // motion twice. Placement packets remain the only geometry authority
+        // until their end phase commits the final frame.
+        if (!existing.dragging && nativeGeometry != null) {
           final nativeFrame = existing.fullscreen
               ? nativeGeometry.intersect(Offset.zero & viewSize)
               : _initialFrame(
@@ -527,13 +534,16 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
               monitorId = window.monitorId;
             }
           }
-        } else if (decorationChanged && !existing.fullscreen) {
+        } else if (!existing.dragging &&
+            decorationChanged &&
+            !existing.fullscreen) {
           frame = _initialFrame(
             existing.contentRect,
             serverSideDecorated: window.serverSideDecorated,
           );
           monitorId = window.monitorId;
-        } else if (_pendingNativeFrames[window.objectId] == null) {
+        } else if (!existing.dragging &&
+            _pendingNativeFrames[window.objectId] == null) {
           monitorId = window.monitorId;
         }
         current = existing.copyWith(
@@ -943,9 +953,9 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     state = state.copyWith(placements: next);
   }
 
-  void applyNativePlacement(int objectId, DenialWindowPlacementEvent event) {
+  bool applyNativePlacement(int objectId, DenialWindowPlacementEvent event) {
     if (state.overviewActive) {
-      return;
+      return false;
     }
     if (event.phase == DenialWindowPlacementPhase.begin) {
       activate(objectId);
@@ -953,7 +963,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     final placement = state.placements[objectId];
     if (placement == null ||
         event.sequence <= (_nativeSequences[objectId] ?? 0)) {
-      return;
+      return false;
     }
     _pendingNativeFrames.remove(objectId);
 
@@ -969,13 +979,13 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
         );
         _nativeSequences[objectId] = event.sequence;
         state = state.copyWith(placements: next);
-        return;
+        return true;
       }
       final fullscreenFrame = event.contentRect.intersect(
         Offset.zero & state.viewSize,
       );
       if (fullscreenFrame.isEmpty) {
-        return;
+        return false;
       }
       final delta = fullscreenFrame.topLeft - placement.frame.topLeft;
       final next = Map<int, DesktopWindowPlacement>.of(state.placements);
@@ -990,7 +1000,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
       );
       _nativeSequences[objectId] = event.sequence;
       state = state.copyWith(placements: next);
-      return;
+      return true;
     }
 
     // This is compositor-owned geometry. Mirror it exactly, including
@@ -1014,6 +1024,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     );
     _nativeSequences[objectId] = event.sequence;
     state = state.copyWith(placements: next);
+    return true;
   }
 
   void minimize(int objectId) {

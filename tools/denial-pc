@@ -67,12 +67,20 @@ PREBUILT_ENGINE_SHA256="$PREBUILT_ENGINE_DIR/libflutter_engine.so.sha256"
 PREBUILT_ENGINE_REVISION="$PREBUILT_ENGINE_DIR/ENGINE_REVISION"
 PREBUILT_FLUTTER_REVISION="$PREBUILT_ENGINE_DIR/FLUTTER_REVISION"
 EMBEDDER_BINDINGS="$ROOT/compositor/flutter-engine/src/sys.rs"
+ENGINE_TEST_STORE="${DENIAL_PC_ENGINE_TEST_STORE:-$CACHE_HOME/denial/engine-test}"
+ENGINE_TEST_CURRENT="$ENGINE_TEST_STORE/current"
+ENGINE_TEST_NEXT="$ENGINE_TEST_STORE/next-session"
+ENGINE_TEST_SOURCE_ROOT="${DENIAL_FLUTTER_SOURCE_ROOT:-$CANONICAL_FLUTTER_SOURCE}"
+ENGINE_TEST_NINJA_OUT="${DENIAL_PC_ENGINE_TEST_NINJA_OUT:-$ENGINE_TEST_SOURCE_ROOT/engine/src/out/denial_host_release}"
+SESSION_ENGINE_SHA256=""
 BINARY="${DENIAL_PC_BINARY:-$RUST_TARGET/release/deniald}"
 CONTROL_BINARY="${DENIAL_PC_CONTROL_BINARY:-$RUST_TARGET/release/denialctl}"
 OUTPUT_CONFIG="${DENIAL_PC_OUTPUT_CONFIG:-$ROOT/dev/denial-outputs.conf}"
 DRM_DEVICE="${DENIAL_PC_DRM_DEVICE:-/dev/dri/by-path/pci-0000:0a:00.0-card}"
 SESSION_TEMPLATE="$ROOT/dev/denial.desktop.in"
 SESSION_FILE="${DENIAL_SESSION_FILE:-/usr/share/wayland-sessions/denial-development.desktop}"
+ENGINE_TEST_SESSION_TEMPLATE="$ROOT/dev/denial-engine-test.desktop.in"
+ENGINE_TEST_SESSION_FILE="${DENIAL_ENGINE_TEST_SESSION_FILE:-/usr/share/wayland-sessions/denial-engine-test.desktop}"
 SESSION_TARGET_SOURCE="$ROOT/packaging/denial-session.target"
 SESSION_TARGET_FILE="${DENIAL_SESSION_TARGET_FILE:-/usr/local/lib/systemd/user/denial-session.target}"
 PORTAL_TEMPLATE="$ROOT/dev/denial-portals.conf.in"
@@ -106,12 +114,24 @@ Commands:
   arch-package      Build an installable Arch Linux package
   debian-package    Build installable Debian-family packages
   fedora-package    Build installable Fedora RPM packages
+  alpine-package    Build installable Alpine Linux APK packages
   native-packages   Build Debian-family and Fedora packages from one payload
   test              Run the Rust compositor test suite
   session           Run the real DRM session (normally invoked by a display manager)
+  engine-test-build Build only the local release engine and stage an isolated test bundle
+  engine-test-check Verify the staged engine ABI and AOT bundle without starting Denial
+  engine-test-arm   Use the staged engine test for the next development login only
+  engine-test-cancel
+                    Cancel a pending one-shot engine test
+  engine-test-session
+                    Run the staged engine test (normally invoked by a display manager)
   doctor            Show prerequisites and built artifact state
   install-session   Add the display-manager entry and Denial portal routing
+  install-engine-test-session
+                    Add a separate display-manager entry for the staged engine test
   remove-session    Remove that session and portal configuration
+  remove-engine-test-session
+                    Remove only the engine-test display-manager entry
 
 Environment:
   DENIAL_FLUTTER_SOURCE_ROOT
@@ -297,8 +317,103 @@ install_pinned_engine() {
 
 require_pinned_engine() {
     require_file "$ENGINE"
-    [[ "$(file_sha256 "$ENGINE")" == "$(prebuilt_engine_sha256)" ]] \
-        || die "bundle engine does not match the pinned build; run '$0 bundle'"
+    local expected label
+    if [[ -n "$SESSION_ENGINE_SHA256" ]]; then
+        expected="$SESSION_ENGINE_SHA256"
+        label="staged engine test"
+    else
+        expected="$(prebuilt_engine_sha256)"
+        label="pinned build"
+    fi
+    [[ "$expected" =~ ^[0-9a-f]{64}$ ]] \
+        || die "invalid expected SHA-256 for $label"
+    [[ "$(file_sha256 "$ENGINE")" == "$expected" ]] \
+        || die "bundle engine does not match the $label"
+}
+
+select_engine_test_root() {
+    local test_root="$1"
+    local expected
+    [[ -n "$test_root" && -d "$test_root" ]] \
+        || die "staged engine-test target is missing: $test_root"
+    case "$test_root/" in
+        "$ENGINE_TEST_STORE"/*) ;;
+        *) die "staged engine-test target escapes $ENGINE_TEST_STORE: $test_root" ;;
+    esac
+
+    require_file "$test_root/libflutter_engine.so.sha256"
+    expected="$(cut -d' ' -f1 < "$test_root/libflutter_engine.so.sha256")"
+    [[ "$expected" =~ ^[0-9a-f]{64}$ ]] \
+        || die "invalid staged engine-test SHA-256: $test_root/libflutter_engine.so.sha256"
+
+    BUNDLE="$test_root/bundle"
+    ENGINE="$BUNDLE/lib/libflutter_engine.so"
+    SESSION_ENGINE_SHA256="$expected"
+    require_pinned_engine
+    require_file "$BUNDLE/data/icudtl.dat"
+    require_file "$BUNDLE/lib/libapp.so"
+}
+
+select_engine_test() {
+    [[ -L "$ENGINE_TEST_CURRENT" ]] \
+        || die "no staged engine test; run '$0 engine-test-build'"
+    select_engine_test_root "$(readlink -f -- "$ENGINE_TEST_CURRENT")"
+}
+
+stage_engine_test() {
+    require_pinned_engine
+    require_file "$BUNDLE/data/icudtl.dat"
+    require_file "$BUNDLE/lib/libapp.so"
+    is_git_checkout "$ENGINE_TEST_SOURCE_ROOT" \
+        || die "engine-test Flutter checkout not found: $ENGINE_TEST_SOURCE_ROOT"
+    [[ -z "$(git -C "$ENGINE_TEST_SOURCE_ROOT" status --porcelain)" ]] \
+        || die "engine-test Flutter checkout must be clean before building: $ENGINE_TEST_SOURCE_ROOT"
+    require_file "$ENGINE_TEST_NINJA_OUT/args.gn"
+
+    local revision engine_source engine_sha artifact_id final_dir stage link
+    revision="$(git -C "$ENGINE_TEST_SOURCE_ROOT" rev-parse HEAD)"
+    engine_source="$ENGINE_TEST_NINJA_OUT/libflutter_engine.so"
+    printf 'Building only the release Flutter engine at %.12s...\n' "$revision"
+    PATH="$ENGINE_TEST_SOURCE_ROOT/engine/src/flutter/third_party/depot_tools:$PATH" \
+        /usr/bin/ninja -C "$ENGINE_TEST_NINJA_OUT" \
+        -j "$BUILD_JOBS" libflutter_engine.so
+    require_file "$engine_source"
+    [[ "$revision" == "$(git -C "$ENGINE_TEST_SOURCE_ROOT" rev-parse HEAD)" ]] \
+        || die "Flutter revision changed while the engine was building"
+    [[ -z "$(git -C "$ENGINE_TEST_SOURCE_ROOT" status --porcelain)" ]] \
+        || die "Flutter checkout changed while the engine was building"
+
+    engine_sha="$(file_sha256 "$engine_source")"
+    artifact_id="${revision}-${engine_sha:0:16}"
+    final_dir="$ENGINE_TEST_STORE/$artifact_id"
+    mkdir -p -- "$ENGINE_TEST_STORE"
+    if [[ ! -d "$final_dir" ]]; then
+        stage="$(mktemp -d "$ENGINE_TEST_STORE/.stage.XXXXXX")"
+        mkdir -p -- "$stage/bundle"
+        cp -a -- "$BUNDLE/." "$stage/bundle/"
+        install -m644 -- "$engine_source" \
+            "$stage/bundle/lib/libflutter_engine.so"
+        printf '%s  libflutter_engine.so\n' "$engine_sha" \
+            > "$stage/libflutter_engine.so.sha256"
+        printf '%s\n' "$revision" > "$stage/FLUTTER_REVISION"
+        [[ "$(file_sha256 "$stage/bundle/lib/libflutter_engine.so")" == "$engine_sha" ]] \
+            || die "staged engine-test copy failed checksum verification: $stage"
+        chmod -R a-w -- "$stage"
+        mv -- "$stage" "$final_dir"
+    else
+        [[ -f "$final_dir/FLUTTER_REVISION" \
+            && "$(tr -d '[:space:]' < "$final_dir/FLUTTER_REVISION")" == "$revision" \
+            && -f "$final_dir/bundle/lib/libflutter_engine.so" \
+            && "$(file_sha256 "$final_dir/bundle/lib/libflutter_engine.so")" == "$engine_sha" ]] \
+            || die "existing engine-test artifact is inconsistent: $final_dir"
+    fi
+
+    link="$ENGINE_TEST_STORE/.current.$$"
+    ln -s -- "$artifact_id" "$link"
+    mv -Tf -- "$link" "$ENGINE_TEST_CURRENT"
+    printf '\nStaged isolated engine test:\n  Flutter %.12s...\n  Engine  %s\n  Bundle  %s\n' \
+        "$revision" "$engine_sha" "$final_dir/bundle"
+    printf 'The normal development bundle was not modified.\n'
 }
 
 require_flutter_bindings() {
@@ -580,6 +695,65 @@ run_session() {
     run_compositor
 }
 
+run_engine_test_session() {
+    select_engine_test
+    run_session
+}
+
+check_engine_test() {
+    select_engine_test
+    (
+        cd -- "$COMPOSITOR_ROOT"
+        DENIAL_TEST_FLUTTER_BUNDLE="$BUNDLE" \
+        CARGO_TARGET_DIR="$RUST_TARGET" \
+        cargo test --locked --jobs "$BUILD_JOBS" \
+            -p denial-flutter-engine \
+            loads_the_bundled_flutter_engine_abi
+    )
+    printf 'Verified staged engine ABI and AOT data (sha256 %s).\n' \
+        "$SESSION_ENGINE_SHA256"
+}
+
+arm_engine_test() {
+    select_engine_test
+
+    local test_root artifact_id link
+    test_root="${BUNDLE%/bundle}"
+    artifact_id="${test_root##*/}"
+    link="$ENGINE_TEST_STORE/.next-session.$$"
+    ln -s -- "$artifact_id" "$link"
+    mv -Tf -- "$link" "$ENGINE_TEST_NEXT"
+    printf 'Armed engine %.12s... for the next Denial development login only.\n' \
+        "$SESSION_ENGINE_SHA256"
+    printf 'The flag is consumed before deniald starts; later logins use the known-good engine.\n'
+}
+
+cancel_engine_test() {
+    if [[ -e "$ENGINE_TEST_NEXT" || -L "$ENGINE_TEST_NEXT" ]]; then
+        rm -f -- "$ENGINE_TEST_NEXT"
+        printf 'Cancelled the pending one-shot engine test.\n'
+    else
+        printf 'No one-shot engine test is armed.\n'
+    fi
+}
+
+run_display_manager_session() {
+    if [[ ! -e "$ENGINE_TEST_NEXT" && ! -L "$ENGINE_TEST_NEXT" ]]; then
+        run_session
+        return
+    fi
+
+    local test_root
+    test_root="$(readlink -f -- "$ENGINE_TEST_NEXT" || true)"
+    rm -f -- "$ENGINE_TEST_NEXT"
+    [[ -n "$test_root" ]] \
+        || die "the one-shot engine-test target was missing; the flag was cleared, so retrying starts the known-good session"
+    select_engine_test_root "$test_root"
+    printf 'Starting the one-shot isolated engine test (%.12s...).\n' \
+        "$SESSION_ENGINE_SHA256"
+    run_session
+}
+
 request_kms_reconfigure() {
     local pid
     pid="$(pgrep -u "$(id -u)" -x deniald || true)"
@@ -795,6 +969,39 @@ install_session() {
     printf 'Log out, then choose "Denial (development)" in the display manager.\n'
 }
 
+install_engine_test_session() {
+    require_file "$ENGINE_TEST_SESSION_TEMPLATE"
+    select_engine_test
+
+    local rendered
+    rendered="$(mktemp)"
+    sed "s|@LAUNCHER@|$SCRIPT_DIR/denial-pc|g" \
+        "$ENGINE_TEST_SESSION_TEMPLATE" > "$rendered"
+    if as_root install -Dm644 "$rendered" "$ENGINE_TEST_SESSION_FILE"; then
+        :
+    else
+        local status=$?
+        rm -f -- "$rendered"
+        return "$status"
+    fi
+    rm -f -- "$rendered"
+    printf 'Installed %s\n' "$ENGINE_TEST_SESSION_FILE"
+    printf 'Log out, then choose "Denial (engine test)" in the display manager.\n'
+}
+
+remove_engine_test_session() {
+    if [[ ! -e "$ENGINE_TEST_SESSION_FILE" ]]; then
+        printf 'Already absent: %s\n' "$ENGINE_TEST_SESSION_FILE"
+        return
+    fi
+    grep -Fqx \
+        "X-Denial-Engine-Test-Launcher=$SCRIPT_DIR/denial-pc" \
+        "$ENGINE_TEST_SESSION_FILE" \
+        || die "refusing to remove an engine-test entry not installed by this checkout: $ENGINE_TEST_SESSION_FILE"
+    as_root rm -f -- "$ENGINE_TEST_SESSION_FILE"
+    printf 'Removed %s\n' "$ENGINE_TEST_SESSION_FILE"
+}
+
 remove_portal_entry() {
     [[ -e "$PORTAL_FILE" ]] || return
     if ! grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" "$PORTAL_FILE"; then
@@ -856,12 +1063,20 @@ case "${1:-}" in
     arch-package) "$ROOT/tools/package-denial-arch" ;;
     debian-package) "$ROOT/tools/package-denial-deb" ;;
     fedora-package) "$ROOT/tools/package-denial-rpm" ;;
+    alpine-package) "$ROOT/tools/package-denial-apk" ;;
     native-packages) "$ROOT/tools/package-denial-native" ;;
     test) test_compositor ;;
-    session) run_session ;;
+    session) run_display_manager_session ;;
+    engine-test-build) stage_engine_test ;;
+    engine-test-check) check_engine_test ;;
+    engine-test-arm) arm_engine_test ;;
+    engine-test-cancel) cancel_engine_test ;;
+    engine-test-session) run_engine_test_session ;;
     doctor) doctor ;;
     install-session) install_session ;;
+    install-engine-test-session) install_engine_test_session ;;
     remove-session) remove_session ;;
+    remove-engine-test-session) remove_engine_test_session ;;
     help|-h|--help|'') usage ;;
     *) die "unknown command '$1' (try '$0 help')" ;;
 esac

@@ -9,7 +9,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use denial_core::topology::{AtlasPlan, OutputId};
 use smithay::backend::allocator::Modifier;
-use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::allocator::gbm::GbmAllocator;
 use smithay::backend::drm::DrmDeviceFd;
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -20,6 +19,7 @@ use super::clipboard::ClipboardManager;
 use super::flutter_runtime::FlutterRuntime;
 use super::flutter_runtime::system_command::ScreenshotRequest;
 use super::kms_state::ScreenshotBuffer;
+use super::wayland_frontend::OutputCompositeSource;
 
 const MAX_PENDING_SCREENSHOT_WRITES: usize = 2;
 const BYTES_PER_PIXEL: usize = 4;
@@ -120,7 +120,7 @@ impl ScreenshotManager {
         renderer: &mut GlesRenderer,
         runtime: &mut FlutterRuntime,
         output: OutputId,
-        atlas_buffer: &mut Dmabuf,
+        sources: &mut [OutputCompositeSource],
     ) -> Result<Option<(u64, i64)>, Box<dyn Error>> {
         let Some(selection) = self.selection.as_mut() else {
             return Ok(None);
@@ -132,9 +132,9 @@ impl ScreenshotManager {
             return Ok(None);
         }
         let atlas_size = atlas_physical_size(&selection.atlas)?;
-        super::wayland_frontend::copy_atlas_to_dmabuf(
+        super::wayland_frontend::compose_output_targets_to_atlas(
             renderer,
-            atlas_buffer,
+            sources,
             atlas_size,
             &mut selection.buffer.dmabuf,
         )?;
@@ -154,8 +154,10 @@ impl ScreenshotManager {
     pub(super) fn capture_live(
         &self,
         renderer: &mut GlesRenderer,
-        atlas_buffer: &mut Dmabuf,
+        allocator: &mut GbmAllocator<DrmDeviceFd>,
         atlas: &AtlasPlan,
+        modifier: Modifier,
+        sources: &mut [OutputCompositeSource],
         request: ScreenshotRequest,
     ) -> Result<(), Box<dyn Error>> {
         if request.request_id.is_some() {
@@ -164,9 +166,16 @@ impl ScreenshotManager {
         let source = project_request(request, atlas)
             .ok_or_else(|| io::Error::other("screenshot region is outside the canvas"))?;
         let atlas_size = atlas_physical_size(atlas)?;
+        let mut buffer = ScreenshotBuffer::allocate(allocator, atlas.pixel_size, modifier)?;
+        super::wayland_frontend::compose_output_targets_to_atlas(
+            renderer,
+            sources,
+            atlas_size,
+            &mut buffer.dmabuf,
+        )?;
         let pixels = super::wayland_frontend::copy_atlas_region_to_memory(
             renderer,
-            atlas_buffer,
+            &mut buffer.dmabuf,
             atlas_size,
             source,
         )?;
@@ -379,7 +388,7 @@ fn write_png(mut job: ScreenshotJob) -> Result<WrittenScreenshot, Box<dyn Error 
     }
 
     // DRM XRGB8888 is B, G, R, X in little-endian memory. PNG expects RGBA.
-    for pixel in job.pixels.chunks_exact_mut(BYTES_PER_PIXEL) {
+    for pixel in job.pixels.as_chunks_mut::<BYTES_PER_PIXEL>().0 {
         pixel.swap(0, 2);
         pixel[3] = u8::MAX;
     }
@@ -444,82 +453,5 @@ fn create_screenshot_file(directory: &Path) -> io::Result<(File, PathBuf)> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use denial_core::topology::{PixelSize, SCALE_BASE};
-
-    fn atlas() -> AtlasPlan {
-        AtlasPlan {
-            topology_epoch: 1,
-            logical_origin: (0.0, 0.0),
-            logical_size: (1920.0, 1080.0),
-            engine_scale_120: SCALE_BASE * 2,
-            pixel_size: PixelSize::new(3840, 2160),
-            outputs: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn projects_logical_regions_into_atlas_pixels() {
-        let projected = project_request(
-            ScreenshotRequest {
-                request_id: None,
-                region: Some(
-                    super::super::flutter_runtime::system_command::ScreenshotRegion {
-                        x: 10.0,
-                        y: 20.0,
-                        width: 300.0,
-                        height: 200.0,
-                    },
-                ),
-            },
-            &atlas(),
-        )
-        .unwrap();
-        assert_eq!(projected.loc.x, 20);
-        assert_eq!(projected.loc.y, 40);
-        assert_eq!(projected.size.w, 600);
-        assert_eq!(projected.size.h, 400);
-    }
-
-    #[test]
-    fn clips_regions_to_the_canvas_and_rejects_empty_results() {
-        let clipped = project_request(
-            ScreenshotRequest {
-                request_id: None,
-                region: Some(
-                    super::super::flutter_runtime::system_command::ScreenshotRegion {
-                        x: 1800.0,
-                        y: 1000.0,
-                        width: 500.0,
-                        height: 500.0,
-                    },
-                ),
-            },
-            &atlas(),
-        )
-        .unwrap();
-        assert_eq!(clipped.loc.x, 3600);
-        assert_eq!(clipped.loc.y, 2000);
-        assert_eq!(clipped.size.w, 240);
-        assert_eq!(clipped.size.h, 160);
-
-        assert!(
-            project_request(
-                ScreenshotRequest {
-                    request_id: None,
-                    region: Some(
-                        super::super::flutter_runtime::system_command::ScreenshotRegion {
-                            x: 2000.0,
-                            y: 0.0,
-                            width: 10.0,
-                            height: 10.0,
-                        }
-                    ),
-                },
-                &atlas(),
-            )
-            .is_none()
-        );
-    }
-}
+#[path = "screenshot/tests.rs"]
+mod tests;

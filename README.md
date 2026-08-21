@@ -120,12 +120,14 @@ shell bundle; see the [build guide](docs/BUILDING.md).
 | Debian 13 (trixie) | ✅ | ✅ |
 | Ubuntu 24.04 LTS (noble) | ✅ | ✅ |
 | Fedora 44 | ✅ | ✅ |
+| Alpine Linux 3.24 | ✅ | ✅ |
 | NixOS | ✅ | ❌ |
 | Void Linux | ✅ | ❌ |
 
-The binary column refers to the current first-party x86-64 package set. NixOS
-and Void Linux have been tested successfully, but do not have first-party
-binary packages yet.
+The binary column refers to the current first-party x86-64 package set. Alpine
+packages are signed direct GitHub Release downloads; a native APK repository
+is not published yet. NixOS and Void Linux have been tested successfully, but
+do not have first-party binary packages yet.
 
 ## Live Flutter shell development
 

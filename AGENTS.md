@@ -35,20 +35,36 @@ authentication or connectivity problem.
 
 ## Graphical session control
 
-Never log out, terminate, restart, or otherwise stop the user's graphical
-session on the user's behalf. In particular, do not terminate a login session,
-stop its user-session targets, kill the compositor to force an exit, reboot, or
-power off the machine. When testing requires a fresh Denial session, tell the
-user that a restart is required and wait for the user to log off and return to
-SDDM themselves. Continue only after the user confirms that they have logged
-back in. Perform session-control actions only when the user explicitly asks
-for that exact action.
+Never log out, terminate, restart, or otherwise stop the user's local graphical
+session on the user's behalf. In particular, do not terminate a local login
+session, stop its user-session targets, kill the local compositor to force an
+exit, reboot, or power off the local machine. When testing requires a fresh
+local Denial session, tell the user that a restart is required and wait for the
+user to log off and return to SDDM themselves. Continue only after the user
+confirms that they have logged back in. Perform local session-control actions
+only when the user explicitly asks for that exact action.
 
-This restriction does not apply to the dedicated unattended test host
-`192.168.1.18` (`.18`). For Denial validation, agents may autonomously stop or
-restart its compositor, greetd/login session, launch test applications, and
-reboot it when required. Treat `.18` as a disposable lab host, not as the
-user's active graphical session.
+This restriction does not apply to the dedicated remote Denial hosts
+`192.168.1.18` (`.18`) and `192.168.1.183` (`.183`). Agents may autonomously
+stop or restart their compositor, greetd/login session, launch test
+applications, and reboot them when required. After deploying a compositor or
+Flutter bundle to either host, the agent is responsible for restarting its
+Denial session and confirming that a new `deniald` process is running; no
+additional authorization is required. Treat both machines as agent-managed
+test hosts, not as the user's local graphical session.
+
+The shared Denial lab Limine entries on these hosts hash staged kernel and
+initramfs URI payloads with **BLAKE2b-512**, not SHA-512. Generate each URI
+suffix with `b2sum -l 512 FILE`. Immediately before rebooting, independently
+recompute both BLAKE2b-512 values and compare them byte-for-byte with the
+suffixes in `limine.conf`. A SHA-512 suffix has the same 128-hex-character
+shape but is invalid; Limine will stop before Linux starts with
+`hash for URI does not match!`.
+
+On the greetd-backed `.183`, restart `greetd.service` directly. Do not
+terminate the login session first or wait for Denial to return: greetd runs its
+configured `initial_session` only once per daemon start and otherwise falls
+back to its greeter.
 
 ## Why Denial
 
@@ -128,6 +144,34 @@ checksums, build metadata, and licenses live below `prebuilt/flutter-engine/`.
 fork checkouts, and keeps a revision-keyed artifact cache plus stable
 mode-specific Ninja outputs. An unchanged lock and build configuration is a
 verified no-op; changed commits rebuild only targets invalidated by Ninja.
+Routine builds use `build`, which also stages the verified cache artifacts
+below `prebuilt/` for `tools/denial-pc`. Immediately after deliberately
+advancing `SOURCE_LOCK.json`, run
+`tools/denial-flutter-engine refresh-metadata` once instead: it regenerates
+all modes' tracked `args.gn` and canonical checksums, builds the invalidated
+targets, populates the new immutable cache entry, and stages its artifacts.
+Never repair an expected checksum one mode at a time.
+
+Iterate on local engine experiments before advancing the source lock or
+running that full release procedure. Use only the release-engine fast path:
+
+```sh
+tools/denial-pc engine-test-build
+tools/denial-pc engine-test-check
+tools/denial-pc engine-test-arm
+```
+
+This builds the current clean canonical Flutter checkout with the existing
+release Ninja output, copies the known-good shell bundle into a revisioned,
+read-only cache directory, verifies the experimental engine ABI and AOT data,
+and arms it for the next `Denial (development)` login only. The launcher
+consumes the test flag before starting `deniald`, so a later login returns to
+the pinned known-good engine automatically. Use
+`tools/denial-pc engine-test-cancel` to disarm it. Never copy or install an
+experimental `libflutter_engine.so` over the normal bundle, and especially
+never overwrite a library mapped by the running Denial process; truncating a
+mapped shared library can crash the live compositor. Advance the source lock
+and run the full metadata refresh only after the isolated engine is accepted.
 
 Denial-owned Flutter and Skia commits use
 `Doctor Logix <doctor.logix@gmail.com>`. Set that identity locally in source

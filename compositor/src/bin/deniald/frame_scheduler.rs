@@ -1,114 +1,366 @@
 //! The mixed-refresh frame pipeline.
 //!
 //! App buffers and Flutter only set pending state. They never create a frame.
-//! Every powered output owns a clock for its Wayland frame callbacks. The
-//! fastest output is the sole render clock and chooses exactly one action:
+//! Every powered output owns one timeline for Wayland callbacks, raster
+//! deadlines, and presentation targets. The fastest powered output is also the
+//! sole clock for the one Dart scene; slower outputs directly replay its latest
+//! retained projection. Physical presentations never authorize rendering;
+//! monotonic KMS timestamps only apply a bounded phase correction to a future
+//! edge of the same output timeline. All due outputs are coalesced into one
+//! linear decision:
 //!
-//! `output clocks -> client callbacks`
-//! `render clock -> pending state -> Skip | RequestFlutter | Render`
+//! `output timelines -> client callbacks`
+//! `due dirty outputs -> Skip | Render`
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
 use denial_core::topology::OutputId;
 use smithay::output::Mode as OutputMode;
+use tracing::info;
 
-use super::PresentedOutput;
 use super::kms_state::Scanout;
+
+const FRAME_SCHEDULER_AUDIT_INTERVAL: Duration = Duration::from_secs(1);
+const PHASE_LOCK_DEADBAND: Duration = Duration::from_micros(50);
+const PHASE_LOCK_MAX_ADJUSTMENT: Duration = Duration::from_micros(250);
+const PHASE_LOCK_GAIN_DIVISOR: i128 = 8;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct FrameTick {
     pub(super) output: OutputId,
+    pub(super) sequence: u64,
     pub(super) interval: Duration,
-    pub(super) observed_at: Instant,
-    pub(super) presented_at: Option<Duration>,
+    pub(super) render_deadline: Instant,
+    pub(super) presentation_target: Instant,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct PendingFrame {
     pub(super) flutter_requested: bool,
-    pub(super) app_textures_updated: bool,
-    pub(super) producer_available: bool,
-}
-
-impl PendingFrame {
-    fn has_work(self) -> bool {
-        self.flutter_requested || self.app_textures_updated
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum FrameAction {
     Skip,
-    RequestFlutter,
-    Render(FrameTick),
+    Render { flutter_output: Option<OutputId> },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct OutputFrameRequest {
+    pub(super) tick: FrameTick,
+    pub(super) dirty_serial: u64,
+}
+
+#[derive(Debug, Default)]
+struct DirtyOutput {
+    serial: u64,
+    texture_ids: BTreeSet<i64>,
 }
 
 #[derive(Debug)]
 pub(super) struct FrameScheduler {
-    outputs: OutputClocks,
-    waiting_for_flutter: Option<FrameTick>,
+    outputs: OutputTimelines,
+    configured_outputs: BTreeSet<OutputId>,
+    dirty_outputs: BTreeMap<OutputId, DirtyOutput>,
+    render_requests: Vec<OutputFrameRequest>,
+    render_texture_ids: BTreeSet<i64>,
+    available_outputs: Vec<OutputId>,
+    next_dirty_serial: u64,
+    flutter_request_latched: bool,
+    flutter_outputs_dirty: bool,
+    flutter_tick: Option<FrameTick>,
+    last_flutter_target: Option<Instant>,
+    audit: Option<FrameSchedulerAudit>,
+}
+
+#[derive(Debug)]
+struct FrameSchedulerAudit {
+    interval_started: Instant,
+    dirty_updates: u64,
+    output_ticks: u64,
+    dirty_output_ticks: u64,
+    unavailable_output_ticks: u64,
+    render_requests: u64,
+}
+
+impl FrameSchedulerAudit {
+    fn new() -> Self {
+        Self {
+            interval_started: Instant::now(),
+            dirty_updates: 0,
+            output_ticks: 0,
+            dirty_output_ticks: 0,
+            unavailable_output_ticks: 0,
+            render_requests: 0,
+        }
+    }
+
+    fn record_step(&mut self, output_ticks: usize, dirty_ticks: usize, unavailable_ticks: usize) {
+        self.output_ticks = self.output_ticks.saturating_add(output_ticks as u64);
+        self.dirty_output_ticks = self.dirty_output_ticks.saturating_add(dirty_ticks as u64);
+        self.unavailable_output_ticks = self
+            .unavailable_output_ticks
+            .saturating_add(unavailable_ticks as u64);
+    }
+
+    fn maybe_report(&mut self) {
+        let elapsed = self.interval_started.elapsed();
+        if elapsed < FRAME_SCHEDULER_AUDIT_INTERVAL {
+            return;
+        }
+        info!(
+            target: "deniald::render_audit",
+            source = "frame_scheduler",
+            interval_ms = elapsed.as_secs_f64() * 1_000.0,
+            dirty_updates = self.dirty_updates,
+            output_ticks = self.output_ticks,
+            dirty_output_ticks = self.dirty_output_ticks,
+            unavailable_output_ticks = self.unavailable_output_ticks,
+            render_requests = self.render_requests,
+            "Denial output-timeline decision audit"
+        );
+        self.interval_started = Instant::now();
+        self.dirty_updates = 0;
+        self.output_ticks = 0;
+        self.dirty_output_ticks = 0;
+        self.unavailable_output_ticks = 0;
+        self.render_requests = 0;
+    }
 }
 
 impl FrameScheduler {
     pub(super) fn new(scanouts: &[Scanout], now: Instant) -> Self {
         Self {
-            outputs: OutputClocks::new(scanouts, now),
-            waiting_for_flutter: None,
+            outputs: OutputTimelines::new(scanouts, now),
+            configured_outputs: scanouts.iter().map(|scanout| scanout.output.id).collect(),
+            dirty_outputs: BTreeMap::new(),
+            render_requests: Vec::with_capacity(scanouts.len()),
+            render_texture_ids: BTreeSet::new(),
+            available_outputs: Vec::with_capacity(scanouts.len()),
+            next_dirty_serial: 0,
+            flutter_request_latched: false,
+            flutter_outputs_dirty: false,
+            flutter_tick: None,
+            last_flutter_target: None,
+            audit: super::render_audit_enabled().then(FrameSchedulerAudit::new),
         }
     }
 
     pub(super) fn reconfigure(&mut self, scanouts: &[Scanout], now: Instant) {
-        self.outputs.reconfigure(scanouts, now);
+        let configured_outputs = scanouts.iter().map(|scanout| scanout.output.id).collect();
+        let powered_sources = scanouts
+            .iter()
+            .filter(|scanout| scanout.powered)
+            .map(timeline_source)
+            .collect();
+        self.reconfigure_sources(configured_outputs, powered_sources, now);
+    }
+
+    fn reconfigure_sources(
+        &mut self,
+        configured_outputs: BTreeSet<OutputId>,
+        powered_sources: Vec<TimelineSource>,
+        now: Instant,
+    ) {
+        let activated_outputs = powered_sources
+            .iter()
+            .filter(|source| !self.outputs.contains(source.output))
+            .map(|source| source.output)
+            .collect::<Vec<_>>();
+        self.configured_outputs = configured_outputs;
+        self.outputs.reconfigure(&powered_sources, now);
+        self.dirty_outputs
+            .retain(|output, _| self.configured_outputs.contains(output));
+        for output in activated_outputs {
+            // The stable framebuffer restored by DPMS may predate a source
+            // already queued while this output was parked. Force one fresh
+            // projection even when no client submits another buffer after
+            // wake; any retained texture damage remains attached below.
+            self.mark_output_dirty(output);
+        }
         if self.outputs.is_parked() {
-            // A texture-only tick may have been waiting for Flutter when the
-            // final output powered down. Keep any eventual AwaitVSync baton
-            // pending for the first fresh output tick after wake instead of
-            // rendering against a clock edge which is no longer visible.
-            self.waiting_for_flutter = None;
+            self.flutter_request_latched = false;
+            self.flutter_outputs_dirty = false;
+            self.flutter_tick = None;
         }
     }
 
-    pub(super) fn observe_presentation(&mut self, presentation: PresentedOutput) {
-        self.outputs.observe_presentation(presentation);
+    pub(super) fn mark_app_dirty(
+        &mut self,
+        output: OutputId,
+        texture_ids: impl IntoIterator<Item = i64>,
+    ) {
+        if !self.configured_outputs.contains(&output) {
+            return;
+        }
+        let serial = self.allocate_dirty_serial();
+        let dirty = self.dirty_outputs.entry(output).or_default();
+        dirty.serial = serial;
+        dirty.texture_ids.extend(texture_ids);
+        if let Some(audit) = self.audit.as_mut() {
+            audit.dirty_updates = audit.dirty_updates.saturating_add(1);
+        }
     }
 
-    pub(super) fn step(&mut self, now: Instant, pending: PendingFrame) -> FrameAction {
-        let render_tick = self.outputs.advance(now);
-        if let Some(waiting_tick) = self.waiting_for_flutter {
-            // AwaitVSync is asynchronous. If Flutter returns its baton after
-            // one or more display edges, authorize it against the newest
-            // edge instead of feeding Dart an old animation timestamp. The
-            // imported texture already contains its latest contents, so the
-            // physical authorization must be a latest-value mailbox too.
-            let authorized_tick = render_tick.unwrap_or(waiting_tick);
-            self.waiting_for_flutter = Some(authorized_tick);
-            if pending.flutter_requested {
-                self.waiting_for_flutter = None;
-                return FrameAction::Render(authorized_tick);
+    pub(super) fn mark_output_dirty(&mut self, output: OutputId) {
+        self.mark_app_dirty(output, std::iter::empty());
+    }
+
+    pub(super) fn mark_all_dirty(&mut self) {
+        for index in 0..self.outputs.timelines.len() {
+            let output = self.outputs.timelines[index].source.output;
+            let serial = self.allocate_dirty_serial();
+            self.dirty_outputs.entry(output).or_default().serial = serial;
+        }
+    }
+
+    pub(super) fn complete_render(&mut self, output: OutputId, dirty_serial: u64) {
+        if self
+            .dirty_outputs
+            .get(&output)
+            .is_some_and(|dirty| dirty.serial == dirty_serial)
+        {
+            self.dirty_outputs.remove(&output);
+        }
+    }
+
+    pub(super) fn observe_presentation(
+        &mut self,
+        output: OutputId,
+        presentation_target: Instant,
+        presented_at: Instant,
+    ) {
+        self.outputs
+            .observe_presentation(output, presentation_target, presented_at);
+    }
+
+    pub(super) fn flutter_frame_dispatched(&mut self) {
+        let tick = self
+            .flutter_tick
+            .take()
+            .expect("a dispatched Flutter frame must retain its clock tick");
+        debug_assert!(
+            self.last_flutter_target
+                .is_none_or(|target| tick.presentation_target > target)
+        );
+        self.last_flutter_target = Some(tick.presentation_target);
+        self.flutter_request_latched = false;
+        self.flutter_outputs_dirty = false;
+    }
+
+    fn allocate_dirty_serial(&mut self) -> u64 {
+        self.next_dirty_serial = self.next_dirty_serial.wrapping_add(1).max(1);
+        self.next_dirty_serial
+    }
+
+    pub(super) fn step_with_output_availability(
+        &mut self,
+        now: Instant,
+        pending: PendingFrame,
+        mut output_available: impl FnMut(OutputId) -> bool,
+    ) -> FrameAction {
+        if pending.flutter_requested && !self.flutter_request_latched {
+            self.flutter_request_latched = true;
+        }
+
+        self.outputs.advance(now);
+        self.render_requests.clear();
+        self.render_texture_ids.clear();
+        self.available_outputs.clear();
+        self.available_outputs.extend(
+            self.outputs
+                .ticks()
+                .iter()
+                .map(|tick| tick.output)
+                .filter(|output| output_available(*output)),
+        );
+        self.flutter_tick = None;
+        let flutter_tick = self.outputs.flutter_tick().filter(|tick| {
+            self.flutter_request_latched
+                && self.available_outputs.contains(&tick.output)
+                && self
+                    .last_flutter_target
+                    .is_none_or(|target| tick.presentation_target > target)
+        });
+        if flutter_tick.is_some() && !self.flutter_outputs_dirty {
+            self.mark_all_dirty();
+            self.flutter_outputs_dirty = true;
+        }
+        let dirty_ticks = self
+            .outputs
+            .ticks()
+            .iter()
+            .filter(|tick| self.dirty_outputs.contains_key(&tick.output))
+            .count();
+        let unavailable_ticks = self
+            .outputs
+            .ticks()
+            .iter()
+            .filter(|tick| {
+                self.dirty_outputs.contains_key(&tick.output)
+                    && !self.available_outputs.contains(&tick.output)
+            })
+            .count();
+
+        for tick in self.outputs.ticks().iter().copied() {
+            if !self.available_outputs.contains(&tick.output) {
+                continue;
             }
-            return FrameAction::Skip;
+            let Some(dirty) = self.dirty_outputs.get(&tick.output) else {
+                continue;
+            };
+            self.render_requests.push(OutputFrameRequest {
+                tick,
+                dirty_serial: dirty.serial,
+            });
+            self.render_texture_ids
+                .extend(dirty.texture_ids.iter().copied());
+        }
+        if let Some(audit) = self.audit.as_mut() {
+            audit.record_step(self.outputs.ticks().len(), dirty_ticks, unavailable_ticks);
+            audit.render_requests = audit
+                .render_requests
+                .saturating_add(self.render_requests.len() as u64);
+            audit.maybe_report();
         }
 
-        let Some(authorized_tick) = render_tick else {
-            return FrameAction::Skip;
-        };
-        if !pending.producer_available || !pending.has_work() {
-            return FrameAction::Skip;
+        if self.render_requests.is_empty() {
+            FrameAction::Skip
+        } else {
+            self.flutter_tick = flutter_tick.filter(|tick| {
+                self.render_requests
+                    .iter()
+                    .any(|request| request.tick.output == tick.output)
+            });
+            FrameAction::Render {
+                flutter_output: self.flutter_tick.map(|tick| tick.output),
+            }
         }
-        if pending.flutter_requested {
-            return FrameAction::Render(authorized_tick);
-        }
+    }
 
-        self.waiting_for_flutter = Some(authorized_tick);
-        FrameAction::RequestFlutter
+    #[cfg(test)]
+    fn step(&mut self, now: Instant, pending: PendingFrame) -> FrameAction {
+        self.step_with_output_availability(now, pending, |_| true)
     }
 
     pub(super) fn output_ticks(&self) -> &[FrameTick] {
         self.outputs.ticks()
     }
 
-    pub(super) fn cancel_flutter_request(&mut self) {
-        self.waiting_for_flutter = None;
+    pub(super) fn output_tick_due(&self, now: Instant) -> bool {
+        self.outputs
+            .timelines
+            .iter()
+            .any(|timeline| now >= timeline.next_tick)
+    }
+
+    pub(super) fn render_requests(&self) -> &[OutputFrameRequest] {
+        &self.render_requests
+    }
+
+    pub(super) fn render_texture_ids(&self) -> impl Iterator<Item = i64> + '_ {
+        self.render_texture_ids.iter().copied()
     }
 
     pub(super) fn limit_dispatch_timeout(&self, now: Instant, timeout: Duration) -> Duration {
@@ -117,197 +369,217 @@ impl FrameScheduler {
 }
 
 #[derive(Debug)]
-struct OutputClocks {
-    clocks: Vec<DisplayClock>,
+struct OutputTimelines {
+    timelines: Vec<OutputTimeline>,
     ticks: Vec<FrameTick>,
-    render_output: Option<OutputId>,
+    flutter_output: Option<OutputId>,
 }
 
-impl OutputClocks {
+impl OutputTimelines {
     fn new(scanouts: &[Scanout], now: Instant) -> Self {
-        let mut clocks = Self {
-            clocks: Vec::with_capacity(scanouts.len()),
+        let mut timelines = Self {
+            timelines: Vec::with_capacity(scanouts.len()),
             ticks: Vec::with_capacity(scanouts.len()),
-            render_output: None,
+            flutter_output: None,
         };
-        clocks.replace(scanouts, now);
-        clocks
+        let powered_sources = scanouts
+            .iter()
+            .filter(|scanout| scanout.powered)
+            .map(timeline_source)
+            .collect::<Vec<_>>();
+        timelines.replace(&powered_sources, now);
+        timelines
     }
 
-    fn reconfigure(&mut self, scanouts: &[Scanout], now: Instant) {
-        let render_output = render_source(scanouts).map(|source| source.output);
-        let powered_outputs = scanouts.iter().filter(|scanout| scanout.powered).count();
-        let sources_match = self.clocks.len() == powered_outputs
-            && scanouts
-                .iter()
-                .filter(|scanout| scanout.powered)
-                .map(clock_source)
-                .all(|source| self.clocks.iter().any(|clock| clock.source == source));
-        if sources_match && self.render_output == render_output {
+    fn reconfigure(&mut self, sources: &[TimelineSource], now: Instant) {
+        let sources_match = self.timelines.len() == sources.len()
+            && sources.iter().all(|source| {
+                self.timelines
+                    .iter()
+                    .any(|timeline| timeline.source == *source)
+            });
+        if sources_match {
             return;
         }
-        self.replace(scanouts, now);
+        self.replace(sources, now);
     }
 
-    fn replace(&mut self, scanouts: &[Scanout], now: Instant) {
-        self.clocks.clear();
-        self.clocks.extend(
-            scanouts
+    fn replace(&mut self, sources: &[TimelineSource], now: Instant) {
+        self.timelines.clear();
+        self.timelines.extend(
+            sources
                 .iter()
-                .filter(|scanout| scanout.powered)
-                .map(|scanout| DisplayClock::new(clock_source(scanout), now)),
+                .copied()
+                .map(|source| OutputTimeline::new(source, now)),
         );
+        self.flutter_output = self
+            .timelines
+            .iter()
+            .map(|timeline| timeline.source)
+            .min_by_key(|source| (source.interval, source.output))
+            .map(|source| source.output);
         self.ticks.clear();
-        self.render_output = render_source(scanouts).map(|source| source.output);
     }
 
-    fn observe_presentation(&mut self, presentation: PresentedOutput) {
-        if let Some(clock) = self
-            .clocks
-            .iter_mut()
-            .find(|clock| clock.source.output == presentation.id)
-        {
-            clock.observe_presentation(presentation);
-        }
-    }
-
-    /// Advances every physical clock while returning only the tick allowed to
-    /// authorize Flutter. Secondary ticks remain visible through `ticks()`.
-    fn advance(&mut self, now: Instant) -> Option<FrameTick> {
+    fn advance(&mut self, now: Instant) {
         self.ticks.clear();
-        for clock in &mut self.clocks {
-            if let Some(tick) = clock.take_tick(now) {
+        for timeline in &mut self.timelines {
+            if let Some(tick) = timeline.take_tick(now) {
                 self.ticks.push(tick);
             }
         }
-        let render_output = self.render_output?;
-        self.ticks
-            .iter()
-            .copied()
-            .find(|tick| tick.output == render_output)
     }
 
     fn ticks(&self) -> &[FrameTick] {
         &self.ticks
     }
 
+    fn flutter_tick(&self) -> Option<FrameTick> {
+        let output = self.flutter_output?;
+        self.ticks
+            .iter()
+            .copied()
+            .find(|tick| tick.output == output)
+    }
+
     fn is_parked(&self) -> bool {
-        self.render_output.is_none()
+        self.timelines.is_empty()
+    }
+
+    fn contains(&self, output: OutputId) -> bool {
+        self.timelines
+            .iter()
+            .any(|timeline| timeline.source.output == output)
+    }
+
+    fn observe_presentation(
+        &mut self,
+        output: OutputId,
+        presentation_target: Instant,
+        presented_at: Instant,
+    ) {
+        if let Some(timeline) = self
+            .timelines
+            .iter_mut()
+            .find(|timeline| timeline.source.output == output)
+        {
+            timeline.observe_presentation(presentation_target, presented_at);
+        }
     }
 
     fn limit_dispatch_timeout(&self, now: Instant, timeout: Duration) -> Duration {
-        if self
-            .clocks
-            .iter()
-            .any(|clock| clock.presented_tick.is_some())
-        {
-            return Duration::ZERO;
-        }
-        self.clocks.iter().fold(timeout, |timeout, clock| {
-            timeout.min(clock.next_tick.saturating_duration_since(now))
+        self.timelines.iter().fold(timeout, |timeout, timeline| {
+            timeout.min(timeline.next_tick.saturating_duration_since(now))
         })
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct ClockSource {
+struct TimelineSource {
     output: OutputId,
     interval: Duration,
 }
 
 #[derive(Debug)]
-struct DisplayClock {
-    source: ClockSource,
+struct OutputTimeline {
+    source: TimelineSource,
     next_tick: Instant,
-    last_tick: Option<Instant>,
-    presented_tick: Option<FrameTick>,
+    next_sequence: u64,
+    pending_phase_adjustment_nanos: i64,
 }
 
-impl DisplayClock {
-    fn new(source: ClockSource, now: Instant) -> Self {
+impl OutputTimeline {
+    fn new(source: TimelineSource, now: Instant) -> Self {
         Self {
             source,
             next_tick: now,
-            last_tick: None,
-            presented_tick: None,
+            next_sequence: 1,
+            pending_phase_adjustment_nanos: 0,
         }
     }
 
-    fn observe_presentation(&mut self, presentation: PresentedOutput) {
-        if presentation.id != self.source.output {
+    fn observe_presentation(&mut self, presentation_target: Instant, presented_at: Instant) {
+        let phase_error = nearest_phase_error(
+            signed_instant_delta(presented_at, presentation_target),
+            self.source.interval,
+        );
+        if phase_error.unsigned_abs() <= PHASE_LOCK_DEADBAND.as_nanos() {
             return;
         }
 
-        let observed_at = presentation.observed_at;
-        let same_edge = self.last_tick.is_some_and(|last_tick| {
-            observed_at <= last_tick
-                || observed_at.duration_since(last_tick) <= self.source.interval / 2
-        });
-        let observed_next = observed_at + self.source.interval;
-
-        // A DRM event may reach the compositor after the timer has already
-        // issued that physical edge. Rephase from its kernel timestamp, but
-        // never move the synthetic clock behind the edge already delivered.
-        // Otherwise the next `take_tick` replays the stale presentation as a
-        // second vsync, producing a device-latency-dependent cadence.
-        self.next_tick = if same_edge {
-            self.last_tick.map_or(observed_next, |last_tick| {
-                observed_next.max(last_tick + self.source.interval)
-            })
-        } else {
-            observed_next
-        };
-
-        if !same_edge {
-            self.presented_tick = Some(FrameTick {
-                output: self.source.output,
-                interval: self.source.interval,
-                observed_at,
-                presented_at: presentation.presented_at,
-            });
-        }
+        let limit = PHASE_LOCK_MAX_ADJUSTMENT.as_nanos() as i128;
+        let correction = (phase_error / PHASE_LOCK_GAIN_DIVISOR).clamp(-limit, limit);
+        let pending = i128::from(self.pending_phase_adjustment_nanos) + correction;
+        self.pending_phase_adjustment_nanos = pending.clamp(-limit, limit) as i64;
     }
 
     fn take_tick(&mut self, now: Instant) -> Option<FrameTick> {
-        if let Some(tick) = self.presented_tick.take() {
-            self.last_tick = Some(tick.observed_at);
-            return Some(tick);
-        }
         if now < self.next_tick {
             return None;
         }
 
         let interval_nanos = self.source.interval.as_nanos().max(1);
-        let elapsed_periods =
+        let missed_periods =
             now.saturating_duration_since(self.next_tick).as_nanos() / interval_nanos;
-        let observed_at = if let Ok(elapsed_periods) = u32::try_from(elapsed_periods) {
-            self.next_tick + self.source.interval * elapsed_periods
-        } else {
-            // A very long suspend has no useful historical phase. Resume
-            // with one current edge instead of replaying missed frames.
-            now
-        };
-        self.next_tick = observed_at + self.source.interval;
-        self.last_tick = Some(observed_at);
+        let render_deadline =
+            advance_deadline(self.next_tick, self.source.interval, missed_periods);
+        let sequence = self.next_sequence.wrapping_add(missed_periods as u64);
+        let nominal_next_tick = render_deadline + self.source.interval;
+        self.next_tick = shift_instant(
+            nominal_next_tick,
+            std::mem::take(&mut self.pending_phase_adjustment_nanos),
+        );
+        self.next_sequence = sequence.wrapping_add(1);
+        let presentation_target = self.next_tick;
         Some(FrameTick {
             output: self.source.output,
-            interval: self.source.interval,
-            observed_at,
-            presented_at: None,
+            sequence,
+            interval: presentation_target.saturating_duration_since(render_deadline),
+            render_deadline,
+            presentation_target,
         })
     }
 }
 
-fn render_source(scanouts: &[Scanout]) -> Option<ClockSource> {
-    scanouts
-        .iter()
-        .filter(|scanout| scanout.powered)
-        .max_by_key(|scanout| OutputMode::from(scanout.output.mode).refresh)
-        .map(clock_source)
+fn signed_instant_delta(lhs: Instant, rhs: Instant) -> i128 {
+    if lhs >= rhs {
+        lhs.duration_since(rhs).as_nanos() as i128
+    } else {
+        -(rhs.duration_since(lhs).as_nanos() as i128)
+    }
 }
 
-fn clock_source(scanout: &Scanout) -> ClockSource {
-    ClockSource {
+fn nearest_phase_error(delta_nanos: i128, interval: Duration) -> i128 {
+    let period = interval.as_nanos().max(1) as i128;
+    let mut error = delta_nanos % period;
+    let half_period = period / 2;
+    if error > half_period {
+        error -= period;
+    } else if error < -half_period {
+        error += period;
+    }
+    error
+}
+
+fn shift_instant(instant: Instant, adjustment_nanos: i64) -> Instant {
+    if adjustment_nanos >= 0 {
+        instant + Duration::from_nanos(adjustment_nanos as u64)
+    } else {
+        instant - Duration::from_nanos(adjustment_nanos.unsigned_abs())
+    }
+}
+
+fn advance_deadline(mut deadline: Instant, interval: Duration, mut periods: u128) -> Instant {
+    while periods > 0 {
+        let chunk = periods.min(u128::from(u32::MAX)) as u32;
+        deadline += interval * chunk;
+        periods -= u128::from(chunk);
+    }
+    deadline
+}
+
+fn timeline_source(scanout: &Scanout) -> TimelineSource {
+    TimelineSource {
         output: scanout.output.id,
         interval: refresh_interval(scanout),
     }
@@ -322,307 +594,5 @@ fn refresh_interval(scanout: &Scanout) -> Duration {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const INTERVAL: Duration = Duration::from_millis(10);
-    const FAST_INTERVAL: Duration = Duration::from_millis(5);
-    const FAST_OUTPUT: OutputId = OutputId(1);
-    const SLOW_OUTPUT: OutputId = OutputId(2);
-
-    fn scheduler(now: Instant) -> FrameScheduler {
-        scheduler_with_clocks(now, &[(FAST_OUTPUT, INTERVAL)], FAST_OUTPUT)
-    }
-
-    fn mixed_scheduler(now: Instant) -> FrameScheduler {
-        scheduler_with_clocks(
-            now,
-            &[(FAST_OUTPUT, FAST_INTERVAL), (SLOW_OUTPUT, INTERVAL)],
-            FAST_OUTPUT,
-        )
-    }
-
-    fn scheduler_with_clocks(
-        now: Instant,
-        sources: &[(OutputId, Duration)],
-        render_output: OutputId,
-    ) -> FrameScheduler {
-        FrameScheduler {
-            outputs: OutputClocks {
-                clocks: sources
-                    .iter()
-                    .map(|(output, interval)| {
-                        DisplayClock::new(
-                            ClockSource {
-                                output: *output,
-                                interval: *interval,
-                            },
-                            now,
-                        )
-                    })
-                    .collect(),
-                ticks: Vec::with_capacity(sources.len()),
-                render_output: Some(render_output),
-            },
-            waiting_for_flutter: None,
-        }
-    }
-
-    fn pending(
-        flutter_requested: bool,
-        app_textures_updated: bool,
-        producer_available: bool,
-    ) -> PendingFrame {
-        PendingFrame {
-            flutter_requested,
-            app_textures_updated,
-            producer_available,
-        }
-    }
-
-    #[test]
-    fn idle_display_ticks_without_rendering() {
-        let now = Instant::now();
-        let mut scheduler = scheduler(now);
-
-        let action = scheduler.step(now, pending(false, false, true));
-
-        assert_eq!(scheduler.output_ticks().len(), 1);
-        assert_eq!(action, FrameAction::Skip);
-    }
-
-    #[test]
-    fn app_or_flutter_events_cannot_create_an_early_tick() {
-        let now = Instant::now();
-        let mut scheduler = scheduler(now);
-        scheduler.step(now, pending(false, false, true));
-
-        let action = scheduler.step(now + Duration::from_millis(1), pending(true, true, true));
-
-        assert!(scheduler.output_ticks().is_empty());
-        assert_eq!(action, FrameAction::Skip);
-    }
-
-    #[test]
-    fn a_texture_tick_waits_for_flutter_then_renders_the_same_authorization() {
-        let now = Instant::now();
-        let mut scheduler = scheduler(now);
-        let request = scheduler.step(now, pending(false, true, true));
-        let authorized_tick = scheduler.output_ticks()[0];
-        assert_eq!(request, FrameAction::RequestFlutter);
-
-        let render = scheduler.step(now + Duration::from_millis(1), pending(true, false, false));
-
-        assert!(scheduler.output_ticks().is_empty());
-        assert_eq!(render, FrameAction::Render(authorized_tick));
-    }
-
-    #[test]
-    fn flutter_and_texture_damage_share_one_tick() {
-        let now = Instant::now();
-        let mut scheduler = scheduler(now);
-
-        let action = scheduler.step(now, pending(true, true, true));
-
-        assert_eq!(action, FrameAction::Render(scheduler.output_ticks()[0]));
-    }
-
-    #[test]
-    fn the_clock_keeps_ticking_while_every_producer_is_idle() {
-        let now = Instant::now();
-        let mut scheduler = scheduler(now);
-        scheduler.step(now, pending(false, false, true));
-
-        let action = scheduler.step(now + INTERVAL, pending(false, false, true));
-
-        assert_eq!(scheduler.output_ticks()[0].observed_at, now + INTERVAL);
-        assert_eq!(action, FrameAction::Skip);
-    }
-
-    #[test]
-    fn a_real_kms_edge_rephases_but_does_not_duplicate_a_timer_tick() {
-        let now = Instant::now();
-        let mut scheduler = scheduler(now);
-        scheduler.step(now, pending(false, false, true));
-        let observed_at = now + Duration::from_millis(1);
-
-        scheduler.observe_presentation(PresentedOutput {
-            id: FAST_OUTPUT,
-            observed_at,
-            presented_at: Some(Duration::from_secs(7)),
-            sequence: Some(42),
-        });
-
-        scheduler.step(observed_at, pending(false, false, true));
-        assert!(scheduler.output_ticks().is_empty());
-
-        scheduler.step(observed_at + INTERVAL, pending(false, false, true));
-        assert_eq!(
-            scheduler.output_ticks()[0].observed_at,
-            observed_at + INTERVAL
-        );
-    }
-
-    #[test]
-    fn delayed_physical_edge_older_than_the_last_timer_tick_is_not_replayed() {
-        let now = Instant::now();
-        let mut scheduler = scheduler(now);
-        scheduler.step(now, pending(false, false, true));
-        scheduler.step(now + INTERVAL, pending(false, false, true));
-
-        scheduler.observe_presentation(PresentedOutput {
-            id: FAST_OUTPUT,
-            observed_at: now + Duration::from_millis(1),
-            presented_at: Some(Duration::from_secs(7)),
-            sequence: Some(42),
-        });
-
-        scheduler.step(
-            now + INTERVAL + Duration::from_millis(4),
-            pending(false, false, true),
-        );
-        assert!(scheduler.output_ticks().is_empty());
-
-        scheduler.step(now + INTERVAL * 2, pending(false, false, true));
-        assert_eq!(scheduler.output_ticks()[0].observed_at, now + INTERVAL * 2);
-    }
-
-    #[test]
-    fn missed_intervals_collapse_to_the_latest_tick() {
-        let now = Instant::now();
-        let mut scheduler = scheduler(now);
-        scheduler.step(now, pending(false, false, true));
-
-        scheduler.step(
-            now + INTERVAL * 4 + Duration::from_millis(1),
-            pending(false, false, true),
-        );
-
-        assert_eq!(scheduler.output_ticks()[0].observed_at, now + INTERVAL * 4);
-    }
-
-    #[test]
-    fn mixed_refresh_outputs_tick_at_their_own_rates() {
-        let now = Instant::now();
-        let mut scheduler = mixed_scheduler(now);
-        let mut fast_ticks = 0;
-        let mut slow_ticks = 0;
-
-        for step in 0..=4 {
-            scheduler.step(now + FAST_INTERVAL * step, pending(false, false, true));
-            fast_ticks += scheduler
-                .output_ticks()
-                .iter()
-                .filter(|tick| tick.output == FAST_OUTPUT)
-                .count();
-            slow_ticks += scheduler
-                .output_ticks()
-                .iter()
-                .filter(|tick| tick.output == SLOW_OUTPUT)
-                .count();
-        }
-
-        assert_eq!(fast_ticks, 5);
-        assert_eq!(slow_ticks, 3);
-    }
-
-    #[test]
-    fn a_secondary_tick_cannot_authorize_flutter() {
-        let now = Instant::now();
-        let mut scheduler = mixed_scheduler(now);
-        scheduler.step(now, pending(false, false, true));
-        scheduler.observe_presentation(PresentedOutput {
-            id: SLOW_OUTPUT,
-            observed_at: now + Duration::from_millis(2),
-            presented_at: None,
-            sequence: Some(1),
-        });
-        scheduler.step(now + FAST_INTERVAL, pending(false, false, true));
-        scheduler.step(now + FAST_INTERVAL * 2, pending(false, false, true));
-
-        let action = scheduler.step(now + Duration::from_millis(12), pending(false, true, true));
-
-        assert_eq!(
-            scheduler.output_ticks(),
-            &[FrameTick {
-                output: SLOW_OUTPUT,
-                interval: INTERVAL,
-                observed_at: now + Duration::from_millis(12),
-                presented_at: None,
-            }]
-        );
-        assert_eq!(action, FrameAction::Skip);
-
-        let render_action = scheduler.step(now + FAST_INTERVAL * 3, pending(true, true, true));
-        assert!(matches!(render_action, FrameAction::Render(tick) if tick.output == FAST_OUTPUT));
-    }
-
-    #[test]
-    fn a_secondary_presentation_rephases_only_its_clock() {
-        let now = Instant::now();
-        let mut scheduler = mixed_scheduler(now);
-        scheduler.step(now, pending(false, false, true));
-        scheduler.observe_presentation(PresentedOutput {
-            id: SLOW_OUTPUT,
-            observed_at: now + Duration::from_millis(2),
-            presented_at: Some(Duration::from_secs(3)),
-            sequence: Some(9),
-        });
-
-        scheduler.step(now + FAST_INTERVAL, pending(false, false, true));
-        assert_eq!(scheduler.output_ticks()[0].output, FAST_OUTPUT);
-
-        scheduler.step(now + FAST_INTERVAL * 2, pending(false, false, true));
-        assert_eq!(scheduler.output_ticks()[0].output, FAST_OUTPUT);
-
-        scheduler.step(now + Duration::from_millis(12), pending(false, false, true));
-        assert_eq!(scheduler.output_ticks()[0].output, SLOW_OUTPUT);
-    }
-
-    #[test]
-    fn output_clocks_keep_ticking_while_flutter_is_late() {
-        let now = Instant::now();
-        let mut scheduler = mixed_scheduler(now);
-        assert_eq!(
-            scheduler.step(now, pending(false, true, true)),
-            FrameAction::RequestFlutter
-        );
-
-        assert_eq!(
-            scheduler.step(now + FAST_INTERVAL * 2, pending(false, false, false)),
-            FrameAction::Skip
-        );
-        assert_eq!(scheduler.output_ticks().len(), 2);
-
-        let render = scheduler.step(
-            now + FAST_INTERVAL * 2 + Duration::from_millis(1),
-            pending(true, false, false),
-        );
-        assert!(matches!(
-            render,
-            FrameAction::Render(tick)
-                if tick.output == FAST_OUTPUT
-                    && tick.observed_at == now + FAST_INTERVAL * 2
-        ));
-        assert!(scheduler.output_ticks().is_empty());
-    }
-
-    #[test]
-    fn powering_off_every_output_cancels_stale_frame_authorization() {
-        let now = Instant::now();
-        let mut scheduler = scheduler(now);
-        assert_eq!(
-            scheduler.step(now, pending(false, true, true)),
-            FrameAction::RequestFlutter
-        );
-
-        scheduler.reconfigure(&[], now + Duration::from_millis(1));
-
-        assert_eq!(
-            scheduler.step(now + Duration::from_millis(2), pending(true, false, true)),
-            FrameAction::Skip
-        );
-        assert!(scheduler.output_ticks().is_empty());
-        assert!(scheduler.waiting_for_flutter.is_none());
-    }
-}
+#[path = "frame_scheduler/tests.rs"]
+mod tests;

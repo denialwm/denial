@@ -1,4 +1,6 @@
 use std::time::Duration;
+#[cfg(feature = "flutter")]
+use std::time::Instant;
 
 use smithay::desktop::{PopupManager, Window, utils::SurfacePresentationFeedback};
 use smithay::output::{Output, WeakOutput};
@@ -73,7 +75,7 @@ impl OutputPresentationBatch {
     pub(super) fn submit_window(&mut self, output: &Output, window: &Window) {
         // Presentation feedback belongs to the buffer accepted by KMS and is
         // therefore captured at submission. wl_surface.frame is deliberately
-        // not drained here; Denial's display clock releases that scheduling
+        // not drained here; Denial's output timeline releases that scheduling
         // hint independently of whether the scanout buffer changes.
         if self.active == self.slots.len() {
             self.slots
@@ -92,8 +94,8 @@ impl OutputPresentationBatch {
 /// protocol boundaries.
 ///
 /// `wl_surface.frame` tells a client when it is useful to start producing the
-/// *next* frame and is dispatched by Denial's KMS-derived display clock.
-/// `wp_presentation` describes the submitted atlas and is captured when KMS
+/// *next* frame and is dispatched by Denial's output timeline.
+/// `wp_presentation` describes the submitted output buffer and is captured when KMS
 /// accepts it, then retained until that same page-flip event.
 pub(super) struct PresentationTracker {
     _state: PresentationState,
@@ -101,12 +103,20 @@ pub(super) struct PresentationTracker {
     clock_id: u32,
     sequence: u64,
     shared_pending: Vec<PendingPresentation>,
+    #[cfg(feature = "flutter")]
+    timeline_instant_anchor: Instant,
+    #[cfg(feature = "flutter")]
+    timeline_clock_anchor: Duration,
 }
 
 impl PresentationTracker {
     pub(super) fn new(display: &DisplayHandle) -> Self {
         let clock = Clock::<Monotonic>::new();
         let clock_id = clock.id() as u32;
+        #[cfg(feature = "flutter")]
+        let timeline_instant_anchor = Instant::now();
+        #[cfg(feature = "flutter")]
+        let timeline_clock_anchor = clock.now().into();
         let state = PresentationState::new::<RuntimeState>(display, clock_id);
         Self {
             _state: state,
@@ -114,6 +124,10 @@ impl PresentationTracker {
             clock_id,
             sequence: 0,
             shared_pending: Vec::new(),
+            #[cfg(feature = "flutter")]
+            timeline_instant_anchor,
+            #[cfg(feature = "flutter")]
+            timeline_clock_anchor,
         }
     }
 
@@ -151,6 +165,15 @@ impl PresentationTracker {
     }
 
     #[cfg(feature = "flutter")]
+    pub(super) fn timeline_time(&self, deadline: Instant) -> Duration {
+        timeline_time_from_anchor(
+            self.timeline_instant_anchor,
+            self.timeline_clock_anchor,
+            deadline,
+        )
+    }
+
+    #[cfg(feature = "flutter")]
     pub(super) fn begin_output_batch(&mut self) {
         self.shared_pending.clear();
     }
@@ -162,7 +185,7 @@ impl PresentationTracker {
         kernel_timestamp: Option<Duration>,
         observation_delay: Duration,
         kernel_sequence: Option<u64>,
-    ) {
+    ) -> bool {
         let sequence = kernel_sequence.unwrap_or_else(|| {
             self.sequence = next_presentation_sequence(self.sequence);
             self.sequence
@@ -173,11 +196,28 @@ impl PresentationTracker {
                 now.saturating_sub(observation_delay)
             })
             .into();
+        let delivered = batch.slots[..batch.active]
+            .iter()
+            .any(|pending| !pending.feedbacks.is_empty());
         for feedback in &mut batch.slots[..batch.active] {
             present_feedback(feedback, presented_at, self.clock_id, sequence);
         }
         batch.active = 0;
         batch.slots.truncate(MAX_REUSABLE_OUTPUT_FEEDBACKS);
+        delivered
+    }
+}
+
+#[cfg(feature = "flutter")]
+fn timeline_time_from_anchor(
+    instant_anchor: Instant,
+    clock_anchor: Duration,
+    deadline: Instant,
+) -> Duration {
+    if deadline >= instant_anchor {
+        clock_anchor.saturating_add(deadline.duration_since(instant_anchor))
+    } else {
+        clock_anchor.saturating_sub(instant_anchor.duration_since(deadline))
     }
 }
 
@@ -239,7 +279,7 @@ fn collect_surface_presentation_feedback(
     );
 }
 
-/// Advance every outstanding client frame callback on one display-clock tick.
+/// Advance every outstanding client frame callback on one output-timeline tick.
 /// The returned count lets the caller avoid refreshing and flushing an idle
 /// Wayland space.
 pub(super) fn send_window_frame_callbacks(window: &Window, callback_time: Duration) -> usize {
@@ -298,21 +338,5 @@ const fn next_presentation_sequence(current: u64) -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{next_presentation_sequence, refresh_interval};
-    use std::time::Duration;
-
-    #[test]
-    fn physical_refresh_is_converted_from_millihertz() {
-        let interval = refresh_interval(180_000).expect("valid refresh");
-        assert_eq!(interval, Duration::from_nanos(5_555_555));
-        assert_eq!(refresh_interval(0), None);
-        assert_eq!(refresh_interval(-1), None);
-    }
-
-    #[test]
-    fn presentation_sequence_is_monotonic_modulo_protocol_width() {
-        assert_eq!(next_presentation_sequence(41), 42);
-        assert_eq!(next_presentation_sequence(u64::MAX), 0);
-    }
-}
+#[path = "presentation/tests.rs"]
+mod tests;

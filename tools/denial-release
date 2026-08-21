@@ -77,12 +77,13 @@ check_bwrap_network_isolation() {
       --unshare-cgroup-try \
       --new-session \
       --ro-bind / / \
+      --ro-bind /proc /proc \
       -- /usr/bin/true \
       2>&1
   )"; then
-    pass 'bubblewrap can create the package-build private network namespace'
+    pass 'bubblewrap can create the package-build namespaces with restricted procfs'
   else
-    fail 'bubblewrap cannot create the package-build private network namespace'
+    fail 'bubblewrap cannot create the package-build namespaces with restricted procfs'
     [[ -z "$output" ]] || printf 'INFO  bubblewrap: %s\n' "$output"
   fi
 }
@@ -473,7 +474,7 @@ source_audit() {
     )"
     check_equal \
       'repository-level Rust toolchain is pinned' \
-      '1.95.0' \
+      '1.98.0' \
       "$rust_toolchain_channel"
   else
     fail 'repository-level rust-toolchain.toml is missing'
@@ -609,6 +610,9 @@ source_audit() {
       'tools/promote-denial-native-candidate' \
       "$ROOT/.github/workflows/release.yml" \
     && grep -Fq \
+      'tools/promote-denial-apk-candidate' \
+      "$ROOT/.github/workflows/release.yml" \
+    && grep -Fq \
       'tools/run-denial-promotion-no-build' \
       "$ROOT/.github/workflows/release.yml"; then
     pass 'signed-tag workflow promotes every package format under the no-build guard'
@@ -622,14 +626,20 @@ source_audit() {
       'tools/verify-denial-published-rpm-repository' \
       "$ROOT/.github/workflows/release.yml" \
     && grep -Fq \
+      'tools/verify-denial-published-apk-packages' \
+      "$ROOT/.github/workflows/release.yml" \
+    && grep -Fq \
       'registry.fedoraproject.org/fedora@sha256:' \
       "$ROOT/.github/workflows/release.yml" \
     && grep -Fq -- \
       '- verify-rpm-publication' \
+      "$ROOT/.github/workflows/release.yml" \
+    && grep -Fq -- \
+      '- verify-apk-publication' \
       "$ROOT/.github/workflows/release.yml"; then
-    pass 'publication verification is split across pinned native clients'
+    pass 'publication verification is split across native package clients'
   else
-    fail 'publication verification does not gate on both native clients'
+    fail 'publication verification does not gate on every native client'
   fi
   if grep -Fq \
       "candidate_class='production-release-candidate'" \
@@ -865,10 +875,12 @@ source_audit() {
     "$ROOT/tools/generate-denial-wire" \
     "$ROOT/tools/generate-denial-package-copyright" \
     "$ROOT/tools/package-denial-arch" \
+    "$ROOT/tools/package-denial-apk" \
     "$ROOT/tools/package-denial-deb" \
     "$ROOT/tools/package-denial-native" \
     "$ROOT/tools/package-denial-rpm" \
     "$ROOT/tools/promote-denial-arch-candidate" \
+    "$ROOT/tools/promote-denial-apk-candidate" \
     "$ROOT/tools/promote-denial-native-candidate" \
     "$ROOT/tools/read-denial-native-metadata" \
     "$ROOT/tools/run-denial-promotion-no-build" \
@@ -879,6 +891,7 @@ source_audit() {
     "$ROOT/tools/test-denial-repository-setup" \
     "$ROOT/tools/verify-denial-package-payload" \
     "$ROOT/tools/verify-denial-native-package-metadata" \
+    "$ROOT/tools/verify-denial-published-apk-packages" \
     "$ROOT/tools/verify-denial-rpm-repository" \
     "$ROOT/tools/verify-denial-published-repositories" \
     "$ROOT/tools/verify-denial-published-repositories-common" \
@@ -889,6 +902,11 @@ source_audit() {
     "$ROOT/packaging/arch/PKGBUILD" \
     "$ROOT/packaging/arch/flutter-engine/PKGBUILD" \
     "$ROOT/packaging/arch/ui-development/PKGBUILD" \
+    "$ROOT/packaging/alpine/APKBUILD" \
+    "$ROOT/packaging/alpine/denial-alpine-session" \
+    "$ROOT/packaging/alpine/denial-runtime-dirs" \
+    "$ROOT/packaging/alpine/denial.post-install" \
+    "$ROOT/packaging/alpine/denial.pre-deinstall" \
     "$ROOT/packaging/arch/runner/denial-actions-runner-arm" \
     "$ROOT/packaging/arch/runner/denial-actions-runner-cleanup" \
     "$ROOT/packaging/arch/runner/install-host"; then

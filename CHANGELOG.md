@@ -14,6 +14,11 @@ boundaries may change before 1.0.
 - Mobile mode now has a dedicated wallpaper browser with preview, drag positioning, fine alignment controls, and per-display targeting.
 - Simplified Chinese localization and a live language selector are now available throughout the shell and Settings.
 - Appearance settings now include live wallpaper selection and physical cursor-size controls.
+- The desktop system bar now hosts StatusNotifier/AppIndicator items and
+  legacy XEmbed tray icons, including menus and pointer actions.
+- Alpine Linux 3.24 is now a supported x86-64 package target, with native APK
+  packages, OpenRC session integration, installation documentation, and a
+  no-compile release-promotion path.
 
 ### Changed
 
@@ -23,11 +28,18 @@ boundaries may change before 1.0.
 - The shell keyboard now routes text editing and native key actions correctly between local Flutter surfaces and Wayland clients.
 - Window content rendering now cleanly separates embedded Flutter applications from compositor-supplied Wayland textures.
 - Distribution guidance now documents a reusable packaging boundary and an initial Debian delivery plan.
+- Branch and release validation now build and independently verify Alpine APK
+  payloads in a pinned Alpine minirootfs on the CachyOS runner.
 
 ### Fixed
 
 - Delayed display edges can no longer replay stale frame ticks or supersede a ready Flutter frame before presentation.
 - Mobile edge panels, status text, wallpaper queries, and local-application home-grid persistence now behave consistently across compact layouts.
+- Denial now keeps the Wayland session alive when every DRM output disconnects
+  and rebuilds the display state when an output returns.
+- Physical keyboard lock LEDs now follow the compositor's XKB state.
+- Overview transitions now interpolate window layout geometry without making
+  frames and shadows jump to their destination before the animation finishes.
 
 ## [0.2.6] - 2026-08-07
 

@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../services/network_manager_service.dart';
+import '../services/network_service.dart';
 import 'notifier_lifecycle.dart';
 
 final networkConnectivityProvider =
@@ -23,14 +23,14 @@ class NetworkConnectivityState {
   }) : busyNetworks = Set<String>.unmodifiable(busyNetworks);
 
   NetworkConnectivityState.initial()
-    : snapshot = NetworkManagerSnapshot.unavailable(),
+    : snapshot = NetworkSnapshot.unavailable(),
       initializing = true,
       scanning = false,
       radioChanging = false,
       busyNetworks = const <String>{},
       error = null;
 
-  final NetworkManagerSnapshot snapshot;
+  final NetworkSnapshot snapshot;
   final bool initializing;
   final bool scanning;
   final bool radioChanging;
@@ -38,7 +38,7 @@ class NetworkConnectivityState {
   final String? error;
 
   NetworkConnectivityState copyWith({
-    NetworkManagerSnapshot? snapshot,
+    NetworkSnapshot? snapshot,
     bool? initializing,
     bool? scanning,
     bool? radioChanging,
@@ -61,7 +61,7 @@ class NetworkConnectivityController extends Notifier<NetworkConnectivityState>
     with NotifierLifecycle<NetworkConnectivityState> {
   @override
   NetworkConnectivityState build() {
-    _service = ref.watch(networkManagerServiceProvider);
+    _service = ref.watch(networkServiceProvider);
     _scanTimer = null;
     _scanBaseline = -1;
     _buildGeneration = beginBuildGeneration();
@@ -84,7 +84,7 @@ class NetworkConnectivityController extends Notifier<NetworkConnectivityState>
 
   static const Duration _scanFallback = Duration(seconds: 15);
 
-  late NetworkManagerBackend _service;
+  late NetworkBackend _service;
   late int _buildGeneration;
   Timer? _scanTimer;
   int _scanBaseline = -1;
@@ -97,7 +97,7 @@ class NetworkConnectivityController extends Notifier<NetworkConnectivityState>
       if (isBuildGenerationActive(generation)) {
         state = state.copyWith(
           initializing: false,
-          error: 'NetworkManager is unavailable',
+          error: 'Network service is unavailable',
         );
       }
     }
@@ -225,7 +225,7 @@ class NetworkConnectivityController extends Notifier<NetworkConnectivityState>
     }
   }
 
-  void _applySnapshot(NetworkManagerSnapshot snapshot, int generation) {
+  void _applySnapshot(NetworkSnapshot snapshot, int generation) {
     if (!isBuildGenerationActive(generation)) {
       return;
     }
@@ -261,6 +261,6 @@ class NetworkConnectivityController extends Notifier<NetworkConnectivityState>
     if (error is ArgumentError) {
       return error.message?.toString() ?? 'Invalid network settings';
     }
-    return 'NetworkManager could not complete the request';
+    return 'The network service could not complete the request';
   }
 }

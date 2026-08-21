@@ -252,6 +252,52 @@ class DesktopAppsRepository {
     return null;
   }
 
+  String? resolveTrayIcon({
+    required String iconName,
+    required String iconThemePath,
+  }) {
+    final requested = iconName.trim();
+    if (requested.isEmpty) {
+      return null;
+    }
+    final name = _stripSupportedExtension(requested);
+    final extensions = ['png', 'webp', 'jpg', 'jpeg', 'svg'];
+    final sizes = [
+      'scalable',
+      '128x128',
+      '96x96',
+      '64x64',
+      '48x48',
+      '32x32',
+      '24x24',
+      '22x22',
+      '16x16',
+    ];
+    final contexts = ['status', 'apps', 'devices', 'actions'];
+    for (final root in RuntimePaths.uniquePaths(iconThemePath.split(':'))) {
+      if (!p.isAbsolute(root)) {
+        continue;
+      }
+      for (final extension in extensions) {
+        final direct = p.join(root, '$name.$extension');
+        if (_isSafeIconFile(direct)) {
+          return direct;
+        }
+      }
+      for (final size in sizes) {
+        for (final context in contexts) {
+          for (final extension in extensions) {
+            final candidate = p.join(root, size, context, '$name.$extension');
+            if (_isSafeIconFile(candidate)) {
+              return candidate;
+            }
+          }
+        }
+      }
+    }
+    return resolveIconPath(requested);
+  }
+
   String? resolveNotificationIcon({
     required String appIcon,
     required String desktopEntry,

@@ -1,0 +1,15 @@
+#!/sbin/openrc-run
+
+name="Denial runtime directories"
+description="Prepare global runtime directories required by Denial"
+
+depend() {
+	need localmount
+	before greetd
+}
+
+start() {
+	ebegin "Preparing Denial runtime directories"
+	checkpath -d -m 1777 -o root:root /tmp/.X11-unix
+	eend $?
+}

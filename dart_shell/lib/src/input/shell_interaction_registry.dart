@@ -17,6 +17,7 @@ class ShellInteractionSurface {
     required this.keyboardPolicy,
     required this.compositorPolicy,
     this.bounds,
+    this.observeClientPointerPresses = false,
   });
 
   final int id;
@@ -25,6 +26,7 @@ class ShellInteractionSurface {
   final ShellKeyboardPolicy keyboardPolicy;
   final ShellCompositorPolicy compositorPolicy;
   final Rect? bounds;
+  final bool observeClientPointerPresses;
 
   @override
   bool operator ==(Object other) {
@@ -34,7 +36,8 @@ class ShellInteractionSurface {
         other.pointerPolicy == pointerPolicy &&
         other.keyboardPolicy == keyboardPolicy &&
         other.compositorPolicy == compositorPolicy &&
-        other.bounds == bounds;
+        other.bounds == bounds &&
+        other.observeClientPointerPresses == observeClientPointerPresses;
   }
 
   @override
@@ -45,6 +48,7 @@ class ShellInteractionSurface {
     keyboardPolicy,
     compositorPolicy,
     bounds,
+    observeClientPointerPresses,
   );
 }
 
@@ -75,6 +79,9 @@ class ShellInteractionSnapshot {
   bool get compositorExclusive => surfaces.values.any(
     (surface) => surface.compositorPolicy == ShellCompositorPolicy.exclusive,
   );
+
+  bool get observesClientPointerPresses =>
+      surfaces.values.any((surface) => surface.observeClientPointerPresses);
 
   List<Rect> get childRegions => orderedSurfaces
       .where(
@@ -137,6 +144,7 @@ class ShellInputRegion extends ConsumerStatefulWidget {
     this.pointerPolicy = ShellPointerPolicy.childBounds,
     this.keyboardPolicy = ShellKeyboardPolicy.none,
     this.compositorPolicy = ShellCompositorPolicy.normal,
+    this.observeClientPointerPresses = false,
   });
 
   final String debugLabel;
@@ -145,6 +153,7 @@ class ShellInputRegion extends ConsumerStatefulWidget {
   final ShellPointerPolicy pointerPolicy;
   final ShellKeyboardPolicy keyboardPolicy;
   final ShellCompositorPolicy compositorPolicy;
+  final bool observeClientPointerPresses;
 
   @override
   ConsumerState<ShellInputRegion> createState() => _ShellInputRegionState();
@@ -172,7 +181,9 @@ class _ShellInputRegionState extends ConsumerState<ShellInputRegion> {
         oldWidget.debugLabel != widget.debugLabel ||
         oldWidget.pointerPolicy != widget.pointerPolicy ||
         oldWidget.keyboardPolicy != widget.keyboardPolicy ||
-        oldWidget.compositorPolicy != widget.compositorPolicy) {
+        oldWidget.compositorPolicy != widget.compositorPolicy ||
+        oldWidget.observeClientPointerPresses !=
+            widget.observeClientPointerPresses) {
       _schedulePublish();
     }
   }
@@ -215,6 +226,7 @@ class _ShellInputRegionState extends ConsumerState<ShellInputRegion> {
           pointerPolicy: widget.pointerPolicy,
           keyboardPolicy: widget.keyboardPolicy,
           compositorPolicy: widget.compositorPolicy,
+          observeClientPointerPresses: widget.observeClientPointerPresses,
           bounds: widget.pointerPolicy == ShellPointerPolicy.childBounds
               ? _paintBounds
               : null,

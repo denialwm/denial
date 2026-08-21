@@ -1,0 +1,10 @@
+#!/bin/sh
+
+# This one-shot service creates the root-owned X11 socket directory before a
+# display manager can start rootless Xwayland.  Enabling it does not start,
+# stop, or restart the active graphical session.
+if command -v rc-update >/dev/null 2>&1; then
+    rc-update -q add denial-runtime-dirs boot || exit 1
+fi
+
+exit 0

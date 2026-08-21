@@ -7,6 +7,23 @@ pub const SCALE_BASE: u32 = 120;
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct OutputId(pub u64);
 
+/// Flutter reserves non-negative view IDs for real Dart views. Denial maps a
+/// physical output into the disjoint negative namespace without depending on
+/// connector enumeration order.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RenderViewId(i64);
+
+impl RenderViewId {
+    pub fn for_output(output: OutputId) -> Option<Self> {
+        let output = i64::try_from(output.0).ok()?;
+        output.checked_add(1)?.checked_neg().map(Self)
+    }
+
+    pub const fn get(self) -> i64 {
+        self.0
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LogicalPoint {
     pub x: i32,
@@ -82,6 +99,72 @@ impl OutputTransform {
             self,
             Self::Rotate90 | Self::Rotate270 | Self::Flipped90 | Self::Flipped270
         )
+    }
+
+    /// Maps a normalized point from the connector's native axes back into the
+    /// logical output axes. This is the inverse of the projection Flutter uses
+    /// for scanout and is primarily used by output-bound absolute input.
+    pub const fn native_to_logical(self, x: f64, y: f64) -> (f64, f64) {
+        match self {
+            Self::Normal => (x, y),
+            Self::Rotate90 => (y, 1.0 - x),
+            Self::Rotate180 => (1.0 - x, 1.0 - y),
+            Self::Rotate270 => (1.0 - y, x),
+            Self::Flipped => (1.0 - x, y),
+            Self::Flipped90 => (y, x),
+            Self::Flipped180 => (x, 1.0 - y),
+            Self::Flipped270 => (1.0 - y, 1.0 - x),
+        }
+    }
+
+    /// Applies a cardinal rotation after this output's fixed panel-mount
+    /// transform. Keeping the two operations separate lets automatic device
+    /// orientation remain transient while `transform=` continues to describe
+    /// how the panel is physically installed.
+    pub const fn rotated_by(self, rotation: Self) -> Self {
+        let turns = match rotation {
+            Self::Normal => 0,
+            Self::Rotate90 => 1,
+            Self::Rotate180 => 2,
+            Self::Rotate270 => 3,
+            // Sensor orientation is rotational. Treat a reflected argument as
+            // its rotational component so this helper cannot accidentally
+            // toggle panel reflection.
+            Self::Flipped => 0,
+            Self::Flipped90 => 1,
+            Self::Flipped180 => 2,
+            Self::Flipped270 => 3,
+        };
+        let base = match self {
+            Self::Normal | Self::Flipped => 0,
+            Self::Rotate90 | Self::Flipped90 => 1,
+            Self::Rotate180 | Self::Flipped180 => 2,
+            Self::Rotate270 | Self::Flipped270 => 3,
+        };
+        let reflected = matches!(
+            self,
+            Self::Flipped | Self::Flipped90 | Self::Flipped180 | Self::Flipped270
+        );
+        match ((base + turns) & 3, reflected) {
+            (0, false) => Self::Normal,
+            (1, false) => Self::Rotate90,
+            (2, false) => Self::Rotate180,
+            (3, false) => Self::Rotate270,
+            (0, true) => Self::Flipped,
+            (1, true) => Self::Flipped90,
+            (2, true) => Self::Flipped180,
+            (3, true) => Self::Flipped270,
+            _ => unreachable!(),
+        }
+    }
+
+    pub const fn inverse_rotation(self) -> Self {
+        match self {
+            Self::Normal | Self::Flipped => Self::Normal,
+            Self::Rotate90 | Self::Flipped90 => Self::Rotate270,
+            Self::Rotate180 | Self::Flipped180 => Self::Rotate180,
+            Self::Rotate270 | Self::Flipped270 => Self::Rotate90,
+        }
     }
 }
 
@@ -258,6 +341,10 @@ impl TopologyManager {
             outputs,
         }
     }
+
+    pub const fn epoch(&self) -> u64 {
+        self.epoch
+    }
 }
 
 fn validate_outputs<'a>(
@@ -331,7 +418,8 @@ pub struct AtlasOutput {
     pub id: OutputId,
     pub logical_rect: LogicalRect,
     pub source_rect: PixelRect,
-    pub scanout_size: PixelSize,
+    pub pixel_size: PixelSize,
+    pub transform: OutputTransform,
     pub sampling: Sampling,
 }
 
@@ -343,6 +431,73 @@ pub struct AtlasPlan {
     pub engine_scale_120: u32,
     pub pixel_size: PixelSize,
     pub outputs: Vec<AtlasOutput>,
+}
+
+/// One immutable physical raster projection derived from the same topology
+/// generation as the Dart desktop atlas.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RenderOutputPlan {
+    pub output_id: OutputId,
+    pub render_view_id: RenderViewId,
+    pub configuration_generation: u64,
+    pub source_rect: PixelRect,
+    pub target_size: PixelSize,
+    pub scale_120: u32,
+    pub source_to_target_transform: OutputProjection,
+}
+
+/// An affine mapping from the implicit Flutter view's physical pixels into a
+/// native output buffer. Coefficients follow Flutter's two-dimensional
+/// transformation layout:
+///
+/// `x' = scale_x * x + skew_x * y + translate_x`
+/// `y' = skew_y * x + scale_y * y + translate_y`
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OutputProjection {
+    pub scale_x: f64,
+    pub skew_x: f64,
+    pub translate_x: f64,
+    pub skew_y: f64,
+    pub scale_y: f64,
+    pub translate_y: f64,
+}
+
+impl OutputProjection {
+    fn for_output(output: &OutputSpec, source: PixelRect) -> Self {
+        let oriented = output.transformed_pixel_size();
+        let width = f64::from(oriented.width);
+        let height = f64::from(oriented.height);
+        let source_scale_x = width / f64::from(source.width);
+        let source_scale_y = height / f64::from(source.height);
+
+        // Map output-local, transformed pixels into the connector's native
+        // pixel axes. These are the same eight geometric operations exposed by
+        // wl_output, but Flutter applies them before KMS sees the buffer.
+        let (scale_x, skew_x, translate_x, skew_y, scale_y, translate_y) = match output.transform {
+            OutputTransform::Normal => (1.0, 0.0, 0.0, 0.0, 1.0, 0.0),
+            OutputTransform::Rotate90 => (0.0, -1.0, height, 1.0, 0.0, 0.0),
+            OutputTransform::Rotate180 => (-1.0, 0.0, width, 0.0, -1.0, height),
+            OutputTransform::Rotate270 => (0.0, 1.0, 0.0, -1.0, 0.0, width),
+            OutputTransform::Flipped => (-1.0, 0.0, width, 0.0, 1.0, 0.0),
+            OutputTransform::Flipped90 => (0.0, 1.0, 0.0, 1.0, 0.0, 0.0),
+            OutputTransform::Flipped180 => (1.0, 0.0, 0.0, 0.0, -1.0, height),
+            OutputTransform::Flipped270 => (0.0, -1.0, height, -1.0, 0.0, width),
+        };
+        let source_x = f64::from(source.x);
+        let source_y = f64::from(source.y);
+        Self {
+            scale_x: scale_x * source_scale_x,
+            skew_x: skew_x * source_scale_y,
+            translate_x: translate_x
+                - scale_x * source_scale_x * source_x
+                - skew_x * source_scale_y * source_y,
+            skew_y: skew_y * source_scale_x,
+            scale_y: scale_y * source_scale_y,
+            translate_y: translate_y
+                - skew_y * source_scale_x * source_x
+                - scale_y * source_scale_y * source_y,
+        }
+    }
 }
 
 impl AtlasPlan {
@@ -372,8 +527,8 @@ impl AtlasPlan {
                 width: right.saturating_sub(left).max(1),
                 height: bottom.saturating_sub(top).max(1),
             };
-            let scanout_size = output.transformed_pixel_size();
-            let sampling = if source_rect.size() == scanout_size {
+            let pixel_size = output.transformed_pixel_size();
+            let sampling = if source_rect.size() == pixel_size {
                 Sampling::OneToOne
             } else {
                 Sampling::Scaled
@@ -382,7 +537,8 @@ impl AtlasPlan {
                 id: output.id,
                 logical_rect,
                 source_rect,
-                scanout_size,
+                pixel_size,
+                transform: output.transform,
                 sampling,
             });
         }
@@ -396,6 +552,38 @@ impl AtlasPlan {
             outputs,
         })
     }
+
+    pub fn render_outputs(&self, snapshot: &TopologySnapshot) -> Option<Vec<RenderOutputPlan>> {
+        if self.topology_epoch == 0
+            || self.topology_epoch != snapshot.epoch
+            || self.outputs.len() != snapshot.outputs.len()
+        {
+            return None;
+        }
+
+        snapshot
+            .outputs
+            .iter()
+            .map(|output| {
+                let atlas_output = self
+                    .outputs
+                    .iter()
+                    .find(|planned| planned.id == output.id)?;
+                Some(RenderOutputPlan {
+                    output_id: output.id,
+                    render_view_id: RenderViewId::for_output(output.id)?,
+                    configuration_generation: snapshot.epoch,
+                    source_rect: atlas_output.source_rect,
+                    target_size: output.mode,
+                    scale_120: output.scale_120,
+                    source_to_target_transform: OutputProjection::for_output(
+                        output,
+                        atlas_output.source_rect,
+                    ),
+                })
+            })
+            .collect()
+    }
 }
 
 fn scaled_edge(value: f64, scale: f64) -> u32 {
@@ -403,140 +591,5 @@ fn scaled_edge(value: f64, scale: f64) -> u32 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn output(
-        id: u64,
-        name: &str,
-        position: (i32, i32),
-        mode: (u32, u32),
-        scale_120: u32,
-        refresh_millihz: u32,
-    ) -> OutputSpec {
-        OutputSpec {
-            id: OutputId(id),
-            name: name.into(),
-            position: LogicalPoint::new(position.0, position.1),
-            mode: PixelSize::new(mode.0, mode.1),
-            scale_120,
-            refresh_millihz,
-            transform: OutputTransform::Normal,
-        }
-    }
-
-    #[test]
-    fn normalizes_negative_coordinates_without_changing_global_origin() {
-        let manager = TopologyManager::new([
-            output(1, "left", (-1920, 0), (1920, 1080), 120, 60_000),
-            output(2, "main", (0, -360), (2560, 1440), 120, 200_000),
-        ])
-        .unwrap();
-
-        let snapshot = manager.snapshot();
-        assert_eq!(snapshot.logical_bounds.unwrap().x, -1920.0);
-        assert_eq!(snapshot.logical_bounds.unwrap().y, -360.0);
-        assert_eq!(snapshot.ticker, Some(OutputId(2)));
-
-        let atlas = AtlasPlan::for_snapshot(&snapshot).unwrap();
-        assert_eq!(atlas.logical_origin, (-1920.0, -360.0));
-        assert_eq!(atlas.pixel_size, PixelSize::new(4480, 1440));
-        assert_eq!(atlas.outputs[0].source_rect.x, 0);
-        assert_eq!(atlas.outputs[0].source_rect.y, 360);
-        assert_eq!(atlas.outputs[1].source_rect.x, 1920);
-        assert_eq!(atlas.outputs[1].source_rect.y, 0);
-    }
-
-    #[test]
-    fn vertical_and_l_shaped_layouts_are_not_special_cases() {
-        let manager = TopologyManager::new([
-            output(1, "top", (0, -1080), (1920, 1080), 120, 60_000),
-            output(2, "main", (0, 0), (2560, 1440), 120, 144_000),
-            output(3, "right", (2560, 360), (1920, 1080), 120, 75_000),
-        ])
-        .unwrap();
-
-        let atlas = AtlasPlan::for_snapshot(&manager.snapshot()).unwrap();
-        assert_eq!(atlas.pixel_size, PixelSize::new(4480, 2520));
-        assert!(
-            atlas
-                .outputs
-                .iter()
-                .all(|output| output.sampling == Sampling::OneToOne)
-        );
-    }
-
-    #[test]
-    fn fractional_and_mixed_scale_are_explicit_in_the_atlas_plan() {
-        let manager = TopologyManager::new([
-            output(1, "hidpi", (0, 0), (3840, 2160), 240, 120_000),
-            output(2, "fractional", (1920, 0), (2560, 1440), 150, 165_000),
-        ])
-        .unwrap();
-
-        let snapshot = manager.snapshot();
-        let atlas = AtlasPlan::for_snapshot(&snapshot).unwrap();
-        assert_eq!(atlas.engine_scale_120, 240);
-        assert_eq!(atlas.outputs[0].sampling, Sampling::OneToOne);
-        assert_eq!(atlas.outputs[1].sampling, Sampling::Scaled);
-        assert_eq!(atlas.outputs[1].scanout_size, PixelSize::new(2560, 1440));
-    }
-
-    #[test]
-    fn rotation_swaps_logical_and_scanout_axes() {
-        let mut portrait = output(1, "portrait", (0, 0), (1080, 1920), 120, 60_000);
-        portrait.transform = OutputTransform::Rotate90;
-        let manager = TopologyManager::new([portrait]).unwrap();
-        let snapshot = manager.snapshot();
-        assert_eq!(snapshot.logical_bounds.unwrap().width, 1920.0);
-        assert_eq!(snapshot.logical_bounds.unwrap().height, 1080.0);
-        assert_eq!(
-            AtlasPlan::for_snapshot(&snapshot).unwrap().outputs[0].scanout_size,
-            PixelSize::new(1920, 1080)
-        );
-    }
-
-    #[test]
-    fn hotplug_transaction_is_atomic_and_epoch_only_changes_for_real_work() {
-        let mut manager =
-            TopologyManager::new([output(1, "main", (0, 0), (2560, 1440), 120, 200_000)]).unwrap();
-        let original = manager.snapshot();
-
-        let noop = manager
-            .apply([TopologyChange::Upsert(original.outputs[0].clone())])
-            .unwrap();
-        assert!(noop.is_noop());
-
-        let commit = manager
-            .apply([
-                TopologyChange::Upsert(output(2, "side", (-1920, 0), (1920, 1080), 120, 60_000)),
-                TopologyChange::Upsert(output(1, "main", (0, -100), (2560, 1440), 120, 200_000)),
-            ])
-            .unwrap();
-        assert_eq!(commit.added, vec![OutputId(2)]);
-        assert_eq!(commit.changed, vec![OutputId(1)]);
-        assert_eq!(commit.epoch, original.epoch + 1);
-
-        let before_invalid = manager.snapshot();
-        let invalid = output(3, "side", (0, 0), (1280, 720), 120, 60_000);
-        assert!(matches!(
-            manager.apply([TopologyChange::Upsert(invalid)]),
-            Err(TopologyError::DuplicateName(_))
-        ));
-        assert_eq!(manager.snapshot(), before_invalid);
-    }
-
-    #[test]
-    fn removing_the_last_output_is_a_valid_hotplug_state() {
-        let mut manager =
-            TopologyManager::new([output(1, "main", (0, 0), (1920, 1080), 120, 60_000)]).unwrap();
-        manager
-            .apply([TopologyChange::Remove(OutputId(1))])
-            .unwrap();
-        let snapshot = manager.snapshot();
-        assert!(snapshot.outputs.is_empty());
-        assert!(snapshot.logical_bounds.is_none());
-        assert!(snapshot.ticker.is_none());
-        assert!(AtlasPlan::for_snapshot(&snapshot).is_none());
-    }
-}
+#[path = "topology/tests.rs"]
+mod tests;

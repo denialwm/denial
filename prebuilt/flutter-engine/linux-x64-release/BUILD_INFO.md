@@ -10,20 +10,10 @@ checksum, GN configuration, upstream compatibility revisions, and licenses.
 ## Source identity
 
 [`SOURCE_LOCK.json`](../SOURCE_LOCK.json) is the sole source-of-truth for
-engine source:
-
-- Denial Flutter fork:
-  `5b799268a6757b03e8621d8835bab0d353ef3872`
-- Denial Skia fork:
-  `0ee042f542b3e79f5ac49115387718c6bb3d7d34`
-- Upstream Flutter compatibility base:
-  `84fc5cbb223bc12f83d65b647ff8a56caf779ffd` (Flutter `3.44.7`)
-- Engine artifact revision:
-  `69c8c61792f04cc809dfef0c910414fb9afc06cd`
-- Engine content hash:
-  `76d7875f7b35ff92f6454c0174406e4b5efbc2ea`
-- Dart:
-  `d684a576a6aa954ae107a03b2b4e1d61c3bebe93` (Dart SDK `3.12.2`)
+engine source. The generated `args.gn` records the corresponding Flutter,
+Skia, Dart and content identities; `ENGINE_REVISION` and `FLUTTER_REVISION`
+record the coupled upstream ABI revisions without duplicating mutable lock
+values in this document.
 
 The Flutter fork’s DEPS file pins the Skia fork commit. Engine, framework, and
 Flutter-tool changes all live as normal commits in those forks; the Denial
@@ -62,7 +52,8 @@ The equivalent direct release commands are:
 
 Generated arguments must match `args.gn`, and the output must match
 `libflutter_engine.so.sha256`. It must export
-`FlutterEngineGetProcAddresses` and
+`FlutterEngineGetProcAddresses`,
+`DenialFlutterEngineRequestFrameForExternalTextures`, and
 `DenialFlutterEngineScheduleFrameForExternalTextures`.
 
 Linux builds enable Flutter's Fontconfig backend. The shipped engine therefore

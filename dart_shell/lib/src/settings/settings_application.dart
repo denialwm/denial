@@ -38,6 +38,41 @@ import 'widgets/settings_touchpad_page.dart';
 
 final _englishSettings = AppLocalizationsEn();
 
+@immutable
+class SettingsPageOpenRequest {
+  const SettingsPageOpenRequest({required this.id, required this.page});
+
+  final int id;
+  final SettingsPageId page;
+}
+
+final settingsPageOpenRequestProvider =
+    NotifierProvider<
+      SettingsPageOpenRequestController,
+      SettingsPageOpenRequest?
+    >(SettingsPageOpenRequestController.new);
+
+/// Carries one-shot navigation requests into the single-instance Settings app.
+/// The request remains pending while the native local window is being created,
+/// then the mounted Settings surface consumes it after selecting the page.
+class SettingsPageOpenRequestController
+    extends Notifier<SettingsPageOpenRequest?> {
+  var _nextId = 0;
+
+  @override
+  SettingsPageOpenRequest? build() => null;
+
+  void request(SettingsPageId page) {
+    state = SettingsPageOpenRequest(id: ++_nextId, page: page);
+  }
+
+  void consume(int id) {
+    if (state?.id == id) {
+      state = null;
+    }
+  }
+}
+
 final denialSettingsApplication = LocalFlutterApplication(
   id: 'dev.denial.settings',
   title: _englishSettings.settingsApplicationTitle,
@@ -89,6 +124,7 @@ class _DenialSettingsApplicationState
     extends ConsumerState<DenialSettingsApplication> {
   var _page = SettingsPageId.appearance;
   var _colorPickerOpen = false;
+  int? _scheduledPageRequestId;
 
   void _selectPage(SettingsPageId page) {
     if (_page == page) {
@@ -99,6 +135,7 @@ class _DenialSettingsApplicationState
 
   @override
   Widget build(BuildContext context) {
+    _scheduleRequestedPage(ref.watch(settingsPageOpenRequestProvider));
     final settings = ref.watch(shellSettingsProvider);
     final settingsController = ref.read(shellSettingsProvider.notifier);
     final displayLayout = ref.watch(displayLayoutProvider);
@@ -350,6 +387,21 @@ class _DenialSettingsApplicationState
       ),
       SettingsPageId.about => const SettingsAboutPage(),
     };
+  }
+
+  void _scheduleRequestedPage(SettingsPageOpenRequest? request) {
+    if (request == null || request.id == _scheduledPageRequestId) {
+      return;
+    }
+    _scheduledPageRequestId = request.id;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          ref.read(settingsPageOpenRequestProvider)?.id != request.id) {
+        return;
+      }
+      _selectPage(request.page);
+      ref.read(settingsPageOpenRequestProvider.notifier).consume(request.id);
+    });
   }
 
   Widget _buildColorPicker(

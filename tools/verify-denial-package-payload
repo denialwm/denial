@@ -14,7 +14,8 @@ expected_name="$(basename -- "$expected_root")"
 expected_inventory="$expected_parent/$expected_name.inventory"
 expected_hashes="$expected_parent/$expected_name.sha256"
 
-[[ "$format" == arch || "$format" == deb || "$format" == rpm ]] \
+[[ "$format" == arch || "$format" == deb || "$format" == rpm \
+  || "$format" == apk ]] \
   || { printf 'unsupported package format: %s\n' "$format" >&2; exit 2; }
 [[ -f "$package" ]] \
   || { printf 'package is missing: %s\n' "$package" >&2; exit 1; }
@@ -49,6 +50,15 @@ case "$format" in
       umask 022
       rpm2cpio "$package" | bsdtar -xpf - -C "$temporary_root"
     )
+    ;;
+  apk)
+    bsdtar -xpf "$package" -C "$temporary_root" --exclude '.*'
+    if find "$temporary_root" -mindepth 1 -maxdepth 1 -name '.*' \
+      -print -quit | grep -q .; then
+      printf 'APK contains unexpected root metadata: %s\n' \
+        "$package" >&2
+      exit 1
+    fi
     ;;
 esac
 

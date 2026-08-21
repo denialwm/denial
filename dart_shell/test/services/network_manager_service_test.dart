@@ -97,7 +97,7 @@ void main() {
 
     expect(normalized, hasLength(64));
     expect(normalized.first.ssid, 'Home');
-    expect(normalized.first.savedConnectionPath, '/saved/home');
+    expect(normalized.first.savedNetworkPath, '/saved/home');
     expect(normalized.where((network) => network.ssid == 'Cafe'), hasLength(1));
     expect(
       normalized.singleWhere((network) => network.ssid == 'Cafe').strength,
@@ -161,8 +161,8 @@ WifiNetwork _network(
     strength: strength,
     frequency: 5180,
     devicePath: '/device/1',
-    accessPointPath: '/access/${ssid.hashCode}/$strength',
-    savedConnectionPath: null,
+    networkPath: '/access/${ssid.hashCode}/$strength',
+    savedNetworkPath: null,
     connected: connected,
     available: true,
   );

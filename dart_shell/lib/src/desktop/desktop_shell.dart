@@ -27,6 +27,7 @@ import '../services/audio_service.dart';
 import '../services/power_profile_service.dart';
 import '../settings/settings_application.dart';
 import '../settings/settings_controller.dart';
+import '../settings/widgets/settings_navigation.dart';
 import '../state/app_audio.dart';
 import '../state/bluetooth.dart';
 import '../state/clipboard_tray.dart';
@@ -48,6 +49,7 @@ import '../widgets/desktop_window_switcher.dart';
 import '../widgets/desktop_window_reveal.dart';
 import '../widgets/main_output_centered_surface.dart';
 import '../widgets/notification_center.dart';
+import '../widgets/retained_translation.dart';
 import '../widgets/session/power_session_surface.dart';
 import '../widgets/shell_backdrop_blur.dart';
 import 'window_backdrop_blur_policy.dart';
@@ -62,7 +64,11 @@ import '../wallpaper/widgets/wallpaper_selector_surface.dart';
 import 'desktop_overview_layout.dart';
 import 'desktop_overview_target.dart';
 import 'desktop_home_layout.dart';
+import 'desktop_panel_transition.dart';
+import 'desktop_pixel_alignment.dart';
+import 'retained_animated_positioned.dart';
 import 'desktop_system_bar.dart';
+import 'system_tray_module.dart';
 import 'desktop_texture_resize.dart';
 import 'desktop_window_coordinator.dart';
 import 'desktop_window_frame_painter.dart';
@@ -232,6 +238,8 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         }
       case DenialShellAction.screenshotDone:
         ref.read(screenshotSelectionProvider.notifier).done(event.requestId);
+      case DenialShellAction.clientPointerPressed:
+        dismissOpenSystemTrayMenu(ref);
     }
   }
 
@@ -539,6 +547,13 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     _launchLocalApp(denialSettingsApplication);
   }
 
+  void _openPowerSettings() {
+    ref
+        .read(settingsPageOpenRequestProvider.notifier)
+        .request(SettingsPageId.power);
+    _openSettings();
+  }
+
   Future<void> _showWallpaperSelector() async {
     var displayLayout = ref.read(displayLayoutProvider);
     displayLayout ??= await ref
@@ -740,6 +755,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
             onCloseWallpaperSelector: _closeWallpaperSelector,
             onOpenAppVolumeManager: _openAppVolumeManager,
             onOpenSettings: _openSettings,
+            onOpenPowerSettings: _openPowerSettings,
             onCancelPanelClose: _cancelPanelClose,
             onSchedulePanelClose: _schedulePanelClose,
             onLaunchApp: _launchApp,
@@ -969,6 +985,7 @@ List<Widget> _buildDesktopWindowLayers({
   required Rect switcherStageBounds,
   required int topZ,
   required bool reduceMotion,
+  required double devicePixelRatio,
   required ValueChanged<DenialWindow> onActivateWindow,
   required ValueChanged<DenialWindow> onBeginOverviewDrag,
   required void Function(DenialWindow window, Offset delta)
@@ -987,7 +1004,7 @@ List<Widget> _buildDesktopWindowLayers({
     if (desktopWidget != desktopPlane) {
       continue;
     }
-    final frame = desktopWidget
+    final arrangedFrame = desktopWidget
         ? desktopWidgetFrames[placement.objectId]
         : switching
         ? DesktopWindowSwitcherLayout.visualFrame(
@@ -997,9 +1014,15 @@ List<Widget> _buildDesktopWindowLayers({
             desktopWidgetFrame: desktopWidgetFrames[placement.objectId],
           )
         : desktop.visualFrame(placement);
-    if (frame == null || frame.isEmpty) {
+    if (arrangedFrame == null || arrangedFrame.isEmpty) {
       continue;
     }
+    final frame = desktopPixelAlignedWindowFrame(
+      frame: arrangedFrame,
+      contentInset: placement.frameBorder,
+      devicePixelRatio: devicePixelRatio,
+      enabled: !overview && !switching && !desktopWidget,
+    );
     final visible =
         desktopWidget ||
         overview ||
@@ -1082,6 +1105,7 @@ class _DesktopScene extends ConsumerStatefulWidget {
     required this.onCloseWallpaperSelector,
     required this.onOpenAppVolumeManager,
     required this.onOpenSettings,
+    required this.onOpenPowerSettings,
     required this.onCancelPanelClose,
     required this.onSchedulePanelClose,
     required this.onLaunchApp,
@@ -1115,6 +1139,7 @@ class _DesktopScene extends ConsumerStatefulWidget {
   final VoidCallback onCloseWallpaperSelector;
   final VoidCallback onOpenAppVolumeManager;
   final VoidCallback onOpenSettings;
+  final VoidCallback onOpenPowerSettings;
   final VoidCallback onCancelPanelClose;
   final VoidCallback onSchedulePanelClose;
   final ValueChanged<DesktopApp> onLaunchApp;
@@ -1216,6 +1241,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     final onDismissLauncher = widget.onDismissLauncher;
     final onOpenDashboard = widget.onOpenDashboard;
     final onOpenSettings = widget.onOpenSettings;
+    final onOpenPowerSettings = widget.onOpenPowerSettings;
     final onOpenWallpaperSelector = widget.onOpenWallpaperSelector;
     final onCloseWallpaperSelector = widget.onCloseWallpaperSelector;
     final onOpenAppVolumeManager = widget.onOpenAppVolumeManager;
@@ -1311,6 +1337,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
         ? canvas
         : requestedDisplayRect;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
     final selectorMotionDuration = reduceMotion
         ? Duration.zero
         : Motion.wallpaperSelector;
@@ -1351,6 +1378,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                     switcherStageBounds: switcherStageBounds,
                     topZ: topZ,
                     reduceMotion: reduceMotion,
+                    devicePixelRatio: devicePixelRatio,
                     onActivateWindow: onActivateWindow,
                     onBeginOverviewDrag: onBeginOverviewDrag,
                     onUpdateOverviewDrag: onUpdateOverviewDrag,
@@ -1363,7 +1391,10 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                     Positioned.fromRect(
                       key: ValueKey<String>('system-bar-${bar.monitorId}'),
                       rect: bar.rect,
-                      child: DesktopSystemBar(side: bar.side),
+                      child: DesktopSystemBar(
+                        side: bar.side,
+                        onOpenPowerSettings: onOpenPowerSettings,
+                      ),
                     ),
                   Positioned.fill(
                     child: ShellInputRegion(
@@ -1396,6 +1427,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                     switcherStageBounds: switcherStageBounds,
                     topZ: topZ,
                     reduceMotion: reduceMotion,
+                    devicePixelRatio: devicePixelRatio,
                     onActivateWindow: onActivateWindow,
                     onBeginOverviewDrag: onBeginOverviewDrag,
                     onUpdateOverviewDrag: onUpdateOverviewDrag,
@@ -1423,6 +1455,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                           windowsById[windowSwitcher.selectedObjectId],
                       stageBounds: switcherStageBounds,
                     ),
+                  const Positioned.fill(child: SystemTrayMenuDismissLayer()),
                   Positioned.fill(
                     key: const ValueKey<String>(
                       'desktop-launcher-dismiss-barrier',
@@ -1439,10 +1472,11 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                     Positioned.fromRect(
                       key: const ValueKey<String>('desktop-launcher-position'),
                       rect: launcherRect,
-                      child: _DesktopPanelTransition(
+                      child: DesktopPanelTransition(
                         key: const ValueKey<String>('desktop-launcher-panel'),
                         inputDebugLabel: 'Desktop application launcher',
                         keyboardPolicy: ShellKeyboardPolicy.capture,
+                        maintainState: true,
                         visible: desktop.launcherOpen,
                         entryDirection: _entryDirectionFor(
                           overlaySettings.launcher.anchor.horizontal,
@@ -1451,6 +1485,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                         entryDistance: widget.panelTravel,
                         durationScale: widget.panelDurationScale,
                         child: DesktopApplicationLauncher(
+                          visible: desktop.launcherOpen,
                           searchFocusNode: applicationSearchFocusNode,
                           onEnter: onCancelPanelClose,
                           onExit: onSchedulePanelClose,
@@ -1463,7 +1498,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                     Positioned.fromRect(
                       key: const ValueKey<String>('desktop-dashboard-position'),
                       rect: dashboardRect,
-                      child: _DesktopPanelTransition(
+                      child: DesktopPanelTransition(
                         key: const ValueKey<String>('desktop-dashboard-panel'),
                         inputDebugLabel: 'Desktop dashboard',
                         keyboardPolicy: ShellKeyboardPolicy.capture,
@@ -1921,158 +1956,6 @@ class _AppVolumeRowState extends State<_AppVolumeRow> {
   }
 }
 
-class _DesktopPanelTransition extends StatefulWidget {
-  const _DesktopPanelTransition({
-    super.key,
-    required this.inputDebugLabel,
-    required this.visible,
-    required this.child,
-    this.entryDirection = const Offset(-1, 0),
-    this.entryDistance = 0,
-    this.durationScale = 1,
-    this.keyboardPolicy = ShellKeyboardPolicy.none,
-  });
-
-  final String inputDebugLabel;
-  final bool visible;
-  final Widget child;
-  final Offset entryDirection;
-  final double entryDistance;
-  final double durationScale;
-  final ShellKeyboardPolicy keyboardPolicy;
-
-  @override
-  State<_DesktopPanelTransition> createState() =>
-      _DesktopPanelTransitionState();
-}
-
-class _DesktopPanelTransitionState extends State<_DesktopPanelTransition>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _progress;
-  late bool _showChild;
-
-  @override
-  void initState() {
-    super.initState();
-    _showChild = widget.visible;
-    _controller = AnimationController(
-      vsync: this,
-      value: widget.visible ? 1.0 : 0.0,
-      duration: _scaledDuration(Motion.desktopPanelOpen, widget.durationScale),
-      reverseDuration: _scaledDuration(
-        Motion.desktopPanelClose,
-        widget.durationScale,
-      ),
-    );
-    _progress = CurvedAnimation(
-      parent: _controller,
-      curve: Motion.md3EmphasizedDecelerate,
-      reverseCurve: Motion.md3EmphasizedAccelerate,
-    );
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    _controller
-      ..duration = reduceMotion
-          ? Duration.zero
-          : _scaledDuration(Motion.desktopPanelOpen, widget.durationScale)
-      ..reverseDuration = reduceMotion
-          ? Duration.zero
-          : _scaledDuration(Motion.desktopPanelClose, widget.durationScale);
-  }
-
-  @override
-  void didUpdateWidget(covariant _DesktopPanelTransition oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.durationScale != oldWidget.durationScale) {
-      final reduceMotion = MediaQuery.disableAnimationsOf(context);
-      _controller
-        ..duration = reduceMotion
-            ? Duration.zero
-            : _scaledDuration(Motion.desktopPanelOpen, widget.durationScale)
-        ..reverseDuration = reduceMotion
-            ? Duration.zero
-            : _scaledDuration(Motion.desktopPanelClose, widget.durationScale);
-    }
-    if (widget.visible == oldWidget.visible) {
-      return;
-    }
-
-    if (widget.visible) {
-      _showChild = true;
-      _controller.forward();
-      return;
-    }
-
-    _controller.reverse().whenCompleteOrCancel(() {
-      if (!mounted || widget.visible || _controller.value != 0.0) {
-        return;
-      }
-      setState(() => _showChild = false);
-    });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_showChild) {
-      return const SizedBox.shrink();
-    }
-
-    return ShellInputRegion(
-      debugLabel: widget.inputDebugLabel,
-      keyboardPolicy: widget.visible
-          ? widget.keyboardPolicy
-          : ShellKeyboardPolicy.none,
-      child: IgnorePointer(
-        ignoring: !widget.visible,
-        child: ExcludeSemantics(
-          excluding: !widget.visible,
-          child: AnimatedBuilder(
-            animation: _progress,
-            child: RepaintBoundary(
-              child: ShellBackdropBlur(
-                blur: ShellTheme.of(context).panelOpacity < 1.0,
-                borderRadius: BorderRadius.circular(
-                  ShellTheme.of(context).panelRadius,
-                ),
-                child: widget.child,
-              ),
-            ),
-            builder: (context, child) {
-              final progress = _progress.value;
-              return LayoutBuilder(
-                builder: (context, constraints) {
-                  final direction = widget.entryDirection;
-                  final travel = Offset(
-                    direction.dx *
-                        (constraints.maxWidth + widget.entryDistance),
-                    direction.dy *
-                        (constraints.maxHeight + widget.entryDistance),
-                  );
-                  return Transform.translate(
-                    offset: travel * (1.0 - progress),
-                    child: child,
-                  );
-                },
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _DesktopPanelEdgeTrigger extends StatelessWidget {
   const _DesktopPanelEdgeTrigger({required this.onEnter, required this.onExit});
 
@@ -2090,10 +1973,6 @@ class _DesktopPanelEdgeTrigger extends StatelessWidget {
       ),
     );
   }
-}
-
-Duration _scaledDuration(Duration duration, double scale) {
-  return Duration(microseconds: (duration.inMicroseconds * scale).round());
 }
 
 Offset _entryDirectionFor(int horizontal, int vertical) {
@@ -2245,18 +2124,28 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
         final placement = followsLivePlacement
             ? selectedPlacement
             : this.placement;
-        final frame = followsLivePlacement
+        final liveFrame = followsLivePlacement
             ? desktopLivePlacementVisualFrame(
                 visualFrame: this.frame,
                 placementFrame: this.placement.frame,
                 livePlacementFrame: placement.frame,
               )
             : this.frame;
+        final transformed = overview || switching;
+        final resizingDrag =
+            followsLivePlacement &&
+            placement.frame.size != this.placement.frame.size;
+        final frame = desktopPixelAlignedWindowFrame(
+          frame: liveFrame,
+          contentInset: placement.frameBorder,
+          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+          enabled: !transformed,
+          alignSize: resizingDrag,
+        );
         if (window.surfaceLayers.isEmpty) {
           return const SizedBox.shrink();
         }
 
-        final transformed = overview || switching;
         final fullscreenVisual = placement.fullscreen && !transformed;
         final drawsServerFrame =
             !fullscreenVisual && placement.serverSideDecorated;
@@ -2268,7 +2157,7 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
           targetSize: contentRect.size,
           sourceSize: window.contentCoordinateRect.size,
         );
-        final filterQuality = transformed || resizing || placement.dragging
+        final filterQuality = transformed || resizing
             ? FilterQuality.medium
             : FilterQuality.none;
 
@@ -2288,10 +2177,11 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
                         duration: duration,
                         rect: window.mapSurfaceRect(layer, contentRect),
                         placementObjectId: placement.objectId,
-                        placementFrame: placement.frame,
                         overview: overview,
                         switching: switching,
                         dragging: placement.dragging,
+                        pixelAlignmentInset: 0.0,
+                        alignSizeToDevicePixels: resizingDrag,
                         child: ShellBackdropBlur(
                           blur: !layer.opaque || layer.opacity < 1.0,
                           child: SurfaceLayerTexture(
@@ -2434,13 +2324,25 @@ class _DesktopWindowFrame extends ConsumerWidget {
         liveGeometry?.dragging == true &&
         selectedPlacement != null;
     final placement = followsLivePlacement ? selectedPlacement : this.placement;
-    final frame = followsLivePlacement
+    final liveFrame = followsLivePlacement
         ? desktopLivePlacementVisualFrame(
             visualFrame: this.frame,
             placementFrame: this.placement.frame,
             livePlacementFrame: placement.frame,
           )
         : this.frame;
+    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+    final transformed = overview || switching || desktopWidget;
+    final resizingDrag =
+        followsLivePlacement &&
+        placement.frame.size != this.placement.frame.size;
+    final frame = desktopPixelAlignedWindowFrame(
+      frame: liveFrame,
+      contentInset: placement.frameBorder,
+      devicePixelRatio: devicePixelRatio,
+      enabled: !transformed,
+      alignSize: resizingDrag,
+    );
     DesktopWindowRenderTelemetry.recordWindowBuild(
       windowId: window.objectId,
       textureId: window.textureId,
@@ -2448,8 +2350,6 @@ class _DesktopWindowFrame extends ConsumerWidget {
           ? localizedWindowTitle(context, window)
           : window.appId,
     );
-    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
-    final transformed = overview || switching || desktopWidget;
     final duration = motionDuration;
     final fullscreenVisual = placement.fullscreen && !transformed;
     final drawsServerFrame = !fullscreenVisual && placement.serverSideDecorated;
@@ -2469,11 +2369,12 @@ class _DesktopWindowFrame extends ConsumerWidget {
       duration: placement.dragging ? Duration.zero : duration,
       rect: frame,
       placementObjectId: placement.objectId,
-      placementFrame: placement.frame,
       overview: overview,
       switching: switching,
       desktopWidget: desktopWidget,
       dragging: placement.dragging,
+      pixelAlignmentInset: placement.frameBorder,
+      alignSizeToDevicePixels: resizingDrag,
       child: DesktopWindowReveal(
         key: ValueKey<String>('desktop-window-content-${window.objectId}'),
         enabled: window.shouldAnimateEntrance,
@@ -2533,10 +2434,7 @@ class _DesktopWindowFrame extends ConsumerWidget {
                             child: SizedBox.expand(
                               child: _DesktopWindowContent(
                                 window: window,
-                                smooth:
-                                    transformed ||
-                                    resizing ||
-                                    placement.dragging,
+                                smooth: transformed || resizing,
                                 active: active && !minimized,
                                 localLayoutSize: window.isLocalFlutter
                                     ? placement.contentRect.size
@@ -2581,22 +2479,24 @@ class _DesktopAnimatedWindowPosition extends ConsumerStatefulWidget {
     required this.duration,
     required this.rect,
     required this.placementObjectId,
-    required this.placementFrame,
     required this.overview,
     required this.switching,
     this.desktopWidget = false,
     required this.dragging,
+    this.pixelAlignmentInset,
+    this.alignSizeToDevicePixels = false,
     required this.child,
   });
 
   final Duration duration;
   final Rect rect;
   final int placementObjectId;
-  final Rect placementFrame;
   final bool overview;
   final bool switching;
   final bool desktopWidget;
   final bool dragging;
+  final double? pixelAlignmentInset;
+  final bool alignSizeToDevicePixels;
   final Widget child;
 
   @override
@@ -2607,7 +2507,6 @@ class _DesktopAnimatedWindowPosition extends ConsumerStatefulWidget {
 class _DesktopAnimatedWindowPositionState
     extends ConsumerState<_DesktopAnimatedWindowPosition> {
   late Curve _curve;
-  Rect? _dragAnchorRect;
   bool _overviewTransitionActive = false;
   bool _suppressNextPositionAnimation = false;
 
@@ -2615,18 +2514,12 @@ class _DesktopAnimatedWindowPositionState
   void initState() {
     super.initState();
     _curve = widget.overview ? Motion.overviewEnterCurve : Motion.md3Emphasized;
-    if (widget.dragging) {
-      _dragAnchorRect = widget.rect;
-    }
   }
 
   @override
   void didUpdateWidget(covariant _DesktopAnimatedWindowPosition oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!oldWidget.dragging && widget.dragging) {
-      _dragAnchorRect = widget.rect;
-    } else if (oldWidget.dragging && !widget.dragging) {
-      _dragAnchorRect = null;
+    if (oldWidget.dragging && !widget.dragging) {
       _suppressNextPositionAnimation = true;
     }
     final interruptedOverviewTransition = _overviewTransitionActive;
@@ -2654,44 +2547,40 @@ class _DesktopAnimatedWindowPositionState
 
   @override
   Widget build(BuildContext context) {
-    final livePlacement = ref.watch(
-      desktopWorkspaceProvider.select(
-        (state) => state.placements[widget.placementObjectId],
-      ),
-    );
     var rect = widget.rect;
-    final followsLivePlacement =
-        widget.dragging && livePlacement?.dragging == true;
-    if (followsLivePlacement) {
-      rect = desktopLivePlacementVisualFrame(
-        visualFrame: rect,
-        placementFrame: widget.placementFrame,
-        livePlacementFrame: livePlacement!.frame,
+    final pixelAlignmentInset = widget.pixelAlignmentInset;
+    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+    if (pixelAlignmentInset != null) {
+      rect = desktopPixelAlignedWindowFrame(
+        frame: rect,
+        contentInset: pixelAlignmentInset,
+        devicePixelRatio: devicePixelRatio,
+        enabled: !widget.overview && !widget.switching && !widget.desktopWidget,
+        alignSize: widget.alignSizeToDevicePixels,
       );
     }
-    final liveMove =
-        followsLivePlacement &&
-        livePlacement!.frame.size == widget.placementFrame.size;
-    final dragAnchorRect = _dragAnchorRect;
-    final translatesLiveMove =
-        liveMove &&
-        dragAnchorRect != null &&
-        dragAnchorRect.width == rect.width &&
-        dragAnchorRect.height == rect.height;
-    final positionedRect = translatesLiveMove ? dragAnchorRect : rect;
-    final translation = translatesLiveMove
-        ? rect.topLeft - dragAnchorRect.topLeft
-        : Offset.zero;
+    final liveTranslation = ref
+        .read(desktopLiveWindowPlacementsProvider)
+        .translationFor(widget.placementObjectId);
     final suppressPositionAnimation = _suppressNextPositionAnimation;
     _suppressNextPositionAnimation = false;
-    return AnimatedPositioned.fromRect(
+    return RetainedAnimatedPositioned(
       duration: widget.dragging || suppressPositionAnimation
           ? Duration.zero
           : widget.duration,
       curve: _curve,
-      rect: positionedRect,
+      rect: rect,
+      // Overview shadows and frames must follow the interpolated layout. A
+      // destination-first retained transform changes their geometry in the
+      // first frame and makes SUPER+A look like a scene replacement.
+      layoutDuringAnimation: _overviewTransitionActive,
       onEnd: () => _overviewTransitionActive = false,
-      child: Transform.translate(offset: translation, child: widget.child),
+      child: RetainedTranslation(
+        translation: liveTranslation,
+        enabled: widget.dragging,
+        devicePixelRatio: pixelAlignmentInset == null ? null : devicePixelRatio,
+        child: widget.child,
+      ),
     );
   }
 }
@@ -4049,6 +3938,7 @@ class _DesktopLauncherEntry {
 class DesktopApplicationLauncher extends ConsumerStatefulWidget {
   const DesktopApplicationLauncher({
     super.key,
+    this.visible = true,
     required this.searchFocusNode,
     required this.onEnter,
     required this.onExit,
@@ -4056,6 +3946,7 @@ class DesktopApplicationLauncher extends ConsumerStatefulWidget {
     required this.onLaunchLocal,
   });
 
+  final bool visible;
   final FocusNode searchFocusNode;
   final VoidCallback onEnter;
   final VoidCallback onExit;
@@ -4077,6 +3968,16 @@ class _DesktopApplicationLauncherState
     _searchController = TextEditingController()
       ..addListener(_handleSearchChanged);
     widget.searchFocusNode.addListener(_handleSearchChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant DesktopApplicationLauncher oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.visible &&
+        !widget.visible &&
+        _searchController.text.isNotEmpty) {
+      _searchController.clear();
+    }
   }
 
   @override

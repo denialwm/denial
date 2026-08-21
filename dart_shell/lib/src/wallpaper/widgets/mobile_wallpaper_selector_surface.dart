@@ -77,7 +77,9 @@ class _MobileWallpaperSelectorSurfaceState
     WallpaperCandidate candidate,
     Offset globalOrigin,
   ) async {
-    final target = ref.read(wallpaperControllerProvider).target;
+    final wallpaperState = ref.read(wallpaperControllerProvider);
+    final target = wallpaperState.target;
+    final targetPixelSize = wallpaperState.targetPixelSize;
     final controller = ref.read(wallpaperControllerProvider.notifier);
     final resource = await controller.resolveCandidate(candidate);
     if (!mounted || resource == null) {
@@ -85,7 +87,10 @@ class _MobileWallpaperSelectorSurfaceState
     }
     final decodeError = context.l10n.wallpaperDecodeError;
     try {
-      await precacheImage(wallpaperImageProvider(resource), context);
+      await precacheImage(
+        wallpaperImageProvider(resource, targetPixelSize: targetPixelSize),
+        context,
+      );
     } on Object {
       if (mounted) {
         controller.reportError(decodeError);

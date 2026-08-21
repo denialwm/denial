@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Denial (engine test)
+Comment=Denial with the isolated locally optimized Flutter engine
+Exec=@LAUNCHER@ engine-test-session
+# SDDM evaluates TryExec as its unprivileged greeter user before login. The
+# checkout commonly lives below a mode-0700 home directory, so checking the
+# launcher itself would incorrectly hide this development session at boot.
+TryExec=/usr/bin/bash
+Type=Application
+DesktopNames=Denial
+Keywords=wayland;compositor;flutter;impeller;test;
+X-Denial-Engine-Test-Launcher=@LAUNCHER@

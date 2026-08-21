@@ -27,6 +27,9 @@ const MAX_REPEAT_DELAY_MS: u32 = 5_000;
 const MAX_REPEAT_RATE_HZ: u32 = 100;
 const DEFAULT_REPEAT_DELAY_MS: u32 = 600;
 const DEFAULT_REPEAT_RATE_HZ: u32 = 25;
+pub(super) const MIN_TOUCHPAD_SCROLL_SPEED_FACTOR: f64 = 0.05;
+pub(super) const MAX_TOUCHPAD_SCROLL_SPEED_FACTOR: f64 = 5.0;
+const DEFAULT_TOUCHPAD_SCROLL_SPEED_FACTOR: f64 = 1.0;
 static SETTINGS_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -173,11 +176,12 @@ impl KeyboardSettings {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct TouchpadSettings {
     pub(super) tap_to_click_enabled: bool,
     pub(super) natural_scroll_enabled: bool,
+    pub(super) scroll_speed_factor: f64,
 }
 
 impl Default for TouchpadSettings {
@@ -185,7 +189,22 @@ impl Default for TouchpadSettings {
         Self {
             tap_to_click_enabled: true,
             natural_scroll_enabled: false,
+            scroll_speed_factor: DEFAULT_TOUCHPAD_SCROLL_SPEED_FACTOR,
         }
+    }
+}
+
+impl TouchpadSettings {
+    pub(super) fn validate(&self) -> Result<(), SettingsError> {
+        if !self.scroll_speed_factor.is_finite()
+            || !(MIN_TOUCHPAD_SCROLL_SPEED_FACTOR..=MAX_TOUCHPAD_SCROLL_SPEED_FACTOR)
+                .contains(&self.scroll_speed_factor)
+        {
+            return Err(SettingsError::Touchpad(format!(
+                "touchpad scroll speed factor must be within {MIN_TOUCHPAD_SCROLL_SPEED_FACTOR}..={MAX_TOUCHPAD_SCROLL_SPEED_FACTOR}"
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -224,6 +243,7 @@ pub(super) enum SettingsError {
     Json(serde_json::Error),
     Document(String),
     Keyboard(String),
+    Touchpad(String),
     Revision { expected: u64, actual: u64 },
     Conflict,
 }
@@ -231,9 +251,10 @@ pub(super) enum SettingsError {
 impl fmt::Display for SettingsError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Path(reason) | Self::Document(reason) | Self::Keyboard(reason) => {
-                formatter.write_str(reason)
-            }
+            Self::Path(reason)
+            | Self::Document(reason)
+            | Self::Keyboard(reason)
+            | Self::Touchpad(reason) => formatter.write_str(reason),
             Self::Io(error) => write!(formatter, "settings I/O failed: {error}"),
             Self::Json(error) => write!(formatter, "settings JSON is invalid: {error}"),
             Self::Revision { expected, actual } => write!(
@@ -424,6 +445,7 @@ impl SettingsManager {
         touchpad: TouchpadSettings,
     ) -> Result<PreparedSettingsUpdate, SettingsError> {
         self.check_revision(expected_revision)?;
+        touchpad.validate()?;
         let mut document = self.document.clone();
         document.insert("revision".to_owned(), Value::from(self.next_revision()?));
         document.insert(
@@ -588,6 +610,7 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         Some(value) => serde_json::from_value::<TouchpadSettings>(value.clone())?,
         None => TouchpadSettings::default(),
     };
+    touchpad.validate()?;
     let migrated = version != SETTINGS_SCHEMA_VERSION
         || !document.contains_key("revision")
         || !document.contains_key("keyboard")
@@ -743,169 +766,5 @@ fn sync_parent(path: &Path) -> Result<(), SettingsError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::os::unix::fs::symlink;
-
-    struct TemporaryDirectory(PathBuf);
-
-    impl TemporaryDirectory {
-        fn new(label: &str) -> Self {
-            let sequence = SETTINGS_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-            let path = std::env::temp_dir()
-                .join(format!("denial-{label}-{}-{sequence}", std::process::id()));
-            fs::create_dir(&path).expect("create temporary directory");
-            Self(path)
-        }
-
-        fn settings_path(&self) -> PathBuf {
-            self.0.join("denial/settings.json")
-        }
-    }
-
-    impl Drop for TemporaryDirectory {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-
-    #[test]
-    fn migrates_existing_shell_document_without_losing_sections() {
-        let temporary = TemporaryDirectory::new("settings-migrate");
-        let path = temporary.settings_path();
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, br#"{"version":7,"appearance":{"windowRadius":31}}"#).unwrap();
-
-        let manager = SettingsManager::load_path(path.clone()).unwrap();
-        assert_eq!(manager.revision(), 1);
-        assert_eq!(manager.keyboard(), &KeyboardSettings::default());
-        assert_eq!(manager.touchpad(), &TouchpadSettings::default());
-        let document: Value = serde_json::from_str(&manager.document_json().unwrap()).unwrap();
-        assert_eq!(document["version"], SETTINGS_SCHEMA_VERSION);
-        assert_eq!(document["appearance"]["windowRadius"], 31);
-        assert!(document.get("keyboard").is_some());
-        assert!(document.get("touchpad").is_some());
-        assert_eq!(
-            fs::metadata(path).unwrap().permissions().mode() & 0o777,
-            0o600
-        );
-    }
-
-    #[test]
-    fn malformed_document_is_never_overwritten_during_startup() {
-        let temporary = TemporaryDirectory::new("settings-malformed");
-        let path = temporary.settings_path();
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let malformed = b"{ this is not settings JSON\n";
-        fs::write(&path, malformed).unwrap();
-
-        let manager = SettingsManager::load_path(path.clone()).unwrap();
-        assert_eq!(manager.keyboard(), &KeyboardSettings::default());
-        assert_eq!(manager.touchpad(), &TouchpadSettings::default());
-        assert_eq!(fs::read(path).unwrap(), malformed);
-    }
-
-    #[test]
-    fn shell_update_preserves_native_keyboard_and_checks_revision() {
-        let temporary = TemporaryDirectory::new("settings-shell-update");
-        let mut manager = SettingsManager::load_path(temporary.settings_path()).unwrap();
-        let configured = KeyboardSettings {
-            layouts: vec![KeyboardLayout {
-                layout: "de".to_owned(),
-                variant: "nodeadkeys".to_owned(),
-            }],
-            options: vec!["compose:menu".to_owned()],
-            repeat_delay_ms: 450,
-            repeat_rate_hz: 30,
-        };
-        let update = manager
-            .prepare_keyboard_update(manager.revision(), configured.clone())
-            .unwrap();
-        manager.commit(update).unwrap();
-        let old_revision = manager.revision();
-        let update = manager
-            .prepare_shell_update(
-                old_revision,
-                r#"{"version":9,"revision":999,"keyboard":{"layouts":[]},"touchpad":{"tapToClickEnabled":false},"power":{"idleDpmsEnabled":false}}"#,
-            )
-            .unwrap();
-        manager.commit(update).unwrap();
-        assert_eq!(manager.keyboard(), &configured);
-        assert_eq!(manager.revision(), old_revision + 1);
-        assert!(matches!(
-            manager.prepare_shell_update(old_revision, r#"{"version":9}"#),
-            Err(SettingsError::Revision { .. })
-        ));
-    }
-
-    #[test]
-    fn touchpad_update_is_persistent_and_revisioned() {
-        let temporary = TemporaryDirectory::new("settings-touchpad-update");
-        let path = temporary.settings_path();
-        let mut manager = SettingsManager::load_path(path.clone()).unwrap();
-        let configured = TouchpadSettings {
-            tap_to_click_enabled: false,
-            natural_scroll_enabled: true,
-        };
-        let old_revision = manager.revision();
-        let update = manager
-            .prepare_touchpad_update(old_revision, configured.clone())
-            .unwrap();
-        manager.commit(update).unwrap();
-
-        assert_eq!(manager.revision(), old_revision + 1);
-        assert_eq!(manager.touchpad(), &configured);
-        let reloaded = SettingsManager::load_path(path).unwrap();
-        assert_eq!(reloaded.revision(), old_revision + 1);
-        assert_eq!(reloaded.touchpad(), &configured);
-    }
-
-    #[test]
-    fn rejects_external_edits_before_commit() {
-        let temporary = TemporaryDirectory::new("settings-conflict");
-        let path = temporary.settings_path();
-        let mut manager = SettingsManager::load_path(path.clone()).unwrap();
-        let prepared = manager
-            .prepare_shell_update(manager.revision(), r#"{"version":9}"#)
-            .unwrap();
-        fs::write(&path, b"{\"version\":9,\"revision\":77}\n").unwrap();
-        assert!(matches!(
-            manager.commit(prepared),
-            Err(SettingsError::Conflict)
-        ));
-    }
-
-    #[test]
-    fn rejects_symlink_target() {
-        let temporary = TemporaryDirectory::new("settings-symlink");
-        let path = temporary.settings_path();
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let target = temporary.0.join("target");
-        fs::write(&target, b"{}\n").unwrap();
-        symlink(&target, &path).unwrap();
-        assert!(matches!(
-            SettingsManager::load_path(path),
-            Err(SettingsError::Path(_))
-        ));
-    }
-
-    #[test]
-    fn validates_keyboard_bounds_and_installed_keymaps() {
-        let defaults = KeyboardSettings::default();
-        assert_eq!(defaults.compiled_layout_names().unwrap().len(), 1);
-
-        let mut invalid = defaults.clone();
-        invalid.layouts[0].layout = "not,a,layout".to_owned();
-        assert!(matches!(
-            invalid.validate(),
-            Err(SettingsError::Keyboard(_))
-        ));
-
-        let mut missing = defaults;
-        missing.layouts[0].layout = "denial_missing_layout".to_owned();
-        assert!(matches!(
-            missing.compiled_layout_names(),
-            Err(SettingsError::Keyboard(_))
-        ));
-    }
-}
+#[path = "settings/tests.rs"]
+mod tests;

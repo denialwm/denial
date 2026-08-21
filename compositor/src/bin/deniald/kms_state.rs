@@ -1,22 +1,27 @@
-//! Ownership and rollback state for DRM scanouts and atlas buffers.
+//! Ownership and rollback state for DRM scanouts and render-target buffers.
 
+use super::kms_render::{output_plane_state, plane_state, plane_state_for_mode};
 use super::*;
-use std::collections::BTreeSet;
+#[cfg(feature = "flutter")]
+use denial_core::topology::{RenderOutputPlan, RenderViewId};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 #[cfg(feature = "flutter")]
 use smithay::backend::egl::EGLContext;
 
-const ATLAS_BYTES_PER_PIXEL: u64 = 4;
-const MAX_ATLAS_DIMENSION: u32 = 16_384;
-const MAX_ATLAS_POOL_BYTES: u64 = 1024 * 1024 * 1024;
-const MAX_ATLAS_BUFFERS: usize = 49;
+const SCANOUT_BYTES_PER_PIXEL: u64 = 4;
+const MAX_SCANOUT_DIMENSION: u32 = 16_384;
+const MAX_SCANOUT_POOL_BYTES: u64 = 1024 * 1024 * 1024;
+const MAX_SCANOUT_BUFFERS: usize = 49;
+#[cfg(feature = "flutter")]
+pub(super) const OUTPUT_POOL_LENGTH: usize = 3;
 
 /// Request local scanout constraints only when the render device also owns
 /// KMS. A render-only GPU exports the atlas to another DRM device, so asking
 /// its GBM allocator for local scanout can reject otherwise shareable LINEAR
-/// buffers on output-less PRIME render sources.
-pub(super) fn atlas_gbm_flags(cross_device: bool) -> GbmBufferFlags {
+/// render targets on output-less PRIME render sources.
+pub(super) fn scanout_gbm_flags(cross_device: bool) -> GbmBufferFlags {
     let flags = GbmBufferFlags::RENDERING;
     if cross_device {
         flags
@@ -55,6 +60,27 @@ pub(super) struct PreviousScanoutState {
     pub(super) pending_vrr: bool,
 }
 
+pub(super) enum ScanoutRollbackFramebuffers {
+    Atlas(framebuffer::Handle),
+    #[cfg(feature = "flutter")]
+    Outputs(BTreeMap<OutputId, (framebuffer::Handle, PixelSize)>),
+}
+
+impl ScanoutRollbackFramebuffers {
+    fn plane_state(&self, scanout: &Scanout) -> Result<PlaneState<'static>, Box<dyn Error>> {
+        match self {
+            Self::Atlas(framebuffer) => Ok(plane_state(scanout, *framebuffer)),
+            #[cfg(feature = "flutter")]
+            Self::Outputs(outputs) => {
+                let (framebuffer, size) = outputs
+                    .get(&scanout.output.id)
+                    .ok_or("rollback scanout has no retained physical framebuffer")?;
+                Ok(output_plane_state(scanout, *framebuffer, *size))
+            }
+        }
+    }
+}
+
 pub(super) enum ReconciledScanoutOrigin {
     Reused(Box<PreviousScanoutState>),
     Created,
@@ -62,7 +88,7 @@ pub(super) enum ReconciledScanoutOrigin {
 
 /// Owns both sides of a staged scanout replacement. Reused `DrmSurface`s live
 /// in `candidate`, while removed surfaces remain pinned in their original
-/// slots until the new atlas has reached vblank. Consequently no old surface
+/// slots until the new scanout generation has reached vblank. Consequently no old surface
 /// is dropped merely because preparation or TEST_ONLY failed.
 pub(super) struct ScanoutReconciliation<'a> {
     pub(super) destination: &'a mut Vec<Scanout>,
@@ -199,7 +225,7 @@ impl ScanoutReconciliation<'_> {
 
     pub(super) fn rollback(
         mut self,
-        old_framebuffer: framebuffer::Handle,
+        old_framebuffers: &ScanoutRollbackFramebuffers,
         hardware: bool,
     ) -> Vec<String> {
         let (mut failures, rollback_count) = self.restore_ownership();
@@ -213,10 +239,10 @@ impl ScanoutReconciliation<'_> {
                 .take(rollback_count)
                 .filter(|scanout| scanout.powered)
             {
-                if let Err(error) = scanout
-                    .surface
-                    .commit([plane_state(scanout, old_framebuffer)], false)
-                {
+                let rollback = old_framebuffers
+                    .plane_state(scanout)
+                    .and_then(|state| scanout.surface.commit([state], false).map_err(Into::into));
+                if let Err(error) = rollback {
                     failures.push(format!(
                         "{} hardware rollback failed: {error}",
                         scanout.output.name
@@ -286,13 +312,14 @@ impl AtlasPlaneProperties {
 impl Scanout {
     pub(super) fn rotation_property(
         &self,
+        transform: OutputTransform,
     ) -> Result<Option<(property::Handle, u64)>, Box<dyn Error>> {
         match self.plane_properties.rotation {
-            Some(property) => Ok(Some((property, drm_rotation(self.output.transform)))),
-            None if self.output.transform == OutputTransform::Normal => Ok(None),
+            Some(property) => Ok(Some((property, drm_rotation(transform)))),
+            None if transform == OutputTransform::Normal => Ok(None),
             None => Err(format!(
                 "{} primary plane does not expose the DRM rotation property required for {:?}",
-                self.output.name, self.output.transform
+                self.output.name, transform
             )
             .into()),
         }
@@ -376,13 +403,13 @@ impl Drop for PrimeFramebuffer {
     }
 }
 
-pub(super) struct AtlasAllocator {
+pub(super) struct ScanoutAllocator {
     allocator: GbmAllocator<DrmDeviceFd>,
     drm_fd: DrmDeviceFd,
     cross_device: bool,
 }
 
-impl AtlasAllocator {
+impl ScanoutAllocator {
     pub(super) fn gbm(
         allocator: GbmAllocator<DrmDeviceFd>,
         drm_fd: DrmDeviceFd,
@@ -400,8 +427,8 @@ impl AtlasAllocator {
         size: PixelSize,
         modifiers: &[Modifier],
         linear_render_target: bool,
-    ) -> Result<AtlasBuffer, Box<dyn Error>> {
-        let mut buffer = AtlasBuffer::allocate_gbm(
+    ) -> Result<ScanoutBuffer, Box<dyn Error>> {
+        let mut buffer = ScanoutBuffer::allocate_gbm(
             &mut self.allocator,
             &self.drm_fd,
             self.cross_device,
@@ -445,7 +472,7 @@ impl LinearRenderBuffer {
     }
 }
 
-pub(super) struct AtlasBuffer {
+pub(super) struct ScanoutBuffer {
     // The framebuffer must be destroyed before its backing allocation.
     framebuffer: AtlasFramebuffer,
     pub(super) dmabuf: Dmabuf,
@@ -454,7 +481,7 @@ pub(super) struct AtlasBuffer {
     _buffer: GbmBuffer,
 }
 
-impl AtlasBuffer {
+impl ScanoutBuffer {
     fn allocate_gbm(
         allocator: &mut GbmAllocator<DrmDeviceFd>,
         drm_fd: &DrmDeviceFd,
@@ -574,8 +601,224 @@ fn close_prime_handles(drm: &DrmDeviceFd, handles: &mut Vec<BufferHandle>) {
 
 pub(super) struct AtlasSwapchain {
     pub(super) size: PixelSize,
-    pub(super) buffers: Vec<AtlasBuffer>,
+    pub(super) buffers: Vec<ScanoutBuffer>,
     pub(super) current: usize,
+}
+
+/// Native scanout storage for one physical Flutter raster target. Buffer
+/// indices are local to the output; Volition's stream ID disambiguates them.
+#[cfg(feature = "flutter")]
+pub(super) struct OutputSwapchain {
+    pub(super) output_id: OutputId,
+    pub(super) render_view_id: RenderViewId,
+    pub(super) configuration_generation: u64,
+    pub(super) size: PixelSize,
+    pub(super) buffers: Vec<ScanoutBuffer>,
+    pub(super) current: usize,
+}
+
+#[cfg(feature = "flutter")]
+pub(super) struct OutputSwapchains {
+    pub(super) outputs: Vec<OutputSwapchain>,
+}
+
+#[cfg(feature = "flutter")]
+impl OutputSwapchains {
+    pub(super) fn allocate(
+        allocator: &mut ScanoutAllocator,
+        plans: &[RenderOutputPlan],
+        scanouts: &[Scanout],
+        render_formats: &FormatSet,
+        linear_render_targets: bool,
+    ) -> Result<Self, Box<dyn Error>> {
+        if plans.len() != scanouts.len() || plans.is_empty() {
+            return Err("physical output pools do not match the active scanouts".into());
+        }
+
+        let mut outputs = Vec::with_capacity(plans.len());
+        let mut allocated_bytes = 0u64;
+        for plan in plans {
+            let scanout = scanouts
+                .iter()
+                .find(|scanout| scanout.output.id == plan.output_id)
+                .ok_or("physical output pool has no matching scanout")?;
+            let modifiers = compatible_xrgb8888_modifiers(
+                std::iter::once(&scanout.surface.plane_info().formats),
+                render_formats,
+            );
+            if modifiers.is_empty() {
+                return Err(format!(
+                    "no XR24 modifier is common to EGL rendering and {}'s primary plane",
+                    scanout.output.name
+                )
+                .into());
+            }
+            let pool_bytes = u64::from(plan.target_size.width)
+                .checked_mul(u64::from(plan.target_size.height))
+                .and_then(|pixels| pixels.checked_mul(SCANOUT_BYTES_PER_PIXEL))
+                .and_then(|bytes| bytes.checked_mul(OUTPUT_POOL_LENGTH as u64))
+                .ok_or("physical output pool byte count overflow")?;
+            allocated_bytes = allocated_bytes
+                .checked_add(pool_bytes)
+                .ok_or("physical output pool aggregate byte count overflow")?;
+            if allocated_bytes > MAX_SCANOUT_POOL_BYTES {
+                return Err(format!(
+                    "physical output pools need {allocated_bytes} bytes, above the {MAX_SCANOUT_POOL_BYTES}-byte safety limit"
+                )
+                .into());
+            }
+
+            let buffers = allocate_scanout_pool(
+                allocator,
+                plan.target_size,
+                OUTPUT_POOL_LENGTH,
+                &modifiers,
+                linear_render_targets,
+            )?;
+            outputs.push(OutputSwapchain {
+                output_id: plan.output_id,
+                render_view_id: plan.render_view_id,
+                configuration_generation: plan.configuration_generation,
+                size: plan.target_size,
+                buffers,
+                current: 0,
+            });
+        }
+        Ok(Self { outputs })
+    }
+
+    pub(super) fn for_output(&self, output: OutputId) -> Option<&OutputSwapchain> {
+        self.outputs.iter().find(|pool| pool.output_id == output)
+    }
+
+    pub(super) fn for_output_mut(&mut self, output: OutputId) -> Option<&mut OutputSwapchain> {
+        self.outputs
+            .iter_mut()
+            .find(|pool| pool.output_id == output)
+    }
+
+    pub(super) fn framebuffer(
+        &self,
+        output: OutputId,
+        index: usize,
+    ) -> Option<framebuffer::Handle> {
+        self.for_output(output)?
+            .buffers
+            .get(index)
+            .map(ScanoutBuffer::framebuffer)
+    }
+
+    pub(super) fn present(&mut self, output: OutputId, index: usize) -> Result<(), &'static str> {
+        let pool = self
+            .for_output_mut(output)
+            .ok_or("presented output has no native buffer pool")?;
+        if index >= pool.buffers.len() {
+            return Err("presented output buffer exceeds its native pool");
+        }
+        pool.current = index;
+        Ok(())
+    }
+}
+
+/// The active presentation storage has exactly one representation. Diagnostic
+/// rendering uses a virtual desktop atlas; Flutter renders directly into one
+/// native pool per physical output. Keeping the alternatives disjoint makes
+/// it impossible for the Flutter path to silently fall back to atlas scanout.
+pub(super) enum RenderSwapchains {
+    Atlas(AtlasSwapchain),
+    #[cfg(feature = "flutter")]
+    Outputs {
+        desktop_size: PixelSize,
+        swapchains: OutputSwapchains,
+    },
+}
+
+impl RenderSwapchains {
+    pub(super) fn desktop_size(&self) -> PixelSize {
+        match self {
+            Self::Atlas(atlas) => atlas.size,
+            #[cfg(feature = "flutter")]
+            Self::Outputs { desktop_size, .. } => *desktop_size,
+        }
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn set_desktop_size(&mut self, size: PixelSize) -> Result<(), &'static str> {
+        match self {
+            Self::Outputs { desktop_size, .. } => {
+                *desktop_size = size;
+                Ok(())
+            }
+            Self::Atlas(_) => Err("diagnostic atlas has no Flutter desktop size"),
+        }
+    }
+
+    pub(super) fn atlas(&self) -> Option<&AtlasSwapchain> {
+        match self {
+            Self::Atlas(atlas) => Some(atlas),
+            #[cfg(feature = "flutter")]
+            Self::Outputs { .. } => None,
+        }
+    }
+
+    pub(super) fn atlas_mut(&mut self) -> Option<&mut AtlasSwapchain> {
+        match self {
+            Self::Atlas(atlas) => Some(atlas),
+            #[cfg(feature = "flutter")]
+            Self::Outputs { .. } => None,
+        }
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn outputs(&self) -> Option<&OutputSwapchains> {
+        match self {
+            Self::Atlas(_) => None,
+            Self::Outputs { swapchains, .. } => Some(swapchains),
+        }
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn outputs_mut(&mut self) -> Option<&mut OutputSwapchains> {
+        match self {
+            Self::Atlas(_) => None,
+            Self::Outputs { swapchains, .. } => Some(swapchains),
+        }
+    }
+
+    pub(super) fn representative_framebuffer(&self) -> framebuffer::Handle {
+        match self {
+            Self::Atlas(atlas) => atlas.current_framebuffer(),
+            #[cfg(feature = "flutter")]
+            Self::Outputs { swapchains, .. } => swapchains
+                .outputs
+                .first()
+                .and_then(|pool| pool.buffers.get(pool.current))
+                .expect("validated physical output storage is non-empty")
+                .framebuffer(),
+        }
+    }
+}
+
+#[cfg(feature = "flutter")]
+fn flutter_render_target_pools(
+    swapchains: &OutputSwapchains,
+) -> Vec<flutter_runtime::OutputRenderTargetPool<'_>> {
+    swapchains
+        .outputs
+        .iter()
+        .map(|pool| flutter_runtime::OutputRenderTargetPool {
+            output_id: pool.output_id,
+            render_view_id: pool.render_view_id,
+            configuration_generation: pool.configuration_generation,
+            size: pool.size,
+            initial_scanout: pool.current,
+            dmabufs: pool
+                .buffers
+                .iter()
+                .map(ScanoutBuffer::flutter_target_dmabufs)
+                .collect(),
+        })
+        .collect()
 }
 
 pub(super) struct ScreenshotBuffer {
@@ -676,7 +919,7 @@ impl FlutterLauncher {
     pub(super) fn start(
         &mut self,
         renderer: &GlesRenderer,
-        swapchain: &AtlasSwapchain,
+        output_swapchains: &OutputSwapchains,
         scanouts: &[Scanout],
         snapshot: &TopologySnapshot,
         atlas: &AtlasPlan,
@@ -703,12 +946,7 @@ impl FlutterLauncher {
             .ok_or("Flutter runtime has no output refresh")?;
         let runtime = self.start_with_current_factory(
             renderer.egl_context(),
-            swapchain
-                .buffers
-                .iter()
-                .map(AtlasBuffer::flutter_target_dmabufs),
-            swapchain.current,
-            swapchain.size,
+            flutter_render_target_pools(output_swapchains),
             snapshot,
             atlas,
             scanouts,
@@ -728,12 +966,7 @@ impl FlutterLauncher {
                 self.replace_factory(ui_development::UiRuntimeMode::OfficialOptimized)?;
                 self.start_with_current_factory(
                     renderer.egl_context(),
-                    swapchain
-                        .buffers
-                        .iter()
-                        .map(AtlasBuffer::flutter_target_dmabufs),
-                    swapchain.current,
-                    swapchain.size,
+                    flutter_render_target_pools(output_swapchains),
                     snapshot,
                     atlas,
                     scanouts,
@@ -752,9 +985,7 @@ impl FlutterLauncher {
     fn start_with_current_factory<'a>(
         &self,
         shared_context: &EGLContext,
-        dmabufs: impl IntoIterator<Item = (&'a Dmabuf, Option<&'a Dmabuf>)>,
-        initial_scanout: usize,
-        size: PixelSize,
+        output_pools: impl IntoIterator<Item = flutter_runtime::OutputRenderTargetPool<'a>>,
         snapshot: &TopologySnapshot,
         atlas: &AtlasPlan,
         scanouts: &[Scanout],
@@ -772,9 +1003,7 @@ impl FlutterLauncher {
         }
         flutter_runtime::FlutterRuntime::start(
             shared_context,
-            dmabufs,
-            initial_scanout,
-            size,
+            output_pools,
             snapshot,
             atlas,
             refresh_millihz,
@@ -932,31 +1161,6 @@ fn ensure_resident_jit_engine_matches(
     Ok(())
 }
 
-#[cfg(feature = "flutter")]
-pub(super) fn flutter_pool_length(output_count: usize) -> Result<usize, Box<dyn Error>> {
-    if output_count == 0 {
-        return Err("Flutter atlas pool needs at least one output".into());
-    }
-
-    // Independently clocked outputs may each retain a scanning generation, an
-    // atomic submission awaiting its page-flip event, and a newer ready
-    // generation awaiting fence completion or submission. Flutter still needs
-    // one unowned render target. At high refresh rates the ready generation can
-    // legitimately overlap the following render; reserving only two output
-    // generations turns that overlap into an avoidable skipped Flutter frame.
-    let length = output_count
-        .checked_mul(3)
-        .and_then(|count| count.checked_add(1))
-        .ok_or("Flutter atlas pool length overflow")?;
-    if length > MAX_ATLAS_BUFFERS {
-        return Err(format!(
-            "Flutter atlas pool needs {length} buffers, above the supported {MAX_ATLAS_BUFFERS}"
-        )
-        .into());
-    }
-    Ok(length)
-}
-
 fn common_xrgb8888_modifiers<'a>(
     format_sets: impl IntoIterator<Item = &'a FormatSet>,
 ) -> Vec<Modifier> {
@@ -1050,7 +1254,7 @@ pub(super) fn shared_atlas_modifiers(
 
 impl AtlasSwapchain {
     pub(super) fn allocate(
-        allocator: &mut AtlasAllocator,
+        allocator: &mut ScanoutAllocator,
         size: PixelSize,
         modifiers: &[Modifier],
     ) -> Result<Self, Box<dyn Error>> {
@@ -1058,55 +1262,14 @@ impl AtlasSwapchain {
     }
 
     pub(super) fn allocate_pool(
-        allocator: &mut AtlasAllocator,
+        allocator: &mut ScanoutAllocator,
         size: PixelSize,
         length: usize,
         modifiers: &[Modifier],
         linear_render_targets: bool,
     ) -> Result<Self, Box<dyn Error>> {
-        if length < 2 {
-            return Err("an atlas swapchain needs at least two buffers".into());
-        }
-        validate_atlas_allocation(size, length)?;
-        let optimized = modifiers
-            .iter()
-            .copied()
-            .filter(|modifier| *modifier != Modifier::Linear && *modifier != Modifier::Invalid)
-            .collect::<Vec<_>>();
-        let linear_supported = modifiers.contains(&Modifier::Linear);
-        if optimized.is_empty() && !linear_supported {
-            return Err("atlas allocation received no usable DRM modifier".into());
-        }
-
-        let allocate = |allocator: &mut AtlasAllocator, modifiers: &[Modifier]| {
-            (0..length)
-                .map(|_| allocator.allocate(size, modifiers, linear_render_targets))
-                .collect::<Result<Vec<_>, _>>()
-        };
-        let buffers = if optimized.is_empty() {
-            allocate(allocator, &[Modifier::Linear])?
-        } else {
-            match allocate(allocator, &optimized) {
-                Ok(buffers) => buffers,
-                Err(optimized_error) if linear_supported => {
-                    warn!(
-                        %optimized_error,
-                        "could not allocate a tiled/compressed atlas; falling back to LINEAR"
-                    );
-                    allocate(allocator, &[Modifier::Linear]).map_err(|linear_error| {
-                        format!(
-                            "optimized atlas allocation failed ({optimized_error}); LINEAR fallback failed ({linear_error})"
-                        )
-                    })?
-                }
-                Err(error) => {
-                    return Err(format!(
-                        "could not allocate the shared atlas with any common optimized modifier: {error}"
-                    )
-                    .into());
-                }
-            }
-        };
+        let buffers =
+            allocate_scanout_pool(allocator, size, length, modifiers, linear_render_targets)?;
         Ok(Self {
             size,
             buffers,
@@ -1128,32 +1291,82 @@ impl AtlasSwapchain {
     }
 }
 
-fn validate_atlas_allocation(size: PixelSize, length: usize) -> Result<(), Box<dyn Error>> {
-    if !(2..=MAX_ATLAS_BUFFERS).contains(&length) {
+fn allocate_scanout_pool(
+    allocator: &mut ScanoutAllocator,
+    size: PixelSize,
+    length: usize,
+    modifiers: &[Modifier],
+    linear_render_targets: bool,
+) -> Result<Vec<ScanoutBuffer>, Box<dyn Error>> {
+    validate_scanout_pool_allocation(size, length)?;
+    let optimized = modifiers
+        .iter()
+        .copied()
+        .filter(|modifier| *modifier != Modifier::Linear && *modifier != Modifier::Invalid)
+        .collect::<Vec<_>>();
+    let linear_supported = modifiers.contains(&Modifier::Linear);
+    if optimized.is_empty() && !linear_supported {
+        return Err("scanout allocation received no usable DRM modifier".into());
+    }
+
+    let allocate = |allocator: &mut ScanoutAllocator, modifiers: &[Modifier]| {
+        (0..length)
+            .map(|_| allocator.allocate(size, modifiers, linear_render_targets))
+            .collect::<Result<Vec<_>, _>>()
+    };
+    let buffers = if optimized.is_empty() {
+        allocate(allocator, &[Modifier::Linear])?
+    } else {
+        match allocate(allocator, &optimized) {
+            Ok(buffers) => buffers,
+            Err(optimized_error) if linear_supported => {
+                warn!(
+                    %optimized_error,
+                    "could not allocate a tiled/compressed scanout pool; falling back to LINEAR"
+                );
+                allocate(allocator, &[Modifier::Linear]).map_err(|linear_error| {
+                        format!(
+                            "optimized scanout allocation failed ({optimized_error}); LINEAR fallback failed ({linear_error})"
+                        )
+                    })?
+            }
+            Err(error) => {
+                return Err(format!(
+                        "could not allocate the scanout pool with any compatible optimized modifier: {error}"
+                    )
+                    .into());
+            }
+        }
+    };
+    Ok(buffers)
+}
+
+fn validate_scanout_pool_allocation(size: PixelSize, length: usize) -> Result<(), Box<dyn Error>> {
+    if !(2..=MAX_SCANOUT_BUFFERS).contains(&length) {
         return Err(format!(
-            "atlas pool length {length} is outside the supported 2..={MAX_ATLAS_BUFFERS} range"
+            "scanout pool length {length} is outside the supported 2..={MAX_SCANOUT_BUFFERS} range"
         )
         .into());
     }
     if size.width == 0 || size.height == 0 {
-        return Err("atlas buffers need a non-empty extent".into());
+        return Err("scanout buffers need a non-empty extent".into());
     }
-    if size.width > MAX_ATLAS_DIMENSION || size.height > MAX_ATLAS_DIMENSION {
+    if size.width > MAX_SCANOUT_DIMENSION || size.height > MAX_SCANOUT_DIMENSION {
         return Err(format!(
-            "atlas {}x{} exceeds the supported {}-pixel texture dimension",
-            size.width, size.height, MAX_ATLAS_DIMENSION
+            "scanout target {}x{} exceeds the supported {}-pixel texture dimension",
+            size.width, size.height, MAX_SCANOUT_DIMENSION
         )
         .into());
     }
     let pool_bytes = u64::from(size.width)
         .checked_mul(u64::from(size.height))
-        .and_then(|pixels| pixels.checked_mul(ATLAS_BYTES_PER_PIXEL))
+        .and_then(|pixels| pixels.checked_mul(SCANOUT_BYTES_PER_PIXEL))
         .and_then(|bytes| bytes.checked_mul(u64::try_from(length).ok()?))
-        .ok_or("atlas pool byte count overflow")?;
-    if pool_bytes > MAX_ATLAS_POOL_BYTES {
+        .ok_or("scanout pool byte count overflow")?;
+    if pool_bytes > MAX_SCANOUT_POOL_BYTES {
         return Err(format!(
-            "atlas pool needs {pool_bytes} bytes, above the {}-byte safety limit",
-            MAX_ATLAS_POOL_BYTES
+            "scanout pool needs {pool_bytes} bytes, above the {}-byte safety limit",
+            MAX_SCANOUT_POOL_BYTES
         )
         .into());
     }
@@ -1862,224 +2075,5 @@ fn restore_original_modes_with_atlas(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        Format, FormatSet, Fourcc, GbmBufferFlags, Modifier, PixelSize, ScanoutIdentity,
-        ScanoutIdentityError, atlas_gbm_flags, common_xrgb8888_modifiers,
-        compatible_xrgb8888_modifiers, inherited_plane_needs_release,
-        smithay_opaque_alpha_for_maximum, validate_atlas_allocation, validate_scanout_identities,
-    };
-    #[cfg(feature = "flutter")]
-    use super::{ensure_resident_jit_engine_matches, flutter_pool_length};
-
-    #[cfg(feature = "flutter")]
-    #[test]
-    fn flutter_atlas_reserves_three_output_generations_plus_a_render_target() {
-        assert!(flutter_pool_length(0).is_err());
-        assert_eq!(flutter_pool_length(1).expect("one output"), 4);
-        assert_eq!(flutter_pool_length(2).expect("two outputs"), 7);
-        assert_eq!(flutter_pool_length(16).expect("sixteen outputs"), 49);
-        assert!(flutter_pool_length(17).is_err());
-        assert!(flutter_pool_length(usize::MAX).is_err());
-    }
-
-    #[cfg(feature = "flutter")]
-    #[test]
-    fn a_changed_resident_jit_engine_requires_a_session_restart() {
-        let first = [0x11; 32];
-        let same = [0x11; 32];
-        let changed = [0x22; 32];
-
-        assert!(ensure_resident_jit_engine_matches(None, &first).is_ok());
-        assert!(ensure_resident_jit_engine_matches(Some(&first), &same).is_ok());
-        let error = ensure_resident_jit_engine_matches(Some(&first), &changed)
-            .expect_err("changed native JIT engine must be rejected");
-        assert!(error.to_string().contains("Restart the Denial session"));
-    }
-
-    #[test]
-    fn atlas_allocation_rejects_pathological_dimensions_before_gbm() {
-        assert!(validate_atlas_allocation(PixelSize::new(1, 1), 0).is_err());
-        assert!(validate_atlas_allocation(PixelSize::new(1, 1), 1).is_err());
-        assert!(validate_atlas_allocation(PixelSize::new(1, 1), 5).is_ok());
-        assert!(
-            validate_atlas_allocation(PixelSize::new(1, 1), super::MAX_ATLAS_BUFFERS + 1).is_err()
-        );
-        assert!(validate_atlas_allocation(PixelSize::new(0, 1080), 3).is_err());
-        assert!(validate_atlas_allocation(PixelSize::new(16_385, 1080), 3).is_err());
-        assert!(validate_atlas_allocation(PixelSize::new(15_360, 4_320), 3).is_ok());
-        assert!(validate_atlas_allocation(PixelSize::new(16_384, 8_192), 3).is_err());
-        assert!(validate_atlas_allocation(PixelSize::new(1, 1), usize::MAX).is_err());
-    }
-
-    #[test]
-    fn cross_device_atlas_does_not_require_local_scanout() {
-        let local = atlas_gbm_flags(false);
-        assert!(local.contains(GbmBufferFlags::RENDERING));
-        assert!(local.contains(GbmBufferFlags::SCANOUT));
-
-        let offloaded = atlas_gbm_flags(true);
-        assert!(offloaded.contains(GbmBufferFlags::RENDERING));
-        assert!(!offloaded.contains(GbmBufferFlags::SCANOUT));
-    }
-
-    #[test]
-    fn atlas_modifier_intersection_preserves_driver_preference_over_linear() {
-        let preferred = Modifier::from(0x0200_0000_0082_0405_u64);
-        let unavailable = Modifier::from(0x0200_0000_0042_0405_u64);
-        let first = [
-            Format {
-                code: Fourcc::Xrgb8888,
-                modifier: preferred,
-            },
-            Format {
-                code: Fourcc::Xrgb8888,
-                modifier: unavailable,
-            },
-            Format {
-                code: Fourcc::Xrgb8888,
-                modifier: Modifier::Linear,
-            },
-            Format {
-                code: Fourcc::Xrgb8888,
-                modifier: Modifier::Invalid,
-            },
-        ]
-        .into_iter()
-        .collect::<FormatSet>();
-        let second = [
-            Format {
-                code: Fourcc::Xrgb8888,
-                modifier: Modifier::Linear,
-            },
-            Format {
-                code: Fourcc::Xrgb8888,
-                modifier: preferred,
-            },
-        ]
-        .into_iter()
-        .collect::<FormatSet>();
-
-        assert_eq!(
-            common_xrgb8888_modifiers([&first, &second]),
-            vec![preferred, Modifier::Linear]
-        );
-    }
-
-    #[test]
-    fn atlas_modifier_selection_falls_back_to_linear_for_implicit_xr24() {
-        let plane = [Format {
-            code: Fourcc::Xrgb8888,
-            modifier: Modifier::Invalid,
-        }]
-        .into_iter()
-        .collect::<FormatSet>();
-        let renderer_modifier = Modifier::from(0x0200_0000_0082_0405_u64);
-        let renderer = [
-            Format {
-                code: Fourcc::Xrgb8888,
-                modifier: renderer_modifier,
-            },
-            Format {
-                code: Fourcc::Xrgb8888,
-                modifier: Modifier::Invalid,
-            },
-        ]
-        .into_iter()
-        .collect::<FormatSet>();
-
-        assert_eq!(
-            compatible_xrgb8888_modifiers([&plane], &renderer),
-            vec![Modifier::Linear]
-        );
-    }
-
-    #[test]
-    fn atlas_modifier_selection_requires_implicit_xr24_from_every_consumer() {
-        let implicit = [Format {
-            code: Fourcc::Xrgb8888,
-            modifier: Modifier::Invalid,
-        }]
-        .into_iter()
-        .collect::<FormatSet>();
-        let explicit_only = [Format {
-            code: Fourcc::Xrgb8888,
-            modifier: Modifier::from(0x0200_0000_0082_0405_u64),
-        }]
-        .into_iter()
-        .collect::<FormatSet>();
-
-        assert!(compatible_xrgb8888_modifiers([&implicit], &explicit_only).is_empty());
-        assert!(compatible_xrgb8888_modifiers([&implicit, &explicit_only], &implicit).is_empty());
-    }
-
-    #[test]
-    fn plane_alpha_uses_an_advertised_narrow_range_only_when_needed() {
-        let standard = smithay_opaque_alpha_for_maximum(u16::MAX as u64);
-        let eight_bit = smithay_opaque_alpha_for_maximum(u8::MAX as u64);
-
-        assert_eq!(standard, 1.0);
-        assert_eq!((standard * u16::MAX as f32).round() as u64, 0xffff);
-        assert_eq!((eight_bit * u16::MAX as f32).round() as u64, 0xff);
-        assert_eq!(smithay_opaque_alpha_for_maximum(0), 1.0);
-        assert_eq!(smithay_opaque_alpha_for_maximum(0x1_0000), 1.0);
-    }
-
-    #[test]
-    fn inherited_plane_release_selects_only_bound_non_primary_planes() {
-        const OVERLAY: u64 = 0;
-        const PRIMARY: u64 = 1;
-        const CURSOR: u64 = 2;
-
-        assert!(!inherited_plane_needs_release(PRIMARY, 41));
-        assert!(!inherited_plane_needs_release(CURSOR, 0));
-        assert!(inherited_plane_needs_release(CURSOR, 41));
-        assert!(inherited_plane_needs_release(OVERLAY, 42));
-    }
-
-    #[test]
-    fn scanout_identity_validation_rejects_every_alias_class() {
-        let identity = |output, connector, crtc, plane| ScanoutIdentity {
-            output,
-            connector,
-            crtc,
-            plane,
-        };
-        let baseline = identity(1, 1, 10, 20);
-        assert!(validate_scanout_identities([baseline]).is_ok());
-        assert_eq!(
-            validate_scanout_identities([baseline, identity(1, 2, 11, 21)]),
-            Err(ScanoutIdentityError::DuplicateOutput(1))
-        );
-        assert_eq!(
-            validate_scanout_identities([baseline, identity(2, 1, 11, 21)]),
-            Err(ScanoutIdentityError::DuplicateConnector(1))
-        );
-        assert_eq!(
-            validate_scanout_identities([baseline, identity(2, 2, 10, 21)]),
-            Err(ScanoutIdentityError::DuplicateCrtc(10))
-        );
-        assert_eq!(
-            validate_scanout_identities([baseline, identity(2, 2, 11, 20)]),
-            Err(ScanoutIdentityError::DuplicatePlane(20))
-        );
-        assert_eq!(
-            validate_scanout_identities([identity(9, 1, 10, 20)]),
-            Err(ScanoutIdentityError::OutputConnectorMismatch {
-                output: 9,
-                connector: 1,
-            })
-        );
-        for zeroed in [
-            identity(0, 1, 10, 20),
-            identity(1, 0, 10, 20),
-            identity(1, 1, 0, 20),
-            identity(1, 1, 10, 0),
-        ] {
-            assert!(matches!(
-                validate_scanout_identities([zeroed]),
-                Err(ScanoutIdentityError::Zero(_))
-            ));
-        }
-    }
-}
+#[path = "kms_state/tests.rs"]
+mod tests;
