@@ -1460,11 +1460,17 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                     key: const ValueKey<String>(
                       'desktop-launcher-dismiss-barrier',
                     ),
-                    child: IgnorePointer(
-                      ignoring: !desktop.launcherOpen,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: onDismissLauncher,
+                    child: ShellInputRegion(
+                      debugLabel: 'Desktop launcher dismiss barrier',
+                      active: desktop.launcherOpen,
+                      pointerPolicy: ShellPointerPolicy.fullScene,
+                      keyboardPolicy: ShellKeyboardPolicy.none,
+                      child: IgnorePointer(
+                        ignoring: !desktop.launcherOpen,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: onDismissLauncher,
+                        ),
                       ),
                     ),
                   ),
@@ -1489,6 +1495,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                           searchFocusNode: applicationSearchFocusNode,
                           onEnter: onCancelPanelClose,
                           onExit: onSchedulePanelClose,
+                          onDismiss: onDismissLauncher,
                           onLaunch: onLaunchApp,
                           onLaunchLocal: onLaunchLocalApp,
                         ),
@@ -3942,6 +3949,7 @@ class DesktopApplicationLauncher extends ConsumerStatefulWidget {
     required this.searchFocusNode,
     required this.onEnter,
     required this.onExit,
+    this.onDismiss,
     required this.onLaunch,
     required this.onLaunchLocal,
   });
@@ -3950,6 +3958,10 @@ class DesktopApplicationLauncher extends ConsumerStatefulWidget {
   final FocusNode searchFocusNode;
   final VoidCallback onEnter;
   final VoidCallback onExit;
+
+  /// Immediate dismissal callback (same path as clicking outside). Falls back
+  /// to [onExit] (the hover-exit delayed close) when not provided.
+  final VoidCallback? onDismiss;
   final ValueChanged<DesktopApp> onLaunch;
   final ValueChanged<LocalFlutterApplication> onLaunchLocal;
 
@@ -3961,6 +3973,9 @@ class DesktopApplicationLauncher extends ConsumerStatefulWidget {
 class _DesktopApplicationLauncherState
     extends ConsumerState<DesktopApplicationLauncher> {
   late final TextEditingController _searchController;
+  final GlobalKey _gridKey = GlobalKey();
+  final ScrollController _gridController = ScrollController();
+  int _selectedIndex = 0;
 
   @override
   void initState() {
@@ -3986,10 +4001,12 @@ class _DesktopApplicationLauncherState
     _searchController
       ..removeListener(_handleSearchChanged)
       ..dispose();
+    _gridController.dispose();
     super.dispose();
   }
 
   void _handleSearchChanged() {
+    _selectedIndex = 0;
     setState(() {});
   }
 
@@ -4007,6 +4024,86 @@ class _DesktopApplicationLauncherState
     widget.onLaunchLocal(entry.localApp!);
   }
 
+  List<_DesktopLauncherEntry> _filteredApps() {
+    return _filterInstalledApps(
+      _installedApps(
+        context,
+        ref.read(homeGridControllerProvider),
+        ref.read(localFlutterApplicationRegistryProvider).applications,
+      ),
+      _searchController.text,
+    );
+  }
+
+  void _moveSelection(int delta) {
+    final apps = _filteredApps();
+    if (apps.isEmpty) {
+      return;
+    }
+    final length = apps.length;
+    _selectedIndex = (_selectedIndex + delta) % length;
+    if (_selectedIndex < 0) {
+      _selectedIndex += length;
+    }
+    setState(() {});
+    _revealSelected();
+  }
+
+  /// Dismisses the launcher immediately (no hover-exit delay). Uses
+  /// [DesktopApplicationLauncher.onDismiss] when provided so keyboard escape
+  /// shares the exact close path of clicking outside the panel.
+  void _dismissLauncher() {
+    (widget.onDismiss ?? widget.onExit)();
+  }
+
+  /// Moves the selection one grid row up or down. [direction] is -1 (up) or
+  /// +1 (down); the step is the number of columns currently visible.
+  void _moveSelectionByRow(int direction) {
+    final gridWidth = _gridKey.currentContext?.size?.width ?? 0.0;
+    final columns = _crossAxisCountFor(gridWidth <= 0 ? 1.0 : gridWidth);
+    _moveSelection(direction * columns);
+  }
+
+  void _revealSelected() {
+    if (!_gridController.hasClients) {
+      return;
+    }
+    final gridWidth = _gridKey.currentContext?.size?.width ?? 0.0;
+    if (gridWidth <= 0) {
+      return;
+    }
+    final position = _gridController.position;
+    const mainAxisExtent = 112.0;
+    const mainAxisSpacing = 8.0;
+    final crossAxisCount = _crossAxisCountFor(gridWidth);
+    final step = mainAxisExtent + mainAxisSpacing;
+    final row = _selectedIndex ~/ crossAxisCount;
+    final itemTop = row * step;
+    final itemBottom = itemTop + mainAxisExtent;
+    final viewport = position.viewportDimension;
+    final current = position.pixels;
+    final double target;
+    if (itemBottom > current + viewport) {
+      target = itemBottom - viewport + mainAxisSpacing;
+    } else if (itemTop < current) {
+      target = itemTop - mainAxisSpacing;
+    } else {
+      return;
+    }
+    _gridController.animateTo(
+      target.clamp(0.0, position.maxScrollExtent),
+      duration: Motion.tile,
+      curve: Motion.standard,
+    );
+  }
+
+  int _crossAxisCountFor(double width) {
+    const maxCrossAxisExtent = 112.0;
+    const crossAxisSpacing = 8.0;
+    final count = (width / (maxCrossAxisExtent + crossAxisSpacing)).ceil();
+    return count < 1 ? 1 : count;
+  }
+
   @override
   Widget build(BuildContext context) {
     final allApps = _installedApps(
@@ -4022,79 +4119,108 @@ class _DesktopApplicationLauncherState
       onEnter: (_) => widget.onEnter(),
       onExit: (_) => widget.onExit(),
       child: FocusTraversalGroup(
+        child: CallbackShortcuts(
+          bindings: <ShortcutActivator, VoidCallback>{
+          const SingleActivator(LogicalKeyboardKey.escape):
+              _dismissLauncher,
+          const SingleActivator(LogicalKeyboardKey.tab): () =>
+              _moveSelection(1),
+          const SingleActivator(LogicalKeyboardKey.tab, shift: true): () =>
+              _moveSelection(-1),
+          const SingleActivator(LogicalKeyboardKey.arrowDown): () =>
+              _moveSelectionByRow(1),
+          const SingleActivator(LogicalKeyboardKey.arrowUp): () =>
+              _moveSelectionByRow(-1),
+          const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
+              _moveSelection(1),
+          const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
+              _moveSelection(-1),
+        },
         child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: theme.panelColor(ShellColors.panelBackground),
-            borderRadius: BorderRadius.circular(theme.panelRadius),
-            border: Border.all(color: ShellColors.hairline),
-            boxShadow: const [
-              BoxShadow(
-                color: ShellColors.shadow,
-                blurRadius: 36,
-                spreadRadius: 3,
-                offset: Offset(0, 16),
-              ),
-            ],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  l10n.desktopApplicationsTitle,
-                  style: ShellText.statusClock.copyWith(fontSize: 22),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  searching
-                      ? l10n.desktopApplicationSearchResults(
-                          apps.length,
-                          allApps.length,
-                        )
-                      : l10n.desktopInstalledApplications(allApps.length),
-                  style: ShellText.cardTitle.copyWith(
-                    color: ShellColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _DesktopAppSearchField(
-                  controller: _searchController,
-                  focusNode: widget.searchFocusNode,
-                  onClear: _clearSearch,
-                  onSubmit: () {
-                    if (searching && apps.isNotEmpty) {
-                      _launch(apps.first);
-                    }
-                  },
-                ),
-                const SizedBox(height: 14),
-                Expanded(
-                  child: allApps.isEmpty
-                      ? Center(child: Text(l10n.desktopLoadingApplications))
-                      : apps.isEmpty
-                      ? const _DesktopAppSearchEmptyState()
-                      : GridView.builder(
-                          scrollCacheExtent: const ScrollCacheExtent.pixels(0),
-                          gridDelegate:
-                              const SliverGridDelegateWithMaxCrossAxisExtent(
-                                maxCrossAxisExtent: 112,
-                                mainAxisExtent: 112,
-                                crossAxisSpacing: 8,
-                                mainAxisSpacing: 8,
-                              ),
-                          itemCount: apps.length,
-                          itemBuilder: (context, index) => _DesktopAppTile(
-                            key: ValueKey<String>(
-                              'desktop-app-${apps[index].id}',
-                            ),
-                            app: apps[index],
-                            selected: searching && index == 0,
-                            onTap: () => _launch(apps[index]),
-                          ),
-                        ),
+            decoration: BoxDecoration(
+              color: theme.panelColor(ShellColors.panelBackground),
+              borderRadius: BorderRadius.circular(theme.panelRadius),
+              border: Border.all(color: ShellColors.hairline),
+              boxShadow: const [
+                BoxShadow(
+                  color: ShellColors.shadow,
+                  blurRadius: 36,
+                  spreadRadius: 3,
+                  offset: Offset(0, 16),
                 ),
               ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l10n.desktopApplicationsTitle,
+                    style: ShellText.statusClock.copyWith(fontSize: 22),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    searching
+                        ? l10n.desktopApplicationSearchResults(
+                            apps.length,
+                            allApps.length,
+                          )
+                        : l10n.desktopInstalledApplications(allApps.length),
+                    style: ShellText.cardTitle.copyWith(
+                      color: ShellColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _DesktopAppSearchField(
+                    controller: _searchController,
+                    focusNode: widget.searchFocusNode,
+                    onClear: _clearSearch,
+                    onSubmit: () {
+                      if (apps.isNotEmpty) {
+                        final index = _selectedIndex;
+                        _launch(
+                          apps[
+                              index < 0
+                                  ? 0
+                                  : (index >= apps.length
+                                        ? apps.length - 1
+                                        : index)],
+                        );
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  Expanded(
+                    child: allApps.isEmpty
+                        ? Center(child: Text(l10n.desktopLoadingApplications))
+                        : apps.isEmpty
+                        ? const _DesktopAppSearchEmptyState()
+                        : GridView.builder(
+                            key: _gridKey,
+                            controller: _gridController,
+                            scrollCacheExtent:
+                                const ScrollCacheExtent.pixels(0),
+                            gridDelegate:
+                                const SliverGridDelegateWithMaxCrossAxisExtent(
+                              maxCrossAxisExtent: 112,
+                              mainAxisExtent: 112,
+                              crossAxisSpacing: 8,
+                              mainAxisSpacing: 8,
+                            ),
+                            itemCount: apps.length,
+                            itemBuilder: (context, index) => _DesktopAppTile(
+                              key: ValueKey<String>(
+                                'desktop-app-${apps[index].id}',
+                              ),
+                              app: apps[index],
+                              selected: index == _selectedIndex,
+                              onTap: () => _launch(apps[index]),
+                            ),
+                          ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -4173,6 +4299,15 @@ class _DesktopAppSearchField extends StatelessWidget {
                         cursorColor: accent.primary,
                         backgroundCursorColor: ShellColors.textSecondary,
                         selectionColor: accent.selection,
+                        // Filter control characters (ESC/TAB and friends) even
+                        // if an input method submits them as text. The menu
+                        // handles those keys itself; they must never land in
+                        // the search box.
+                        inputFormatters: <TextInputFormatter>[
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'[^\u0000-\u001F\u007F]'),
+                          ),
+                        ],
                       ),
                     ],
                   ),
