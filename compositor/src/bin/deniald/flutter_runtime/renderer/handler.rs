@@ -41,6 +41,7 @@ pub(in crate::flutter_runtime) struct FlutterGlHandler {
     frame_ready_wakeup: CoalescedWakeup,
     queue_overflow_wakeup: CoalescedWakeup,
     pub(in crate::flutter_runtime) render_audit: Option<Mutex<RenderDamageAudit>>,
+    gpu_timing: Option<Mutex<GpuTimingState>>,
     events: Sender<RuntimeEvent>,
     generation: u64,
     desktop_size: PixelSize,
@@ -64,6 +65,8 @@ impl FlutterGlHandler {
         // another thread. It is unbound before ownership reaches Flutter.
         unsafe { render_context.make_current()? };
         let gl = GlApi::load()?;
+        let render_audit_active = render_audit_enabled();
+        let gpu_timing = render_audit_active.then(GpuTimingState::load).flatten();
         let needs_depth_stencil = renderer_backend == RendererBackend::ImpellerGles;
         let mut depth_stencils = Vec::new();
         info!(
@@ -428,11 +431,12 @@ impl FlutterGlHandler {
             render_modifier = ?offscreen_blit.then_some(Modifier::Linear),
             "imported native output pools into Flutter EGL context"
         );
-        let render_audit = render_audit_enabled().then(|| {
+        let render_audit = render_audit_active.then(|| {
             info!(
                 target: "deniald::render_audit",
                 width = desktop_size.width,
                 height = desktop_size.height,
+                gpu_timestamps = gpu_timing.is_some(),
                 "Flutter physical-output render audit enabled"
             );
             Mutex::new(RenderDamageAudit::new())
@@ -475,6 +479,7 @@ impl FlutterGlHandler {
             frame_ready_wakeup: CoalescedWakeup::default(),
             queue_overflow_wakeup: CoalescedWakeup::default(),
             render_audit,
+            gpu_timing: gpu_timing.map(Mutex::new),
             events,
             generation,
             desktop_size,
@@ -537,6 +542,14 @@ impl FlutterGlHandler {
         index: usize,
     ) -> Result<(), &'static str> {
         lock(&self.broker).release_output(output, index)
+    }
+
+    pub(in crate::flutter_runtime) fn retain_output(
+        &self,
+        output: OutputId,
+        index: usize,
+    ) -> Result<(), &'static str> {
+        lock(&self.broker).retain_output(output, index)
     }
 
     pub(in crate::flutter_runtime) fn tag_next_frame_for_screenshot(
@@ -1212,6 +1225,9 @@ impl FlutterGlHandler {
         let cached_shm = lock(&self.shm_texture_cache).drain();
         drop((cached_dmabufs, cached_native, cached_shm));
         self.destroy_retired_external_bindings();
+        if let Some(gpu_timing) = &self.gpu_timing {
+            lock(gpu_timing).clear();
+        }
         destroy_shader_blit(self.gl, &mut shader_blit);
         destroy_targets(self.gl, &self.display, &mut targets);
         destroy_depth_stencils(self.gl, &mut depth_stencils);

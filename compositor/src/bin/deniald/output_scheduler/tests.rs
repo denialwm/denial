@@ -2,9 +2,10 @@ use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
 use super::{
-    CommitId, FrameTick, InFlightFrame, OutputFrame, OutputFrameRequest, OutputPipelineFrames,
-    OutputSchedulerAudit, PRESENTATION_STALL_TIMEOUT, ReadyFenceSlot, presentation_stall_age,
-    presentation_watchdog_remaining,
+    AuditLatency, CommitId, CompletionRetirement, FrameTick, InFlightFrame, OutputFrame,
+    OutputFrameRequest, OutputPipelineFrames, OutputSchedulerAudit, PRESENTATION_STALL_TIMEOUT,
+    ReadyFenceSlot, WakeFailureDisposition, WakeModeset, presentation_stall_age,
+    presentation_watchdog_remaining, ready_target_elapsed,
 };
 use denial_core::topology::OutputId;
 
@@ -25,6 +26,34 @@ fn output_frame(index: usize, screenshot_request_id: Option<u64>) -> OutputFrame
         },
         submitted_at: render_deadline,
     }
+}
+
+#[test]
+fn dpms_wake_retries_a_fresh_modeset_before_requesting_recovery() {
+    let started = Instant::now();
+    let mut wake = WakeModeset::new(started);
+
+    assert_eq!(
+        wake.record_failure(started),
+        WakeFailureDisposition {
+            first_failure: true,
+            recovery_required: false,
+        }
+    );
+    assert_eq!(
+        wake.record_failure(started + super::DPMS_WAKE_RECOVERY_TIMEOUT - Duration::from_nanos(1)),
+        WakeFailureDisposition {
+            first_failure: false,
+            recovery_required: false,
+        }
+    );
+    assert_eq!(
+        wake.record_failure(started + super::DPMS_WAKE_RECOVERY_TIMEOUT),
+        WakeFailureDisposition {
+            first_failure: false,
+            recovery_required: true,
+        }
+    );
 }
 
 #[test]
@@ -73,9 +102,65 @@ fn output_pipeline_holds_one_in_flight_and_one_ready_successor() {
         frames.in_flight.as_ref(),
         Some(InFlightFrame::Submitted(frame)) if frame.index == 1
     ));
-    assert_eq!(frames.retire_submitted().map(|frame| frame.index), Some(1));
+    assert!(matches!(
+        frames.retire_completion(),
+        CompletionRetirement::Retired(frame) if frame.index == 1
+    ));
     assert_eq!(frames.ready.as_ref().map(|frame| frame.index), Some(2));
     assert!(!frames.render_available());
+}
+
+#[test]
+fn output_pipeline_defers_completion_until_submission_acknowledgement() {
+    let mut frames = OutputPipelineFrames::default();
+    let commit = CommitId {
+        stream: 0,
+        frame: 1,
+    };
+
+    frames.install_ready(output_frame(1, None)).unwrap();
+    frames.schedule_ready(commit).unwrap();
+
+    assert!(matches!(
+        frames.retire_completion(),
+        CompletionRetirement::Deferred
+    ));
+    assert_eq!(frames.scheduled_commit(), Some(commit));
+
+    frames
+        .acknowledge_submission(commit, Instant::now())
+        .unwrap();
+    assert!(matches!(
+        frames.retire_completion(),
+        CompletionRetirement::Retired(frame) if frame.index == 1
+    ));
+    assert!(matches!(
+        frames.retire_completion(),
+        CompletionRetirement::Stale
+    ));
+}
+
+#[test]
+fn completed_edge_expires_only_untagged_successors_for_that_edge() {
+    let mut ready = output_frame(2, None);
+    let target = ready.request.tick.presentation_target;
+
+    assert!(!ready_target_elapsed(
+        &ready,
+        target - Duration::from_millis(2)
+    ));
+    assert!(ready_target_elapsed(
+        &ready,
+        target - Duration::from_micros(500)
+    ));
+    assert!(ready_target_elapsed(&ready, target));
+    assert!(ready_target_elapsed(
+        &ready,
+        target + ready.request.tick.interval
+    ));
+
+    ready.screenshot_request_id = Some(41);
+    assert!(!ready_target_elapsed(&ready, target));
 }
 
 #[test]
@@ -132,10 +217,10 @@ fn discarded_gpu_frame_is_not_reusable_until_its_fence_user_retires() {
 
 #[test]
 fn scheduler_audit_counts_wrapped_drm_sequence_gaps() {
-    let mut audit = OutputSchedulerAudit::new(4, 1);
+    let mut audit = OutputSchedulerAudit::new(4, vec![OutputId(1)]);
     let now = Instant::now();
-    audit.record_presentation(0, now, now, Some(u64::from(u32::MAX - 1)));
-    audit.record_presentation(0, now, now, Some(1));
+    audit.record_presentation(0, now, now, now, Some(u64::from(u32::MAX - 1)));
+    audit.record_presentation(0, now, now, now, Some(1));
 
     assert_eq!(audit.presentations, 2);
     assert_eq!(audit.sequence_samples, 1);
@@ -146,8 +231,8 @@ fn scheduler_audit_counts_wrapped_drm_sequence_gaps() {
 
 #[test]
 fn scheduler_audit_tracks_kernel_owned_fence_after_submission() {
-    let mut audit = OutputSchedulerAudit::new(4, 1);
-    audit.record_ready(0, 41, true, None);
+    let mut audit = OutputSchedulerAudit::new(4, vec![OutputId(1)]);
+    audit.record_ready(0, 41, true, None, Instant::now());
     audit.record_real_submission(0, 0, Instant::now());
 
     audit.record_fence_signal(0, 40);
@@ -162,16 +247,31 @@ fn scheduler_audit_tracks_kernel_owned_fence_after_submission() {
 
 #[test]
 fn scheduler_audit_tracks_the_single_submitted_generation() {
-    let mut audit = OutputSchedulerAudit::new(4, 1);
-    audit.record_ready(0, 51, false, None);
+    let mut audit = OutputSchedulerAudit::new(4, vec![OutputId(1)]);
+    audit.record_ready(0, 51, false, None, Instant::now());
     audit.record_real_submission(0, 0, Instant::now());
     assert_eq!(audit.volition_scheduled_submissions, 1);
     assert!(audit.submitted_at[0].is_some());
 
     let now = Instant::now();
-    audit.record_presentation(0, now, now, Some(1));
+    audit.record_presentation(0, now, now, now, Some(1));
     assert!(audit.submitted_at[0].is_none());
     assert_eq!(audit.submit_to_presentation.samples, 1);
+}
+
+#[test]
+fn scheduler_audit_latency_reports_exact_interval_percentiles() {
+    let mut latency = AuditLatency::default();
+    for micros in [100, 200, 300, 400] {
+        latency.record(Duration::from_micros(micros));
+    }
+
+    let summary = latency.summary();
+    assert_eq!(summary.average_us, 250.0);
+    assert_eq!(summary.p50_us, 200.0);
+    assert_eq!(summary.p95_us, 400.0);
+    assert_eq!(summary.p99_us, 400.0);
+    assert_eq!(summary.max_us, 400.0);
 }
 
 #[test]

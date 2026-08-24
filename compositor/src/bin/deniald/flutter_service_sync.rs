@@ -1,6 +1,7 @@
 //! Authentication, clipboard, controls, notifications, and software-keyboard synchronization.
 
 use super::*;
+use serde_json::json;
 
 pub(super) fn synchronize_authentication_boundary(events: &mut RuntimeState) {
     let locked = events
@@ -62,21 +63,154 @@ pub(super) fn synchronize_system_control_events(
 ) -> Result<(), Box<dyn Error>> {
     let audio_requests = runtime.drain_audio_requests().collect::<Vec<_>>();
     let brightness_requests = runtime.drain_brightness_requests().collect::<Vec<_>>();
+    expire_system_control_waits(events);
+    let control_requests = events.pending_system_controls.drain(..).collect::<Vec<_>>();
     let Some(controls) = events.system_controls.as_ref() else {
+        for request in control_requests {
+            let (_, reply) = request.into_parts();
+            let _ = reply.send(Err(OutputControlFailure::new(
+                "unavailable",
+                "native system controls are unavailable",
+            )));
+        }
         return Ok(());
     };
-    if !events.secure_session_locked() {
+    if events.secure_session_locked() {
+        for request in control_requests {
+            let (_, reply) = request.into_parts();
+            let _ = reply.send(Err(OutputControlFailure::new(
+                "locked",
+                "system controls are unavailable while the session is locked",
+            )));
+        }
+    } else {
         for request in audio_requests {
             controls.handle_audio_request(request);
         }
         for request in brightness_requests {
             controls.handle_brightness_request(request);
         }
+        for request in control_requests {
+            let (command, reply) = request.into_parts();
+            let (accepted, wait) = match command {
+                SystemControlCommand::Audio(request) => {
+                    let wait = match request {
+                        system_controls::AudioRequest::ReadLevel => {
+                            Some(SystemControlWaitKind::AudioLevel)
+                        }
+                        system_controls::AudioRequest::RequestStreams => {
+                            Some(SystemControlWaitKind::AudioStreams)
+                        }
+                        system_controls::AudioRequest::SetLevel { .. }
+                        | system_controls::AudioRequest::SetStreamLevel { .. } => None,
+                    };
+                    (controls.handle_audio_request(request), wait)
+                }
+                SystemControlCommand::Brightness(request) => {
+                    let wait = match &request {
+                        system_controls::BrightnessRequest::Read { monitor_id, .. } => {
+                            Some(SystemControlWaitKind::Brightness(*monitor_id))
+                        }
+                        system_controls::BrightnessRequest::Set { .. } => None,
+                    };
+                    (controls.handle_brightness_request(request), wait)
+                }
+            };
+            if !accepted {
+                let _ = reply.send(Err(OutputControlFailure::new(
+                    "busy",
+                    "the native system-control queue is full",
+                )));
+            } else if let Some(kind) = wait {
+                const MAX_PENDING_SYSTEM_CONTROL_WAITS: usize = 64;
+                if events.pending_system_control_waits.len() >= MAX_PENDING_SYSTEM_CONTROL_WAITS {
+                    let _ = reply.send(Err(OutputControlFailure::new(
+                        "busy",
+                        "too many system-control reads are pending",
+                    )));
+                } else {
+                    events
+                        .pending_system_control_waits
+                        .push_back(PendingSystemControlWait::new(kind, reply));
+                }
+            } else {
+                let _ = reply.send(Ok(json!({"accepted": true})));
+            }
+        }
     }
-    while let Some(event) = controls.try_event() {
+    let system_updates = std::iter::from_fn(|| controls.try_event()).collect::<Vec<_>>();
+    for event in system_updates {
+        resolve_system_control_waits(events, &event);
         runtime.send_system_control_event(&event)?;
     }
     Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn expire_system_control_waits(events: &mut RuntimeState) {
+    let now = Instant::now();
+    let pending = events.pending_system_control_waits.len();
+    for _ in 0..pending {
+        let Some(wait) = events.pending_system_control_waits.pop_front() else {
+            break;
+        };
+        if wait.expired(now) {
+            let _ = wait.reply.send(Err(OutputControlFailure::new(
+                "timeout",
+                "the native system-control worker did not answer in time",
+            )));
+        } else {
+            events.pending_system_control_waits.push_back(wait);
+        }
+    }
+}
+
+#[cfg(feature = "flutter")]
+fn resolve_system_control_waits(
+    events: &mut RuntimeState,
+    update: &system_controls::SystemControlEvent,
+) {
+    let (kind, result) = match update {
+        system_controls::SystemControlEvent::AudioLevel {
+            level,
+            request_serial,
+        } => (
+            SystemControlWaitKind::AudioLevel,
+            json!({
+                "level": level.clamp(0.0, 1.0),
+                "request_serial": request_serial,
+            }),
+        ),
+        system_controls::SystemControlEvent::AudioStreams(streams) => (
+            SystemControlWaitKind::AudioStreams,
+            json!({
+                "streams": streams.iter().map(|stream| json!({
+                    "id": stream.id,
+                    "name": stream.name,
+                    "level": f64::from(stream.level_percent.min(100)) / 100.0,
+                    "muted": stream.muted,
+                })).collect::<Vec<_>>(),
+            }),
+        ),
+        system_controls::SystemControlEvent::BrightnessLevel { monitor_id, level } => (
+            SystemControlWaitKind::Brightness(*monitor_id),
+            json!({
+                "monitor_id": monitor_id,
+                "level": level.clamp(0.0, 1.0),
+            }),
+        ),
+    };
+    let pending = events.pending_system_control_waits.len();
+    for _ in 0..pending {
+        let Some(wait) = events.pending_system_control_waits.pop_front() else {
+            break;
+        };
+        if wait.kind == kind {
+            let _ = wait.reply.send(Ok(result.clone()));
+        } else {
+            events.pending_system_control_waits.push_back(wait);
+        }
+    }
 }
 
 #[cfg(feature = "flutter")]

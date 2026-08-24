@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 
 use super::{
     LOOKAHEAD_SUBMIT_LEAD, LookaheadFailureDisposition, MAX_IN_FLIGHT_COMMITS_PER_STREAM,
-    Submission, commit_flags, is_retryable_lookahead_error, lookahead_failure_disposition,
-    lookahead_not_before, schedule_order,
+    Submission, commit_flags, is_recoverable_kms_error, is_retryable_lookahead_error,
+    lookahead_failure_disposition, lookahead_not_before, schedule_order,
 };
 use smithay::reexports::drm::control::AtomicCommitFlags;
 
@@ -58,8 +58,34 @@ fn exhausted_busy_lookahead_requests_compositor_recovery() {
     let invalid = io::Error::from_raw_os_error(libc::EINVAL);
     assert_eq!(
         lookahead_failure_disposition(&invalid, deadline - Duration::from_nanos(1), deadline),
-        LookaheadFailureDisposition::Fail
+        LookaheadFailureDisposition::Recover
     );
+}
+
+#[test]
+fn topology_and_mastership_errors_request_in_session_recovery() {
+    for errno in [
+        libc::EACCES,
+        libc::EPERM,
+        libc::EINVAL,
+        libc::ENOENT,
+        libc::ENODEV,
+        libc::EIO,
+        libc::ETIMEDOUT,
+    ] {
+        let error = io::Error::from_raw_os_error(errno);
+        assert!(is_recoverable_kms_error(&error));
+        assert_eq!(
+            lookahead_failure_disposition(&error, Instant::now(), Instant::now()),
+            LookaheadFailureDisposition::Recover
+        );
+    }
+
+    for errno in [libc::EBADF, libc::EFAULT, libc::ENOMEM] {
+        assert!(!is_recoverable_kms_error(&io::Error::from_raw_os_error(
+            errno
+        )));
+    }
 }
 
 #[test]

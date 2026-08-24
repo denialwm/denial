@@ -421,6 +421,27 @@ impl OutputBufferBroker {
         Ok(())
     }
 
+    pub(super) fn retain_output(
+        &mut self,
+        output: OutputId,
+        index: usize,
+    ) -> Result<(), &'static str> {
+        let slot = self
+            .pools
+            .iter_mut()
+            .find(|pool| pool.output_id == output)
+            .and_then(|pool| pool.slots.get_mut(index))
+            .ok_or("Flutter retained output slot is out of range")?;
+        if slot.state != BufferState::Free || slot.output_refs == 0 {
+            return Err("retained a Flutter buffer without a published output owner");
+        }
+        slot.output_refs = slot
+            .output_refs
+            .checked_add(1)
+            .ok_or("Flutter output reference count overflow")?;
+        Ok(())
+    }
+
     pub(super) fn tag_next_frame_for_screenshot(
         &mut self,
         output: OutputId,

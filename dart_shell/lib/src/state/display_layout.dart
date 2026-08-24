@@ -179,6 +179,24 @@ class DisplayLayoutController extends Notifier<DisplayLayout?>
     return resolved != null;
   }
 
+  /// Updates Settings' local topology preview without sending an embedder
+  /// command. The committed settings document is what instructs the embedded
+  /// shell to publish the real compositor work area.
+  void previewSystemBar({
+    required SystemBarSide side,
+    required Iterable<int> monitorIds,
+  }) {
+    final current = state;
+    if (current == null) return;
+    final requested = monitorIds.toSet();
+    final ordered = current.outputs
+        .where((output) => requested.contains(output.monitorId))
+        .map((output) => output.monitorId)
+        .toList(growable: false);
+    if (ordered.isEmpty && side != SystemBarSide.hidden) return;
+    state = current.copyWithSystemBar(side: side, monitorIds: ordered);
+  }
+
   /// Applies persisted shell policy without coupling this runtime controller
   /// to the Settings UI or its serialization model.
   void applyShellConfiguration({

@@ -19,6 +19,15 @@ impl WaylandFrontend {
     }
 
     #[cfg(feature = "flutter")]
+    pub(super) fn update_tablet_cursor_image(&mut self, image: CursorImageStatus) {
+        let shape = software_cursor_shape(&image);
+        self.cursor_status = image;
+        if self.pointer_cursor_visible {
+            self.queue_cursor_shape(shape);
+        }
+    }
+
+    #[cfg(feature = "flutter")]
     pub(super) fn queue_cursor_shape(&mut self, shape: &'static str) {
         if self.pending_cursor_shape == Some(shape)
             || (self.pending_cursor_shape.is_none() && self.published_cursor_shape == Some(shape))

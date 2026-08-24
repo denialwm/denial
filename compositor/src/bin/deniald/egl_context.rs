@@ -81,6 +81,22 @@ pub fn create_render_context(display: &EGLDisplay) -> Result<EGLContext, Box<dyn
 }
 
 #[cfg(feature = "flutter")]
+pub fn create_screencopy_context(shared: &EGLContext) -> Result<EGLContext, Box<dyn Error>> {
+    create_preferred_context("screencopy", |attributes, requirements| {
+        EGLContext::new_shared_with_config_and_priority(
+            shared.display(),
+            shared,
+            attributes,
+            requirements,
+            // Capture is best-effort client work. Keep scanout composition on
+            // the high-priority context so a slow readback cannot invert the
+            // compositor's scheduling priority.
+            ContextPriority::Low,
+        )
+    })
+}
+
+#[cfg(feature = "flutter")]
 pub struct SharedEglContext {
     context: EGLContext,
     display: EGLDisplay,

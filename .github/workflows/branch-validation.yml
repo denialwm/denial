@@ -195,11 +195,7 @@ jobs:
         run: |
           set -euo pipefail
           tools/denial-pc test \
-            2>&1 | tee "$EVIDENCE_ROOT/compositor-tests.txt"
-          (
-            cd dart_shell
-            "$DENIAL_PC_DEPENDENCY_ROOT/flutter/bin/flutter" test
-          ) 2>&1 | tee "$EVIDENCE_ROOT/flutter-tests.txt"
+            2>&1 | tee "$EVIDENCE_ROOT/denial-tests.txt"
           (
             cd "$DENIAL_PC_DEPENDENCY_ROOT/flutter/packages/flutter_tools"
             ../../bin/flutter test \

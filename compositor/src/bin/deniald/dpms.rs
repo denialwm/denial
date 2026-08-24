@@ -21,23 +21,6 @@ pub(super) fn collect_output_power_requests(events: &mut RuntimeState) {
 }
 
 #[cfg(feature = "flutter")]
-pub(super) fn transient_dpms_output_removal_count(
-    grace_until: Option<Instant>,
-    now: Instant,
-    current: impl IntoIterator<Item = OutputId>,
-    observed: impl IntoIterator<Item = OutputId>,
-) -> usize {
-    if grace_until.is_none_or(|deadline| now >= deadline) {
-        return 0;
-    }
-    let observed = observed.into_iter().collect::<HashSet<_>>();
-    current
-        .into_iter()
-        .filter(|output| !observed.contains(output))
-        .count()
-}
-
-#[cfg(feature = "flutter")]
 pub(super) fn synchronize_idle_dpms(scanouts: &[Scanout], events: &mut RuntimeState, now: Instant) {
     let inhibited = events
         .wayland
@@ -121,8 +104,10 @@ pub(super) fn apply_output_power_requests(
             if powered {
                 scheduler.cancel_power_off(output, scanouts);
             }
-            if let Some(frontend) = events.wayland.as_mut() {
-                frontend.output_power_applied(output, powered);
+            if !powered || !scheduler.power_on_pending(output) {
+                if let Some(frontend) = events.wayland.as_mut() {
+                    frontend.output_power_applied(output, powered);
+                }
             }
             continue;
         }
@@ -134,9 +119,10 @@ pub(super) fn apply_output_power_requests(
         }
     }
 
-    // Stop every affected pipeline before clearing any CRTC. This keeps one
-    // slow output from turning a multi-output blank into a staggered series of
-    // independently visible transitions.
+    // Stop every affected pipeline before disabling any CRTC. This is real
+    // DRM DPMS: `clear()` turns off the connector, CRTC, and planes. Like
+    // Niri, wake does not recommit this parked framebuffer. The output is
+    // re-enabled only after Flutter produces a fresh frame below.
     let mut waiting_for_power_off = false;
     for &(output, _) in &power_off {
         waiting_for_power_off |= scheduler.begin_power_off(runtime, output, scanouts)?;
@@ -203,12 +189,11 @@ pub(super) fn apply_output_power_requests(
                 "aborted compositor-owned display power-off batch"
             );
             if !rollback_failures.is_empty() {
-                return Err(format!(
-                    "DPMS power-off rollback failed after {} rejected the transition ({error}): {}",
-                    scanouts[failed_index].output.name,
-                    rollback_failures.join("; ")
-                )
-                .into());
+                events.kms_presentation_recovery_requested = true;
+                warn!(
+                    failures = rollback_failures.join("; "),
+                    "DPMS power-off rollback needs in-session KMS recovery"
+                );
             }
         } else {
             for &(output, scanout_index, _) in &targets {
@@ -219,7 +204,7 @@ pub(super) fn apply_output_power_requests(
                 events.pending.remove(&scanouts[scanout_index].output.crtc);
                 info!(
                     output = scanouts[scanout_index].output.name,
-                    "powered off KMS output"
+                    "powered off KMS output through DRM DPMS"
                 );
                 if let Some(frontend) = events.wayland.as_mut() {
                     frontend.output_power_applied(output, false);
@@ -229,118 +214,26 @@ pub(super) fn apply_output_power_requests(
     }
 
     if !power_on.is_empty() {
-        let targets = power_on
-            .iter()
-            .map(|&(output, scanout_index)| {
-                let framebuffer_index = scheduler
-                    .stable_framebuffer_index(output)
-                    .ok_or("DPMS wake output has no parked framebuffer")?;
-                let pool = swapchain
+        for &(output, scanout_index) in &power_on {
+            let framebuffer_index = scheduler
+                .stable_framebuffer_index(output)
+                .ok_or("DPMS wake output has no parked framebuffer")?;
+            scheduler.power_on(
+                runtime,
+                scanout_index,
+                framebuffer_index,
+                scanouts,
+                swapchain
                     .outputs()
-                    .and_then(|outputs| outputs.for_output(output))
-                    .ok_or("DPMS wake output has no physical buffer pool")?;
-                let framebuffer = pool
-                    .buffers
-                    .get(framebuffer_index)
-                    .ok_or("DPMS wake framebuffer exceeds its output pool")?
-                    .framebuffer();
-                Ok::<_, Box<dyn Error>>((
-                    output,
-                    scanout_index,
-                    framebuffer_index,
-                    framebuffer,
-                    pool.size,
-                ))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut failure = None;
-        for &(_, scanout_index, _, framebuffer, size) in &targets {
-            if let Err(error) = scanouts[scanout_index].surface.test_state(
-                [output_plane_state(
-                    &scanouts[scanout_index],
-                    framebuffer,
-                    size,
-                )],
-                true,
-            ) {
-                failure = Some((scanout_index, error.to_string(), false));
-                break;
-            }
-        }
-
-        let mut committed = Vec::with_capacity(power_on.len());
-        if failure.is_none() {
-            for &(output, scanout_index, _, framebuffer, size) in &targets {
-                if let Err(error) = scanouts[scanout_index].surface.commit(
-                    [output_plane_state(
-                        &scanouts[scanout_index],
-                        framebuffer,
-                        size,
-                    )],
-                    false,
-                ) {
-                    failure = Some((scanout_index, error.to_string(), true));
-                    break;
-                }
-                committed.push((output, scanout_index));
-            }
-        }
-
-        if let Some((failed_index, error, commit_failed)) = failure {
-            let mut rollback_failures = Vec::new();
-            for &(_, scanout_index) in &committed {
-                if let Err(rollback_error) = scanouts[scanout_index].surface.clear() {
-                    rollback_failures.push(format!(
-                        "{}: {rollback_error}",
-                        scanouts[scanout_index].output.name
-                    ));
-                }
-            }
-            for &(output, _) in &power_on {
-                events.idle_dpms.note_power_failure(output, Instant::now());
-                if let Some(frontend) = events.wayland.as_mut() {
-                    frontend.fail_output_power(output);
-                }
-            }
-            warn!(
-                output = scanouts[failed_index].output.name,
-                %error,
-                phase = if commit_failed { "commit" } else { "test" },
-                restored_outputs = committed.len(),
-                requested_outputs = power_on.len(),
-                "aborted compositor-owned display wake batch"
+                    .ok_or("DPMS wake has no physical output pools")?,
+            )?;
+            scanouts[scanout_index].powered = true;
+            power_changed = true;
+            events.output_control_dirty = true;
+            info!(
+                output = scanouts[scanout_index].output.name,
+                "queued a fresh frame to power on the KMS output"
             );
-            if !rollback_failures.is_empty() {
-                return Err(format!(
-                    "DPMS wake rollback failed after {} rejected the transition ({error}): {}",
-                    scanouts[failed_index].output.name,
-                    rollback_failures.join("; ")
-                )
-                .into());
-            }
-        } else {
-            for &(output, scanout_index, framebuffer_index, _, _) in &targets {
-                scanouts[scanout_index].powered = true;
-                power_changed = true;
-                scheduler.power_on(
-                    runtime,
-                    scanout_index,
-                    framebuffer_index,
-                    scanouts,
-                    swapchain
-                        .outputs()
-                        .ok_or("DPMS wake has no physical output pools")?,
-                )?;
-                events.output_control_dirty = true;
-                info!(
-                    output = scanouts[scanout_index].output.name,
-                    "powered on KMS output"
-                );
-                if let Some(frontend) = events.wayland.as_mut() {
-                    frontend.output_power_applied(output, true);
-                }
-            }
-            events.note_dpms_wake(Instant::now());
         }
     }
 
@@ -348,7 +241,3 @@ pub(super) fn apply_output_power_requests(
     events.output_power_requests = deferred;
     Ok(power_changed)
 }
-
-#[cfg(all(test, feature = "flutter"))]
-#[path = "dpms/tests.rs"]
-mod tests;

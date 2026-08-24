@@ -27,6 +27,7 @@ depends="
 	font-noto-cjk
 	font-noto-emoji
 	gcompat
+	gtk+3.0
 	libgcc
 	libinput
 	libpulse
@@ -123,6 +124,11 @@ package() {
 		--add-needed libdenial-resolver-bridge.so.0 \
 		--add-needed libdenial-pthread-stack.so.0 \
 		"$pkgdir/usr/bin/deniald"
+	patchelf --set-rpath '$ORIGIN/lib:/usr/lib/denial/alpine' \
+		--add-needed libgcompat.so.0 \
+		--add-needed libdenial-resolver-bridge.so.0 \
+		--add-needed libdenial-pthread-stack.so.0 \
+		"$pkgdir/usr/lib/denial/settings/denial-settings"
 
 	# This target has meaning only to a systemd user manager.  Alpine uses the
 	# launcher's already-supported direct-child lifecycle instead.

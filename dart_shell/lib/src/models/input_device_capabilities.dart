@@ -24,6 +24,24 @@ class DenialInputDeviceCapabilities {
   final bool naturalScrollEnabled;
   final double scrollSpeedFactor;
 
+  factory DenialInputDeviceCapabilities.fromJson(Map<String, Object?> json) {
+    return DenialInputDeviceCapabilities(
+      revision: json['revision'] as int? ?? 0,
+      hasTouchpad: json['has_touchpad'] as bool? ?? false,
+      tapToClickEnabled: json['tap_to_click_enabled'] as bool? ?? true,
+      naturalScrollEnabled: json['natural_scroll_enabled'] as bool? ?? false,
+      scrollSpeedFactor:
+          (json['scroll_speed_factor'] as num?)?.toDouble() ??
+          touchpadScrollSpeedFactorDefault,
+    );
+  }
+
+  Map<String, Object> toApplyJson() => <String, Object>{
+    'tapToClickEnabled': tapToClickEnabled,
+    'naturalScrollEnabled': naturalScrollEnabled,
+    'scrollSpeedFactor': scrollSpeedFactor,
+  };
+
   DenialInputDeviceCapabilities copyWith({
     int? revision,
     bool? hasTouchpad,

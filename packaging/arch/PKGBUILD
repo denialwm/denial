@@ -22,6 +22,7 @@ depends=(
   "denial-flutter-engine-abi=${_flutter_generation}"
   'dbus'
   'glibc'
+  'gtk3'
   'libgcc'
   'libglvnd'
   'libinput'
@@ -60,18 +61,20 @@ source=(
   'denial-session'
   "denial-session.target::file://$startdir/../denial-session.target"
   'denial.desktop'
+  'dev.denial.Settings.desktop'
   'denial-portals.conf'
   'outputs.conf'
   'session.conf'
   'xdg-desktop-portal-wlr-Denial'
 )
 sha256sums=(
-  '718aa3afc5d832c015c6c0874f200aac4b0c53827b569997ab929c3dd7e4558e'
+  '510beb421156ca7e6d1bf22455b6214265688e6c3faf8f8df6770bb67269f78f'
   '0b70d097f9ebd30e3851d608cb284173fa3dc8e8d15354cfca5799b2c1e26294'
   'b4fa50a715fdf36737a72241596c307534cb8665d42b8a947b28df54ab04a0b1'
+  'b9ef447d94ad8f1ac041462d25e2f86b12c7da52ef67f4df725bfb374f74ea3c'
   '92d54e0cce7ef20febd0dcbfdd2fd8578aa0996e50a78ac0160e3b8fcaa6c99f'
-  '46e4392e67f9e709a99bd6862119bc16491ce97a7db03cdf0431c3e86c45c70c'
-  '23870f81310a9312e4cac9b6991a9dd7c80992e0acb254a7915bc84286cdb6f5'
+  '7c3abc34d9250bcaeb3822c93479ef3c75069c6d234ce2a7f3baf598588fa016'
+  'ee62388148a29b124bdac5f6d017e0772291f7e33cf9fb6abd047ca21001ffa8'
   '3b4e3a52dff1a2ece31d122bd7220ddee2bdbaeb73ebe24ed9bd8c350580cd30'
 )
 
@@ -81,6 +84,7 @@ package() {
   local binary="${DENIAL_PACKAGE_BINARY:-$cache_root/denial/pc-build/rust/release/deniald}"
   local control_binary="${DENIAL_PACKAGE_CONTROL_BINARY:-$cache_root/denial/pc-build/rust/release/denialctl}"
   local bundle="${DENIAL_PACKAGE_BUNDLE:-$repository_root/dart_shell/build/linux/x64/release/bundle}"
+  local settings_bundle="${DENIAL_PACKAGE_SETTINGS_BUNDLE:-$repository_root/settings_app/build/linux/x64/release/bundle}"
   local payload_root="${DENIAL_PACKAGE_PAYLOAD_ROOT:-}"
   local runtime_version_file="${DENIAL_PACKAGE_RUNTIME_VERSION_FILE:-}"
   local runtime_version
@@ -122,7 +126,11 @@ package() {
   fi
   for required in \
     "$bundle/data/flutter_assets/AssetManifest.bin" \
-    "$bundle/lib/libapp.so"; do
+    "$bundle/lib/libapp.so" \
+    "$settings_bundle/denial-settings" \
+    "$settings_bundle/data/flutter_assets/AssetManifest.bin" \
+    "$settings_bundle/lib/libapp.so" \
+    "$settings_bundle/lib/libflutter_linux_gtk.so"; do
     if [[ ! -f "$required" ]]; then
       error "Flutter bundle component is missing: $required"
       error "Build through tools/denial-pc arch-package."
@@ -146,8 +154,16 @@ package() {
   install -m755 "$bundle/lib/libapp.so" \
     "$pkgdir/usr/lib/denial/flutter/lib/libapp.so"
 
+  install -dm755 "$pkgdir/usr/lib/denial/settings"
+  cp -a -- "$settings_bundle/." "$pkgdir/usr/lib/denial/settings/"
+  chmod -R u=rwX,go=rX "$pkgdir/usr/lib/denial/settings"
+  ln -s ../lib/denial/settings/denial-settings \
+    "$pkgdir/usr/bin/denial-settings"
+
   install -Dm644 "$srcdir/denial.desktop" \
     "$pkgdir/usr/share/wayland-sessions/denial.desktop"
+  install -Dm644 "$srcdir/dev.denial.Settings.desktop" \
+    "$pkgdir/usr/share/applications/dev.denial.Settings.desktop"
   install -Dm644 "$srcdir/denial-portals.conf" \
     "$pkgdir/usr/share/xdg-desktop-portal/denial-portals.conf"
   install -Dm644 "$srcdir/xdg-desktop-portal-wlr-Denial" \

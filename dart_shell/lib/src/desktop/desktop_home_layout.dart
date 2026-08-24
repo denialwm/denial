@@ -227,7 +227,7 @@ class DesktopHomeLayout {
     }
     var low = 0.001;
     var high = cell.height;
-    for (var iteration = 0; iteration < 48; iteration += 1) {
+    for (var iteration = 0; iteration < 32; iteration += 1) {
       final middle = (low + high) / 2.0;
       if (_widthAtHeight(item, middle) > cell.width) {
         high = middle;
@@ -245,17 +245,19 @@ class DesktopHomeLayout {
   }) {
     final rows = <List<DesktopHomeLayoutItem>>[];
     var row = <DesktopHomeLayoutItem>[];
+    var rowWidth = 0.0;
+    final minimumHeight = targetHeight * minimumRowScale;
     for (final item in items) {
-      final candidate = <DesktopHomeLayoutItem>[...row, item];
-      final minimumHeight = targetHeight * minimumRowScale;
+      final itemWidth = _widthAtHeight(item, minimumHeight);
       final candidateWidth =
-          _itemsWidthAtHeight(candidate, minimumHeight) +
-          itemGap * math.max(0, candidate.length - 1);
+          rowWidth + (row.isEmpty ? 0.0 : itemGap) + itemWidth;
       if (row.isNotEmpty && candidateWidth > availableWidth) {
         rows.add(row);
         row = <DesktopHomeLayoutItem>[item];
+        rowWidth = itemWidth;
       } else {
         row.add(item);
+        rowWidth = candidateWidth;
       }
     }
     if (row.isNotEmpty) {
@@ -307,7 +309,10 @@ class DesktopHomeLayout {
     while (_itemsWidthAtHeight(row, high) < widthForItems && high < 65536.0) {
       high *= 2.0;
     }
-    for (var iteration = 0; iteration < 60; iteration += 1) {
+    // 32 bisections retain substantially better than sub-pixel precision for
+    // the supported desktop sizes; the former 60 iterations only refined
+    // floating-point noise while multiplying work across repack attempts.
+    for (var iteration = 0; iteration < 32; iteration += 1) {
       final middle = (low + high) / 2.0;
       if (_itemsWidthAtHeight(row, middle) > widthForItems) {
         high = middle;

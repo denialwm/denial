@@ -997,13 +997,14 @@ pub(super) fn route_pointer_axis<E: PointerAxisEvent<LibinputInputBackend>>(
         .settings
         .touchpad()
         .scroll_speed_factor;
-    let horizontal = scaled_axis_amount(
+    let horizontal = logical_axis_scroll_delta(
         source,
         horizontal_amount,
         horizontal_v120,
         scroll_speed_factor,
     );
-    let vertical = scaled_axis_amount(source, vertical_amount, vertical_v120, scroll_speed_factor);
+    let vertical =
+        logical_axis_scroll_delta(source, vertical_amount, vertical_v120, scroll_speed_factor);
     let mut frame = AxisFrame::new(event.time_msec()).source(source);
     if horizontal != 0.0 {
         frame = frame.value(Axis::Horizontal, horizontal);
@@ -1034,20 +1035,6 @@ pub(super) fn route_pointer_axis<E: PointerAxisEvent<LibinputInputBackend>>(
         .expect("seat has no pointer");
     pointer.axis(state, frame);
     pointer.frame(state);
-}
-
-pub(super) fn scaled_axis_amount(
-    source: AxisSource,
-    amount: Option<f64>,
-    v120: Option<f64>,
-    scroll_speed_factor: f64,
-) -> f64 {
-    let amount = amount.unwrap_or_else(|| v120.unwrap_or(0.0) * 15.0 / 120.0);
-    if source == AxisSource::Finger {
-        amount * scroll_speed_factor
-    } else {
-        amount
-    }
 }
 
 #[cfg(feature = "flutter")]

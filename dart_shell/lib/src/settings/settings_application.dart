@@ -8,7 +8,6 @@ import '../local_apps/local_flutter_application.dart';
 import '../localization/denial_localizations.dart';
 import '../models/display_layout.dart';
 import '../state/display_layout.dart';
-import '../state/input_device_capabilities.dart';
 import '../state/output_configuration.dart';
 import '../state/ui_development.dart';
 import '../theme/motion.dart';
@@ -18,7 +17,6 @@ import '../wallpaper/state/wallpaper_controller.dart';
 import '../wallpaper/wallpaper.dart';
 import '../widgets/denial_wordmark.dart';
 import 'settings_controller.dart';
-import 'shell_settings.dart';
 import 'widgets/focused_border_color_picker.dart';
 import 'widgets/settings_about_page.dart';
 import 'widgets/settings_appearance_page.dart';
@@ -113,7 +111,14 @@ Widget _buildSettingsApplication(
 }
 
 class DenialSettingsApplication extends ConsumerStatefulWidget {
-  const DenialSettingsApplication({super.key});
+  const DenialSettingsApplication({
+    this.initialPage = SettingsPageId.appearance,
+    this.onOpenWallpaperSelector,
+    super.key,
+  });
+
+  final SettingsPageId initialPage;
+  final Future<void> Function()? onOpenWallpaperSelector;
 
   @override
   ConsumerState<DenialSettingsApplication> createState() =>
@@ -122,9 +127,32 @@ class DenialSettingsApplication extends ConsumerStatefulWidget {
 
 class _DenialSettingsApplicationState
     extends ConsumerState<DenialSettingsApplication> {
-  var _page = SettingsPageId.appearance;
+  late SettingsPageId _page;
   var _colorPickerOpen = false;
   int? _scheduledPageRequestId;
+
+  @override
+  void initState() {
+    super.initState();
+    _page = widget.initialPage;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_revealPendingDisplayConfirmation());
+    });
+  }
+
+  Future<void> _revealPendingDisplayConfirmation() async {
+    final outputController = ref.read(outputConfigurationProvider.notifier);
+    await outputController.refresh();
+    if (!mounted ||
+        ref
+                .read(outputConfigurationProvider)
+                .configuration
+                ?.pendingConfirmation ==
+            null) {
+      return;
+    }
+    _selectPage(SettingsPageId.displays);
+  }
 
   void _selectPage(SettingsPageId page) {
     if (_page == page) {
@@ -136,40 +164,6 @@ class _DenialSettingsApplicationState
   @override
   Widget build(BuildContext context) {
     _scheduleRequestedPage(ref.watch(settingsPageOpenRequestProvider));
-    final settings = ref.watch(shellSettingsProvider);
-    final settingsController = ref.read(shellSettingsProvider.notifier);
-    final displayLayout = ref.watch(displayLayoutProvider);
-    final displayController = ref.read(displayLayoutProvider.notifier);
-    final extractedAccent = ref.watch(wallpaperAccentProvider).color;
-    final outputState = ref.watch(outputConfigurationProvider);
-    final outputController = ref.read(outputConfigurationProvider.notifier);
-    final hasTouchpad = ref.watch(
-      inputDeviceCapabilitiesProvider.select(
-        (state) => state.capabilities.hasTouchpad,
-      ),
-    );
-    final pendingOutputConfirmation =
-        outputState.configuration?.pendingConfirmation;
-    if (pendingOutputConfirmation != null && _page != SettingsPageId.displays) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _selectPage(SettingsPageId.displays);
-        }
-      });
-    }
-    if (!hasTouchpad && _page == SettingsPageId.touchpad) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _page == SettingsPageId.touchpad) {
-          _selectPage(SettingsPageId.keyboard);
-        }
-      });
-    }
-    final wallpaper = _wallpaperFor(
-      ref.watch(
-        wallpaperControllerProvider.select((state) => state.assignment),
-      ),
-      displayLayout,
-    );
     return Semantics(
       container: true,
       role: .main,
@@ -188,7 +182,7 @@ class _DenialSettingsApplicationState
                   SettingsNavigation(
                     selected: _page,
                     compact: true,
-                    showTouchpad: hasTouchpad,
+                    showTouchpad: true,
                     onSelected: _selectPage,
                   ),
                   const Divider(height: 1, color: ShellColors.hairlineSoft),
@@ -201,7 +195,7 @@ class _DenialSettingsApplicationState
                         SettingsNavigation(
                           selected: _page,
                           compact: false,
-                          showTouchpad: hasTouchpad,
+                          showTouchpad: true,
                           onSelected: _selectPage,
                         ),
                       Expanded(
@@ -218,13 +212,12 @@ class _DenialSettingsApplicationState
                           },
                           child: KeyedSubtree(
                             key: ValueKey<SettingsPageId>(_page),
-                            child: _buildPage(
-                              settings: settings,
-                              controller: settingsController,
-                              displayLayout: displayLayout,
-                              displayController: displayController,
-                              extractedAccent: extractedAccent,
-                              wallpaper: wallpaper,
+                            child: _SettingsPageBody(
+                              page: _page,
+                              onOpenAccentPicker: () =>
+                                  setState(() => _colorPickerOpen = true),
+                              onOpenWallpaperSelector: () =>
+                                  unawaited(_openWallpaperSelector()),
                             ),
                           ),
                         ),
@@ -242,151 +235,15 @@ class _DenialSettingsApplicationState
                   child: AnimatedSwitcher(
                     duration: Motion.cardSettle,
                     reverseDuration: Motion.tile,
-                    child: _buildColorPicker(settings, settingsController),
+                    child: _buildColorPicker(),
                   ),
                 ),
-                if (pendingOutputConfirmation != null)
-                  Positioned.fill(
-                    child: SettingsDisplayConfirmationDialog(
-                      confirmation: pendingOutputConfirmation,
-                      busy: outputState.applying,
-                      onKeep: () => unawaited(outputController.keepChanges()),
-                      onRevert: () =>
-                          unawaited(outputController.rollbackChanges()),
-                      onExpired: () => unawaited(outputController.refresh()),
-                    ),
-                  ),
               ],
             );
           },
         ),
       ),
     );
-  }
-
-  Widget _buildPage({
-    required ShellSettings settings,
-    required ShellSettingsController controller,
-    required DisplayLayout? displayLayout,
-    required DisplayLayoutController displayController,
-    required Color extractedAccent,
-    required WallpaperResource wallpaper,
-  }) {
-    return switch (_page) {
-      SettingsPageId.appearance => SettingsAppearancePage(
-        settings: settings.appearance,
-        extractedAccent: extractedAccent,
-        wallpaper: wallpaper,
-        onOpenWallpaperSelector: () => unawaited(_openWallpaperSelector()),
-        onAccentSourceChanged: controller.setAccentSource,
-        onOpenAccentPicker: () => setState(() => _colorPickerOpen = true),
-        onWindowRadiusChanged: controller.setWindowRadius,
-        onPanelRadiusChanged: controller.setPanelRadius,
-        onPanelOpacityChanged: controller.setPanelOpacity,
-        onBackdropBlurEnabledChanged: controller.setBackdropBlurEnabled,
-        onBackdropBlurSigmaChanged: controller.setBackdropBlurSigma,
-        onBackdropBlurOpacityThresholdChanged:
-            controller.setBackdropBlurOpacityThreshold,
-        onFocusedOpacityChanged: controller.setFocusedWindowOpacity,
-        onUnfocusedOpacityChanged: controller.setUnfocusedWindowOpacity,
-        onCursorSizeChanged: controller.setCursorSize,
-        onReset: controller.resetAppearance,
-      ),
-      SettingsPageId.language => SettingsLanguagePage(
-        settings: settings.localization,
-        onChanged: controller.setLocalePreference,
-        onReset: controller.resetLocalization,
-      ),
-      SettingsPageId.keyboard => const SettingsKeyboardPage(),
-      SettingsPageId.touchpad => const SettingsTouchpadPage(),
-      SettingsPageId.shortcuts => const SettingsShortcutsPage(),
-      SettingsPageId.layout => SettingsLayoutPage(
-        settings: settings.layout,
-        displayLayout: displayLayout,
-        onSystemBarChanged: (side, monitorIds) {
-          final outputNames = <String>[
-            for (final output
-                in displayLayout?.outputs ?? const <DisplayOutput>[])
-              if (monitorIds.contains(output.monitorId)) output.name,
-          ];
-          controller.setSystemBarPlacement(
-            side: side,
-            outputNames: outputNames,
-          );
-          unawaited(
-            displayController.configureSystemBar(
-              side: side,
-              monitorIds: monitorIds,
-            ),
-          );
-        },
-        onSystemBarThicknessChanged: (value) {
-          controller.setSystemBarThickness(value);
-          _syncDisplayConfiguration(
-            settings.layout.copyWith(systemBarThickness: value),
-            displayController,
-          );
-        },
-        onMaximizePaddingChanged: (value) {
-          controller.setMaximizePadding(value);
-          _syncDisplayConfiguration(
-            settings.layout.copyWith(maximizePadding: value),
-            displayController,
-          );
-        },
-        onClipboardTrayEdgeChanged: controller.setClipboardTrayEdge,
-        onClipboardTrayExtentChanged: controller.setClipboardTrayExtent,
-        onReset: () {
-          controller.resetLayout();
-          _syncDisplayConfiguration(
-            const ShellLayoutSettings(),
-            displayController,
-          );
-        },
-      ),
-      SettingsPageId.animations => SettingsAnimationsPage(
-        settings: settings.animations,
-        onCloseEffectChanged: controller.setWindowCloseEffect,
-        onDurationScaleChanged: controller.setAnimationDurationScale,
-        onPanelTravelChanged: controller.setPanelTravel,
-        onLockAnimationChanged: controller.setLockScreenAnimationEnabled,
-        onReset: controller.resetAnimations,
-      ),
-      SettingsPageId.overlays => SettingsOverlaysPage(
-        settings: settings.overlays,
-        onChanged: controller.setOverlayPlacement,
-        onReset: controller.resetOverlays,
-      ),
-      SettingsPageId.power => SettingsPowerPage(
-        settings: settings.power,
-        onEnabledChanged: controller.setIdleDpmsEnabled,
-        onTimeoutChanged: controller.setIdleDpmsTimeoutMinutes,
-        onReset: controller.resetPower,
-      ),
-      SettingsPageId.lockScreen => SettingsLockScreenPage(
-        settings: settings.lockScreen,
-        wallpaper: wallpaper,
-        onUseWallpaperChanged: (value) =>
-            controller.setLockScreen(useSystemWallpaper: value),
-        onDimChanged: (value) => controller.setLockScreen(dimAmount: value),
-        onBlurChanged: (value) => controller.setLockScreen(blurRadius: value),
-        onClockScaleChanged: (value) =>
-            controller.setLockScreen(clockScale: value),
-        onShowStatusChanged: (value) =>
-            controller.setLockScreen(showSystemStatus: value),
-        onReset: controller.resetLockScreen,
-      ),
-      SettingsPageId.audio => const SettingsAudioPage(),
-      SettingsPageId.displays => const SettingsDisplaysPage(),
-      SettingsPageId.network => const SettingsNetworkPage(),
-      SettingsPageId.bluetooth => const SettingsBluetoothPage(),
-      SettingsPageId.developer => SettingsDeveloperPage(
-        state: ref.watch(uiDevelopmentProvider),
-        controller: ref.read(uiDevelopmentProvider.notifier),
-        workspaceSetup: ref.watch(uiWorkspaceSetupProvider),
-      ),
-      SettingsPageId.about => const SettingsAboutPage(),
-    };
   }
 
   void _scheduleRequestedPage(SettingsPageOpenRequest? request) {
@@ -404,18 +261,19 @@ class _DenialSettingsApplicationState
     });
   }
 
-  Widget _buildColorPicker(
-    ShellSettings settings,
-    ShellSettingsController controller,
-  ) {
+  Widget _buildColorPicker() {
     if (!_colorPickerOpen) {
       return const SizedBox.shrink(
         key: ValueKey<String>('settings-color-picker-closed'),
       );
     }
+    final settings = ref.watch(
+      shellSettingsProvider.select((settings) => settings.appearance),
+    );
+    final controller = ref.read(shellSettingsProvider.notifier);
     return SettingsAccentColorPicker(
       key: settingsAccentColorPickerKey,
-      color: settings.appearance.customAccentColor,
+      color: settings.customAccentColor,
       title: context.l10n.settingsShellAccentTitle,
       routeLabel: context.l10n.settingsAccentPickerRouteLabel,
       wheelSemanticsLabel: context.l10n.settingsAccentPickerWheelLabel,
@@ -426,6 +284,11 @@ class _DenialSettingsApplicationState
   }
 
   Future<void> _openWallpaperSelector() async {
+    final externalLauncher = widget.onOpenWallpaperSelector;
+    if (externalLauncher != null) {
+      await externalLauncher();
+      return;
+    }
     var displayLayout = ref.read(displayLayoutProvider);
     displayLayout ??= await ref
         .read(displayLayoutProvider.notifier)
@@ -441,28 +304,196 @@ class _DenialSettingsApplicationState
           targetPixelSize: displayLayout?.pixelSize ?? fallbackPixelSize,
         );
   }
+}
 
-  void _syncDisplayConfiguration(
-    ShellLayoutSettings settings,
-    DisplayLayoutController displayController,
-  ) {
-    displayController.applyShellConfiguration(
-      side: settings.systemBarSide,
-      outputNames: settings.systemBarOutputNames,
-      systemBarThickness: settings.systemBarThickness,
-      maximizePadding: settings.maximizePadding,
+class _SettingsPageBody extends ConsumerWidget {
+  const _SettingsPageBody({
+    required this.page,
+    required this.onOpenAccentPicker,
+    required this.onOpenWallpaperSelector,
+  });
+
+  final SettingsPageId page;
+  final VoidCallback onOpenAccentPicker;
+  final VoidCallback onOpenWallpaperSelector;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.read(shellSettingsProvider.notifier);
+    switch (page) {
+      case SettingsPageId.appearance:
+        final settings = ref.watch(
+          shellSettingsProvider.select((settings) => settings.appearance),
+        );
+        final displayLayout = ref.watch(displayLayoutProvider);
+        final assignment = ref.watch(
+          wallpaperControllerProvider.select((state) => state.assignment),
+        );
+        return SettingsAppearancePage(
+          settings: settings,
+          extractedAccent: ref.watch(wallpaperAccentProvider).color,
+          wallpaper: _wallpaperFor(assignment, displayLayout),
+          onOpenWallpaperSelector: onOpenWallpaperSelector,
+          onAccentSourceChanged: controller.setAccentSource,
+          onOpenAccentPicker: onOpenAccentPicker,
+          onWindowRadiusChanged: controller.setWindowRadius,
+          onPanelRadiusChanged: controller.setPanelRadius,
+          onPanelOpacityChanged: controller.setPanelOpacity,
+          onBackdropBlurEnabledChanged: controller.setBackdropBlurEnabled,
+          onBackdropBlurLevelChanged: controller.setBackdropBlurLevel,
+          onBackdropBlurOpacityThresholdChanged:
+              controller.setBackdropBlurOpacityThreshold,
+          onFocusedOpacityChanged: controller.setFocusedWindowOpacity,
+          onUnfocusedOpacityChanged: controller.setUnfocusedWindowOpacity,
+          onCursorSizeChanged: controller.setCursorSize,
+          onReset: controller.resetAppearance,
+        );
+      case SettingsPageId.language:
+        final settings = ref.watch(
+          shellSettingsProvider.select((settings) => settings.localization),
+        );
+        return SettingsLanguagePage(
+          settings: settings,
+          onChanged: controller.setLocalePreference,
+          onReset: controller.resetLocalization,
+        );
+      case SettingsPageId.keyboard:
+        return const SettingsKeyboardPage();
+      case SettingsPageId.touchpad:
+        return const SettingsTouchpadPage();
+      case SettingsPageId.shortcuts:
+        return const SettingsShortcutsPage();
+      case SettingsPageId.layout:
+        final settings = ref.watch(
+          shellSettingsProvider.select((settings) => settings.layout),
+        );
+        final displayLayout = ref.watch(displayLayoutProvider);
+        return SettingsLayoutPage(
+          settings: settings,
+          displayLayout: displayLayout,
+          onSystemBarChanged: (side, monitorIds) {
+            final outputNames = <String>[
+              for (final output
+                  in displayLayout?.outputs ?? const <DisplayOutput>[])
+                if (monitorIds.contains(output.monitorId)) output.name,
+            ];
+            controller.setSystemBarPlacement(
+              side: side,
+              outputNames: outputNames,
+            );
+            ref
+                .read(displayLayoutProvider.notifier)
+                .previewSystemBar(side: side, monitorIds: monitorIds);
+          },
+          onSystemBarThicknessChanged: controller.setSystemBarThickness,
+          onMaximizePaddingChanged: controller.setMaximizePadding,
+          onClipboardTrayEdgeChanged: controller.setClipboardTrayEdge,
+          onClipboardTrayExtentChanged: controller.setClipboardTrayExtent,
+          onReset: controller.resetLayout,
+        );
+      case SettingsPageId.animations:
+        final settings = ref.watch(
+          shellSettingsProvider.select((settings) => settings.animations),
+        );
+        return SettingsAnimationsPage(
+          settings: settings,
+          onCloseEffectChanged: controller.setWindowCloseEffect,
+          onDurationScaleChanged: controller.setAnimationDurationScale,
+          onPanelTravelChanged: controller.setPanelTravel,
+          onLockAnimationChanged: controller.setLockScreenAnimationEnabled,
+          onReset: controller.resetAnimations,
+        );
+      case SettingsPageId.overlays:
+        final settings = ref.watch(
+          shellSettingsProvider.select((settings) => settings.overlays),
+        );
+        return SettingsOverlaysPage(
+          settings: settings,
+          onChanged: controller.setOverlayPlacement,
+          onReset: controller.resetOverlays,
+        );
+      case SettingsPageId.power:
+        final settings = ref.watch(
+          shellSettingsProvider.select((settings) => settings.power),
+        );
+        return SettingsPowerPage(
+          settings: settings,
+          onEnabledChanged: controller.setIdleDpmsEnabled,
+          onTimeoutChanged: controller.setIdleDpmsTimeoutMinutes,
+          onReset: controller.resetPower,
+        );
+      case SettingsPageId.lockScreen:
+        final settings = ref.watch(
+          shellSettingsProvider.select((settings) => settings.lockScreen),
+        );
+        final displayLayout = ref.watch(displayLayoutProvider);
+        final assignment = ref.watch(
+          wallpaperControllerProvider.select((state) => state.assignment),
+        );
+        return SettingsLockScreenPage(
+          settings: settings,
+          wallpaper: _wallpaperFor(assignment, displayLayout),
+          onUseWallpaperChanged: (value) =>
+              controller.setLockScreen(useSystemWallpaper: value),
+          onDimChanged: (value) => controller.setLockScreen(dimAmount: value),
+          onBlurChanged: (value) => controller.setLockScreen(blurRadius: value),
+          onClockScaleChanged: (value) =>
+              controller.setLockScreen(clockScale: value),
+          onShowStatusChanged: (value) =>
+              controller.setLockScreen(showSystemStatus: value),
+          onReset: controller.resetLockScreen,
+        );
+      case SettingsPageId.audio:
+        return const SettingsAudioPage();
+      case SettingsPageId.displays:
+        return const _SettingsDisplaysBody();
+      case SettingsPageId.network:
+        return const SettingsNetworkPage();
+      case SettingsPageId.bluetooth:
+        return const SettingsBluetoothPage();
+      case SettingsPageId.developer:
+        return SettingsDeveloperPage(
+          state: ref.watch(uiDevelopmentProvider),
+          controller: ref.read(uiDevelopmentProvider.notifier),
+          workspaceSetup: ref.watch(uiWorkspaceSetupProvider),
+        );
+      case SettingsPageId.about:
+        return const SettingsAboutPage();
+    }
+  }
+}
+
+class _SettingsDisplaysBody extends ConsumerWidget {
+  const _SettingsDisplaysBody();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(outputConfigurationProvider);
+    final controller = ref.read(outputConfigurationProvider.notifier);
+    final confirmation = state.configuration?.pendingConfirmation;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const SettingsDisplaysPage(),
+        if (confirmation != null)
+          SettingsDisplayConfirmationDialog(
+            confirmation: confirmation,
+            busy: state.applying,
+            onKeep: () => unawaited(controller.keepChanges()),
+            onRevert: () => unawaited(controller.rollbackChanges()),
+            onExpired: () => unawaited(controller.refresh()),
+          ),
+      ],
     );
   }
+}
 
-  WallpaperResource _wallpaperFor(
-    WallpaperAssignment assignment,
-    DisplayLayout? layout,
-  ) {
-    final outputName = layout?.mainOutput?.name;
-    return outputName == null
-        ? assignment.all
-        : assignment.forOutput(outputName);
-  }
+WallpaperResource _wallpaperFor(
+  WallpaperAssignment assignment,
+  DisplayLayout? layout,
+) {
+  final outputName = layout?.mainOutput?.name;
+  return outputName == null ? assignment.all : assignment.forOutput(outputName);
 }
 
 class _SettingsHeader extends StatelessWidget {

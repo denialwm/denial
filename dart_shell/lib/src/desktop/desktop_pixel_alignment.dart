@@ -6,9 +6,10 @@ import 'package:flutter/widgets.dart';
 /// device-pixel ratio those positions can land between atlas pixels even when
 /// the client buffer itself is already rendered at the correct scale. Shift
 /// the complete frame so its client content, clip, and surface tree move
-/// together. During a resize, align the opposite content edges as well so a
-/// changing edge advances in whole physical pixels instead of changing its
-/// raster coverage between frames.
+/// together. Stable desktop windows align the opposite content edges as well
+/// so the laid-out texture always covers a whole number of physical pixels.
+/// Deliberately transformed overview and switcher geometry bypasses this
+/// helper at the call site and keeps filtered animation sampling.
 Rect desktopPixelAlignedWindowFrame({
   required Rect frame,
   required double contentInset,

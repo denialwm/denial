@@ -845,6 +845,24 @@ void main() {
     },
   );
 
+  test('input layout revision ignores panel-only workspace updates', () {
+    final initial = DesktopWorkspaceState.initial();
+    final panel = initial.copyWith(panel: DesktopPanel.launcher);
+    final placement = panel.copyWith(
+      placements: const <int, DesktopWindowPlacement>{
+        1: DesktopWindowPlacement(
+          objectId: 1,
+          frame: Rect.fromLTWH(10, 20, 640, 480),
+          z: 1,
+          monitorId: 1,
+        ),
+      },
+    );
+
+    expect(panel.inputLayoutRevision, initial.inputLayoutRevision);
+    expect(placement.inputLayoutRevision, panel.inputLayoutRevision + 1);
+  });
+
   test('live visual frame follows every resized placement edge', () {
     const visualFrame = Rect.fromLTWH(110, 130, 800, 600);
     const placementFrame = Rect.fromLTWH(100, 120, 800, 600);

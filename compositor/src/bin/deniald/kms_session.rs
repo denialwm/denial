@@ -78,10 +78,8 @@ pub(super) fn service_session_lifecycle(
 }
 
 /// Establishes a synchronous scanout baseline after the DRM event stream can
-/// no longer be trusted.  A DPMS wake can leave an atomic commit accepted by
-/// the kernel but without its corresponding page-flip event while a display
-/// link is still training.  The Flutter scheduler owns page-flip generations,
-/// so it must be rebuilt after this operation.
+/// no longer be trusted. The Flutter scheduler owns page-flip generations, so
+/// it must be rebuilt after this operation.
 pub(super) fn rebase_kms_scanouts(
     drm: &mut DrmDevice,
     scanouts: &[Scanout],
@@ -152,16 +150,16 @@ pub(super) fn recover_stalled_kms_presentation(
                 }
                 // Reset every connector, CRTC, and plane in one synchronous
                 // atomic transaction. Re-committing the old per-output state
-                // here can wait forever when DPMS wake also removed a
-                // connector, which is precisely the failure this path must
-                // recover from. The normal topology transaction will rescan
-                // and enable only hardware which is actually connected.
+                // here can wait forever after a connector or device reset,
+                // which is precisely the failure this path must recover from.
+                // The normal topology transaction will rescan and enable only
+                // hardware which is actually connected.
                 drm.activate(true)?;
                 events.pending.clear();
                 events.completed_page_flips.clear();
                 events.scanout_rebased = true;
                 events.topology_dirty = true;
-                info!("reset KMS state after a stalled DPMS-wake presentation");
+                info!("reset KMS state after a recoverable presentation failure");
                 Ok(())
             })()
         };

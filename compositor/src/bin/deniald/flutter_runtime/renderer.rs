@@ -4,6 +4,8 @@ use super::*;
 
 #[path = "renderer/gl.rs"]
 mod gl_resources;
+#[path = "renderer/gpu_timing.rs"]
+mod gpu_timing;
 #[path = "renderer/output_projection.rs"]
 mod output_projection;
 #[path = "renderer/texture.rs"]
@@ -13,6 +15,7 @@ use gl_resources::{
     ContextBinding, GlApi, GlTarget, ShaderBlit, create_shader_blit, destroy_depth_stencils,
     destroy_shader_blit, destroy_targets,
 };
+use gpu_timing::GpuTimingState;
 #[cfg(test)]
 pub(super) use output_projection::{
     AnimatedOutputRotation, animated_rotation_transform, shortest_rotation_delta,

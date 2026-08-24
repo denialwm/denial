@@ -1,6 +1,7 @@
 //! Shell window state, persistent settings, shortcuts, bars, and output geometry.
 
 use super::*;
+use serde_json::json;
 
 pub(super) fn synchronize_flutter_window_management(
     runtime: &mut flutter_runtime::FlutterRuntime,
@@ -99,6 +100,7 @@ pub(super) fn synchronize_settings(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &mut RuntimeState,
 ) -> Result<(), Box<dyn Error>> {
+    synchronize_control_settings(runtime, events)?;
     let commands = runtime.drain_settings_commands().collect::<Vec<_>>();
     for command in commands {
         match command {
@@ -449,6 +451,388 @@ pub(super) fn synchronize_settings(
         send_input_device_settings(runtime, events, 0, None)?;
     }
     Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn synchronize_control_settings(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &mut RuntimeState,
+) -> Result<(), Box<dyn Error>> {
+    while let Some(request) = events.pending_settings_controls.pop_front() {
+        let (command, reply) = request.into_parts();
+        let result = match command {
+            SettingsControlCommand::ReadDocument => {
+                let result = events
+                    .wayland
+                    .as_ref()
+                    .ok_or_else(|| {
+                        OutputControlFailure::new(
+                            "unavailable",
+                            "settings request has no Wayland frontend",
+                        )
+                    })
+                    .and_then(|frontend| {
+                        frontend
+                            .settings
+                            .document_json()
+                            .map(|document| {
+                                json!({
+                                    "revision": frontend.settings.revision(),
+                                    "document": document,
+                                })
+                            })
+                            .map_err(|error| OutputControlFailure::new("failed", error.to_string()))
+                    });
+                result
+            }
+            SettingsControlCommand::WriteDocument {
+                expected_revision,
+                document,
+            } => {
+                let result = events
+                    .wayland
+                    .as_mut()
+                    .ok_or_else(|| {
+                        OutputControlFailure::new(
+                            "unavailable",
+                            "settings request has no Wayland frontend",
+                        )
+                    })
+                    .and_then(|frontend| {
+                        frontend
+                            .settings
+                            .prepare_shell_update(expected_revision, &document)
+                            .and_then(|prepared| frontend.settings.commit(prepared))
+                            .map_err(|error| {
+                                OutputControlFailure::new("conflict", error.to_string())
+                            })?;
+                        frontend.keyboard_configuration_changed = true;
+                        frontend
+                            .settings
+                            .document_json()
+                            .map(|document| (frontend.settings.revision(), document))
+                            .map_err(|error| OutputControlFailure::new("failed", error.to_string()))
+                    });
+                match result {
+                    Ok((revision, document)) => {
+                        events.input_device_capabilities_changed = true;
+                        if let Err(error) = runtime.send_settings_document_response(
+                            0,
+                            revision,
+                            Some(&document),
+                            None,
+                        ) {
+                            warn!(%error, "could not notify the embedded shell of a settings update");
+                        }
+                        Ok(json!({
+                            "revision": revision,
+                            "document": document,
+                        }))
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+            SettingsControlCommand::ReadKeyboard => control_keyboard_snapshot(events),
+            SettingsControlCommand::WriteKeyboard {
+                expected_revision,
+                keyboard,
+            } => apply_control_keyboard(events, expected_revision, keyboard),
+            SettingsControlCommand::ReadInputDevices => control_input_snapshot(events),
+            SettingsControlCommand::WriteTouchpad {
+                expected_revision,
+                touchpad,
+            } => apply_control_touchpad(events, expected_revision, touchpad),
+            SettingsControlCommand::ReadShortcuts => control_shortcut_snapshot(events),
+            SettingsControlCommand::ValidateShortcut {
+                shortcut,
+                existing_shortcut,
+            } => control_shortcut_validation(events, &shortcut, existing_shortcut.as_deref()),
+            SettingsControlCommand::AddShortcut {
+                expected_revision,
+                shortcut,
+            } => match events.wayland.as_ref() {
+                Some(frontend) => {
+                    let prepared = frontend.shortcuts.prepare_add(expected_revision, shortcut);
+                    apply_control_shortcut_update(events, prepared)
+                }
+                None => Err(control_unavailable("shortcut update")),
+            },
+            SettingsControlCommand::UpdateShortcut {
+                expected_revision,
+                existing_shortcut,
+                shortcut,
+            } => match events.wayland.as_ref() {
+                Some(frontend) => {
+                    let prepared = frontend.shortcuts.prepare_update(
+                        expected_revision,
+                        &existing_shortcut,
+                        shortcut,
+                    );
+                    apply_control_shortcut_update(events, prepared)
+                }
+                None => Err(control_unavailable("shortcut update")),
+            },
+            SettingsControlCommand::RemoveShortcut {
+                expected_revision,
+                shortcut,
+            } => match events.wayland.as_ref() {
+                Some(frontend) => {
+                    let prepared = frontend
+                        .shortcuts
+                        .prepare_remove(expected_revision, &shortcut);
+                    apply_control_shortcut_update(events, prepared)
+                }
+                None => Err(control_unavailable("shortcut removal")),
+            },
+            SettingsControlCommand::RestoreShortcuts { expected_revision } => {
+                match events.wayland.as_ref() {
+                    Some(frontend) => {
+                        let prepared = frontend.shortcuts.prepare_restore(expected_revision);
+                        apply_control_shortcut_update(events, prepared)
+                    }
+                    None => Err(control_unavailable("shortcut restore")),
+                }
+            }
+        };
+        let _ = reply.send(result);
+    }
+    Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn control_unavailable(operation: &str) -> OutputControlFailure {
+    OutputControlFailure::new(
+        "unavailable",
+        format!("{operation} has no Wayland frontend"),
+    )
+}
+
+#[cfg(feature = "flutter")]
+fn control_failed(error: impl std::fmt::Display) -> OutputControlFailure {
+    OutputControlFailure::new("failed", error.to_string())
+}
+
+#[cfg(feature = "flutter")]
+fn control_conflict(error: impl std::fmt::Display) -> OutputControlFailure {
+    OutputControlFailure::new("conflict", error.to_string())
+}
+
+#[cfg(feature = "flutter")]
+fn control_keyboard_snapshot(
+    events: &RuntimeState,
+) -> Result<serde_json::Value, OutputControlFailure> {
+    let frontend = events
+        .wayland
+        .as_ref()
+        .ok_or_else(|| control_unavailable("keyboard settings"))?;
+    let keyboard = frontend.settings.keyboard();
+    Ok(json!({
+        "revision": frontend.settings.revision(),
+        "layouts": keyboard.layouts.iter().enumerate().map(|(index, layout)| json!({
+            "layout": layout.layout,
+            "variant": layout.variant,
+            "display_name": frontend.keyboard_layout_names.get(index).cloned().unwrap_or_default(),
+        })).collect::<Vec<_>>(),
+        "options": keyboard.options,
+        "repeat_delay_ms": keyboard.repeat_delay_ms,
+        "repeat_rate_hz": keyboard.repeat_rate_hz,
+        "active_layout": frontend.active_keyboard_layout,
+    }))
+}
+
+#[cfg(feature = "flutter")]
+fn control_input_snapshot(
+    events: &RuntimeState,
+) -> Result<serde_json::Value, OutputControlFailure> {
+    let frontend = events
+        .wayland
+        .as_ref()
+        .ok_or_else(|| control_unavailable("input settings"))?;
+    let touchpad = frontend.settings.touchpad();
+    Ok(json!({
+        "revision": frontend.settings.revision(),
+        "has_touchpad": !events.touchpad_devices.is_empty(),
+        "tap_to_click_enabled": touchpad.tap_to_click_enabled,
+        "natural_scroll_enabled": touchpad.natural_scroll_enabled,
+        "scroll_speed_factor": touchpad.scroll_speed_factor,
+    }))
+}
+
+#[cfg(feature = "flutter")]
+fn apply_control_keyboard(
+    events: &mut RuntimeState,
+    expected_revision: u64,
+    keyboard: settings::KeyboardSettings,
+) -> Result<serde_json::Value, OutputControlFailure> {
+    let prepared = events
+        .wayland
+        .as_ref()
+        .ok_or_else(|| control_unavailable("keyboard update"))?
+        .settings
+        .prepare_keyboard_update(expected_revision, keyboard)
+        .map_err(control_conflict)?;
+    let previous = events
+        .wayland
+        .as_ref()
+        .expect("missing Wayland frontend")
+        .settings
+        .keyboard()
+        .clone();
+    let next = prepared.keyboard().clone();
+    wayland_frontend::install_keyboard_settings(events, &next).map_err(control_failed)?;
+    if let Err(error) = events
+        .wayland
+        .as_mut()
+        .expect("missing Wayland frontend")
+        .settings
+        .commit(prepared)
+    {
+        wayland_frontend::install_keyboard_settings(events, &previous).map_err(control_failed)?;
+        return Err(control_failed(error));
+    }
+    events.input_device_capabilities_changed = true;
+    control_keyboard_snapshot(events)
+}
+
+#[cfg(feature = "flutter")]
+fn apply_control_touchpad(
+    events: &mut RuntimeState,
+    expected_revision: u64,
+    touchpad: settings::TouchpadSettings,
+) -> Result<serde_json::Value, OutputControlFailure> {
+    let prepared = events
+        .wayland
+        .as_ref()
+        .ok_or_else(|| control_unavailable("touchpad update"))?
+        .settings
+        .prepare_touchpad_update(expected_revision, touchpad)
+        .map_err(control_conflict)?;
+    let previous = events
+        .wayland
+        .as_ref()
+        .expect("missing Wayland frontend")
+        .settings
+        .touchpad()
+        .clone();
+    let next = prepared.touchpad().clone();
+    wayland_frontend::install_touchpad_settings(events, &next).map_err(control_failed)?;
+    if let Err(error) = events
+        .wayland
+        .as_mut()
+        .expect("missing Wayland frontend")
+        .settings
+        .commit(prepared)
+    {
+        wayland_frontend::install_touchpad_settings(events, &previous).map_err(control_failed)?;
+        return Err(control_failed(error));
+    }
+    if let Some(frontend) = events.wayland.as_mut() {
+        frontend.keyboard_configuration_changed = true;
+    }
+    control_input_snapshot(events)
+}
+
+#[cfg(feature = "flutter")]
+fn control_shortcut_snapshot(
+    events: &RuntimeState,
+) -> Result<serde_json::Value, OutputControlFailure> {
+    let manager = &events
+        .wayland
+        .as_ref()
+        .ok_or_else(|| control_unavailable("shortcut settings"))?
+        .shortcuts;
+    let inputs = native_shortcut::supported_inputs();
+    Ok(json!({
+        "revision": manager.revision(),
+        "shortcuts": manager.file().shortcuts,
+        "supported_actions": native_shortcut::ShortcutAction::ALL,
+        "supported_inputs": inputs.into_iter().map(|input| json!({
+            "canonical": input.canonical,
+            "kind": shortcut_input_kind_name(input.kind),
+            "category": shortcut_input_category_name(input.category),
+            "aliases": input.aliases,
+        })).collect::<Vec<_>>(),
+    }))
+}
+
+#[cfg(feature = "flutter")]
+fn control_shortcut_validation(
+    events: &RuntimeState,
+    shortcut: &native_shortcut::ShortcutBinding,
+    existing_shortcut: Option<&str>,
+) -> Result<serde_json::Value, OutputControlFailure> {
+    let manager = &events
+        .wayland
+        .as_ref()
+        .ok_or_else(|| control_unavailable("shortcut validation"))?
+        .shortcuts;
+    let revision = manager.revision();
+    Ok(
+        match manager.validate_shortcut(shortcut, existing_shortcut) {
+            native_shortcut::ShortcutValidation::Valid { canonical } => json!({
+                "revision": revision,
+                "kind": "valid",
+                "canonical": canonical,
+            }),
+            native_shortcut::ShortcutValidation::Conflict { canonical, binding } => json!({
+                "revision": revision,
+                "kind": "conflict",
+                "canonical": canonical,
+                "conflict": binding,
+            }),
+            native_shortcut::ShortcutValidation::Invalid { error } => json!({
+                "revision": revision,
+                "kind": "invalid",
+                "error": error,
+            }),
+        },
+    )
+}
+
+#[cfg(feature = "flutter")]
+fn apply_control_shortcut_update(
+    events: &mut RuntimeState,
+    prepared: Result<native_shortcut::PreparedShortcutUpdate, native_shortcut::ShortcutError>,
+) -> Result<serde_json::Value, OutputControlFailure> {
+    let mut prepared = prepared.map_err(control_conflict)?;
+    let candidate_engine = prepared.take_engine();
+    let previous_engine = std::mem::replace(&mut events.native_escape_shortcut, candidate_engine);
+    if let Err(error) = events
+        .wayland
+        .as_mut()
+        .ok_or_else(|| control_unavailable("shortcut update"))?
+        .shortcuts
+        .commit(prepared)
+    {
+        events.native_escape_shortcut = previous_engine;
+        return Err(control_failed(error));
+    }
+    control_shortcut_snapshot(events)
+}
+
+#[cfg(feature = "flutter")]
+const fn shortcut_input_kind_name(kind: native_shortcut::ShortcutInputKind) -> &'static str {
+    match kind {
+        native_shortcut::ShortcutInputKind::Key => "key",
+        native_shortcut::ShortcutInputKind::Gesture => "gesture",
+    }
+}
+
+#[cfg(feature = "flutter")]
+const fn shortcut_input_category_name(
+    category: native_shortcut::ShortcutInputCategory,
+) -> &'static str {
+    match category {
+        native_shortcut::ShortcutInputCategory::Modifier => "modifier",
+        native_shortcut::ShortcutInputCategory::Navigation => "navigation",
+        native_shortcut::ShortcutInputCategory::Editing => "editing",
+        native_shortcut::ShortcutInputCategory::Punctuation => "punctuation",
+        native_shortcut::ShortcutInputCategory::Function => "function",
+        native_shortcut::ShortcutInputCategory::Media => "media",
+        native_shortcut::ShortcutInputCategory::Hardware => "hardware",
+        native_shortcut::ShortcutInputCategory::Special => "special",
+        native_shortcut::ShortcutInputCategory::Gesture => "gesture",
+    }
 }
 
 #[cfg(feature = "flutter")]

@@ -237,6 +237,7 @@ pub enum TopologyError {
     InvalidScale(OutputId),
     InvalidRefresh(OutputId),
     CoordinateOverflow(OutputId),
+    OverlappingOutputs(String, String),
 }
 
 impl fmt::Display for TopologyError {
@@ -255,6 +256,9 @@ impl fmt::Display for TopologyError {
                     "output {id:?} exceeds the supported logical coordinate range"
                 )
             }
+            Self::OverlappingOutputs(first, second) => {
+                write!(formatter, "outputs {first} and {second} overlap")
+            }
         }
     }
 }
@@ -265,19 +269,35 @@ impl Error for TopologyError {}
 pub struct TopologyManager {
     epoch: u64,
     outputs: BTreeMap<OutputId, OutputSpec>,
+    primary_output: Option<String>,
 }
 
 impl TopologyManager {
     pub fn new(outputs: impl IntoIterator<Item = OutputSpec>) -> Result<Self, TopologyError> {
+        Self::new_with_primary_output(outputs, None)
+    }
+
+    pub fn new_with_primary_output(
+        outputs: impl IntoIterator<Item = OutputSpec>,
+        primary_output: Option<String>,
+    ) -> Result<Self, TopologyError> {
         let mut manager = Self::default();
         let changes = outputs.into_iter().map(TopologyChange::Upsert);
-        manager.apply(changes)?;
+        manager.apply_with_primary_output(changes, primary_output)?;
         Ok(manager)
     }
 
     pub fn apply(
         &mut self,
         changes: impl IntoIterator<Item = TopologyChange>,
+    ) -> Result<TopologyCommit, TopologyError> {
+        self.apply_with_primary_output(changes, self.primary_output.clone())
+    }
+
+    pub fn apply_with_primary_output(
+        &mut self,
+        changes: impl IntoIterator<Item = TopologyChange>,
+        primary_output: Option<String>,
     ) -> Result<TopologyCommit, TopologyError> {
         let previous = self.outputs.clone();
         let mut staged = previous.clone();
@@ -312,9 +332,14 @@ impl TopologyManager {
             .collect::<Vec<_>>();
 
         let previous_epoch = self.epoch;
-        if !added.is_empty() || !removed.is_empty() || !changed.is_empty() {
+        if !added.is_empty()
+            || !removed.is_empty()
+            || !changed.is_empty()
+            || self.primary_output != primary_output
+        {
             self.epoch = self.epoch.wrapping_add(1).max(1);
             self.outputs = staged;
+            self.primary_output = primary_output;
         }
 
         Ok(TopologyCommit {
@@ -329,9 +354,15 @@ impl TopologyManager {
     pub fn snapshot(&self) -> TopologySnapshot {
         let outputs = self.outputs.values().cloned().collect::<Vec<_>>();
         let logical_bounds = logical_bounds(&outputs);
-        let ticker = outputs
-            .iter()
-            .max_by_key(|output| (output.refresh_millihz, std::cmp::Reverse(output.id)))
+        let ticker = self
+            .primary_output
+            .as_deref()
+            .and_then(|name| outputs.iter().find(|output| output.name == name))
+            .or_else(|| {
+                outputs
+                    .iter()
+                    .max_by_key(|output| (output.refresh_millihz, std::cmp::Reverse(output.id)))
+            })
             .map(|output| output.id);
 
         TopologySnapshot {
@@ -351,6 +382,7 @@ fn validate_outputs<'a>(
     outputs: impl IntoIterator<Item = &'a OutputSpec>,
 ) -> Result<(), TopologyError> {
     let mut names = BTreeSet::new();
+    let mut logical_rects: Vec<(String, LogicalRect)> = Vec::new();
     for output in outputs {
         if output.name.trim().is_empty() {
             return Err(TopologyError::EmptyName(output.id));
@@ -380,8 +412,26 @@ fn validate_outputs<'a>(
         {
             return Err(TopologyError::CoordinateOverflow(output.id));
         }
+        for (other_name, other_rect) in &logical_rects {
+            if logical_rects_overlap(rect, *other_rect) {
+                let (first, second) = if output.name.as_str() < other_name.as_str() {
+                    (output.name.clone(), other_name.clone())
+                } else {
+                    (other_name.clone(), output.name.clone())
+                };
+                return Err(TopologyError::OverlappingOutputs(first, second));
+            }
+        }
+        logical_rects.push((output.name.clone(), rect));
     }
     Ok(())
+}
+
+fn logical_rects_overlap(first: LogicalRect, second: LogicalRect) -> bool {
+    first.x < second.right()
+        && second.x < first.right()
+        && first.y < second.bottom()
+        && second.y < first.bottom()
 }
 
 fn logical_bounds(outputs: &[OutputSpec]) -> Option<LogicalRect> {

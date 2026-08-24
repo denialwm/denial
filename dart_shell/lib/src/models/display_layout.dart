@@ -269,15 +269,12 @@ class DisplayLayout {
     };
   }
 
-  /// The output that owns shell experiences intended for the user's main
-  /// display. The explicitly configured system-bar output is the strongest
-  /// signal, followed by the compositor's render-ticker output. A stable
-  /// top-left fallback keeps malformed or older layouts deterministic.
+  /// The output that owns shell experiences intended for the user's primary
+  /// display. The compositor's render ticker carries either the configured
+  /// primary output or its highest-refresh default. A stable top-left fallback
+  /// keeps malformed or older layouts deterministic without coupling primary
+  /// display selection to the system-bar host.
   DisplayOutput? get mainOutput {
-    final barOutput = systemBarOutput;
-    if (barOutput != null) {
-      return barOutput;
-    }
     for (final output in outputs) {
       if (output.monitorId == tickerMonitorId) {
         return output;

@@ -49,6 +49,23 @@ void main() {
     expect(aligned.height, closeTo(603 + 1 / 3, 0.000001));
   });
 
+  test('snaps Chrome default geometry on every edge at 125 percent', () {
+    final aligned = desktopPixelAlignedWindowFrame(
+      frame: const Rect.fromLTWH(458, 596, 1332, 1057),
+      contentInset: 0,
+      devicePixelRatio: 1.25,
+      enabled: true,
+      alignSize: true,
+    );
+
+    expect(aligned.left * 1.25, closeTo(573, 0.000001));
+    expect(aligned.top * 1.25, closeTo(745, 0.000001));
+    expect(aligned.right * 1.25, closeTo(2238, 0.000001));
+    expect(aligned.bottom * 1.25, closeTo(2066, 0.000001));
+    expect(aligned.width * 1.25, closeTo(1665, 0.000001));
+    expect(aligned.height * 1.25, closeTo(1321, 0.000001));
+  });
+
   test('aligns a client-decorated frame without an inset', () {
     final aligned = desktopPixelAlignedWindowFrame(
       frame: const Rect.fromLTWH(101, 41, 800, 600),

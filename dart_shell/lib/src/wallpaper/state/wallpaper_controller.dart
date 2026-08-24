@@ -156,6 +156,10 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
     _store = ref.watch(wallpaperStoreProvider);
     _sourceResults.clear();
     _searchTimer = null;
+    _storeEventTimer?.cancel();
+    unawaited(_storeSubscription?.cancel());
+    _storeEventTimer = null;
+    _storeSubscription = null;
     _searchGeneration = 0;
     _assignmentGeneration = 0;
     _buildGeneration = beginBuildGeneration();
@@ -163,10 +167,15 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
     ref.onDispose(() {
       _searchTimer?.cancel();
       _searchTimer = null;
+      _storeEventTimer?.cancel();
+      _storeEventTimer = null;
+      unawaited(_storeSubscription?.cancel());
+      _storeSubscription = null;
     });
     scheduleMicrotask(() {
       if (isBuildGenerationActive(generation)) {
         unawaited(_restore(generation));
+        unawaited(_watchStore(generation));
       }
     });
     return WallpaperExperienceState.initial();
@@ -180,6 +189,8 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
   final Map<String, List<WallpaperCandidate>> _sourceResults =
       <String, List<WallpaperCandidate>>{};
   Timer? _searchTimer;
+  Timer? _storeEventTimer;
+  StreamSubscription<FileSystemEvent>? _storeSubscription;
   int _searchGeneration = 0;
   int _assignmentGeneration = 0;
 
@@ -373,6 +384,28 @@ class WallpaperController extends Notifier<WallpaperExperienceState>
       return;
     }
     state = state.copyWith(assignment: restored);
+  }
+
+  Future<void> _watchStore(int buildGeneration) async {
+    try {
+      final events = await _store.watch();
+      if (!isBuildGenerationActive(buildGeneration)) {
+        return;
+      }
+      _storeSubscription = events.listen((_) {
+        if (!isBuildGenerationActive(buildGeneration)) {
+          return;
+        }
+        _storeEventTimer?.cancel();
+        _storeEventTimer = Timer(const Duration(milliseconds: 24), () {
+          if (isBuildGenerationActive(buildGeneration)) {
+            unawaited(_restore(buildGeneration));
+          }
+        });
+      });
+    } on FileSystemException {
+      // The wallpaper remains usable if this filesystem cannot be watched.
+    }
   }
 
   Future<void> _search(String rawQuery) async {
@@ -573,6 +606,28 @@ class WallpaperStore {
     } on FormatException catch (_) {
       return null;
     }
+  }
+
+  Future<Stream<FileSystemEvent>> watch() async {
+    final file = await _paths.wallpaperStateFile();
+    final watchedPath = file.absolute.path;
+    final temporaryPath = '$watchedPath.tmp';
+    return file.parent
+        .watch(
+          events:
+              FileSystemEvent.create |
+              FileSystemEvent.modify |
+              FileSystemEvent.move,
+        )
+        .where((event) {
+          final eventPath = File(event.path).absolute.path;
+          if (eventPath == watchedPath || eventPath == temporaryPath) {
+            return true;
+          }
+          return event is FileSystemMoveEvent &&
+              event.destination != null &&
+              File(event.destination!).absolute.path == watchedPath;
+        });
   }
 
   Future<void> write(WallpaperAssignment assignment) async {

@@ -108,6 +108,7 @@ pub(super) struct Options {
     commit_seconds: u64,
     pub(super) max_outputs: usize,
     pub(super) output_config: Option<PathBuf>,
+    pub(super) primary_output: Option<String>,
     pub(super) positions: BTreeMap<String, LogicalPoint>,
     pub(super) mode_sizes: BTreeMap<String, (u32, u32)>,
     pub(super) refresh_millihz: BTreeMap<String, u32>,
@@ -147,6 +148,7 @@ impl Options {
             commit_seconds: 0,
             max_outputs: 0,
             output_config: None,
+            primary_output: None,
             positions: BTreeMap::new(),
             mode_sizes: BTreeMap::new(),
             refresh_millihz: BTreeMap::new(),
@@ -181,6 +183,7 @@ impl Options {
         let mut commit_seconds = 0;
         let mut max_outputs = usize::MAX;
         let mut output_config = None;
+        let mut primary_output = None;
         let mut positions = BTreeMap::new();
         let mut mode_sizes = BTreeMap::new();
         let mut refresh_millihz = BTreeMap::new();
@@ -375,6 +378,7 @@ impl Options {
                 )?;
             }
             positions = configured.positions;
+            primary_output = configured.primary_output;
             mode_sizes = configured.mode_sizes;
             refresh_millihz = configured.refresh_millihz;
             scales_120 = configured.scales_120;
@@ -460,6 +464,7 @@ impl Options {
             commit_seconds,
             max_outputs,
             output_config,
+            primary_output,
             positions,
             mode_sizes,
             refresh_millihz,
@@ -591,6 +596,7 @@ fn parse_system_bar_spec(value: &str) -> Result<SystemBarOptions, Box<dyn Error>
 
 #[derive(Debug, Default, PartialEq)]
 struct OutputConfig {
+    primary_output: Option<String>,
     positions: BTreeMap<String, LogicalPoint>,
     mode_sizes: BTreeMap<String, (u32, u32)>,
     refresh_millihz: BTreeMap<String, u32>,
@@ -780,6 +786,18 @@ fn parse_output_config(contents: &str) -> Result<OutputConfig, String> {
             .map_or(raw_line, |(value, _)| value)
             .trim();
         if line.is_empty() {
+            continue;
+        }
+        if let Some((key, output)) = line.split_once('=')
+            && key.trim() == "primary"
+        {
+            if config.primary_output.is_some() {
+                return Err(format!("line {}: duplicate primary entry", index + 1));
+            }
+            let output = output.trim();
+            validate_output_config_name(output)
+                .map_err(|error| format!("line {}: {error}", index + 1))?;
+            config.primary_output = Some(output.to_owned());
             continue;
         }
         if let Some((key, spec)) = line.split_once('=')
@@ -1039,6 +1057,7 @@ impl Drop for PreparedOutputConfig {
 pub(super) fn prepare_output_config_persistence(
     path: &Path,
     outputs: &[PersistedOutput],
+    primary_output: Option<&str>,
 ) -> Result<PreparedOutputConfig, String> {
     let path_metadata = fs::symlink_metadata(path).map_err(|error| {
         format!(
@@ -1079,7 +1098,7 @@ pub(super) fn prepare_output_config_persistence(
     parse_output_config(&original)
         .map_err(|error| format!("invalid output config {}: {error}", path.display()))?;
 
-    let rendered = render_persisted_output_config(&original, outputs)?;
+    let rendered = render_persisted_output_config(&original, outputs, primary_output)?;
     if rendered.len() > MAX_OUTPUT_CONFIG_BYTES {
         return Err(format!(
             "updated output config exceeds the {MAX_OUTPUT_CONFIG_BYTES}-byte limit"
@@ -1170,6 +1189,7 @@ fn output_config_parent(path: &Path) -> &Path {
 fn render_persisted_output_config(
     original: &str,
     outputs: &[PersistedOutput],
+    primary_output: Option<&str>,
 ) -> Result<String, String> {
     if outputs.is_empty() {
         return Err("persistent output configuration contains no connectors".to_owned());
@@ -1193,11 +1213,15 @@ fn render_persisted_output_config(
     if !outputs.iter().any(|output| output.enabled) {
         return Err("at least one persistent output must remain enabled".to_owned());
     }
+    if let Some(primary_output) = primary_output {
+        validate_output_config_name(primary_output)?;
+    }
     let connected = sorted.keys().copied().collect::<BTreeSet<_>>();
 
     let mut lines = original
         .lines()
         .filter(|raw_line| raw_line.trim() != MANAGED_OUTPUT_CONFIG_HEADER)
+        .filter(|raw_line| !is_primary_output_directive(raw_line))
         .filter(|raw_line| {
             output_directive_name(raw_line).is_none_or(|name| !connected.contains(name))
         })
@@ -1210,6 +1234,9 @@ fn render_persisted_output_config(
         lines.push(String::new());
     }
     lines.push(MANAGED_OUTPUT_CONFIG_HEADER.to_owned());
+    if let Some(primary_output) = primary_output {
+        lines.push(format!("primary={primary_output}"));
+    }
     for output in sorted.into_values() {
         lines.push(format!("{}={},{}", output.name, output.x, output.y));
         lines.push(format!(
@@ -1242,18 +1269,7 @@ fn render_persisted_output_config(
 }
 
 fn validate_persisted_output(output: &PersistedOutput) -> Result<(), String> {
-    if output.name.is_empty()
-        || output.name.trim() != output.name
-        || output
-            .name
-            .chars()
-            .any(|character| character.is_control() || matches!(character, '#' | ',' | '='))
-    {
-        return Err(format!(
-            "output name {:?} cannot be represented in the output config",
-            output.name
-        ));
-    }
+    validate_output_config_name(&output.name)?;
     if output.width == 0 || output.height == 0 || output.refresh_millihz == 0 {
         return Err(format!(
             "{} has an invalid persistent display mode",
@@ -1271,6 +1287,29 @@ fn validate_persisted_output(output: &PersistedOutput) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_output_config_name(name: &str) -> Result<(), String> {
+    if name.is_empty()
+        || name.trim() != name
+        || name
+            .chars()
+            .any(|character| character.is_control() || matches!(character, '#' | ',' | '='))
+    {
+        return Err(format!(
+            "output name {name:?} cannot be represented in the output config"
+        ));
+    }
+    Ok(())
+}
+
+fn is_primary_output_directive(raw_line: &str) -> bool {
+    let line = raw_line
+        .split_once('#')
+        .map_or(raw_line, |(value, _)| value)
+        .trim();
+    line.split_once('=')
+        .is_some_and(|(key, _)| key.trim() == "primary")
+}
+
 fn output_directive_name(raw_line: &str) -> Option<&str> {
     let line = raw_line
         .split_once('#')
@@ -1279,7 +1318,7 @@ fn output_directive_name(raw_line: &str) -> Option<&str> {
     let (key, value) = line.split_once('=')?;
     let key = key.trim();
     match key {
-        "system_bar" | "maximize_padding" => None,
+        "primary" | "system_bar" | "maximize_padding" => None,
         "disabled" | "vrr" => Some(value.trim()),
         "mode" | "scale" | "transform" => value.split(',').next().map(str::trim),
         _ => Some(key),

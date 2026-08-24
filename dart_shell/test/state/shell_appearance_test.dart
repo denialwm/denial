@@ -1,6 +1,7 @@
 import 'package:denial_dart_shell/src/settings/settings_controller.dart';
 import 'package:denial_dart_shell/src/settings/settings_store.dart';
 import 'package:denial_dart_shell/src/settings/shell_settings.dart';
+import 'package:denial_dart_shell/src/theme/backdrop_blur_level.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -14,12 +15,12 @@ void main() {
 
       controller
         ..setBackdropBlurEnabled(false)
-        ..setBackdropBlurSigma(-20)
+        ..setBackdropBlurLevel(ShellBackdropBlurLevel.shitty)
         ..setBackdropBlurOpacityThreshold(4);
 
       final appearance = container.read(shellSettingsProvider).appearance;
       expect(appearance.backdropBlurEnabled, isFalse);
-      expect(appearance.backdropBlurSigma, 4);
+      expect(appearance.backdropBlurLevel, ShellBackdropBlurLevel.shitty);
       expect(appearance.backdropBlurOpacityThreshold, 1);
     },
   );
@@ -30,7 +31,7 @@ void main() {
     final controller = container.read(shellSettingsProvider.notifier);
     controller
       ..setBackdropBlurEnabled(false)
-      ..setBackdropBlurSigma(30);
+      ..setBackdropBlurLevel(ShellBackdropBlurLevel.fast);
 
     controller.resetAppearance();
 

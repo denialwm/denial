@@ -31,6 +31,7 @@ enum DenialShellAction {
   screenshotTextureReady,
   screenshotDone,
   clientPointerPressed,
+  wallpaper,
 }
 
 class DenialShellActionEvent {
@@ -142,7 +143,7 @@ class DenialBridge {
   static const int _maxOutputControlBytes = 256 * 1024;
   static const Duration _outputControlTimeout = Duration(seconds: 20);
 
-  DenialBridge() {
+  DenialBridge({this.useControlSocket = false, this.controlSocketPath}) {
     ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
       _audioStateChannel,
       _handleAudioStateMessage,
@@ -160,6 +161,9 @@ class DenialBridge {
       _handleUiDevelopmentStateMessage,
     );
   }
+
+  final bool useControlSocket;
+  final String? controlSocketPath;
 
   final Map<int, Completer<DenialWindowSnapshot>> _pendingWindowRequests = {};
   final Map<int, Completer<DisplayLayout?>> _pendingDisplayRequests = {};
@@ -206,6 +210,8 @@ class DenialBridge {
       StreamController<DenialShortcutConfiguration>.broadcast(sync: true);
   final StreamController<DenialTextInputState> _textInputStates =
       StreamController<DenialTextInputState>.broadcast(sync: true);
+  final StreamController<DenialSettingsDocument> _settingsDocuments =
+      StreamController<DenialSettingsDocument>.broadcast(sync: true);
   final StreamController<DisplayLayout> _displayLayouts =
       StreamController<DisplayLayout>.broadcast(sync: true);
   final wire.DenialWireCodec _wireCodec = wire.DenialWireCodec();
@@ -240,6 +246,8 @@ class DenialBridge {
   Stream<DenialShortcutConfiguration> get shortcutConfigurations =>
       _shortcutConfigurations.stream;
   Stream<DenialTextInputState> get textInputStates => _textInputStates.stream;
+  Stream<DenialSettingsDocument> get settingsDocuments =>
+      _settingsDocuments.stream;
   Stream<DisplayLayout> get displayLayouts => _displayLayouts.stream;
 
   void start({
@@ -343,6 +351,7 @@ class DenialBridge {
     unawaited(_inputDeviceCapabilities.close());
     unawaited(_shortcutConfigurations.close());
     unawaited(_textInputStates.close());
+    unawaited(_settingsDocuments.close());
     unawaited(_displayLayouts.close());
   }
 
@@ -376,7 +385,96 @@ class DenialBridge {
     );
   }
 
-  Future<DisplayLayout?> getDisplayLayout() {
+  Future<DisplayLayout?> getDisplayLayout() async {
+    if (!useControlSocket) {
+      return _getDisplayLayoutFromPlatform();
+    }
+    try {
+      final configuration = DenialOutputConfiguration.fromJson(
+        await _sendControlRequest('outputs.get'),
+      );
+      final enabled = configuration.outputs
+          .where(
+            (output) =>
+                output.enabled &&
+                output.logicalWidth > 0 &&
+                output.logicalHeight > 0,
+          )
+          .toList(growable: false);
+      if (enabled.isEmpty) {
+        return null;
+      }
+
+      var originX = enabled.first.x.toDouble();
+      var originY = enabled.first.y.toDouble();
+      var right = originX + enabled.first.logicalWidth;
+      var bottom = originY + enabled.first.logicalHeight;
+      var engineScale = enabled.first.scale;
+      for (final output in enabled.skip(1)) {
+        final x = output.x.toDouble();
+        final y = output.y.toDouble();
+        if (x < originX) originX = x;
+        if (y < originY) originY = y;
+        final outputRight = x + output.logicalWidth;
+        final outputBottom = y + output.logicalHeight;
+        if (outputRight > right) right = outputRight;
+        if (outputBottom > bottom) bottom = outputBottom;
+        if (output.scale > engineScale) engineScale = output.scale;
+      }
+
+      final outputs = enabled
+          .map((output) {
+            final mode = output.effectiveMode;
+            final pixelWidth = output.transform.swapsAxes
+                ? mode.height
+                : mode.width;
+            final pixelHeight = output.transform.swapsAxes
+                ? mode.width
+                : mode.height;
+            return DisplayOutput(
+              monitorId: output.monitorId,
+              name: output.name,
+              logicalRect: Rect.fromLTWH(
+                output.x - originX,
+                output.y - originY,
+                output.logicalWidth.toDouble(),
+                output.logicalHeight.toDouble(),
+              ),
+              pixelSize: Size(pixelWidth.toDouble(), pixelHeight.toDouble()),
+              scale: output.scale,
+              refreshRate: mode.refreshHz,
+            );
+          })
+          .toList(growable: false);
+      final primary = outputs.firstWhere(
+        (output) => output.name == configuration.primaryOutput,
+        orElse: () => outputs.first,
+      );
+      final logicalSize = Size(right - originX, bottom - originY);
+      final layout = DisplayLayout(
+        epoch: configuration.serial,
+        globalOrigin: Offset(originX, originY),
+        logicalSize: logicalSize,
+        pixelSize: logicalSize * engineScale,
+        engineScale: engineScale,
+        tickerMonitorId: primary.monitorId,
+        systemBarMonitorId: primary.monitorId,
+        systemBarMonitorIds: <int>[primary.monitorId],
+        systemBarSide: SystemBarSide.top,
+        systemBarThickness: 32.0,
+        maximizePadding: 10.0,
+        outputs: outputs,
+      );
+      if (!_displayLayouts.isClosed) {
+        _displayLayouts.add(layout);
+      }
+      return layout;
+    } on Object {
+      return null;
+    }
+  }
+
+  Future<DisplayLayout?> _getDisplayLayoutFromPlatform() {
     final requestId = _nextRequestId++;
     final completer = Completer<DisplayLayout?>();
     _pendingDisplayRequests[requestId] = completer;
@@ -420,178 +518,157 @@ class DenialBridge {
     );
   }
 
-  Future<DenialSettingsDocument> readSettingsDocument() {
-    final requestId = _nextRequestId++;
-    final completer = Completer<DenialSettingsDocument>();
-    _pendingSettingsDocumentRequests[requestId] = completer;
-    _sendWire(
-      _wireCodec.encodeSettingsRead(
-        wire.SettingsRequestKind.ReadDocument,
-        requestId: requestId,
-      ),
-    );
-    return completer.future.timeout(
-      const Duration(seconds: 2),
-      onTimeout: () {
-        _pendingSettingsDocumentRequests.remove(requestId);
-        throw TimeoutException('Denial settings read timed out');
-      },
-    );
+  Future<DenialSettingsDocument> readSettingsDocument() async {
+    if (!useControlSocket) return _readSettingsDocumentFromPlatform();
+    try {
+      return _settingsDocumentFromControl(
+        await _sendControlRequest('settings.document.get'),
+      );
+    } on DenialOutputControlException catch (error) {
+      throw StateError(error.message);
+    }
+  }
+
+  Future<void> openWallpaperSelector() async {
+    try {
+      await _sendControlRequest('shell.wallpaper.open');
+    } on DenialOutputControlException catch (error) {
+      throw StateError(error.message);
+    }
   }
 
   Future<DenialSettingsDocument> writeSettingsDocument({
     required int expectedRevision,
     required String document,
-  }) {
-    final requestId = _nextRequestId++;
-    final bytes = _wireCodec.encodeSettingsDocumentWrite(
-      requestId: requestId,
-      expectedRevision: expectedRevision,
-      document: document,
-    );
-    if (bytes == null) {
-      return Future<DenialSettingsDocument>.error(
-        ArgumentError('invalid Denial settings document'),
+  }) async {
+    if (expectedRevision <= 0 ||
+        document.isEmpty ||
+        utf8.encode(document).length >
+            wire.denialWireMaxSettingsDocumentBytes) {
+      throw ArgumentError('invalid Denial settings document');
+    }
+    if (!useControlSocket) {
+      return _writeSettingsDocumentToPlatform(
+        expectedRevision: expectedRevision,
+        document: document,
       );
     }
-    final completer = Completer<DenialSettingsDocument>();
-    _pendingSettingsDocumentRequests[requestId] = completer;
-    _sendWire(bytes);
-    return completer.future.timeout(
-      const Duration(seconds: 2),
-      onTimeout: () {
-        _pendingSettingsDocumentRequests.remove(requestId);
-        throw TimeoutException('Denial settings write timed out');
-      },
-    );
+    try {
+      return _settingsDocumentFromControl(
+        await _sendControlRequest(
+          'settings.document.apply',
+          parameters: <String, Object>{
+            'expected_revision': expectedRevision,
+            'document': document,
+          },
+        ),
+      );
+    } on DenialOutputControlException catch (error) {
+      throw StateError(error.message);
+    }
   }
 
-  Future<DenialKeyboardConfiguration> readKeyboardConfiguration() {
-    final requestId = _nextRequestId++;
-    final completer = Completer<DenialKeyboardConfiguration>();
-    _pendingKeyboardSettingsRequests[requestId] = completer;
-    _sendWire(
-      _wireCodec.encodeSettingsRead(
-        wire.SettingsRequestKind.ReadKeyboard,
-        requestId: requestId,
-      ),
-    );
-    return completer.future.timeout(
-      const Duration(seconds: 2),
-      onTimeout: () {
-        _pendingKeyboardSettingsRequests.remove(requestId);
-        throw TimeoutException('Denial keyboard settings read timed out');
-      },
-    );
+  DenialSettingsDocument _settingsDocumentFromControl(
+    Map<String, Object?> result,
+  ) {
+    final revision = result['revision'];
+    final document = result['document'];
+    if (revision is! int ||
+        revision <= 0 ||
+        document is! String ||
+        document.isEmpty ||
+        utf8.encode(document).length >
+            wire.denialWireMaxSettingsDocumentBytes) {
+      throw StateError('Denial returned an invalid settings document');
+    }
+    return DenialSettingsDocument(revision: revision, json: document);
   }
 
-  Future<DenialInputDeviceCapabilities> readInputDeviceCapabilities() {
-    final requestId = _nextRequestId++;
-    final completer = Completer<DenialInputDeviceCapabilities>();
-    _pendingInputDeviceRequests[requestId] = completer;
-    _sendWire(
-      _wireCodec.encodeSettingsRead(
-        wire.SettingsRequestKind.ReadInputDevices,
-        requestId: requestId,
-      ),
+  Future<DenialKeyboardConfiguration> readKeyboardConfiguration() async {
+    if (!useControlSocket) return _readKeyboardConfigurationFromPlatform();
+    final configuration = DenialKeyboardConfiguration.fromJson(
+      await _sendSettingsControlRequest('settings.keyboard.get'),
     );
-    return completer.future.timeout(
-      const Duration(seconds: 2),
-      onTimeout: () {
-        _pendingInputDeviceRequests.remove(requestId);
-        throw TimeoutException('Denial input device detection timed out');
-      },
+    _keyboardConfigurations.add(configuration);
+    return configuration;
+  }
+
+  Future<DenialInputDeviceCapabilities> readInputDeviceCapabilities() async {
+    if (!useControlSocket) {
+      return _readInputDeviceCapabilitiesFromPlatform();
+    }
+    final capabilities = DenialInputDeviceCapabilities.fromJson(
+      await _sendSettingsControlRequest('settings.input.get'),
     );
+    _inputDeviceCapabilities.add(capabilities);
+    return capabilities;
   }
 
   Future<DenialInputDeviceCapabilities> configureTouchpad(
     DenialInputDeviceCapabilities capabilities,
-  ) {
-    final requestId = _nextRequestId++;
-    final bytes = _wireCodec.encodeTouchpadConfiguration(
-      requestId: requestId,
-      capabilities: capabilities,
-    );
-    if (bytes == null) {
-      return Future<DenialInputDeviceCapabilities>.error(
-        ArgumentError('invalid Denial touchpad configuration'),
-      );
+  ) async {
+    if (!useControlSocket) {
+      return _configureTouchpadThroughPlatform(capabilities);
     }
-    final completer = Completer<DenialInputDeviceCapabilities>();
-    _pendingInputDeviceRequests[requestId] = completer;
-    _sendWire(bytes);
-    return completer.future.timeout(
-      const Duration(seconds: 2),
-      onTimeout: () {
-        _pendingInputDeviceRequests.remove(requestId);
-        throw TimeoutException('Denial touchpad settings update timed out');
-      },
+    final applied = DenialInputDeviceCapabilities.fromJson(
+      await _sendSettingsControlRequest(
+        'settings.touchpad.apply',
+        parameters: <String, Object>{
+          'expected_revision': capabilities.revision,
+          'touchpad': capabilities.toApplyJson(),
+        },
+      ),
     );
+    _inputDeviceCapabilities.add(applied);
+    return applied;
   }
 
   Future<DenialKeyboardConfiguration> configureKeyboard(
     DenialKeyboardConfiguration configuration,
-  ) {
-    final requestId = _nextRequestId++;
-    final bytes = _wireCodec.encodeKeyboardConfiguration(
-      requestId: requestId,
-      configuration: configuration,
-    );
-    if (bytes == null) {
-      return Future<DenialKeyboardConfiguration>.error(
-        ArgumentError('invalid Denial keyboard configuration'),
-      );
+  ) async {
+    if (!useControlSocket) {
+      return _configureKeyboardThroughPlatform(configuration);
     }
-    final completer = Completer<DenialKeyboardConfiguration>();
-    _pendingKeyboardSettingsRequests[requestId] = completer;
-    _sendWire(bytes);
-    return completer.future.timeout(
-      const Duration(seconds: 2),
-      onTimeout: () {
-        _pendingKeyboardSettingsRequests.remove(requestId);
-        throw TimeoutException('Denial keyboard settings update timed out');
-      },
+    final applied = DenialKeyboardConfiguration.fromJson(
+      await _sendSettingsControlRequest(
+        'settings.keyboard.apply',
+        parameters: <String, Object>{
+          'expected_revision': configuration.revision,
+          'keyboard': configuration.toApplyJson(),
+        },
+      ),
     );
+    _keyboardConfigurations.add(applied);
+    return applied;
   }
 
-  Future<DenialShortcutConfiguration> readShortcutConfiguration() {
-    final requestId = _nextRequestId++;
-    final completer = Completer<DenialShortcutConfiguration>();
-    _pendingShortcutRequests[requestId] = completer;
-    _sendWire(_wireCodec.encodeShortcutRead(requestId: requestId));
-    return completer.future.timeout(
-      const Duration(seconds: 2),
-      onTimeout: () {
-        _pendingShortcutRequests.remove(requestId);
-        throw TimeoutException('Denial shortcut settings read timed out');
-      },
+  Future<DenialShortcutConfiguration> readShortcutConfiguration() async {
+    if (!useControlSocket) return _readShortcutsFromPlatform();
+    final configuration = DenialShortcutConfiguration.fromJson(
+      await _sendSettingsControlRequest('settings.shortcuts.get'),
     );
+    _shortcutConfigurations.add(configuration);
+    return configuration;
   }
 
   Future<DenialShortcutValidation> validateShortcut({
     required DenialShortcutBinding shortcut,
     String? existingShortcut,
-  }) {
-    final requestId = _nextRequestId++;
-    final bytes = _wireCodec.encodeShortcutValidation(
-      requestId: requestId,
-      shortcut: shortcut,
-      existingShortcut: existingShortcut,
-    );
-    if (bytes == null) {
-      return Future<DenialShortcutValidation>.error(
-        ArgumentError('shortcut validation request exceeds wire bounds'),
+  }) async {
+    if (!useControlSocket) {
+      return _validateShortcutThroughPlatform(
+        shortcut: shortcut,
+        existingShortcut: existingShortcut,
       );
     }
-    final completer = Completer<DenialShortcutValidation>();
-    _pendingShortcutValidationRequests[requestId] = completer;
-    _sendWire(bytes);
-    return completer.future.timeout(
-      const Duration(seconds: 2),
-      onTimeout: () {
-        _pendingShortcutValidationRequests.remove(requestId);
-        throw TimeoutException('Denial shortcut validation timed out');
-      },
+    return DenialShortcutValidation.fromJson(
+      await _sendSettingsControlRequest(
+        'settings.shortcuts.validate',
+        parameters: <String, Object>{
+          'shortcut': shortcut.toJson(),
+          'existing_shortcut': ?existingShortcut,
+        },
+      ),
     );
   }
 
@@ -640,6 +717,231 @@ class DenialBridge {
   }
 
   Future<DenialShortcutConfiguration> _mutateShortcuts({
+    required wire.SettingsRequestKind kind,
+    required int expectedRevision,
+    DenialShortcutBinding? shortcut,
+    String? existingShortcut,
+  }) async {
+    if (!useControlSocket) {
+      return _mutateShortcutsThroughPlatform(
+        kind: kind,
+        expectedRevision: expectedRevision,
+        shortcut: shortcut,
+        existingShortcut: existingShortcut,
+      );
+    }
+    final method = switch (kind) {
+      wire.SettingsRequestKind.AddShortcut => 'settings.shortcuts.add',
+      wire.SettingsRequestKind.UpdateShortcut => 'settings.shortcuts.update',
+      wire.SettingsRequestKind.RemoveShortcut => 'settings.shortcuts.remove',
+      wire.SettingsRequestKind.RestoreShortcuts => 'settings.shortcuts.restore',
+      _ => throw ArgumentError.value(kind, 'kind', 'invalid shortcut mutation'),
+    };
+    final parameters = <String, Object>{
+      'expected_revision': expectedRevision,
+      if (shortcut != null) 'shortcut': shortcut.toJson(),
+    };
+    if (existingShortcut != null) {
+      parameters[kind == wire.SettingsRequestKind.RemoveShortcut
+              ? 'shortcut'
+              : 'existing_shortcut'] =
+          existingShortcut;
+    }
+    final configuration = DenialShortcutConfiguration.fromJson(
+      await _sendSettingsControlRequest(method, parameters: parameters),
+    );
+    _shortcutConfigurations.add(configuration);
+    return configuration;
+  }
+
+  Future<Map<String, Object?>> _sendSettingsControlRequest(
+    String method, {
+    Map<String, Object>? parameters,
+  }) async {
+    try {
+      return await _sendControlRequest(method, parameters: parameters);
+    } on DenialOutputControlException catch (error) {
+      throw StateError(error.message);
+    }
+  }
+
+  Future<DenialSettingsDocument> _readSettingsDocumentFromPlatform() {
+    final requestId = _nextRequestId++;
+    final completer = Completer<DenialSettingsDocument>();
+    _pendingSettingsDocumentRequests[requestId] = completer;
+    _sendWire(
+      _wireCodec.encodeSettingsRead(
+        wire.SettingsRequestKind.ReadDocument,
+        requestId: requestId,
+      ),
+    );
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingSettingsDocumentRequests.remove(requestId);
+        throw TimeoutException('Denial settings read timed out');
+      },
+    );
+  }
+
+  Future<DenialSettingsDocument> _writeSettingsDocumentToPlatform({
+    required int expectedRevision,
+    required String document,
+  }) {
+    final requestId = _nextRequestId++;
+    final bytes = _wireCodec.encodeSettingsDocumentWrite(
+      requestId: requestId,
+      expectedRevision: expectedRevision,
+      document: document,
+    );
+    if (bytes == null) {
+      return Future<DenialSettingsDocument>.error(
+        ArgumentError('invalid Denial settings document'),
+      );
+    }
+    final completer = Completer<DenialSettingsDocument>();
+    _pendingSettingsDocumentRequests[requestId] = completer;
+    _sendWire(bytes);
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingSettingsDocumentRequests.remove(requestId);
+        throw TimeoutException('Denial settings write timed out');
+      },
+    );
+  }
+
+  Future<DenialKeyboardConfiguration> _readKeyboardConfigurationFromPlatform() {
+    final requestId = _nextRequestId++;
+    final completer = Completer<DenialKeyboardConfiguration>();
+    _pendingKeyboardSettingsRequests[requestId] = completer;
+    _sendWire(
+      _wireCodec.encodeSettingsRead(
+        wire.SettingsRequestKind.ReadKeyboard,
+        requestId: requestId,
+      ),
+    );
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingKeyboardSettingsRequests.remove(requestId);
+        throw TimeoutException('Denial keyboard settings read timed out');
+      },
+    );
+  }
+
+  Future<DenialInputDeviceCapabilities>
+  _readInputDeviceCapabilitiesFromPlatform() {
+    final requestId = _nextRequestId++;
+    final completer = Completer<DenialInputDeviceCapabilities>();
+    _pendingInputDeviceRequests[requestId] = completer;
+    _sendWire(
+      _wireCodec.encodeSettingsRead(
+        wire.SettingsRequestKind.ReadInputDevices,
+        requestId: requestId,
+      ),
+    );
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingInputDeviceRequests.remove(requestId);
+        throw TimeoutException('Denial input device detection timed out');
+      },
+    );
+  }
+
+  Future<DenialInputDeviceCapabilities> _configureTouchpadThroughPlatform(
+    DenialInputDeviceCapabilities capabilities,
+  ) {
+    final requestId = _nextRequestId++;
+    final bytes = _wireCodec.encodeTouchpadConfiguration(
+      requestId: requestId,
+      capabilities: capabilities,
+    );
+    if (bytes == null) {
+      return Future<DenialInputDeviceCapabilities>.error(
+        ArgumentError('invalid Denial touchpad configuration'),
+      );
+    }
+    final completer = Completer<DenialInputDeviceCapabilities>();
+    _pendingInputDeviceRequests[requestId] = completer;
+    _sendWire(bytes);
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingInputDeviceRequests.remove(requestId);
+        throw TimeoutException('Denial touchpad settings update timed out');
+      },
+    );
+  }
+
+  Future<DenialKeyboardConfiguration> _configureKeyboardThroughPlatform(
+    DenialKeyboardConfiguration configuration,
+  ) {
+    final requestId = _nextRequestId++;
+    final bytes = _wireCodec.encodeKeyboardConfiguration(
+      requestId: requestId,
+      configuration: configuration,
+    );
+    if (bytes == null) {
+      return Future<DenialKeyboardConfiguration>.error(
+        ArgumentError('invalid Denial keyboard configuration'),
+      );
+    }
+    final completer = Completer<DenialKeyboardConfiguration>();
+    _pendingKeyboardSettingsRequests[requestId] = completer;
+    _sendWire(bytes);
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingKeyboardSettingsRequests.remove(requestId);
+        throw TimeoutException('Denial keyboard settings update timed out');
+      },
+    );
+  }
+
+  Future<DenialShortcutConfiguration> _readShortcutsFromPlatform() {
+    final requestId = _nextRequestId++;
+    final completer = Completer<DenialShortcutConfiguration>();
+    _pendingShortcutRequests[requestId] = completer;
+    _sendWire(_wireCodec.encodeShortcutRead(requestId: requestId));
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingShortcutRequests.remove(requestId);
+        throw TimeoutException('Denial shortcut settings read timed out');
+      },
+    );
+  }
+
+  Future<DenialShortcutValidation> _validateShortcutThroughPlatform({
+    required DenialShortcutBinding shortcut,
+    String? existingShortcut,
+  }) {
+    final requestId = _nextRequestId++;
+    final bytes = _wireCodec.encodeShortcutValidation(
+      requestId: requestId,
+      shortcut: shortcut,
+      existingShortcut: existingShortcut,
+    );
+    if (bytes == null) {
+      return Future<DenialShortcutValidation>.error(
+        ArgumentError('shortcut validation request exceeds wire bounds'),
+      );
+    }
+    final completer = Completer<DenialShortcutValidation>();
+    _pendingShortcutValidationRequests[requestId] = completer;
+    _sendWire(bytes);
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingShortcutValidationRequests.remove(requestId);
+        throw TimeoutException('Denial shortcut validation timed out');
+      },
+    );
+  }
+
+  Future<DenialShortcutConfiguration> _mutateShortcutsThroughPlatform({
     required wire.SettingsRequestKind kind,
     required int expectedRevision,
     DenialShortcutBinding? shortcut,
@@ -807,12 +1109,48 @@ class DenialBridge {
   }
 
   bool requestBrightness({required int monitorId, required String connector}) {
-    return _sendBrightnessRequest(
-      command: 0,
-      monitorId: monitorId,
-      connector: connector,
-      percent: 0,
+    if (!_validBrightnessTarget(monitorId, connector)) return false;
+    if (!useControlSocket) {
+      _sendBrightnessPlatformRequest(
+        command: 0,
+        monitorId: monitorId,
+        connector: connector,
+        percent: 0,
+      );
+      return true;
+    }
+    unawaited(
+      _sendControlRequest(
+            'brightness.get',
+            parameters: <String, Object>{
+              'monitor_id': monitorId,
+              'connector': connector,
+            },
+          )
+          .then((result) {
+            final returnedMonitor = result['monitor_id'];
+            final level = result['level'];
+            if (returnedMonitor is int &&
+                level is num &&
+                !_brightnessStates.isClosed) {
+              _brightnessStates.add(
+                DenialBrightnessState(
+                  monitorId: returnedMonitor,
+                  level: level.toDouble().clamp(0.0, 1.0),
+                ),
+              );
+            }
+          })
+          .catchError((Object _) {
+            _sendBrightnessPlatformRequest(
+              command: 0,
+              monitorId: monitorId,
+              connector: connector,
+              percent: 0,
+            );
+          }),
     );
+    return true;
   }
 
   bool setBrightness({
@@ -820,27 +1158,53 @@ class DenialBridge {
     required String connector,
     required double level,
   }) {
-    return _sendBrightnessRequest(
-      command: 1,
-      monitorId: monitorId,
-      connector: connector,
-      percent: (level.clamp(0.0, 1.0) * 100).round(),
+    if (!_validBrightnessTarget(monitorId, connector)) return false;
+    final percent = (level.clamp(0.0, 1.0) * 100).round();
+    if (!useControlSocket) {
+      _sendBrightnessPlatformRequest(
+        command: 1,
+        monitorId: monitorId,
+        connector: connector,
+        percent: percent,
+      );
+      return true;
+    }
+    unawaited(
+      _sendControlRequest(
+        'brightness.set',
+        parameters: <String, Object>{
+          'monitor_id': monitorId,
+          'connector': connector,
+          'percent': percent,
+        },
+      ).catchError((Object _) {
+        _sendBrightnessPlatformRequest(
+          command: 1,
+          monitorId: monitorId,
+          connector: connector,
+          percent: percent,
+        );
+        return <String, Object?>{};
+      }),
     );
+    return true;
   }
 
-  bool _sendBrightnessRequest({
+  bool _validBrightnessTarget(int monitorId, String connector) {
+    final connectorBytes = utf8.encode(connector);
+    return monitorId >= 0 &&
+        connectorBytes.isNotEmpty &&
+        connectorBytes.length <= 128 &&
+        !connector.contains('\u0000');
+  }
+
+  void _sendBrightnessPlatformRequest({
     required int command,
     required int monitorId,
     required String connector,
     required int percent,
   }) {
     final connectorBytes = utf8.encode(connector);
-    if (monitorId < 0 ||
-        connectorBytes.isEmpty ||
-        connectorBytes.length > 128 ||
-        connector.contains('\u0000')) {
-      return false;
-    }
     final data = ByteData(12 + connectorBytes.length)
       ..setUint8(0, command)
       ..setInt64(1, monitorId, Endian.little)
@@ -850,7 +1214,6 @@ class DenialBridge {
     ServicesBinding.instance.defaultBinaryMessenger
         .send(_brightnessChannel, data)
         ?.catchError((Object _) => null);
-    return true;
   }
 
   /// Configures compositor-owned inactivity DPMS. A null timeout disables it.
@@ -935,6 +1298,60 @@ class DenialBridge {
     String workspace = '',
     bool autoReload = false,
   }) {
+    if (!useControlSocket) {
+      return _sendUiDevelopmentCommandToPlatform(
+        command,
+        workspace: workspace,
+        autoReload: autoReload,
+      );
+    }
+    final requestId = _nextRequestId++;
+    final method = switch (command) {
+      DenialUiDevelopmentCommand.query => 'ui.get',
+      DenialUiDevelopmentCommand.enableLiveDevelopment => 'ui.live.enable',
+      DenialUiDevelopmentCommand.disableLiveDevelopment => 'ui.live.disable',
+      DenialUiDevelopmentCommand.setWorkspace => 'ui.workspace.set',
+      DenialUiDevelopmentCommand.hotReload => 'ui.reload',
+      DenialUiDevelopmentCommand.hotRestart => 'ui.restart',
+      DenialUiDevelopmentCommand.buildAndActivateOptimized => 'ui.build',
+      DenialUiDevelopmentCommand.restoreOfficial => 'ui.restore',
+      DenialUiDevelopmentCommand.revertLastWorking => 'ui.revert',
+      DenialUiDevelopmentCommand.setAutoReload => 'ui.auto_reload.set',
+    };
+    if (command == DenialUiDevelopmentCommand.setWorkspace &&
+        (workspace.isEmpty || workspace.contains('\u0000'))) {
+      return 0;
+    }
+    unawaited(
+      _sendControlRequest(
+            method,
+            requestId: requestId,
+            parameters: switch (command) {
+              DenialUiDevelopmentCommand.setWorkspace => <String, Object>{
+                'path': workspace,
+              },
+              DenialUiDevelopmentCommand.setAutoReload => <String, Object>{
+                'enabled': autoReload,
+              },
+              _ => null,
+            },
+          )
+          .then((result) {
+            final state = DenialUiDevelopmentState.fromJson(result);
+            if (!_uiDevelopmentStates.isClosed) {
+              _uiDevelopmentStates.add(state);
+            }
+          })
+          .catchError((Object _) {}),
+    );
+    return requestId;
+  }
+
+  int _sendUiDevelopmentCommandToPlatform(
+    DenialUiDevelopmentCommand command, {
+    required String workspace,
+    required bool autoReload,
+  }) {
     final requestId = _nextRequestId++;
     final bytes = _uiDevelopmentProtocol.encodeCommand(
       command: command,
@@ -942,9 +1359,7 @@ class DenialBridge {
       workspace: workspace,
       autoReload: autoReload,
     );
-    if (bytes == null) {
-      return 0;
-    }
+    if (bytes == null) return 0;
     ServicesBinding.instance.defaultBinaryMessenger
         .send(denialUiDevelopmentControlChannel, ByteData.sublistView(bytes))
         ?.catchError((Object _) => null);
@@ -1000,7 +1415,7 @@ class DenialBridge {
   bool requestLogout() => _sendSystemCommand(_logoutCommand);
 
   Future<DenialOutputConfiguration> readOutputConfiguration() async {
-    final result = await _sendOutputControlRequest('outputs.get');
+    final result = await _sendControlRequest('outputs.get');
     return DenialOutputConfiguration.fromJson(result);
   }
 
@@ -1008,13 +1423,15 @@ class DenialBridge {
     required int serial,
     required List<DenialOutput> outputs,
     required bool persistent,
+    String? primaryOutput,
     int? confirmationTimeoutMilliseconds,
   }) async {
-    final result = await _sendOutputControlRequest(
+    final result = await _sendControlRequest(
       'outputs.apply',
       parameters: <String, Object>{
         'serial': serial,
         'persistent': persistent,
+        'primary_output': ?primaryOutput,
         'confirmation_timeout_milliseconds': ?confirmationTimeoutMilliseconds,
         'outputs': <Map<String, Object>>[
           for (final output in outputs) output.toApplyJson(),
@@ -1025,22 +1442,23 @@ class DenialBridge {
   }
 
   Future<void> confirmOutputConfiguration(int token) async {
-    await _sendOutputControlRequest(
+    await _sendControlRequest(
       'outputs.confirm',
       parameters: <String, Object>{'token': token},
     );
   }
 
   Future<void> rollbackOutputConfiguration(int token) async {
-    await _sendOutputControlRequest(
+    await _sendControlRequest(
       'outputs.rollback',
       parameters: <String, Object>{'token': token},
     );
   }
 
-  Future<Map<String, Object?>> _sendOutputControlRequest(
+  Future<Map<String, Object?>> _sendControlRequest(
     String method, {
     Map<String, Object>? parameters,
+    int? requestId,
   }) async {
     final path = _outputControlSocketPath();
     if (path == null) {
@@ -1049,10 +1467,17 @@ class DenialBridge {
         'The Denial output control socket is unavailable.',
       );
     }
-    final requestId = _nextRequestId++;
+    if (FileSystemEntity.typeSync(path, followLinks: false) !=
+        FileSystemEntityType.unixDomainSock) {
+      throw const DenialOutputControlException(
+        'unavailable',
+        'The Denial control socket is not running.',
+      );
+    }
+    final resolvedRequestId = requestId ?? _nextRequestId++;
     final request = jsonEncode(<String, Object>{
       'version': 1,
-      'id': requestId,
+      'id': resolvedRequestId,
       'method': method,
       'params': ?parameters,
     });
@@ -1085,7 +1510,7 @@ class DenialBridge {
       final decoded = jsonDecode(utf8.decode(responseBytes));
       if (decoded is! Map<String, Object?> ||
           decoded['version'] != 1 ||
-          decoded['id'] != requestId) {
+          decoded['id'] != resolvedRequestId) {
         throw const DenialOutputControlException(
           'invalid_response',
           'The compositor returned an invalid output response.',
@@ -1127,6 +1552,12 @@ class DenialBridge {
   }
 
   String? _outputControlSocketPath() {
+    final override = controlSocketPath;
+    if (override != null) {
+      return override.startsWith('/') && !override.contains('\u0000')
+          ? override
+          : null;
+    }
     final environment = Platform.environment;
     final explicit = environment['DENIAL_SOCKET'];
     if (explicit != null &&
@@ -1243,7 +1674,30 @@ class DenialBridge {
     );
   }
 
-  Future<double?> readAudioLevel() {
+  Future<double?> readAudioLevel() async {
+    if (!useControlSocket) return _readAudioLevelFromPlatform();
+    try {
+      final result = await _sendControlRequest('audio.get');
+      final value = result['level'];
+      if (value is! num) return null;
+      final level = value.toDouble().clamp(0.0, 1.0);
+      final requestSerial = result['request_serial'];
+      if (!_audioStates.isClosed) {
+        _audioStates.add(
+          DenialAudioState(
+            level: level,
+            requestSerial: requestSerial is int ? requestSerial : 0,
+            completesRead: true,
+          ),
+        );
+      }
+      return level;
+    } on Object {
+      return _readAudioLevelFromPlatform();
+    }
+  }
+
+  Future<double?> _readAudioLevelFromPlatform() {
     final completer = Completer<double?>();
     _pendingAudioReads.add(completer);
     final payload = ByteData(1)..setUint8(0, 0);
@@ -1265,30 +1719,122 @@ class DenialBridge {
   }
 
   void setAudioLevel(int percent, {required int requestSerial}) {
-    final payload = ByteData(6)
-      ..setUint8(0, 1)
-      ..setUint8(1, percent.clamp(0, 100))
-      ..setUint32(2, requestSerial & 0xffffffff, Endian.little);
-    ServicesBinding.instance.defaultBinaryMessenger
-        .send(_audioChannel, payload)
-        ?.catchError((Object _) => null);
+    final resolvedPercent = percent.clamp(0, 100);
+    if (!useControlSocket) {
+      final payload = ByteData(6)
+        ..setUint8(0, 1)
+        ..setUint8(1, resolvedPercent)
+        ..setUint32(2, requestSerial & 0xffffffff, Endian.little);
+      ServicesBinding.instance.defaultBinaryMessenger
+          .send(_audioChannel, payload)
+          ?.catchError((Object _) => null);
+      return;
+    }
+    unawaited(
+      _sendControlRequest(
+        'audio.set',
+        parameters: <String, Object>{
+          'percent': resolvedPercent,
+          'request_serial': requestSerial & 0xffffffff,
+        },
+      ).catchError((Object _) {
+        final payload = ByteData(6)
+          ..setUint8(0, 1)
+          ..setUint8(1, resolvedPercent)
+          ..setUint32(2, requestSerial & 0xffffffff, Endian.little);
+        ServicesBinding.instance.defaultBinaryMessenger
+            .send(_audioChannel, payload)
+            ?.catchError((Object _) => null);
+        return <String, Object?>{};
+      }),
+    );
   }
 
   void requestAudioStreams() {
-    final payload = ByteData(1)..setUint8(0, 2);
-    ServicesBinding.instance.defaultBinaryMessenger
-        .send(_audioChannel, payload)
-        ?.catchError((Object _) => null);
+    if (!useControlSocket) {
+      final payload = ByteData(1)..setUint8(0, 2);
+      ServicesBinding.instance.defaultBinaryMessenger
+          .send(_audioChannel, payload)
+          ?.catchError((Object _) => null);
+      return;
+    }
+    unawaited(
+      _sendControlRequest('audio.streams.get')
+          .then((result) {
+            final streams = _audioStreamsFromControl(result);
+            if (!_audioStreamStates.isClosed) {
+              _audioStreamStates.add(streams);
+            }
+          })
+          .catchError((Object _) {
+            final payload = ByteData(1)..setUint8(0, 2);
+            ServicesBinding.instance.defaultBinaryMessenger
+                .send(_audioChannel, payload)
+                ?.catchError((Object _) => null);
+          }),
+    );
   }
 
   void setAudioStreamLevel(int streamId, int percent) {
-    final payload = ByteData(6)
-      ..setUint8(0, 3)
-      ..setUint32(1, streamId & 0xffffffff, Endian.little)
-      ..setUint8(5, percent.clamp(0, 100));
-    ServicesBinding.instance.defaultBinaryMessenger
-        .send(_audioChannel, payload)
-        ?.catchError((Object _) => null);
+    final resolvedStreamId = streamId & 0xffffffff;
+    final resolvedPercent = percent.clamp(0, 100);
+    if (!useControlSocket) {
+      final payload = ByteData(6)
+        ..setUint8(0, 3)
+        ..setUint32(1, resolvedStreamId, Endian.little)
+        ..setUint8(5, resolvedPercent);
+      ServicesBinding.instance.defaultBinaryMessenger
+          .send(_audioChannel, payload)
+          ?.catchError((Object _) => null);
+      return;
+    }
+    unawaited(
+      _sendControlRequest(
+        'audio.stream.set',
+        parameters: <String, Object>{
+          'stream_id': resolvedStreamId,
+          'percent': resolvedPercent,
+        },
+      ).catchError((Object _) {
+        final payload = ByteData(6)
+          ..setUint8(0, 3)
+          ..setUint32(1, resolvedStreamId, Endian.little)
+          ..setUint8(5, resolvedPercent);
+        ServicesBinding.instance.defaultBinaryMessenger
+            .send(_audioChannel, payload)
+            ?.catchError((Object _) => null);
+        return <String, Object?>{};
+      }),
+    );
+  }
+
+  List<DenialAudioStream> _audioStreamsFromControl(
+    Map<String, Object?> result,
+  ) {
+    final values = result['streams'];
+    if (values is! List<Object?>) {
+      throw const FormatException('invalid audio streams');
+    }
+    return List<DenialAudioStream>.unmodifiable(
+      values.map((value) {
+        if (value is! Map<String, Object?>) {
+          throw const FormatException('invalid audio stream');
+        }
+        final id = value['id'];
+        final name = value['name'];
+        final level = value['level'];
+        final muted = value['muted'];
+        if (id is! int || name is! String || level is! num || muted is! bool) {
+          throw const FormatException('invalid audio stream');
+        }
+        return DenialAudioStream(
+          id: id,
+          name: name,
+          level: level.toDouble().clamp(0.0, 1.0),
+          muted: muted,
+        );
+      }),
+    );
   }
 
   void _sendWire(Uint8List bytes) {
@@ -1459,6 +2005,7 @@ class DenialBridge {
             DenialShellAction.screenshotDone,
           wire.ShellActionKind.ClientPointerPressed =>
             DenialShellAction.clientPointerPressed,
+          wire.ShellActionKind.Wallpaper => DenialShellAction.wallpaper,
         };
         if (!_shellActions.isClosed) {
           _shellActions.add(
@@ -1526,23 +2073,29 @@ class DenialBridge {
   void _handleSettingsResponse(int requestId, wire.SettingsResponse response) {
     if (response.kind == wire.SettingsResponseKind.Document) {
       final completer = _pendingSettingsDocumentRequests.remove(requestId);
-      if (completer == null || completer.isCompleted) {
-        return;
-      }
       final document = response.document;
       if (!response.success ||
           response.revision <= 0 ||
           document == null ||
           utf8.encode(document).length >
               wire.denialWireMaxSettingsDocumentBytes) {
-        completer.completeError(
-          StateError(response.error ?? 'Denial settings request failed'),
-        );
+        if (completer != null && !completer.isCompleted) {
+          completer.completeError(
+            StateError(response.error ?? 'Denial settings request failed'),
+          );
+        }
         return;
       }
-      completer.complete(
-        DenialSettingsDocument(revision: response.revision, json: document),
+      final settings = DenialSettingsDocument(
+        revision: response.revision,
+        json: document,
       );
+      if (!_settingsDocuments.isClosed) {
+        _settingsDocuments.add(settings);
+      }
+      if (requestId != 0 && completer != null && !completer.isCompleted) {
+        completer.complete(settings);
+      }
       return;
     }
 

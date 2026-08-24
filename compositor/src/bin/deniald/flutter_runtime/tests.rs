@@ -241,27 +241,33 @@ fn vm_service_log_parser_only_accepts_the_configured_loopback_service() {
 }
 
 #[test]
-fn flutter_scroll_delta_scales_only_finger_scroll() {
+fn flutter_scroll_delta_matches_wayland_application_speed() {
     assert_eq!(
-        flutter_scroll_delta(Some(15.0), Some(120.0), AxisSource::Wheel, 5.0),
-        53.0
+        flutter_application_scroll_delta(Some(15.0), Some(120.0), AxisSource::Wheel, 5.0),
+        120.0
     );
     assert_eq!(
-        flutter_scroll_delta(Some(-15.0), Some(-60.0), AxisSource::Wheel, 0.05),
-        -26.5
+        flutter_application_scroll_delta(Some(-15.0), Some(-60.0), AxisSource::Wheel, 0.05),
+        -60.0
     );
     assert_eq!(
-        flutter_scroll_delta(Some(7.25), None, AxisSource::Finger, 2.0),
+        flutter_application_scroll_delta(Some(15.0), None, AxisSource::Wheel, 5.0),
+        120.0
+    );
+    assert_eq!(
+        flutter_application_scroll_delta(Some(7.25), None, AxisSource::Finger, 2.0),
         14.5
     );
     assert_eq!(
-        flutter_scroll_delta(Some(7.25), None, AxisSource::Continuous, 2.0),
+        flutter_application_scroll_delta(Some(7.25), None, AxisSource::Continuous, 2.0),
         7.25
     );
     assert_eq!(
-        flutter_scroll_delta(None, None, AxisSource::Finger, 5.0),
+        flutter_application_scroll_delta(None, None, AxisSource::Finger, 5.0),
         0.0
     );
+    assert_eq!(flutter_physical_scroll_delta(120.0, 1.0), 120.0);
+    assert_eq!(flutter_physical_scroll_delta(120.0, 1.5), 180.0);
 }
 
 #[test]
@@ -1523,6 +1529,29 @@ fn output_leases_retire_independently_without_cross_output_refcounts() {
         1
     );
     assert!(broker.release_output(first.output_id, first.index).is_err());
+}
+
+#[test]
+fn asynchronous_output_lease_extends_the_published_buffer_lifetime() {
+    let mut broker = output_broker();
+    let output = OutputId(1);
+    let view = RenderViewId::for_output(output).unwrap().get();
+    let size = PixelSize::new(1920, 1080);
+
+    broker.begin_transaction();
+    let framebuffer = acquire_output(&mut broker, output, size);
+    assert!(broker.mark_ready(view, framebuffer, &[], &[], None, None));
+    let ready = broker.finish_transaction().pop().unwrap();
+    broker.publish(&ready).unwrap();
+
+    broker.retain_output(output, ready.index).unwrap();
+    assert_eq!(pool(&broker, output).slots[ready.index].output_refs, 2);
+
+    broker.release_output(output, ready.index).unwrap();
+    assert_eq!(pool(&broker, output).slots[ready.index].output_refs, 1);
+    broker.release_output(output, ready.index).unwrap();
+    assert_eq!(pool(&broker, output).slots[ready.index].output_refs, 0);
+    assert!(broker.retain_output(output, ready.index).is_err());
 }
 
 #[test]

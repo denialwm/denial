@@ -1,16 +1,18 @@
 import 'package:flutter/widgets.dart';
 
-/// Animates a positioned rectangle, retaining its child layout by default.
+/// Animates a positioned rectangle while retaining its child layout.
 ///
-/// The child adopts the destination layout once. A paint transform maps that
-/// retained layout onto the interpolated visual rectangle until the animation
-/// completes. Set [layoutDuringAnimation] when layout-dependent visuals such as
-/// shadows must follow every intermediate rectangle instead. Hit testing
-/// follows either path.
+/// By default the child adopts the destination layout once. Supplying
+/// [layoutRect] keeps a stable canonical layout instead, which lets callers
+/// move and scale expensive retained layers without resizing them. A paint
+/// transform maps that layout onto the interpolated visual rectangle and hit
+/// testing follows the transform. Set [layoutDuringAnimation] when the child
+/// really must be laid out at every intermediate rectangle.
 class RetainedAnimatedPositioned extends ImplicitlyAnimatedWidget {
   const RetainedAnimatedPositioned({
     required this.rect,
     required this.child,
+    this.layoutRect,
     this.layoutDuringAnimation = false,
     required super.duration,
     super.curve,
@@ -20,6 +22,7 @@ class RetainedAnimatedPositioned extends ImplicitlyAnimatedWidget {
 
   final Rect rect;
   final Widget child;
+  final Rect? layoutRect;
   final bool layoutDuringAnimation;
 
   @override
@@ -42,16 +45,15 @@ class _RetainedAnimatedPositionedState
   Widget build(BuildContext context) {
     final destinationRect = widget.rect;
     final visualRect = _rect?.evaluate(animation) ?? destinationRect;
-    final layoutRect = widget.layoutDuringAnimation
-        ? visualRect
-        : destinationRect;
-    final scaleX = destinationRect.width > 0
-        ? visualRect.width / destinationRect.width
+    final retainedRect = widget.layoutRect ?? destinationRect;
+    final layoutRect = widget.layoutDuringAnimation ? visualRect : retainedRect;
+    final scaleX = retainedRect.width > 0
+        ? visualRect.width / retainedRect.width
         : 1.0;
-    final scaleY = destinationRect.height > 0
-        ? visualRect.height / destinationRect.height
+    final scaleY = retainedRect.height > 0
+        ? visualRect.height / retainedRect.height
         : 1.0;
-    final translation = visualRect.topLeft - destinationRect.topLeft;
+    final translation = visualRect.topLeft - retainedRect.topLeft;
     final transform = widget.layoutDuringAnimation
         ? Matrix4.identity()
         : (Matrix4.diagonal3Values(scaleX, scaleY, 1)

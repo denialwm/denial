@@ -11,7 +11,7 @@ use super::{
     InitialXdgPlacementPolicy, MAX_PENDING_DMABUF_IMPORTS, dmabuf_import_queue_has_capacity,
     initial_xdg_placement_policy,
 };
-use super::{RuntimeState, ViewporterState, XdgActivationState};
+use super::{RuntimeState, TabletManagerState, ViewporterState, XdgActivationState};
 use crate::window_placement_store::WindowPlacementState;
 #[cfg(feature = "flutter")]
 use crate::wire::{InputLayoutSnapshot, InputRect, WindowOpacityClass};
@@ -91,6 +91,21 @@ fn advertises_xdg_activation_version_one() {
         .expect("xdg_activation_v1 global should remain registered");
 
     assert_eq!(global.interface.name, "xdg_activation_v1");
+    assert_eq!(global.version, 1);
+    assert!(!global.disabled);
+}
+
+#[test]
+fn advertises_tablet_manager_v2_version_one() {
+    let display = Display::<RuntimeState>::new().expect("Wayland display should initialize");
+    let display_handle = display.handle();
+    let tablet_manager = TabletManagerState::new::<RuntimeState>(&display_handle);
+    let global = display_handle
+        .backend_handle()
+        .global_info(tablet_manager.global())
+        .expect("zwp_tablet_manager_v2 global should remain registered");
+
+    assert_eq!(global.interface.name, "zwp_tablet_manager_v2");
     assert_eq!(global.version, 1);
     assert!(!global.disabled);
 }

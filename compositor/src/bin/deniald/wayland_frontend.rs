@@ -88,7 +88,7 @@ use smithay::wayland::shell::xdg::{
 use smithay::wayland::shell::xdg::decoration::{XdgDecorationHandler, XdgDecorationState};
 use smithay::wayland::shm::{ShmHandler, ShmState};
 use smithay::wayland::socket::ListeningSocketSource;
-use smithay::wayland::tablet_manager::TabletSeatHandler;
+use smithay::wayland::tablet_manager::{TabletManagerState, TabletSeatHandler};
 use smithay::wayland::viewporter::ViewporterState;
 use smithay::wayland::xwayland_shell::XWaylandShellState;
 use smithay::wayland::xwayland_keyboard_grab::XWaylandKeyboardGrabState;
@@ -336,10 +336,12 @@ pub(super) struct WaylandFrontend {
     #[cfg(feature = "flutter")]
     pub xembed_tray: Option<super::xembed_tray::XEmbedTray>,
     xwayland_client: Client,
-    xwayland_scale: u32,
+    xwayland_scale_mode: xwayland::XWaylandScaleMode,
+    xwayland_scale_120: u32,
     xdisplay: u32,
     _xdg_decoration_state: XdgDecorationState,
     _cursor_shape_state: CursorShapeManagerState,
+    _tablet_manager_state: TabletManagerState,
     pub shm_state: ShmState,
     pub dmabuf_state: DmabufState,
     drm_syncobj_state: Option<DrmSyncobjState>,
@@ -378,6 +380,7 @@ pub(super) struct WaylandFrontend {
     scene_complex_windows: HashSet<u64>,
     #[cfg(feature = "flutter")]
     scene_complex_windows_scratch: HashSet<u64>,
+    window_membership_scratch: Vec<Window>,
     #[cfg(feature = "flutter")]
     output_window_membership: OutputWindowMembership<ObjectId, Window>,
     #[cfg(feature = "flutter")]
@@ -409,7 +412,7 @@ pub(super) struct WaylandFrontend {
     #[cfg(feature = "flutter")]
     visible_window_ids: HashSet<u64>,
     #[cfg(feature = "flutter")]
-    input_root_ids_scratch: HashMap<ObjectId, u64>,
+    input_root_ids: HashMap<ObjectId, u64>,
     #[cfg(feature = "flutter")]
     input_visibility_known: bool,
     #[cfg(feature = "flutter")]
@@ -512,6 +515,7 @@ pub(super) struct WaylandFrontend {
     desktop_bounds: smithay::utils::Rectangle<i32, Logical>,
     touch_bounds: smithay::utils::Rectangle<i32, Logical>,
     touch_transform: OutputTransform,
+    tablet_output_mappings: HashMap<String, String>,
     pointer_location: Point<f64, Logical>,
     cursor_status: CursorImageStatus,
     atlas_origin: Point<f64, Logical>,
@@ -558,6 +562,7 @@ fn shell_fullscreen_transition(
 struct WaylandOutput {
     id: OutputId,
     connector: String,
+    transform: OutputTransform,
     output: Output,
     global: GlobalId,
     logical_geometry: Rectangle<i32, Logical>,

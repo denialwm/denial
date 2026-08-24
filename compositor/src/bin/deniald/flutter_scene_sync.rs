@@ -106,10 +106,10 @@ pub(super) fn synchronize_flutter_scene(
         windows,
         textures,
         window_snapshot_changed,
-    } = runtime.sync_wayland_scene(windows, textures, &events.restored_window_ids)?;
+    } = runtime.sync_wayland_scene(revision, windows, textures, &events.restored_window_ids)?;
     if window_snapshot_changed {
-        // Buffer-only revisions leave WireBridge's metadata snapshot equal.
-        // Rehash IDs only when that authoritative snapshot actually changes.
+        // Buffer-only commits take the texture-source fast path above. Rehash
+        // IDs only after accepting a new authoritative metadata revision.
         let mut published_window_ids = std::mem::take(&mut events.published_window_ids);
         published_window_ids.clear();
         published_window_ids.extend(runtime.synced_window_ids());

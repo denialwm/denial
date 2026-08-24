@@ -11,6 +11,7 @@ import 'package:denial_dart_shell/src/settings/settings_store.dart';
 import 'package:denial_dart_shell/src/settings/shell_settings.dart';
 import 'package:denial_dart_shell/src/state/clipboard_tray.dart';
 import 'package:denial_dart_shell/src/state/display_layout.dart';
+import 'package:denial_dart_shell/src/theme/backdrop_blur_level.dart';
 import 'package:denial_dart_shell/src/theme/shell_theme.dart';
 import 'package:denial_dart_shell/src/widgets/clipboard_tray_layer.dart';
 import 'package:flutter/material.dart';
@@ -143,7 +144,7 @@ void main() {
             data: ShellThemeData(
               accent: Color(0xff83d8ff),
               panelOpacity: 0.84,
-              backdropBlurSigma: 22,
+              backdropBlurLevel: ShellBackdropBlurLevel.best,
             ),
             child: ClipboardTrayLayer(),
           ),

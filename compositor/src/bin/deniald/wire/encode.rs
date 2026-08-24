@@ -33,9 +33,17 @@ impl WireBridge {
     /// generation, keeping application-frame-rate metadata off the allocator.
     pub fn update_windows(
         &mut self,
+        revision: u64,
         mut windows: Vec<WindowDescription>,
         restored_window_ids: &BTreeSet<u64>,
     ) -> Result<(Option<&[u8]>, Vec<WindowDescription>), WireError> {
+        // SceneSyncState guarantees that any serialized window-metadata
+        // change advances this revision. Repeated work for an already
+        // accepted revision is therefore an O(1) check instead of a deep
+        // comparison of owned strings and nested surface vectors.
+        if self.windows_revision == Some(revision) {
+            return Ok((None, windows));
+        }
         let next_restored_window_ids = windows
             .iter()
             .filter_map(|window| {
@@ -44,14 +52,9 @@ impl WireBridge {
                     .then_some(window.window_id)
             })
             .collect::<Vec<_>>();
-        // Buffer-only scene revisions usually keep all metadata unchanged.
-        // The stored snapshot has already passed validation, so avoid the
-        // validator's hash-table work on this application-frame-rate path.
-        if self.windows == windows && self.restored_window_ids == next_restored_window_ids {
-            return Ok((None, windows));
-        }
         validate_windows(&windows)?;
         std::mem::swap(&mut self.windows, &mut windows);
+        self.windows_revision = Some(revision);
         self.restored_window_ids = next_restored_window_ids;
         let sequence = self.take_sequence();
         self.outbound_builder.reset();
@@ -262,7 +265,10 @@ impl WireBridge {
         document: Option<&str>,
         error: Option<&str>,
     ) -> Result<&[u8], WireError> {
-        if request_id == 0 || revision == 0 {
+        // A zero request id is the native-to-Flutter settings notification,
+        // matching the unsolicited display, keyboard, and input updates.
+        // Requested responses still carry their original non-zero id.
+        if revision == 0 {
             return Err(WireError::RequestId);
         }
         if document.is_some_and(|document| document.len() > MAX_SETTINGS_DOCUMENT_BYTES)

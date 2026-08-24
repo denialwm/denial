@@ -5,12 +5,14 @@ void main() {
   test('decodes output control snapshots and preserves exact millihertz', () {
     final configuration = DenialOutputConfiguration.fromJson(<String, Object?>{
       'serial': 9,
+      'primary_output': 'DP-1',
       'capabilities': <String, Object?>{
         'apply': true,
         'position': true,
         'mode': true,
         'scale': true,
         'transform': true,
+        'adaptive_sync': true,
         'persistent': true,
       },
       'pending_confirmation': <String, Object?>{
@@ -19,6 +21,7 @@ void main() {
       },
       'outputs': <Object?>[
         <String, Object?>{
+          'monitor_id': 17,
           'name': 'DP-1',
           'description': 'Desk display',
           'connected': true,
@@ -30,6 +33,7 @@ void main() {
           'logical_height': 1920,
           'scale': 1.0,
           'transform': '90',
+          'adaptive_sync_supported': true,
           'adaptive_sync': false,
           'current_mode': <String, Object?>{
             'width': 1920,
@@ -51,13 +55,17 @@ void main() {
 
     final output = configuration.outputs.single;
     expect(configuration.serial, 9);
+    expect(configuration.primaryOutput, 'DP-1');
     expect(configuration.capabilities.transform, isTrue);
+    expect(configuration.capabilities.adaptiveSync, isTrue);
     expect(configuration.pendingConfirmation?.token, 27);
+    expect(output.monitorId, 17);
     expect(
       configuration.pendingConfirmation?.deadlineUnixMilliseconds,
       1755421200000,
     );
     expect(output.transform, DenialOutputTransform.rotate90);
+    expect(output.adaptiveSyncSupported, isTrue);
     expect(output.effectiveMode.refreshMillihz, 59940);
     expect(output.draftLogicalSize.width, 1080);
     expect(output.draftLogicalSize.height, 1920);
@@ -83,6 +91,7 @@ void main() {
       logicalHeight: 1440,
       scale: 1,
       transform: DenialOutputTransform.normal,
+      adaptiveSyncSupported: true,
       adaptiveSync: false,
       currentMode: mode,
       modes: <DenialOutputMode>[mode],
@@ -96,5 +105,10 @@ void main() {
     expect(portrait.logicalHeight, 1280);
     expect(portrait.toApplyJson()['scale'], 2);
     expect(portrait.toApplyJson()['transform'], '270');
+    expect(portrait.toApplyJson()['adaptive_sync'], isFalse);
+
+    final variableRefreshRate = portrait.copyWith(adaptiveSync: true);
+    expect(variableRefreshRate.adaptiveSyncSupported, isTrue);
+    expect(variableRefreshRate.toApplyJson()['adaptive_sync'], isTrue);
   });
 }

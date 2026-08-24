@@ -42,6 +42,23 @@ fn normalizes_negative_coordinates_without_changing_global_origin() {
 }
 
 #[test]
+fn configured_primary_output_precedes_refresh_rate_and_falls_back_when_absent() {
+    let internal = output(1, "eDP-1", (0, 0), (1920, 1080), 120, 60_000);
+    let external = output(2, "DP-1", (1920, 0), (2560, 1440), 120, 240_000);
+    let mut manager =
+        TopologyManager::new_with_primary_output([internal, external], Some("eDP-1".to_owned()))
+            .unwrap();
+
+    assert_eq!(manager.snapshot().ticker, Some(OutputId(1)));
+
+    manager
+        .apply_with_primary_output([], Some("disconnected".to_owned()))
+        .unwrap();
+
+    assert_eq!(manager.snapshot().ticker, Some(OutputId(2)));
+}
+
+#[test]
 fn assigns_stable_negative_render_view_ids() {
     assert_eq!(RenderViewId::for_output(OutputId(0)).unwrap().get(), -1);
     assert_eq!(RenderViewId::for_output(OutputId(41)).unwrap().get(), -42);
@@ -202,6 +219,44 @@ fn hotplug_transaction_is_atomic_and_epoch_only_changes_for_real_work() {
         Err(TopologyError::DuplicateName(_))
     ));
     assert_eq!(manager.snapshot(), before_invalid);
+}
+
+#[test]
+fn rejects_overlapping_outputs_without_changing_the_topology() {
+    let mut manager = TopologyManager::new([
+        output(1, "main", (0, 0), (1920, 1080), 120, 60_000),
+        output(2, "side", (1920, 0), (2560, 1440), 120, 60_000),
+    ])
+    .unwrap();
+    let before_invalid = manager.snapshot();
+
+    let result = manager.apply([TopologyChange::Upsert(output(
+        2,
+        "side",
+        (0, 0),
+        (2560, 1440),
+        120,
+        60_000,
+    ))]);
+
+    assert_eq!(
+        result,
+        Err(TopologyError::OverlappingOutputs(
+            "main".into(),
+            "side".into()
+        ))
+    );
+    assert_eq!(manager.snapshot(), before_invalid);
+}
+
+#[test]
+fn permits_outputs_that_only_share_an_edge() {
+    TopologyManager::new([
+        output(1, "main", (0, 0), (1920, 1080), 120, 60_000),
+        output(2, "right", (1920, 0), (2560, 1440), 120, 60_000),
+        output(3, "bottom", (0, 1080), (1920, 1080), 120, 60_000),
+    ])
+    .unwrap();
 }
 
 #[test]

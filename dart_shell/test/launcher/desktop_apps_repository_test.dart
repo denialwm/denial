@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:denial_dart_shell/src/launcher/repositories/desktop_apps_repository.dart';
@@ -72,5 +73,43 @@ Exec=/bin/true
     );
 
     expect(await repository.loadApplications(), isEmpty);
+  });
+
+  test('reports newly installed desktop entries', () async {
+    final applications = Directory(
+      p.join(temporary.path, 'profile', 'share', 'applications'),
+    );
+    await applications.create(recursive: true);
+    final repository = DesktopAppsRepository(
+      paths: RuntimePaths(
+        environment: <String, String>{
+          'HOME': temporary.path,
+          'XDG_DATA_DIRS': p.join(temporary.path, 'profile', 'share'),
+        },
+      ),
+    );
+    final changed = Completer<void>();
+    final watcher = await repository.watchApplications(
+      onChanged: () {
+        if (!changed.isCompleted) {
+          changed.complete();
+        }
+      },
+    );
+    addTearDown(watcher.dispose);
+
+    await File(
+      p.join(applications.path, 'new-application.desktop'),
+    ).writeAsString('''
+[Desktop Entry]
+Type=Application
+Name=New Application
+Exec=/bin/true
+''');
+
+    await expectLater(
+      changed.future.timeout(const Duration(seconds: 5)),
+      completes,
+    );
   });
 }

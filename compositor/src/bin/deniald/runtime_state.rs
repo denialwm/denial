@@ -15,6 +15,8 @@ pub(super) struct RuntimeState {
     #[cfg(feature = "flutter")]
     pub(super) kms_reconfigure_requested: bool,
     #[cfg(feature = "flutter")]
+    pub(super) kms_presentation_recovery_requested: bool,
+    #[cfg(feature = "flutter")]
     pub(super) resident_geometry_reconfigure_requested: bool,
     pub(super) device_removed: bool,
     pub(super) wayland: Option<wayland_frontend::WaylandFrontend>,
@@ -91,14 +93,15 @@ pub(super) struct RuntimeState {
     #[cfg(feature = "flutter")]
     pub(super) pending_output_confirmations: VecDeque<PendingOutputConfirmation>,
     #[cfg(feature = "flutter")]
+    pub(super) pending_settings_controls: VecDeque<PendingSettingsControl>,
+    #[cfg(feature = "flutter")]
+    pub(super) pending_system_controls: VecDeque<PendingSystemControl>,
+    #[cfg(feature = "flutter")]
+    pub(super) pending_system_control_waits: VecDeque<PendingSystemControlWait>,
+    #[cfg(feature = "flutter")]
     pub(super) pending_orientation: Option<orientation_sensor::Orientation>,
     #[cfg(feature = "flutter")]
     pub(super) output_control_dirty: bool,
-    #[cfg(feature = "flutter")]
-    pub(super) dpms_wake_topology_grace_until: Option<Instant>,
-    #[cfg(feature = "flutter")]
-    pub(super) topology_recheck_at: Option<Instant>,
-    #[cfg(feature = "flutter")]
     pub(super) pending_ui_development: VecDeque<PendingUiDevelopment>,
     #[cfg(feature = "flutter")]
     pub(super) idle_dpms: idle_policy::IdleDpmsPolicy,
@@ -185,26 +188,6 @@ impl RuntimeState {
     pub(super) fn note_user_activity(&mut self) {
         let requests = self.idle_dpms.note_activity(Instant::now());
         self.queue_idle_power_requests(requests);
-    }
-
-    pub(super) fn note_dpms_wake(&mut self, now: Instant) {
-        self.dpms_wake_topology_grace_until = Some(now + DPMS_WAKE_TOPOLOGY_GRACE);
-    }
-
-    pub(super) fn service_topology_recheck_deadline(&mut self, now: Instant) {
-        if self
-            .topology_recheck_at
-            .is_some_and(|deadline| now >= deadline)
-        {
-            self.topology_recheck_at = None;
-            self.topology_dirty = true;
-        }
-        if self
-            .dpms_wake_topology_grace_until
-            .is_some_and(|deadline| now >= deadline)
-        {
-            self.dpms_wake_topology_grace_until = None;
-        }
     }
 
     pub(super) fn queue_idle_power_requests(

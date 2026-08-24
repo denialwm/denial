@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::os::fd::OwnedFd;
 
 use denial_core::topology::SCALE_BASE;
@@ -38,26 +39,82 @@ use super::{
 };
 
 const XWAYLAND_BASE_DPI: u32 = 96;
+const XWAYLAND_SCALE_MODE_ENV: &str = "DENIAL_XWAYLAND_SCALE_MODE";
 
-pub(super) fn scale_for_engine(engine_scale_120: u32) -> u32 {
-    engine_scale_120.max(SCALE_BASE).div_ceil(SCALE_BASE)
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum XWaylandScaleMode {
+    Fractional,
+    Integer,
 }
 
-pub(super) fn dpi(scale: u32) -> u32 {
-    XWAYLAND_BASE_DPI.saturating_mul(scale.max(1))
+impl XWaylandScaleMode {
+    fn parse(value: Option<&OsStr>) -> Option<Self> {
+        match value.and_then(OsStr::to_str).map(str::trim) {
+            None | Some("") | Some("fractional") => Some(Self::Fractional),
+            Some("integer") => Some(Self::Integer),
+            Some(_) => None,
+        }
+    }
+}
+
+pub(super) fn scale_mode_from_environment() -> XWaylandScaleMode {
+    let value = std::env::var_os(XWAYLAND_SCALE_MODE_ENV);
+    match XWaylandScaleMode::parse(value.as_deref()) {
+        Some(mode) => mode,
+        None => {
+            warn!(
+                variable = XWAYLAND_SCALE_MODE_ENV,
+                value = ?value,
+                "ignored invalid Xwayland scale mode; expected fractional or integer"
+            );
+            XWaylandScaleMode::Fractional
+        }
+    }
+}
+
+pub(super) fn scale_for_engine(engine_scale_120: u32, mode: XWaylandScaleMode) -> u32 {
+    let scale_120 = engine_scale_120.max(SCALE_BASE);
+    match mode {
+        XWaylandScaleMode::Fractional => scale_120,
+        XWaylandScaleMode::Integer => scale_120.div_ceil(SCALE_BASE).saturating_mul(SCALE_BASE),
+    }
+}
+
+pub(super) fn client_scale(scale_120: u32) -> f64 {
+    f64::from(scale_120.max(SCALE_BASE)) / f64::from(SCALE_BASE)
+}
+
+fn scaled_dpi(scale_120: u32, integer_scale: u32) -> u32 {
+    let numerator = u64::from(XWAYLAND_BASE_DPI).saturating_mul(u64::from(scale_120));
+    let denominator = u64::from(SCALE_BASE).saturating_mul(u64::from(integer_scale.max(1)));
+    let rounded = numerator.saturating_add(denominator / 2) / denominator;
+    u32::try_from(rounded).unwrap_or(u32::MAX)
+}
+
+pub(super) fn dpi(scale_120: u32) -> u32 {
+    scaled_dpi(scale_120.max(SCALE_BASE), 1)
+}
+
+fn gdk_window_scale(scale_120: u32) -> u32 {
+    scale_120.max(SCALE_BASE) / SCALE_BASE
+}
+
+fn gdk_unscaled_dpi(scale_120: u32) -> u32 {
+    scaled_dpi(scale_120.max(SCALE_BASE), gdk_window_scale(scale_120))
 }
 
 pub(super) fn publish_dpi(
     xwm: &mut X11Wm,
-    scale: u32,
+    scale_120: u32,
 ) -> Result<(), smithay::xwayland::xwm::SettingsError> {
-    let xft_dpi = i32::try_from(dpi(scale).saturating_mul(1024)).unwrap_or(i32::MAX);
-    let base_dpi = i32::try_from(XWAYLAND_BASE_DPI.saturating_mul(1024)).unwrap_or(i32::MAX);
-    let window_scale = i32::try_from(scale).unwrap_or(i32::MAX);
+    let xft_dpi = i32::try_from(dpi(scale_120).saturating_mul(1024)).unwrap_or(i32::MAX);
+    let unscaled_dpi =
+        i32::try_from(gdk_unscaled_dpi(scale_120).saturating_mul(1024)).unwrap_or(i32::MAX);
+    let window_scale = i32::try_from(gdk_window_scale(scale_120)).unwrap_or(i32::MAX);
     xwm.set_xsettings(
         [
             ("Gdk/WindowScalingFactor", window_scale),
-            ("Gdk/UnscaledDPI", base_dpi),
+            ("Gdk/UnscaledDPI", unscaled_dpi),
             ("Xft/DPI", xft_dpi),
         ]
         .into_iter()
@@ -70,8 +127,8 @@ impl super::WaylandFrontend {
         &mut self,
         engine_scale_120: u32,
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        let scale = scale_for_engine(engine_scale_120);
-        if scale == self.xwayland_scale {
+        let scale_120 = scale_for_engine(engine_scale_120, self.xwayland_scale_mode);
+        if scale_120 == self.xwayland_scale_120 {
             return Ok(false);
         }
 
@@ -79,11 +136,11 @@ impl super::WaylandFrontend {
             .get_data::<smithay::xwayland::XWaylandClientData>()
             .ok_or("Xwayland client is missing compositor state")?
             .compositor_state
-            .set_client_scale(f64::from(scale));
+            .set_client_scale(client_scale(scale_120));
         if let Some(xwm) = self.xwm.as_mut() {
-            publish_dpi(xwm, scale)?;
+            publish_dpi(xwm, scale_120)?;
         }
-        self.xwayland_scale = scale;
+        self.xwayland_scale_120 = scale_120;
         Ok(true)
     }
 

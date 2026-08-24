@@ -279,7 +279,7 @@ impl SystemControls {
         let _ = self.audio_commands.try_send(AudioCommand::ToggleMute);
     }
 
-    pub(super) fn handle_audio_request(&self, request: AudioRequest) {
+    pub(super) fn handle_audio_request(&self, request: AudioRequest) -> bool {
         let command = match request {
             AudioRequest::ReadLevel => AudioCommand::ReadLevel,
             AudioRequest::SetLevel {
@@ -294,10 +294,10 @@ impl SystemControls {
                 AudioCommand::SetStreamLevel { stream_id, level }
             }
         };
-        let _ = self.audio_commands.try_send(command);
+        self.audio_commands.try_send(command).is_ok()
     }
 
-    pub(super) fn handle_brightness_request(&self, request: BrightnessRequest) {
+    pub(super) fn handle_brightness_request(&self, request: BrightnessRequest) -> bool {
         let command = match request {
             BrightnessRequest::Read {
                 connector,
@@ -316,7 +316,7 @@ impl SystemControls {
                 level,
             },
         };
-        let _ = self.brightness_commands.try_send(command);
+        self.brightness_commands.try_send(command).is_ok()
     }
 
     fn adjust_audio(&self, delta: f64) {

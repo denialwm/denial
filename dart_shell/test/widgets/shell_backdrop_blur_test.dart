@@ -1,3 +1,4 @@
+import 'package:denial_dart_shell/src/theme/backdrop_blur_level.dart';
 import 'package:denial_dart_shell/src/theme/shell_theme.dart';
 import 'package:denial_dart_shell/src/widgets/shell_backdrop_blur.dart';
 import 'package:flutter/rendering.dart';
@@ -6,11 +7,13 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets(
-    'uses a full-backdrop, tightly clipped blur at the configured sigma',
+    'uses a full-backdrop, tightly clipped blur at the configured level',
     (tester) async {
       await tester.pumpWidget(
         _BlurHarness(
-          theme: const ShellThemeData(backdropBlurSigma: 24),
+          theme: const ShellThemeData(
+            backdropBlurLevel: ShellBackdropBlurLevel.shitty,
+          ),
           child: ShellBackdropBlur(
             borderRadius: BorderRadius.circular(18),
             child: const SizedBox(width: 160, height: 90),
@@ -21,7 +24,7 @@ void main() {
       final filter = tester.widget<BackdropFilter>(find.byType(BackdropFilter));
       expect(
         filter.filterConfig.toString(),
-        'ImageFilterConfig.blur(24.0, 24.0, clamp, unbounded)',
+        'ImageFilterConfig.blur(6.0, 6.0, clamp, unbounded, downsample: 0.25)',
       );
       expect(filter.blendMode, BlendMode.src);
       expect(find.byType(ClipRRect), findsOneWidget);

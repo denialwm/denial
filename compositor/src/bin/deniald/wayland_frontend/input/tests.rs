@@ -7,20 +7,24 @@ mod axis_scroll_tests {
     #[test]
     fn scroll_speed_factor_applies_only_to_finger_source() {
         assert_eq!(
-            scaled_axis_amount(AxisSource::Finger, Some(3.0), None, 2.5),
+            logical_axis_scroll_delta(AxisSource::Finger, Some(3.0), None, 2.5),
             7.5
         );
         assert_eq!(
-            scaled_axis_amount(AxisSource::Wheel, Some(15.0), Some(120.0), 5.0),
+            logical_axis_scroll_delta(AxisSource::Wheel, Some(15.0), Some(120.0), 5.0),
             15.0
         );
         assert_eq!(
-            scaled_axis_amount(AxisSource::Continuous, Some(3.0), None, 5.0),
+            logical_axis_scroll_delta(AxisSource::Continuous, Some(3.0), None, 5.0),
             3.0
         );
         assert_eq!(
-            scaled_axis_amount(AxisSource::Finger, Some(0.0), None, 5.0),
+            logical_axis_scroll_delta(AxisSource::Finger, Some(0.0), None, 5.0),
             0.0
+        );
+        assert_eq!(
+            logical_axis_scroll_delta(AxisSource::Wheel, None, Some(-60.0), 5.0),
+            -7.5
         );
     }
 }

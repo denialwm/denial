@@ -8,9 +8,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::ffi::OsString;
 use std::fmt;
+use std::io::{self, Read, Write};
+use std::os::fd::AsRawFd;
+use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
+use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -34,7 +37,6 @@ const MAX_ICONS: usize = 64;
 const MAX_REJECTED_ICONS: usize = 64;
 const ICON_SIZE: u16 = 32;
 const SNAPSHOT_INTERVAL: Duration = Duration::from_millis(250);
-const WORKER_TICK: Duration = Duration::from_millis(16);
 const REJECTION_TTL: Duration = Duration::from_secs(5);
 const MAX_ICON_BYTES: usize = 512 * 1024;
 const SYSTEM_TRAY_REQUEST_DOCK: u32 = 0;
@@ -96,6 +98,7 @@ pub(super) struct XEmbedTray {
     events: Receiver<XEmbedTrayEvent>,
     stopping: Arc<AtomicBool>,
     replay_requested: Arc<AtomicBool>,
+    wake: UnixStream,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -107,6 +110,15 @@ impl XEmbedTray {
         let (commands, command_rx) = mpsc::sync_channel(COMMAND_CAPACITY);
         let (event_tx, events) = mpsc::sync_channel(EVENT_CAPACITY);
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        let (wake, worker_wake) = UnixStream::pair().map_err(|error| {
+            XEmbedTrayError(format!("could not create worker wake pipe: {error}"))
+        })?;
+        wake.set_nonblocking(true).map_err(|error| {
+            XEmbedTrayError(format!("could not configure worker wake pipe: {error}"))
+        })?;
+        worker_wake.set_nonblocking(true).map_err(|error| {
+            XEmbedTrayError(format!("could not configure worker wake pipe: {error}"))
+        })?;
         let stopping = Arc::new(AtomicBool::new(false));
         let replay_requested = Arc::new(AtomicBool::new(false));
         let worker = thread::Builder::new()
@@ -122,6 +134,7 @@ impl XEmbedTray {
                         event_tx,
                         stopping,
                         replay_requested,
+                        worker_wake,
                     ) {
                         Ok(worker) => {
                             let _ = ready_tx.send(Ok(()));
@@ -143,6 +156,7 @@ impl XEmbedTray {
                 events,
                 stopping,
                 replay_requested,
+                wake,
                 worker: Some(worker),
             }),
             Ok(Err(error)) => {
@@ -150,6 +164,8 @@ impl XEmbedTray {
                 Err(error)
             }
             Err(error) => {
+                stopping.store(true, Ordering::Release);
+                wake_worker(&wake);
                 let _ = worker.join();
                 Err(XEmbedTrayError(format!(
                     "XEmbed worker stopped during startup: {error}"
@@ -163,22 +179,28 @@ impl XEmbedTray {
     }
 
     pub(super) fn invoke(&self, command: XEmbedTrayCommand) -> bool {
-        command.window_id != 0
-            && self
+        if command.window_id == 0
+            || self
                 .commands
                 .try_send(WorkerCommand::Invoke(command))
-                .is_ok()
+                .is_err()
+        {
+            return false;
+        }
+        wake_worker(&self.wake);
+        true
     }
 
     pub(super) fn request_replay(&self) {
         self.replay_requested.store(true, Ordering::Release);
+        wake_worker(&self.wake);
     }
 }
 
 impl Drop for XEmbedTray {
     fn drop(&mut self) {
         self.stopping.store(true, Ordering::Release);
-        let _ = self.commands.send(WorkerCommand::Stop);
+        wake_worker(&self.wake);
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
@@ -187,7 +209,12 @@ impl Drop for XEmbedTray {
 
 enum WorkerCommand {
     Invoke(XEmbedTrayCommand),
-    Stop,
+}
+
+fn wake_worker(wake: &UnixStream) {
+    // A full nonblocking socket already contains a wake byte, so either a
+    // successful write or WouldBlock guarantees that poll() will return.
+    let _ = (&*wake).write(&[1]);
 }
 
 struct Atoms {
@@ -253,6 +280,7 @@ struct Worker {
     events: SyncSender<XEmbedTrayEvent>,
     stopping: Arc<AtomicBool>,
     replay_requested: Arc<AtomicBool>,
+    wake: UnixStream,
     icons: BTreeMap<Window, HostedIcon>,
     rejected: BTreeMap<Window, Instant>,
     pending_removals: BTreeSet<Window>,
@@ -267,6 +295,7 @@ impl Worker {
         events: SyncSender<XEmbedTrayEvent>,
         stopping: Arc<AtomicBool>,
         replay_requested: Arc<AtomicBool>,
+        wake: UnixStream,
     ) -> Result<Self, XEmbedTrayError> {
         let (connection, screen_index) = x11rb::connect(Some(display_name)).map_err(|error| {
             XEmbedTrayError(format!("could not connect to {display_name}: {error}"))
@@ -398,6 +427,7 @@ impl Worker {
             events,
             stopping,
             replay_requested,
+            wake,
             icons: BTreeMap::new(),
             rejected: BTreeMap::new(),
             pending_removals: BTreeSet::new(),
@@ -428,13 +458,75 @@ impl Worker {
                 self.refresh_snapshots();
                 self.next_snapshot = Instant::now() + SNAPSHOT_INTERVAL;
             }
-            match self.commands.recv_timeout(WORKER_TICK) {
-                Ok(WorkerCommand::Invoke(command)) => self.invoke(command),
-                Ok(WorkerCommand::Stop) | Err(RecvTimeoutError::Disconnected) => break,
-                Err(RecvTimeoutError::Timeout) => {}
+            if !self.wait_for_activity()? {
+                break;
             }
         }
         Ok(())
+    }
+
+    fn wait_for_activity(&mut self) -> Result<bool, XEmbedTrayError> {
+        let timeout = self.next_snapshot.saturating_duration_since(Instant::now());
+        let timeout_ms = if timeout.is_zero() {
+            0
+        } else {
+            timeout.as_millis().saturating_add(1).min(i32::MAX as u128) as i32
+        };
+        let mut descriptors = [
+            libc::pollfd {
+                fd: self.connection.stream().as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd: self.wake.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            },
+        ];
+        loop {
+            let result = unsafe {
+                libc::poll(
+                    descriptors.as_mut_ptr(),
+                    descriptors.len() as libc::nfds_t,
+                    timeout_ms,
+                )
+            };
+            if result >= 0 {
+                break;
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(XEmbedTrayError(format!(
+                    "could not wait for XEmbed activity: {error}"
+                )));
+            }
+        }
+
+        if descriptors[1].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0 {
+            let mut bytes = [0_u8; 64];
+            loop {
+                match self.wake.read(&mut bytes) {
+                    Ok(0) => break,
+                    Ok(_) => {}
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(error) => {
+                        return Err(XEmbedTrayError(format!(
+                            "could not drain XEmbed worker wake pipe: {error}"
+                        )));
+                    }
+                }
+            }
+        }
+
+        loop {
+            match self.commands.try_recv() {
+                Ok(WorkerCommand::Invoke(command)) => self.invoke(command),
+                Err(TryRecvError::Empty) => return Ok(true),
+                Err(TryRecvError::Disconnected) => return Ok(false),
+            }
+        }
     }
 
     fn drain_x11_events(&mut self) -> Result<(), XEmbedTrayError> {

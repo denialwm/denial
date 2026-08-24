@@ -111,11 +111,15 @@ pub(super) fn install_ready_fence_watch(
 pub(super) fn submit_ready_frames(
     scheduler: &mut output_scheduler::OutputScheduler,
     swapchain: &RenderSwapchains,
+    scanouts: &[Scanout],
+    events: &mut RuntimeState,
 ) -> Result<(), Box<dyn Error>> {
     scheduler.submit_ready(
         swapchain
             .outputs()
             .ok_or("ready submission has no physical output pools")?,
+        scanouts,
+        events,
     )
 }
 

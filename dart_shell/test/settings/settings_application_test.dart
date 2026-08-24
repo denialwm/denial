@@ -27,6 +27,7 @@ import 'package:denial_dart_shell/src/settings/shell_settings.dart';
 import 'package:denial_dart_shell/src/state/display_layout.dart';
 import 'package:denial_dart_shell/src/state/output_configuration.dart';
 import 'package:denial_dart_shell/src/state/shell_controller.dart';
+import 'package:denial_dart_shell/src/theme/backdrop_blur_level.dart';
 import 'package:denial_dart_shell/src/theme/tokens.dart';
 import 'package:denial_dart_shell/src/wallpaper/state/wallpaper_controller.dart';
 import 'package:denial_dart_shell/src/widgets/denial_wordmark.dart';
@@ -128,6 +129,31 @@ void main() {
     expect(wallpaperState.targetPixelSize, _displayLayout.pixelSize);
   });
 
+  testWidgets('wallpaper action delegates to an external shell launcher', (
+    tester,
+  ) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    var launches = 0;
+    await _pumpSettings(
+      tester,
+      container,
+      size: const Size(420, 792),
+      onOpenWallpaperSelector: () async {
+        launches += 1;
+      },
+    );
+
+    await tester.tap(find.byKey(settingsWallpaperTriggerKey));
+    await tester.pump();
+
+    expect(launches, 1);
+    expect(
+      container.read(wallpaperControllerProvider).selectorVisible,
+      isFalse,
+    );
+  });
+
   testWidgets('touchpad settings follow compositor device detection', (
     tester,
   ) async {
@@ -136,7 +162,7 @@ void main() {
     await _pumpSettings(tester, container, size: const Size(980, 700));
     await tester.pumpAndSettle();
 
-    expect(find.text('Touchpad'), findsNothing);
+    expect(find.text('Touchpad'), findsOneWidget);
     final bridge = container.read(denialBridgeProvider) as _SettingsBridge;
     bridge.setHasTouchpad(true);
     await tester.pumpAndSettle();
@@ -176,8 +202,13 @@ void main() {
 
     bridge.setHasTouchpad(false);
     await tester.pumpAndSettle();
-    expect(find.text('Touchpad'), findsNothing);
-    expect(find.text('Layouts and variants'), findsOneWidget);
+    expect(find.text('Touchpad'), findsOneWidget);
+    expect(
+      tester
+          .widget<SettingsToggle>(find.byKey(settingsTapToClickToggleKey))
+          .enabled,
+      isFalse,
+    );
   });
 
   testWidgets('short settings tabs remain aligned to the top', (tester) async {
@@ -413,7 +444,104 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('display canvas pans freely and offers NWG zoom steps', (
+  testWidgets('display page selects and persists the primary output', (
+    tester,
+  ) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container, size: const Size(980, 700));
+
+    tester
+        .widget<SettingsNavigation>(find.byType(SettingsNavigation))
+        .onSelected(SettingsPageId.displays);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(settingsPrimaryDisplaySelectorKey));
+    await tester.pumpAndSettle();
+    expect(find.text('Automatic (highest refresh rate)'), findsOneWidget);
+
+    await tester.tap(find.byKey(settingsPrimaryDisplaySelectorKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('HDMI-A-1').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      container.read(outputConfigurationProvider).draftPrimaryOutput,
+      'HDMI-A-1',
+    );
+    await tester.ensureVisible(
+      find.byKey(settingsApplyDisplayConfigurationKey),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(settingsApplyDisplayConfigurationKey));
+    await tester.pumpAndSettle();
+
+    final bridge = container.read(denialBridgeProvider) as _SettingsBridge;
+    expect(bridge.outputConfiguration.primaryOutput, 'HDMI-A-1');
+    expect(bridge.outputApplyCount, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('VRR is editable only for supported monitors', (tester) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container, size: const Size(980, 700));
+
+    tester
+        .widget<SettingsNavigation>(find.byType(SettingsNavigation))
+        .onSelected(SettingsPageId.displays);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(settingsVariableRefreshRateToggleKey), findsOneWidget);
+    expect(find.text('Variable refresh rate (VRR)'), findsOneWidget);
+    await tester.ensureVisible(
+      find.byKey(settingsVariableRefreshRateToggleKey),
+    );
+    await tester.tap(find.byKey(settingsVariableRefreshRateToggleKey));
+    await tester.pumpAndSettle();
+    expect(
+      container
+          .read(outputConfigurationProvider)
+          .draftOutputs
+          .first
+          .adaptiveSync,
+      isTrue,
+    );
+
+    container.read(outputConfigurationProvider.notifier).select('HDMI-A-1');
+    await tester.pump();
+    expect(find.byKey(settingsVariableRefreshRateToggleKey), findsNothing);
+    expect(find.text('Variable refresh rate (VRR)'), findsNothing);
+
+    container.read(outputConfigurationProvider.notifier).select('DP-1');
+    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(settingsVariableRefreshRateToggleKey),
+    );
+    await tester.tap(find.byKey(settingsVariableRefreshRateToggleKey));
+    await tester.pumpAndSettle();
+    expect(
+      container
+          .read(outputConfigurationProvider)
+          .draftOutputs
+          .first
+          .adaptiveSync,
+      isFalse,
+    );
+    await tester.tap(find.byKey(settingsVariableRefreshRateToggleKey));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(settingsApplyDisplayConfigurationKey),
+    );
+    await tester.tap(find.byKey(settingsApplyDisplayConfigurationKey));
+    await tester.pumpAndSettle();
+
+    final bridge = container.read(denialBridgeProvider) as _SettingsBridge;
+    expect(bridge.outputApplyCount, 1);
+    expect(bridge.outputConfiguration.outputs.first.adaptiveSync, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('display canvas scroll zoom requires Ctrl or Meta', (
     tester,
   ) async {
     final container = _settingsContainer();
@@ -460,29 +588,65 @@ void main() {
       _outputConfiguration.outputs.first.x,
     );
 
+    final pageScrollable = tester.state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byType(SettingsDisplaysPage),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    final pageOffsetBeforeScroll = pageScrollable.position.pixels;
     await tester.sendEventToBinding(
       PointerScrollEvent(
-        position: canvasRect.center,
+        position: tester.getCenter(canvas),
+        scrollDelta: const Offset(0, 20),
+        kind: PointerDeviceKind.mouse,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(pageScrollable.position.pixels, greaterThan(pageOffsetBeforeScroll));
+    expect(tester.getSize(monitor).width, pannedMonitorRect.width);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: tester.getCenter(canvas),
         scrollDelta: const Offset(0, -20),
         kind: PointerDeviceKind.mouse,
       ),
     );
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pumpAndSettle();
     expect(tester.getSize(monitor).width, greaterThan(pannedMonitorRect.width));
     expect(find.text('20%'), findsOneWidget);
     expect(find.byKey(settingsMonitorZoomOutKey), findsOneWidget);
     expect(find.byKey(settingsMonitorZoomFitKey), findsOneWidget);
 
-    for (var index = 0; index < 20; index++) {
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: tester.getCenter(canvas),
+        scrollDelta: const Offset(0, 20),
+        kind: PointerDeviceKind.mouse,
+      ),
+    );
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    await tester.pumpAndSettle();
+    expect(find.text('15%'), findsOneWidget);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    for (var index = 0; index < 10; index++) {
       await tester.sendEventToBinding(
         PointerScrollEvent(
-          position: canvasRect.center,
+          position: tester.getCenter(canvas),
           scrollDelta: const Offset(0, 20),
           kind: PointerDeviceKind.mouse,
         ),
       );
       await tester.pump();
     }
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pumpAndSettle();
     expect(find.text('1%'), findsOneWidget);
     expect(tester.getSize(monitor).width, closeTo(19.2, 0.01));
@@ -572,7 +736,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('backdrop blur enablement and intensity update live', (
+  testWidgets('backdrop blur enablement and quality update live', (
     tester,
   ) async {
     final container = _settingsContainer();
@@ -607,7 +771,8 @@ void main() {
     final slider = tester.widget<SettingsSlider>(
       find.byKey(settingsBackdropBlurSliderKey),
     );
-    slider.onChanged(26);
+    expect(slider.valueLabel, 'Fast');
+    slider.onChanged(0);
     tester
         .widget<SettingsSlider>(
           find.byKey(settingsBackdropBlurOpacityThresholdKey),
@@ -617,7 +782,7 @@ void main() {
 
     final appearance = container.read(shellSettingsProvider).appearance;
     expect(appearance.backdropBlurEnabled, isTrue);
-    expect(appearance.backdropBlurSigma, 26);
+    expect(appearance.backdropBlurLevel, ShellBackdropBlurLevel.shitty);
     expect(appearance.backdropBlurOpacityThreshold, 0.12);
     await container.read(shellSettingsProvider.notifier).flush();
   });
@@ -953,6 +1118,7 @@ Future<void> _pumpSettings(
   ProviderContainer container, {
   Size size = const Size(760, 540),
   Locale locale = const Locale('en'),
+  Future<void> Function()? onOpenWallpaperSelector,
 }) {
   return tester.pumpWidget(
     UncontrolledProviderScope(
@@ -977,7 +1143,9 @@ Future<void> _pumpSettings(
                 builder: (_) => SizedBox(
                   width: size.width,
                   height: size.height,
-                  child: const DenialSettingsApplication(),
+                  child: DenialSettingsApplication(
+                    onOpenWallpaperSelector: onOpenWallpaperSelector,
+                  ),
                 ),
               ),
             ],
@@ -1030,6 +1198,9 @@ class _SettingsBridge extends DenialBridge {
     repeatRateHz: 25,
     activeLayout: 0,
   );
+
+  @override
+  int queryUiDevelopmentState() => 1;
 
   @override
   Future<DenialKeyboardConfiguration> readKeyboardConfiguration() async {
@@ -1097,12 +1268,14 @@ class _SettingsBridge extends DenialBridge {
     required int serial,
     required List<DenialOutput> outputs,
     required bool persistent,
+    String? primaryOutput,
     int? confirmationTimeoutMilliseconds,
   }) async {
     outputApplyCount += 1;
     outputConfiguration = DenialOutputConfiguration(
       serial: serial + 1,
       capabilities: outputConfiguration.capabilities,
+      primaryOutput: primaryOutput,
       outputs: List<DenialOutput>.unmodifiable(outputs),
     );
     return outputConfiguration;
@@ -1120,6 +1293,7 @@ class _SettingsBridge extends DenialBridge {
     outputConfiguration = DenialOutputConfiguration(
       serial: outputConfiguration.serial + 1,
       capabilities: outputConfiguration.capabilities,
+      primaryOutput: outputConfiguration.primaryOutput,
       outputs: outputConfiguration.outputs,
     );
   }
@@ -1136,6 +1310,7 @@ class _SettingsBridge extends DenialBridge {
     outputConfiguration = DenialOutputConfiguration(
       serial: outputConfiguration.serial + 1,
       capabilities: outputConfiguration.capabilities,
+      primaryOutput: outputConfiguration.primaryOutput,
       outputs: outputConfiguration.outputs,
     );
   }
@@ -1147,6 +1322,7 @@ const _outputCapabilities = DenialOutputCapabilities(
   mode: true,
   scale: true,
   transform: true,
+  adaptiveSync: true,
   persistent: true,
 );
 
@@ -1180,6 +1356,7 @@ const _outputConfiguration = DenialOutputConfiguration(
       logicalHeight: 1080,
       scale: 1,
       transform: DenialOutputTransform.normal,
+      adaptiveSyncSupported: true,
       adaptiveSync: false,
       currentMode: _mode1080p120,
       modes: <DenialOutputMode>[_mode1080p120, _mode1080p60],
@@ -1196,6 +1373,7 @@ const _outputConfiguration = DenialOutputConfiguration(
       logicalHeight: 1080,
       scale: 1,
       transform: DenialOutputTransform.normal,
+      adaptiveSyncSupported: false,
       adaptiveSync: false,
       currentMode: _mode1080p60,
       modes: <DenialOutputMode>[_mode1080p60],

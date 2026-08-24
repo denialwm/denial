@@ -2,7 +2,8 @@
 
 use super::*;
 
-const FLUTTER_MOUSE_WHEEL_SCROLL_PIXELS: f64 = 53.0;
+const APPLICATION_WHEEL_SCROLL_PIXELS: f64 = 120.0;
+const WHEEL_ANGLE_PER_STEP: f64 = 15.0;
 const V120_UNITS_PER_WHEEL_STEP: f64 = 120.0;
 const MAX_QUEUED_INPUT_EVENTS: usize = 4096;
 
@@ -37,25 +38,36 @@ pub(super) enum InputRecord {
     Keyboard(KeyboardRecord),
 }
 
-pub(super) fn flutter_scroll_delta(
+pub(super) fn flutter_application_scroll_delta(
     amount: Option<f64>,
     v120: Option<f64>,
     source: AxisSource,
     scroll_speed_factor: f64,
 ) -> f64 {
-    // Smithay reports finger/continuous scrolling in pixels, but mouse-wheel
-    // `amount` is the physical angle (normally 15 degrees per click). Prefer
-    // the logical v120 step for wheels and match Flutter's Linux embedder,
-    // which maps one wheel click to 53 physical pixels.
-    let delta = v120.map_or_else(
-        || amount.unwrap_or(0.0),
-        |value| value * FLUTTER_MOUSE_WHEEL_SCROLL_PIXELS / V120_UNITS_PER_WHEEL_STEP,
-    );
+    // Wayland applications receive axis metadata and normalize a wheel click
+    // into their standard scroll step. Flutter receives only a pixel delta,
+    // so perform that wheel normalization here. Finger and continuous input
+    // already use motion-equivalent units and must remain one-to-one.
+    let delta = if let Some(value) = v120 {
+        value * APPLICATION_WHEEL_SCROLL_PIXELS / V120_UNITS_PER_WHEEL_STEP
+    } else if matches!(source, AxisSource::Wheel | AxisSource::WheelTilt) {
+        amount.unwrap_or(0.0) * APPLICATION_WHEEL_SCROLL_PIXELS / WHEEL_ANGLE_PER_STEP
+    } else {
+        amount.unwrap_or(0.0)
+    };
     if source == AxisSource::Finger {
         delta * scroll_speed_factor
     } else {
         delta
     }
+}
+
+pub(super) fn flutter_physical_scroll_delta(logical_delta: f64, device_pixel_ratio: f64) -> f64 {
+    // FlutterPointerEvent uses physical pixels and Flutter divides this value
+    // by the view's device-pixel ratio. Scale the application-reference
+    // logical amount here so shell and client scroll distances remain equal
+    // on both integer and fractional-scale outputs.
+    logical_delta * device_pixel_ratio
 }
 
 #[derive(Debug)]
@@ -165,13 +177,13 @@ impl InputQueue {
             }
             SmithayInputEvent::PointerAxis { event, .. } => {
                 self.ensure_mouse_added();
-                let scroll_x = flutter_scroll_delta(
+                let scroll_x = flutter_application_scroll_delta(
                     event.amount(Axis::Horizontal),
                     event.amount_v120(Axis::Horizontal),
                     event.source(),
                     scroll_speed_factor,
                 );
-                let scroll_y = flutter_scroll_delta(
+                let scroll_y = flutter_application_scroll_delta(
                     event.amount(Axis::Vertical),
                     event.amount_v120(Axis::Vertical),
                     event.source(),

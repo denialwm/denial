@@ -181,8 +181,7 @@ class WallpaperAssignment {
   }
 
   WallpaperSpanAlignment alignmentForOutput(String outputName) {
-    return outputAlignmentOverrides[outputName] ??
-        const WallpaperSpanAlignment();
+    return outputAlignmentOverrides[outputName] ?? spanAlignment;
   }
 
   WallpaperSpanAlignment alignmentForTarget(WallpaperTarget target) {

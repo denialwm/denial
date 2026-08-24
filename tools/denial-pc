@@ -54,11 +54,18 @@ else
     FLUTTER_SDK_MANAGED=1
 fi
 FLUTTER="${DENIAL_FLUTTER:-$FLUTTER_SDK_ROOT/bin/flutter}"
+FLUTTER_ENGINE_CACHE_ROOT="${DENIAL_FLUTTER_ENGINE_CACHE_ROOT:-$CACHE_HOME/denial/flutter-engine}"
+# Flutter's local-engine locator only requires this path to own the out/
+# directory. Engine outputs deliberately live outside both canonical and
+# managed source trees, so point it at the exact cache build root.
+LOCAL_ENGINE_SRC_PATH="$FLUTTER_ENGINE_CACHE_ROOT/build"
+LOCAL_ENGINE_TARGET="denial_host_release"
 
 COMPOSITOR_ROOT="$ROOT/compositor"
 MANIFEST="$COMPOSITOR_ROOT/Cargo.toml"
 BUNDLE="${DENIAL_PC_BUNDLE:-$ROOT/dart_shell/build/linux/x64/release/bundle}"
 BUNDLE_ASSEMBLY="${DENIAL_PC_BUNDLE_ASSEMBLY:-$BUILD_ROOT/flutter/release}"
+SETTINGS_BUNDLE="${DENIAL_PC_SETTINGS_BUNDLE:-$ROOT/settings_app/build/linux/x64/release/bundle}"
 ENGINE="${DENIAL_PC_ENGINE:-$BUNDLE/lib/libflutter_engine.so}"
 ICU_DATA="$FLUTTER_SDK_ROOT/bin/cache/artifacts/engine/linux-x64/icudtl.dat"
 PREBUILT_ENGINE_DIR="$ROOT/prebuilt/flutter-engine/linux-x64-release"
@@ -107,6 +114,7 @@ Usage: tools/denial-pc COMMAND
 Commands:
   bootstrap         Validate or provision Flutter, then fetch Rust crates
   bundle            Build only the x64 Dart/Flutter bundle
+  settings          Build only the standalone Flutter Settings application
   refresh           Build the bundle and reload its Flutter runtime in this session
   kms-refresh       Re-evaluate the live KMS topology without ending the session
   compositor        Build the release Rust compositor and denialctl
@@ -116,7 +124,7 @@ Commands:
   fedora-package    Build installable Fedora RPM packages
   alpine-package    Build installable Alpine Linux APK packages
   native-packages   Build Debian-family and Fedora packages from one payload
-  test              Run the Rust compositor test suite
+  test              Run compositor and lock-matched Flutter shell tests
   session           Run the real DRM session (normally invoked by a display manager)
   engine-test-build Build only the local release engine and stage an isolated test bundle
   engine-test-check Verify the staged engine ABI and AOT bundle without starting Denial
@@ -527,6 +535,7 @@ bootstrap_dependencies() {
 
 build_bundle() (
     prepare_flutter_toolchain
+    "$ROOT/tools/denial-flutter-engine" prepare-app-build
     mkdir -p -- "$(dirname -- "$BUNDLE_ASSEMBLY")" "$BUNDLE/data" "$BUNDLE/lib"
     local assembly
     assembly="$(mktemp -d -- "${BUNDLE_ASSEMBLY}.XXXXXX")"
@@ -535,6 +544,9 @@ build_bundle() (
         cd "$ROOT/dart_shell"
         "$FLUTTER" pub get
         "$FLUTTER" assemble \
+            --local-engine-src-path="$LOCAL_ENGINE_SRC_PATH" \
+            --local-engine="$LOCAL_ENGINE_TARGET" \
+            --local-engine-host="$LOCAL_ENGINE_TARGET" \
             --suppress-analytics \
             --resource-pool-size="$BUILD_JOBS" \
             --output="$assembly" \
@@ -555,6 +567,27 @@ build_bundle() (
     install -m644 -- "$ICU_DATA" "$BUNDLE/data/icudtl.dat"
     install -m755 -- "$assembly/lib/libapp.so" "$BUNDLE/lib/libapp.so"
     install_pinned_engine
+)
+
+build_settings() (
+    prepare_flutter_toolchain
+    "$ROOT/tools/denial-flutter-engine" prepare-app-build
+    (
+        cd "$ROOT/settings_app"
+        "$FLUTTER" pub get
+        "$FLUTTER" build linux \
+            --local-engine-src-path="$LOCAL_ENGINE_SRC_PATH" \
+            --local-engine="$LOCAL_ENGINE_TARGET" \
+            --local-engine-host="$LOCAL_ENGINE_TARGET" \
+            --suppress-analytics \
+            --release \
+            --target=lib/main.dart \
+            --tree-shake-icons
+    )
+    require_file "$SETTINGS_BUNDLE/denial-settings"
+    require_file "$SETTINGS_BUNDLE/lib/libapp.so"
+    require_file "$SETTINGS_BUNDLE/lib/libflutter_linux_gtk.so"
+    printf '\nBuilt %s\n' "$SETTINGS_BUNDLE/denial-settings"
 )
 
 find_denial_pid() {
@@ -618,6 +651,7 @@ build_compositor() {
 
 build_all() {
     build_bundle
+    build_settings
     build_compositor
 }
 
@@ -641,6 +675,13 @@ test_compositor() {
         --locked \
         --jobs "$BUILD_JOBS" \
         -p denial-flutter-engine
+}
+
+test_all() {
+    test_compositor
+    prepare_flutter_toolchain
+    DENIAL_FLUTTER_TEST_COMMAND="$FLUTTER" \
+        "$ROOT/tools/denial-flutter-engine" flutter-test
 }
 
 resolve_drm_device() {
@@ -888,6 +929,7 @@ doctor() {
     show_path_state "Rust manifest" "$MANIFEST"
     show_flutter_bindings_state
     show_path_state "Dart bundle" "$BUNDLE/lib/libapp.so"
+    show_path_state "Settings application" "$SETTINGS_BUNDLE/denial-settings"
     show_engine_state
     show_path_state "deniald" "$BINARY"
     show_path_state "denialctl" "$CONTROL_BINARY"
@@ -1056,6 +1098,7 @@ remove_session() {
 case "${1:-}" in
     bootstrap) bootstrap_dependencies ;;
     bundle) build_bundle ;;
+    settings) build_settings ;;
     refresh) refresh_bundle ;;
     kms-refresh) request_kms_reconfigure ;;
     compositor) build_compositor ;;
@@ -1065,7 +1108,7 @@ case "${1:-}" in
     fedora-package) "$ROOT/tools/package-denial-rpm" ;;
     alpine-package) "$ROOT/tools/package-denial-apk" ;;
     native-packages) "$ROOT/tools/package-denial-native" ;;
-    test) test_compositor ;;
+    test) test_all ;;
     session) run_display_manager_session ;;
     engine-test-build) stage_engine_test ;;
     engine-test-check) check_engine_test ;;

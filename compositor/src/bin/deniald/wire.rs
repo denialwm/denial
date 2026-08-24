@@ -233,6 +233,7 @@ pub enum ShellAction {
     ScreenshotTextureReady,
     ScreenshotDone,
     ClientPointerPressed,
+    Wallpaper,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -261,6 +262,7 @@ impl ShellAction {
             Self::ScreenshotTextureReady => fb::ShellActionKind::ScreenshotTextureReady,
             Self::ScreenshotDone => fb::ShellActionKind::ScreenshotDone,
             Self::ClientPointerPressed => fb::ShellActionKind::ClientPointerPressed,
+            Self::Wallpaper => fb::ShellActionKind::Wallpaper,
         }
     }
 }
@@ -547,6 +549,7 @@ pub struct WireBridge {
     atlas: AtlasPlan,
     work_area: WorkAreaOptions,
     windows: Vec<WindowDescription>,
+    windows_revision: Option<u64>,
     restored_window_ids: Vec<u64>,
     // Flutter copies platform-channel payloads during the synchronous engine
     // call. Keep one builder alive here and lend its finished tail until the
@@ -577,6 +580,7 @@ impl WireBridge {
             atlas: atlas.clone(),
             work_area,
             windows: Vec::new(),
+            windows_revision: None,
             restored_window_ids: Vec::new(),
             outbound_builder: FlatBufferBuilder::with_capacity(1024),
             pending_input_layout: None,

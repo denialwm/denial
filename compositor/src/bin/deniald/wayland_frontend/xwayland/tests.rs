@@ -1,6 +1,48 @@
 use super::*;
 
 #[test]
+fn fractional_xwayland_scale_preserves_engine_density() {
+    assert_eq!(scale_for_engine(150, XWaylandScaleMode::Fractional), 150);
+    assert_eq!(client_scale(150), 1.25);
+    assert_eq!(dpi(150), 120);
+    assert_eq!(gdk_window_scale(150), 1);
+    assert_eq!(gdk_unscaled_dpi(150), 120);
+}
+
+#[test]
+fn integer_xwayland_mode_retains_the_compatibility_fallback() {
+    assert_eq!(scale_for_engine(150, XWaylandScaleMode::Integer), 240);
+    assert_eq!(client_scale(240), 2.0);
+    assert_eq!(dpi(240), 192);
+    assert_eq!(gdk_window_scale(240), 2);
+    assert_eq!(gdk_unscaled_dpi(240), 96);
+}
+
+#[test]
+fn xwayland_xsettings_split_integer_and_fractional_density() {
+    assert_eq!(dpi(300), 240);
+    assert_eq!(gdk_window_scale(300), 2);
+    assert_eq!(gdk_unscaled_dpi(300), 120);
+}
+
+#[test]
+fn xwayland_scale_mode_parser_defaults_to_fractional() {
+    assert_eq!(
+        XWaylandScaleMode::parse(None),
+        Some(XWaylandScaleMode::Fractional)
+    );
+    assert_eq!(
+        XWaylandScaleMode::parse(Some(OsStr::new("fractional"))),
+        Some(XWaylandScaleMode::Fractional)
+    );
+    assert_eq!(
+        XWaylandScaleMode::parse(Some(OsStr::new("integer"))),
+        Some(XWaylandScaleMode::Integer)
+    );
+    assert_eq!(XWaylandScaleMode::parse(Some(OsStr::new("nearest"))), None);
+}
+
+#[test]
 fn managed_x11_window_cannot_start_across_multiple_outputs() {
     let output = Rectangle::new((2560, 0).into(), (2560, 1440).into());
     let requested = Rectangle::new((0, 0).into(), (5120, 1440).into());

@@ -18,10 +18,19 @@ abstract interface class SettingsDocumentTransport {
   });
 }
 
-class DenialSettingsDocumentTransport implements SettingsDocumentTransport {
+abstract interface class SettingsDocumentUpdateSource {
+  Stream<DenialSettingsDocument> get settingsDocumentUpdates;
+}
+
+class DenialSettingsDocumentTransport
+    implements SettingsDocumentTransport, SettingsDocumentUpdateSource {
   const DenialSettingsDocumentTransport(this._bridge);
 
   final DenialBridge _bridge;
+
+  @override
+  Stream<DenialSettingsDocument> get settingsDocumentUpdates =>
+      _bridge.settingsDocuments;
 
   @override
   Future<DenialSettingsDocument> read() => _bridge.readSettingsDocument();
@@ -41,7 +50,8 @@ class DenialSettingsDocumentTransport implements SettingsDocumentTransport {
 /// The compositor is the only process that opens `settings.json`. This class
 /// retains a revision token, sends typed bridge requests, and retries once
 /// after a concurrent native keyboard update advances the shared document.
-class NativeSettingsStore implements SettingsStore {
+class NativeSettingsStore
+    implements SettingsStore, SettingsDocumentUpdateSource {
   NativeSettingsStore(this._transport);
 
   final SettingsDocumentTransport _transport;
@@ -49,15 +59,13 @@ class NativeSettingsStore implements SettingsStore {
   int _revision = 0;
 
   @override
-  Future<ShellSettings?> read() async {
-    try {
-      return _decode(await _readDocument());
-    } on FormatException {
-      return null;
-    } on StateError {
-      return null;
-    }
-  }
+  Stream<DenialSettingsDocument> get settingsDocumentUpdates =>
+      _transport is SettingsDocumentUpdateSource
+      ? (_transport as SettingsDocumentUpdateSource).settingsDocumentUpdates
+      : const Stream<DenialSettingsDocument>.empty();
+
+  @override
+  Future<ShellSettings?> read() async => _decode(await _readDocument());
 
   @override
   Future<void> write(ShellSettings settings) {

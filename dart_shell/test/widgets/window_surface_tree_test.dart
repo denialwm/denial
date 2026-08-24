@@ -90,9 +90,22 @@ void main() {
 
     final texture = find.byType(Texture);
     expect(tester.getSize(texture), const Size(602 / 1.5, 452 / 1.5));
+    expect(tester.widget<Texture>(texture).filterQuality, FilterQuality.none);
     final textureOrigin = tester.getTopLeft(texture);
     expect(textureOrigin.dx * 1.5, closeTo(151, 0.001));
     expect(textureOrigin.dy * 1.5, closeTo(61, 0.001));
+  });
+
+  testWidgets('integer-scale buffers use bilinear fractional reduction', (
+    tester,
+  ) async {
+    final layer = _fractionalLayer(width: 802, height: 602);
+
+    await _pumpPositionedLayer(tester, layer: layer);
+
+    final texture = find.byType(Texture);
+    expect(tester.getSize(texture), const Size(401, 301));
+    expect(tester.widget<Texture>(texture).filterQuality, FilterQuality.low);
   });
 
   testWidgets('smoothed transforms keep the ordinary fitted texture path', (

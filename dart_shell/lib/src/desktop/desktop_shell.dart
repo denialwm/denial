@@ -138,22 +138,7 @@ class _DesktopSceneWindows {
   }
 
   @override
-  int get hashCode => Object.hash(
-    Object.hashAll(
-      windows.map(
-        (window) => Object.hash(
-          window.objectId,
-          window.windowId,
-          window.appId,
-          window.pinned,
-          window.contentKind,
-        ),
-      ),
-    ),
-    Object.hashAllUnordered(
-      _desktopSceneLivePlacementObjectIds[this] ?? const <int>{},
-    ),
-  );
+  int get hashCode => runtimeType.hashCode;
 }
 
 class _DesktopSceneWorkspace {
@@ -240,6 +225,8 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         ref.read(screenshotSelectionProvider.notifier).done(event.requestId);
       case DenialShellAction.clientPointerPressed:
         dismissOpenSystemTrayMenu(ref);
+      case DenialShellAction.wallpaper:
+        unawaited(_showWallpaperSelector());
     }
   }
 
@@ -544,14 +531,31 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
   }
 
   void _openSettings() {
-    _launchLocalApp(denialSettingsApplication);
+    _openSettingsPage(null);
   }
 
   void _openPowerSettings() {
-    ref
-        .read(settingsPageOpenRequestProvider.notifier)
-        .request(SettingsPageId.power);
-    _openSettings();
+    _openSettingsPage(SettingsPageId.power);
+  }
+
+  void _openSettingsPage(SettingsPageId? page) {
+    final environment = ref.read(startupEnvironmentProvider);
+    if (environment.flag('DENIA_EMBED_SETTINGS')) {
+      if (page != null) {
+        ref.read(settingsPageOpenRequestProvider.notifier).request(page);
+      }
+      _launchLocalApp(denialSettingsApplication);
+      return;
+    }
+    _closePanels();
+    final binary = environment['DENIAL_SETTINGS_BINARY']?.trim();
+    final executable = binary == null || binary.isEmpty
+        ? '/usr/bin/denial-settings'
+        : binary;
+    ref.read(denialBridgeProvider).launchApplication(<String>[
+      executable,
+      if (page != null) '--page=${page.name}',
+    ]);
   }
 
   Future<void> _showWallpaperSelector() async {
@@ -838,6 +842,119 @@ typedef _DesktopHomeSceneLayout = ({
   Map<int, Rect> windowFrames,
 });
 
+typedef _DesktopHomePlacementSignature = ({
+  Rect frame,
+  int monitorId,
+  int z,
+  bool fullscreen,
+  bool serverSideDecorated,
+});
+
+typedef _DesktopHomeWidgetSignature = ({
+  String id,
+  HomeGridItemType type,
+  int colSpan,
+  int rowSpan,
+});
+
+class _DesktopHomeLayoutCache {
+  _DesktopHomeLayoutCache({
+    required this.viewSize,
+    required this.displayLayout,
+    required Iterable<DesktopWindowPlacement> placements,
+    required AsyncValue<HomeGridState> homeGrid,
+    required this.hasBatteryData,
+    required this.layout,
+  }) : minimizedPlacements = <int, _DesktopHomePlacementSignature>{
+         for (final placement in placements)
+           if (placement.minimized)
+             placement.objectId: (
+               frame: placement.frame,
+               monitorId: placement.monitorId,
+               z: placement.z,
+               fullscreen: placement.fullscreen,
+               serverSideDecorated: placement.serverSideDecorated,
+             ),
+       },
+       widgets = <_DesktopHomeWidgetSignature>[
+         for (final item
+             in homeGrid.asData?.value.slots.whereType<HomeGridItem>() ??
+                 const <HomeGridItem>[])
+           if (item.type != HomeGridItemType.app &&
+               (item.type != HomeGridItemType.batteryDischarge ||
+                   hasBatteryData))
+             (
+               id: item.id,
+               type: item.type,
+               colSpan: item.colSpan,
+               rowSpan: item.rowSpan,
+             ),
+       ];
+
+  final Size viewSize;
+  final DisplayLayout? displayLayout;
+  final bool hasBatteryData;
+  final Map<int, _DesktopHomePlacementSignature> minimizedPlacements;
+  final List<_DesktopHomeWidgetSignature> widgets;
+  final _DesktopHomeSceneLayout layout;
+
+  bool matches({
+    required Size viewSize,
+    required DisplayLayout? displayLayout,
+    required Iterable<DesktopWindowPlacement> placements,
+    required AsyncValue<HomeGridState> homeGrid,
+    required bool hasBatteryData,
+  }) {
+    if (this.viewSize != viewSize ||
+        !identical(this.displayLayout, displayLayout) ||
+        this.hasBatteryData != hasBatteryData) {
+      return false;
+    }
+
+    var minimizedCount = 0;
+    for (final placement in placements) {
+      if (!placement.minimized) {
+        continue;
+      }
+      minimizedCount += 1;
+      final cached = minimizedPlacements[placement.objectId];
+      if (cached == null ||
+          cached.frame != placement.frame ||
+          cached.monitorId != placement.monitorId ||
+          cached.z != placement.z ||
+          cached.fullscreen != placement.fullscreen ||
+          cached.serverSideDecorated != placement.serverSideDecorated) {
+        return false;
+      }
+    }
+    if (minimizedCount != minimizedPlacements.length) {
+      return false;
+    }
+
+    var widgetIndex = 0;
+    for (final item
+        in homeGrid.asData?.value.slots.whereType<HomeGridItem>() ??
+            const <HomeGridItem>[]) {
+      if (item.type == HomeGridItemType.app ||
+          (item.type == HomeGridItemType.batteryDischarge && !hasBatteryData)) {
+        continue;
+      }
+      if (widgetIndex >= widgets.length) {
+        return false;
+      }
+      final cached = widgets[widgetIndex];
+      if (cached.id != item.id ||
+          cached.type != item.type ||
+          cached.colSpan != item.colSpan ||
+          cached.rowSpan != item.rowSpan) {
+        return false;
+      }
+      widgetIndex += 1;
+    }
+    return widgetIndex == widgets.length;
+  }
+}
+
 String _desktopHomeWidgetKey(String id) => 'home-widget:$id';
 String _desktopHomeWindowKey(int objectId) => 'home-window:$objectId';
 
@@ -1022,6 +1139,7 @@ List<Widget> _buildDesktopWindowLayers({
       contentInset: placement.frameBorder,
       devicePixelRatio: devicePixelRatio,
       enabled: !overview && !switching && !desktopWidget,
+      alignSize: true,
     );
     final visible =
         desktopWidget ||
@@ -1160,6 +1278,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
   final Map<int, _ClosingDesktopWindow> _closingWindows =
       <int, _ClosingDesktopWindow>{};
   int _nextCloseId = 1;
+  _DesktopHomeLayoutCache? _homeLayoutCache;
 
   @override
   void didUpdateWidget(covariant _DesktopScene oldWidget) {
@@ -1211,6 +1330,42 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     }
     setState(() => _closingWindows.remove(closeId));
     widget.onCloseLeaseComplete(closing.window.windowId);
+  }
+
+  _DesktopHomeSceneLayout _cachedDesktopHomeLayout({
+    required Size viewSize,
+    required DisplayLayout? displayLayout,
+    required Iterable<DesktopWindowPlacement> placements,
+    required AsyncValue<HomeGridState> homeGrid,
+    required bool hasBatteryData,
+  }) {
+    final cached = _homeLayoutCache;
+    if (cached != null &&
+        cached.matches(
+          viewSize: viewSize,
+          displayLayout: displayLayout,
+          placements: placements,
+          homeGrid: homeGrid,
+          hasBatteryData: hasBatteryData,
+        )) {
+      return cached.layout;
+    }
+    final layout = _layoutDesktopHome(
+      viewSize: viewSize,
+      displayLayout: displayLayout,
+      placements: placements,
+      homeGrid: homeGrid,
+      hasBatteryData: hasBatteryData,
+    );
+    _homeLayoutCache = _DesktopHomeLayoutCache(
+      viewSize: viewSize,
+      displayLayout: displayLayout,
+      placements: placements,
+      homeGrid: homeGrid,
+      hasBatteryData: hasBatteryData,
+      layout: layout,
+    );
+    return layout;
   }
 
   @override
@@ -1273,24 +1428,26 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
               windowSwitcher,
             ),
           );
-    final homeLayout = _layoutDesktopHome(
+    final homeGrid = ref.watch(homeGridControllerProvider);
+    final hasBatteryData = ref.watch(
+      homeBatteryDischargeProvider.select(
+        (series) =>
+            series.asData?.value.points.any(
+              (point) =>
+                  point.capacity != null ||
+                  point.currentMa != null ||
+                  point.voltageMv != null ||
+                  point.powerMw != null,
+            ) ??
+            false,
+      ),
+    );
+    final homeLayout = _cachedDesktopHomeLayout(
       viewSize: viewSize,
       displayLayout: displayLayout,
       placements: placements,
-      homeGrid: ref.watch(homeGridControllerProvider),
-      hasBatteryData: ref.watch(
-        homeBatteryDischargeProvider.select(
-          (series) =>
-              series.asData?.value.points.any(
-                (point) =>
-                    point.capacity != null ||
-                    point.currentMa != null ||
-                    point.voltageMv != null ||
-                    point.powerMw != null,
-              ) ??
-              false,
-        ),
-      ),
+      homeGrid: homeGrid,
+      hasBatteryData: hasBatteryData,
     );
     final topZ = placements
         .where((placement) => !placement.minimized)
@@ -2132,15 +2289,12 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
               )
             : this.frame;
         final transformed = overview || switching;
-        final resizingDrag =
-            followsLivePlacement &&
-            placement.frame.size != this.placement.frame.size;
         final frame = desktopPixelAlignedWindowFrame(
           frame: liveFrame,
           contentInset: placement.frameBorder,
           devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
           enabled: !transformed,
-          alignSize: resizingDrag,
+          alignSize: true,
         );
         if (window.surfaceLayers.isEmpty) {
           return const SizedBox.shrink();
@@ -2152,6 +2306,9 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
         final contentRect = drawsServerFrame
             ? frame.deflate(DesktopMetrics.frameBorder)
             : frame;
+        final retainedContentRect = drawsServerFrame
+            ? placement.frame.deflate(DesktopMetrics.frameBorder)
+            : placement.frame;
         final duration = placement.dragging ? Duration.zero : motionDuration;
         final resizing = desktopTextureNeedsResizeSmoothing(
           targetSize: contentRect.size,
@@ -2176,12 +2333,15 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
                         key: ValueKey<int>(layer.surfaceId),
                         duration: duration,
                         rect: window.mapSurfaceRect(layer, contentRect),
+                        layoutRect: transformed
+                            ? window.mapSurfaceRect(layer, retainedContentRect)
+                            : null,
                         placementObjectId: placement.objectId,
                         overview: overview,
                         switching: switching,
                         dragging: placement.dragging,
                         pixelAlignmentInset: 0.0,
-                        alignSizeToDevicePixels: resizingDrag,
+                        alignSizeToDevicePixels: true,
                         child: ShellBackdropBlur(
                           blur: !layer.opaque || layer.opacity < 1.0,
                           child: SurfaceLayerTexture(
@@ -2333,15 +2493,12 @@ class _DesktopWindowFrame extends ConsumerWidget {
         : this.frame;
     final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
     final transformed = overview || switching || desktopWidget;
-    final resizingDrag =
-        followsLivePlacement &&
-        placement.frame.size != this.placement.frame.size;
     final frame = desktopPixelAlignedWindowFrame(
       frame: liveFrame,
       contentInset: placement.frameBorder,
       devicePixelRatio: devicePixelRatio,
       enabled: !transformed,
-      alignSize: resizingDrag,
+      alignSize: true,
     );
     DesktopWindowRenderTelemetry.recordWindowBuild(
       windowId: window.objectId,
@@ -2368,13 +2525,14 @@ class _DesktopWindowFrame extends ConsumerWidget {
     return _DesktopAnimatedWindowPosition(
       duration: placement.dragging ? Duration.zero : duration,
       rect: frame,
+      layoutRect: transformed ? placement.frame : null,
       placementObjectId: placement.objectId,
       overview: overview,
       switching: switching,
       desktopWidget: desktopWidget,
       dragging: placement.dragging,
       pixelAlignmentInset: placement.frameBorder,
-      alignSizeToDevicePixels: resizingDrag,
+      alignSizeToDevicePixels: true,
       child: DesktopWindowReveal(
         key: ValueKey<String>('desktop-window-content-${window.objectId}'),
         enabled: window.shouldAnimateEntrance,
@@ -2478,6 +2636,7 @@ class _DesktopAnimatedWindowPosition extends ConsumerStatefulWidget {
     super.key,
     required this.duration,
     required this.rect,
+    this.layoutRect,
     required this.placementObjectId,
     required this.overview,
     required this.switching,
@@ -2490,6 +2649,7 @@ class _DesktopAnimatedWindowPosition extends ConsumerStatefulWidget {
 
   final Duration duration;
   final Rect rect;
+  final Rect? layoutRect;
   final int placementObjectId;
   final bool overview;
   final bool switching;
@@ -2548,6 +2708,7 @@ class _DesktopAnimatedWindowPositionState
   @override
   Widget build(BuildContext context) {
     var rect = widget.rect;
+    var layoutRect = widget.layoutRect;
     final pixelAlignmentInset = widget.pixelAlignmentInset;
     final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
     if (pixelAlignmentInset != null) {
@@ -2558,6 +2719,14 @@ class _DesktopAnimatedWindowPositionState
         enabled: !widget.overview && !widget.switching && !widget.desktopWidget,
         alignSize: widget.alignSizeToDevicePixels,
       );
+      if (layoutRect != null) {
+        layoutRect = desktopPixelAlignedWindowFrame(
+          frame: layoutRect,
+          contentInset: pixelAlignmentInset,
+          devicePixelRatio: devicePixelRatio,
+          enabled: true,
+        );
+      }
     }
     final liveTranslation = ref
         .read(desktopLiveWindowPlacementsProvider)
@@ -2570,10 +2739,10 @@ class _DesktopAnimatedWindowPositionState
           : widget.duration,
       curve: _curve,
       rect: rect,
-      // Overview shadows and frames must follow the interpolated layout. A
-      // destination-first retained transform changes their geometry in the
-      // first frame and makes SUPER+A look like a scene replacement.
-      layoutDuringAnimation: _overviewTransitionActive,
+      // SUPER+A and SUPER+Tab retain the real window geometry. Their live
+      // texture, frame, shadow, and hit-test region move as one composited
+      // layer instead of resizing and repainting on every animation tick.
+      layoutRect: layoutRect,
       onEnd: () => _overviewTransitionActive = false,
       child: RetainedTranslation(
         translation: liveTranslation,

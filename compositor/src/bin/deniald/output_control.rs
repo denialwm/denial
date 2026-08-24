@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock, mpsc};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -27,6 +27,11 @@ use tracing::{info, warn};
 
 use super::ui_development::{
     CommandKind as UiDevelopmentCommandKind, UiDevelopmentCommand, UiDevelopmentState,
+};
+use super::{
+    native_shortcut::ShortcutBinding,
+    settings::{KeyboardSettings, TouchpadSettings},
+    system_controls::{AudioRequest, BrightnessRequest},
 };
 
 pub(super) const PROTOCOL_VERSION: u32 = 1;
@@ -37,6 +42,9 @@ const EVENT_QUEUE_CAPACITY: usize = 8;
 const MAX_REQUEST_BYTES: usize = 256 * 1024;
 const CLIENT_IO_TIMEOUT: Duration = Duration::from_secs(3);
 const APPLY_TIMEOUT: Duration = Duration::from_secs(15);
+const SHELL_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+const SETTINGS_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+const SYSTEM_CONTROL_TIMEOUT: Duration = Duration::from_secs(5);
 const UI_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -109,6 +117,7 @@ pub(super) enum OutputTransformName {
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub(super) struct OutputControlOutput {
+    pub(super) monitor_id: i64,
     pub(super) name: String,
     pub(super) description: String,
     pub(super) connected: bool,
@@ -122,6 +131,7 @@ pub(super) struct OutputControlOutput {
     pub(super) physical_height_mm: Option<u32>,
     pub(super) scale: f64,
     pub(super) transform: OutputTransformName,
+    pub(super) adaptive_sync_supported: bool,
     pub(super) adaptive_sync: bool,
     pub(super) current_mode: Option<OutputControlMode>,
     pub(super) modes: Vec<OutputControlMode>,
@@ -130,6 +140,7 @@ pub(super) struct OutputControlOutput {
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct OutputControlState {
     pub(super) capabilities: OutputControlCapabilities,
+    pub(super) primary_output: Option<String>,
     pub(super) outputs: Vec<OutputControlOutput>,
     pub(super) pending_confirmation: Option<OutputControlConfirmation>,
 }
@@ -144,6 +155,7 @@ pub(super) struct OutputControlConfirmation {
 pub(super) struct OutputControlSnapshot {
     pub(super) serial: u64,
     pub(super) capabilities: OutputControlCapabilities,
+    pub(super) primary_output: Option<String>,
     pub(super) outputs: Vec<OutputControlOutput>,
     pub(super) pending_confirmation: Option<OutputControlConfirmation>,
 }
@@ -153,6 +165,7 @@ impl OutputControlSnapshot {
         Self {
             serial: initial_serial(),
             capabilities: state.capabilities,
+            primary_output: state.primary_output,
             outputs: state.outputs,
             pending_confirmation: state.pending_confirmation,
         }
@@ -160,6 +173,7 @@ impl OutputControlSnapshot {
 
     fn same_state(&self, state: &OutputControlState) -> bool {
         self.capabilities == state.capabilities
+            && self.primary_output == state.primary_output
             && self.outputs == state.outputs
             && self.pending_confirmation == state.pending_confirmation
     }
@@ -216,6 +230,7 @@ impl OutputControlPublisher {
         if !snapshot.same_state(&state) {
             snapshot.serial = next_serial(snapshot.serial);
             snapshot.capabilities = state.capabilities;
+            snapshot.primary_output = state.primary_output;
             snapshot.outputs = state.outputs;
             snapshot.pending_confirmation = state.pending_confirmation;
         }
@@ -252,6 +267,8 @@ pub(super) struct RequestedOutput {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub(super) struct ApplyOutputConfiguration {
     pub(super) serial: u64,
+    #[serde(default)]
+    pub(super) primary_output: Option<String>,
     #[serde(default)]
     pub(super) persistent: bool,
     #[serde(default)]
@@ -323,10 +340,135 @@ impl PendingUiDevelopment {
     }
 }
 
+pub(super) type ShellControlReply = Result<(), OutputControlFailure>;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ShellControlCommand {
+    OpenWallpaper,
+}
+
+#[derive(Debug)]
+pub(super) struct PendingShellControl {
+    pub(super) command: ShellControlCommand,
+    reply: mpsc::SyncSender<ShellControlReply>,
+}
+
+impl PendingShellControl {
+    pub(super) fn reply(self, result: ShellControlReply) {
+        let _ = self.reply.send(result);
+    }
+}
+
+pub(super) type SettingsReply = Result<Value, OutputControlFailure>;
+
+#[derive(Debug)]
+pub(super) enum SettingsControlCommand {
+    ReadDocument,
+    WriteDocument {
+        expected_revision: u64,
+        document: String,
+    },
+    ReadKeyboard,
+    WriteKeyboard {
+        expected_revision: u64,
+        keyboard: KeyboardSettings,
+    },
+    ReadInputDevices,
+    WriteTouchpad {
+        expected_revision: u64,
+        touchpad: TouchpadSettings,
+    },
+    ReadShortcuts,
+    ValidateShortcut {
+        shortcut: ShortcutBinding,
+        existing_shortcut: Option<String>,
+    },
+    AddShortcut {
+        expected_revision: u64,
+        shortcut: ShortcutBinding,
+    },
+    UpdateShortcut {
+        expected_revision: u64,
+        existing_shortcut: String,
+        shortcut: ShortcutBinding,
+    },
+    RemoveShortcut {
+        expected_revision: u64,
+        shortcut: String,
+    },
+    RestoreShortcuts {
+        expected_revision: u64,
+    },
+}
+
+#[derive(Debug)]
+pub(super) struct PendingSettingsControl {
+    pub(super) command: SettingsControlCommand,
+    reply: mpsc::SyncSender<SettingsReply>,
+}
+
+impl PendingSettingsControl {
+    pub(super) fn into_parts(self) -> (SettingsControlCommand, mpsc::SyncSender<SettingsReply>) {
+        (self.command, self.reply)
+    }
+}
+
+pub(super) type SystemControlReply = Result<Value, OutputControlFailure>;
+pub(super) type SystemControlReplySender = mpsc::SyncSender<SystemControlReply>;
+
+#[derive(Debug)]
+pub(super) enum SystemControlCommand {
+    Audio(AudioRequest),
+    Brightness(BrightnessRequest),
+}
+
+#[derive(Debug)]
+pub(super) struct PendingSystemControl {
+    pub(super) command: SystemControlCommand,
+    reply: SystemControlReplySender,
+}
+
+impl PendingSystemControl {
+    pub(super) fn into_parts(self) -> (SystemControlCommand, SystemControlReplySender) {
+        (self.command, self.reply)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SystemControlWaitKind {
+    AudioLevel,
+    AudioStreams,
+    Brightness(i64),
+}
+
+#[derive(Debug)]
+pub(super) struct PendingSystemControlWait {
+    pub(super) kind: SystemControlWaitKind,
+    pub(super) reply: SystemControlReplySender,
+    expires_at: Instant,
+}
+
+impl PendingSystemControlWait {
+    pub(super) fn new(kind: SystemControlWaitKind, reply: SystemControlReplySender) -> Self {
+        Self {
+            kind,
+            reply,
+            expires_at: Instant::now() + SYSTEM_CONTROL_TIMEOUT,
+        }
+    }
+
+    pub(super) fn expired(&self, now: Instant) -> bool {
+        self.expires_at <= now
+    }
+}
+
 #[derive(Debug)]
 pub(super) enum ControlEvent {
     OutputApply(PendingOutputApply),
     OutputConfirmation(PendingOutputConfirmation),
+    Shell(PendingShellControl),
+    Settings(PendingSettingsControl),
+    SystemControl(PendingSystemControl),
     UiDevelopment(PendingUiDevelopment),
 }
 
@@ -355,6 +497,93 @@ struct UiAutoReloadParams {
 #[serde(deny_unknown_fields)]
 struct OutputConfirmationParams {
     token: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SettingsDocumentWriteParams {
+    expected_revision: u64,
+    document: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KeyboardWriteParams {
+    expected_revision: u64,
+    keyboard: KeyboardSettings,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TouchpadWriteParams {
+    expected_revision: u64,
+    touchpad: TouchpadSettings,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ShortcutValidationParams {
+    shortcut: ShortcutBinding,
+    #[serde(default)]
+    existing_shortcut: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ShortcutWriteParams {
+    expected_revision: u64,
+    shortcut: ShortcutBinding,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ShortcutUpdateParams {
+    expected_revision: u64,
+    existing_shortcut: String,
+    shortcut: ShortcutBinding,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ShortcutRemoveParams {
+    expected_revision: u64,
+    shortcut: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RevisionParams {
+    expected_revision: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AudioLevelParams {
+    percent: u8,
+    #[serde(default)]
+    request_serial: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AudioStreamLevelParams {
+    stream_id: u32,
+    percent: u8,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BrightnessParams {
+    monitor_id: i64,
+    connector: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BrightnessLevelParams {
+    monitor_id: i64,
+    connector: String,
+    percent: u8,
 }
 
 pub(super) struct OutputControlServer {
@@ -687,6 +916,316 @@ fn handle_connection(
             };
             queue_output_confirmation(request.id, parameters.token, action, events)
         }
+        "shell.wallpaper.open" => {
+            queue_shell_control(request.id, ShellControlCommand::OpenWallpaper, events)
+        }
+        "settings.document.get" => {
+            queue_settings(request.id, SettingsControlCommand::ReadDocument, events)
+        }
+        "settings.document.apply" => {
+            let parameters = match serde_json::from_value::<SettingsDocumentWriteParams>(
+                request.params,
+            ) {
+                Ok(parameters)
+                    if parameters.expected_revision != 0
+                        && !parameters.document.is_empty()
+                        && parameters.document.len() <= MAX_REQUEST_BYTES =>
+                {
+                    parameters
+                }
+                Ok(_) => {
+                    return write_response(
+                        &mut stream,
+                        &error_response(
+                            Some(request.id),
+                            "invalid_params",
+                            "settings revision must be nonzero and the document must be nonempty",
+                        ),
+                    );
+                }
+                Err(error) => {
+                    return write_response(
+                        &mut stream,
+                        &error_response(Some(request.id), "invalid_params", error.to_string()),
+                    );
+                }
+            };
+            queue_settings(
+                request.id,
+                SettingsControlCommand::WriteDocument {
+                    expected_revision: parameters.expected_revision,
+                    document: parameters.document,
+                },
+                events,
+            )
+        }
+        "settings.keyboard.get" => {
+            queue_settings(request.id, SettingsControlCommand::ReadKeyboard, events)
+        }
+        "settings.keyboard.apply" => {
+            let parameters =
+                match parse_settings_params::<KeyboardWriteParams>(request.id, request.params) {
+                    Ok(parameters) if parameters.expected_revision != 0 => parameters,
+                    Ok(_) => {
+                        return write_response(
+                            &mut stream,
+                            &error_response(
+                                Some(request.id),
+                                "invalid_params",
+                                "settings revision must be nonzero",
+                            ),
+                        );
+                    }
+                    Err(response) => return write_response(&mut stream, &response),
+                };
+            queue_settings(
+                request.id,
+                SettingsControlCommand::WriteKeyboard {
+                    expected_revision: parameters.expected_revision,
+                    keyboard: parameters.keyboard,
+                },
+                events,
+            )
+        }
+        "settings.input.get" => {
+            queue_settings(request.id, SettingsControlCommand::ReadInputDevices, events)
+        }
+        "settings.touchpad.apply" => {
+            let parameters =
+                match parse_settings_params::<TouchpadWriteParams>(request.id, request.params) {
+                    Ok(parameters) if parameters.expected_revision != 0 => parameters,
+                    Ok(_) => {
+                        return write_response(
+                            &mut stream,
+                            &error_response(
+                                Some(request.id),
+                                "invalid_params",
+                                "settings revision must be nonzero",
+                            ),
+                        );
+                    }
+                    Err(response) => return write_response(&mut stream, &response),
+                };
+            queue_settings(
+                request.id,
+                SettingsControlCommand::WriteTouchpad {
+                    expected_revision: parameters.expected_revision,
+                    touchpad: parameters.touchpad,
+                },
+                events,
+            )
+        }
+        "settings.shortcuts.get" => {
+            queue_settings(request.id, SettingsControlCommand::ReadShortcuts, events)
+        }
+        "settings.shortcuts.validate" => {
+            let parameters =
+                match parse_settings_params::<ShortcutValidationParams>(request.id, request.params)
+                {
+                    Ok(parameters) => parameters,
+                    Err(response) => return write_response(&mut stream, &response),
+                };
+            queue_settings(
+                request.id,
+                SettingsControlCommand::ValidateShortcut {
+                    shortcut: parameters.shortcut,
+                    existing_shortcut: parameters.existing_shortcut,
+                },
+                events,
+            )
+        }
+        "settings.shortcuts.add" => {
+            let parameters =
+                match parse_settings_params::<ShortcutWriteParams>(request.id, request.params) {
+                    Ok(parameters) if parameters.expected_revision != 0 => parameters,
+                    Ok(_) => return write_response(&mut stream, &invalid_revision(request.id)),
+                    Err(response) => return write_response(&mut stream, &response),
+                };
+            queue_settings(
+                request.id,
+                SettingsControlCommand::AddShortcut {
+                    expected_revision: parameters.expected_revision,
+                    shortcut: parameters.shortcut,
+                },
+                events,
+            )
+        }
+        "settings.shortcuts.update" => {
+            let parameters =
+                match parse_settings_params::<ShortcutUpdateParams>(request.id, request.params) {
+                    Ok(parameters)
+                        if parameters.expected_revision != 0
+                            && !parameters.existing_shortcut.is_empty() =>
+                    {
+                        parameters
+                    }
+                    Ok(_) => return write_response(&mut stream, &invalid_revision(request.id)),
+                    Err(response) => return write_response(&mut stream, &response),
+                };
+            queue_settings(
+                request.id,
+                SettingsControlCommand::UpdateShortcut {
+                    expected_revision: parameters.expected_revision,
+                    existing_shortcut: parameters.existing_shortcut,
+                    shortcut: parameters.shortcut,
+                },
+                events,
+            )
+        }
+        "settings.shortcuts.remove" => {
+            let parameters =
+                match parse_settings_params::<ShortcutRemoveParams>(request.id, request.params) {
+                    Ok(parameters)
+                        if parameters.expected_revision != 0 && !parameters.shortcut.is_empty() =>
+                    {
+                        parameters
+                    }
+                    Ok(_) => return write_response(&mut stream, &invalid_revision(request.id)),
+                    Err(response) => return write_response(&mut stream, &response),
+                };
+            queue_settings(
+                request.id,
+                SettingsControlCommand::RemoveShortcut {
+                    expected_revision: parameters.expected_revision,
+                    shortcut: parameters.shortcut,
+                },
+                events,
+            )
+        }
+        "settings.shortcuts.restore" => {
+            let parameters =
+                match parse_settings_params::<RevisionParams>(request.id, request.params) {
+                    Ok(parameters) if parameters.expected_revision != 0 => parameters,
+                    Ok(_) => return write_response(&mut stream, &invalid_revision(request.id)),
+                    Err(response) => return write_response(&mut stream, &response),
+                };
+            queue_settings(
+                request.id,
+                SettingsControlCommand::RestoreShortcuts {
+                    expected_revision: parameters.expected_revision,
+                },
+                events,
+            )
+        }
+        "audio.get" => queue_system_control(
+            request.id,
+            SystemControlCommand::Audio(AudioRequest::ReadLevel),
+            events,
+        ),
+        "audio.set" => {
+            let parameters =
+                match parse_settings_params::<AudioLevelParams>(request.id, request.params) {
+                    Ok(parameters) if parameters.percent <= 100 => parameters,
+                    Ok(_) => {
+                        return write_response(
+                            &mut stream,
+                            &error_response(
+                                Some(request.id),
+                                "invalid_params",
+                                "audio percent must be between 0 and 100",
+                            ),
+                        );
+                    }
+                    Err(response) => return write_response(&mut stream, &response),
+                };
+            queue_system_control(
+                request.id,
+                SystemControlCommand::Audio(AudioRequest::SetLevel {
+                    level: f64::from(parameters.percent) / 100.0,
+                    request_serial: parameters.request_serial,
+                }),
+                events,
+            )
+        }
+        "audio.streams.get" => queue_system_control(
+            request.id,
+            SystemControlCommand::Audio(AudioRequest::RequestStreams),
+            events,
+        ),
+        "audio.stream.set" => {
+            let parameters =
+                match parse_settings_params::<AudioStreamLevelParams>(request.id, request.params) {
+                    Ok(parameters) if parameters.percent <= 100 => parameters,
+                    Ok(_) => {
+                        return write_response(
+                            &mut stream,
+                            &error_response(
+                                Some(request.id),
+                                "invalid_params",
+                                "audio percent must be between 0 and 100",
+                            ),
+                        );
+                    }
+                    Err(response) => return write_response(&mut stream, &response),
+                };
+            queue_system_control(
+                request.id,
+                SystemControlCommand::Audio(AudioRequest::SetStreamLevel {
+                    stream_id: parameters.stream_id,
+                    level: f64::from(parameters.percent) / 100.0,
+                }),
+                events,
+            )
+        }
+        "brightness.get" => {
+            let parameters =
+                match parse_settings_params::<BrightnessParams>(request.id, request.params) {
+                    Ok(parameters) if valid_brightness_target(&parameters) => parameters,
+                    Ok(_) => {
+                        return write_response(
+                            &mut stream,
+                            &error_response(
+                                Some(request.id),
+                                "invalid_params",
+                                "brightness requires a valid monitor ID and connector",
+                            ),
+                        );
+                    }
+                    Err(response) => return write_response(&mut stream, &response),
+                };
+            queue_system_control(
+                request.id,
+                SystemControlCommand::Brightness(BrightnessRequest::Read {
+                    connector: parameters.connector,
+                    monitor_id: parameters.monitor_id,
+                }),
+                events,
+            )
+        }
+        "brightness.set" => {
+            let parameters =
+                match parse_settings_params::<BrightnessLevelParams>(request.id, request.params) {
+                    Ok(parameters)
+                        if parameters.percent <= 100
+                            && valid_brightness_values(
+                                parameters.monitor_id,
+                                &parameters.connector,
+                            ) =>
+                    {
+                        parameters
+                    }
+                    Ok(_) => {
+                        return write_response(
+                            &mut stream,
+                            &error_response(
+                                Some(request.id),
+                                "invalid_params",
+                                "brightness requires percent 0-100 and a valid output",
+                            ),
+                        );
+                    }
+                    Err(response) => return write_response(&mut stream, &response),
+                };
+            queue_system_control(
+                request.id,
+                SystemControlCommand::Brightness(BrightnessRequest::Set {
+                    connector: parameters.connector,
+                    monitor_id: parameters.monitor_id,
+                    level: f64::from(parameters.percent) / 100.0,
+                }),
+                events,
+            )
+        }
         "ui.get" => queue_ui_development(
             request.id,
             UiDevelopmentCommandKind::Query,
@@ -786,6 +1325,126 @@ fn handle_connection(
         ),
     };
     write_response(&mut stream, &response)
+}
+
+fn parse_settings_params<T: for<'de> Deserialize<'de>>(id: u64, params: Value) -> Result<T, Value> {
+    serde_json::from_value(params)
+        .map_err(|error| error_response(Some(id), "invalid_params", error.to_string()))
+}
+
+fn invalid_revision(id: u64) -> Value {
+    error_response(
+        Some(id),
+        "invalid_params",
+        "settings revision and shortcut identity must be nonempty",
+    )
+}
+
+fn valid_brightness_target(parameters: &BrightnessParams) -> bool {
+    valid_brightness_values(parameters.monitor_id, &parameters.connector)
+}
+
+fn valid_brightness_values(monitor_id: i64, connector: &str) -> bool {
+    monitor_id >= 0 && !connector.is_empty() && connector.len() <= 128 && !connector.contains('\0')
+}
+
+fn queue_settings(
+    id: u64,
+    command: SettingsControlCommand,
+    events: &SyncSender<ControlEvent>,
+) -> Value {
+    let (reply, result) = mpsc::sync_channel(1);
+    let pending = PendingSettingsControl { command, reply };
+    match events.try_send(ControlEvent::Settings(pending)) {
+        Err(mpsc::TrySendError::Full(_)) => {
+            error_response(Some(id), "busy", "the compositor control queue is full")
+        }
+        Err(mpsc::TrySendError::Disconnected(_)) => error_response(
+            Some(id),
+            "unavailable",
+            "the compositor control queue is unavailable",
+        ),
+        Ok(()) => match result.recv_timeout(SETTINGS_COMMAND_TIMEOUT) {
+            Ok(Ok(document)) => success_response(id, document),
+            Ok(Err(error)) => error_response(Some(id), &error.code, error.message),
+            Err(mpsc::RecvTimeoutError::Timeout) => error_response(
+                Some(id),
+                "timeout",
+                "the compositor did not process the settings request in time",
+            ),
+            Err(mpsc::RecvTimeoutError::Disconnected) => error_response(
+                Some(id),
+                "unavailable",
+                "the compositor stopped before processing the settings request",
+            ),
+        },
+    }
+}
+
+fn queue_shell_control(
+    id: u64,
+    command: ShellControlCommand,
+    events: &SyncSender<ControlEvent>,
+) -> Value {
+    let (reply, result) = mpsc::sync_channel(1);
+    let pending = PendingShellControl { command, reply };
+    match events.try_send(ControlEvent::Shell(pending)) {
+        Err(mpsc::TrySendError::Full(_)) => {
+            error_response(Some(id), "busy", "the compositor control queue is full")
+        }
+        Err(mpsc::TrySendError::Disconnected(_)) => error_response(
+            Some(id),
+            "unavailable",
+            "the compositor control queue is unavailable",
+        ),
+        Ok(()) => match result.recv_timeout(SHELL_COMMAND_TIMEOUT) {
+            Ok(Ok(())) => success_response(id, json!({})),
+            Ok(Err(error)) => error_response(Some(id), &error.code, error.message),
+            Err(mpsc::RecvTimeoutError::Timeout) => error_response(
+                Some(id),
+                "timeout",
+                "the compositor did not process the shell command in time",
+            ),
+            Err(mpsc::RecvTimeoutError::Disconnected) => error_response(
+                Some(id),
+                "unavailable",
+                "the compositor stopped before processing the shell command",
+            ),
+        },
+    }
+}
+
+fn queue_system_control(
+    id: u64,
+    command: SystemControlCommand,
+    events: &SyncSender<ControlEvent>,
+) -> Value {
+    let (reply, result) = mpsc::sync_channel(1);
+    let pending = PendingSystemControl { command, reply };
+    match events.try_send(ControlEvent::SystemControl(pending)) {
+        Err(mpsc::TrySendError::Full(_)) => {
+            error_response(Some(id), "busy", "the compositor control queue is full")
+        }
+        Err(mpsc::TrySendError::Disconnected(_)) => error_response(
+            Some(id),
+            "unavailable",
+            "the compositor control queue is unavailable",
+        ),
+        Ok(()) => match result.recv_timeout(SYSTEM_CONTROL_TIMEOUT) {
+            Ok(Ok(state)) => success_response(id, state),
+            Ok(Err(error)) => error_response(Some(id), &error.code, error.message),
+            Err(mpsc::RecvTimeoutError::Timeout) => error_response(
+                Some(id),
+                "timeout",
+                "the compositor did not process the system-control request in time",
+            ),
+            Err(mpsc::RecvTimeoutError::Disconnected) => error_response(
+                Some(id),
+                "unavailable",
+                "the compositor stopped before processing the system-control request",
+            ),
+        },
+    }
 }
 
 fn queue_output_confirmation(

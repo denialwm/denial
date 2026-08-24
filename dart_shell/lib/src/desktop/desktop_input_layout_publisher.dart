@@ -27,6 +27,7 @@ class _DesktopInputLayoutPublisherState
   bool _scheduled = false;
   int _epoch = 0;
   InputLayoutSnapshot? _lastSnapshot;
+  _DesktopInputLayoutSource? _lastSource;
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +36,9 @@ class _DesktopInputLayoutPublisherState
         (state) => (state.windows, state.windowSnapshotSequence),
       ),
     );
-    ref.watch(desktopWorkspaceProvider);
+    ref.watch(
+      desktopWorkspaceProvider.select((state) => state.inputLayoutRevision),
+    );
     ref.watch(desktopWindowSwitcherProvider);
     ref.watch(shellInteractionRegistryProvider);
     _schedulePublish(
@@ -66,24 +69,32 @@ class _DesktopInputLayoutPublisherState
             devicePixelRatio,
             snapshotSequence: shell.windowSnapshotSequence,
           );
-      _publish(
-        viewSize,
-        ref.read(shellControllerProvider).windows,
-        ref.read(desktopWorkspaceProvider),
-        ref.read(shellInteractionRegistryProvider),
+      final source = _DesktopInputLayoutSource(
+        viewSize: viewSize,
+        devicePixelRatio: devicePixelRatio,
+        windows: shell.windows,
+        windowSnapshotSequence: shell.windowSnapshotSequence,
+        desktop: ref.read(desktopWorkspaceProvider),
+        switcher: ref.read(desktopWindowSwitcherProvider),
+        interactions: ref.read(shellInteractionRegistryProvider),
       );
+      if (_lastSource?.hasSameInputsAs(source) ?? false) {
+        return;
+      }
+      if (_publish(source)) {
+        _lastSource = source;
+      }
     });
   }
 
-  void _publish(
-    Size viewSize,
-    List<DenialWindow> windows,
-    DesktopWorkspaceState desktop,
-    ShellInteractionSnapshot interactions,
-  ) {
+  bool _publish(_DesktopInputLayoutSource source) {
+    final viewSize = source.viewSize;
     if (viewSize.width <= 0.0 || viewSize.height <= 0.0) {
-      return;
+      return false;
     }
+    final windows = source.windows;
+    final desktop = source.desktop;
+    final interactions = source.interactions;
 
     final windowsById = <int, DenialWindow>{
       for (final window in windows)
@@ -92,7 +103,7 @@ class _DesktopInputLayoutPublisherState
     final inputMethodPopups = windows
         .where((window) => window.isInputMethodPopup && window.geometry != null)
         .toList(growable: false);
-    final switcher = ref.read(desktopWindowSwitcherProvider);
+    final switcher = source.switcher;
     final sampledSwitcherIds =
         interactions.capturesFullScene && (switcher?.isSelecting ?? false)
         ? switcher!.objectIds.toSet()
@@ -243,14 +254,15 @@ class _DesktopInputLayoutPublisherState
       observeClientPointerPresses: interactions.observesClientPointerPresses,
     );
     if (_lastSnapshot?.hasSameRoutingAs(snapshot) ?? false) {
-      return;
+      return true;
     }
 
     if (!ref.read(denialBridgeProvider).publishInputLayout(snapshot)) {
-      return;
+      return false;
     }
     _epoch = snapshot.epoch;
     _lastSnapshot = snapshot;
+    return true;
   }
 
   void _configureWindowGeometry(
@@ -267,6 +279,36 @@ class _DesktopInputLayoutPublisherState
       return;
     }
     ref.read(denialBridgeProvider).configureWindow(window, configuredGeometry);
+  }
+}
+
+class _DesktopInputLayoutSource {
+  const _DesktopInputLayoutSource({
+    required this.viewSize,
+    required this.devicePixelRatio,
+    required this.windows,
+    required this.windowSnapshotSequence,
+    required this.desktop,
+    required this.switcher,
+    required this.interactions,
+  });
+
+  final Size viewSize;
+  final double devicePixelRatio;
+  final List<DenialWindow> windows;
+  final int windowSnapshotSequence;
+  final DesktopWorkspaceState desktop;
+  final DesktopWindowSwitcherState? switcher;
+  final ShellInteractionSnapshot interactions;
+
+  bool hasSameInputsAs(_DesktopInputLayoutSource other) {
+    return viewSize == other.viewSize &&
+        devicePixelRatio == other.devicePixelRatio &&
+        identical(windows, other.windows) &&
+        windowSnapshotSequence == other.windowSnapshotSequence &&
+        desktop.inputLayoutRevision == other.desktop.inputLayoutRevision &&
+        identical(switcher, other.switcher) &&
+        identical(interactions, other.interactions);
   }
 }
 

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:async';
 
 import 'package:flutter/widgets.dart';
@@ -7,8 +8,10 @@ import '../config/startup_environment.dart';
 import '../models/display_layout.dart';
 import '../models/shell_popup_placement.dart';
 import '../state/desktop_window_close_effect.dart';
+import '../theme/backdrop_blur_level.dart';
 import '../theme/cursor_themes.dart';
 import '../state/shell_controller.dart';
+import '../platform/denial_bridge.dart';
 import 'settings_store.dart';
 import 'shell_settings.dart';
 
@@ -23,38 +26,110 @@ final shellSettingsProvider =
       ShellSettingsController.new,
     );
 
+enum ShellSettingsSyncPhase { loading, ready, failed }
+
+class ShellSettingsSyncStatus {
+  const ShellSettingsSyncStatus(this.phase);
+
+  const ShellSettingsSyncStatus.loading()
+    : phase = ShellSettingsSyncPhase.loading;
+
+  const ShellSettingsSyncStatus.ready() : phase = ShellSettingsSyncPhase.ready;
+
+  const ShellSettingsSyncStatus.failed()
+    : phase = ShellSettingsSyncPhase.failed;
+
+  final ShellSettingsSyncPhase phase;
+}
+
+final shellSettingsSyncStatusProvider =
+    NotifierProvider<
+      ShellSettingsSyncStatusController,
+      ShellSettingsSyncStatus
+    >(ShellSettingsSyncStatusController.new);
+
+class ShellSettingsSyncStatusController
+    extends Notifier<ShellSettingsSyncStatus> {
+  @override
+  ShellSettingsSyncStatus build() => const ShellSettingsSyncStatus.loading();
+
+  void markLoading() => state = const ShellSettingsSyncStatus.loading();
+
+  void markReady() => state = const ShellSettingsSyncStatus.ready();
+
+  void markFailed() => state = const ShellSettingsSyncStatus.failed();
+}
+
 class ShellSettingsController extends Notifier<ShellSettings> {
   static const Duration _writeDebounce = Duration(milliseconds: 180);
 
   late SettingsStore _store;
   Timer? _writeTimer;
+  StreamSubscription<DenialSettingsDocument>? _documentSubscription;
   int _mutationSerial = 0;
   int _buildSerial = 0;
+  int _nativeDocumentSerial = 0;
+  var _hasAuthoritativeState = false;
+  late ShellSettings _initialSettings;
+  late ShellSettings _latestSettings;
+  late Completer<void> _initialLoad;
+  final Map<String, Object?> _pendingRestorePatch = <String, Object?>{};
 
   @override
   ShellSettings build() {
     _store = ref.watch(settingsStoreProvider);
     _writeTimer?.cancel();
     _writeTimer = null;
+    unawaited(_documentSubscription?.cancel());
+    _documentSubscription = _store is SettingsDocumentUpdateSource
+        ? (_store as SettingsDocumentUpdateSource).settingsDocumentUpdates
+              .listen(_applyNativeDocument)
+        : null;
     _mutationSerial = 0;
+    _nativeDocumentSerial = 0;
+    _hasAuthoritativeState = false;
+    _pendingRestorePatch.clear();
+    _initialLoad = Completer<void>();
     final buildSerial = ++_buildSerial;
-    final mutationSerial = _mutationSerial;
+    final nativeDocumentSerial = _nativeDocumentSerial;
     ref.onDispose(() {
       final hadPendingWrite = _writeTimer != null;
+      final pendingSettings = hadPendingWrite && _hasAuthoritativeState
+          ? _latestSettings
+          : null;
       _writeTimer?.cancel();
       _writeTimer = null;
-      if (hadPendingWrite) {
-        unawaited(_writeSafely());
+      unawaited(_documentSubscription?.cancel());
+      _documentSubscription = null;
+      if (pendingSettings != null) {
+        unawaited(_store.write(pendingSettings).catchError((Object _) {}));
       }
     });
-    scheduleMicrotask(() => unawaited(_restore(buildSerial, mutationSerial)));
-    return ShellSettings(
+    _initialSettings = ShellSettings(
       animations: ShellAnimationSettings(
         windowCloseEffect: DesktopWindowCloseEffect.fromEnvironment(
           ref.watch(startupEnvironmentProvider).values,
         ),
       ),
     );
+    _latestSettings = _initialSettings;
+    scheduleMicrotask(
+      () => unawaited(_restore(buildSerial, nativeDocumentSerial)),
+    );
+    return _initialSettings;
+  }
+
+  void _applyNativeDocument(DenialSettingsDocument document) {
+    try {
+      final decoded = jsonDecode(document.json);
+      if (decoded is Map<String, dynamic>) {
+        _nativeDocumentSerial += 1;
+        _acceptAuthoritativeState(ShellSettings.fromJson(decoded));
+      }
+    } on FormatException {
+      // The compositor validates and owns this document. Ignore a malformed
+      // notification defensively and retain the last known-good UI state.
+    }
   }
 
   void setLocalePreference(ShellLocalePreference value) {
@@ -97,8 +172,8 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     _updateAppearance(backdropBlurEnabled: value);
   }
 
-  void setBackdropBlurSigma(double value) {
-    _updateAppearance(backdropBlurSigma: value.clamp(4, 32).toDouble());
+  void setBackdropBlurLevel(ShellBackdropBlurLevel value) {
+    _updateAppearance(backdropBlurLevel: value);
   }
 
   void setBackdropBlurOpacityThreshold(double value) {
@@ -292,9 +367,23 @@ class ShellSettingsController extends Notifier<ShellSettings> {
   }
 
   Future<void> flush() async {
+    if (!_hasAuthoritativeState) {
+      await _initialLoad.future;
+    }
+    if (!_hasAuthoritativeState) {
+      throw StateError('Denial settings are not synchronized');
+    }
     _writeTimer?.cancel();
     _writeTimer = null;
     await _store.write(state);
+  }
+
+  Future<void> retrySynchronization() async {
+    ref.read(shellSettingsSyncStatusProvider.notifier).markLoading();
+    if (_initialLoad.isCompleted) {
+      _initialLoad = Completer<void>();
+    }
+    await _restore(_buildSerial, _nativeDocumentSerial);
   }
 
   void _updateAppearance({
@@ -302,7 +391,7 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     double? panelRadius,
     double? panelOpacity,
     bool? backdropBlurEnabled,
-    double? backdropBlurSigma,
+    ShellBackdropBlurLevel? backdropBlurLevel,
     double? backdropBlurOpacityThreshold,
     double? focusedWindowOpacity,
     double? unfocusedWindowOpacity,
@@ -315,7 +404,7 @@ class ShellSettingsController extends Notifier<ShellSettings> {
           panelRadius: panelRadius,
           panelOpacity: panelOpacity,
           backdropBlurEnabled: backdropBlurEnabled,
-          backdropBlurSigma: backdropBlurSigma,
+          backdropBlurLevel: backdropBlurLevel,
           backdropBlurOpacityThreshold: backdropBlurOpacityThreshold,
           focusedWindowOpacity: focusedWindowOpacity,
           unfocusedWindowOpacity: unfocusedWindowOpacity,
@@ -329,28 +418,133 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     if (next == state) {
       return;
     }
+    if (!_hasAuthoritativeState) {
+      _mergeSettingsDifference(
+        _pendingRestorePatch,
+        state.toJson(),
+        next.toJson(),
+      );
+    }
     _mutationSerial += 1;
     state = next;
+    _latestSettings = next;
+    if (!_hasAuthoritativeState) {
+      return;
+    }
     _writeTimer?.cancel();
     _writeTimer = Timer(_writeDebounce, () => unawaited(_writeSafely()));
   }
 
-  Future<void> _restore(int buildSerial, int mutationSerial) async {
-    final restored = await _store.read();
-    if (buildSerial != _buildSerial ||
-        mutationSerial != _mutationSerial ||
-        restored == null) {
+  Future<void> _restore(int buildSerial, int nativeDocumentSerial) async {
+    ShellSettings? restored;
+    try {
+      restored = await _store.read();
+    } on Object {
+      if (ref.mounted &&
+          buildSerial == _buildSerial &&
+          nativeDocumentSerial == _nativeDocumentSerial) {
+        ref.read(shellSettingsSyncStatusProvider.notifier).markFailed();
+        if (!_initialLoad.isCompleted) {
+          _initialLoad.complete();
+        }
+      }
       return;
     }
-    state = restored;
+    if (!ref.mounted ||
+        buildSerial != _buildSerial ||
+        nativeDocumentSerial != _nativeDocumentSerial) {
+      return;
+    }
+    _acceptAuthoritativeState(restored ?? _initialSettings);
   }
 
   Future<void> _writeSafely() async {
+    final writeSerial = _mutationSerial;
     try {
       await flush();
     } on Object {
-      // Settings are non-critical shell policy. A transient storage failure
-      // must not escape the timer zone or take down the compositor UI.
+      if (writeSerial != _mutationSerial) {
+        return;
+      }
+      try {
+        final restored = await _store.read();
+        if (writeSerial == _mutationSerial && restored != null) {
+          _pendingRestorePatch.clear();
+          _hasAuthoritativeState = true;
+          state = restored;
+          _latestSettings = restored;
+        }
+      } on Object {
+        // The failed write remains the primary error. Retain the optimistic
+        // state if the authoritative rollback cannot be read either.
+      }
+      if (!ref.mounted) {
+        return;
+      }
+      ref.read(shellSettingsSyncStatusProvider.notifier).markFailed();
+    }
+  }
+
+  void _acceptAuthoritativeState(ShellSettings restored) {
+    final hadPendingMutations = _pendingRestorePatch.isNotEmpty;
+    var resolved = restored;
+    if (hadPendingMutations) {
+      final document = restored.toJson();
+      _applySettingsPatch(document, _pendingRestorePatch);
+      resolved = ShellSettings.fromJson(document);
+      _pendingRestorePatch.clear();
+    }
+    _hasAuthoritativeState = true;
+    _mutationSerial += 1;
+    state = resolved;
+    _latestSettings = resolved;
+    ref.read(shellSettingsSyncStatusProvider.notifier).markReady();
+    if (!_initialLoad.isCompleted) {
+      _initialLoad.complete();
+    }
+    if (hadPendingMutations) {
+      _writeTimer?.cancel();
+      _writeTimer = Timer(_writeDebounce, () => unawaited(_writeSafely()));
+    }
+  }
+}
+
+void _mergeSettingsDifference(
+  Map<String, Object?> patch,
+  Map<String, dynamic> before,
+  Map<String, dynamic> after,
+) {
+  for (final entry in after.entries) {
+    final previous = before[entry.key];
+    final next = entry.value;
+    if (previous is Map<String, dynamic> && next is Map<String, dynamic>) {
+      final nested = <String, Object?>{};
+      _mergeSettingsDifference(nested, previous, next);
+      if (nested.isNotEmpty) {
+        final existing = patch[entry.key];
+        if (existing is Map<String, Object?>) {
+          _applySettingsPatch(existing, nested);
+        } else {
+          patch[entry.key] = nested;
+        }
+      }
+    } else if (previous != next) {
+      patch[entry.key] = next;
+    }
+  }
+}
+
+void _applySettingsPatch(
+  Map<String, dynamic> document,
+  Map<String, Object?> patch,
+) {
+  for (final entry in patch.entries) {
+    final current = document[entry.key];
+    final next = entry.value;
+    if (current is Map<String, dynamic> && next is Map<String, Object?>) {
+      _applySettingsPatch(current, next);
+    } else {
+      document[entry.key] = next;
     }
   }
 }

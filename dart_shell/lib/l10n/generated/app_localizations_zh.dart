@@ -1426,7 +1426,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsBackdropBlur => '背景模糊';
 
   @override
-  String get settingsBackdropBlurDescription => '柔化半透明窗口和面板后的内容。强度越高，GPU 占用越多。';
+  String get settingsBackdropBlurDescription => '柔化半透明窗口和面板后的内容。质量越高，GPU 占用越多。';
 
   @override
   String get settingsBackdropBlurEnabled => '启用背景模糊';
@@ -1435,7 +1435,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsBackdropBlurEnabledDescription => '仅在透明内容能够显示下方桌面的位置进行模糊。';
 
   @override
-  String get settingsBackdropBlurIntensity => '模糊强度';
+  String get settingsBackdropBlurIntensity => '模糊质量';
+
+  @override
+  String get settingsBackdropBlurLevelShitty => '糟糕';
+
+  @override
+  String get settingsBackdropBlurLevelFast => '快速';
+
+  @override
+  String get settingsBackdropBlurLevelGood => '良好';
+
+  @override
+  String get settingsBackdropBlurLevelBest => '最佳';
 
   @override
   String get settingsBackdropBlurOpacityThreshold => '模糊的最低窗口不透明度';
@@ -1627,6 +1639,16 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get settingsDisplayPrimary => '主显示器';
+
+  @override
+  String get settingsDisplayPrimaryAutomatic => '自动（最高刷新率）';
+
+  @override
+  String get settingsDisplayPrimaryHint =>
+      'Shell 界面会在主显示器上打开。自动模式会使用刷新率最高的已连接显示器。';
+
+  @override
   String get settingsDisplayRefreshRate => '刷新率';
 
   @override
@@ -1649,6 +1671,13 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsDisplayScale => '缩放';
+
+  @override
+  String get settingsDisplayVariableRefreshRate => '可变刷新率 (VRR)';
+
+  @override
+  String get settingsDisplayVariableRefreshRateDescription =>
+      '使此显示器的刷新率与渲染内容相匹配。';
 
   @override
   String get settingsDisplayZoomFit => '适应所有显示器';
@@ -2730,7 +2759,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get wallpaperServiceUnavailable => '壁纸服务不可用';
 
   @override
-  String get wallpaperSpanAlignment => '跨屏对齐';
+  String get wallpaperSpanAlignment => '图像位置';
 
   @override
   String get wallpaperTarget => '目标';

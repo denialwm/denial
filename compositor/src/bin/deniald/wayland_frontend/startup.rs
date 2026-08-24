@@ -32,6 +32,7 @@ impl WaylandFrontend {
             FractionalScaleManagerState::new::<RuntimeState>(&display_handle);
         let xdg_decoration_state = XdgDecorationState::new::<RuntimeState>(&display_handle);
         let cursor_shape_state = CursorShapeManagerState::new::<RuntimeState>(&display_handle);
+        let tablet_manager_state = TabletManagerState::new::<RuntimeState>(&display_handle);
         let presentation = presentation::PresentationTracker::new(&display_handle);
         #[cfg(feature = "flutter")]
         let idle_inhibitors = IdleInhibitors::new(&display_handle);
@@ -141,6 +142,7 @@ impl WaylandFrontend {
             outputs.push(WaylandOutput {
                 id: spec.id,
                 connector: spec.name.clone(),
+                transform: spec.transform,
                 output,
                 global,
                 logical_geometry: output_logical_bounds(spec),
@@ -224,8 +226,10 @@ impl WaylandFrontend {
 
         let client_budget = Arc::new(WaylandClientBudget::default());
         let socket_name = init_listener(display, event_loop, client_budget)?;
-        let xwayland_scale = xwayland::scale_for_engine(atlas.engine_scale_120);
-        let xwayland_dpi = xwayland::dpi(xwayland_scale);
+        let xwayland_scale_mode = xwayland::scale_mode_from_environment();
+        let xwayland_scale_120 =
+            xwayland::scale_for_engine(atlas.engine_scale_120, xwayland_scale_mode);
+        let xwayland_dpi = xwayland::dpi(xwayland_scale_120);
         let xwayland_args = ["-dpi".to_owned(), xwayland_dpi.to_string()];
         let (xwayland, xwayland_client) = XWayland::spawn(
             &display_handle,
@@ -241,7 +245,7 @@ impl WaylandFrontend {
             .get_data::<XWaylandClientData>()
             .expect("Xwayland client is missing compositor state")
             .compositor_state
-            .set_client_scale(f64::from(xwayland_scale));
+            .set_client_scale(xwayland::client_scale(xwayland_scale_120));
         let xdisplay = xwayland.display_number();
         let window_placement_path = default_state_path();
         let window_placements = match WindowPlacementStore::load(window_placement_path.clone()) {
@@ -284,7 +288,8 @@ impl WaylandFrontend {
                             );
                             return;
                         };
-                        if let Err(error) = xwayland::publish_dpi(&mut xwm, frontend.xwayland_scale)
+                        if let Err(error) =
+                            xwayland::publish_dpi(&mut xwm, frontend.xwayland_scale_120)
                         {
                             error!(%error, "could not publish Xwayland DPI settings");
                         }
@@ -298,8 +303,9 @@ impl WaylandFrontend {
                         }
                         info!(
                             display = %format_args!(":{display_number}"),
-                            scale = frontend.xwayland_scale,
-                            dpi = xwayland::dpi(frontend.xwayland_scale),
+                            scale = xwayland::client_scale(frontend.xwayland_scale_120),
+                            scale_mode = ?frontend.xwayland_scale_mode,
+                            dpi = xwayland::dpi(frontend.xwayland_scale_120),
                             "Xwayland is ready"
                         );
                         state.scene_sync.mark_dirty();
@@ -339,10 +345,12 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             xembed_tray: None,
             xwayland_client,
-            xwayland_scale,
+            xwayland_scale_mode,
+            xwayland_scale_120,
             xdisplay,
             _xdg_decoration_state: xdg_decoration_state,
             _cursor_shape_state: cursor_shape_state,
+            _tablet_manager_state: tablet_manager_state,
             shm_state,
             dmabuf_state,
             drm_syncobj_state,
@@ -381,6 +389,7 @@ impl WaylandFrontend {
             scene_complex_windows: HashSet::new(),
             #[cfg(feature = "flutter")]
             scene_complex_windows_scratch: HashSet::new(),
+            window_membership_scratch: Vec::new(),
             #[cfg(feature = "flutter")]
             output_window_membership: OutputWindowMembership::default(),
             #[cfg(feature = "flutter")]
@@ -412,7 +421,7 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             visible_window_ids: HashSet::new(),
             #[cfg(feature = "flutter")]
-            input_root_ids_scratch: HashMap::new(),
+            input_root_ids: HashMap::new(),
             #[cfg(feature = "flutter")]
             input_visibility_known: false,
             #[cfg(feature = "flutter")]
@@ -503,6 +512,7 @@ impl WaylandFrontend {
             desktop_bounds,
             touch_bounds,
             touch_transform,
+            tablet_output_mappings: HashMap::new(),
             pointer_location,
             cursor_status: CursorImageStatus::default_named(),
             atlas_origin,

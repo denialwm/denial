@@ -2636,7 +2636,7 @@ abstract class AppLocalizations {
   /// Explanation and performance guidance for compositor backdrop blur.
   ///
   /// In en, this message translates to:
-  /// **'Soften content behind translucent windows and panels. Higher intensity uses more GPU.'**
+  /// **'Soften content behind translucent windows and panels. Higher quality uses more GPU.'**
   String get settingsBackdropBlurDescription;
 
   /// Toggle label for compositor backdrop blur.
@@ -2651,11 +2651,35 @@ abstract class AppLocalizations {
   /// **'Blur only where transparent content can reveal the desktop beneath it.'**
   String get settingsBackdropBlurEnabledDescription;
 
-  /// Slider label for the compositor backdrop blur radius.
+  /// Slider label for the compositor backdrop blur quality level.
   ///
   /// In en, this message translates to:
-  /// **'Blur intensity'**
+  /// **'Blur quality'**
   String get settingsBackdropBlurIntensity;
+
+  /// Lowest-quality, fastest compositor backdrop blur level.
+  ///
+  /// In en, this message translates to:
+  /// **'Shitty'**
+  String get settingsBackdropBlurLevelShitty;
+
+  /// Fast compositor backdrop blur level.
+  ///
+  /// In en, this message translates to:
+  /// **'Fast'**
+  String get settingsBackdropBlurLevelFast;
+
+  /// Good-quality compositor backdrop blur level.
+  ///
+  /// In en, this message translates to:
+  /// **'Good'**
+  String get settingsBackdropBlurLevelGood;
+
+  /// Highest-quality compositor backdrop blur level.
+  ///
+  /// In en, this message translates to:
+  /// **'Best'**
+  String get settingsBackdropBlurLevelBest;
 
   /// Slider label for the minimum effective window opacity at which backdrop blur is rendered.
   ///
@@ -3016,6 +3040,24 @@ abstract class AppLocalizations {
   /// **'Position {x}, {y}'**
   String settingsDisplayPosition(int x, int y);
 
+  /// Label for choosing the output that owns primary shell experiences.
+  ///
+  /// In en, this message translates to:
+  /// **'Primary display'**
+  String get settingsDisplayPrimary;
+
+  /// Choice that lets the compositor select the primary display by refresh rate.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic (highest refresh rate)'**
+  String get settingsDisplayPrimaryAutomatic;
+
+  /// Explains the primary display selector and its automatic fallback.
+  ///
+  /// In en, this message translates to:
+  /// **'Shell surfaces open on the primary display. Automatic uses the connected display with the highest refresh rate.'**
+  String get settingsDisplayPrimaryHint;
+
   /// Label for the monitor refresh-rate selector.
   ///
   /// In en, this message translates to:
@@ -3063,6 +3105,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Scale'**
   String get settingsDisplayScale;
+
+  /// Label for enabling variable refresh rate on a supported monitor.
+  ///
+  /// In en, this message translates to:
+  /// **'Variable refresh rate (VRR)'**
+  String get settingsDisplayVariableRefreshRate;
+
+  /// Explanation shown below the variable refresh rate toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Match the monitor refresh rate to rendered content.'**
+  String get settingsDisplayVariableRefreshRateDescription;
 
   /// Tooltip for fitting the complete monitor layout in the canvas.
   ///
@@ -5080,10 +5134,10 @@ abstract class AppLocalizations {
   /// **'Wallpaper service unavailable'**
   String get wallpaperServiceUnavailable;
 
-  /// English UI text for wallpaperSpanAlignment.
+  /// Accessibility label for positioning the wallpaper within its selected display target.
   ///
   /// In en, this message translates to:
-  /// **'Span alignment'**
+  /// **'Image position'**
   String get wallpaperSpanAlignment;
 
   /// English UI text for wallpaperTarget.

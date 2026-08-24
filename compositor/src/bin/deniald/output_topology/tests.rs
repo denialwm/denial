@@ -2,7 +2,7 @@ use super::*;
 
 #[cfg(test)]
 mod output_mode_tests {
-    use super::select_refresh_millihz;
+    use super::{HorizontalOutputPlacement, LogicalPoint, select_refresh_millihz};
 
     #[test]
     fn configured_refresh_selects_the_nearest_nominal_drm_mode() {
@@ -26,6 +26,17 @@ mod output_mode_tests {
             Some(180_000)
         );
     }
+
+    #[test]
+    fn unconfigured_outputs_cascade_after_the_existing_layout() {
+        let mut placement = HorizontalOutputPlacement::default();
+        let internal = placement.resolve(Some(LogicalPoint::new(0, 0)));
+        placement.include(internal, 1920).unwrap();
+
+        let external = placement.resolve(None);
+
+        assert_eq!(external, LogicalPoint::new(1920, 0));
+    }
 }
 
 #[cfg(all(test, feature = "flutter"))]
@@ -43,6 +54,7 @@ mod output_rotation_request_tests {
 
     fn current() -> output_control::OutputControlOutput {
         output_control::OutputControlOutput {
+            monitor_id: 1,
             name: "eDP-1".to_owned(),
             description: "eDP-1".to_owned(),
             connected: true,
@@ -56,6 +68,7 @@ mod output_rotation_request_tests {
             physical_height_mm: None,
             scale: 1.0,
             transform: output_control::OutputTransformName::Normal,
+            adaptive_sync_supported: false,
             adaptive_sync: false,
             current_mode: Some(mode()),
             modes: vec![mode()],

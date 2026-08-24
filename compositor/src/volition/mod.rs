@@ -31,7 +31,10 @@ use smithay::reexports::drm::control::{
 use crate::topology::PixelRect;
 
 const MAX_ATOMIC_PLANE_PROPERTIES: usize = 7;
-const LOOKAHEAD_SUBMIT_LEAD: Duration = Duration::from_micros(400);
+/// Submit far enough ahead of the target for the driver to latch the atomic
+/// state for that edge.  The ioctl itself is cheap, but several DRM drivers
+/// close their scanout latch materially earlier than the physical vblank.
+const LOOKAHEAD_SUBMIT_LEAD: Duration = Duration::from_millis(2);
 const LOOKAHEAD_RETRY_INTERVAL: Duration = Duration::from_micros(100);
 const LOOKAHEAD_MAX_WAIT: Duration = Duration::from_millis(100);
 static NEXT_INSTANCE: AtomicU64 = AtomicU64::new(1);
@@ -493,12 +496,12 @@ fn lookahead_failure_disposition(
     attempted_at: Instant,
     expires_at: Instant,
 ) -> LookaheadFailureDisposition {
-    if !is_retryable_lookahead_error(error) {
-        LookaheadFailureDisposition::Fail
-    } else if attempted_at < expires_at {
+    if is_retryable_lookahead_error(error) && attempted_at < expires_at {
         LookaheadFailureDisposition::Retry
-    } else {
+    } else if is_retryable_lookahead_error(error) || is_recoverable_kms_error(error) {
         LookaheadFailureDisposition::Recover
+    } else {
+        LookaheadFailureDisposition::Fail
     }
 }
 
@@ -506,6 +509,25 @@ fn is_retryable_lookahead_error(error: &io::Error) -> bool {
     matches!(
         error.raw_os_error(),
         Some(libc::EBUSY | libc::EAGAIN | libc::EINTR)
+    )
+}
+
+/// Atomic KMS can reject a previously valid plane request when a connector is
+/// link-training, a DRM object was replaced, the device reset, or libseat is
+/// transferring mastership. Rebuilding the compositor-owned KMS state is the
+/// correct boundary for these failures; aborting the graphical session is not.
+fn is_recoverable_kms_error(error: &io::Error) -> bool {
+    matches!(
+        error.raw_os_error(),
+        Some(
+            libc::EACCES
+                | libc::EPERM
+                | libc::EINVAL
+                | libc::ENOENT
+                | libc::ENODEV
+                | libc::EIO
+                | libc::ETIMEDOUT
+        )
     )
 }
 

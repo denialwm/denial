@@ -453,6 +453,29 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
                         ControlEvent::OutputConfirmation(request) => {
                             state.pending_output_confirmations.push_back(request);
                         }
+                        ControlEvent::Shell(request) => {
+                            let result = if state.secure_session_locked() {
+                                Err(OutputControlFailure::new(
+                                    "locked",
+                                    "shell commands are unavailable while the secure session is locked",
+                                ))
+                            } else {
+                                match request.command {
+                                    ShellControlCommand::OpenWallpaper => state.queue_shell_action(
+                                        wire::ShellAction::Wallpaper,
+                                        None,
+                                    ),
+                                }
+                                Ok(())
+                            };
+                            request.reply(result);
+                        }
+                        ControlEvent::Settings(request) => {
+                            state.pending_settings_controls.push_back(request);
+                        }
+                        ControlEvent::SystemControl(request) => {
+                            state.pending_system_controls.push_back(request);
+                        }
                         ControlEvent::UiDevelopment(request) => {
                             state.pending_ui_development.push_back(request);
                         }

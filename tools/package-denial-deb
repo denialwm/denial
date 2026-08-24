@@ -93,7 +93,7 @@ EOF
 denial_control="$(cat <<EOF
 Section: x11
 Priority: optional
-Depends: bash, coreutils, dbus, denial-flutter-engine (= $PACKAGE_VERSION-$PACKAGE_RELEASE), init-system-helpers (>= 1.66~), libc6 (>= $GLIBC_BASELINE), libegl1, libgbm1, libgcc-s1, libgl1, libinput10, libpam0g, libpulse0, libseat1, libudev1, libxkbcommon0, rtkit, x11-xkb-utils, xkb-data, xserver-xorg-core, xwayland
+Depends: bash, coreutils, dbus, denial-flutter-engine (= $PACKAGE_VERSION-$PACKAGE_RELEASE), init-system-helpers (>= 1.66~), libc6 (>= $GLIBC_BASELINE), libegl1, libgbm1, libgcc-s1, libgl1, libgtk-3-0, libinput10, libpam0g, libpulse0, libseat1, libudev1, libxkbcommon0, rtkit, x11-xkb-utils, xkb-data, xserver-xorg-core, xwayland
 Recommends: fonts-noto-cjk, network-manager, pipewire-pulse, power-profiles-daemon, upower, xdg-desktop-portal, xdg-desktop-portal-gtk, xdg-desktop-portal-wlr, zenity
 Suggests: ddcutil, gdm3
 Conflicts: denial-git

@@ -14,6 +14,7 @@ MAKEPKG_ROOT="${DENIAL_PC_MAKEPKG_ROOT:-$BUILD_ROOT/makepkg}"
 PACKAGE_INPUT_ROOT="${DENIAL_PC_PACKAGE_INPUT_ROOT:-$BUILD_ROOT/package-input}"
 BUNDLE="${DENIAL_PC_BUNDLE:-$PACKAGE_INPUT_ROOT/bundle}"
 BUNDLE_ASSEMBLY="${DENIAL_PC_BUNDLE_ASSEMBLY:-$PACKAGE_INPUT_ROOT/flutter-release}"
+SETTINGS_BUNDLE="${DENIAL_PC_SETTINGS_BUNDLE:-$ROOT/settings_app/build/linux/x64/release/bundle}"
 PACKAGE_RELEASE="${DENIAL_PACKAGE_RELEASE:-1}"
 PACKAGE_PACKAGER="${DENIAL_PACKAGE_PACKAGER:-Doctor Logix <doctor.logix@gmail.com>}"
 REBUILD_ENGINE_PACKAGE="${DENIAL_REBUILD_ENGINE_PACKAGE:-0}"
@@ -127,6 +128,15 @@ DENIAL_PC_BUNDLE_ASSEMBLY="$BUNDLE_ASSEMBLY" \
     printf 'package-denial-arch: incomplete Flutter bundle: %s\n' "$BUNDLE" >&2
     exit 1
   }
+[[ -x "$SETTINGS_BUNDLE/denial-settings" \
+  && -f "$SETTINGS_BUNDLE/data/flutter_assets/AssetManifest.bin" \
+  && -f "$SETTINGS_BUNDLE/lib/libapp.so" \
+  && -f "$SETTINGS_BUNDLE/lib/libflutter_linux_gtk.so" ]] \
+  || {
+    printf 'package-denial-arch: incomplete Settings bundle: %s\n' \
+      "$SETTINGS_BUNDLE" >&2
+    exit 1
+  }
 
 mkdir -p -- "$PACKAGE_ROOT" "$MAKEPKG_ROOT" "$MAKEPKG_ROOT/sources"
 
@@ -140,6 +150,7 @@ export DENIAL_PACKAGE_SOURCE_ROOT="$ROOT"
 export DENIAL_PACKAGE_BINARY="$BINARY"
 export DENIAL_PACKAGE_CONTROL_BINARY="$CONTROL_BINARY"
 export DENIAL_PACKAGE_BUNDLE="$BUNDLE"
+export DENIAL_PACKAGE_SETTINGS_BUNDLE="$SETTINGS_BUNDLE"
 export DENIAL_PACKAGE_ENGINE_SOURCE="$BUNDLE/lib/libflutter_engine.so"
 export DENIAL_PACKAGE_VERSION="$package_version"
 export DENIAL_PACKAGE_RELEASE="$PACKAGE_RELEASE"
@@ -220,7 +231,7 @@ validate_denial_package() (
   # Preserve archive modes so the hardened runner's UMask=0077 does not alter
   # the evidence being checked.
   bsdtar -xpf "$package" -C "$validation_root"
-  for executable in deniald denialctl denial-session; do
+  for executable in deniald denialctl denial-session denial-settings; do
     [[ -x "$validation_root/usr/bin/$executable" ]] \
       || {
         printf 'package-denial-arch: packaged executable is missing: usr/bin/%s\n' \

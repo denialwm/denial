@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
@@ -672,6 +673,70 @@ void main() {
       expect(events.single.action, DenialShellAction.clientPointerPressed);
     } finally {
       await subscription.cancel();
+      bridge.dispose();
+    }
+  });
+
+  test('wallpaper action notifications reach the shell', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final bridge = _startedBridge();
+    final events = <DenialShellActionEvent>[];
+    final subscription = bridge.shellActions.listen(events.add);
+    try {
+      await _sendToFlutter(
+        messenger,
+        _envelope(
+          wire.PayloadTypeId.ShellAction,
+          wire.ShellActionObjectBuilder(action: wire.ShellActionKind.Wallpaper),
+        ),
+      );
+
+      expect(events, hasLength(1));
+      expect(events.single.action, DenialShellAction.wallpaper);
+    } finally {
+      await subscription.cancel();
+      bridge.dispose();
+    }
+  });
+
+  test('wallpaper requests use the compositor control socket', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'denial-wallpaper-control-',
+    );
+    final socketPath = '${directory.path}/control.sock';
+    final server = await ServerSocket.bind(
+      InternetAddress(socketPath, type: InternetAddressType.unix),
+      0,
+    );
+    addTearDown(() async {
+      await server.close();
+      await directory.delete(recursive: true);
+    });
+    final request = server.first.then((socket) async {
+      final line = await utf8.decoder
+          .bind(socket)
+          .transform(const LineSplitter())
+          .first;
+      final decoded = jsonDecode(line) as Map<String, Object?>;
+      socket.write(
+        '${jsonEncode(<String, Object>{'version': 1, 'id': decoded['id']! as int, 'ok': true, 'result': <String, Object>{}})}\n',
+      );
+      await socket.flush();
+      await socket.close();
+      return decoded;
+    });
+    final bridge = DenialBridge(
+      useControlSocket: true,
+      controlSocketPath: socketPath,
+    );
+    try {
+      await bridge.openWallpaperSelector();
+      final decoded = await request;
+      expect(decoded['version'], 1);
+      expect(decoded['method'], 'shell.wallpaper.open');
+      expect(decoded.containsKey('params'), isFalse);
+    } finally {
       bridge.dispose();
     }
   });

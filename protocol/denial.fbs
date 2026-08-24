@@ -75,7 +75,8 @@ enum ShellActionKind : ubyte {
   ScreenshotRegion = 5,
   ScreenshotTextureReady = 6,
   ScreenshotDone = 7,
-  ClientPointerPressed = 8
+  ClientPointerPressed = 8,
+  Wallpaper = 9
 }
 
 enum KeyboardCommandKind : ubyte {

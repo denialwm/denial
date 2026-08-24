@@ -13,6 +13,7 @@ BINARY="${DENIAL_PC_BINARY:-$RUST_TARGET/release/deniald}"
 CONTROL_BINARY="${DENIAL_PC_CONTROL_BINARY:-$RUST_TARGET/release/denialctl}"
 BUNDLE="${DENIAL_PC_BUNDLE:-$PACKAGE_INPUT_ROOT/bundle}"
 BUNDLE_ASSEMBLY="${DENIAL_PC_BUNDLE_ASSEMBLY:-$PACKAGE_INPUT_ROOT/flutter-release}"
+SETTINGS_BUNDLE="${DENIAL_PC_SETTINGS_BUNDLE:-$ROOT/settings_app/build/linux/x64/release/bundle}"
 PACKAGE_RELEASE="${DENIAL_PACKAGE_RELEASE:-1}"
 RELEASE_TAG="${DENIAL_RELEASE_TAG:-}"
 REQUESTED_PACKAGE_VERSION="${DENIAL_PACKAGE_VERSION:-}"
@@ -103,6 +104,13 @@ for required in \
   "$BUNDLE/lib/libflutter_engine.so"; do
   [[ -f "$required" ]] || die "incomplete Flutter bundle: $required"
 done
+for required in \
+  "$SETTINGS_BUNDLE/denial-settings" \
+  "$SETTINGS_BUNDLE/data/flutter_assets/AssetManifest.bin" \
+  "$SETTINGS_BUNDLE/lib/libapp.so" \
+  "$SETTINGS_BUNDLE/lib/libflutter_linux_gtk.so"; do
+  [[ -f "$required" ]] || die "incomplete Settings bundle: $required"
+done
 
 glibc_requirement() {
   local file="$1"
@@ -127,7 +135,10 @@ for elf in \
   "$BINARY" \
   "$CONTROL_BINARY" \
   "$BUNDLE/lib/libapp.so" \
-  "$BUNDLE/lib/libflutter_engine.so"; do
+  "$BUNDLE/lib/libflutter_engine.so" \
+  "$SETTINGS_BUNDLE/denial-settings" \
+  "$SETTINGS_BUNDLE/lib/libapp.so" \
+  "$SETTINGS_BUNDLE/lib/libflutter_linux_gtk.so"; do
   validate_elf_baseline "$elf"
 done
 
@@ -190,9 +201,16 @@ chmod -R u=rwX,go=rX \
   "$denial_root/usr/lib/denial/flutter/data/flutter_assets"
 install -Dm755 "$BUNDLE/lib/libapp.so" \
   "$denial_root/usr/lib/denial/flutter/lib/libapp.so"
+install -d -m 0755 "$denial_root/usr/lib/denial/settings"
+cp -a -- "$SETTINGS_BUNDLE/." "$denial_root/usr/lib/denial/settings/"
+chmod -R u=rwX,go=rX "$denial_root/usr/lib/denial/settings"
+ln -s ../lib/denial/settings/denial-settings \
+  "$denial_root/usr/bin/denial-settings"
 
 install -Dm644 "$ROOT/packaging/arch/denial.desktop" \
   "$denial_root/usr/share/wayland-sessions/denial.desktop"
+install -Dm644 "$ROOT/packaging/arch/dev.denial.Settings.desktop" \
+  "$denial_root/usr/share/applications/dev.denial.Settings.desktop"
 install -Dm644 "$ROOT/packaging/arch/denial-portals.conf" \
   "$denial_root/usr/share/xdg-desktop-portal/denial-portals.conf"
 install -Dm644 "$ROOT/packaging/arch/xdg-desktop-portal-wlr-Denial" \

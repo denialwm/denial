@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Settings
+Name[it]=Impostazioni
+Comment=Configure the Denial desktop
+Comment[it]=Configura il desktop Denial
+Exec=/usr/bin/denial-settings
+TryExec=/usr/bin/denial-settings
+Icon=preferences-system
+Terminal=false
+Categories=Settings;System;
+OnlyShowIn=Denial;
+StartupWMClass=dev.denial.Settings
