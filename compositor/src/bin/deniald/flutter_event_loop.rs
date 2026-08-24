@@ -258,6 +258,12 @@ pub(super) fn run_flutter_event_loop(
 
     loop {
         service_session_lifecycle(drm, scanouts, swapchain, event_loop, &mut events, deadline)?;
+        if events.kms_presentation_recovery_requested {
+            events.kms_presentation_recovery_requested = false;
+            scheduler.shutdown_volition();
+            recover_stalled_kms_presentation(drm, event_loop, &mut events)?;
+            continue;
+        }
         service_native_app_plugins(event_loop, &mut events, allocator)?;
         let iteration_now = Instant::now();
         if let Some(orientation) = events.pending_orientation.take() {
@@ -446,7 +452,7 @@ pub(super) fn run_flutter_event_loop(
             // following frame already occupies Ready. Move that frame into
             // the now-free Volition slot before the timer decision, exposing
             // the third pool entry for exactly one new raster lookahead.
-            submit_ready_frames(&mut scheduler, swapchain)?;
+            submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
 
             loop {
                 let Some(ready) =
@@ -520,7 +526,7 @@ pub(super) fn run_flutter_event_loop(
             // This remains ahead of input, Wayland traversal, and background
             // shell synchronization, but follows frame-clock authorization so
             // those tasks cannot perturb Flutter's animation timestamp.
-            submit_ready_frames(&mut scheduler, swapchain)?;
+            submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
             for tick in frame_scheduler.output_ticks().iter().copied() {
                 if let Some(frontend) = events.wayland.as_mut() {
                     frontend.frame_tick(tick)?;
@@ -705,7 +711,7 @@ pub(super) fn run_flutter_event_loop(
                 continue;
             }
             if scheduler.has_pending_scanout_work() {
-                submit_ready_frames(&mut scheduler, swapchain)?;
+                submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
                 events.pending_output_applies.push_front(request);
                 let now = Instant::now();
                 let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
@@ -749,7 +755,7 @@ pub(super) fn run_flutter_event_loop(
                 // old-geometry frame instead of treating normal scheduler
                 // ownership as a fatal reconfiguration error.
                 ready_output_apply = Some((request, connectors));
-                submit_ready_frames(&mut scheduler, swapchain)?;
+                submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
                 let now = Instant::now();
                 let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
                     Duration::from_millis(50).min(deadline.saturating_duration_since(now))
@@ -1183,7 +1189,7 @@ pub(super) fn run_flutter_event_loop(
                     // common rollback point used by the hotplug transaction.
                     // A signalled ready fence can enter Volition lookahead;
                     // an unfinished one will wake this loop through calloop.
-                    submit_ready_frames(&mut scheduler, swapchain)?;
+                    submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
                     events.topology_dirty = true;
                     events.kms_reconfigure_requested = kms_reconfigure_requested;
                     events.resident_geometry_reconfigure_requested =
@@ -1304,7 +1310,7 @@ pub(super) fn run_flutter_event_loop(
                 // every affected CRTC. A ready fence or page flip will wake
                 // this loop through calloop, without disturbing clients or
                 // the graphical session.
-                submit_ready_frames(&mut scheduler, swapchain)?;
+                submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
                 let now = Instant::now();
                 let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
                     Duration::from_millis(50).min(deadline.saturating_duration_since(now))

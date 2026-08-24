@@ -363,7 +363,6 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
                 &mut pool.buffers[pool.current].dmabuf,
                 pool.size,
             )?;
-            render_blank_target(&mut renderer, &mut pool.blank.dmabuf, pool.size)?;
         }
     } else {
         let atlas_swapchain = swapchains

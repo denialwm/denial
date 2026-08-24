@@ -16,8 +16,6 @@ const MAX_SCANOUT_POOL_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_SCANOUT_BUFFERS: usize = 49;
 #[cfg(feature = "flutter")]
 pub(super) const OUTPUT_POOL_LENGTH: usize = 3;
-#[cfg(feature = "flutter")]
-pub(super) const OUTPUT_SCANOUT_ALLOCATION_LENGTH: usize = OUTPUT_POOL_LENGTH + 1;
 
 /// Request local scanout constraints only when the render device also owns
 /// KMS. A render-only GPU exports the atlas to another DRM device, so asking
@@ -49,11 +47,8 @@ pub(super) struct Scanout {
     pub(super) plane_properties: AtlasPlaneProperties,
     pub(super) source_rect: PixelRect,
     pub(super) original_mode: Mode,
-    /// Whether this logical output is presenting its desktop framebuffer.
-    /// Blanked outputs deliberately retain their connector, CRTC, mode,
-    /// primary plane, and DisplayPort link while scanning a dedicated black
-    /// framebuffer, so the next input can restore the desktop without a slow
-    /// modeset or link-training cycle.
+    /// Whether this logical output currently owns an active KMS pipeline.
+    /// DPMS-off outputs deliberately remain in the topology and scanout list.
     pub(super) powered: bool,
 }
 
@@ -619,7 +614,6 @@ pub(super) struct OutputSwapchain {
     pub(super) configuration_generation: u64,
     pub(super) size: PixelSize,
     pub(super) buffers: Vec<ScanoutBuffer>,
-    pub(super) blank: ScanoutBuffer,
     pub(super) current: usize,
 }
 
@@ -662,7 +656,7 @@ impl OutputSwapchains {
             let pool_bytes = u64::from(plan.target_size.width)
                 .checked_mul(u64::from(plan.target_size.height))
                 .and_then(|pixels| pixels.checked_mul(SCANOUT_BYTES_PER_PIXEL))
-                .and_then(|bytes| bytes.checked_mul(OUTPUT_SCANOUT_ALLOCATION_LENGTH as u64))
+                .and_then(|bytes| bytes.checked_mul(OUTPUT_POOL_LENGTH as u64))
                 .ok_or("physical output pool byte count overflow")?;
             allocated_bytes = allocated_bytes
                 .checked_add(pool_bytes)
@@ -674,24 +668,19 @@ impl OutputSwapchains {
                 .into());
             }
 
-            let mut buffers = allocate_scanout_pool(
+            let buffers = allocate_scanout_pool(
                 allocator,
                 plan.target_size,
-                OUTPUT_SCANOUT_ALLOCATION_LENGTH,
+                OUTPUT_POOL_LENGTH,
                 &modifiers,
                 linear_render_targets,
             )?;
-            let blank = buffers
-                .pop()
-                .ok_or("physical output pool has no dedicated blank framebuffer")?;
-            debug_assert_eq!(buffers.len(), OUTPUT_POOL_LENGTH);
             outputs.push(OutputSwapchain {
                 output_id: plan.output_id,
                 render_view_id: plan.render_view_id,
                 configuration_generation: plan.configuration_generation,
                 size: plan.target_size,
                 buffers,
-                blank,
                 current: 0,
             });
         }

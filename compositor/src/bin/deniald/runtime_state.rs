@@ -15,6 +15,8 @@ pub(super) struct RuntimeState {
     #[cfg(feature = "flutter")]
     pub(super) kms_reconfigure_requested: bool,
     #[cfg(feature = "flutter")]
+    pub(super) kms_presentation_recovery_requested: bool,
+    #[cfg(feature = "flutter")]
     pub(super) resident_geometry_reconfigure_requested: bool,
     pub(super) device_removed: bool,
     pub(super) wayland: Option<wayland_frontend::WaylandFrontend>,

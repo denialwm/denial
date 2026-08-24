@@ -7,10 +7,11 @@ use denial_core::topology::{OutputId, OutputTransform, PixelRect, PixelSize, Ren
 use denial_core::volition::{self, CommitId, PlaneCommit, PlaneProperties, Submission, Volition};
 use smithay::backend::drm::DrmDevice;
 use smithay::reexports::calloop::channel::SyncSender as EventSender;
-use tracing::info;
+use tracing::{info, warn};
 
 use super::flutter_runtime::{FlutterRuntime, ReadyOutputFrame};
 use super::frame_scheduler::{FrameTick, OutputFrameRequest};
+use super::kms_render::output_plane_state;
 use super::kms_state::{OutputSwapchains, Scanout};
 use super::{PresentedOutput, RuntimeState, cpu_scheduling, render_audit_enabled};
 
@@ -19,6 +20,8 @@ const OUTPUT_SCHEDULER_AUDIT_INTERVAL: Duration = Duration::from_secs(1);
 /// slow modesets and scheduler jitter ample room, but never retain a wedged
 /// KMS/GPU generation indefinitely.
 const PRESENTATION_STALL_TIMEOUT: Duration = Duration::from_secs(2);
+const DPMS_WAKE_RETRY_INTERVAL: Duration = Duration::from_millis(16);
+const DPMS_WAKE_RECOVERY_TIMEOUT: Duration = Duration::from_millis(100);
 /// Synthetic and kernel monotonic clocks can retain a small phase error.  A
 /// ready target this close to the edge which just completed is nevertheless
 /// unreachable: atomic state can only be latched for a later edge now.
@@ -322,7 +325,40 @@ struct OutputPipeline {
     scanning_screenshot_request_id: Option<u64>,
     frames: OutputPipelineFrames,
     powering_off: bool,
+    wake_modeset: Option<WakeModeset>,
     request: PlaneCommit,
+}
+
+#[derive(Debug)]
+struct WakeModeset {
+    retry_at: Instant,
+    failure_started_at: Option<Instant>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct WakeFailureDisposition {
+    first_failure: bool,
+    recovery_required: bool,
+}
+
+impl WakeModeset {
+    fn new(now: Instant) -> Self {
+        Self {
+            retry_at: now,
+            failure_started_at: None,
+        }
+    }
+
+    fn record_failure(&mut self, now: Instant) -> WakeFailureDisposition {
+        let first_failure = self.failure_started_at.is_none();
+        let failed_since = *self.failure_started_at.get_or_insert(now);
+        self.retry_at = now + DPMS_WAKE_RETRY_INTERVAL;
+        WakeFailureDisposition {
+            first_failure,
+            recovery_required: now.saturating_duration_since(failed_since)
+                >= DPMS_WAKE_RECOVERY_TIMEOUT,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -883,6 +919,7 @@ impl OutputScheduler {
                     scanning_screenshot_request_id: None,
                     frames: OutputPipelineFrames::default(),
                     powering_off: false,
+                    wake_modeset: None,
                     request: plane_commit(scanout, pool.size)?,
                 })
             })
@@ -1150,12 +1187,17 @@ impl OutputScheduler {
     pub(super) fn submit_ready(
         &mut self,
         swapchains: &OutputSwapchains,
+        scanouts: &[Scanout],
+        events: &mut RuntimeState,
     ) -> Result<(), Box<dyn Error>> {
-        let (pipelines, ready_fences, presentation) = (
+        let audit_stride = self.audit_stride;
+        let (pipelines, ready_fences, presentation, audit) = (
             &mut self.pipelines,
             &mut self.ready_fences,
             &mut self.volition,
+            &mut self.audit,
         );
+        let mut directly_submitted = Vec::new();
         for (pipeline_index, pipeline) in pipelines.iter_mut().enumerate() {
             if pipeline.powering_off
                 || pipeline.frames.in_flight.is_some()
@@ -1169,6 +1211,7 @@ impl OutputScheduler {
                 .as_ref()
                 .expect("checked ready output frame");
             let frame_index = frame.index;
+            let presentation_target = frame.request.tick.presentation_target;
             let fence_pool_index = ready_fences
                 .iter()
                 .position(|pool| pool.output_id == pipeline.output_id)
@@ -1190,11 +1233,85 @@ impl OutputScheduler {
                 stream: pipeline_index,
                 frame: frame_index,
             };
+
+            // Niri's DPMS ordering is the important model here: clear the CRTC
+            // on power-off, then render a new frame and let that frame perform
+            // the enabling modeset. Never wake by restoring the parked frame.
+            if let Some(wake) = pipeline.wake_modeset.as_ref() {
+                let now = Instant::now();
+                if now < wake.retry_at {
+                    continue;
+                }
+                let scanout = scanouts
+                    .get(pipeline.scanout_index)
+                    .ok_or("DPMS wake pipeline references a missing scanout")?;
+                let pool = swapchains
+                    .for_output(pipeline.output_id)
+                    .ok_or("DPMS wake output lost its native buffer pool")?;
+                let state = output_plane_state(scanout, framebuffer, pool.size);
+                let transition = scanout
+                    .surface
+                    .test_state([state.clone()], true)
+                    .and_then(|()| scanout.surface.commit([state], true));
+                if let Err(error) = transition {
+                    let wake = pipeline
+                        .wake_modeset
+                        .as_mut()
+                        .expect("checked DPMS wake modeset disappeared");
+                    let disposition = wake.record_failure(now);
+                    if disposition.first_failure {
+                        warn!(
+                            output = scanout.output.name,
+                            %error,
+                            retry_ms = DPMS_WAKE_RETRY_INTERVAL.as_millis(),
+                            "fresh DPMS wake frame is waiting for KMS"
+                        );
+                    }
+                    if disposition.recovery_required && !events.kms_presentation_recovery_requested
+                    {
+                        events.kms_presentation_recovery_requested = true;
+                        warn!(
+                            output = scanout.output.name,
+                            failed_ms = DPMS_WAKE_RECOVERY_TIMEOUT.as_millis(),
+                            "DPMS wake is requesting in-session KMS recovery"
+                        );
+                    }
+                    continue;
+                }
+
+                let submitted_at = Instant::now();
+                pipeline.frames.schedule_ready(commit)?;
+                let submitted_frame = pipeline
+                    .frames
+                    .acknowledge_submission(commit, submitted_at)?;
+                debug_assert_eq!(submitted_frame, frame_index);
+                pipeline.wake_modeset = None;
+                ready_fence.release_user()?;
+                if ready_fence.users == 0 {
+                    debug_assert!(ready_fence.fence.is_none());
+                }
+                events.pending.insert(scanout.output.crtc);
+                if let Some(audit) = audit.as_mut() {
+                    audit.record_real_submission(
+                        pipeline_index,
+                        fence_pool_index * audit_stride + frame_index,
+                        submitted_at,
+                    );
+                }
+                directly_submitted.push(pipeline.output_id);
+                info!(
+                    output = scanout.output.name,
+                    framebuffer_index = frame_index,
+                    "submitted fresh KMS frame to power on output"
+                );
+                continue;
+            }
+
             let submission = presentation.submit_for_target(
                 commit,
                 &pipeline.request,
                 framebuffer,
-                frame.request.tick.presentation_target,
+                presentation_target,
             )?;
             if submission == Submission::Queued {
                 pipeline.frames.schedule_ready(commit)?;
@@ -1202,6 +1319,14 @@ impl OutputScheduler {
                 if ready_fence.users == 0 {
                     debug_assert!(ready_fence.fence.is_none());
                 }
+            }
+        }
+        if let Some(frontend) = events.wayland.as_mut()
+            && !directly_submitted.is_empty()
+        {
+            frontend.outputs_submitted(&directly_submitted)?;
+            for output in directly_submitted {
+                frontend.output_power_applied(output, true);
             }
         }
         Ok(())
@@ -1485,6 +1610,13 @@ impl OutputScheduler {
         }
     }
 
+    pub(super) fn power_on_pending(&self, output: OutputId) -> bool {
+        self.pipelines
+            .iter()
+            .find(|pipeline| pipeline.output_id == output)
+            .is_some_and(|pipeline| pipeline.wake_modeset.is_some())
+    }
+
     pub(super) fn power_off(
         &mut self,
         runtime: &FlutterRuntime,
@@ -1578,6 +1710,7 @@ impl OutputScheduler {
             scanning_screenshot_request_id: None,
             frames: OutputPipelineFrames::default(),
             powering_off: false,
+            wake_modeset: Some(WakeModeset::new(Instant::now())),
             request: plane_commit(output, pool.size)?,
         });
         let _ = runtime;

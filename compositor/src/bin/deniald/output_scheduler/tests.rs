@@ -4,7 +4,8 @@ use std::time::{Duration, Instant};
 use super::{
     AuditLatency, CommitId, CompletionRetirement, FrameTick, InFlightFrame, OutputFrame,
     OutputFrameRequest, OutputPipelineFrames, OutputSchedulerAudit, PRESENTATION_STALL_TIMEOUT,
-    ReadyFenceSlot, presentation_stall_age, presentation_watchdog_remaining, ready_target_elapsed,
+    ReadyFenceSlot, WakeFailureDisposition, WakeModeset, presentation_stall_age,
+    presentation_watchdog_remaining, ready_target_elapsed,
 };
 use denial_core::topology::OutputId;
 
@@ -25,6 +26,34 @@ fn output_frame(index: usize, screenshot_request_id: Option<u64>) -> OutputFrame
         },
         submitted_at: render_deadline,
     }
+}
+
+#[test]
+fn dpms_wake_retries_a_fresh_modeset_before_requesting_recovery() {
+    let started = Instant::now();
+    let mut wake = WakeModeset::new(started);
+
+    assert_eq!(
+        wake.record_failure(started),
+        WakeFailureDisposition {
+            first_failure: true,
+            recovery_required: false,
+        }
+    );
+    assert_eq!(
+        wake.record_failure(started + super::DPMS_WAKE_RECOVERY_TIMEOUT - Duration::from_nanos(1)),
+        WakeFailureDisposition {
+            first_failure: false,
+            recovery_required: false,
+        }
+    );
+    assert_eq!(
+        wake.record_failure(started + super::DPMS_WAKE_RECOVERY_TIMEOUT),
+        WakeFailureDisposition {
+            first_failure: false,
+            recovery_required: true,
+        }
+    );
 }
 
 #[test]
