@@ -81,6 +81,7 @@ Environment:
   DENIAL_PC_BUILD_ROOT
   DENIAL_PC_RUST_TARGET
   DENIAL_PC_DEPENDENCY_ROOT
+  DENIAL_FLUTTER_ENGINE_CACHE_ROOT
   DENIAL_FLUTTER_SOURCE_ROOT
   DENIAL_FLUTTER_SDK_ROOT
   DENIAL_PC_PACKAGE_ROOT
@@ -102,6 +103,7 @@ fn build_ui_development_package() -> Result<(), ToolError> {
     fs::create_dir_all(&paths.package_root).map_err(ToolError::io)?;
     fs::create_dir_all(&paths.makepkg_root).map_err(ToolError::io)?;
 
+    prepare_locked_development_sdk(&paths)?;
     build_development_client(&paths, &identity)?;
     build_flutter_tool_snapshot(&paths)?;
     resolve_ui_dependencies(&paths)?;
@@ -169,6 +171,8 @@ struct BuildPaths {
     debug_engine_checksum: PathBuf,
     profile_engine: PathBuf,
     profile_engine_checksum: PathBuf,
+    debug_sdk_output: PathBuf,
+    profile_sdk_output: PathBuf,
 }
 
 impl BuildPaths {
@@ -189,6 +193,9 @@ impl BuildPaths {
             .unwrap_or_else(|| cache_home.join("denial/pc-build"));
         let dependency_root = absolute_environment_path("DENIAL_PC_DEPENDENCY_ROOT")?
             .unwrap_or_else(|| cache_home.join("denial/pc-dependencies"));
+        let flutter_engine_cache_root =
+            absolute_environment_path("DENIAL_FLUTTER_ENGINE_CACHE_ROOT")?
+                .unwrap_or_else(|| cache_home.join("denial/flutter-engine"));
         let rust_target = absolute_environment_path("DENIAL_PC_RUST_TARGET")?
             .unwrap_or_else(|| build_root.join("rust"));
         let package_root = absolute_environment_path("DENIAL_PC_PACKAGE_ROOT")?
@@ -254,9 +261,20 @@ impl BuildPaths {
             profile_engine,
             profile_engine_checksum: repository
                 .join("prebuilt/flutter-engine/linux-x64-profile/libflutter_engine.so.sha256"),
+            debug_sdk_output: flutter_engine_cache_root.join("build/out/denial_host_debug"),
+            profile_sdk_output: flutter_engine_cache_root.join("build/out/denial_host_profile"),
             repository,
         })
     }
+}
+
+fn prepare_locked_development_sdk(paths: &BuildPaths) -> Result<(), ToolError> {
+    let mut command = Command::new(paths.repository.join("tools/denial-flutter-engine"));
+    command.arg("prepare-development-sdk");
+    checked_status(
+        &mut command,
+        "could not prepare the lock-matched Flutter development SDK artifacts",
+    )
 }
 
 #[derive(Debug)]
@@ -1080,6 +1098,7 @@ fn build_flutter_sdk_runtime(paths: &BuildPaths) -> Result<(), ToolError> {
 
     copy_small_cache_files(paths, destination)?;
     copy_flutter_version_markers(paths, destination)?;
+    overlay_locked_development_sdk(paths, destination)?;
 
     for relative in [
         "bin/cache/artifacts/engine/linux-x64-release",
@@ -1119,6 +1138,77 @@ fn build_flutter_sdk_runtime(paths: &BuildPaths) -> Result<(), ToolError> {
         "Prepared Denial-scoped Flutter SDK runtime ({})",
         human_size(bytes)
     );
+    Ok(())
+}
+
+fn overlay_locked_development_sdk(paths: &BuildPaths, destination: &Path) -> Result<(), ToolError> {
+    for relative in [
+        "lib",
+        "bin/resources/devtools",
+        "LICENSE",
+        "revision",
+        "sdk_packages.yaml",
+        "version",
+        "bin/dart",
+        "bin/dartaotruntime",
+        "bin/dartvm",
+        "bin/snapshots/analysis_server.dart.snapshot",
+        "bin/snapshots/analysis_server_aot.dart.snapshot",
+        "bin/snapshots/dart_tooling_daemon_aot.dart.snapshot",
+        "bin/snapshots/dartdev_aot.dart.snapshot",
+        "bin/snapshots/dds_aot.dart.snapshot",
+        "bin/snapshots/frontend_server_aot.dart.snapshot",
+    ] {
+        replace_runtime_tree(
+            &paths.debug_sdk_output.join("dart-sdk").join(relative),
+            &destination.join("bin/cache/dart-sdk").join(relative),
+        )?;
+    }
+
+    for (source, relative) in [
+        (
+            paths.debug_sdk_output.join("flutter_patched_sdk"),
+            "bin/cache/artifacts/engine/common/flutter_patched_sdk",
+        ),
+        (
+            paths.debug_sdk_output.join("flutter_linux"),
+            "bin/cache/artifacts/engine/linux-x64/flutter_linux",
+        ),
+        (
+            paths
+                .debug_sdk_output
+                .join("gen/const_finder.dart.snapshot"),
+            "bin/cache/artifacts/engine/linux-x64/const_finder.dart.snapshot",
+        ),
+        (
+            paths.debug_sdk_output.join("font-subset"),
+            "bin/cache/artifacts/engine/linux-x64/font-subset",
+        ),
+        (
+            paths.debug_sdk_output.join("impellerc"),
+            "bin/cache/artifacts/engine/linux-x64/impellerc",
+        ),
+        (
+            paths.profile_sdk_output.join("gen_snapshot"),
+            "bin/cache/artifacts/engine/linux-x64-profile/gen_snapshot",
+        ),
+        (
+            paths.profile_sdk_output.join("libflutter_linux_gtk.so"),
+            "bin/cache/artifacts/engine/linux-x64-profile/libflutter_linux_gtk.so",
+        ),
+        (
+            paths
+                .debug_sdk_output
+                .join("gen/dart-pkg/sky_engine/lib/_embedder.yaml"),
+            "bin/cache/pkg/sky_engine/lib/_embedder.yaml",
+        ),
+        (
+            paths.flutter_sdk.join("engine/src/flutter/lib/ui"),
+            "bin/cache/pkg/sky_engine/lib/ui",
+        ),
+    ] {
+        replace_runtime_tree(&source, &destination.join(relative))?;
+    }
     Ok(())
 }
 
@@ -1317,6 +1407,26 @@ fn safe_uri_suffix(suffix: &str) -> Result<PathBuf, ToolError> {
     Ok(path)
 }
 
+fn replace_runtime_tree(source: &Path, destination: &Path) -> Result<(), ToolError> {
+    match fs::symlink_metadata(destination) {
+        Ok(metadata) if metadata.file_type().is_dir() => {
+            fs::remove_dir_all(destination).map_err(ToolError::io)?;
+        }
+        Ok(metadata) if metadata.file_type().is_file() => {
+            fs::remove_file(destination).map_err(ToolError::io)?;
+        }
+        Ok(_) => {
+            return Err(ToolError::new(format!(
+                "development SDK destination contains a special file: {}",
+                destination.display()
+            )));
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(ToolError::io(error)),
+    }
+    copy_runtime_tree(source, destination)
+}
+
 fn copy_runtime_tree(source: &Path, destination: &Path) -> Result<(), ToolError> {
     let metadata = fs::symlink_metadata(source).map_err(ToolError::io)?;
     if metadata.file_type().is_symlink() {
@@ -1419,6 +1529,24 @@ fn validate_package_inputs(paths: &BuildPaths) -> Result<(), ToolError> {
         paths.debug_engine_checksum.clone(),
         paths.profile_engine.clone(),
         paths.profile_engine_checksum.clone(),
+        paths.debug_sdk_output.join("dart-sdk/bin/dart"),
+        paths
+            .debug_sdk_output
+            .join("flutter_patched_sdk/platform_strong.dill"),
+        paths.debug_sdk_output.join("flutter_linux/flutter_linux.h"),
+        paths
+            .debug_sdk_output
+            .join("gen/const_finder.dart.snapshot"),
+        paths.debug_sdk_output.join("font-subset"),
+        paths.debug_sdk_output.join("impellerc"),
+        paths.profile_sdk_output.join("gen_snapshot"),
+        paths.profile_sdk_output.join("libflutter_linux_gtk.so"),
+        paths
+            .debug_sdk_output
+            .join("gen/dart-pkg/sky_engine/lib/_embedder.yaml"),
+        paths
+            .flutter_sdk
+            .join("engine/src/flutter/lib/ui/painting.dart"),
     ] {
         require_regular_file(&path)?;
     }
@@ -1435,6 +1563,10 @@ fn validate_package_inputs(paths: &BuildPaths) -> Result<(), ToolError> {
         paths
             .flutter_sdk_runtime
             .join("bin/cache/artifacts/engine/linux-x64/impellerc"),
+        paths.debug_sdk_output.join("dart-sdk/bin/dart"),
+        paths.debug_sdk_output.join("font-subset"),
+        paths.debug_sdk_output.join("impellerc"),
+        paths.profile_sdk_output.join("gen_snapshot"),
     ] {
         require_executable(&path)?;
     }
@@ -1583,11 +1715,8 @@ fn validate_package(
             "packaged Flutter tool SHA-256 is {packaged_flutter_tool_sha256}, expected {expected_flutter_tool_sha256}"
         )));
     }
-    let expected_flutter_tool_runtime_sha256 = sha256(
-        &paths
-            .flutter_sdk
-            .join("bin/cache/dart-sdk/bin/dartaotruntime"),
-    )?;
+    let expected_flutter_tool_runtime_sha256 =
+        sha256(&paths.debug_sdk_output.join("dart-sdk/bin/dartaotruntime"))?;
     let packaged_flutter_tool_runtime =
         root.join("usr/lib/denial/ui-development/flutter/bin/cache/dart-sdk/bin/dartaotruntime");
     let packaged_flutter_tool_runtime_sha256 = sha256(&packaged_flutter_tool_runtime)?;
@@ -1595,6 +1724,51 @@ fn validate_package(
         return Err(ToolError::new(format!(
             "packaged Flutter tool runtime SHA-256 is {packaged_flutter_tool_runtime_sha256}, expected {expected_flutter_tool_runtime_sha256}"
         )));
+    }
+
+    for (label, packaged, source) in [
+        (
+            "Dart SDK launcher",
+            root.join("usr/lib/denial/ui-development/flutter/bin/cache/dart-sdk/bin/dart"),
+            paths.debug_sdk_output.join("dart-sdk/bin/dart"),
+        ),
+        (
+            "Flutter platform dill",
+            root.join("usr/lib/denial/ui-development/flutter/bin/cache/artifacts/engine/common/flutter_patched_sdk/platform_strong.dill"),
+            paths
+                .debug_sdk_output
+                .join("flutter_patched_sdk/platform_strong.dill"),
+        ),
+        (
+            "dart:ui analyzer source",
+            root.join("usr/lib/denial/ui-development/flutter/bin/cache/pkg/sky_engine/lib/ui/painting.dart"),
+            paths
+                .flutter_sdk
+                .join("engine/src/flutter/lib/ui/painting.dart"),
+        ),
+        (
+            "Impeller compiler",
+            root.join("usr/lib/denial/ui-development/flutter/bin/cache/artifacts/engine/linux-x64/impellerc"),
+            paths.debug_sdk_output.join("impellerc"),
+        ),
+        (
+            "profile snapshot compiler",
+            root.join("usr/lib/denial/ui-development/flutter/bin/cache/artifacts/engine/linux-x64-profile/gen_snapshot"),
+            paths.profile_sdk_output.join("gen_snapshot"),
+        ),
+        (
+            "profile Linux GTK engine",
+            root.join("usr/lib/denial/ui-development/flutter/bin/cache/artifacts/engine/linux-x64-profile/libflutter_linux_gtk.so"),
+            paths.profile_sdk_output.join("libflutter_linux_gtk.so"),
+        ),
+    ] {
+        let packaged_sha256 = sha256(&packaged)?;
+        let expected_sha256 = sha256(&source)?;
+        if packaged_sha256 != expected_sha256 {
+            return Err(ToolError::new(format!(
+                "packaged {label} SHA-256 is {packaged_sha256}, expected {expected_sha256}"
+            )));
+        }
     }
 
     for required in [
@@ -1621,6 +1795,7 @@ fn validate_package(
         "usr/lib/denial/ui-development/flutter/bin/cache/artifacts/engine/linux-x64-profile/gen_snapshot",
         "usr/lib/denial/ui-development/flutter/bin/cache/artifacts/engine/linux-x64-profile/libflutter_linux_gtk.so",
         "usr/lib/denial/ui-development/flutter/bin/cache/pkg/sky_engine/lib/_embedder.yaml",
+        "usr/lib/denial/ui-development/flutter/bin/cache/pkg/sky_engine/lib/ui/painting.dart",
         "usr/lib/denial/ui-development/flutter/bin/cache/pkg/sky_engine/lib/ui/ui.dart",
         "usr/lib/denial/ui-development/flutter/packages/flutter/lib/src/gestures/binding.dart",
         "usr/lib/denial/ui-development/flutter/packages/flutter_tools/.dart_tool/package_config.json",

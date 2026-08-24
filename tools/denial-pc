@@ -54,6 +54,12 @@ else
     FLUTTER_SDK_MANAGED=1
 fi
 FLUTTER="${DENIAL_FLUTTER:-$FLUTTER_SDK_ROOT/bin/flutter}"
+FLUTTER_ENGINE_CACHE_ROOT="${DENIAL_FLUTTER_ENGINE_CACHE_ROOT:-$CACHE_HOME/denial/flutter-engine}"
+# Flutter's local-engine locator only requires this path to own the out/
+# directory. Engine outputs deliberately live outside both canonical and
+# managed source trees, so point it at the exact cache build root.
+LOCAL_ENGINE_SRC_PATH="$FLUTTER_ENGINE_CACHE_ROOT/build"
+LOCAL_ENGINE_TARGET="denial_host_release"
 
 COMPOSITOR_ROOT="$ROOT/compositor"
 MANIFEST="$COMPOSITOR_ROOT/Cargo.toml"
@@ -529,6 +535,7 @@ bootstrap_dependencies() {
 
 build_bundle() (
     prepare_flutter_toolchain
+    "$ROOT/tools/denial-flutter-engine" prepare-app-build
     mkdir -p -- "$(dirname -- "$BUNDLE_ASSEMBLY")" "$BUNDLE/data" "$BUNDLE/lib"
     local assembly
     assembly="$(mktemp -d -- "${BUNDLE_ASSEMBLY}.XXXXXX")"
@@ -537,6 +544,9 @@ build_bundle() (
         cd "$ROOT/dart_shell"
         "$FLUTTER" pub get
         "$FLUTTER" assemble \
+            --local-engine-src-path="$LOCAL_ENGINE_SRC_PATH" \
+            --local-engine="$LOCAL_ENGINE_TARGET" \
+            --local-engine-host="$LOCAL_ENGINE_TARGET" \
             --suppress-analytics \
             --resource-pool-size="$BUILD_JOBS" \
             --output="$assembly" \
@@ -561,10 +571,14 @@ build_bundle() (
 
 build_settings() (
     prepare_flutter_toolchain
+    "$ROOT/tools/denial-flutter-engine" prepare-app-build
     (
         cd "$ROOT/settings_app"
         "$FLUTTER" pub get
         "$FLUTTER" build linux \
+            --local-engine-src-path="$LOCAL_ENGINE_SRC_PATH" \
+            --local-engine="$LOCAL_ENGINE_TARGET" \
+            --local-engine-host="$LOCAL_ENGINE_TARGET" \
             --suppress-analytics \
             --release \
             --target=lib/main.dart \
@@ -665,7 +679,9 @@ test_compositor() {
 
 test_all() {
     test_compositor
-    "$ROOT/tools/denial-flutter-engine" flutter-test
+    prepare_flutter_toolchain
+    DENIAL_FLUTTER_TEST_COMMAND="$FLUTTER" \
+        "$ROOT/tools/denial-flutter-engine" flutter-test
 }
 
 resolve_drm_device() {
