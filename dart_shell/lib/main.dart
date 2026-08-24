@@ -20,7 +20,9 @@ void main() {
       overrides: [
         startupEnvironmentProvider.overrideWithValue(environment),
         localFlutterApplicationsProvider.overrideWithValue(
-          <LocalFlutterApplication>[denialSettingsApplication],
+          environment.flag('DENIA_EMBED_SETTINGS')
+              ? <LocalFlutterApplication>[denialSettingsApplication]
+              : const <LocalFlutterApplication>[],
         ),
       ],
       child: const DenialShellApp(),

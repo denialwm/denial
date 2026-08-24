@@ -93,28 +93,39 @@ pub(super) fn run_flutter_event_loop(
         .as_ref()
         .map(|_| SystemControls::new())
         .transpose()?;
-    let (notification_sender, notification_source) =
-        sync_channel(NOTIFICATION_EVENT_QUEUE_CAPACITY);
-    let notification_server = match NotificationServer::start(move |mut event, stopping| {
-        loop {
-            match notification_sender.try_send(event) {
-                Ok(()) => break,
-                Err(std::sync::mpsc::TrySendError::Full(returned))
-                    if !stopping.load(Ordering::Acquire) =>
-                {
-                    event = returned;
-                    std::thread::sleep(Duration::from_millis(1));
-                }
-                Err(_) => break,
+    let notification_events = Arc::new(Mutex::new(VecDeque::with_capacity(
+        NOTIFICATION_EVENT_QUEUE_CAPACITY,
+    )));
+    let notification_publish_queue = Arc::clone(&notification_events);
+    let (notification_sender, notification_source) = channel();
+    let notification_server = match NotificationServer::start(move |event, _| {
+        let should_wake = {
+            let mut queue = notification_publish_queue
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let should_wake = queue.is_empty();
+            if queue.len() == NOTIFICATION_EVENT_QUEUE_CAPACITY {
+                queue.pop_front();
             }
+            queue.push_back(event);
+            should_wake
+        };
+        if should_wake {
+            // One calloop message wakes the compositor for the complete
+            // coalesced batch; the notification worker never busy-waits.
+            let _ = notification_sender.send(());
         }
     }) {
         Ok(server) => {
+            let notification_dispatch_queue = Arc::clone(&notification_events);
             event_loop.handle().insert_source(
                 notification_source,
-                |event, _, state: &mut RuntimeState| {
-                    if let ChannelEvent::Msg(event) = event {
-                        state.pending_notification_events.push_back(event);
+                move |event, _, state: &mut RuntimeState| {
+                    if let ChannelEvent::Msg(()) = event {
+                        let mut queue = notification_dispatch_queue
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        state.pending_notification_events.extend(queue.drain(..));
                     }
                 },
             )?;
@@ -253,7 +264,6 @@ pub(super) fn run_flutter_event_loop(
             pending_sensor_rotation = orientation.output_rotation();
             debug!(?orientation, rotation = ?pending_sensor_rotation, "observed device orientation");
         }
-        events.service_topology_recheck_deadline(iteration_now);
         install_sampled_buffer_releases(event_loop, &mut events)?;
         scheduler.acknowledge_ready_fences(
             flutter
@@ -270,7 +280,7 @@ pub(super) fn run_flutter_event_loop(
                 stream = commit.stream,
                 framebuffer_index = commit.frame,
                 %stall,
-                "KMS lookahead remained busy; rebuilding the DRM and render stack in this session"
+                "KMS lookahead lost a usable presentation state; rebuilding the DRM and render stack in this session"
             );
             scheduler.shutdown_volition();
             recover_stalled_kms_presentation(drm, event_loop, &mut events)?;
@@ -360,11 +370,10 @@ pub(super) fn run_flutter_event_loop(
             return Err("the active DRM device was removed in Flutter event loop".into());
         }
 
-        // A powered scanout whose connector vanished has no valid
-        // presentation target, so keep its old scheduler quiescent until a
-        // fresh scan can rebuild it. Already-powered-off scanouts must remain
-        // serviceable: their queued DPMS wake commit is what can bring a sink
-        // (and therefore its connector) back in the first place.
+        // A presenting scanout whose connector vanished has no valid target,
+        // so keep its old scheduler quiescent until a fresh scan can rebuild
+        // it. Blanked scanouts stay outside the scheduler while retaining
+        // their trained connector and CRTC state.
         let scanout_rebased = events.scanout_rebased
             || (outputs_disconnected && scanouts.iter().any(|scanout| scanout.powered));
         events.scanout_rebased = false;
@@ -518,9 +527,9 @@ pub(super) fn run_flutter_event_loop(
                 }
                 scheduler.process_screencopies_at_tick(
                     tick,
-                    renderer,
+                    runtime,
                     swapchain
-                        .outputs_mut()
+                        .outputs()
                         .ok_or("screencopy has no physical output pools")?,
                     scanouts,
                     &mut events,
@@ -766,7 +775,8 @@ pub(super) fn run_flutter_event_loop(
             let transform_only_request = output_request_changes_only_transforms(
                 &current_snapshot.outputs,
                 &request.configuration.outputs,
-            );
+            ) && current_snapshot.primary_output
+                == request.configuration.primary_output;
             let confirmation_rollback = request
                 .configuration
                 .confirmation_timeout_milliseconds
@@ -850,7 +860,11 @@ pub(super) fn run_flutter_event_loop(
                         adaptive_sync: output.adaptive_sync,
                     })
                     .collect::<Vec<_>>();
-                match options::prepare_output_config_persistence(path, &persisted_outputs) {
+                match options::prepare_output_config_persistence(
+                    path,
+                    &persisted_outputs,
+                    request.configuration.primary_output.as_deref(),
+                ) {
                     Ok(prepared) => Some(prepared),
                     Err(error) => {
                         request.reply(Err(output_control::OutputControlFailure::new(
@@ -876,7 +890,9 @@ pub(super) fn run_flutter_event_loop(
                                 || scanout.output.vrr_enabled != output.vrr_enabled
                         })
                 });
-            let topology_changed = preview.outputs != topology.snapshot().outputs;
+            let current_topology = topology.snapshot();
+            let topology_changed = preview.outputs != current_topology.outputs
+                || preview.ticker != current_topology.ticker;
             if !scanout_rebased && !hardware_changed && !topology_changed {
                 output_configuration = staged_configuration;
                 events.output_control_dirty = true;
@@ -1094,7 +1110,6 @@ pub(super) fn run_flutter_event_loop(
         {
             events.topology_dirty = false;
             let outputs = connected_outputs(drm_scanner, drm, max_outputs, &output_configuration)?;
-            let now = Instant::now();
             if outputs.is_empty() {
                 if !outputs_disconnected {
                     outputs_disconnected = true;
@@ -1119,184 +1134,156 @@ pub(super) fn run_flutter_event_loop(
                     "DRM output reconnected; rebuilding presentation state"
                 );
             }
-            let transient_removals = if !scanout_rebased && !kms_reconfigure_requested {
-                transient_dpms_output_removal_count(
-                    events.dpms_wake_topology_grace_until,
-                    now,
-                    scanouts.iter().map(|scanout| scanout.output.id),
-                    outputs.iter().map(|output| output.id),
-                )
-            } else {
-                0
-            };
-            if transient_removals > 0 {
-                let recheck_at = events
-                    .dpms_wake_topology_grace_until
-                    .expect("transient DPMS removal has an active grace deadline");
-                let first_observation = events.topology_recheck_at.replace(recheck_at).is_none();
-                if first_observation {
-                    info!(
-                        missing_outputs = transient_removals,
-                        grace_ms = recheck_at.saturating_duration_since(now).as_millis(),
-                        "deferred transient connector removal during DPMS wake"
-                    );
-                }
-            } else {
-                if events.topology_recheck_at.take().is_some() {
-                    info!("cancelled deferred connector removal after DPMS topology recovered");
-                }
-                events.output_control_dirty = true;
-                let changed = outputs.len() != scanouts.len()
-                    || outputs.iter().any(|output| {
+            events.output_control_dirty = true;
+            let changed = outputs.len() != scanouts.len()
+                || outputs.iter().any(|output| {
+                    scanouts
+                        .iter()
+                        .find(|scanout| scanout.output.id == output.id)
+                        .is_none_or(|scanout| {
+                            scanout.output.crtc != output.crtc
+                                || scanout.output.mode != output.mode
+                                || scanout.output.connector != output.connector
+                                || scanout.output.vrr_enabled != output.vrr_enabled
+                        })
+                });
+            info!(
+                connected_outputs = outputs.len(),
+                changed,
+                resumed = scanout_rebased,
+                forced = kms_reconfigure_requested,
+                resident_geometry = resident_geometry_reconfigure_requested,
+                "completed event-driven DRM topology rescan"
+            );
+            if changed
+                || scanout_rebased
+                || kms_reconfigure_requested
+                || resident_geometry_reconfigure_requested
+            {
+                cancel_active_screenshot(
+                    &mut screenshot_manager,
+                    flutter
+                        .as_mut()
+                        .ok_or("Flutter runtime disappeared before topology change")?,
+                    true,
+                    "display topology changed",
+                )?;
+                let resident_targets_busy = resident_geometry_reconfigure_requested
+                    && !changed
+                    && !kms_reconfigure_requested
+                    && flutter.as_ref().is_none_or(|runtime| {
                         scanouts
                             .iter()
-                            .find(|scanout| scanout.output.id == output.id)
-                            .is_none_or(|scanout| {
-                                scanout.output.crtc != output.crtc
-                                    || scanout.output.mode != output.mode
-                                    || scanout.output.connector != output.connector
-                                    || scanout.output.vrr_enabled != output.vrr_enabled
-                            })
+                            .any(|scanout| !runtime.output_target_available(scanout.output.id))
                     });
-                info!(
-                    connected_outputs = outputs.len(),
-                    changed,
-                    resumed = scanout_rebased,
-                    forced = kms_reconfigure_requested,
-                    resident_geometry = resident_geometry_reconfigure_requested,
-                    "completed event-driven DRM topology rescan"
-                );
-                if changed
-                    || scanout_rebased
-                    || kms_reconfigure_requested
-                    || resident_geometry_reconfigure_requested
+                if !scanout_rebased
+                    && (scheduler.has_pending_scanout_work() || resident_targets_busy)
                 {
-                    cancel_active_screenshot(
-                        &mut screenshot_manager,
-                        flutter
-                            .as_mut()
-                            .ok_or("Flutter runtime disappeared before topology change")?,
-                        true,
-                        "display topology changed",
-                    )?;
-                    let resident_targets_busy = resident_geometry_reconfigure_requested
-                        && !changed
-                        && !kms_reconfigure_requested
-                        && flutter.as_ref().is_none_or(|runtime| {
-                            scanouts
-                                .iter()
-                                .any(|scanout| !runtime.output_target_available(scanout.output.id))
-                        });
-                    if !scanout_rebased
-                        && (scheduler.has_pending_scanout_work() || resident_targets_busy)
-                    {
-                        // Finish any ready old-topology batch before creating the
-                        // common rollback point used by the hotplug transaction.
-                        // A signalled ready fence can enter Volition lookahead;
-                        // an unfinished one will wake this loop through calloop.
-                        submit_ready_frames(&mut scheduler, swapchain)?;
-                        events.topology_dirty = true;
-                        events.kms_reconfigure_requested = kms_reconfigure_requested;
-                        events.resident_geometry_reconfigure_requested =
-                            resident_geometry_reconfigure_requested;
-                        let now = Instant::now();
-                        let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
-                            Duration::from_millis(50).min(deadline.saturating_duration_since(now))
-                        });
-                        event_loop.dispatch(timeout, &mut events)?;
-                        continue;
-                    }
-                    if !scanout_rebased {
-                        scheduler.prepare_reconfiguration(scanouts, &mut events)?;
-                    }
-                    if resident_geometry_reconfigure_requested
-                        && !changed
-                        && !scanout_rebased
-                        && !kms_reconfigure_requested
-                    {
-                        let staged_configuration = output_configuration.clone();
-                        apply_resident_output_geometry(
-                            scanouts,
-                            swapchain,
-                            topology,
-                            &mut output_configuration,
-                            outputs,
-                            staged_configuration,
-                            flutter_runtime::OutputGeometryTransition::Immediate,
-                            &mut events,
-                            flutter.as_mut().ok_or(
-                                "Flutter runtime disappeared during resident geometry rollback",
-                            )?,
-                        )?;
-                        frame_scheduler.reconfigure(scanouts, Instant::now());
-                        events.scanout_rebased = false;
-                        continue;
-                    }
-                    retired_output_flips =
-                        retired_output_flips.saturating_add(scheduler.presented_frames());
-                    let topology_apply = apply_hotplug_topology(HotplugRequest {
-                        renderer,
-                        allocator: scanout_allocator,
-                        drm,
-                        swapchain,
-                        scanouts,
-                        restore_state,
-                        topology,
-                        outputs,
-                        configuration: &output_configuration,
-                        frame_number: raster_frames,
-                        event_loop,
-                        events: &mut events,
-                        flutter: &mut flutter,
-                        flutter_launcher: Some(flutter_launcher),
+                    // Finish any ready old-topology batch before creating the
+                    // common rollback point used by the hotplug transaction.
+                    // A signalled ready fence can enter Volition lookahead;
+                    // an unfinished one will wake this loop through calloop.
+                    submit_ready_frames(&mut scheduler, swapchain)?;
+                    events.topology_dirty = true;
+                    events.kms_reconfigure_requested = kms_reconfigure_requested;
+                    events.resident_geometry_reconfigure_requested =
+                        resident_geometry_reconfigure_requested;
+                    let now = Instant::now();
+                    let timeout = deadline.map_or(Duration::from_millis(50), |deadline| {
+                        Duration::from_millis(50).min(deadline.saturating_duration_since(now))
                     });
-                    if let Err(error) = topology_apply {
-                        if scanout_rebased && flutter.is_some() {
-                            // Recovery may reach this transaction while a
-                            // monitor is still link-training.  Its synchronous
-                            // baseline was accepted, but the transaction's
-                            // first event-producing flip can still time out.
-                            // Keep the login and retry from a fresh connector
-                            // scan instead of returning status 1 to SDDM.
-                            warn!(
-                                %error,
-                                retry_ms = KMS_PRESENTATION_RECOVERY_RETRY.as_millis(),
-                                "KMS topology rebuild is waiting for the display hardware"
-                            );
-                            events.scanout_rebased = true;
-                            events.topology_dirty = true;
-                            event_loop.dispatch(KMS_PRESENTATION_RECOVERY_RETRY, &mut events)?;
-                            continue;
-                        }
-                        return Err(error);
-                    }
-                    scheduler = output_scheduler::OutputScheduler::new(
-                        drm,
-                        volition_event_sender.clone(),
+                    event_loop.dispatch(timeout, &mut events)?;
+                    continue;
+                }
+                if !scanout_rebased {
+                    scheduler.prepare_reconfiguration(scanouts, &mut events)?;
+                }
+                if resident_geometry_reconfigure_requested
+                    && !changed
+                    && !scanout_rebased
+                    && !kms_reconfigure_requested
+                {
+                    let staged_configuration = output_configuration.clone();
+                    apply_resident_output_geometry(
                         scanouts,
-                        swapchain
-                            .outputs()
-                            .ok_or("output scheduler has no physical output pools")?,
-                        flutter
-                            .as_mut()
-                            .ok_or("Flutter runtime was not restarted after topology change")?,
+                        swapchain,
+                        topology,
+                        &mut output_configuration,
+                        outputs,
+                        staged_configuration,
+                        flutter_runtime::OutputGeometryTransition::Immediate,
                         &mut events,
+                        flutter.as_mut().ok_or(
+                            "Flutter runtime disappeared during resident geometry rollback",
+                        )?,
                     )?;
-                    frame_scheduler =
-                        frame_scheduler::FrameScheduler::new(scanouts, Instant::now());
-                    if events.flutter_reload_requested {
-                        events.flutter_reload_requested = false;
-                        info!(
-                            generation = flutter_launcher.generation,
-                            "loaded the refreshed Flutter bundle during topology restart"
-                        );
-                    }
-                    // A pause/resume serviced inside the topology transaction was
-                    // already absorbed by its synchronous candidate commit and the
-                    // freshly created scheduler.
+                    frame_scheduler.reconfigure(scanouts, Instant::now());
                     events.scanout_rebased = false;
                     continue;
                 }
+                retired_output_flips =
+                    retired_output_flips.saturating_add(scheduler.presented_frames());
+                let topology_apply = apply_hotplug_topology(HotplugRequest {
+                    renderer,
+                    allocator: scanout_allocator,
+                    drm,
+                    swapchain,
+                    scanouts,
+                    restore_state,
+                    topology,
+                    outputs,
+                    configuration: &output_configuration,
+                    frame_number: raster_frames,
+                    event_loop,
+                    events: &mut events,
+                    flutter: &mut flutter,
+                    flutter_launcher: Some(flutter_launcher),
+                });
+                if let Err(error) = topology_apply {
+                    if scanout_rebased && flutter.is_some() {
+                        // Recovery may reach this transaction while a
+                        // monitor is still link-training.  Its synchronous
+                        // baseline was accepted, but the transaction's
+                        // first event-producing flip can still time out.
+                        // Keep the login and retry from a fresh connector
+                        // scan instead of returning status 1 to SDDM.
+                        warn!(
+                            %error,
+                            retry_ms = KMS_PRESENTATION_RECOVERY_RETRY.as_millis(),
+                            "KMS topology rebuild is waiting for the display hardware"
+                        );
+                        events.scanout_rebased = true;
+                        events.topology_dirty = true;
+                        event_loop.dispatch(KMS_PRESENTATION_RECOVERY_RETRY, &mut events)?;
+                        continue;
+                    }
+                    return Err(error);
+                }
+                scheduler = output_scheduler::OutputScheduler::new(
+                    drm,
+                    volition_event_sender.clone(),
+                    scanouts,
+                    swapchain
+                        .outputs()
+                        .ok_or("output scheduler has no physical output pools")?,
+                    flutter
+                        .as_mut()
+                        .ok_or("Flutter runtime was not restarted after topology change")?,
+                    &mut events,
+                )?;
+                frame_scheduler = frame_scheduler::FrameScheduler::new(scanouts, Instant::now());
+                if events.flutter_reload_requested {
+                    events.flutter_reload_requested = false;
+                    info!(
+                        generation = flutter_launcher.generation,
+                        "loaded the refreshed Flutter bundle during topology restart"
+                    );
+                }
+                // A pause/resume serviced inside the topology transaction was
+                // already absorbed by its synchronous candidate commit and the
+                // freshly created scheduler.
+                events.scanout_rebased = false;
+                continue;
             }
         }
         if events.output_control_dirty {
@@ -1570,10 +1557,6 @@ pub(super) fn run_flutter_event_loop(
         }
         if events.flutter_input.has_pending() || !events.flutter_events.is_empty() {
             next_dispatch_timeout = Duration::ZERO;
-        }
-        if let Some(recheck_at) = events.topology_recheck_at {
-            next_dispatch_timeout =
-                next_dispatch_timeout.min(recheck_at.saturating_duration_since(now));
         }
         let dispatch_timeout = if let Some(deadline) = deadline {
             if now >= deadline {

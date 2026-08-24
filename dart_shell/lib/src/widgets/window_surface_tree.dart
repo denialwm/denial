@@ -3,6 +3,49 @@ import 'package:flutter/widgets.dart';
 
 import '../models/denial_window.dart';
 
+const double _nativePixelTolerance = 1.0;
+const double _coverageTolerance = 0.001;
+
+bool _sourceMatchesOutputPixels({
+  required Size targetSize,
+  required Rect sourceRect,
+  required double devicePixelRatio,
+}) {
+  final ratio = devicePixelRatio.isFinite && devicePixelRatio > 0.0
+      ? devicePixelRatio
+      : 1.0;
+  final sourceOriginIsIntegral =
+      (sourceRect.left - sourceRect.left.roundToDouble()).abs() < 0.001 &&
+      (sourceRect.top - sourceRect.top.roundToDouble()).abs() < 0.001;
+  return sourceOriginIsIntegral &&
+      sourceRect.width + _coverageTolerance >= targetSize.width * ratio &&
+      sourceRect.height + _coverageTolerance >= targetSize.height * ratio &&
+      sourceRect.width - targetSize.width * ratio <= _nativePixelTolerance &&
+      sourceRect.height - targetSize.height * ratio <= _nativePixelTolerance;
+}
+
+FilterQuality _effectiveTextureFilterQuality({
+  required FilterQuality requested,
+  required int transform,
+  required Size targetSize,
+  required Rect sourceRect,
+  required double devicePixelRatio,
+}) {
+  if (requested != FilterQuality.none) {
+    return requested;
+  }
+  final nativePixels =
+      transform == 0 &&
+      _sourceMatchesOutputPixels(
+        targetSize: targetSize,
+        sourceRect: sourceRect,
+        devicePixelRatio: devicePixelRatio,
+      );
+  // FilterQuality.low is Flutter's bilinear sampler. Preserve nearest
+  // sampling only when every client pixel already maps to one output pixel.
+  return nativePixels ? FilterQuality.none : FilterQuality.low;
+}
+
 /// Composites the non-popup portion of a Wayland surface tree in protocol
 /// order. Popup layers are scene-level siblings because they are allowed to
 /// extend beyond the owning window's clipped frame.
@@ -86,22 +129,31 @@ class SurfaceLayerTexture extends StatelessWidget {
             sourceHeight <= 0.0) {
           return const SizedBox.shrink();
         }
+        final sourceRect = Rect.fromLTWH(
+          layer.textureSourceX,
+          layer.textureSourceY,
+          sourceWidth,
+          sourceHeight,
+        );
+        final effectiveFilterQuality = _effectiveTextureFilterQuality(
+          requested: filterQuality,
+          transform: layer.transform,
+          targetSize: target,
+          sourceRect: sourceRect,
+          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+        );
         return _SurfaceOpacity(
           opacity: layer.opacity,
           child: _ExternalTextureViewport(
             bufferSize: Size(bufferWidth, bufferHeight),
-            sourceRect: Rect.fromLTWH(
-              layer.textureSourceX,
-              layer.textureSourceY,
-              sourceWidth,
-              sourceHeight,
-            ),
+            sourceRect: sourceRect,
             alignNativePixels:
-                filterQuality == FilterQuality.none && layer.transform == 0,
+                effectiveFilterQuality == FilterQuality.none &&
+                layer.transform == 0,
             child: RepaintBoundary(
               child: Texture(
                 textureId: layer.textureId,
-                filterQuality: filterQuality,
+                filterQuality: effectiveFilterQuality,
               ),
             ),
           ),
@@ -137,22 +189,31 @@ class _LegacyWindowTexture extends StatelessWidget {
             sourceHeight <= 0.0) {
           return const SizedBox.shrink();
         }
+        final sourceRect = Rect.fromLTWH(
+          window.textureSourceX,
+          window.textureSourceY,
+          sourceWidth,
+          sourceHeight,
+        );
+        final effectiveFilterQuality = _effectiveTextureFilterQuality(
+          requested: filterQuality,
+          transform: window.transform,
+          targetSize: target,
+          sourceRect: sourceRect,
+          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+        );
         return _SurfaceOpacity(
           opacity: window.opacity,
           child: _ExternalTextureViewport(
             bufferSize: Size(bufferWidth, bufferHeight),
-            sourceRect: Rect.fromLTWH(
-              window.textureSourceX,
-              window.textureSourceY,
-              sourceWidth,
-              sourceHeight,
-            ),
+            sourceRect: sourceRect,
             alignNativePixels:
-                filterQuality == FilterQuality.none && window.transform == 0,
+                effectiveFilterQuality == FilterQuality.none &&
+                window.transform == 0,
             child: RepaintBoundary(
               child: Texture(
                 textureId: window.textureId,
-                filterQuality: filterQuality,
+                filterQuality: effectiveFilterQuality,
               ),
             ),
           ),
@@ -221,9 +282,6 @@ class _RenderExternalTextureViewport extends RenderShiftedBox {
     RenderBox? child,
   }) : super(child);
 
-  static const double _nativePixelTolerance = 1.0;
-  static const double _coverageTolerance = 0.001;
-
   Size _bufferSize;
   Rect _sourceRect;
   double _devicePixelRatio;
@@ -282,16 +340,13 @@ class _RenderExternalTextureViewport extends RenderShiftedBox {
     final ratio = _devicePixelRatio.isFinite && _devicePixelRatio > 0.0
         ? _devicePixelRatio
         : 1.0;
-    final sourceOriginIsIntegral =
-        (_sourceRect.left - _sourceRect.left.roundToDouble()).abs() < 0.001 &&
-        (_sourceRect.top - _sourceRect.top.roundToDouble()).abs() < 0.001;
     _usesNativePixels =
         _alignNativePixels &&
-        sourceOriginIsIntegral &&
-        _sourceRect.width + _coverageTolerance >= size.width * ratio &&
-        _sourceRect.height + _coverageTolerance >= size.height * ratio &&
-        _sourceRect.width - size.width * ratio <= _nativePixelTolerance &&
-        _sourceRect.height - size.height * ratio <= _nativePixelTolerance;
+        _sourceMatchesOutputPixels(
+          targetSize: size,
+          sourceRect: _sourceRect,
+          devicePixelRatio: ratio,
+        );
 
     final scaleX = _usesNativePixels
         ? 1.0 / ratio

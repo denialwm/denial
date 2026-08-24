@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -9,6 +10,41 @@ class DesktopAppsRepository {
   const DesktopAppsRepository({required this._paths});
 
   final RuntimePaths _paths;
+
+  /// Watches the XDG application directories for desktop-entry changes.
+  ///
+  /// Filesystem watching is best effort. Directories which do not exist or
+  /// cannot be watched are skipped, while the launcher's slower polling path
+  /// remains available as a fallback.
+  Future<DesktopAppsWatcher> watchApplications({
+    required void Function() onChanged,
+  }) async {
+    final subscriptions = <StreamSubscription<FileSystemEvent>>[];
+    for (final directory in _paths.desktopApplicationDirs()) {
+      try {
+        if (!await directory.exists()) {
+          continue;
+        }
+        subscriptions.add(
+          directory.watch().listen(
+            (event) {
+              if (_isDesktopApplicationEvent(event)) {
+                onChanged();
+              }
+            },
+            onError: (_) {
+              // A periodic rescan remains active if a mount or directory stops
+              // supporting filesystem notifications during the session.
+            },
+          ),
+        );
+      } on Object {
+        // Some system and sandboxed application directories may be
+        // inaccessible. Discovery still covers every readable directory.
+      }
+    }
+    return DesktopAppsWatcher._(subscriptions);
+  }
 
   Future<List<DesktopApp>> loadApplications() async {
     final filesById = <String, File>{};
@@ -347,6 +383,31 @@ class DesktopAppsRepository {
     }
     return null;
   }
+}
+
+class DesktopAppsWatcher {
+  DesktopAppsWatcher._(this._subscriptions);
+
+  final List<StreamSubscription<FileSystemEvent>> _subscriptions;
+  bool _disposed = false;
+
+  Future<void> dispose() async {
+    if (_disposed) {
+      return;
+    }
+    _disposed = true;
+    await Future.wait(
+      _subscriptions.map((subscription) => subscription.cancel()),
+    );
+  }
+}
+
+bool _isDesktopApplicationEvent(FileSystemEvent event) {
+  if (event.path.endsWith('.desktop')) {
+    return true;
+  }
+  return event is FileSystemMoveEvent &&
+      (event.destination?.endsWith('.desktop') ?? false);
 }
 
 bool _desktopBool(String? value) {

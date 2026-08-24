@@ -104,12 +104,18 @@ class HomeGridState {
 class HomeGridController extends AsyncNotifier<HomeGridState> {
   static const Duration _periodicRefreshInterval = Duration(minutes: 5);
   static const Duration _visibleRefreshMinInterval = Duration(seconds: 45);
+  static const Duration _filesystemRefreshDebounce = Duration(
+    milliseconds: 200,
+  );
 
   Timer? _desktopRefreshTimer;
   Timer? _activationRefreshTimer;
+  Timer? _filesystemRefreshTimer;
+  DesktopAppsWatcher? _desktopAppsWatcher;
   DateTime? _lastDesktopRefresh;
   bool _desktopRefreshInFlight = false;
   bool _desktopRefreshTriggersStarted = false;
+  bool _desktopAppsDirty = false;
   bool _launcherActive = true;
   int _buildGeneration = 0;
 
@@ -118,9 +124,12 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
     final generation = ++_buildGeneration;
     _desktopRefreshTimer = null;
     _activationRefreshTimer = null;
+    _filesystemRefreshTimer = null;
+    _desktopAppsWatcher = null;
     _lastDesktopRefresh = null;
     _desktopRefreshInFlight = false;
     _desktopRefreshTriggersStarted = false;
+    _desktopAppsDirty = false;
     _launcherActive = true;
     ref.onDispose(() {
       if (_buildGeneration == generation) {
@@ -130,6 +139,10 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
       _activationRefreshTimer = null;
       _desktopRefreshTimer?.cancel();
       _desktopRefreshTimer = null;
+      _filesystemRefreshTimer?.cancel();
+      _filesystemRefreshTimer = null;
+      unawaited(_desktopAppsWatcher?.dispose());
+      _desktopAppsWatcher = null;
       _desktopRefreshTriggersStarted = false;
     });
     final appsRepository = ref.watch(desktopAppsRepositoryProvider);
@@ -153,7 +166,7 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
       if (_savedLayoutNeedsRefresh(apps, localApps, savedLayout, slots)) {
         unawaited(layoutRepository.saveLayout(slots));
       }
-      _startDesktopRefreshTriggers(generation);
+      unawaited(_startDesktopRefreshTriggers(generation, appsRepository));
       return HomeGridState(slots: slots);
     } on Object catch (error, stackTrace) {
       Error.throwWithStackTrace(error, stackTrace);
@@ -181,6 +194,7 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
     }
 
     final generation = _buildGeneration;
+    _desktopAppsDirty = false;
     _desktopRefreshInFlight = true;
     try {
       final apps = await _loadApplications(
@@ -232,6 +246,9 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
     } finally {
       if (_isBuildActive(generation)) {
         _desktopRefreshInFlight = false;
+        if (_desktopAppsDirty && _launcherActive) {
+          _scheduleFilesystemRefresh();
+        }
       }
     }
   }
@@ -245,6 +262,10 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
     _activationRefreshTimer?.cancel();
     _activationRefreshTimer = null;
     if (active) {
+      if (_desktopAppsDirty) {
+        _scheduleFilesystemRefresh();
+        return;
+      }
       final generation = _buildGeneration;
       _activationRefreshTimer = Timer(const Duration(milliseconds: 750), () {
         if (!_isBuildActive(generation)) {
@@ -256,7 +277,10 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
     }
   }
 
-  void _startDesktopRefreshTriggers(int generation) {
+  Future<void> _startDesktopRefreshTriggers(
+    int generation,
+    DesktopAppsRepository repository,
+  ) async {
     try {
       if (_desktopRefreshTriggersStarted) {
         return;
@@ -268,9 +292,34 @@ class HomeGridController extends AsyncNotifier<HomeGridState> {
         }
         unawaited(refreshDesktopApps(reason: 'timer'));
       });
+      final watcher = await repository.watchApplications(
+        onChanged: () {
+          if (!_isBuildActive(generation)) {
+            return;
+          }
+          _desktopAppsDirty = true;
+          if (_launcherActive) {
+            _scheduleFilesystemRefresh();
+          }
+        },
+      );
+      if (!_isBuildActive(generation) || !_desktopRefreshTriggersStarted) {
+        await watcher.dispose();
+        return;
+      }
+      _desktopAppsWatcher = watcher;
     } on Object {
-      _desktopRefreshTriggersStarted = false;
+      // Filesystem notifications are best effort. Keep the periodic timer as
+      // the fallback when the platform cannot establish a watcher.
     }
+  }
+
+  void _scheduleFilesystemRefresh() {
+    _filesystemRefreshTimer?.cancel();
+    _filesystemRefreshTimer = Timer(_filesystemRefreshDebounce, () {
+      _filesystemRefreshTimer = null;
+      unawaited(refreshDesktopApps(reason: 'filesystem'));
+    });
   }
 
   bool _isBuildActive(int generation) =>

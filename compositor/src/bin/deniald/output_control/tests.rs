@@ -8,7 +8,9 @@ static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(1);
 fn state(name: &str) -> OutputControlState {
     OutputControlState {
         capabilities: OutputControlCapabilities::default(),
+        primary_output: None,
         outputs: vec![OutputControlOutput {
+            monitor_id: 1,
             name: name.into(),
             description: name.into(),
             connected: true,
@@ -22,6 +24,7 @@ fn state(name: &str) -> OutputControlState {
             physical_height_mm: Some(340),
             scale: 1.0,
             transform: OutputTransformName::Normal,
+            adaptive_sync_supported: false,
             adaptive_sync: false,
             current_mode: Some(OutputControlMode {
                 width: 1920,
@@ -156,6 +159,11 @@ fn query_is_versioned_and_returns_the_current_snapshot() {
             .is_some_and(|serial| serial != 0)
     );
     assert_eq!(response["result"]["outputs"][0]["name"], "DP-4");
+    assert_eq!(response["result"]["outputs"][0]["monitor_id"], 1);
+    assert_eq!(
+        response["result"]["outputs"][0]["adaptive_sync_supported"],
+        false
+    );
 
     drop(server);
     fs::remove_dir(directory).expect("remove test socket directory");
@@ -175,6 +183,10 @@ fn apply_is_handed_to_the_compositor_event_loop_and_replies_once() {
         .insert_source(source, move |event, _, _| {
             if let ChannelEvent::Msg(ControlEvent::OutputApply(request)) = event {
                 assert_eq!(request.configuration.serial, serial);
+                assert_eq!(
+                    request.configuration.primary_output.as_deref(),
+                    Some("DP-4")
+                );
                 assert_eq!(request.configuration.outputs[0].name, "DP-4");
                 request.reply(Ok(publisher.snapshot()));
             }
@@ -184,7 +196,7 @@ fn apply_is_handed_to_the_compositor_event_loop_and_replies_once() {
     let client = thread::spawn(move || {
         let mut stream = UnixStream::connect(&path).expect("connect to server");
         let request = format!(
-            "{{\"version\":1,\"id\":23,\"method\":\"outputs.apply\",\"params\":{{\"serial\":{serial},\"outputs\":[{{\"name\":\"DP-4\",\"enabled\":true,\"powered\":true,\"x\":0,\"y\":0,\"mode\":{{\"width\":1920,\"height\":1080,\"refresh_millihz\":60000}},\"scale\":1.0,\"transform\":\"normal\",\"adaptive_sync\":false}}]}}}}\n"
+            "{{\"version\":1,\"id\":23,\"method\":\"outputs.apply\",\"params\":{{\"serial\":{serial},\"primary_output\":\"DP-4\",\"outputs\":[{{\"name\":\"DP-4\",\"enabled\":true,\"powered\":true,\"x\":0,\"y\":0,\"mode\":{{\"width\":1920,\"height\":1080,\"refresh_millihz\":60000}},\"scale\":1.0,\"transform\":\"normal\",\"adaptive_sync\":false}}]}}}}\n"
         );
         stream
             .write_all(request.as_bytes())
@@ -252,6 +264,47 @@ fn output_confirmation_is_handed_to_the_compositor_event_loop() {
 }
 
 #[test]
+fn wallpaper_open_is_handed_to_the_compositor_event_loop() {
+    let path = socket_path();
+    let directory = path.parent().expect("test socket has parent").to_owned();
+    let (server, source) =
+        OutputControlServer::start_at(path.clone(), state("DP-4")).expect("start server");
+    let mut event_loop = EventLoop::<()>::try_new().expect("create event loop");
+    event_loop
+        .handle()
+        .insert_source(source, move |event, _, _| {
+            if let ChannelEvent::Msg(ControlEvent::Shell(request)) = event {
+                assert_eq!(request.command, ShellControlCommand::OpenWallpaper);
+                request.reply(Ok(()));
+            }
+        })
+        .expect("insert Denial control source");
+
+    let client = thread::spawn(move || {
+        let mut stream = UnixStream::connect(&path).expect("connect to server");
+        stream
+            .write_all(b"{\"version\":1,\"id\":25,\"method\":\"shell.wallpaper.open\"}\n")
+            .expect("write wallpaper request");
+        let mut response = String::new();
+        BufReader::new(stream)
+            .read_to_string(&mut response)
+            .expect("read wallpaper response");
+        serde_json::from_str::<Value>(&response).expect("decode wallpaper response")
+    });
+
+    event_loop
+        .dispatch(Duration::from_secs(1), &mut ())
+        .expect("dispatch wallpaper request");
+    let response = client.join().expect("join Denial control client");
+    assert_eq!(response["id"], 25);
+    assert_eq!(response["ok"], true);
+    assert_eq!(response["result"], json!({}));
+
+    drop(server);
+    fs::remove_dir(directory).expect("remove test socket directory");
+}
+
+#[test]
 fn ui_query_is_handed_to_the_compositor_event_loop() {
     let path = socket_path();
     let directory = path.parent().expect("test socket has parent").to_owned();
@@ -295,6 +348,97 @@ fn ui_query_is_handed_to_the_compositor_event_loop() {
     assert_eq!(response["id"], 29);
     assert_eq!(response["ok"], true);
     assert_eq!(response["result"]["active_mode"], "official_optimized");
+
+    drop(server);
+    fs::remove_dir(directory).expect("remove test socket directory");
+}
+
+#[test]
+fn settings_query_is_handed_to_the_compositor_event_loop() {
+    let path = socket_path();
+    let directory = path.parent().expect("test socket has parent").to_owned();
+    let (server, source) =
+        OutputControlServer::start_at(path.clone(), state("DP-4")).expect("start server");
+    let mut event_loop = EventLoop::<()>::try_new().expect("create event loop");
+    event_loop
+        .handle()
+        .insert_source(source, move |event, _, _| {
+            if let ChannelEvent::Msg(ControlEvent::Settings(request)) = event {
+                let (command, reply) = request.into_parts();
+                assert!(matches!(command, SettingsControlCommand::ReadDocument));
+                reply
+                    .send(Ok(json!({"revision": 4, "document": "{}"})))
+                    .expect("reply to settings query");
+            }
+        })
+        .expect("insert Denial control source");
+
+    let client = thread::spawn(move || {
+        let mut stream = UnixStream::connect(&path).expect("connect to server");
+        stream
+            .write_all(b"{\"version\":1,\"id\":30,\"method\":\"settings.document.get\"}\n")
+            .expect("write settings query");
+        let mut response = String::new();
+        BufReader::new(stream)
+            .read_to_string(&mut response)
+            .expect("read settings response");
+        serde_json::from_str::<Value>(&response).expect("decode settings response")
+    });
+
+    event_loop
+        .dispatch(Duration::from_secs(1), &mut ())
+        .expect("dispatch settings query");
+    let response = client.join().expect("join Denial control client");
+    assert_eq!(response["id"], 30);
+    assert_eq!(response["ok"], true);
+    assert_eq!(response["result"]["revision"], 4);
+
+    drop(server);
+    fs::remove_dir(directory).expect("remove test socket directory");
+}
+
+#[test]
+fn system_control_query_is_handed_to_the_compositor_event_loop() {
+    let path = socket_path();
+    let directory = path.parent().expect("test socket has parent").to_owned();
+    let (server, source) =
+        OutputControlServer::start_at(path.clone(), state("DP-4")).expect("start server");
+    let mut event_loop = EventLoop::<()>::try_new().expect("create event loop");
+    event_loop
+        .handle()
+        .insert_source(source, move |event, _, _| {
+            if let ChannelEvent::Msg(ControlEvent::SystemControl(request)) = event {
+                let (command, reply) = request.into_parts();
+                assert!(matches!(
+                    command,
+                    SystemControlCommand::Audio(AudioRequest::ReadLevel)
+                ));
+                reply
+                    .send(Ok(json!({"level": 0.65, "request_serial": 0})))
+                    .expect("reply to system-control query");
+            }
+        })
+        .expect("insert Denial control source");
+
+    let client = thread::spawn(move || {
+        let mut stream = UnixStream::connect(&path).expect("connect to server");
+        stream
+            .write_all(b"{\"version\":1,\"id\":32,\"method\":\"audio.get\"}\n")
+            .expect("write audio query");
+        let mut response = String::new();
+        BufReader::new(stream)
+            .read_to_string(&mut response)
+            .expect("read audio response");
+        serde_json::from_str::<Value>(&response).expect("decode audio response")
+    });
+
+    event_loop
+        .dispatch(Duration::from_secs(1), &mut ())
+        .expect("dispatch audio query");
+    let response = client.join().expect("join Denial control client");
+    assert_eq!(response["id"], 32);
+    assert_eq!(response["ok"], true);
+    assert_eq!(response["result"]["level"], 0.65);
 
     drop(server);
     fs::remove_dir(directory).expect("remove test socket directory");

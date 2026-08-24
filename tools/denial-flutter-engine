@@ -54,12 +54,15 @@ usage() {
 Usage:
   tools/denial-flutter-engine cache-key
   tools/denial-flutter-engine build [--github-env FILE]
+  tools/denial-flutter-engine flutter-test
   tools/denial-flutter-engine refresh-metadata
   tools/denial-flutter-engine verify [--github-env FILE]
 
 Commands:
   cache-key  Print the immutable cache key for the locked source and GN args.
   build      Reuse/build all modes and stage them into prebuilt/ for local use.
+  flutter-test
+             Build the lock-matched debug flutter_tester and run the shell tests.
   refresh-metadata
              After deliberately advancing SOURCE_LOCK.json, regenerate GN
              arguments and canonical checksums, then build and stage all modes.
@@ -839,6 +842,62 @@ resolve_artifacts() {
   write_github_env "$github_env" "$key"
 }
 
+run_flutter_tests() {
+  local build_root
+  local checkout_depot
+  local expected_args
+  local output
+  local source_state
+  local target='denial_host_debug'
+
+  install -d -m 0700 "$CACHE_ROOT" "$ARTIFACT_ROOT" "$STATE_ROOT" "$BUILD_ROOT"
+  exec 9>"$CACHE_ROOT/build.lock"
+  flock 9
+  source_state="$(file_sha256 "$SOURCE_LOCK")"
+  prepare_checkout "$source_state"
+
+  build_root="$CHECKOUT/engine/src"
+  checkout_depot="$build_root/flutter/third_party/depot_tools"
+  output="$BUILD_ROOT/out/$target"
+  expected_args="$ROOT/prebuilt/flutter-engine/linux-x64-debug/args.gn"
+
+  printf 'Generating lock-matched Flutter test build graph\n'
+  (
+    cd "$build_root"
+    PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
+      DEPOT_TOOLS_UPDATE=0 \
+      VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
+      ./flutter/tools/gn \
+        --runtime-mode=debug \
+        --enable-fontconfig \
+        --out-dir="$BUILD_ROOT" \
+        --target-dir="$target"
+  )
+  normalize_generated_args debug "$output/args.gn" "$expected_args"
+  (
+    cd "$build_root"
+    PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
+      DEPOT_TOOLS_UPDATE=0 \
+      VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
+      ./flutter/third_party/gn/gn gen --check "$output"
+  )
+  PATH="$checkout_depot/.cipd_bin:$checkout_depot:$PATH" \
+    DEPOT_TOOLS_UPDATE=0 \
+    VPYTHON_VIRTUALENV_ROOT="$VPYTHON_CACHE_ROOT" \
+    /usr/bin/ninja -C "$output" -j "$BUILD_JOBS" flutter_tester
+  [[ -x "$output/flutter_tester" ]] \
+    || fail "lock-matched flutter_tester is missing: $output/flutter_tester"
+
+  printf 'Running Dart shell tests with lock-matched flutter_tester\n'
+  (
+    cd "$ROOT/dart_shell"
+    "$CHECKOUT/bin/flutter" test \
+      --local-engine-src-path="$build_root" \
+      --local-engine="$target" \
+      --local-engine-host="$target"
+  )
+}
+
 main() {
   local command_name="${1:-}"
   local github_env=''
@@ -878,6 +937,11 @@ main() {
     build)
       resolve_artifacts 1 "$github_env"
       stage_artifacts "$(cache_key)"
+      ;;
+    flutter-test)
+      [[ -z "$github_env" ]] \
+        || fail 'flutter-test does not accept --github-env'
+      run_flutter_tests
       ;;
     refresh-metadata)
       [[ -z "$github_env" ]] \

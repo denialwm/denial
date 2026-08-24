@@ -5,19 +5,31 @@
 //! the target output presents. This both makes that output buffer safe to read
 //! and naturally paces screen recorders at the output refresh rate.
 
+#[cfg(feature = "flutter")]
+use std::collections::HashMap;
 use std::error::Error;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(feature = "flutter")]
+use std::sync::mpsc::{self, SyncSender, TrySendError};
+#[cfg(feature = "flutter")]
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
+#[cfg(feature = "flutter")]
+use std::time::Instant;
 
 use denial_core::topology::OutputId;
 use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::{Buffer as AllocatorBuffer, Fourcc, dmabuf::Dmabuf};
+#[cfg(feature = "flutter")]
+use smithay::backend::egl::EGLContext;
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::backend::renderer::{
     Bind, Blit, Color32F, ExportMem, Frame, ImportDma, Offscreen, Renderer, TextureFilter,
 };
 use smithay::output::Output;
+#[cfg(feature = "flutter")]
+use smithay::reexports::calloop::channel::{Event as ChannelEvent, Sender, channel};
 use smithay::reexports::wayland_protocols_wlr::screencopy::v1::server::{
     zwlr_screencopy_frame_v1::{self, ZwlrScreencopyFrameV1},
     zwlr_screencopy_manager_v1::{self, ZwlrScreencopyManagerV1},
@@ -34,12 +46,16 @@ use smithay::wayland::dmabuf::get_dmabuf;
 use smithay::wayland::shm::{with_buffer_contents, with_buffer_contents_mut};
 use tracing::{debug, warn};
 
+#[cfg(feature = "flutter")]
+use super::super::{egl_context, flutter_runtime::OutputBufferLease};
 use super::{RuntimeState, WaylandFrontend};
 
 const PROTOCOL_VERSION: u32 = 3;
 const BYTES_PER_PIXEL: i32 = 4;
 const MAX_PENDING_SCREENCOPIES: usize = 64;
 const MAX_COPIES_PER_PRESENTATION: usize = 4;
+#[cfg(feature = "flutter")]
+const MAX_IN_FLIGHT_SCREENCOPIES: usize = 4;
 
 pub(crate) struct OutputCompositeSource {
     pub(crate) dmabuf: Dmabuf,
@@ -110,11 +126,158 @@ struct PendingScreencopy {
     with_damage: bool,
 }
 
+#[cfg(feature = "flutter")]
 #[derive(Debug)]
+enum CaptureDestination {
+    Shm,
+    Dmabuf(Dmabuf),
+}
+
+#[cfg(feature = "flutter")]
+#[derive(Debug)]
+struct CaptureJob {
+    token: u64,
+    source: Dmabuf,
+    source_size: Size<i32, Physical>,
+    target: CaptureTarget,
+    destination: CaptureDestination,
+}
+
+#[cfg(feature = "flutter")]
+#[derive(Debug)]
+enum CapturePayload {
+    Shm(Vec<u8>),
+    Dmabuf,
+}
+
+#[cfg(feature = "flutter")]
+#[derive(Debug)]
+struct CaptureCompletion {
+    token: u64,
+    elapsed: Duration,
+    result: Result<CapturePayload, String>,
+}
+
+#[cfg(feature = "flutter")]
+struct InFlightScreencopy {
+    request: PendingScreencopy,
+    presented: Duration,
+    dmabuf: bool,
+    _source_lease: OutputBufferLease,
+    cancelled: bool,
+}
+
+#[cfg(feature = "flutter")]
+#[derive(Debug)]
+struct CaptureWorker {
+    jobs: Option<SyncSender<CaptureJob>>,
+    worker: Option<JoinHandle<()>>,
+}
+
+#[cfg(feature = "flutter")]
+impl CaptureWorker {
+    fn start(context: EGLContext, completions: Sender<CaptureCompletion>) -> io::Result<Self> {
+        let (jobs, receiver) = mpsc::sync_channel::<CaptureJob>(MAX_IN_FLIGHT_SCREENCOPIES);
+        let (ready, initialized) = mpsc::sync_channel::<Result<(), String>>(1);
+        let worker = thread::Builder::new()
+            .name("denial-screencopy".into())
+            .spawn(move || {
+                // SAFETY: the new shared context has never been current and is
+                // moved directly into this one owning renderer thread.
+                let mut renderer = match unsafe { GlesRenderer::new(context) } {
+                    Ok(renderer) => renderer,
+                    Err(error) => {
+                        let _ = ready.send(Err(format!(
+                            "could not initialize screencopy GLES renderer: {error}"
+                        )));
+                        return;
+                    }
+                };
+                if ready.send(Ok(())).is_err() {
+                    return;
+                }
+                while let Ok(mut job) = receiver.recv() {
+                    let started = Instant::now();
+                    let result = match &mut job.destination {
+                        CaptureDestination::Shm => capture_to_memory(
+                            &mut renderer,
+                            &mut job.source,
+                            job.source_size,
+                            job.target,
+                        )
+                        .map(CapturePayload::Shm),
+                        CaptureDestination::Dmabuf(destination) => copy_to_dmabuf(
+                            &mut renderer,
+                            &mut job.source,
+                            job.source_size,
+                            job.target,
+                            &mut *destination,
+                        )
+                        .map(|()| CapturePayload::Dmabuf),
+                    }
+                    .map_err(|error| error.to_string());
+                    if completions
+                        .send(CaptureCompletion {
+                            token: job.token,
+                            elapsed: started.elapsed(),
+                            result,
+                        })
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            })?;
+        match initialized.recv() {
+            Ok(Ok(())) => Ok(Self {
+                jobs: Some(jobs),
+                worker: Some(worker),
+            }),
+            Ok(Err(error)) => {
+                let _ = worker.join();
+                Err(io::Error::other(error))
+            }
+            Err(_) => {
+                let _ = worker.join();
+                Err(io::Error::other(
+                    "screencopy worker exited during initialization",
+                ))
+            }
+        }
+    }
+
+    fn try_submit(&self, job: CaptureJob) -> Result<(), TrySendError<CaptureJob>> {
+        self.jobs
+            .as_ref()
+            .expect("live screencopy worker lost its job sender")
+            .try_send(job)
+    }
+
+    fn shutdown(&mut self) {
+        self.jobs.take();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+#[cfg(feature = "flutter")]
+impl Drop for CaptureWorker {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
 pub(super) struct ScreencopyManager {
     _global: GlobalId,
     pending: Vec<PendingScreencopy>,
     dmabuf_formats: FormatSet,
+    #[cfg(feature = "flutter")]
+    worker: Option<CaptureWorker>,
+    #[cfg(feature = "flutter")]
+    in_flight: HashMap<u64, InFlightScreencopy>,
+    #[cfg(feature = "flutter")]
+    next_token: u64,
 }
 
 impl ScreencopyManager {
@@ -124,6 +287,24 @@ impl ScreencopyManager {
                 .create_global::<RuntimeState, ZwlrScreencopyManagerV1, _>(PROTOCOL_VERSION, ()),
             pending: Vec::new(),
             dmabuf_formats: FormatSet::default(),
+            #[cfg(feature = "flutter")]
+            worker: None,
+            #[cfg(feature = "flutter")]
+            in_flight: HashMap::new(),
+            #[cfg(feature = "flutter")]
+            next_token: 1,
+        }
+    }
+}
+
+#[cfg(feature = "flutter")]
+impl Drop for ScreencopyManager {
+    fn drop(&mut self) {
+        // Source DMA-BUF leases must outlive every worker access. Join the
+        // renderer before Rust drops the in-flight request table and its RAII
+        // leases.
+        if let Some(mut worker) = self.worker.take() {
+            worker.shutdown();
         }
     }
 }
@@ -338,13 +519,12 @@ fn copy_pixels_to_shm(
     Ok(())
 }
 
-fn copy_to_shm(
+fn capture_to_memory(
     renderer: &mut GlesRenderer,
     atlas: &mut Dmabuf,
     atlas_size: Size<i32, Physical>,
     target: CaptureTarget,
-    buffer: &WlBuffer,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<Vec<u8>, Box<dyn Error>> {
     let source = capture_source_rect(target, atlas_size)
         .ok_or_else(|| io::Error::other("capture source is outside the atlas"))?;
 
@@ -356,7 +536,7 @@ fn copy_to_shm(
             Fourcc::Xrgb8888,
         )?;
         let pixels = renderer.map_texture(&mapping)?;
-        return copy_pixels_to_shm(buffer, pixels, target.size);
+        return capture_pixels_to_vec(pixels, target.size);
     }
 
     let texture_size: Size<i32, BufferCoords> = (target.size.w, target.size.h).into();
@@ -400,7 +580,21 @@ fn copy_to_shm(
         Fourcc::Xrgb8888,
     )?;
     let pixels = renderer.map_texture(&mapping)?;
-    copy_pixels_to_shm(buffer, pixels, target.size)
+    capture_pixels_to_vec(pixels, target.size)
+}
+
+fn capture_pixels_to_vec(
+    pixels: &[u8],
+    size: Size<i32, Physical>,
+) -> Result<Vec<u8>, Box<dyn Error>> {
+    let expected = usize::try_from(size.w)?
+        .checked_mul(usize::try_from(size.h)?)
+        .and_then(|pixels| pixels.checked_mul(BYTES_PER_PIXEL as usize))
+        .ok_or_else(|| io::Error::other("capture payload size overflow"))?;
+    if pixels.len() < expected {
+        return Err(io::Error::other("renderer returned a short capture mapping").into());
+    }
+    Ok(pixels[..expected].to_vec())
 }
 
 pub(crate) fn copy_atlas_region_to_memory(
@@ -418,14 +612,7 @@ pub(crate) fn copy_atlas_region_to_memory(
         Fourcc::Xrgb8888,
     )?;
     let pixels = renderer.map_texture(&mapping)?;
-    let expected = usize::try_from(source.size.w)?
-        .checked_mul(usize::try_from(source.size.h)?)
-        .and_then(|pixels| pixels.checked_mul(BYTES_PER_PIXEL as usize))
-        .ok_or_else(|| io::Error::other("capture payload size overflow"))?;
-    if pixels.len() < expected {
-        return Err(io::Error::other("renderer returned a short capture mapping").into());
-    }
-    Ok(pixels[..expected].to_vec())
+    capture_pixels_to_vec(pixels, source.size)
 }
 
 pub(crate) fn compose_output_targets_to_atlas(
@@ -665,6 +852,31 @@ impl WaylandFrontend {
         });
     }
 
+    #[cfg(feature = "flutter")]
+    pub(super) fn init_screencopy_worker(
+        &mut self,
+        renderer: &GlesRenderer,
+    ) -> Result<(), Box<dyn Error>> {
+        if self.screencopy.worker.is_some() {
+            return Ok(());
+        }
+        let context = egl_context::create_screencopy_context(renderer.egl_context())?;
+        let (completion_sender, completion_source) = channel();
+        let worker = CaptureWorker::start(context, completion_sender)?;
+        self.loop_handle.insert_source(
+            completion_source,
+            |event, _, state: &mut RuntimeState| {
+                if let ChannelEvent::Msg(completion) = event
+                    && let Some(frontend) = state.wayland.as_mut()
+                {
+                    frontend.finish_screencopy(completion);
+                }
+            },
+        )?;
+        self.screencopy.worker = Some(worker);
+        Ok(())
+    }
+
     pub(super) fn set_screencopy_dmabuf_formats(&mut self, formats: FormatSet) {
         self.screencopy.dmabuf_formats = formats;
     }
@@ -680,12 +892,13 @@ impl WaylandFrontend {
         self.presentation.monotonic_now()
     }
 
+    #[cfg(feature = "flutter")]
     pub(crate) fn process_screencopies(
         &mut self,
-        renderer: &mut GlesRenderer,
-        output_buffer: &mut Dmabuf,
+        output_buffer: &Dmabuf,
         output: OutputId,
         presented: Duration,
+        mut retain_source: impl FnMut() -> Result<OutputBufferLease, Box<dyn Error>>,
     ) -> Result<(), Box<dyn Error>> {
         let output_size: Size<i32, Physical> = (
             i32::try_from(output_buffer.width())?,
@@ -693,13 +906,15 @@ impl WaylandFrontend {
         )
             .into();
         let mut retained = Vec::with_capacity(self.screencopy.pending.len());
-        let mut copied = 0usize;
-        for mut request in std::mem::take(&mut self.screencopy.pending) {
-            if request.target.output != output || copied >= MAX_COPIES_PER_PRESENTATION {
+        let mut queued = 0usize;
+        for request in std::mem::take(&mut self.screencopy.pending) {
+            if request.target.output != output
+                || queued >= MAX_COPIES_PER_PRESENTATION
+                || self.screencopy.in_flight.len() >= MAX_IN_FLIGHT_SCREENCOPIES
+            {
                 retained.push(request);
                 continue;
             }
-            copied += 1;
             if !request.frame.is_alive() {
                 request.buffer.release();
                 continue;
@@ -710,60 +925,138 @@ impl WaylandFrontend {
             }
 
             // Flutter owns the visible software cursor, so it is already in
-            // the atlas. Keep the request bit for diagnostics until a
+            // the output target. Keep the request bit for diagnostics until a
             // cursor-free Flutter layer can be captured independently.
             let _overlay_cursor = request.target.overlay_cursor;
             let dmabuf = matches!(request.buffer, PendingBuffer::Dmabuf { .. });
-            let result = match &mut request.buffer {
-                PendingBuffer::Shm(buffer) => {
-                    copy_to_shm(renderer, output_buffer, output_size, request.target, buffer)
-                }
-                PendingBuffer::Dmabuf { dmabuf, .. } => {
-                    copy_to_dmabuf(renderer, output_buffer, output_size, request.target, dmabuf)
+            let destination = match &request.buffer {
+                PendingBuffer::Shm(_) => CaptureDestination::Shm,
+                PendingBuffer::Dmabuf { dmabuf, .. } => CaptureDestination::Dmabuf(dmabuf.clone()),
+            };
+            let source_lease = match retain_source() {
+                Ok(lease) => lease,
+                Err(error) => {
+                    request.buffer.release();
+                    request.frame.failed();
+                    warn!(%error, ?output, "could not retain screencopy source buffer");
+                    continue;
                 }
             };
-            request.buffer.release();
-            if let Err(error) = result {
-                warn!(
-                    %error,
-                    ?output,
-                    width = request.target.size.w,
-                    height = request.target.size.h,
-                    "screencopy transfer failed"
-                );
+            let token = self.screencopy.next_token.max(1);
+            self.screencopy.next_token = token.checked_add(1).unwrap_or(1);
+            let job = CaptureJob {
+                token,
+                source: output_buffer.clone(),
+                source_size: output_size,
+                target: request.target,
+                destination,
+            };
+            let Some(worker) = self.screencopy.worker.as_ref() else {
+                request.buffer.release();
                 request.frame.failed();
-                continue;
+                return Err("screencopy transfer worker is unavailable".into());
+            };
+            match worker.try_submit(job) {
+                Ok(()) => {
+                    self.screencopy.in_flight.insert(
+                        token,
+                        InFlightScreencopy {
+                            request,
+                            presented,
+                            dmabuf,
+                            _source_lease: source_lease,
+                            cancelled: false,
+                        },
+                    );
+                    queued += 1;
+                }
+                Err(TrySendError::Full(_)) => retained.push(request),
+                Err(TrySendError::Disconnected(_)) => {
+                    request.buffer.release();
+                    request.frame.failed();
+                    warn!(?output, "screencopy transfer worker stopped unexpectedly");
+                }
             }
-
-            request
-                .frame
-                .flags(zwlr_screencopy_frame_v1::Flags::empty());
-            if request.with_damage {
-                request.frame.damage(
-                    0,
-                    0,
-                    u32::try_from(request.target.size.w).unwrap_or_default(),
-                    u32::try_from(request.target.size.h).unwrap_or_default(),
-                );
-            }
-            let seconds = presented.as_secs();
-            request.frame.ready(
-                (seconds >> 32) as u32,
-                seconds as u32,
-                presented.subsec_nanos(),
-            );
-            debug!(
-                ?output,
-                width = request.target.size.w,
-                height = request.target.size.h,
-                dmabuf,
-                "completed screencopy"
-            );
         }
         retained.append(&mut self.screencopy.pending);
         self.screencopy.pending = retained;
         self.display_handle.flush_clients()?;
         Ok(())
+    }
+
+    #[cfg(feature = "flutter")]
+    fn finish_screencopy(&mut self, completion: CaptureCompletion) {
+        let Some(capture) = self.screencopy.in_flight.remove(&completion.token) else {
+            return;
+        };
+        let request = capture.request;
+        let frame_alive = request.frame.is_alive();
+        let buffer_alive = request.buffer.resource().is_alive();
+        let result = if capture.cancelled {
+            Err("screencopy target was cancelled".to_owned())
+        } else if !frame_alive || !buffer_alive {
+            Err("screencopy client buffer disappeared".to_owned())
+        } else {
+            match (completion.result, &request.buffer) {
+                (Ok(CapturePayload::Shm(pixels)), PendingBuffer::Shm(buffer)) => {
+                    copy_pixels_to_shm(buffer, &pixels, request.target.size)
+                        .map_err(|error| error.to_string())
+                }
+                (Ok(CapturePayload::Dmabuf), PendingBuffer::Dmabuf { .. }) => Ok(()),
+                (Ok(_), _) => Err("screencopy worker returned the wrong buffer kind".to_owned()),
+                (Err(error), _) => Err(error),
+            }
+        };
+        request.buffer.release();
+
+        if frame_alive {
+            match result {
+                Ok(()) => {
+                    request
+                        .frame
+                        .flags(zwlr_screencopy_frame_v1::Flags::empty());
+                    if request.with_damage {
+                        request.frame.damage(
+                            0,
+                            0,
+                            u32::try_from(request.target.size.w).unwrap_or_default(),
+                            u32::try_from(request.target.size.h).unwrap_or_default(),
+                        );
+                    }
+                    let seconds = capture.presented.as_secs();
+                    request.frame.ready(
+                        (seconds >> 32) as u32,
+                        seconds as u32,
+                        capture.presented.subsec_nanos(),
+                    );
+                    debug!(
+                        output = ?request.target.output,
+                        width = request.target.size.w,
+                        height = request.target.size.h,
+                        dmabuf = capture.dmabuf,
+                        transfer_ms = completion.elapsed.as_secs_f64() * 1_000.0,
+                        "completed asynchronous screencopy"
+                    );
+                }
+                Err(error) => {
+                    request.frame.failed();
+                    if !capture.cancelled {
+                        warn!(
+                            %error,
+                            output = ?request.target.output,
+                            width = request.target.size.w,
+                            height = request.target.size.h,
+                            dmabuf = capture.dmabuf,
+                            transfer_ms = completion.elapsed.as_secs_f64() * 1_000.0,
+                            "asynchronous screencopy transfer failed"
+                        );
+                    }
+                }
+            }
+        }
+        if let Err(error) = self.display_handle.flush_clients() {
+            warn!(%error, "failed to flush completed screencopy");
+        }
     }
 
     pub(super) fn fail_screencopies_for_output(&mut self, output: OutputId) {
@@ -779,6 +1072,13 @@ impl WaylandFrontend {
             }
             keep
         });
+        #[cfg(feature = "flutter")]
+        for capture in self.screencopy.in_flight.values_mut() {
+            if capture.request.target.output == output {
+                capture.cancelled = true;
+                failed = true;
+            }
+        }
         if failed && let Err(error) = self.display_handle.flush_clients() {
             warn!(%error, ?output, "failed to flush cancelled screencopy");
         }
@@ -791,6 +1091,10 @@ impl WaylandFrontend {
             if request.frame.is_alive() {
                 request.frame.failed();
             }
+        }
+        #[cfg(feature = "flutter")]
+        for capture in self.screencopy.in_flight.values_mut() {
+            capture.cancelled = true;
         }
         if failed && let Err(error) = self.display_handle.flush_clients() {
             warn!(%error, "failed to flush cancelled screencopies");

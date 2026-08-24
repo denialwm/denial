@@ -128,9 +128,7 @@ use std::path::Path;
 #[cfg(feature = "flutter")]
 use std::path::PathBuf;
 #[cfg(feature = "flutter")]
-use std::sync::atomic::Ordering;
-#[cfg(feature = "flutter")]
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use calloop::signals::{Signal, Signals};
@@ -147,6 +145,7 @@ use smithay::backend::drm::{
     DrmDevice, DrmDeviceFd, DrmEvent, DrmEventTime, DrmSurface, PlaneConfig, PlaneState, VrrSupport,
 };
 use smithay::backend::egl::EGLDisplay;
+use smithay::backend::input::AxisSource;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::{Bind, Color32F, Frame, ImportDma, Renderer};
 use smithay::backend::session::libseat::LibSeatSession;
@@ -175,7 +174,6 @@ use tracing::{debug, error, info, warn};
 use dpms::{
     apply_output_power_requests, collect_output_power_requests, synchronize_idle_dpms,
     synchronize_idle_dpms_configuration, synchronize_requested_dpms_off,
-    transient_dpms_output_removal_count,
 };
 #[cfg(feature = "flutter")]
 use flutter_event_loop::{FlutterEventLoopContext, run_flutter_event_loop};
@@ -229,8 +227,10 @@ use notification_server::NotificationServer;
 use options::{Options, RuntimeLimit, SIMULATED_HOTPLUG_GAP_FRAMES};
 #[cfg(feature = "flutter")]
 use output_control::{
-    ControlEvent, OutputConfirmationAction, OutputControlServer, PendingOutputApply,
-    PendingOutputConfirmation, PendingUiDevelopment,
+    ControlEvent, OutputConfirmationAction, OutputControlFailure, OutputControlServer,
+    PendingOutputApply, PendingOutputConfirmation, PendingSettingsControl, PendingSystemControl,
+    PendingSystemControlWait, PendingUiDevelopment, SettingsControlCommand, ShellControlCommand,
+    SystemControlCommand, SystemControlWaitKind,
 };
 use output_topology::{
     ConnectedConnector, RuntimeOutputConfiguration, configured_outputs, connected_outputs,
@@ -263,10 +263,32 @@ const COLORS: [Color32F; 4] = [
     Color32F::new(0.72, 0.35, 0.96, 1.0),
 ];
 
+const WHEEL_ANGLE_PER_STEP: f64 = 15.0;
+const V120_UNITS_PER_WHEEL_STEP: f64 = 120.0;
+
+/// Returns the logical axis distance delivered to a Wayland application.
+///
+/// Libinput normally supplies both a physical wheel angle and a normalized
+/// v120 value. Prefer the native amount, using v120 only for backends which do
+/// not provide one, and apply Denial's touchpad speed setting only to finger
+/// scrolling.
+fn logical_axis_scroll_delta(
+    source: AxisSource,
+    amount: Option<f64>,
+    v120: Option<f64>,
+    scroll_speed_factor: f64,
+) -> f64 {
+    let amount = amount
+        .unwrap_or_else(|| v120.unwrap_or(0.0) * WHEEL_ANGLE_PER_STEP / V120_UNITS_PER_WHEEL_STEP);
+    if source == AxisSource::Finger {
+        amount * scroll_speed_factor
+    } else {
+        amount
+    }
+}
+
 #[cfg(feature = "flutter")]
 const NOTIFICATION_EVENT_QUEUE_CAPACITY: usize = 512;
-#[cfg(feature = "flutter")]
-const DPMS_WAKE_TOPOLOGY_GRACE: Duration = Duration::from_secs(5);
 #[cfg(feature = "flutter")]
 const KMS_PRESENTATION_RECOVERY_RETRY: Duration = Duration::from_millis(250);
 #[cfg(feature = "flutter")]
@@ -314,9 +336,10 @@ fn denial_main() -> Result<(), Box<dyn Error>> {
     }
 
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "denial_kms=info,smithay=info".into()),
+                .unwrap_or_else(|_| "deniald=info,smithay=info".into()),
         )
         .init();
 

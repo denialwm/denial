@@ -928,7 +928,7 @@ impl SeatHandler for RuntimeState {
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
         let frontend = self.wayland.as_mut().expect("missing Wayland frontend");
         #[cfg(feature = "flutter")]
-        frontend.update_cursor_image(image);
+        frontend.update_tablet_cursor_image(image);
         #[cfg(not(feature = "flutter"))]
         {
             frontend.cursor_status = image;
@@ -991,10 +991,24 @@ impl SeatHandler for RuntimeState {
     }
 }
 
-// wp_cursor_shape_manager_v1 shares its dispatcher with tablet cursor
-// shapes.  Denial does not advertise tablet seats yet, so the default inert
-// callback is sufficient while enabling named pointer cursors.
-impl TabletSeatHandler for RuntimeState {}
+// wp_cursor_shape_manager_v1 shares its dispatcher with tablet cursor shapes.
+// Keep tablet-tool cursor requests on the same software-cursor path used by
+// client pointer cursors so Flutter can publish them with the scene.
+impl TabletSeatHandler for RuntimeState {
+    fn tablet_tool_image(
+        &mut self,
+        _tool: &smithay::backend::input::TabletToolDescriptor,
+        image: CursorImageStatus,
+    ) {
+        let frontend = self.wayland.as_mut().expect("missing Wayland frontend");
+        #[cfg(feature = "flutter")]
+        frontend.update_cursor_image(image);
+        #[cfg(not(feature = "flutter"))]
+        {
+            frontend.cursor_status = image;
+        }
+    }
+}
 
 impl PointerConstraintsHandler for RuntimeState {
     fn new_constraint(&mut self, surface: &WlSurface, pointer: &PointerHandle<Self>) {

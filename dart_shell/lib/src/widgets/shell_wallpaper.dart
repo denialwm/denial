@@ -60,7 +60,7 @@ class ShellWallpaper extends ConsumerWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                _WallpaperScene(
+                WallpaperScene(
                   assignment: wallpaper.assignment,
                   outputs: outputs,
                   spanRect: spanRect,
@@ -82,13 +82,10 @@ class ShellWallpaper extends ConsumerWidget {
                           progress: progress,
                         ),
                         clipBehavior: Clip.antiAlias,
-                        child: Transform.scale(
-                          scale: 1.0 + 0.035 * progress,
-                          child: child,
-                        ),
+                        child: child,
                       );
                     },
-                    child: _WallpaperScene(
+                    child: WallpaperScene(
                       assignment: outgoing,
                       outputs: outputs,
                       spanRect: spanRect,
@@ -147,8 +144,9 @@ class ShellWallpaper extends ConsumerWidget {
   }
 }
 
-class _WallpaperScene extends StatelessWidget {
-  const _WallpaperScene({
+class WallpaperScene extends StatelessWidget {
+  const WallpaperScene({
+    super.key,
     required this.assignment,
     required this.outputs,
     required this.spanRect,
@@ -165,31 +163,32 @@ class _WallpaperScene extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        Positioned.fromRect(
-          rect: spanRect,
-          child: _WallpaperImage(
-            resource: assignment.all,
-            targetPixelSize: spanPixelSize,
-            alignment: Alignment(
-              assignment.spanAlignment.x,
-              assignment.spanAlignment.y,
-            ),
-          ),
-        ),
-        for (final output in outputs)
-          if (assignment.outputOverrides.containsKey(output.name) ||
-              assignment.outputAlignmentOverrides.containsKey(output.name))
-            Positioned.fromRect(
-              rect: output.logicalRect,
-              child: _WallpaperImage(
-                resource: assignment.forOutput(output.name),
-                targetPixelSize: output.pixelSize,
-                alignment: Alignment(
-                  assignment.alignmentForOutput(output.name).x,
-                  assignment.alignmentForOutput(output.name).y,
-                ),
+        if (outputs.isEmpty)
+          Positioned.fromRect(
+            rect: spanRect,
+            child: _WallpaperImage(
+              key: const ValueKey<String>('wallpaper-image-fallback'),
+              resource: assignment.all,
+              targetPixelSize: spanPixelSize,
+              alignment: Alignment(
+                assignment.spanAlignment.x,
+                assignment.spanAlignment.y,
               ),
             ),
+          ),
+        for (final output in outputs)
+          Positioned.fromRect(
+            rect: output.logicalRect,
+            child: _WallpaperImage(
+              key: ValueKey<String>('wallpaper-image-output-${output.name}'),
+              resource: assignment.forOutput(output.name),
+              targetPixelSize: output.pixelSize,
+              alignment: Alignment(
+                assignment.alignmentForOutput(output.name).x,
+                assignment.alignmentForOutput(output.name).y,
+              ),
+            ),
+          ),
         if (outputs.isEmpty && assignment.allDarkness > 0.0)
           Positioned.fromRect(
             rect: spanRect,
@@ -229,6 +228,7 @@ class _WallpaperDarknessLayer extends StatelessWidget {
 
 class _WallpaperImage extends StatelessWidget {
   const _WallpaperImage({
+    super.key,
     required this.resource,
     required this.targetPixelSize,
     this.alignment = Alignment.center,
@@ -274,27 +274,12 @@ class _ExpandingWallpaperHoleClipper extends CustomClipper<Path> {
 
   @override
   Path getClip(Size size) {
-    final bounds = targetRect.intersect(Offset.zero & size);
-    final safeOrigin = Offset(
-      bounds.left +
-          (originFraction.dx.clamp(0.0, 1.0) * bounds.width).toDouble(),
-      bounds.top +
-          (originFraction.dy.clamp(0.0, 1.0) * bounds.height).toDouble(),
+    return wallpaperRevealClipPath(
+      size: size,
+      targetRect: targetRect,
+      originFraction: originFraction,
+      progress: progress,
     );
-    final farthestX = math.max(
-      safeOrigin.dx - bounds.left,
-      bounds.right - safeOrigin.dx,
-    );
-    final farthestY = math.max(
-      safeOrigin.dy - bounds.top,
-      bounds.bottom - safeOrigin.dy,
-    );
-    final radius =
-        math.sqrt(farthestX * farthestX + farthestY * farthestY) * progress;
-    return Path()
-      ..fillType = PathFillType.evenOdd
-      ..addRect(bounds)
-      ..addOval(Rect.fromCircle(center: safeOrigin, radius: radius));
   }
 
   @override
@@ -303,4 +288,38 @@ class _ExpandingWallpaperHoleClipper extends CustomClipper<Path> {
         oldClipper.originFraction != originFraction ||
         oldClipper.progress != progress;
   }
+}
+
+/// The outgoing wallpaper outside the growing reveal circle, strictly clipped
+/// to the output being changed.
+Path wallpaperRevealClipPath({
+  required Size size,
+  required Rect targetRect,
+  required Offset originFraction,
+  required double progress,
+}) {
+  final bounds = targetRect.intersect(Offset.zero & size);
+  if (bounds.isEmpty) {
+    return Path();
+  }
+  final safeOrigin = Offset(
+    bounds.left + (originFraction.dx.clamp(0.0, 1.0) * bounds.width).toDouble(),
+    bounds.top + (originFraction.dy.clamp(0.0, 1.0) * bounds.height).toDouble(),
+  );
+  final farthestX = math.max(
+    safeOrigin.dx - bounds.left,
+    bounds.right - safeOrigin.dx,
+  );
+  final farthestY = math.max(
+    safeOrigin.dy - bounds.top,
+    bounds.bottom - safeOrigin.dy,
+  );
+  final radius =
+      math.sqrt(farthestX * farthestX + farthestY * farthestY) *
+      progress.clamp(0.0, 1.0);
+  return Path.combine(
+    PathOperation.difference,
+    Path()..addRect(bounds),
+    Path()..addOval(Rect.fromCircle(center: safeOrigin, radius: radius)),
+  );
 }

@@ -42,11 +42,11 @@ void main() {
     },
   );
 
-  test('malformed native documents fall back without throwing', () async {
+  test('malformed native documents are reported to the controller', () async {
     final transport = _MemorySettingsTransport()..document = '{ not JSON';
     final store = NativeSettingsStore(transport);
 
-    expect(await store.read(), isNull);
+    await expectLater(store.read(), throwsFormatException);
   });
 }
 

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/generated/app_localizations.dart';
 import '../../localization/denial_localizations.dart';
 import '../../settings/shell_settings.dart';
+import '../../theme/backdrop_blur_level.dart';
 import '../../theme/cursor_themes.dart';
 import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
@@ -40,7 +42,7 @@ class SettingsAppearancePage extends StatelessWidget {
     required this.onPanelRadiusChanged,
     required this.onPanelOpacityChanged,
     required this.onBackdropBlurEnabledChanged,
-    required this.onBackdropBlurSigmaChanged,
+    required this.onBackdropBlurLevelChanged,
     required this.onBackdropBlurOpacityThresholdChanged,
     required this.onFocusedOpacityChanged,
     required this.onUnfocusedOpacityChanged,
@@ -59,7 +61,7 @@ class SettingsAppearancePage extends StatelessWidget {
   final ValueChanged<double> onPanelRadiusChanged;
   final ValueChanged<double> onPanelOpacityChanged;
   final ValueChanged<bool> onBackdropBlurEnabledChanged;
-  final ValueChanged<double> onBackdropBlurSigmaChanged;
+  final ValueChanged<ShellBackdropBlurLevel> onBackdropBlurLevelChanged;
   final ValueChanged<double> onBackdropBlurOpacityThresholdChanged;
   final ValueChanged<double> onFocusedOpacityChanged;
   final ValueChanged<double> onUnfocusedOpacityChanged;
@@ -141,15 +143,18 @@ class SettingsAppearancePage extends StatelessWidget {
                   SettingsSlider(
                     key: settingsBackdropBlurSliderKey,
                     label: l10n.settingsBackdropBlurIntensity,
-                    value: settings.backdropBlurSigma,
-                    minimum: 4,
-                    maximum: 32,
-                    divisions: 28,
+                    value: settings.backdropBlurLevel.index.toDouble(),
+                    minimum: 0,
+                    maximum: ShellBackdropBlurLevel.values.length - 1,
+                    divisions: ShellBackdropBlurLevel.values.length - 1,
                     enabled: settings.backdropBlurEnabled,
-                    valueLabel: l10n.settingsPixels(
-                      settings.backdropBlurSigma.round(),
+                    valueLabel: _backdropBlurLevelLabel(
+                      l10n,
+                      settings.backdropBlurLevel,
                     ),
-                    onChanged: onBackdropBlurSigmaChanged,
+                    onChanged: (value) => onBackdropBlurLevelChanged(
+                      ShellBackdropBlurLevel.values[value.round()],
+                    ),
                   ),
                   const SizedBox(height: 8),
                   SettingsSlider(
@@ -260,6 +265,18 @@ class SettingsAppearancePage extends StatelessWidget {
       ],
     );
   }
+}
+
+String _backdropBlurLevelLabel(
+  AppLocalizations l10n,
+  ShellBackdropBlurLevel level,
+) {
+  return switch (level) {
+    ShellBackdropBlurLevel.shitty => l10n.settingsBackdropBlurLevelShitty,
+    ShellBackdropBlurLevel.fast => l10n.settingsBackdropBlurLevelFast,
+    ShellBackdropBlurLevel.good => l10n.settingsBackdropBlurLevelGood,
+    ShellBackdropBlurLevel.best => l10n.settingsBackdropBlurLevelBest,
+  };
 }
 
 class _WallpaperThumbnail extends StatelessWidget {

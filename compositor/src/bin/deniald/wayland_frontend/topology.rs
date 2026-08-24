@@ -222,6 +222,7 @@ impl WaylandFrontend {
                 configure_output(&existing.output, spec)?;
                 self.space
                     .map_output(&existing.output, (spec.position.x, spec.position.y));
+                existing.transform = spec.transform;
                 existing.logical_geometry = output_logical_bounds(spec);
                 existing.capture_source = capture_source;
                 existing.capture_size = capture_size;
@@ -246,6 +247,7 @@ impl WaylandFrontend {
             self.outputs.push(WaylandOutput {
                 id: spec.id,
                 connector: spec.name.clone(),
+                transform: spec.transform,
                 output,
                 global,
                 logical_geometry: output_logical_bounds(spec),

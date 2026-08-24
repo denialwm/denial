@@ -16,6 +16,7 @@ Requires:       coreutils
 Requires:       dbus
 Requires:       denial-flutter-engine = 1:%{version}-%{release}
 Requires:       glibc >= %{glibc_baseline}
+Requires:       gtk3
 Requires:       libEGL.so.1()(64bit)
 Requires:       libpam.so.0()(64bit)
 Requires:       libpulse.so.0()(64bit)
@@ -69,6 +70,7 @@ cp -a -- %{engine_payload}/. %{buildroot}/
 test -x %{buildroot}/usr/bin/deniald
 test -x %{buildroot}/usr/bin/denialctl
 test -x %{buildroot}/usr/bin/denial-session
+test -x %{buildroot}/usr/bin/denial-settings
 test -f %{buildroot}/usr/lib/denial/flutter/lib/libapp.so
 test -f %{buildroot}/usr/lib/denial/flutter/lib/libflutter_engine.so
 
@@ -95,10 +97,12 @@ fi
 %config(noreplace) /etc/denial/session.conf
 %config(noreplace) /etc/xdg/xdg-desktop-portal-wlr/Denial
 /usr/bin/denial-session
+/usr/bin/denial-settings
 /usr/bin/denialctl
 /usr/bin/deniald
 /usr/lib/denial/flutter/data/flutter_assets
 /usr/lib/denial/flutter/lib/libapp.so
+/usr/lib/denial/settings
 /usr/lib/systemd/user/denial-session.target
 /usr/share/doc/denial
 %license /usr/share/licenses/denial/*
@@ -106,6 +110,7 @@ fi
 /usr/share/man/man1/denialctl.1.gz
 /usr/share/man/man1/deniald.1.gz
 /usr/share/wayland-sessions/denial.desktop
+/usr/share/applications/dev.denial.Settings.desktop
 /usr/share/xdg-desktop-portal/denial-portals.conf
 %{?runtime_version_path:%{runtime_version_path}}
 

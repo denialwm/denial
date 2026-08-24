@@ -245,10 +245,11 @@ fn version_is_a_terminal_command() {
 #[test]
 fn output_config_accepts_positions_and_optional_refresh_rates() {
     let config = parse_output_config(
-        "# physical desk profile\nDP-5 = 0, 0, 200\nDP-4=2560,-120 # raised display\nvrr=DP-4\ndisabled=HDMI-A-1\n",
+        "# physical desk profile\nprimary=eDP-1\nDP-5 = 0, 0, 200\nDP-4=2560,-120 # raised display\nvrr=DP-4\ndisabled=HDMI-A-1\n",
     )
     .expect("valid output config");
 
+    assert_eq!(config.primary_output.as_deref(), Some("eDP-1"));
     assert_eq!(config.positions.len(), 2);
     assert_eq!(config.positions["DP-5"], LogicalPoint::new(0, 0));
     assert_eq!(config.positions["DP-4"], LogicalPoint::new(2560, -120));
@@ -300,6 +301,17 @@ fn output_config_accepts_every_wayland_transform_and_rejects_duplicates() {
 }
 
 #[test]
+fn output_config_rejects_duplicate_or_invalid_primary_outputs() {
+    let duplicate = parse_output_config("primary=eDP-1\nprimary=DP-1\n")
+        .expect_err("duplicate primary output must fail");
+    assert!(duplicate.contains("duplicate primary entry"));
+
+    let invalid = parse_output_config("primary=bad,name\n")
+        .expect_err("unrepresentable primary output must fail");
+    assert!(invalid.contains("cannot be represented"));
+}
+
+#[test]
 fn persistent_render_replaces_connected_outputs_and_preserves_other_settings() {
     let original = "\
 # hand tuned
@@ -310,11 +322,13 @@ disabled=DP-5
 HDMI-A-1=3840,0
 mode=HDMI-A-1,1920,1080,60000
 scale=HDMI-A-1,1.5
+primary=HDMI-A-1
 system_bar=top,36,DP-5
 maximize_padding=14
 ";
-    let rendered = render_persisted_output_config(original, &[persisted_output("DP-5")])
-        .expect("render persistent output config");
+    let rendered =
+        render_persisted_output_config(original, &[persisted_output("DP-5")], Some("DP-5"))
+            .expect("render persistent output config");
     let parsed = parse_output_config(&rendered).expect("generated config parses");
 
     assert!(rendered.contains("# hand tuned"));
@@ -323,6 +337,14 @@ maximize_padding=14
     assert!(rendered.contains("system_bar=top,36,DP-5"));
     assert!(rendered.contains("maximize_padding=14"));
     assert!(rendered.contains(MANAGED_OUTPUT_CONFIG_HEADER));
+    assert_eq!(parsed.primary_output.as_deref(), Some("DP-5"));
+    assert_eq!(
+        rendered
+            .lines()
+            .filter(|line| line.starts_with("primary="))
+            .count(),
+        1
+    );
     assert_eq!(parsed.positions["DP-5"], LogicalPoint::new(32, -16));
     assert_eq!(parsed.mode_sizes["DP-5"], (2560, 1440));
     assert_eq!(parsed.refresh_millihz["DP-5"], 199_998);
@@ -347,8 +369,9 @@ fn persistent_output_config_is_prepared_then_atomically_committed() {
         .expect("set original permissions");
     let before = fs::read_to_string(&config.path).expect("read original config");
 
-    let prepared = prepare_output_config_persistence(&config.path, &[persisted_output("DP-5")])
-        .expect("prepare persistent config");
+    let prepared =
+        prepare_output_config_persistence(&config.path, &[persisted_output("DP-5")], Some("DP-5"))
+            .expect("prepare persistent config");
     assert_eq!(
         fs::read_to_string(&config.path).expect("target remains readable"),
         before,
@@ -358,6 +381,7 @@ fn persistent_output_config_is_prepared_then_atomically_committed() {
     prepared.commit().expect("commit persistent config");
     let updated = fs::read_to_string(&config.path).expect("read committed config");
     let parsed = parse_output_config(&updated).expect("committed config parses");
+    assert_eq!(parsed.primary_output.as_deref(), Some("DP-5"));
     assert_eq!(parsed.mode_sizes["DP-5"], (2560, 1440));
     assert_eq!(
         fs::metadata(&config.path)
@@ -372,8 +396,9 @@ fn persistent_output_config_is_prepared_then_atomically_committed() {
 #[test]
 fn persistent_commit_refuses_a_concurrent_edit() {
     let config = TemporaryOutputConfig::new("DP-5=0,0,200\n");
-    let prepared = prepare_output_config_persistence(&config.path, &[persisted_output("DP-5")])
-        .expect("prepare persistent config");
+    let prepared =
+        prepare_output_config_persistence(&config.path, &[persisted_output("DP-5")], None)
+            .expect("prepare persistent config");
     fs::write(&config.path, "DP-5=99,77,60\n").expect("simulate concurrent edit");
 
     let error = prepared
@@ -395,7 +420,7 @@ fn persistent_prepare_refuses_a_symlink_target() {
     fs::remove_file(&link.path).expect("replace temporary file with a symlink");
     symlink(&target.path, &link.path).expect("create output config symlink");
 
-    let error = prepare_output_config_persistence(&link.path, &[persisted_output("DP-5")])
+    let error = prepare_output_config_persistence(&link.path, &[persisted_output("DP-5")], None)
         .expect_err("symlinked config must be rejected");
     assert!(error.contains("refusing to replace symlinked"));
 }

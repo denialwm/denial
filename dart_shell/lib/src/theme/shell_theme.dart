@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 
+import 'backdrop_blur_level.dart';
 import 'tokens.dart';
 
 @immutable
@@ -56,7 +57,7 @@ class ShellThemeData {
     this.panelRadius = ShellRadii.panel,
     this.panelOpacity = ShellOpacity.panel,
     this.backdropBlurEnabled = true,
-    this.backdropBlurSigma = 18,
+    this.backdropBlurLevel = ShellBackdropBlurLevel.fast,
     this.backdropBlurOpacityThreshold = 0.05,
     this.focusedWindowOpacity = 1,
     this.unfocusedWindowOpacity = 1,
@@ -67,10 +68,14 @@ class ShellThemeData {
   final double panelRadius;
   final double panelOpacity;
   final bool backdropBlurEnabled;
-  final double backdropBlurSigma;
+  final ShellBackdropBlurLevel backdropBlurLevel;
   final double backdropBlurOpacityThreshold;
   final double focusedWindowOpacity;
   final double unfocusedWindowOpacity;
+
+  double get backdropBlurSigma => backdropBlurLevel.sigma;
+
+  double get backdropBlurDownsampleScale => backdropBlurLevel.downsampleScale;
 
   ShellAccentPalette get accentPalette => ShellAccentPalette.from(accent);
 
@@ -84,7 +89,7 @@ class ShellThemeData {
         other.panelRadius == panelRadius &&
         other.panelOpacity == panelOpacity &&
         other.backdropBlurEnabled == backdropBlurEnabled &&
-        other.backdropBlurSigma == backdropBlurSigma &&
+        other.backdropBlurLevel == backdropBlurLevel &&
         other.backdropBlurOpacityThreshold == backdropBlurOpacityThreshold &&
         other.focusedWindowOpacity == focusedWindowOpacity &&
         other.unfocusedWindowOpacity == unfocusedWindowOpacity;
@@ -97,7 +102,7 @@ class ShellThemeData {
     panelRadius,
     panelOpacity,
     backdropBlurEnabled,
-    backdropBlurSigma,
+    backdropBlurLevel,
     backdropBlurOpacityThreshold,
     focusedWindowOpacity,
     unfocusedWindowOpacity,

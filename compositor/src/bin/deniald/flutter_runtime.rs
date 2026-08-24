@@ -96,9 +96,9 @@ use event_pipeline::{
     CoalescedInbox, CoalescedWakeup, PendingPlatformTask, PlatformTaskBudget, PlatformTaskPermit,
 };
 pub use input::InputQueue;
-use input::{InputRecord, KeyboardRecord, glfw_keycode};
+use input::{InputRecord, KeyboardRecord, flutter_physical_scroll_delta, glfw_keycode};
 #[cfg(test)]
-use input::{PointerRecord, flutter_scroll_delta, push_bounded_input};
+use input::{PointerRecord, flutter_application_scroll_delta, push_bounded_input};
 pub use output_pipeline::ReadyOutputFrame;
 #[cfg(test)]
 use output_pipeline::{BufferState, OutputBufferPool};
@@ -106,7 +106,7 @@ use output_pipeline::{
     OutputBufferBroker, OutputPoolDescriptor, PendingVsyncBatons, RenderTargetBlocked,
     VsyncRegistration,
 };
-use render_audit::RenderDamageAudit;
+use render_audit::{RenderAuditStage, RenderDamageAudit};
 pub use renderer::SampledBufferHoldBatch;
 #[cfg(test)]
 use renderer::{
@@ -476,12 +476,30 @@ pub struct FlutterRuntime {
     pending_frame_texture_ids: Vec<i64>,
     pointer_event_scratch: Vec<sys::FlutterPointerEvent>,
     key_event_scratch: Vec<u8>,
+    device_pixel_ratio: f64,
     frame_interval: Duration,
     kms_frame_clock_enabled: bool,
     outputs_visible: Option<bool>,
     published_text_input_state: Option<(bool, bool, bool, u32, u32, u64)>,
     frame_ready_observed: bool,
     last_pointer_timestamp_micros: usize,
+}
+
+/// Keeps one published physical-output target unavailable to Flutter while an
+/// asynchronous compositor consumer still reads it. The lease owns the exact
+/// renderer generation which published the slot, so a topology-driven Flutter
+/// restart cannot redirect its eventual release into a replacement pool.
+pub(super) struct OutputBufferLease {
+    handler: Arc<FlutterGlHandler>,
+    output: OutputId,
+    index: usize,
+}
+
+impl Drop for OutputBufferLease {
+    fn drop(&mut self) {
+        let released = self.handler.release_output(self.output, self.index);
+        debug_assert!(released.is_ok(), "asynchronous output lease lost its owner");
+    }
 }
 
 fn encode_key_event(event: KeyboardRecord, output: &mut Vec<u8>) {

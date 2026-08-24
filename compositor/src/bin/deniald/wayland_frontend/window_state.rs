@@ -556,6 +556,11 @@ impl WaylandFrontend {
         });
         #[cfg(feature = "flutter")]
         if let Some(root_surface) = self.window_root_surface(window) {
+            if let Some(window_id) = self.surface_id(&root_surface) {
+                self.input_root_ids.insert(root_surface.id(), window_id);
+            } else {
+                self.input_root_ids.remove(&root_surface.id());
+            }
             self.output_window_membership
                 .update(root_surface.id(), window.clone(), output);
         }
@@ -563,16 +568,23 @@ impl WaylandFrontend {
 
     #[cfg(feature = "flutter")]
     pub(super) fn remove_window_output_membership(&mut self, surface: &WlSurface) {
+        self.input_root_ids.remove(&surface.id());
         self.output_window_membership.remove(&surface.id());
     }
 
     pub(super) fn rebuild_window_output_membership(&mut self) {
         #[cfg(feature = "flutter")]
-        self.output_window_membership.clear();
-        let windows = self.space.elements().cloned().collect::<Vec<_>>();
-        for window in windows {
-            self.update_window_output_membership(&window);
+        {
+            self.input_root_ids.clear();
+            self.output_window_membership.clear();
         }
+        let mut windows = std::mem::take(&mut self.window_membership_scratch);
+        windows.clear();
+        windows.extend(self.space.elements().cloned());
+        for window in &windows {
+            self.update_window_output_membership(window);
+        }
+        self.window_membership_scratch = windows;
     }
 
     pub(crate) fn set_window_geometry_target(

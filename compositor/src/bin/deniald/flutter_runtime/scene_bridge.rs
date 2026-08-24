@@ -5,6 +5,7 @@ use super::*;
 impl FlutterRuntime {
     pub fn sync_wayland_scene(
         &mut self,
+        metadata_revision: u64,
         windows: Vec<wire::WindowDescription>,
         mut frames: Vec<ExternalTextureFrame>,
         restored_window_ids: &BTreeSet<u64>,
@@ -50,7 +51,8 @@ impl FlutterRuntime {
                 .expect("Flutter runtime is shutting down")
                 .engine();
             let (update, recycled_windows) =
-                self.wire.update_windows(windows, restored_window_ids)?;
+                self.wire
+                    .update_windows(metadata_revision, windows, restored_window_ids)?;
             let changed = if let Some(update) = update {
                 engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, update)?;
                 true

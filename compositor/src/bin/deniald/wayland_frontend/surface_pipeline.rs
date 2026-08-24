@@ -236,6 +236,9 @@ impl WaylandFrontend {
             return Ok(());
         }
 
+        #[cfg(feature = "flutter")]
+        self.init_screencopy_worker(renderer)?;
+
         let render_node = match EGLDevice::device_for_display(renderer.egl_context().display())
             .and_then(|device| device.try_get_render_node())
         {
@@ -1168,17 +1171,6 @@ impl WaylandFrontend {
         let routing_changed = input_routing_changed(self.input_layout.as_ref(), &layout);
         let visibility_changed = input_visibility_changed(self.input_layout.as_ref(), &layout);
         if visibility_changed {
-            let mut root_ids = std::mem::take(&mut self.input_root_ids_scratch);
-            root_ids.clear();
-            for window in self.space.elements() {
-                let Some(root) = self.window_root_surface(window) else {
-                    continue;
-                };
-                if let Some(window_id) = self.surface_id(&root) {
-                    root_ids.insert(root.id(), window_id);
-                }
-            }
-
             let mut visible_window_ids = std::mem::take(&mut self.visible_window_ids);
             visible_window_ids.clear();
             for surface_id in &layout.visible_surface_ids {
@@ -1186,11 +1178,10 @@ impl WaylandFrontend {
                     continue;
                 };
                 let root = self.toplevel_candidate_surface(surface);
-                if let Some(window_id) = root_ids.get(&root.id()).copied() {
+                if let Some(window_id) = self.input_root_ids.get(&root.id()).copied() {
                     visible_window_ids.insert(window_id);
                 }
             }
-            self.input_root_ids_scratch = root_ids;
             self.visible_window_ids = visible_window_ids;
             self.invalidate_idle_inhibition();
         }

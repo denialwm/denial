@@ -84,6 +84,7 @@ pub(super) fn render_blank_output_swapchains(
             .get_mut(pool.current)
             .ok_or("physical output's initial scanout index exceeds its pool")?;
         render_blank_target(renderer, &mut buffer.dmabuf, pool.size)?;
+        render_blank_target(renderer, &mut pool.blank.dmabuf, pool.size)?;
     }
     Ok(())
 }

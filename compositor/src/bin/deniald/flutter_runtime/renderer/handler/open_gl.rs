@@ -2,10 +2,48 @@
 
 use super::*;
 
+struct RenderAuditCallbackTimer<'a> {
+    audit: Option<&'a Mutex<RenderDamageAudit>>,
+    stage: RenderAuditStage,
+    started_at: Option<Instant>,
+}
+
+impl<'a> RenderAuditCallbackTimer<'a> {
+    fn new(audit: Option<&'a Mutex<RenderDamageAudit>>, stage: RenderAuditStage) -> Self {
+        Self {
+            audit,
+            stage,
+            started_at: audit.map(|_| Instant::now()),
+        }
+    }
+
+    fn started_at(&self) -> Option<Instant> {
+        self.started_at
+    }
+}
+
+impl Drop for RenderAuditCallbackTimer<'_> {
+    fn drop(&mut self) {
+        if let (Some(audit), Some(started_at)) = (self.audit, self.started_at) {
+            lock(audit).record_stage(self.stage, started_at.elapsed());
+        }
+    }
+}
+
 impl OpenGlHandler for FlutterGlHandler {
     fn make_current(&self) -> bool {
+        let _audit_timer = RenderAuditCallbackTimer::new(
+            self.render_audit.as_ref(),
+            RenderAuditStage::ContextMakeCurrent,
+        );
         let current = lock(&self.render_context).make_current();
+        if current {
+            self.collect_gpu_timings();
+        }
         if current && self.begin_raster_frame() {
+            if let Some(audit) = &self.render_audit {
+                lock(audit).record_raster_start(Instant::now());
+            }
             debug_assert!(lock(&self.sampled_buffer_release_fence).is_none());
             lock(&self.broker).begin_transaction();
         }
@@ -21,6 +59,13 @@ impl OpenGlHandler for FlutterGlHandler {
     }
 
     fn raster_idle(&self) {
+        let audit_timer = RenderAuditCallbackTimer::new(
+            self.render_audit.as_ref(),
+            RenderAuditStage::RasterIdleCallback,
+        );
+        if let (Some(audit), Some(started_at)) = (&self.render_audit, audit_timer.started_at()) {
+            lock(audit).record_raster_idle(started_at);
+        }
         // The host posts this sentinel behind Flutter's current render work.
         // If present() already sealed the transaction this is idempotent; if
         // the transaction had no present callback it supplies the missing
@@ -84,6 +129,10 @@ impl OpenGlHandler for FlutterGlHandler {
     }
 
     fn create_backing_store(&self, request: BackingStoreRequest) -> Option<CompositorBackingStore> {
+        let _audit_timer = RenderAuditCallbackTimer::new(
+            self.render_audit.as_ref(),
+            RenderAuditStage::BackingStore,
+        );
         let size = PixelSize::new(
             u32::try_from(request.width).ok()?,
             u32::try_from(request.height).ok()?,
@@ -113,6 +162,9 @@ impl OpenGlHandler for FlutterGlHandler {
         unsafe {
             (self.gl.bind_framebuffer)(gl::FRAMEBUFFER, framebuffer);
             (self.gl.viewport)(0, 0, size.width as i32, size.height as i32);
+        }
+        if let Some(gpu_timing) = &self.gpu_timing {
+            lock(gpu_timing).begin(framebuffer);
         }
         Some(CompositorBackingStore {
             framebuffer,
@@ -215,14 +267,24 @@ impl OpenGlHandler for FlutterGlHandler {
         }
         let view_id = pending.view_id;
         let framebuffer = pending.framebuffer;
+        let _audit_timer = RenderAuditCallbackTimer::new(
+            self.render_audit.as_ref(),
+            RenderAuditStage::PresentCallback,
+        );
         self.begin_present();
-        (|| {
+        let presented = (|| {
             // Surface removal and cache eviction can happen on the platform
             // thread, where issuing GL/EGL destruction calls is forbidden. A
             // raster present owns the render context, so reclaim those queued
             // resources even when no further external texture is populated.
             self.destroy_retired_external_bindings();
+            if let Some(gpu_timing) = &self.gpu_timing {
+                lock(gpu_timing).mark_flutter_complete(framebuffer);
+            }
             if !self.blit_to_scanout(framebuffer) {
+                if let Some(gpu_timing) = &self.gpu_timing {
+                    lock(gpu_timing).finish(framebuffer);
+                }
                 let sampled = self.seal_sampled_buffers();
                 // A failed copy cannot produce a KMS fence. Finish Flutter's
                 // sampling before releasing client buffers, then let the next
@@ -231,6 +293,9 @@ impl OpenGlHandler for FlutterGlHandler {
                 unsafe { (self.gl.finish)() };
                 let _ = self.publish_sampled_buffer_release(None, sampled);
                 return false;
+            }
+            if let Some(gpu_timing) = &self.gpu_timing {
+                lock(gpu_timing).finish(framebuffer);
             }
             let context = lock(&self.render_context);
             let fence = match EGLFence::create(context.context.display()) {
@@ -326,10 +391,18 @@ impl OpenGlHandler for FlutterGlHandler {
                 return false;
             }
             true
-        })()
+        })();
+        if presented && let Some(audit) = &self.render_audit {
+            lock(audit).record_output_ready(Instant::now());
+        }
+        presented
     }
 
     fn populate_existing_damage(&self, framebuffer: isize, damage: &mut Vec<sys::FlutterRect>) {
+        let _audit_timer = RenderAuditCallbackTimer::new(
+            self.render_audit.as_ref(),
+            RenderAuditStage::ExistingDamage,
+        );
         if framebuffer == 0 {
             return;
         }
@@ -373,6 +446,10 @@ impl OpenGlHandler for FlutterGlHandler {
         _height: usize,
         texture: &mut sys::FlutterOpenGLTexture,
     ) -> bool {
+        let _audit_timer = RenderAuditCallbackTimer::new(
+            self.render_audit.as_ref(),
+            RenderAuditStage::ExternalTexture,
+        );
         let prepared = lock(&self.prepared_external_texture).take();
         if let Some(prepared) = prepared {
             if prepared.texture_id != texture_id {
@@ -798,5 +875,27 @@ impl OpenGlHandler for FlutterGlHandler {
             generation: self.generation,
             uri: uri.to_owned(),
         });
+    }
+}
+
+impl FlutterGlHandler {
+    fn collect_gpu_timings(&self) {
+        let Some(gpu_timing) = &self.gpu_timing else {
+            return;
+        };
+        let update = lock(gpu_timing).poll();
+        if let Some(audit) = &self.render_audit {
+            let completed = update
+                .completed
+                .into_iter()
+                .map(|timing| (timing.flutter, timing.scanout_blit, timing.frame))
+                .collect();
+            lock(audit).record_gpu_timing(
+                completed,
+                update.disjoint,
+                update.abandoned,
+                update.pending,
+            );
+        }
     }
 }

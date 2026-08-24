@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 
 void main() {
-  test('main output follows the explicitly configured shell output', () {
+  test('main output remains independent from the system bar output', () {
     final right = _output(0, 'right', 2560);
     final left = _output(1, 'left', 0);
     final layout = _layout(
@@ -13,7 +13,7 @@ void main() {
       systemBarMonitorId: 1,
     );
 
-    expect(layout.mainOutput, same(left));
+    expect(layout.mainOutput, same(right));
   });
 
   test('main output falls back to the ticker and then the leftmost output', () {

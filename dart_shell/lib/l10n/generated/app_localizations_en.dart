@@ -1473,7 +1473,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsBackdropBlurDescription =>
-      'Soften content behind translucent windows and panels. Higher intensity uses more GPU.';
+      'Soften content behind translucent windows and panels. Higher quality uses more GPU.';
 
   @override
   String get settingsBackdropBlurEnabled => 'Enable backdrop blur';
@@ -1483,7 +1483,19 @@ class AppLocalizationsEn extends AppLocalizations {
       'Blur only where transparent content can reveal the desktop beneath it.';
 
   @override
-  String get settingsBackdropBlurIntensity => 'Blur intensity';
+  String get settingsBackdropBlurIntensity => 'Blur quality';
+
+  @override
+  String get settingsBackdropBlurLevelShitty => 'Shitty';
+
+  @override
+  String get settingsBackdropBlurLevelFast => 'Fast';
+
+  @override
+  String get settingsBackdropBlurLevelGood => 'Good';
+
+  @override
+  String get settingsBackdropBlurLevelBest => 'Best';
 
   @override
   String get settingsBackdropBlurOpacityThreshold =>
@@ -1690,6 +1702,17 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get settingsDisplayPrimary => 'Primary display';
+
+  @override
+  String get settingsDisplayPrimaryAutomatic =>
+      'Automatic (highest refresh rate)';
+
+  @override
+  String get settingsDisplayPrimaryHint =>
+      'Shell surfaces open on the primary display. Automatic uses the connected display with the highest refresh rate.';
+
+  @override
   String get settingsDisplayRefreshRate => 'Refresh rate';
 
   @override
@@ -1712,6 +1735,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsDisplayScale => 'Scale';
+
+  @override
+  String get settingsDisplayVariableRefreshRate =>
+      'Variable refresh rate (VRR)';
+
+  @override
+  String get settingsDisplayVariableRefreshRateDescription =>
+      'Match the monitor refresh rate to rendered content.';
 
   @override
   String get settingsDisplayZoomFit => 'Fit all monitors';
@@ -2851,7 +2882,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get wallpaperServiceUnavailable => 'Wallpaper service unavailable';
 
   @override
-  String get wallpaperSpanAlignment => 'Span alignment';
+  String get wallpaperSpanAlignment => 'Image position';
 
   @override
   String get wallpaperTarget => 'Target';

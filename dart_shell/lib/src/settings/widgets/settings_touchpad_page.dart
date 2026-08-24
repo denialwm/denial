@@ -29,6 +29,7 @@ class _SettingsTouchpadPageState extends ConsumerState<SettingsTouchpadPage> {
     final state = ref.watch(inputDeviceCapabilitiesProvider);
     final controller = ref.read(inputDeviceCapabilitiesProvider.notifier);
     final capabilities = state.capabilities;
+    final controlsEnabled = capabilities.hasTouchpad && !state.busy;
     final scrollSpeedFactor = _changingScrollSpeed || state.busy
         ? _draftScrollSpeedFactor ?? capabilities.scrollSpeedFactor
         : capabilities.scrollSpeedFactor;
@@ -46,7 +47,7 @@ class _SettingsTouchpadPageState extends ConsumerState<SettingsTouchpadPage> {
                 label: l10n.settingsTouchpadTapToClick,
                 description: l10n.settingsTouchpadTapToClickDescription,
                 value: capabilities.tapToClickEnabled,
-                enabled: !state.busy,
+                enabled: controlsEnabled,
                 onChanged: controller.setTapToClick,
               ),
             ),
@@ -60,7 +61,7 @@ class _SettingsTouchpadPageState extends ConsumerState<SettingsTouchpadPage> {
                 maximum: touchpadScrollSpeedFactorMaximum,
                 divisions: 99,
                 valueLabel: '${scrollSpeedFactor.toStringAsFixed(2)}×',
-                enabled: !state.busy,
+                enabled: controlsEnabled,
                 onChangeStart: (value) => setState(() {
                   _changingScrollSpeed = true;
                   _draftScrollSpeedFactor = _normalizedFactor(value);
@@ -85,7 +86,7 @@ class _SettingsTouchpadPageState extends ConsumerState<SettingsTouchpadPage> {
                 label: l10n.settingsTouchpadNaturalScroll,
                 description: l10n.settingsTouchpadNaturalScrollDescription,
                 value: capabilities.naturalScrollEnabled,
-                enabled: !state.busy,
+                enabled: controlsEnabled,
                 onChanged: controller.setNaturalScroll,
               ),
             ),

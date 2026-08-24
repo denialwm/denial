@@ -1,6 +1,7 @@
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/models/shell_popup_placement.dart';
 import 'package:denial_dart_shell/src/settings/shell_settings.dart';
+import 'package:denial_dart_shell/src/theme/backdrop_blur_level.dart';
 import 'package:denial_dart_shell/src/theme/cursor_themes.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +9,17 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('fresh shell surfaces use the shared 75% opacity', () {
     expect(const ShellSettings().appearance.panelOpacity, 0.75);
+  });
+
+  test('blur levels use the requested quality and radius mappings', () {
+    expect(ShellBackdropBlurLevel.shitty.sigma, 6);
+    expect(ShellBackdropBlurLevel.shitty.downsampleScale, 0.25);
+    expect(ShellBackdropBlurLevel.fast.sigma, 6);
+    expect(ShellBackdropBlurLevel.fast.downsampleScale, 0.5);
+    expect(ShellBackdropBlurLevel.good.sigma, 6);
+    expect(ShellBackdropBlurLevel.good.downsampleScale, 1);
+    expect(ShellBackdropBlurLevel.best.sigma, 14);
+    expect(ShellBackdropBlurLevel.best.downsampleScale, 1);
   });
 
   test('settings survive a complete JSON round trip', () {
@@ -22,7 +34,7 @@ void main() {
         panelRadius: 31,
         panelOpacity: 0.78,
         backdropBlurEnabled: false,
-        backdropBlurSigma: 27,
+        backdropBlurLevel: ShellBackdropBlurLevel.fast,
         backdropBlurOpacityThreshold: 0.18,
         focusedWindowOpacity: 0.96,
         unfocusedWindowOpacity: 0.72,
@@ -110,7 +122,7 @@ void main() {
     expect(settings.appearance.windowRadius, 48);
     expect(settings.appearance.panelOpacity, 0.35);
     expect(settings.appearance.backdropBlurEnabled, isTrue);
-    expect(settings.appearance.backdropBlurSigma, 32);
+    expect(settings.appearance.backdropBlurLevel, ShellBackdropBlurLevel.fast);
     expect(settings.appearance.backdropBlurOpacityThreshold, 1);
     expect(settings.appearance.cursorSize, shellCursorMaximumSize);
     expect(settings.layout.systemBarSide, isNull);
@@ -137,8 +149,28 @@ void main() {
     });
 
     expect(settings.appearance.backdropBlurEnabled, isTrue);
-    expect(settings.appearance.backdropBlurSigma, 18);
+    expect(settings.appearance.backdropBlurLevel, ShellBackdropBlurLevel.fast);
     expect(settings.appearance.cursorSize, shellCursorDefaultSize);
+  });
+
+  test('legacy blur radii migrate to the fast default', () {
+    final lowRadius = ShellSettings.fromJson(<String, dynamic>{
+      'appearance': <String, dynamic>{'backdropBlurSigma': 6},
+    });
+    final highRadius = ShellSettings.fromJson(<String, dynamic>{
+      'appearance': <String, dynamic>{'backdropBlurSigma': 18},
+    });
+
+    expect(lowRadius.appearance.backdropBlurLevel, ShellBackdropBlurLevel.fast);
+    expect(
+      highRadius.appearance.backdropBlurLevel,
+      ShellBackdropBlurLevel.fast,
+    );
+    expect(
+      (lowRadius.toJson()['appearance']
+          as Map<String, Object>)['backdropBlurSigma'],
+      6,
+    );
   });
 
   test('locale preferences expose only explicit language overrides', () {

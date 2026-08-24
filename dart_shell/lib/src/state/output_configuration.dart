@@ -6,10 +6,13 @@ import '../models/output_configuration.dart';
 import '../platform/denial_bridge.dart';
 import 'shell_controller.dart';
 
+const _unsetPrimaryOutput = Object();
+
 class OutputConfigurationState {
   const OutputConfigurationState({
     this.configuration,
     this.draftOutputs = const <DenialOutput>[],
+    this.draftPrimaryOutput,
     this.selectedName,
     this.loading = false,
     this.applying = false,
@@ -19,6 +22,7 @@ class OutputConfigurationState {
 
   final DenialOutputConfiguration? configuration;
   final List<DenialOutput> draftOutputs;
+  final String? draftPrimaryOutput;
   final String? selectedName;
   final bool loading;
   final bool applying;
@@ -37,6 +41,7 @@ class OutputConfigurationState {
   OutputConfigurationState copyWith({
     DenialOutputConfiguration? configuration,
     List<DenialOutput>? draftOutputs,
+    Object? draftPrimaryOutput = _unsetPrimaryOutput,
     String? selectedName,
     bool? loading,
     bool? applying,
@@ -47,6 +52,9 @@ class OutputConfigurationState {
     return OutputConfigurationState(
       configuration: configuration ?? this.configuration,
       draftOutputs: draftOutputs ?? this.draftOutputs,
+      draftPrimaryOutput: identical(draftPrimaryOutput, _unsetPrimaryOutput)
+          ? this.draftPrimaryOutput
+          : draftPrimaryOutput as String?,
       selectedName: selectedName ?? this.selectedName,
       loading: loading ?? this.loading,
       applying: applying ?? this.applying,
@@ -96,6 +104,7 @@ class OutputConfigurationController extends Notifier<OutputConfigurationState> {
       state = OutputConfigurationState(
         configuration: configuration,
         draftOutputs: outputs,
+        draftPrimaryOutput: configuration.primaryOutput,
         selectedName: selected,
       );
     } on Object catch (error) {
@@ -119,6 +128,23 @@ class OutputConfigurationController extends Notifier<OutputConfigurationState> {
     _replace(name, (output) => output.copyWith(x: x, y: y));
   }
 
+  void setPrimaryOutput(String? name) {
+    if (name != null &&
+        !state.draftOutputs.any(
+          (output) => output.name == name && output.enabled,
+        )) {
+      return;
+    }
+    if (state.draftPrimaryOutput == name) {
+      return;
+    }
+    state = state.copyWith(
+      draftPrimaryOutput: name,
+      dirty: true,
+      clearError: true,
+    );
+  }
+
   void setMode(String name, DenialOutputMode mode) {
     _replace(name, (output) => output.copyWith(currentMode: mode));
   }
@@ -134,6 +160,22 @@ class OutputConfigurationController extends Notifier<OutputConfigurationState> {
     _replace(name, (output) => output.copyWith(transform: transform));
   }
 
+  void setAdaptiveSync(String name, bool enabled) {
+    final capabilities = state.configuration?.capabilities;
+    if (capabilities == null || !capabilities.adaptiveSync) {
+      return;
+    }
+    if (!state.draftOutputs.any(
+      (output) =>
+          output.name == name &&
+          output.adaptiveSyncSupported &&
+          output.adaptiveSync != enabled,
+    )) {
+      return;
+    }
+    _replace(name, (output) => output.copyWith(adaptiveSync: enabled));
+  }
+
   void discard() {
     final configuration = state.configuration;
     if (configuration == null) {
@@ -141,6 +183,7 @@ class OutputConfigurationController extends Notifier<OutputConfigurationState> {
     }
     state = state.copyWith(
       draftOutputs: List<DenialOutput>.unmodifiable(configuration.outputs),
+      draftPrimaryOutput: configuration.primaryOutput,
       dirty: false,
       clearError: true,
     );
@@ -161,6 +204,7 @@ class OutputConfigurationController extends Notifier<OutputConfigurationState> {
         serial: configuration.serial,
         outputs: state.draftOutputs,
         persistent: configuration.capabilities.persistent,
+        primaryOutput: state.draftPrimaryOutput,
         confirmationTimeoutMilliseconds: _confirmationTimeoutMilliseconds,
       );
       if (generation != _generation) {
@@ -169,6 +213,7 @@ class OutputConfigurationController extends Notifier<OutputConfigurationState> {
       state = OutputConfigurationState(
         configuration: applied,
         draftOutputs: List<DenialOutput>.unmodifiable(applied.outputs),
+        draftPrimaryOutput: applied.primaryOutput,
         selectedName: state.selectedName,
       );
       return true;

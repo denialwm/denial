@@ -1,0 +1,23 @@
+name: denial_settings
+description: Standalone Wayland settings client for Denial.
+publish_to: 'none'
+version: 0.0.0
+
+environment:
+  sdk: ^3.12.0
+  flutter: 3.44.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^3.3.2
+  denial_dart_shell:
+    path: ../dart_shell
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

@@ -126,16 +126,18 @@ impl FlutterRuntime {
             .host
             .as_ref()
             .ok_or("Flutter runtime is shutting down")?;
+        let device_pixel_ratio = f64::from(atlas.engine_scale_120) / f64::from(SCALE_BASE);
         host.engine()
             .send_window_metrics(&sys::FlutterWindowMetricsEvent {
                 struct_size: mem::size_of::<sys::FlutterWindowMetricsEvent>(),
                 width: atlas.pixel_size.width as usize,
                 height: atlas.pixel_size.height as usize,
-                pixel_ratio: f64::from(atlas.engine_scale_120) / f64::from(SCALE_BASE),
+                pixel_ratio: device_pixel_ratio,
                 display_id: 0,
                 view_id: 0,
                 ..sys::FlutterWindowMetricsEvent::default()
             })?;
+        self.device_pixel_ratio = device_pixel_ratio;
         let layout_update = self.wire.update_topology(snapshot, atlas)?;
         host.engine()
             .send_platform_message(wire::TO_FLUTTER_CHANNEL, layout_update)?;
@@ -204,6 +206,19 @@ impl FlutterRuntime {
         self.handler
             .release_output(output, index)
             .map_err(Into::into)
+    }
+
+    pub(crate) fn retain_output(
+        &self,
+        output: OutputId,
+        index: usize,
+    ) -> Result<OutputBufferLease, Box<dyn Error>> {
+        self.handler.retain_output(output, index)?;
+        Ok(OutputBufferLease {
+            handler: Arc::clone(&self.handler),
+            output,
+            index,
+        })
     }
 
     pub fn take_output_updates(&mut self) -> BTreeMap<OutputId, BTreeSet<i64>> {

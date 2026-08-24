@@ -251,6 +251,7 @@ class DesktopWorkspaceState {
     required this.viewSize,
     this.panel = DesktopPanel.none,
     this.overview,
+    this.inputLayoutRevision = 0,
   }) : placements = Map.unmodifiable(placements);
 
   factory DesktopWorkspaceState.initial() {
@@ -266,6 +267,10 @@ class DesktopWorkspaceState {
   final Size viewSize;
   final DesktopPanel panel;
   final DesktopOverviewState? overview;
+
+  /// Advances only when state consumed by native input publication may have
+  /// changed. Panel-only updates therefore do not rebuild routing maps.
+  final int inputLayoutRevision;
 
   bool get launcherOpen => panel == DesktopPanel.launcher;
   bool get dashboardOpen => panel == DesktopPanel.dashboard;
@@ -291,6 +296,9 @@ class DesktopWorkspaceState {
       viewSize: viewSize ?? this.viewSize,
       panel: panel ?? this.panel,
       overview: clearOverview ? null : overview ?? this.overview,
+      inputLayoutRevision:
+          inputLayoutRevision +
+          ((placements != null || overview != null || clearOverview) ? 1 : 0),
     );
   }
 }

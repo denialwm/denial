@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:denial_dart_shell/src/settings/settings_controller.dart';
 import 'package:denial_dart_shell/src/settings/settings_store.dart';
 import 'package:denial_dart_shell/src/settings/shell_settings.dart';
+import 'package:denial_dart_shell/src/theme/backdrop_blur_level.dart';
 import 'package:denial_dart_shell/src/theme/cursor_themes.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -20,13 +21,46 @@ void main() {
     container.read(shellSettingsProvider.notifier).setWindowRadius(29);
     await Future<void>.delayed(Duration.zero);
     read.complete(
-      const ShellSettings(appearance: ShellAppearanceSettings(windowRadius: 7)),
+      const ShellSettings(
+        appearance: ShellAppearanceSettings(
+          windowRadius: 7,
+          panelOpacity: 0.63,
+        ),
+      ),
     );
     await Future<void>.delayed(Duration.zero);
 
-    expect(container.read(shellSettingsProvider).appearance.windowRadius, 29);
+    final settings = container.read(shellSettingsProvider);
+    expect(settings.appearance.windowRadius, 29);
+    expect(settings.appearance.panelOpacity, 0.63);
+    expect(
+      container.read(shellSettingsSyncStatusProvider).phase,
+      ShellSettingsSyncPhase.ready,
+    );
     await container.read(shellSettingsProvider.notifier).flush();
     expect(store.writes.single.appearance.windowRadius, 29);
+    expect(store.writes.single.appearance.panelOpacity, 0.63);
+  });
+
+  test('a failed authoritative read cannot write default settings', () async {
+    final read = Completer<ShellSettings?>();
+    final store = _MemorySettingsStore(read.future);
+    final container = ProviderContainer.test(
+      overrides: [settingsStoreProvider.overrideWithValue(store)],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(shellSettingsProvider.notifier);
+
+    controller.setBackdropBlurEnabled(false);
+    read.completeError(StateError('control socket unavailable'));
+    await Future<void>.delayed(Duration.zero);
+
+    expect(
+      container.read(shellSettingsSyncStatusProvider).phase,
+      ShellSettingsSyncPhase.failed,
+    );
+    await expectLater(controller.flush(), throwsStateError);
+    expect(store.writes, isEmpty);
   });
 
   test('rapid changes coalesce into one explicit flush', () async {
@@ -47,7 +81,7 @@ void main() {
     expect(store.writes.single.appearance.panelOpacity, 0.6);
   });
 
-  test('backdrop blur updates live and clamps GPU intensity', () async {
+  test('backdrop blur quality updates live', () async {
     final store = _MemorySettingsStore(Future<ShellSettings?>.value(null));
     final container = ProviderContainer.test(
       overrides: [settingsStoreProvider.overrideWithValue(store)],
@@ -57,12 +91,12 @@ void main() {
 
     controller
       ..setBackdropBlurEnabled(false)
-      ..setBackdropBlurSigma(200)
+      ..setBackdropBlurLevel(ShellBackdropBlurLevel.shitty)
       ..setBackdropBlurOpacityThreshold(-2);
 
     final appearance = container.read(shellSettingsProvider).appearance;
     expect(appearance.backdropBlurEnabled, isFalse);
-    expect(appearance.backdropBlurSigma, 32);
+    expect(appearance.backdropBlurLevel, ShellBackdropBlurLevel.shitty);
     expect(appearance.backdropBlurOpacityThreshold, 0);
     await controller.flush();
     expect(store.writes.single.appearance, appearance);

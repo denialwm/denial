@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../models/display_layout.dart';
 import '../models/shell_popup_placement.dart';
 import '../state/desktop_window_close_effect.dart';
+import '../theme/backdrop_blur_level.dart';
 import '../theme/cursor_themes.dart';
 import '../theme/tokens.dart';
 
@@ -54,7 +55,7 @@ class ShellAppearanceSettings {
     this.panelRadius = ShellRadii.panel,
     this.panelOpacity = ShellOpacity.panel,
     this.backdropBlurEnabled = true,
-    this.backdropBlurSigma = 18,
+    this.backdropBlurLevel = ShellBackdropBlurLevel.fast,
     this.backdropBlurOpacityThreshold = 0.05,
     this.focusedWindowOpacity = 1,
     this.unfocusedWindowOpacity = 1,
@@ -67,7 +68,7 @@ class ShellAppearanceSettings {
   final double panelRadius;
   final double panelOpacity;
   final bool backdropBlurEnabled;
-  final double backdropBlurSigma;
+  final ShellBackdropBlurLevel backdropBlurLevel;
   final double backdropBlurOpacityThreshold;
   final double focusedWindowOpacity;
   final double unfocusedWindowOpacity;
@@ -80,7 +81,7 @@ class ShellAppearanceSettings {
     double? panelRadius,
     double? panelOpacity,
     bool? backdropBlurEnabled,
-    double? backdropBlurSigma,
+    ShellBackdropBlurLevel? backdropBlurLevel,
     double? backdropBlurOpacityThreshold,
     double? focusedWindowOpacity,
     double? unfocusedWindowOpacity,
@@ -93,7 +94,7 @@ class ShellAppearanceSettings {
       panelRadius: panelRadius ?? this.panelRadius,
       panelOpacity: panelOpacity ?? this.panelOpacity,
       backdropBlurEnabled: backdropBlurEnabled ?? this.backdropBlurEnabled,
-      backdropBlurSigma: backdropBlurSigma ?? this.backdropBlurSigma,
+      backdropBlurLevel: backdropBlurLevel ?? this.backdropBlurLevel,
       backdropBlurOpacityThreshold:
           backdropBlurOpacityThreshold ?? this.backdropBlurOpacityThreshold,
       focusedWindowOpacity: focusedWindowOpacity ?? this.focusedWindowOpacity,
@@ -112,7 +113,7 @@ class ShellAppearanceSettings {
         other.panelRadius == panelRadius &&
         other.panelOpacity == panelOpacity &&
         other.backdropBlurEnabled == backdropBlurEnabled &&
-        other.backdropBlurSigma == backdropBlurSigma &&
+        other.backdropBlurLevel == backdropBlurLevel &&
         other.backdropBlurOpacityThreshold == backdropBlurOpacityThreshold &&
         other.focusedWindowOpacity == focusedWindowOpacity &&
         other.unfocusedWindowOpacity == unfocusedWindowOpacity &&
@@ -127,7 +128,7 @@ class ShellAppearanceSettings {
     panelRadius,
     panelOpacity,
     backdropBlurEnabled,
-    backdropBlurSigma,
+    backdropBlurLevel,
     backdropBlurOpacityThreshold,
     focusedWindowOpacity,
     unfocusedWindowOpacity,
@@ -418,6 +419,8 @@ class ShellSettings {
     this.power = const ShellPowerSettings(),
   });
 
+  // Blur levels are additive in schema 9. Keep emitting the derived legacy
+  // sigma so older shells can read settings written by this version.
   static const int schemaVersion = 9;
 
   final ShellLocalizationSettings localization;
@@ -459,7 +462,8 @@ class ShellSettings {
         'panelRadius': appearance.panelRadius,
         'panelOpacity': appearance.panelOpacity,
         'backdropBlurEnabled': appearance.backdropBlurEnabled,
-        'backdropBlurSigma': appearance.backdropBlurSigma,
+        'backdropBlurLevel': appearance.backdropBlurLevel.name,
+        'backdropBlurSigma': appearance.backdropBlurLevel.sigma,
         'backdropBlurOpacityThreshold': appearance.backdropBlurOpacityThreshold,
         'focusedWindowOpacity': appearance.focusedWindowOpacity,
         'unfocusedWindowOpacity': appearance.unfocusedWindowOpacity,
@@ -551,11 +555,10 @@ class ShellSettings {
         backdropBlurEnabled: appearanceJson['backdropBlurEnabled'] is bool
             ? appearanceJson['backdropBlurEnabled'] as bool
             : defaults.appearance.backdropBlurEnabled,
-        backdropBlurSigma: _number(
-          appearanceJson['backdropBlurSigma'],
-          defaults.appearance.backdropBlurSigma,
-          4,
-          32,
+        backdropBlurLevel: _enumValue(
+          ShellBackdropBlurLevel.values,
+          appearanceJson['backdropBlurLevel'],
+          defaults.appearance.backdropBlurLevel,
         ),
         backdropBlurOpacityThreshold: _number(
           appearanceJson['backdropBlurOpacityThreshold'],

@@ -21,23 +21,6 @@ pub(super) fn collect_output_power_requests(events: &mut RuntimeState) {
 }
 
 #[cfg(feature = "flutter")]
-pub(super) fn transient_dpms_output_removal_count(
-    grace_until: Option<Instant>,
-    now: Instant,
-    current: impl IntoIterator<Item = OutputId>,
-    observed: impl IntoIterator<Item = OutputId>,
-) -> usize {
-    if grace_until.is_none_or(|deadline| now >= deadline) {
-        return 0;
-    }
-    let observed = observed.into_iter().collect::<HashSet<_>>();
-    current
-        .into_iter()
-        .filter(|output| !observed.contains(output))
-        .count()
-}
-
-#[cfg(feature = "flutter")]
 pub(super) fn synchronize_idle_dpms(scanouts: &[Scanout], events: &mut RuntimeState, now: Instant) {
     let inhibited = events
         .wayland
@@ -134,9 +117,12 @@ pub(super) fn apply_output_power_requests(
         }
     }
 
-    // Stop every affected pipeline before clearing any CRTC. This keeps one
-    // slow output from turning a multi-output blank into a staggered series of
-    // independently visible transitions.
+    // Stop every affected pipeline before replacing its desktop framebuffer.
+    // The connector, CRTC, and primary plane deliberately remain active:
+    // fully clearing an atomic surface drops the DisplayPort link, and some
+    // monitors need multiple seconds to train it again. A dedicated black
+    // framebuffer is visually off but can be replaced with a no-modeset
+    // atomic commit on the next input event.
     let mut waiting_for_power_off = false;
     for &(output, _) in &power_off {
         waiting_for_power_off |= scheduler.begin_power_off(runtime, output, scanouts)?;
@@ -149,37 +135,67 @@ pub(super) fn apply_output_power_requests(
             let framebuffer_index = scheduler
                 .scanning_framebuffer_index(output, scanouts)
                 .ok_or("DPMS power-off output has no scheduler framebuffer")?;
-            targets.push((output, scanout_index, framebuffer_index));
+            let pool = swapchain
+                .outputs()
+                .and_then(|outputs| outputs.for_output(output))
+                .ok_or("DPMS power-off output has no physical buffer pool")?;
+            let framebuffer = pool
+                .buffers
+                .get(framebuffer_index)
+                .ok_or("DPMS power-off framebuffer exceeds its output pool")?
+                .framebuffer();
+            targets.push((
+                output,
+                scanout_index,
+                framebuffer_index,
+                framebuffer,
+                pool.blank.framebuffer(),
+                pool.size,
+            ));
         }
 
-        let mut cleared = Vec::with_capacity(targets.len());
         let mut failure = None;
-        for &(output, scanout_index, framebuffer_index) in &targets {
-            match scanouts[scanout_index].surface.clear() {
-                Ok(()) => cleared.push((output, scanout_index, framebuffer_index)),
-                Err(error) => {
-                    failure = Some((scanout_index, error.to_string()));
-                    break;
-                }
+        for &(_, scanout_index, _, _, blank_framebuffer, size) in &targets {
+            if let Err(error) = scanouts[scanout_index].surface.test_state(
+                [output_plane_state(
+                    &scanouts[scanout_index],
+                    blank_framebuffer,
+                    size,
+                )],
+                false,
+            ) {
+                failure = Some((scanout_index, error.to_string(), false));
+                break;
             }
         }
 
-        if let Some((failed_index, error)) = failure {
+        let mut blanked = Vec::with_capacity(targets.len());
+        if failure.is_none() {
+            for &(output, scanout_index, framebuffer_index, framebuffer, blank_framebuffer, size) in
+                &targets
+            {
+                if let Err(error) = scanouts[scanout_index].surface.commit(
+                    [output_plane_state(
+                        &scanouts[scanout_index],
+                        blank_framebuffer,
+                        size,
+                    )],
+                    false,
+                ) {
+                    failure = Some((scanout_index, error.to_string(), true));
+                    break;
+                }
+                blanked.push((output, scanout_index, framebuffer_index, framebuffer, size));
+            }
+        }
+
+        if let Some((failed_index, error, commit_failed)) = failure {
             let mut rollback_failures = Vec::new();
-            for &(output, scanout_index, framebuffer_index) in &cleared {
-                let pool = swapchain
-                    .outputs()
-                    .and_then(|outputs| outputs.for_output(output))
-                    .ok_or("DPMS rollback output has no physical buffer pool")?;
-                let framebuffer = pool
-                    .buffers
-                    .get(framebuffer_index)
-                    .ok_or("DPMS rollback framebuffer exceeds its output pool")?
-                    .framebuffer();
-                let state = output_plane_state(&scanouts[scanout_index], framebuffer, pool.size);
+            for &(_, scanout_index, _, framebuffer, size) in &blanked {
+                let state = output_plane_state(&scanouts[scanout_index], framebuffer, size);
                 let restore = scanouts[scanout_index]
                     .surface
-                    .test_state([state.clone()], true)
+                    .test_state([state.clone()], false)
                     .and_then(|()| scanouts[scanout_index].surface.commit([state], false));
                 if let Err(rollback_error) = restore {
                     rollback_failures.push(format!(
@@ -198,7 +214,8 @@ pub(super) fn apply_output_power_requests(
             warn!(
                 output = scanouts[failed_index].output.name,
                 %error,
-                restored_outputs = cleared.len(),
+                phase = if commit_failed { "commit" } else { "test" },
+                restored_outputs = blanked.len(),
                 requested_outputs = power_off.len(),
                 "aborted compositor-owned display power-off batch"
             );
@@ -211,7 +228,7 @@ pub(super) fn apply_output_power_requests(
                 .into());
             }
         } else {
-            for &(output, scanout_index, _) in &targets {
+            for &(output, scanout_index, _, _, _, _) in &targets {
                 scheduler.power_off(runtime, output, scanouts)?;
                 scanouts[scanout_index].powered = false;
                 power_changed = true;
@@ -219,7 +236,7 @@ pub(super) fn apply_output_power_requests(
                 events.pending.remove(&scanouts[scanout_index].output.crtc);
                 info!(
                     output = scanouts[scanout_index].output.name,
-                    "powered off KMS output"
+                    "blanked KMS output while preserving its display link"
                 );
                 if let Some(frontend) = events.wayland.as_mut() {
                     frontend.output_power_applied(output, false);
@@ -249,19 +266,20 @@ pub(super) fn apply_output_power_requests(
                     scanout_index,
                     framebuffer_index,
                     framebuffer,
+                    pool.blank.framebuffer(),
                     pool.size,
                 ))
             })
             .collect::<Result<Vec<_>, _>>()?;
         let mut failure = None;
-        for &(_, scanout_index, _, framebuffer, size) in &targets {
+        for &(_, scanout_index, _, framebuffer, _, size) in &targets {
             if let Err(error) = scanouts[scanout_index].surface.test_state(
                 [output_plane_state(
                     &scanouts[scanout_index],
                     framebuffer,
                     size,
                 )],
-                true,
+                false,
             ) {
                 failure = Some((scanout_index, error.to_string(), false));
                 break;
@@ -270,7 +288,7 @@ pub(super) fn apply_output_power_requests(
 
         let mut committed = Vec::with_capacity(power_on.len());
         if failure.is_none() {
-            for &(output, scanout_index, _, framebuffer, size) in &targets {
+            for &(output, scanout_index, _, framebuffer, blank_framebuffer, size) in &targets {
                 if let Err(error) = scanouts[scanout_index].surface.commit(
                     [output_plane_state(
                         &scanouts[scanout_index],
@@ -282,14 +300,21 @@ pub(super) fn apply_output_power_requests(
                     failure = Some((scanout_index, error.to_string(), true));
                     break;
                 }
-                committed.push((output, scanout_index));
+                committed.push((output, scanout_index, blank_framebuffer, size));
             }
         }
 
         if let Some((failed_index, error, commit_failed)) = failure {
             let mut rollback_failures = Vec::new();
-            for &(_, scanout_index) in &committed {
-                if let Err(rollback_error) = scanouts[scanout_index].surface.clear() {
+            for &(_, scanout_index, blank_framebuffer, size) in &committed {
+                if let Err(rollback_error) = scanouts[scanout_index].surface.commit(
+                    [output_plane_state(
+                        &scanouts[scanout_index],
+                        blank_framebuffer,
+                        size,
+                    )],
+                    false,
+                ) {
                     rollback_failures.push(format!(
                         "{}: {rollback_error}",
                         scanouts[scanout_index].output.name
@@ -319,7 +344,7 @@ pub(super) fn apply_output_power_requests(
                 .into());
             }
         } else {
-            for &(output, scanout_index, framebuffer_index, _, _) in &targets {
+            for &(output, scanout_index, framebuffer_index, _, _, _) in &targets {
                 scanouts[scanout_index].powered = true;
                 power_changed = true;
                 scheduler.power_on(
@@ -334,13 +359,12 @@ pub(super) fn apply_output_power_requests(
                 events.output_control_dirty = true;
                 info!(
                     output = scanouts[scanout_index].output.name,
-                    "powered on KMS output"
+                    "unblanked KMS output without retraining its display link"
                 );
                 if let Some(frontend) = events.wayland.as_mut() {
                     frontend.output_power_applied(output, true);
                 }
             }
-            events.note_dpms_wake(Instant::now());
         }
     }
 
@@ -348,7 +372,3 @@ pub(super) fn apply_output_power_requests(
     events.output_power_requests = deferred;
     Ok(power_changed)
 }
-
-#[cfg(all(test, feature = "flutter"))]
-#[path = "dpms/tests.rs"]
-mod tests;

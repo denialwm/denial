@@ -31,6 +31,12 @@ const settingsMonitorZoomInKey = ValueKey<String>('settings-monitor-zoom-in');
 const settingsApplyDisplayConfigurationKey = ValueKey<String>(
   'settings-apply-display-configuration',
 );
+const settingsPrimaryDisplaySelectorKey = ValueKey<String>(
+  'settings-primary-display-selector',
+);
+const settingsVariableRefreshRateToggleKey = ValueKey<String>(
+  'settings-variable-refresh-rate-toggle',
+);
 const settingsDisplayConfirmationDialogKey = ValueKey<String>(
   'settings-display-confirmation-dialog',
 );
@@ -284,6 +290,13 @@ class _OutputConfigurationBody extends StatelessWidget {
             ),
             const SizedBox(height: 16),
           ],
+          _PrimaryDisplayControl(
+            outputs: state.draftOutputs,
+            value: state.draftPrimaryOutput,
+            enabled: !state.applying && state.configuration!.capabilities.apply,
+            onChanged: controller.setPrimaryOutput,
+          ),
+          const SizedBox(height: 16),
           _MonitorControls(
             output: selected,
             capabilities: state.configuration!.capabilities,
@@ -293,6 +306,8 @@ class _OutputConfigurationBody extends StatelessWidget {
                 controller.setScale(selected.name, scale),
             onTransformChanged: (transform) =>
                 controller.setTransform(selected.name, transform),
+            onAdaptiveSyncChanged: (value) =>
+                controller.setAdaptiveSync(selected.name, value),
           ),
           if (state.error case final error?) ...<Widget>[
             const SizedBox(height: 12),
@@ -326,6 +341,74 @@ class _OutputConfigurationBody extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _PrimaryDisplayControl extends StatelessWidget {
+  const _PrimaryDisplayControl({
+    required this.outputs,
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final List<DenialOutput> outputs;
+  final String? value;
+  final bool enabled;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final choices = <SettingsChoice<String?>>[
+      SettingsChoice<String?>(
+        null,
+        context.l10n.settingsDisplayPrimaryAutomatic,
+      ),
+      for (final output in outputs.where((output) => output.enabled))
+        SettingsChoice<String?>(
+          output.name,
+          output.description == output.name
+              ? output.name
+              : '${output.description} (${output.name})',
+        ),
+      if (value != null &&
+          !outputs.any((output) => output.enabled && output.name == value))
+        SettingsChoice<String?>(value, value!),
+    ];
+    final selector = _DisplayDropdown<String?>(
+      key: settingsPrimaryDisplaySelectorKey,
+      label: context.l10n.settingsDisplayPrimary,
+      value: value,
+      enabled: enabled,
+      choices: choices,
+      onChanged: onChanged,
+    );
+    final hint = Text(
+      context.l10n.settingsDisplayPrimaryHint,
+      style: ShellText.base.copyWith(
+        color: ShellColors.textTertiary,
+        fontSize: 11,
+        height: 1.4,
+      ),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 620) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[selector, const SizedBox(height: 8), hint],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Expanded(child: selector),
+            const SizedBox(width: 16),
+            Expanded(flex: 2, child: hint),
+          ],
+        );
+      },
     );
   }
 }
@@ -418,6 +501,10 @@ class _MonitorLayoutEditorState extends State<MonitorLayoutEditor> {
     required double padding,
   }) {
     if (event is! PointerScrollEvent || event.scrollDelta.dy == 0) {
+      return;
+    }
+    final keyboard = HardwareKeyboard.instance;
+    if (!keyboard.isControlPressed && !keyboard.isMetaPressed) {
       return;
     }
     final scale = _nextZoom(event.scrollDelta.dy < 0);
@@ -881,6 +968,7 @@ class _MonitorControls extends StatelessWidget {
     required this.onModeChanged,
     required this.onScaleChanged,
     required this.onTransformChanged,
+    required this.onAdaptiveSyncChanged,
   });
 
   final DenialOutput output;
@@ -889,6 +977,7 @@ class _MonitorControls extends StatelessWidget {
   final ValueChanged<DenialOutputMode> onModeChanged;
   final ValueChanged<double> onScaleChanged;
   final ValueChanged<DenialOutputTransform> onTransformChanged;
+  final ValueChanged<bool> onAdaptiveSyncChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1030,6 +1119,19 @@ class _MonitorControls extends StatelessWidget {
             );
           },
         ),
+        if (capabilities.adaptiveSync &&
+            output.adaptiveSyncSupported) ...<Widget>[
+          const SizedBox(height: 14),
+          SettingsToggle(
+            key: settingsVariableRefreshRateToggleKey,
+            label: context.l10n.settingsDisplayVariableRefreshRate,
+            description:
+                context.l10n.settingsDisplayVariableRefreshRateDescription,
+            value: output.adaptiveSync,
+            enabled: enabled,
+            onChanged: onAdaptiveSyncChanged,
+          ),
+        ],
       ],
     );
   }

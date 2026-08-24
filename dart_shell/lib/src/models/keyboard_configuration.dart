@@ -12,6 +12,19 @@ class DenialKeyboardLayout {
   final String variant;
   final String displayName;
 
+  factory DenialKeyboardLayout.fromJson(Map<String, Object?> json) {
+    return DenialKeyboardLayout(
+      layout: json['layout'] as String? ?? '',
+      variant: json['variant'] as String? ?? '',
+      displayName: json['display_name'] as String? ?? '',
+    );
+  }
+
+  Map<String, Object> toApplyJson() => <String, Object>{
+    'layout': layout,
+    'variant': variant,
+  };
+
   String get label => displayName.isNotEmpty
       ? displayName
       : variant.isEmpty
@@ -69,6 +82,37 @@ class DenialKeyboardConfiguration {
   final int repeatDelayMs;
   final int repeatRateHz;
   final int activeLayout;
+
+  factory DenialKeyboardConfiguration.fromJson(Map<String, Object?> json) {
+    final layouts = (json['layouts'] as List<Object?>? ?? const <Object?>[])
+        .whereType<Map<String, Object?>>()
+        .map(DenialKeyboardLayout.fromJson)
+        .toList(growable: false);
+    final activeLayout = json['active_layout'] as int? ?? 0;
+    if (layouts.isEmpty || activeLayout < 0 || activeLayout >= layouts.length) {
+      throw const FormatException('invalid keyboard layout configuration');
+    }
+    return DenialKeyboardConfiguration(
+      revision: json['revision'] as int? ?? 0,
+      layouts: List<DenialKeyboardLayout>.unmodifiable(layouts),
+      options: List<String>.unmodifiable(
+        (json['options'] as List<Object?>? ?? const <Object?>[])
+            .whereType<String>(),
+      ),
+      repeatDelayMs: json['repeat_delay_ms'] as int? ?? 600,
+      repeatRateHz: json['repeat_rate_hz'] as int? ?? 25,
+      activeLayout: activeLayout,
+    );
+  }
+
+  Map<String, Object> toApplyJson() => <String, Object>{
+    'layouts': <Map<String, Object>>[
+      for (final layout in layouts) layout.toApplyJson(),
+    ],
+    'options': options,
+    'repeatDelayMs': repeatDelayMs,
+    'repeatRateHz': repeatRateHz,
+  };
 
   DenialKeyboardLayout get active => layouts[activeLayout];
 

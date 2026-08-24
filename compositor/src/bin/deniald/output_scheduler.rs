@@ -6,7 +6,6 @@ use std::time::{Duration, Instant};
 use denial_core::topology::{OutputId, OutputTransform, PixelRect, PixelSize, RenderViewId};
 use denial_core::volition::{self, CommitId, PlaneCommit, PlaneProperties, Submission, Volition};
 use smithay::backend::drm::DrmDevice;
-use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::reexports::calloop::channel::SyncSender as EventSender;
 use tracing::info;
 
@@ -20,6 +19,10 @@ const OUTPUT_SCHEDULER_AUDIT_INTERVAL: Duration = Duration::from_secs(1);
 /// slow modesets and scheduler jitter ample room, but never retain a wedged
 /// KMS/GPU generation indefinitely.
 const PRESENTATION_STALL_TIMEOUT: Duration = Duration::from_secs(2);
+/// Synthetic and kernel monotonic clocks can retain a small phase error.  A
+/// ready target this close to the edge which just completed is nevertheless
+/// unreachable: atomic state can only be latched for a later edge now.
+const ELAPSED_READY_TARGET_TOLERANCE: Duration = Duration::from_millis(1);
 static NEXT_READY_FENCE_TOKEN: AtomicU64 = AtomicU64::new(1);
 
 fn next_ready_fence_token() -> u64 {
@@ -39,6 +42,19 @@ struct OutputFrame {
     submitted_at: Instant,
 }
 
+fn ready_target_elapsed(frame: &OutputFrame, presented_at: Instant) -> bool {
+    if frame.screenshot_request_id.is_some() {
+        return false;
+    }
+    let tolerance = ELAPSED_READY_TARGET_TOLERANCE.min(frame.request.tick.interval / 4);
+    frame
+        .request
+        .tick
+        .presentation_target
+        .saturating_duration_since(presented_at)
+        <= tolerance
+}
+
 #[derive(Debug)]
 struct ScheduledFrame {
     commit: CommitId,
@@ -49,6 +65,16 @@ struct ScheduledFrame {
 enum InFlightFrame {
     Scheduled(ScheduledFrame),
     Submitted(OutputFrame),
+}
+
+#[derive(Debug)]
+enum CompletionRetirement {
+    Retired(OutputFrame),
+    /// The kernel may report a fast page flip before calloop observes
+    /// Volition's userspace submission acknowledgement. Keep that physical
+    /// completion until the scheduled generation advances to Submitted.
+    Deferred,
+    Stale,
 }
 
 #[derive(Debug, Default)]
@@ -116,13 +142,14 @@ impl OutputPipelineFrames {
         }
     }
 
-    fn retire_submitted(&mut self) -> Option<OutputFrame> {
-        if !matches!(self.in_flight.as_ref(), Some(InFlightFrame::Submitted(_))) {
-            return None;
-        }
-        match self.in_flight.take() {
-            Some(InFlightFrame::Submitted(frame)) => Some(frame),
-            _ => unreachable!("checked submitted output generation"),
+    fn retire_completion(&mut self) -> CompletionRetirement {
+        match self.in_flight.as_ref() {
+            Some(InFlightFrame::Scheduled(_)) => CompletionRetirement::Deferred,
+            Some(InFlightFrame::Submitted(_)) => match self.in_flight.take() {
+                Some(InFlightFrame::Submitted(frame)) => CompletionRetirement::Retired(frame),
+                _ => unreachable!("checked submitted output generation"),
+            },
+            None => CompletionRetirement::Stale,
         }
     }
 
@@ -301,9 +328,11 @@ struct OutputPipeline {
 #[derive(Debug)]
 struct OutputSchedulerAudit {
     interval_started: Instant,
+    output_ids: Vec<OutputId>,
     ready_tokens: Vec<u64>,
     ready_published_at: Vec<Option<Instant>>,
     fence_signaled_at: Vec<Option<Instant>>,
+    render_deadlines: Vec<Option<Instant>>,
     last_sequences: Vec<Option<u32>>,
     last_presented_at: Vec<Option<Instant>>,
     submitted_at: Vec<Option<Instant>>,
@@ -317,6 +346,8 @@ struct OutputSchedulerAudit {
     sequence_delta_total: u64,
     sequence_delta_max: u32,
     missed_vblanks: u64,
+    stale_ready_drops: u64,
+    missed_vblanks_by_output: Vec<u64>,
     ready_to_fence: AuditLatency,
     fence_to_submit: AuditLatency,
     ready_to_submit: AuditLatency,
@@ -326,6 +357,13 @@ struct OutputSchedulerAudit {
     submit_to_presentation: AuditLatency,
     target_to_presentation: AuditLatency,
     presentation_interval: AuditLatency,
+    deadline_to_ready: AuditLatency,
+    deadline_to_fence: AuditLatency,
+    deadline_to_submit: AuditLatency,
+    deadline_to_presentation: AuditLatency,
+    target_to_presentation_by_output: Vec<AuditLatency>,
+    deadline_to_presentation_by_output: Vec<AuditLatency>,
+    presentation_interval_by_output: Vec<AuditLatency>,
 }
 
 #[derive(Debug, Default)]
@@ -333,6 +371,16 @@ struct AuditLatency {
     samples: u64,
     total: Duration,
     max: Duration,
+    values: Vec<Duration>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct AuditLatencySummary {
+    average_us: f64,
+    p50_us: f64,
+    p95_us: f64,
+    p99_us: f64,
+    max_us: f64,
 }
 
 impl AuditLatency {
@@ -340,6 +388,7 @@ impl AuditLatency {
         self.samples = self.samples.saturating_add(1);
         self.total = self.total.saturating_add(duration);
         self.max = self.max.max(duration);
+        self.values.push(duration);
     }
 
     fn average_us(&self) -> f64 {
@@ -348,15 +397,43 @@ impl AuditLatency {
         }
         self.total.as_secs_f64() * 1_000_000.0 / self.samples as f64
     }
+
+    fn summary(&self) -> AuditLatencySummary {
+        if self.samples == 0 {
+            return AuditLatencySummary::default();
+        }
+        let mut values = self.values.clone();
+        values.sort_unstable();
+        AuditLatencySummary {
+            average_us: self.average_us(),
+            p50_us: audit_percentile_us(&values, 50),
+            p95_us: audit_percentile_us(&values, 95),
+            p99_us: audit_percentile_us(&values, 99),
+            max_us: self.max.as_secs_f64() * 1_000_000.0,
+        }
+    }
+}
+
+fn audit_percentile_us(values: &[Duration], percentile: usize) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    let rank = (values.len().saturating_mul(percentile).saturating_add(99) / 100)
+        .saturating_sub(1)
+        .min(values.len() - 1);
+    values[rank].as_secs_f64() * 1_000_000.0
 }
 
 impl OutputSchedulerAudit {
-    fn new(buffer_count: usize, output_count: usize) -> Self {
+    fn new(buffer_count: usize, output_ids: Vec<OutputId>) -> Self {
+        let output_count = output_ids.len();
         Self {
             interval_started: Instant::now(),
+            output_ids,
             ready_tokens: vec![0; buffer_count],
             ready_published_at: vec![None; buffer_count],
             fence_signaled_at: vec![None; buffer_count],
+            render_deadlines: vec![None; buffer_count],
             last_sequences: vec![None; output_count],
             last_presented_at: vec![None; output_count],
             submitted_at: vec![None; output_count],
@@ -370,6 +447,8 @@ impl OutputSchedulerAudit {
             sequence_delta_total: 0,
             sequence_delta_max: 0,
             missed_vblanks: 0,
+            stale_ready_drops: 0,
+            missed_vblanks_by_output: vec![0; output_count],
             ready_to_fence: AuditLatency::default(),
             fence_to_submit: AuditLatency::default(),
             ready_to_submit: AuditLatency::default(),
@@ -379,6 +458,19 @@ impl OutputSchedulerAudit {
             submit_to_presentation: AuditLatency::default(),
             target_to_presentation: AuditLatency::default(),
             presentation_interval: AuditLatency::default(),
+            deadline_to_ready: AuditLatency::default(),
+            deadline_to_fence: AuditLatency::default(),
+            deadline_to_submit: AuditLatency::default(),
+            deadline_to_presentation: AuditLatency::default(),
+            target_to_presentation_by_output: std::iter::repeat_with(AuditLatency::default)
+                .take(output_count)
+                .collect(),
+            deadline_to_presentation_by_output: std::iter::repeat_with(AuditLatency::default)
+                .take(output_count)
+                .collect(),
+            presentation_interval_by_output: std::iter::repeat_with(AuditLatency::default)
+                .take(output_count)
+                .collect(),
         }
     }
 
@@ -388,6 +480,7 @@ impl OutputSchedulerAudit {
         token: u64,
         has_fence: bool,
         rendered_at: Option<Instant>,
+        render_deadline: Instant,
     ) {
         self.maybe_report();
         self.ready_published = self.ready_published.saturating_add(1);
@@ -395,6 +488,12 @@ impl OutputSchedulerAudit {
             self.ready_with_fence = self.ready_with_fence.saturating_add(1);
         }
         let now = Instant::now();
+        self.deadline_to_ready
+            .record(now.saturating_duration_since(render_deadline));
+        if !has_fence {
+            self.deadline_to_fence
+                .record(now.saturating_duration_since(render_deadline));
+        }
         if let Some(rendered_at) = rendered_at {
             self.render_to_publish
                 .record(now.saturating_duration_since(rendered_at));
@@ -407,6 +506,9 @@ impl OutputSchedulerAudit {
         }
         if let Some(signaled_at) = self.fence_signaled_at.get_mut(index) {
             *signaled_at = (!has_fence).then_some(now);
+        }
+        if let Some(deadline) = self.render_deadlines.get_mut(index) {
+            *deadline = Some(render_deadline);
         }
     }
 
@@ -425,6 +527,10 @@ impl OutputSchedulerAudit {
         if let Some(Some(published_at)) = self.ready_published_at.get(index) {
             self.ready_to_fence
                 .record(now.duration_since(*published_at));
+        }
+        if let Some(Some(render_deadline)) = self.render_deadlines.get(index) {
+            self.deadline_to_fence
+                .record(now.saturating_duration_since(*render_deadline));
         }
         if let Some(signaled_at) = self.fence_signaled_at.get_mut(index) {
             *signaled_at = Some(now);
@@ -464,12 +570,21 @@ impl OutputSchedulerAudit {
             self.fence_to_submit
                 .record(submitted_at.saturating_duration_since(signaled_at));
         }
+        if let Some(render_deadline) = self
+            .render_deadlines
+            .get(buffer_index)
+            .and_then(|deadline| *deadline)
+        {
+            self.deadline_to_submit
+                .record(submitted_at.saturating_duration_since(render_deadline));
+        }
     }
 
     fn record_presentation(
         &mut self,
         output_index: usize,
         observed_at: Instant,
+        render_deadline: Instant,
         presentation_target: Instant,
         sequence: Option<u64>,
     ) {
@@ -488,10 +603,24 @@ impl OutputSchedulerAudit {
         }
         self.target_to_presentation
             .record(observed_at.saturating_duration_since(presentation_target));
+        self.deadline_to_presentation
+            .record(observed_at.saturating_duration_since(render_deadline));
+        if let Some(latency) = self.target_to_presentation_by_output.get_mut(output_index) {
+            latency.record(observed_at.saturating_duration_since(presentation_target));
+        }
+        if let Some(latency) = self
+            .deadline_to_presentation_by_output
+            .get_mut(output_index)
+        {
+            latency.record(observed_at.saturating_duration_since(render_deadline));
+        }
         if let Some(presented_at) = self.last_presented_at.get_mut(output_index) {
             if let Some(previous) = *presented_at {
-                self.presentation_interval
-                    .record(observed_at.saturating_duration_since(previous));
+                let interval = observed_at.saturating_duration_since(previous);
+                self.presentation_interval.record(interval);
+                if let Some(latency) = self.presentation_interval_by_output.get_mut(output_index) {
+                    latency.record(interval);
+                }
             }
             *presented_at = Some(observed_at);
         }
@@ -509,8 +638,51 @@ impl OutputSchedulerAudit {
             self.missed_vblanks = self
                 .missed_vblanks
                 .saturating_add(u64::from(delta.saturating_sub(1)));
+            if let Some(missed) = self.missed_vblanks_by_output.get_mut(output_index) {
+                *missed = missed.saturating_add(u64::from(delta.saturating_sub(1)));
+            }
         }
         *last_sequence = Some(sequence);
+    }
+
+    fn per_output_timing_description(&self) -> String {
+        if self.output_ids.is_empty() {
+            return "-".to_owned();
+        }
+        self.output_ids
+            .iter()
+            .enumerate()
+            .map(|(index, output)| {
+                let interval = self
+                    .presentation_interval_by_output
+                    .get(index)
+                    .map_or_else(AuditLatencySummary::default, AuditLatency::summary);
+                let deadline = self
+                    .deadline_to_presentation_by_output
+                    .get(index)
+                    .map_or_else(AuditLatencySummary::default, AuditLatency::summary);
+                let target = self
+                    .target_to_presentation_by_output
+                    .get(index)
+                    .map_or_else(AuditLatencySummary::default, AuditLatency::summary);
+                let missed = self
+                    .missed_vblanks_by_output
+                    .get(index)
+                    .copied()
+                    .unwrap_or_default();
+                format!(
+                    "{}:interval_p50={:.0}/p95={:.0}/p99={:.0}/max={:.0};deadline_p99={:.0};target_late_p99={:.0};missed={missed}",
+                    output.0,
+                    interval.p50_us,
+                    interval.p95_us,
+                    interval.p99_us,
+                    interval.max_us,
+                    deadline.p99_us,
+                    target.p99_us,
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",")
     }
 
     fn maybe_report(&mut self) {
@@ -518,6 +690,21 @@ impl OutputSchedulerAudit {
         if elapsed < OUTPUT_SCHEDULER_AUDIT_INTERVAL {
             return;
         }
+
+        let ready_to_fence = self.ready_to_fence.summary();
+        let fence_to_submit = self.fence_to_submit.summary();
+        let ready_to_submit = self.ready_to_submit.summary();
+        let render_to_publish = self.render_to_publish.summary();
+        let presentation_delivery = self.presentation_delivery.summary();
+        let presentation_to_submit = self.presentation_to_submit.summary();
+        let submit_to_presentation = self.submit_to_presentation.summary();
+        let target_to_presentation = self.target_to_presentation.summary();
+        let presentation_interval = self.presentation_interval.summary();
+        let deadline_to_ready = self.deadline_to_ready.summary();
+        let deadline_to_fence = self.deadline_to_fence.summary();
+        let deadline_to_submit = self.deadline_to_submit.summary();
+        let deadline_to_presentation = self.deadline_to_presentation.summary();
+        let per_output_timing = self.per_output_timing_description();
 
         info!(
             target: "deniald::render_audit",
@@ -537,24 +724,66 @@ impl OutputSchedulerAudit {
             },
             sequence_delta_max = self.sequence_delta_max,
             missed_vblanks = self.missed_vblanks,
-            ready_to_fence_avg_us = self.ready_to_fence.average_us(),
-            ready_to_fence_max_us = self.ready_to_fence.max.as_secs_f64() * 1_000_000.0,
-            fence_to_submit_avg_us = self.fence_to_submit.average_us(),
-            fence_to_submit_max_us = self.fence_to_submit.max.as_secs_f64() * 1_000_000.0,
-            ready_to_submit_avg_us = self.ready_to_submit.average_us(),
-            ready_to_submit_max_us = self.ready_to_submit.max.as_secs_f64() * 1_000_000.0,
-            render_to_publish_avg_us = self.render_to_publish.average_us(),
-            render_to_publish_max_us = self.render_to_publish.max.as_secs_f64() * 1_000_000.0,
-            presentation_delivery_avg_us = self.presentation_delivery.average_us(),
-            presentation_delivery_max_us = self.presentation_delivery.max.as_secs_f64() * 1_000_000.0,
-            presentation_to_submit_avg_us = self.presentation_to_submit.average_us(),
-            presentation_to_submit_max_us = self.presentation_to_submit.max.as_secs_f64() * 1_000_000.0,
-            submit_to_presentation_avg_us = self.submit_to_presentation.average_us(),
-            submit_to_presentation_max_us = self.submit_to_presentation.max.as_secs_f64() * 1_000_000.0,
-            target_to_presentation_avg_us = self.target_to_presentation.average_us(),
-            target_to_presentation_max_us = self.target_to_presentation.max.as_secs_f64() * 1_000_000.0,
-            presentation_interval_avg_us = self.presentation_interval.average_us(),
-            presentation_interval_max_us = self.presentation_interval.max.as_secs_f64() * 1_000_000.0,
+            stale_ready_drops = self.stale_ready_drops,
+            per_output_timing = %per_output_timing,
+            ready_to_fence_avg_us = ready_to_fence.average_us,
+            ready_to_fence_p95_us = ready_to_fence.p95_us,
+            ready_to_fence_p99_us = ready_to_fence.p99_us,
+            ready_to_fence_max_us = ready_to_fence.max_us,
+            fence_to_submit_avg_us = fence_to_submit.average_us,
+            fence_to_submit_p95_us = fence_to_submit.p95_us,
+            fence_to_submit_p99_us = fence_to_submit.p99_us,
+            fence_to_submit_max_us = fence_to_submit.max_us,
+            ready_to_submit_avg_us = ready_to_submit.average_us,
+            ready_to_submit_p95_us = ready_to_submit.p95_us,
+            ready_to_submit_p99_us = ready_to_submit.p99_us,
+            ready_to_submit_max_us = ready_to_submit.max_us,
+            render_to_publish_avg_us = render_to_publish.average_us,
+            render_to_publish_p95_us = render_to_publish.p95_us,
+            render_to_publish_p99_us = render_to_publish.p99_us,
+            render_to_publish_max_us = render_to_publish.max_us,
+            presentation_delivery_avg_us = presentation_delivery.average_us,
+            presentation_delivery_p95_us = presentation_delivery.p95_us,
+            presentation_delivery_p99_us = presentation_delivery.p99_us,
+            presentation_delivery_max_us = presentation_delivery.max_us,
+            presentation_to_submit_avg_us = presentation_to_submit.average_us,
+            presentation_to_submit_p95_us = presentation_to_submit.p95_us,
+            presentation_to_submit_p99_us = presentation_to_submit.p99_us,
+            presentation_to_submit_max_us = presentation_to_submit.max_us,
+            submit_to_presentation_avg_us = submit_to_presentation.average_us,
+            submit_to_presentation_p95_us = submit_to_presentation.p95_us,
+            submit_to_presentation_p99_us = submit_to_presentation.p99_us,
+            submit_to_presentation_max_us = submit_to_presentation.max_us,
+            target_to_presentation_avg_us = target_to_presentation.average_us,
+            target_to_presentation_p50_us = target_to_presentation.p50_us,
+            target_to_presentation_p95_us = target_to_presentation.p95_us,
+            target_to_presentation_p99_us = target_to_presentation.p99_us,
+            target_to_presentation_max_us = target_to_presentation.max_us,
+            presentation_interval_avg_us = presentation_interval.average_us,
+            presentation_interval_p50_us = presentation_interval.p50_us,
+            presentation_interval_p95_us = presentation_interval.p95_us,
+            presentation_interval_p99_us = presentation_interval.p99_us,
+            presentation_interval_max_us = presentation_interval.max_us,
+            deadline_to_ready_avg_us = deadline_to_ready.average_us,
+            deadline_to_ready_p50_us = deadline_to_ready.p50_us,
+            deadline_to_ready_p95_us = deadline_to_ready.p95_us,
+            deadline_to_ready_p99_us = deadline_to_ready.p99_us,
+            deadline_to_ready_max_us = deadline_to_ready.max_us,
+            deadline_to_fence_avg_us = deadline_to_fence.average_us,
+            deadline_to_fence_p50_us = deadline_to_fence.p50_us,
+            deadline_to_fence_p95_us = deadline_to_fence.p95_us,
+            deadline_to_fence_p99_us = deadline_to_fence.p99_us,
+            deadline_to_fence_max_us = deadline_to_fence.max_us,
+            deadline_to_submit_avg_us = deadline_to_submit.average_us,
+            deadline_to_submit_p50_us = deadline_to_submit.p50_us,
+            deadline_to_submit_p95_us = deadline_to_submit.p95_us,
+            deadline_to_submit_p99_us = deadline_to_submit.p99_us,
+            deadline_to_submit_max_us = deadline_to_submit.max_us,
+            deadline_to_presentation_avg_us = deadline_to_presentation.average_us,
+            deadline_to_presentation_p50_us = deadline_to_presentation.p50_us,
+            deadline_to_presentation_p95_us = deadline_to_presentation.p95_us,
+            deadline_to_presentation_p99_us = deadline_to_presentation.p99_us,
+            deadline_to_presentation_max_us = deadline_to_presentation.max_us,
             "Denial/Volition output scheduler audit"
         );
 
@@ -569,6 +798,8 @@ impl OutputSchedulerAudit {
         self.sequence_delta_total = 0;
         self.sequence_delta_max = 0;
         self.missed_vblanks = 0;
+        self.stale_ready_drops = 0;
+        self.missed_vblanks_by_output.fill(0);
         self.ready_to_fence = AuditLatency::default();
         self.fence_to_submit = AuditLatency::default();
         self.ready_to_submit = AuditLatency::default();
@@ -578,6 +809,19 @@ impl OutputSchedulerAudit {
         self.submit_to_presentation = AuditLatency::default();
         self.target_to_presentation = AuditLatency::default();
         self.presentation_interval = AuditLatency::default();
+        self.deadline_to_ready = AuditLatency::default();
+        self.deadline_to_fence = AuditLatency::default();
+        self.deadline_to_submit = AuditLatency::default();
+        self.deadline_to_presentation = AuditLatency::default();
+        for latency in &mut self.target_to_presentation_by_output {
+            *latency = AuditLatency::default();
+        }
+        for latency in &mut self.deadline_to_presentation_by_output {
+            *latency = AuditLatency::default();
+        }
+        for latency in &mut self.presentation_interval_by_output {
+            *latency = AuditLatency::default();
+        }
     }
 }
 
@@ -686,6 +930,15 @@ impl OutputScheduler {
                 "parked native output buffers while every output is powered off"
             );
         }
+        let audit = render_audit_enabled().then(|| {
+            OutputSchedulerAudit::new(
+                audit_stride * scanouts.len(),
+                pipelines
+                    .iter()
+                    .map(|pipeline| pipeline.output_id)
+                    .collect(),
+            )
+        });
         Ok(Self {
             volition: presentation,
             pipelines,
@@ -693,8 +946,7 @@ impl OutputScheduler {
             presented_outputs: Vec::with_capacity(scanouts.len()),
             ready_fences,
             audit_stride,
-            audit: render_audit_enabled()
-                .then(|| OutputSchedulerAudit::new(audit_stride * scanouts.len(), powered_outputs)),
+            audit,
             parked,
             presented_frames: 0,
         })
@@ -769,7 +1021,13 @@ impl OutputScheduler {
         } = output;
         if let Some(audit) = self.audit.as_mut() {
             let audit_index = fence_pool_index * self.audit_stride + index;
-            audit.record_ready(audit_index, token, fence.is_some(), rendered_at);
+            audit.record_ready(
+                audit_index,
+                token,
+                fence.is_some(),
+                rendered_at,
+                request.tick.render_deadline,
+            );
         }
 
         let slot = &mut self.ready_fences[fence_pool_index].slots[index];
@@ -1001,15 +1259,29 @@ impl OutputScheduler {
     ) -> Result<(), Box<dyn Error>> {
         self.presented_outputs.clear();
         let mut processing_error = None;
-        while let Some(completion) = events.completed_page_flips.pop_front() {
+        // Process only the completions present when this pass began. A
+        // completion deferred behind Volition's independent Submitted channel
+        // must remain queued for the next calloop dispatch instead of being
+        // popped and retried forever in this pass.
+        let queued_completions = events.completed_page_flips.len();
+        for _ in 0..queued_completions {
+            let completion = events
+                .completed_page_flips
+                .pop_front()
+                .expect("counted page-flip completion disappeared");
             let Some(pipeline_index) = self.pipelines.iter().position(|pipeline| {
                 scanouts[pipeline.scanout_index].output.crtc == completion.crtc
             }) else {
                 continue;
             };
             let pipeline = &mut self.pipelines[pipeline_index];
-            let Some(presented) = pipeline.frames.retire_submitted() else {
-                continue;
+            let presented = match pipeline.frames.retire_completion() {
+                CompletionRetirement::Retired(frame) => frame,
+                CompletionRetirement::Deferred => {
+                    events.completed_page_flips.push_back(completion);
+                    continue;
+                }
+                CompletionRetirement::Stale => continue,
             };
             events.pending.remove(&completion.crtc);
             let previous = pipeline.scanning;
@@ -1020,6 +1292,32 @@ impl OutputScheduler {
                 break;
             }
             swapchains.present(pipeline.output_id, presented.index)?;
+
+            // A missed edge can leave the already-rendered successor targeting
+            // the edge which just completed.  Submitting that generation now
+            // would miss again and keep a one-frame-late stream permanently
+            // serialized.  Drop only the unreachable off-screen successor so
+            // the due output tick can render directly for the next edge.
+            if pipeline
+                .frames
+                .ready
+                .as_ref()
+                .is_some_and(|ready| ready_target_elapsed(ready, completion.observed_at))
+            {
+                let stale = pipeline
+                    .frames
+                    .take_ready()
+                    .expect("checked elapsed output successor disappeared");
+                let fences = self
+                    .ready_fences
+                    .iter_mut()
+                    .find(|pool| pool.output_id == pipeline.output_id)
+                    .ok_or("elapsed output successor lost its render-fence pool")?;
+                discard_ready_frame(runtime, pipeline.output_id, &mut fences.slots, stale)?;
+                if let Some(audit) = self.audit.as_mut() {
+                    audit.stale_ready_drops = audit.stale_ready_drops.saturating_add(1);
+                }
+            }
 
             let presentation = PresentedOutput {
                 id: scanouts[pipeline.scanout_index].output.id,
@@ -1032,6 +1330,7 @@ impl OutputScheduler {
                 audit.record_presentation(
                     pipeline_index,
                     completion.observed_at,
+                    presented.request.tick.render_deadline,
                     presented.request.tick.presentation_target,
                     completion.sequence,
                 );
@@ -1051,8 +1350,8 @@ impl OutputScheduler {
     pub(super) fn process_screencopies_at_tick(
         &self,
         tick: FrameTick,
-        renderer: &mut GlesRenderer,
-        swapchains: &mut OutputSwapchains,
+        runtime: &FlutterRuntime,
+        swapchains: &OutputSwapchains,
         scanouts: &[Scanout],
         events: &mut RuntimeState,
     ) -> Result<(), Box<dyn Error>> {
@@ -1067,10 +1366,12 @@ impl OutputScheduler {
         }
         let timestamp = frontend.screencopy_clock_now();
         let buffer = swapchains
-            .for_output_mut(tick.output)
-            .and_then(|pool| pool.buffers.get_mut(buffer_index))
+            .for_output(tick.output)
+            .and_then(|pool| pool.buffers.get(buffer_index))
             .ok_or("screencopy output buffer exceeds its native pool")?;
-        frontend.process_screencopies(renderer, &mut buffer.dmabuf, tick.output, timestamp)
+        frontend.process_screencopies(&buffer.dmabuf, tick.output, timestamp, || {
+            runtime.retain_output(tick.output, buffer_index)
+        })
     }
 
     pub(super) fn framebuffer_index_for_output(

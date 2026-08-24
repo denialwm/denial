@@ -179,6 +179,13 @@ case "$flutter_renderer" in
   *) die "DENIA_FLUTTER_RENDERER must be skia or impeller, got: $flutter_renderer" ;;
 esac
 
+xwayland_scale_mode="${DENIAL_XWAYLAND_SCALE_MODE:-fractional}"
+case "$xwayland_scale_mode" in
+  fractional | integer) ;;
+  *) die "DENIAL_XWAYLAND_SCALE_MODE must be fractional or integer, got: $xwayland_scale_mode" ;;
+esac
+export DENIAL_XWAYLAND_SCALE_MODE="$xwayland_scale_mode"
+
 bundle="${DENIAL_FLUTTER_BUNDLE:-$DEFAULT_BUNDLE}"
 if [[ -n "${DENIAL_OUTPUT_CONFIG:-}" ]]; then
   output_config="$DENIAL_OUTPUT_CONFIG"
@@ -227,6 +234,7 @@ if [[ "${1:-}" == --check ]]; then
   printf 'ok  %-16s %s\n' 'render device' "${render_device:-$drm_device}"
   printf 'ok  %-16s %s\n' 'shell profile' "$DENIA_SHELL_PROFILE"
   printf 'ok  %-16s %s\n' 'Flutter renderer' "${flutter_renderer:-impeller (default)}"
+  printf 'ok  %-16s %s\n' 'Xwayland scale' "$xwayland_scale_mode"
   printf 'ok  %-16s %s\n' 'Xwayland' "$(command -v Xwayland)"
   exit 0
 fi

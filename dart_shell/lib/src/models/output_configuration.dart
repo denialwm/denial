@@ -76,6 +76,7 @@ class DenialOutputCapabilities {
     required this.mode,
     required this.scale,
     required this.transform,
+    required this.adaptiveSync,
     required this.persistent,
   });
 
@@ -86,6 +87,7 @@ class DenialOutputCapabilities {
       mode: _bool(json, 'mode'),
       scale: _bool(json, 'scale'),
       transform: _bool(json, 'transform'),
+      adaptiveSync: _bool(json, 'adaptive_sync'),
       persistent: _bool(json, 'persistent'),
     );
   }
@@ -95,11 +97,13 @@ class DenialOutputCapabilities {
   final bool mode;
   final bool scale;
   final bool transform;
+  final bool adaptiveSync;
   final bool persistent;
 }
 
 class DenialOutput {
   const DenialOutput({
+    this.monitorId = 0,
     required this.name,
     required this.description,
     required this.connected,
@@ -111,6 +115,7 @@ class DenialOutput {
     required this.logicalHeight,
     required this.scale,
     required this.transform,
+    required this.adaptiveSyncSupported,
     required this.adaptiveSync,
     required this.currentMode,
     required this.modes,
@@ -122,6 +127,7 @@ class DenialOutput {
         .toList(growable: false);
     final currentMode = json['current_mode'];
     return DenialOutput(
+      monitorId: _int(json, 'monitor_id'),
       name: _string(json, 'name'),
       description: _string(json, 'description'),
       connected: _bool(json, 'connected'),
@@ -133,6 +139,7 @@ class DenialOutput {
       logicalHeight: _positiveInt(json, 'logical_height'),
       scale: _positiveDouble(json, 'scale'),
       transform: DenialOutputTransform.fromWire(json['transform']),
+      adaptiveSyncSupported: _bool(json, 'adaptive_sync_supported'),
       adaptiveSync: _bool(json, 'adaptive_sync'),
       currentMode: currentMode == null
           ? null
@@ -141,6 +148,7 @@ class DenialOutput {
     );
   }
 
+  final int monitorId;
   final String name;
   final String description;
   final bool connected;
@@ -152,6 +160,7 @@ class DenialOutput {
   final int logicalHeight;
   final double scale;
   final DenialOutputTransform transform;
+  final bool adaptiveSyncSupported;
   final bool adaptiveSync;
   final DenialOutputMode? currentMode;
   final List<DenialOutputMode> modes;
@@ -179,6 +188,7 @@ class DenialOutput {
     int? y,
     double? scale,
     DenialOutputTransform? transform,
+    bool? adaptiveSync,
     DenialOutputMode? currentMode,
   }) {
     final nextMode = currentMode ?? this.currentMode ?? effectiveMode;
@@ -187,6 +197,7 @@ class DenialOutput {
     final width = nextTransform.swapsAxes ? nextMode.height : nextMode.width;
     final height = nextTransform.swapsAxes ? nextMode.width : nextMode.height;
     return DenialOutput(
+      monitorId: monitorId,
       name: name,
       description: description,
       connected: connected,
@@ -198,7 +209,8 @@ class DenialOutput {
       logicalHeight: (height / nextScale).round().clamp(1, 0x7fffffff),
       scale: nextScale,
       transform: nextTransform,
-      adaptiveSync: adaptiveSync,
+      adaptiveSyncSupported: adaptiveSyncSupported,
+      adaptiveSync: adaptiveSync ?? this.adaptiveSync,
       currentMode: nextMode,
       modes: modes,
     );
@@ -222,6 +234,7 @@ class DenialOutputConfiguration {
     required this.serial,
     required this.capabilities,
     required this.outputs,
+    this.primaryOutput,
     this.pendingConfirmation,
   });
 
@@ -231,6 +244,7 @@ class DenialOutputConfiguration {
       capabilities: DenialOutputCapabilities.fromJson(
         _map(json['capabilities'], 'output capabilities'),
       ),
+      primaryOutput: _optionalString(json, 'primary_output'),
       outputs: List<DenialOutput>.unmodifiable(
         _list(
           json,
@@ -247,6 +261,7 @@ class DenialOutputConfiguration {
 
   final int serial;
   final DenialOutputCapabilities capabilities;
+  final String? primaryOutput;
   final List<DenialOutput> outputs;
   final DenialOutputConfirmation? pendingConfirmation;
 }
@@ -288,6 +303,17 @@ List<Object?> _list(Map<String, Object?> json, String key) {
 
 String _string(Map<String, Object?> json, String key) {
   final value = json[key];
+  if (value case String text when text.isNotEmpty) {
+    return text;
+  }
+  throw FormatException('Invalid $key');
+}
+
+String? _optionalString(Map<String, Object?> json, String key) {
+  final value = json[key];
+  if (value == null) {
+    return null;
+  }
   if (value case String text when text.isNotEmpty) {
     return text;
   }

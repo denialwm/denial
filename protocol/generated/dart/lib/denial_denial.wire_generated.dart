@@ -310,7 +310,8 @@ enum ShellActionKind {
   ScreenshotRegion(5),
   ScreenshotTextureReady(6),
   ScreenshotDone(7),
-  ClientPointerPressed(8);
+  ClientPointerPressed(8),
+  Wallpaper(9);
 
   final int value;
   const ShellActionKind(this.value);
@@ -326,6 +327,7 @@ enum ShellActionKind {
       case 6: return ShellActionKind.ScreenshotTextureReady;
       case 7: return ShellActionKind.ScreenshotDone;
       case 8: return ShellActionKind.ClientPointerPressed;
+      case 9: return ShellActionKind.Wallpaper;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -334,7 +336,7 @@ enum ShellActionKind {
       value == null ? null : ShellActionKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 8;
+  static const int maxValue = 9;
   static const fb.Reader<ShellActionKind> reader = _ShellActionKindReader();
 }
 

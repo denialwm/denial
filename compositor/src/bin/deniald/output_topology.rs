@@ -11,6 +11,7 @@ pub(super) struct OutputModePreference {
 
 #[derive(Clone, Debug)]
 pub(super) struct RuntimeOutputConfiguration {
+    pub(super) primary_output: Option<String>,
     pub(super) positions: BTreeMap<String, LogicalPoint>,
     pub(super) modes: BTreeMap<String, OutputModePreference>,
     pub(super) scales_120: BTreeMap<String, u32>,
@@ -54,6 +55,7 @@ impl RuntimeOutputConfiguration {
             preference.height = Some(*height);
         }
         Self {
+            primary_output: options.primary_output.clone(),
             positions: options.positions.clone(),
             modes,
             scales_120: options.scales_120.clone(),
@@ -246,6 +248,13 @@ pub(super) fn output_control_state(
 ) -> Result<output_control::OutputControlState, Box<dyn Error>> {
     let snapshot = topology.snapshot();
     let mut outputs = Vec::new();
+    let mut placement = HorizontalOutputPlacement::default();
+    for output in &snapshot.outputs {
+        placement.include(
+            output.position,
+            i32::try_from(output.logical_rect().width.ceil() as i64)?,
+        )?;
+    }
     for connector in current_connected_connectors(scanner) {
         let name = format!(
             "{}-{}",
@@ -263,10 +272,6 @@ pub(super) fn output_control_state(
         let transform = spec
             .map(|output| output.transform)
             .unwrap_or_else(|| configuration.effective_transform(&name));
-        let position = spec
-            .map(|output| output.position)
-            .or_else(|| configuration.positions.get(&name).copied())
-            .unwrap_or(LogicalPoint::new(0, 0));
         let modes = output_control_modes(&connector.info);
         let current_mode =
             scanout.and_then(|scanout| output_control_mode(&connector.info, scanout.output.mode));
@@ -278,12 +283,34 @@ pub(super) fn output_control_state(
         let (logical_width, logical_height) = fallback_mode.map_or((0, 0), |mode| {
             logical_size_for_control(mode, scale_120, transform)
         });
+        let position = placement.resolve(
+            spec.map(|output| output.position)
+                .or_else(|| configuration.positions.get(&name).copied()),
+        );
+        placement.include(position, i32::try_from(logical_width)?)?;
         let (physical_width_mm, physical_height_mm) = connector
             .info
             .size()
             .map_or((None, None), |(width, height)| (Some(width), Some(height)));
+        let adaptive_sync = scanout
+            .map(|scanout| scanout.output.vrr_enabled)
+            .unwrap_or_else(|| configuration.vrr_outputs.contains(&name));
+        let adaptive_sync_supported = scanout.is_some_and(|scanout| {
+            match scanout.surface.vrr_supported(connector.info.handle()) {
+                Ok(support) => support != VrrSupport::NotSupported,
+                Err(error) => {
+                    warn!(
+                        output = name,
+                        %error,
+                        "could not query variable refresh rate support"
+                    );
+                    false
+                }
+            }
+        });
 
         outputs.push(output_control::OutputControlOutput {
+            monitor_id: i64::try_from(id.0)?,
             name: name.clone(),
             description: name.clone(),
             connected: true,
@@ -297,9 +324,8 @@ pub(super) fn output_control_state(
             physical_height_mm,
             scale: f64::from(scale_120) / f64::from(SCALE_BASE),
             transform: output_transform_name(transform),
-            adaptive_sync: scanout
-                .map(|scanout| scanout.output.vrr_enabled)
-                .unwrap_or_else(|| configuration.vrr_outputs.contains(&name)),
+            adaptive_sync_supported,
+            adaptive_sync,
             current_mode,
             modes,
         });
@@ -310,6 +336,7 @@ pub(super) fn output_control_state(
     };
     Ok(output_control::OutputControlState {
         capabilities,
+        primary_output: configuration.primary_output.clone(),
         outputs,
         pending_confirmation,
     })
@@ -497,6 +524,18 @@ pub(super) fn configuration_from_output_request(
             ),
         ));
     }
+    if let Some(primary_output) = request.primary_output.as_deref()
+        && (primary_output.is_empty()
+            || primary_output.trim() != primary_output
+            || primary_output
+                .chars()
+                .any(|character| character.is_control() || matches!(character, '#' | ',' | '=')))
+    {
+        return Err(output_control::OutputControlFailure::new(
+            "invalid_configuration",
+            format!("invalid primary output name {primary_output:?}"),
+        ));
+    }
     if request.outputs.len() != connectors.len() {
         return Err(output_control::OutputControlFailure::new(
             "invalid_configuration",
@@ -572,6 +611,7 @@ pub(super) fn configuration_from_output_request(
     }
 
     let mut staged = current.clone();
+    staged.primary_output = request.primary_output.clone();
     let mut power = BTreeMap::new();
     for connector in connectors {
         let name = format!(
@@ -726,7 +766,10 @@ pub(super) fn topology_for_outputs(
     outputs: &[ConnectedOutput],
     configuration: &RuntimeOutputConfiguration,
 ) -> Result<TopologyManager, Box<dyn Error>> {
-    Ok(TopologyManager::new(output_specs(outputs, configuration)?)?)
+    Ok(TopologyManager::new_with_primary_output(
+        output_specs(outputs, configuration)?,
+        configuration.primary_output.clone(),
+    )?)
 }
 
 pub(super) fn update_topology_for_outputs(
@@ -744,7 +787,7 @@ pub(super) fn update_topology_for_outputs(
         .map(|output| TopologyChange::Remove(output.id))
         .collect::<Vec<_>>();
     changes.extend(specs.into_iter().map(TopologyChange::Upsert));
-    topology.apply(changes)?;
+    topology.apply_with_primary_output(changes, configuration.primary_output.clone())?;
     Ok(topology.snapshot())
 }
 
@@ -752,43 +795,80 @@ fn output_specs(
     outputs: &[ConnectedOutput],
     configuration: &RuntimeOutputConfiguration,
 ) -> Result<Vec<OutputSpec>, Box<dyn Error>> {
-    let mut default_x = 0i32;
-    let mut specs = Vec::with_capacity(outputs.len());
+    let mut pending = Vec::with_capacity(outputs.len());
 
     for output in outputs {
         let mode: OutputMode = output.mode.into();
         let width = u32::try_from(mode.size.w)?;
         let height = u32::try_from(mode.size.h)?;
-        let position = configuration
-            .positions
-            .get(&output.name)
-            .copied()
-            .unwrap_or_else(|| LogicalPoint::new(default_x, 0));
+        let configured_position = configuration.positions.get(&output.name).copied();
         let scale_120 = configuration
             .scales_120
             .get(&output.name)
             .copied()
             .unwrap_or(SCALE_BASE);
-        let spec = OutputSpec {
-            id: output.id,
-            name: output.name.clone(),
-            position,
-            mode: PixelSize::new(width, height),
-            scale_120,
-            refresh_millihz: u32::try_from(mode.refresh)?,
-            transform: output.transform,
-        };
-        let logical_width = spec.logical_rect().width.ceil();
+        pending.push((
+            OutputSpec {
+                id: output.id,
+                name: output.name.clone(),
+                position: configured_position.unwrap_or(LogicalPoint::new(0, 0)),
+                mode: PixelSize::new(width, height),
+                scale_120,
+                refresh_millihz: u32::try_from(mode.refresh)?,
+                transform: output.transform,
+            },
+            configured_position.is_some(),
+        ));
+    }
+
+    let mut placement = HorizontalOutputPlacement::default();
+    for (spec, configured) in &pending {
+        if *configured {
+            placement.include(
+                spec.position,
+                i32::try_from(spec.logical_rect().width.ceil() as i64)?,
+            )?;
+        }
+    }
+
+    let mut specs = Vec::with_capacity(pending.len());
+    for (mut spec, configured) in pending {
+        if !configured {
+            spec.position = placement.resolve(None);
+        }
+        placement.include(
+            spec.position,
+            i32::try_from(spec.logical_rect().width.ceil() as i64)?,
+        )?;
         specs.push(spec);
-        default_x = default_x.max(
-            position
-                .x
-                .checked_add(i32::try_from(logical_width as i64)?)
-                .ok_or("output layout overflow")?,
-        );
     }
 
     Ok(specs)
+}
+
+#[derive(Default)]
+struct HorizontalOutputPlacement {
+    default_x: i32,
+}
+
+impl HorizontalOutputPlacement {
+    fn resolve(&self, configured: Option<LogicalPoint>) -> LogicalPoint {
+        configured.unwrap_or(LogicalPoint::new(self.default_x, 0))
+    }
+
+    fn include(
+        &mut self,
+        position: LogicalPoint,
+        logical_width: i32,
+    ) -> Result<(), Box<dyn Error>> {
+        self.default_x = self.default_x.max(
+            position
+                .x
+                .checked_add(logical_width)
+                .ok_or("output layout overflow")?,
+        );
+        Ok(())
+    }
 }
 
 #[cfg(test)]

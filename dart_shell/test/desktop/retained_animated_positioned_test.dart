@@ -112,6 +112,81 @@ void main() {
     expect(probe.localToGlobal(Offset.zero), beforeRetarget);
   });
 
+  testWidgets('canonical layout is retained while visual geometry scales', (
+    tester,
+  ) async {
+    var layouts = 0;
+    var taps = 0;
+    final painter = _CountingPainter();
+
+    Widget scene(Rect rect) {
+      return Directionality(
+        textDirection: TextDirection.ltr,
+        child: SizedBox(
+          width: 640,
+          height: 480,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              RetainedAnimatedPositioned(
+                rect: rect,
+                layoutRect: source,
+                duration: const Duration(seconds: 1),
+                child: RepaintBoundary(
+                  child: CustomPaint(
+                    painter: painter,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        layouts += 1;
+                        return GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => taps += 1,
+                          child: const SizedBox.expand(key: probeKey),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    await tester.pumpWidget(scene(source));
+    await tester.pumpWidget(scene(destination));
+
+    final probe = tester.renderObject<RenderBox>(find.byKey(probeKey));
+    expect(probe.size, source.size);
+    final layoutsAfterRetarget = layouts;
+    final paintsAfterRetarget = painter.paints;
+
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(layouts, layoutsAfterRetarget);
+    expect(painter.paints, paintsAfterRetarget);
+    expect(probe.size, source.size);
+    expect(probe.localToGlobal(Offset.zero), const Offset(120, 80));
+    expect(
+      probe.localToGlobal(Offset(probe.size.width, probe.size.height)),
+      const Offset(270, 200),
+    );
+
+    await tester.tapAt(const Offset(195, 140));
+    expect(taps, 1);
+
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(probe.size, source.size);
+    expect(probe.localToGlobal(Offset.zero), destination.topLeft);
+    expect(
+      probe.localToGlobal(Offset(probe.size.width, probe.size.height)),
+      destination.bottomRight,
+    );
+    expect(layouts, layoutsAfterRetarget);
+    expect(painter.paints, paintsAfterRetarget);
+  });
+
   testWidgets('layout mode interpolates child geometry on every tick', (
     tester,
   ) async {

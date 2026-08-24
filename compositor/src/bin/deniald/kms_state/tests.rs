@@ -5,7 +5,9 @@ use super::{
     validate_scanout_identities, validate_scanout_pool_allocation,
 };
 #[cfg(feature = "flutter")]
-use super::{OUTPUT_POOL_LENGTH, ensure_resident_jit_engine_matches};
+use super::{
+    OUTPUT_POOL_LENGTH, OUTPUT_SCANOUT_ALLOCATION_LENGTH, ensure_resident_jit_engine_matches,
+};
 
 #[cfg(feature = "flutter")]
 #[test]
@@ -25,6 +27,7 @@ fn a_changed_resident_jit_engine_requires_a_session_restart() {
 #[test]
 fn physical_output_pool_has_exactly_three_ownership_slots() {
     assert_eq!(OUTPUT_POOL_LENGTH, 3);
+    assert_eq!(OUTPUT_SCANOUT_ALLOCATION_LENGTH, 4);
 }
 
 #[test]

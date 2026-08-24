@@ -521,7 +521,7 @@ fn publishes_and_answers_with_the_current_wayland_window() {
     let mut bridge = bridge();
     let restored_window_ids = BTreeSet::from([window.window_id]);
     let (update, recycled) = bridge
-        .update_windows(vec![window.clone()], &restored_window_ids)
+        .update_windows(1, vec![window.clone()], &restored_window_ids)
         .unwrap();
     assert!(recycled.is_empty());
     let update = update.unwrap();
@@ -562,13 +562,13 @@ fn publishes_and_answers_with_the_current_wayland_window() {
     ));
     assert_eq!(bridge.window_ids().collect::<Vec<_>>(), [11]);
     let (update, unchanged) = bridge
-        .update_windows(vec![window.clone()], &restored_window_ids)
+        .update_windows(1, vec![window.clone()], &restored_window_ids)
         .unwrap();
     assert!(update.is_none());
     assert_eq!(unchanged.len(), 1);
 
     let (update, _) = bridge
-        .update_windows(vec![window], &BTreeSet::new())
+        .update_windows(2, vec![window], &BTreeSet::new())
         .unwrap();
     let envelope = fb::root_as_envelope(update.unwrap()).unwrap();
     assert!(
@@ -1343,6 +1343,16 @@ fn settings_responses_preserve_document_and_keyboard_metadata() {
     assert_eq!(response.revision(), 9);
     assert_eq!(response.document(), Some("{\n  \"version\": 8\n}\n"));
 
+    let bytes = bridge
+        .encode_settings_document_response(0, 10, Some("{\n  \"version\": 9\n}\n"), None)
+        .unwrap();
+    let envelope = fb::root_as_envelope(bytes).unwrap();
+    let response = envelope.payload_as_settings_response().unwrap();
+    assert_eq!(envelope.request_id(), 0);
+    assert_eq!(response.kind(), fb::SettingsResponseKind::Document);
+    assert!(response.success());
+    assert_eq!(response.revision(), 10);
+
     let keyboard = KeyboardSettings {
         layouts: vec![
             KeyboardLayout {
@@ -1709,6 +1719,14 @@ fn encodes_shell_actions_with_optional_monitor_and_ordered_sequence() {
     let action = envelope.payload_as_shell_action().unwrap();
     assert_eq!(envelope.sequence(), 4);
     assert_eq!(action.action(), fb::ShellActionKind::ClientPointerPressed);
+
+    let bytes = bridge
+        .encode_shell_action(ShellAction::Wallpaper, None)
+        .unwrap();
+    let envelope = fb::root_as_envelope(bytes).unwrap();
+    let action = envelope.payload_as_shell_action().unwrap();
+    assert_eq!(envelope.sequence(), 5);
+    assert_eq!(action.action(), fb::ShellActionKind::Wallpaper);
 }
 
 #[test]

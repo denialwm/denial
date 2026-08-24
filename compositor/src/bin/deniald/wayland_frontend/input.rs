@@ -40,7 +40,6 @@ use tracing::{info, warn};
 
 #[cfg(feature = "flutter")]
 use super::super::PendingWindowEvent;
-use super::super::RuntimeState;
 #[cfg(test)]
 use super::super::lifecycle::LifecycleState;
 use super::super::lifecycle::ShutdownReason;
@@ -60,6 +59,7 @@ use super::super::wire::InputRect;
 use super::super::wire::{
     InputLayoutSnapshot, InputWindowRegion, WindowPlacementChange, WindowPlacementPhase,
 };
+use super::super::{RuntimeState, logical_axis_scroll_delta};
 #[cfg(feature = "flutter")]
 use super::FlutterPointerPress;
 use super::WaylandFrontend;
@@ -74,6 +74,8 @@ use super::touch_gestures::{
 
 #[path = "input/flutter_route.rs"]
 mod flutter_route;
+#[path = "input/tablet.rs"]
+mod tablet;
 #[path = "input/wayland_route.rs"]
 mod wayland_route;
 
@@ -84,8 +86,6 @@ use flutter_route::process_flutter_input_event;
 use flutter_route::process_wayland_keyboard_transition;
 #[cfg(feature = "flutter")]
 pub(crate) use flutter_route::reconcile_flutter_pointer_route;
-#[cfg(test)]
-use flutter_route::scaled_axis_amount;
 use wayland_route::process_wayland_input_event;
 
 fn output_bound_absolute_position<E>(
@@ -1133,7 +1133,9 @@ fn process_input_event(
     state: &mut RuntimeState,
     mut event: InputEvent<LibinputInputBackend>,
 ) -> bool {
+    let mut tablet_clients_changed = false;
     if let InputEvent::DeviceAdded { device } = &mut event {
+        tablet_clients_changed = tablet::register_device(state, device);
         if Device::has_capability(device, DeviceCapability::Keyboard) {
             if let Some(led_state) = state
                 .wayland
@@ -1174,6 +1176,7 @@ fn process_input_event(
     }
 
     if let InputEvent::DeviceRemoved { device } = &event {
+        tablet_clients_changed = tablet::unregister_device(state, device);
         if Device::has_capability(device, DeviceCapability::Keyboard) {
             state.keyboard_devices.remove(device.sysname());
         }
@@ -1192,7 +1195,7 @@ fn process_input_event(
         if reset.any() {
             reset_input_devices(state, reset);
         }
-        return reset.any();
+        return reset.any() || tablet_clients_changed;
     }
 
     #[cfg(feature = "flutter")]
@@ -1216,6 +1219,14 @@ fn process_input_event(
     #[cfg(feature = "flutter")]
     if let Some(flush_clients) = process_touchpad_gesture_event(state, &event) {
         return flush_clients;
+    }
+
+    if tablet::process_event(state, &event) {
+        return true;
+    }
+
+    if tablet_clients_changed {
+        return true;
     }
 
     #[cfg(not(feature = "flutter"))]

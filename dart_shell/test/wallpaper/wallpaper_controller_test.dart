@@ -180,7 +180,7 @@ void main() {
   });
 
   test(
-    'alignment supports per-monitor overrides and All resets them',
+    'per-output alignment inherits All and supports monitor overrides',
     () async {
       final temporary = await Directory.systemTemp.createTemp(
         'denial-wallpaper-alignment-test-',
@@ -205,7 +205,7 @@ void main() {
 
       expect(
         harness.state.assignment.alignmentForTarget(harness.state.target),
-        const WallpaperSpanAlignment(),
+        const WallpaperSpanAlignment.precise(x: 0.25, y: -0.4),
       );
 
       controller.commitSpanAlignment(
@@ -222,7 +222,7 @@ void main() {
       );
       expect(
         harness.state.assignment.alignmentForOutput('DP-4'),
-        const WallpaperSpanAlignment(),
+        const WallpaperSpanAlignment.precise(x: 0.25, y: -0.4),
       );
 
       controller.selectTarget(
@@ -288,6 +288,56 @@ void main() {
         vertical: WallpaperVerticalAlignment.bottom,
       ),
     );
+  });
+
+  test('wallpaper changes propagate between shell processes', () async {
+    final temporary = await Directory.systemTemp.createTemp(
+      'denial-wallpaper-process-sync-test-',
+    );
+    addTearDown(() => temporary.delete(recursive: true));
+    final paths = RuntimePaths(
+      environment: <String, String>{
+        'HOME': temporary.path,
+        'XDG_STATE_HOME': '${temporary.path}/state',
+      },
+    );
+    final settings = WallpaperControllerTestHarness(
+      sources: const <WallpaperProvider>[],
+      store: WallpaperStore(paths),
+    );
+    final shell = WallpaperControllerTestHarness(
+      sources: const <WallpaperProvider>[],
+      store: WallpaperStore(paths),
+    );
+    addTearDown(settings.container.dispose);
+    addTearDown(shell.container.dispose);
+    await pumpEventQueue();
+
+    final selected = WallpaperResource.file(
+      '${temporary.path}/external-selection.jpg',
+    );
+    await File(selected.path).writeAsBytes(const <int>[1, 2, 3]);
+    settings.controller.commitCandidate(
+      WallpaperCandidate(
+        id: 'external-selection',
+        providerId: 'direct',
+        label: 'External selection',
+        previewUri: Uri.file(selected.path),
+        width: 1920,
+        height: 1080,
+      ),
+      selected,
+      revealOriginFraction: const Offset(0.5, 0.5),
+    );
+
+    for (
+      var attempt = 0;
+      attempt < 20 && shell.state.assignment.all != selected;
+      attempt += 1
+    ) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    expect(shell.state.assignment.all, selected);
   });
 
   test('changing monitor target reruns the query for its resolution', () async {
