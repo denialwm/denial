@@ -1617,11 +1617,17 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                     key: const ValueKey<String>(
                       'desktop-launcher-dismiss-barrier',
                     ),
-                    child: IgnorePointer(
-                      ignoring: !desktop.launcherOpen,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: onDismissLauncher,
+                    child: ShellInputRegion(
+                      debugLabel: 'Desktop launcher dismiss barrier',
+                      active: desktop.launcherOpen,
+                      pointerPolicy: ShellPointerPolicy.fullScene,
+                      keyboardPolicy: ShellKeyboardPolicy.none,
+                      child: IgnorePointer(
+                        ignoring: !desktop.launcherOpen,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: onDismissLauncher,
+                        ),
                       ),
                     ),
                   ),
@@ -1646,6 +1652,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                           searchFocusNode: applicationSearchFocusNode,
                           onEnter: onCancelPanelClose,
                           onExit: onSchedulePanelClose,
+                          onDismiss: onDismissLauncher,
                           onLaunch: onLaunchApp,
                           onLaunchLocal: onLaunchLocalApp,
                         ),
@@ -4059,6 +4066,7 @@ class _DashboardValueButtonState extends State<_DashboardValueButton> {
 @immutable
 class _DesktopLauncherEntry {
   const _DesktopLauncherEntry._({
+    required this.navigationId,
     required this.id,
     required this.name,
     required this.categories,
@@ -4070,6 +4078,7 @@ class _DesktopLauncherEntry {
 
   factory _DesktopLauncherEntry.desktop(DesktopApp app) {
     return _DesktopLauncherEntry._(
+      navigationId: 'desktop:${app.id}',
       id: app.id,
       name: app.name,
       categories: app.categories,
@@ -4085,6 +4094,7 @@ class _DesktopLauncherEntry {
     BuildContext context,
   ) {
     return _DesktopLauncherEntry._(
+      navigationId: 'local:${app.id}',
       id: app.id,
       name: app.titleFor(context),
       categories: app.categoriesFor(context),
@@ -4095,6 +4105,7 @@ class _DesktopLauncherEntry {
     );
   }
 
+  final String navigationId;
   final String id;
   final String name;
   final List<String> categories;
@@ -4111,6 +4122,7 @@ class DesktopApplicationLauncher extends ConsumerStatefulWidget {
     required this.searchFocusNode,
     required this.onEnter,
     required this.onExit,
+    required this.onDismiss,
     required this.onLaunch,
     required this.onLaunchLocal,
   });
@@ -4119,6 +4131,9 @@ class DesktopApplicationLauncher extends ConsumerStatefulWidget {
   final FocusNode searchFocusNode;
   final VoidCallback onEnter;
   final VoidCallback onExit;
+
+  /// Immediately closes the launcher and releases its keyboard capture.
+  final VoidCallback onDismiss;
   final ValueChanged<DesktopApp> onLaunch;
   final ValueChanged<LocalFlutterApplication> onLaunchLocal;
 
@@ -4129,36 +4144,60 @@ class DesktopApplicationLauncher extends ConsumerStatefulWidget {
 
 class _DesktopApplicationLauncherState
     extends ConsumerState<DesktopApplicationLauncher> {
+  static const double _tileExtent = 112;
+  static const double _tileSpacing = 8;
+
   late final TextEditingController _searchController;
+  final GlobalKey _gridKey = GlobalKey();
+  final ScrollController _gridController = ScrollController();
+  String _lastSearchText = '';
+  String? _selectedEntryId;
 
   @override
   void initState() {
     super.initState();
     _searchController = TextEditingController()
-      ..addListener(_handleSearchChanged);
-    widget.searchFocusNode.addListener(_handleSearchChanged);
+      ..addListener(_handleQueryChanged);
+    widget.searchFocusNode.addListener(_handleSearchFocusChanged);
   }
 
   @override
   void didUpdateWidget(covariant DesktopApplicationLauncher oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.visible &&
-        !widget.visible &&
-        _searchController.text.isNotEmpty) {
-      _searchController.clear();
+    if (oldWidget.searchFocusNode != widget.searchFocusNode) {
+      oldWidget.searchFocusNode.removeListener(_handleSearchFocusChanged);
+      widget.searchFocusNode.addListener(_handleSearchFocusChanged);
+    }
+    if (oldWidget.visible != widget.visible) {
+      _selectedEntryId = null;
+      _resetGridScroll();
+      if (!widget.visible && _searchController.text.isNotEmpty) {
+        _searchController.clear();
+      }
     }
   }
 
   @override
   void dispose() {
-    widget.searchFocusNode.removeListener(_handleSearchChanged);
+    widget.searchFocusNode.removeListener(_handleSearchFocusChanged);
     _searchController
-      ..removeListener(_handleSearchChanged)
+      ..removeListener(_handleQueryChanged)
       ..dispose();
+    _gridController.dispose();
     super.dispose();
   }
 
-  void _handleSearchChanged() {
+  void _handleQueryChanged() {
+    final searchText = _searchController.text;
+    if (searchText == _lastSearchText) {
+      return;
+    }
+    _lastSearchText = searchText;
+    setState(() => _selectedEntryId = null);
+    _resetGridScroll();
+  }
+
+  void _handleSearchFocusChanged() {
     setState(() {});
   }
 
@@ -4176,6 +4215,125 @@ class _DesktopApplicationLauncherState
     widget.onLaunchLocal(entry.localApp!);
   }
 
+  int _selectedIndexFor(List<_DesktopLauncherEntry> apps) {
+    if (apps.isEmpty) {
+      return -1;
+    }
+    final selectedEntryId = _selectedEntryId;
+    if (selectedEntryId == null) {
+      return 0;
+    }
+    final index = apps.indexWhere(
+      (entry) => entry.navigationId == selectedEntryId,
+    );
+    return index < 0 ? 0 : index;
+  }
+
+  void _selectIndex(List<_DesktopLauncherEntry> apps, int index) {
+    if (apps.isEmpty) {
+      return;
+    }
+    assert(index >= 0 && index < apps.length);
+    final selectedEntryId = apps[index].navigationId;
+    if (_selectedEntryId != selectedEntryId) {
+      setState(() => _selectedEntryId = selectedEntryId);
+    }
+    _revealSelected(index);
+  }
+
+  void _moveSelection(List<_DesktopLauncherEntry> apps, int delta) {
+    if (apps.isEmpty) {
+      return;
+    }
+    final current = _selectedIndexFor(apps);
+    _selectIndex(apps, (current + delta) % apps.length);
+  }
+
+  void _moveSelectionVertically(
+    List<_DesktopLauncherEntry> apps,
+    int direction,
+  ) {
+    if (apps.isEmpty) {
+      return;
+    }
+    assert(direction == -1 || direction == 1);
+    final columns = _gridCrossAxisCount();
+    final rowCount = (apps.length + columns - 1) ~/ columns;
+    final current = _selectedIndexFor(apps);
+    final currentRow = current ~/ columns;
+    final currentColumn = current % columns;
+    final targetRow = (currentRow + direction) % rowCount;
+    final targetRowStart = targetRow * columns;
+    final targetRowLength = (apps.length - targetRowStart)
+        .clamp(1, columns)
+        .toInt();
+    final targetColumn = currentColumn.clamp(0, targetRowLength - 1).toInt();
+    _selectIndex(apps, targetRowStart + targetColumn);
+  }
+
+  void _launchSelected(List<_DesktopLauncherEntry> apps) {
+    final selectedIndex = _selectedIndexFor(apps);
+    if (selectedIndex >= 0) {
+      _launch(apps[selectedIndex]);
+    }
+  }
+
+  void _resetGridScroll() {
+    if (_gridController.hasClients) {
+      _gridController.jumpTo(_gridController.position.minScrollExtent);
+    }
+  }
+
+  void _revealSelected(int selectedIndex) {
+    if (!_gridController.hasClients) {
+      return;
+    }
+    final gridWidth = _gridKey.currentContext?.size?.width ?? 0;
+    if (gridWidth <= 0) {
+      return;
+    }
+    final position = _gridController.position;
+    final crossAxisCount = _crossAxisCountFor(gridWidth);
+    const step = _tileExtent + _tileSpacing;
+    final row = selectedIndex ~/ crossAxisCount;
+    final itemTop = row * step;
+    final itemBottom = itemTop + _tileExtent;
+    final viewport = position.viewportDimension;
+    final current = position.pixels;
+    final double target;
+    if (itemBottom > current + viewport) {
+      target = itemBottom - viewport + _tileSpacing;
+    } else if (itemTop < current) {
+      target = itemTop - _tileSpacing;
+    } else {
+      return;
+    }
+    final clampedTarget = target
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _gridController.jumpTo(clampedTarget);
+      return;
+    }
+    unawaited(
+      _gridController.animateTo(
+        clampedTarget,
+        duration: Motion.tile,
+        curve: Motion.standard,
+      ),
+    );
+  }
+
+  int _gridCrossAxisCount() {
+    final gridWidth = _gridKey.currentContext?.size?.width ?? 0;
+    return _crossAxisCountFor(gridWidth <= 0 ? 1 : gridWidth);
+  }
+
+  int _crossAxisCountFor(double width) {
+    final count = (width / (_tileExtent + _tileSpacing)).ceil();
+    return count < 1 ? 1 : count;
+  }
+
   @override
   Widget build(BuildContext context) {
     final allApps = _installedApps(
@@ -4184,6 +4342,7 @@ class _DesktopApplicationLauncherState
       ref.watch(localFlutterApplicationRegistryProvider).applications,
     );
     final apps = _filterInstalledApps(allApps, _searchController.text);
+    final selectedIndex = _selectedIndexFor(apps);
     final searching = _searchController.text.trim().isNotEmpty;
     final theme = ShellTheme.of(context);
     final l10n = context.l10n;
@@ -4191,79 +4350,96 @@ class _DesktopApplicationLauncherState
       onEnter: (_) => widget.onEnter(),
       onExit: (_) => widget.onExit(),
       child: FocusTraversalGroup(
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: theme.panelColor(ShellColors.panelBackground),
-            borderRadius: BorderRadius.circular(theme.panelRadius),
-            border: Border.all(color: ShellColors.hairline),
-            boxShadow: const [
-              BoxShadow(
-                color: ShellColors.shadow,
-                blurRadius: 36,
-                spreadRadius: 3,
-                offset: Offset(0, 16),
-              ),
-            ],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  l10n.desktopApplicationsTitle,
-                  style: ShellText.statusClock.copyWith(fontSize: 22),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  searching
-                      ? l10n.desktopApplicationSearchResults(
-                          apps.length,
-                          allApps.length,
-                        )
-                      : l10n.desktopInstalledApplications(allApps.length),
-                  style: ShellText.cardTitle.copyWith(
-                    color: ShellColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _DesktopAppSearchField(
-                  controller: _searchController,
-                  focusNode: widget.searchFocusNode,
-                  onClear: _clearSearch,
-                  onSubmit: () {
-                    if (searching && apps.isNotEmpty) {
-                      _launch(apps.first);
-                    }
-                  },
-                ),
-                const SizedBox(height: 14),
-                Expanded(
-                  child: allApps.isEmpty
-                      ? Center(child: Text(l10n.desktopLoadingApplications))
-                      : apps.isEmpty
-                      ? const _DesktopAppSearchEmptyState()
-                      : GridView.builder(
-                          scrollCacheExtent: const ScrollCacheExtent.pixels(0),
-                          gridDelegate:
-                              const SliverGridDelegateWithMaxCrossAxisExtent(
-                                maxCrossAxisExtent: 112,
-                                mainAxisExtent: 112,
-                                crossAxisSpacing: 8,
-                                mainAxisSpacing: 8,
-                              ),
-                          itemCount: apps.length,
-                          itemBuilder: (context, index) => _DesktopAppTile(
-                            key: ValueKey<String>(
-                              'desktop-app-${apps[index].id}',
-                            ),
-                            app: apps[index],
-                            selected: searching && index == 0,
-                            onTap: () => _launch(apps[index]),
-                          ),
-                        ),
+        child: CallbackShortcuts(
+          bindings: <ShortcutActivator, VoidCallback>{
+            const SingleActivator(LogicalKeyboardKey.escape): widget.onDismiss,
+            const SingleActivator(LogicalKeyboardKey.tab): () =>
+                _moveSelection(apps, 1),
+            const SingleActivator(LogicalKeyboardKey.tab, shift: true): () =>
+                _moveSelection(apps, -1),
+            const SingleActivator(LogicalKeyboardKey.arrowDown): () =>
+                _moveSelectionVertically(apps, 1),
+            const SingleActivator(LogicalKeyboardKey.arrowUp): () =>
+                _moveSelectionVertically(apps, -1),
+            const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
+                _moveSelection(apps, 1),
+            const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
+                _moveSelection(apps, -1),
+          },
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: theme.panelColor(ShellColors.panelBackground),
+              borderRadius: BorderRadius.circular(theme.panelRadius),
+              border: Border.all(color: ShellColors.hairline),
+              boxShadow: const [
+                BoxShadow(
+                  color: ShellColors.shadow,
+                  blurRadius: 36,
+                  spreadRadius: 3,
+                  offset: Offset(0, 16),
                 ),
               ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l10n.desktopApplicationsTitle,
+                    style: ShellText.statusClock.copyWith(fontSize: 22),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    searching
+                        ? l10n.desktopApplicationSearchResults(
+                            apps.length,
+                            allApps.length,
+                          )
+                        : l10n.desktopInstalledApplications(allApps.length),
+                    style: ShellText.cardTitle.copyWith(
+                      color: ShellColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _DesktopAppSearchField(
+                    controller: _searchController,
+                    focusNode: widget.searchFocusNode,
+                    onClear: _clearSearch,
+                    onSubmit: () => _launchSelected(apps),
+                  ),
+                  const SizedBox(height: 14),
+                  Expanded(
+                    child: allApps.isEmpty
+                        ? Center(child: Text(l10n.desktopLoadingApplications))
+                        : apps.isEmpty
+                        ? const _DesktopAppSearchEmptyState()
+                        : GridView.builder(
+                            key: _gridKey,
+                            controller: _gridController,
+                            scrollCacheExtent: const ScrollCacheExtent.pixels(
+                              0,
+                            ),
+                            gridDelegate:
+                                const SliverGridDelegateWithMaxCrossAxisExtent(
+                                  maxCrossAxisExtent: _tileExtent,
+                                  mainAxisExtent: _tileExtent,
+                                  crossAxisSpacing: _tileSpacing,
+                                  mainAxisSpacing: _tileSpacing,
+                                ),
+                            itemCount: apps.length,
+                            itemBuilder: (context, index) => _DesktopAppTile(
+                              key: ValueKey<String>(
+                                'desktop-app-${apps[index].navigationId}',
+                              ),
+                              app: apps[index],
+                              selected: index == selectedIndex,
+                              onTap: () => _launch(apps[index]),
+                            ),
+                          ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -4284,6 +4460,11 @@ class _DesktopAppSearchField extends StatelessWidget {
   final FocusNode focusNode;
   final VoidCallback onClear;
   final VoidCallback onSubmit;
+
+  static final List<TextInputFormatter> _inputFormatters =
+      List<TextInputFormatter>.unmodifiable(<TextInputFormatter>[
+        FilteringTextInputFormatter.deny(RegExp(r'[\u0000-\u001F\u007F]')),
+      ]);
 
   @override
   Widget build(BuildContext context) {
@@ -4342,6 +4523,9 @@ class _DesktopAppSearchField extends StatelessWidget {
                         cursorColor: accent.primary,
                         backgroundCursorColor: ShellColors.textSecondary,
                         selectionColor: accent.selection,
+                        // Raw shortcuts and text input are separate channels.
+                        // Deny control characters in case an IME commits one.
+                        inputFormatters: _inputFormatters,
                       ),
                     ],
                   ),
