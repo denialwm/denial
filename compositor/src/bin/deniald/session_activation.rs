@@ -14,6 +14,7 @@ fn session_activation_environment(
     wayland_display: &OsStr,
     x11_display: &OsStr,
     output_control_socket: Option<&OsStr>,
+    qt_platform_theme: Option<&OsStr>,
 ) -> Result<BTreeMap<&'static str, String>, Box<dyn Error>> {
     let wayland_display = wayland_display
         .to_str()
@@ -21,9 +22,14 @@ fn session_activation_environment(
     let x11_display = x11_display
         .to_str()
         .ok_or("X11 display name is not valid UTF-8")?;
+    let qt_platform_theme = qt_platform_theme
+        .unwrap_or_else(|| OsStr::new(DEFAULT_QT_QPA_PLATFORMTHEME))
+        .to_str()
+        .ok_or("QT_QPA_PLATFORMTHEME is not valid UTF-8")?;
     let mut environment = BTreeMap::from([
         ("DESKTOP_SESSION", String::from("Denial")),
         ("DISPLAY", x11_display.to_owned()),
+        ("QT_QPA_PLATFORMTHEME", qt_platform_theme.to_owned()),
         ("WAYLAND_DISPLAY", wayland_display.to_owned()),
         ("XDG_CURRENT_DESKTOP", String::from("Denial")),
         ("XDG_SESSION_DESKTOP", String::from("Denial")),
@@ -128,8 +134,13 @@ pub(super) fn publish_session_activation_environment(
     x11_display: &OsStr,
     output_control_socket: Option<&OsStr>,
 ) -> Result<SessionActivation, Box<dyn Error>> {
-    let environment =
-        session_activation_environment(wayland_display, x11_display, output_control_socket)?;
+    let qt_platform_theme = std::env::var_os("QT_QPA_PLATFORMTHEME");
+    let environment = session_activation_environment(
+        wayland_display,
+        x11_display,
+        output_control_socket,
+        qt_platform_theme.as_deref(),
+    )?;
     let connection = zbus::blocking::Connection::session()?;
     update_dbus_activation_environment(&connection, &environment)?;
 

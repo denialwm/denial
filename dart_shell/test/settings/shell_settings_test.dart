@@ -1,3 +1,5 @@
+import 'dart:ui' show Brightness;
+
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/models/shell_popup_placement.dart';
 import 'package:denial_dart_shell/src/settings/shell_settings.dart';
@@ -9,6 +11,59 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('fresh shell surfaces use the shared 75% opacity', () {
     expect(const ShellSettings().appearance.panelOpacity, 0.75);
+  });
+
+  test('color-scheme preferences have explicit shell and portal semantics', () {
+    expect(
+      const ShellSettings().appearance.colorSchemePreference,
+      DesktopColorSchemePreference.preferDark,
+    );
+    expect(
+      DesktopColorSchemePreference.preferDark.effectiveBrightness,
+      Brightness.dark,
+    );
+    expect(DesktopColorSchemePreference.preferDark.portalValue, 1);
+    expect(
+      DesktopColorSchemePreference.preferLight.effectiveBrightness,
+      Brightness.light,
+    );
+    expect(DesktopColorSchemePreference.preferLight.portalValue, 2);
+    expect(
+      DesktopColorSchemePreference.noPreference.effectiveBrightness,
+      denialDefaultBrightness,
+    );
+    expect(DesktopColorSchemePreference.noPreference.portalValue, 0);
+  });
+
+  test('every color-scheme preference survives JSON serialization', () {
+    for (final preference in DesktopColorSchemePreference.values) {
+      final settings = ShellSettings(
+        appearance: ShellAppearanceSettings(colorSchemePreference: preference),
+      );
+      expect(
+        ShellSettings.fromJson(
+          settings.toJson(),
+        ).appearance.colorSchemePreference,
+        preference,
+      );
+    }
+  });
+
+  test('schema 9 appearance migrates to explicit dark preference', () {
+    final settings = ShellSettings.fromJson(<String, dynamic>{
+      'version': 9,
+      'appearance': <String, dynamic>{},
+    });
+
+    expect(
+      settings.appearance.colorSchemePreference,
+      DesktopColorSchemePreference.preferDark,
+    );
+    expect(
+      (settings.toJson()['appearance']
+          as Map<String, Object>)['colorSchemePreference'],
+      'preferDark',
+    );
   });
 
   test('blur levels use the requested quality and radius mappings', () {
@@ -28,6 +83,7 @@ void main() {
         locale: ShellLocalePreference.simplifiedChinese,
       ),
       appearance: ShellAppearanceSettings(
+        colorSchemePreference: DesktopColorSchemePreference.preferLight,
         accentSource: ShellAccentSource.custom,
         customAccentColor: Color(0xffc062ff),
         windowRadius: 23,
@@ -72,6 +128,29 @@ void main() {
     expect(settings.toJson()['version'], ShellSettings.schemaVersion);
   });
 
+  test('typed differences contain only changed settings fields', () {
+    const previous = ShellSettings(
+      appearance: ShellAppearanceSettings(windowRadius: 12),
+      layout: ShellLayoutSettings(systemBarSide: SystemBarSide.top),
+    );
+    final next = previous.copyWith(
+      appearance: previous.appearance.copyWith(
+        windowRadius: 24,
+        backdropBlurLevel: ShellBackdropBlurLevel.best,
+      ),
+      layout: previous.layout.copyWith(clearSystemBarSide: true),
+    );
+
+    expect(next.differenceFrom(previous), <String, Object?>{
+      'appearance': <String, Object?>{
+        'windowRadius': 24.0,
+        'backdropBlurLevel': 'best',
+        'backdropBlurSigma': 14.0,
+      },
+      'layout': <String, Object?>{'systemBarSide': null},
+    });
+  });
+
   test('malformed and out-of-range values are safe and clamped', () {
     final settings = ShellSettings.fromJson(<String, dynamic>{
       'version': 999,
@@ -80,6 +159,7 @@ void main() {
         'accentSource': 'future-source',
         'customAccentColor': -1,
         'windowRadius': 400,
+        'panelRadius': -4,
         'panelOpacity': 0.01,
         'backdropBlurEnabled': 'sometimes',
         'backdropBlurSigma': 400,
@@ -120,6 +200,7 @@ void main() {
       const ShellSettings().appearance.customAccentColor,
     );
     expect(settings.appearance.windowRadius, 48);
+    expect(settings.appearance.panelRadius, 0);
     expect(settings.appearance.panelOpacity, 0.35);
     expect(settings.appearance.backdropBlurEnabled, isTrue);
     expect(settings.appearance.backdropBlurLevel, ShellBackdropBlurLevel.fast);

@@ -100,6 +100,9 @@ pub(super) fn synchronize_settings(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &mut RuntimeState,
 ) -> Result<(), Box<dyn Error>> {
+    if let Some(accent) = runtime.take_theme_accent() {
+        events.resolved_theme_accent = DesktopAccentColor::from_srgb24(accent);
+    }
     synchronize_control_settings(runtime, events)?;
     let commands = runtime.drain_settings_commands().collect::<Vec<_>>();
     for command in commands {
@@ -450,6 +453,54 @@ pub(super) fn synchronize_settings(
     if std::mem::take(&mut events.input_device_capabilities_changed) {
         send_input_device_settings(runtime, events, 0, None)?;
     }
+    publish_settings_document(events)?;
+    synchronize_committed_theme(runtime, events)?;
+    Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn publish_settings_document(events: &mut RuntimeState) -> Result<(), Box<dyn Error>> {
+    let (Some(publisher), Some(frontend)) =
+        (events.output_control.as_ref(), events.wayland.as_ref())
+    else {
+        return Ok(());
+    };
+    let revision = frontend.settings.revision();
+    if events.published_settings_document_revision == Some(revision) {
+        return Ok(());
+    }
+    if publisher.publish_settings_document(revision, frontend.settings.document_json()?) {
+        events.published_settings_document_revision = Some(revision);
+    }
+    Ok(())
+}
+
+#[cfg(feature = "flutter")]
+fn synchronize_committed_theme(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &mut RuntimeState,
+) -> Result<(), Box<dyn Error>> {
+    let Some(snapshot) = events.wayland.as_ref().map(|frontend| {
+        frontend
+            .settings
+            .theme_snapshot()
+            .with_accent(events.resolved_theme_accent)
+    }) else {
+        return Ok(());
+    };
+    if events.published_theme_snapshot == Some(snapshot) {
+        return Ok(());
+    }
+    if let Some(publisher) = events.portal_ipc.as_ref() {
+        publisher.publish(snapshot);
+    }
+    if events
+        .published_theme_snapshot
+        .is_none_or(|previous| previous.effective_brightness != snapshot.effective_brightness)
+    {
+        runtime.send_platform_brightness(snapshot.effective_brightness)?;
+    }
+    events.published_theme_snapshot = Some(snapshot);
     Ok(())
 }
 

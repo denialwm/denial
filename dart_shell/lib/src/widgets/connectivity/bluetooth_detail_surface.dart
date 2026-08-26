@@ -151,12 +151,12 @@ class _BluetoothDetailSurfaceState
             borderRadius: BorderRadius.circular(theme.panelRadius),
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: theme.panelColor(ShellColors.panelBackground),
+                color: theme.panelColor(context.shellColors.panelBackground),
                 borderRadius: BorderRadius.circular(theme.panelRadius),
-                border: Border.all(color: ShellColors.hairline),
-                boxShadow: const <BoxShadow>[
+                border: Border.all(color: context.shellColors.hairline),
+                boxShadow: <BoxShadow>[
                   BoxShadow(
-                    color: ShellColors.shadow,
+                    color: context.shellColors.shadow,
                     blurRadius: 36,
                     spreadRadius: 3,
                     offset: Offset(0, 16),
@@ -193,7 +193,7 @@ class _BluetoothDetailSurfaceState
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: ShellText.base.copyWith(
-                                    color: ShellColors.textTertiary,
+                                    color: context.shellColors.textTertiary,
                                     fontSize: 11.5,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -460,13 +460,13 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             decoration: BoxDecoration(
               color: device.connected
-                  ? ShellColors.primaryContainer
+                  ? context.shellTheme.accentPalette.container
                   : _hovered || _focused
-                  ? ShellColors.surfaceContainerHighest
-                  : ShellColors.surfaceContainer,
+                  ? context.shellColors.surfaceContainerHighest
+                  : context.shellColors.surfaceContainer,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: _focused ? accent : ShellColors.hairlineSoft,
+                color: _focused ? accent : context.shellColors.hairlineSoft,
               ),
             ),
             child: Row(
@@ -475,10 +475,10 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
                   _deviceIcon(device.icon),
                   size: 23,
                   color: device.connected
-                      ? ShellColors.onPrimaryContainer
+                      ? context.shellTheme.accentPalette.onContainer
                       : device.blocked
-                      ? ShellColors.glyphInactive
-                      : ShellColors.textPrimary,
+                      ? context.shellColors.glyphInactive
+                      : context.shellColors.textPrimary,
                 ),
                 const SizedBox(width: 11),
                 Expanded(
@@ -492,7 +492,7 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
                         overflow: TextOverflow.ellipsis,
                         style: ShellText.cardTitle.copyWith(
                           color: device.connected
-                              ? ShellColors.onPrimaryContainer
+                              ? context.shellTheme.accentPalette.onContainer
                               : null,
                         ),
                       ),
@@ -503,8 +503,11 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
                         overflow: TextOverflow.ellipsis,
                         style: ShellText.base.copyWith(
                           color: device.connected
-                              ? ShellColors.onPrimaryContainerSecondary
-                              : ShellColors.textTertiary,
+                              ? context
+                                    .shellTheme
+                                    .accentPalette
+                                    .onContainerSecondary
+                              : context.shellColors.textTertiary,
                           fontSize: 10.5,
                           fontWeight: FontWeight.w600,
                         ),
@@ -553,8 +556,8 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
                         : Icons.chevron_right_rounded,
                     size: 20,
                     color: device.connected
-                        ? ShellColors.onPrimaryContainer
-                        : ShellColors.textSecondary,
+                        ? context.shellTheme.accentPalette.onContainer
+                        : context.shellColors.textSecondary,
                   ),
               ],
             ),
@@ -590,12 +593,12 @@ class _BluetoothPairingPanel extends StatelessWidget {
     final theme = ShellTheme.of(context);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: ShellColors.surfaceContainerHigh,
+        color: context.shellColors.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: inputError == null
-              ? ShellColors.hairlineSoft
-              : ShellColors.performanceBad,
+              ? context.shellColors.hairlineSoft
+              : context.shellColors.performanceBad,
         ),
       ),
       child: Padding(
@@ -621,7 +624,7 @@ class _BluetoothPairingPanel extends StatelessWidget {
             Text(
               message,
               style: ShellText.base.copyWith(
-                color: ShellColors.textSecondary,
+                color: context.shellColors.textSecondary,
                 fontSize: 11,
                 height: 1.35,
               ),
@@ -636,9 +639,11 @@ class _BluetoothPairingPanel extends StatelessWidget {
                     : l10n.bluetoothPasskey,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: theme.panelColor(ShellColors.panelBackground),
+                    color: theme.panelColor(
+                      context.shellColors.panelBackground,
+                    ),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: ShellColors.hairline),
+                    border: Border.all(color: context.shellColors.hairline),
                   ),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
@@ -667,10 +672,11 @@ class _BluetoothPairingPanel extends StatelessWidget {
                             ],
                       textInputAction: TextInputAction.done,
                       onSubmitted: (_) => onAccept(),
-                      style: ShellText.base,
+                      style: context.shellTheme.text.base,
                       cursorColor: theme.accent,
-                      backgroundCursorColor: ShellColors.textSecondary,
-                      selectionColor: ShellColors.primaryContainer,
+                      backgroundCursorColor: context.shellColors.textSecondary,
+                      selectionColor:
+                          context.shellTheme.accentPalette.container,
                     ),
                   ),
                 ),
@@ -681,7 +687,7 @@ class _BluetoothPairingPanel extends StatelessWidget {
               Text(
                 error,
                 style: ShellText.base.copyWith(
-                  color: ShellColors.performanceBad,
+                  color: context.shellColors.performanceBad,
                   fontSize: 10.5,
                   fontWeight: FontWeight.w600,
                 ),
@@ -735,7 +741,7 @@ class _BluetoothEmptyState extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 36, color: ShellColors.textTertiary),
+              Icon(icon, size: 36, color: context.shellColors.textTertiary),
               const SizedBox(height: 10),
               Text(
                 title,
@@ -747,7 +753,7 @@ class _BluetoothEmptyState extends StatelessWidget {
                 body,
                 textAlign: TextAlign.center,
                 style: ShellText.base.copyWith(
-                  color: ShellColors.textTertiary,
+                  color: context.shellColors.textTertiary,
                   fontSize: 11.5,
                   height: 1.35,
                 ),
@@ -770,18 +776,18 @@ class _BluetoothErrorNotice extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: ShellColors.surfaceContainerHigh,
+        color: context.shellColors.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: ShellColors.performanceBad),
+        border: Border.all(color: context.shellColors.performanceBad),
       ),
       child: Padding(
         padding: const EdgeInsets.only(left: 10, top: 7, bottom: 7),
         child: Row(
           children: [
-            const Icon(
+            Icon(
               Icons.error_outline_rounded,
               size: 17,
-              color: ShellColors.performanceBad,
+              color: context.shellColors.performanceBad,
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -790,7 +796,7 @@ class _BluetoothErrorNotice extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: ShellText.base.copyWith(
-                  color: ShellColors.performanceBad,
+                  color: context.shellColors.performanceBad,
                   fontSize: 10.5,
                   fontWeight: FontWeight.w600,
                 ),
@@ -871,11 +877,11 @@ class _BluetoothIconButtonState extends State<_BluetoothIconButton> {
             height: 36,
             decoration: BoxDecoration(
               color: widget.active
-                  ? ShellColors.primaryContainer
-                  : ShellColors.surfaceContainerHigh,
+                  ? context.shellTheme.accentPalette.container
+                  : context.shellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: _focused ? accent : ShellColors.hairlineSoft,
+                color: _focused ? accent : context.shellColors.hairlineSoft,
               ),
             ),
             child: widget.busy
@@ -891,9 +897,9 @@ class _BluetoothIconButtonState extends State<_BluetoothIconButton> {
                     size: 18,
                     color: widget.enabled
                         ? widget.active
-                              ? ShellColors.onPrimaryContainer
-                              : ShellColors.textSecondary
-                        : ShellColors.glyphInactive,
+                              ? context.shellTheme.accentPalette.onContainer
+                              : context.shellColors.textSecondary
+                        : context.shellColors.glyphInactive,
                   ),
           ),
         ),
@@ -966,8 +972,8 @@ class _BluetoothInlineButtonState extends State<_BluetoothInlineButton> {
               widget.icon,
               size: 17,
               color: widget.enabled
-                  ? ShellColors.textSecondary
-                  : ShellColors.glyphInactive,
+                  ? context.shellColors.textSecondary
+                  : context.shellColors.glyphInactive,
             ),
           ),
         ),
@@ -1024,11 +1030,11 @@ class _BluetoothTextButtonState extends State<_BluetoothTextButton> {
                 : Motion.pill,
             decoration: BoxDecoration(
               color: widget.emphasized
-                  ? ShellColors.primaryContainer
-                  : ShellColors.surfaceContainerHighest,
+                  ? context.shellTheme.accentPalette.container
+                  : context.shellColors.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(11),
               border: Border.all(
-                color: _focused ? accent : ShellColors.hairlineSoft,
+                color: _focused ? accent : context.shellColors.hairlineSoft,
               ),
             ),
             child: Padding(
@@ -1037,8 +1043,8 @@ class _BluetoothTextButtonState extends State<_BluetoothTextButton> {
                 widget.label,
                 style: ShellText.cardTitle.copyWith(
                   color: widget.emphasized
-                      ? ShellColors.onPrimaryContainer
-                      : ShellColors.textSecondary,
+                      ? context.shellTheme.accentPalette.onContainer
+                      : context.shellColors.textSecondary,
                   fontSize: 11.5,
                 ),
               ),
@@ -1105,11 +1111,18 @@ String bluetoothStatusLabel(BluetoothState state, AppLocalizations l10n) {
   if (!state.powered) {
     return l10n.commonOff;
   }
-  final connected = state.devices.where((device) => device.connected).toList();
-  if (connected.isNotEmpty) {
-    return connected.length == 1
-        ? connected.first.name
-        : l10n.bluetoothDevicesConnected(connected.length);
+  var connectedCount = 0;
+  String? connectedName;
+  for (final device in state.devices) {
+    if (device.connected) {
+      connectedCount += 1;
+      connectedName ??= device.name;
+    }
+  }
+  if (connectedCount > 0) {
+    return connectedCount == 1
+        ? connectedName!
+        : l10n.bluetoothDevicesConnected(connectedCount);
   }
   if (state.discovering) {
     return l10n.commonScanning;

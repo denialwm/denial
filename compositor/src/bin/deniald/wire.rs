@@ -564,6 +564,7 @@ pub struct WireBridge {
     pending_notification_commands: VecDeque<NotificationCommand>,
     pending_xembed_tray_commands: VecDeque<XEmbedTrayCommand>,
     pending_settings_commands: VecDeque<SettingsCommand>,
+    pending_theme_accent: Option<u32>,
     pending_work_area: Option<WorkAreaOptions>,
     next_sequence: u64,
 }
@@ -591,6 +592,7 @@ impl WireBridge {
             pending_notification_commands: VecDeque::new(),
             pending_xembed_tray_commands: VecDeque::new(),
             pending_settings_commands: VecDeque::new(),
+            pending_theme_accent: None,
             pending_work_area: None,
             next_sequence: 1,
         })
@@ -632,6 +634,13 @@ impl WireBridge {
 
     pub fn drain_settings_commands(&mut self) -> impl Iterator<Item = SettingsCommand> + '_ {
         self.pending_settings_commands.drain(..)
+    }
+
+    /// Takes the latest resolved shell accent. Theme state is intentionally
+    /// last-writer-wins: wallpaper extraction and setting changes may finish
+    /// in the same event-loop turn, and only the final color is observable.
+    pub fn take_theme_accent(&mut self) -> Option<u32> {
+        self.pending_theme_accent.take()
     }
 
     /// Takes the latest validated system-bar update. Settings changes are

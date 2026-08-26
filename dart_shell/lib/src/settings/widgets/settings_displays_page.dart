@@ -12,6 +12,7 @@ import '../../state/display_brightness.dart';
 import '../../state/display_layout.dart';
 import '../../state/output_configuration.dart';
 import '../../theme/motion.dart';
+import '../../theme/shell_color_scheme.dart';
 import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/shell_cursor.dart';
@@ -164,18 +165,18 @@ class _SettingsDisplayConfirmationDialogState
       explicitChildNodes: true,
       label: l10n.settingsDisplayConfirmationTitle,
       child: ColoredBox(
-        color: const Color(0xA3000000),
+        color: ShellMediaColors.darkness.withValues(alpha: 0.64),
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 410),
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: ShellColors.surfaceContainerHigh,
+                color: context.shellColors.surfaceContainerHigh,
                 borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: ShellColors.hairline),
-                boxShadow: const <BoxShadow>[
+                border: Border.all(color: context.shellColors.hairline),
+                boxShadow: <BoxShadow>[
                   BoxShadow(
-                    color: Color(0x66000000),
+                    color: ShellMediaColors.darkness.withValues(alpha: 0.40),
                     blurRadius: 28,
                     offset: Offset(0, 12),
                   ),
@@ -218,7 +219,7 @@ class _SettingsDisplayConfirmationDialogState
                       child: Text(
                         l10n.settingsDisplayConfirmationMessage(_seconds),
                         style: ShellText.base.copyWith(
-                          color: ShellColors.textSecondary,
+                          color: context.shellColors.textSecondary,
                           height: 1.45,
                         ),
                       ),
@@ -322,7 +323,7 @@ class _OutputConfigurationBody extends StatelessWidget {
                       ? context.l10n.settingsDisplayApplyPersistentHint
                       : context.l10n.settingsDisplayApplySessionHint,
                   style: ShellText.base.copyWith(
-                    color: ShellColors.textTertiary,
+                    color: context.shellColors.textTertiary,
                     fontSize: 11,
                   ),
                 ),
@@ -387,7 +388,7 @@ class _PrimaryDisplayControl extends StatelessWidget {
     final hint = Text(
       context.l10n.settingsDisplayPrimaryHint,
       style: ShellText.base.copyWith(
-        color: ShellColors.textTertiary,
+        color: context.shellColors.textTertiary,
         fontSize: 11,
         height: 1.4,
       ),
@@ -582,7 +583,7 @@ class _MonitorLayoutEditorState extends State<MonitorLayoutEditor> {
                     child: Text(
                       context.l10n.settingsDisplayCanvasPanHint,
                       style: ShellText.base.copyWith(
-                        color: ShellColors.textTertiary,
+                        color: context.shellColors.textTertiary,
                         fontSize: 11,
                       ),
                     ),
@@ -611,7 +612,7 @@ class _MonitorLayoutEditorState extends State<MonitorLayoutEditor> {
                         '${(_viewScale * 100).round()}%',
                         textAlign: TextAlign.center,
                         style: ShellText.base.copyWith(
-                          color: ShellColors.textSecondary,
+                          color: context.shellColors.textSecondary,
                           fontSize: 11,
                         ),
                       ),
@@ -644,11 +645,11 @@ class _MonitorLayoutEditorState extends State<MonitorLayoutEditor> {
               RepaintBoundary(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: ShellColors.surfaceContainerHigh.withValues(
+                    color: context.shellColors.surfaceContainerHigh.withValues(
                       alpha: 0.56,
                     ),
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: ShellColors.hairline),
+                    border: Border.all(color: context.shellColors.hairline),
                   ),
                   child: SizedBox(
                     key: settingsMonitorCanvasKey,
@@ -760,14 +761,14 @@ class _CanvasZoomButton extends StatelessWidget {
       constraints: const BoxConstraints.tightFor(width: 36, height: 36),
       padding: EdgeInsets.zero,
       style: IconButton.styleFrom(
-        foregroundColor: ShellColors.textSecondary,
-        disabledForegroundColor: ShellColors.textTertiary.withAlpha(82),
-        backgroundColor: ShellColors.surfaceContainerHigh,
-        hoverColor: ShellColors.textSecondary.withAlpha(26),
-        focusColor: ShellColors.textSecondary.withAlpha(26),
+        foregroundColor: context.shellColors.textSecondary,
+        disabledForegroundColor: context.shellColors.textTertiary.withAlpha(82),
+        backgroundColor: context.shellColors.surfaceContainerHigh,
+        hoverColor: context.shellColors.textSecondary.withAlpha(26),
+        focusColor: context.shellColors.textSecondary.withAlpha(26),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
-          side: const BorderSide(color: ShellColors.hairline),
+          side: BorderSide(color: context.shellColors.hairline),
         ),
       ),
     );
@@ -913,13 +914,13 @@ class _MonitorTileState extends State<_MonitorTile> {
               color: widget.selected
                   ? Color.alphaBlend(
                       widget.accent.withAlpha(72),
-                      ShellColors.surfaceContainerHighest,
+                      context.shellColors.surfaceContainerHighest,
                     )
-                  : ShellColors.surfaceContainerHighest,
+                  : context.shellColors.surfaceContainerHighest,
               border: Border.all(
                 color: widget.selected || _focused
                     ? widget.accent
-                    : ShellColors.hairline,
+                    : context.shellColors.hairline,
                 width: widget.selected ? 2 : 1,
               ),
             ),
@@ -929,17 +930,17 @@ class _MonitorTileState extends State<_MonitorTile> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  const Icon(
+                  Icon(
                     Icons.monitor_rounded,
                     size: 21,
-                    color: ShellColors.textPrimary,
+                    color: context.shellColors.textPrimary,
                   ),
                   const SizedBox(height: 4),
                   Text(widget.output.name, style: ShellText.cardTitle),
                   Text(
                     '${mode.width} × ${mode.height}',
                     style: ShellText.base.copyWith(
-                      color: ShellColors.textTertiary,
+                      color: context.shellColors.textTertiary,
                       fontSize: 10,
                     ),
                   ),
@@ -1003,7 +1004,7 @@ class _MonitorControls extends StatelessWidget {
         Text(
           context.l10n.settingsDisplayPosition(output.x, output.y),
           style: ShellText.base.copyWith(
-            color: ShellColors.textTertiary,
+            color: context.shellColors.textTertiary,
             fontSize: 11,
           ),
         ),
@@ -1300,12 +1301,12 @@ class _DisplayDropdownState<T> extends State<_DisplayDropdown<T>> {
                   duration: Motion.tile,
                   padding: const EdgeInsets.fromLTRB(12, 8, 9, 9),
                   decoration: BoxDecoration(
-                    color: ShellColors.surfaceContainerHigh,
+                    color: context.shellColors.surfaceContainerHigh,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
                       color: _expanded || _focused
                           ? accent
-                          : ShellColors.hairline,
+                          : context.shellColors.hairline,
                     ),
                   ),
                   child: Column(
@@ -1316,7 +1317,7 @@ class _DisplayDropdownState<T> extends State<_DisplayDropdown<T>> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: ShellText.base.copyWith(
-                          color: ShellColors.textTertiary,
+                          color: context.shellColors.textTertiary,
                           fontSize: 10,
                         ),
                       ),
@@ -1334,10 +1335,10 @@ class _DisplayDropdownState<T> extends State<_DisplayDropdown<T>> {
                           AnimatedRotation(
                             turns: _expanded ? 0.5 : 0,
                             duration: Motion.tile,
-                            child: const Icon(
+                            child: Icon(
                               Icons.expand_more_rounded,
                               size: 18,
-                              color: ShellColors.textTertiary,
+                              color: context.shellColors.textTertiary,
                             ),
                           ),
                         ],
@@ -1417,12 +1418,14 @@ class _DisplayDropdownOverlay<T> extends StatelessWidget {
                     constraints: BoxConstraints(maxHeight: maximumHeight),
                     child: DecoratedBox(
                       decoration: BoxDecoration(
-                        color: ShellColors.surfaceContainerHighest,
+                        color: context.shellColors.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: ShellColors.hairline),
-                        boxShadow: const <BoxShadow>[
+                        border: Border.all(color: context.shellColors.hairline),
+                        boxShadow: <BoxShadow>[
                           BoxShadow(
-                            color: Color(0x52000000),
+                            color: ShellMediaColors.darkness.withValues(
+                              alpha: 0.32,
+                            ),
                             blurRadius: 20,
                             offset: Offset(0, 8),
                           ),
@@ -1515,8 +1518,8 @@ class _DisplayDropdownOptionState<T> extends State<_DisplayDropdownOption<T>> {
               color: widget.selected
                   ? widget.accent.withAlpha(42)
                   : _highlighted
-                  ? ShellColors.surfaceContainerHigh
-                  : Colors.transparent,
+                  ? context.shellColors.surfaceContainerHigh
+                  : ShellMediaColors.transparentDark,
               borderRadius: BorderRadius.circular(7),
             ),
             child: Row(
@@ -1529,7 +1532,7 @@ class _DisplayDropdownOptionState<T> extends State<_DisplayDropdownOption<T>> {
                     style: ShellText.cardTitle.copyWith(
                       color: widget.selected
                           ? widget.accent
-                          : ShellColors.textSecondary,
+                          : context.shellColors.textSecondary,
                     ),
                   ),
                 ),
@@ -1596,9 +1599,9 @@ class _DisplayBrightnessCard extends ConsumerWidget {
                         },
                       ),
                       if (index != layout.outputs.length - 1)
-                        const Divider(
+                        Divider(
                           height: 18,
-                          color: ShellColors.hairlineSoft,
+                          color: context.shellColors.hairlineSoft,
                         ),
                     ],
                   ],
@@ -1619,12 +1622,14 @@ class _DisplayNotice extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: <Widget>[
-        Icon(icon, size: 18, color: ShellColors.textTertiary),
+        Icon(icon, size: 18, color: context.shellColors.textTertiary),
         const SizedBox(width: 10),
         Expanded(
           child: Text(
             message,
-            style: ShellText.base.copyWith(color: ShellColors.textSecondary),
+            style: ShellText.base.copyWith(
+              color: context.shellColors.textSecondary,
+            ),
           ),
         ),
       ],
@@ -1643,10 +1648,10 @@ class _InlineError extends StatelessWidget {
       liveRegion: true,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: ShellColors.performanceBad.withValues(alpha: 0.1),
+          color: context.shellColors.performanceBad.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: ShellColors.performanceBad.withValues(alpha: 0.42),
+            color: context.shellColors.performanceBad.withValues(alpha: 0.42),
           ),
         ),
         child: Padding(
@@ -1654,7 +1659,7 @@ class _InlineError extends StatelessWidget {
           child: Text(
             message,
             style: ShellText.base.copyWith(
-              color: ShellColors.performanceBad,
+              color: context.shellColors.performanceBad,
               fontSize: 11,
             ),
           ),
@@ -1682,6 +1687,7 @@ class _LayoutGrid extends StatelessWidget {
         offset: offset,
         usableRect: usableRect,
         emphasized: emphasized,
+        colors: context.shellColors,
       ),
     );
   }
@@ -1692,18 +1698,18 @@ class _LayoutGridPainter extends CustomPainter {
     required this.offset,
     required this.usableRect,
     required this.emphasized,
+    required this.colors,
   });
 
   final Offset offset;
   final Rect usableRect;
   final bool emphasized;
+  final ShellColorScheme colors;
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = ShellColors.hairlineSoft.withValues(
-        alpha: emphasized ? 0.72 : 0.48,
-      )
+      ..color = colors.hairlineSoft.withValues(alpha: emphasized ? 0.72 : 0.48)
       ..strokeWidth = 1;
     const gap = 24.0;
     final startX = offset.dx % gap;
@@ -1725,13 +1731,13 @@ class _LayoutGridPainter extends CustomPainter {
     }
     canvas.drawPath(
       outside,
-      Paint()..color = ShellColors.background.withValues(alpha: 0.72),
+      Paint()..color = colors.background.withValues(alpha: 0.72),
     );
     if (!visibleUsableRect.isEmpty) {
       canvas.drawRect(
         visibleUsableRect,
         Paint()
-          ..color = ShellColors.hairline
+          ..color = colors.hairline
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1,
       );
@@ -1742,7 +1748,8 @@ class _LayoutGridPainter extends CustomPainter {
   bool shouldRepaint(covariant _LayoutGridPainter oldDelegate) {
     return oldDelegate.offset != offset ||
         oldDelegate.usableRect != usableRect ||
-        oldDelegate.emphasized != emphasized;
+        oldDelegate.emphasized != emphasized ||
+        oldDelegate.colors != colors;
   }
 }
 

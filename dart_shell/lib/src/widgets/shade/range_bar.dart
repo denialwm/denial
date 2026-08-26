@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 
-import '../../theme/tokens.dart';
+import '../../theme/shell_theme.dart';
 
 /// A pill-shaped horizontal slider used for brightness and volume. Tapping or
 /// dragging anywhere along the track sets the value.
@@ -93,7 +93,7 @@ class _RangeBarState extends State<RangeBar> {
               decoration: BoxDecoration(
                 color: widget.inactiveColor,
                 borderRadius: BorderRadius.circular(widget.height / 2),
-                border: Border.all(color: ShellColors.hairlineSoft),
+                border: Border.all(color: context.shellColors.hairlineSoft),
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(widget.height / 2),
@@ -115,7 +115,7 @@ class _RangeBarState extends State<RangeBar> {
                       width: 5,
                       child: DecoratedBox(
                         decoration: BoxDecoration(
-                          color: ShellColors.sliderThumb,
+                          color: context.shellColors.sliderThumb,
                           borderRadius: BorderRadius.circular(4),
                         ),
                       ),
@@ -127,8 +127,8 @@ class _RangeBarState extends State<RangeBar> {
                       child: Icon(
                         widget.icon,
                         color: clamped > 0.72
-                            ? ShellColors.sliderIconDark
-                            : ShellColors.panelText,
+                            ? context.shellTheme.accentPalette.onPrimary
+                            : context.shellColors.panelText,
                         size: 25,
                       ),
                     ),

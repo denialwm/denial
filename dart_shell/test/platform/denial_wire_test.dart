@@ -11,6 +11,16 @@ import 'package:denial_dart_shell/src/platform/denial_wire.dart'
     hide InputWindowRegion;
 
 void main() {
+  test('theme accent is encoded as opaque packed sRGB', () {
+    final bytes = DenialWireCodec().encodeThemeAccent(0x7f123456);
+
+    expect(bytes, isNotNull);
+    final envelope = Envelope(bytes!);
+    final theme = envelope.payload as ThemeState;
+    expect(envelope.requestId, 0);
+    expect(theme.accentSrgb, 0x123456);
+  });
+
   test('keyboard key lifecycle preserves tap, press, and release', () {
     final codec = DenialWireCodec();
     for (final expectation in <(DenialKeyboardKeyPhase, int)>[

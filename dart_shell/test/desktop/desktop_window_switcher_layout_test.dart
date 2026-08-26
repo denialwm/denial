@@ -1,8 +1,10 @@
 import 'package:denial_dart_shell/src/desktop/desktop_workspace.dart';
 import 'package:denial_dart_shell/src/state/desktop_window_switcher.dart';
 import 'package:denial_dart_shell/src/theme/motion.dart';
+import 'package:denial_dart_shell/src/theme/shell_color_scheme.dart';
+import 'package:denial_dart_shell/src/theme/shell_theme.dart';
 import 'package:denial_dart_shell/src/widgets/desktop_window_switcher.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -26,6 +28,61 @@ void main() {
     monitorId: 1,
     minimized: true,
   );
+  const expandedSwitcher = DesktopWindowSwitcherState(
+    sessionId: 1,
+    objectIds: <int>[1, 2],
+    sourceObjectId: 1,
+    usesDesktopMotion: false,
+    selectedIndex: 1,
+    phase: DesktopWindowSwitcherPhase.expanded,
+  );
+
+  testWidgets('expanded chrome stays dark in both shell themes', (
+    tester,
+  ) async {
+    Future<Color> backdropColor(ShellColorScheme colors) async {
+      await tester.pumpWidget(
+        MediaQuery(
+          data: const MediaQueryData(
+            size: Size(1920, 1080),
+            disableAnimations: true,
+          ),
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: ShellTheme(
+              data: ShellThemeData(colors: colors),
+              child: const Stack(
+                children: <Widget>[
+                  DesktopWindowSwitcherBackdrop(
+                    switcher: expandedSwitcher,
+                    bounds: stage,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final container = tester.widget<AnimatedContainer>(
+        find.descendant(
+          of: find.byType(DesktopWindowSwitcherBackdrop),
+          matching: find.byType(AnimatedContainer),
+        ),
+      );
+      return (container.decoration! as BoxDecoration).color!;
+    }
+
+    final darkColor = await backdropColor(ShellColorScheme.dark);
+    final lightColor = await backdropColor(ShellColorScheme.light);
+
+    expect(lightColor, darkColor);
+    expect(
+      lightColor,
+      ShellColorScheme.dark.background.withValues(alpha: 0.72),
+    );
+  });
 
   test('desktop-aware entry never passes through quick switch geometry', () {
     final container = ProviderContainer.test();

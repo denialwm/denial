@@ -1,15 +1,13 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
-
-const SvgTheme _desktopAppSvgTheme = SvgTheme(
-  currentColor: ShellColors.fallbackAppIcon,
-);
 
 /// Loads a desktop SVG with a cache identity based on its stable file path.
 ///
@@ -19,7 +17,10 @@ const SvgTheme _desktopAppSvgTheme = SvgTheme(
 /// later launcher openings, share one decoded cache entry.
 @immutable
 class DesktopAppSvgLoader extends SvgLoader<void> {
-  const DesktopAppSvgLoader(this.path) : super(theme: _desktopAppSvgTheme);
+  DesktopAppSvgLoader(
+    this.path, [
+    Color currentColor = ShellBrandColors.fallbackAppIcon,
+  ]) : super(theme: SvgTheme(currentColor: currentColor));
 
   final String path;
 
@@ -57,7 +58,7 @@ class AppIconImage extends StatelessWidget {
     }
     if (path.toLowerCase().endsWith('.svg')) {
       return SvgPicture(
-        DesktopAppSvgLoader(path),
+        DesktopAppSvgLoader(path, context.shellColors.fallbackAppIcon),
         fit: BoxFit.contain,
         placeholderBuilder: (_) => const _FallbackAppIcon(),
         errorBuilder: (_, _, _) => const _FallbackAppIcon(),
@@ -129,7 +130,12 @@ class _DeferredAppIconState extends State<DeferredAppIcon> {
       if (!mounted || generation != _loadGeneration) {
         return;
       }
-      unawaited(_load(generation));
+      _DeferredIconLoadScheduler.instance.schedule(() async {
+        if (!mounted || generation != _loadGeneration) {
+          return;
+        }
+        await _load(generation);
+      });
     });
   }
 
@@ -171,6 +177,39 @@ class _DeferredAppIconState extends State<DeferredAppIcon> {
   }
 }
 
+/// Prevents a newly visible grid from starting every icon decode at once.
+///
+/// The image/vector caches still deduplicate actual resources. This gate only
+/// smooths the cold path so low-end CPUs are not flooded by a full viewport of
+/// isolate and codec work immediately after the launcher's first frame.
+class _DeferredIconLoadScheduler {
+  _DeferredIconLoadScheduler._();
+
+  static final _DeferredIconLoadScheduler instance =
+      _DeferredIconLoadScheduler._();
+  static const int _maxConcurrentLoads = 2;
+
+  final Queue<Future<void> Function()> _pending =
+      Queue<Future<void> Function()>();
+  int _activeLoads = 0;
+
+  void schedule(Future<void> Function() load) {
+    _pending.addLast(load);
+    _drain();
+  }
+
+  void _drain() {
+    while (_activeLoads < _maxConcurrentLoads && _pending.isNotEmpty) {
+      final load = _pending.removeFirst();
+      _activeLoads += 1;
+      Future<void>.sync(load).whenComplete(() {
+        _activeLoads -= 1;
+        _drain();
+      });
+    }
+  }
+}
+
 Future<void> _precacheAppIcon(BuildContext context, String? iconPath) async {
   final path = iconPath;
   if (path == null) {
@@ -178,7 +217,10 @@ Future<void> _precacheAppIcon(BuildContext context, String? iconPath) async {
     return;
   }
   if (path.toLowerCase().endsWith('.svg')) {
-    await DesktopAppSvgLoader(path).loadBytes(context);
+    await DesktopAppSvgLoader(
+      path,
+      context.shellColors.fallbackAppIcon,
+    ).loadBytes(context);
     return;
   }
 
@@ -205,6 +247,10 @@ class _FallbackAppIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SvgPicture.asset(AppIconImage.fallbackAsset, fit: BoxFit.contain);
+    return SvgPicture.asset(
+      AppIconImage.fallbackAsset,
+      fit: BoxFit.contain,
+      theme: SvgTheme(currentColor: context.shellColors.fallbackAppIcon),
+    );
   }
 }

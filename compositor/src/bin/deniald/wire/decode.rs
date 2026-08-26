@@ -79,6 +79,20 @@ impl WireBridge {
                     .push_back(decode_xembed_tray_command(command)?);
                 Ok(None)
             }
+            fb::Payload::ThemeState => {
+                if envelope.request_id() != 0 {
+                    return Err(WireError::RequestId);
+                }
+                let theme = envelope
+                    .payload_as_theme_state()
+                    .ok_or(WireError::Payload)?;
+                let accent = theme.accent_srgb();
+                if accent & 0xff00_0000 != 0 {
+                    return Err(WireError::Payload);
+                }
+                self.pending_theme_accent = Some(accent);
+                Ok(None)
+            }
             fb::Payload::SettingsRequest => {
                 if envelope.request_id() == 0 {
                     return Err(WireError::RequestId);

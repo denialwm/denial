@@ -62,7 +62,9 @@ use smithay::wayland::compositor::{
 use smithay::wayland::compositor::Cacheable;
 use smithay::wayland::cursor_shape::CursorShapeManagerState;
 #[cfg(feature = "flutter")]
-use smithay::wayland::compositor::{TraversalAction, with_surface_tree_upward};
+use smithay::wayland::compositor::{
+    TraversalAction, with_surface_tree_downward, with_surface_tree_upward,
+};
 use smithay::wayland::dmabuf::get_dmabuf;
 use smithay::wayland::dmabuf::{
     DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier,
@@ -383,6 +385,10 @@ pub(super) struct WaylandFrontend {
     window_membership_scratch: Vec<Window>,
     #[cfg(feature = "flutter")]
     output_window_membership: OutputWindowMembership<ObjectId, Window>,
+    #[cfg(feature = "flutter")]
+    pending_frame_callback_windows: HashSet<ObjectId>,
+    #[cfg(feature = "flutter")]
+    pending_input_method_frame_callbacks: HashSet<ObjectId>,
     #[cfg(feature = "flutter")]
     local_windows: LocalFlutterWindows,
     #[cfg(feature = "flutter")]

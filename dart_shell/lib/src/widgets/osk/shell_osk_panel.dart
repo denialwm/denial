@@ -378,12 +378,14 @@ class _OskKeyButtonState extends State<_OskKeyButton>
     final control = widget.spec.control;
     final accent = ShellTheme.of(context).accent;
     final background = _backgroundFor(widget.spec, widget.selected);
-    final baseBorder = widget.selected ? accent : ShellColors.hairlineSoft;
+    final baseBorder = widget.selected
+        ? accent
+        : context.shellColors.hairlineSoft;
     final baseForeground = widget.selected
-        ? ShellColors.onPrimaryContainer
+        ? context.shellTheme.accentPalette.onContainer
         : control == null
-        ? ShellColors.panelText
-        : ShellColors.textSecondary;
+        ? context.shellColors.panelText
+        : context.shellColors.textSecondary;
 
     return Semantics(
       button: true,
@@ -407,7 +409,7 @@ class _OskKeyButtonState extends State<_OskKeyButton>
               final glow = _glow.value;
               final foreground = Color.lerp(
                 baseForeground,
-                ShellColors.panelText,
+                context.shellColors.panelText,
                 glow * 0.55,
               )!;
               final border = Color.lerp(baseBorder, accent, glow)!;
@@ -417,13 +419,15 @@ class _OskKeyButtonState extends State<_OskKeyButton>
                 decoration: BoxDecoration(
                   color: Color.lerp(
                     background,
-                    widget.selected ? ShellColors.onPrimaryContainer : accent,
+                    widget.selected
+                        ? context.shellTheme.accentPalette.onContainer
+                        : accent,
                     glow * 0.48,
                   ),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: border),
                   boxShadow: glowAlpha <= 0
-                      ? const []
+                      ? []
                       : [
                           BoxShadow(
                             color: accent.withAlpha(glowAlpha),
@@ -512,15 +516,15 @@ class _OskKeyButtonState extends State<_OskKeyButton>
   Color _backgroundFor(_OskKeySpec spec, bool selected) {
     final control = spec.control;
     if (selected) {
-      return ShellColors.primaryContainer;
+      return context.shellTheme.accentPalette.container;
     }
     if (control == _OskControl.space) {
-      return ShellColors.surfaceContainerHighest;
+      return context.shellColors.surfaceContainerHighest;
     }
     if (control != null) {
-      return ShellColors.surfaceContainer;
+      return context.shellColors.surfaceContainer;
     }
-    return ShellColors.surfaceContainerHigh;
+    return context.shellColors.surfaceContainerHigh;
   }
 }
 

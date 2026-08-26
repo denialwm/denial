@@ -39,6 +39,8 @@ class DesktopWindowFrameLayers extends StatelessWidget {
               painter: DesktopWindowFramePainter(
                 windowId: windowId,
                 radius: ShellTheme.of(context).windowRadius,
+                shadowColor: context.shellColors.shadow,
+                frameColor: context.shellColors.windowFrameSurface,
               ),
               isComplex: true,
               willChange: false,
@@ -106,10 +108,14 @@ class DesktopWindowFramePainter extends CustomPainter {
   const DesktopWindowFramePainter({
     this.windowId = 0,
     this.radius = ShellRadii.window,
+    required this.shadowColor,
+    required this.frameColor,
   });
 
   final int windowId;
   final double radius;
+  final Color shadowColor;
+  final Color frameColor;
 
   static const double shadowOutset = 64;
 
@@ -128,7 +134,7 @@ class DesktopWindowFramePainter extends CustomPainter {
       ..addRRect(frameShape);
     final shadowRect = frame.shift(const Offset(0, 12)).inflate(2);
     final shadowPaint = Paint()
-      ..color = ShellColors.shadow
+      ..color = shadowColor
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16.5);
 
     canvas
@@ -142,10 +148,7 @@ class DesktopWindowFramePainter extends CustomPainter {
 
     final innerFrame = frame.deflate(DesktopMetrics.frameBorder);
     if (innerFrame.isEmpty) {
-      canvas.drawRRect(
-        frameShape,
-        Paint()..color = ShellColors.windowFrameSurface,
-      );
+      canvas.drawRRect(frameShape, Paint()..color = frameColor);
       return;
     }
 
@@ -155,12 +158,15 @@ class DesktopWindowFramePainter extends CustomPainter {
         innerFrame,
         Radius.circular(math.max(0.0, radius - DesktopMetrics.frameBorder)),
       ),
-      Paint()..color = ShellColors.windowFrameSurface,
+      Paint()..color = frameColor,
     );
   }
 
   @override
   bool shouldRepaint(covariant DesktopWindowFramePainter oldDelegate) {
-    return windowId != oldDelegate.windowId || radius != oldDelegate.radius;
+    return windowId != oldDelegate.windowId ||
+        radius != oldDelegate.radius ||
+        shadowColor != oldDelegate.shadowColor ||
+        frameColor != oldDelegate.frameColor;
   }
 }

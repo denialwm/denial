@@ -4,6 +4,16 @@ use super::kms_render::{physical_rect, smithay_output_transform};
 use super::kms_session::service_session_lifecycle;
 use super::*;
 
+pub(super) fn native_app_plugins_require_service(events: &RuntimeState) -> bool {
+    !events.native_release_commands.is_empty()
+        || !events.native_ready_frames.is_empty()
+        || !events.native_plugin_actions.is_empty()
+        || events
+            .native_app_plugins
+            .as_ref()
+            .is_some_and(native_app_plugin::NativeAppPluginManager::has_dirty_target_pools)
+}
+
 pub(super) fn service_native_app_plugins(
     event_loop: &mut EventLoop<'_, RuntimeState>,
     events: &mut RuntimeState,

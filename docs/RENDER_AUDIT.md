@@ -27,8 +27,11 @@ DENIA_RENDER_AUDIT=1 tools/denial-pc session 2>&1 \
   | rg --line-buffered 'render_audit'
 ```
 
-Without `DENIA_RENDER_AUDIT`, Denial creates no report timers or damage-summary
-strings.
+Without `DENIA_RENDER_AUDIT`, Denial creates no report timers, timing sample
+vectors, Flutter timing callback, or damage-summary strings. Audit mode retains
+every timing sample for one second and sorts those samples for percentiles. It
+is intentionally capable of adding overhead and should not be used as the
+production configuration being benchmarked.
 
 ## Report sources
 
@@ -54,6 +57,21 @@ scheduling a Flutter frame. Counts are grouped by Wayland object ID:
 - `border_paints` counts recordings of the focus/pinned-state border.
 - `sizes` records the logical size last supplied to either painter.
 
+`source=dart event=dart_frame_timing` reports the engine's completed
+`FrameTiming` samples:
+
+- `build_*`, `raster_*`, and `raster_queue_*` separate UI-thread work,
+  raster-thread work, and the delay from build completion to raster start.
+- `engine_work_*` is build plus raster work. `total_span_*` instead covers the
+  complete Flutter interval from vsync start through raster finish.
+- `vsync_overhead_*` measures dispatch delay before Dart begins building.
+- `vsync_gap_*` describes cadence between frames requested from Flutter. A long
+  gap can also mean that the scene was idle, so correlate it with native page
+  flips before treating it as a dropped displayed frame.
+- Every timing family includes `avg`, `p50`, `p95`, `p99`, and `max` in
+  microseconds. The three `*_over_budget` counters use the Flutter view's
+  reported refresh-rate budget.
+
 `source=embedder` is emitted approximately once per second:
 
 - `frame_damage_*` describes pixels Flutter says changed in the current
@@ -68,17 +86,50 @@ scheduling a Flutter frame. Counts are grouped by Wayland object ID:
   with the Dart `textures` map to identify the Wayland application.
 - `last_frame_damage` and `last_buffer_damage` show the normalized rectangles
   as `left,top-right,bottom`.
+- `context_make_current_*`, `backing_store_*`, `existing_damage_*`,
+  `external_texture_*`, `present_callback_*`, and `raster_idle_callback_*`
+  time the native embedder callbacks. In particular, an expensive SHM upload
+  or first DMA-BUF import appears in `external_texture_*`.
+- `raster_to_output_ready_*` measures from the raster transaction's context
+  acquisition to a completed output handoff. `raster_transaction_*` ends when
+  Flutter's raster-idle sentinel runs. These timing families report `avg`,
+  `p95`, `p99`, and `max` in microseconds.
+- `gpu_flutter_render_*`, `gpu_scanout_blit_*`, and `gpu_frame_*` use
+  non-blocking `GL_EXT_disjoint_timer_query` timestamp markers to separate
+  each output's Flutter/Skia rendering from Denial's final render-target to
+  scanout copy. These are GPU-clock execution times, not CPU callback duration
+  or exported-fence wait. `gpu_render_samples=0` means the driver lacks the
+  extension (reported as `gpu_timestamps=false` when audit starts) or results
+  have not arrived yet.
+  `gpu_timer_disjoint` discards samples invalidated by a GPU clock reset;
+  `gpu_timer_abandoned` counts render targets that never reached presentation.
 
 `source=output_scheduler` is emitted approximately once per second:
 
 - `ready_published` counts Flutter atlas generations made available to KMS.
 - `ready_with_fence` and `fence_signals` describe native-fence readiness.
 - `real_submissions` counts actual KMS framebuffer submissions.
-- `volition_lookahead_submissions` counts frames queued through Volition behind
-  a still-pending hardware commit.
-- `ready_superseded` counts completed generations replaced before submission.
+- `volition_scheduled_submissions` counts frames handed to Volition for KMS
+  scheduling.
+- `stale_ready_drops` counts off-screen successors whose intended edge had
+  already completed. Dropping one breaks a persistent one-refresh-late chain;
+  screenshot-tagged generations are never discarded by this recovery path.
 - `ready_to_submit_max_us` records the largest publication-to-submission delay
   in the interval.
+- Each existing scheduler latency now also reports `p95` and `p99` tails.
+  `target_to_presentation_*` is physical lateness relative to the intended
+  vblank, while `presentation_interval_*` is the observed page-flip cadence.
+- `deadline_to_ready_*`, `deadline_to_fence_*`, `deadline_to_submit_*`, and
+  `deadline_to_presentation_*` expose the end-to-end path from the output
+  timeline's render deadline. They include `avg`, `p50`, `p95`, `p99`, and
+  `max`, making it possible to locate work that averages out in the older
+  one-second counters.
+- `missed_vblanks` remains the authoritative displayed-frame miss count when
+  DRM supplies sequence numbers; Dart frame gaps describe engine demand, not
+  guaranteed scanout.
+- `per_output_timing` keeps mixed-refresh results separate. For each output it
+  reports physical presentation-interval p50/p95/p99/max, deadline-to-display
+  p99, target lateness p99, and the exact missed-vblank count.
 
 ## Autonomous external-texture damage
 

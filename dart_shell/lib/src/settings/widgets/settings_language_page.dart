@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../localization/denial_localizations.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../shell_settings.dart';
 import 'settings_controls.dart';
@@ -40,7 +41,7 @@ class SettingsLanguagePage extends StatelessWidget {
                   Text(
                     l10n.settingsLanguageDescription,
                     style: ShellText.base.copyWith(
-                      color: ShellColors.textSecondary,
+                      color: context.shellColors.textSecondary,
                       height: 1.4,
                     ),
                   ),

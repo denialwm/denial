@@ -435,6 +435,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "denial-portal"
+version = "0.0.0"
+dependencies = [
+ "denial",
+ "libc",
+ "tracing",
+ "tracing-subscriber",
+ "zbus",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

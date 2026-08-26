@@ -117,6 +117,7 @@ fn brightness_providers_coexist_and_claim_outputs_independently() {
         failure_latched: HashMap::new(),
     };
     let (sender, receiver) = mpsc::sync_channel(8);
+    let sender = SystemControlEventSender::new(sender, Arc::new(AtomicBool::new(false)));
 
     controls.set("eDP-1", 1, 0.35, &sender);
     assert_eq!(

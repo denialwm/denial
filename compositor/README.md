@@ -134,7 +134,10 @@ the same placement, minimize, and close actions used by non-touch controls.
 Physical placement is configuration, not connector-order policy. An output
 file contains one `NAME=X,Y[,REFRESH_HZ]` assignment per line. When refresh is
 configured, Denial selects the matching mode at the connector's native
-resolution; otherwise it selects the fastest native mode. Use
+resolution; otherwise it selects the fastest native mode. Set `primary=NAME`
+to choose the display that owns primary shell surfaces and the render ticker;
+when omitted or temporarily disconnected, Denial uses the enabled output with
+the highest refresh rate. Use
 `transform=NAME,normal|90|180|270|flipped|flipped-90|flipped-180|flipped-270`
 for rotation and reflection. Add `vrr=NAME` for each output that should use
 variable refresh rate, or `disabled=NAME` to leave a connected output outside
@@ -158,6 +161,7 @@ Command-line position assignments override the file:
 
 ```text
 # ~/.config/denial/outputs.conf
+primary=DP-5
 DP-5=0,0,200
 transform=DP-5,90
 DP-4=2560,0,180
@@ -196,6 +200,14 @@ waking them restores a complete scanout atlas without rebuilding the Wayland
 topology. A Vulkan Wayland client has been validated through DP-5
 removal/reconnection while its four dma-bufs remained imported and the client
 kept presenting.
+
+Denial also owns the desktop application colour-scheme and accent preferences.
+Committed settings select the Flutter shell's semantic dark/light theme;
+Flutter resolves custom or wallpaper-derived accent color, and deniald copies
+the complete state as a bounded snapshot to the separate `denial-portal`
+process. That helper implements `org.freedesktop.impl.portal.Settings`; it
+neither parses the settings document nor runs D-Bus work on the compositor
+event loop.
 
 Measured on the current DP-4/DP-5 setup, the steady dual-output loop runs at
 about 180 Hz (the slower output), with roughly 0.32 ms average render time while

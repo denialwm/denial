@@ -135,12 +135,15 @@ class _LockPreview extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              const DecoratedBox(
+              DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [Color(0xff171a1f), Color(0xff080a0e)],
+                    colors: [
+                      context.shellColors.surfaceContainerHigh,
+                      context.shellColors.background,
+                    ],
                   ),
                 ),
               ),
@@ -165,7 +168,7 @@ class _LockPreview extends StatelessWidget {
                   ),
                 ),
               ColoredBox(
-                color: ShellColors.launchSurface.withValues(
+                color: ShellMediaColors.darkness.withValues(
                   alpha: settings.dimAmount,
                 ),
               ),
@@ -205,12 +208,12 @@ class _LockPreview extends StatelessWidget {
                 width: 168,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: ShellColors.panelBackgroundBottom,
+                    color: context.shellColors.panelBackgroundBottom,
                     borderRadius: BorderRadius.circular(18),
                     border: Border.all(color: accent.withAlpha(96)),
-                    boxShadow: const [
+                    boxShadow: [
                       BoxShadow(
-                        color: ShellColors.shadow,
+                        color: context.shellColors.shadow,
                         blurRadius: 18,
                         offset: Offset(0, 8),
                       ),
@@ -235,7 +238,7 @@ class _LockPreview extends StatelessWidget {
                         Text(
                           l10n.lockPressEnter,
                           style: ShellText.base.copyWith(
-                            color: ShellColors.textTertiary,
+                            color: context.shellColors.textTertiary,
                             fontSize: 9,
                           ),
                         ),

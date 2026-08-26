@@ -16,6 +16,7 @@ fn activation_environment_uses_the_discovered_session_endpoints() {
         OsStr::new("wayland-37"),
         OsStr::new(":42"),
         Some(OsStr::new("/run/user/1000/denial/control.sock")),
+        None,
     )
     .expect("valid session environment");
     assert_eq!(
@@ -33,16 +34,37 @@ fn activation_environment_uses_the_discovered_session_endpoints() {
         Some("/run/user/1000/denial/control.sock")
     );
     assert_eq!(
+        environment.get("QT_QPA_PLATFORMTHEME").map(String::as_str),
+        Some("xdgdesktopportal")
+    );
+    assert_eq!(
         systemd_environment_assignments(&environment),
         [
             "DENIAL_SOCKET=/run/user/1000/denial/control.sock",
             "DESKTOP_SESSION=Denial",
             "DISPLAY=:42",
+            "QT_QPA_PLATFORMTHEME=xdgdesktopportal",
             "WAYLAND_DISPLAY=wayland-37",
             "XDG_CURRENT_DESKTOP=Denial",
             "XDG_SESSION_DESKTOP=Denial",
             "XDG_SESSION_TYPE=wayland",
         ]
+    );
+}
+
+#[test]
+fn activation_environment_preserves_an_explicit_qt_platform_theme() {
+    let environment = session_activation_environment(
+        OsStr::new("wayland-1"),
+        OsStr::new(":1"),
+        None,
+        Some(OsStr::new("kde")),
+    )
+    .expect("valid session environment");
+
+    assert_eq!(
+        environment.get("QT_QPA_PLATFORMTHEME").map(String::as_str),
+        Some("kde")
     );
 }
 

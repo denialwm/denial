@@ -57,7 +57,7 @@ class SettingsAccentColorPicker extends StatelessWidget {
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: onClose,
-            child: const ColoredBox(color: ShellColors.overviewScrim),
+            child: ColoredBox(color: context.shellColors.overviewScrim),
           ),
           LayoutBuilder(
             builder: (context, constraints) {
@@ -132,12 +132,12 @@ class _ColorPickerPanel extends StatelessWidget {
       label: routeLabel,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: theme.panelColor(ShellColors.panelBackgroundBottom),
+          color: theme.panelColor(context.shellColors.panelBackgroundBottom),
           borderRadius: BorderRadius.circular(theme.panelRadius),
-          border: Border.all(color: ShellColors.hairline),
-          boxShadow: const [
+          border: Border.all(color: context.shellColors.hairline),
+          boxShadow: [
             BoxShadow(
-              color: ShellColors.shadow,
+              color: context.shellColors.shadow,
               blurRadius: 36,
               spreadRadius: 3,
               offset: Offset(0, 16),
@@ -171,7 +171,7 @@ class _ColorPickerPanel extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: ShellText.cardTitle.copyWith(
-                    color: ShellColors.textTertiary,
+                    color: context.shellColors.textTertiary,
                     fontSize: 10,
                   ),
                 ),
@@ -225,7 +225,7 @@ class _PickerHeader extends StatelessWidget {
           decoration: BoxDecoration(
             color: color,
             shape: BoxShape.circle,
-            border: Border.all(color: ShellColors.panelHighlight),
+            border: Border.all(color: context.shellColors.panelHighlight),
           ),
         ),
         const SizedBox(width: 11),
@@ -238,7 +238,7 @@ class _PickerHeader extends StatelessWidget {
               Text(
                 hex,
                 style: ShellText.cardTitle.copyWith(
-                  color: ShellColors.textSecondary,
+                  color: context.shellColors.textSecondary,
                   fontFamily: ShellText.systemBarFontFamily,
                   fontSize: 11,
                 ),
@@ -311,22 +311,22 @@ class _PickerButtonState extends State<_PickerButton> {
             decoration: BoxDecoration(
               color: widget.prominent
                   ? highlighted
-                        ? ShellColors.onPrimaryContainer
+                        ? context.shellTheme.accentPalette.onContainer
                         : accent
                   : highlighted
-                  ? ShellColors.surfaceContainerHighest
-                  : ShellColors.surfaceContainerHigh,
+                  ? context.shellColors.surfaceContainerHighest
+                  : context.shellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(ShellRadii.chip),
               border: Border.all(
-                color: _focused ? accent : ShellColors.hairline,
+                color: _focused ? accent : context.shellColors.hairline,
               ),
             ),
             child: Text(
               widget.label,
               style: ShellText.cardTitle.copyWith(
                 color: widget.prominent
-                    ? ShellColors.onAccent
-                    : ShellColors.textSecondary,
+                    ? context.shellTheme.accentPalette.onPrimary
+                    : context.shellColors.textSecondary,
               ),
             ),
           ),
@@ -387,17 +387,17 @@ class _PickerIconButtonState extends State<_PickerIconButton> {
             height: 36,
             decoration: BoxDecoration(
               color: highlighted
-                  ? ShellColors.surfaceContainerHighest
-                  : ShellColors.surfaceContainerHigh,
+                  ? context.shellColors.surfaceContainerHighest
+                  : context.shellColors.surfaceContainerHigh,
               shape: BoxShape.circle,
               border: Border.all(
-                color: _focused ? accent : ShellColors.hairline,
+                color: _focused ? accent : context.shellColors.hairline,
               ),
             ),
             child: Icon(
               widget.icon,
               size: 18,
-              color: ShellColors.textSecondary,
+              color: context.shellColors.textSecondary,
             ),
           ),
         ),

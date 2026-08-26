@@ -143,3 +143,15 @@ pub enum RuntimeEvent {
         batch: SampledBufferHoldBatch,
     },
 }
+
+impl RuntimeEvent {
+    pub(crate) fn queues_background_service_work(&self) -> bool {
+        matches!(
+            self,
+            Self::Engine {
+                event: EngineEvent::PlatformMessage(_),
+                ..
+            }
+        )
+    }
+}

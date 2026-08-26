@@ -1,8 +1,8 @@
 # Distribution support
 
 Denial targets Linux rather than one distribution. Arch Linux, CachyOS,
-Alpine Linux 3.24, Fedora 44, Debian 13, NixOS 26.05, Void Linux, and Ubuntu
-24.04 LTS have completed runtime validation.
+Omarchy 4.0, Alpine Linux 3.24, Fedora 44, Debian 13, NixOS 26.05, Void Linux,
+and Ubuntu 24.04 LTS have completed runtime validation.
 
 ## Architecture support
 
@@ -19,6 +19,7 @@ the same compositor, Flutter engine, and shell from source.
 | --- | :---: | :---: |
 | Arch Linux | ✅ | ✅ |
 | CachyOS | ✅ | ✅ |
+| Omarchy 4.0 | ✅ | ✅ |
 | Debian 13 (trixie) | ✅ | ✅ |
 | Ubuntu 24.04 LTS (noble) | ✅ | ✅ |
 | Fedora 44 | ✅ | ✅ |
@@ -29,11 +30,17 @@ the same compositor, Flutter engine, and shell from source.
 Debian-family and Fedora package adapters consume one byte-identical runtime
 staging tree. Signed APT repositories serve Debian 13 and Ubuntu 24.04, and a
 signed DNF repository serves Fedora 44; the same packages are retained as
-direct GitHub Release downloads. Arch Linux and CachyOS use the signed Pacman
-repository. Alpine packages are retained as signed direct GitHub Release
-downloads; a native RSA-signed APK repository is not published yet. NixOS and
-Void do not yet have first-party binary repositories. The packaging boundary
-remains reusable for other distributions.
+direct GitHub Release downloads. Arch Linux, CachyOS, and Omarchy use the
+signed Pacman repository. Alpine packages are retained as signed direct GitHub
+Release downloads; a native RSA-signed APK repository is not published yet.
+NixOS and Void do not yet have first-party binary repositories. The packaging
+boundary remains reusable for other distributions.
+
+Omarchy 4.0 was validated with Denial owning DRM/KMS and the Wayland session,
+including the optimized Flutter shell, a native Wayland client, Xwayland, and
+SDDM session persistence. This validates Omarchy as a host distribution for
+Denial; it does not claim that Omarchy's Hyprland-specific Quickshell runs on
+Denial.
 
 The first real GDM port and the compatibility requirements it exposed are
 recorded in the [Fedora 44 validation](../packaging/fedora/VALIDATION.md).
@@ -104,16 +111,22 @@ file and mode with the staging manifest.
 
 The packages install a complete usable compositor: binaries and Flutter
 bundle, session launcher and Wayland session entry, default configuration,
-portal routing, licenses, and declared runtime dependencies. Essential session
+portal routing and the `denial-portal` Settings backend, licenses, and declared
+runtime dependencies. The portal payload includes its binary, backend
+descriptor, D-Bus activation file, and systemd user unit; non-systemd adapters
+retain D-Bus `Exec` activation and may omit the unit. Essential session
 components belong in `Depends`/`Requires`; integrations whose absence only
 removes a shell feature belong in `Recommends` or `Suggests`.
 
 Validation must start from a clean Debian installation and cover package
 installation, display-manager login, logind/libseat handoff, Wayland and X11
 applications, lock and unlock, logout, audio, networking, power controls, and
-portal screenshot and screencast. Package validation must also inspect ELF
-dependencies and reject a glibc requirement newer than the declared Debian
-baseline.
+portal screenshot and screencast, all three
+`org.freedesktop.appearance/color-scheme` values, and live
+`org.freedesktop.appearance/accent-color` updates without changing a GNOME
+schema key. Package validation must also inspect ELF dependencies, verify the
+Denial-with-GTK-fallback Settings route, and reject a glibc requirement newer
+than the declared Debian baseline.
 
 ## Extensible packaging boundary
 

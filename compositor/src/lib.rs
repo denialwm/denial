@@ -2,6 +2,7 @@
 
 use std::{fs, path::PathBuf, sync::OnceLock};
 
+pub mod portal_protocol;
 pub mod topology;
 #[cfg(feature = "kms")]
 pub mod volition;

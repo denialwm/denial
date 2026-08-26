@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/tokens.dart';
 import '../controllers/home_grid_layout.dart';
 import '../models/home_grid_item.dart';
 import 'home_tiles.dart';
@@ -285,7 +286,7 @@ class _ResizeFramePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final border = Paint()
-      ..color = const Color(0xeef7f7f8)
+      ..color = ShellMediaColors.lightForeground.withValues(alpha: 0.93)
       ..strokeWidth = 2.8
       ..style = PaintingStyle.stroke;
     final rect = RRect.fromRectAndRadius(
@@ -296,7 +297,7 @@ class _ResizeFramePainter extends CustomPainter {
     canvas.drawRRect(outline, border);
 
     final corner = Paint()
-      ..color = const Color(0xfff7f7f8)
+      ..color = ShellMediaColors.lightForeground
       ..style = PaintingStyle.fill;
     for (final offset in [
       outline.outerRect.topLeft,
@@ -342,16 +343,18 @@ class _ResizeHandle extends StatelessWidget {
           alignment: Alignment.bottomRight,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: const Color(0xddf7f7f8),
+              color: ShellMediaColors.lightForeground.withValues(alpha: 0.87),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0x8a070910)),
+              border: Border.all(
+                color: ShellMediaColors.darkSurface.withValues(alpha: 0.54),
+              ),
             ),
             child: const SizedBox.square(
               dimension: 56,
               child: Icon(
                 Icons.open_in_full_rounded,
                 size: 23,
-                color: Color(0xff070910),
+                color: ShellMediaColors.darkSurface,
               ),
             ),
           ),

@@ -2467,6 +2467,25 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsShapeTitle => '形状';
 
   @override
+  String get settingsColorSchemeTitle => '配色方案';
+
+  @override
+  String get settingsColorSchemeDark => '深色';
+
+  @override
+  String get settingsColorSchemeLight => '浅色';
+
+  @override
+  String get settingsColorSchemeNoPreference => '无偏好';
+
+  @override
+  String get settingsColorSchemeDescription => '在 Denial 和支持的应用中使用相同的配色方案。';
+
+  @override
+  String get settingsColorSchemeNoPreferenceDescription =>
+      'Denial 保持默认深色外观，应用可自行选择配色方案。';
+
+  @override
   String get settingsShellAccentChoose => '选择强调色';
 
   @override

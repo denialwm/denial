@@ -1,7 +1,7 @@
 import 'package:denial_dart_shell/src/desktop/system_tray_module.dart';
 import 'package:denial_dart_shell/src/input/shell_interaction_registry.dart';
 import 'package:denial_dart_shell/src/models/system_tray_item.dart';
-import 'package:denial_dart_shell/src/theme/tokens.dart';
+import 'package:denial_dart_shell/src/theme/shell_color_scheme.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -372,7 +372,7 @@ void main() {
     final anchor = tester.widget<MenuAnchor>(find.byType(MenuAnchor));
     expect(
       anchor.style!.backgroundColor!.resolve(const <WidgetState>{}),
-      ShellColors.panelBackgroundBottom,
+      ShellColorScheme.dark.panelBackgroundBottom,
     );
     final entrySize = tester.getSize(
       find.byKey(systemTrayMenuEntryButtonKey(31)),

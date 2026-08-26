@@ -3513,6 +3513,30 @@
   "@settingsShapeTitle": {
     "description": "English UI text for settingsShapeTitle."
   },
+  "settingsColorSchemeTitle": "Colour scheme",
+  "@settingsColorSchemeTitle": {
+    "description": "Title for the desktop-wide colour-scheme preference."
+  },
+  "settingsColorSchemeDark": "Dark",
+  "@settingsColorSchemeDark": {
+    "description": "Dark colour-scheme choice."
+  },
+  "settingsColorSchemeLight": "Light",
+  "@settingsColorSchemeLight": {
+    "description": "Light colour-scheme choice."
+  },
+  "settingsColorSchemeNoPreference": "No preference",
+  "@settingsColorSchemeNoPreference": {
+    "description": "Choice that lets applications select their own colour scheme."
+  },
+  "settingsColorSchemeDescription": "Use the same colour scheme across Denial and supported applications.",
+  "@settingsColorSchemeDescription": {
+    "description": "Explanation for an explicit dark or light desktop preference."
+  },
+  "settingsColorSchemeNoPreferenceDescription": "Denial keeps its default dark appearance while applications choose their own.",
+  "@settingsColorSchemeNoPreferenceDescription": {
+    "description": "Explanation of the no-preference state and Denial's concrete fallback."
+  },
   "settingsShellAccentChoose": "Choose accent color",
   "@settingsShellAccentChoose": {
     "description": "English UI text for settingsShellAccentChoose."

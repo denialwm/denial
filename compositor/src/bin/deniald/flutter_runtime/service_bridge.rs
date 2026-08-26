@@ -3,6 +3,23 @@
 use super::*;
 
 impl FlutterRuntime {
+    pub fn send_platform_brightness(
+        &mut self,
+        brightness: denial_core::portal_protocol::DesktopThemeBrightness,
+    ) -> Result<(), Box<dyn Error>> {
+        let message = serde_json::to_vec(&serde_json::json!({
+            "textScaleFactor": 1.0,
+            "alwaysUse24HourFormat": false,
+            "platformBrightness": brightness.flutter_name(),
+        }))?;
+        self.host
+            .as_ref()
+            .expect("Flutter runtime is shutting down")
+            .engine()
+            .send_platform_message(FLUTTER_SETTINGS_CHANNEL, &message)?;
+        Ok(())
+    }
+
     pub fn take_input_layout_update(&mut self) -> Option<wire::InputLayoutSnapshot> {
         self.wire.take_input_layout_update()
     }
@@ -61,6 +78,10 @@ impl FlutterRuntime {
 
     pub fn drain_settings_commands(&mut self) -> impl Iterator<Item = wire::SettingsCommand> + '_ {
         self.wire.drain_settings_commands()
+    }
+
+    pub fn take_theme_accent(&mut self) -> Option<u32> {
+        self.wire.take_theme_accent()
     }
 
     pub fn take_work_area_update(&mut self) -> Option<crate::options::WorkAreaOptions> {

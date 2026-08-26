@@ -11,6 +11,26 @@ import '../theme/tokens.dart';
 
 enum ShellAccentSource { wallpaper, custom }
 
+enum DesktopColorSchemePreference {
+  preferDark,
+  preferLight,
+  noPreference;
+
+  Brightness get effectiveBrightness => switch (this) {
+    DesktopColorSchemePreference.preferLight => Brightness.light,
+    DesktopColorSchemePreference.preferDark => Brightness.dark,
+    DesktopColorSchemePreference.noPreference => denialDefaultBrightness,
+  };
+
+  int get portalValue => switch (this) {
+    DesktopColorSchemePreference.noPreference => 0,
+    DesktopColorSchemePreference.preferDark => 1,
+    DesktopColorSchemePreference.preferLight => 2,
+  };
+}
+
+const Brightness denialDefaultBrightness = Brightness.dark;
+
 enum ShellOverlaySurface { launcher, dashboard, notifications, systemHud }
 
 enum ClipboardTrayEdge { left, right, top, bottom }
@@ -49,8 +69,9 @@ class ShellLocalizationSettings {
 @immutable
 class ShellAppearanceSettings {
   const ShellAppearanceSettings({
+    this.colorSchemePreference = DesktopColorSchemePreference.preferDark,
     this.accentSource = ShellAccentSource.wallpaper,
-    this.customAccentColor = ShellColors.accent,
+    this.customAccentColor = ShellBrandColors.defaultAccent,
     this.windowRadius = ShellRadii.window,
     this.panelRadius = ShellRadii.panel,
     this.panelOpacity = ShellOpacity.panel,
@@ -62,6 +83,7 @@ class ShellAppearanceSettings {
     this.cursorSize = shellCursorDefaultSize,
   });
 
+  final DesktopColorSchemePreference colorSchemePreference;
   final ShellAccentSource accentSource;
   final Color customAccentColor;
   final double windowRadius;
@@ -75,6 +97,7 @@ class ShellAppearanceSettings {
   final double cursorSize;
 
   ShellAppearanceSettings copyWith({
+    DesktopColorSchemePreference? colorSchemePreference,
     ShellAccentSource? accentSource,
     Color? customAccentColor,
     double? windowRadius,
@@ -88,6 +111,8 @@ class ShellAppearanceSettings {
     double? cursorSize,
   }) {
     return ShellAppearanceSettings(
+      colorSchemePreference:
+          colorSchemePreference ?? this.colorSchemePreference,
       accentSource: accentSource ?? this.accentSource,
       customAccentColor: customAccentColor ?? this.customAccentColor,
       windowRadius: windowRadius ?? this.windowRadius,
@@ -107,6 +132,7 @@ class ShellAppearanceSettings {
   @override
   bool operator ==(Object other) {
     return other is ShellAppearanceSettings &&
+        other.colorSchemePreference == colorSchemePreference &&
         other.accentSource == accentSource &&
         other.customAccentColor == customAccentColor &&
         other.windowRadius == windowRadius &&
@@ -122,6 +148,7 @@ class ShellAppearanceSettings {
 
   @override
   int get hashCode => Object.hash(
+    colorSchemePreference,
     accentSource,
     customAccentColor,
     windowRadius,
@@ -421,7 +448,7 @@ class ShellSettings {
 
   // Blur levels are additive in schema 9. Keep emitting the derived legacy
   // sigma so older shells can read settings written by this version.
-  static const int schemaVersion = 9;
+  static const int schemaVersion = 10;
 
   final ShellLocalizationSettings localization;
   final ShellAppearanceSettings appearance;
@@ -451,11 +478,174 @@ class ShellSettings {
     );
   }
 
+  /// Returns only the typed fields changed since [previous].
+  ///
+  /// The settings controller uses this patch while a debounced native write
+  /// is pending, so a concurrent authoritative update can be merged without
+  /// serializing and recursively comparing two complete documents per input
+  /// event.
+  Map<String, Object?> differenceFrom(ShellSettings previous) {
+    final patch = <String, Object?>{};
+
+    if (localization != previous.localization) {
+      final section = <String, Object?>{};
+      if (localization.locale != previous.localization.locale) {
+        section['locale'] = localization.locale.name;
+      }
+      patch['localization'] = section;
+    }
+
+    if (appearance != previous.appearance) {
+      final before = previous.appearance;
+      final section = <String, Object?>{};
+      if (appearance.colorSchemePreference != before.colorSchemePreference) {
+        section['colorSchemePreference'] =
+            appearance.colorSchemePreference.name;
+      }
+      if (appearance.accentSource != before.accentSource) {
+        section['accentSource'] = appearance.accentSource.name;
+      }
+      if (appearance.customAccentColor != before.customAccentColor) {
+        section['customAccentColor'] = appearance.customAccentColor.toARGB32();
+      }
+      if (appearance.windowRadius != before.windowRadius) {
+        section['windowRadius'] = appearance.windowRadius;
+      }
+      if (appearance.panelRadius != before.panelRadius) {
+        section['panelRadius'] = appearance.panelRadius;
+      }
+      if (appearance.panelOpacity != before.panelOpacity) {
+        section['panelOpacity'] = appearance.panelOpacity;
+      }
+      if (appearance.backdropBlurEnabled != before.backdropBlurEnabled) {
+        section['backdropBlurEnabled'] = appearance.backdropBlurEnabled;
+      }
+      if (appearance.backdropBlurLevel != before.backdropBlurLevel) {
+        section['backdropBlurLevel'] = appearance.backdropBlurLevel.name;
+        section['backdropBlurSigma'] = appearance.backdropBlurLevel.sigma;
+      }
+      if (appearance.backdropBlurOpacityThreshold !=
+          before.backdropBlurOpacityThreshold) {
+        section['backdropBlurOpacityThreshold'] =
+            appearance.backdropBlurOpacityThreshold;
+      }
+      if (appearance.focusedWindowOpacity != before.focusedWindowOpacity) {
+        section['focusedWindowOpacity'] = appearance.focusedWindowOpacity;
+      }
+      if (appearance.unfocusedWindowOpacity != before.unfocusedWindowOpacity) {
+        section['unfocusedWindowOpacity'] = appearance.unfocusedWindowOpacity;
+      }
+      if (appearance.cursorSize != before.cursorSize) {
+        section['cursorSize'] = appearance.cursorSize;
+      }
+      patch['appearance'] = section;
+    }
+
+    if (layout != previous.layout) {
+      final before = previous.layout;
+      final section = <String, Object?>{};
+      if (layout.systemBarSide != before.systemBarSide) {
+        section['systemBarSide'] = layout.systemBarSide?.name;
+      }
+      if (!listEquals(
+        layout.systemBarOutputNames,
+        before.systemBarOutputNames,
+      )) {
+        section['systemBarOutputs'] = layout.systemBarOutputNames;
+      }
+      if (layout.systemBarThickness != before.systemBarThickness) {
+        section['systemBarThickness'] = layout.systemBarThickness;
+      }
+      if (layout.maximizePadding != before.maximizePadding) {
+        section['maximizePadding'] = layout.maximizePadding;
+      }
+      if (layout.clipboardTrayEdge != before.clipboardTrayEdge) {
+        section['clipboardTrayEdge'] = layout.clipboardTrayEdge.name;
+      }
+      if (layout.clipboardTrayExtent != before.clipboardTrayExtent) {
+        section['clipboardTrayExtent'] = layout.clipboardTrayExtent;
+      }
+      patch['layout'] = section;
+    }
+
+    if (overlays != previous.overlays) {
+      final before = previous.overlays;
+      final section = <String, Object?>{};
+      if (overlays.launcher != before.launcher) {
+        section['launcher'] = _placementToJson(overlays.launcher);
+      }
+      if (overlays.dashboard != before.dashboard) {
+        section['dashboard'] = _placementToJson(overlays.dashboard);
+      }
+      if (overlays.notifications != before.notifications) {
+        section['notifications'] = _placementToJson(overlays.notifications);
+      }
+      if (overlays.systemHud != before.systemHud) {
+        section['systemHud'] = _placementToJson(overlays.systemHud);
+      }
+      patch['overlays'] = section;
+    }
+
+    if (animations != previous.animations) {
+      final before = previous.animations;
+      final section = <String, Object?>{};
+      if (animations.windowCloseEffect != before.windowCloseEffect) {
+        section['windowCloseEffect'] = animations.windowCloseEffect.name;
+      }
+      if (animations.durationScale != before.durationScale) {
+        section['durationScale'] = animations.durationScale;
+      }
+      if (animations.panelTravel != before.panelTravel) {
+        section['panelTravel'] = animations.panelTravel;
+      }
+      if (animations.animateLockScreen != before.animateLockScreen) {
+        section['animateLockScreen'] = animations.animateLockScreen;
+      }
+      patch['animations'] = section;
+    }
+
+    if (lockScreen != previous.lockScreen) {
+      final before = previous.lockScreen;
+      final section = <String, Object?>{};
+      if (lockScreen.useSystemWallpaper != before.useSystemWallpaper) {
+        section['useSystemWallpaper'] = lockScreen.useSystemWallpaper;
+      }
+      if (lockScreen.dimAmount != before.dimAmount) {
+        section['dimAmount'] = lockScreen.dimAmount;
+      }
+      if (lockScreen.blurRadius != before.blurRadius) {
+        section['blurRadius'] = lockScreen.blurRadius;
+      }
+      if (lockScreen.clockScale != before.clockScale) {
+        section['clockScale'] = lockScreen.clockScale;
+      }
+      if (lockScreen.showSystemStatus != before.showSystemStatus) {
+        section['showSystemStatus'] = lockScreen.showSystemStatus;
+      }
+      patch['lockScreen'] = section;
+    }
+
+    if (power != previous.power) {
+      final before = previous.power;
+      final section = <String, Object?>{};
+      if (power.idleDpmsEnabled != before.idleDpmsEnabled) {
+        section['idleDpmsEnabled'] = power.idleDpmsEnabled;
+      }
+      if (power.idleDpmsTimeoutMinutes != before.idleDpmsTimeoutMinutes) {
+        section['idleDpmsTimeoutMinutes'] = power.idleDpmsTimeoutMinutes;
+      }
+      patch['power'] = section;
+    }
+
+    return patch;
+  }
+
   Map<String, Object> toJson() {
     return <String, Object>{
       'version': schemaVersion,
       'localization': <String, Object>{'locale': localization.locale.name},
       'appearance': <String, Object>{
+        'colorSchemePreference': appearance.colorSchemePreference.name,
         'accentSource': appearance.accentSource.name,
         'customAccentColor': appearance.customAccentColor.toARGB32(),
         'windowRadius': appearance.windowRadius,
@@ -525,6 +715,11 @@ class ShellSettings {
         ),
       ),
       appearance: ShellAppearanceSettings(
+        colorSchemePreference: _enumValue(
+          DesktopColorSchemePreference.values,
+          appearanceJson['colorSchemePreference'],
+          defaults.appearance.colorSchemePreference,
+        ),
         accentSource: _enumValue(
           ShellAccentSource.values,
           appearanceJson['accentSource'],
@@ -543,7 +738,7 @@ class ShellSettings {
         panelRadius: _number(
           appearanceJson['panelRadius'],
           defaults.appearance.panelRadius,
-          8,
+          0,
           56,
         ),
         panelOpacity: _number(

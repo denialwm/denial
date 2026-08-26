@@ -124,6 +124,11 @@ package() {
 		--add-needed libdenial-resolver-bridge.so.0 \
 		--add-needed libdenial-pthread-stack.so.0 \
 		"$pkgdir/usr/bin/deniald"
+	patchelf --set-rpath /usr/lib/denial/alpine \
+		--add-needed libgcompat.so.0 \
+		--add-needed libdenial-resolver-bridge.so.0 \
+		--add-needed libdenial-pthread-stack.so.0 \
+		"$pkgdir/usr/bin/denial-portal"
 	patchelf --set-rpath '$ORIGIN/lib:/usr/lib/denial/alpine' \
 		--add-needed libgcompat.so.0 \
 		--add-needed libdenial-resolver-bridge.so.0 \
@@ -132,7 +137,9 @@ package() {
 
 	# This target has meaning only to a systemd user manager.  Alpine uses the
 	# launcher's already-supported direct-child lifecycle instead.
-	rm -f "$pkgdir/usr/lib/systemd/user/denial-session.target"
+	rm -f \
+		"$pkgdir/usr/lib/systemd/user/denial-session.target" \
+		"$pkgdir/usr/lib/systemd/user/denial-portal.service"
 	rmdir -p --ignore-fail-on-non-empty \
 		"$pkgdir/usr/lib/systemd/user" 2>/dev/null || true
 }

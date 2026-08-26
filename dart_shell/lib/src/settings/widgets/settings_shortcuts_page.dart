@@ -6,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../localization/denial_localizations.dart';
 import '../../models/shortcut_configuration.dart';
 import '../../state/shortcut_configuration.dart';
-import '../../theme/motion.dart';
 import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import 'settings_controls.dart';
@@ -217,7 +216,7 @@ class _ShortcutsHeader extends StatelessWidget {
         Text(
           context.l10n.settingsShortcutsTitle,
           style: ShellText.base.copyWith(
-            color: ShellColors.textPrimary,
+            color: context.shellColors.textPrimary,
             height: 1.35,
           ),
         ),
@@ -235,16 +234,16 @@ class _ShortcutCountBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: ShellColors.surfaceContainerHigh,
+        color: context.shellColors.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(ShellRadii.chip),
-        border: Border.all(color: ShellColors.hairlineSoft),
+        border: Border.all(color: context.shellColors.hairlineSoft),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         child: Text(
           context.l10n.settingsShortcutsConfigured(count),
           style: ShellText.cardTitle.copyWith(
-            color: ShellColors.textSecondary,
+            color: context.shellColors.textSecondary,
             fontSize: 9,
           ),
         ),
@@ -294,11 +293,9 @@ class _ShortcutList extends StatelessWidget {
     final radius = BorderRadius.circular(theme.panelRadius);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: ShellColors.surfaceContainerLow.withValues(
-          alpha: theme.panelOpacity * 0.84,
-        ),
+        color: theme.panelColor(context.shellColors.surfaceContainerLow),
         borderRadius: radius,
-        border: Border.all(color: ShellColors.hairline),
+        border: Border.all(color: context.shellColors.hairline),
       ),
       child: ClipRRect(
         borderRadius: radius,
@@ -306,11 +303,11 @@ class _ShortcutList extends StatelessWidget {
           child: ListView.separated(
             padding: const EdgeInsets.only(bottom: 82),
             itemCount: configuration.shortcuts.length,
-            separatorBuilder: (_, _) => const Divider(
+            separatorBuilder: (_, _) => Divider(
               height: 1,
               indent: 16,
               endIndent: 16,
-              color: ShellColors.hairlineSoft,
+              color: context.shellColors.hairlineSoft,
             ),
             itemBuilder: (context, index) {
               final binding = configuration.shortcuts[index];
@@ -368,9 +365,9 @@ class _ShortcutRow extends StatelessWidget {
                   message: displayShortcut,
                   child: DecoratedBox(
                     decoration: BoxDecoration(
-                      color: ShellColors.surfaceContainerHigh,
+                      color: context.shellColors.surfaceContainerHigh,
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: ShellColors.hairline),
+                      border: Border.all(color: context.shellColors.hairline),
                     ),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
@@ -392,12 +389,12 @@ class _ShortcutRow extends StatelessWidget {
                 ),
               ),
             ),
-            const Padding(
+            Padding(
               padding: EdgeInsets.symmetric(horizontal: 12),
               child: Icon(
                 Icons.arrow_forward_rounded,
                 size: 15,
-                color: ShellColors.textTertiary,
+                color: context.shellColors.textTertiary,
               ),
             ),
             Expanded(
@@ -485,8 +482,8 @@ class _ShortcutIconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final foreground = destructive
-        ? ShellColors.performanceBad
-        : ShellColors.textSecondary;
+        ? context.shellColors.performanceBad
+        : context.shellColors.textSecondary;
     return IconButton(
       tooltip: tooltip,
       onPressed: busy ? null : onPressed,
@@ -495,16 +492,15 @@ class _ShortcutIconButton extends StatelessWidget {
       padding: EdgeInsets.zero,
       style: IconButton.styleFrom(
         foregroundColor: foreground,
-        disabledForegroundColor: ShellColors.textTertiary.withAlpha(86),
-        backgroundColor: ShellColors.surfaceContainerHigh,
-        disabledBackgroundColor: ShellColors.surfaceContainerHigh.withAlpha(
-          120,
-        ),
+        disabledForegroundColor: context.shellColors.textTertiary.withAlpha(86),
+        backgroundColor: context.shellColors.surfaceContainerHigh,
+        disabledBackgroundColor: context.shellColors.surfaceContainerHigh
+            .withAlpha(120),
         hoverColor: foreground.withAlpha(28),
         focusColor: foreground.withAlpha(28),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(11),
-          side: const BorderSide(color: ShellColors.hairline),
+          side: BorderSide(color: context.shellColors.hairline),
         ),
       ),
       icon: busy
@@ -537,18 +533,20 @@ class _ShortcutErrorBanner extends StatelessWidget {
       liveRegion: true,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: ShellColors.performanceBad.withAlpha(18),
+          color: context.shellColors.performanceBad.withAlpha(18),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: ShellColors.performanceBad.withAlpha(82)),
+          border: Border.all(
+            color: context.shellColors.performanceBad.withAlpha(82),
+          ),
         ),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(13, 10, 8, 10),
           child: Row(
             children: [
-              const Icon(
+              Icon(
                 Icons.error_outline_rounded,
                 size: 18,
-                color: ShellColors.performanceBad,
+                color: context.shellColors.performanceBad,
               ),
               const SizedBox(width: 9),
               Expanded(
@@ -557,7 +555,7 @@ class _ShortcutErrorBanner extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: ShellText.base.copyWith(
-                    color: ShellColors.textSecondary,
+                    color: context.shellColors.textSecondary,
                     fontSize: 12,
                     height: 1.3,
                   ),
@@ -609,13 +607,13 @@ class _ShortcutStatus extends StatelessWidget {
                 ),
               )
             else
-              Icon(icon, size: 34, color: ShellColors.textTertiary),
+              Icon(icon, size: 34, color: context.shellColors.textTertiary),
             const SizedBox(height: 14),
             Text(
               message,
               textAlign: TextAlign.center,
               style: ShellText.base.copyWith(
-                color: ShellColors.textSecondary,
+                color: context.shellColors.textSecondary,
                 height: 1.4,
               ),
             ),
@@ -648,13 +646,13 @@ class _AddShortcutButton extends StatelessWidget {
         disabledBackgroundColor: palette.container.withAlpha(96),
         disabledForegroundColor: palette.onContainer.withAlpha(92),
         elevation: 8,
-        shadowColor: ShellColors.shadowSoft,
+        shadowColor: context.shellColors.shadowSoft,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(ShellRadii.chip),
           side: BorderSide(color: palette.outline),
         ),
       ),
-      icon: const Icon(Icons.add_rounded, size: 19),
+      icon: Icon(Icons.add_rounded, size: 19),
       label: Text(
         label,
         style: ShellText.cardTitle.copyWith(

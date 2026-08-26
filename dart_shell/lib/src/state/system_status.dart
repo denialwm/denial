@@ -49,11 +49,18 @@ final batteryProvider = NotifierProvider<BatteryController, BatteryStatus>(
   isAutoDispose: true,
 );
 
-final powerStatusProvider =
-    NotifierProvider<PowerStatusController, ShellPowerStatus>(
-      PowerStatusController.new,
+final _systemTelemetryProvider =
+    NotifierProvider<SystemTelemetryController, SystemTelemetrySnapshot>(
+      SystemTelemetryController.new,
       isAutoDispose: true,
     );
+
+final powerStatusProvider = Provider<ShellPowerStatus>(
+  (ref) => ref.watch(
+    _systemTelemetryProvider.select((telemetry) => telemetry.power),
+  ),
+  isAutoDispose: true,
+);
 
 /// Shell power state with battery capacity/state sourced exclusively from the
 /// standard Linux power-supply interface. Protocol and thermal metadata remain
@@ -65,14 +72,16 @@ final effectivePowerStatusProvider = Provider<ShellPowerStatus>((ref) {
 }, isAutoDispose: true);
 
 /// Aggregate CPU load plus a short history window for the bar sparkline.
-final cpuUsageProvider = NotifierProvider<CpuUsageController, LoadSeries>(
-  CpuUsageController.new,
+final cpuUsageProvider = Provider<LoadSeries>(
+  (ref) =>
+      ref.watch(_systemTelemetryProvider.select((telemetry) => telemetry.cpu)),
   isAutoDispose: true,
 );
 
 /// Per-GPU load series for every autodetected GPU, in stable order.
-final gpuUsageProvider = NotifierProvider<GpuUsageController, List<GpuLoad>>(
-  GpuUsageController.new,
+final gpuUsageProvider = Provider<List<GpuLoad>>(
+  (ref) =>
+      ref.watch(_systemTelemetryProvider.select((telemetry) => telemetry.gpus)),
   isAutoDispose: true,
 );
 
@@ -193,92 +202,93 @@ class GpuLoad {
   final LoadSeries series;
 }
 
-/// Samples `/proc/stat` on a fixed interval; each usable delta between the two
-/// most recent samples is appended to the published [LoadSeries].
-class CpuUsageController extends Notifier<LoadSeries>
-    with _PeriodicRefresh<LoadSeries> {
+@immutable
+class SystemTelemetrySnapshot {
+  const SystemTelemetrySnapshot({
+    this.cpu = LoadSeries.empty,
+    this.gpus = const <GpuLoad>[],
+    this.power = ShellPowerStatus.unknown,
+  });
+
+  final LoadSeries cpu;
+  final List<GpuLoad> gpus;
+  final ShellPowerStatus power;
+}
+
+/// Samples CPU, GPU, and extended power status on one shared cadence.
+///
+/// All reads start together and the immutable snapshot is published once, so
+/// consumers retain fine-grained selectors without three independent timers
+/// or three scheduler bursts landing around the same frame.
+class SystemTelemetryController extends Notifier<SystemTelemetrySnapshot>
+    with _PeriodicRefresh<SystemTelemetrySnapshot> {
   @override
-  LoadSeries build() {
-    _service = ref.watch(cpuUsageServiceProvider);
-    _previous = null;
+  SystemTelemetrySnapshot build() {
+    _cpuService = ref.watch(cpuUsageServiceProvider);
+    _gpuService = ref.watch(gpuUsageServiceProvider);
+    _powerService = ref.watch(powerStatusServiceProvider);
+    _previousCpu = null;
     startPeriodicRefresh(_interval, _refresh);
-    return LoadSeries.empty;
+    return const SystemTelemetrySnapshot();
   }
 
   static const Duration _interval = Duration(seconds: 2);
 
-  late CpuUsageService _service;
-  CpuSample? _previous;
+  late CpuUsageService _cpuService;
+  late GpuUsageService _gpuService;
+  late PowerStatusService _powerService;
+  CpuSample? _previousCpu;
 
   Future<void> _refresh(int generation) async {
-    final sample = await _service.read();
+    final cpuFuture = _cpuService.read().onError((_, _) => null);
+    final gpuFuture = _gpuService.read().onError((_, _) => const <GpuSample>[]);
+    final powerFuture = _powerService.read().onError(
+      (_, _) => ShellPowerStatus.unknown,
+    );
+    final cpuSample = await cpuFuture;
+    final gpuSamples = await gpuFuture;
+    final powerStatus = await powerFuture;
     if (!isRefreshActive(generation)) {
       return;
     }
-    final previous = _previous;
-    _previous = sample ?? _previous;
-    if (sample == null || previous == null) {
-      return;
+
+    var nextCpu = state.cpu;
+    final previousCpu = _previousCpu;
+    _previousCpu = cpuSample ?? _previousCpu;
+    if (cpuSample != null && previousCpu != null) {
+      final usage = CpuSample.usageBetween(previousCpu, cpuSample);
+      if (usage != null) {
+        nextCpu = state.cpu.append(usage, temperatureC: cpuSample.temperatureC);
+      }
     }
-    final usage = CpuSample.usageBetween(previous, sample);
-    if (usage != null) {
-      state = state.append(usage, temperatureC: sample.temperatureC);
-    }
-  }
-}
 
-/// Polls every autodetected GPU on a fixed interval and appends each reading
-/// to that GPU's series. GPUs whose telemetry disappears drop off the list.
-class GpuUsageController extends Notifier<List<GpuLoad>>
-    with _PeriodicRefresh<List<GpuLoad>> {
-  @override
-  List<GpuLoad> build() {
-    _service = ref.watch(gpuUsageServiceProvider);
-    startPeriodicRefresh(_interval, _refresh);
-    return const <GpuLoad>[];
-  }
-
-  static const Duration _interval = Duration(seconds: 2);
-
-  late GpuUsageService _service;
-
-  Future<void> _refresh(int generation) async {
-    final samples = await _service.read();
-    if (!isRefreshActive(generation) || (samples.isEmpty && state.isEmpty)) {
-      return;
-    }
-    final previous = <String, GpuLoad>{for (final load in state) load.id: load};
-    state = <GpuLoad>[
-      for (final sample in samples)
-        GpuLoad(
-          id: sample.id,
-          label: sample.label,
-          series: (previous[sample.id]?.series ?? LoadSeries.empty).append(
-            sample.usage,
-            temperatureC: sample.temperatureC,
+    var nextGpus = state.gpus;
+    if (gpuSamples.isNotEmpty || state.gpus.isNotEmpty) {
+      final previous = <String, GpuLoad>{
+        for (final load in state.gpus) load.id: load,
+      };
+      nextGpus = List<GpuLoad>.unmodifiable(<GpuLoad>[
+        for (final sample in gpuSamples)
+          GpuLoad(
+            id: sample.id,
+            label: sample.label,
+            series: (previous[sample.id]?.series ?? LoadSeries.empty).append(
+              sample.usage,
+              temperatureC: sample.temperatureC,
+            ),
           ),
-        ),
-    ];
-  }
-}
-
-class PowerStatusController extends Notifier<ShellPowerStatus>
-    with _PeriodicRefresh<ShellPowerStatus> {
-  @override
-  ShellPowerStatus build() {
-    _service = ref.watch(powerStatusServiceProvider);
-    startPeriodicRefresh(_interval, _refresh);
-    return ShellPowerStatus.unknown;
-  }
-
-  static const Duration _interval = Duration(seconds: 2);
-
-  late PowerStatusService _service;
-
-  Future<void> _refresh(int generation) async {
-    final status = await _service.read();
-    if (isRefreshActive(generation) && status != state) {
-      state = status;
+      ]);
     }
+    final nextPower = powerStatus == state.power ? state.power : powerStatus;
+    if (identical(nextCpu, state.cpu) &&
+        identical(nextGpus, state.gpus) &&
+        identical(nextPower, state.power)) {
+      return;
+    }
+    state = SystemTelemetrySnapshot(
+      cpu: nextCpu,
+      gpus: nextGpus,
+      power: nextPower,
+    );
   }
 }

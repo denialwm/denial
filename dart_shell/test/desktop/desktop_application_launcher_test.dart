@@ -1,14 +1,81 @@
+import 'dart:ui' show PointerDeviceKind;
+
 import 'package:denial_dart_shell/src/desktop/desktop_shell.dart';
 import 'package:denial_dart_shell/src/launcher/controllers/home_grid_controller.dart';
 import 'package:denial_dart_shell/src/local_apps/local_flutter_application.dart';
 import 'package:denial_dart_shell/src/localization/denial_localizations.dart';
 import 'package:denial_dart_shell/src/settings/settings_application.dart';
+import 'package:denial_dart_shell/src/theme/shell_color_scheme.dart';
+import 'package:denial_dart_shell/src/theme/shell_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('HomeGridState preserves its slot cache across page-only changes', () {
+    final state = HomeGridState(slots: const []);
+
+    final changed = state.copyWith(page: 1);
+
+    expect(identical(changed.slots, state.slots), isTrue);
+  });
+
+  testWidgets('light theme resolves launcher titles and app names', (
+    tester,
+  ) async {
+    await _pumpLauncher(
+      tester,
+      applications: _testApplications(2),
+      colors: ShellColorScheme.light,
+    );
+
+    final title = tester.widget<Text>(find.text('Applications'));
+    final selectedApp = tester.widget<Text>(find.text('App 01'));
+    final unselectedApp = tester.widget<Text>(find.text('App 02'));
+    final accent = ShellAccentPalette.from(
+      const ShellThemeData().accentSeed,
+      ShellColorScheme.light,
+    );
+
+    expect(title.style?.color, ShellColorScheme.light.textPrimary);
+    expect(selectedApp.style?.color, accent.onContainer);
+    expect(unselectedApp.style?.color, ShellColorScheme.light.textPrimary);
+  });
+
+  testWidgets('app hover transitions directly through the accent hue', (
+    tester,
+  ) async {
+    await _pumpLauncher(tester, applications: _testApplications(2));
+
+    final tile = find.byKey(
+      const ValueKey<String>('desktop-app-local:test.app.2'),
+    );
+    final animatedTile = find.descendant(
+      of: tile,
+      matching: find.byType(AnimatedContainer),
+    );
+    final accent = const ShellThemeData().accentPalette;
+
+    BoxDecoration decoration() =>
+        tester.widget<AnimatedContainer>(animatedTile).decoration!
+            as BoxDecoration;
+
+    expect(decoration().color, accent.container.withValues(alpha: 0));
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(
+      location: tester.getTopLeft(tile) - const Offset(8, 8),
+    );
+    await mouse.moveTo(tester.getCenter(tile));
+    await tester.pump();
+
+    expect(decoration().color, accent.container);
+    final label = tester.widget<Text>(find.text('App 02'));
+    expect(label.style?.color, accent.onContainer);
+  });
+
   testWidgets('Applications includes and launches registered local apps', (
     tester,
   ) async {
@@ -53,8 +120,15 @@ void main() {
   ) async {
     final apps = _testApplications(2);
     final harness = await _pumpLauncher(tester, applications: apps);
+    final grid = tester.widget<GridView>(find.byType(GridView));
 
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    expect(
+      identical(tester.widget<GridView>(find.byType(GridView)), grid),
+      isTrue,
+      reason: 'keyboard selection must update only the old and new tiles',
+    );
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pumpAndSettle();
 
@@ -185,14 +259,44 @@ void main() {
     final harness = await _pumpLauncher(tester, applications: apps);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    final grid = tester.widget<GridView>(find.byType(GridView));
     harness.searchFocusNode.unfocus();
     await tester.pump();
+    expect(
+      identical(tester.widget<GridView>(find.byType(GridView)), grid),
+      isTrue,
+      reason: 'focus changes must rebuild only the search border',
+    );
     harness.searchFocusNode.requestFocus();
     await tester.pump();
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pumpAndSettle();
 
     expect(harness.launched, <LocalFlutterApplication>[apps.last]);
+  });
+
+  testWidgets('unrelated launcher rebuilds reuse the installed app catalog', (
+    tester,
+  ) async {
+    var localizedTitleReads = 0;
+    final app = LocalFlutterApplication(
+      id: 'test.cached-app',
+      title: 'Cached app',
+      localizedTitle: (_) {
+        localizedTitleReads += 1;
+        return 'Cached app';
+      },
+      builder: _placeholderBuilder,
+    );
+    final harness = await _pumpLauncher(tester, applications: [app]);
+    expect(localizedTitleReads, 1);
+
+    harness.searchFocusNode.unfocus();
+    await tester.pump();
+    harness.searchFocusNode.requestFocus();
+    await tester.pump();
+
+    expect(localizedTitleReads, 1);
   });
 
   testWidgets('keyboard selection automatically scrolls into view', (
@@ -236,6 +340,7 @@ Future<_LauncherTestHarness> _pumpLauncher(
   required List<LocalFlutterApplication> applications,
   double width = 680,
   double height = 620,
+  ShellColorScheme colors = ShellColorScheme.dark,
 }) async {
   final harness = _LauncherTestHarness(FocusNode());
   addTearDown(harness.searchFocusNode.dispose);
@@ -246,21 +351,24 @@ Future<_LauncherTestHarness> _pumpLauncher(
         homeGridControllerProvider.overrideWith(_EmptyHomeGridController.new),
         localFlutterApplicationsProvider.overrideWithValue(applications),
       ],
-      child: DenialLocalizationScope(
-        locale: const Locale('en'),
-        child: MediaQuery(
-          data: MediaQueryData(size: Size(width, height)),
-          child: Center(
-            child: SizedBox(
-              width: width,
-              height: height,
-              child: DesktopApplicationLauncher(
-                searchFocusNode: harness.searchFocusNode,
-                onEnter: () {},
-                onExit: () => harness.exitCount += 1,
-                onDismiss: () => harness.dismissCount += 1,
-                onLaunch: (_) => fail('launched an external application'),
-                onLaunchLocal: harness.launched.add,
+      child: ShellTheme(
+        data: ShellThemeData(colors: colors),
+        child: DenialLocalizationScope(
+          locale: const Locale('en'),
+          child: MediaQuery(
+            data: MediaQueryData(size: Size(width, height)),
+            child: Center(
+              child: SizedBox(
+                width: width,
+                height: height,
+                child: DesktopApplicationLauncher(
+                  searchFocusNode: harness.searchFocusNode,
+                  onEnter: () {},
+                  onExit: () => harness.exitCount += 1,
+                  onDismiss: () => harness.dismissCount += 1,
+                  onLaunch: (_) => fail('launched an external application'),
+                  onLaunchLocal: harness.launched.add,
+                ),
               ),
             ),
           ),

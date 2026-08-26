@@ -221,6 +221,10 @@ impl FlutterRuntime {
         })
     }
 
+    pub fn has_output_updates(&self) -> bool {
+        !self.pending_output_updates.is_empty()
+    }
+
     pub fn take_output_updates(&mut self) -> BTreeMap<OutputId, BTreeSet<i64>> {
         mem::take(&mut self.pending_output_updates)
     }
@@ -292,21 +296,29 @@ impl FlutterRuntime {
         }
     }
 
-    pub fn pending_frame(&self) -> PendingFrame {
+    pub fn with_frame_readiness<T>(
+        &self,
+        action: impl FnOnce(PendingFrame, &mut dyn FnMut(OutputId) -> bool) -> T,
+    ) -> T {
         // Output authorization is a bounded per-output queue reservation, not
         // a global raster lock. A framework frame can legitimately consume
         // OnVsync without producing a raster task, so expire an unclaimed
         // reservation after two of that output's own intervals.
-        let expired = self.handler.expire_output_authorizations(Instant::now());
+        let pending = PendingFrame {
+            flutter_requested: self.handler.has_pending_vsync(),
+        };
+        let (result, expired) = self
+            .handler
+            .with_output_target_availability(Instant::now(), |target_available| {
+                action(pending, target_available)
+            });
         if expired > 0 {
             debug!(
                 expired,
                 "released output render authorizations which produced no raster task"
             );
         }
-        PendingFrame {
-            flutter_requested: self.handler.has_pending_vsync(),
-        }
+        result
     }
 
     pub fn output_target_available(&self, output: OutputId) -> bool {

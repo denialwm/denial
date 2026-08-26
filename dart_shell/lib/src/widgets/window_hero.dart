@@ -93,7 +93,7 @@ class WindowHero extends StatelessWidget {
 
     Color? border;
     if (beginBorder != null || endBorder != null) {
-      const transparent = Color(0x00ffffff);
+      const transparent = ShellMediaColors.transparentLight;
       border = Color.lerp(
         beginBorder ?? transparent,
         endBorder ?? transparent,
@@ -107,6 +107,3 @@ class WindowHero extends StatelessWidget {
     );
   }
 }
-
-/// Convenience border colour for a fully-settled window preview.
-const Color kWindowHairline = ShellColors.hairlineWindow;

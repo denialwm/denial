@@ -94,7 +94,7 @@ class SystemLevelHudController extends Notifier<SystemLevelHudState?>
   double? _lastAudioLevel;
 
   void _handleBrightnessState(DenialBrightnessState update, int generation) {
-    if (!isBuildGenerationActive(generation)) {
+    if (!isBuildGenerationActive(generation) || update.completesRead) {
       return;
     }
     _show(
@@ -143,5 +143,13 @@ class SystemLevelHudController extends Notifier<SystemLevelHudState?>
         state = current.copyWith(visible: false);
       }
     });
+  }
+
+  void completeDismissal(int revision) {
+    final current = state;
+    if (current == null || current.revision != revision || current.visible) {
+      return;
+    }
+    state = null;
   }
 }

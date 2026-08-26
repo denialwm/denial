@@ -75,6 +75,8 @@ mod output_control;
 mod output_scheduler;
 #[path = "deniald/output_topology.rs"]
 mod output_topology;
+#[path = "deniald/portal_ipc.rs"]
+mod portal_ipc;
 #[path = "deniald/presentation_clock.rs"]
 mod presentation_clock;
 #[path = "deniald/runtime_state.rs"]
@@ -132,6 +134,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use calloop::signals::{Signal, Signals};
+#[cfg(feature = "flutter")]
+use denial_core::portal_protocol::{DesktopAccentColor, DesktopThemeSnapshot};
 use denial_core::topology::{
     AtlasPlan, LogicalPoint, OutputId, OutputSpec, OutputTransform, PixelRect, PixelSize,
     SCALE_BASE, TopologyChange, TopologyManager, TopologySnapshot,
@@ -169,6 +173,8 @@ use smithay::reexports::rustix::fs::OFlags;
 use smithay::utils::{Buffer, DeviceFd, Physical, Rectangle, Transform};
 use smithay_drm_extras::drm_scanner::{DrmScanEvent, DrmScanner, SimpleCrtcMapper};
 use tracing::{debug, error, info, warn};
+
+const DEFAULT_QT_QPA_PLATFORMTHEME: &str = "xdgdesktopportal";
 
 #[cfg(feature = "flutter")]
 use dpms::{
@@ -240,6 +246,8 @@ use output_topology::{
 use output_topology::{
     configuration_from_output_request, output_control_state, output_request_changes_only_transforms,
 };
+#[cfg(feature = "flutter")]
+use portal_ipc::PortalIpcServer;
 #[cfg(feature = "flutter")]
 use presentation_clock::PresentedOutput;
 use presentation_clock::{PageFlipCompletion, monotonic_now, presentation_instant};

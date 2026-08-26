@@ -83,21 +83,11 @@ class QuickSettingsShade extends ConsumerWidget {
   }
 }
 
-class _ControlPanel extends ConsumerWidget {
+class _ControlPanel extends StatelessWidget {
   const _ControlPanel();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final qs = ref.watch(quickSettingsProvider);
-    final qsController = ref.read(quickSettingsProvider.notifier);
-    final network = ref.watch(networkConnectivityProvider);
-    final networkController = ref.read(networkConnectivityProvider.notifier);
-    final bluetooth = ref.watch(bluetoothProvider);
-    final bluetoothController = ref.read(bluetoothProvider.notifier);
-    final notifications = ref.watch(desktopNotificationsProvider);
-    final notificationController = ref.read(
-      desktopNotificationsProvider.notifier,
-    );
+  Widget build(BuildContext context) {
     final padding = MediaQuery.paddingOf(context);
     final theme = ShellTheme.of(context);
 
@@ -109,74 +99,38 @@ class _ControlPanel extends ConsumerWidget {
         ),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: theme.panelColor(ShellColors.panelBackground),
+            color: theme.panelColor(context.shellColors.panelBackground),
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                theme.panelColor(ShellColors.panelBackground),
-                theme.panelColor(ShellColors.panelBackgroundBottom),
+                theme.panelColor(context.shellColors.panelBackground),
+                theme.panelColor(context.shellColors.panelBackgroundBottom),
               ],
             ),
-            border: const Border(
-              bottom: BorderSide(color: ShellColors.hairline, width: 1),
+            border: Border(
+              bottom: BorderSide(color: context.shellColors.hairline, width: 1),
             ),
-            boxShadow: const [
+            boxShadow: [
               BoxShadow(
-                color: ShellColors.shadow,
+                color: context.shellColors.shadow,
                 blurRadius: 24,
                 offset: Offset(0, 10),
               ),
             ],
           ),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final controls = _ControlContents(
-                quickSettings: qs,
-                controller: qsController,
-                network: network,
-                bluetooth: bluetooth,
-                doNotDisturb: notifications.doNotDisturb,
-                notificationPolicyLoaded: notifications.policyLoaded,
-                onToggleWifi: networkController.toggleWireless,
-                onOpenWifi: () {
-                  ref
-                      .read(shellSurfaceControllerProvider.notifier)
-                      .show(
-                        keyName: 'wifi-details',
-                        debugLabel: 'Wi-Fi details',
-                        builder: (_, handle) =>
-                            WifiDetailSurface(onClose: handle.close),
-                      );
-                },
-                onToggleBluetooth: bluetoothController.togglePower,
-                onOpenBluetooth: () {
-                  ref
-                      .read(shellSurfaceControllerProvider.notifier)
-                      .show(
-                        keyName: 'bluetooth-details',
-                        debugLabel: 'Bluetooth details',
-                        builder: (_, handle) =>
-                            BluetoothDetailSurface(onClose: handle.close),
-                      );
-                },
-                onToggleDoNotDisturb: notificationController.toggleDoNotDisturb,
-                onOpenPower: () => showPowerSessionSurface(ref),
-              );
-              return Padding(
-                padding: EdgeInsets.fromLTRB(20, padding.top + 18, 20, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const _ShadeHeader(),
-                    const SizedBox(height: 12),
-                    Expanded(child: controls),
-                    const SizedBox(height: 8),
-                    const Center(child: _ShadeHandle()),
-                  ],
-                ),
-              );
-            },
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(20, padding.top + 18, 20, 12),
+            child: const Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _ShadeHeader(),
+                SizedBox(height: 12),
+                Expanded(child: _ControlContents()),
+                SizedBox(height: 8),
+                Center(child: _ShadeHandle()),
+              ],
+            ),
           ),
         ),
       ),
@@ -185,37 +139,50 @@ class _ControlPanel extends ConsumerWidget {
 }
 
 class _ControlContents extends StatelessWidget {
-  const _ControlContents({
-    required this.quickSettings,
-    required this.controller,
-    required this.network,
-    required this.bluetooth,
-    required this.doNotDisturb,
-    required this.notificationPolicyLoaded,
-    required this.onToggleWifi,
-    required this.onOpenWifi,
-    required this.onToggleBluetooth,
-    required this.onOpenBluetooth,
-    required this.onToggleDoNotDisturb,
-    required this.onOpenPower,
-  });
-
-  final QuickSettingsState quickSettings;
-  final QuickSettingsController controller;
-  final NetworkConnectivityState network;
-  final BluetoothState bluetooth;
-  final bool doNotDisturb;
-  final bool notificationPolicyLoaded;
-  final VoidCallback onToggleWifi;
-  final VoidCallback onOpenWifi;
-  final VoidCallback onToggleBluetooth;
-  final VoidCallback onOpenBluetooth;
-  final VoidCallback onToggleDoNotDisturb;
-  final VoidCallback onOpenPower;
+  const _ControlContents();
 
   @override
   Widget build(BuildContext context) {
-    final accent = ShellTheme.of(context).accent;
+    return ListView(
+      primary: false,
+      padding: EdgeInsets.zero,
+      children: const [
+        _QuickSettingsTilesSection(),
+        SizedBox(height: 14),
+        _BrightnessRangeBar(),
+        SizedBox(height: 10),
+        _VolumeRangeBar(),
+        SizedBox(height: 12),
+        _ShadePowerFooter(),
+      ],
+    );
+  }
+}
+
+class _QuickSettingsTilesSection extends ConsumerWidget {
+  const _QuickSettingsTilesSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final quickSettings = ref.watch(
+      quickSettingsProvider.select(
+        (state) => (rotationLock: state.rotationLock, profile: state.profile),
+      ),
+    );
+    final quickSettingsController = ref.read(quickSettingsProvider.notifier);
+    final network = ref.watch(networkConnectivityProvider);
+    final networkController = ref.read(networkConnectivityProvider.notifier);
+    final bluetooth = ref.watch(bluetoothProvider);
+    final bluetoothController = ref.read(bluetoothProvider.notifier);
+    final notificationPolicy = ref.watch(
+      desktopNotificationsProvider.select(
+        (state) =>
+            (doNotDisturb: state.doNotDisturb, loaded: state.policyLoaded),
+      ),
+    );
+    final notificationController = ref.read(
+      desktopNotificationsProvider.notifier,
+    );
     final l10n = context.l10n;
     final networkSnapshot = network.snapshot;
     final wifiToggleEnabled =
@@ -230,58 +197,98 @@ class _ControlContents extends StatelessWidget {
         bluetooth.serviceAvailable &&
         bluetooth.available &&
         !bluetooth.powerChanging;
-    return ListView(
-      primary: false,
-      padding: EdgeInsets.zero,
-      children: [
-        QuickSettingsTiles(
-          wifi:
-              networkSnapshot.wirelessEnabled &&
-              networkSnapshot.wifiDeviceAvailable,
-          wifiSubtitle: wifiStatusLabel(network, l10n),
-          wifiEnabled: wifiToggleEnabled,
-          wifiBusy: network.radioChanging,
-          bluetooth: bluetooth.powered && bluetooth.available,
-          bluetoothSubtitle: bluetoothStatusLabel(bluetooth, l10n),
-          bluetoothEnabled: bluetoothToggleEnabled,
-          bluetoothBusy: bluetooth.powerChanging,
-          rotationLock: quickSettings.rotationLock,
-          dnd: doNotDisturb,
-          dndReady: notificationPolicyLoaded,
-          profile: quickSettings.profile,
-          onToggleWifi: onToggleWifi,
-          onOpenWifi: onOpenWifi,
-          onToggleBluetooth: onToggleBluetooth,
-          onOpenBluetooth: onOpenBluetooth,
-          onToggleRotation: controller.toggleRotation,
-          onToggleDnd: onToggleDoNotDisturb,
-          onCycleProfile: controller.cycleProfile,
-        ),
-        const SizedBox(height: 14),
-        RangeBar(
-          icon: Icons.brightness_6_rounded,
-          value: quickSettings.brightness,
-          activeColor: accent,
-          inactiveColor: ShellColors.brightnessTrack,
-          onChanged: controller.setBrightness,
-          onChangeEnd: controller.commitBrightness,
-          height: 56,
-        ),
-        const SizedBox(height: 10),
-        RangeBar(
-          icon: Icons.volume_up_rounded,
-          value: quickSettings.volume,
-          activeColor: accent,
-          inactiveColor: ShellColors.volumeTrack,
-          onChangeStart: controller.beginVolumeInteraction,
-          onChanged: controller.setVolume,
-          onChangeEnd: controller.commitVolume,
-          height: 56,
-        ),
-        const SizedBox(height: 12),
-        ShadeFooter(onOpenPower: onOpenPower),
-      ],
+    return QuickSettingsTiles(
+      wifi:
+          networkSnapshot.wirelessEnabled &&
+          networkSnapshot.wifiDeviceAvailable,
+      wifiSubtitle: wifiStatusLabel(network, l10n),
+      wifiEnabled: wifiToggleEnabled,
+      wifiBusy: network.radioChanging,
+      bluetooth: bluetooth.powered && bluetooth.available,
+      bluetoothSubtitle: bluetoothStatusLabel(bluetooth, l10n),
+      bluetoothEnabled: bluetoothToggleEnabled,
+      bluetoothBusy: bluetooth.powerChanging,
+      rotationLock: quickSettings.rotationLock,
+      dnd: notificationPolicy.doNotDisturb,
+      dndReady: notificationPolicy.loaded,
+      profile: quickSettings.profile,
+      onToggleWifi: networkController.toggleWireless,
+      onOpenWifi: () {
+        ref
+            .read(shellSurfaceControllerProvider.notifier)
+            .show(
+              keyName: 'wifi-details',
+              debugLabel: 'Wi-Fi details',
+              builder: (_, handle) => WifiDetailSurface(onClose: handle.close),
+            );
+      },
+      onToggleBluetooth: bluetoothController.togglePower,
+      onOpenBluetooth: () {
+        ref
+            .read(shellSurfaceControllerProvider.notifier)
+            .show(
+              keyName: 'bluetooth-details',
+              debugLabel: 'Bluetooth details',
+              builder: (_, handle) =>
+                  BluetoothDetailSurface(onClose: handle.close),
+            );
+      },
+      onToggleRotation: quickSettingsController.toggleRotation,
+      onToggleDnd: notificationController.toggleDoNotDisturb,
+      onCycleProfile: quickSettingsController.cycleProfile,
     );
+  }
+}
+
+class _BrightnessRangeBar extends ConsumerWidget {
+  const _BrightnessRangeBar();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final brightness = ref.watch(
+      quickSettingsProvider.select((state) => state.brightness),
+    );
+    final controller = ref.read(quickSettingsProvider.notifier);
+    return RangeBar(
+      icon: Icons.brightness_6_rounded,
+      value: brightness,
+      activeColor: ShellTheme.of(context).accent,
+      inactiveColor: context.shellColors.brightnessTrack,
+      onChanged: controller.setBrightness,
+      onChangeEnd: controller.commitBrightness,
+      height: 56,
+    );
+  }
+}
+
+class _VolumeRangeBar extends ConsumerWidget {
+  const _VolumeRangeBar();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final volume = ref.watch(
+      quickSettingsProvider.select((state) => state.volume),
+    );
+    final controller = ref.read(quickSettingsProvider.notifier);
+    return RangeBar(
+      icon: Icons.volume_up_rounded,
+      value: volume,
+      activeColor: ShellTheme.of(context).accent,
+      inactiveColor: context.shellColors.volumeTrack,
+      onChangeStart: controller.beginVolumeInteraction,
+      onChanged: controller.setVolume,
+      onChangeEnd: controller.commitVolume,
+      height: 56,
+    );
+  }
+}
+
+class _ShadePowerFooter extends ConsumerWidget {
+  const _ShadePowerFooter();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ShadeFooter(onOpenPower: () => showPowerSessionSurface(ref));
   }
 }
 
@@ -342,9 +349,9 @@ class _StatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: ShellColors.surfaceContainer,
+        color: context.shellColors.surfaceContainer,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: ShellColors.hairlineSoft),
+        border: Border.all(color: context.shellColors.hairlineSoft),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -392,7 +399,7 @@ class _ShadeHandle extends ConsumerWidget {
             child: Center(
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  color: ShellColors.textTertiary,
+                  color: context.shellColors.textTertiary,
                   borderRadius: BorderRadius.circular(2),
                 ),
                 child: const SizedBox(width: 44, height: 4),

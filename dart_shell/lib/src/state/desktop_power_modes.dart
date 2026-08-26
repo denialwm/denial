@@ -90,9 +90,12 @@ final desktopPowerModesProvider =
 
 class DesktopPowerModesController extends Notifier<DesktopPowerModesState>
     with NotifierLifecycle<DesktopPowerModesState> {
+  static const Duration _automaticRefreshInterval = Duration(seconds: 30);
+
   @override
   DesktopPowerModesState build() {
     _service = ref.watch(desktopPowerModesServiceProvider);
+    _lastRefreshAttemptAge = null;
     _buildGeneration = beginBuildGeneration();
     final generation = _buildGeneration;
     scheduleMicrotask(() {
@@ -105,11 +108,22 @@ class DesktopPowerModesController extends Notifier<DesktopPowerModesState>
 
   late DesktopPowerModesService _service;
   late int _buildGeneration;
+  Stopwatch? _lastRefreshAttemptAge;
+
+  Future<void> refreshIfStale() {
+    final lastRefreshAttemptAge = _lastRefreshAttemptAge;
+    if (lastRefreshAttemptAge != null &&
+        lastRefreshAttemptAge.elapsed < _automaticRefreshInterval) {
+      return Future<void>.value();
+    }
+    return refresh();
+  }
 
   Future<void> refresh() async {
     if (state.refreshing) {
       return;
     }
+    _lastRefreshAttemptAge = Stopwatch()..start();
     final generation = _buildGeneration;
     state = state.copyWith(refreshing: true, clearError: true);
     try {

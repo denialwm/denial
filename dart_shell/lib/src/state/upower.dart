@@ -16,11 +16,20 @@ class UPowerState {
     this.error,
   }) : changingThresholds = Set<String>.unmodifiable(changingThresholds);
 
-  factory UPowerState.initial() => UPowerState(
+  const UPowerState._({
+    required this.snapshot,
+    required this.loading,
+    required this.refreshing,
+    required this.changingThresholds,
+    required this.error,
+  });
+
+  factory UPowerState.initial() => const UPowerState._(
     snapshot: null,
     loading: true,
     refreshing: false,
-    changingThresholds: const <String>{},
+    changingThresholds: <String>{},
+    error: null,
   );
 
   final UPowerSnapshot? snapshot;
@@ -37,11 +46,13 @@ class UPowerState {
     String? error,
     bool clearError = false,
   }) {
-    return UPowerState(
+    return UPowerState._(
       snapshot: snapshot ?? this.snapshot,
       loading: loading ?? this.loading,
       refreshing: refreshing ?? this.refreshing,
-      changingThresholds: changingThresholds ?? this.changingThresholds,
+      changingThresholds: changingThresholds == null
+          ? this.changingThresholds
+          : Set<String>.unmodifiable(changingThresholds),
       error: clearError ? null : error ?? this.error,
     );
   }

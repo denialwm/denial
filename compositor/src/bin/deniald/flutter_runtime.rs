@@ -126,6 +126,7 @@ use renderer::{
 
 const FLUTTER_KEY_EVENT_CHANNEL: &CStr = c"flutter/keyevent";
 const FLUTTER_LIFECYCLE_CHANNEL: &CStr = c"flutter/lifecycle";
+const FLUTTER_SETTINGS_CHANNEL: &CStr = c"flutter/settings";
 const FLUTTER_LIFECYCLE_RESUMED: &[u8] = b"AppLifecycleState.resumed";
 const FLUTTER_LIFECYCLE_HIDDEN: &[u8] = b"AppLifecycleState.hidden";
 const AUDIO_CHANNEL: &CStr = c"denial/audio";
@@ -311,6 +312,10 @@ struct WindowCloseTextureLeases {
 }
 
 impl WindowCloseTextureLeases {
+    fn is_empty(&self) -> bool {
+        self.closing_windows.is_empty()
+    }
+
     fn publish(
         &mut self,
         next_windows: HashMap<u64, Vec<i64>>,

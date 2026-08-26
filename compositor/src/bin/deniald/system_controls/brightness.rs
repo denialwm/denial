@@ -40,7 +40,7 @@ impl BrightnessProviders {
         })
     }
 
-    fn read(&mut self, connector: &str, monitor_id: i64, events: &SyncSender<SystemControlEvent>) {
+    fn read(&mut self, connector: &str, monitor_id: i64, events: &SystemControlEventSender) {
         self.control(connector, monitor_id, None, events);
     }
 
@@ -49,7 +49,7 @@ impl BrightnessProviders {
         connector: &str,
         monitor_id: i64,
         level: f64,
-        events: &SyncSender<SystemControlEvent>,
+        events: &SystemControlEventSender,
     ) {
         self.control(
             connector,
@@ -64,7 +64,7 @@ impl BrightnessProviders {
         connector: &str,
         monitor_id: i64,
         delta: f64,
-        events: &SyncSender<SystemControlEvent>,
+        events: &SystemControlEventSender,
     ) {
         self.control(
             connector,
@@ -79,7 +79,7 @@ impl BrightnessProviders {
         connector: &str,
         monitor_id: i64,
         change: Option<BrightnessChange>,
-        events: &SyncSender<SystemControlEvent>,
+        events: &SystemControlEventSender,
     ) {
         let Some(provider) = self
             .providers
@@ -874,7 +874,7 @@ fn receive_brightness_batch(
 
 pub(super) fn run_brightness_worker(
     commands: Receiver<BrightnessCommand>,
-    events: SyncSender<SystemControlEvent>,
+    events: SystemControlEventSender,
 ) {
     let mut worker = match BrightnessProviders::start() {
         Ok(worker) => worker,

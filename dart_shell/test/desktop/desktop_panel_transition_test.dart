@@ -4,6 +4,94 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('slides in at a linear rate', (tester) async {
+    final visible = ValueNotifier<bool>(false);
+    addTearDown(visible.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(
+            width: 640,
+            height: 480,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: visible,
+              builder: (context, isVisible, child) {
+                return DesktopPanelTransition(
+                  inputDebugLabel: 'Linear test panel',
+                  visible: isVisible,
+                  child: const SizedBox.expand(),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    visible.value = true;
+    await tester.pump();
+    final initialTransform = tester.widget<Transform>(
+      find.descendant(
+        of: find.byType(DesktopPanelTransition),
+        matching: find.byType(Transform),
+      ),
+    );
+    final initialX = initialTransform.transform.getTranslation().x;
+    await tester.pump(const Duration(milliseconds: 150));
+
+    final transform = tester.widget<Transform>(
+      find.descendant(
+        of: find.byType(DesktopPanelTransition),
+        matching: find.byType(Transform),
+      ),
+    );
+    expect(
+      transform.transform.getTranslation().x,
+      closeTo(initialX / 2, 0.001),
+    );
+  });
+
+  testWidgets('reports actual completion of the opening transition', (
+    tester,
+  ) async {
+    final visible = ValueNotifier<bool>(false);
+    addTearDown(visible.dispose);
+    var openCompletions = 0;
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(
+            width: 640,
+            height: 480,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: visible,
+              builder: (context, isVisible, child) {
+                return DesktopPanelTransition(
+                  inputDebugLabel: 'Opening test panel',
+                  visible: isVisible,
+                  onOpened: () => openCompletions += 1,
+                  child: const SizedBox.expand(),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    visible.value = true;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 299));
+    expect(openCompletions, 0);
+
+    await tester.pumpAndSettle();
+    expect(openCompletions, 1);
+  });
+
   testWidgets('retained panel lazily mounts its child only once', (
     tester,
   ) async {

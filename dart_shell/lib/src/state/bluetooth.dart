@@ -26,20 +26,38 @@ class BluetoothState {
     this.error,
   }) : busyDevices = Set<String>.unmodifiable(busyDevices);
 
-  factory BluetoothState.initial() => BluetoothState(
+  const BluetoothState._({
+    required this.serviceAvailable,
+    required this.available,
+    required this.adapterName,
+    required this.powered,
+    required this.discovering,
+    required this.pairable,
+    required this.devices,
+    required this.initializing,
+    required this.refreshing,
+    required this.scanning,
+    required this.powerChanging,
+    required this.busyDevices,
+    required this.pairingRequest,
+    required this.error,
+  });
+
+  factory BluetoothState.initial() => const BluetoothState._(
     serviceAvailable: false,
     available: false,
     adapterName: '',
     powered: false,
     discovering: false,
     pairable: false,
-    devices: const <BluetoothDeviceInfo>[],
+    devices: <BluetoothDeviceInfo>[],
     initializing: true,
     refreshing: false,
     scanning: false,
     powerChanging: false,
-    busyDevices: const <String>{},
+    busyDevices: <String>{},
     pairingRequest: null,
+    error: null,
   );
 
   final bool serviceAvailable;
@@ -75,7 +93,7 @@ class BluetoothState {
     String? error,
     bool clearError = false,
   }) {
-    return BluetoothState(
+    return BluetoothState._(
       serviceAvailable: serviceAvailable ?? this.serviceAvailable,
       available: available ?? this.available,
       adapterName: adapterName ?? this.adapterName,
@@ -87,7 +105,9 @@ class BluetoothState {
       refreshing: refreshing ?? this.refreshing,
       scanning: scanning ?? this.scanning,
       powerChanging: powerChanging ?? this.powerChanging,
-      busyDevices: busyDevices ?? this.busyDevices,
+      busyDevices: busyDevices == null
+          ? this.busyDevices
+          : Set<String>.unmodifiable(busyDevices),
       pairingRequest: clearPairingRequest
           ? null
           : pairingRequest ?? this.pairingRequest,

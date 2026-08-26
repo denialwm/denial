@@ -6,6 +6,8 @@ import '../../localization/denial_localizations.dart';
 import '../../state/shell_controller.dart';
 import '../../state/system_status.dart';
 import '../../theme/motion.dart';
+import '../../theme/shell_color_scheme.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import 'status_glyphs.dart';
 
@@ -34,8 +36,8 @@ class ShadeStatusBar extends ConsumerWidget {
       ),
     );
     final foreground = forceWhiteForeground
-        ? const Color(0xffffffff)
-        : _statusForegroundFor(statusColorArgb);
+        ? ShellMediaColors.contrastLight
+        : _statusForegroundFor(context.shellColors, statusColorArgb);
 
     return Positioned(
       left: 0,
@@ -101,16 +103,16 @@ class _StatusCluster extends ConsumerWidget {
   }
 }
 
-Color _statusForegroundFor(int? statusColorArgb) {
+Color _statusForegroundFor(ShellColorScheme colors, int? statusColorArgb) {
   if (statusColorArgb == null) {
-    return ShellColors.textPrimary;
+    return colors.textPrimary;
   }
 
   final background = Color.alphaBlend(
     Color(statusColorArgb),
-    ShellColors.background,
+    colors.background,
   );
   return background.computeLuminance() > 0.52
-      ? const Color(0xff000000)
-      : const Color(0xffffffff);
+      ? ShellMediaColors.darkness
+      : ShellMediaColors.contrastLight;
 }

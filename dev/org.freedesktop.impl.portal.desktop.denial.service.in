@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=org.freedesktop.impl.portal.desktop.denial
+Exec=@PORTAL_BINARY@
+SystemdService=denial-portal-development.service

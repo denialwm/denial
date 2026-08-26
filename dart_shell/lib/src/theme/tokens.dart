@@ -1,80 +1,48 @@
 import 'package:flutter/widgets.dart';
 
-/// Centralised colour palette for the shell.
-///
-/// Names are semantic rather than literal so the same token can be retuned in
-/// one place. Values are preserved exactly from the original inline literals.
-abstract final class ShellColors {
-  static const Color background = Color(0xff0f1115);
-
-  // Material 3 dark surface roles, tuned for the translucent shell surfaces.
-  static const Color surfaceContainerLow = Color(0xf21a1d23);
-  static const Color surfaceContainer = Color(0xf222262d);
-  static const Color surfaceContainerHigh = Color(0xf52a2f38);
-  static const Color surfaceContainerHighest = Color(0xf6343a45);
-  static const Color surfaceTint = Color(0x26d0bcff);
-
-  /// Primary "ice white" foreground used across the status bar and labels.
-  static const Color textPrimary = Color(0xfff4eff4);
-
-  /// Panel-tinted white used inside the quick-settings shade.
-  static const Color panelText = Color(0xfff4eff4);
-  static const Color textSecondary = Color(0xffcac4d0);
-  static const Color textTertiary = Color(0xffa9a3af);
-
-  /// Brand accent ("Synthia" purple).
-  static const Color accent = Color(0xffd0bcff);
-  static const Color lockAccent = Color(0xff78dce8);
-  static const Color onAccent = Color(0xff381e72);
-  static const Color primaryContainer = Color(0xff4f378b);
-  static const Color onPrimaryContainer = Color(0xffeaddff);
-  static const Color onPrimaryContainerSecondary = Color(0xcceaddff);
-  static const Color secondaryContainer = Color(0xff4a4458);
-  static const Color onSecondaryContainer = Color(0xffe8def8);
-
-  static const Color panelBackground = Color(0xee14171d);
-  static const Color panelBackgroundBottom = Color(0xf21b1f27);
-  static const Color panelHighlight = Color(0x1fffffff);
-  static const Color tileOff = surfaceContainerHigh;
-  static const Color tileIcon = surfaceContainerHighest;
-  static const Color tileIconActive = Color(0x26eaddff);
-  static const Color chip = surfaceContainerHigh;
-  static const Color overviewScrim = Color(0xb2050608);
-
-  // Hairlines / borders.
-  static const Color hairline = Color(0x3d938f99);
-  static const Color hairlineSoft = Color(0x26938f99);
-  static const Color hairlineWindow = Color(0x2effffff);
-  static const Color windowFrameSurface = Color(0xff1a1d23);
-  static const Color focusedWindowBorder = primaryContainer;
-  static const Color pinnedWindowBorder = Color(0xff432f76);
-
-  // Shadows.
-  static const Color shadow = Color(0x76000000);
-  static const Color shadowSoft = Color(0x66000000);
-
-  // Slider internals.
-  static const Color sliderThumb = Color(0xf2f8fbff);
-  static const Color sliderIconDark = onAccent;
-  static const Color brightnessTrack = surfaceContainerHighest;
-  static const Color volumeTrack = surfaceContainerHighest;
-  static const Color wallpaperEffectTrack = surfaceContainerHighest;
-
-  // Gesture pill.
-  static const Color gestureArmed = Color(0xff8ee6c1);
-  static const Color gesturePill = Color(0xdff7f7f8);
-
-  // App launch transition.
-  static const Color launchSurface = Color(0xff000000);
+/// Product colors whose identity is independent of surface brightness.
+abstract final class ShellBrandColors {
+  static const Color defaultAccent = Color(0xffd0bcff);
   static const Color fallbackAppIcon = Color(0xff147cdc);
 
-  // Frame diagnostics.
-  static const Color performanceGood = gestureArmed;
-  static const Color performanceWarning = Color(0xffffcc66);
-  static const Color performanceBad = Color(0xffff5c6c);
+  /// Source foreground embedded in the Denial SVG wordmark. The SVG loader
+  /// replaces this sentinel with the active semantic text foreground.
+  static const Color wordmarkAssetForeground = Color(0xfff0eef5);
+}
 
-  // Status glyphs.
-  static const Color glyphInactive = Color(0x66f7f7f8);
+/// Colors for shell content deliberately composited over imagery.
+///
+/// These roles do not follow desktop brightness: their callers provide a dark
+/// glass or scrim so clocks, launcher labels, and media annotations retain a
+/// stable foreground over arbitrary wallpaper and application content.
+abstract final class ShellMediaColors {
+  static const Color lightForeground = Color(0xfff7f7f8);
+  static const Color contrastLight = Color(0xffffffff);
+  static const Color lightForegroundSecondary = Color(0xffc7c9d1);
+  static const Color lightForegroundTertiary = Color(0xff8f96a3);
+  static const Color darkSurface = Color(0xff070910);
+  static const Color glassSurface = Color(0x28070910);
+  static const Color glassSurfaceStrong = Color(0xdd070910);
+  static const Color lightOutline = Color(0x26ffffff);
+  static const Color lightGrid = Color(0x24ffffff);
+  static const Color wallpaperScrim = Color(0x14000000);
+  static const Color darkness = Color(0xff000000);
+  static const Color shadow = Color(0x80000000);
+  static const Color transparentDark = Color(0x00000000);
+  static const Color transparentLight = Color(0x00ffffff);
+}
+
+/// Invariant telemetry colors whose hue communicates a native device state.
+abstract final class ShellTelemetryColors {
+  static const Color chargingVooc = Color(0xff5ff38a);
+  static const Color chargingPps = Color(0xffbd8cff);
+  static const Color chargingPd = Color(0xff7aa8ff);
+  static const Color charging = Color(0xff78dce8);
+  static const Color warning = Color(0xffffd166);
+  static const Color danger = Color(0xffff6b6b);
+  static const Color discharge = Color(0xffffa657);
+  static const Color warm = Color(0xffffb86b);
+  static const Color nominal = Color(0xff8ee6c1);
 }
 
 /// Default opacity for the shell's frosted surfaces.
@@ -93,8 +61,11 @@ abstract final class ShellRadii {
   static const double roundButton = 21.0;
 }
 
-/// Shared text styles. All disable the default underline decoration so callers
-/// never have to repeat `decoration: TextDecoration.none`.
+/// Brightness-independent text metrics.
+///
+/// [ShellTextTheme] applies semantic foreground colors. Keeping these
+/// prototypes colorless lets text inherit the active shell foreground when a
+/// specialized resolved style is unnecessary.
 abstract final class ShellText {
   /// Monospace family bundled for the system bar so ticking values keep a
   /// fixed advance; the rest of the shell stays on the default family.
@@ -105,14 +76,12 @@ abstract final class ShellText {
   ];
 
   static const TextStyle base = TextStyle(
-    color: ShellColors.textPrimary,
     fontFamilyFallback: fallbackFontFamilies,
     fontSize: 14,
     decoration: TextDecoration.none,
   );
 
   static const TextStyle statusClock = TextStyle(
-    color: ShellColors.textPrimary,
     fontFamilyFallback: fallbackFontFamilies,
     fontSize: 18,
     height: 1,
@@ -123,7 +92,6 @@ abstract final class ShellText {
   /// System bar card text, sized for the thin pill cards floating inside the
   /// reserved bar strip.
   static const TextStyle systemBarValue = TextStyle(
-    color: ShellColors.textPrimary,
     fontFamily: systemBarFontFamily,
     fontFamilyFallback: fallbackFontFamilies,
     fontSize: 13,
@@ -137,7 +105,6 @@ abstract final class ShellText {
   /// Secondary system bar text (the date caption beside the clock). Callers
   /// tint the color toward the wallpaper accent.
   static const TextStyle systemBarCaption = TextStyle(
-    color: ShellColors.textSecondary,
     fontFamily: systemBarFontFamily,
     fontFamilyFallback: fallbackFontFamilies,
     fontSize: 11,
@@ -149,7 +116,6 @@ abstract final class ShellText {
   );
 
   static const TextStyle shadeClock = TextStyle(
-    color: ShellColors.panelText,
     fontFamilyFallback: fallbackFontFamilies,
     fontSize: 42,
     height: 1,
@@ -159,7 +125,6 @@ abstract final class ShellText {
   );
 
   static const TextStyle shadeDate = TextStyle(
-    color: ShellColors.textSecondary,
     fontFamilyFallback: fallbackFontFamilies,
     fontSize: 16,
     height: 1,
@@ -169,7 +134,6 @@ abstract final class ShellText {
   );
 
   static const TextStyle lockClock = TextStyle(
-    color: ShellColors.textPrimary,
     fontFamilyFallback: fallbackFontFamilies,
     fontSize: 124,
     height: 0.95,
@@ -179,7 +143,6 @@ abstract final class ShellText {
   );
 
   static const TextStyle lockDate = TextStyle(
-    color: ShellColors.textSecondary,
     fontFamilyFallback: fallbackFontFamilies,
     fontSize: 24,
     height: 1.15,
@@ -189,7 +152,6 @@ abstract final class ShellText {
   );
 
   static const TextStyle lockStatus = TextStyle(
-    color: ShellColors.textSecondary,
     fontFamilyFallback: fallbackFontFamilies,
     fontSize: 18,
     height: 1.1,
@@ -199,7 +161,6 @@ abstract final class ShellText {
   );
 
   static const TextStyle lockChip = TextStyle(
-    color: ShellColors.textPrimary,
     fontFamilyFallback: fallbackFontFamilies,
     fontSize: 12,
     height: 1,
@@ -209,7 +170,6 @@ abstract final class ShellText {
   );
 
   static const TextStyle cardTitle = TextStyle(
-    color: ShellColors.textPrimary,
     fontFamilyFallback: fallbackFontFamilies,
     fontSize: 13,
     fontWeight: FontWeight.w600,

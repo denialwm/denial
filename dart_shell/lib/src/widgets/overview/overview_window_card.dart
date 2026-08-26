@@ -154,7 +154,7 @@ class _OverviewWindowCardState extends State<OverviewWindowCard>
             child: WindowSurface(
               window: widget.window,
               radius: ShellTheme.of(context).windowRadius,
-              borderColor: kWindowHairline,
+              borderColor: context.shellColors.hairlineWindow,
             ),
           ),
           const SizedBox(height: 16),

@@ -9,6 +9,7 @@ BUILD_ROOT="${DENIAL_PC_BUILD_ROOT:-$CACHE_ROOT/denial/pc-build}"
 RUST_TARGET="${DENIAL_PC_RUST_TARGET:-$BUILD_ROOT/rust}"
 BINARY="${DENIAL_PC_BINARY:-$RUST_TARGET/release/deniald}"
 CONTROL_BINARY="${DENIAL_PC_CONTROL_BINARY:-$RUST_TARGET/release/denialctl}"
+PORTAL_BINARY="${DENIAL_PC_PORTAL_BINARY:-$RUST_TARGET/release/denial-portal}"
 PACKAGE_ROOT="${DENIAL_PC_PACKAGE_ROOT:-$BUILD_ROOT/packages}"
 MAKEPKG_ROOT="${DENIAL_PC_MAKEPKG_ROOT:-$BUILD_ROOT/makepkg}"
 PACKAGE_INPUT_ROOT="${DENIAL_PC_PACKAGE_INPUT_ROOT:-$BUILD_ROOT/package-input}"
@@ -121,6 +122,12 @@ DENIAL_PC_BUNDLE_ASSEMBLY="$BUNDLE_ASSEMBLY" \
       "$CONTROL_BINARY" >&2
     exit 1
   }
+[[ -x "$PORTAL_BINARY" ]] \
+  || {
+    printf 'package-denial-arch: missing portal backend: %s\n' \
+      "$PORTAL_BINARY" >&2
+    exit 1
+  }
 [[ -f "$BUNDLE/data/icudtl.dat" \
   && -f "$BUNDLE/lib/libapp.so" \
   && -f "$BUNDLE/lib/libflutter_engine.so" ]] \
@@ -149,6 +156,7 @@ fi
 export DENIAL_PACKAGE_SOURCE_ROOT="$ROOT"
 export DENIAL_PACKAGE_BINARY="$BINARY"
 export DENIAL_PACKAGE_CONTROL_BINARY="$CONTROL_BINARY"
+export DENIAL_PACKAGE_PORTAL_BINARY="$PORTAL_BINARY"
 export DENIAL_PACKAGE_BUNDLE="$BUNDLE"
 export DENIAL_PACKAGE_SETTINGS_BUNDLE="$SETTINGS_BUNDLE"
 export DENIAL_PACKAGE_ENGINE_SOURCE="$BUNDLE/lib/libflutter_engine.so"
@@ -231,7 +239,8 @@ validate_denial_package() (
   # Preserve archive modes so the hardened runner's UMask=0077 does not alter
   # the evidence being checked.
   bsdtar -xpf "$package" -C "$validation_root"
-  for executable in deniald denialctl denial-session denial-settings; do
+  for executable in \
+    deniald denialctl denial-portal denial-session denial-settings; do
     [[ -x "$validation_root/usr/bin/$executable" ]] \
       || {
         printf 'package-denial-arch: packaged executable is missing: usr/bin/%s\n' \
@@ -239,6 +248,31 @@ validate_denial_package() (
         return 1
       }
   done
+  for portal_artifact in \
+    usr/lib/systemd/user/denial-portal.service \
+    usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.denial.service \
+    usr/share/xdg-desktop-portal/denial-portals.conf \
+    usr/share/xdg-desktop-portal/portals/denial.portal; do
+    [[ -f "$validation_root/$portal_artifact" ]] \
+      || {
+        printf 'package-denial-arch: portal artifact is missing: %s\n' \
+          "$portal_artifact" >&2
+        return 1
+      }
+  done
+  [[ -f "$validation_root/usr/share/man/man1/denial-portal.1" \
+    || -f "$validation_root/usr/share/man/man1/denial-portal.1.gz" ]] \
+    || {
+      printf 'package-denial-arch: denial-portal manual page is missing\n' >&2
+      return 1
+    }
+  grep -Fqx \
+    'org.freedesktop.impl.portal.Settings=denial;gtk' \
+    "$validation_root/usr/share/xdg-desktop-portal/denial-portals.conf" \
+    || {
+      printf 'package-denial-arch: Settings portal routing is invalid\n' >&2
+      return 1
+    }
   [[ -f "$validation_root/usr/lib/systemd/user/denial-session.target" ]] \
     && grep -Fqx 'BindsTo=graphical-session.target' \
       "$validation_root/usr/lib/systemd/user/denial-session.target" \

@@ -21,8 +21,8 @@ import 'state/shell_profile.dart';
 import 'state/screenshot_selection.dart';
 import 'theme/cursor_themes.dart';
 import 'theme/motion.dart';
+import 'theme/shell_color_scheme.dart';
 import 'theme/shell_theme.dart';
-import 'theme/tokens.dart';
 import 'wallpaper/state/wallpaper_accent.dart';
 import 'wallpaper/state/wallpaper_controller.dart';
 import 'wallpaper/widgets/mobile_wallpaper_selector_layer.dart';
@@ -35,6 +35,7 @@ import 'widgets/lock/lock_screen_layer.dart';
 import 'widgets/mobile_text_input_policy.dart';
 import 'widgets/notification_banner.dart';
 import 'widgets/overview/overview_layer.dart';
+import 'widgets/output_relative_translation.dart';
 import 'widgets/shade/system_shade_layer.dart';
 import 'widgets/shell_cursor.dart';
 import 'widgets/shell_frame_time_overlay.dart';
@@ -90,6 +91,11 @@ class _DenialShellAppState extends ConsumerState<DenialShellApp> {
       (_, power) => _schedulePowerSync(power),
       fireImmediately: true,
     );
+    ref.listenManual(
+      shellAccentProvider,
+      (_, accent) => _scheduleAccentSync(accent),
+      fireImmediately: true,
+    );
   }
 
   void _scheduleLayoutSync(ShellLayoutSettings layout) {
@@ -123,6 +129,22 @@ class _DenialShellAppState extends ConsumerState<DenialShellApp> {
                 ? Duration(minutes: power.idleDpmsTimeoutMinutes)
                 : null,
           );
+    });
+  }
+
+  void _scheduleAccentSync(WallpaperAccent accent) {
+    // A cached portal accent remains authoritative while a wallpaper is still
+    // being decoded. Publishing the temporary brand fallback would make apps
+    // flash to the wrong accent on every shell restart.
+    if (!accent.isResolved) {
+      return;
+    }
+    scheduleMicrotask(() {
+      if (mounted) {
+        ref
+            .read(denialBridgeProvider)
+            .publishThemeAccent(accent.color.toARGB32());
+      }
     });
   }
 
@@ -172,7 +194,27 @@ class _DenialShellAppState extends ConsumerState<DenialShellApp> {
         : profile;
     final cursorTheme = ref.watch(shellCursorThemeProvider);
     final settings = ref.watch(shellSettingsProvider);
-    final accent = ref.watch(shellAccentProvider);
+    final accent = ref.watch(
+      shellAccentProvider.select((accent) => accent.color),
+    );
+    final colors =
+        settings.appearance.colorSchemePreference.effectiveBrightness ==
+            Brightness.light
+        ? ShellColorScheme.light
+        : ShellColorScheme.dark;
+    final theme = ShellThemeData(
+      colors: colors,
+      accent: accent,
+      windowRadius: settings.appearance.windowRadius,
+      panelRadius: settings.appearance.panelRadius,
+      panelOpacity: settings.appearance.panelOpacity,
+      backdropBlurEnabled: settings.appearance.backdropBlurEnabled,
+      backdropBlurLevel: settings.appearance.backdropBlurLevel,
+      backdropBlurOpacityThreshold:
+          settings.appearance.backdropBlurOpacityThreshold,
+      focusedWindowOpacity: settings.appearance.focusedWindowOpacity,
+      unfocusedWindowOpacity: settings.appearance.unfocusedWindowOpacity,
+    );
     final bridge = ref.watch(denialBridgeProvider);
     final cursorShapes = bridge.cursorShapes;
     final cursorPositions = bridge.cursorPositions;
@@ -238,36 +280,34 @@ class _DenialShellAppState extends ConsumerState<DenialShellApp> {
       child: _ShellOverlayHost(child: scene),
     );
 
-    final textInputPolicy = TapRegionSurface(
-      child: DefaultTextStyle(style: ShellText.base, child: content),
-    );
-
-    return ShellTheme(
-      data: ShellThemeData(
-        accent: accent.color,
-        windowRadius: settings.appearance.windowRadius,
-        panelRadius: settings.appearance.panelRadius,
-        panelOpacity: settings.appearance.panelOpacity,
-        backdropBlurEnabled: settings.appearance.backdropBlurEnabled,
-        backdropBlurLevel: settings.appearance.backdropBlurLevel,
-        backdropBlurOpacityThreshold:
-            settings.appearance.backdropBlurOpacityThreshold,
-        focusedWindowOpacity: settings.appearance.focusedWindowOpacity,
-        unfocusedWindowOpacity: settings.appearance.unfocusedWindowOpacity,
+    return AnimatedShellTheme(
+      data: theme,
+      duration: Duration(
+        milliseconds: (200 * settings.animations.durationScale).round(),
       ),
       child: DenialLocalizationScope(
         locale: settings.localization.localeOverride,
-        child: MediaQuery.fromView(
-          view: View.of(context),
-          child: ScrollConfiguration(
-            behavior: const _ShellScrollBehavior(),
-            // WidgetsApp normally installs this boundary. Denial owns its
-            // widget root directly, so install the same standard boundary
-            // explicitly for EditableText outside-tap focus handling.
-            child: effectiveProfile == ShellProfile.mobile
-                ? MobileTextInputPolicy(child: textInputPolicy)
-                : textInputPolicy,
-          ),
+        child: Builder(
+          builder: (context) {
+            final animatedTheme = context.shellTheme;
+            final textInputPolicy = TapRegionSurface(
+              child: ShellDefaultTextStyle(child: content),
+            );
+            return MediaQuery(
+              data: MediaQueryData.fromView(
+                View.of(context),
+              ).copyWith(platformBrightness: animatedTheme.brightness),
+              child: ScrollConfiguration(
+                behavior: const _ShellScrollBehavior(),
+                // WidgetsApp normally installs this boundary. Denial owns its
+                // widget root directly, so install the same standard boundary
+                // explicitly for EditableText outside-tap focus handling.
+                child: effectiveProfile == ShellProfile.mobile
+                    ? MobileTextInputPolicy(child: textInputPolicy)
+                    : textInputPolicy,
+              ),
+            );
+          },
         ),
       ),
     );
@@ -439,9 +479,9 @@ class _ShellContent extends ConsumerWidget {
     );
 
     return DefaultTextStyle(
-      style: ShellText.base,
+      style: context.shellTheme.text.base,
       child: ColoredBox(
-        color: ShellColors.background,
+        color: context.shellColors.background,
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -580,6 +620,7 @@ class UnlockTransitionHost extends StatefulWidget {
 class _UnlockTransitionHostState extends State<UnlockTransitionHost>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  var _unlockCompletionScheduled = false;
 
   @override
   void initState() {
@@ -630,9 +671,8 @@ class _UnlockTransitionHostState extends State<UnlockTransitionHost>
         : null;
     return AnimatedBuilder(
       animation: _controller,
-      // The transition only moves the lock stage. Keeping the stage as the
-      // builder child prevents its complete widget tree from rebuilding on
-      // every controller tick.
+      // Keeping the lock stage as the builder child prevents its complete
+      // widget tree from rebuilding on every controller tick.
       child: lockLayer,
       builder: (context, child) {
         final rawProgress = _controller.value;
@@ -668,14 +708,14 @@ class _UnlockTransitionHostState extends State<UnlockTransitionHost>
 
   void _startUnlock() {
     if (_controller.value >= 1.0) {
-      widget.onUnlockComplete();
+      _scheduleUnlockCompletion();
       return;
     }
     if (MediaQuery.disableAnimationsOf(context)) {
       _controller
         ..stop()
         ..value = 1.0;
-      widget.onUnlockComplete();
+      _scheduleUnlockCompletion();
       return;
     }
     final transition = MotionTelemetry.observe(
@@ -700,9 +740,20 @@ class _UnlockTransitionHostState extends State<UnlockTransitionHost>
     }
   }
 
+  void _scheduleUnlockCompletion() {
+    if (_unlockCompletionScheduled) {
+      return;
+    }
+    _unlockCompletionScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _unlockCompletionScheduled = false;
+      _completeUnlockIfSettled();
+    });
+  }
+
   void _handleStatus(AnimationStatus status) {
     if (status == AnimationStatus.completed) {
-      widget.onUnlockComplete();
+      _scheduleUnlockCompletion();
     }
   }
 }
@@ -727,16 +778,17 @@ class _UnlockVerticalStack extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final slide = Motion.sessionTransitionCurve.transform(unit(progress));
-        final height = constraints.maxHeight;
+        final fallbackSize = constraints.biggest;
         final currentLockLayer = lockLayer;
         return ClipRect(
           child: Stack(
             fit: StackFit.expand,
             clipBehavior: Clip.none,
             children: [
-              Transform.translate(
+              OutputRelativeTranslation(
                 key: const ValueKey<String>('unlock-desktop-stage'),
-                offset: Offset(0, height * (1 - slide)),
+                offsetFactor: Offset(0, 1 - slide),
+                fallbackSize: fallbackSize,
                 child: IgnorePointer(
                   ignoring: currentLockLayer != null,
                   child: Stack(
@@ -750,9 +802,10 @@ class _UnlockVerticalStack extends StatelessWidget {
                 ),
               ),
               if (currentLockLayer != null)
-                Transform.translate(
+                OutputRelativeTranslation(
                   key: const ValueKey<String>('unlock-lock-stage'),
-                  offset: Offset(0, -height * slide),
+                  offsetFactor: Offset(0, -slide),
+                  fallbackSize: fallbackSize,
                   child: currentLockLayer,
                 ),
             ],

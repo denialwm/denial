@@ -6,6 +6,55 @@ use super::kms_session::{
 };
 use super::*;
 
+const BACKGROUND_SERVICE_INTERVAL: Duration = Duration::from_nanos(1_000_000_000 / 30);
+const BACKGROUND_MAINTENANCE_INTERVAL: Duration = Duration::from_millis(100);
+
+struct OperationCadence {
+    next_service: Instant,
+    next_maintenance: Instant,
+}
+
+impl OperationCadence {
+    fn new(now: Instant) -> Self {
+        Self {
+            next_service: now,
+            next_maintenance: now,
+        }
+    }
+
+    fn take_service_due(&mut self, now: Instant) -> bool {
+        take_periodic_deadline(now, &mut self.next_service, BACKGROUND_SERVICE_INTERVAL)
+    }
+
+    fn take_maintenance_due(&mut self, now: Instant) -> bool {
+        take_periodic_deadline(
+            now,
+            &mut self.next_maintenance,
+            BACKGROUND_MAINTENANCE_INTERVAL,
+        )
+    }
+
+    fn limit_dispatch_timeout(&self, now: Instant, timeout: Duration) -> Duration {
+        timeout
+            .min(self.next_service.saturating_duration_since(now))
+            .min(self.next_maintenance.saturating_duration_since(now))
+    }
+}
+
+fn take_periodic_deadline(now: Instant, deadline: &mut Instant, interval: Duration) -> bool {
+    if now < *deadline {
+        return false;
+    }
+    *deadline = now.checked_add(interval).unwrap_or(now);
+    true
+}
+
+fn interactive_service_work_pending(events: &RuntimeState) -> bool {
+    !events.pending_shell_actions.is_empty()
+        || !events.pending_shortcut_launches.is_empty()
+        || !events.pending_window_events.is_empty()
+}
+
 pub(super) struct FlutterEventLoopContext<'a, 'event_loop> {
     pub(super) renderer: &'a mut GlesRenderer,
     pub(super) drm: &'a mut DrmDevice,
@@ -20,6 +69,7 @@ pub(super) struct FlutterEventLoopContext<'a, 'event_loop> {
     pub(super) output_configuration: RuntimeOutputConfiguration,
     pub(super) output_config: Option<PathBuf>,
     pub(super) output_control: output_control::OutputControlPublisher,
+    pub(super) portal_ipc: Option<portal_ipc::PortalIpcPublisher>,
     pub(super) wayland: Option<wayland_frontend::WaylandFrontend>,
     pub(super) flutter: flutter_runtime::FlutterRuntime,
     pub(super) flutter_launcher: &'a mut FlutterLauncher,
@@ -45,6 +95,7 @@ pub(super) fn run_flutter_event_loop(
         mut output_configuration,
         output_config,
         output_control,
+        portal_ipc,
         wayland,
         flutter,
         flutter_launcher,
@@ -142,12 +193,21 @@ pub(super) fn run_flutter_event_loop(
         .as_ref()
         .map(|frontend| frontend.shortcuts.engine())
         .unwrap_or_default();
+    let initial_theme_snapshot = portal_ipc.as_ref().map(|publisher| publisher.snapshot());
+    let initial_settings_document_revision = output_control.settings_document_revision();
     let mut events = RuntimeState {
         wayland,
         native_escape_shortcut,
         clipboard,
         system_controls,
         notification_server,
+        portal_ipc,
+        published_theme_snapshot: initial_theme_snapshot,
+        published_settings_document_revision: Some(initial_settings_document_revision),
+        resolved_theme_accent: initial_theme_snapshot
+            .map_or_else(DesktopAccentColor::default, |snapshot| {
+                snapshot.accent_color
+            }),
         authentication,
         flutter_active: true,
         flutter_input: flutter_runtime::InputQueue::new(swapchain.desktop_size()),
@@ -158,6 +218,7 @@ pub(super) fn run_flutter_event_loop(
             swapchain.desktop_size().width,
             swapchain.desktop_size().height,
         ),
+        output_control: Some(output_control.clone()),
         ..RuntimeState::default()
     };
     let _orientation_sensor = match orientation_sensor::OrientationSensor::start() {
@@ -250,6 +311,7 @@ pub(super) fn run_flutter_event_loop(
     let mut active_output_confirmation: Option<ActiveOutputConfirmation> = None;
     let mut pending_sensor_rotation = output_configuration.sensor_rotation;
     let mut outputs_disconnected = false;
+    let mut operation_cadence = OperationCadence::new(Instant::now());
 
     // Any native helper inadvertently created by an elevated Flutter thread
     // is normalized before the compositor itself becomes realtime.
@@ -257,50 +319,70 @@ pub(super) fn run_flutter_event_loop(
     cpu_scheduling::promote_compositor_thread();
 
     loop {
-        service_session_lifecycle(drm, scanouts, swapchain, event_loop, &mut events, deadline)?;
+        if events
+            .lifecycle
+            .requires_kms_service(drm.is_active(), events.device_removed)
+        {
+            service_session_lifecycle(drm, scanouts, swapchain, event_loop, &mut events, deadline)?;
+        }
         if events.kms_presentation_recovery_requested {
             events.kms_presentation_recovery_requested = false;
             scheduler.shutdown_volition();
             recover_stalled_kms_presentation(drm, event_loop, &mut events)?;
             continue;
         }
-        service_native_app_plugins(event_loop, &mut events, allocator)?;
+        if flutter_session::native_app_plugins_require_service(&events) {
+            service_native_app_plugins(event_loop, &mut events, allocator)?;
+        }
         let iteration_now = Instant::now();
+        let flutter_background_event = events
+            .flutter_events
+            .iter()
+            .any(flutter_runtime::RuntimeEvent::queues_background_service_work);
+        let background_services_due = operation_cadence.take_service_due(iteration_now)
+            || flutter_background_event
+            || interactive_service_work_pending(&events);
+        let background_maintenance_due = operation_cadence.take_maintenance_due(iteration_now);
         if let Some(orientation) = events.pending_orientation.take() {
             pending_sensor_rotation = orientation.output_rotation();
             debug!(?orientation, rotation = ?pending_sensor_rotation, "observed device orientation");
         }
-        install_sampled_buffer_releases(event_loop, &mut events)?;
-        scheduler.acknowledge_ready_fences(
-            flutter
-                .as_ref()
-                .ok_or("Flutter runtime disappeared during fence acknowledgement")?,
-            events.ready_fence_signals.drain(..),
-        )?;
-        let volition_events = std::mem::take(&mut events.volition_events);
-        if let Some(stall) =
-            scheduler.acknowledge_volition_events(volition_events, scanouts, &mut events)?
-        {
-            let commit = stall.commit();
-            error!(
-                stream = commit.stream,
-                framebuffer_index = commit.frame,
-                %stall,
-                "KMS lookahead lost a usable presentation state; rebuilding the DRM and render stack in this session"
-            );
-            scheduler.shutdown_volition();
-            recover_stalled_kms_presentation(drm, event_loop, &mut events)?;
-            continue;
+        if !events.sampled_buffer_releases.is_empty() {
+            install_sampled_buffer_releases(event_loop, &mut events)?;
         }
-        let orientation_targets_idle = flutter.as_ref().is_some_and(|runtime| {
-            !runtime.output_rotation_animation_active()
-                && scanouts
-                    .iter()
-                    .all(|scanout| runtime.output_target_available(scanout.output.id))
-        });
+        if !events.ready_fence_signals.is_empty() {
+            scheduler.acknowledge_ready_fences(
+                flutter
+                    .as_ref()
+                    .ok_or("Flutter runtime disappeared during fence acknowledgement")?,
+                events.ready_fence_signals.drain(..),
+            )?;
+        }
+        if !events.volition_events.is_empty() {
+            let volition_events = std::mem::take(&mut events.volition_events);
+            if let Some(stall) =
+                scheduler.acknowledge_volition_events(volition_events, scanouts, &mut events)?
+            {
+                let commit = stall.commit();
+                error!(
+                    stream = commit.stream,
+                    framebuffer_index = commit.frame,
+                    %stall,
+                    "KMS lookahead lost a usable presentation state; rebuilding the DRM and render stack in this session"
+                );
+                scheduler.shutdown_volition();
+                recover_stalled_kms_presentation(drm, event_loop, &mut events)?;
+                continue;
+            }
+        }
         if pending_sensor_rotation != output_configuration.sensor_rotation
             && !scheduler.has_pending_scanout_work()
-            && orientation_targets_idle
+            && flutter.as_ref().is_some_and(|runtime| {
+                !runtime.output_rotation_animation_active()
+                    && scanouts
+                        .iter()
+                        .all(|scanout| runtime.output_target_available(scanout.output.id))
+            })
         {
             scheduler.prepare_reconfiguration(scanouts, &mut events)?;
             apply_automatic_orientation(
@@ -499,14 +581,11 @@ pub(super) fn run_flutter_event_loop(
             let output_apply_waiting =
                 ready_output_apply.is_some() || !events.pending_output_applies.is_empty();
             if !output_apply_waiting && frame_limit.is_none_or(|limit| raster_frames < limit) {
-                let frame_action = frame_scheduler.step_with_output_availability(
-                    frame_now,
-                    runtime.pending_frame(),
-                    |output| {
-                        scheduler.render_available(output)
-                            && runtime.output_target_available(output)
-                    },
-                );
+                let frame_action = runtime.with_frame_readiness(|pending, target_available| {
+                    frame_scheduler.step_with_output_availability(frame_now, pending, |output| {
+                        scheduler.render_available(output) && target_available(output)
+                    })
+                });
                 match frame_action {
                     frame_scheduler::FrameAction::Skip => {}
                     frame_scheduler::FrameAction::Render { flutter_output } => {
@@ -528,7 +607,11 @@ pub(super) fn run_flutter_event_loop(
             // those tasks cannot perturb Flutter's animation timestamp.
             submit_ready_frames(&mut scheduler, swapchain, scanouts, &mut events)?;
             for tick in frame_scheduler.output_ticks().iter().copied() {
-                if let Some(frontend) = events.wayland.as_mut() {
+                if let Some(frontend) = events
+                    .wayland
+                    .as_mut()
+                    .filter(|frontend| frontend.has_pending_frame_callbacks())
+                {
                     frontend.frame_tick(tick)?;
                 }
                 scheduler.process_screencopies_at_tick(
@@ -589,8 +672,12 @@ pub(super) fn run_flutter_event_loop(
 
         let background_started = Instant::now();
 
-        collect_output_power_requests(&mut events);
-        synchronize_idle_dpms(scanouts, &mut events, background_started);
+        if background_services_due {
+            collect_output_power_requests(&mut events);
+        }
+        if background_maintenance_due {
+            synchronize_idle_dpms(scanouts, &mut events, background_started);
+        }
         // The synchronous VT-resume commit invalidated the old scheduler's
         // per-output buffer ownership. Preserve requests until the topology
         // path below recreates that scheduler.
@@ -1355,7 +1442,9 @@ pub(super) fn run_flutter_event_loop(
         let runtime = flutter
             .as_mut()
             .ok_or("Flutter runtime disappeared from event loop")?;
-        runtime.process_input_batch(&mut events.flutter_input)?;
+        if events.flutter_input.has_pending() {
+            runtime.process_input_batch(&mut events.flutter_input)?;
+        }
         // Drain in place so the callback queue keeps its allocation across
         // frame/engine dispatches. AwaitVSync and platform-task traffic is a
         // steady-state hot path and must not rebuild this Vec every time.
@@ -1368,12 +1457,16 @@ pub(super) fn run_flutter_event_loop(
             event_loop.dispatch(Duration::ZERO, &mut events)?;
             continue;
         }
-        if flutter_launcher.synchronize_ui_development(runtime)? {
-            events.flutter_reload_requested = true;
+        if background_services_due {
+            if flutter_launcher.synchronize_ui_development(runtime)? {
+                events.flutter_reload_requested = true;
+            }
+            synchronize_idle_dpms_configuration(runtime, &mut events);
         }
-        synchronize_idle_dpms_configuration(runtime, &mut events);
         synchronize_authentication_boundary(&mut events);
-        synchronize_requested_dpms_off(runtime, scanouts, &mut events);
+        if background_services_due {
+            synchronize_requested_dpms_off(runtime, scanouts, &mut events);
+        }
         let screenshot_is_invalid = screenshot_manager.as_ref().is_some_and(|manager| {
             manager.request_id().is_some()
                 && (events.secure_session_locked()
@@ -1392,18 +1485,22 @@ pub(super) fn run_flutter_event_loop(
                 "screenshot canvas is no longer valid",
             )?;
         }
-        synchronize_clipboard(runtime, &mut events)?;
-        synchronize_system_control_events(runtime, &mut events)?;
-        synchronize_notification_events(runtime, &mut events)?;
-        synchronize_xembed_tray(runtime, &mut events)?;
-        synchronize_shell_keyboard(runtime, &mut events)?;
-        synchronize_settings(runtime, &mut events)?;
-        synchronize_system_bar_configuration(runtime, &mut events, Some(flutter_launcher));
+        if background_services_due {
+            synchronize_clipboard(runtime, &mut events)?;
+            synchronize_system_control_events(runtime, &mut events)?;
+            synchronize_notification_events(runtime, &mut events)?;
+            synchronize_xembed_tray(runtime, &mut events)?;
+            synchronize_shell_keyboard(runtime, &mut events)?;
+            synchronize_settings(runtime, &mut events)?;
+            synchronize_system_bar_configuration(runtime, &mut events, Some(flutter_launcher));
+        }
         if background_started.elapsed() >= COMPOSITOR_BACKGROUND_SLICE {
             event_loop.dispatch(Duration::ZERO, &mut events)?;
             continue;
         }
-        synchronize_flutter_window_management(runtime, &mut events)?;
+        if background_services_due {
+            synchronize_flutter_window_management(runtime, &mut events)?;
+        }
         synchronize_flutter_scene(runtime, &mut events)?;
         collect_flutter_output_damage(runtime, &mut frame_scheduler);
         synchronize_flutter_input_layout(runtime, &mut events)?;
@@ -1554,6 +1651,8 @@ pub(super) fn run_flutter_event_loop(
         let now = Instant::now();
         let mut next_dispatch_timeout =
             frame_scheduler.limit_dispatch_timeout(now, runtime.next_dispatch_timeout());
+        next_dispatch_timeout =
+            operation_cadence.limit_dispatch_timeout(now, next_dispatch_timeout);
         next_dispatch_timeout = events
             .idle_dpms
             .limit_dispatch_timeout(now, next_dispatch_timeout);
@@ -1621,4 +1720,27 @@ pub(super) fn run_flutter_event_loop(
         "independently clocked Flutter KMS session complete"
     );
     Ok(swapchain.representative_framebuffer())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn operation_cadence_separates_service_and_maintenance_rates() {
+        let started = Instant::now();
+        let mut cadence = OperationCadence::new(started);
+
+        assert!(cadence.take_service_due(started));
+        assert!(cadence.take_maintenance_due(started));
+        assert!(!cadence.take_service_due(started));
+        assert!(!cadence.take_maintenance_due(started));
+
+        let service_due = started + BACKGROUND_SERVICE_INTERVAL;
+        assert!(cadence.take_service_due(service_due));
+        assert!(!cadence.take_maintenance_due(service_due));
+
+        let maintenance_due = started + BACKGROUND_MAINTENANCE_INTERVAL;
+        assert!(cadence.take_maintenance_due(maintenance_due));
+    }
 }

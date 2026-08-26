@@ -12,7 +12,8 @@ import '../../l10n/generated/app_localizations.dart';
 import '../config/startup_environment.dart';
 import '../localization/denial_localizations.dart';
 import '../models/denial_window.dart';
-import '../theme/tokens.dart';
+import '../theme/shell_color_scheme.dart';
+import '../theme/shell_theme.dart';
 
 /// Diagnostics are opt-in: even a rate-limited frame overlay participates in
 /// frame scheduling and must not tax the production shell it is measuring.
@@ -459,6 +460,7 @@ class _ShellFrameTimeOverlayState extends State<ShellFrameTimeOverlay> {
               painter: _ShellFrameTimePainter(
                 stats: _stats,
                 l10n: context.l10n,
+                colors: context.shellColors,
               ),
             ),
           ),
@@ -492,6 +494,7 @@ class _ImportedTextureFrameTimeOverlay extends StatelessWidget {
                 title: title,
                 stats: sampler.stats,
                 l10n: context.l10n,
+                colors: context.shellColors,
               ),
             ),
           );
@@ -634,37 +637,39 @@ class _ImportedFrameTimePainter extends CustomPainter {
     required this.title,
     required this.stats,
     required this.l10n,
+    required this.colors,
   });
 
   final String title;
   final _ImportedFrameStats stats;
   final AppLocalizations l10n;
+  final ShellColorScheme colors;
 
-  static const TextStyle _labelStyle = TextStyle(
-    color: ShellColors.textSecondary,
+  TextStyle get _labelStyle => TextStyle(
+    color: colors.textSecondary,
     fontSize: 9,
     height: 1,
     fontWeight: FontWeight.w700,
     letterSpacing: 0.4,
-    fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
+    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
   );
-  static const TextStyle _metricStyle = TextStyle(
-    color: ShellColors.textPrimary,
+  TextStyle get _metricStyle => TextStyle(
+    color: colors.textPrimary,
     fontSize: 10,
     height: 1,
     fontWeight: FontWeight.w600,
-    fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
+    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
   );
 
   @override
   void paint(Canvas canvas, Size size) {
     final bounds = Offset.zero & size;
     final panel = RRect.fromRectAndRadius(bounds, const Radius.circular(10));
-    canvas.drawRRect(panel, Paint()..color = ShellColors.panelBackground);
+    canvas.drawRRect(panel, Paint()..color = colors.panelBackground);
     canvas.drawRRect(
       panel.deflate(0.5),
       Paint()
-        ..color = ShellColors.hairline
+        ..color = colors.hairline
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1,
     );
@@ -686,7 +691,7 @@ class _ImportedFrameTimePainter extends CustomPainter {
           : l10n.frameMillisecondsUnavailable,
       Offset(size.width - 10, 7),
       _metricStyle.copyWith(
-        color: _frameColor(stats.frameMs, stats.budgetMs),
+        color: _frameColor(colors, stats.frameMs, stats.budgetMs),
         fontSize: 15,
         fontWeight: FontWeight.w700,
       ),
@@ -716,7 +721,7 @@ class _ImportedFrameTimePainter extends CustomPainter {
   void _paintGraph(Canvas canvas, Rect rect) {
     canvas.drawRRect(
       RRect.fromRectAndRadius(rect, const Radius.circular(4)),
-      Paint()..color = ShellColors.background.withValues(alpha: 0.62),
+      Paint()..color = colors.background.withValues(alpha: 0.62),
     );
     if (stats.samples.isEmpty) {
       return;
@@ -728,7 +733,7 @@ class _ImportedFrameTimePainter extends CustomPainter {
       Offset(rect.left, budgetY),
       Offset(rect.right, budgetY),
       Paint()
-        ..color = ShellColors.performanceWarning.withValues(alpha: 0.55)
+        ..color = colors.performanceWarning.withValues(alpha: 0.55)
         ..strokeWidth = 1,
     );
 
@@ -750,6 +755,7 @@ class _ImportedFrameTimePainter extends CustomPainter {
           Offset(x, _graphY(sample.peakMs, rect, scaleMax)),
           Paint()
             ..color = _frameColor(
+              colors,
               sample.peakMs,
               stats.budgetMs,
             ).withValues(alpha: 0.58)
@@ -765,7 +771,7 @@ class _ImportedFrameTimePainter extends CustomPainter {
     canvas.drawPath(
       path,
       Paint()
-        ..color = _frameColor(stats.frameMs, stats.budgetMs)
+        ..color = _frameColor(colors, stats.frameMs, stats.budgetMs)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.6
         ..strokeCap = StrokeCap.round
@@ -801,7 +807,8 @@ class _ImportedFrameTimePainter extends CustomPainter {
   bool shouldRepaint(covariant _ImportedFrameTimePainter oldDelegate) {
     return oldDelegate.title != title ||
         oldDelegate.stats != stats ||
-        oldDelegate.l10n.localeName != l10n.localeName;
+        oldDelegate.l10n.localeName != l10n.localeName ||
+        oldDelegate.colors != colors;
   }
 }
 
@@ -873,36 +880,41 @@ class _ShellFrameStats {
 }
 
 class _ShellFrameTimePainter extends CustomPainter {
-  const _ShellFrameTimePainter({required this.stats, required this.l10n});
+  const _ShellFrameTimePainter({
+    required this.stats,
+    required this.l10n,
+    required this.colors,
+  });
 
   final _ShellFrameStats stats;
   final AppLocalizations l10n;
+  final ShellColorScheme colors;
 
-  static const TextStyle _labelStyle = TextStyle(
-    color: ShellColors.textSecondary,
+  TextStyle get _labelStyle => TextStyle(
+    color: colors.textSecondary,
     fontSize: 9,
     height: 1,
     fontWeight: FontWeight.w700,
     letterSpacing: 0.4,
-    fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
+    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
   );
-  static const TextStyle _metricStyle = TextStyle(
-    color: ShellColors.textPrimary,
+  TextStyle get _metricStyle => TextStyle(
+    color: colors.textPrimary,
     fontSize: 10,
     height: 1,
     fontWeight: FontWeight.w600,
-    fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
+    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
   );
 
   @override
   void paint(Canvas canvas, Size size) {
     final bounds = Offset.zero & size;
     final panel = RRect.fromRectAndRadius(bounds, const Radius.circular(10));
-    canvas.drawRRect(panel, Paint()..color = ShellColors.panelBackground);
+    canvas.drawRRect(panel, Paint()..color = colors.panelBackground);
     canvas.drawRRect(
       panel.deflate(0.5),
       Paint()
-        ..color = ShellColors.hairline
+        ..color = colors.hairline
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1,
     );
@@ -923,7 +935,7 @@ class _ShellFrameTimePainter extends CustomPainter {
           : l10n.frameMillisecondsUnavailable,
       Offset(size.width - 10, 7),
       _metricStyle.copyWith(
-        color: _frameColor(stats.frameMs, stats.budgetMs),
+        color: _frameColor(colors, stats.frameMs, stats.budgetMs),
         fontSize: 15,
         fontWeight: FontWeight.w700,
       ),
@@ -961,7 +973,7 @@ class _ShellFrameTimePainter extends CustomPainter {
   void _paintGraph(Canvas canvas, Rect rect) {
     canvas.drawRRect(
       RRect.fromRectAndRadius(rect, const Radius.circular(4)),
-      Paint()..color = ShellColors.background.withValues(alpha: 0.62),
+      Paint()..color = colors.background.withValues(alpha: 0.62),
     );
     if (stats.samples.isEmpty) {
       return;
@@ -976,7 +988,7 @@ class _ShellFrameTimePainter extends CustomPainter {
       Offset(rect.left, budgetY),
       Offset(rect.right, budgetY),
       Paint()
-        ..color = ShellColors.performanceWarning.withValues(alpha: 0.55)
+        ..color = colors.performanceWarning.withValues(alpha: 0.55)
         ..strokeWidth = 1,
     );
 
@@ -1000,6 +1012,7 @@ class _ShellFrameTimePainter extends CustomPainter {
           Offset(x, _graphY(sample.peakMs, rect, scaleMax)),
           Paint()
             ..color = _frameColor(
+              colors,
               sample.peakMs,
               stats.budgetMs,
             ).withValues(alpha: 0.58)
@@ -1016,7 +1029,7 @@ class _ShellFrameTimePainter extends CustomPainter {
     canvas.drawPath(
       path,
       Paint()
-        ..color = _frameColor(stats.frameMs, stats.budgetMs)
+        ..color = _frameColor(colors, stats.frameMs, stats.budgetMs)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.6
         ..strokeCap = StrokeCap.round
@@ -1049,19 +1062,20 @@ class _ShellFrameTimePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _ShellFrameTimePainter oldDelegate) {
     return oldDelegate.stats != stats ||
-        oldDelegate.l10n.localeName != l10n.localeName;
+        oldDelegate.l10n.localeName != l10n.localeName ||
+        oldDelegate.colors != colors;
   }
 }
 
-Color _frameColor(double frameMs, double budgetMs) {
+Color _frameColor(ShellColorScheme colors, double frameMs, double budgetMs) {
   if (frameMs <= 0 || budgetMs <= 0) {
-    return ShellColors.textSecondary;
+    return colors.textSecondary;
   }
   if (frameMs > budgetMs * 2) {
-    return ShellColors.performanceBad;
+    return colors.performanceBad;
   }
   if (frameMs > budgetMs) {
-    return ShellColors.performanceWarning;
+    return colors.performanceWarning;
   }
-  return ShellColors.performanceGood;
+  return colors.performanceGood;
 }

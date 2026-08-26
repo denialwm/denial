@@ -92,6 +92,16 @@ class DenialWireCodec {
   int rejectedPlacementPackets = 0;
   int rejectedDragIconPackets = 0;
 
+  Uint8List? encodeThemeAccent(int argb) {
+    if (argb < 0 || argb > 0xffffffff) {
+      return null;
+    }
+    return _encodeEnvelope(
+      generated.PayloadTypeId.ThemeState,
+      generated.ThemeStateObjectBuilder(accentSrgb: argb & 0x00ffffff),
+    );
+  }
+
   Uint8List? encodeInputLayout(InputLayoutSnapshot snapshot) {
     if (snapshot.shellRegions.length > denialWireMaxRegions ||
         snapshot.softwareKeyboardRegions.length > denialWireMaxRegions ||

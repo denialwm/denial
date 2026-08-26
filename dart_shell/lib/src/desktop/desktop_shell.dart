@@ -61,9 +61,11 @@ import '../widgets/window_surface_tree.dart';
 import '../widgets/shade/range_bar.dart';
 import '../wallpaper/state/wallpaper_controller.dart';
 import '../wallpaper/widgets/wallpaper_selector_surface.dart';
+import 'desktop_overview_preview_interaction.dart';
 import 'desktop_overview_layout.dart';
 import 'desktop_overview_target.dart';
 import 'desktop_home_layout.dart';
+import 'desktop_panel_hover_controller.dart';
 import 'desktop_panel_transition.dart';
 import 'desktop_pixel_alignment.dart';
 import 'retained_animated_positioned.dart';
@@ -156,16 +158,44 @@ class _DesktopSceneWorkspace {
   int get hashCode => Object.hash(
     state.nextZ,
     state.viewSize,
-    state.panel,
     identityHashCode(state.overview),
     state.placements.length,
   );
 }
 
-class _DesktopShellState extends ConsumerState<DesktopShell> {
-  static const Duration _hoverCloseDelay = Duration(milliseconds: 220);
+typedef _DesktopSceneTopology = ({
+  Map<int, DenialWindow> windowsById,
+  List<DenialWindow> inputMethodPopups,
+  List<DesktopWindowPlacement> placements,
+  int topZ,
+});
 
-  Timer? _panelCloseTimer;
+class _DesktopSceneTopologyCache {
+  const _DesktopSceneTopologyCache({
+    required this.windows,
+    required this.placementMap,
+    required this.windowSwitcher,
+    required this.topology,
+  });
+
+  final List<DenialWindow> windows;
+  final Map<int, DesktopWindowPlacement> placementMap;
+  final DesktopWindowSwitcherState? windowSwitcher;
+  final _DesktopSceneTopology topology;
+
+  bool matches(
+    List<DenialWindow> windows,
+    Map<int, DesktopWindowPlacement> placementMap,
+    DesktopWindowSwitcherState? windowSwitcher,
+  ) {
+    return identical(this.windows, windows) &&
+        identical(this.placementMap, placementMap) &&
+        identical(this.windowSwitcher, windowSwitcher);
+  }
+}
+
+class _DesktopShellState extends ConsumerState<DesktopShell> {
+  late final DesktopPanelHoverController _panelHoverController;
   Timer? _wallpaperOpenTimer;
   Timer? _windowSwitcherHoldTimer;
   Timer? _windowSwitcherCleanupTimer;
@@ -178,7 +208,18 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
   @override
   void initState() {
     super.initState();
+    _panelHoverController = DesktopPanelHoverController(onClose: _closePanels);
     ref.read(hapticsServiceProvider).prewarm();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      // Hardware-backed dashboard state should settle while the desktop is
+      // idle, not during the first panel entrance animation. Deferring it
+      // until after the first frame keeps startup's critical frame lean.
+      ref.read(quickSettingsProvider);
+      ref.read(desktopPowerModesProvider);
+    });
     _shellActionSubscription = ref
         .read(denialBridgeProvider)
         .shellActions
@@ -187,7 +228,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
 
   @override
   void dispose() {
-    _panelCloseTimer?.cancel();
+    _panelHoverController.dispose();
     _wallpaperOpenTimer?.cancel();
     _windowSwitcherHoldTimer?.cancel();
     _windowSwitcherCleanupTimer?.cancel();
@@ -243,7 +284,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
   void _cycleWindowSwitcher(int? preferredMonitorId) {
     _windowSwitcherCleanupTimer?.cancel();
     _windowSwitcherCleanupTimer = null;
-    _panelCloseTimer?.cancel();
+    _panelHoverController.reset();
     _applicationSearchFocusNode.unfocus();
 
     final shell = ref.read(shellControllerProvider);
@@ -431,7 +472,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
 
   void _toggleOverview(int? preferredMonitorId) {
     ref.read(clipboardTrayProvider.notifier).close();
-    _panelCloseTimer?.cancel();
+    _panelHoverController.reset();
     _applicationSearchFocusNode.unfocus();
 
     final workspaceState = ref.read(desktopWorkspaceProvider);
@@ -469,7 +510,12 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
 
   void _openLauncher() {
     ref.read(clipboardTrayProvider.notifier).close();
-    _panelCloseTimer?.cancel();
+    final workspace = ref.read(desktopWorkspaceProvider);
+    if (!workspace.overviewActive && !workspace.launcherOpen) {
+      _panelHoverController.beginOpening();
+    } else {
+      _panelHoverController.cancelClose();
+    }
     ref
         .read(desktopWorkspaceProvider.notifier)
         .showPanel(DesktopPanel.launcher);
@@ -489,21 +535,26 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
   }
 
   void _closePanels() {
-    _panelCloseTimer?.cancel();
-    _panelCloseTimer = null;
+    _panelHoverController.reset();
     ref.read(desktopWorkspaceProvider.notifier).closePanels();
     _applicationSearchFocusNode.unfocus();
   }
 
   void _openDashboard() {
     ref.read(clipboardTrayProvider.notifier).close();
-    _panelCloseTimer?.cancel();
+    final workspace = ref.read(desktopWorkspaceProvider);
+    if (!workspace.overviewActive && !workspace.dashboardOpen) {
+      _panelHoverController.beginOpening();
+    } else {
+      _panelHoverController.cancelClose();
+    }
     _applicationSearchFocusNode.unfocus();
     ref
         .read(desktopWorkspaceProvider.notifier)
         .showPanel(DesktopPanel.dashboard);
-    unawaited(ref.read(bluetoothProvider.notifier).refresh());
-    unawaited(ref.read(desktopPowerModesProvider.notifier).refresh());
+    // BlueZ is signal-driven and already initialized at the shell root. Power
+    // modes have no equivalent subscription, so only refresh a stale cache.
+    unawaited(ref.read(desktopPowerModesProvider.notifier).refreshIfStale());
   }
 
   void _openWallpaperSelector() {
@@ -580,17 +631,11 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
   }
 
   void _cancelPanelClose() {
-    _panelCloseTimer?.cancel();
-    _panelCloseTimer = null;
+    _panelHoverController.cancelClose();
   }
 
   void _schedulePanelClose() {
-    _panelCloseTimer?.cancel();
-    _panelCloseTimer = Timer(_hoverCloseDelay, () {
-      if (mounted) {
-        _closePanels();
-      }
-    });
+    _panelHoverController.scheduleClose();
   }
 
   Future<void> _launchApp(DesktopApp app) async {
@@ -734,9 +779,9 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     );
 
     return DefaultTextStyle(
-      style: ShellText.base,
+      style: context.shellTheme.text.base,
       child: ColoredBox(
-        color: ShellColors.background,
+        color: context.shellColors.background,
         child: LayoutBuilder(
           builder: (context, constraints) => _DesktopScene(
             viewSize: constraints.biggest,
@@ -762,6 +807,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
             onOpenPowerSettings: _openPowerSettings,
             onCancelPanelClose: _cancelPanelClose,
             onSchedulePanelClose: _schedulePanelClose,
+            onPanelOpened: _panelHoverController.openingCompleted,
             onLaunchApp: _launchApp,
             onLaunchLocalApp: _launchLocalApp,
             onActivateWindow: _activateWindow,
@@ -862,7 +908,7 @@ class _DesktopHomeLayoutCache {
     required this.viewSize,
     required this.displayLayout,
     required Iterable<DesktopWindowPlacement> placements,
-    required AsyncValue<HomeGridState> homeGrid,
+    required List<HomeGridItem?>? homeSlots,
     required this.hasBatteryData,
     required this.layout,
   }) : minimizedPlacements = <int, _DesktopHomePlacementSignature>{
@@ -878,8 +924,7 @@ class _DesktopHomeLayoutCache {
        },
        widgets = <_DesktopHomeWidgetSignature>[
          for (final item
-             in homeGrid.asData?.value.slots.whereType<HomeGridItem>() ??
-                 const <HomeGridItem>[])
+             in homeSlots?.whereType<HomeGridItem>() ?? const <HomeGridItem>[])
            if (item.type != HomeGridItemType.app &&
                (item.type != HomeGridItemType.batteryDischarge ||
                    hasBatteryData))
@@ -902,7 +947,7 @@ class _DesktopHomeLayoutCache {
     required Size viewSize,
     required DisplayLayout? displayLayout,
     required Iterable<DesktopWindowPlacement> placements,
-    required AsyncValue<HomeGridState> homeGrid,
+    required List<HomeGridItem?>? homeSlots,
     required bool hasBatteryData,
   }) {
     if (this.viewSize != viewSize ||
@@ -933,8 +978,7 @@ class _DesktopHomeLayoutCache {
 
     var widgetIndex = 0;
     for (final item
-        in homeGrid.asData?.value.slots.whereType<HomeGridItem>() ??
-            const <HomeGridItem>[]) {
+        in homeSlots?.whereType<HomeGridItem>() ?? const <HomeGridItem>[]) {
       if (item.type == HomeGridItemType.app ||
           (item.type == HomeGridItemType.batteryDischarge && !hasBatteryData)) {
         continue;
@@ -962,7 +1006,7 @@ _DesktopHomeSceneLayout _layoutDesktopHome({
   required Size viewSize,
   required DisplayLayout? displayLayout,
   required Iterable<DesktopWindowPlacement> placements,
-  required AsyncValue<HomeGridState> homeGrid,
+  required List<HomeGridItem?>? homeSlots,
   required bool hasBatteryData,
 }) {
   final canvas = Offset.zero & viewSize;
@@ -977,8 +1021,7 @@ _DesktopHomeSceneLayout _layoutDesktopHome({
   final widgets = <HomeGridItem>[];
   final seenWidgetIds = <String>{};
   for (final item
-      in homeGrid.asData?.value.slots.whereType<HomeGridItem>() ??
-          const <HomeGridItem>[]) {
+      in homeSlots?.whereType<HomeGridItem>() ?? const <HomeGridItem>[]) {
     if (item.type != HomeGridItemType.app &&
         (item.type != HomeGridItemType.batteryDischarge || hasBatteryData) &&
         seenWidgetIds.add(item.id)) {
@@ -1226,6 +1269,7 @@ class _DesktopScene extends ConsumerStatefulWidget {
     required this.onOpenPowerSettings,
     required this.onCancelPanelClose,
     required this.onSchedulePanelClose,
+    required this.onPanelOpened,
     required this.onLaunchApp,
     required this.onLaunchLocalApp,
     required this.onActivateWindow,
@@ -1260,6 +1304,7 @@ class _DesktopScene extends ConsumerStatefulWidget {
   final VoidCallback onOpenPowerSettings;
   final VoidCallback onCancelPanelClose;
   final VoidCallback onSchedulePanelClose;
+  final VoidCallback onPanelOpened;
   final ValueChanged<DesktopApp> onLaunchApp;
   final ValueChanged<LocalFlutterApplication> onLaunchLocalApp;
   final ValueChanged<DenialWindow> onActivateWindow;
@@ -1279,6 +1324,52 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
       <int, _ClosingDesktopWindow>{};
   int _nextCloseId = 1;
   _DesktopHomeLayoutCache? _homeLayoutCache;
+  _DesktopSceneTopologyCache? _topologyCache;
+
+  _DesktopSceneTopology _cachedTopology({
+    required List<DenialWindow> windows,
+    required Map<int, DesktopWindowPlacement> placementMap,
+    required DesktopWindowSwitcherState? windowSwitcher,
+  }) {
+    final cached = _topologyCache;
+    if (cached != null &&
+        cached.matches(windows, placementMap, windowSwitcher)) {
+      return cached.topology;
+    }
+    final windowsById = <int, DenialWindow>{
+      for (final window in windows) window.objectId: window,
+    };
+    final inputMethodPopups = windows
+        .where((window) => window.isInputMethodPopup)
+        .toList(growable: false);
+    final placements =
+        placementMap.values
+            .where((placement) => windowsById.containsKey(placement.objectId))
+            .toList(growable: false)
+          ..sort(
+            (a, b) => DesktopWindowSwitcherLayout.compare(
+              a,
+              b,
+              windowsById,
+              windowSwitcher,
+            ),
+          );
+    final topology = (
+      windowsById: windowsById,
+      inputMethodPopups: inputMethodPopups,
+      placements: placements,
+      topZ: placements
+          .where((placement) => !placement.minimized)
+          .fold<int>(0, (value, placement) => math.max(value, placement.z)),
+    );
+    _topologyCache = _DesktopSceneTopologyCache(
+      windows: windows,
+      placementMap: placementMap,
+      windowSwitcher: windowSwitcher,
+      topology: topology,
+    );
+    return topology;
+  }
 
   @override
   void didUpdateWidget(covariant _DesktopScene oldWidget) {
@@ -1336,7 +1427,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     required Size viewSize,
     required DisplayLayout? displayLayout,
     required Iterable<DesktopWindowPlacement> placements,
-    required AsyncValue<HomeGridState> homeGrid,
+    required List<HomeGridItem?>? homeSlots,
     required bool hasBatteryData,
   }) {
     final cached = _homeLayoutCache;
@@ -1345,7 +1436,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
           viewSize: viewSize,
           displayLayout: displayLayout,
           placements: placements,
-          homeGrid: homeGrid,
+          homeSlots: homeSlots,
           hasBatteryData: hasBatteryData,
         )) {
       return cached.layout;
@@ -1354,14 +1445,14 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
       viewSize: viewSize,
       displayLayout: displayLayout,
       placements: placements,
-      homeGrid: homeGrid,
+      homeSlots: homeSlots,
       hasBatteryData: hasBatteryData,
     );
     _homeLayoutCache = _DesktopHomeLayoutCache(
       viewSize: viewSize,
       displayLayout: displayLayout,
       placements: placements,
-      homeGrid: homeGrid,
+      homeSlots: homeSlots,
       hasBatteryData: hasBatteryData,
       layout: layout,
     );
@@ -1379,9 +1470,6 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
 
   @override
   Widget build(BuildContext context) {
-    final overlaySettings = ref.watch(
-      shellSettingsProvider.select((settings) => settings.overlays),
-    );
     final viewSize = widget.viewSize;
     final windows = widget.windows;
     final desktop = widget.desktop;
@@ -1410,25 +1498,17 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     final onUpdateOverviewDrag = widget.onUpdateOverviewDrag;
     final onEndOverviewDrag = widget.onEndOverviewDrag;
     final onCancelOverviewDrag = widget.onCancelOverviewDrag;
-    final windowsById = <int, DenialWindow>{
-      for (final window in windows) window.objectId: window,
-    };
-    final inputMethodPopups = windows
-        .where((window) => window.isInputMethodPopup)
-        .toList(growable: false);
-    final placements =
-        desktop.placements.values
-            .where((placement) => windowsById.containsKey(placement.objectId))
-            .toList(growable: false)
-          ..sort(
-            (a, b) => DesktopWindowSwitcherLayout.compare(
-              a,
-              b,
-              windowsById,
-              windowSwitcher,
-            ),
-          );
-    final homeGrid = ref.watch(homeGridControllerProvider);
+    final topology = _cachedTopology(
+      windows: windows,
+      placementMap: desktop.placements,
+      windowSwitcher: windowSwitcher,
+    );
+    final windowsById = topology.windowsById;
+    final inputMethodPopups = topology.inputMethodPopups;
+    final placements = topology.placements;
+    final homeSlots = ref.watch(
+      homeGridControllerProvider.select((state) => state.asData?.value.slots),
+    );
     final hasBatteryData = ref.watch(
       homeBatteryDischargeProvider.select(
         (series) =>
@@ -1446,33 +1526,11 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
       viewSize: viewSize,
       displayLayout: displayLayout,
       placements: placements,
-      homeGrid: homeGrid,
+      homeSlots: homeSlots,
       hasBatteryData: hasBatteryData,
     );
-    final topZ = placements
-        .where((placement) => !placement.minimized)
-        .fold<int>(0, (value, placement) => math.max(value, placement.z));
+    final topZ = topology.topZ;
     final systemBars = _systemBarGeometries(viewSize, displayLayout);
-    final launcherRect = DesktopMetrics.launcherRect(
-      viewSize,
-      outputRect: shellOutputRect,
-      placement: overlaySettings.launcher,
-    );
-    final dashboardRect = DesktopMetrics.dashboardRect(
-      viewSize,
-      outputRect: shellOutputRect,
-      placement: overlaySettings.dashboard,
-    );
-    final launcherTriggerRect = DesktopMetrics.launcherTriggerRect(
-      viewSize,
-      outputRect: shellOutputRect,
-      placement: overlaySettings.launcher,
-    );
-    final dashboardTriggerRect = DesktopMetrics.dashboardTriggerRect(
-      viewSize,
-      outputRect: shellOutputRect,
-      placement: overlaySettings.dashboard,
-    );
     // True fullscreen owns the complete output, so the bar yields instead of
     // floating above the fullscreen surface.
     final visibleSystemBars = desktop.overviewActive
@@ -1613,97 +1671,24 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                       stageBounds: switcherStageBounds,
                     ),
                   const Positioned.fill(child: SystemTrayMenuDismissLayer()),
-                  Positioned.fill(
-                    key: const ValueKey<String>(
-                      'desktop-launcher-dismiss-barrier',
-                    ),
-                    child: ShellInputRegion(
-                      debugLabel: 'Desktop launcher dismiss barrier',
-                      active: desktop.launcherOpen,
-                      pointerPolicy: ShellPointerPolicy.fullScene,
-                      keyboardPolicy: ShellKeyboardPolicy.none,
-                      child: IgnorePointer(
-                        ignoring: !desktop.launcherOpen,
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: onDismissLauncher,
-                        ),
-                      ),
-                    ),
+                  _DesktopPanelOverlay(
+                    viewSize: viewSize,
+                    shellOutputRect: shellOutputRect,
+                    panelTravel: widget.panelTravel,
+                    panelDurationScale: widget.panelDurationScale,
+                    applicationSearchFocusNode: applicationSearchFocusNode,
+                    onOpenLauncher: onOpenLauncher,
+                    onDismissLauncher: onDismissLauncher,
+                    onOpenDashboard: onOpenDashboard,
+                    onOpenWallpaperSelector: onOpenWallpaperSelector,
+                    onOpenAppVolumeManager: onOpenAppVolumeManager,
+                    onOpenSettings: onOpenSettings,
+                    onCancelPanelClose: onCancelPanelClose,
+                    onSchedulePanelClose: onSchedulePanelClose,
+                    onPanelOpened: widget.onPanelOpened,
+                    onLaunchApp: onLaunchApp,
+                    onLaunchLocalApp: onLaunchLocalApp,
                   ),
-                  if (!launcherRect.isEmpty)
-                    Positioned.fromRect(
-                      key: const ValueKey<String>('desktop-launcher-position'),
-                      rect: launcherRect,
-                      child: DesktopPanelTransition(
-                        key: const ValueKey<String>('desktop-launcher-panel'),
-                        inputDebugLabel: 'Desktop application launcher',
-                        keyboardPolicy: ShellKeyboardPolicy.capture,
-                        maintainState: true,
-                        visible: desktop.launcherOpen,
-                        entryDirection: _entryDirectionFor(
-                          overlaySettings.launcher.anchor.horizontal,
-                          overlaySettings.launcher.anchor.vertical,
-                        ),
-                        entryDistance: widget.panelTravel,
-                        durationScale: widget.panelDurationScale,
-                        child: DesktopApplicationLauncher(
-                          visible: desktop.launcherOpen,
-                          searchFocusNode: applicationSearchFocusNode,
-                          onEnter: onCancelPanelClose,
-                          onExit: onSchedulePanelClose,
-                          onDismiss: onDismissLauncher,
-                          onLaunch: onLaunchApp,
-                          onLaunchLocal: onLaunchLocalApp,
-                        ),
-                      ),
-                    ),
-                  if (!dashboardRect.isEmpty)
-                    Positioned.fromRect(
-                      key: const ValueKey<String>('desktop-dashboard-position'),
-                      rect: dashboardRect,
-                      child: DesktopPanelTransition(
-                        key: const ValueKey<String>('desktop-dashboard-panel'),
-                        inputDebugLabel: 'Desktop dashboard',
-                        keyboardPolicy: ShellKeyboardPolicy.capture,
-                        visible: desktop.dashboardOpen,
-                        entryDirection: _entryDirectionFor(
-                          overlaySettings.dashboard.anchor.horizontal,
-                          overlaySettings.dashboard.anchor.vertical,
-                        ),
-                        entryDistance: widget.panelTravel,
-                        durationScale: widget.panelDurationScale,
-                        child: _DesktopDashboard(
-                          onEnter: onCancelPanelClose,
-                          onExit: onSchedulePanelClose,
-                          onOpenWallpaper: onOpenWallpaperSelector,
-                          onOpenAppVolumeManager: onOpenAppVolumeManager,
-                          onOpenSettings: onOpenSettings,
-                        ),
-                      ),
-                    ),
-                  if (!desktop.overviewActive && !launcherTriggerRect.isEmpty)
-                    Positioned.fromRect(
-                      rect: launcherTriggerRect,
-                      child: ShellInputRegion(
-                        debugLabel: 'Desktop launcher edge trigger',
-                        child: _DesktopPanelEdgeTrigger(
-                          onEnter: onOpenLauncher,
-                          onExit: onSchedulePanelClose,
-                        ),
-                      ),
-                    ),
-                  if (!desktop.overviewActive && !dashboardTriggerRect.isEmpty)
-                    Positioned.fromRect(
-                      rect: dashboardTriggerRect,
-                      child: ShellInputRegion(
-                        debugLabel: 'Desktop dashboard edge trigger',
-                        child: _DesktopPanelEdgeTrigger(
-                          onEnter: onOpenDashboard,
-                          onExit: onSchedulePanelClose,
-                        ),
-                      ),
-                    ),
                   for (final popup in inputMethodPopups)
                     if (popup.geometry case final geometry?)
                       Positioned.fromRect(
@@ -1748,6 +1733,211 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
             ),
           ),
         ),
+      ],
+    );
+  }
+}
+
+class _DesktopPanelOverlay extends ConsumerStatefulWidget {
+  const _DesktopPanelOverlay({
+    required this.viewSize,
+    required this.shellOutputRect,
+    required this.panelTravel,
+    required this.panelDurationScale,
+    required this.applicationSearchFocusNode,
+    required this.onOpenLauncher,
+    required this.onDismissLauncher,
+    required this.onOpenDashboard,
+    required this.onOpenWallpaperSelector,
+    required this.onOpenAppVolumeManager,
+    required this.onOpenSettings,
+    required this.onCancelPanelClose,
+    required this.onSchedulePanelClose,
+    required this.onPanelOpened,
+    required this.onLaunchApp,
+    required this.onLaunchLocalApp,
+  });
+
+  final Size viewSize;
+  final Rect? shellOutputRect;
+  final double panelTravel;
+  final double panelDurationScale;
+  final FocusNode applicationSearchFocusNode;
+  final VoidCallback onOpenLauncher;
+  final VoidCallback onDismissLauncher;
+  final VoidCallback onOpenDashboard;
+  final VoidCallback onOpenWallpaperSelector;
+  final VoidCallback onOpenAppVolumeManager;
+  final VoidCallback onOpenSettings;
+  final VoidCallback onCancelPanelClose;
+  final VoidCallback onSchedulePanelClose;
+  final VoidCallback onPanelOpened;
+  final ValueChanged<DesktopApp> onLaunchApp;
+  final ValueChanged<LocalFlutterApplication> onLaunchLocalApp;
+
+  @override
+  ConsumerState<_DesktopPanelOverlay> createState() =>
+      _DesktopPanelOverlayState();
+}
+
+class _DesktopPanelOverlayState extends ConsumerState<_DesktopPanelOverlay> {
+  DesktopApplicationLauncher? _applicationLauncher;
+  _DesktopDashboard? _dashboard;
+
+  DesktopApplicationLauncher _cachedApplicationLauncher() {
+    final cached = _applicationLauncher;
+    if (cached != null &&
+        identical(cached.searchFocusNode, widget.applicationSearchFocusNode) &&
+        cached.onEnter == widget.onCancelPanelClose &&
+        cached.onExit == widget.onSchedulePanelClose &&
+        cached.onDismiss == widget.onDismissLauncher &&
+        cached.onLaunch == widget.onLaunchApp &&
+        cached.onLaunchLocal == widget.onLaunchLocalApp) {
+      return cached;
+    }
+    return _applicationLauncher = DesktopApplicationLauncher(
+      searchFocusNode: widget.applicationSearchFocusNode,
+      onEnter: widget.onCancelPanelClose,
+      onExit: widget.onSchedulePanelClose,
+      onDismiss: widget.onDismissLauncher,
+      onLaunch: widget.onLaunchApp,
+      onLaunchLocal: widget.onLaunchLocalApp,
+    );
+  }
+
+  _DesktopDashboard _cachedDashboard() {
+    final cached = _dashboard;
+    if (cached != null &&
+        cached.onEnter == widget.onCancelPanelClose &&
+        cached.onExit == widget.onSchedulePanelClose &&
+        cached.onOpenWallpaper == widget.onOpenWallpaperSelector &&
+        cached.onOpenAppVolumeManager == widget.onOpenAppVolumeManager &&
+        cached.onOpenSettings == widget.onOpenSettings) {
+      return cached;
+    }
+    return _dashboard = _DesktopDashboard(
+      onEnter: widget.onCancelPanelClose,
+      onExit: widget.onSchedulePanelClose,
+      onOpenWallpaper: widget.onOpenWallpaperSelector,
+      onOpenAppVolumeManager: widget.onOpenAppVolumeManager,
+      onOpenSettings: widget.onOpenSettings,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final panelState = ref.watch(
+      desktopWorkspaceProvider.select(
+        (state) => (panel: state.panel, overviewActive: state.overviewActive),
+      ),
+    );
+    final overlaySettings = ref.watch(
+      shellSettingsProvider.select((settings) => settings.overlays),
+    );
+    final launcherRect = DesktopMetrics.launcherRect(
+      widget.viewSize,
+      outputRect: widget.shellOutputRect,
+      placement: overlaySettings.launcher,
+    );
+    final dashboardRect = DesktopMetrics.dashboardRect(
+      widget.viewSize,
+      outputRect: widget.shellOutputRect,
+      placement: overlaySettings.dashboard,
+    );
+    final launcherTriggerRect = DesktopMetrics.launcherTriggerRect(
+      widget.viewSize,
+      outputRect: widget.shellOutputRect,
+      placement: overlaySettings.launcher,
+    );
+    final dashboardTriggerRect = DesktopMetrics.dashboardTriggerRect(
+      widget.viewSize,
+      outputRect: widget.shellOutputRect,
+      placement: overlaySettings.dashboard,
+    );
+    final launcherOpen = panelState.panel == DesktopPanel.launcher;
+    final dashboardOpen = panelState.panel == DesktopPanel.dashboard;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        Positioned.fill(
+          key: const ValueKey<String>('desktop-launcher-dismiss-barrier'),
+          child: ShellInputRegion(
+            debugLabel: 'Desktop launcher dismiss barrier',
+            active: launcherOpen,
+            pointerPolicy: ShellPointerPolicy.fullScene,
+            keyboardPolicy: ShellKeyboardPolicy.none,
+            child: IgnorePointer(
+              ignoring: !launcherOpen,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: widget.onDismissLauncher,
+              ),
+            ),
+          ),
+        ),
+        if (!launcherRect.isEmpty)
+          Positioned.fromRect(
+            key: const ValueKey<String>('desktop-launcher-position'),
+            rect: launcherRect,
+            child: DesktopPanelTransition(
+              key: const ValueKey<String>('desktop-launcher-panel'),
+              inputDebugLabel: 'Desktop application launcher',
+              keyboardPolicy: ShellKeyboardPolicy.capture,
+              maintainState: true,
+              visible: launcherOpen,
+              entryDirection: _entryDirectionFor(
+                overlaySettings.launcher.anchor.horizontal,
+                overlaySettings.launcher.anchor.vertical,
+              ),
+              entryDistance: widget.panelTravel,
+              durationScale: widget.panelDurationScale,
+              onOpened: widget.onPanelOpened,
+              child: _cachedApplicationLauncher(),
+            ),
+          ),
+        if (!dashboardRect.isEmpty)
+          Positioned.fromRect(
+            key: const ValueKey<String>('desktop-dashboard-position'),
+            rect: dashboardRect,
+            child: DesktopPanelTransition(
+              key: const ValueKey<String>('desktop-dashboard-panel'),
+              inputDebugLabel: 'Desktop dashboard',
+              keyboardPolicy: ShellKeyboardPolicy.capture,
+              maintainState: true,
+              visible: dashboardOpen,
+              entryDirection: _entryDirectionFor(
+                overlaySettings.dashboard.anchor.horizontal,
+                overlaySettings.dashboard.anchor.vertical,
+              ),
+              entryDistance: widget.panelTravel,
+              durationScale: widget.panelDurationScale,
+              onOpened: widget.onPanelOpened,
+              child: _cachedDashboard(),
+            ),
+          ),
+        if (!panelState.overviewActive && !launcherTriggerRect.isEmpty)
+          Positioned.fromRect(
+            rect: launcherTriggerRect,
+            child: ShellInputRegion(
+              debugLabel: 'Desktop launcher edge trigger',
+              child: _DesktopPanelEdgeTrigger(
+                onEnter: widget.onOpenLauncher,
+                onExit: widget.onSchedulePanelClose,
+              ),
+            ),
+          ),
+        if (!panelState.overviewActive && !dashboardTriggerRect.isEmpty)
+          Positioned.fromRect(
+            rect: dashboardTriggerRect,
+            child: ShellInputRegion(
+              debugLabel: 'Desktop dashboard edge trigger',
+              child: _DesktopPanelEdgeTrigger(
+                onEnter: widget.onOpenDashboard,
+                onExit: widget.onSchedulePanelClose,
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -1805,12 +1995,12 @@ class _AppVolumeManagerPanel extends StatelessWidget {
     return FocusTraversalGroup(
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: theme.panelColor(ShellColors.panelBackground),
+          color: theme.panelColor(context.shellColors.panelBackground),
           borderRadius: BorderRadius.circular(theme.panelRadius),
-          border: Border.all(color: ShellColors.hairline),
-          boxShadow: const [
+          border: Border.all(color: context.shellColors.hairline),
+          boxShadow: [
             BoxShadow(
-              color: ShellColors.shadow,
+              color: context.shellColors.shadow,
               blurRadius: 42,
               spreadRadius: 4,
               offset: Offset(0, 18),
@@ -1847,13 +2037,15 @@ class _AppVolumeManagerPanel extends StatelessWidget {
                         children: [
                           Text(
                             l10n.desktopApplicationVolumeTitle,
-                            style: ShellText.statusClock.copyWith(fontSize: 20),
+                            style: context.shellTheme.text.statusClock.copyWith(
+                              fontSize: 20,
+                            ),
                           ),
                           const SizedBox(height: 5),
                           Text(
                             l10n.desktopApplicationVolumeDescription,
-                            style: ShellText.cardTitle.copyWith(
-                              color: ShellColors.textSecondary,
+                            style: context.shellTheme.text.cardTitle.copyWith(
+                              color: context.shellColors.textSecondary,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
@@ -1875,7 +2067,7 @@ class _AppVolumeManagerPanel extends StatelessWidget {
                   ],
                 ),
               ),
-              const Divider(height: 1, color: ShellColors.hairlineSoft),
+              Divider(height: 1, color: context.shellColors.hairlineSoft),
               Expanded(child: _buildBody(context)),
             ],
           ),
@@ -1953,13 +2145,13 @@ class _AppVolumeManagerMessage extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 42, color: ShellColors.textTertiary),
+            Icon(icon, size: 42, color: context.shellColors.textTertiary),
             const SizedBox(height: 14),
             Text(
               message,
               textAlign: TextAlign.center,
-              style: ShellText.cardTitle.copyWith(
-                color: ShellColors.textSecondary,
+              style: context.shellTheme.text.cardTitle.copyWith(
+                color: context.shellColors.textSecondary,
               ),
             ),
             if (actionLabel != null && onAction != null) ...[
@@ -2050,11 +2242,11 @@ class _AppVolumeRowState extends State<_AppVolumeRow> {
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
             decoration: BoxDecoration(
               color: _focused
-                  ? ShellColors.surfaceContainerHigh
-                  : ShellColors.surfaceContainerLow,
+                  ? context.shellColors.surfaceContainerHigh
+                  : context.shellColors.surfaceContainerLow,
               borderRadius: BorderRadius.circular(18),
               border: Border.all(
-                color: _focused ? accent : ShellColors.hairlineSoft,
+                color: _focused ? accent : context.shellColors.hairlineSoft,
               ),
             ),
             child: Column(
@@ -2062,8 +2254,8 @@ class _AppVolumeRowState extends State<_AppVolumeRow> {
                 Row(
                   children: [
                     DecoratedBox(
-                      decoration: const BoxDecoration(
-                        color: ShellColors.surfaceContainerHighest,
+                      decoration: BoxDecoration(
+                        color: context.shellColors.surfaceContainerHighest,
                         shape: BoxShape.circle,
                       ),
                       child: SizedBox(
@@ -2075,7 +2267,7 @@ class _AppVolumeRowState extends State<_AppVolumeRow> {
                               : Icons.volume_up_rounded,
                           size: 19,
                           color: widget.stream.muted
-                              ? ShellColors.textTertiary
+                              ? context.shellColors.textTertiary
                               : accent,
                         ),
                       ),
@@ -2086,15 +2278,17 @@ class _AppVolumeRowState extends State<_AppVolumeRow> {
                         widget.stream.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: ShellText.cardTitle.copyWith(fontSize: 14),
+                        style: context.shellTheme.text.cardTitle.copyWith(
+                          fontSize: 14,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Text(
                       context.l10n.percentCompact(percent),
-                      style: ShellText.cardTitle.copyWith(
-                        color: ShellColors.textSecondary,
-                        fontFeatures: const [FontFeature.tabularFigures()],
+                      style: context.shellTheme.text.cardTitle.copyWith(
+                        color: context.shellColors.textSecondary,
+                        fontFeatures: [FontFeature.tabularFigures()],
                       ),
                     ),
                   ],
@@ -2106,7 +2300,7 @@ class _AppVolumeRowState extends State<_AppVolumeRow> {
                       : Icons.volume_up_rounded,
                   value: widget.stream.level,
                   activeColor: accent,
-                  inactiveColor: ShellColors.volumeTrack,
+                  inactiveColor: context.shellColors.volumeTrack,
                   onChanged: widget.onChanged,
                   onChangeEnd: widget.onChangeEnd,
                   height: 40,
@@ -2221,9 +2415,9 @@ class _DesktopHomeWidget extends StatelessWidget {
               borderRadius: BorderRadius.circular(ShellRadii.tile),
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  color: theme.panelColor(ShellColors.panelBackground),
+                  color: theme.panelColor(context.shellColors.panelBackground),
                   borderRadius: BorderRadius.circular(ShellRadii.tile),
-                  border: Border.all(color: ShellColors.hairlineSoft),
+                  border: Border.all(color: context.shellColors.hairlineSoft),
                 ),
                 child: content,
               ),
@@ -2406,6 +2600,8 @@ class _DesktopClosingWindowFrame extends StatelessWidget {
             ? DesktopWindowFramePainter(
                 windowId: closing.window.objectId,
                 radius: radius,
+                shadowColor: context.shellColors.shadow,
+                frameColor: context.shellColors.windowFrameSurface,
               )
             : null,
         child: ClipRRect(
@@ -2565,7 +2761,7 @@ class _DesktopWindowFrame extends ConsumerWidget {
                   outset: drawsServerFrame
                       ? DesktopWindowFramePainter.shadowOutset
                       : 0,
-                  child: _DesktopOverviewPreviewInteraction(
+                  child: DesktopOverviewPreviewInteraction(
                     overviewActive: overviewActive,
                     overview: overview,
                     desktopWidget: desktopWidget,
@@ -2619,7 +2815,7 @@ class _DesktopWindowFrame extends ConsumerWidget {
                                 ? theme.accentPalette.container
                                 : active
                                 ? theme.accent
-                                : ShellColors.hairlineWindow,
+                                : context.shellColors.hairlineWindow,
                             devicePixelRatio: devicePixelRatio,
                             radius: windowRadius,
                           ),
@@ -2756,102 +2952,6 @@ class _DesktopAnimatedWindowPositionState
         enabled: widget.dragging,
         devicePixelRatio: pixelAlignmentInset == null ? null : devicePixelRatio,
         child: widget.child,
-      ),
-    );
-  }
-}
-
-class _DesktopOverviewPreviewInteraction extends StatefulWidget {
-  const _DesktopOverviewPreviewInteraction({
-    required this.overviewActive,
-    required this.overview,
-    required this.desktopWidget,
-    required this.dragging,
-    required this.label,
-    required this.onTap,
-    required this.onDragStart,
-    required this.onDragUpdate,
-    required this.onDragEnd,
-    required this.onDragCancel,
-    required this.child,
-  });
-
-  final bool overviewActive;
-  final bool overview;
-  final bool desktopWidget;
-  final bool dragging;
-  final String label;
-  final VoidCallback onTap;
-  final VoidCallback onDragStart;
-  final ValueChanged<Offset> onDragUpdate;
-  final VoidCallback onDragEnd;
-  final VoidCallback onDragCancel;
-  final Widget child;
-
-  @override
-  State<_DesktopOverviewPreviewInteraction> createState() =>
-      _DesktopOverviewPreviewInteractionState();
-}
-
-class _DesktopOverviewPreviewInteractionState
-    extends State<_DesktopOverviewPreviewInteraction> {
-  static const double _hoverScale = 1.025;
-
-  bool _hovered = false;
-
-  @override
-  void didUpdateWidget(covariant _DesktopOverviewPreviewInteraction oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if ((!widget.overview && !widget.desktopWidget) || widget.dragging) {
-      _hovered = false;
-    }
-  }
-
-  void _setHovered(bool hovered) {
-    if ((!widget.overview && !widget.desktopWidget) || _hovered == hovered) {
-      return;
-    }
-    setState(() => _hovered = hovered);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final hovered =
-        (widget.overview || widget.desktopWidget) &&
-        !widget.dragging &&
-        _hovered;
-    final interactive =
-        (widget.overviewActive && widget.overview) ||
-        (!widget.overviewActive && widget.desktopWidget);
-    return Semantics(
-      button: interactive,
-      label: interactive ? widget.label : null,
-      child: MouseRegion(
-        cursor: interactive ? ShellMouseCursors.link : ShellMouseCursors.normal,
-        onEnter: interactive ? (_) => _setHovered(true) : null,
-        onExit: interactive ? (_) => _setHovered(false) : null,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: interactive ? widget.onTap : null,
-          onPanStart: widget.overview ? (_) => widget.onDragStart() : null,
-          onPanUpdate: widget.overview
-              ? (details) => widget.onDragUpdate(details.delta)
-              : null,
-          onPanEnd: widget.overview ? (_) => widget.onDragEnd() : null,
-          onPanCancel: widget.overview ? widget.onDragCancel : null,
-          child: AnimatedScale(
-            duration: Motion.tile,
-            curve: hovered
-                ? Motion.md3EmphasizedDecelerate
-                : Motion.md3EmphasizedAccelerate,
-            scale: hovered
-                ? widget.desktopWidget
-                      ? 1.018
-                      : _hoverScale
-                : 1.0,
-            child: widget.child,
-          ),
-        ),
       ),
     );
   }
@@ -3023,7 +3123,7 @@ class _DesktopWindowBorderPainter extends CustomPainter {
   }
 }
 
-class _DesktopDashboard extends ConsumerWidget {
+class _DesktopDashboard extends StatelessWidget {
   const _DesktopDashboard({
     required this.onEnter,
     required this.onExit,
@@ -3039,13 +3139,67 @@ class _DesktopDashboard extends ConsumerWidget {
   final VoidCallback onOpenSettings;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final quickSettings = ref.watch(quickSettingsProvider);
-    final quickSettingsController = ref.read(quickSettingsProvider.notifier);
-    final bluetooth = ref.watch(bluetoothProvider);
-    final bluetoothController = ref.read(bluetoothProvider.notifier);
-    final notifications = ref.watch(desktopNotificationsProvider);
+  Widget build(BuildContext context) {
     final theme = ShellTheme.of(context);
+
+    return MouseRegion(
+      onEnter: (_) => onEnter(),
+      onExit: (_) => onExit(),
+      child: FocusTraversalGroup(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: theme.panelColor(context.shellColors.panelBackground),
+            borderRadius: BorderRadius.circular(theme.panelRadius),
+            border: Border.all(color: context.shellColors.hairline),
+            boxShadow: [
+              BoxShadow(
+                color: context.shellColors.shadow,
+                blurRadius: 36,
+                spreadRadius: 3,
+                offset: Offset(0, 16),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _DashboardHeader(
+                  onOpenSettings: onOpenSettings,
+                  onOpenWallpaper: onOpenWallpaper,
+                ),
+                const SizedBox(height: 16),
+                _DashboardVolumeCard(
+                  onOpenAppVolumeManager: onOpenAppVolumeManager,
+                ),
+                const SizedBox(height: 12),
+                const _DesktopPowerModesCard(),
+                const SizedBox(height: 12),
+                const Expanded(child: _DashboardBluetoothCard()),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardHeader extends ConsumerWidget {
+  const _DashboardHeader({
+    required this.onOpenSettings,
+    required this.onOpenWallpaper,
+  });
+
+  final VoidCallback onOpenSettings;
+  final VoidCallback onOpenWallpaper;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unreadCount = ref.watch(
+      desktopNotificationsProvider.select((state) => state.unreadCount),
+    );
     final l10n = context.l10n;
 
     void openNotifications() {
@@ -3059,193 +3213,171 @@ class _DesktopDashboard extends ConsumerWidget {
           );
     }
 
-    return MouseRegion(
-      onEnter: (_) => onEnter(),
-      onExit: (_) => onExit(),
-      child: FocusTraversalGroup(
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: theme.panelColor(ShellColors.panelBackground),
-            borderRadius: BorderRadius.circular(theme.panelRadius),
-            border: Border.all(color: ShellColors.hairline),
-            boxShadow: const [
-              BoxShadow(
-                color: ShellColors.shadow,
-                blurRadius: 36,
-                spreadRadius: 3,
-                offset: Offset(0, 16),
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            l10n.desktopDashboardTitle,
+            style: context.shellTheme.text.statusClock.copyWith(fontSize: 22),
+          ),
+        ),
+        _DashboardIconButton(
+          semanticLabel: unreadCount == 0
+              ? l10n.desktopOpenNotificationCenter
+              : l10n.desktopOpenNotificationCenterUnread(unreadCount),
+          icon: unreadCount == 0
+              ? Icons.notifications_none_rounded
+              : Icons.notifications_active_rounded,
+          active: unreadCount > 0,
+          onTap: openNotifications,
+        ),
+        const SizedBox(width: 7),
+        _DashboardIconButton(
+          semanticLabel: l10n.settingsApplicationSemanticsLabel,
+          icon: Icons.settings_rounded,
+          onTap: onOpenSettings,
+        ),
+        const SizedBox(width: 7),
+        _DashboardIconButton(
+          semanticLabel: l10n.desktopOpenPowerControls,
+          icon: Icons.power_settings_new_rounded,
+          onTap: () => showPowerSessionSurface(ref),
+        ),
+        const SizedBox(width: 7),
+        _DashboardIconButton(
+          semanticLabel: l10n.desktopChooseWallpaper,
+          icon: Icons.wallpaper_rounded,
+          onTap: onOpenWallpaper,
+        ),
+      ],
+    );
+  }
+}
+
+class _DashboardVolumeCard extends ConsumerWidget {
+  const _DashboardVolumeCard({required this.onOpenAppVolumeManager});
+
+  final VoidCallback onOpenAppVolumeManager;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final volume = ref.watch(
+      quickSettingsProvider.select((state) => state.volume),
+    );
+    final controller = ref.read(quickSettingsProvider.notifier);
+    final l10n = context.l10n;
+    final accent = ShellTheme.of(context).accent;
+    return _DashboardCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.volume_up_rounded, size: 21, color: accent),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  l10n.commonVolume,
+                  style: context.shellTheme.text.cardTitle,
+                ),
+              ),
+              _DashboardValueButton(
+                semanticLabel: l10n.desktopOpenApplicationAudio,
+                label: l10n.settingsPercent((volume * 100).round()),
+                icon: Icons.tune_rounded,
+                onTap: onOpenAppVolumeManager,
               ),
             ],
           ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        l10n.desktopDashboardTitle,
-                        style: ShellText.statusClock.copyWith(fontSize: 22),
-                      ),
-                    ),
-                    _DashboardIconButton(
-                      semanticLabel: notifications.unreadCount == 0
-                          ? l10n.desktopOpenNotificationCenter
-                          : l10n.desktopOpenNotificationCenterUnread(
-                              notifications.unreadCount,
-                            ),
-                      icon: notifications.unreadCount == 0
-                          ? Icons.notifications_none_rounded
-                          : Icons.notifications_active_rounded,
-                      active: notifications.unreadCount > 0,
-                      onTap: openNotifications,
-                    ),
-                    const SizedBox(width: 7),
-                    _DashboardIconButton(
-                      semanticLabel: l10n.settingsApplicationSemanticsLabel,
-                      icon: Icons.settings_rounded,
-                      onTap: onOpenSettings,
-                    ),
-                    const SizedBox(width: 7),
-                    _DashboardIconButton(
-                      semanticLabel: l10n.desktopOpenPowerControls,
-                      icon: Icons.power_settings_new_rounded,
-                      onTap: () => showPowerSessionSurface(ref),
-                    ),
-                    const SizedBox(width: 7),
-                    _DashboardIconButton(
-                      semanticLabel: l10n.desktopChooseWallpaper,
-                      icon: Icons.wallpaper_rounded,
-                      onTap: onOpenWallpaper,
-                    ),
-                  ],
+          const SizedBox(height: 12),
+          RangeBar(
+            icon: volume <= 0.01
+                ? Icons.volume_off_rounded
+                : Icons.volume_up_rounded,
+            value: volume,
+            activeColor: accent,
+            inactiveColor: context.shellColors.volumeTrack,
+            onChangeStart: controller.beginVolumeInteraction,
+            onChanged: controller.setVolume,
+            onChangeEnd: controller.commitVolume,
+            height: 48,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DashboardBluetoothCard extends ConsumerWidget {
+  const _DashboardBluetoothCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final bluetooth = ref.watch(bluetoothProvider);
+    final controller = ref.read(bluetoothProvider.notifier);
+    final l10n = context.l10n;
+    final accent = ShellTheme.of(context).accent;
+    return _DashboardCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.bluetooth_rounded, size: 21, color: accent),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  l10n.commonBluetooth,
+                  style: context.shellTheme.text.cardTitle,
                 ),
-                const SizedBox(height: 16),
-                _DashboardCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.volume_up_rounded,
-                            size: 21,
-                            color: theme.accent,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              l10n.commonVolume,
-                              style: ShellText.cardTitle,
-                            ),
-                          ),
-                          _DashboardValueButton(
-                            semanticLabel: l10n.desktopOpenApplicationAudio,
-                            label: l10n.settingsPercent(
-                              (quickSettings.volume * 100).round(),
-                            ),
-                            icon: Icons.tune_rounded,
-                            onTap: onOpenAppVolumeManager,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      RangeBar(
-                        icon: quickSettings.volume <= 0.01
-                            ? Icons.volume_off_rounded
-                            : Icons.volume_up_rounded,
-                        value: quickSettings.volume,
-                        activeColor: theme.accent,
-                        inactiveColor: ShellColors.volumeTrack,
-                        onChangeStart:
-                            quickSettingsController.beginVolumeInteraction,
-                        onChanged: quickSettingsController.setVolume,
-                        onChangeEnd: quickSettingsController.commitVolume,
-                        height: 48,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const _DesktopPowerModesCard(),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: _DashboardCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.bluetooth_rounded,
-                              size: 21,
-                              color: theme.accent,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                l10n.commonBluetooth,
-                                style: ShellText.cardTitle,
-                              ),
-                            ),
-                            _DashboardIconButton(
-                              semanticLabel: bluetooth.powered
-                                  ? l10n.desktopTurnBluetoothOff
-                                  : l10n.desktopTurnBluetoothOn,
-                              icon: Icons.power_settings_new_rounded,
-                              active: bluetooth.powered,
-                              busy: bluetooth.powerChanging,
-                              onTap: bluetoothController.togglePower,
-                            ),
-                            const SizedBox(width: 7),
-                            _DashboardIconButton(
-                              semanticLabel: l10n.desktopScanBluetooth,
-                              icon: Icons.bluetooth_searching_rounded,
-                              active:
-                                  bluetooth.scanning || bluetooth.discovering,
-                              busy: bluetooth.scanning,
-                              enabled: bluetooth.powered,
-                              onTap: bluetoothController.scan,
-                            ),
-                            const SizedBox(width: 7),
-                            _DashboardIconButton(
-                              semanticLabel: l10n.desktopRefreshBluetooth,
-                              icon: Icons.refresh_rounded,
-                              busy: bluetooth.refreshing,
-                              onTap: bluetoothController.refresh,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        if (bluetooth.error != null) ...[
-                          Text(
-                            l10n.settingsBluetoothUnavailable,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: ShellText.cardTitle.copyWith(
-                              color: ShellColors.performanceBad,
-                              fontSize: 11,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                        ],
-                        Expanded(
-                          child: _BluetoothDeviceList(
-                            state: bluetooth,
-                            onToggleConnection:
-                                bluetoothController.toggleConnection,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+              ),
+              _DashboardIconButton(
+                semanticLabel: bluetooth.powered
+                    ? l10n.desktopTurnBluetoothOff
+                    : l10n.desktopTurnBluetoothOn,
+                icon: Icons.power_settings_new_rounded,
+                active: bluetooth.powered,
+                busy: bluetooth.powerChanging,
+                onTap: controller.togglePower,
+              ),
+              const SizedBox(width: 7),
+              _DashboardIconButton(
+                semanticLabel: l10n.desktopScanBluetooth,
+                icon: Icons.bluetooth_searching_rounded,
+                active: bluetooth.scanning || bluetooth.discovering,
+                busy: bluetooth.scanning,
+                enabled: bluetooth.powered,
+                onTap: controller.scan,
+              ),
+              const SizedBox(width: 7),
+              _DashboardIconButton(
+                semanticLabel: l10n.desktopRefreshBluetooth,
+                icon: Icons.refresh_rounded,
+                busy: bluetooth.refreshing,
+                onTap: controller.refresh,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (bluetooth.error != null) ...[
+            Text(
+              l10n.settingsBluetoothUnavailable,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: context.shellTheme.text.cardTitle.copyWith(
+                color: context.shellColors.performanceBad,
+                fontSize: 11,
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+          Expanded(
+            child: _BluetoothDeviceList(
+              state: bluetooth,
+              onToggleConnection: controller.toggleConnection,
             ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -3269,12 +3401,12 @@ class _DesktopNotificationCenterDialog extends StatelessWidget {
           height: panelHeight,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: theme.panelColor(ShellColors.panelBackground),
+              color: theme.panelColor(context.shellColors.panelBackground),
               borderRadius: BorderRadius.circular(theme.panelRadius),
-              border: Border.all(color: ShellColors.hairline),
-              boxShadow: const <BoxShadow>[
+              border: Border.all(color: context.shellColors.hairline),
+              boxShadow: <BoxShadow>[
                 BoxShadow(
-                  color: ShellColors.shadow,
+                  color: context.shellColors.shadow,
                   blurRadius: 36,
                   spreadRadius: 3,
                   offset: Offset(0, 16),
@@ -3291,7 +3423,9 @@ class _DesktopNotificationCenterDialog extends StatelessWidget {
                       Expanded(
                         child: Text(
                           l10n.notificationsTitle,
-                          style: ShellText.statusClock.copyWith(fontSize: 22),
+                          style: context.shellTheme.text.statusClock.copyWith(
+                            fontSize: 22,
+                          ),
                         ),
                       ),
                       _DashboardIconButton(
@@ -3322,9 +3456,9 @@ class _DashboardCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: ShellColors.surfaceContainerLow,
+        color: context.shellColors.surfaceContainerLow,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: ShellColors.hairlineSoft),
+        border: Border.all(color: context.shellColors.hairlineSoft),
       ),
       child: Padding(padding: const EdgeInsets.all(16), child: child),
     );
@@ -3355,7 +3489,7 @@ class _DesktopPowerModesCard extends ConsumerWidget {
               Expanded(
                 child: Text(
                   l10n.desktopPowerModesTitle,
-                  style: ShellText.cardTitle,
+                  style: context.shellTheme.text.cardTitle,
                 ),
               ),
               _DashboardIconButton(
@@ -3525,8 +3659,8 @@ class _DesktopPowerModesCard extends ConsumerWidget {
               l10n.desktopPowerModesUnavailable,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: ShellText.cardTitle.copyWith(
-                color: ShellColors.performanceBad,
+              style: context.shellTheme.text.cardTitle.copyWith(
+                color: context.shellColors.performanceBad,
                 fontSize: 11,
               ),
             ),
@@ -3567,19 +3701,19 @@ class _PowerModeRow extends StatelessWidget {
                 : l10n.desktopFeatureAvailability(label, availability),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: ShellText.cardTitle.copyWith(
+            style: context.shellTheme.text.cardTitle.copyWith(
               color: available
-                  ? ShellColors.textSecondary
-                  : ShellColors.textTertiary,
+                  ? context.shellColors.textSecondary
+                  : context.shellColors.textTertiary,
               fontSize: 12,
             ),
           ),
         ),
         DecoratedBox(
           decoration: BoxDecoration(
-            color: ShellColors.surfaceContainer,
+            color: context.shellColors.surfaceContainer,
             borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: ShellColors.hairlineSoft),
+            border: Border.all(color: context.shellColors.hairlineSoft),
           ),
           child: Padding(
             padding: const EdgeInsets.all(3),
@@ -3669,8 +3803,8 @@ class _PowerModeOptionState extends State<_PowerModeOption> {
               color: widget.selected
                   ? selectedBackground
                   : _hovered
-                  ? ShellColors.surfaceContainerHighest
-                  : const Color(0x00000000),
+                  ? context.shellColors.surfaceContainerHighest
+                  : ShellMediaColors.transparentDark,
               borderRadius: BorderRadius.circular(12),
               border: _focused
                   ? Border.all(color: accent.primary, width: 1.5)
@@ -3688,10 +3822,10 @@ class _PowerModeOptionState extends State<_PowerModeOption> {
                     widget.icon,
                     size: 18,
                     color: !widget.enabled
-                        ? ShellColors.glyphInactive
+                        ? context.shellColors.glyphInactive
                         : widget.selected
                         ? selectedForeground
-                        : ShellColors.textSecondary,
+                        : context.shellColors.textSecondary,
                   ),
           ),
         ),
@@ -3774,13 +3908,13 @@ class _DashboardEmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 34, color: ShellColors.textTertiary),
+          Icon(icon, size: 34, color: context.shellColors.textTertiary),
           const SizedBox(height: 10),
           Text(
             label,
             textAlign: TextAlign.center,
-            style: ShellText.cardTitle.copyWith(
-              color: ShellColors.textSecondary,
+            style: context.shellTheme.text.cardTitle.copyWith(
+              color: context.shellColors.textSecondary,
             ),
           ),
         ],
@@ -3840,8 +3974,8 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
               color: device.connected
                   ? accent.container
                   : _hovered
-                  ? ShellColors.surfaceContainerHighest
-                  : ShellColors.surfaceContainer,
+                  ? context.shellColors.surfaceContainerHighest
+                  : context.shellColors.surfaceContainer,
               borderRadius: BorderRadius.circular(16),
             ),
             child: Row(
@@ -3851,7 +3985,7 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
                   size: 22,
                   color: device.connected
                       ? accent.onContainer
-                      : ShellColors.textPrimary,
+                      : context.shellColors.textPrimary,
                 ),
                 const SizedBox(width: 11),
                 Expanded(
@@ -3863,15 +3997,15 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
                         device.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: ShellText.cardTitle,
+                        style: context.shellTheme.text.cardTitle,
                       ),
                       const SizedBox(height: 2),
                       Text(
                         status,
-                        style: ShellText.cardTitle.copyWith(
+                        style: context.shellTheme.text.cardTitle.copyWith(
                           color: device.connected
                               ? accent.onContainerSecondary
-                              : ShellColors.textTertiary,
+                              : context.shellColors.textTertiary,
                           fontSize: 11,
                         ),
                       ),
@@ -3893,7 +4027,7 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
                     size: 20,
                     color: device.connected
                         ? accent.onContainer
-                        : ShellColors.textSecondary,
+                        : context.shellColors.textSecondary,
                   ),
               ],
             ),
@@ -3955,8 +4089,8 @@ class _DashboardIconButtonState extends State<_DashboardIconButton> {
               color: widget.active
                   ? accent.container
                   : _hovered
-                  ? ShellColors.surfaceContainerHighest
-                  : ShellColors.surfaceContainerHigh,
+                  ? context.shellColors.surfaceContainerHighest
+                  : context.shellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(12),
             ),
             child: widget.busy
@@ -3973,8 +4107,8 @@ class _DashboardIconButtonState extends State<_DashboardIconButton> {
                     color: widget.enabled
                         ? widget.active
                               ? accent.onContainer
-                              : ShellColors.textPrimary
-                        : ShellColors.glyphInactive,
+                              : context.shellColors.textPrimary
+                        : context.shellColors.glyphInactive,
                   ),
           ),
         ),
@@ -4036,11 +4170,13 @@ class _DashboardValueButtonState extends State<_DashboardValueButton> {
             padding: const EdgeInsets.symmetric(horizontal: 11),
             decoration: BoxDecoration(
               color: _hovered || _focused
-                  ? ShellColors.surfaceContainerHighest
-                  : ShellColors.surfaceContainerHigh,
+                  ? context.shellColors.surfaceContainerHighest
+                  : context.shellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: _focused ? accent.primary : ShellColors.hairlineSoft,
+                color: _focused
+                    ? accent.primary
+                    : context.shellColors.hairlineSoft,
               ),
             ),
             child: Row(
@@ -4048,8 +4184,8 @@ class _DashboardValueButtonState extends State<_DashboardValueButton> {
               children: [
                 Text(
                   widget.label,
-                  style: ShellText.cardTitle.copyWith(
-                    color: ShellColors.textSecondary,
+                  style: context.shellTheme.text.cardTitle.copyWith(
+                    color: context.shellColors.textSecondary,
                   ),
                 ),
                 const SizedBox(width: 7),
@@ -4065,7 +4201,7 @@ class _DashboardValueButtonState extends State<_DashboardValueButton> {
 
 @immutable
 class _DesktopLauncherEntry {
-  const _DesktopLauncherEntry._({
+  _DesktopLauncherEntry._({
     required this.navigationId,
     required this.id,
     required this.name,
@@ -4074,7 +4210,12 @@ class _DesktopLauncherEntry {
     required this.icon,
     required this.desktopApp,
     required this.localApp,
-  });
+  }) : sortName = name.toLowerCase(),
+       searchableText = <String>[
+         id,
+         name,
+         ...categories,
+       ].join(' ').toLowerCase();
 
   factory _DesktopLauncherEntry.desktop(DesktopApp app) {
     return _DesktopLauncherEntry._(
@@ -4113,12 +4254,13 @@ class _DesktopLauncherEntry {
   final IconData? icon;
   final DesktopApp? desktopApp;
   final LocalFlutterApplication? localApp;
+  final String sortName;
+  final String searchableText;
 }
 
 class DesktopApplicationLauncher extends ConsumerStatefulWidget {
   const DesktopApplicationLauncher({
     super.key,
-    this.visible = true,
     required this.searchFocusNode,
     required this.onEnter,
     required this.onExit,
@@ -4127,7 +4269,6 @@ class DesktopApplicationLauncher extends ConsumerStatefulWidget {
     required this.onLaunchLocal,
   });
 
-  final bool visible;
   final FocusNode searchFocusNode;
   final VoidCallback onEnter;
   final VoidCallback onExit;
@@ -4152,34 +4293,35 @@ class _DesktopApplicationLauncherState
   final ScrollController _gridController = ScrollController();
   String _lastSearchText = '';
   String? _selectedEntryId;
+  bool _hasCachedDesktopApps = false;
+  List<HomeGridItem?>? _cachedHomeSlots;
+  List<_DesktopLauncherEntry>? _cachedDesktopApps;
+  LocalFlutterApplicationRegistry? _cachedLocalRegistry;
+  Locale? _cachedLocale;
+  List<_DesktopLauncherEntry>? _cachedLocalApps;
+  List<_DesktopLauncherEntry>? _cachedInstalledApps;
+  List<_DesktopLauncherEntry>? _cachedFilteredSource;
+  String? _cachedNormalizedQuery;
+  List<_DesktopLauncherEntry>? _cachedFilteredApps;
+  List<_DesktopLauncherEntry> _visibleApps = const <_DesktopLauncherEntry>[];
+  final Map<String, GlobalKey<_DesktopAppTileState>> _tileKeys =
+      <String, GlobalKey<_DesktopAppTileState>>{};
+  late final ProviderSubscription<bool> _visibilitySubscription;
 
   @override
   void initState() {
     super.initState();
     _searchController = TextEditingController()
       ..addListener(_handleQueryChanged);
-    widget.searchFocusNode.addListener(_handleSearchFocusChanged);
-  }
-
-  @override
-  void didUpdateWidget(covariant DesktopApplicationLauncher oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.searchFocusNode != widget.searchFocusNode) {
-      oldWidget.searchFocusNode.removeListener(_handleSearchFocusChanged);
-      widget.searchFocusNode.addListener(_handleSearchFocusChanged);
-    }
-    if (oldWidget.visible != widget.visible) {
-      _selectedEntryId = null;
-      _resetGridScroll();
-      if (!widget.visible && _searchController.text.isNotEmpty) {
-        _searchController.clear();
-      }
-    }
+    _visibilitySubscription = ref.listenManual<bool>(
+      desktopWorkspaceProvider.select((state) => state.launcherOpen),
+      _handleVisibilityChanged,
+    );
   }
 
   @override
   void dispose() {
-    widget.searchFocusNode.removeListener(_handleSearchFocusChanged);
+    _visibilitySubscription.close();
     _searchController
       ..removeListener(_handleQueryChanged)
       ..dispose();
@@ -4197,8 +4339,23 @@ class _DesktopApplicationLauncherState
     _resetGridScroll();
   }
 
-  void _handleSearchFocusChanged() {
-    setState(() {});
+  void _handleVisibilityChanged(bool? previous, bool visible) {
+    final apps = _visibleApps;
+    final previousIndex = _selectedIndexFor(apps);
+    final previousSelection = previousIndex < 0
+        ? null
+        : apps[previousIndex].navigationId;
+    _selectedEntryId = null;
+    if (previousSelection != null &&
+        apps.isNotEmpty &&
+        previousSelection != apps.first.navigationId) {
+      _setTileSelected(previousSelection, false);
+      _setTileSelected(apps.first.navigationId, true);
+    }
+    _resetGridScroll();
+    if (!visible && _searchController.text.isNotEmpty) {
+      _searchController.clear();
+    }
   }
 
   void _clearSearch() {
@@ -4234,11 +4391,32 @@ class _DesktopApplicationLauncherState
       return;
     }
     assert(index >= 0 && index < apps.length);
+    final previousIndex = _selectedIndexFor(apps);
+    final previousEntryId = previousIndex < 0
+        ? null
+        : apps[previousIndex].navigationId;
     final selectedEntryId = apps[index].navigationId;
     if (_selectedEntryId != selectedEntryId) {
-      setState(() => _selectedEntryId = selectedEntryId);
+      _selectedEntryId = selectedEntryId;
+      if (previousEntryId != null) {
+        _setTileSelected(previousEntryId, false);
+      }
+      _setTileSelected(selectedEntryId, true);
     }
     _revealSelected(index);
+  }
+
+  void _setTileSelected(String entryId, bool selected) {
+    _tileKeys[entryId]?.currentState?.setSelected(selected);
+  }
+
+  GlobalKey<_DesktopAppTileState> _tileKey(String entryId) {
+    return _tileKeys.putIfAbsent(
+      entryId,
+      () => GlobalKey<_DesktopAppTileState>(
+        debugLabel: 'desktop-app-tile-$entryId',
+      ),
+    );
   }
 
   void _moveSelection(List<_DesktopLauncherEntry> apps, int delta) {
@@ -4279,9 +4457,74 @@ class _DesktopApplicationLauncherState
   }
 
   void _resetGridScroll() {
-    if (_gridController.hasClients) {
-      _gridController.jumpTo(_gridController.position.minScrollExtent);
+    if (!_gridController.hasClients) {
+      return;
     }
+    final position = _gridController.position;
+    if (position.pixels != position.minScrollExtent) {
+      _gridController.jumpTo(position.minScrollExtent);
+    }
+  }
+
+  List<_DesktopLauncherEntry> _resolveInstalledApps(
+    BuildContext context,
+    List<HomeGridItem?>? slots,
+    LocalFlutterApplicationRegistry registry,
+  ) {
+    final locale = Localizations.localeOf(context);
+    var changed = false;
+    var desktopApps = _cachedDesktopApps;
+    if (!_hasCachedDesktopApps || !identical(slots, _cachedHomeSlots)) {
+      desktopApps = _installedDesktopApps(slots);
+      _hasCachedDesktopApps = true;
+      _cachedHomeSlots = slots;
+      _cachedDesktopApps = desktopApps;
+      changed = true;
+    }
+    var localApps = _cachedLocalApps;
+    if (localApps == null ||
+        !identical(registry, _cachedLocalRegistry) ||
+        locale != _cachedLocale) {
+      localApps = _installedLocalApps(context, registry.applications);
+      _cachedLocalRegistry = registry;
+      _cachedLocale = locale;
+      _cachedLocalApps = localApps;
+      changed = true;
+    }
+    final cached = _cachedInstalledApps;
+    if (!changed && cached != null) {
+      return cached;
+    }
+
+    final apps = _mergeInstalledApps(desktopApps!, localApps);
+    final activeIds = <String>{for (final app in apps) app.navigationId};
+    _tileKeys.removeWhere((id, _) => !activeIds.contains(id));
+    if (!activeIds.contains(_selectedEntryId)) {
+      _selectedEntryId = null;
+    }
+    _cachedInstalledApps = apps;
+    _cachedFilteredSource = null;
+    _cachedNormalizedQuery = null;
+    _cachedFilteredApps = null;
+    return apps;
+  }
+
+  List<_DesktopLauncherEntry> _resolveFilteredApps(
+    List<_DesktopLauncherEntry> apps,
+    String query,
+  ) {
+    final normalizedQuery = query.trim().toLowerCase();
+    final cached = _cachedFilteredApps;
+    if (cached != null &&
+        identical(apps, _cachedFilteredSource) &&
+        normalizedQuery == _cachedNormalizedQuery) {
+      return cached;
+    }
+    final filtered = _filterInstalledApps(apps, normalizedQuery);
+    _cachedFilteredSource = apps;
+    _cachedNormalizedQuery = normalizedQuery;
+    _cachedFilteredApps = filtered;
+    return filtered;
   }
 
   void _revealSelected(int selectedIndex) {
@@ -4336,13 +4579,13 @@ class _DesktopApplicationLauncherState
 
   @override
   Widget build(BuildContext context) {
-    final allApps = _installedApps(
-      context,
-      ref.watch(homeGridControllerProvider),
-      ref.watch(localFlutterApplicationRegistryProvider).applications,
+    final slots = ref.watch(
+      homeGridControllerProvider.select((state) => state.asData?.value.slots),
     );
-    final apps = _filterInstalledApps(allApps, _searchController.text);
-    final selectedIndex = _selectedIndexFor(apps);
+    final localRegistry = ref.watch(localFlutterApplicationRegistryProvider);
+    final allApps = _resolveInstalledApps(context, slots, localRegistry);
+    final apps = _resolveFilteredApps(allApps, _searchController.text);
+    _visibleApps = apps;
     final searching = _searchController.text.trim().isNotEmpty;
     final theme = ShellTheme.of(context);
     final l10n = context.l10n;
@@ -4368,12 +4611,12 @@ class _DesktopApplicationLauncherState
           },
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: theme.panelColor(ShellColors.panelBackground),
+              color: theme.panelColor(context.shellColors.panelBackground),
               borderRadius: BorderRadius.circular(theme.panelRadius),
-              border: Border.all(color: ShellColors.hairline),
-              boxShadow: const [
+              border: Border.all(color: context.shellColors.hairline),
+              boxShadow: [
                 BoxShadow(
-                  color: ShellColors.shadow,
+                  color: context.shellColors.shadow,
                   blurRadius: 36,
                   spreadRadius: 3,
                   offset: Offset(0, 16),
@@ -4387,7 +4630,9 @@ class _DesktopApplicationLauncherState
                 children: [
                   Text(
                     l10n.desktopApplicationsTitle,
-                    style: ShellText.statusClock.copyWith(fontSize: 22),
+                    style: context.shellTheme.text.statusClock.copyWith(
+                      fontSize: 22,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -4397,8 +4642,8 @@ class _DesktopApplicationLauncherState
                             allApps.length,
                           )
                         : l10n.desktopInstalledApplications(allApps.length),
-                    style: ShellText.cardTitle.copyWith(
-                      color: ShellColors.textSecondary,
+                    style: context.shellTheme.text.cardTitle.copyWith(
+                      color: context.shellColors.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -4428,14 +4673,22 @@ class _DesktopApplicationLauncherState
                                   mainAxisSpacing: _tileSpacing,
                                 ),
                             itemCount: apps.length,
-                            itemBuilder: (context, index) => _DesktopAppTile(
-                              key: ValueKey<String>(
-                                'desktop-app-${apps[index].navigationId}',
-                              ),
-                              app: apps[index],
-                              selected: index == selectedIndex,
-                              onTap: () => _launch(apps[index]),
-                            ),
+                            itemBuilder: (context, index) {
+                              final app = apps[index];
+                              return KeyedSubtree(
+                                key: ValueKey<String>(
+                                  'desktop-app-${app.navigationId}',
+                                ),
+                                child: _DesktopAppTile(
+                                  key: _tileKey(app.navigationId),
+                                  app: app,
+                                  selected: _selectedEntryId == null
+                                      ? index == 0
+                                      : app.navigationId == _selectedEntryId,
+                                  onTap: () => _launch(app),
+                                ),
+                              );
+                            },
                           ),
                   ),
                 ],
@@ -4476,85 +4729,105 @@ class _DesktopAppSearchField extends StatelessWidget {
       label: l10n.desktopSearchApplications,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: ShellColors.surfaceContainerHigh,
+          color: context.shellColors.surfaceContainerHigh,
           borderRadius: BorderRadius.circular(ShellRadii.chip),
-          border: Border.all(
-            color: focusNode.hasFocus ? accent.primary : ShellColors.hairline,
-          ),
         ),
-        child: SizedBox(
-          height: 44,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 13),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.search_rounded,
-                  size: 20,
-                  color: ShellColors.textSecondary,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Stack(
-                    alignment: Alignment.centerLeft,
-                    children: [
-                      if (!hasQuery)
-                        IgnorePointer(
-                          child: Text(
-                            l10n.desktopSearchApplications,
-                            style: const TextStyle(
-                              color: ShellColors.textTertiary,
-                              fontSize: 14,
-                              decoration: TextDecoration.none,
+        child: Stack(
+          children: <Widget>[
+            SizedBox(
+              height: 44,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 13),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.search_rounded,
+                      size: 20,
+                      color: context.shellColors.textSecondary,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Stack(
+                        alignment: Alignment.centerLeft,
+                        children: [
+                          if (!hasQuery)
+                            IgnorePointer(
+                              child: Text(
+                                l10n.desktopSearchApplications,
+                                style: TextStyle(
+                                  color: context.shellColors.textTertiary,
+                                  fontSize: 14,
+                                  decoration: TextDecoration.none,
+                                ),
+                              ),
+                            ),
+                          EditableText(
+                            controller: controller,
+                            focusNode: focusNode,
+                            mouseCursor: ShellMouseCursors.text,
+                            autofocus: true,
+                            maxLines: 1,
+                            keyboardType: TextInputType.text,
+                            textInputAction: TextInputAction.search,
+                            onEditingComplete: () {},
+                            onSubmitted: (_) => onSubmit(),
+                            style: context.shellTheme.text.base,
+                            cursorColor: accent.primary,
+                            backgroundCursorColor:
+                                context.shellColors.textSecondary,
+                            selectionColor: accent.selection,
+                            // Raw shortcuts and text input are separate
+                            // channels. Deny control characters in case an IME
+                            // commits one.
+                            inputFormatters: _inputFormatters,
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (hasQuery) ...[
+                      const SizedBox(width: 8),
+                      Semantics(
+                        button: true,
+                        label: l10n.desktopClearApplicationSearch,
+                        child: MouseRegion(
+                          cursor: ShellMouseCursors.link,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: onClear,
+                            child: SizedBox.square(
+                              dimension: 28,
+                              child: Icon(
+                                Icons.close_rounded,
+                                size: 18,
+                                color: context.shellColors.textSecondary,
+                              ),
                             ),
                           ),
                         ),
-                      EditableText(
-                        controller: controller,
-                        focusNode: focusNode,
-                        mouseCursor: ShellMouseCursors.text,
-                        autofocus: true,
-                        maxLines: 1,
-                        keyboardType: TextInputType.text,
-                        textInputAction: TextInputAction.search,
-                        onEditingComplete: () {},
-                        onSubmitted: (_) => onSubmit(),
-                        style: ShellText.base,
-                        cursorColor: accent.primary,
-                        backgroundCursorColor: ShellColors.textSecondary,
-                        selectionColor: accent.selection,
-                        // Raw shortcuts and text input are separate channels.
-                        // Deny control characters in case an IME commits one.
-                        inputFormatters: _inputFormatters,
                       ),
                     ],
-                  ),
+                  ],
                 ),
-                if (hasQuery) ...[
-                  const SizedBox(width: 8),
-                  Semantics(
-                    button: true,
-                    label: l10n.desktopClearApplicationSearch,
-                    child: MouseRegion(
-                      cursor: ShellMouseCursors.link,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: onClear,
-                        child: const SizedBox.square(
-                          dimension: 28,
-                          child: Icon(
-                            Icons.close_rounded,
-                            size: 18,
-                            color: ShellColors.textSecondary,
-                          ),
-                        ),
+              ),
+            ),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: ListenableBuilder(
+                  listenable: focusNode,
+                  builder: (context, child) => DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(ShellRadii.chip),
+                      border: Border.all(
+                        color: focusNode.hasFocus
+                            ? accent.primary
+                            : context.shellColors.hairline,
                       ),
                     ),
                   ),
-                ],
-              ],
+                ),
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -4570,16 +4843,16 @@ class _DesktopAppSearchEmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
+          Icon(
             Icons.search_off_rounded,
             size: 34,
-            color: ShellColors.textTertiary,
+            color: context.shellColors.textTertiary,
           ),
           const SizedBox(height: 10),
           Text(
             context.l10n.desktopNoApplicationsFound,
-            style: ShellText.cardTitle.copyWith(
-              color: ShellColors.textSecondary,
+            style: context.shellTheme.text.cardTitle.copyWith(
+              color: context.shellColors.textSecondary,
             ),
           ),
         ],
@@ -4606,14 +4879,29 @@ class _DesktopAppTile extends StatefulWidget {
 
 class _DesktopAppTileState extends State<_DesktopAppTile> {
   bool _hovered = false;
+  late bool _selected = widget.selected;
+
+  @override
+  void didUpdateWidget(covariant _DesktopAppTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _selected = widget.selected;
+  }
+
+  void setSelected(bool selected) {
+    if (_selected == selected) {
+      return;
+    }
+    setState(() => _selected = selected);
+  }
 
   @override
   Widget build(BuildContext context) {
     final accent = ShellTheme.of(context).accentPalette;
     final l10n = context.l10n;
+    final highlighted = _selected || _hovered;
     return Semantics(
       button: true,
-      selected: widget.selected,
+      selected: _selected,
       label: l10n.desktopLaunchApplication(widget.app.name),
       child: MouseRegion(
         cursor: ShellMouseCursors.link,
@@ -4627,15 +4915,14 @@ class _DesktopAppTileState extends State<_DesktopAppTile> {
             curve: Motion.standard,
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: widget.selected
+              // Keep the idle endpoint in the accent hue so the implicit
+              // alpha transition never flashes through neutral grey before
+              // reaching the highlighted state.
+              color: highlighted
                   ? accent.container
-                  : _hovered
-                  ? ShellColors.surfaceContainerHighest
-                  : const Color(0x00000000),
+                  : accent.container.withValues(alpha: 0),
               borderRadius: BorderRadius.circular(18),
-              border: widget.selected
-                  ? Border.all(color: accent.primary)
-                  : null,
+              border: _selected ? Border.all(color: accent.primary) : null,
             ),
             child: Column(
               children: [
@@ -4659,7 +4946,12 @@ class _DesktopAppTileState extends State<_DesktopAppTile> {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
-                    style: ShellText.cardTitle.copyWith(fontSize: 11),
+                    style: context.shellTheme.text.cardTitle.copyWith(
+                      color: highlighted
+                          ? accent.onContainer
+                          : context.shellColors.textPrimary,
+                      fontSize: 11,
+                    ),
                   ),
                 ),
               ],
@@ -4694,24 +4986,39 @@ IconData _bluetoothIcon(String icon) {
   return Icons.bluetooth_rounded;
 }
 
-List<_DesktopLauncherEntry> _installedApps(
-  BuildContext context,
-  AsyncValue<HomeGridState> state,
-  Iterable<LocalFlutterApplication> localApps,
-) {
-  final byId = <String, _DesktopLauncherEntry>{};
+List<_DesktopLauncherEntry> _installedDesktopApps(List<HomeGridItem?>? slots) {
+  final apps = <_DesktopLauncherEntry>[];
   for (final item
-      in state.asData?.value.slots.whereType<HomeGridItem>() ??
-          const <HomeGridItem>[]) {
+      in slots?.whereType<HomeGridItem>() ?? const <HomeGridItem>[]) {
     if (item.app case final app?) {
-      byId['desktop:${app.id}'] = _DesktopLauncherEntry.desktop(app);
+      apps.add(_DesktopLauncherEntry.desktop(app));
     }
   }
+  return apps;
+}
+
+List<_DesktopLauncherEntry> _installedLocalApps(
+  BuildContext context,
+  Iterable<LocalFlutterApplication> localApps,
+) {
+  return <_DesktopLauncherEntry>[
+    for (final app in localApps) _DesktopLauncherEntry.local(app, context),
+  ];
+}
+
+List<_DesktopLauncherEntry> _mergeInstalledApps(
+  List<_DesktopLauncherEntry> desktopApps,
+  List<_DesktopLauncherEntry> localApps,
+) {
+  final byId = <String, _DesktopLauncherEntry>{};
+  for (final app in desktopApps) {
+    byId[app.navigationId] = app;
+  }
   for (final app in localApps) {
-    byId['local:${app.id}'] = _DesktopLauncherEntry.local(app, context);
+    byId[app.navigationId] = app;
   }
   final apps = byId.values.toList(growable: false)
-    ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    ..sort((a, b) => a.sortName.compareTo(b.sortName));
   return apps;
 }
 
@@ -4719,19 +5026,11 @@ List<_DesktopLauncherEntry> _filterInstalledApps(
   List<_DesktopLauncherEntry> apps,
   String query,
 ) {
-  final normalizedQuery = query.trim().toLowerCase();
-  if (normalizedQuery.isEmpty) {
+  if (query.isEmpty) {
     return apps;
   }
 
   return apps
-      .where((app) {
-        final searchable = <String>[
-          app.name,
-          app.id,
-          ...app.categories,
-        ].join(' ').toLowerCase();
-        return searchable.contains(normalizedQuery);
-      })
+      .where((app) => app.searchableText.contains(query))
       .toList(growable: false);
 }

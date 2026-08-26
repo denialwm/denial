@@ -383,8 +383,13 @@ impl FlutterRuntime {
             }
         }
         self.run_due_tasks()?;
-        self.expire_window_close_texture_leases()?;
-        self.publish_authentication_events()
+        if !self.window_close_texture_leases.is_empty() {
+            self.expire_window_close_texture_leases()?;
+        }
+        if self.authentication.has_pending_events() {
+            self.publish_authentication_events()?;
+        }
+        Ok(())
     }
 
     pub(super) fn publish_authentication_events(&mut self) -> Result<(), Box<dyn Error>> {

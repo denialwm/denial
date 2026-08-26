@@ -1,5 +1,5 @@
 import 'dart:math' as math;
-import 'dart:ui' show ImageFilter;
+import 'dart:ui' show ImageFilter, TileMode;
 
 import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/scheduler.dart';
@@ -11,6 +11,7 @@ import '../../input/shell_interaction_registry.dart';
 import '../../launcher/models/home_clock_info.dart';
 import '../../launcher/widgets/home_tiles.dart';
 import '../../localization/denial_localizations.dart';
+import '../../models/display_layout.dart';
 import '../../models/shell_power_status.dart';
 import '../../platform/authentication_protocol.dart';
 import '../../settings/settings_controller.dart';
@@ -92,7 +93,7 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
       child: LayoutBuilder(
         builder: (context, constraints) {
           final canvas = Offset.zero & constraints.biggest;
-          final outputs = (layout?.outputs ?? const [])
+          final outputs = (layout?.outputs ?? [])
               .map(
                 (output) => (
                   output: output,
@@ -120,26 +121,42 @@ class _LockScreenLayerState extends ConsumerState<LockScreenLayer>
             );
           } else {
             final authenticationMonitorId = layout?.mainOutput?.monitorId;
+            final hasAtlasGaps = layout?.hasAtlasGaps ?? false;
             scene = Stack(
               fit: StackFit.expand,
               children: [
-                const _LockBackdrop(),
+                if (!hasAtlasGaps)
+                  CustomPaint(
+                    painter: _LockFillPainter(
+                      color: context.shellColors.background,
+                    ),
+                  ),
                 for (final entry in outputs)
                   Positioned.fromRect(
                     rect: entry.rect,
                     child: ClipRect(
+                      key: ValueKey<String>(
+                        'lock-output-clip-${entry.output.monitorId}',
+                      ),
                       child: MediaQuery(
                         data: MediaQuery.of(context).copyWith(
                           size: entry.rect.size,
                           padding: EdgeInsets.zero,
                           viewPadding: EdgeInsets.zero,
                         ),
-                        child: _LockScreenPane(
-                          key: ValueKey<int>(entry.output.monitorId),
-                          unlockProgress: widget.unlockProgress,
-                          authenticationEnabled:
-                              entry.output.monitorId == authenticationMonitorId,
-                          desktop: true,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            _LockBackdrop(output: entry.output),
+                            _LockScreenPane(
+                              key: ValueKey<int>(entry.output.monitorId),
+                              unlockProgress: widget.unlockProgress,
+                              authenticationEnabled:
+                                  entry.output.monitorId ==
+                                  authenticationMonitorId,
+                              desktop: true,
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -558,7 +575,7 @@ class _DesktopUnlockPrompt extends StatelessWidget {
                           Text(
                             l10n.lockDesktopPromptDescription,
                             style: ShellText.base.copyWith(
-                              color: ShellColors.textSecondary,
+                              color: context.shellColors.textSecondary,
                               fontSize: 13,
                               height: 1.35,
                             ),
@@ -719,7 +736,7 @@ class _LockAuthenticationPanel extends StatelessWidget {
                                       ? l10n.lockPamVerified
                                       : l10n.lockAuthenticationUnavailable,
                                   style: ShellText.base.copyWith(
-                                    color: ShellColors.textTertiary,
+                                    color: context.shellColors.textTertiary,
                                     fontSize: 11.5,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -737,12 +754,14 @@ class _LockAuthenticationPanel extends StatelessWidget {
                           child: DecoratedBox(
                             decoration: BoxDecoration(
                               color: error
-                                  ? const Color(0x24ff5c6c)
+                                  ? context.shellColors.performanceBad
+                                        .withValues(alpha: 0.14)
                                   : accent.subtle,
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(
                                 color: error
-                                    ? const Color(0x66ff5c6c)
+                                    ? context.shellColors.performanceBad
+                                          .withValues(alpha: 0.40)
                                     : accent.outline,
                               ),
                             ),
@@ -755,8 +774,8 @@ class _LockAuthenticationPanel extends StatelessWidget {
                                 message,
                                 style: ShellText.base.copyWith(
                                   color: error
-                                      ? const Color(0xffffa8b0)
-                                      : ShellColors.textSecondary,
+                                      ? context.shellColors.performanceBad
+                                      : context.shellColors.textSecondary,
                                   fontSize: 13,
                                   height: 1.25,
                                 ),
@@ -773,7 +792,7 @@ class _LockAuthenticationPanel extends StatelessWidget {
                             l10n.lockRetryInSeconds(cooldownSeconds),
                             textAlign: TextAlign.center,
                             style: ShellText.base.copyWith(
-                              color: ShellColors.performanceWarning,
+                              color: context.shellColors.performanceWarning,
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
                             ),
@@ -790,12 +809,12 @@ class _LockAuthenticationPanel extends StatelessWidget {
                           obscured: prompt.obscure,
                           child: DecoratedBox(
                             decoration: BoxDecoration(
-                              color: const Color(0x80101318),
+                              color: context.shellColors.surfaceContainerHigh,
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(
                                 color: focusNode.hasFocus
                                     ? accent.primary
-                                    : ShellColors.hairline,
+                                    : context.shellColors.hairline,
                               ),
                             ),
                             child: Padding(
@@ -806,12 +825,13 @@ class _LockAuthenticationPanel extends StatelessWidget {
                               child: EditableText(
                                 controller: controller,
                                 focusNode: focusNode,
-                                style: ShellText.base.copyWith(
+                                style: context.shellTheme.text.base.copyWith(
                                   fontSize: 16,
                                   letterSpacing: prompt.obscure ? 2.5 : 0,
                                 ),
                                 cursorColor: accent.primary,
-                                backgroundCursorColor: ShellColors.textTertiary,
+                                backgroundCursorColor:
+                                    context.shellColors.textTertiary,
                                 selectionColor: accent.selection,
                                 obscureText: prompt.obscure,
                                 obscuringCharacter: '•',
@@ -923,9 +943,9 @@ class _MobileLockAuthenticationPanel extends StatelessWidget {
               child: DecoratedBox(
                 key: const ValueKey<String>('mobile-lock-authentication-panel'),
                 decoration: BoxDecoration(
-                  color: ShellColors.surfaceContainerLow,
+                  color: context.shellColors.surfaceContainerLow,
                   borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: ShellColors.hairline),
+                  border: Border.all(color: context.shellColors.hairline),
                 ),
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
@@ -958,7 +978,7 @@ class _MobileLockAuthenticationPanel extends StatelessWidget {
                           Text(
                             l10n.lockAuthenticationUnavailable,
                             style: ShellText.base.copyWith(
-                              color: ShellColors.textTertiary,
+                              color: context.shellColors.textTertiary,
                               fontSize: 13,
                             ),
                           ),
@@ -972,8 +992,8 @@ class _MobileLockAuthenticationPanel extends StatelessWidget {
                               message,
                               style: ShellText.base.copyWith(
                                 color: error
-                                    ? ShellColors.performanceBad
-                                    : ShellColors.textSecondary,
+                                    ? context.shellColors.performanceBad
+                                    : context.shellColors.textSecondary,
                                 fontSize: 13,
                                 height: 1.3,
                                 fontWeight: error
@@ -990,7 +1010,7 @@ class _MobileLockAuthenticationPanel extends StatelessWidget {
                             child: Text(
                               l10n.lockRetryInSeconds(cooldownSeconds),
                               style: ShellText.base.copyWith(
-                                color: ShellColors.performanceWarning,
+                                color: context.shellColors.performanceWarning,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -1006,7 +1026,7 @@ class _MobileLockAuthenticationPanel extends StatelessWidget {
                                 ? l10n.lockAuthenticationResponse
                                 : promptLabel,
                             style: ShellText.base.copyWith(
-                              color: ShellColors.textSecondary,
+                              color: context.shellColors.textSecondary,
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                             ),
@@ -1023,14 +1043,13 @@ class _MobileLockAuthenticationPanel extends StatelessWidget {
                                 animation: focusNode,
                                 builder: (context, child) => DecoratedBox(
                                   decoration: BoxDecoration(
-                                    color: ShellColors.background.withValues(
-                                      alpha: 0.72,
-                                    ),
+                                    color: context.shellColors.background
+                                        .withValues(alpha: 0.72),
                                     borderRadius: BorderRadius.circular(14),
                                     border: Border.all(
                                       color: focusNode.hasFocus
                                           ? accent.primary
-                                          : ShellColors.hairline,
+                                          : context.shellColors.hairline,
                                     ),
                                   ),
                                   child: child,
@@ -1051,15 +1070,16 @@ class _MobileLockAuthenticationPanel extends StatelessWidget {
                                           ),
                                           controller: controller,
                                           focusNode: focusNode,
-                                          style: ShellText.base.copyWith(
-                                            fontSize: 17,
-                                            letterSpacing: prompt.obscure
-                                                ? 2.2
-                                                : 0,
-                                          ),
+                                          style: context.shellTheme.text.base
+                                              .copyWith(
+                                                fontSize: 17,
+                                                letterSpacing: prompt.obscure
+                                                    ? 2.2
+                                                    : 0,
+                                              ),
                                           cursorColor: accent.primary,
                                           backgroundCursorColor:
-                                              ShellColors.textTertiary,
+                                              context.shellColors.textTertiary,
                                           selectionColor: accent.selection,
                                           obscureText: prompt.obscure,
                                           obscuringCharacter: '•',
@@ -1132,7 +1152,7 @@ class _MobileLockCancelButton extends StatelessWidget {
           child: Text(
             label,
             style: ShellText.base.copyWith(
-              color: ShellColors.textSecondary,
+              color: context.shellColors.textSecondary,
               fontSize: 13,
               fontWeight: FontWeight.w600,
             ),
@@ -1210,7 +1230,9 @@ class _MobileLockPrimaryButton extends StatelessWidget {
               label,
               textAlign: TextAlign.center,
               style: ShellText.base.copyWith(
-                color: enabled ? accent.onPrimary : ShellColors.textTertiary,
+                color: enabled
+                    ? accent.onPrimary
+                    : context.shellColors.textTertiary,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -1248,8 +1270,8 @@ class _LockActionButtonState extends State<_LockActionButton> {
     final active = widget.enabled && _highlighted;
     final accent = ShellTheme.of(context).accentPalette;
     final foreground = widget.enabled
-        ? (widget.primary ? accent.onPrimary : ShellColors.textPrimary)
-        : ShellColors.textTertiary.withValues(alpha: 0.55);
+        ? (widget.primary ? accent.onPrimary : context.shellColors.textPrimary)
+        : context.shellColors.textTertiary.withValues(alpha: 0.55);
     return Semantics(
       button: true,
       enabled: widget.enabled,
@@ -1287,11 +1309,13 @@ class _LockActionButtonState extends State<_LockActionButton> {
               color: widget.primary
                   ? (widget.enabled ? accent.primary : accent.subtle)
                   : (active
-                        ? ShellColors.surfaceContainerHighest
-                        : ShellColors.surfaceContainerHigh),
+                        ? context.shellColors.surfaceContainerHighest
+                        : context.shellColors.surfaceContainerHigh),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: active ? accent.primary : ShellColors.hairlineSoft,
+                color: active
+                    ? accent.primary
+                    : context.shellColors.hairlineSoft,
               ),
             ),
             child: Row(
@@ -1324,50 +1348,56 @@ BoxDecoration _desktopLockPanelDecoration({
   required ShellAccentPalette accent,
 }) {
   return BoxDecoration(
-    color: theme.panelColor(const Color(0xff171b22)),
+    color: theme.panelColor(theme.colors.panelBackground),
     borderRadius: BorderRadius.circular(theme.panelRadius),
     border: Border.all(color: accent.outline),
-    boxShadow: const <BoxShadow>[
-      BoxShadow(
-        color: Color(0x99000000),
-        blurRadius: 42,
-        spreadRadius: 4,
-        offset: Offset(0, 18),
-      ),
-    ],
   );
 }
 
 class _LockBackdrop extends ConsumerWidget {
-  const _LockBackdrop();
+  const _LockBackdrop({this.output});
+
+  final DisplayOutput? output;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(
       shellSettingsProvider.select((value) => value.lockScreen),
     );
+    final output = this.output;
     return RepaintBoundary(
       child: Stack(
         fit: StackFit.expand,
         children: [
-          const CustomPaint(
-            painter: _LockFillPainter(color: Color(0xff080a0e)),
+          CustomPaint(
+            painter: _LockFillPainter(color: context.shellColors.background),
           ),
           if (settings.useSystemWallpaper)
             ClipRect(
               child: ImageFiltered(
+                key: ValueKey<String>(
+                  output == null
+                      ? 'lock-wallpaper-blur'
+                      : 'lock-wallpaper-blur-${output.monitorId}',
+                ),
                 imageFilter: ImageFilter.blur(
                   sigmaX: settings.blurRadius,
                   sigmaY: settings.blurRadius,
+                  // The lock wallpaper fills the output. Clamping keeps the
+                  // blur kernel from sampling transparent pixels beyond that
+                  // boundary and exposing a bright halo around the display.
+                  tileMode: TileMode.clamp,
                 ),
-                child: const ShellWallpaper(),
+                child: output == null
+                    ? const ShellWallpaper()
+                    : ShellOutputWallpaper(output: output),
               ),
             ),
           CustomPaint(
             painter: _LockFillPainter(
-              color: const Color(
-                0xff000000,
-              ).withValues(alpha: settings.dimAmount),
+              color: ShellMediaColors.darkness.withValues(
+                alpha: settings.dimAmount,
+              ),
             ),
           ),
         ],
@@ -1445,16 +1475,11 @@ class _DesktopLockStatusBar extends StatelessWidget {
       label: l10n.lockPerformanceStatusLabel,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: const Color(0x8a101318),
+          color: context.shellTheme.panelColor(
+            context.shellColors.panelBackground,
+          ),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: ShellColors.hairlineSoft),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x48000000),
-              blurRadius: 24,
-              offset: Offset(0, 10),
-            ),
-          ],
+          border: Border.all(color: context.shellColors.hairlineSoft),
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -1503,7 +1528,7 @@ class _DesktopPerformanceMetric extends StatelessWidget {
     final temperature = series.temperatureC;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: ShellColors.surfaceContainerHigh.withValues(alpha: 0.72),
+        color: context.shellColors.surfaceContainerHigh.withValues(alpha: 0.72),
         borderRadius: BorderRadius.circular(11),
       ),
       child: Padding(
@@ -1511,7 +1536,7 @@ class _DesktopPerformanceMetric extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 15, color: ShellColors.textTertiary),
+            Icon(icon, size: 15, color: context.shellColors.textTertiary),
             const SizedBox(width: 7),
             Text(
               l10n.lockPerformanceMetric(label, value),
@@ -1522,7 +1547,7 @@ class _DesktopPerformanceMetric extends StatelessWidget {
               Text(
                 l10n.lockTemperature(temperature.round()),
                 style: ShellText.base.copyWith(
-                  color: ShellColors.textTertiary,
+                  color: context.shellColors.textTertiary,
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
                 ),
@@ -1602,7 +1627,7 @@ class _LockSwipePill extends StatelessWidget {
             offset: Offset(0.0, -8.0 * progress),
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: const Color(0xd8ffffff),
+                color: context.shellColors.gesturePill,
                 borderRadius: BorderRadius.circular(3),
               ),
               child: const SizedBox(width: 132, height: 5),

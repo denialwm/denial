@@ -84,9 +84,15 @@ class DesktopPowerModesService {
   }
 
   Future<DesktopPowerModesSnapshot> readSnapshot() async {
-    final systemProfile = await _readSystemProfile();
-    final pbo = await _readPboSnapshot();
-    final gpu = await _lactService.readAmdPerformancePreset();
+    // These sources are independent. Start all three before awaiting any of
+    // them so a slow D-Bus endpoint cannot serialize the local PBO and LACT
+    // reads behind it.
+    final systemProfileFuture = _readSystemProfile();
+    final pboFuture = _readPboSnapshot();
+    final gpuFuture = _lactService.readAmdPerformancePreset();
+    final systemProfile = await systemProfileFuture;
+    final pbo = await pboFuture;
+    final gpu = await gpuFuture;
     return DesktopPowerModesSnapshot(
       systemAvailable: systemProfile != null,
       systemProfile: systemProfile ?? PowerProfile.balanced,

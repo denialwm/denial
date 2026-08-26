@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:ui' show SemanticsRole;
+import 'dart:ui' show CheckedState, SemanticsRole;
 
 import 'package:denial_dart_shell/src/settings/widgets/focused_border_color_picker.dart';
 import 'package:denial_dart_shell/src/settings/widgets/hsv_color_wheel.dart';
@@ -28,6 +28,8 @@ import 'package:denial_dart_shell/src/state/display_layout.dart';
 import 'package:denial_dart_shell/src/state/output_configuration.dart';
 import 'package:denial_dart_shell/src/state/shell_controller.dart';
 import 'package:denial_dart_shell/src/theme/backdrop_blur_level.dart';
+import 'package:denial_dart_shell/src/theme/shell_color_scheme.dart';
+import 'package:denial_dart_shell/src/theme/shell_theme.dart';
 import 'package:denial_dart_shell/src/theme/tokens.dart';
 import 'package:denial_dart_shell/src/wallpaper/state/wallpaper_controller.dart';
 import 'package:denial_dart_shell/src/widgets/denial_wordmark.dart';
@@ -72,6 +74,8 @@ void main() {
     expect(svg.clipBehavior, Clip.none);
     expect(svg.renderingStrategy.name, 'picture');
     expect(find.text('Make the desktop feel like yours.'), findsOneWidget);
+    expect(find.text('Colour scheme'), findsOneWidget);
+    expect(find.byKey(settingsColorSchemeControlKey), findsOneWidget);
     expect(find.text('Wallpaper'), findsOneWidget);
     expect(find.byKey(settingsWallpaperTriggerKey), findsOneWidget);
     expect(find.text('Shell accent'), findsOneWidget);
@@ -93,7 +97,7 @@ void main() {
       findsNothing,
     );
     expect(find.byType(SettingsCardGroup), findsOneWidget);
-    expect(find.byType(SettingsSection), findsNWidgets(6));
+    expect(find.byType(SettingsSection), findsNWidgets(7));
 
     final pageTitle = tester.widget<Text>(
       find.text('Make the desktop feel like yours.'),
@@ -114,6 +118,106 @@ void main() {
     );
     expect(settingsSemantics.properties.role, SemanticsRole.main);
     semantics.dispose();
+  });
+
+  testWidgets('colour scheme previews immediately through shell settings', (
+    tester,
+  ) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container);
+
+    expect(
+      find.descendant(
+        of: find.byKey(settingsColorSchemeControlKey),
+        matching: find.byType(AnimatedContainer),
+      ),
+      findsNothing,
+      reason: 'theme colors must not be retweened by each choice chip',
+    );
+
+    expect(
+      container.read(shellSettingsProvider).appearance.colorSchemePreference,
+      DesktopColorSchemePreference.preferDark,
+    );
+    await tester.tap(find.text('Light'));
+    await tester.pump();
+    expect(
+      container.read(shellSettingsProvider).appearance.colorSchemePreference,
+      DesktopColorSchemePreference.preferLight,
+    );
+    final lightSemantics = tester.getSemantics(find.text('Light'));
+    expect(lightSemantics.flagsCollection.isChecked, CheckedState.isTrue);
+    expect(lightSemantics.flagsCollection.isInMutuallyExclusiveGroup, isTrue);
+
+    await tester.tap(find.text('No preference'));
+    await tester.pump();
+    expect(
+      container.read(shellSettingsProvider).appearance.colorSchemePreference,
+      DesktopColorSchemePreference.noPreference,
+    );
+    expect(
+      find.textContaining('Denial keeps its default dark'),
+      findsOneWidget,
+    );
+    await container.read(shellSettingsProvider.notifier).flush();
+  });
+
+  testWidgets('panel radius accepts a square zero-radius presentation', (
+    tester,
+  ) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container);
+
+    final slider = tester.widget<SettingsSlider>(
+      find.byKey(settingsPanelRadiusSliderKey),
+    );
+    expect(slider.minimum, 0);
+    expect(slider.maximum, 56);
+    expect(slider.divisions, 56);
+
+    slider.onChanged(0);
+    await tester.pump();
+    expect(container.read(shellSettingsProvider).appearance.panelRadius, 0);
+    await container.read(shellSettingsProvider.notifier).flush();
+  });
+
+  testWidgets('clicked navigation entry keeps its selected hover treatment', (
+    tester,
+  ) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container, size: const Size(980, 700));
+
+    final destination = find.descendant(
+      of: find.byType(SettingsNavigation),
+      matching: find.byKey(
+        const ValueKey<SettingsPageId>(SettingsPageId.language),
+      ),
+    );
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(
+      location: tester.getTopLeft(destination) - const Offset(6, 6),
+    );
+    await mouse.moveTo(tester.getCenter(destination));
+    await tester.pumpAndSettle();
+
+    final darkHover = ShellColorScheme.dark.surfaceContainerHigh;
+    expect(_destinationColors(tester, destination), contains(darkHover));
+
+    await mouse.down(tester.getCenter(destination));
+    await tester.pump();
+    await mouse.up();
+    await tester.pump();
+
+    final accent = const ShellThemeData().accent;
+    expect(
+      _destinationColors(tester, destination),
+      contains(accent.withAlpha(20)),
+    );
+    expect(_destinationColors(tester, destination), isNot(contains(darkHover)));
   });
 
   testWidgets('wallpaper action opens the shared selector', (tester) async {
@@ -567,7 +671,7 @@ void main() {
     final monitorCard = tester.widget<AnimatedContainer>(
       find.descendant(of: monitor, matching: find.byType(AnimatedContainer)),
     );
-    expect(monitorIcon.color, ShellColors.textPrimary);
+    expect(monitorIcon.color, ShellColorScheme.dark.textPrimary);
     expect((monitorCard.decoration! as BoxDecoration).borderRadius, isNull);
     final initialMonitorRect = tester.getRect(monitor);
     final canvasRect = tester.getRect(canvas);
@@ -959,6 +1063,25 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('colour-scheme choices wrap at large accessible text sizes', (
+    tester,
+  ) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    await _pumpSettings(
+      tester,
+      container,
+      size: const Size(360, 640),
+      textScaler: const TextScaler.linear(2),
+    );
+
+    expect(find.text('Dark'), findsOneWidget);
+    expect(find.text('Light'), findsOneWidget);
+    expect(find.text('No preference'), findsOneWidget);
+    await tester.ensureVisible(find.text('No preference'));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('system bar edge and monitor clones update live', (tester) async {
     final container = _settingsContainer();
     addTearDown(container.dispose);
@@ -1083,6 +1206,15 @@ void main() {
   });
 }
 
+List<Color?> _destinationColors(WidgetTester tester, Finder destination) {
+  return tester
+      .widgetList<DecoratedBox>(
+        find.descendant(of: destination, matching: find.byType(DecoratedBox)),
+      )
+      .map((box) => (box.decoration as BoxDecoration).color)
+      .toList(growable: false);
+}
+
 ProviderContainer _settingsContainer({
   DenialOutputConfiguration outputConfiguration = _outputConfiguration,
 }) {
@@ -1118,6 +1250,7 @@ Future<void> _pumpSettings(
   ProviderContainer container, {
   Size size = const Size(760, 540),
   Locale locale = const Locale('en'),
+  TextScaler textScaler = TextScaler.noScaling,
   Future<void> Function()? onOpenWallpaperSelector,
 }) {
   return tester.pumpWidget(
@@ -1136,7 +1269,7 @@ Future<void> _pumpSettings(
           );
         },
         child: MediaQuery(
-          data: MediaQueryData(size: size),
+          data: MediaQueryData(size: size, textScaler: textScaler),
           child: Overlay(
             initialEntries: <OverlayEntry>[
               OverlayEntry(

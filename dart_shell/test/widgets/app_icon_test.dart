@@ -6,9 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('desktop SVG loaders share a path-based cache key', () {
-    const first = DesktopAppSvgLoader('/usr/share/icons/example.svg');
-    const second = DesktopAppSvgLoader('/usr/share/icons/example.svg');
-    const different = DesktopAppSvgLoader('/usr/share/icons/different.svg');
+    final first = DesktopAppSvgLoader('/usr/share/icons/example.svg');
+    final second = DesktopAppSvgLoader('/usr/share/icons/example.svg');
+    final different = DesktopAppSvgLoader('/usr/share/icons/different.svg');
 
     expect(first, second);
     expect(first.cacheKey(null), second.cacheKey(null));

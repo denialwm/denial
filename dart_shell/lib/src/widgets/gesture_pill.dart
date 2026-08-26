@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import '../theme/shell_theme.dart';
+
 class GesturePill extends StatelessWidget {
   const GesturePill({super.key, required this.armed});
 
@@ -13,11 +15,13 @@ class GesturePill extends StatelessWidget {
       width: armed ? 132 : 116,
       height: 5,
       decoration: BoxDecoration(
-        color: armed ? const Color(0xff8ee6c1) : const Color(0xdff7f7f8),
+        color: armed
+            ? context.shellColors.gestureArmed
+            : context.shellColors.gesturePill,
         borderRadius: BorderRadius.circular(3),
-        boxShadow: const <BoxShadow>[
+        boxShadow: <BoxShadow>[
           BoxShadow(
-            color: Color(0x66000000),
+            color: context.shellColors.shadowSoft,
             blurRadius: 10,
             offset: Offset(0, 2),
           ),

@@ -95,6 +95,26 @@ class DisplayLayout {
   final double maximizePadding;
   final List<DisplayOutput> outputs;
 
+  /// Whether the rectangular Flutter atlas contains space that belongs to no
+  /// physical output. This occurs in mixed-orientation and offset layouts.
+  /// Output topology rejects overlaps, so summing clipped output areas is the
+  /// exact covered area of the atlas.
+  bool get hasAtlasGaps {
+    if (outputs.isEmpty || logicalSize.isEmpty) {
+      return false;
+    }
+    final canvas = Offset.zero & logicalSize;
+    var coveredArea = 0.0;
+    for (final output in outputs) {
+      final visible = output.logicalRect.intersect(canvas);
+      if (!visible.isEmpty) {
+        coveredArea += visible.width * visible.height;
+      }
+    }
+    final canvasArea = canvas.width * canvas.height;
+    return coveredArea < canvasArea - 0.01;
+  }
+
   List<int> get effectiveSystemBarMonitorIds {
     if (systemBarMonitorIds.isNotEmpty) {
       return systemBarMonitorIds;

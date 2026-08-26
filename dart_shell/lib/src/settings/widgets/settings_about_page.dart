@@ -71,8 +71,8 @@ class _AboutHero extends StatelessWidget {
           Text(
             l10n.settingsAboutTagline,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: ShellColors.textPrimary,
+            style: TextStyle(
+              color: context.shellColors.textPrimary,
               fontSize: 22,
               height: 1.2,
               fontWeight: FontWeight.w800,
@@ -111,7 +111,7 @@ class _AboutDescription extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final bodyStyle = ShellText.base.copyWith(
-      color: ShellColors.textSecondary,
+      color: context.shellColors.textSecondary,
       fontSize: 15,
       height: 1.55,
     );
@@ -153,7 +153,7 @@ class _AboutCredit extends StatelessWidget {
             l10n.settingsAboutCreditLabel,
             textAlign: TextAlign.center,
             style: ShellText.cardTitle.copyWith(
-              color: ShellColors.textTertiary,
+              color: context.shellColors.textTertiary,
               fontSize: 10,
               letterSpacing: 1.2,
             ),
@@ -162,8 +162,8 @@ class _AboutCredit extends StatelessWidget {
           SelectableText(
             l10n.settingsAboutCreditName,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: ShellColors.textPrimary,
+            style: TextStyle(
+              color: context.shellColors.textPrimary,
               fontSize: 21,
               fontWeight: FontWeight.w800,
               decoration: TextDecoration.none,
@@ -174,7 +174,7 @@ class _AboutCredit extends StatelessWidget {
             l10n.settingsAboutCollaboration,
             textAlign: TextAlign.center,
             style: ShellText.base.copyWith(
-              color: ShellColors.textSecondary,
+              color: context.shellColors.textSecondary,
               height: 1.4,
             ),
           ),

@@ -104,7 +104,7 @@ class MediaPlayerService {
   static const String _playerInterface = 'org.mpris.MediaPlayer2.Player';
   static const Duration _readTimeout = Duration(seconds: 2);
   static const Duration _methodTimeout = Duration(seconds: 4);
-  static const Duration _refreshInterval = Duration(seconds: 4);
+  static const Duration _recoveryInterval = Duration(minutes: 1);
   static const Duration _signalCoalesce = Duration(milliseconds: 45);
   static const Duration _unavailableGrace = Duration(seconds: 2);
   static const int _maxPlayers = 16;
@@ -139,7 +139,7 @@ class MediaPlayerService {
         .where((event) => event.name.startsWith(_servicePrefix))
         .listen((_) => _scheduleRefresh(immediate: true));
     _refreshTimer = Timer.periodic(
-      _refreshInterval,
+      _recoveryInterval,
       (_) => _scheduleRefresh(immediate: true),
     );
     await refresh();
@@ -214,7 +214,6 @@ class MediaPlayerService {
     } on Object {
       // The player can disappear between hover and click.
     }
-    _scheduleRefresh(immediate: true);
   }
 
   Future<List<String>> _listPlayerNames() async {
@@ -297,8 +296,35 @@ class MediaPlayerService {
     if (object != null) {
       _propertiesSubscription = object.propertiesChanged
           .where((signal) => signal.propertiesInterface == _playerInterface)
-          .listen((_) => _scheduleRefresh());
+          .listen(_handlePropertiesChanged);
     }
+  }
+
+  void _handlePropertiesChanged(DBusPropertiesChangedSignal signal) {
+    if (_disposed || _activeObject?.name != _current.serviceName) {
+      return;
+    }
+    if (signal.invalidatedProperties.isNotEmpty) {
+      _scheduleRefresh();
+      return;
+    }
+    final next = applyMprisPlayerProperties(
+      _current,
+      signal.changedProperties,
+      DateTime.now(),
+    );
+    if (next == null) {
+      return;
+    }
+    if (!next.available) {
+      // Another paused or playing service may already be available. A full
+      // scan happens only on this topology-relevant transition, not for every
+      // metadata or position signal.
+      _scheduleRefresh();
+      return;
+    }
+    _cancelUnavailableGrace();
+    _emit(next);
   }
 
   void _scheduleRefresh({bool immediate = false}) {
@@ -359,6 +385,94 @@ class _MprisCandidate {
 
   final DBusRemoteObject object;
   final MprisPlaybackState state;
+}
+
+@visibleForTesting
+MprisPlaybackState? applyMprisPlayerProperties(
+  MprisPlaybackState current,
+  Map<String, DBusValue> changed,
+  DateTime now,
+) {
+  const relevant = <String>{
+    'PlaybackStatus',
+    'Metadata',
+    'Position',
+    'CanGoNext',
+    'CanGoPrevious',
+    'CanPlay',
+    'CanPause',
+  };
+  if (!changed.keys.any(relevant.contains)) {
+    return null;
+  }
+
+  final metadataChanged = changed.containsKey('Metadata');
+  final metadata = metadataChanged
+      ? _variantDict(changed['Metadata'])
+      : const <String, DBusValue>{};
+  final lengthMicros = metadataChanged
+      ? _integer(
+          metadata['mpris:length'],
+        ).clamp(0, const Duration(days: 7).inMicroseconds).toInt()
+      : current.length.inMicroseconds;
+  final positionMicros = changed.containsKey('Position')
+      ? _integer(changed['Position'])
+            .clamp(
+              0,
+              lengthMicros > 0
+                  ? lengthMicros
+                  : const Duration(days: 7).inMicroseconds,
+            )
+            .toInt()
+      : current
+            .positionAt(now)
+            .inMicroseconds
+            .clamp(0, lengthMicros > 0 ? lengthMicros : 1 << 53)
+            .toInt();
+  final title = metadataChanged
+      ? _boundedText(_string(metadata['xesam:title']), 256)
+      : current.title;
+  final artists = metadataChanged
+      ? List<String>.unmodifiable(
+          _strings(metadata['xesam:artist'])
+              .map((artist) => _boundedText(artist, 128))
+              .where((artist) => artist.isNotEmpty)
+              .take(8),
+        )
+      : current.artists;
+
+  return MprisPlaybackState(
+    serviceName: current.serviceName,
+    identity: current.identity,
+    title: metadataChanged
+        ? (title.isEmpty ? current.identity : title)
+        : current.title,
+    artists: artists,
+    album: metadataChanged
+        ? _boundedText(_string(metadata['xesam:album']), 256)
+        : current.album,
+    artUrl: metadataChanged
+        ? _safeArtworkUrl(_string(metadata['mpris:artUrl']))
+        : current.artUrl,
+    length: Duration(microseconds: lengthMicros),
+    position: Duration(microseconds: positionMicros),
+    observedAt: now,
+    status: changed.containsKey('PlaybackStatus')
+        ? _playbackStatus(_string(changed['PlaybackStatus']))
+        : current.status,
+    canGoNext: changed.containsKey('CanGoNext')
+        ? _boolean(changed['CanGoNext'])
+        : current.canGoNext,
+    canGoPrevious: changed.containsKey('CanGoPrevious')
+        ? _boolean(changed['CanGoPrevious'])
+        : current.canGoPrevious,
+    canPlay: changed.containsKey('CanPlay')
+        ? _boolean(changed['CanPlay'])
+        : current.canPlay,
+    canPause: changed.containsKey('CanPause')
+        ? _boolean(changed['CanPause'])
+        : current.canPause,
+  );
 }
 
 int _statusPriority(MprisPlaybackStatus status) {

@@ -12,45 +12,57 @@ import '../../settings/settings_controller.dart';
 import '../../settings/shell_settings.dart';
 import '../../state/display_layout.dart';
 import '../../state/notifier_lifecycle.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../wallpaper.dart';
 import 'wallpaper_controller.dart';
 
 /// Shell theme colors derived from the current wallpaper.
 ///
-/// The accent is the wallpaper's dominant vibrant hue lifted to a tone that
-/// stays legible on the shell's dark surfaces. Surfaces that follow the
-/// wallpaper blend the accent into their fill instead of adopting it whole,
-/// so a neon wallpaper shifts the mood without destroying contrast.
+/// [color] is a seed carrying the wallpaper's dominant hue and chroma. The
+/// active [ShellThemeData] resolves that seed into brightness-safe roles.
 @immutable
 class WallpaperAccent {
-  const WallpaperAccent(this.color);
+  const WallpaperAccent(this.color, {this.isResolved = true});
 
   /// The brand accent used until extraction produces a wallpaper color.
-  static const WallpaperAccent fallback = WallpaperAccent(ShellColors.accent);
+  static const WallpaperAccent fallback = WallpaperAccent(
+    ShellBrandColors.defaultAccent,
+    isResolved: false,
+  );
+
+  /// The same brand color after extraction established that the wallpaper has
+  /// no useful chroma. This may be published; the temporary fallback may not.
+  static const WallpaperAccent resolvedFallback = WallpaperAccent(
+    ShellBrandColors.defaultAccent,
+  );
 
   final Color color;
+  final bool isResolved;
 
   /// Card fill for system bar cards. The shell theme supplies the shared
   /// frosted-surface opacity at the point of use.
-  Color get cardFill => Color.lerp(_cardBase, color, 0.15)!;
+  Color cardFill(ShellThemeData theme) =>
+      Color.lerp(theme.colors.surfaceContainer, theme.accent, 0.15)!;
 
   /// Top stop of the card gradient: [cardFill] nudged further toward the
   /// accent so pills read as softly lit from above.
-  Color get cardFillTop => Color.lerp(_cardBase, color, 0.24)!;
+  Color cardFillTop(ShellThemeData theme) =>
+      Color.lerp(theme.colors.surfaceContainer, theme.accent, 0.24)!;
 
   /// Secondary text inside system bar cards, tinted toward the accent so
   /// captions re-theme with the wallpaper without losing legibility.
-  Color get captionColor => Color.lerp(ShellColors.textSecondary, color, 0.35)!;
-
-  static const Color _cardBase = Color(0xff22262d);
+  Color captionColor(ShellThemeData theme) =>
+      Color.lerp(theme.colors.textSecondary, theme.accent, 0.35)!;
 
   @override
   bool operator ==(Object other) =>
-      other is WallpaperAccent && other.color == color;
+      other is WallpaperAccent &&
+      other.color == color &&
+      other.isResolved == isResolved;
 
   @override
-  int get hashCode => color.hashCode;
+  int get hashCode => Object.hash(color, isResolved);
 }
 
 /// The wallpaper resource whose colors theme the shell chrome. The system
@@ -141,7 +153,7 @@ class WallpaperAccentController extends Notifier<WallpaperAccent>
       return;
     }
     final accent = color == null
-        ? WallpaperAccent.fallback
+        ? WallpaperAccent.resolvedFallback
         : WallpaperAccent(color);
     if (_cache.length >= _maxCacheEntries) {
       _cache.remove(_cache.keys.first);
@@ -162,8 +174,8 @@ Future<Color?> _extractFromResource(WallpaperResource resource) async {
   return extractWallpaperAccent(encoded);
 }
 
-/// Decodes [encoded] at thumbnail size and returns its dominant vibrant hue
-/// as a dark-theme-legible color, or null for effectively monochrome images.
+/// Decodes [encoded] at thumbnail size and returns its dominant vibrant seed,
+/// or null for effectively monochrome images.
 Future<Color?> extractWallpaperAccent(Uint8List encoded) async {
   final codec = await ui.instantiateImageCodec(
     encoded,
@@ -188,9 +200,10 @@ Future<Color?> extractWallpaperAccent(Uint8List encoded) async {
 }
 
 /// Scores 15-degree hue buckets by chroma-weighted frequency over raw RGBA
-/// pixels and rebuilds the winning bucket's mean color at a tone that reads
-/// on dark shell surfaces. Near-gray, near-black and near-white pixels carry
-/// no vote; when nothing votes the image has no usable accent.
+/// pixels and rebuilds the winning bucket as a canonical seed. The fixed seed
+/// tone is not rendered directly; [ShellAccentPalette] chooses suitable role
+/// tones for the active brightness. Near-gray and near-black pixels carry no
+/// vote; when nothing votes the image has no usable accent.
 @visibleForTesting
 Color? dominantVibrantColor(ByteData rgba) {
   const bucketCount = 24;
@@ -199,7 +212,6 @@ Color? dominantVibrantColor(ByteData rgba) {
   final hueSin = Float64List(bucketCount);
   final hueCos = Float64List(bucketCount);
   final saturations = Float64List(bucketCount);
-  final values = Float64List(bucketCount);
 
   final pixelCount = rgba.lengthInBytes ~/ 4;
   for (var index = 0; index < pixelCount; index += 1) {
@@ -236,7 +248,6 @@ Color? dominantVibrantColor(ByteData rgba) {
     hueSin[bucket] += math.sin(radians) * weight;
     hueCos[bucket] += math.cos(radians) * weight;
     saturations[bucket] += saturation * weight;
-    values[bucket] += high * weight;
   }
 
   var best = 0;
@@ -256,8 +267,9 @@ Color? dominantVibrantColor(ByteData rgba) {
     hue += 360.0;
   }
   final saturation = (saturations[best] / weights[best])
-      .clamp(0.35, 0.75)
+      // Keep a small quantization margin: HSVColor.toColor() rounds channels,
+      // which can otherwise reconstruct just above the canonical 0.75 cap.
+      .clamp(0.35, 0.74)
       .toDouble();
-  final value = (values[best] / weights[best]).clamp(0.70, 0.95).toDouble();
-  return HSVColor.fromAHSV(1.0, hue, saturation, value).toColor();
+  return HSVColor.fromAHSV(1.0, hue, saturation, 0.65).toColor();
 }

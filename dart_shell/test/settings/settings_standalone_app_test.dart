@@ -1,6 +1,8 @@
 import 'package:denial_dart_shell/src/config/startup_environment.dart';
 import 'package:denial_dart_shell/src/settings/settings_application.dart';
+import 'package:denial_dart_shell/src/settings/settings_controller.dart';
 import 'package:denial_dart_shell/src/settings/settings_standalone_app.dart';
+import 'package:denial_dart_shell/src/settings/shell_settings.dart';
 import 'package:denial_dart_shell/src/state/shell_controller.dart';
 import 'package:denial_dart_shell/src/wallpaper/widgets/wallpaper_selector_surface.dart';
 import 'package:flutter/material.dart';
@@ -30,6 +32,29 @@ void main() {
     final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
     expect(app.color, Colors.transparent);
     expect(app.theme?.scaffoldBackgroundColor, Colors.transparent);
+    final initialMaterialTheme = app.theme;
+    final initialDarkMaterialTheme = app.darkTheme;
+    final settings = container.read(shellSettingsProvider.notifier);
+    settings.setWindowRadius(29);
+    await tester.pump();
+    expect(
+      tester.widget<MaterialApp>(find.byType(MaterialApp)).theme,
+      same(initialMaterialTheme),
+    );
+
+    settings
+      ..setCustomAccentColor(Colors.red)
+      ..setAccentSource(ShellAccentSource.custom);
+    await tester.pump();
+    final darkAccentApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
+    expect(darkAccentApp.theme, same(initialMaterialTheme));
+    expect(darkAccentApp.darkTheme, isNot(same(initialDarkMaterialTheme)));
+
+    settings.setColorSchemePreference(DesktopColorSchemePreference.preferLight);
+    await tester.pump();
+    final lightAccentApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
+    expect(lightAccentApp.theme, isNot(same(initialMaterialTheme)));
+    expect(lightAccentApp.darkTheme, same(darkAccentApp.darkTheme));
     expect(find.byType(WallpaperSelectorOverlay), findsNothing);
     final surface = tester.widget<Material>(
       find

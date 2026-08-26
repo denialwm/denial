@@ -1,0 +1,50 @@
+.TH DENIAL-PORTAL 1 "August 2026" "Denial" "User Commands"
+.SH NAME
+denial-portal \- serve Denial's desktop Settings portal backend
+.SH SYNOPSIS
+.B denial-portal
+.SH DESCRIPTION
+.B denial-portal
+is the D-Bus-activated backend for
+.BR org.freedesktop.impl.portal.Settings .
+It publishes Denial's committed
+.B org.freedesktop.appearance/color-scheme
+preference and resolved
+.B org.freedesktop.appearance/accent-color
+to the XDG desktop portal frontend.
+.PP
+The process connects to
+.BR deniald (1)
+over a private same-user Unix seqpacket socket and receives a complete,
+revisioned appearance snapshot before claiming its D-Bus name. It does not
+read or write Denial's settings file. Stale snapshots are ignored and
+.B SettingChanged
+is emitted only when the public portal value changes.
+.PP
+This program is an internal session component. It is normally started by user
+D-Bus activation or
+.BR denial-portal.service ;
+interactive invocation is not required.
+.SH FILES
+.TP
+.I $XDG_RUNTIME_DIR/denial/portal.sock
+Mode-0600 private state channel owned by the compositor.
+.TP
+.I $XDG_STATE_HOME/denial/accent-color-v1
+Last resolved accent, atomically maintained by the portal IPC worker.
+.TP
+.I /usr/share/xdg-desktop-portal/portals/denial.portal
+Portal backend descriptor.
+.TP
+.I /usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.denial.service
+User D-Bus activation metadata.
+.TP
+.I /usr/lib/systemd/user/denial-portal.service
+Optional systemd user unit, bound to Denial's graphical-session target.
+.SH EXIT STATUS
+Zero indicates that the compositor ended the private connection normally.
+Connection, protocol, or D-Bus failures return nonzero.
+.SH SEE ALSO
+.BR deniald (1),
+.BR denial-session (1),
+.BR xdg-desktop-portal (1)

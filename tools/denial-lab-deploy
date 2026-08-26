@@ -1,0 +1,595 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+TARGET="${1:-192.168.1.183}"
+FLUTTER_ROOT="${DENIAL_FLUTTER_SOURCE_ROOT:-/mnt/exty/denial-flutter-fork-3.44.7}"
+ENGINE_OUT="${DENIAL_PC_ENGINE_TEST_NINJA_OUT:-$FLUTTER_ROOT/engine/src/out/denial_host_release}"
+FLUTTER="$FLUTTER_ROOT/bin/flutter"
+ICU_DATA="$FLUTTER_ROOT/bin/cache/artifacts/engine/linux-x64/icudtl.dat"
+CACHE_HOME="${XDG_CACHE_HOME:-${HOME:?HOME is required}/.cache}"
+ARTIFACT_STORE="${DENIAL_LAB_ARTIFACT_STORE:-$CACHE_HOME/denial/lab-artifacts}"
+REMOTE_STORE="/home/logix/.cache/denial/lab"
+RUST_TARGET="${DENIAL_PC_RUST_TARGET:-${DENIAL_PC_BUILD_ROOT:-$CACHE_HOME/denial/pc-build}/rust}"
+DENIALD="$RUST_TARGET/release/deniald"
+DENIALCTL="$RUST_TARGET/release/denialctl"
+DENIAL_PORTAL="$RUST_TARGET/release/denial-portal"
+
+case "$TARGET" in
+    192.168.1.18|192.168.1.183|logix@192.168.1.18|logix@192.168.1.183) ;;
+    *)
+        printf 'denial-lab-deploy: target must be .18 or .183, got %s\n' "$TARGET" >&2
+        exit 2
+        ;;
+esac
+
+for command in git jq make ninja sha256sum ssh tar; do
+    command -v "$command" >/dev/null 2>&1 || {
+        printf 'denial-lab-deploy: missing command: %s\n' "$command" >&2
+        exit 1
+    }
+done
+[[ -x "$FLUTTER" ]] || {
+    printf 'denial-lab-deploy: Flutter launcher is missing: %s\n' "$FLUTTER" >&2
+    exit 1
+}
+[[ -f "$ENGINE_OUT/args.gn" ]] || {
+    printf 'denial-lab-deploy: local engine output is missing: %s\n' "$ENGINE_OUT" >&2
+    exit 1
+}
+[[ -z "$(git -C "$FLUTTER_ROOT" status --porcelain)" ]] || {
+    printf 'denial-lab-deploy: Flutter source must be clean: %s\n' "$FLUTTER_ROOT" >&2
+    exit 1
+}
+
+dart_schema="$({
+    sed -n 's/.*schemaVersion = \([0-9][0-9]*\).*/\1/p' \
+        "$ROOT/dart_shell/lib/src/settings/shell_settings.dart"
+} | head -n 1)"
+rust_schema="$({
+    sed -n 's/.*SETTINGS_SCHEMA_VERSION: u64 = \([0-9][0-9]*\).*/\1/p' \
+        "$ROOT/compositor/src/bin/deniald/settings.rs"
+} | head -n 1)"
+[[ -n "$dart_schema" && "$dart_schema" == "$rust_schema" ]] || {
+    printf 'denial-lab-deploy: settings schema mismatch (Dart %s, compositor %s)\n' \
+        "${dart_schema:-missing}" "${rust_schema:-missing}" >&2
+    exit 1
+}
+
+cpu_count="$(getconf _NPROCESSORS_ONLN)"
+jobs="${DENIAL_BUILD_JOBS:-$((cpu_count > 2 ? cpu_count - 2 : 1))}"
+revision="$(git -C "$FLUTTER_ROOT" rev-parse HEAD)"
+parent_revision="$(git -C "$FLUTTER_ROOT" rev-parse HEAD^)"
+depot_tools="$FLUTTER_ROOT/engine/src/flutter/third_party/depot_tools"
+mkdir -p -- "$ARTIFACT_STORE"
+shell_source_inputs=(
+    "$ROOT/dart_shell/lib"
+    "$ROOT/dart_shell/assets"
+    "$ROOT/dart_shell/pubspec.yaml"
+    "$ROOT/dart_shell/pubspec.lock"
+    "$ROOT/protocol/generated/dart/lib"
+)
+settings_source_inputs=(
+    "${shell_source_inputs[@]}"
+    "$ROOT/settings_app/lib"
+    "$ROOT/settings_app/linux"
+    "$ROOT/settings_app/pubspec.yaml"
+    "$ROOT/settings_app/pubspec.lock"
+)
+shell_source_manifest="$(
+    find "${shell_source_inputs[@]}" -type f \
+        -print0 \
+        | sort -z \
+        | xargs -0 sha256sum
+)"
+settings_source_manifest="$(
+    find "${settings_source_inputs[@]}" -type f \
+        ! -path "$ROOT/settings_app/linux/flutter/ephemeral/*" \
+        ! -path "$ROOT/settings_app/linux/flutter/generated_*" \
+        -print0 \
+        | sort -z \
+        | xargs -0 sha256sum
+)"
+source_fingerprint_for_revision() {
+    local source_revision="$1"
+    {
+        printf '%s\n' "$shell_source_manifest"
+        printf 'flutter=%s\nschema=%s\n' "$source_revision" "$dart_schema"
+    } | sha256sum | cut -d' ' -f1
+}
+source_fingerprint="$(source_fingerprint_for_revision "$revision")"
+# Settings imports the shared dart_shell package. Keep a separate, engine-
+# independent fingerprint so its self-contained GTK bundle can be reused only
+# when that complete Dart dependency surface is unchanged.
+settings_source_fingerprint="$({
+    printf '%s\n' "$settings_source_manifest"
+    printf 'schema=%s\n' "$dart_schema"
+} | sha256sum | cut -d' ' -f1)"
+
+artifact=""
+reusable_settings_artifact=""
+reusable_shell_artifact=""
+for candidate in "$ARTIFACT_STORE/"*; do
+    [[ -d "$candidate" && -f "$candidate/SHA256SUMS" \
+        && -f "$candidate/SETTINGS_SCHEMA" \
+        && -f "$candidate/FLUTTER_REVISION" ]] || continue
+    [[ "$(<"$candidate/SETTINGS_SCHEMA")" == "$dart_schema" ]] || continue
+    (
+        cd -- "$candidate"
+        sha256sum -c SHA256SUMS >/dev/null
+    ) || continue
+    if [[ -z "$reusable_settings_artifact" \
+        && -f "$candidate/SETTINGS_SOURCE_FINGERPRINT" \
+        && "$(<"$candidate/SETTINGS_SOURCE_FINGERPRINT")" == "$settings_source_fingerprint" \
+        && -f "$candidate/settings/denial-settings" \
+        && -f "$candidate/settings/lib/libapp.so" \
+        && -f "$candidate/settings/lib/libflutter_linux_gtk.so" ]]; then
+        reusable_settings_artifact="$candidate"
+    fi
+
+    candidate_revision="$(tr -d '[:space:]' <"$candidate/FLUTTER_REVISION")"
+    candidate_shell_current=false
+    if [[ "$candidate_revision" =~ ^[0-9a-f]{40}$ \
+        && -f "$candidate/SOURCE_FINGERPRINT" \
+        && "$(<"$candidate/SOURCE_FINGERPRINT")" \
+            == "$(source_fingerprint_for_revision "$candidate_revision")" ]]; then
+        candidate_shell_current=true
+    elif [[ "$candidate_revision" == "$parent_revision" \
+        && -z "$(
+            find "${shell_source_inputs[@]}" -type f \
+                -newer "$candidate/SHA256SUMS" -print -quit
+        )" ]]; then
+        # The immediately previous engine artifact is safe to adopt when no
+        # application source changed after it was packaged. The AOT loader
+        # check below independently verifies it against the new engine.
+        candidate_shell_current=true
+    fi
+    if $candidate_shell_current \
+        && [[ -f "$candidate/shell/lib/libapp.so" \
+            && -f "$candidate/shell/data/flutter_assets/AssetManifest.bin" ]]; then
+        if [[ -z "$reusable_shell_artifact" \
+            || "$candidate/SHA256SUMS" -nt "$reusable_shell_artifact/SHA256SUMS" ]]; then
+            reusable_shell_artifact="$candidate"
+        fi
+    fi
+
+    if [[ "$candidate_revision" == "$revision" \
+        && -f "$candidate/SOURCE_FINGERPRINT" \
+        && -f "$candidate/SETTINGS_SOURCE_FINGERPRINT" ]] \
+        && [[ "$(<"$candidate/SETTINGS_SOURCE_FINGERPRINT")" == "$settings_source_fingerprint" ]] \
+        && [[ "$(<"$candidate/SOURCE_FINGERPRINT")" == "$source_fingerprint" ]]; then
+        artifact="$candidate"
+        break
+    fi
+done
+
+work=""
+cleanup() {
+    if [[ -n "$work" && -d "$work" ]]; then
+        chmod -R u+w -- "$work" 2>/dev/null || true
+        rm -rf -- "$work"
+    fi
+}
+trap cleanup EXIT
+
+if [[ -n "$artifact" ]]; then
+    printf 'Reusing verified artifact %s.\n' "${artifact##*/}"
+else
+    printf 'Preparing cached engine artifacts for %.12s...\n' "$revision"
+    work="$(mktemp -d -- "$ARTIFACT_STORE/.build.XXXXXX")"
+    settings_bundle=""
+    settings_depfile="$(
+        find "$ROOT/settings_app/.dart_tool/flutter_build" \
+            -name kernel_snapshot_program.d -printf '%T@ %p\n' 2>/dev/null \
+            | sort -nr \
+            | head -n 1 \
+            | cut -d' ' -f2-
+    )"
+    if [[ -n "$reusable_settings_artifact" && -f "$settings_depfile" ]]; then
+        settings_dep_target="$(sed -n '1s/:.*//p' "$settings_depfile")"
+        if [[ -n "$settings_dep_target" ]] \
+            && make -q -rR -f "$settings_depfile" "$settings_dep_target" \
+            && [[ -z "$(
+                find "$ROOT/settings_app/lib" "$ROOT/settings_app/linux" \
+                    "$ROOT/settings_app/pubspec.yaml" \
+                    "$ROOT/settings_app/pubspec.lock" \
+                    -type f \
+                    -newer "$reusable_settings_artifact/SHA256SUMS" \
+                    -print -quit
+            )" ]]; then
+            settings_bundle="$reusable_settings_artifact/settings"
+            printf 'Reusing Settings from verified artifact %s.\n' \
+                "${reusable_settings_artifact##*/}"
+        fi
+    fi
+
+    engine_targets=(libflutter_engine.so)
+    if [[ -z "$settings_bundle" ]]; then
+        engine_targets+=(
+            libflutter_linux_gtk.so
+            zip_archives/linux-x64-release/linux-x64-flutter-gtk.zip
+        )
+    fi
+    PATH="$depot_tools:$PATH" /usr/bin/ninja -C "$ENGINE_OUT" -j "$jobs" \
+        "${engine_targets[@]}"
+
+    if [[ -z "$reusable_shell_artifact" || -z "$settings_bundle" ]]; then
+        # A new commit in the Denial fork invalidates the flutter_tools snapshot.
+        # Let the launcher finish that rebuild first: shared.sh deletes version
+        # metadata while rebuilding, so projecting the pinned compatibility
+        # version before this point would be immediately undone.
+        "$FLUTTER" --version --suppress-analytics >/dev/null
+
+        version_file="$FLUTTER_ROOT/bin/cache/flutter.version.json"
+        if ! jq -e --arg revision "$revision" \
+            '.frameworkVersion == "3.44.7"
+                and .flutterVersion == "3.44.7"
+                and .frameworkRevision == $revision' \
+            "$version_file" >/dev/null; then
+            rendered_version="$(mktemp -- "$version_file.XXXXXX")"
+            jq --arg revision "$revision" \
+                '.frameworkVersion = "3.44.7"
+                    | .flutterVersion = "3.44.7"
+                    | .frameworkRevision = $revision' \
+                "$version_file" >"$rendered_version"
+            mv -- "$rendered_version" "$version_file"
+        fi
+    fi
+
+    if [[ -n "$reusable_shell_artifact" ]]; then
+        printf 'Reusing shell AOT from verified artifact %s.\n' \
+            "${reusable_shell_artifact##*/}"
+        assembly="$reusable_shell_artifact/shell/data"
+        shell_app="$reusable_shell_artifact/shell/lib/libapp.so"
+    else
+        assembly="$work/assembly"
+        mkdir -p -- "$assembly"
+
+        printf 'Building shell AOT...\n'
+        (
+            cd -- "$ROOT/dart_shell"
+            "$FLUTTER" pub get >/dev/null
+            "$FLUTTER" assemble \
+                --local-engine=denial_host_release \
+                --local-engine-host=denial_host_release \
+                --suppress-analytics \
+                --resource-pool-size="$jobs" \
+                --output="$assembly" \
+                -dTargetFile=lib/main.dart \
+                -dBuildMode=release \
+                -dTargetPlatform=linux-x64 \
+                -dDartObfuscation=false \
+                -dTrackWidgetCreation=true \
+                -dTreeShakeIcons=false \
+                release_bundle_linux-x64_assets
+        )
+        shell_app="$assembly/lib/libapp.so"
+    fi
+    if [[ -z "$settings_bundle" ]]; then
+        (
+            cd -- "$ROOT/settings_app"
+            "$FLUTTER" build linux \
+                --local-engine=denial_host_release \
+                --local-engine-host=denial_host_release \
+                --suppress-analytics \
+                --release \
+                --target=lib/main.dart \
+                --no-tree-shake-icons
+        )
+        settings_bundle="$ROOT/settings_app/build/linux/x64/release/bundle"
+    fi
+    engine="$ENGINE_OUT/libflutter_engine.so"
+    for required in \
+        "$shell_app" \
+        "$assembly/flutter_assets/AssetManifest.bin" \
+        "$settings_bundle/denial-settings" \
+        "$settings_bundle/lib/libapp.so" \
+        "$settings_bundle/lib/libflutter_linux_gtk.so" \
+        "$engine" \
+        "$ICU_DATA"; do
+        [[ -f "$required" ]] || {
+            printf 'denial-lab-deploy: build output is missing: %s\n' "$required" >&2
+            exit 1
+        }
+    done
+
+    if [[ -n "$reusable_shell_artifact" ]]; then
+        aot_check_bundle="$work/aot-check"
+        mkdir -p -- "$aot_check_bundle/lib"
+        ln -s -- "$shell_app" "$aot_check_bundle/lib/libapp.so"
+        ln -s -- "$engine" "$aot_check_bundle/lib/libflutter_engine.so"
+        (
+            cd -- "$ROOT/compositor"
+            DENIAL_TEST_FLUTTER_BUNDLE="$aot_check_bundle" \
+            CARGO_TARGET_DIR="$RUST_TARGET" \
+            cargo test --locked --jobs "$jobs" \
+                -p denial-flutter-engine \
+                loads_the_bundled_flutter_engine_abi
+        )
+        printf 'Verified reused shell AOT against the new engine.\n'
+    fi
+
+    engine_sha="$(sha256sum "$engine" | cut -d' ' -f1)"
+    shell_sha="$(sha256sum "$shell_app" | cut -d' ' -f1)"
+    settings_sha="$(sha256sum "$settings_bundle/lib/libapp.so" | cut -d' ' -f1)"
+    payload_sha="$({
+        printf '%s\n' "$engine_sha" "$shell_sha" "$settings_sha"
+    } | sha256sum | cut -d' ' -f1)"
+    artifact_id="${revision:0:16}-${payload_sha:0:16}"
+    artifact="$ARTIFACT_STORE/$artifact_id"
+    staged="$work/artifact"
+    mkdir -p -- "$staged/shell/data/flutter_assets" "$staged/shell/lib"
+    cp -a -- "$assembly/flutter_assets/." "$staged/shell/data/flutter_assets/"
+    cp -- "$ICU_DATA" "$staged/shell/data/icudtl.dat"
+    cp -- "$shell_app" "$staged/shell/lib/libapp.so"
+    cp -- "$engine" "$staged/shell/lib/libflutter_engine.so"
+    cp -a -- "$settings_bundle" "$staged/settings"
+    (
+        cd -- "$staged"
+        find shell settings -type f -print0 \
+            | sort -z \
+            | xargs -0 sha256sum >SHA256SUMS
+    )
+    printf '%s\n' "$revision" >"$staged/FLUTTER_REVISION"
+    printf '%s\n' "$dart_schema" >"$staged/SETTINGS_SCHEMA"
+    printf '%s\n' "$source_fingerprint" >"$staged/SOURCE_FINGERPRINT"
+    printf '%s\n' "$settings_source_fingerprint" >"$staged/SETTINGS_SOURCE_FINGERPRINT"
+    chmod -R u+w -- "$staged"
+    if [[ ! -d "$artifact" ]]; then
+        mv -- "$staged" "$artifact"
+        chmod -R a-w -- "$artifact"
+    else
+        chmod u+w -- "$artifact"
+        printf '%s\n' "$source_fingerprint" >"$artifact/SOURCE_FINGERPRINT"
+        printf '%s\n' "$settings_source_fingerprint" >"$artifact/SETTINGS_SOURCE_FINGERPRINT"
+        chmod a-w -- "$artifact/SOURCE_FINGERPRINT" \
+            "$artifact/SETTINGS_SOURCE_FINGERPRINT" "$artifact"
+    fi
+fi
+artifact_id="${artifact##*/}"
+(
+    cd -- "$artifact"
+    sha256sum -c SHA256SUMS >/dev/null
+)
+
+printf 'Building compositor binaries...\n'
+DENIAL_BUILD_JOBS="$jobs" "$ROOT/tools/denial-pc" compositor
+for binary in "$DENIALD" "$DENIALCTL" "$DENIAL_PORTAL"; do
+    [[ -x "$binary" ]] || {
+        printf 'denial-lab-deploy: compositor build output is missing: %s\n' "$binary" >&2
+        exit 1
+    }
+done
+deniald_sha="$(sha256sum "$DENIALD" | cut -d' ' -f1)"
+denialctl_sha="$(sha256sum "$DENIALCTL" | cut -d' ' -f1)"
+denial_portal_sha="$(sha256sum "$DENIAL_PORTAL" | cut -d' ' -f1)"
+native_id="$({
+    printf '%s\n' "$deniald_sha" "$denialctl_sha" "$denial_portal_sha"
+} | sha256sum | cut -d' ' -f1)"
+native_id="${native_id:0:24}"
+
+remote_artifact="$REMOTE_STORE/artifacts/$artifact_id"
+if ssh "$TARGET" \
+    "test -d '$remote_artifact' && cd '$remote_artifact' && sha256sum -c SHA256SUMS >/dev/null 2>&1"; then
+    printf 'Reusing verified remote artifact %s.\n' "$artifact_id"
+else
+    printf 'Uploading verified artifact %s to %s...\n' "$artifact_id" "$TARGET"
+    incoming="$REMOTE_STORE/.incoming.$artifact_id.$$"
+    invalid="$REMOTE_STORE/.invalid.$artifact_id.$$"
+    tar -C "$artifact" -cf - . | ssh "$TARGET" \
+        "set -eu; mkdir -p '$incoming'; tar -C '$incoming' -xf -; cd '$incoming'; sha256sum -c SHA256SUMS >/dev/null; mkdir -p '$REMOTE_STORE/artifacts'; if [ -d '$remote_artifact' ]; then chmod u+w '$remote_artifact'; mv '$remote_artifact' '$invalid'; fi; chmod u+w '$incoming'; mv '$incoming' '$remote_artifact'; chmod -R a-w '$remote_artifact'"
+fi
+
+remote_native="$REMOTE_STORE/native/$native_id"
+if ssh "$TARGET" \
+    "test -x '$remote_native/deniald' && test -x '$remote_native/denialctl' && test -x '$remote_native/denial-portal' && test \"\$(sha256sum '$remote_native/deniald' | cut -d' ' -f1)\" = '$deniald_sha' && test \"\$(sha256sum '$remote_native/denialctl' | cut -d' ' -f1)\" = '$denialctl_sha' && test \"\$(sha256sum '$remote_native/denial-portal' | cut -d' ' -f1)\" = '$denial_portal_sha'"; then
+    printf 'Reusing verified remote native artifact %s.\n' "$native_id"
+else
+    printf 'Uploading verified native artifact %s to %s...\n' "$native_id" "$TARGET"
+    incoming="$REMOTE_STORE/.incoming.native.$native_id.$$"
+    invalid="$REMOTE_STORE/.invalid.native.$native_id.$$"
+    tar -C "$RUST_TARGET/release" -cf - deniald denialctl denial-portal | ssh "$TARGET" \
+        "set -eu; mkdir -p '$incoming'; tar -C '$incoming' -xf -; test \"\$(sha256sum '$incoming/deniald' | cut -d' ' -f1)\" = '$deniald_sha'; test \"\$(sha256sum '$incoming/denialctl' | cut -d' ' -f1)\" = '$denialctl_sha'; test \"\$(sha256sum '$incoming/denial-portal' | cut -d' ' -f1)\" = '$denial_portal_sha'; mkdir -p '$REMOTE_STORE/native'; if [ -d '$remote_native' ]; then chmod -R u+w '$remote_native'; mv '$remote_native' '$invalid'; fi; mv '$incoming' '$remote_native'; chmod -R a-w '$remote_native'"
+fi
+
+ssh "$TARGET" bash -s -- \
+    "$artifact_id" "$REMOTE_STORE" "$native_id" "$deniald_sha" "$denialctl_sha" "$denial_portal_sha" <<'REMOTE'
+set -euo pipefail
+artifact_id="$1"
+store="$2"
+native_id="$3"
+deniald_sha="$4"
+denialctl_sha="$5"
+denial_portal_sha="$6"
+artifact="$store/artifacts/$artifact_id"
+native="$store/native/$native_id"
+current="$store/current"
+session_conf="/etc/denial/session.conf"
+bundle="$current/shell"
+settings_binary="$current/settings/denial-settings"
+settings_launcher="/usr/bin/denial-settings"
+
+cd -- "$artifact"
+sha256sum -c SHA256SUMS >/dev/null
+[[ "$(sha256sum "$native/deniald" | cut -d' ' -f1)" == "$deniald_sha" ]]
+[[ "$(sha256sum "$native/denialctl" | cut -d' ' -f1)" == "$denialctl_sha" ]]
+[[ "$(sha256sum "$native/denial-portal" | cut -d' ' -f1)" == "$denial_portal_sha" ]]
+
+next="$store/.current.$$"
+ln -s -- "$artifact" "$next"
+mv -Tf -- "$next" "$current"
+
+if sudo grep -q '^export DENIAL_FLUTTER_BUNDLE=' "$session_conf"; then
+    sudo sed -i "s|^export DENIAL_FLUTTER_BUNDLE=.*|export DENIAL_FLUTTER_BUNDLE=$bundle|" "$session_conf"
+else
+    printf 'export DENIAL_FLUTTER_BUNDLE=%s\n' "$bundle" | sudo tee -a "$session_conf" >/dev/null
+fi
+if sudo grep -q '^export DENIAL_SETTINGS_BINARY=' "$session_conf"; then
+    sudo sed -i "s|^export DENIAL_SETTINGS_BINARY=.*|export DENIAL_SETTINGS_BINARY=$settings_binary|" "$session_conf"
+else
+    printf 'export DENIAL_SETTINGS_BINARY=%s\n' "$settings_binary" | sudo tee -a "$session_conf" >/dev/null
+fi
+
+# The shell's Settings action consumes DENIAL_SETTINGS_BINARY, while the
+# application launcher follows the packaged desktop entry's /usr/bin path.
+# Keep both routes on the same immutable lab payload. The executable resolves
+# its private libraries relative to this symlink's target, so pointing at the
+# stable `current` bundle also selects that bundle's libapp.so.
+if [[ ! -L "$settings_launcher" ]] \
+    || [[ "$(readlink -- "$settings_launcher")" != "$settings_binary" ]]; then
+    staged_settings_launcher="/usr/bin/.denial-settings.denial-lab.$$"
+    sudo ln -s -- "$settings_binary" "$staged_settings_launcher"
+    sudo mv -Tf -- "$staged_settings_launcher" "$settings_launcher"
+fi
+
+runtime="/run/user/1000"
+bus="unix:path=$runtime/bus"
+restart_required=false
+portal_restart_required=false
+if [[ ! -x /usr/bin/deniald ]] \
+    || [[ "$(sha256sum /usr/bin/deniald | cut -d' ' -f1)" != "$deniald_sha" ]]; then
+    staged_deniald="/usr/bin/.deniald.denial-lab.$$"
+    sudo install -m 0755 -- "$native/deniald" "$staged_deniald"
+    sudo mv -f -- "$staged_deniald" /usr/bin/deniald
+    restart_required=true
+fi
+if [[ ! -x /usr/bin/denialctl ]] \
+    || [[ "$(sha256sum /usr/bin/denialctl | cut -d' ' -f1)" != "$denialctl_sha" ]]; then
+    staged_denialctl="/usr/bin/.denialctl.denial-lab.$$"
+    sudo install -m 0755 -- "$native/denialctl" "$staged_denialctl"
+    sudo mv -f -- "$staged_denialctl" /usr/bin/denialctl
+fi
+if [[ ! -x /usr/bin/denial-portal ]] \
+    || [[ "$(sha256sum /usr/bin/denial-portal | cut -d' ' -f1)" != "$denial_portal_sha" ]]; then
+    staged_denial_portal="/usr/bin/.denial-portal.denial-lab.$$"
+    sudo install -m 0755 -- "$native/denial-portal" "$staged_denial_portal"
+    sudo mv -f -- "$staged_denial_portal" /usr/bin/denial-portal
+    portal_restart_required=true
+fi
+
+stop_settings() {
+    XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="$bus" \
+        systemctl --user stop denial-settings-experimental.service 2>/dev/null || true
+    for pid in $(pgrep -x denial-settings 2>/dev/null || true); do
+        kill "$pid" 2>/dev/null || true
+    done
+}
+
+wait_for_deniald() {
+    local previous_pid="$1"
+    local candidate=""
+    for _ in $(seq 1 30); do
+        candidate="$(pgrep -n -x deniald 2>/dev/null || true)"
+        if [[ "$candidate" =~ ^[1-9][0-9]*$ ]] \
+            && [[ "$candidate" != "$previous_pid" ]] \
+            && [[ -r "/proc/$candidate/maps" ]] \
+            && grep -Fq "$artifact_id/shell/lib/libflutter_engine.so" "/proc/$candidate/maps"; then
+            new_deniald="$candidate"
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+new_deniald="$(pgrep -n -x deniald 2>/dev/null || true)"
+if [[ "$restart_required" == true ]] \
+    || [[ ! "$new_deniald" =~ ^[1-9][0-9]*$ ]] \
+    || [[ ! -r "/proc/$new_deniald/maps" ]] \
+    || ! grep -Fq "$artifact_id/shell/lib/libflutter_engine.so" "/proc/$new_deniald/maps"; then
+    stop_settings
+    old_deniald="$new_deniald"
+    sudo systemctl restart greetd.service
+    if ! wait_for_deniald "$old_deniald"; then
+        printf 'Denial startup raced with session teardown; retrying greetd once...\n' >&2
+        sleep 2
+        sudo systemctl restart greetd.service
+        wait_for_deniald "" || {
+            printf 'denial-lab-deploy: deniald did not load the deployed engine\n' >&2
+            exit 1
+        }
+    fi
+fi
+
+if [[ "$portal_restart_required" == true ]]; then
+    XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="$bus" \
+        systemctl --user restart denial-portal.service
+else
+    XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="$bus" \
+        systemctl --user start denial-portal.service
+fi
+portal_pid=""
+for _ in $(seq 1 30); do
+    portal_pid="$(
+        XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="$bus" \
+            systemctl --user show denial-portal.service \
+                --property=MainPID --value 2>/dev/null || true
+    )"
+    if [[ "$portal_pid" =~ ^[1-9][0-9]*$ ]] \
+        && [[ "$(sha256sum "/proc/$portal_pid/exe" | cut -d' ' -f1)" == "$denial_portal_sha" ]]; then
+        break
+    fi
+    sleep 1
+done
+[[ "$portal_pid" =~ ^[1-9][0-9]*$ ]] \
+    && [[ "$(sha256sum "/proc/$portal_pid/exe" | cut -d' ' -f1)" == "$denial_portal_sha" ]] || {
+    printf 'denial-lab-deploy: denial-portal did not load the deployed backend\n' >&2
+    exit 1
+}
+
+settings_pid="$(
+    XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="$bus" \
+        systemctl --user show denial-settings-experimental.service \
+            --property=MainPID --value 2>/dev/null || true
+)"
+settings_ready=false
+if [[ "$settings_pid" =~ ^[1-9][0-9]*$ ]] \
+    && [[ -r "/proc/$settings_pid/maps" ]] \
+    && grep -Fq "$artifact_id/settings/lib/libapp.so" "/proc/$settings_pid/maps"; then
+    settings_ready=true
+else
+    stop_settings
+    XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="$bus" \
+        systemd-run --user \
+            --unit=denial-settings-experimental \
+            --collect \
+            --setenv=WAYLAND_DISPLAY=wayland-1 \
+            --setenv=DISPLAY=:0 \
+            "$current/settings/denial-settings" >/dev/null 2>&1
+fi
+
+for _ in $(seq 1 30); do
+    [[ "$settings_ready" == true ]] && break
+    settings_pid="$(
+        XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="$bus" \
+            systemctl --user show denial-settings-experimental.service \
+                --property=MainPID --value 2>/dev/null || true
+    )"
+    if [[ "$settings_pid" =~ ^[1-9][0-9]*$ ]] \
+        && [[ -r "/proc/$settings_pid/maps" ]] \
+        && grep -Fq "$artifact_id/settings/lib/libapp.so" "/proc/$settings_pid/maps"; then
+        settings_ready=true
+        break
+    fi
+    sleep 1
+done
+[[ "$settings_ready" == true ]] || {
+    printf 'denial-lab-deploy: Settings did not finish loading the deployed application\n' >&2
+    exit 1
+}
+
+grep -Fq "$artifact_id/shell/lib/libflutter_engine.so" "/proc/$new_deniald/maps" || {
+    printf 'denial-lab-deploy: deniald is not using the deployed engine\n' >&2
+    exit 1
+}
+[[ "$(sha256sum "/proc/$new_deniald/exe" | cut -d' ' -f1)" == "$deniald_sha" ]] || {
+    printf 'denial-lab-deploy: deniald is not using the deployed compositor binary\n' >&2
+    exit 1
+}
+printf 'Deployed %s\n' "$artifact_id"
+printf '  native: %s\n' "$native_id"
+printf '  deniald: %s\n' "$new_deniald"
+printf '  portal: %s\n' "$portal_pid"
+printf '  Settings: %s\n' "$settings_pid"
+REMOTE

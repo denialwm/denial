@@ -14,6 +14,14 @@ void main() {
     final controller = container.read(desktopPowerModesProvider.notifier);
 
     await controller.refresh();
+    expect(service.snapshotReads, 1);
+
+    await controller.refreshIfStale();
+    expect(
+      service.snapshotReads,
+      1,
+      reason: 'opening the dashboard must reuse a fresh hardware snapshot',
+    );
 
     var state = container.read(desktopPowerModesProvider);
     expect(state.gpuAvailable, isTrue);
@@ -36,9 +44,11 @@ class _FakeDesktopPowerModesService extends DesktopPowerModesService {
     : super(environment: const <String, String>{});
 
   String? appliedGpuPreset;
+  int snapshotReads = 0;
 
   @override
   Future<DesktopPowerModesSnapshot> readSnapshot() async {
+    snapshotReads += 1;
     return const DesktopPowerModesSnapshot(
       systemAvailable: true,
       systemProfile: PowerProfile.balanced,

@@ -46,10 +46,6 @@ the complete Alpine 3.24 dependency transaction before publication.
 Clean installation, upgrade/config preservation, and the graphical-session
 matrix are recorded in [VALIDATION.md](VALIDATION.md).
 
-The implementation size, compatibility work, lab-only boot work, and the path
-from this prototype to a Debian-equivalent release lane are assessed in the
-[Alpine port report](../../docs/ALPINE_PORT_REPORT.md).
-
 Alpine splits Kitty's display backends out of its base package.  Installing
 `kitty` alone exposes its desktop entry but cannot open a window; use
 `kitty-wayland` when selecting Kitty as a native Wayland validation client.

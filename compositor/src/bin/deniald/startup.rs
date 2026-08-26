@@ -43,6 +43,17 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
         None
     };
 
+    #[cfg(feature = "flutter")]
+    let portal_ipc_server = if options.flutter_bundle.is_some() && options.wayland {
+        let initial = settings
+            .as_ref()
+            .expect("Wayland settings were loaded before portal IPC startup")
+            .theme_snapshot();
+        Some(PortalIpcServer::start(initial)?)
+    } else {
+        None
+    };
+
     let (mut session, session_notifier) = LibSeatSession::new()?;
     if !session.is_active() {
         return Err("libseat did not activate the current TTY session".into());
@@ -439,7 +450,15 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
             options.output_config.is_some(),
             None,
         )?;
-        let (server, source) = OutputControlServer::start(initial)?;
+        let (settings_revision, settings_document) = match wayland.as_ref() {
+            Some(frontend) => (
+                frontend.settings.revision(),
+                frontend.settings.document_json()?,
+            ),
+            None => (1, "{}".to_owned()),
+        };
+        let (server, source) =
+            OutputControlServer::start(initial, settings_revision, settings_document)?;
         frame_event_loop
             .as_mut()
             .ok_or("output control has no event loop")?
@@ -612,6 +631,7 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
                         .as_ref()
                         .ok_or("Flutter output control was not initialized")?
                         .publisher(),
+                    portal_ipc: portal_ipc_server.as_ref().map(PortalIpcServer::publisher),
                     wayland,
                     flutter: flutter.ok_or("Flutter runtime was not initialized")?,
                     flutter_launcher: flutter_launcher

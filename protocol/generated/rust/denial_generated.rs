@@ -2258,10 +2258,10 @@ pub struct ShortcutTargetUnionTableOffset {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_PAYLOAD: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_PAYLOAD: u8 = 17;
+pub const ENUM_MAX_PAYLOAD: u8 = 18;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_PAYLOAD: [Payload; 18] = [
+pub const ENUM_VALUES_PAYLOAD: [Payload; 19] = [
   Payload::NONE,
   Payload::InputLayout,
   Payload::WindowSnapshot,
@@ -2280,6 +2280,7 @@ pub const ENUM_VALUES_PAYLOAD: [Payload; 18] = [
   Payload::TextInputState,
   Payload::XEmbedTrayEvent,
   Payload::XEmbedTrayCommand,
+  Payload::ThemeState,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -2305,9 +2306,10 @@ impl Payload {
   pub const TextInputState: Self = Self(15);
   pub const XEmbedTrayEvent: Self = Self(16);
   pub const XEmbedTrayCommand: Self = Self(17);
+  pub const ThemeState: Self = Self(18);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 17;
+  pub const ENUM_MAX: u8 = 18;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::NONE,
     Self::InputLayout,
@@ -2327,6 +2329,7 @@ impl Payload {
     Self::TextInputState,
     Self::XEmbedTrayEvent,
     Self::XEmbedTrayCommand,
+    Self::ThemeState,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -2349,6 +2352,7 @@ impl Payload {
       Self::TextInputState => Some("TextInputState"),
       Self::XEmbedTrayEvent => Some("XEmbedTrayEvent"),
       Self::XEmbedTrayCommand => Some("XEmbedTrayCommand"),
+      Self::ThemeState => Some("ThemeState"),
       _ => None,
     }
   }
@@ -9623,6 +9627,103 @@ impl core::fmt::Debug for XEmbedTrayCommand<'_> {
       ds.finish()
   }
 }
+pub enum ThemeStateOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ThemeState<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ThemeState<'a> {
+  type Inner = ThemeState<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> ThemeState<'a> {
+  pub const VT_ACCENT_SRGB: flatbuffers::VOffsetT = 4;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    ThemeState { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args ThemeStateArgs
+  ) -> flatbuffers::WIPOffset<ThemeState<'bldr>> {
+    let mut builder = ThemeStateBuilder::new(_fbb);
+    builder.add_accent_srgb(args.accent_srgb);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn accent_srgb(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ThemeState::VT_ACCENT_SRGB, Some(0)).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for ThemeState<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<u32>("accent_srgb", Self::VT_ACCENT_SRGB, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct ThemeStateArgs {
+    pub accent_srgb: u32,
+}
+impl<'a> Default for ThemeStateArgs {
+  #[inline]
+  fn default() -> Self {
+    ThemeStateArgs {
+      accent_srgb: 0,
+    }
+  }
+}
+
+pub struct ThemeStateBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ThemeStateBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_accent_srgb(&mut self, accent_srgb: u32) {
+    self.fbb_.push_slot::<u32>(ThemeState::VT_ACCENT_SRGB, accent_srgb, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ThemeStateBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    ThemeStateBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<ThemeState<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for ThemeState<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("ThemeState");
+      ds.field("accent_srgb", &self.accent_srgb());
+      ds.finish()
+  }
+}
 pub enum EnvelopeOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -9954,6 +10055,21 @@ impl<'a> Envelope<'a> {
     }
   }
 
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_theme_state(&self) -> Option<ThemeState<'a>> {
+    if self.payload_type() == Payload::ThemeState {
+      self.payload().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { ThemeState::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
 }
 
 impl flatbuffers::Verifiable for Envelope<'_> {
@@ -9985,6 +10101,7 @@ impl flatbuffers::Verifiable for Envelope<'_> {
           Payload::TextInputState => v.verify_union_variant::<flatbuffers::ForwardsUOffset<TextInputState>>("Payload::TextInputState", pos),
           Payload::XEmbedTrayEvent => v.verify_union_variant::<flatbuffers::ForwardsUOffset<XEmbedTrayEvent>>("Payload::XEmbedTrayEvent", pos),
           Payload::XEmbedTrayCommand => v.verify_union_variant::<flatbuffers::ForwardsUOffset<XEmbedTrayCommand>>("Payload::XEmbedTrayCommand", pos),
+          Payload::ThemeState => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ThemeState>>("Payload::ThemeState", pos),
           _ => Ok(()),
         }
      })?
@@ -10174,6 +10291,13 @@ impl core::fmt::Debug for Envelope<'_> {
         },
         Payload::XEmbedTrayCommand => {
           if let Some(x) = self.payload_as_xembed_tray_command() {
+            ds.field("payload", &x)
+          } else {
+            ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        Payload::ThemeState => {
+          if let Some(x) = self.payload_as_theme_state() {
             ds.field("payload", &x)
           } else {
             ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")

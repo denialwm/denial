@@ -129,12 +129,12 @@ class _SettingsDeveloperPageState extends State<SettingsDeveloperPage> {
                     onPressed: _setupWorkspace,
                   ),
                   const SizedBox(height: 15),
-                  const Divider(height: 1, color: ShellColors.hairlineSoft),
+                  Divider(height: 1, color: context.shellColors.hairlineSoft),
                   const SizedBox(height: 15),
                   Text(
                     l10n.settingsDeveloperWorkspaceDescription,
                     style: ShellText.base.copyWith(
-                      color: ShellColors.textTertiary,
+                      color: context.shellColors.textTertiary,
                       fontSize: 12,
                       height: 1.45,
                     ),
@@ -216,7 +216,7 @@ class _SettingsDeveloperPageState extends State<SettingsDeveloperPage> {
                   Text(
                     l10n.settingsDeveloperBuildRecoveryDescription,
                     style: ShellText.base.copyWith(
-                      color: ShellColors.textTertiary,
+                      color: context.shellColors.textTertiary,
                       fontSize: 12,
                       height: 1.45,
                     ),
@@ -346,7 +346,7 @@ class _WorkspaceSetupPanel extends StatelessWidget {
         Text(
           l10n.settingsDeveloperSetupDescription,
           style: ShellText.base.copyWith(
-            color: ShellColors.textSecondary,
+            color: context.shellColors.textSecondary,
             fontSize: 12,
             height: 1.45,
           ),
@@ -368,8 +368,8 @@ class _WorkspaceSetupPanel extends StatelessWidget {
               status,
               style: ShellText.base.copyWith(
                 color: error.isNotEmpty
-                    ? ShellColors.performanceBad
-                    : ShellColors.textTertiary,
+                    ? context.shellColors.performanceBad
+                    : context.shellColors.textTertiary,
                 fontSize: 11,
                 height: 1.4,
               ),
@@ -382,7 +382,7 @@ class _WorkspaceSetupPanel extends StatelessWidget {
             minHeight: 4,
             borderRadius: BorderRadius.circular(99),
             color: ShellTheme.of(context).accent,
-            backgroundColor: ShellColors.surfaceContainerHighest,
+            backgroundColor: context.shellColors.surfaceContainerHighest,
           ),
         ],
       ],
@@ -422,7 +422,7 @@ class _WorkspaceField extends StatelessWidget {
           textInputAction: TextInputAction.done,
           onSubmitted: (_) => onSubmitted(),
           style: ShellText.base.copyWith(
-            color: ShellColors.textPrimary,
+            color: context.shellColors.textPrimary,
             fontFamily: ShellText.systemBarFontFamily,
             fontSize: 12,
           ),
@@ -430,18 +430,18 @@ class _WorkspaceField extends StatelessWidget {
             isDense: true,
             hintText: context.l10n.settingsDeveloperWorkspaceHint,
             hintStyle: ShellText.base.copyWith(
-              color: ShellColors.textTertiary,
+              color: context.shellColors.textTertiary,
               fontSize: 12,
             ),
             filled: true,
-            fillColor: ShellColors.surfaceContainerHigh,
+            fillColor: context.shellColors.surfaceContainerHigh,
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 13,
               vertical: 12,
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(ShellRadii.chip),
-              borderSide: const BorderSide(color: ShellColors.hairline),
+              borderSide: BorderSide(color: context.shellColors.hairline),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(ShellRadii.chip),
@@ -449,7 +449,7 @@ class _WorkspaceField extends StatelessWidget {
             ),
             disabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(ShellRadii.chip),
-              borderSide: const BorderSide(color: ShellColors.hairlineSoft),
+              borderSide: BorderSide(color: context.shellColors.hairlineSoft),
             ),
           ),
         ),
@@ -466,12 +466,12 @@ class _RuntimeStatusDot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = state.error.isNotEmpty
-        ? ShellColors.performanceBad
+        ? context.shellColors.performanceBad
         : state.busy
-        ? ShellColors.performanceWarning
+        ? context.shellColors.performanceWarning
         : state.activeMode == DenialUiRuntimeMode.liveDevelopment
         ? ShellTheme.of(context).accent
-        : ShellColors.performanceGood;
+        : context.shellColors.performanceGood;
     return Container(
       width: 9,
       height: 9,
@@ -499,8 +499,8 @@ class _RuntimeSummary extends StatelessWidget {
           text,
           style: ShellText.base.copyWith(
             color: state.error.isNotEmpty
-                ? ShellColors.performanceBad
-                : ShellColors.textSecondary,
+                ? context.shellColors.performanceBad
+                : context.shellColors.textSecondary,
             fontSize: 12,
             height: 1.45,
           ),
@@ -512,7 +512,7 @@ class _RuntimeSummary extends StatelessWidget {
             minHeight: 4,
             borderRadius: BorderRadius.circular(99),
             color: ShellTheme.of(context).accent,
-            backgroundColor: ShellColors.surfaceContainerHighest,
+            backgroundColor: context.shellColors.surfaceContainerHighest,
           ),
         ],
       ],
@@ -529,10 +529,10 @@ class _WarningBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: ShellColors.performanceWarning.withValues(alpha: 0.08),
+        color: context.shellColors.performanceWarning.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: ShellColors.performanceWarning.withValues(alpha: 0.28),
+          color: context.shellColors.performanceWarning.withValues(alpha: 0.28),
         ),
       ),
       child: Padding(
@@ -540,17 +540,17 @@ class _WarningBanner extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(
+            Icon(
               Icons.speed_rounded,
               size: 16,
-              color: ShellColors.performanceWarning,
+              color: context.shellColors.performanceWarning,
             ),
             const SizedBox(width: 9),
             Expanded(
               child: Text(
                 text,
                 style: ShellText.base.copyWith(
-                  color: ShellColors.textSecondary,
+                  color: context.shellColors.textSecondary,
                   fontSize: 11,
                   height: 1.4,
                 ),
@@ -578,7 +578,7 @@ class _Diagnostics extends StatelessWidget {
           Text(
             l10n.settingsDeveloperVmServiceTitle,
             style: ShellText.cardTitle.copyWith(
-              color: ShellColors.textSecondary,
+              color: context.shellColors.textSecondary,
             ),
           ),
           const SizedBox(height: 5),
@@ -594,7 +594,7 @@ class _Diagnostics extends StatelessWidget {
           Text(
             l10n.settingsDeveloperEditorAttachDescription,
             style: ShellText.base.copyWith(
-              color: ShellColors.textTertiary,
+              color: context.shellColors.textTertiary,
               fontSize: 11,
               height: 1.4,
             ),
@@ -605,7 +605,7 @@ class _Diagnostics extends StatelessWidget {
           Text(
             l10n.settingsDeveloperNoDiagnostics,
             style: ShellText.base.copyWith(
-              color: ShellColors.textTertiary,
+              color: context.shellColors.textTertiary,
               fontSize: 12,
             ),
           )
@@ -629,8 +629,9 @@ class _DiagnosticRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = switch (diagnostic.severity) {
       DenialUiDiagnosticSeverity.information => ShellTheme.of(context).accent,
-      DenialUiDiagnosticSeverity.warning => ShellColors.performanceWarning,
-      DenialUiDiagnosticSeverity.error => ShellColors.performanceBad,
+      DenialUiDiagnosticSeverity.warning =>
+        context.shellColors.performanceWarning,
+      DenialUiDiagnosticSeverity.error => context.shellColors.performanceBad,
     };
     final location = diagnostic.path.isEmpty
         ? ''
@@ -656,7 +657,7 @@ class _DiagnosticRow extends StatelessWidget {
               Text(
                 diagnostic.message,
                 style: ShellText.base.copyWith(
-                  color: ShellColors.textSecondary,
+                  color: context.shellColors.textSecondary,
                   fontSize: 12,
                 ),
               ),
@@ -665,7 +666,7 @@ class _DiagnosticRow extends StatelessWidget {
                 SelectableText(
                   location,
                   style: ShellText.base.copyWith(
-                    color: ShellColors.textTertiary,
+                    color: context.shellColors.textTertiary,
                     fontFamily: ShellText.systemBarFontFamily,
                     fontSize: 10,
                   ),

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import '../../localization/denial_localizations.dart';
 import '../../theme/shell_theme.dart';
+import '../../theme/tokens.dart';
 import '../../widgets/app_icon.dart';
 import '../controllers/home_grid_controller.dart';
 import '../models/home_battery_discharge_info.dart';
@@ -88,7 +89,7 @@ class HomeClockWidget extends StatelessWidget {
                       softWrap: false,
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: const Color(0xfff7f7f8),
+                        color: ShellMediaColors.lightForeground,
                         fontSize: timeSize,
                         height: 0.95,
                         fontWeight: FontWeight.w300,
@@ -104,7 +105,7 @@ class HomeClockWidget extends StatelessWidget {
                     softWrap: false,
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: const Color(0xffc7c9d1),
+                      color: ShellMediaColors.lightForegroundSecondary,
                       fontSize: _scaled(15, detailScale, 13, 19),
                       height: 1,
                       fontWeight: FontWeight.w500,
@@ -345,7 +346,7 @@ class _HomeClockProtocolLabel extends StatelessWidget {
             maxLines: 1,
             softWrap: false,
             style: TextStyle(
-              color: const Color(0xe6f7f7f8),
+              color: ShellMediaColors.lightForeground.withValues(alpha: 0.90),
               fontSize: _scaled(10, scale, 9, 12),
               height: 1,
               fontWeight: FontWeight.w600,
@@ -376,7 +377,9 @@ class _HomeClockThermalText extends StatelessWidget {
           maxLines: 1,
           softWrap: false,
           style: TextStyle(
-            color: const Color(0xc7c7c9d1),
+            color: ShellMediaColors.lightForegroundSecondary.withValues(
+              alpha: 0.78,
+            ),
             fontSize: _scaled(9, scale, 8, 10),
             height: 1,
             fontWeight: FontWeight.w600,
@@ -411,9 +414,8 @@ class _HomeBatteryDischargeTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final latest = series.latest;
-    final graphPoints = series.graphPoints().toList(growable: false);
-    final stats = _BatteryDischargeStats.fromPoints(graphPoints);
-    final avg60 = stats.averageDrawMa ?? series.averageDrawMa();
+    final graph = series.graph;
+    final avg60 = graph.averageDrawMa ?? series.averageDrawMa60;
     final accent = _dischargeAccentColor(latest);
     final detailParts = <String>[
       ?_formatPowerMw(context.l10n, latest?.powerMw),
@@ -437,12 +439,12 @@ class _HomeBatteryDischargeTile extends StatelessWidget {
 
         return DecoratedBox(
           decoration: BoxDecoration(
-            color: const Color(0x28070910),
+            color: ShellMediaColors.glassSurface,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color(0x26ffffff)),
+            border: Border.all(color: ShellMediaColors.lightOutline),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x24000000),
+                color: ShellMediaColors.wallpaperScrim,
                 blurRadius: 18,
                 offset: Offset(0, 8),
               ),
@@ -476,7 +478,7 @@ class _HomeBatteryDischargeTile extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          color: Color(0xfff7f7f8),
+                          color: ShellMediaColors.lightForeground,
                           fontSize: 14,
                           height: 1,
                           fontWeight: FontWeight.w700,
@@ -509,7 +511,7 @@ class _HomeBatteryDischargeTile extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: const Color(0xfff7f7f8),
+                          color: ShellMediaColors.lightForeground,
                           fontSize: valueSize,
                           height: 0.95,
                           fontWeight: FontWeight.w400,
@@ -526,7 +528,7 @@ class _HomeBatteryDischargeTile extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           textAlign: TextAlign.right,
                           style: const TextStyle(
-                            color: Color(0xffc7c9d1),
+                            color: ShellMediaColors.lightForegroundSecondary,
                             fontSize: 11,
                             height: 1.15,
                             fontWeight: FontWeight.w600,
@@ -538,11 +540,11 @@ class _HomeBatteryDischargeTile extends StatelessWidget {
                   ],
                 ),
                 SizedBox(height: compact ? 7 : 12),
-                if (stats.hasValues) ...[
+                if (graph.hasValues) ...[
                   _BatteryDischargeStatsRow(
                     averageDrawMa: avg60,
-                    minDrawMa: stats.minPoint?.drawMa,
-                    maxDrawMa: stats.maxPoint?.drawMa,
+                    minDrawMa: graph.minPoint?.drawMa,
+                    maxDrawMa: graph.maxPoint?.drawMa,
                     compact: compact,
                   ),
                   SizedBox(height: compact ? 6 : 8),
@@ -550,10 +552,8 @@ class _HomeBatteryDischargeTile extends StatelessWidget {
                 Expanded(
                   child: CustomPaint(
                     painter: _BatteryDischargeGraphPainter(
-                      points: graphPoints,
+                      graph: graph,
                       accent: accent,
-                      minPoint: stats.minPoint,
-                      latestPoint: stats.latestPoint,
                       l10n: context.l10n,
                     ),
                     child: const SizedBox.expand(),
@@ -566,55 +566,6 @@ class _HomeBatteryDischargeTile extends StatelessWidget {
       },
     );
   }
-}
-
-class _BatteryDischargeStats {
-  const _BatteryDischargeStats({
-    required this.minPoint,
-    required this.maxPoint,
-    required this.latestPoint,
-    required this.averageDrawMa,
-  });
-
-  factory _BatteryDischargeStats.fromPoints(
-    List<HomeBatteryDischargePoint> points,
-  ) {
-    HomeBatteryDischargePoint? minPoint;
-    HomeBatteryDischargePoint? maxPoint;
-    HomeBatteryDischargePoint? latestPoint;
-    var sum = 0;
-    var count = 0;
-
-    for (final point in points) {
-      final drawMa = point.drawMa;
-      if (drawMa == null) {
-        continue;
-      }
-      sum += drawMa;
-      count += 1;
-      latestPoint = point;
-      if (minPoint == null || drawMa < minPoint.drawMa!) {
-        minPoint = point;
-      }
-      if (maxPoint == null || drawMa > maxPoint.drawMa!) {
-        maxPoint = point;
-      }
-    }
-
-    return _BatteryDischargeStats(
-      minPoint: minPoint,
-      maxPoint: maxPoint,
-      latestPoint: latestPoint,
-      averageDrawMa: count == 0 ? null : sum ~/ count,
-    );
-  }
-
-  final HomeBatteryDischargePoint? minPoint;
-  final HomeBatteryDischargePoint? maxPoint;
-  final HomeBatteryDischargePoint? latestPoint;
-  final int? averageDrawMa;
-
-  bool get hasValues => latestPoint != null;
 }
 
 class _BatteryDischargeStatsRow extends StatelessWidget {
@@ -685,14 +636,14 @@ class _BatteryMetricText extends StatelessWidget {
           TextSpan(
             text: '$label ',
             style: const TextStyle(
-              color: Color(0xff8f96a3),
+              color: ShellMediaColors.lightForegroundTertiary,
               fontWeight: FontWeight.w600,
             ),
           ),
           TextSpan(
             text: value,
             style: const TextStyle(
-              color: Color(0xfff7f7f8),
+              color: ShellMediaColors.lightForeground,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -770,23 +721,19 @@ class _MiniBatteryPainter extends CustomPainter {
 
 class _BatteryDischargeGraphPainter extends CustomPainter {
   const _BatteryDischargeGraphPainter({
-    required this.points,
+    required this.graph,
     required this.accent,
-    required this.minPoint,
-    required this.latestPoint,
     required this.l10n,
   });
 
-  final List<HomeBatteryDischargePoint> points;
+  final HomeBatteryDischargeGraphViewModel graph;
   final Color accent;
-  final HomeBatteryDischargePoint? minPoint;
-  final HomeBatteryDischargePoint? latestPoint;
   final AppLocalizations l10n;
 
   @override
   void paint(Canvas canvas, Size size) {
     final grid = Paint()
-      ..color = const Color(0x24ffffff)
+      ..color = ShellMediaColors.lightGrid
       ..strokeWidth = 1;
     final baseline = size.height - 1;
     for (final fraction in [0.0, 0.5, 1.0]) {
@@ -794,21 +741,17 @@ class _BatteryDischargeGraphPainter extends CustomPainter {
       canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
     }
 
-    final usable = points.where((point) => point.drawMa != null).toList();
+    final usable = graph.points;
     if (usable.length < 2) {
       final empty = Paint()
-        ..color = const Color(0x33f7f7f8)
+        ..color = ShellMediaColors.lightForeground.withValues(alpha: 0.20)
         ..strokeWidth = 2
         ..strokeCap = StrokeCap.round;
       canvas.drawLine(Offset(0, baseline), Offset(size.width, baseline), empty);
       return;
     }
 
-    final maxMa = usable
-        .map((point) => point.drawMa!)
-        .reduce(math.max)
-        .clamp(50, 2000)
-        .toDouble();
+    final maxMa = graph.scaleMaxMa;
     final stepX = size.width / (usable.length - 1);
     final line = Path();
     final fill = Path();
@@ -862,17 +805,17 @@ class _BatteryDischargeGraphPainter extends CustomPainter {
         size,
         usable,
         maxMa,
-        minPoint,
+        graph.minIndex,
         l10n.metricMinimum,
-        const Color(0xff8ee6c1),
+        ShellTelemetryColors.nominal,
       );
-      if (latestPoint?.wallMs != minPoint?.wallMs) {
+      if (graph.latestIndex != graph.minIndex) {
         _drawMarker(
           canvas,
           size,
           usable,
           maxMa,
-          latestPoint,
+          graph.latestIndex,
           l10n.metricNow,
           accent,
         );
@@ -885,19 +828,16 @@ class _BatteryDischargeGraphPainter extends CustomPainter {
     Size size,
     List<HomeBatteryDischargePoint> usable,
     double maxMa,
-    HomeBatteryDischargePoint? point,
+    int index,
     String label,
     Color color,
   ) {
-    final drawMa = point?.drawMa;
-    if (point == null || drawMa == null) {
+    if (index < 0 || index >= usable.length) {
       return;
     }
-
-    final index = usable.indexWhere((candidate) {
-      return candidate.wallMs == point.wallMs && candidate.drawMa == drawMa;
-    });
-    if (index < 0) {
+    final point = usable[index];
+    final drawMa = point.drawMa;
+    if (drawMa == null) {
       return;
     }
 
@@ -919,7 +859,7 @@ class _BatteryDischargeGraphPainter extends CustomPainter {
       text: TextSpan(
         text: l10n.batteryGraphMarker(label, _formatDrawMa(l10n, drawMa)),
         style: TextStyle(
-          color: const Color(0xfff7f7f8),
+          color: ShellMediaColors.lightForeground,
           fontSize: 10,
           height: 1,
           fontWeight: FontWeight.w700,
@@ -944,7 +884,7 @@ class _BatteryDischargeGraphPainter extends CustomPainter {
     canvas.drawRRect(
       rect,
       Paint()
-        ..color = const Color(0xdd070910)
+        ..color = ShellMediaColors.glassSurfaceStrong
         ..style = PaintingStyle.fill,
     );
     canvas.drawRRect(
@@ -959,10 +899,8 @@ class _BatteryDischargeGraphPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _BatteryDischargeGraphPainter oldDelegate) {
-    return oldDelegate.points != points ||
+    return oldDelegate.graph != graph ||
         oldDelegate.accent != accent ||
-        oldDelegate.minPoint != minPoint ||
-        oldDelegate.latestPoint != latestPoint ||
         oldDelegate.l10n.localeName != l10n.localeName;
   }
 }
@@ -1037,14 +975,14 @@ class _HomeAppTile extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                color: Color(0xfff7f7f8),
+                color: ShellMediaColors.lightForeground,
                 fontSize: 13,
                 height: 1.06,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0,
                 shadows: [
                   Shadow(
-                    color: Color(0x80000000),
+                    color: ShellMediaColors.shadow,
                     blurRadius: 8,
                     offset: Offset(0, 1),
                   ),
@@ -1064,50 +1002,50 @@ double _scaled(double value, double scale, double min, double max) {
 
 Color _batteryAccentColor(HomePowerStatus power) {
   if (power.voocCharging) {
-    return const Color(0xff5ff38a);
+    return ShellTelemetryColors.chargingVooc;
   }
   if (power.ppsCharging) {
-    return const Color(0xffbd8cff);
+    return ShellTelemetryColors.chargingPps;
   }
   if (power.pdCharging) {
-    return const Color(0xff7aa8ff);
+    return ShellTelemetryColors.chargingPd;
   }
   if (power.fastCharge || power.state == 'charging') {
-    return const Color(0xff78dce8);
+    return ShellTelemetryColors.charging;
   }
   if (power.state == 'discharging') {
     final capacity = power.capacity;
     if (capacity == null || capacity >= 20) {
-      return const Color(0xfff7f7f8);
+      return ShellMediaColors.lightForeground;
     }
     if (capacity >= 15) {
-      return const Color(0xffffd166);
+      return ShellTelemetryColors.warning;
     }
-    return const Color(0xffff6b6b);
+    return ShellTelemetryColors.danger;
   }
-  return const Color(0xffc7c9d1);
+  return ShellMediaColors.lightForegroundSecondary;
 }
 
 Color _dischargeAccentColor(HomeBatteryDischargePoint? point) {
   final currentMa = point?.currentMa;
   if (currentMa == null || currentMa == 0) {
-    return const Color(0xffc7c9d1);
+    return ShellMediaColors.lightForegroundSecondary;
   }
   if (currentMa > 0) {
-    return const Color(0xff78dce8);
+    return ShellTelemetryColors.charging;
   }
-  return const Color(0xffffa657);
+  return ShellTelemetryColors.discharge;
 }
 
 Color _temperatureColor(int deciC) {
   if (deciC >= 800) {
-    return const Color(0xffff6b6b);
+    return ShellTelemetryColors.danger;
   }
   if (deciC >= 700) {
-    return const Color(0xffffb86b);
+    return ShellTelemetryColors.warm;
   }
   if (deciC >= 550) {
-    return const Color(0xffffd166);
+    return ShellTelemetryColors.warning;
   }
-  return const Color(0xff8ee6c1);
+  return ShellTelemetryColors.nominal;
 }

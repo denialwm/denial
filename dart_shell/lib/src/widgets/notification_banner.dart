@@ -9,6 +9,7 @@ import '../../l10n/generated/app_localizations.dart';
 import '../localization/denial_localizations.dart';
 import '../input/shell_interaction_registry.dart';
 import '../models/desktop_notification.dart';
+import '../models/shell_popup_placement.dart';
 import '../settings/settings_controller.dart';
 import '../services/notification_policy_repository.dart';
 import '../state/desktop_notifications.dart';
@@ -67,6 +68,7 @@ class NotificationBannerLayer extends ConsumerWidget {
                     notifications: notifications,
                     previewMode: previewMode,
                     interactive: !locked,
+                    entryOffset: _notificationEntryOffset(placement.anchor),
                     onDismiss: controller.dismiss,
                     onDefaultAction: controller.invokeDefaultAction,
                     onAction: controller.invokeAction,
@@ -87,6 +89,7 @@ class NotificationBannerView extends StatefulWidget {
     super.key,
     this.previewMode = NotificationPreviewMode.full,
     this.interactive = true,
+    this.entryOffset = const Offset(0, -1),
     this.onDismiss,
     this.onDefaultAction,
     this.onAction,
@@ -95,6 +98,7 @@ class NotificationBannerView extends StatefulWidget {
   final List<DesktopNotification> notifications;
   final NotificationPreviewMode previewMode;
   final bool interactive;
+  final Offset entryOffset;
   final bool Function(int notificationId)? onDismiss;
   final bool Function(int notificationId)? onDefaultAction;
   final bool Function(int notificationId, String actionKey)? onAction;
@@ -141,6 +145,7 @@ class _NotificationBannerViewState extends State<NotificationBannerView> {
             duration: duration,
             notification: entry.notification,
             visible: entry.visible,
+            entryOffset: widget.entryOffset,
             previewMode: widget.previewMode,
             interactive: widget.interactive,
             onDismiss: widget.onDismiss,
@@ -252,6 +257,7 @@ class _NotificationTransition extends StatefulWidget {
     required this.duration,
     required this.notification,
     required this.visible,
+    required this.entryOffset,
     required this.previewMode,
     required this.interactive,
     required this.onDismiss,
@@ -263,6 +269,7 @@ class _NotificationTransition extends StatefulWidget {
   final Duration duration;
   final DesktopNotification notification;
   final bool visible;
+  final Offset entryOffset;
   final NotificationPreviewMode previewMode;
   final bool interactive;
   final bool Function(int notificationId)? onDismiss;
@@ -278,7 +285,6 @@ class _NotificationTransitionState extends State<_NotificationTransition>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final CurvedAnimation _curved;
-  late final Animation<Offset> _position;
 
   @override
   void initState() {
@@ -293,10 +299,6 @@ class _NotificationTransitionState extends State<_NotificationTransition>
       curve: Motion.md3EmphasizedDecelerate,
       reverseCurve: Motion.md3EmphasizedAccelerate,
     );
-    _position = Tween<Offset>(
-      begin: const Offset(-0.08, -0.18),
-      end: Offset.zero,
-    ).animate(_curved);
     if (widget.visible) {
       _controller.forward();
     }
@@ -324,6 +326,10 @@ class _NotificationTransitionState extends State<_NotificationTransition>
   Widget build(BuildContext context) {
     final theme = ShellTheme.of(context);
     final interactive = widget.interactive && widget.visible;
+    final position = Tween<Offset>(
+      begin: widget.entryOffset,
+      end: Offset.zero,
+    ).animate(_curved);
     final card = NotificationCard(
       notification: widget.notification,
       previewMode: widget.previewMode,
@@ -345,13 +351,14 @@ class _NotificationTransitionState extends State<_NotificationTransition>
           )
         : IgnorePointer(child: card);
 
-    return SizeTransition(
-      sizeFactor: _curved,
-      alignment: AlignmentDirectional.topStart,
-      child: FadeTransition(
-        opacity: _curved,
+    return ClipRect(
+      child: SizeTransition(
+        sizeFactor: _curved,
+        alignment: widget.entryOffset.dy > 0
+            ? AlignmentDirectional.bottomStart
+            : AlignmentDirectional.topStart,
         child: SlideTransition(
-          position: _position,
+          position: position,
           child: Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: RepaintBoundary(
@@ -419,19 +426,34 @@ class NotificationCard extends StatelessWidget {
     final semanticLabel = body.isEmpty
         ? l10n.notificationSemantics(appName, summary)
         : l10n.notificationSemanticsWithBody(appName, summary, body);
+    final banner = !compact;
 
     final content = DecoratedBox(
       decoration: BoxDecoration(
-        color: theme.panelColor(ShellColors.surfaceContainerLow),
+        color: theme.panelColor(context.shellColors.surfaceContainerLow),
+        gradient: banner
+            ? LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: <Color>[
+                  theme.panelColor(context.shellColors.panelBackground),
+                  theme.panelColor(context.shellColors.panelBackgroundBottom),
+                ],
+              )
+            : null,
         borderRadius: BorderRadius.circular(theme.panelRadius),
-        border: Border.all(color: ShellColors.hairlineSoft),
+        border: Border.all(
+          color: banner
+              ? context.shellColors.hairline
+              : context.shellColors.hairlineSoft,
+        ),
         boxShadow: compact
-            ? const <BoxShadow>[]
-            : const <BoxShadow>[
+            ? <BoxShadow>[]
+            : <BoxShadow>[
                 BoxShadow(
-                  color: ShellColors.shadowSoft,
-                  blurRadius: 18,
-                  offset: Offset(0, 6),
+                  color: context.shellColors.shadow,
+                  blurRadius: 22,
+                  offset: Offset(0, 8),
                 ),
               ],
       ),
@@ -522,9 +544,9 @@ class _NotificationHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final indicator = switch (notification.urgency) {
-      DesktopNotificationUrgency.low => ShellColors.textTertiary,
+      DesktopNotificationUrgency.low => context.shellColors.textTertiary,
       DesktopNotificationUrgency.normal => ShellTheme.of(context).accent,
-      DesktopNotificationUrgency.critical => ShellColors.performanceBad,
+      DesktopNotificationUrgency.critical => context.shellColors.performanceBad,
     };
     return Row(
       children: [
@@ -545,7 +567,7 @@ class _NotificationHeader extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: ShellText.base.copyWith(
-              color: ShellColors.textTertiary,
+              color: context.shellColors.textTertiary,
               fontSize: 11.5,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.1,
@@ -553,12 +575,12 @@ class _NotificationHeader extends StatelessWidget {
           ),
         ),
         if (notification.resident)
-          const Padding(
+          Padding(
             padding: EdgeInsets.only(right: 7),
             child: Icon(
               Icons.push_pin_rounded,
               size: 14,
-              color: ShellColors.textTertiary,
+              color: context.shellColors.textTertiary,
             ),
           ),
         if (onDismiss != null)
@@ -610,7 +632,7 @@ class _NotificationBody extends StatelessWidget {
             maxLines: compact ? 2 : 3,
             overflow: TextOverflow.ellipsis,
             style: ShellText.base.copyWith(
-              color: ShellColors.textSecondary,
+              color: context.shellColors.textSecondary,
               fontSize: compact ? 12 : 12.5,
               height: 1.34,
             ),
@@ -656,7 +678,7 @@ class _NotificationProgress extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              const ColoredBox(color: ShellColors.surfaceContainerHighest),
+              ColoredBox(color: context.shellColors.surfaceContainerHighest),
               FractionallySizedBox(
                 alignment: Alignment.centerLeft,
                 widthFactor: normalized / 100,
@@ -774,13 +796,13 @@ class _NotificationActionButtonState extends State<_NotificationActionButton> {
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: _hovered || _focused
-                  ? ShellColors.primaryContainer
-                  : ShellColors.surfaceContainerHighest,
+                  ? context.shellTheme.accentPalette.container
+                  : context.shellColors.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: _focused
                     ? ShellTheme.of(context).accent
-                    : ShellColors.hairlineSoft,
+                    : context.shellColors.hairlineSoft,
               ),
             ),
             child: Text(
@@ -848,8 +870,8 @@ class _NotificationIconButtonState extends State<_NotificationIconButton> {
             height: 30,
             decoration: BoxDecoration(
               color: _hovered || _focused
-                  ? ShellColors.surfaceContainerHighest
-                  : const Color(0x00000000),
+                  ? context.shellColors.surfaceContainerHighest
+                  : ShellMediaColors.transparentDark,
               borderRadius: BorderRadius.circular(11),
               border: _focused
                   ? Border.all(color: ShellTheme.of(context).accent)
@@ -858,13 +880,23 @@ class _NotificationIconButtonState extends State<_NotificationIconButton> {
             child: Icon(
               widget.icon,
               size: 17,
-              color: ShellColors.textSecondary,
+              color: context.shellColors.textSecondary,
             ),
           ),
         ),
       ),
     );
   }
+}
+
+Offset _notificationEntryOffset(ShellPopupAnchor anchor) {
+  if (anchor.vertical != 0) {
+    return Offset(0, anchor.vertical.toDouble());
+  }
+  if (anchor.horizontal != 0) {
+    return Offset(anchor.horizontal.toDouble(), 0);
+  }
+  return const Offset(0, -1);
 }
 
 String notificationAppName(

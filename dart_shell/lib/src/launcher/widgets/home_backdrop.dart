@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/tokens.dart';
+
 class HomeBackdropPainter extends CustomPainter {
   const HomeBackdropPainter();
 
   @override
   void paint(Canvas canvas, Size size) {
-    final scrim = Paint()..color = const Color(0x14000000);
+    final scrim = Paint()..color = ShellMediaColors.wallpaperScrim;
     canvas.drawRect(Offset.zero & size, scrim);
   }
 

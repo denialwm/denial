@@ -1,5 +1,24 @@
 use super::*;
 
+#[test]
+fn initial_toplevel_cascade_is_relative_to_the_selected_output() {
+    let output = Rectangle::new((0, 563).into(), (2560, 1440).into());
+
+    assert_eq!(
+        initial_toplevel_location(Some(output), 48),
+        Point::from((48, 611))
+    );
+    assert_eq!(
+        initial_toplevel_location(Some(output), 384),
+        Point::from((384, 947))
+    );
+}
+
+#[test]
+fn initial_toplevel_cascade_without_an_output_uses_layout_origin() {
+    assert_eq!(initial_toplevel_location(None, 48), Point::from((48, 48)));
+}
+
 #[cfg(test)]
 mod decoration_policy_tests {
     use super::*;

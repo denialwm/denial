@@ -88,10 +88,10 @@ class _WallpaperDarknessControlState extends State<WallpaperDarknessControl> {
           curve: Motion.standard,
           padding: const EdgeInsets.fromLTRB(12, 7, 8, 7),
           decoration: BoxDecoration(
-            color: theme.panelColor(ShellColors.panelBackground),
+            color: theme.panelColor(context.shellColors.panelBackground),
             borderRadius: BorderRadius.circular(ShellRadii.tile),
             border: Border.all(
-              color: _focused ? accent.primary : ShellColors.hairline,
+              color: _focused ? accent.primary : context.shellColors.hairline,
             ),
           ),
           child: Row(
@@ -106,7 +106,7 @@ class _WallpaperDarknessControlState extends State<WallpaperDarknessControl> {
                   l10n.settingsPercent(percentage),
                   textAlign: TextAlign.right,
                   style: ShellText.cardTitle.copyWith(
-                    color: ShellColors.textSecondary,
+                    color: context.shellColors.textSecondary,
                   ),
                 ),
               ),
@@ -116,7 +116,7 @@ class _WallpaperDarknessControlState extends State<WallpaperDarknessControl> {
                   icon: Icons.dark_mode_rounded,
                   value: value,
                   activeColor: accent.primary,
-                  inactiveColor: ShellColors.wallpaperEffectTrack,
+                  inactiveColor: context.shellColors.wallpaperEffectTrack,
                   onChanged: widget.onChanged,
                   onChangeEnd: widget.onChangeEnd,
                   onChangeStart: widget.onChangeStart,

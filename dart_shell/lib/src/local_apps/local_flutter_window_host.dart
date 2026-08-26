@@ -5,6 +5,7 @@ import '../input/shell_interaction_registry.dart';
 import '../localization/denial_localizations.dart';
 import '../models/denial_window.dart';
 import '../state/shell_controller.dart';
+import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
 import '../widgets/desktop_window_snapshot.dart';
 import 'local_flutter_application.dart';
@@ -147,14 +148,16 @@ class _MissingLocalFlutterApplication extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: ShellColors.background,
+      color: context.shellColors.background,
       child: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
             context.l10n.localApplicationNotRegistered(window.appId),
             textAlign: TextAlign.center,
-            style: ShellText.base.copyWith(color: ShellColors.textSecondary),
+            style: ShellText.base.copyWith(
+              color: context.shellColors.textSecondary,
+            ),
           ),
         ),
       ),

@@ -44,4 +44,55 @@ void main() {
     expect(right.edgeTrigger(output), const Rect.fromLTWH(1992, 352, 8, 96));
     expect(bottom.edgeTrigger(output), const Rect.fromLTWH(1552, 692, 96, 8));
   });
+
+  test('centered triggers accept the requested extent beyond half an edge', () {
+    const top = ShellPopupPlacement(
+      anchor: ShellPopupAnchor.topCenter,
+      width: 400,
+      height: 400,
+      margin: 14,
+    );
+    const right = ShellPopupPlacement(
+      anchor: ShellPopupAnchor.centerRight,
+      width: 400,
+      height: 400,
+      margin: 14,
+    );
+
+    expect(
+      top.edgeTrigger(output, thickness: 14, extent: 600),
+      const Rect.fromLTWH(1300, 100, 600, 14),
+    );
+    expect(
+      right.edgeTrigger(output, thickness: 14, extent: 500),
+      const Rect.fromLTWH(1986, 150, 14, 500),
+    );
+  });
+
+  test('unbounded corner triggers split the actual edge without overlap', () {
+    const topLeft = ShellPopupPlacement(
+      anchor: ShellPopupAnchor.topLeft,
+      width: 400,
+      height: 400,
+      margin: 14,
+    );
+    const bottomLeft = ShellPopupPlacement(
+      anchor: ShellPopupAnchor.bottomLeft,
+      width: 400,
+      height: 400,
+      margin: 14,
+    );
+
+    final top = topLeft.edgeTrigger(output, extent: double.infinity);
+    final bottom = bottomLeft.edgeTrigger(output, extent: double.infinity);
+
+    expect(top, const Rect.fromLTWH(1200, 100, 8, 300));
+    expect(bottom, const Rect.fromLTWH(1200, 400, 8, 300));
+    expect(top.bottom, bottom.top);
+    expect(output.contains(top.topLeft), isTrue);
+    expect(
+      output.contains(bottom.bottomRight - const Offset(0.001, 0.001)),
+      isTrue,
+    );
+  });
 }

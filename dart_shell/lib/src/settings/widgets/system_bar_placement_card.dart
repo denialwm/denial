@@ -63,9 +63,9 @@ class SystemBarPlacementCard extends StatelessWidget {
     return SettingsSection(
       key: settingsSystemBarPlacementCardKey,
       title: l10n.settingsSystemBarTitle,
-      leading: const DecoratedBox(
+      leading: DecoratedBox(
         decoration: BoxDecoration(
-          color: ShellColors.primaryContainer,
+          color: context.shellTheme.accentPalette.container,
           shape: BoxShape.circle,
         ),
         child: SizedBox.square(
@@ -74,7 +74,7 @@ class SystemBarPlacementCard extends StatelessWidget {
             child: Icon(
               Icons.view_day_rounded,
               size: 21,
-              color: ShellColors.onPrimaryContainer,
+              color: context.shellTheme.accentPalette.onContainer,
             ),
           ),
         ),
@@ -99,7 +99,7 @@ class SystemBarPlacementCard extends StatelessWidget {
                 Text(
                   l10n.settingsSystemBarDisplaysSelected(selected.length),
                   style: ShellText.cardTitle.copyWith(
-                    color: ShellColors.textTertiary,
+                    color: context.shellColors.textTertiary,
                     fontSize: 10,
                   ),
                 ),
@@ -109,7 +109,7 @@ class SystemBarPlacementCard extends StatelessWidget {
           Text(
             l10n.settingsSystemBarCloneHint,
             style: ShellText.base.copyWith(
-              color: ShellColors.textSecondary,
+              color: context.shellColors.textSecondary,
               height: 1.4,
             ),
           ),
@@ -138,7 +138,7 @@ class _SettingLabel extends StatelessWidget {
     return Text(
       label,
       style: ShellText.cardTitle.copyWith(
-        color: ShellColors.textTertiary,
+        color: context.shellColors.textTertiary,
         fontSize: 10,
         letterSpacing: 1.2,
       ),
@@ -272,15 +272,15 @@ class _EdgeChoiceState extends State<_EdgeChoice> {
             padding: const EdgeInsets.symmetric(horizontal: 10),
             decoration: BoxDecoration(
               color: widget.selected
-                  ? ShellColors.primaryContainer
+                  ? context.shellTheme.accentPalette.container
                   : highlighted
-                  ? ShellColors.surfaceContainerHighest
-                  : ShellColors.surfaceContainerHigh,
+                  ? context.shellColors.surfaceContainerHighest
+                  : context.shellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(ShellRadii.chip),
               border: Border.all(
                 color: _focused || widget.selected
                     ? accent
-                    : ShellColors.hairline,
+                    : context.shellColors.hairline,
               ),
             ),
             child: Row(
@@ -290,8 +290,8 @@ class _EdgeChoiceState extends State<_EdgeChoice> {
                   widget.icon,
                   size: 17,
                   color: widget.selected
-                      ? ShellColors.onPrimaryContainer
-                      : ShellColors.textSecondary,
+                      ? context.shellTheme.accentPalette.onContainer
+                      : context.shellColors.textSecondary,
                 ),
                 const SizedBox(width: 7),
                 Flexible(
@@ -300,8 +300,8 @@ class _EdgeChoiceState extends State<_EdgeChoice> {
                     overflow: TextOverflow.ellipsis,
                     style: ShellText.cardTitle.copyWith(
                       color: widget.selected
-                          ? ShellColors.onPrimaryContainer
-                          : ShellColors.textSecondary,
+                          ? context.shellTheme.accentPalette.onContainer
+                          : context.shellColors.textSecondary,
                     ),
                   ),
                 ),
@@ -436,15 +436,15 @@ class _DisplayChoiceState extends State<_DisplayChoice> {
             padding: const EdgeInsets.all(13),
             decoration: BoxDecoration(
               color: widget.selected
-                  ? ShellColors.primaryContainer.withAlpha(110)
+                  ? context.shellTheme.accentPalette.container.withAlpha(110)
                   : highlighted
-                  ? ShellColors.surfaceContainerHighest
-                  : ShellColors.surfaceContainerHigh,
+                  ? context.shellColors.surfaceContainerHighest
+                  : context.shellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(ShellRadii.chip),
               border: Border.all(
                 color: _focused || widget.selected
                     ? accent
-                    : ShellColors.hairline,
+                    : context.shellColors.hairline,
               ),
             ),
             child: Row(
@@ -463,7 +463,7 @@ class _DisplayChoiceState extends State<_DisplayChoice> {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: ShellText.cardTitle.copyWith(
-                                color: ShellColors.textPrimary,
+                                color: context.shellColors.textPrimary,
                               ),
                             ),
                           ),
@@ -481,7 +481,7 @@ class _DisplayChoiceState extends State<_DisplayChoice> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: ShellText.base.copyWith(
-                          color: ShellColors.textTertiary,
+                          color: context.shellColors.textTertiary,
                           fontSize: 10,
                         ),
                       ),
@@ -494,7 +494,9 @@ class _DisplayChoiceState extends State<_DisplayChoice> {
                       ? Icons.check_circle_rounded
                       : Icons.circle_outlined,
                   size: 19,
-                  color: widget.selected ? accent : ShellColors.textTertiary,
+                  color: widget.selected
+                      ? accent
+                      : context.shellColors.textTertiary,
                 ),
               ],
             ),
@@ -516,7 +518,7 @@ class _MonitorPreview extends StatelessWidget {
     final accent = ShellTheme.of(context).accent;
     final bar = DecoratedBox(
       decoration: BoxDecoration(
-        color: selected ? accent : ShellColors.textTertiary,
+        color: selected ? accent : context.shellColors.textTertiary,
         borderRadius: BorderRadius.circular(2),
       ),
     );
@@ -526,9 +528,11 @@ class _MonitorPreview extends StatelessWidget {
       height: 43,
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: ShellColors.windowFrameSurface,
+        color: context.shellColors.windowFrameSurface,
         borderRadius: BorderRadius.circular(7),
-        border: Border.all(color: selected ? accent : ShellColors.hairline),
+        border: Border.all(
+          color: selected ? accent : context.shellColors.hairline,
+        ),
         boxShadow: selected
             ? [
                 BoxShadow(
@@ -544,7 +548,7 @@ class _MonitorPreview extends StatelessWidget {
           Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: ShellColors.surfaceContainerHighest,
+                color: context.shellColors.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(4),
               ),
             ),
@@ -595,7 +599,7 @@ class _MainBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: ShellColors.surfaceContainerHighest,
+        color: context.shellColors.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(ShellRadii.chip),
       ),
       child: Padding(
@@ -603,7 +607,7 @@ class _MainBadge extends StatelessWidget {
         child: Text(
           label,
           style: ShellText.cardTitle.copyWith(
-            color: ShellColors.textTertiary,
+            color: context.shellColors.textTertiary,
             fontSize: 7,
             letterSpacing: 0.7,
           ),
@@ -622,14 +626,16 @@ class _UnavailableMessage extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: ShellColors.surfaceContainerHigh,
+        color: context.shellColors.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(ShellRadii.chip),
       ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Text(
           label,
-          style: ShellText.base.copyWith(color: ShellColors.textSecondary),
+          style: ShellText.base.copyWith(
+            color: context.shellColors.textSecondary,
+          ),
         ),
       ),
     );

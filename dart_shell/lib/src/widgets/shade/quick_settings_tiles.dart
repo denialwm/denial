@@ -199,11 +199,15 @@ class _QuickTileState extends State<QuickTile> {
   @override
   Widget build(BuildContext context) {
     final accent = ShellTheme.of(context).accentPalette;
-    final background = widget.active ? accent.primary : ShellColors.tileOff;
-    final foreground = widget.active ? accent.onPrimary : ShellColors.panelText;
+    final background = widget.active
+        ? accent.primary
+        : context.shellColors.tileOff;
+    final foreground = widget.active
+        ? accent.onPrimary
+        : context.shellColors.panelText;
     final secondary = widget.active
         ? accent.onPrimary.withValues(alpha: 0.78)
-        : ShellColors.textTertiary;
+        : context.shellColors.textTertiary;
     final radius = widget.wide ? ShellRadii.tileWide : ShellRadii.tile;
 
     return Semantics(
@@ -251,7 +255,7 @@ class _QuickTileState extends State<QuickTile> {
                     ? accent.primary
                     : widget.active
                     ? accent.primary
-                    : ShellColors.hairlineSoft,
+                    : context.shellColors.hairlineSoft,
                 width: _focused ? 1.5 : 1,
               ),
             ),
@@ -377,7 +381,9 @@ class _TileIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: active ? ShellColors.tileIconActive : ShellColors.tileIcon,
+        color: active
+            ? context.shellTheme.accentPalette.subtle
+            : context.shellColors.tileIcon,
         borderRadius: BorderRadius.circular(size / 2),
       ),
       child: SizedBox(
@@ -442,8 +448,8 @@ class _TileDetailsButtonState extends State<_TileDetailsButton> {
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: _focused
-                  ? ShellColors.surfaceContainerHighest
-                  : const Color(0x00000000),
+                  ? context.shellColors.surfaceContainerHighest
+                  : ShellMediaColors.transparentDark,
               borderRadius: BorderRadius.circular(10),
               border: _focused ? Border.all(color: accent) : null,
             ),
@@ -536,10 +542,10 @@ class _RoundButtonState extends State<_RoundButton> {
             onTap: widget.onPressed,
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: ShellColors.chip,
+                color: context.shellColors.chip,
                 borderRadius: BorderRadius.circular(ShellRadii.roundButton),
                 border: Border.all(
-                  color: _focused ? accent : ShellColors.hairlineSoft,
+                  color: _focused ? accent : context.shellColors.hairlineSoft,
                 ),
               ),
               child: SizedBox(
@@ -548,8 +554,8 @@ class _RoundButtonState extends State<_RoundButton> {
                 child: Icon(
                   widget.icon,
                   color: enabled
-                      ? ShellColors.onSecondaryContainer
-                      : ShellColors.textTertiary,
+                      ? context.shellTheme.accentPalette.onMutedContainer
+                      : context.shellColors.textTertiary,
                   size: 21,
                 ),
               ),

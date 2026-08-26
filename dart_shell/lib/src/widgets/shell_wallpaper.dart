@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/display_layout.dart';
 import '../state/display_layout.dart';
 import '../theme/motion.dart';
+import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
 import '../wallpaper/state/wallpaper_controller.dart';
 import '../wallpaper/wallpaper.dart';
@@ -56,7 +57,7 @@ class ShellWallpaper extends ConsumerWidget {
 
         return RepaintBoundary(
           child: ColoredBox(
-            color: ShellColors.launchSurface,
+            color: context.shellColors.launchSurface,
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -144,6 +145,49 @@ class ShellWallpaper extends ConsumerWidget {
   }
 }
 
+/// Paints one output's wallpaper in output-local coordinates.
+///
+/// Filtering the complete irregular desktop atlas lets a blur kernel sample
+/// the empty space around rotated or offset monitors. A local, fully opaque
+/// wallpaper gives security surfaces a real edge for every output instead.
+class ShellOutputWallpaper extends ConsumerWidget {
+  const ShellOutputWallpaper({required this.output, super.key});
+
+  final DisplayOutput output;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final assignment = ref.watch(
+      wallpaperControllerProvider.select((state) => state.assignment),
+    );
+    final darkness = assignment.darknessForOutput(output.name);
+    return RepaintBoundary(
+      child: ColoredBox(
+        color: context.shellColors.launchSurface,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _WallpaperImage(
+              key: ValueKey<String>('wallpaper-image-output-${output.name}'),
+              resource: assignment.forOutput(output.name),
+              targetPixelSize: output.pixelSize,
+              alignment: Alignment(
+                assignment.alignmentForOutput(output.name).x,
+                assignment.alignmentForOutput(output.name).y,
+              ),
+            ),
+            if (darkness > 0)
+              _WallpaperDarknessLayer(
+                key: ValueKey<String>('wallpaper-darkness-${output.name}'),
+                darkness: darkness,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class WallpaperScene extends StatelessWidget {
   const WallpaperScene({
     super.key,
@@ -220,7 +264,7 @@ class _WallpaperDarknessLayer extends StatelessWidget {
   Widget build(BuildContext context) {
     return IgnorePointer(
       child: ColoredBox(
-        color: ShellColors.launchSurface.withValues(alpha: darkness),
+        color: ShellMediaColors.darkness.withValues(alpha: darkness),
       ),
     );
   }

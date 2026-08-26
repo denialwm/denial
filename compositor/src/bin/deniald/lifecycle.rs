@@ -93,6 +93,18 @@ impl LifecycleState {
         self.seat_active
     }
 
+    pub(super) const fn requires_kms_service(
+        &self,
+        drm_active: bool,
+        device_removed: bool,
+    ) -> bool {
+        self.pause_pending
+            || self.shutdown.is_some()
+            || !self.seat_active
+            || device_removed
+            || !drm_active
+    }
+
     pub(super) fn request_shutdown(&mut self, reason: ShutdownReason) {
         // The first request is the reason reported to the user. Further
         // requests remain coalesced instead of introducing teardown races.

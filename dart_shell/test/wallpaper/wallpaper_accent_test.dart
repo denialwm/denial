@@ -14,7 +14,7 @@ import 'package:denial_dart_shell/src/wallpaper/wallpaper.dart';
 void main() {
   test('dominant vibrant color follows the strongest saturated hue', () {
     // Two thirds saturated blue, one third saturated red: blue must win, and
-    // the result is lifted into the legible tone band for dark surfaces.
+    // the result is represented as a canonical, non-rendered accent seed.
     final pixels = _rgbaPixels(<Color>[
       for (var i = 0; i < 200; i += 1) const Color(0xff1040e0),
       for (var i = 0; i < 100; i += 1) const Color(0xffd02020),
@@ -25,7 +25,7 @@ void main() {
     expect(color, isNotNull);
     final hsv = HSVColor.fromColor(color!);
     expect(hsv.hue, closeTo(225, 20));
-    expect(hsv.value, greaterThanOrEqualTo(0.70));
+    expect(hsv.value, closeTo(0.65, 0.01));
     expect(hsv.saturation, inInclusiveRange(0.35, 0.75));
   });
 
@@ -52,7 +52,7 @@ void main() {
   });
 
   test(
-    'controller keeps the previous accent while a resource is unreadable',
+    'controller publishes a resolved fallback for an unreadable resource',
     () async {
       final container = ProviderContainer.test(
         overrides: [
@@ -79,7 +79,10 @@ void main() {
       // An unreadable wallpaper falls back to the brand accent rather than
       // failing silently with a stale wallpaper-specific color.
       await controller.load(const WallpaperResource.file('broken'));
-      expect(container.read(wallpaperAccentProvider), WallpaperAccent.fallback);
+      expect(
+        container.read(wallpaperAccentProvider),
+        WallpaperAccent.resolvedFallback,
+      );
 
       // Re-selecting the earlier wallpaper is served from the cache.
       await controller.load(const WallpaperResource.file('vivid'));

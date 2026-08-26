@@ -25,8 +25,8 @@ the compositor lifecycle directly.
 .TP
 .B \-\-check
 Validate the compositor, control client, session lifecycle, Flutter bundle,
-output configuration, DRM selection, renderer, and Xwayland without starting
-a compositor.
+output configuration, DRM selection, renderer, Qt platform theme, and Xwayland
+without starting a compositor.
 .TP
 .B \-\-start-locked
 Start with Denial's native authentication gate locked. Use this for direct or
@@ -42,8 +42,16 @@ Root-owned shell-compatible machine configuration. Supported overrides include
 .BR DENIAL_RENDER_DEVICE ,
 .BR DENIA_SHELL_PROFILE ,
 .BR DENIA_FLUTTER_RENDERER ,
+.BR QT_QPA_PLATFORMTHEME ,
 and
 .BR DENIAL_FLUTTER_BUNDLE .
+.PP
+Unless explicitly overridden, the launcher selects Qt's
+.B xdgdesktopportal
+platform theme provider so Qt applications receive Denial's colour-scheme
+preference from the Settings portal. Assigning an empty
+.B QT_QPA_PLATFORMTHEME
+value restores Qt's toolkit default.
 .TP
 .I /etc/denial/outputs.conf
 System output template copied to a user's configuration on first launch.

@@ -186,6 +186,13 @@ case "$xwayland_scale_mode" in
 esac
 export DENIAL_XWAYLAND_SCALE_MODE="$xwayland_scale_mode"
 
+# Qt only consults the desktop Settings portal when its portal-backed platform
+# theme provider is selected. Choose that provider for a Denial session while
+# preserving an explicit inherited or machine-configured override, including
+# an explicitly empty value.
+qt_platform_theme="${QT_QPA_PLATFORMTHEME-xdgdesktopportal}"
+export QT_QPA_PLATFORMTHEME="$qt_platform_theme"
+
 bundle="${DENIAL_FLUTTER_BUNDLE:-$DEFAULT_BUNDLE}"
 if [[ -n "${DENIAL_OUTPUT_CONFIG:-}" ]]; then
   output_config="$DENIAL_OUTPUT_CONFIG"
@@ -235,6 +242,8 @@ if [[ "${1:-}" == --check ]]; then
   printf 'ok  %-16s %s\n' 'shell profile' "$DENIA_SHELL_PROFILE"
   printf 'ok  %-16s %s\n' 'Flutter renderer' "${flutter_renderer:-impeller (default)}"
   printf 'ok  %-16s %s\n' 'Xwayland scale' "$xwayland_scale_mode"
+  printf 'ok  %-16s %s\n' \
+    'Qt platform theme' "${qt_platform_theme:-toolkit default (explicit)}"
   printf 'ok  %-16s %s\n' 'Xwayland' "$(command -v Xwayland)"
   exit 0
 fi

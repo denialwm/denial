@@ -121,13 +121,13 @@ class _WallpaperTargetButtonState extends State<_WallpaperTargetButton> {
               color: selected
                   ? accent.container
                   : highlighted
-                  ? ShellColors.surfaceContainerHighest
-                  : ShellColors.surfaceContainerHigh,
+                  ? context.shellColors.surfaceContainerHighest
+                  : context.shellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(ShellRadii.chip),
               border: Border.all(
                 color: highlighted || selected
                     ? accent.primary
-                    : ShellColors.hairline,
+                    : context.shellColors.hairline,
               ),
             ),
             child: Text(
@@ -135,7 +135,9 @@ class _WallpaperTargetButtonState extends State<_WallpaperTargetButton> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: ShellText.cardTitle.copyWith(
-                color: selected ? accent.onContainer : ShellColors.textPrimary,
+                color: selected
+                    ? accent.onContainer
+                    : context.shellColors.textPrimary,
               ),
             ),
           ),

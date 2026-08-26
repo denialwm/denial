@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/tokens.dart';
+
 class PageDots extends StatelessWidget {
   const PageDots({super.key, required this.count, required this.active});
 
@@ -24,8 +26,8 @@ class PageDots extends StatelessWidget {
             margin: const EdgeInsets.symmetric(horizontal: 4),
             decoration: BoxDecoration(
               color: index == active
-                  ? const Color(0xddf7f7f8)
-                  : const Color(0x55f7f7f8),
+                  ? ShellMediaColors.lightForeground.withValues(alpha: 0.87)
+                  : ShellMediaColors.lightForeground.withValues(alpha: 0.33),
               borderRadius: BorderRadius.circular(4),
             ),
           ),

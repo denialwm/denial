@@ -27,9 +27,7 @@ void main() {
                   cursorColor: const Color(0xFFFFFFFF),
                   backgroundCursorColor: const Color(0xFF000000),
                 ),
-                const Expanded(
-                  child: _OutsideTarget(key: outsideKey),
-                ),
+                const Expanded(child: _OutsideTarget(key: outsideKey)),
               ],
             ),
           ),

@@ -6,6 +6,9 @@ pub(super) fn collect_flutter_output_damage(
     runtime: &mut flutter_runtime::FlutterRuntime,
     scheduler: &mut frame_scheduler::FrameScheduler,
 ) {
+    if !runtime.has_output_updates() {
+        return;
+    }
     let updates = runtime.take_output_updates();
     for (output, texture_ids) in &updates {
         scheduler.mark_app_dirty(*output, texture_ids.iter().copied());

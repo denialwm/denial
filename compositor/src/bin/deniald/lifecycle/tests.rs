@@ -25,6 +25,21 @@ fn duplicate_pause_notifications_are_idempotent() {
 }
 
 #[test]
+fn active_kms_session_needs_no_periodic_lifecycle_service() {
+    let mut state = LifecycleState::default();
+
+    assert!(!state.requires_kms_service(true, false));
+    assert!(state.requires_kms_service(false, false));
+    assert!(state.requires_kms_service(true, true));
+
+    state.pause_session();
+    state.activate_session();
+    assert!(state.requires_kms_service(true, false));
+    assert!(state.take_pause_pending());
+    assert!(!state.requires_kms_service(true, false));
+}
+
+#[test]
 fn first_shutdown_reason_wins() {
     let mut state = LifecycleState::default();
 

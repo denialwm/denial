@@ -8,7 +8,6 @@ import '../models/app_launch_request.dart';
 import '../models/denial_window.dart';
 import '../theme/motion.dart';
 import '../theme/shell_theme.dart';
-import '../theme/tokens.dart';
 import 'app_icon.dart';
 import 'window_hero.dart';
 
@@ -143,7 +142,7 @@ class _LaunchTransitionLayerState extends State<LaunchTransitionLayer>
           child: RepaintBoundary(
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: ShellColors.launchSurface,
+                color: context.shellColors.launchSurface,
                 borderRadius: BorderRadius.circular(radius),
               ),
               child: ClipRRect(

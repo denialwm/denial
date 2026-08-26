@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../localization/denial_localizations.dart';
 import '../../theme/motion.dart';
@@ -95,6 +96,7 @@ class SettingsNavigation extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(right: 5),
                 child: _NavigationDestination(
+                  key: ValueKey<SettingsPageId>(page),
                   page: page,
                   selected: page == selected,
                   compact: true,
@@ -109,9 +111,11 @@ class SettingsNavigation extends StatelessWidget {
       width: 184,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: ShellColors.surfaceContainerLow.withValues(alpha: 0.68),
-          border: const Border(
-            right: BorderSide(color: ShellColors.hairlineSoft),
+          color: context.shellColors.surfaceContainerLow.withValues(
+            alpha: 0.68,
+          ),
+          border: Border(
+            right: BorderSide(color: context.shellColors.hairlineSoft),
           ),
         ),
         child: Padding(
@@ -124,7 +128,7 @@ class SettingsNavigation extends StatelessWidget {
                 child: Text(
                   context.l10n.settingsNavigationSection,
                   style: ShellText.cardTitle.copyWith(
-                    color: ShellColors.textTertiary,
+                    color: context.shellColors.textTertiary,
                     fontSize: 9,
                     letterSpacing: 1.2,
                   ),
@@ -138,6 +142,7 @@ class SettingsNavigation extends StatelessWidget {
                   children: [
                     for (final page in _visiblePages) ...[
                       _NavigationDestination(
+                        key: ValueKey<SettingsPageId>(page),
                         page: page,
                         selected: page == selected,
                         compact: false,
@@ -154,7 +159,7 @@ class SettingsNavigation extends StatelessWidget {
                 child: Text(
                   context.l10n.settingsStorageLocation,
                   style: ShellText.base.copyWith(
-                    color: ShellColors.textTertiary,
+                    color: context.shellColors.textTertiary,
                     fontSize: 9,
                     height: 1.45,
                   ),
@@ -178,6 +183,7 @@ class _NavigationDestination extends StatefulWidget {
     required this.selected,
     required this.compact,
     required this.onPressed,
+    super.key,
   });
 
   final SettingsPageId page;
@@ -191,63 +197,102 @@ class _NavigationDestination extends StatefulWidget {
 
 class _NavigationDestinationState extends State<_NavigationDestination> {
   var _hovered = false;
+  var _focused = false;
 
   @override
   Widget build(BuildContext context) {
     final accent = ShellTheme.of(context).accent;
     final pageLabel = widget.page.label(context);
+    final motionDuration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : Motion.tile;
     final label = Text(
       pageLabel,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: ShellText.cardTitle.copyWith(
         color: widget.selected
-            ? ShellColors.textPrimary
-            : ShellColors.textSecondary,
+            ? context.shellColors.textPrimary
+            : context.shellColors.textSecondary,
       ),
     );
     return Semantics(
       button: true,
       selected: widget.selected,
       label: pageLabel,
-      child: MouseRegion(
-        cursor: ShellMouseCursors.link,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
+      child: FocusableActionDetector(
+        mouseCursor: ShellMouseCursors.link,
+        onShowHoverHighlight: (value) => setState(() => _hovered = value),
+        onShowFocusHighlight: (value) => setState(() => _focused = value),
+        shortcuts: const <ShortcutActivator, Intent>{
+          SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+        },
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              widget.onPressed();
+              return null;
+            },
+          ),
+        },
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: widget.onPressed,
-          child: AnimatedContainer(
-            duration: Motion.tile,
-            padding: EdgeInsets.symmetric(
-              horizontal: widget.compact ? 11 : 10,
-              vertical: widget.compact ? 8 : 9,
-            ),
+          child: DecoratedBox(
             decoration: BoxDecoration(
               color: widget.selected
                   ? accent.withAlpha(36)
-                  : _hovered
-                  ? ShellColors.surfaceContainerHigh
-                  : const Color(0x00000000),
+                  : ShellMediaColors.transparentDark,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: widget.selected
                     ? accent.withAlpha(112)
-                    : Colors.transparent,
+                    : ShellMediaColors.transparentDark,
               ),
             ),
-            child: Row(
-              mainAxisSize: widget.compact
-                  ? MainAxisSize.min
-                  : MainAxisSize.max,
+            child: Stack(
               children: [
-                Icon(
-                  widget.page.icon,
-                  size: 17,
-                  color: widget.selected ? accent : ShellColors.textTertiary,
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: AnimatedOpacity(
+                      duration: motionDuration,
+                      curve: Motion.standard,
+                      opacity: _hovered || _focused ? 1 : 0,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: widget.selected
+                              ? accent.withAlpha(20)
+                              : context.shellColors.surfaceContainerHigh,
+                          borderRadius: BorderRadius.circular(12),
+                          border: _focused ? Border.all(color: accent) : null,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
-                const SizedBox(width: 8),
-                if (widget.compact) label else Expanded(child: label),
+                Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: widget.compact ? 11 : 10,
+                    vertical: widget.compact ? 8 : 9,
+                  ),
+                  child: Row(
+                    mainAxisSize: widget.compact
+                        ? MainAxisSize.min
+                        : MainAxisSize.max,
+                    children: [
+                      Icon(
+                        widget.page.icon,
+                        size: 17,
+                        color: widget.selected
+                            ? accent
+                            : context.shellColors.textTertiary,
+                      ),
+                      const SizedBox(width: 8),
+                      if (widget.compact) label else Expanded(child: label),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),

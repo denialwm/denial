@@ -11,6 +11,7 @@ import '../state/display_layout.dart';
 import '../state/output_configuration.dart';
 import '../state/ui_development.dart';
 import '../theme/motion.dart';
+import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
 import '../wallpaper/state/wallpaper_accent.dart';
 import '../wallpaper/state/wallpaper_controller.dart';
@@ -169,7 +170,7 @@ class _DenialSettingsApplicationState
       role: .main,
       label: context.l10n.settingsApplicationSemanticsLabel,
       child: Material(
-        color: ShellColors.background.withValues(alpha: 0.74),
+        color: context.shellColors.background.withValues(alpha: 0.74),
         child: LayoutBuilder(
           builder: (context, constraints) {
             final compactNavigation = constraints.maxWidth < 700;
@@ -177,7 +178,7 @@ class _DenialSettingsApplicationState
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const _SettingsHeader(),
-                const Divider(height: 1, color: ShellColors.hairlineSoft),
+                Divider(height: 1, color: context.shellColors.hairlineSoft),
                 if (compactNavigation) ...[
                   SettingsNavigation(
                     selected: _page,
@@ -185,7 +186,7 @@ class _DenialSettingsApplicationState
                     showTouchpad: true,
                     onSelected: _selectPage,
                   ),
-                  const Divider(height: 1, color: ShellColors.hairlineSoft),
+                  Divider(height: 1, color: context.shellColors.hairlineSoft),
                 ],
                 Expanded(
                   child: Row(
@@ -278,7 +279,8 @@ class _DenialSettingsApplicationState
       routeLabel: context.l10n.settingsAccentPickerRouteLabel,
       wheelSemanticsLabel: context.l10n.settingsAccentPickerWheelLabel,
       onChanged: controller.setCustomAccentColor,
-      onReset: () => controller.setCustomAccentColor(ShellColors.accent),
+      onReset: () =>
+          controller.setCustomAccentColor(ShellBrandColors.defaultAccent),
       onClose: () => setState(() => _colorPickerOpen = false),
     );
   }
@@ -334,6 +336,7 @@ class _SettingsPageBody extends ConsumerWidget {
           extractedAccent: ref.watch(wallpaperAccentProvider).color,
           wallpaper: _wallpaperFor(assignment, displayLayout),
           onOpenWallpaperSelector: onOpenWallpaperSelector,
+          onColorSchemePreferenceChanged: controller.setColorSchemePreference,
           onAccentSourceChanged: controller.setAccentSource,
           onOpenAccentPicker: onOpenAccentPicker,
           onWindowRadiusChanged: controller.setWindowRadius,
@@ -518,12 +521,17 @@ class _SettingsHeader extends StatelessWidget {
               ),
             ),
           ),
-          Text(
-            context.l10n.settingsHeaderContext,
-            style: ShellText.cardTitle.copyWith(
-              color: ShellColors.textTertiary,
-              fontSize: 9,
-              letterSpacing: 1.1,
+          Flexible(
+            child: Text(
+              context.l10n.settingsHeaderContext,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.end,
+              style: ShellText.cardTitle.copyWith(
+                color: context.shellColors.textTertiary,
+                fontSize: 9,
+                letterSpacing: 1.1,
+              ),
             ),
           ),
         ],

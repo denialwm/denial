@@ -28,24 +28,12 @@ class BrightnessService {
   Future<double?> readLevel([DisplayOutput? output]) async {
     final target = output ?? defaultOutput;
     if (target != null) {
-      final update = states.firstWhere(
-        (state) => state.monitorId == target.monitorId,
-      );
-      if (!_bridge.requestBrightness(
+      final level = await _bridge.readBrightnessLevel(
         monitorId: target.monitorId,
         connector: target.name,
-      )) {
-        return null;
-      }
-      try {
-        return (await update.timeout(
-          const Duration(seconds: 2),
-        )).level.clamp(0.01, 1.0).toDouble();
-      } on TimeoutException {
-        return null;
-      }
+      );
+      return level?.clamp(0.01, 1.0).toDouble();
     }
-
     return null;
   }
 

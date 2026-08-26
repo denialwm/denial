@@ -96,6 +96,7 @@ impl Error for XEmbedTrayError {}
 pub(super) struct XEmbedTray {
     commands: SyncSender<WorkerCommand>,
     events: Receiver<XEmbedTrayEvent>,
+    events_pending: Arc<AtomicBool>,
     stopping: Arc<AtomicBool>,
     replay_requested: Arc<AtomicBool>,
     wake: UnixStream,
@@ -109,6 +110,11 @@ impl XEmbedTray {
             .map_err(|_| XEmbedTrayError("Xwayland display name is not UTF-8".into()))?;
         let (commands, command_rx) = mpsc::sync_channel(COMMAND_CAPACITY);
         let (event_tx, events) = mpsc::sync_channel(EVENT_CAPACITY);
+        let events_pending = Arc::new(AtomicBool::new(false));
+        let event_tx = XEmbedEventSender {
+            sender: event_tx,
+            pending: Arc::clone(&events_pending),
+        };
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         let (wake, worker_wake) = UnixStream::pair().map_err(|error| {
             XEmbedTrayError(format!("could not create worker wake pipe: {error}"))
@@ -154,6 +160,7 @@ impl XEmbedTray {
             Ok(Ok(())) => Ok(Self {
                 commands,
                 events,
+                events_pending,
                 stopping,
                 replay_requested,
                 wake,
@@ -176,6 +183,10 @@ impl XEmbedTray {
 
     pub(super) fn try_event(&self) -> Option<XEmbedTrayEvent> {
         self.events.try_recv().ok()
+    }
+
+    pub(super) fn take_event_signal(&self) -> bool {
+        self.events_pending.swap(false, Ordering::AcqRel)
     }
 
     pub(super) fn invoke(&self, command: XEmbedTrayCommand) -> bool {
@@ -262,6 +273,25 @@ struct XEmbedInfo {
     mapped: bool,
 }
 
+struct XEmbedEventSender {
+    sender: SyncSender<XEmbedTrayEvent>,
+    pending: Arc<AtomicBool>,
+}
+
+impl XEmbedEventSender {
+    fn try_send(&self, event: XEmbedTrayEvent) -> bool {
+        // Signal first so the main thread cannot swap the coalesced edge
+        // between channel publication and this store. Signal again after a
+        // successful send to close the inverse swap-before-send race.
+        self.pending.store(true, Ordering::Release);
+        let sent = self.sender.try_send(event).is_ok();
+        if sent {
+            self.pending.store(true, Ordering::Release);
+        }
+        sent
+    }
+}
+
 impl Default for XEmbedInfo {
     fn default() -> Self {
         Self {
@@ -277,7 +307,7 @@ struct Worker {
     host: Window,
     atoms: Atoms,
     commands: Receiver<WorkerCommand>,
-    events: SyncSender<XEmbedTrayEvent>,
+    events: XEmbedEventSender,
     stopping: Arc<AtomicBool>,
     replay_requested: Arc<AtomicBool>,
     wake: UnixStream,
@@ -292,7 +322,7 @@ impl Worker {
     fn connect(
         display_name: &str,
         commands: Receiver<WorkerCommand>,
-        events: SyncSender<XEmbedTrayEvent>,
+        events: XEmbedEventSender,
         stopping: Arc<AtomicBool>,
         replay_requested: Arc<AtomicBool>,
         wake: UnixStream,
@@ -837,28 +867,24 @@ impl Worker {
     }
 
     fn publish_removed(&mut self, window: Window) {
-        if self
-            .events
-            .try_send(XEmbedTrayEvent {
-                kind: XEmbedTrayEventKind::Removed,
-                window_id: window,
-                icon: None,
-            })
-            .is_err()
-        {
-            self.pending_removals.insert(window);
+        if self.events.try_send(XEmbedTrayEvent {
+            kind: XEmbedTrayEventKind::Removed,
+            window_id: window,
+            icon: None,
+        }) {
+            return;
         }
+        self.pending_removals.insert(window);
     }
 
     fn flush_pending_removals(&mut self) {
+        let events = &self.events;
         self.pending_removals.retain(|window| {
-            self.events
-                .try_send(XEmbedTrayEvent {
-                    kind: XEmbedTrayEventKind::Removed,
-                    window_id: *window,
-                    icon: None,
-                })
-                .is_err()
+            !events.try_send(XEmbedTrayEvent {
+                kind: XEmbedTrayEventKind::Removed,
+                window_id: *window,
+                icon: None,
+            })
         });
     }
 
@@ -881,15 +907,11 @@ impl Worker {
             let Some(snapshot) = snapshot else {
                 continue;
             };
-            if self
-                .events
-                .try_send(XEmbedTrayEvent {
-                    kind: XEmbedTrayEventKind::Added,
-                    window_id: window,
-                    icon: Some(snapshot.clone()),
-                })
-                .is_ok()
-            {
+            if self.events.try_send(XEmbedTrayEvent {
+                kind: XEmbedTrayEventKind::Added,
+                window_id: window,
+                icon: Some(snapshot.clone()),
+            }) {
                 if let Some(hosted) = self.icons.get_mut(&window) {
                     hosted.published = true;
                     hosted.last_snapshot = Some(snapshot);
@@ -914,7 +936,7 @@ impl Worker {
             );
             let _ = self.connection.destroy_window(icon.container);
             let _ = self.connection.free_colormap(icon.colormap);
-            let _ = self.events.try_send(XEmbedTrayEvent {
+            self.events.try_send(XEmbedTrayEvent {
                 kind: XEmbedTrayEventKind::Removed,
                 window_id: window,
                 icon: None,
@@ -953,14 +975,11 @@ impl Worker {
         } else {
             XEmbedTrayEventKind::Added
         };
-        let published = self
-            .events
-            .try_send(XEmbedTrayEvent {
-                kind,
-                window_id: window,
-                icon: Some(snapshot.clone()),
-            })
-            .is_ok();
+        let published = self.events.try_send(XEmbedTrayEvent {
+            kind,
+            window_id: window,
+            icon: Some(snapshot.clone()),
+        });
         if published {
             hosted.published = true;
             hosted.last_snapshot = Some(snapshot);

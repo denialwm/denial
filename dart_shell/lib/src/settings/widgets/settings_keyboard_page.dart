@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../localization/denial_localizations.dart';
 import '../../models/keyboard_configuration.dart';
 import '../../state/keyboard_configuration.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import 'settings_controls.dart';
 
@@ -33,8 +34,8 @@ class SettingsKeyboardPage extends ConsumerWidget {
                   state.error ?? context.l10n.settingsKeyboardLoading,
                   style: ShellText.base.copyWith(
                     color: state.error == null
-                        ? ShellColors.textSecondary
-                        : ShellColors.performanceBad,
+                        ? context.shellColors.textSecondary
+                        : context.shellColors.performanceBad,
                   ),
                 ),
               ),
@@ -188,7 +189,7 @@ class _KeyboardEditorState extends State<_KeyboardEditor> {
                   Text(
                     l10n.settingsKeyboardLayoutsDescription,
                     style: ShellText.base.copyWith(
-                      color: ShellColors.textSecondary,
+                      color: context.shellColors.textSecondary,
                       height: 1.4,
                     ),
                   ),
@@ -203,7 +204,7 @@ class _KeyboardEditorState extends State<_KeyboardEditor> {
                   Text(
                     l10n.settingsKeyboardOptionsDescription,
                     style: ShellText.base.copyWith(
-                      color: ShellColors.textSecondary,
+                      color: context.shellColors.textSecondary,
                       height: 1.4,
                     ),
                   ),
@@ -257,7 +258,7 @@ class _KeyboardEditorState extends State<_KeyboardEditor> {
               child: Text(
                 l10n.settingsKeyboardSwitchingShortcut,
                 style: ShellText.base.copyWith(
-                  color: ShellColors.textSecondary,
+                  color: context.shellColors.textSecondary,
                   height: 1.4,
                 ),
               ),
@@ -268,7 +269,7 @@ class _KeyboardEditorState extends State<_KeyboardEditor> {
           Text(
             error,
             style: ShellText.base.copyWith(
-              color: ShellColors.performanceBad,
+              color: context.shellColors.performanceBad,
               height: 1.35,
             ),
           ),
@@ -310,21 +311,21 @@ class _KeyboardTextField extends StatelessWidget {
         FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9_,:+\-\s]')),
       ],
       style: ShellText.base.copyWith(
-        color: ShellColors.textPrimary,
+        color: context.shellColors.textPrimary,
         fontFamily: ShellText.systemBarFontFamily,
       ),
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
         filled: true,
-        fillColor: ShellColors.surfaceContainerHigh,
+        fillColor: context.shellColors.surfaceContainerHigh,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: ShellColors.hairline),
+          borderSide: BorderSide(color: context.shellColors.hairline),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: ShellColors.hairline),
+          borderSide: BorderSide(color: context.shellColors.hairline),
         ),
       ),
     );

@@ -177,7 +177,9 @@ class _WallpaperAlignmentSliderState extends State<WallpaperAlignmentSlider> {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(ShellRadii.tile),
             border: Border.all(
-              color: _focused ? accent.primary : Colors.transparent,
+              color: _focused
+                  ? accent.primary
+                  : ShellMediaColors.transparentDark,
             ),
           ),
           child: Row(
@@ -191,7 +193,7 @@ class _WallpaperAlignmentSliderState extends State<WallpaperAlignmentSlider> {
                   icon: widget.icon,
                   value: normalized,
                   activeColor: accent.primary,
-                  inactiveColor: ShellColors.wallpaperEffectTrack,
+                  inactiveColor: context.shellColors.wallpaperEffectTrack,
                   onChangeStart: widget.onChangeStart,
                   onChanged: (next) => widget.onChanged(next * 2.0 - 1.0),
                   onChangeEnd: (next) => widget.onChangeEnd(next * 2.0 - 1.0),
@@ -204,7 +206,7 @@ class _WallpaperAlignmentSliderState extends State<WallpaperAlignmentSlider> {
                   '$percentage%',
                   textAlign: TextAlign.right,
                   style: ShellText.cardTitle.copyWith(
-                    color: ShellColors.textSecondary,
+                    color: context.shellColors.textSecondary,
                   ),
                 ),
               ),
@@ -301,18 +303,18 @@ class _ShellIconControlState extends State<_ShellIconControl> {
               color: widget.selected
                   ? accent.container
                   : highlighted
-                  ? ShellColors.surfaceContainerHighest
-                  : ShellColors.panelBackground,
+                  ? context.shellColors.surfaceContainerHighest
+                  : context.shellColors.panelBackground,
               shape: BoxShape.circle,
               border: Border.all(
                 color: widget.selected || highlighted
                     ? accent.primary
-                    : ShellColors.hairline,
+                    : context.shellColors.hairline,
               ),
               boxShadow: widget.dimension > 40
-                  ? const <BoxShadow>[
+                  ? <BoxShadow>[
                       BoxShadow(
-                        color: ShellColors.shadowSoft,
+                        color: context.shellColors.shadowSoft,
                         blurRadius: 18,
                         offset: Offset(0, 8),
                       ),
@@ -324,7 +326,7 @@ class _ShellIconControlState extends State<_ShellIconControl> {
               size: widget.iconSize,
               color: widget.selected
                   ? accent.onContainer
-                  : ShellColors.textPrimary,
+                  : context.shellColors.textPrimary,
             ),
           ),
         ),
