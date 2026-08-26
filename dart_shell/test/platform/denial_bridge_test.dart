@@ -652,6 +652,38 @@ void main() {
     },
   );
 
+  test('window switcher directions and release reach the shell', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final bridge = _startedBridge();
+    final events = <DenialShellActionEvent>[];
+    final subscription = bridge.shellActions.listen(events.add);
+    try {
+      for (final action in <wire.ShellActionKind>[
+        wire.ShellActionKind.WindowSwitcherNext,
+        wire.ShellActionKind.WindowSwitcherPrevious,
+        wire.ShellActionKind.WindowSwitcherEnd,
+      ]) {
+        await _sendToFlutter(
+          messenger,
+          _envelope(
+            wire.PayloadTypeId.ShellAction,
+            wire.ShellActionObjectBuilder(action: action),
+          ),
+        );
+      }
+
+      expect(events.map((event) => event.action), <DenialShellAction>[
+        DenialShellAction.windowSwitcherNext,
+        DenialShellAction.windowSwitcherPrevious,
+        DenialShellAction.windowSwitcherEnd,
+      ]);
+    } finally {
+      await subscription.cancel();
+      bridge.dispose();
+    }
+  });
+
   test('client pointer press notifications reach the shell', () async {
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;

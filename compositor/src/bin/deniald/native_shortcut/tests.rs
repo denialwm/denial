@@ -1,5 +1,35 @@
 use super::*;
 
+static TEST_DIRECTORY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+struct TestDirectory(PathBuf);
+
+impl TestDirectory {
+    fn shortcut_path(label: &str) -> (Self, PathBuf) {
+        let sequence = TEST_DIRECTORY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let directory = std::env::temp_dir().join(format!(
+            "denial-shortcut-{label}-{}-{sequence}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("create shortcut test directory");
+        let path = directory.join("shortcuts.json");
+        (Self(directory), path)
+    }
+}
+
+impl Drop for TestDirectory {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn shortcut_binding<'a>(file: &'a ShortcutFile, shortcut: &str) -> &'a ShortcutBinding {
+    file.shortcuts
+        .iter()
+        .find(|binding| binding.shortcut == shortcut)
+        .unwrap_or_else(|| panic!("missing shortcut {shortcut}"))
+}
+
 fn press(shortcut: &mut NativeEscapeShortcut, keycode: u32) -> ShortcutDisposition {
     shortcut.observe(keycode, true)
 }
@@ -20,6 +50,85 @@ fn window_switcher_engine(shortcut: &str) -> NativeEscapeShortcut {
         }],
     })
     .expect("window-switcher shortcut must compile")
+}
+
+#[test]
+fn version_one_migration_adds_only_non_conflicting_new_shortcuts() {
+    let custom_left = ShortcutTarget::Spawn {
+        command: vec!["custom-left".to_owned()],
+    };
+    let mut file = ShortcutFile {
+        version: 1,
+        revision: 14,
+        shortcuts: vec![
+            ShortcutBinding {
+                shortcut: "Alt+Tab".to_owned(),
+                target: ShortcutTarget::DenialAction {
+                    action: ShortcutAction::WindowSwitcher,
+                },
+            },
+            ShortcutBinding {
+                shortcut: "3-finger-swipe-left".to_owned(),
+                target: custom_left.clone(),
+            },
+        ],
+    };
+
+    assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(1));
+    normalize_and_compile_shortcuts(&mut file).unwrap();
+
+    assert_eq!(file.version, SHORTCUT_SCHEMA_VERSION);
+    assert_eq!(file.revision, 15);
+    assert_eq!(
+        shortcut_binding(&file, "ThreeFingerSwipeLeft").target,
+        custom_left
+    );
+    assert_eq!(
+        shortcut_binding(&file, "ThreeFingerSwipeRight").target,
+        ShortcutTarget::DenialAction {
+            action: ShortcutAction::WindowSwitcher,
+        }
+    );
+    assert!(
+        file.shortcuts
+            .iter()
+            .all(|binding| binding.shortcut != "Super+Tab"),
+        "migration must not restore a legacy default the user removed"
+    );
+}
+
+#[test]
+fn manager_persists_shortcut_migration_once_on_load() {
+    let (_directory, path) = TestDirectory::shortcut_path("migration");
+    let legacy = ShortcutFile {
+        version: 1,
+        revision: 7,
+        shortcuts: vec![ShortcutBinding {
+            shortcut: "Alt+Tab".to_owned(),
+            target: ShortcutTarget::DenialAction {
+                action: ShortcutAction::WindowSwitcher,
+            },
+        }],
+    };
+    let mut bytes = serde_json::to_vec_pretty(&legacy).unwrap();
+    bytes.push(b'\n');
+    fs::write(&path, bytes).unwrap();
+
+    let manager = ShortcutManager::load_path(path.clone()).unwrap();
+    assert_eq!(manager.file().version, SHORTCUT_SCHEMA_VERSION);
+    assert_eq!(manager.revision(), 8);
+    shortcut_binding(manager.file(), "ThreeFingerSwipeLeft");
+    shortcut_binding(manager.file(), "ThreeFingerSwipeRight");
+    drop(manager);
+
+    let persisted_bytes = fs::read(&path).unwrap();
+    let persisted: ShortcutFile = serde_json::from_slice(&persisted_bytes).unwrap();
+    assert_eq!(persisted.version, SHORTCUT_SCHEMA_VERSION);
+    assert_eq!(persisted.revision, 8);
+
+    let reloaded = ShortcutManager::load_path(path).unwrap();
+    assert_eq!(reloaded.revision(), 8);
+    assert_eq!(reloaded.persisted_bytes, persisted_bytes);
 }
 
 #[test]
@@ -371,6 +480,128 @@ fn super_tab_advances_per_press_and_super_release_ends_the_session() {
         release(&mut shortcut, KEY_TAB),
         ShortcutDisposition::Consume
     );
+}
+
+#[test]
+fn horizontal_touchpad_switcher_repeats_only_after_the_hold_delay() {
+    let mut shortcut = NativeEscapeShortcut::default();
+    let started = Instant::now();
+
+    assert_eq!(
+        shortcut.observe_gesture_at(ShortcutGesture::ThreeFingerSwipeLeft, started),
+        ShortcutDisposition::RequestWindowSwitcherNext
+    );
+    assert_eq!(
+        shortcut.observe_gesture_repeat_at(
+            ShortcutGesture::ThreeFingerSwipeLeft,
+            started + WINDOW_SWITCHER_GESTURE_HOLD_DELAY - Duration::from_millis(1),
+        ),
+        ShortcutDisposition::Consume
+    );
+    assert_eq!(
+        shortcut.observe_gesture_repeat_at(
+            ShortcutGesture::ThreeFingerSwipeLeft,
+            started + WINDOW_SWITCHER_GESTURE_HOLD_DELAY,
+        ),
+        ShortcutDisposition::RequestWindowSwitcherNext
+    );
+    assert_eq!(
+        shortcut.observe_gesture_repeat_at(
+            ShortcutGesture::ThreeFingerSwipeRight,
+            started + WINDOW_SWITCHER_GESTURE_HOLD_DELAY,
+        ),
+        ShortcutDisposition::RequestWindowSwitcherPrevious
+    );
+    assert_eq!(
+        shortcut.end_gesture(ShortcutGesture::ThreeFingerSwipeLeft),
+        ShortcutDisposition::RequestWindowSwitcherEnd { forward: false }
+    );
+    assert_eq!(
+        shortcut.end_gesture(ShortcutGesture::ThreeFingerSwipeLeft),
+        ShortcutDisposition::Forward
+    );
+
+    assert_eq!(
+        shortcut.observe_gesture(ShortcutGesture::ThreeFingerSwipeRight),
+        ShortcutDisposition::RequestWindowSwitcherPrevious
+    );
+    assert_eq!(
+        shortcut.end_gesture(ShortcutGesture::ThreeFingerSwipeRight),
+        ShortcutDisposition::RequestWindowSwitcherEnd { forward: false }
+    );
+}
+
+#[test]
+fn non_switcher_gesture_bindings_remain_one_shot() {
+    let mut shortcut = NativeEscapeShortcut::from_file(&ShortcutFile {
+        version: SHORTCUT_SCHEMA_VERSION,
+        revision: 1,
+        shortcuts: vec![ShortcutBinding {
+            shortcut: "ThreeFingerSwipeLeft".to_owned(),
+            target: ShortcutTarget::DenialAction {
+                action: ShortcutAction::OpenOverview,
+            },
+        }],
+    })
+    .expect("gesture shortcut must compile");
+
+    assert_eq!(
+        shortcut.observe_gesture(ShortcutGesture::ThreeFingerSwipeLeft),
+        ShortcutDisposition::RequestOverview
+    );
+    assert_eq!(
+        shortcut.observe_gesture_repeat(ShortcutGesture::ThreeFingerSwipeLeft),
+        ShortcutDisposition::Consume
+    );
+    assert_eq!(
+        shortcut.end_gesture(ShortcutGesture::ThreeFingerSwipeLeft),
+        ShortcutDisposition::Forward
+    );
+}
+
+#[test]
+fn cancelling_touchpad_state_releases_gesture_switcher_ownership() {
+    let mut shortcut = NativeEscapeShortcut::default();
+
+    assert_eq!(
+        shortcut.observe_gesture(ShortcutGesture::ThreeFingerSwipeLeft),
+        ShortcutDisposition::RequestWindowSwitcherNext
+    );
+    shortcut.cancel_gestures();
+
+    assert_eq!(
+        shortcut.observe_gesture_repeat(ShortcutGesture::ThreeFingerSwipeLeft),
+        ShortcutDisposition::Consume
+    );
+    assert_eq!(
+        shortcut.end_gesture(ShortcutGesture::ThreeFingerSwipeLeft),
+        ShortcutDisposition::Forward
+    );
+}
+
+#[test]
+fn horizontal_gesture_inputs_are_canonicalized_and_advertised() {
+    assert_eq!(
+        parse_shortcut("3_finger_swipe_left")
+            .expect("left alias must parse")
+            .canonical,
+        "ThreeFingerSwipeLeft"
+    );
+    assert_eq!(
+        parse_shortcut("three-finger-swipe-right")
+            .expect("right alias must parse")
+            .canonical,
+        "ThreeFingerSwipeRight"
+    );
+
+    let inputs = supported_inputs();
+    for canonical in ["ThreeFingerSwipeLeft", "ThreeFingerSwipeRight"] {
+        assert!(inputs.iter().any(|input| {
+            input.canonical == canonical
+                && input.kind == ShortcutInputKind::Gesture
+                && input.category == ShortcutInputCategory::Gesture
+        }));
+    }
 }
 
 #[test]

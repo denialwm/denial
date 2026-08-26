@@ -245,7 +245,15 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         _cancelWindowSwitcher();
         _toggleOverview(event.monitorId);
       case DenialShellAction.windowSwitcherNext:
-        _cycleWindowSwitcher(event.monitorId);
+        _cycleWindowSwitcher(
+          event.monitorId,
+          direction: DesktopWindowSwitcherDirection.next,
+        );
+      case DenialShellAction.windowSwitcherPrevious:
+        _cycleWindowSwitcher(
+          event.monitorId,
+          direction: DesktopWindowSwitcherDirection.previous,
+        );
       case DenialShellAction.windowSwitcherEnd:
         _finishWindowSwitcher();
       case DenialShellAction.clipboard:
@@ -281,7 +289,10 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     ref.read(clipboardTrayProvider.notifier).toggle(monitorId: monitorId);
   }
 
-  void _cycleWindowSwitcher(int? preferredMonitorId) {
+  void _cycleWindowSwitcher(
+    int? preferredMonitorId, {
+    required DesktopWindowSwitcherDirection direction,
+  }) {
     _windowSwitcherCleanupTimer?.cancel();
     _windowSwitcherCleanupTimer = null;
     _panelHoverController.reset();
@@ -332,6 +343,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         usesDesktopMotion:
             previous.usesDesktopMotion ||
             activeSessionPlacements.any((placement) => placement.minimized),
+        direction: direction,
       );
       if (next == null) {
         _cancelWindowSwitcher();
@@ -398,6 +410,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       objectIds: placementIds,
       sourceObjectId: sourceObjectId,
       usesDesktopMotion: placements.any((placement) => placement.minimized),
+      direction: direction,
     );
     if (next == null) {
       return;

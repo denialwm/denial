@@ -103,6 +103,48 @@ void main() {
     expect(advanced?.selectedObjectId, 2);
   });
 
+  test('window switcher starts and cycles backward for right swipes', () {
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWindowSwitcherProvider.notifier);
+
+    final started = controller.beginOrAdvance(
+      objectIds: const <int>[1, 2, 3],
+      sourceObjectId: 1,
+      usesDesktopMotion: false,
+      direction: DesktopWindowSwitcherDirection.previous,
+    );
+    final advanced = controller.beginOrAdvance(
+      objectIds: const <int>[1, 2, 3],
+      sourceObjectId: 1,
+      usesDesktopMotion: false,
+      direction: DesktopWindowSwitcherDirection.previous,
+    );
+
+    expect(started?.selectedObjectId, 3);
+    expect(advanced?.selectedObjectId, 2);
+  });
+
+  test('active window switcher can reverse direction without restarting', () {
+    final container = ProviderContainer.test();
+    final controller = container.read(desktopWindowSwitcherProvider.notifier);
+
+    final started = controller.beginOrAdvance(
+      objectIds: const <int>[1, 2, 3],
+      sourceObjectId: 1,
+      usesDesktopMotion: false,
+    )!;
+    final reversed = controller.beginOrAdvance(
+      objectIds: const <int>[1, 2, 3],
+      sourceObjectId: 1,
+      usesDesktopMotion: false,
+      direction: DesktopWindowSwitcherDirection.previous,
+    );
+
+    expect(started.selectedObjectId, 2);
+    expect(reversed?.sessionId, started.sessionId);
+    expect(reversed?.selectedObjectId, 1);
+  });
+
   test('source-less window switcher can restore its only candidate', () {
     final container = ProviderContainer.test();
     final controller = container.read(desktopWindowSwitcherProvider.notifier);

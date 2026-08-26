@@ -227,6 +227,8 @@ pub enum ShellAction {
     #[allow(dead_code)]
     WindowSwitcherNext,
     #[allow(dead_code)]
+    WindowSwitcherPrevious,
+    #[allow(dead_code)]
     WindowSwitcherEnd,
     Clipboard,
     ScreenshotRegion,
@@ -256,6 +258,7 @@ impl ShellAction {
             Self::Applications => fb::ShellActionKind::Applications,
             Self::Overview => fb::ShellActionKind::Overview,
             Self::WindowSwitcherNext => fb::ShellActionKind::WindowSwitcherNext,
+            Self::WindowSwitcherPrevious => fb::ShellActionKind::WindowSwitcherPrevious,
             Self::WindowSwitcherEnd => fb::ShellActionKind::WindowSwitcherEnd,
             Self::Clipboard => fb::ShellActionKind::Clipboard,
             Self::ScreenshotRegion => fb::ShellActionKind::ScreenshotRegion,

@@ -1,13 +1,14 @@
 #[cfg(feature = "flutter")]
 use super::super::render_audit_enabled;
-use super::window_management::{
-    activate_window, clear_toplevel_state, configure_toplevel_for_output, toplevel_has_state,
-};
 #[cfg(feature = "flutter")]
 use super::window_management::{
-    queue_client_window_placement_for_monitor, queue_restored_window_state, queue_window_action,
-    queue_window_placement, reassert_exact_toplevel_geometry, release_window_focus,
-    set_toplevel_suspended, toplevel_shell_geometry_locked,
+    activate_topmost_window, queue_client_window_placement_for_monitor,
+    queue_restored_window_state, queue_window_action, queue_window_placement,
+    reassert_exact_toplevel_geometry, release_window_focus, set_toplevel_suspended,
+    toplevel_shell_geometry_locked,
+};
+use super::window_management::{
+    activate_window, clear_toplevel_state, configure_toplevel_for_output, toplevel_has_state,
 };
 use super::*;
 use smithay::wayland::selection::{SelectionSource, SelectionTarget};
@@ -1666,19 +1667,24 @@ impl XdgShellHandler for RuntimeState {
                     .is_some_and(|toplevel| toplevel.wl_surface() == surface.wl_surface())
             })
             .cloned();
-        if let Some(window) = window.as_ref() {
-            release_window_focus(self, window);
-        }
+        let was_focused = window
+            .as_ref()
+            .is_some_and(|window| release_window_focus(self, window));
         // Native Wayland clients choose their normal size and may create
         // independent auxiliary toplevels with the same app_id. Destruction
         // is therefore not evidence of user placement intent; interactive
         // shell move/resize/state actions persist at their own end boundary.
         // Cleanup remains unconditional because role destruction can arrive
         // after Space has already lost the window.
-        let frontend = self.wayland.as_mut().expect("missing Wayland frontend");
-        frontend.remove_surface_state(surface.wl_surface(), false);
-        if let Some(window) = window {
-            frontend.space.unmap_elem(&window);
+        {
+            let frontend = self.wayland.as_mut().expect("missing Wayland frontend");
+            frontend.remove_surface_state(surface.wl_surface(), false);
+            if let Some(window) = window {
+                frontend.space.unmap_elem(&window);
+            }
+        }
+        if was_focused {
+            activate_topmost_window(self);
         }
         self.scene_sync.mark_dirty();
     }

@@ -4,9 +4,16 @@ import '../../localization/denial_localizations.dart';
 import '../../models/shortcut_configuration.dart';
 
 String settingsShortcutDisplay(BuildContext context, String shortcut) {
-  if (shortcut == 'ThreeFingerSwipeUp') {
-    return context.l10n.settingsShortcutGestureThreeFingerSwipeUp.toUpperCase();
-  }
+  final gesture = switch (shortcut) {
+    'ThreeFingerSwipeUp' =>
+      context.l10n.settingsShortcutGestureThreeFingerSwipeUp,
+    'ThreeFingerSwipeLeft' =>
+      context.l10n.settingsShortcutGestureThreeFingerSwipeLeft,
+    'ThreeFingerSwipeRight' =>
+      context.l10n.settingsShortcutGestureThreeFingerSwipeRight,
+    _ => null,
+  };
+  if (gesture != null) return gesture.toUpperCase();
   return shortcut
       .split('+')
       .map((part) {

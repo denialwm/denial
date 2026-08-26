@@ -1898,7 +1898,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsShortcutEditorShortcutExample =>
-      '示例：Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeUp';
+      '示例：Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeLeft';
 
   @override
   String get settingsShortcutEditorSupportedInputs => '支持的输入';
@@ -2000,6 +2000,12 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsShortcutGestureThreeFingerSwipeUp => '三指向上轻扫';
+
+  @override
+  String get settingsShortcutGestureThreeFingerSwipeLeft => '三指向左轻扫';
+
+  @override
+  String get settingsShortcutGestureThreeFingerSwipeRight => '三指向右轻扫';
 
   @override
   String get settingsShortcutInputCategoryModifier => '修饰键';

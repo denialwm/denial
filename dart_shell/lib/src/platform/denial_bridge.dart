@@ -25,6 +25,7 @@ enum DenialShellAction {
   applications,
   overview,
   windowSwitcherNext,
+  windowSwitcherPrevious,
   windowSwitcherEnd,
   clipboard,
   screenshotPrepare,
@@ -2272,6 +2273,8 @@ class DenialBridge {
           wire.ShellActionKind.Overview => DenialShellAction.overview,
           wire.ShellActionKind.WindowSwitcherNext =>
             DenialShellAction.windowSwitcherNext,
+          wire.ShellActionKind.WindowSwitcherPrevious =>
+            DenialShellAction.windowSwitcherPrevious,
           wire.ShellActionKind.WindowSwitcherEnd =>
             DenialShellAction.windowSwitcherEnd,
           wire.ShellActionKind.Clipboard => DenialShellAction.clipboard,

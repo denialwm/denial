@@ -3529,7 +3529,7 @@ abstract class AppLocalizations {
   /// Persistent examples of accepted shortcut expression formats.
   ///
   /// In en, this message translates to:
-  /// **'Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeUp'**
+  /// **'Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeLeft'**
   String get settingsShortcutEditorShortcutExample;
 
   /// Button and catalog title for supported shortcut inputs.
@@ -3711,6 +3711,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Three-finger swipe up'**
   String get settingsShortcutGestureThreeFingerSwipeUp;
+
+  /// Friendly display name for the three-finger swipe-left gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Three-finger swipe left'**
+  String get settingsShortcutGestureThreeFingerSwipeLeft;
+
+  /// Friendly display name for the three-finger swipe-right gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Three-finger swipe right'**
+  String get settingsShortcutGestureThreeFingerSwipeRight;
 
   /// Supported shortcut input category.
   ///

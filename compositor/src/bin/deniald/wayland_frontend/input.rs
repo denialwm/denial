@@ -1087,12 +1087,13 @@ fn process_touchpad_gesture_event(
                 | InputEvent::GestureSwipeEnd { .. }
         ) {
             state.touchpad_gestures.reset();
+            state.native_escape_shortcut.cancel_gestures();
             return Some(false);
         }
         return None;
     }
 
-    let gesture = match event {
+    let gesture_event = match event {
         InputEvent::GestureSwipeBegin { event } => {
             let device = event.device();
             state
@@ -1108,14 +1109,27 @@ fn process_touchpad_gesture_event(
         }
         InputEvent::GestureSwipeEnd { event } => {
             let device = event.device();
-            state.touchpad_gestures.end_swipe(device.sysname());
-            None
+            state.touchpad_gestures.end_swipe(device.sysname())
         }
         _ => return None,
     };
 
-    if let Some(gesture) = gesture {
-        let disposition = state.native_escape_shortcut.observe_gesture(gesture);
+    if let Some(gesture_event) = gesture_event {
+        use super::super::touchpad_gestures::TouchpadGestureEvent;
+
+        let (gesture, disposition) = match gesture_event {
+            TouchpadGestureEvent::Trigger(gesture) => (
+                gesture,
+                state.native_escape_shortcut.observe_gesture(gesture),
+            ),
+            TouchpadGestureEvent::Repeat(gesture) => (
+                gesture,
+                state.native_escape_shortcut.observe_gesture_repeat(gesture),
+            ),
+            TouchpadGestureEvent::End(gesture) => {
+                (gesture, state.native_escape_shortcut.end_gesture(gesture))
+            }
+        };
         let handled = execute_shortcut_disposition(state, disposition);
         if handled {
             info!(
@@ -1325,6 +1339,7 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
     #[cfg(feature = "flutter")]
     if reset.pointer {
         state.touchpad_gestures.reset();
+        state.native_escape_shortcut.cancel_gestures();
     }
     #[cfg(feature = "flutter")]
     if reset.touch {
@@ -1767,6 +1782,17 @@ pub(super) fn execute_shortcut_disposition(
                 let monitor_id = prepare_shell_overlay_action(state);
                 state.queue_shell_action(
                     super::super::wire::ShellAction::WindowSwitcherNext,
+                    monitor_id,
+                );
+            }
+            true
+        }
+        ShortcutDisposition::RequestWindowSwitcherPrevious => {
+            #[cfg(feature = "flutter")]
+            {
+                let monitor_id = prepare_shell_overlay_action(state);
+                state.queue_shell_action(
+                    super::super::wire::ShellAction::WindowSwitcherPrevious,
                     monitor_id,
                 );
             }

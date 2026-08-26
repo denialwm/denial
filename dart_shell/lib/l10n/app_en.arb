@@ -2751,7 +2751,7 @@
   "@settingsShortcutEditorShortcutHint": {
     "description": "Example shown in an empty shortcut expression field."
   },
-  "settingsShortcutEditorShortcutExample": "Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeUp",
+  "settingsShortcutEditorShortcutExample": "Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeLeft",
   "@settingsShortcutEditorShortcutExample": {
     "description": "Persistent examples of accepted shortcut expression formats."
   },
@@ -2897,6 +2897,14 @@
   "settingsShortcutGestureThreeFingerSwipeUp": "Three-finger swipe up",
   "@settingsShortcutGestureThreeFingerSwipeUp": {
     "description": "Friendly display name for the three-finger swipe-up gesture."
+  },
+  "settingsShortcutGestureThreeFingerSwipeLeft": "Three-finger swipe left",
+  "@settingsShortcutGestureThreeFingerSwipeLeft": {
+    "description": "Friendly display name for the three-finger swipe-left gesture."
+  },
+  "settingsShortcutGestureThreeFingerSwipeRight": "Three-finger swipe right",
+  "@settingsShortcutGestureThreeFingerSwipeRight": {
+    "description": "Friendly display name for the three-finger swipe-right gesture."
   },
   "settingsShortcutInputCategoryModifier": "Modifier",
   "@settingsShortcutInputCategoryModifier": {

@@ -1738,11 +1738,21 @@ fn encodes_shell_actions_with_optional_monitor_and_ordered_sequence() {
     assert_eq!(action.monitor_id(), 9);
 
     let bytes = bridge
-        .encode_shell_action(ShellAction::ScreenshotRegion, None)
+        .encode_shell_action(ShellAction::WindowSwitcherPrevious, Some(9))
         .unwrap();
     let envelope = fb::root_as_envelope(bytes).unwrap();
     let action = envelope.payload_as_shell_action().unwrap();
     assert_eq!(envelope.sequence(), 3);
+    assert_eq!(action.action(), fb::ShellActionKind::WindowSwitcherPrevious);
+    assert!(action.has_monitor_id());
+    assert_eq!(action.monitor_id(), 9);
+
+    let bytes = bridge
+        .encode_shell_action(ShellAction::ScreenshotRegion, None)
+        .unwrap();
+    let envelope = fb::root_as_envelope(bytes).unwrap();
+    let action = envelope.payload_as_shell_action().unwrap();
+    assert_eq!(envelope.sequence(), 4);
     assert_eq!(action.action(), fb::ShellActionKind::ScreenshotRegion);
     assert!(!action.has_monitor_id());
 
@@ -1751,7 +1761,7 @@ fn encodes_shell_actions_with_optional_monitor_and_ordered_sequence() {
         .unwrap();
     let envelope = fb::root_as_envelope(bytes).unwrap();
     let action = envelope.payload_as_shell_action().unwrap();
-    assert_eq!(envelope.sequence(), 4);
+    assert_eq!(envelope.sequence(), 5);
     assert_eq!(action.action(), fb::ShellActionKind::ClientPointerPressed);
 
     let bytes = bridge
@@ -1759,7 +1769,7 @@ fn encodes_shell_actions_with_optional_monitor_and_ordered_sequence() {
         .unwrap();
     let envelope = fb::root_as_envelope(bytes).unwrap();
     let action = envelope.payload_as_shell_action().unwrap();
-    assert_eq!(envelope.sequence(), 5);
+    assert_eq!(envelope.sequence(), 6);
     assert_eq!(action.action(), fb::ShellActionKind::Wallpaper);
 }
 

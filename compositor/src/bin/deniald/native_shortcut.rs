@@ -8,19 +8,26 @@ use std::io::{Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use tracing::warn;
+use tracing::{info, warn};
 
-const SHORTCUT_SCHEMA_VERSION: u64 = 1;
+const SHORTCUT_SCHEMA_VERSION: u64 = 2;
+const OLDEST_SHORTCUT_SCHEMA_VERSION: u64 = 1;
 const MAX_SHORTCUT_FILE_BYTES: usize = 128 * 1024;
 pub(super) const MAX_SHORTCUTS: usize = 256;
 const MAX_SHORTCUT_EXPRESSION_BYTES: usize = 128;
 pub(super) const MAX_SPAWN_ARGUMENTS: usize = 64;
 const MAX_SPAWN_ARGUMENT_BYTES: usize = 4096;
 const MAX_SHELL_COMMAND_BYTES: usize = 4096;
+const WINDOW_SWITCHER_GESTURE_HOLD_DELAY: Duration = Duration::from_millis(190);
 static SHORTCUT_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+const SHORTCUT_V2_ADDITIONS: &[(&str, ShortcutAction)] = &[
+    ("ThreeFingerSwipeLeft", ShortcutAction::WindowSwitcher),
+    ("ThreeFingerSwipeRight", ShortcutAction::WindowSwitcher),
+];
 
 const KEY_ESCAPE: u32 = 1;
 const KEY_BACKSPACE: u32 = 14;
@@ -103,12 +110,16 @@ struct ShortcutTrigger {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(super) enum ShortcutGesture {
     ThreeFingerSwipeUp,
+    ThreeFingerSwipeLeft,
+    ThreeFingerSwipeRight,
 }
 
 impl ShortcutGesture {
     const fn canonical_name(self) -> &'static str {
         match self {
             Self::ThreeFingerSwipeUp => "ThreeFingerSwipeUp",
+            Self::ThreeFingerSwipeLeft => "ThreeFingerSwipeLeft",
+            Self::ThreeFingerSwipeRight => "ThreeFingerSwipeRight",
         }
     }
 }
@@ -323,13 +334,15 @@ impl ShortcutManager {
     }
 
     fn load_path(path: PathBuf) -> Result<Self, ShortcutError> {
-        match fs::symlink_metadata(&path) {
+        let (file, bytes, migration) = match fs::symlink_metadata(&path) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 write_default_file(&path)?;
+                read_and_parse(&path)?
             }
             Err(error) => return Err(error.into()),
-            Ok(_) => {
-                if let Err(error) = read_and_parse(&path) {
+            Ok(_) => match read_and_parse(&path) {
+                Ok(loaded) => loaded,
+                Err(error) => {
                     let moved_to = move_invalid_file_aside(&path)?;
                     warn!(
                         %error,
@@ -338,11 +351,24 @@ impl ShortcutManager {
                         "moved invalid shortcut file aside and restored Denial defaults"
                     );
                     write_default_file(&path)?;
+                    read_and_parse(&path)?
                 }
-            }
-        }
+            },
+        };
 
-        let (file, bytes) = read_and_parse(&path)?;
+        let bytes = if let Some(added) = migration {
+            let migrated = render_shortcut_file(&file)?;
+            replace_shortcut_file(&path, &migrated)?;
+            info!(
+                path = %path.display(),
+                version = SHORTCUT_SCHEMA_VERSION,
+                added,
+                "migrated shortcut configuration"
+            );
+            migrated
+        } else {
+            bytes
+        };
         Ok(Self {
             path,
             file,
@@ -586,11 +612,55 @@ fn validate_spawn_sh(command: &str) -> Result<(), ShortcutError> {
     Ok(())
 }
 
-fn read_and_parse(path: &Path) -> Result<(ShortcutFile, Vec<u8>), ShortcutError> {
+fn read_and_parse(path: &Path) -> Result<(ShortcutFile, Vec<u8>, Option<usize>), ShortcutError> {
     let bytes = read_shortcut_bytes(path)?;
     let mut file = serde_json::from_slice::<ShortcutFile>(&bytes)?;
+    let migration = migrate_shortcut_file(&mut file)?;
     normalize_and_compile_shortcuts(&mut file)?;
-    Ok((file, bytes))
+    Ok((file, bytes, migration))
+}
+
+fn migrate_shortcut_file(file: &mut ShortcutFile) -> Result<Option<usize>, ShortcutError> {
+    match file.version {
+        SHORTCUT_SCHEMA_VERSION => return Ok(None),
+        OLDEST_SHORTCUT_SCHEMA_VERSION => {}
+        version => {
+            return Err(ShortcutError::Document(format!(
+                "shortcut version {version} is not supported; expected {OLDEST_SHORTCUT_SCHEMA_VERSION}..={SHORTCUT_SCHEMA_VERSION}"
+            )));
+        }
+    }
+    if file.revision == 0 {
+        return Err(ShortcutError::Document(
+            "shortcut revision must be greater than zero".to_owned(),
+        ));
+    }
+    if file.shortcuts.len() > MAX_SHORTCUTS {
+        return Err(ShortcutError::Document(format!(
+            "shortcut count exceeds {MAX_SHORTCUTS}"
+        )));
+    }
+
+    let mut configured = HashSet::with_capacity(file.shortcuts.len());
+    for binding in &file.shortcuts {
+        configured.insert(parse_shortcut(&binding.shortcut)?);
+    }
+    let mut added = 0;
+    for &(shortcut, action) in SHORTCUT_V2_ADDITIONS {
+        let trigger = parse_shortcut(shortcut)?;
+        if configured.contains(&trigger) || file.shortcuts.len() == MAX_SHORTCUTS {
+            continue;
+        }
+        configured.insert(trigger.clone());
+        file.shortcuts.push(ShortcutBinding {
+            shortcut: trigger.canonical,
+            target: ShortcutTarget::DenialAction { action },
+        });
+        added += 1;
+    }
+    file.version = SHORTCUT_SCHEMA_VERSION;
+    file.revision = file.revision.saturating_add(1);
+    Ok(Some(added))
 }
 
 fn read_shortcut_bytes(path: &Path) -> Result<Vec<u8>, ShortcutError> {
@@ -623,7 +693,11 @@ fn read_shortcut_bytes(path: &Path) -> Result<Vec<u8>, ShortcutError> {
 
 fn write_default_file(path: &Path) -> Result<(), ShortcutError> {
     let bytes = render_shortcut_file(&default_shortcut_file())?;
-    let temporary = write_temporary(path, &bytes)?;
+    replace_shortcut_file(path, &bytes)
+}
+
+fn replace_shortcut_file(path: &Path, bytes: &[u8]) -> Result<(), ShortcutError> {
+    let temporary = write_temporary(path, bytes)?;
     match fs::rename(&temporary, path) {
         Ok(()) => sync_parent(path),
         Err(error) => {
@@ -774,6 +848,7 @@ fn default_shortcut_file() -> ShortcutFile {
         revision: 1,
         shortcuts: definitions
             .into_iter()
+            .chain(SHORTCUT_V2_ADDITIONS.iter().copied())
             .map(|(shortcut, action)| ShortcutBinding {
                 shortcut: shortcut.to_owned(),
                 target: ShortcutTarget::DenialAction { action },
@@ -917,6 +992,10 @@ fn parse_gesture(name: &str) -> Option<ShortcutGesture> {
         .as_str()
     {
         "threefingerswipeup" | "3fingerswipeup" => Some(ShortcutGesture::ThreeFingerSwipeUp),
+        "threefingerswipeleft" | "3fingerswipeleft" => Some(ShortcutGesture::ThreeFingerSwipeLeft),
+        "threefingerswiperight" | "3fingerswiperight" => {
+            Some(ShortcutGesture::ThreeFingerSwipeRight)
+        }
         _ => None,
     }
 }
@@ -1224,14 +1303,20 @@ pub(super) fn supported_inputs() -> Vec<ShortcutInputDefinition> {
         category: ShortcutInputCategory::Function,
         aliases: Vec::new(),
     }));
-    inputs.push(ShortcutInputDefinition {
-        canonical: ShortcutGesture::ThreeFingerSwipeUp
-            .canonical_name()
-            .to_owned(),
-        kind: ShortcutInputKind::Gesture,
-        category: ShortcutInputCategory::Gesture,
-        aliases: vec!["3FingerSwipeUp".to_owned()],
-    });
+    inputs.extend(
+        [
+            (ShortcutGesture::ThreeFingerSwipeUp, "3FingerSwipeUp"),
+            (ShortcutGesture::ThreeFingerSwipeLeft, "3FingerSwipeLeft"),
+            (ShortcutGesture::ThreeFingerSwipeRight, "3FingerSwipeRight"),
+        ]
+        .into_iter()
+        .map(|(gesture, alias)| ShortcutInputDefinition {
+            canonical: gesture.canonical_name().to_owned(),
+            kind: ShortcutInputKind::Gesture,
+            category: ShortcutInputCategory::Gesture,
+            aliases: vec![alias.to_owned()],
+        }),
+    );
     inputs
 }
 
@@ -1303,6 +1388,7 @@ pub(super) enum ShortcutDisposition {
     RequestOverview,
     RequestToggleVerticalMaximize,
     RequestWindowSwitcherNext,
+    RequestWindowSwitcherPrevious,
     RequestWindowSwitcherEnd { forward: bool },
     RequestClipboard,
     RequestScreenshotRegion,
@@ -1327,6 +1413,10 @@ pub(super) enum ShortcutDisposition {
 enum WindowSwitcherRelease {
     Modifier(Modifier),
     Key(u32),
+    Gesture {
+        owner: ShortcutGesture,
+        repeat_after: Instant,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -1378,15 +1468,81 @@ impl ShortcutEngine {
         modifiers
     }
 
-    pub(super) fn observe_gesture(&self, gesture: ShortcutGesture) -> ShortcutDisposition {
-        self.bindings
+    pub(super) fn observe_gesture(&mut self, gesture: ShortcutGesture) -> ShortcutDisposition {
+        self.observe_gesture_at(gesture, Instant::now())
+    }
+
+    fn observe_gesture_at(
+        &mut self,
+        gesture: ShortcutGesture,
+        now: Instant,
+    ) -> ShortcutDisposition {
+        let target = self
+            .bindings
             .iter()
             .find(|binding| {
                 binding.trigger.modifiers == 0
                     && binding.trigger.key == TriggerKey::Gesture(gesture)
             })
-            .map(|binding| binding.target.clone().into())
+            .map(|binding| binding.target.clone());
+        if matches!(
+            target,
+            Some(ShortcutTarget::DenialAction {
+                action: ShortcutAction::WindowSwitcher,
+            })
+        ) {
+            if self.window_switcher_release.is_none() {
+                self.window_switcher_release = Some(WindowSwitcherRelease::Gesture {
+                    owner: gesture,
+                    repeat_after: now + WINDOW_SWITCHER_GESTURE_HOLD_DELAY,
+                });
+            }
+            return window_switcher_gesture_step(gesture);
+        }
+        target
+            .map(ShortcutDisposition::from)
             .unwrap_or(ShortcutDisposition::Forward)
+    }
+
+    pub(super) fn observe_gesture_repeat(&self, gesture: ShortcutGesture) -> ShortcutDisposition {
+        self.observe_gesture_repeat_at(gesture, Instant::now())
+    }
+
+    fn observe_gesture_repeat_at(
+        &self,
+        gesture: ShortcutGesture,
+        now: Instant,
+    ) -> ShortcutDisposition {
+        if matches!(
+            self.window_switcher_release,
+            Some(WindowSwitcherRelease::Gesture { repeat_after, .. })
+                if now >= repeat_after
+        ) {
+            window_switcher_gesture_step(gesture)
+        } else {
+            ShortcutDisposition::Consume
+        }
+    }
+
+    pub(super) fn end_gesture(&mut self, gesture: ShortcutGesture) -> ShortcutDisposition {
+        if matches!(
+            self.window_switcher_release,
+            Some(WindowSwitcherRelease::Gesture { owner, .. }) if owner == gesture
+        ) {
+            self.window_switcher_release = None;
+            ShortcutDisposition::RequestWindowSwitcherEnd { forward: false }
+        } else {
+            ShortcutDisposition::Forward
+        }
+    }
+
+    pub(super) fn cancel_gestures(&mut self) {
+        if matches!(
+            self.window_switcher_release,
+            Some(WindowSwitcherRelease::Gesture { .. })
+        ) {
+            self.window_switcher_release = None;
+        }
     }
 
     fn target_for_key(&self, evdev_keycode: u32) -> Option<(ShortcutTarget, u8)> {
@@ -1552,6 +1708,17 @@ impl ShortcutEngine {
         self.logo_chorded = false;
         self.window_switcher_release = None;
         self.captured_keys.clear();
+    }
+}
+
+fn window_switcher_gesture_step(gesture: ShortcutGesture) -> ShortcutDisposition {
+    match gesture {
+        ShortcutGesture::ThreeFingerSwipeRight => {
+            ShortcutDisposition::RequestWindowSwitcherPrevious
+        }
+        ShortcutGesture::ThreeFingerSwipeUp | ShortcutGesture::ThreeFingerSwipeLeft => {
+            ShortcutDisposition::RequestWindowSwitcherNext
+        }
     }
 }
 

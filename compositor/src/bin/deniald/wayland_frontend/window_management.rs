@@ -256,6 +256,31 @@ pub(super) fn activate_window(
     true
 }
 
+/// Gives focus to the topmost remaining managed client window.
+///
+/// Window destruction removes the current keyboard target independently from
+/// Flutter's visible stack. Re-enter the ordinary activation path so the
+/// replacement receives protocol keyboard focus as well as shell activation.
+#[cfg(feature = "flutter")]
+pub(super) fn activate_topmost_window(state: &mut RuntimeState) -> bool {
+    let next = {
+        let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
+        frontend
+            .space
+            .elements()
+            .rfind(|candidate| {
+                candidate
+                    .x11_surface()
+                    .is_none_or(|x11| !x11.is_override_redirect())
+                    && frontend.window_root_surface(candidate).is_some_and(|root| {
+                        root.is_alive() && !frontend.minimized_windows.contains(&root.id())
+                    })
+            })
+            .cloned()
+    };
+    next.is_some_and(|window| activate_window(state, &window, SERIAL_COUNTER.next_serial()))
+}
+
 #[cfg(feature = "flutter")]
 pub(in super::super) fn apply_window_commands(
     state: &mut RuntimeState,

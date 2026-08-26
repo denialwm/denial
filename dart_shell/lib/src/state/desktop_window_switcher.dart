@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 enum DesktopWindowSwitcherPhase { pending, expanded, quickExit, expandedExit }
 
+enum DesktopWindowSwitcherDirection { next, previous }
+
 @immutable
 class DesktopWindowSwitcherState {
   const DesktopWindowSwitcherState({
@@ -83,6 +85,8 @@ class DesktopWindowSwitcherController
     required List<int> objectIds,
     required int? sourceObjectId,
     required bool usesDesktopMotion,
+    DesktopWindowSwitcherDirection direction =
+        DesktopWindowSwitcherDirection.next,
   }) {
     final uniqueIds = <int>[];
     final seen = <int>{};
@@ -114,8 +118,9 @@ class DesktopWindowSwitcherController
         return null;
       }
       final selectedIndex = reconciled.indexOf(selectedId);
+      final step = direction == DesktopWindowSwitcherDirection.next ? 1 : -1;
       final nextIndex =
-          ((selectedIndex < 0 ? 0 : selectedIndex) + 1) % reconciled.length;
+          ((selectedIndex < 0 ? 0 : selectedIndex) + step) % reconciled.length;
       state = current.copyWith(
         objectIds: List<int>.unmodifiable(reconciled),
         sourceObjectId: reconciledSource,
@@ -136,7 +141,12 @@ class DesktopWindowSwitcherController
       objectIds: List<int>.unmodifiable(uniqueIds),
       sourceObjectId: sourceObjectId,
       usesDesktopMotion: usesDesktopMotion,
-      selectedIndex: sourceObjectId == null ? 0 : 1,
+      selectedIndex: switch ((sourceObjectId, direction)) {
+        (null, DesktopWindowSwitcherDirection.next) => 0,
+        (null, DesktopWindowSwitcherDirection.previous) => uniqueIds.length - 1,
+        (_, DesktopWindowSwitcherDirection.next) => 1,
+        (_, DesktopWindowSwitcherDirection.previous) => uniqueIds.length - 1,
+      },
       phase: DesktopWindowSwitcherPhase.pending,
     );
     return state;

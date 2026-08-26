@@ -1986,7 +1986,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsShortcutEditorShortcutExample =>
-      'Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeUp';
+      'Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeLeft';
 
   @override
   String get settingsShortcutEditorSupportedInputs => 'Supported inputs';
@@ -2090,6 +2090,14 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get settingsShortcutGestureThreeFingerSwipeUp =>
       'Three-finger swipe up';
+
+  @override
+  String get settingsShortcutGestureThreeFingerSwipeLeft =>
+      'Three-finger swipe left';
+
+  @override
+  String get settingsShortcutGestureThreeFingerSwipeRight =>
+      'Three-finger swipe right';
 
   @override
   String get settingsShortcutInputCategoryModifier => 'Modifier';

@@ -753,10 +753,10 @@ impl flatbuffers::SimpleToVerifyInSlice for WindowActionKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SHELL_ACTION_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 9;
+pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 10;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 10] = [
+pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 11] = [
   ShellActionKind::Applications,
   ShellActionKind::Overview,
   ShellActionKind::WindowSwitcherNext,
@@ -767,6 +767,7 @@ pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 10] = [
   ShellActionKind::ScreenshotDone,
   ShellActionKind::ClientPointerPressed,
   ShellActionKind::Wallpaper,
+  ShellActionKind::WindowSwitcherPrevious,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -784,9 +785,10 @@ impl ShellActionKind {
   pub const ScreenshotDone: Self = Self(7);
   pub const ClientPointerPressed: Self = Self(8);
   pub const Wallpaper: Self = Self(9);
+  pub const WindowSwitcherPrevious: Self = Self(10);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 9;
+  pub const ENUM_MAX: u8 = 10;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Applications,
     Self::Overview,
@@ -798,6 +800,7 @@ impl ShellActionKind {
     Self::ScreenshotDone,
     Self::ClientPointerPressed,
     Self::Wallpaper,
+    Self::WindowSwitcherPrevious,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -812,6 +815,7 @@ impl ShellActionKind {
       Self::ScreenshotDone => Some("ScreenshotDone"),
       Self::ClientPointerPressed => Some("ClientPointerPressed"),
       Self::Wallpaper => Some("Wallpaper"),
+      Self::WindowSwitcherPrevious => Some("WindowSwitcherPrevious"),
       _ => None,
     }
   }
