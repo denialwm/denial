@@ -53,6 +53,7 @@ Representative response:
     },
     "outputs": [
       {
+        "monitor_id": 7,
         "name": "DP-4",
         "description": "DP-4",
         "connected": true,
@@ -94,6 +95,9 @@ available for presenting a useful re-enable configuration.
 
 `serial` changes whenever the public connector or output state changes. It is
 local to the running compositor and must be treated as opaque.
+
+`monitor_id` is the stable numeric identity used by Denial's display-layout
+and brightness APIs for that connector during the compositor lifetime.
 
 ## Apply a complete configuration
 
@@ -236,6 +240,70 @@ Denial rejects symlinked or concurrently edited targets. If the final
 filesystem commit fails after the KMS transaction has already succeeded, the
 request returns `persistence_failed`; the runtime state is still published and
 the client should query it again.
+
+## Settings application state
+
+The standalone Flutter Settings application is an ordinary Wayland client.
+It never accesses the compositor's settings files directly and does not use
+the embedded Flutter engine's private platform channels. These methods run on
+the compositor event loop and return authoritative state after validation and,
+for mutations, after the native live update and persistent commit succeed.
+
+| Method | Parameters | Result or effect |
+| --- | --- | --- |
+| `settings.document.get` | none | Current document string and revision |
+| `settings.document.apply` | `{"expected_revision":3,"document":"{...}"}` | Replace shell-owned settings and return the committed document |
+| `settings.keyboard.get` | none | Layouts, XKB options, repeat settings, active layout, and revision |
+| `settings.keyboard.apply` | revision plus a `keyboard` object | Compile/install XKB state and commit it atomically |
+| `settings.input.get` | none | Touchpad availability and current preferences |
+| `settings.touchpad.apply` | revision plus a `touchpad` object | Apply libinput preferences and commit them |
+| `settings.shortcuts.get` | none | Bindings, supported actions/inputs, and revision |
+| `settings.shortcuts.validate` | `shortcut` and optional `existing_shortcut` | Canonical validation result without mutation |
+| `settings.shortcuts.add` | revision and `shortcut` | Add and commit a binding |
+| `settings.shortcuts.update` | revision, `existing_shortcut`, and replacement | Replace and commit a binding |
+| `settings.shortcuts.remove` | revision and shortcut identity | Remove and commit a binding |
+| `settings.shortcuts.restore` | `{"expected_revision":3}` | Restore default bindings |
+
+All mutations use optimistic concurrency. A stale revision returns
+`conflict`; the client must read the relevant snapshot again rather than
+silently overwriting a newer edit. A committed document update is also pushed
+to the embedded shell so desktop policy changes take effect without coupling
+the Settings process to the shell render tree. For schema 10,
+`appearance.colorSchemePreference` is `preferDark`, `preferLight`, or
+`noPreference`. Only the authoritative committed value is published to the
+private `denial-portal` snapshot channel; an optimistic Settings preview never
+changes the application portal preference.
+
+The Settings client does not embed shell-owned transient surfaces. To open the
+desktop wallpaper workflow it requests the compositor to route the action to
+the embedded shell:
+
+```json
+{"version":1,"id":12,"method":"shell.wallpaper.open"}
+```
+
+The request has no parameters. A successful response means the compositor
+queued the shell action; the wallpaper selector remains rendered and owned by
+the desktop shell. Shell commands are rejected while the secure session is
+locked.
+
+## Audio and brightness
+
+System controls remain owned by Denial's persistent native PulseAudio and
+brightness workers. Socket requests enqueue bounded worker commands; reads
+wait for the matching worker event while compositor frame dispatch continues.
+
+| Method | Parameters | Result or effect |
+| --- | --- | --- |
+| `audio.get` | none | Default sink `level` and request serial |
+| `audio.set` | `{"percent":65,"request_serial":4}` | Queue a default-sink level update |
+| `audio.streams.get` | none | Application stream IDs, names, levels, and mute states |
+| `audio.stream.set` | `{"stream_id":12,"percent":40}` | Queue an application-stream level update |
+| `brightness.get` | monitor ID and connector name | Current normalized level for one output |
+| `brightness.set` | monitor ID, connector, and percent | Queue a level update for one output |
+
+Percent values are integers from 0 through 100. System-control methods are
+rejected while the secure session is locked.
 
 ## Flutter UI lifecycle and recovery
 

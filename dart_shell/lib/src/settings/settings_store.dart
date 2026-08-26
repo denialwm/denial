@@ -19,6 +19,8 @@ abstract interface class SettingsDocumentTransport {
 }
 
 abstract interface class SettingsDocumentUpdateSource {
+  /// Emits the complete authoritative document immediately on subscription,
+  /// then emits a complete document for every later revision.
   Stream<DenialSettingsDocument> get settingsDocumentUpdates;
 }
 
@@ -62,6 +64,7 @@ class NativeSettingsStore
   Stream<DenialSettingsDocument> get settingsDocumentUpdates =>
       _transport is SettingsDocumentUpdateSource
       ? (_transport as SettingsDocumentUpdateSource).settingsDocumentUpdates
+            .map(_rememberDocument)
       : const Stream<DenialSettingsDocument>.empty();
 
   @override
@@ -100,11 +103,16 @@ class NativeSettingsStore
   }
 
   Future<DenialSettingsDocument> _readDocument() async {
-    final document = await _transport.read();
+    return _rememberDocument(await _transport.read());
+  }
+
+  DenialSettingsDocument _rememberDocument(DenialSettingsDocument document) {
     if (document.revision <= 0) {
       throw StateError('Denial returned an invalid settings revision');
     }
-    _revision = document.revision;
+    if (document.revision > _revision) {
+      _revision = document.revision;
+    }
     return document;
   }
 

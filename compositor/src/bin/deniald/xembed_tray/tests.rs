@@ -2,6 +2,25 @@ use super::*;
 use x11rb::protocol::xproto::MapState;
 
 #[test]
+fn worker_events_publish_a_coalesced_nonempty_signal() {
+    let (raw_sender, receiver) = mpsc::sync_channel(2);
+    let pending = Arc::new(AtomicBool::new(false));
+    let sender = XEmbedEventSender {
+        sender: raw_sender,
+        pending: Arc::clone(&pending),
+    };
+
+    assert!(sender.try_send(XEmbedTrayEvent {
+        kind: XEmbedTrayEventKind::Removed,
+        window_id: 42,
+        icon: None,
+    }));
+    assert!(pending.swap(false, Ordering::AcqRel));
+    assert_eq!(receiver.try_recv().unwrap().window_id, 42);
+    assert!(!pending.load(Ordering::Acquire));
+}
+
+#[test]
 fn extracts_arbitrary_x11_color_masks() {
     assert_eq!(extract_channel(0x00ab_0000, 0x00ff_0000), 0xab);
     assert_eq!(extract_channel(0x0000_7c00, 0x0000_f800), 123);

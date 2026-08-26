@@ -17,7 +17,9 @@ use serde_json::{Map, Value};
 use smithay::input::keyboard::xkb;
 use tracing::warn;
 
-pub(super) const SETTINGS_SCHEMA_VERSION: u64 = 9;
+use denial_core::portal_protocol::{DesktopColorSchemePreference, DesktopThemeSnapshot};
+
+pub(super) const SETTINGS_SCHEMA_VERSION: u64 = 10;
 const MAX_SETTINGS_BYTES: usize = 256 * 1024;
 const MAX_KEYBOARD_LAYOUTS: usize = 8;
 const MAX_KEYBOARD_OPTIONS: usize = 32;
@@ -295,6 +297,7 @@ pub(super) struct SettingsManager {
     revision: u64,
     keyboard: KeyboardSettings,
     touchpad: TouchpadSettings,
+    color_scheme_preference: DesktopColorSchemePreference,
     /// Exact bytes last observed or committed by deniald. This catches an
     /// editor changing the file while the session is live, even if it forgets
     /// to update the human-visible revision field.
@@ -317,6 +320,7 @@ impl SettingsManager {
                         revision: parsed.revision,
                         keyboard: parsed.keyboard,
                         touchpad: parsed.touchpad,
+                        color_scheme_preference: parsed.color_scheme_preference,
                         persisted_bytes: existing,
                     };
                     if parsed.migrated
@@ -332,13 +336,14 @@ impl SettingsManager {
             }
         }
 
-        let (document, revision, keyboard, touchpad) = default_document();
+        let (document, revision, keyboard, touchpad, color_scheme_preference) = default_document();
         let mut manager = Self {
             path,
             document,
             revision,
             keyboard,
             touchpad,
+            color_scheme_preference,
             persisted_bytes: existing,
         };
         if manager.persisted_bytes.is_none()
@@ -363,6 +368,10 @@ impl SettingsManager {
 
     pub(super) fn touchpad(&self) -> &TouchpadSettings {
         &self.touchpad
+    }
+
+    pub(super) fn theme_snapshot(&self) -> DesktopThemeSnapshot {
+        DesktopThemeSnapshot::new(self.revision, self.color_scheme_preference)
     }
 
     pub(super) fn document_json(&self) -> Result<String, SettingsError> {
@@ -420,7 +429,13 @@ impl SettingsManager {
             "touchpad".to_owned(),
             serde_json::to_value(&self.touchpad).expect("validated touchpad settings serialize"),
         );
-        self.prepare(incoming, self.keyboard.clone(), self.touchpad.clone())
+        let color_scheme_preference = parse_color_scheme_preference(&incoming)?;
+        self.prepare(
+            incoming,
+            self.keyboard.clone(),
+            self.touchpad.clone(),
+            color_scheme_preference,
+        )
     }
 
     pub(super) fn prepare_keyboard_update(
@@ -436,7 +451,12 @@ impl SettingsManager {
             "keyboard".to_owned(),
             serde_json::to_value(&keyboard).expect("validated keyboard settings serialize"),
         );
-        self.prepare(document, keyboard, self.touchpad.clone())
+        self.prepare(
+            document,
+            keyboard,
+            self.touchpad.clone(),
+            self.color_scheme_preference,
+        )
     }
 
     pub(super) fn prepare_touchpad_update(
@@ -452,7 +472,12 @@ impl SettingsManager {
             "touchpad".to_owned(),
             serde_json::to_value(&touchpad).expect("validated touchpad settings serialize"),
         );
-        self.prepare(document, self.keyboard.clone(), touchpad)
+        self.prepare(
+            document,
+            self.keyboard.clone(),
+            touchpad,
+            self.color_scheme_preference,
+        )
     }
 
     pub(super) fn commit(
@@ -473,6 +498,7 @@ impl SettingsManager {
         self.revision = prepared.revision;
         self.keyboard = std::mem::take(&mut prepared.keyboard);
         self.touchpad = std::mem::take(&mut prepared.touchpad);
+        self.color_scheme_preference = prepared.color_scheme_preference;
         self.persisted_bytes = Some(std::mem::take(&mut prepared.bytes));
         // Rename is the transaction's point of no return. Keep memory and the
         // live keyboard aligned with the renamed file even on filesystems
@@ -505,6 +531,7 @@ impl SettingsManager {
         document: Map<String, Value>,
         keyboard: KeyboardSettings,
         touchpad: TouchpadSettings,
+        color_scheme_preference: DesktopColorSchemePreference,
     ) -> Result<PreparedSettingsUpdate, SettingsError> {
         let revision = document
             .get("revision")
@@ -519,6 +546,7 @@ impl SettingsManager {
             revision,
             keyboard,
             touchpad,
+            color_scheme_preference,
             bytes,
             committed: false,
         })
@@ -547,6 +575,7 @@ pub(super) struct PreparedSettingsUpdate {
     revision: u64,
     keyboard: KeyboardSettings,
     touchpad: TouchpadSettings,
+    color_scheme_preference: DesktopColorSchemePreference,
     bytes: Vec<u8>,
     committed: bool,
 }
@@ -574,6 +603,7 @@ struct ParsedSettingsDocument {
     revision: u64,
     keyboard: KeyboardSettings,
     touchpad: TouchpadSettings,
+    color_scheme_preference: DesktopColorSchemePreference,
     migrated: bool,
 }
 
@@ -611,10 +641,21 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         None => TouchpadSettings::default(),
     };
     touchpad.validate()?;
+    let had_color_scheme_preference = document
+        .get("appearance")
+        .and_then(Value::as_object)
+        .is_some_and(|appearance| appearance.contains_key("colorSchemePreference"));
+    let color_scheme_preference = if had_color_scheme_preference {
+        parse_color_scheme_preference(&document)?
+    } else {
+        DesktopColorSchemePreference::PreferDark
+    };
+    set_color_scheme_preference(&mut document, color_scheme_preference)?;
     let migrated = version != SETTINGS_SCHEMA_VERSION
         || !document.contains_key("revision")
         || !document.contains_key("keyboard")
-        || !document.contains_key("touchpad");
+        || !document.contains_key("touchpad")
+        || !had_color_scheme_preference;
     document.insert("version".to_owned(), Value::from(SETTINGS_SCHEMA_VERSION));
     document.insert("revision".to_owned(), Value::from(revision));
     document.insert(
@@ -630,14 +671,22 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         revision,
         keyboard,
         touchpad,
+        color_scheme_preference,
         migrated,
     })
 }
 
-fn default_document() -> (Map<String, Value>, u64, KeyboardSettings, TouchpadSettings) {
+fn default_document() -> (
+    Map<String, Value>,
+    u64,
+    KeyboardSettings,
+    TouchpadSettings,
+    DesktopColorSchemePreference,
+) {
     let revision = 1;
     let keyboard = KeyboardSettings::default();
     let touchpad = TouchpadSettings::default();
+    let color_scheme_preference = DesktopColorSchemePreference::PreferDark;
     let mut document = Map::new();
     document.insert("version".to_owned(), Value::from(SETTINGS_SCHEMA_VERSION));
     document.insert("revision".to_owned(), Value::from(revision));
@@ -649,7 +698,55 @@ fn default_document() -> (Map<String, Value>, u64, KeyboardSettings, TouchpadSet
         "touchpad".to_owned(),
         serde_json::to_value(&touchpad).expect("default touchpad settings serialize"),
     );
-    (document, revision, keyboard, touchpad)
+    set_color_scheme_preference(&mut document, color_scheme_preference)
+        .expect("default appearance settings serialize");
+    (
+        document,
+        revision,
+        keyboard,
+        touchpad,
+        color_scheme_preference,
+    )
+}
+
+fn parse_color_scheme_preference(
+    document: &Map<String, Value>,
+) -> Result<DesktopColorSchemePreference, SettingsError> {
+    let value = document
+        .get("appearance")
+        .and_then(Value::as_object)
+        .and_then(|appearance| appearance.get("colorSchemePreference"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            SettingsError::Document(
+                "appearance.colorSchemePreference is missing or is not a string".to_owned(),
+            )
+        })?;
+    DesktopColorSchemePreference::from_settings_name(value).ok_or_else(|| {
+        SettingsError::Document(format!(
+            "unsupported appearance.colorSchemePreference {value:?}"
+        ))
+    })
+}
+
+fn set_color_scheme_preference(
+    document: &mut Map<String, Value>,
+    preference: DesktopColorSchemePreference,
+) -> Result<(), SettingsError> {
+    if !document.contains_key("appearance") {
+        document.insert("appearance".to_owned(), Value::Object(Map::new()));
+    }
+    let appearance = document
+        .get_mut("appearance")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| {
+            SettingsError::Document("settings appearance must be an object".to_owned())
+        })?;
+    appearance.insert(
+        "colorSchemePreference".to_owned(),
+        Value::String(preference.settings_name().to_owned()),
+    );
+    Ok(())
 }
 
 fn settings_path() -> Result<PathBuf, SettingsError> {

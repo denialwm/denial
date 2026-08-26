@@ -1,3 +1,5 @@
+import 'dart:ui' show SemanticsRole;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -45,34 +47,46 @@ class SettingsPageLayout extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 12,
+                    runSpacing: 8,
                     children: [
-                      Icon(icon, size: 15, color: accent),
-                      const SizedBox(width: 7),
-                      Text(
-                        eyebrow.toUpperCase(),
-                        style: ShellText.cardTitle.copyWith(
-                          color: accent,
-                          fontSize: 10,
-                          letterSpacing: 1.3,
-                        ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(icon, size: 15, color: accent),
+                          const SizedBox(width: 7),
+                          Text(
+                            eyebrow.toUpperCase(),
+                            style: ShellText.cardTitle.copyWith(
+                              color: accent,
+                              fontSize: 10,
+                              letterSpacing: 1.3,
+                            ),
+                          ),
+                        ],
                       ),
-                      const Spacer(),
-                      if (onReset != null) ...[
-                        const SettingsSavedBadge(),
-                        const SizedBox(width: 8),
-                        SettingsTextButton(
-                          label: context.l10n.settingsResetPage,
-                          onPressed: onReset,
+                      if (onReset != null)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const SettingsSavedBadge(),
+                            const SizedBox(width: 8),
+                            SettingsTextButton(
+                              label: context.l10n.settingsResetPage,
+                              onPressed: onReset,
+                            ),
+                          ],
                         ),
-                      ],
                     ],
                   ),
                   const SizedBox(height: 10),
                   Text(
                     title,
                     style: ShellText.base.copyWith(
-                      color: ShellColors.textPrimary,
+                      color: context.shellColors.textPrimary,
                       height: 1.35,
                     ),
                   ),
@@ -101,9 +115,9 @@ class SettingsSavedBadge extends StatelessWidget {
       label: l10n.settingsLiveChangesSemanticsLabel,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: ShellColors.surfaceContainerHigh,
+          color: context.shellColors.surfaceContainerHigh,
           borderRadius: BorderRadius.circular(ShellRadii.chip),
-          border: Border.all(color: ShellColors.hairlineSoft),
+          border: Border.all(color: context.shellColors.hairlineSoft),
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -113,8 +127,8 @@ class SettingsSavedBadge extends StatelessWidget {
               Container(
                 width: 6,
                 height: 6,
-                decoration: const BoxDecoration(
-                  color: ShellColors.gestureArmed,
+                decoration: BoxDecoration(
+                  color: context.shellColors.gestureArmed,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -122,7 +136,7 @@ class SettingsSavedBadge extends StatelessWidget {
               Text(
                 l10n.settingsLiveBadge,
                 style: ShellText.cardTitle.copyWith(
-                  color: ShellColors.textSecondary,
+                  color: context.shellColors.textSecondary,
                   fontSize: 9,
                   letterSpacing: 0.8,
                 ),
@@ -146,11 +160,9 @@ class SettingsCardGroup extends StatelessWidget {
     final radius = BorderRadius.circular(theme.panelRadius);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: ShellColors.surfaceContainerLow.withValues(
-          alpha: theme.panelOpacity * 0.84,
-        ),
+        color: theme.panelColor(context.shellColors.surfaceContainerLow),
         borderRadius: radius,
-        border: Border.all(color: ShellColors.hairline),
+        border: Border.all(color: context.shellColors.hairline),
       ),
       child: ClipRRect(
         borderRadius: radius,
@@ -159,7 +171,7 @@ class SettingsCardGroup extends StatelessWidget {
           children: [
             for (var index = 0; index < children.length; index++) ...[
               if (index > 0)
-                const Divider(height: 1, color: ShellColors.hairlineSoft),
+                Divider(height: 1, color: context.shellColors.hairlineSoft),
               children[index],
             ],
           ],
@@ -205,7 +217,7 @@ class SettingsSection extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: ShellText.base.copyWith(
-                    color: ShellColors.textPrimary,
+                    color: context.shellColors.textPrimary,
                     height: 1.32,
                   ),
                 ),
@@ -220,7 +232,7 @@ class SettingsSection extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.right,
                     style: ShellText.base.copyWith(
-                      color: ShellColors.textTertiary,
+                      color: context.shellColors.textTertiary,
                       fontSize: 11,
                     ),
                   ),
@@ -287,7 +299,7 @@ class SettingsSlider extends StatelessWidget {
                   child: Text(
                     label,
                     style: ShellText.cardTitle.copyWith(
-                      color: ShellColors.textSecondary,
+                      color: context.shellColors.textSecondary,
                     ),
                   ),
                 ),
@@ -304,8 +316,8 @@ class SettingsSlider extends StatelessWidget {
             final slider = SliderTheme(
               data: SliderTheme.of(context).copyWith(
                 activeTrackColor: accent,
-                inactiveTrackColor: ShellColors.surfaceContainerHighest,
-                thumbColor: ShellColors.sliderThumb,
+                inactiveTrackColor: context.shellColors.surfaceContainerHighest,
+                thumbColor: context.shellColors.sliderThumb,
                 overlayColor: accent.withAlpha(32),
                 trackHeight: 5,
               ),
@@ -332,7 +344,7 @@ class SettingsSlider extends StatelessWidget {
                   child: Text(
                     label,
                     style: ShellText.cardTitle.copyWith(
-                      color: ShellColors.textSecondary,
+                      color: context.shellColors.textSecondary,
                     ),
                   ),
                 ),
@@ -418,7 +430,7 @@ class SettingsToggle extends StatelessWidget {
                       Text(
                         description,
                         style: ShellText.base.copyWith(
-                          color: ShellColors.textTertiary,
+                          color: context.shellColors.textTertiary,
                           fontSize: 12,
                         ),
                       ),
@@ -435,15 +447,17 @@ class SettingsToggle extends StatelessWidget {
                       ? Alignment.centerRight
                       : Alignment.centerLeft,
                   decoration: BoxDecoration(
-                    color: value ? accent : ShellColors.surfaceContainerHighest,
+                    color: value
+                        ? accent
+                        : context.shellColors.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(99),
                     border: Border.all(
-                      color: value ? accent : ShellColors.hairline,
+                      color: value ? accent : context.shellColors.hairline,
                     ),
                   ),
-                  child: const DecoratedBox(
+                  child: DecoratedBox(
                     decoration: BoxDecoration(
-                      color: ShellColors.sliderThumb,
+                      color: context.shellColors.sliderThumb,
                       shape: BoxShape.circle,
                     ),
                     child: SizedBox.square(dimension: 17),
@@ -479,17 +493,22 @@ class SettingsSegmentedControl<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (final choice in choices)
-          _SettingsChoiceChip(
-            label: choice.label,
-            selected: choice.value == value,
-            onPressed: () => onChanged(choice.value),
-          ),
-      ],
+    return Semantics(
+      role: SemanticsRole.radioGroup,
+      explicitChildNodes: true,
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final choice in choices)
+            _SettingsChoiceChip(
+              label: choice.label,
+              selected: choice.value == value,
+              selectionControl: true,
+              onPressed: () => onChanged(choice.value),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -517,9 +536,9 @@ class SettingsColorButton extends StatelessWidget {
         onTap: onPressed,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: ShellColors.surfaceContainerHigh,
+            color: context.shellColors.surfaceContainerHigh,
             borderRadius: BorderRadius.circular(ShellRadii.chip),
-            border: Border.all(color: ShellColors.hairline),
+            border: Border.all(color: context.shellColors.hairline),
           ),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(8, 6, 12, 6),
@@ -533,22 +552,24 @@ class SettingsColorButton extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: color,
                     shape: BoxShape.circle,
-                    border: Border.all(color: ShellColors.panelHighlight),
+                    border: Border.all(
+                      color: context.shellColors.panelHighlight,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 9),
                 Text(
                   formatOpaqueColorHex(color),
                   style: ShellText.cardTitle.copyWith(
-                    color: ShellColors.textSecondary,
+                    color: context.shellColors.textSecondary,
                     fontFamily: ShellText.systemBarFontFamily,
                   ),
                 ),
                 const SizedBox(width: 7),
-                const Icon(
+                Icon(
                   Icons.expand_more_rounded,
                   size: 18,
-                  color: ShellColors.textTertiary,
+                  color: context.shellColors.textTertiary,
                 ),
               ],
             ),
@@ -622,35 +643,43 @@ class _SettingsChoiceChip extends StatefulWidget {
     required this.label,
     required this.selected,
     required this.onPressed,
+    this.selectionControl = false,
   });
 
   final String label;
   final bool selected;
   final VoidCallback? onPressed;
+  final bool selectionControl;
 
   @override
   State<_SettingsChoiceChip> createState() => _SettingsChoiceChipState();
 }
 
 class _SettingsChoiceChipState extends State<_SettingsChoiceChip> {
-  var _highlighted = false;
+  var _hovered = false;
+  var _focused = false;
 
   @override
   Widget build(BuildContext context) {
     final accent = ShellTheme.of(context).accent;
     final enabled = widget.onPressed != null;
+    final motionDuration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : Motion.tile;
     return Semantics(
-      button: true,
+      button: !widget.selectionControl,
+      checked: widget.selectionControl ? widget.selected : null,
+      inMutuallyExclusiveGroup: widget.selectionControl,
       enabled: enabled,
-      selected: widget.selected,
+      selected: widget.selectionControl ? null : widget.selected,
       label: widget.label,
       child: FocusableActionDetector(
         enabled: enabled,
         mouseCursor: enabled
             ? ShellMouseCursors.link
             : SystemMouseCursors.basic,
-        onShowFocusHighlight: (value) => setState(() => _highlighted = value),
-        onShowHoverHighlight: (value) => setState(() => _highlighted = value),
+        onShowFocusHighlight: (value) => setState(() => _focused = value),
+        onShowHoverHighlight: (value) => setState(() => _hovered = value),
         shortcuts: const <ShortcutActivator, Intent>{
           SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
           SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
@@ -664,34 +693,76 @@ class _SettingsChoiceChipState extends State<_SettingsChoiceChip> {
           ),
         },
         child: AnimatedOpacity(
-          duration: Motion.tile,
+          duration: motionDuration,
           opacity: enabled ? 1 : 0.46,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: widget.onPressed,
-            child: AnimatedContainer(
-              duration: Motion.tile,
-              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+            child: DecoratedBox(
               decoration: BoxDecoration(
-                color: widget.selected
-                    ? accent.withAlpha(42)
-                    : _highlighted
-                    ? ShellColors.surfaceContainerHighest
-                    : ShellColors.surfaceContainerHigh,
+                color: context.shellColors.surfaceContainerHigh,
                 borderRadius: BorderRadius.circular(ShellRadii.chip),
-                border: Border.all(
-                  color: widget.selected
-                      ? accent
-                      : _highlighted
-                      ? ShellColors.textTertiary
-                      : ShellColors.hairline,
-                ),
+                border: Border.all(color: context.shellColors.hairline),
               ),
-              child: Text(
-                widget.label,
-                style: ShellText.cardTitle.copyWith(
-                  color: widget.selected ? accent : ShellColors.textSecondary,
-                ),
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: AnimatedOpacity(
+                        duration: motionDuration,
+                        curve: Motion.standard,
+                        opacity: widget.selected ? 1 : 0,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: accent.withAlpha(42),
+                            borderRadius: BorderRadius.circular(
+                              ShellRadii.chip,
+                            ),
+                            border: Border.all(color: accent),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: AnimatedOpacity(
+                        duration: motionDuration,
+                        curve: Motion.standard,
+                        opacity: !widget.selected && (_hovered || _focused)
+                            ? 1
+                            : 0,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: context.shellColors.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(
+                              ShellRadii.chip,
+                            ),
+                            border: Border.all(
+                              color: _focused
+                                  ? accent
+                                  : context.shellColors.textTertiary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 13,
+                      vertical: 9,
+                    ),
+                    child: Text(
+                      widget.label,
+                      style: ShellText.cardTitle.copyWith(
+                        color: widget.selected
+                            ? accent
+                            : context.shellColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -727,9 +798,11 @@ class _AnchorButton extends StatelessWidget {
           decoration: BoxDecoration(
             color: selected
                 ? accent.withAlpha(46)
-                : ShellColors.surfaceContainerHigh,
+                : context.shellColors.surfaceContainerHigh,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: selected ? accent : ShellColors.hairline),
+            border: Border.all(
+              color: selected ? accent : context.shellColors.hairline,
+            ),
           ),
           child: Center(
             child: AnimatedContainer(
@@ -737,7 +810,7 @@ class _AnchorButton extends StatelessWidget {
               width: selected ? 10 : 7,
               height: selected ? 10 : 7,
               decoration: BoxDecoration(
-                color: selected ? accent : ShellColors.textTertiary,
+                color: selected ? accent : context.shellColors.textTertiary,
                 shape: BoxShape.circle,
               ),
             ),

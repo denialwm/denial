@@ -696,6 +696,7 @@ struct AuthenticationState {
 struct SharedAuthentication {
     locked: AtomicBool,
     security_gate_locked: AtomicBool,
+    events_pending: AtomicBool,
     state: Mutex<AuthenticationState>,
     condition: Condvar,
     events: Mutex<VecDeque<AuthenticationEvent>>,
@@ -708,6 +709,7 @@ impl SharedAuthentication {
             events.pop_front();
         }
         events.push_back(event);
+        self.events_pending.store(true, Ordering::Release);
     }
 }
 
@@ -730,6 +732,7 @@ impl AuthenticationController {
         let shared = Arc::new(SharedAuthentication {
             locked: AtomicBool::new(start_locked),
             security_gate_locked: AtomicBool::new(start_locked),
+            events_pending: AtomicBool::new(false),
             state: Mutex::new(AuthenticationState {
                 stopping: false,
                 busy: false,
@@ -823,7 +826,16 @@ impl AuthenticationController {
     }
 
     pub(super) fn try_event(&self) -> Option<AuthenticationEvent> {
-        lock_unpoisoned(&self.shared.events).pop_front()
+        let mut events = lock_unpoisoned(&self.shared.events);
+        let event = events.pop_front();
+        if events.is_empty() {
+            self.shared.events_pending.store(false, Ordering::Release);
+        }
+        event
+    }
+
+    pub(super) fn has_pending_events(&self) -> bool {
+        self.shared.events_pending.load(Ordering::Acquire)
     }
 
     fn synchronize(&self) {

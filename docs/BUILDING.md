@@ -1,10 +1,11 @@
 # Building Denial
 
-Denial supports PC source builds on x86-64 and ARM64 (AArch64). It builds two
-versioned components:
+Denial supports PC source builds on x86-64 and ARM64 (AArch64). It builds three
+runtime components:
 
 - the Rust compositor and native control client in `compositor/`;
-- the embedded Flutter shell bundle in `dart_shell/`.
+- the embedded Flutter shell bundle in `dart_shell/`;
+- the standalone Flutter Settings Wayland application in `settings_app/`.
 
 Downloaded toolchains and native build output live outside the checkout by
 default. A first bootstrap needs network access; later development builds
@@ -48,6 +49,14 @@ The Flutter bundle is written to:
 ```text
 dart_shell/build/linux/x64/release/bundle
 ```
+
+The Settings application bundle is written to:
+
+```text
+settings_app/build/linux/x64/release/bundle
+```
+
+Build only that client with `tools/denial-pc settings`.
 
 Set `DENIAL_PC_DEPENDENCY_ROOT`, `DENIAL_PC_BUILD_ROOT`, or
 `DENIAL_PC_RUST_TARGET` to place the corresponding caches elsewhere.

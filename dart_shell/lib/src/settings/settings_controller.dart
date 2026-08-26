@@ -66,6 +66,7 @@ class ShellSettingsController extends Notifier<ShellSettings> {
   late SettingsStore _store;
   Timer? _writeTimer;
   StreamSubscription<DenialSettingsDocument>? _documentSubscription;
+  SettingsDocumentUpdateSource? _documentUpdateSource;
   int _mutationSerial = 0;
   int _buildSerial = 0;
   int _nativeDocumentSerial = 0;
@@ -73,7 +74,7 @@ class ShellSettingsController extends Notifier<ShellSettings> {
   late ShellSettings _initialSettings;
   late ShellSettings _latestSettings;
   late Completer<void> _initialLoad;
-  final Map<String, Object?> _pendingRestorePatch = <String, Object?>{};
+  final Map<String, Object?> _pendingMutationPatch = <String, Object?>{};
 
   @override
   ShellSettings build() {
@@ -81,14 +82,14 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     _writeTimer?.cancel();
     _writeTimer = null;
     unawaited(_documentSubscription?.cancel());
-    _documentSubscription = _store is SettingsDocumentUpdateSource
-        ? (_store as SettingsDocumentUpdateSource).settingsDocumentUpdates
-              .listen(_applyNativeDocument)
+    _documentSubscription = null;
+    _documentUpdateSource = _store is SettingsDocumentUpdateSource
+        ? _store as SettingsDocumentUpdateSource
         : null;
     _mutationSerial = 0;
     _nativeDocumentSerial = 0;
     _hasAuthoritativeState = false;
-    _pendingRestorePatch.clear();
+    _pendingMutationPatch.clear();
     _initialLoad = Completer<void>();
     final buildSerial = ++_buildSerial;
     final nativeDocumentSerial = _nativeDocumentSerial;
@@ -113,9 +114,18 @@ class ShellSettingsController extends Notifier<ShellSettings> {
       ),
     );
     _latestSettings = _initialSettings;
-    scheduleMicrotask(
-      () => unawaited(_restore(buildSerial, nativeDocumentSerial)),
-    );
+    final updateSource = _documentUpdateSource;
+    if (updateSource == null) {
+      scheduleMicrotask(
+        () => unawaited(_restore(buildSerial, nativeDocumentSerial)),
+      );
+    } else {
+      scheduleMicrotask(() {
+        if (ref.mounted && buildSerial == _buildSerial) {
+          _subscribeToNativeDocuments(updateSource, buildSerial);
+        }
+      });
+    }
     return _initialSettings;
   }
 
@@ -126,9 +136,33 @@ class ShellSettingsController extends Notifier<ShellSettings> {
         _nativeDocumentSerial += 1;
         _acceptAuthoritativeState(ShellSettings.fromJson(decoded));
       }
-    } on FormatException {
-      // The compositor validates and owns this document. Ignore a malformed
-      // notification defensively and retain the last known-good UI state.
+    } on Object {
+      // The compositor validates and owns this document. Retain the last
+      // known-good state, but surface an unusable initial snapshot.
+      _handleNativeDocumentFailure(_buildSerial);
+    }
+  }
+
+  void _subscribeToNativeDocuments(
+    SettingsDocumentUpdateSource source,
+    int buildSerial,
+  ) {
+    _documentSubscription = source.settingsDocumentUpdates.listen(
+      _applyNativeDocument,
+      onError: (Object _, StackTrace _) {
+        _handleNativeDocumentFailure(buildSerial);
+      },
+      onDone: () => _handleNativeDocumentFailure(buildSerial),
+    );
+  }
+
+  void _handleNativeDocumentFailure(int buildSerial) {
+    if (!ref.mounted || buildSerial != _buildSerial || _hasAuthoritativeState) {
+      return;
+    }
+    ref.read(shellSettingsSyncStatusProvider.notifier).markFailed();
+    if (!_initialLoad.isCompleted) {
+      _initialLoad.complete();
     }
   }
 
@@ -142,6 +176,16 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     _update(
       state.copyWith(
         appearance: state.appearance.copyWith(accentSource: source),
+      ),
+    );
+  }
+
+  void setColorSchemePreference(DesktopColorSchemePreference preference) {
+    _update(
+      state.copyWith(
+        appearance: state.appearance.copyWith(
+          colorSchemePreference: preference,
+        ),
       ),
     );
   }
@@ -161,7 +205,7 @@ class ShellSettingsController extends Notifier<ShellSettings> {
   }
 
   void setPanelRadius(double value) {
-    _updateAppearance(panelRadius: value.clamp(8, 56).toDouble());
+    _updateAppearance(panelRadius: value.clamp(0, 56).toDouble());
   }
 
   void setPanelOpacity(double value) {
@@ -375,7 +419,14 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     }
     _writeTimer?.cancel();
     _writeTimer = null;
-    await _store.write(state);
+    final written = state;
+    final committedPatch = _copySettingsPatch(_pendingMutationPatch);
+    await _store.write(written);
+    _removeCommittedSettingsPatch(_pendingMutationPatch, committedPatch);
+    if (_pendingMutationPatch.isEmpty) {
+      _writeTimer?.cancel();
+      _writeTimer = null;
+    }
   }
 
   Future<void> retrySynchronization() async {
@@ -383,7 +434,16 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     if (_initialLoad.isCompleted) {
       _initialLoad = Completer<void>();
     }
-    await _restore(_buildSerial, _nativeDocumentSerial);
+    final source = _documentUpdateSource;
+    if (source == null) {
+      await _restore(_buildSerial, _nativeDocumentSerial);
+      return;
+    }
+    await _documentSubscription?.cancel();
+    if (!ref.mounted) {
+      return;
+    }
+    _subscribeToNativeDocuments(source, _buildSerial);
   }
 
   void _updateAppearance({
@@ -418,13 +478,7 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     if (next == state) {
       return;
     }
-    if (!_hasAuthoritativeState) {
-      _mergeSettingsDifference(
-        _pendingRestorePatch,
-        state.toJson(),
-        next.toJson(),
-      );
-    }
+    _applySettingsPatch(_pendingMutationPatch, next.differenceFrom(state));
     _mutationSerial += 1;
     state = next;
     _latestSettings = next;
@@ -469,7 +523,7 @@ class ShellSettingsController extends Notifier<ShellSettings> {
       try {
         final restored = await _store.read();
         if (writeSerial == _mutationSerial && restored != null) {
-          _pendingRestorePatch.clear();
+          _pendingMutationPatch.clear();
           _hasAuthoritativeState = true;
           state = restored;
           _latestSettings = restored;
@@ -486,13 +540,12 @@ class ShellSettingsController extends Notifier<ShellSettings> {
   }
 
   void _acceptAuthoritativeState(ShellSettings restored) {
-    final hadPendingMutations = _pendingRestorePatch.isNotEmpty;
+    final hadPendingMutations = _pendingMutationPatch.isNotEmpty;
     var resolved = restored;
     if (hadPendingMutations) {
       final document = restored.toJson();
-      _applySettingsPatch(document, _pendingRestorePatch);
+      _applySettingsPatch(document, _pendingMutationPatch);
       resolved = ShellSettings.fromJson(document);
-      _pendingRestorePatch.clear();
     }
     _hasAuthoritativeState = true;
     _mutationSerial += 1;
@@ -505,31 +558,6 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     if (hadPendingMutations) {
       _writeTimer?.cancel();
       _writeTimer = Timer(_writeDebounce, () => unawaited(_writeSafely()));
-    }
-  }
-}
-
-void _mergeSettingsDifference(
-  Map<String, Object?> patch,
-  Map<String, dynamic> before,
-  Map<String, dynamic> after,
-) {
-  for (final entry in after.entries) {
-    final previous = before[entry.key];
-    final next = entry.value;
-    if (previous is Map<String, dynamic> && next is Map<String, dynamic>) {
-      final nested = <String, Object?>{};
-      _mergeSettingsDifference(nested, previous, next);
-      if (nested.isNotEmpty) {
-        final existing = patch[entry.key];
-        if (existing is Map<String, Object?>) {
-          _applySettingsPatch(existing, nested);
-        } else {
-          patch[entry.key] = nested;
-        }
-      }
-    } else if (previous != next) {
-      patch[entry.key] = next;
     }
   }
 }
@@ -547,4 +575,63 @@ void _applySettingsPatch(
       document[entry.key] = next;
     }
   }
+}
+
+Map<String, Object?> _copySettingsPatch(Map<String, Object?> patch) {
+  return <String, Object?>{
+    for (final entry in patch.entries)
+      entry.key: switch (entry.value) {
+        final Map<String, Object?> nested => _copySettingsPatch(nested),
+        final Object? value => value,
+      },
+  };
+}
+
+void _removeCommittedSettingsPatch(
+  Map<String, Object?> pending,
+  Map<String, Object?> committed,
+) {
+  for (final entry in committed.entries) {
+    final pendingValue = pending[entry.key];
+    final committedValue = entry.value;
+    if (pendingValue is Map<String, Object?> &&
+        committedValue is Map<String, Object?>) {
+      _removeCommittedSettingsPatch(pendingValue, committedValue);
+      if (pendingValue.isEmpty) {
+        pending.remove(entry.key);
+      }
+    } else if (_settingsValuesEqual(pendingValue, committedValue)) {
+      pending.remove(entry.key);
+    }
+  }
+}
+
+bool _settingsValuesEqual(Object? first, Object? second) {
+  if (identical(first, second) || first == second) {
+    return true;
+  }
+  if (first is List<Object?> && second is List<Object?>) {
+    if (first.length != second.length) {
+      return false;
+    }
+    for (var index = 0; index < first.length; index += 1) {
+      if (!_settingsValuesEqual(first[index], second[index])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (first is Map<String, Object?> && second is Map<String, Object?>) {
+    if (first.length != second.length) {
+      return false;
+    }
+    for (final entry in first.entries) {
+      if (!second.containsKey(entry.key) ||
+          !_settingsValuesEqual(entry.value, second[entry.key])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return false;
 }

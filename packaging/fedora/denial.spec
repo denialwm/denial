@@ -2,6 +2,8 @@
 %global __os_install_post %{nil}
 %global _build_id_links none
 %global __provides_exclude_from ^/usr/lib/denial/.*\\.so$
+# denial-settings resolves this bundled private runtime through $ORIGIN/lib.
+%global __requires_exclude ^libflutter_linux_gtk\\.so.*$
 
 Name:           denial
 Version:        %{denial_version}
@@ -69,27 +71,29 @@ cp -a -- %{engine_payload}/. %{buildroot}/
 %check
 test -x %{buildroot}/usr/bin/deniald
 test -x %{buildroot}/usr/bin/denialctl
+test -x %{buildroot}/usr/bin/denial-portal
 test -x %{buildroot}/usr/bin/denial-session
 test -x %{buildroot}/usr/bin/denial-settings
 test -f %{buildroot}/usr/lib/denial/flutter/lib/libapp.so
 test -f %{buildroot}/usr/lib/denial/flutter/lib/libflutter_engine.so
+test -f %{buildroot}/usr/lib/denial/settings/lib/libflutter_linux_gtk.so
 
 %post
 if [ $1 -eq 1 ] && [ -x /usr/lib/systemd/systemd-update-helper ]; then
     /usr/lib/systemd/systemd-update-helper \
-        install-user-units denial-session.target || :
+        install-user-units denial-session.target denial-portal.service || :
 fi
 
 %preun
 if [ $1 -eq 0 ] && [ -x /usr/lib/systemd/systemd-update-helper ]; then
     /usr/lib/systemd/systemd-update-helper \
-        remove-user-units denial-session.target || :
+        remove-user-units denial-session.target denial-portal.service || :
 fi
 
 %postun
 if [ $1 -ge 1 ] && [ -x /usr/lib/systemd/systemd-update-helper ]; then
     /usr/lib/systemd/systemd-update-helper \
-        mark-reload-user-units denial-session.target || :
+        mark-reload-user-units denial-session.target denial-portal.service || :
 fi
 
 %files
@@ -98,20 +102,25 @@ fi
 %config(noreplace) /etc/xdg/xdg-desktop-portal-wlr/Denial
 /usr/bin/denial-session
 /usr/bin/denial-settings
+/usr/bin/denial-portal
 /usr/bin/denialctl
 /usr/bin/deniald
 /usr/lib/denial/flutter/data/flutter_assets
 /usr/lib/denial/flutter/lib/libapp.so
 /usr/lib/denial/settings
 /usr/lib/systemd/user/denial-session.target
+/usr/lib/systemd/user/denial-portal.service
+/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.denial.service
 /usr/share/doc/denial
 %license /usr/share/licenses/denial/*
 /usr/share/man/man1/denial-session.1.gz
+/usr/share/man/man1/denial-portal.1.gz
 /usr/share/man/man1/denialctl.1.gz
 /usr/share/man/man1/deniald.1.gz
 /usr/share/wayland-sessions/denial.desktop
 /usr/share/applications/dev.denial.Settings.desktop
 /usr/share/xdg-desktop-portal/denial-portals.conf
+/usr/share/xdg-desktop-portal/portals/denial.portal
 %{?runtime_version_path:%{runtime_version_path}}
 
 %files -n denial-flutter-engine

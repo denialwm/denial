@@ -18,7 +18,7 @@ class Motion {
   static const Duration launchReveal = Duration(milliseconds: 160);
   static const Duration focusZoom = Duration(milliseconds: 320);
   static const Duration shade = Duration(milliseconds: 230);
-  static const Duration desktopPanelOpen = Duration(milliseconds: 400);
+  static const Duration desktopPanelOpen = Duration(milliseconds: 300);
   static const Duration desktopPanelClose = Duration(milliseconds: 320);
   static const Duration homeFlyAway = Duration(milliseconds: 280);
   static const Duration tile = Duration(milliseconds: 160);

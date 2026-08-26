@@ -79,6 +79,31 @@ void main() {
     );
     expect(renderObject.backdropKey, isNotNull);
   });
+
+  testWidgets('blur widgets reuse the theme-resolved filter configuration', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const _BlurHarness(
+        theme: ShellThemeData(),
+        child: Column(
+          children: <Widget>[
+            ShellBackdropBlur(child: SizedBox(width: 80, height: 40)),
+            ShellBackdropBlur(child: SizedBox(width: 80, height: 40)),
+          ],
+        ),
+      ),
+    );
+
+    final filters = tester.widgetList<BackdropFilter>(
+      find.byType(BackdropFilter),
+    );
+    expect(filters, hasLength(2));
+    expect(
+      identical(filters.first.filterConfig, filters.last.filterConfig),
+      isTrue,
+    );
+  });
 }
 
 class _BlurHarness extends StatelessWidget {

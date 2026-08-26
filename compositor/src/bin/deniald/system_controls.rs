@@ -12,6 +12,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::ptr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::{Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
@@ -220,12 +222,35 @@ enum BrightnessCommand {
     Stop,
 }
 
+#[derive(Clone)]
+struct SystemControlEventSender {
+    sender: SyncSender<SystemControlEvent>,
+    pending: Arc<AtomicBool>,
+}
+
+impl SystemControlEventSender {
+    fn new(sender: SyncSender<SystemControlEvent>, pending: Arc<AtomicBool>) -> Self {
+        Self { sender, pending }
+    }
+
+    fn try_send(&self, event: SystemControlEvent) {
+        // Publish before the bounded send so a concurrent main-thread swap
+        // cannot miss an event which is already visible in the channel. Set
+        // it again after success to close the inverse swap-before-send race.
+        self.pending.store(true, Ordering::Release);
+        if self.sender.try_send(event).is_ok() {
+            self.pending.store(true, Ordering::Release);
+        }
+    }
+}
+
 /// Process-lifetime handles used by the compositor input path.
 pub(super) struct SystemControls {
     audio_commands: SyncSender<AudioCommand>,
     brightness_commands: SyncSender<BrightnessCommand>,
     #[cfg_attr(not(feature = "flutter"), allow(dead_code))]
     events: Receiver<SystemControlEvent>,
+    events_pending: Arc<AtomicBool>,
     audio_worker: Option<JoinHandle<()>>,
     brightness_worker: Option<JoinHandle<()>>,
 }
@@ -233,6 +258,8 @@ pub(super) struct SystemControls {
 impl SystemControls {
     pub(super) fn new() -> io::Result<Self> {
         let (events_tx, events) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
+        let events_pending = Arc::new(AtomicBool::new(false));
+        let events_tx = SystemControlEventSender::new(events_tx, Arc::clone(&events_pending));
         let (audio_commands, audio_rx) = mpsc::sync_channel(COMMAND_QUEUE_CAPACITY);
         let audio_events = events_tx.clone();
         let subscription_commands = audio_commands.clone();
@@ -262,6 +289,7 @@ impl SystemControls {
             audio_commands,
             brightness_commands,
             events,
+            events_pending,
             audio_worker: Some(audio_worker),
             brightness_worker: Some(brightness_worker),
         })
@@ -339,6 +367,11 @@ impl SystemControls {
                 monitor_id,
                 delta,
             });
+    }
+
+    #[cfg_attr(not(feature = "flutter"), allow(dead_code))]
+    pub(super) fn take_event_signal(&self) -> bool {
+        self.events_pending.swap(false, Ordering::AcqRel)
     }
 
     #[cfg_attr(not(feature = "flutter"), allow(dead_code))]

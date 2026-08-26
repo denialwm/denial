@@ -2,7 +2,52 @@
 
 use super::*;
 
+pub(super) fn constrain_pointer_to_outputs(
+    position: Point<f64, Logical>,
+    outputs: impl IntoIterator<Item = Rectangle<i32, Logical>>,
+) -> Option<Point<f64, Logical>> {
+    let mut closest = None;
+    for output in outputs {
+        if output.size.w <= 0 || output.size.h <= 0 {
+            continue;
+        }
+
+        let left = f64::from(output.loc.x);
+        let top = f64::from(output.loc.y);
+        let right = left + f64::from(output.size.w);
+        let bottom = top + f64::from(output.size.h);
+        if position.x >= left && position.x < right && position.y >= top && position.y < bottom {
+            return Some(position);
+        }
+
+        // Logical output rectangles are half-open. Use the immediately
+        // preceding representable coordinate at their far edges so the
+        // projection remains inside the chosen output without sacrificing
+        // subpixel motion across an adjoining output boundary.
+        let projected = Point::from((
+            position.x.clamp(left, right.next_down()),
+            position.y.clamp(top, bottom.next_down()),
+        ));
+        let dx = position.x - projected.x;
+        let dy = position.y - projected.y;
+        let distance_squared = dx.mul_add(dx, dy * dy);
+        if closest
+            .as_ref()
+            .is_none_or(|(best_distance, _)| distance_squared < *best_distance)
+        {
+            closest = Some((distance_squared, projected));
+        }
+    }
+    closest.map(|(_, position)| position)
+}
+
 impl WaylandFrontend {
+    #[cfg(feature = "flutter")]
+    pub(crate) fn has_pending_frame_callbacks(&self) -> bool {
+        !self.pending_frame_callback_windows.is_empty()
+            || !self.pending_input_method_frame_callbacks.is_empty()
+    }
+
     #[cfg(feature = "flutter")]
     pub(super) fn queue_cursor_state_for_flutter_generation(&mut self) {
         self.published_cursor_shape = None;
@@ -68,6 +113,15 @@ impl WaylandFrontend {
     }
 
     pub(super) fn clamp_pointer(&self, position: Point<f64, Logical>) -> Point<f64, Logical> {
+        if let Some(position) = constrain_pointer_to_outputs(
+            position,
+            self.outputs.iter().map(|output| output.logical_geometry),
+        ) {
+            return position;
+        }
+
+        // A live topology always has an output, but retain the bounding-box
+        // fallback for defensive behavior during incomplete initialization.
         let right = f64::from(self.desktop_bounds.loc.x + self.desktop_bounds.size.w - 1);
         let bottom = f64::from(self.desktop_bounds.loc.y + self.desktop_bounds.size.h - 1);
         Point::from((
@@ -238,22 +292,37 @@ impl WaylandFrontend {
     pub fn frame_tick(&mut self, tick: FrameTick) -> Result<(), Box<dyn Error>> {
         let callback_time = self.presentation.timeline_time(tick.render_deadline);
         let mut sent = 0usize;
-        for window in self.output_window_membership.windows(tick.output) {
-            sent = sent.saturating_add(presentation::send_window_frame_callbacks(
-                window,
-                callback_time,
-            ));
+        if !self.pending_frame_callback_windows.is_empty() {
+            for window in self.output_window_membership.windows(tick.output) {
+                let Some(root) = window.wl_surface() else {
+                    continue;
+                };
+                if !self.pending_frame_callback_windows.remove(&root.id()) {
+                    continue;
+                }
+                sent = sent.saturating_add(presentation::send_window_frame_callbacks(
+                    window,
+                    callback_time,
+                ));
+            }
         }
         let callback_millis = callback_time.as_millis() as u32;
-        for popup in self.input_method.visible_popups() {
-            if self
-                .surface_id(popup.surface())
-                .is_some_and(|surface_id| self.visible_window_ids.contains(&surface_id))
-            {
-                sent = sent.saturating_add(presentation::send_surface_frame_callbacks(
-                    popup.surface(),
-                    callback_millis,
-                ));
+        if !self.pending_input_method_frame_callbacks.is_empty() {
+            for popup in self.input_method.visible_popups() {
+                if self
+                    .pending_input_method_frame_callbacks
+                    .contains(&popup.surface().id())
+                    && self
+                        .surface_id(popup.surface())
+                        .is_some_and(|surface_id| self.visible_window_ids.contains(&surface_id))
+                {
+                    self.pending_input_method_frame_callbacks
+                        .remove(&popup.surface().id());
+                    sent = sent.saturating_add(presentation::send_surface_frame_callbacks(
+                        popup.surface(),
+                        callback_millis,
+                    ));
+                }
             }
         }
         if sent == 0 {
@@ -322,5 +391,91 @@ impl WaylandFrontend {
         popup.with_pending_state(|state| {
             state.geometry = state.positioner.get_unconstrained_geometry(target);
         });
+    }
+}
+
+#[cfg(test)]
+mod pointer_confinement_tests {
+    use super::*;
+
+    fn output(x: i32, y: i32, width: i32, height: i32) -> Rectangle<i32, Logical> {
+        Rectangle::new((x, y).into(), (width, height).into())
+    }
+
+    fn constrain(
+        position: (f64, f64),
+        outputs: &[Rectangle<i32, Logical>],
+    ) -> Option<Point<f64, Logical>> {
+        constrain_pointer_to_outputs(Point::from(position), outputs.iter().copied())
+    }
+
+    #[test]
+    fn offset_rotated_workstation_layout_rejects_its_empty_regions() {
+        let outputs = [output(0, 563, 2560, 1440), output(2560, 0, 1440, 2560)];
+
+        assert_eq!(
+            constrain((1000.0, 800.0), &outputs),
+            Some((1000.0, 800.0).into())
+        );
+        assert_eq!(
+            constrain((3000.0, 100.0), &outputs),
+            Some((3000.0, 100.0).into())
+        );
+        assert_eq!(
+            constrain((1000.0, 100.0), &outputs),
+            Some((1000.0, 563.0).into())
+        );
+        assert_eq!(
+            constrain((1000.0, 2400.0), &outputs),
+            Some((1000.0, 2003.0_f64.next_down()).into())
+        );
+        assert_eq!(
+            constrain((4500.0, 1000.0), &outputs),
+            Some((4000.0_f64.next_down(), 1000.0).into())
+        );
+    }
+
+    #[test]
+    fn subpixel_motion_crosses_an_adjoining_output_seam() {
+        let outputs = [output(0, 563, 2560, 1440), output(2560, 0, 1440, 2560)];
+
+        assert_eq!(
+            constrain((2559.75, 1000.0), &outputs),
+            Some((2559.75, 1000.0).into())
+        );
+        assert_eq!(
+            constrain((2560.0, 1000.0), &outputs),
+            Some((2560.0, 1000.0).into())
+        );
+    }
+
+    #[test]
+    fn negative_and_disconnected_output_coordinates_project_to_the_nearest_edge() {
+        let negative = [output(-1920, -360, 1920, 1080)];
+        assert_eq!(
+            constrain((-2000.0, 0.0), &negative),
+            Some((-1920.0, 0.0).into())
+        );
+
+        let disconnected = [output(0, 0, 100, 100), output(300, 0, 100, 100)];
+        assert_eq!(
+            constrain((160.0, 50.0), &disconnected),
+            Some((100.0_f64.next_down(), 50.0).into())
+        );
+        assert_eq!(
+            constrain((250.0, 50.0), &disconnected),
+            Some((300.0, 50.0).into())
+        );
+    }
+
+    #[test]
+    fn topology_removal_rehomes_a_pointer_from_a_removed_output() {
+        let retained = [output(0, 0, 100, 100)];
+
+        assert_eq!(
+            constrain((350.0, 50.0), &retained),
+            Some((100.0_f64.next_down(), 50.0).into())
+        );
+        assert_eq!(constrain((0.0, 0.0), &[]), None);
     }
 }

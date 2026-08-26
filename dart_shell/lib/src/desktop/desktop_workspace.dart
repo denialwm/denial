@@ -14,8 +14,9 @@ abstract final class DesktopMetrics {
   static const double frameBorder = 1.0;
   static const double panelGap = 12.0;
   static const double panelMargin = 14.0;
-  static const double edgeTriggerWidth = 8.0;
-  static const double edgeTriggerExtent = 96.0;
+  // Meet the panel at its resting edge so crossing from trigger to surface
+  // never traverses a compositor-owned input gap.
+  static const double edgeTriggerWidth = panelMargin;
 
   /// Clamps the configured system bar strip to the visible canvas. The strip
   /// itself comes from [DisplayLayout.systemBarRect]; hidden bars stay
@@ -64,11 +65,7 @@ abstract final class DesktopMetrics {
       margin: panelMargin,
     ),
   }) {
-    return placement.edgeTrigger(
-      _outputBounds(viewSize, outputRect),
-      thickness: edgeTriggerWidth,
-      extent: edgeTriggerExtent,
-    );
+    return _edgeTriggerRect(viewSize, outputRect, placement);
   }
 
   static Rect dashboardTriggerRect(
@@ -81,11 +78,31 @@ abstract final class DesktopMetrics {
       margin: panelMargin,
     ),
   }) {
+    return _edgeTriggerRect(viewSize, outputRect, placement);
+  }
+
+  static Rect _edgeTriggerRect(
+    Size viewSize,
+    Rect? outputRect,
+    ShellPopupPlacement placement,
+  ) {
+    final outputBounds = _outputBounds(viewSize, outputRect);
+    final panelBounds = placement.resolve(outputBounds);
+    final extent = placement.anchor.horizontal != 0
+        ? panelBounds.height
+        : panelBounds.width;
     return placement.edgeTrigger(
-      _outputBounds(viewSize, outputRect),
-      thickness: edgeTriggerWidth,
-      extent: edgeTriggerExtent,
+      outputBounds,
+      thickness: _edgeTriggerWidthFor(placement),
+      extent: extent,
     );
+  }
+
+  static double _edgeTriggerWidthFor(ShellPopupPlacement placement) {
+    final configuredMargin = placement.margin.isFinite
+        ? math.max(0.0, placement.margin)
+        : 0.0;
+    return math.max(edgeTriggerWidth, configuredMargin);
   }
 
   static Rect _outputBounds(Size viewSize, Rect? outputRect) {
@@ -254,6 +271,15 @@ class DesktopWorkspaceState {
     this.inputLayoutRevision = 0,
   }) : placements = Map.unmodifiable(placements);
 
+  const DesktopWorkspaceState._({
+    required this.placements,
+    required this.nextZ,
+    required this.viewSize,
+    required this.panel,
+    required this.overview,
+    required this.inputLayoutRevision,
+  });
+
   factory DesktopWorkspaceState.initial() {
     return DesktopWorkspaceState(
       placements: const <int, DesktopWindowPlacement>{},
@@ -290,8 +316,10 @@ class DesktopWorkspaceState {
     DesktopOverviewState? overview,
     bool clearOverview = false,
   }) {
-    return DesktopWorkspaceState(
-      placements: placements ?? this.placements,
+    return DesktopWorkspaceState._(
+      placements: placements == null
+          ? this.placements
+          : Map.unmodifiable(placements),
       nextZ: nextZ ?? this.nextZ,
       viewSize: viewSize ?? this.viewSize,
       panel: panel ?? this.panel,
@@ -307,7 +335,9 @@ class DesktopWorkspaceState {
 ///
 /// A native move/resize grab changes only one keyed window's geometry. That
 /// layer samples its live rectangle independently, so rebuilding the
-/// surrounding wallpaper, bars, panels, and every other window is redundant.
+/// surrounding wallpaper, bars, and every other window is redundant. Panel
+/// visibility is consumed by its own overlay and deliberately does not affect
+/// the base scene's structure.
 bool desktopWorkspaceHasSameSceneStructure(
   DesktopWorkspaceState left,
   DesktopWorkspaceState right,
@@ -317,7 +347,6 @@ bool desktopWorkspaceHasSameSceneStructure(
   }
   if (left.nextZ != right.nextZ ||
       left.viewSize != right.viewSize ||
-      left.panel != right.panel ||
       !identical(left.overview, right.overview) ||
       left.placements.length != right.placements.length) {
     return false;

@@ -3,7 +3,7 @@ import 'package:flutter/widgets.dart';
 
 import '../../models/battery_status.dart';
 import '../../localization/denial_localizations.dart';
-import '../../theme/tokens.dart';
+import '../../theme/shell_theme.dart';
 
 /// Battery pictogram with a level fill and a percentage label.
 class BatteryMark extends StatelessWidget {
@@ -21,7 +21,7 @@ class BatteryMark extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final level = ((status.capacity ?? 64) / 100.0).clamp(0.0, 1.0);
-    final foreground = color ?? ShellColors.textPrimary;
+    final foreground = color ?? context.shellColors.textPrimary;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -100,7 +100,7 @@ class BatteryIconMark extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final level = ((status.capacity ?? 64) / 100.0).clamp(0.0, 1.0);
-    final foreground = color ?? ShellColors.textPrimary;
+    final foreground = color ?? context.shellColors.textPrimary;
 
     return SizedBox(
       width: 24 * scale,
@@ -156,7 +156,7 @@ class WifiMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = color ?? ShellColors.textPrimary;
+    final foreground = color ?? context.shellColors.textPrimary;
     return Icon(
       Icons.wifi_rounded,
       color: active ? foreground : foreground.withValues(alpha: 0.42),
@@ -180,7 +180,7 @@ class SignalGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = color ?? ShellColors.textPrimary;
+    final foreground = color ?? context.shellColors.textPrimary;
     final glyphColor = active ? foreground : foreground.withValues(alpha: 0.42);
     return SizedBox(
       width: 18 * scale,

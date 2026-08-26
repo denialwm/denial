@@ -13,6 +13,37 @@ import 'package:denial_dart_shell/src/state/quick_settings.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('initial hardware reads start concurrently', () async {
+    final calls = <String>[];
+    final gate = Completer<void>();
+    final audio = _BlockingAudioService(DenialBridge(), calls, gate.future);
+    final brightness = _BlockingBrightnessService(
+      DenialBridge(),
+      calls,
+      gate.future,
+    );
+    final power = _BlockingPowerProfileService(calls, gate.future);
+    addTearDown(audio.dispose);
+    addTearDown(brightness.dispose);
+    final container = ProviderContainer.test(
+      overrides: [
+        brightnessServiceProvider.overrideWithValue(brightness),
+        audioServiceProvider.overrideWithValue(audio),
+        powerProfileServiceProvider.overrideWithValue(power),
+        systemActionsServiceProvider.overrideWithValue(
+          const _FakeSystemActionsService(),
+        ),
+      ],
+    );
+
+    container.read(quickSettingsProvider);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(calls, unorderedEquals(<String>['brightness', 'volume', 'power']));
+    gate.complete();
+    await Future<void>.delayed(Duration.zero);
+  });
+
   test(
     'volume follows native events without fighting an active gesture',
     () async {
@@ -132,4 +163,46 @@ class _FakeSystemActionsService extends SystemActionsService {
 
   @override
   Future<void> takeScreenshot() async {}
+}
+
+class _BlockingAudioService extends _FakeAudioService {
+  _BlockingAudioService(super.bridge, this.calls, this.release);
+
+  final List<String> calls;
+  final Future<void> release;
+
+  @override
+  Future<double?> readLevel() async {
+    calls.add('volume');
+    await release;
+    return null;
+  }
+}
+
+class _BlockingBrightnessService extends _FakeBrightnessService {
+  _BlockingBrightnessService(super.bridge, this.calls, this.release);
+
+  final List<String> calls;
+  final Future<void> release;
+
+  @override
+  Future<double?> readLevel([DisplayOutput? output]) async {
+    calls.add('brightness');
+    await release;
+    return null;
+  }
+}
+
+class _BlockingPowerProfileService extends _FakePowerProfileService {
+  _BlockingPowerProfileService(this.calls, this.release);
+
+  final List<String> calls;
+  final Future<void> release;
+
+  @override
+  Future<String?> read() async {
+    calls.add('power');
+    await release;
+    return null;
+  }
 }

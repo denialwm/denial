@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/settings/settings_controller.dart';
 import 'package:denial_dart_shell/src/settings/settings_store.dart';
 import 'package:denial_dart_shell/src/settings/shell_settings.dart';
@@ -9,6 +11,69 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('seeded settings streams initialize without a separate read', () async {
+    final store = _StreamingSettingsStore();
+    final container = ProviderContainer.test(
+      overrides: [settingsStoreProvider.overrideWithValue(store)],
+    );
+    addTearDown(container.dispose);
+    addTearDown(store.dispose);
+
+    container.read(shellSettingsProvider);
+    await Future<void>.delayed(Duration.zero);
+    store.publish(
+      const ShellSettings(
+        appearance: ShellAppearanceSettings(windowRadius: 31),
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(store.reads, 0);
+    expect(container.read(shellSettingsProvider).appearance.windowRadius, 31);
+    expect(
+      container.read(shellSettingsSyncStatusProvider).phase,
+      ShellSettingsSyncPhase.ready,
+    );
+  });
+
+  test('native revisions merge beneath a pending debounced edit', () async {
+    final store = _StreamingSettingsStore();
+    final container = ProviderContainer.test(
+      overrides: [settingsStoreProvider.overrideWithValue(store)],
+    );
+    addTearDown(container.dispose);
+    addTearDown(store.dispose);
+
+    final controller = container.read(shellSettingsProvider.notifier);
+    await Future<void>.delayed(Duration.zero);
+    store.publish(
+      const ShellSettings(
+        appearance: ShellAppearanceSettings(
+          windowRadius: 12,
+          panelOpacity: 0.7,
+        ),
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    controller.setWindowRadius(29);
+    store.publish(
+      const ShellSettings(
+        appearance: ShellAppearanceSettings(
+          windowRadius: 12,
+          panelOpacity: 0.63,
+        ),
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    final merged = container.read(shellSettingsProvider);
+    expect(merged.appearance.windowRadius, 29);
+    expect(merged.appearance.panelOpacity, 0.63);
+    await controller.flush();
+    expect(store.writes.single, merged);
+  });
+
   test('a late disk read cannot overwrite an immediate user change', () async {
     final read = Completer<ShellSettings?>();
     final store = _MemorySettingsStore(read.future);
@@ -80,6 +145,66 @@ void main() {
     expect(store.writes, hasLength(1));
     expect(store.writes.single.appearance.panelOpacity, 0.6);
   });
+
+  test(
+    'panel radius accepts zero and clamps negative values to zero',
+    () async {
+      final store = _MemorySettingsStore(Future<ShellSettings?>.value(null));
+      final container = ProviderContainer.test(
+        overrides: [settingsStoreProvider.overrideWithValue(store)],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(shellSettingsProvider.notifier);
+
+      controller.setPanelRadius(0);
+      expect(container.read(shellSettingsProvider).appearance.panelRadius, 0);
+      controller.setPanelRadius(-12);
+      expect(container.read(shellSettingsProvider).appearance.panelRadius, 0);
+
+      await controller.flush();
+      expect(store.writes.single.appearance.panelRadius, 0);
+    },
+  );
+
+  test(
+    'a failed colour-scheme write restores the authoritative theme',
+    () async {
+      final authoritative = const ShellSettings();
+      final store = _FailingSettingsStore(authoritative);
+      final container = ProviderContainer.test(
+        overrides: [settingsStoreProvider.overrideWithValue(store)],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(shellSettingsProvider.notifier);
+
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        container.read(shellSettingsSyncStatusProvider).phase,
+        ShellSettingsSyncPhase.ready,
+      );
+
+      controller.setColorSchemePreference(
+        DesktopColorSchemePreference.preferLight,
+      );
+      expect(
+        container.read(shellSettingsProvider).appearance.colorSchemePreference,
+        DesktopColorSchemePreference.preferLight,
+      );
+
+      await store.writeAttempted.future;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        container.read(shellSettingsProvider).appearance.colorSchemePreference,
+        DesktopColorSchemePreference.preferDark,
+      );
+      expect(
+        container.read(shellSettingsSyncStatusProvider).phase,
+        ShellSettingsSyncPhase.failed,
+      );
+      expect(store.reads, 2);
+    },
+  );
 
   test('backdrop blur quality updates live', () async {
     final store = _MemorySettingsStore(Future<ShellSettings?>.value(null));
@@ -204,4 +329,62 @@ class _MemorySettingsStore implements SettingsStore {
   Future<void> write(ShellSettings settings) async {
     writes.add(settings);
   }
+}
+
+class _FailingSettingsStore implements SettingsStore {
+  _FailingSettingsStore(this.authoritative);
+
+  final ShellSettings authoritative;
+  final Completer<void> writeAttempted = Completer<void>();
+  int reads = 0;
+
+  @override
+  Future<ShellSettings?> read() async {
+    reads += 1;
+    return authoritative;
+  }
+
+  @override
+  Future<void> write(ShellSettings settings) async {
+    if (!writeAttempted.isCompleted) {
+      writeAttempted.complete();
+    }
+    throw StateError('native commit rejected');
+  }
+}
+
+class _StreamingSettingsStore
+    implements SettingsStore, SettingsDocumentUpdateSource {
+  final _updates = StreamController<DenialSettingsDocument>.broadcast(
+    sync: true,
+  );
+  var revision = 0;
+  var reads = 0;
+  final List<ShellSettings> writes = <ShellSettings>[];
+
+  @override
+  Stream<DenialSettingsDocument> get settingsDocumentUpdates => _updates.stream;
+
+  void publish(ShellSettings settings) {
+    revision += 1;
+    _updates.add(
+      DenialSettingsDocument(
+        revision: revision,
+        json: '${jsonEncode(settings.toJson())}\n',
+      ),
+    );
+  }
+
+  @override
+  Future<ShellSettings?> read() async {
+    reads += 1;
+    return null;
+  }
+
+  @override
+  Future<void> write(ShellSettings settings) async {
+    writes.add(settings);
+  }
+
+  Future<void> dispose() => _updates.close();
 }

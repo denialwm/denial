@@ -64,12 +64,18 @@ Skia/Ganesh remains in the same engine generation as a compatibility fallback
 and can be selected explicitly with `--flutter-renderer skia` or the packaged
 `DENIA_FLUTTER_RENDERER=skia` session override.
 
-The native compositor and the Flutter shell are built as two versioned parts.
+The native compositor, embedded Flutter shell, and standalone Flutter Settings
+client are built as separate runtime parts.
 The current shell lives in `dart_shell/` and is loaded with its AOT library,
 assets, ICU data, and pinned engine generation as one runtime bundle. Their
 platform bridge carries immutable scene state and bounded commands without
 giving Dart ownership of file descriptors, Wayland objects, EGL images, or
 KMS buffers.
+
+Settings lives in `settings_app/` as a normal Wayland process and communicates
+with `deniald` over its versioned Unix control socket. Its rendering workload
+is isolated from the compositor's Flutter engine, while Rust remains the sole
+authority for persistent and hardware state.
 
 This bundle boundary is also the path toward alternative Flutter shells. As
 the compatibility contract stabilizes, a compatible user-provided bundle will
@@ -98,7 +104,10 @@ are x86-64 and ARM64 (AArch64), and the native APIs, Flutter bundle contract,
 configuration, and wire protocol may still change before 1.0. The compositor
 already runs as a complete Wayland session with Xwayland, multi-output
 presentation, native input routing, direct screenshots, and portal-based
-screen sharing.
+screen sharing. Denial's appearance setting also drives one semantic light or
+dark shell theme and the standard desktop `color-scheme` and `accent-color`
+portal preferences, so portal-aware Wayland applications follow Denial's
+committed brightness and resolved custom or wallpaper-derived accent.
 
 ## Supported architectures
 
@@ -117,6 +126,7 @@ shell bundle; see the [build guide](docs/BUILDING.md).
 | --- | :---: | :---: |
 | Arch Linux | ✅ | ✅ |
 | CachyOS | ✅ | ✅ |
+| Omarchy 4.0 | ✅ | ✅ |
 | Debian 13 (trixie) | ✅ | ✅ |
 | Ubuntu 24.04 LTS (noble) | ✅ | ✅ |
 | Fedora 44 | ✅ | ✅ |
@@ -124,10 +134,13 @@ shell bundle; see the [build guide](docs/BUILDING.md).
 | NixOS | ✅ | ❌ |
 | Void Linux | ✅ | ❌ |
 
-The binary column refers to the current first-party x86-64 package set. Alpine
-packages are signed direct GitHub Release downloads; a native APK repository
-is not published yet. NixOS and Void Linux have been tested successfully, but
-do not have first-party binary packages yet.
+The binary column refers to the current first-party x86-64 package set. Omarchy
+uses the signed Arch-compatible Pacman packages and is validated with Denial as
+its native compositor and desktop session; Omarchy's Hyprland-specific
+Quickshell is not part of that compatibility claim. Alpine packages are signed
+direct GitHub Release downloads; a native APK repository is not published yet.
+NixOS and Void Linux have been tested successfully, but do not have first-party
+binary packages yet.
 
 ## Live Flutter shell development
 

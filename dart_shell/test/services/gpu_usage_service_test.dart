@@ -45,12 +45,20 @@ void main() {
       String name, {
       String? busy,
       String vendor = '0x1002',
+      String? runtimeStatus,
     }) async {
       final device = Directory('${root.path}/$name/device');
       await device.create(recursive: true);
       await File('${device.path}/vendor').writeAsString('$vendor\n');
       if (busy != null) {
         await File('${device.path}/gpu_busy_percent').writeAsString(busy);
+      }
+      if (runtimeStatus != null) {
+        final power = Directory('${device.path}/power');
+        await power.create();
+        await File(
+          '${power.path}/runtime_status',
+        ).writeAsString('$runtimeStatus\n');
       }
     }
 
@@ -85,6 +93,30 @@ void main() {
 
       expect(samples.map((s) => s.id), ['card2', 'nvml0']);
       expect(samples.map((s) => s.label), ['AMD', 'NV']);
+    });
+
+    test('leaves a runtime-suspended NVIDIA GPU asleep', () async {
+      await card(
+        'card1',
+        vendor: '0x10de',
+        runtimeStatus: 'suspended',
+      );
+      final nvml = _FakeNvml(const [
+        GpuSample(id: 'nvml0', label: 'NV', usage: 0.8),
+      ]);
+      final service = GpuUsageService(drmRoot: root.path, nvml: nvml);
+
+      final sleeping = (await service.read()).single;
+      expect(sleeping.id, 'nvml0');
+      expect(sleeping.usage, 0.0);
+      expect(sleeping.temperatureC, isNull);
+      expect(nvml.reads, 0);
+
+      await File(
+        '${root.path}/card1/device/power/runtime_status',
+      ).writeAsString('active\n');
+      expect((await service.read()).single.id, 'nvml0');
+      expect(nvml.reads, 1);
     });
 
     test('reads the preferred GPU hwmon sensor with utilization', () async {
@@ -134,7 +166,11 @@ class _FakeNvml extends NvmlReader {
   _FakeNvml(this._samples);
 
   final List<GpuSample> _samples;
+  int reads = 0;
 
   @override
-  Future<List<GpuSample>> read() async => _samples;
+  Future<List<GpuSample>> read() async {
+    reads++;
+    return _samples;
+  }
 }

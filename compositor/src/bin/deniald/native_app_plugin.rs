@@ -1556,6 +1556,10 @@ impl NativeAppPluginManager {
         Ok(())
     }
 
+    pub(super) fn has_dirty_target_pools(&self) -> bool {
+        self.windows.values().any(|window| window.targets_dirty)
+    }
+
     fn refresh_target_pool(
         &mut self,
         host_id: u64,

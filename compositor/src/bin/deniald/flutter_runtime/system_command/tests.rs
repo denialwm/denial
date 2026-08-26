@@ -206,6 +206,7 @@ fn builds_a_direct_process_with_denial_wayland_environment() {
         OsStr::new("wayland-7"),
         Some(OsStr::new(":42")),
         Some(OsStr::new("/run/user/1000/denial/control.sock")),
+        None,
     );
     assert_eq!(command.get_program(), OsStr::new("foot"));
     assert_eq!(
@@ -227,6 +228,10 @@ fn builds_a_direct_process_with_denial_wayland_environment() {
     assert_eq!(
         environment.get(OsStr::new("XDG_CURRENT_DESKTOP")),
         Some(&Some(OsString::from("Denial")))
+    );
+    assert_eq!(
+        environment.get(OsStr::new("QT_QPA_PLATFORMTHEME")),
+        Some(&Some(OsString::from("xdgdesktopportal")))
     );
     assert!(!environment.contains_key(OsStr::new("XMODIFIERS")));
     assert_eq!(
@@ -289,6 +294,7 @@ fn launch_without_output_control_removes_an_inherited_stale_socket() {
         OsStr::new("wayland-7"),
         None,
         None,
+        Some(OsStr::new("kde")),
     );
     let environment = command
         .get_envs()
@@ -299,5 +305,9 @@ fn launch_without_output_control_removes_an_inherited_stale_socket() {
     assert_eq!(
         environment.get(OsStr::new("XDG_ACTIVATION_TOKEN")),
         Some(&None)
+    );
+    assert_eq!(
+        environment.get(OsStr::new("QT_QPA_PLATFORMTHEME")),
+        Some(&Some(OsString::from("kde")))
     );
 }

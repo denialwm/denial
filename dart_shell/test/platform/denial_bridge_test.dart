@@ -742,6 +742,79 @@ void main() {
   });
 
   test(
+    'control-socket settings subscription is seeded and streams revisions',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'denial-settings-control-',
+      );
+      final socketPath = '${directory.path}/control.sock';
+      final server = await ServerSocket.bind(
+        InternetAddress(socketPath, type: InternetAddressType.unix),
+        0,
+      );
+      final subscribed = Completer<({Socket socket, int requestId})>();
+      final connections = server.listen((socket) async {
+        final line = await utf8.decoder
+            .bind(socket)
+            .transform(const LineSplitter())
+            .first;
+        final decoded = jsonDecode(line) as Map<String, Object?>;
+        expect(decoded['method'], 'settings.document.subscribe');
+        socket.write(
+          '${jsonEncode(<String, Object>{
+            'version': 1,
+            'id': decoded['id']! as int,
+            'ok': true,
+            'result': <String, Object>{'revision': 7, 'document': '{"version":10,"revision":7}'},
+          })}\n',
+        );
+        await socket.flush();
+        subscribed.complete((socket: socket, requestId: decoded['id']! as int));
+      });
+      final bridge = DenialBridge(
+        useControlSocket: true,
+        controlSocketPath: socketPath,
+      );
+      final initial = Completer<DenialSettingsDocument>();
+      final updated = Completer<DenialSettingsDocument>();
+      final subscription = bridge.settingsDocuments.listen((document) {
+        if (document.revision == 7 && !initial.isCompleted) {
+          initial.complete(document);
+        }
+        if (document.revision == 8 && !updated.isCompleted) {
+          updated.complete(document);
+        }
+      });
+      try {
+        expect(
+          (await initial.future.timeout(const Duration(seconds: 1))).revision,
+          7,
+        );
+        final connection = await subscribed.future;
+        connection.socket.write(
+          '${jsonEncode(<String, Object>{
+            'version': 1,
+            'id': connection.requestId,
+            'ok': true,
+            'result': <String, Object>{'revision': 8, 'document': '{"version":10,"revision":8}'},
+          })}\n',
+        );
+        await connection.socket.flush();
+        expect(
+          (await updated.future.timeout(const Duration(seconds: 1))).json,
+          contains('"revision":8'),
+        );
+      } finally {
+        await subscription.cancel();
+        bridge.dispose();
+        await connections.cancel();
+        await server.close();
+        await directory.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
     'native cursor positions are forwarded without pointer synthesis',
     () async {
       final messenger =

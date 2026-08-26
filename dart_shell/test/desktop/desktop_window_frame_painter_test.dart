@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:denial_dart_shell/src/desktop/desktop_window_frame_painter.dart';
+import 'package:denial_dart_shell/src/theme/shell_color_scheme.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -17,7 +18,10 @@ void main() {
     final recorder = ui.PictureRecorder();
     final canvas = ui.Canvas(recorder)..scale(scale);
 
-    const DesktopWindowFramePainter().paint(canvas, logicalSize);
+    DesktopWindowFramePainter(
+      shadowColor: ShellColorScheme.dark.shadow,
+      frameColor: ShellColorScheme.dark.windowFrameSurface,
+    ).paint(canvas, logicalSize);
     final image = await recorder.endRecording().toImage(
       imageWidth,
       imageHeight,
@@ -124,14 +128,26 @@ void main() {
   test(
     'a retained frame painter repaints only when its window identity changes',
     () {
-      const original = DesktopWindowFramePainter(windowId: 7);
+      final original = DesktopWindowFramePainter(
+        windowId: 7,
+        shadowColor: ShellColorScheme.dark.shadow,
+        frameColor: ShellColorScheme.dark.windowFrameSurface,
+      );
 
       expect(
-        const DesktopWindowFramePainter(windowId: 7).shouldRepaint(original),
+        DesktopWindowFramePainter(
+          windowId: 7,
+          shadowColor: ShellColorScheme.dark.shadow,
+          frameColor: ShellColorScheme.dark.windowFrameSurface,
+        ).shouldRepaint(original),
         isFalse,
       );
       expect(
-        const DesktopWindowFramePainter(windowId: 8).shouldRepaint(original),
+        DesktopWindowFramePainter(
+          windowId: 8,
+          shadowColor: ShellColorScheme.dark.shadow,
+          frameColor: ShellColorScheme.dark.windowFrameSurface,
+        ).shouldRepaint(original),
         isTrue,
       );
     },

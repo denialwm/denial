@@ -1040,7 +1040,7 @@ fn set_pulse_stream_level(
 
 pub(super) fn run_audio_worker(
     commands: Receiver<AudioCommand>,
-    events: SyncSender<SystemControlEvent>,
+    events: SystemControlEventSender,
     subscription_commands: SyncSender<AudioCommand>,
 ) {
     let api = match PulseApi::load() {

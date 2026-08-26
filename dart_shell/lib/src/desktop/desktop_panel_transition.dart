@@ -17,6 +17,7 @@ class DesktopPanelTransition extends StatefulWidget {
     this.durationScale = 1,
     this.keyboardPolicy = ShellKeyboardPolicy.none,
     this.maintainState = false,
+    this.onOpened,
   });
 
   final String inputDebugLabel;
@@ -26,6 +27,7 @@ class DesktopPanelTransition extends StatefulWidget {
   final double entryDistance;
   final double durationScale;
   final ShellKeyboardPolicy keyboardPolicy;
+  final VoidCallback? onOpened;
 
   /// Keeps the child mounted and offstage after its first completed close.
   ///
@@ -60,7 +62,7 @@ class _DesktopPanelTransitionState extends State<DesktopPanelTransition>
     );
     _progress = CurvedAnimation(
       parent: _controller,
-      curve: Motion.md3EmphasizedDecelerate,
+      curve: Curves.linear,
       reverseCurve: Motion.md3EmphasizedAccelerate,
     );
   }
@@ -91,7 +93,11 @@ class _DesktopPanelTransitionState extends State<DesktopPanelTransition>
     if (widget.visible) {
       _showChild = true;
       _offstage = false;
-      _controller.forward();
+      _controller.forward().whenCompleteOrCancel(() {
+        if (mounted && widget.visible && _controller.value == 1.0) {
+          widget.onOpened?.call();
+        }
+      });
       return;
     }
 
@@ -131,6 +137,7 @@ class _DesktopPanelTransitionState extends State<DesktopPanelTransition>
     if (!_showChild) {
       return const SizedBox.shrink();
     }
+    final theme = ShellTheme.of(context);
 
     Widget panel = ShellInputRegion(
       active: !_offstage,
@@ -142,30 +149,25 @@ class _DesktopPanelTransitionState extends State<DesktopPanelTransition>
         ignoring: !widget.visible,
         child: ExcludeSemantics(
           excluding: !widget.visible,
-          child: AnimatedBuilder(
-            animation: _progress,
-            child: RepaintBoundary(
-              child: ShellBackdropBlur(
-                blur: ShellTheme.of(context).panelOpacity < 1.0,
-                borderRadius: BorderRadius.circular(
-                  ShellTheme.of(context).panelRadius,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final direction = widget.entryDirection;
+              final travel = Offset(
+                direction.dx * (constraints.maxWidth + widget.entryDistance),
+                direction.dy * (constraints.maxHeight + widget.entryDistance),
+              );
+              return AnimatedBuilder(
+                animation: _progress,
+                child: RepaintBoundary(
+                  child: ShellBackdropBlur(
+                    blur: theme.panelOpacity < 1.0,
+                    borderRadius: BorderRadius.circular(theme.panelRadius),
+                    child: widget.child,
+                  ),
                 ),
-                child: widget.child,
-              ),
-            ),
-            builder: (context, child) {
-              final progress = _progress.value;
-              return LayoutBuilder(
-                builder: (context, constraints) {
-                  final direction = widget.entryDirection;
-                  final travel = Offset(
-                    direction.dx *
-                        (constraints.maxWidth + widget.entryDistance),
-                    direction.dy *
-                        (constraints.maxHeight + widget.entryDistance),
-                  );
+                builder: (context, child) {
                   return Transform.translate(
-                    offset: travel * (1.0 - progress),
+                    offset: travel * (1.0 - _progress.value),
                     child: child,
                   );
                 },

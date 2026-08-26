@@ -66,6 +66,10 @@ MANIFEST="$COMPOSITOR_ROOT/Cargo.toml"
 BUNDLE="${DENIAL_PC_BUNDLE:-$ROOT/dart_shell/build/linux/x64/release/bundle}"
 BUNDLE_ASSEMBLY="${DENIAL_PC_BUNDLE_ASSEMBLY:-$BUILD_ROOT/flutter/release}"
 SETTINGS_BUNDLE="${DENIAL_PC_SETTINGS_BUNDLE:-$ROOT/settings_app/build/linux/x64/release/bundle}"
+SETTINGS_BINARY="${DENIAL_SETTINGS_BINARY:-$SETTINGS_BUNDLE/denial-settings}"
+SETTINGS_DESKTOP_SOURCE="$ROOT/packaging/arch/dev.denial.Settings.desktop"
+USER_DATA_HOME="${XDG_DATA_HOME:-${HOME:?HOME is required}/.local/share}"
+SETTINGS_DESKTOP_FILE="${DENIAL_SETTINGS_DESKTOP_FILE:-$USER_DATA_HOME/applications/dev.denial.Settings.desktop}"
 ENGINE="${DENIAL_PC_ENGINE:-$BUNDLE/lib/libflutter_engine.so}"
 ICU_DATA="$FLUTTER_SDK_ROOT/bin/cache/artifacts/engine/linux-x64/icudtl.dat"
 PREBUILT_ENGINE_DIR="$ROOT/prebuilt/flutter-engine/linux-x64-release"
@@ -82,6 +86,7 @@ ENGINE_TEST_NINJA_OUT="${DENIAL_PC_ENGINE_TEST_NINJA_OUT:-$ENGINE_TEST_SOURCE_RO
 SESSION_ENGINE_SHA256=""
 BINARY="${DENIAL_PC_BINARY:-$RUST_TARGET/release/deniald}"
 CONTROL_BINARY="${DENIAL_PC_CONTROL_BINARY:-$RUST_TARGET/release/denialctl}"
+PORTAL_BINARY="${DENIAL_PC_PORTAL_BINARY:-$RUST_TARGET/release/denial-portal}"
 OUTPUT_CONFIG="${DENIAL_PC_OUTPUT_CONFIG:-$ROOT/dev/denial-outputs.conf}"
 DRM_DEVICE="${DENIAL_PC_DRM_DEVICE:-/dev/dri/by-path/pci-0000:0a:00.0-card}"
 SESSION_TEMPLATE="$ROOT/dev/denial.desktop.in"
@@ -92,9 +97,24 @@ SESSION_TARGET_SOURCE="$ROOT/packaging/denial-session.target"
 SESSION_TARGET_FILE="${DENIAL_SESSION_TARGET_FILE:-/usr/local/lib/systemd/user/denial-session.target}"
 PORTAL_TEMPLATE="$ROOT/dev/denial-portals.conf.in"
 PORTAL_FILE="${DENIAL_PORTAL_FILE:-/usr/share/xdg-desktop-portal/denial-portals.conf}"
+DENIAL_PORTAL_DESCRIPTOR_SOURCE="$ROOT/packaging/arch/denial.portal"
+DENIAL_PORTAL_DESCRIPTOR="${DENIAL_PORTAL_DESCRIPTOR:-/usr/local/share/xdg-desktop-portal/portals/denial.portal}"
+DENIAL_PORTAL_DBUS_TEMPLATE="$ROOT/dev/org.freedesktop.impl.portal.desktop.denial.service.in"
+DENIAL_PORTAL_DBUS_SERVICE="${DENIAL_PORTAL_DBUS_SERVICE:-/usr/local/share/dbus-1/services/org.freedesktop.impl.portal.desktop.denial.service}"
+DENIAL_PORTAL_UNIT_TEMPLATE="$ROOT/dev/denial-portal-development.service.in"
+DENIAL_PORTAL_UNIT="${DENIAL_PORTAL_UNIT:-/usr/local/lib/systemd/user/denial-portal-development.service}"
 WLR_PORTAL_DESCRIPTOR="${DENIAL_WLR_PORTAL_DESCRIPTOR:-/usr/share/xdg-desktop-portal/portals/wlr.portal}"
 WLR_PORTAL_CONFIG_TEMPLATE="$ROOT/dev/xdg-desktop-portal-wlr-Denial.in"
 WLR_PORTAL_CONFIG="${DENIAL_WLR_PORTAL_CONFIG:-/etc/xdg/xdg-desktop-portal-wlr/Denial}"
+XDG_DESKTOP_PORTAL_FRONTEND="${DENIAL_XDG_DESKTOP_PORTAL_FRONTEND:-}"
+if [[ -z "$XDG_DESKTOP_PORTAL_FRONTEND" ]]; then
+    for candidate in /usr/lib/xdg-desktop-portal /usr/libexec/xdg-desktop-portal; do
+        if [[ -x "$candidate" ]]; then
+            XDG_DESKTOP_PORTAL_FRONTEND="$candidate"
+            break
+        fi
+    done
+fi
 LEGACY_SESSION_FILE="${DENIAL_LEGACY_SESSION_FILE:-/usr/share/wayland-sessions/denial-rs.desktop}"
 AVAILABLE_CPUS="$(nproc)"
 if [[ "${GITHUB_ACTIONS:-}" == true \
@@ -135,6 +155,8 @@ Commands:
                     Run the staged engine test (normally invoked by a display manager)
   doctor            Show prerequisites and built artifact state
   install-session   Add the display-manager entry and Denial portal routing
+  install-settings-entry
+                    Refresh the local Settings entry for this user
   install-engine-test-session
                     Add a separate display-manager entry for the staged engine test
   remove-session    Remove that session and portal configuration
@@ -200,6 +222,7 @@ is_compatible_legacy_config() {
             config_active_lines_equal "$path" \
                 '[preferred]' \
                 'default=gtk' \
+                'org.freedesktop.impl.portal.Settings=denial;gtk' \
                 'org.freedesktop.impl.portal.ScreenCast=wlr' \
                 'org.freedesktop.impl.portal.Screenshot=wlr'
             ;;
@@ -223,6 +246,51 @@ require_managed_config_or_absent() {
         return
     fi
     die "refusing to replace unrecognized $label: $path"
+}
+
+render_settings_desktop_entry() {
+    local destination="$1"
+    {
+        printf '# Installed by %s/denial-pc\n' "$SCRIPT_DIR"
+        sed \
+            -e "s|^Exec=.*|Exec=$SETTINGS_BINARY|" \
+            -e "s|^TryExec=.*|TryExec=$SETTINGS_BINARY|" \
+            "$SETTINGS_DESKTOP_SOURCE"
+    } >"$destination"
+}
+
+require_managed_settings_desktop_or_absent() {
+    [[ -e "$SETTINGS_DESKTOP_FILE" || -L "$SETTINGS_DESKTOP_FILE" ]] \
+        || return 0
+    grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" \
+        "$SETTINGS_DESKTOP_FILE" \
+        || die "refusing to replace unrecognized Settings desktop entry: $SETTINGS_DESKTOP_FILE"
+}
+
+install_settings_desktop_entry() {
+    require_file "$SETTINGS_DESKTOP_SOURCE"
+    require_file "$SETTINGS_BINARY"
+    [[ -x "$SETTINGS_BINARY" ]] \
+        || die "Settings application is not executable: $SETTINGS_BINARY"
+    require_managed_settings_desktop_or_absent
+
+    local rendered
+    rendered="$(mktemp)"
+    render_settings_desktop_entry "$rendered"
+    if [[ -e "$SETTINGS_DESKTOP_FILE" ]] \
+        && cmp -s -- "$rendered" "$SETTINGS_DESKTOP_FILE"; then
+        rm -f -- "$rendered"
+        return
+    fi
+    if install -Dm644 -- "$rendered" "$SETTINGS_DESKTOP_FILE"; then
+        :
+    else
+        local status=$?
+        rm -f -- "$rendered"
+        return "$status"
+    fi
+    rm -f -- "$rendered"
+    printf 'Installed %s\n' "$SETTINGS_DESKTOP_FILE"
 }
 
 tracked_changes_match_revision() {
@@ -644,9 +712,16 @@ build_compositor() {
         --features flutter \
         --bin deniald \
         --bin denialctl
+    run_pinned_cargo build \
+        --locked \
+        --release \
+        --jobs "$BUILD_JOBS" \
+        -p denial-portal
     require_file "$BINARY"
     require_file "$CONTROL_BINARY"
-    printf '\nBuilt %s\nBuilt %s\n' "$BINARY" "$CONTROL_BINARY"
+    require_file "$PORTAL_BINARY"
+    printf '\nBuilt %s\nBuilt %s\nBuilt %s\n' \
+        "$BINARY" "$CONTROL_BINARY" "$PORTAL_BINARY"
 }
 
 build_all() {
@@ -675,6 +750,19 @@ test_compositor() {
         --locked \
         --jobs "$BUILD_JOBS" \
         -p denial-flutter-engine
+    (
+        cd -- "$COMPOSITOR_ROOT"
+        require_file "$XDG_DESKTOP_PORTAL_FRONTEND"
+        DENIAL_PORTAL_TEST_BUS=1 \
+        DENIAL_PORTAL_FRONTEND_TEST="$XDG_DESKTOP_PORTAL_FRONTEND" \
+        CARGO_TARGET_DIR="$RUST_TARGET" \
+        dbus-run-session -- cargo test \
+            --locked \
+            --jobs "$BUILD_JOBS" \
+            -p denial-portal \
+            -- \
+            --test-threads=1
+    )
 }
 
 test_all() {
@@ -697,6 +785,9 @@ run_compositor() {
     require_pinned_engine
     require_file "$BUNDLE/data/icudtl.dat"
     require_file "$BUNDLE/lib/libapp.so"
+    require_file "$SETTINGS_BINARY"
+    [[ -x "$SETTINGS_BINARY" ]] \
+        || die "Settings application is not executable: $SETTINGS_BINARY"
     require_file "$OUTPUT_CONFIG"
     command -v Xwayland >/dev/null 2>&1 \
         || die "Xwayland is required for X11 applications such as Steam"
@@ -717,6 +808,7 @@ run_compositor() {
     unset DISPLAY WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE SWAYSOCK I3SOCK
     unset NO_COLOR WLR_DRM_DEVICES AQ_DRM_DEVICES
     export DENIA_SHELL_PROFILE="$shell_profile"
+    export DENIAL_SETTINGS_BINARY="$SETTINGS_BINARY"
     export RUST_BACKTRACE=1
     export RUST_LOG="${DENIA_RUST_LOG:-deniald=info,smithay=warn}"
 
@@ -779,6 +871,7 @@ cancel_engine_test() {
 }
 
 run_display_manager_session() {
+    install_settings_desktop_entry
     if [[ ! -e "$ENGINE_TEST_NEXT" && ! -L "$ENGINE_TEST_NEXT" ]]; then
         run_session
         return
@@ -885,6 +978,20 @@ show_session_state() {
         printf 'stale    %-18s %s (run install-session)\n' "session entry" "$SESSION_FILE"
     fi
 
+    if [[ ! -e "$SETTINGS_DESKTOP_FILE" ]]; then
+        printf 'missing  %-18s %s\n' \
+            "Settings desktop" "$SETTINGS_DESKTOP_FILE"
+    elif grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" \
+        "$SETTINGS_DESKTOP_FILE" \
+        && grep -Fqx "Exec=$SETTINGS_BINARY" "$SETTINGS_DESKTOP_FILE" \
+        && grep -Fqx "TryExec=$SETTINGS_BINARY" "$SETTINGS_DESKTOP_FILE"; then
+        printf 'ok       %-18s %s\n' \
+            "Settings desktop" "$SETTINGS_DESKTOP_FILE"
+    else
+        printf 'stale    %-18s %s (run install-session)\n' \
+            "Settings desktop" "$SETTINGS_DESKTOP_FILE"
+    fi
+
     if [[ ! -e "$SESSION_TARGET_FILE" ]]; then
         printf 'missing  %-18s %s\n' "session target" "$SESSION_TARGET_FILE"
     elif cmp -s -- "$SESSION_TARGET_SOURCE" "$SESSION_TARGET_FILE"; then
@@ -902,6 +1009,7 @@ show_session_state() {
     if [[ ! -e "$PORTAL_FILE" ]]; then
         printf 'missing  %-18s %s\n' "portal routing" "$PORTAL_FILE"
     elif grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" "$PORTAL_FILE" \
+        && grep -Fqx "org.freedesktop.impl.portal.Settings=denial;gtk" "$PORTAL_FILE" \
         && grep -Fqx "org.freedesktop.impl.portal.ScreenCast=wlr" "$PORTAL_FILE" \
         && grep -Fqx "org.freedesktop.impl.portal.Screenshot=wlr" "$PORTAL_FILE"; then
         printf 'ok       %-18s %s\n' "portal routing" "$PORTAL_FILE"
@@ -929,13 +1037,18 @@ doctor() {
     show_path_state "Rust manifest" "$MANIFEST"
     show_flutter_bindings_state
     show_path_state "Dart bundle" "$BUNDLE/lib/libapp.so"
-    show_path_state "Settings application" "$SETTINGS_BUNDLE/denial-settings"
+    show_path_state "Settings application" "$SETTINGS_BINARY"
     show_engine_state
     show_path_state "deniald" "$BINARY"
     show_path_state "denialctl" "$CONTROL_BINARY"
+    show_path_state "denial portal" "$PORTAL_BINARY"
     show_path_state "output config" "$OUTPUT_CONFIG"
     show_path_state "DRM device" "$DRM_DEVICE"
     show_path_state "wlr portal backend" "$WLR_PORTAL_DESCRIPTOR"
+    show_path_state "portal frontend" "$XDG_DESKTOP_PORTAL_FRONTEND"
+    show_path_state "Denial portal descriptor" "$DENIAL_PORTAL_DESCRIPTOR"
+    show_path_state "Denial portal D-Bus" "$DENIAL_PORTAL_DBUS_SERVICE"
+    show_path_state "Denial portal unit" "$DENIAL_PORTAL_UNIT"
     show_command_state "portal chooser" zenity
     show_command_state "realtime broker" rtkitctl
     show_session_state
@@ -967,11 +1080,16 @@ install_session() {
     require_file "$SESSION_TEMPLATE"
     require_file "$SESSION_TARGET_SOURCE"
     require_file "$PORTAL_TEMPLATE"
+    require_file "$DENIAL_PORTAL_DESCRIPTOR_SOURCE"
+    require_file "$DENIAL_PORTAL_DBUS_TEMPLATE"
+    require_file "$DENIAL_PORTAL_UNIT_TEMPLATE"
     require_file "$WLR_PORTAL_CONFIG_TEMPLATE"
     require_file "$BINARY"
     require_file "$CONTROL_BINARY"
+    require_file "$PORTAL_BINARY"
     require_managed_config_or_absent "portal routing" "$PORTAL_FILE"
     require_managed_config_or_absent "wlr portal config" "$WLR_PORTAL_CONFIG"
+    install_settings_desktop_entry
     if [[ -e "$SESSION_TARGET_FILE" ]] \
         && ! grep -Fqx 'BindsTo=graphical-session.target' "$SESSION_TARGET_FILE"; then
         die "refusing to replace unrecognized session target: $SESSION_TARGET_FILE"
@@ -984,30 +1102,42 @@ install_session() {
         printf 'warning  zenity is not installed; the OBS source selector will not open\n' >&2
     fi
 
-    local rendered portal_rendered wlr_portal_rendered
+    local rendered portal_rendered wlr_portal_rendered dbus_rendered unit_rendered
     rendered="$(mktemp)"
     portal_rendered="$(mktemp)"
     wlr_portal_rendered="$(mktemp)"
+    dbus_rendered="$(mktemp)"
+    unit_rendered="$(mktemp)"
     sed "s|@LAUNCHER@|$SCRIPT_DIR/denial-pc|g" "$SESSION_TEMPLATE" > "$rendered"
     sed "s|@LAUNCHER@|$SCRIPT_DIR/denial-pc|g" \
         "$PORTAL_TEMPLATE" > "$portal_rendered"
     sed "s|@LAUNCHER@|$SCRIPT_DIR/denial-pc|g" \
         "$WLR_PORTAL_CONFIG_TEMPLATE" > "$wlr_portal_rendered"
+    sed "s|@PORTAL_BINARY@|$PORTAL_BINARY|g" \
+        "$DENIAL_PORTAL_DBUS_TEMPLATE" > "$dbus_rendered"
+    sed "s|@PORTAL_BINARY@|$PORTAL_BINARY|g" \
+        "$DENIAL_PORTAL_UNIT_TEMPLATE" > "$unit_rendered"
     if as_root install -Dm644 "$rendered" "$SESSION_FILE" \
         && as_root install -Dm644 "$SESSION_TARGET_SOURCE" "$SESSION_TARGET_FILE" \
         && as_root install -Dm644 "$portal_rendered" "$PORTAL_FILE" \
-        && as_root install -Dm644 "$wlr_portal_rendered" "$WLR_PORTAL_CONFIG"; then
+        && as_root install -Dm644 "$wlr_portal_rendered" "$WLR_PORTAL_CONFIG" \
+        && as_root install -Dm644 "$DENIAL_PORTAL_DESCRIPTOR_SOURCE" "$DENIAL_PORTAL_DESCRIPTOR" \
+        && as_root install -Dm644 "$dbus_rendered" "$DENIAL_PORTAL_DBUS_SERVICE" \
+        && as_root install -Dm644 "$unit_rendered" "$DENIAL_PORTAL_UNIT"; then
         :
     else
         local status=$?
-        rm -f -- "$rendered" "$portal_rendered" "$wlr_portal_rendered"
+        rm -f -- "$rendered" "$portal_rendered" "$wlr_portal_rendered" \
+            "$dbus_rendered" "$unit_rendered"
         return "$status"
     fi
-    rm -f -- "$rendered" "$portal_rendered" "$wlr_portal_rendered"
+    rm -f -- "$rendered" "$portal_rendered" "$wlr_portal_rendered" \
+        "$dbus_rendered" "$unit_rendered"
     systemctl --user daemon-reload >/dev/null 2>&1 || true
     remove_legacy_session_entry
-    printf 'Installed %s\nInstalled %s\nInstalled %s\nInstalled %s\n' \
-        "$SESSION_FILE" "$SESSION_TARGET_FILE" "$PORTAL_FILE" "$WLR_PORTAL_CONFIG"
+    printf 'Installed %s\nInstalled %s\nInstalled %s\nInstalled %s\nInstalled %s\nInstalled %s\nInstalled %s\n' \
+        "$SESSION_FILE" "$SESSION_TARGET_FILE" "$PORTAL_FILE" "$WLR_PORTAL_CONFIG" \
+        "$DENIAL_PORTAL_DESCRIPTOR" "$DENIAL_PORTAL_DBUS_SERVICE" "$DENIAL_PORTAL_UNIT"
     printf 'Log out, then choose "Denial (development)" in the display manager.\n'
 }
 
@@ -1066,6 +1196,46 @@ remove_wlr_portal_config() {
     printf 'Removed %s\n' "$WLR_PORTAL_CONFIG"
 }
 
+remove_settings_desktop_entry() {
+    [[ -e "$SETTINGS_DESKTOP_FILE" || -L "$SETTINGS_DESKTOP_FILE" ]] \
+        || return 0
+    if ! grep -Fqx "# Installed by $SCRIPT_DIR/denial-pc" \
+        "$SETTINGS_DESKTOP_FILE"; then
+        printf 'warning  refusing to remove unrecognized Settings desktop entry %s\n' \
+            "$SETTINGS_DESKTOP_FILE" >&2
+        return
+    fi
+    rm -f -- "$SETTINGS_DESKTOP_FILE"
+    printf 'Removed %s\n' "$SETTINGS_DESKTOP_FILE"
+}
+
+remove_denial_portal_metadata() {
+    if [[ -e "$DENIAL_PORTAL_DESCRIPTOR" ]] \
+        && ! cmp -s -- "$DENIAL_PORTAL_DESCRIPTOR_SOURCE" "$DENIAL_PORTAL_DESCRIPTOR"; then
+        printf 'warning  refusing to remove unrecognized Denial portal descriptor %s\n' \
+            "$DENIAL_PORTAL_DESCRIPTOR" >&2
+    else
+        as_root rm -f -- "$DENIAL_PORTAL_DESCRIPTOR"
+    fi
+    if [[ -e "$DENIAL_PORTAL_DBUS_SERVICE" ]] \
+        && { ! grep -Fqx "Name=org.freedesktop.impl.portal.desktop.denial" "$DENIAL_PORTAL_DBUS_SERVICE" \
+            || ! grep -Fqx "Exec=$PORTAL_BINARY" "$DENIAL_PORTAL_DBUS_SERVICE"; }; then
+        printf 'warning  refusing to remove unrecognized Denial portal D-Bus service %s\n' \
+            "$DENIAL_PORTAL_DBUS_SERVICE" >&2
+    else
+        as_root rm -f -- "$DENIAL_PORTAL_DBUS_SERVICE"
+    fi
+    if [[ -e "$DENIAL_PORTAL_UNIT" ]] \
+        && { ! grep -Fqx "BusName=org.freedesktop.impl.portal.desktop.denial" "$DENIAL_PORTAL_UNIT" \
+            || ! grep -Fqx "ExecStart=$PORTAL_BINARY" "$DENIAL_PORTAL_UNIT"; }; then
+        printf 'warning  refusing to remove unrecognized Denial portal unit %s\n' \
+            "$DENIAL_PORTAL_UNIT" >&2
+    else
+        as_root rm -f -- "$DENIAL_PORTAL_UNIT"
+    fi
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+}
+
 remove_session_target() {
     [[ -e "$SESSION_TARGET_FILE" ]] || return
     if ! grep -Fqx 'BindsTo=graphical-session.target' "$SESSION_TARGET_FILE"; then
@@ -1081,8 +1251,10 @@ remove_session_target() {
 remove_session() {
     if [[ ! -e "$SESSION_FILE" ]]; then
         printf 'Already absent: %s\n' "$SESSION_FILE"
-        remove_session_target
         remove_portal_entry
+        remove_denial_portal_metadata
+        remove_session_target
+        remove_settings_desktop_entry
         remove_wlr_portal_config
         return
     fi
@@ -1090,8 +1262,10 @@ remove_session() {
         || die "refusing to remove a session entry not installed by this checkout: $SESSION_FILE"
     as_root rm -f -- "$SESSION_FILE"
     printf 'Removed %s\n' "$SESSION_FILE"
-    remove_session_target
     remove_portal_entry
+    remove_denial_portal_metadata
+    remove_session_target
+    remove_settings_desktop_entry
     remove_wlr_portal_config
 }
 
@@ -1117,6 +1291,7 @@ case "${1:-}" in
     engine-test-session) run_engine_test_session ;;
     doctor) doctor ;;
     install-session) install_session ;;
+    install-settings-entry) install_settings_desktop_entry ;;
     install-engine-test-session) install_engine_test_session ;;
     remove-session) remove_session ;;
     remove-engine-test-session) remove_engine_test_session ;;

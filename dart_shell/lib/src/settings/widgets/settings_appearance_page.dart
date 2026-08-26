@@ -17,6 +17,9 @@ const settingsWallpaperTriggerKey = ValueKey<String>(
 const settingsAccentColorTriggerKey = ValueKey<String>(
   'settings-accent-color-trigger',
 );
+const settingsColorSchemeControlKey = ValueKey<String>(
+  'settings-color-scheme-control',
+);
 const settingsBackdropBlurToggleKey = ValueKey<String>(
   'settings-backdrop-blur-toggle',
 );
@@ -29,6 +32,9 @@ const settingsBackdropBlurOpacityThresholdKey = ValueKey<String>(
 const settingsCursorSizeSliderKey = ValueKey<String>(
   'settings-cursor-size-slider',
 );
+const settingsPanelRadiusSliderKey = ValueKey<String>(
+  'settings-panel-radius-slider',
+);
 
 class SettingsAppearancePage extends StatelessWidget {
   const SettingsAppearancePage({
@@ -36,6 +42,7 @@ class SettingsAppearancePage extends StatelessWidget {
     required this.extractedAccent,
     required this.wallpaper,
     required this.onOpenWallpaperSelector,
+    required this.onColorSchemePreferenceChanged,
     required this.onAccentSourceChanged,
     required this.onOpenAccentPicker,
     required this.onWindowRadiusChanged,
@@ -55,6 +62,8 @@ class SettingsAppearancePage extends StatelessWidget {
   final Color extractedAccent;
   final WallpaperResource wallpaper;
   final VoidCallback onOpenWallpaperSelector;
+  final ValueChanged<DesktopColorSchemePreference>
+  onColorSchemePreferenceChanged;
   final ValueChanged<ShellAccentSource> onAccentSourceChanged;
   final VoidCallback onOpenAccentPicker;
   final ValueChanged<double> onWindowRadiusChanged;
@@ -83,6 +92,45 @@ class SettingsAppearancePage extends StatelessWidget {
         SettingsCardGroup(
           children: [
             SettingsSection(
+              title: l10n.settingsColorSchemeTitle,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SettingsSegmentedControl<DesktopColorSchemePreference>(
+                    key: settingsColorSchemeControlKey,
+                    value: settings.colorSchemePreference,
+                    choices: [
+                      SettingsChoice(
+                        DesktopColorSchemePreference.preferDark,
+                        l10n.settingsColorSchemeDark,
+                      ),
+                      SettingsChoice(
+                        DesktopColorSchemePreference.preferLight,
+                        l10n.settingsColorSchemeLight,
+                      ),
+                      SettingsChoice(
+                        DesktopColorSchemePreference.noPreference,
+                        l10n.settingsColorSchemeNoPreference,
+                      ),
+                    ],
+                    onChanged: onColorSchemePreferenceChanged,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    settings.colorSchemePreference ==
+                            DesktopColorSchemePreference.noPreference
+                        ? l10n.settingsColorSchemeNoPreferenceDescription
+                        : l10n.settingsColorSchemeDescription,
+                    style: ShellText.base.copyWith(
+                      color: ShellTheme.colorsOf(context).textSecondary,
+                      fontSize: 11,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SettingsSection(
               title: l10n.settingsWallpaperTitle,
               leading: _WallpaperThumbnail(
                 wallpaper: wallpaper,
@@ -96,7 +144,7 @@ class SettingsAppearancePage extends StatelessWidget {
               child: Text(
                 l10n.settingsWallpaperDescription,
                 style: ShellText.base.copyWith(
-                  color: ShellColors.textSecondary,
+                  color: ShellTheme.colorsOf(context).textSecondary,
                   fontSize: 11,
                   height: 1.4,
                 ),
@@ -190,11 +238,12 @@ class SettingsAppearancePage extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   SettingsSlider(
+                    key: settingsPanelRadiusSliderKey,
                     label: l10n.settingsPanelRadius,
                     value: settings.panelRadius,
-                    minimum: 8,
+                    minimum: 0,
                     maximum: 56,
-                    divisions: 48,
+                    divisions: 56,
                     valueLabel: l10n.settingsPixels(
                       settings.panelRadius.round(),
                     ),
@@ -299,7 +348,7 @@ class _WallpaperThumbnail extends StatelessWidget {
         height: 40,
         foregroundDecoration: BoxDecoration(
           borderRadius: radius,
-          border: Border.all(color: ShellColors.hairline),
+          border: Border.all(color: context.shellColors.hairline),
         ),
         child: ClipRRect(
           borderRadius: radius,
@@ -313,7 +362,7 @@ class _WallpaperThumbnail extends StatelessWidget {
             filterQuality: FilterQuality.low,
             excludeFromSemantics: true,
             errorBuilder: (_, _, _) => ColoredBox(
-              color: ShellColors.surfaceContainerHighest,
+              color: context.shellColors.surfaceContainerHighest,
               child: Icon(
                 Icons.wallpaper_rounded,
                 size: 20,
@@ -341,7 +390,7 @@ class _ColorOrb extends StatelessWidget {
       decoration: BoxDecoration(
         color: color,
         shape: BoxShape.circle,
-        border: Border.all(color: ShellColors.panelHighlight),
+        border: Border.all(color: context.shellColors.panelHighlight),
         boxShadow: [BoxShadow(color: color.withAlpha(48), blurRadius: 18)],
       ),
     );

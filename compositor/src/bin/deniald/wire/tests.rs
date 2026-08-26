@@ -36,6 +36,23 @@ fn request(kind: fb::WindowRequestKind, request_id: u64) -> Vec<u8> {
     window_request(kind, request_id, 0, None)
 }
 
+fn theme_state(accent_srgb: u32, request_id: u64) -> Vec<u8> {
+    let mut builder = FlatBufferBuilder::new();
+    let theme = fb::ThemeState::create(&mut builder, &fb::ThemeStateArgs { accent_srgb });
+    let envelope = fb::Envelope::create(
+        &mut builder,
+        &fb::EnvelopeArgs {
+            protocol_version: PROTOCOL_VERSION,
+            sequence: 4,
+            request_id,
+            payload_type: fb::Payload::ThemeState,
+            payload: Some(theme.as_union_value()),
+        },
+    );
+    fb::finish_envelope_buffer(&mut builder, envelope);
+    builder.finished_data().to_vec()
+}
+
 fn window_request(
     kind: fb::WindowRequestKind,
     request_id: u64,
@@ -871,6 +888,23 @@ fn validates_queries_and_queues_window_commands() {
     };
     assert_eq!(geometry.width as i32, 16_384);
     assert_eq!(geometry.height as i32, 16_384);
+}
+
+#[test]
+fn validates_and_coalesces_resolved_theme_accents() {
+    let mut bridge = bridge();
+    bridge.handle(&theme_state(0x12_34_56, 0)).unwrap();
+    bridge.handle(&theme_state(0xab_cd_ef, 0)).unwrap();
+    assert_eq!(bridge.take_theme_accent(), Some(0xab_cd_ef));
+    assert!(bridge.take_theme_accent().is_none());
+    assert!(matches!(
+        bridge.handle(&theme_state(0xff_12_34_56, 0)),
+        Err(WireError::Payload)
+    ));
+    assert!(matches!(
+        bridge.handle(&theme_state(0x12_34_56, 9)),
+        Err(WireError::RequestId)
+    ));
 }
 
 #[test]

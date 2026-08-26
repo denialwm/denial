@@ -1383,6 +1383,9 @@ impl OutputScheduler {
         events: &mut RuntimeState,
     ) -> Result<(), Box<dyn Error>> {
         self.presented_outputs.clear();
+        if events.completed_page_flips.is_empty() {
+            return Ok(());
+        }
         let mut processing_error = None;
         // Process only the completions present when this pass began. A
         // completion deferred behind Volition's independent Submitted channel

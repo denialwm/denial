@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter, TileMode;
 
 import 'package:denial_dart_shell/src/input/input_layout.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
@@ -18,6 +19,7 @@ import 'package:denial_dart_shell/src/state/authentication.dart';
 import 'package:denial_dart_shell/src/state/shell_controller.dart';
 import 'package:denial_dart_shell/src/state/shell_profile.dart';
 import 'package:denial_dart_shell/src/state/system_status.dart';
+import 'package:denial_dart_shell/src/theme/motion.dart';
 import 'package:denial_dart_shell/src/theme/shell_theme.dart';
 import 'package:denial_dart_shell/src/widgets/lock/lock_screen_layer.dart';
 import 'package:denial_dart_shell/src/widgets/shell_wallpaper.dart';
@@ -186,7 +188,8 @@ void main() {
       );
       expect(find.byType(EditableText), findsOneWidget);
       expect(find.bySemanticsLabel('Desktop lock screen'), findsOneWidget);
-      expect(find.byType(ShellWallpaper), findsOneWidget);
+      expect(find.byType(ShellWallpaper), findsNothing);
+      expect(find.byType(ShellOutputWallpaper), findsNWidgets(2));
     },
   );
 
@@ -207,7 +210,16 @@ void main() {
 
     expect(find.text('Welcome back'), findsOneWidget);
     expect(find.bySemanticsLabel('Sign in to Denial'), findsOneWidget);
-    expect(find.byType(ShellWallpaper), findsOneWidget);
+    expect(find.byType(ShellWallpaper), findsNothing);
+    expect(find.byType(ShellOutputWallpaper), findsNWidgets(2));
+    for (final filter in tester.widgetList<ImageFiltered>(
+      find.byType(ImageFiltered),
+    )) {
+      expect(
+        filter.imageFilter,
+        ImageFilter.blur(sigmaX: 8, sigmaY: 8, tileMode: TileMode.clamp),
+      );
+    }
     await tester.tap(find.bySemanticsLabel('Sign in to Denial'));
     await tester.pump();
     expect(service.beginCount, 1);
@@ -220,6 +232,80 @@ void main() {
         .setLockScreen(useSystemWallpaper: false);
     await tester.pump();
     expect(find.byType(ShellWallpaper), findsNothing);
+    expect(find.byType(ShellOutputWallpaper), findsNothing);
+  });
+
+  testWidgets(
+    'mixed-orientation lock backdrops are clipped to physical outputs',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = _mixedOrientationLayout.logicalSize;
+      addTearDown(tester.view.reset);
+      final service = _FakeAuthenticationService();
+      final bridge = _LayoutBridge(_mixedOrientationLayout);
+      addTearDown(() {
+        service.dispose();
+        bridge.dispose();
+      });
+
+      await tester.pumpWidget(_host(service: service, bridge: bridge));
+      service.emit(_state(locked: true));
+      await tester.pump();
+
+      expect(_dualOutputLayout.hasAtlasGaps, isFalse);
+      expect(_mixedOrientationLayout.hasAtlasGaps, isTrue);
+      expect(find.byType(ShellWallpaper), findsNothing);
+      expect(find.byType(ShellOutputWallpaper), findsNWidgets(2));
+      expect(
+        tester.getRect(
+          find.byKey(const ValueKey<String>('lock-wallpaper-blur-11')),
+        ),
+        const Rect.fromLTWH(0, 100, 800, 600),
+      );
+      expect(
+        tester.getRect(
+          find.byKey(const ValueKey<String>('lock-wallpaper-blur-22')),
+        ),
+        const Rect.fromLTWH(800, 0, 300, 800),
+      );
+    },
+  );
+
+  testWidgets('transition progress does not move partitioned backdrops', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = _mixedOrientationLayout.logicalSize;
+    addTearDown(tester.view.reset);
+    final service = _FakeAuthenticationService();
+    final bridge = _LayoutBridge(_mixedOrientationLayout);
+    addTearDown(() {
+      service.dispose();
+      bridge.dispose();
+    });
+
+    await tester.pumpWidget(
+      _host(
+        service: service,
+        bridge: bridge,
+        unlockProgress: const AlwaysStoppedAnimation<double>(0.5),
+      ),
+    );
+    service.emit(_state(locked: true));
+    await tester.pump();
+
+    expect(
+      tester.getRect(
+        find.byKey(const ValueKey<String>('lock-wallpaper-blur-11')),
+      ),
+      const Rect.fromLTWH(0, 100, 800, 600),
+    );
+    expect(
+      tester.getRect(
+        find.byKey(const ValueKey<String>('lock-wallpaper-blur-22')),
+      ),
+      const Rect.fromLTWH(800, 0, 300, 800),
+    );
   });
 
   testWidgets(
@@ -254,9 +340,10 @@ void main() {
                   )
                   .decoration
               as BoxDecoration;
+      expect(welcomeDecoration.boxShadow, isNull);
       expect(
         tester.widget<Text>(find.text('Unlock')).style?.color,
-        const Color(0xffffffff),
+        theme.accentPalette.onPrimary,
       );
 
       await tester.tap(find.bySemanticsLabel('Sign in to Denial'));
@@ -274,11 +361,15 @@ void main() {
                   )
                   .decoration
               as BoxDecoration;
+      expect(authenticationDecoration.boxShadow, isNull);
       expect(authenticationDecoration.color, welcomeDecoration.color);
-      expect(authenticationDecoration.color?.a, closeTo(0.42, 0.001));
+      expect(
+        authenticationDecoration.color?.a,
+        closeTo(theme.effectivePanelOpacity, 0.001),
+      );
       expect(
         tester.widget<Text>(find.text('Unlock')).style?.color,
-        const Color(0xffffffff),
+        theme.accentPalette.onPrimary,
       );
       expect(find.byType(CircularProgressIndicator), findsNothing);
     },
@@ -363,6 +454,7 @@ Widget _host({
   required _LayoutBridge bridge,
   ShellProfile profile = ShellProfile.desktop,
   ShellThemeData theme = const ShellThemeData(),
+  Animation<double> unlockProgress = const AlwaysStoppedAnimation<double>(0),
 }) {
   return ProviderScope(
     overrides: <Override>[
@@ -385,8 +477,8 @@ Widget _host({
           child: Overlay(
             initialEntries: <OverlayEntry>[
               OverlayEntry(
-                builder: (_) => const LockScreenLayer(
-                  unlockProgress: AlwaysStoppedAnimation<double>(0),
+                builder: (_) => LockScreenLayer(
+                  unlockProgress: unlockProgress,
                   animateDesktopEntrance: false,
                 ),
               ),
@@ -543,6 +635,35 @@ const _dualOutputLayout = DisplayLayout(
       name: 'secondary',
       logicalRect: Rect.fromLTWH(800, 0, 800, 600),
       pixelSize: Size(800, 600),
+      scale: 1,
+      refreshRate: 60,
+    ),
+  ],
+);
+
+const _mixedOrientationLayout = DisplayLayout(
+  epoch: 3,
+  globalOrigin: Offset.zero,
+  logicalSize: Size(1100, 800),
+  pixelSize: Size(1100, 800),
+  engineScale: 1,
+  tickerMonitorId: 11,
+  systemBarMonitorId: 11,
+  systemBarSide: SystemBarSide.left,
+  outputs: <DisplayOutput>[
+    DisplayOutput(
+      monitorId: 11,
+      name: 'main',
+      logicalRect: Rect.fromLTWH(0, 100, 800, 600),
+      pixelSize: Size(800, 600),
+      scale: 1,
+      refreshRate: 60,
+    ),
+    DisplayOutput(
+      monitorId: 22,
+      name: 'vertical',
+      logicalRect: Rect.fromLTWH(800, 0, 300, 800),
+      pixelSize: Size(800, 300),
       scale: 1,
       refreshRate: 60,
     ),

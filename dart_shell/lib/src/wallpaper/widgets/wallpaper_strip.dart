@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../localization/denial_localizations.dart';
 import '../../theme/shell_theme.dart';
-import '../../theme/tokens.dart';
 import '../../widgets/shell_cursor.dart';
 import '../wallpaper.dart';
 import 'wallpaper_image.dart';
@@ -70,26 +69,25 @@ class _WallpaperStripState extends State<WallpaperStrip>
                       filterQuality: FilterQuality.high,
                       gaplessPlayback: true,
                       excludeFromSemantics: true,
-                      errorBuilder: (context, error, stackTrace) =>
-                          const ColoredBox(
-                            color: ShellColors.surfaceContainerHigh,
-                            child: Icon(
-                              Icons.broken_image_rounded,
-                              color: ShellColors.textTertiary,
-                            ),
-                          ),
+                      errorBuilder: (context, error, stackTrace) => ColoredBox(
+                        color: context.shellColors.surfaceContainerHigh,
+                        child: Icon(
+                          Icons.broken_image_rounded,
+                          color: context.shellColors.textTertiary,
+                        ),
+                      ),
                     )
                   else
-                    const ColoredBox(
-                      color: ShellColors.surfaceContainerHigh,
+                    ColoredBox(
+                      color: context.shellColors.surfaceContainerHigh,
                       child: Icon(
                         Icons.image_rounded,
-                        color: ShellColors.textTertiary,
+                        color: context.shellColors.textTertiary,
                       ),
                     ),
                   if (widget.downloading)
                     ColoredBox(
-                      color: ShellColors.overviewScrim,
+                      color: context.shellColors.overviewScrim,
                       child: Center(
                         child: SizedBox.square(
                           dimension: 42,
@@ -99,7 +97,7 @@ class _WallpaperStripState extends State<WallpaperStrip>
                                 : null,
                             color: accent.primary,
                             backgroundColor:
-                                ShellColors.surfaceContainerHighest,
+                                context.shellColors.surfaceContainerHighest,
                             strokeWidth: 4,
                           ),
                         ),

@@ -22,6 +22,15 @@ class NetworkConnectivityState {
     this.error,
   }) : busyNetworks = Set<String>.unmodifiable(busyNetworks);
 
+  const NetworkConnectivityState._({
+    required this.snapshot,
+    required this.initializing,
+    required this.scanning,
+    required this.radioChanging,
+    required this.busyNetworks,
+    required this.error,
+  });
+
   NetworkConnectivityState.initial()
     : snapshot = NetworkSnapshot.unavailable(),
       initializing = true,
@@ -46,12 +55,14 @@ class NetworkConnectivityState {
     String? error,
     bool clearError = false,
   }) {
-    return NetworkConnectivityState(
+    return NetworkConnectivityState._(
       snapshot: snapshot ?? this.snapshot,
       initializing: initializing ?? this.initializing,
       scanning: scanning ?? this.scanning,
       radioChanging: radioChanging ?? this.radioChanging,
-      busyNetworks: busyNetworks ?? this.busyNetworks,
+      busyNetworks: busyNetworks == null
+          ? this.busyNetworks
+          : Set<String>.unmodifiable(busyNetworks),
       error: clearError ? null : error ?? this.error,
     );
   }

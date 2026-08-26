@@ -1,6 +1,27 @@
 use super::*;
 
 #[test]
+fn worker_events_publish_a_coalesced_nonempty_signal() {
+    let (raw_sender, receiver) = mpsc::sync_channel(2);
+    let pending = Arc::new(AtomicBool::new(false));
+    let sender = SystemControlEventSender::new(raw_sender, Arc::clone(&pending));
+
+    sender.try_send(SystemControlEvent::AudioLevel {
+        level: 0.5,
+        request_serial: 7,
+    });
+    assert!(pending.swap(false, Ordering::AcqRel));
+    assert_eq!(
+        receiver.try_recv().unwrap(),
+        SystemControlEvent::AudioLevel {
+            level: 0.5,
+            request_serial: 7,
+        }
+    );
+    assert!(!pending.load(Ordering::Acquire));
+}
+
+#[test]
 fn flutter_audio_packets_decode_strictly_and_clamp_percentages() {
     assert_eq!(decode_audio_request(&[0]).unwrap(), AudioRequest::ReadLevel);
     assert_eq!(

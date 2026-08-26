@@ -36,7 +36,7 @@ has_deb_relation() {
 
 verify_deb() {
   local package_name package_arch package_dependencies package_provides
-  local control_root payload_listing actual_conffiles expected_conffiles script
+  local control_root payload_listing actual_conffiles expected_conffiles script routing
 
   for command in basename bsdtar dpkg-deb grep mktemp rm sed sh sort stat tr; do
     command -v "$command" >/dev/null 2>&1 \
@@ -99,6 +99,21 @@ verify_deb() {
       done
       grep -Fxq './usr/share/doc/denial/copyright' <<<"$payload_listing" \
         || fail 'Debian package has no policy copyright file'
+      for portal_artifact in \
+        ./usr/bin/denial-portal \
+        ./usr/lib/systemd/user/denial-portal.service \
+        ./usr/share/man/man1/denial-portal.1.gz \
+        ./usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.denial.service \
+        ./usr/share/xdg-desktop-portal/portals/denial.portal; do
+        grep -Fxq "$portal_artifact" <<<"$payload_listing" \
+          || fail "Debian package lacks $portal_artifact"
+      done
+      routing="$(
+        dpkg-deb --fsys-tarfile "$package" \
+          | bsdtar -xOf - ./usr/share/xdg-desktop-portal/denial-portals.conf
+      )"
+      grep -Fqx 'org.freedesktop.impl.portal.Settings=denial;gtk' <<<"$routing" \
+        || fail 'Debian package does not route Settings through Denial with GTK fallback'
       ;;
     denial-flutter-engine)
       has_deb_relation "$package_dependencies" "libc6 (>= $glibc_baseline)" \
@@ -160,6 +175,9 @@ verify_rpm() {
       grep -Fxq "denial-flutter-engine = 1:$expected_version" \
         <<<"$requirements" \
         || fail 'Denial RPM has the wrong exact engine dependency'
+      if grep -Eq '^libflutter_linux_gtk\.so' <<<"$requirements"; then
+        fail 'Denial RPM requires its bundled private Flutter GTK library'
+      fi
       grep -Fxq rtkit <<<"$requirements" \
         || fail 'Denial RPM does not require rtkit'
       grep -Fxq systemd <<<"$requirements" \
@@ -180,6 +198,19 @@ verify_rpm() {
       done
       grep -Fxq /usr/share/doc/denial/copyright <<<"$package_files" \
         || fail 'Denial RPM has no package copyright file'
+      grep -Fxq \
+        /usr/lib/denial/settings/lib/libflutter_linux_gtk.so \
+        <<<"$package_files" \
+        || fail 'Denial RPM lacks the private Flutter GTK settings runtime'
+      for portal_artifact in \
+        /usr/bin/denial-portal \
+        /usr/lib/systemd/user/denial-portal.service \
+        /usr/share/man/man1/denial-portal.1.gz \
+        /usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.denial.service \
+        /usr/share/xdg-desktop-portal/portals/denial.portal; do
+        grep -Fxq "$portal_artifact" <<<"$package_files" \
+          || fail "Denial RPM lacks $portal_artifact"
+      done
       for expected_action in \
         'install-user-units denial-session.target' \
         'remove-user-units denial-session.target' \

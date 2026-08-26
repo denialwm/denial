@@ -15,6 +15,8 @@ use std::time::Duration;
 
 use tracing::{debug, info, warn};
 
+use crate::DEFAULT_QT_QPA_PLATFORMTHEME;
+
 pub const CHANNEL: &CStr = c"denial/system_command";
 
 const HEADER_SIZE: usize = 1 + size_of::<u64>() + size_of::<u32>();
@@ -552,6 +554,7 @@ fn launch_application(
         wayland_display,
         x11_display,
         output_control_socket,
+        std::env::var_os("QT_QPA_PLATFORMTHEME").as_deref(),
     );
     let child = command.spawn().map_err(DispatchError::Spawn)?;
     let pid = child.id();
@@ -601,12 +604,15 @@ fn application_command(
     wayland_display: &OsStr,
     x11_display: Option<&OsStr>,
     output_control_socket: Option<&OsStr>,
+    qt_platform_theme: Option<&OsStr>,
 ) -> Command {
     let mut command = Command::new(&arguments[0]);
     // Command inherits the user session environment intentionally: PATH,
     // locale, TERM/COLORTERM, HOME, XDG data/config roots and toolkit settings
     // are application state, not compositor state. Override only Denial's
-    // identity/Wayland endpoint and remove the bootstrap variables below.
+    // identity/Wayland endpoint and Denial's portal-backed Qt platform-theme
+    // default, then remove the bootstrap variables below. An explicit session
+    // platform-theme value is preserved by the caller.
     command
         .args(&arguments[1..])
         .env("WAYLAND_DISPLAY", wayland_display)
@@ -614,6 +620,10 @@ fn application_command(
         .env("XDG_SESSION_DESKTOP", "Denial")
         .env("XDG_SESSION_TYPE", "wayland")
         .env("DESKTOP_SESSION", "Denial")
+        .env(
+            "QT_QPA_PLATFORMTHEME",
+            qt_platform_theme.unwrap_or_else(|| OsStr::new(DEFAULT_QT_QPA_PLATFORMTHEME)),
+        )
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

@@ -222,9 +222,9 @@ class SettingsNetworkPage extends ConsumerWidget {
                             },
                           ),
                           if (index != snapshot.networks.length - 1)
-                            const Divider(
+                            Divider(
                               height: 20,
-                              color: ShellColors.hairlineSoft,
+                              color: context.shellColors.hairlineSoft,
                             ),
                         ],
                       ],
@@ -339,9 +339,9 @@ class SettingsBluetoothPage extends ConsumerWidget {
                             ),
                           ),
                           if (index != state.devices.length - 1)
-                            const Divider(
+                            Divider(
                               height: 20,
-                              color: ShellColors.hairlineSoft,
+                              color: context.shellColors.hairlineSoft,
                             ),
                         ],
                       ],
@@ -440,7 +440,7 @@ class _StatusRow extends StatelessWidget {
               Text(
                 subtitle,
                 style: ShellText.base.copyWith(
-                  color: ShellColors.textTertiary,
+                  color: context.shellColors.textTertiary,
                   fontSize: 11,
                 ),
               ),
@@ -475,12 +475,14 @@ class _SettingsNotice extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: ShellColors.textTertiary),
+          Icon(icon, size: 18, color: context.shellColors.textTertiary),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               message,
-              style: ShellText.base.copyWith(color: ShellColors.textSecondary),
+              style: ShellText.base.copyWith(
+                color: context.shellColors.textSecondary,
+              ),
             ),
           ),
         ],

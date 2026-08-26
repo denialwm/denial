@@ -26,6 +26,17 @@ const MAX_WAYLAND_SURFACES: usize = 16_384;
 // Core wayland.xml assigns wl_display.error.no_memory numeric value 2.
 const WL_DISPLAY_NO_MEMORY: u32 = 2;
 
+fn initial_toplevel_location(
+    output: Option<Rectangle<i32, Logical>>,
+    cascade_offset: i32,
+) -> Point<i32, Logical> {
+    let origin = output.map_or_else(|| Point::from((0, 0)), |output| output.loc);
+    Point::from((
+        origin.x.saturating_add(cascade_offset),
+        origin.y.saturating_add(cascade_offset),
+    ))
+}
+
 #[cfg(feature = "flutter")]
 struct SurfaceCommitAudit {
     interval_started: Instant,
@@ -372,6 +383,22 @@ impl Cacheable for SurfaceCommitMetadata {
     }
 }
 
+#[cfg(feature = "flutter")]
+fn surface_tree_has_frame_callbacks(root: &WlSurface) -> bool {
+    let mut found = false;
+    with_surface_tree_downward(
+        root,
+        (),
+        |_, _, &()| TraversalAction::DoChildren(()),
+        |_, states, &()| {
+            let mut attributes = states.cached_state.get::<SurfaceAttributes>();
+            found |= !attributes.current().frame_callbacks.is_empty();
+        },
+        |_, _, &()| true,
+    );
+    found
+}
+
 #[derive(Debug)]
 struct CancelledSurfaceReadiness;
 
@@ -612,6 +639,9 @@ impl CompositorHandler for RuntimeState {
             commit_metadata.has_damage,
             commit_metadata.has_frame_callbacks,
         );
+        #[cfg(feature = "flutter")]
+        let has_frame_callbacks =
+            !synchronized && (has_frame_callbacks || surface_tree_has_frame_callbacks(surface));
         #[cfg(not(feature = "flutter"))]
         let (has_damage, has_frame_callbacks) = with_states(surface, |states| {
             let mut attributes = states.cached_state.get::<SurfaceAttributes>();
@@ -770,8 +800,23 @@ impl CompositorHandler for RuntimeState {
         #[cfg(feature = "flutter")]
         let owning_toplevel = frontend.owning_toplevel_surface(surface);
         #[cfg(feature = "flutter")]
-        let has_published_owner =
-            owning_toplevel.is_some() || frontend.input_method.owns_popup_surface(surface);
+        let input_method_popup = frontend.input_method.popup_root_surface(surface);
+        #[cfg(feature = "flutter")]
+        if has_frame_callbacks {
+            if let Some(popup_root) = input_method_popup.as_ref() {
+                frontend
+                    .pending_input_method_frame_callbacks
+                    .insert(popup_root.id());
+            } else {
+                let owner = owning_toplevel
+                    .as_ref()
+                    .cloned()
+                    .unwrap_or_else(|| frontend.toplevel_candidate_surface(surface));
+                frontend.pending_frame_callback_windows.insert(owner.id());
+            }
+        }
+        #[cfg(feature = "flutter")]
+        let has_published_owner = owning_toplevel.is_some() || input_method_popup.is_some();
         #[cfg(feature = "flutter")]
         let published_visual_update = published_surface_commits.as_ref().is_some_and(|published| {
             published.metadata_changed || !published.buffer_surface_ids.is_empty()
@@ -1188,9 +1233,8 @@ impl XdgShellHandler for RuntimeState {
             let window = Window::new_wayland_window(surface);
             let offset = frontend.next_window_offset;
             frontend.next_window_offset = (frontend.next_window_offset + 48).min(384);
-            frontend
-                .space
-                .map_element(window.clone(), (offset, offset), true);
+            let location = initial_toplevel_location(frontend.fallback_output_geometry(), offset);
+            frontend.space.map_element(window.clone(), location, true);
             frontend.update_window_output_membership(&window);
             for candidate in frontend.space.elements() {
                 let changed = candidate.set_activated(candidate == &window);

@@ -61,12 +61,11 @@ pub(super) fn synchronize_system_control_events(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &mut RuntimeState,
 ) -> Result<(), Box<dyn Error>> {
-    let audio_requests = runtime.drain_audio_requests().collect::<Vec<_>>();
-    let brightness_requests = runtime.drain_brightness_requests().collect::<Vec<_>>();
     expire_system_control_waits(events);
-    let control_requests = events.pending_system_controls.drain(..).collect::<Vec<_>>();
     let Some(controls) = events.system_controls.as_ref() else {
-        for request in control_requests {
+        runtime.drain_audio_requests().for_each(drop);
+        runtime.drain_brightness_requests().for_each(drop);
+        while let Some(request) = events.pending_system_controls.pop_front() {
             let (_, reply) = request.into_parts();
             let _ = reply.send(Err(OutputControlFailure::new(
                 "unavailable",
@@ -76,7 +75,9 @@ pub(super) fn synchronize_system_control_events(
         return Ok(());
     };
     if events.secure_session_locked() {
-        for request in control_requests {
+        runtime.drain_audio_requests().for_each(drop);
+        runtime.drain_brightness_requests().for_each(drop);
+        while let Some(request) = events.pending_system_controls.pop_front() {
             let (_, reply) = request.into_parts();
             let _ = reply.send(Err(OutputControlFailure::new(
                 "locked",
@@ -84,13 +85,13 @@ pub(super) fn synchronize_system_control_events(
             )));
         }
     } else {
-        for request in audio_requests {
+        for request in runtime.drain_audio_requests() {
             controls.handle_audio_request(request);
         }
-        for request in brightness_requests {
+        for request in runtime.drain_brightness_requests() {
             controls.handle_brightness_request(request);
         }
-        for request in control_requests {
+        while let Some(request) = events.pending_system_controls.pop_front() {
             let (command, reply) = request.into_parts();
             let (accepted, wait) = match command {
                 SystemControlCommand::Audio(request) => {
@@ -138,10 +139,11 @@ pub(super) fn synchronize_system_control_events(
             }
         }
     }
-    let system_updates = std::iter::from_fn(|| controls.try_event()).collect::<Vec<_>>();
-    for event in system_updates {
-        resolve_system_control_waits(events, &event);
-        runtime.send_system_control_event(&event)?;
+    if controls.take_event_signal() {
+        while let Some(event) = controls.try_event() {
+            resolve_system_control_waits(&mut events.pending_system_control_waits, &event);
+            runtime.send_system_control_event(&event)?;
+        }
     }
     Ok(())
 }
@@ -167,7 +169,7 @@ fn expire_system_control_waits(events: &mut RuntimeState) {
 
 #[cfg(feature = "flutter")]
 fn resolve_system_control_waits(
-    events: &mut RuntimeState,
+    pending_waits: &mut VecDeque<PendingSystemControlWait>,
     update: &system_controls::SystemControlEvent,
 ) {
     let (kind, result) = match update {
@@ -200,15 +202,15 @@ fn resolve_system_control_waits(
             }),
         ),
     };
-    let pending = events.pending_system_control_waits.len();
+    let pending = pending_waits.len();
     for _ in 0..pending {
-        let Some(wait) = events.pending_system_control_waits.pop_front() else {
+        let Some(wait) = pending_waits.pop_front() else {
             break;
         };
         if wait.kind == kind {
             let _ = wait.reply.send(Ok(result.clone()));
         } else {
-            events.pending_system_control_waits.push_back(wait);
+            pending_waits.push_back(wait);
         }
     }
 }
@@ -264,6 +266,7 @@ pub(super) fn synchronize_xembed_tray(
         .wayland
         .as_ref()
         .and_then(|frontend| frontend.xembed_tray.as_ref())
+        && tray.take_event_signal()
     {
         while let Some(event) = tray.try_event() {
             if let Err(error) = runtime.send_xembed_tray_event(&event) {
@@ -277,8 +280,8 @@ pub(super) fn synchronize_xembed_tray(
         }
     }
 
-    let commands = runtime.drain_xembed_tray_commands().collect::<Vec<_>>();
     if events.secure_session_locked() {
+        runtime.drain_xembed_tray_commands().for_each(drop);
         return Ok(());
     }
     let Some(tray) = events
@@ -288,7 +291,7 @@ pub(super) fn synchronize_xembed_tray(
     else {
         return Ok(());
     };
-    for command in commands {
+    for command in runtime.drain_xembed_tray_commands() {
         if !tray.invoke(command) {
             warn!(
                 window = command.window_id,

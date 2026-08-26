@@ -5,6 +5,7 @@ import '../../localization/denial_localizations.dart';
 import '../../services/upower_service.dart';
 import '../../state/upower.dart';
 import '../../theme/shell_theme.dart';
+import '../../theme/shell_color_scheme.dart';
 import '../../theme/tokens.dart';
 import 'settings_controls.dart';
 
@@ -159,16 +160,18 @@ class _BatteryNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = error ? ShellColors.performanceBad : ShellColors.textTertiary;
+    final color = error
+        ? context.shellColors.performanceBad
+        : context.shellColors.textTertiary;
     return Semantics(
       liveRegion: true,
       label: message,
       excludeSemantics: true,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: ShellColors.surfaceContainerHigh,
+          color: context.shellColors.surfaceContainerHigh,
           borderRadius: BorderRadius.circular(ShellRadii.chip),
-          border: Border.all(color: ShellColors.hairlineSoft),
+          border: Border.all(color: context.shellColors.hairlineSoft),
         ),
         child: Padding(
           padding: const EdgeInsets.all(12),
@@ -189,7 +192,7 @@ class _BatteryNotice extends StatelessWidget {
                 child: Text(
                   message,
                   style: ShellText.base.copyWith(
-                    color: error ? color : ShellColors.textSecondary,
+                    color: error ? color : context.shellColors.textSecondary,
                     fontSize: 12,
                     height: 1.4,
                   ),
@@ -227,9 +230,9 @@ class _BatteryPanel extends StatelessWidget {
       explicitChildNodes: true,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: ShellColors.surfaceContainerHigh,
+          color: context.shellColors.surfaceContainerHigh,
           borderRadius: BorderRadius.circular(ShellRadii.tile),
-          border: Border.all(color: ShellColors.hairlineSoft),
+          border: Border.all(color: context.shellColors.hairlineSoft),
         ),
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -249,7 +252,7 @@ class _BatteryPanel extends StatelessWidget {
               _BatteryMetricGrid(battery: battery),
               if (battery.chargeThresholdSupported) ...<Widget>[
                 const SizedBox(height: 14),
-                const Divider(height: 1, color: ShellColors.hairlineSoft),
+                Divider(height: 1, color: context.shellColors.hairlineSoft),
                 const SizedBox(height: 14),
                 _ChargeThresholdControls(
                   battery: battery,
@@ -281,7 +284,7 @@ class _BatteryHeading extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final state = _batteryStateLabel(l10n, battery);
-    final color = _batteryStateColor(battery);
+    final color = _batteryStateColor(context.shellColors, battery);
     final charge = percentage == null
         ? l10n.batteryCapacityUnavailable
         : l10n.settingsPercent(percentage!.round());
@@ -289,11 +292,7 @@ class _BatteryHeading extends StatelessWidget {
       builder: (context, constraints) {
         final identity = Row(
           children: <Widget>[
-            Icon(
-              _batteryStateIcon(battery.state),
-              size: 22,
-              color: color,
-            ),
+            Icon(_batteryStateIcon(battery.state), size: 22, color: color),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
@@ -301,7 +300,7 @@ class _BatteryHeading extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: ShellText.cardTitle.copyWith(
-                  color: ShellColors.textPrimary,
+                  color: context.shellColors.textPrimary,
                 ),
               ),
             ),
@@ -315,7 +314,7 @@ class _BatteryHeading extends StatelessWidget {
             Text(
               charge,
               style: ShellText.cardTitle.copyWith(
-                color: ShellColors.textPrimary,
+                color: context.shellColors.textPrimary,
                 fontFamily: ShellText.systemBarFontFamily,
                 fontSize: 14,
               ),
@@ -367,7 +366,7 @@ class _BatteryLevelIndicator extends StatelessWidget {
           value: percentage / 100,
           minHeight: 6,
           color: ShellTheme.of(context).accent,
-          backgroundColor: ShellColors.surfaceContainerHighest,
+          backgroundColor: context.shellColors.surfaceContainerHighest,
         ),
       ),
     );
@@ -413,9 +412,9 @@ class _BatteryMetricTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: ShellColors.surfaceContainer,
+        color: context.shellColors.surfaceContainer,
         borderRadius: BorderRadius.circular(ShellRadii.chip),
-        border: Border.all(color: ShellColors.hairlineSoft),
+        border: Border.all(color: context.shellColors.hairlineSoft),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
@@ -424,14 +423,14 @@ class _BatteryMetricTile extends StatelessWidget {
             Icon(
               metric.icon,
               size: 16,
-              color: ShellColors.textTertiary,
+              color: context.shellColors.textTertiary,
             ),
             const SizedBox(width: 9),
             Expanded(
               child: Text(
                 metric.label,
                 style: ShellText.base.copyWith(
-                  color: ShellColors.textTertiary,
+                  color: context.shellColors.textTertiary,
                   fontSize: 11,
                 ),
               ),
@@ -443,7 +442,7 @@ class _BatteryMetricTile extends StatelessWidget {
                 textAlign: TextAlign.right,
                 overflow: TextOverflow.ellipsis,
                 style: ShellText.cardTitle.copyWith(
-                  color: ShellColors.textSecondary,
+                  color: context.shellColors.textSecondary,
                   fontFamily: metric.monospace
                       ? ShellText.systemBarFontFamily
                       : null,
@@ -511,7 +510,7 @@ class _ChargeThresholdControls extends StatelessWidget {
           Text(
             l10n.settingsBatteryChargeLimitLevelsReadOnly,
             style: ShellText.base.copyWith(
-              color: ShellColors.textTertiary,
+              color: context.shellColors.textTertiary,
               fontSize: 11,
               height: 1.35,
             ),
@@ -548,7 +547,7 @@ class _ThresholdChip extends StatelessWidget {
             Text(
               value == null ? label : '$label · $value',
               style: ShellText.cardTitle.copyWith(
-                color: ShellColors.textSecondary,
+                color: context.shellColors.textSecondary,
                 fontSize: 10,
               ),
             ),
@@ -725,18 +724,18 @@ String _batteryStateLabel(AppLocalizations l10n, UPowerBattery battery) {
   };
 }
 
-Color _batteryStateColor(UPowerBattery battery) {
+Color _batteryStateColor(ShellColorScheme colors, UPowerBattery battery) {
   if (battery.warningLevel == UPowerWarningLevel.critical ||
       battery.warningLevel == UPowerWarningLevel.action) {
-    return ShellColors.performanceBad;
+    return colors.performanceBad;
   }
   if (battery.warningLevel == UPowerWarningLevel.low) {
-    return ShellColors.performanceWarning;
+    return colors.performanceWarning;
   }
   return switch (battery.state) {
     UPowerBatteryState.charging ||
-    UPowerBatteryState.fullyCharged => ShellColors.gestureArmed,
-    _ => ShellColors.textTertiary,
+    UPowerBatteryState.fullyCharged => colors.gestureArmed,
+    _ => colors.textTertiary,
   };
 }
 

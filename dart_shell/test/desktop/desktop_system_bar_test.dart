@@ -17,6 +17,7 @@ import 'package:denial_dart_shell/src/models/system_tray_item.dart';
 import 'package:denial_dart_shell/src/services/media_player_service.dart';
 import 'package:denial_dart_shell/src/state/system_tray.dart';
 import 'package:denial_dart_shell/src/state/system_status.dart';
+import 'package:denial_dart_shell/src/theme/shell_theme.dart';
 import 'package:denial_dart_shell/src/wallpaper/state/wallpaper_accent.dart';
 
 void main() {
@@ -58,11 +59,12 @@ void main() {
     final cards = tester.widgetList<AnimatedContainer>(
       find.byType(AnimatedContainer),
     );
+    final expectedOpacity = const ShellThemeData().effectivePanelOpacity;
     for (final card in cards) {
       final decoration = card.decoration! as BoxDecoration;
       final gradient = decoration.gradient! as LinearGradient;
       for (final color in gradient.colors) {
-        expect(color.a, closeTo(0.75, 1e-6));
+        expect(color.a, closeTo(expectedOpacity, 1e-6));
       }
     }
   });
@@ -79,6 +81,14 @@ void main() {
 
     expect(_sparklineFinder, findsOneWidget);
     expect(find.text('CPU'), findsOneWidget);
+  });
+
+  testWidgets('telemetry samples do not manufacture animation frames', (
+    tester,
+  ) async {
+    await _pumpBar(tester, cpuUsage: 0.23);
+
+    expect(find.byType(TweenAnimationBuilder<double>), findsNothing);
   });
 
   testWidgets('tray icons sit at the leading edge away from status cards', (
@@ -135,6 +145,10 @@ void main() {
 
     expect(_batteryGaugeFinder, findsOneWidget);
     expect(find.text('64%'), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.text('64%')).textSpan?.style?.color,
+      const ShellThemeData().colors.textPrimary,
+    );
     expect(find.bySemanticsLabel('Battery, Charging 64%'), findsOneWidget);
 
     final batteryRect = tester.getRect(find.text('64%'));
@@ -410,9 +424,9 @@ Future<void> _pumpBar(
         wallpaperAccentProvider.overrideWithBuild(
           (ref, controller) => const WallpaperAccent(Color(0xff64d8cb)),
         ),
-        cpuUsageProvider.overrideWithBuild((ref, controller) => cpuLoad),
+        cpuUsageProvider.overrideWithValue(cpuLoad),
         batteryProvider.overrideWithBuild((ref, controller) => battery),
-        gpuUsageProvider.overrideWithBuild((ref, controller) => gpus),
+        gpuUsageProvider.overrideWithValue(gpus),
         systemTrayProvider.overrideWithBuild((ref, controller) => trayItems),
         mediaPlaybackProvider.overrideWith(
           (ref) => Stream<MprisPlaybackState>.value(

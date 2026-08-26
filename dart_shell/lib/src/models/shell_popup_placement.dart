@@ -104,12 +104,24 @@ class ShellPopupPlacement {
     if (outputBounds.isEmpty) {
       return Rect.zero;
     }
-    final safeThickness = math.min(math.max(0.0, thickness), 32.0);
-    final safeExtent = math.min(
-      math.max(0.0, extent),
-      math.max(outputBounds.width, outputBounds.height) / 2,
+    final usesVerticalEdge = anchor.horizontal != 0;
+    final edgeLength = usesVerticalEdge
+        ? outputBounds.height
+        : outputBounds.width;
+    final perpendicularLength = usesVerticalEdge
+        ? outputBounds.width
+        : outputBounds.height;
+    final requestedThickness = thickness.isNaN ? 0.0 : math.max(0.0, thickness);
+    final safeThickness = math.min(
+      requestedThickness,
+      math.min(32.0, perpendicularLength),
     );
-    if (anchor.horizontal != 0) {
+    final extentCap = anchor.horizontal != 0 && anchor.vertical != 0
+        ? edgeLength / 2
+        : edgeLength;
+    final requestedExtent = extent.isNaN ? 0.0 : math.max(0.0, extent);
+    final safeExtent = math.min(requestedExtent, extentCap);
+    if (usesVerticalEdge) {
       final top = switch (anchor.vertical) {
         < 0 => outputBounds.top,
         > 0 => outputBounds.bottom - safeExtent,

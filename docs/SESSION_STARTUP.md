@@ -23,14 +23,48 @@ start against the discovered sockets. Denial stops the target on shutdown,
 and the launcher provides a cleanup fallback after the compositor process
 exits.
 
+The D-Bus-activated `denial-portal.service` is part of that target. It connects
+to deniald's private appearance-state socket before owning the Settings portal
+bus name, then stops when the compositor disconnects. XDG desktop portal
+routing selects it for `org.freedesktop.impl.portal.Settings` with GTK as the
+fallback for keys Denial does not implement. No portal process is placed on
+the compositor render or input path.
+
 On a system without a systemd user manager, such as a runit system using
 elogind, the launcher remains the session process parent and therefore owns
 the compositor lifecycle directly. D-Bus-activated desktop services still
 receive the same discovered Wayland, X11, desktop, and control endpoints.
+The Denial portal D-Bus file also carries a direct `Exec` fallback, so its
+lifetime remains bounded by the private compositor connection without
+requiring a user service manager.
 
 The same publication is the readiness contract UWSM discovers when a user
 elects to run Denial inside UWSM; no launcher flag or separate finalization
 command is needed.
+
+## Qt application theming
+
+Qt does not necessarily consult the desktop Settings portal merely because the
+portal is available. Denial therefore selects Qt's standard portal-backed
+platform theme provider by default:
+
+```sh
+QT_QPA_PLATFORMTHEME=xdgdesktopportal
+```
+
+The launcher exports that value before starting the compositor. Denial also
+publishes it with the discovered Wayland/X11 endpoints to D-Bus and systemd
+activation, and applies it to applications launched directly by the shell.
+The provider reads `org.freedesktop.appearance/color-scheme`; Denial does not
+write KDE's `kdeglobals`, force a Qt widget style, or duplicate dark/light
+palette state in an environment variable.
+
+An inherited value or an assignment in `/etc/denial/session.conf` takes
+precedence. For example, `QT_QPA_PLATFORMTHEME=kde` selects an installed KDE
+provider, while `QT_QPA_PLATFORMTHEME=` deliberately restores Qt's toolkit
+default. A session restart is required because the provider is selected when
+each Qt process starts. Colour-scheme changes inside Denial Settings remain
+live for portal-aware providers and do not require restarting the session.
 
 This path starts unlocked. That is intentional: a display manager such as GDM
 or SDDM has already authenticated the user before it launches the selected
@@ -88,12 +122,28 @@ Denial keeps KMS and scanout on `DENIAL_DRM_DEVICE`; GBM allocation, EGL, and
 Flutter rendering use `DENIAL_RENDER_DEVICE`. When the render override is
 unset, both paths continue to use the KMS device.
 
+## Xwayland scaling compatibility
+
+Xwayland uses Denial's exact fractional output density by default. This lets
+DPI-aware X11 applications render directly at scales such as 125% instead of
+rendering at 200% and being reduced by the compositor.
+
+An application that cannot handle fractional X11 DPI can use the former
+integer-upscale compatibility behavior for the whole session:
+
+```sh
+DENIAL_XWAYLAND_SCALE_MODE=integer
+```
+
+The accepted values are `fractional` (the default) and `integer`. A session
+restart is required because the mode is selected when Xwayland starts.
+
 ## Supported launcher modes
 
 | Invocation | Result |
 | --- | --- |
 | `denial-session` | Start the packaged desktop after an authenticated display-manager login |
-| `denial-session --check` | Validate the installation, discovered session lifecycle, bundle, output configuration, DRM selection, and Xwayland without starting a compositor |
+| `denial-session --check` | Validate the installation, discovered session lifecycle, bundle, output configuration, DRM selection, Qt platform theme, and Xwayland without starting a compositor |
 | `denial-session --start-locked` | Start with Denial's native security gate and Flutter lock screen already locked |
 
 `denial-session` forwards other arguments to `deniald`. Those lower-level

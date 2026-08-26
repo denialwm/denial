@@ -144,14 +144,27 @@ class QuickSettingsController extends Notifier<QuickSettingsState>
   AudioLevelState? _deferredAudioState;
 
   Future<void> _loadInitial(int generation) async {
+    await Future.wait<void>(<Future<void>>[
+      _loadInitialBrightness(generation),
+      _loadInitialVolume(generation),
+      _loadInitialPowerProfile(generation),
+    ]);
+  }
+
+  Future<void> _loadInitialBrightness(int generation) async {
     final level = await _brightness.readLevel();
     if (!isBuildGenerationActive(generation)) {
       return;
     }
     if (level != null) {
       _lastAppliedBrightness = (level * 100).round().clamp(1, 100);
-      state = state.copyWith(brightness: level);
+      if (state.brightness != level) {
+        state = state.copyWith(brightness: level);
+      }
     }
+  }
+
+  Future<void> _loadInitialVolume(int generation) async {
     final volume = await _audio.readLevel();
     if (!isBuildGenerationActive(generation)) {
       return;
@@ -162,6 +175,9 @@ class QuickSettingsController extends Notifier<QuickSettingsState>
         generation,
       );
     }
+  }
+
+  Future<void> _loadInitialPowerProfile(int generation) async {
     final profile = await _power.read();
     if (isBuildGenerationActive(generation) && profile != null) {
       state = state.copyWith(profile: profile);
@@ -175,7 +191,9 @@ class QuickSettingsController extends Notifier<QuickSettingsState>
     }
     final level = update.level.clamp(0.01, 1.0).toDouble();
     _lastAppliedBrightness = (level * 100).round().clamp(1, 100);
-    state = state.copyWith(brightness: level);
+    if (state.brightness != level) {
+      state = state.copyWith(brightness: level);
+    }
   }
 
   void setBrightness(double value) {

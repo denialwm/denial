@@ -7,7 +7,6 @@ import '../services/haptics_service.dart';
 import '../state/shell_controller.dart';
 import '../theme/motion.dart';
 import '../theme/shell_theme.dart';
-import '../theme/tokens.dart';
 import 'osk/shell_osk_panel.dart';
 import 'shell_backdrop_blur.dart';
 
@@ -269,9 +268,9 @@ class _EdgePanelContent extends ConsumerWidget {
       ),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: theme.panelColor(ShellColors.panelBackground),
-          border: const Border(
-            top: BorderSide(color: ShellColors.hairline, width: 1),
+          color: theme.panelColor(context.shellColors.panelBackground),
+          border: Border(
+            top: BorderSide(color: context.shellColors.hairline, width: 1),
           ),
         ),
         child: RepaintBoundary(

@@ -25,6 +25,11 @@ deniald
     Dart shell
     one logical desktop scene
     imported Wayland surfaces as external textures
+
+denial-portal
+  D-Bus-activated Settings portal backend
+  read-only cache of committed appearance state
+  no settings-file access and no compositor event-loop work
 ```
 
 The Flutter engine and Dart isolate run inside `deniald`; the shell is not a
@@ -98,6 +103,11 @@ unit.
 
 - shell hits become Flutter pointer events;
 - client hits are transformed and delivered through the Wayland seat;
+- graphics tablets are advertised through `zwp_tablet_manager_v2`; tool
+  proximity, motion, pressure, distance, tilt, rotation, wheel, tip and button
+  events use the same published client hit-test. An explicit libinput output
+  association wins; otherwise the tablet maps to the output under the pointer
+  for that proximity sequence;
 - grabs, pointer constraints and drag-and-drop take precedence;
 - window move and resize remain compositor operations;
 - keyboard text from the built-in OSK returns through the native bridge;
@@ -131,14 +141,50 @@ Rust is the sole owner of the versioned, pretty-printed settings document at
 `$HOME/.config/denial/settings.json`). It migrates older documents, protects
 native-owned sections, revision-checks every mutation, rejects concurrent
 external edits, and persists through a mode-`0600` temporary file plus atomic
-rename. Flutter reads and updates the shared document only through typed wire
-transactions.
+rename.
+
+Settings runs as a separate Flutter Wayland process (`denial-settings`). It
+owns only its application widget tree and talks to `deniald` through control
+protocol v1 for settings, outputs, keyboard, touchpad, shortcuts, audio,
+brightness, and UI-development state. It therefore has its own UI/raster
+threads and cannot add build, layout, paint, or raster work to the compositor's
+desktop frame. The embedded shell receives committed document notifications
+and remains responsible for rendering desktop policy, but it does not host the
+normal Settings window. `DENIA_EMBED_SETTINGS=1` keeps the old in-process path
+as an explicit recovery/development fallback.
+
+Appearance intent lives beside the other shell-owned appearance settings. The
+same committed value selects Denial's semantic light/dark palette and is
+published to ordinary applications through the desktop Settings portal:
+
+```json
+{
+  "version": 10,
+  "appearance": {
+    "colorSchemePreference": "preferDark"
+  }
+}
+```
+
+`preferDark` and `preferLight` map to portal values 1 and 2. `noPreference`
+maps to 0 while Denial itself retains its canonical dark fallback, because a
+rendered shell always needs a concrete palette. Fresh and migrated documents
+use `preferDark`, preserving the established shell and giving applications an
+explicit dark preference.
+
+The Flutter scene resolves all brightness-sensitive colors through
+`ShellThemeData`; curated neutral light and dark palettes share the same
+brightness-independent geometry, motion, media, and telemetry tokens. Accent
+seeds are normalized into contrast-safe roles separately for each brightness.
+Content-bearing translucent panels enforce a palette-specific backing floor,
+so the user-controlled glass opacity cannot make semantic foregrounds
+illegible over an extreme wallpaper.
 
 Keyboard settings live in the native-owned `keyboard` section:
 
 ```json
 {
-  "version": 9,
+  "version": 10,
   "revision": 3,
   "keyboard": {
     "layouts": [
@@ -170,6 +216,34 @@ Touchpad preferences live in the native-owned `touchpad` section:
 Denial applies these preferences through libinput when a touchpad appears and
 on every live update. The shell receives touchpad presence separately so it
 only exposes the touchpad page when suitable hardware is connected.
+
+## Desktop Settings portal
+
+`denial-portal` owns
+`org.freedesktop.impl.portal.desktop.denial` and implements only
+`org.freedesktop.impl.portal.Settings` at
+`/org/freedesktop/portal/desktop`. Its authoritative appearance keys are
+`org.freedesktop.appearance/color-scheme` and `accent-color`; unknown keys
+return the standard portal `NotFound` error. Portal routing selects
+`denial;gtk` for Settings, so GTK remains the fallback for namespaces Denial
+does not own.
+
+The compositor publishes complete, revisioned `DesktopThemeSnapshot` records
+over a mode-`0600`, same-user `SOCK_SEQPACKET` endpoint at
+`$XDG_RUNTIME_DIR/denial/portal.sock`. This is a private bounded protocol, not
+the public control socket. The compositor's event loop only replaces a cached
+snapshot and wakes a worker; it never waits for D-Bus or the helper. The
+embedded Flutter shell is the sole source of resolved accent state because it
+owns wallpaper extraction. The portal worker atomically caches the last
+resolved accent under `$XDG_STATE_HOME/denial`, avoiding a fallback-color flash
+on restart without adding frame-loop I/O. The helper connects and receives its
+initial snapshot before claiming its bus name, ignores stale revisions, and
+emits `SettingChanged` only for values that changed. It exits when `deniald`
+disconnects.
+
+Neither Flutter nor `denial-portal` reads or writes the settings file. That
+keeps validation, migration, persistence, effective brightness, and portal
+publication under one native settings authority.
 
 ## Platform bridge
 
@@ -229,3 +303,5 @@ outside the Denial checkout when using `tools/denial-pc`.
 5. Input routing consumes one immutable layout snapshot.
 6. Embedded Dart never launches processes or hot-control CLI utilities.
 7. Runtime paths never depend on another source checkout.
+8. Portal state is published only after a settings commit and never inferred
+   from an optimistic Flutter preview.

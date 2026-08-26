@@ -87,6 +87,14 @@ pub(super) struct RuntimeState {
     #[cfg(feature = "flutter")]
     pub(super) notification_server: Option<NotificationServer>,
     #[cfg(feature = "flutter")]
+    pub(super) portal_ipc: Option<portal_ipc::PortalIpcPublisher>,
+    #[cfg(feature = "flutter")]
+    pub(super) published_theme_snapshot: Option<DesktopThemeSnapshot>,
+    #[cfg(feature = "flutter")]
+    pub(super) published_settings_document_revision: Option<u64>,
+    #[cfg(feature = "flutter")]
+    pub(super) resolved_theme_accent: DesktopAccentColor,
+    #[cfg(feature = "flutter")]
     pub(super) pending_notification_events: VecDeque<notification_server::NotificationEvent>,
     #[cfg(feature = "flutter")]
     pub(super) pending_output_applies: VecDeque<PendingOutputApply>,
@@ -102,6 +110,8 @@ pub(super) struct RuntimeState {
     pub(super) pending_orientation: Option<orientation_sensor::Orientation>,
     #[cfg(feature = "flutter")]
     pub(super) output_control_dirty: bool,
+    #[cfg(feature = "flutter")]
+    pub(super) output_control: Option<output_control::OutputControlPublisher>,
     pub(super) pending_ui_development: VecDeque<PendingUiDevelopment>,
     #[cfg(feature = "flutter")]
     pub(super) idle_dpms: idle_policy::IdleDpmsPolicy,

@@ -80,10 +80,20 @@ class DenialAudioStream {
 }
 
 class DenialBrightnessState {
-  const DenialBrightnessState({required this.monitorId, required this.level});
+  const DenialBrightnessState({
+    required this.monitorId,
+    required this.level,
+    this.completesRead = false,
+  });
 
   final int monitorId;
   final double level;
+
+  /// Whether this update satisfied an explicit state read from Dart.
+  ///
+  /// Reconciliation reads seed controls but must not present the transient
+  /// brightness HUD as though the user changed the hardware level.
+  final bool completesRead;
 }
 
 class DenialTextInputState {
@@ -160,6 +170,8 @@ class DenialBridge {
       denialUiDevelopmentStateChannel,
       _handleUiDevelopmentStateMessage,
     );
+    _settingsDocuments.onListen = _startSettingsDocumentSubscription;
+    _settingsDocuments.onCancel = _stopSettingsDocumentSubscription;
   }
 
   final bool useControlSocket;
@@ -169,6 +181,7 @@ class DenialBridge {
   final Map<int, Completer<DisplayLayout?>> _pendingDisplayRequests = {};
   final Map<int, Completer<DenialSettingsDocument>>
   _pendingSettingsDocumentRequests = {};
+  final Set<int> _settingsDocumentSeedRequestIds = <int>{};
   final Map<int, Completer<DenialKeyboardConfiguration>>
   _pendingKeyboardSettingsRequests = {};
   final Map<int, Completer<DenialInputDeviceCapabilities>>
@@ -178,6 +191,7 @@ class DenialBridge {
   final Map<int, Completer<DenialShortcutValidation>>
   _pendingShortcutValidationRequests = {};
   final Set<Completer<double?>> _pendingAudioReads = {};
+  final Map<int, Set<Completer<double?>>> _pendingBrightnessReads = {};
   final StreamController<DenialWindowEvent> _windowEvents =
       StreamController<DenialWindowEvent>.broadcast(sync: true);
   final StreamController<DenialShellActionEvent> _shellActions =
@@ -217,6 +231,12 @@ class DenialBridge {
   final wire.DenialWireCodec _wireCodec = wire.DenialWireCodec();
   final DenialUiDevelopmentProtocol _uiDevelopmentProtocol =
       DenialUiDevelopmentProtocol();
+  Socket? _settingsDocumentSubscriptionSocket;
+  Timer? _settingsDocumentReconnectTimer;
+  int _settingsDocumentSubscriptionGeneration = 0;
+  bool _settingsDocumentSubscriptionActive = false;
+  bool _disposed = false;
+  int _latestSettingsDocumentRevision = 0;
   int _nextRequestId = 1;
   VoidCallback? _onWindowsChanged;
   ValueChanged<DenialWindowSnapshot>? _onWindowSnapshot;
@@ -250,6 +270,190 @@ class DenialBridge {
       _settingsDocuments.stream;
   Stream<DisplayLayout> get displayLayouts => _displayLayouts.stream;
 
+  void _startSettingsDocumentSubscription() {
+    if (_disposed || _settingsDocumentSubscriptionActive) {
+      return;
+    }
+    _settingsDocumentReconnectTimer?.cancel();
+    _settingsDocumentReconnectTimer = null;
+    _settingsDocumentSubscriptionActive = true;
+    final generation = ++_settingsDocumentSubscriptionGeneration;
+    if (useControlSocket) {
+      unawaited(_consumeSettingsDocumentSubscription(generation));
+    } else {
+      unawaited(_seedPlatformSettingsDocument(generation));
+    }
+  }
+
+  void _stopSettingsDocumentSubscription() {
+    _settingsDocumentSubscriptionActive = false;
+    _settingsDocumentSubscriptionGeneration += 1;
+    _settingsDocumentReconnectTimer?.cancel();
+    _settingsDocumentReconnectTimer = null;
+    _settingsDocumentSubscriptionSocket?.destroy();
+    _settingsDocumentSubscriptionSocket = null;
+  }
+
+  Future<void> _seedPlatformSettingsDocument(int generation) async {
+    try {
+      await _readSettingsDocumentFromPlatform(subscriptionSnapshot: true);
+    } on Object catch (error, stackTrace) {
+      if (_settingsSubscriptionCurrent(generation) &&
+          !_settingsDocuments.isClosed) {
+        _settingsDocuments.addError(error, stackTrace);
+      }
+    } finally {
+      if (generation == _settingsDocumentSubscriptionGeneration) {
+        _settingsDocumentSubscriptionActive = false;
+      }
+    }
+  }
+
+  Future<void> _consumeSettingsDocumentSubscription(int generation) async {
+    Object? failure;
+    StackTrace? failureStackTrace;
+    Socket? socket;
+    try {
+      final path = _outputControlSocketPath();
+      if (path == null ||
+          FileSystemEntity.typeSync(path, followLinks: false) !=
+              FileSystemEntityType.unixDomainSock) {
+        throw const DenialOutputControlException(
+          'unavailable',
+          'The Denial control socket is not running.',
+        );
+      }
+      final requestId = _nextRequestId++;
+      final request = jsonEncode(<String, Object>{
+        'version': 1,
+        'id': requestId,
+        'method': 'settings.document.subscribe',
+      });
+      socket = await Socket.connect(
+        InternetAddress(path, type: InternetAddressType.unix),
+        0,
+        timeout: _outputControlTimeout,
+      );
+      if (!_settingsSubscriptionCurrent(generation)) {
+        socket.destroy();
+        return;
+      }
+      _settingsDocumentSubscriptionSocket = socket;
+      socket.add(utf8.encode('$request\n'));
+      await socket.flush();
+      final lines = StreamIterator<String>(
+        utf8.decoder.bind(socket).transform(const LineSplitter()),
+      );
+      try {
+        final hasInitial = await lines.moveNext().timeout(
+          _outputControlTimeout,
+        );
+        if (!hasInitial) {
+          throw const DenialOutputControlException(
+            'unavailable',
+            'The Denial settings subscription closed before its snapshot.',
+          );
+        }
+        _publishSettingsDocument(
+          _settingsDocumentFromSubscription(lines.current, requestId),
+          acceptCurrentRevision: true,
+        );
+        while (_settingsSubscriptionCurrent(generation) &&
+            await lines.moveNext()) {
+          _publishSettingsDocument(
+            _settingsDocumentFromSubscription(lines.current, requestId),
+          );
+        }
+      } finally {
+        await lines.cancel();
+      }
+      if (_settingsSubscriptionCurrent(generation)) {
+        throw const DenialOutputControlException(
+          'unavailable',
+          'The Denial settings subscription closed.',
+        );
+      }
+    } on Object catch (error, stackTrace) {
+      failure = error;
+      failureStackTrace = stackTrace;
+    } finally {
+      if (identical(_settingsDocumentSubscriptionSocket, socket)) {
+        _settingsDocumentSubscriptionSocket = null;
+      }
+      socket?.destroy();
+      if (generation == _settingsDocumentSubscriptionGeneration) {
+        _settingsDocumentSubscriptionActive = false;
+      }
+    }
+    if (!_settingsSubscriptionCurrent(generation, requireActive: false)) {
+      return;
+    }
+    if (failure != null && !_settingsDocuments.isClosed) {
+      _settingsDocuments.addError(failure, failureStackTrace);
+    }
+    _settingsDocumentReconnectTimer = Timer(
+      const Duration(seconds: 1),
+      _startSettingsDocumentSubscription,
+    );
+  }
+
+  bool _settingsSubscriptionCurrent(
+    int generation, {
+    bool requireActive = true,
+  }) =>
+      !_disposed &&
+      _settingsDocuments.hasListener &&
+      generation == _settingsDocumentSubscriptionGeneration &&
+      (!requireActive || _settingsDocumentSubscriptionActive);
+
+  DenialSettingsDocument _settingsDocumentFromSubscription(
+    String line,
+    int requestId,
+  ) {
+    if (utf8.encode(line).length > _maxOutputControlBytes) {
+      throw const DenialOutputControlException(
+        'invalid_response',
+        'The Denial settings update is too large.',
+      );
+    }
+    final decoded = jsonDecode(line);
+    if (decoded is! Map<String, Object?> ||
+        decoded['version'] != 1 ||
+        decoded['id'] != requestId ||
+        decoded['ok'] != true ||
+        decoded['result'] is! Map<String, Object?>) {
+      throw const DenialOutputControlException(
+        'invalid_response',
+        'Denial returned an invalid settings subscription update.',
+      );
+    }
+    return _settingsDocumentFromControl(
+      decoded['result']! as Map<String, Object?>,
+    );
+  }
+
+  void _rememberSettingsDocument(DenialSettingsDocument document) {
+    if (document.revision > _latestSettingsDocumentRevision) {
+      _latestSettingsDocumentRevision = document.revision;
+    }
+  }
+
+  void _publishSettingsDocument(
+    DenialSettingsDocument document, {
+    bool acceptCurrentRevision = false,
+  }) {
+    if (_disposed ||
+        document.revision < _latestSettingsDocumentRevision ||
+        (!acceptCurrentRevision &&
+            document.revision == _latestSettingsDocumentRevision)) {
+      return;
+    }
+    _latestSettingsDocumentRevision = document.revision;
+    if (!_settingsDocuments.isClosed) {
+      _settingsDocuments.add(document);
+    }
+  }
+
   void start({
     required VoidCallback onWindowsChanged,
     ValueChanged<DenialWindowSnapshot>? onWindowSnapshot,
@@ -265,6 +469,8 @@ class DenialBridge {
   }
 
   void dispose() {
+    _disposed = true;
+    _stopSettingsDocumentSubscription();
     ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
       wire.denialWireToFlutterChannel,
       null,
@@ -303,6 +509,7 @@ class DenialBridge {
       }
     }
     _pendingSettingsDocumentRequests.clear();
+    _settingsDocumentSeedRequestIds.clear();
     for (final completer in _pendingKeyboardSettingsRequests.values) {
       if (!completer.isCompleted) {
         completer.completeError(StateError('Denial bridge disposed'));
@@ -333,6 +540,14 @@ class DenialBridge {
       }
     }
     _pendingAudioReads.clear();
+    for (final pending in _pendingBrightnessReads.values) {
+      for (final completer in pending) {
+        if (!completer.isCompleted) {
+          completer.complete(null);
+        }
+      }
+    }
+    _pendingBrightnessReads.clear();
     _onWindowsChanged = null;
     _onWindowSnapshot = null;
     _onWindowActivated = null;
@@ -518,12 +733,26 @@ class DenialBridge {
     );
   }
 
+  /// Publishes the shell's fully resolved accent to deniald. Standalone
+  /// Denial clients deliberately cannot author compositor theme state.
+  void publishThemeAccent(int argb) {
+    if (useControlSocket) {
+      return;
+    }
+    final bytes = _wireCodec.encodeThemeAccent(argb);
+    if (bytes != null) {
+      _sendWire(bytes);
+    }
+  }
+
   Future<DenialSettingsDocument> readSettingsDocument() async {
     if (!useControlSocket) return _readSettingsDocumentFromPlatform();
     try {
-      return _settingsDocumentFromControl(
+      final document = _settingsDocumentFromControl(
         await _sendControlRequest('settings.document.get'),
       );
+      _rememberSettingsDocument(document);
+      return document;
     } on DenialOutputControlException catch (error) {
       throw StateError(error.message);
     }
@@ -554,7 +783,7 @@ class DenialBridge {
       );
     }
     try {
-      return _settingsDocumentFromControl(
+      final updated = _settingsDocumentFromControl(
         await _sendControlRequest(
           'settings.document.apply',
           parameters: <String, Object>{
@@ -563,6 +792,8 @@ class DenialBridge {
           },
         ),
       );
+      _publishSettingsDocument(updated);
+      return updated;
     } on DenialOutputControlException catch (error) {
       throw StateError(error.message);
     }
@@ -765,10 +996,15 @@ class DenialBridge {
     }
   }
 
-  Future<DenialSettingsDocument> _readSettingsDocumentFromPlatform() {
+  Future<DenialSettingsDocument> _readSettingsDocumentFromPlatform({
+    bool subscriptionSnapshot = false,
+  }) {
     final requestId = _nextRequestId++;
     final completer = Completer<DenialSettingsDocument>();
     _pendingSettingsDocumentRequests[requestId] = completer;
+    if (subscriptionSnapshot) {
+      _settingsDocumentSeedRequestIds.add(requestId);
+    }
     _sendWire(
       _wireCodec.encodeSettingsRead(
         wire.SettingsRequestKind.ReadDocument,
@@ -779,6 +1015,7 @@ class DenialBridge {
       const Duration(seconds: 2),
       onTimeout: () {
         _pendingSettingsDocumentRequests.remove(requestId);
+        _settingsDocumentSeedRequestIds.remove(requestId);
         throw TimeoutException('Denial settings read timed out');
       },
     );
@@ -1110,47 +1347,78 @@ class DenialBridge {
 
   bool requestBrightness({required int monitorId, required String connector}) {
     if (!_validBrightnessTarget(monitorId, connector)) return false;
+    unawaited(readBrightnessLevel(monitorId: monitorId, connector: connector));
+    return true;
+  }
+
+  Future<double?> readBrightnessLevel({
+    required int monitorId,
+    required String connector,
+  }) async {
+    if (!_validBrightnessTarget(monitorId, connector)) return null;
     if (!useControlSocket) {
-      _sendBrightnessPlatformRequest(
-        command: 0,
+      return _readBrightnessLevelFromPlatform(
         monitorId: monitorId,
         connector: connector,
-        percent: 0,
       );
-      return true;
     }
-    unawaited(
-      _sendControlRequest(
-            'brightness.get',
-            parameters: <String, Object>{
-              'monitor_id': monitorId,
-              'connector': connector,
-            },
-          )
-          .then((result) {
-            final returnedMonitor = result['monitor_id'];
-            final level = result['level'];
-            if (returnedMonitor is int &&
-                level is num &&
-                !_brightnessStates.isClosed) {
-              _brightnessStates.add(
-                DenialBrightnessState(
-                  monitorId: returnedMonitor,
-                  level: level.toDouble().clamp(0.0, 1.0),
-                ),
-              );
-            }
-          })
-          .catchError((Object _) {
-            _sendBrightnessPlatformRequest(
-              command: 0,
-              monitorId: monitorId,
-              connector: connector,
-              percent: 0,
-            );
-          }),
+    try {
+      final result = await _sendControlRequest(
+        'brightness.get',
+        parameters: <String, Object>{
+          'monitor_id': monitorId,
+          'connector': connector,
+        },
+      );
+      final returnedMonitor = result['monitor_id'];
+      final value = result['level'];
+      if (returnedMonitor is! int || value is! num) return null;
+      final level = value.toDouble().clamp(0.0, 1.0);
+      if (!_brightnessStates.isClosed) {
+        _brightnessStates.add(
+          DenialBrightnessState(
+            monitorId: returnedMonitor,
+            level: level,
+            completesRead: true,
+          ),
+        );
+      }
+      return level;
+    } on Object {
+      return _readBrightnessLevelFromPlatform(
+        monitorId: monitorId,
+        connector: connector,
+      );
+    }
+  }
+
+  Future<double?> _readBrightnessLevelFromPlatform({
+    required int monitorId,
+    required String connector,
+  }) {
+    final completer = Completer<double?>();
+    final pending = _pendingBrightnessReads.putIfAbsent(
+      monitorId,
+      () => <Completer<double?>>{},
     );
-    return true;
+    pending.add(completer);
+    _sendBrightnessPlatformRequest(
+      command: 0,
+      monitorId: monitorId,
+      connector: connector,
+      percent: 0,
+    );
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        final current = _pendingBrightnessReads[monitorId];
+        current?.remove(completer);
+        if (current?.isEmpty ?? false) {
+          _pendingBrightnessReads.remove(monitorId);
+        }
+        return null;
+      },
+    );
   }
 
   bool setBrightness({
@@ -1939,12 +2207,22 @@ class DenialBridge {
     if (monitorId < 0 || _brightnessStates.isClosed) {
       return null;
     }
+    final level = data.getUint8(8).clamp(0, 100) / 100.0;
+    final pending = _pendingBrightnessReads.remove(monitorId);
     _brightnessStates.add(
       DenialBrightnessState(
         monitorId: monitorId,
-        level: data.getUint8(8).clamp(0, 100) / 100.0,
+        level: level,
+        completesRead: pending?.isNotEmpty ?? false,
       ),
     );
+    if (pending != null) {
+      for (final completer in pending) {
+        if (!completer.isCompleted) {
+          completer.complete(level);
+        }
+      }
+    }
     return null;
   }
 
@@ -2073,6 +2351,9 @@ class DenialBridge {
   void _handleSettingsResponse(int requestId, wire.SettingsResponse response) {
     if (response.kind == wire.SettingsResponseKind.Document) {
       final completer = _pendingSettingsDocumentRequests.remove(requestId);
+      final subscriptionSnapshot = _settingsDocumentSeedRequestIds.remove(
+        requestId,
+      );
       final document = response.document;
       if (!response.success ||
           response.revision <= 0 ||
@@ -2090,9 +2371,10 @@ class DenialBridge {
         revision: response.revision,
         json: document,
       );
-      if (!_settingsDocuments.isClosed) {
-        _settingsDocuments.add(settings);
-      }
+      _publishSettingsDocument(
+        settings,
+        acceptCurrentRevision: subscriptionSnapshot,
+      );
       if (requestId != 0 && completer != null && !completer.isCompleted) {
         completer.complete(settings);
       }

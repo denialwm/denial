@@ -93,7 +93,7 @@ impl WaylandFrontend {
             )
                 .into(),
         );
-        let pointer_location = Point::from((
+        let initial_pointer_location = Point::from((
             f64::from(desktop_bounds.loc.x) + f64::from(desktop_bounds.size.w) / 2.0,
             f64::from(desktop_bounds.loc.y) + f64::from(desktop_bounds.size.h) / 2.0,
         ));
@@ -165,6 +165,11 @@ impl WaylandFrontend {
                 submitted_this_batch: false,
             });
         }
+        let pointer_location = super::scene_input::constrain_pointer_to_outputs(
+            initial_pointer_location,
+            outputs.iter().map(|output| output.logical_geometry),
+        )
+        .ok_or("Wayland topology has no pointer-accessible output")?;
 
         #[cfg(feature = "flutter")]
         let shm_snapshot_budget_bytes =
@@ -392,6 +397,10 @@ impl WaylandFrontend {
             window_membership_scratch: Vec::new(),
             #[cfg(feature = "flutter")]
             output_window_membership: OutputWindowMembership::default(),
+            #[cfg(feature = "flutter")]
+            pending_frame_callback_windows: HashSet::new(),
+            #[cfg(feature = "flutter")]
+            pending_input_method_frame_callbacks: HashSet::new(),
             #[cfg(feature = "flutter")]
             local_windows: LocalFlutterWindows::default(),
             #[cfg(feature = "flutter")]

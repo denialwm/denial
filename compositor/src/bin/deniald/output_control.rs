@@ -3,8 +3,9 @@
 //! The socket carries output transactions and shell-independent Flutter UI
 //! lifecycle/recovery commands. It deliberately exposes Denial's own model
 //! instead of impersonating another compositor. Clients connect to
-//! `DENIAL_SOCKET`, send one newline-delimited JSON request, read one response,
-//! and close.
+//! `DENIAL_SOCKET` and send one newline-delimited JSON request. Ordinary
+//! commands receive one response and close; explicit subscriptions remain
+//! open and receive revisioned snapshots as state changes.
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -15,8 +16,8 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock, mpsc};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex, RwLock, mpsc};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -39,8 +40,10 @@ pub(super) const PROTOCOL_VERSION: u32 = 1;
 const SOCKET_DIRECTORY: &str = "denial";
 const SOCKET_FILE: &str = "control.sock";
 const EVENT_QUEUE_CAPACITY: usize = 8;
+const MAX_CLIENT_WORKERS: usize = 32;
 const MAX_REQUEST_BYTES: usize = 256 * 1024;
 const CLIENT_IO_TIMEOUT: Duration = Duration::from_secs(3);
+const SUBSCRIBER_HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const APPLY_TIMEOUT: Duration = Duration::from_secs(15);
 const SHELL_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const SETTINGS_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
@@ -160,6 +163,113 @@ pub(super) struct OutputControlSnapshot {
     pub(super) pending_confirmation: Option<OutputControlConfirmation>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct SettingsDocumentSnapshot {
+    revision: u64,
+    document: String,
+}
+
+#[derive(Clone)]
+struct SettingsDocumentPublisher {
+    state: Arc<(Mutex<SettingsDocumentSnapshot>, Condvar)>,
+}
+
+enum SettingsDocumentWait {
+    Changed(SettingsDocumentSnapshot),
+    TimedOut,
+    Stopped,
+}
+
+impl SettingsDocumentPublisher {
+    fn new(revision: u64, document: String) -> Self {
+        Self {
+            state: Arc::new((
+                Mutex::new(SettingsDocumentSnapshot { revision, document }),
+                Condvar::new(),
+            )),
+        }
+    }
+
+    fn snapshot(&self) -> SettingsDocumentSnapshot {
+        self.state
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    fn revision(&self) -> u64 {
+        self.state
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .revision
+    }
+
+    fn publish(&self, revision: u64, document: String) -> bool {
+        let (state, changed) = &*self.state;
+        let mut snapshot = state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if revision <= snapshot.revision {
+            return false;
+        }
+        *snapshot = SettingsDocumentSnapshot { revision, document };
+        changed.notify_all();
+        true
+    }
+
+    fn wait_for_change(&self, revision: u64, stopping: &AtomicBool) -> SettingsDocumentWait {
+        let (state, changed) = &*self.state;
+        let snapshot = state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if snapshot.revision > revision {
+            return SettingsDocumentWait::Changed(snapshot.clone());
+        }
+        if stopping.load(Ordering::Acquire) {
+            return SettingsDocumentWait::Stopped;
+        }
+        let (snapshot, _) = changed
+            .wait_timeout(snapshot, SUBSCRIBER_HEALTH_POLL_INTERVAL)
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if stopping.load(Ordering::Acquire) {
+            SettingsDocumentWait::Stopped
+        } else if snapshot.revision > revision {
+            SettingsDocumentWait::Changed(snapshot.clone())
+        } else {
+            SettingsDocumentWait::TimedOut
+        }
+    }
+
+    fn wake_all(&self) {
+        self.state.1.notify_all();
+    }
+}
+
+struct ActiveControlClient {
+    count: Arc<AtomicUsize>,
+}
+
+impl ActiveControlClient {
+    fn acquire(count: &Arc<AtomicUsize>) -> Option<Self> {
+        count
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+                (active < MAX_CLIENT_WORKERS).then_some(active + 1)
+            })
+            .ok()?;
+        Some(Self {
+            count: Arc::clone(count),
+        })
+    }
+}
+
+impl Drop for ActiveControlClient {
+    fn drop(&mut self) {
+        self.count.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 impl OutputControlSnapshot {
     fn new(state: OutputControlState) -> Self {
         Self {
@@ -206,12 +316,26 @@ pub(super) fn next_serial(serial: u64) -> u64 {
 #[derive(Clone)]
 pub(super) struct OutputControlPublisher {
     snapshot: Arc<RwLock<OutputControlSnapshot>>,
+    settings_documents: SettingsDocumentPublisher,
 }
 
 impl OutputControlPublisher {
+    #[cfg(test)]
     fn new(initial: OutputControlState) -> Self {
+        Self::with_settings(initial, 1, "{}".to_owned())
+    }
+
+    fn with_settings(
+        initial: OutputControlState,
+        settings_revision: u64,
+        settings_document: String,
+    ) -> Self {
         Self {
             snapshot: Arc::new(RwLock::new(OutputControlSnapshot::new(initial))),
+            settings_documents: SettingsDocumentPublisher::new(
+                settings_revision,
+                settings_document,
+            ),
         }
     }
 
@@ -248,6 +372,14 @@ impl OutputControlPublisher {
         let snapshot = self.publish(build_state()?);
         *dirty = false;
         Ok(Some(snapshot))
+    }
+
+    pub(super) fn settings_document_revision(&self) -> u64 {
+        self.settings_documents.revision()
+    }
+
+    pub(super) fn publish_settings_document(&self, revision: u64, document: String) -> bool {
+        self.settings_documents.publish(revision, document)
     }
 }
 
@@ -599,14 +731,26 @@ pub(super) struct OutputControlServer {
 impl OutputControlServer {
     pub(super) fn start(
         initial: OutputControlState,
+        settings_revision: u64,
+        settings_document: String,
     ) -> Result<(Self, Channel<ControlEvent>), Box<dyn Error>> {
         let path = default_socket_path()?;
-        Self::start_at(path, initial)
+        Self::start_at_with_settings(path, initial, settings_revision, settings_document)
     }
 
+    #[cfg(test)]
     fn start_at(
         socket_path: PathBuf,
         initial: OutputControlState,
+    ) -> Result<(Self, Channel<ControlEvent>), Box<dyn Error>> {
+        Self::start_at_with_settings(socket_path, initial, 1, "{}".to_owned())
+    }
+
+    fn start_at_with_settings(
+        socket_path: PathBuf,
+        initial: OutputControlState,
+        settings_revision: u64,
+        settings_document: String,
     ) -> Result<(Self, Channel<ControlEvent>), Box<dyn Error>> {
         prepare_socket_path(&socket_path)?;
         let listener = UnixListener::bind(&socket_path)?;
@@ -614,7 +758,8 @@ impl OutputControlServer {
         let metadata = fs::symlink_metadata(&socket_path)?;
         listener.set_nonblocking(true)?;
 
-        let publisher = OutputControlPublisher::new(initial);
+        let publisher =
+            OutputControlPublisher::with_settings(initial, settings_revision, settings_document);
         let worker_publisher = publisher.clone();
         let stopping = Arc::new(AtomicBool::new(false));
         let worker_stopping = Arc::clone(&stopping);
@@ -668,6 +813,7 @@ impl OutputControlServer {
 impl Drop for OutputControlServer {
     fn drop(&mut self) {
         self.stopping.store(true, Ordering::Release);
+        self.publisher.settings_documents.wake_all();
         let _ = self.shutdown.shutdown(Shutdown::Both);
         if let Some(worker) = self.worker.take()
             && worker.join().is_err()
@@ -763,6 +909,7 @@ fn serve(
     events: SyncSender<ControlEvent>,
     stopping: Arc<AtomicBool>,
 ) {
+    let active_clients = Arc::new(AtomicUsize::new(0));
     let mut poll_fds = [
         libc::pollfd {
             fd: listener.as_raw_fd(),
@@ -796,9 +943,29 @@ fn serve(
         }
         match listener.accept() {
             Ok((stream, _)) => {
-                let result = handle_connection(stream, &publisher, &events);
-                if let Err(error) = result {
-                    warn!(%error, "Denial control client request failed");
+                let Some(client_slot) = ActiveControlClient::acquire(&active_clients) else {
+                    let _ = stream.shutdown(Shutdown::Both);
+                    continue;
+                };
+                let connection_publisher = publisher.clone();
+                let connection_events = events.clone();
+                let connection_stopping = Arc::clone(&stopping);
+                let spawn = thread::Builder::new()
+                    .name("denial-control-client".into())
+                    .spawn(move || {
+                        let _client_slot = client_slot;
+                        let result = handle_connection(
+                            stream,
+                            &connection_publisher,
+                            &connection_events,
+                            &connection_stopping,
+                        );
+                        if let Err(error) = result {
+                            warn!(%error, "Denial control client request failed");
+                        }
+                    });
+                if let Err(error) = spawn {
+                    warn!(%error, "could not start Denial control client worker");
                 }
             }
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
@@ -815,6 +982,7 @@ fn handle_connection(
     mut stream: UnixStream,
     publisher: &OutputControlPublisher,
     events: &SyncSender<ControlEvent>,
+    stopping: &AtomicBool,
 ) -> io::Result<()> {
     stream.set_nonblocking(false)?;
     stream.set_read_timeout(Some(CLIENT_IO_TIMEOUT))?;
@@ -841,6 +1009,10 @@ fn handle_connection(
                 ),
             ),
         );
+    }
+
+    if request.method == "settings.document.subscribe" {
+        return stream_settings_documents(&mut stream, request.id, publisher, stopping);
     }
 
     let response = match request.method.as_str() {
@@ -1582,6 +1754,64 @@ fn error_response(id: Option<u64>, code: &str, message: impl Into<String>) -> Va
             "message": message.into(),
         },
     })
+}
+
+fn stream_settings_documents(
+    stream: &mut UnixStream,
+    request_id: u64,
+    publisher: &OutputControlPublisher,
+    stopping: &AtomicBool,
+) -> io::Result<()> {
+    let initial = publisher.settings_documents.snapshot();
+    write_response(stream, &success_response(request_id, &initial))?;
+    let mut revision = initial.revision;
+    loop {
+        if peer_disconnected(stream)? {
+            return Ok(());
+        }
+        match publisher
+            .settings_documents
+            .wait_for_change(revision, stopping)
+        {
+            SettingsDocumentWait::Changed(snapshot) => {
+                write_response(stream, &success_response(request_id, &snapshot))?;
+                revision = snapshot.revision;
+            }
+            SettingsDocumentWait::TimedOut => {}
+            SettingsDocumentWait::Stopped => return Ok(()),
+        }
+    }
+}
+
+fn peer_disconnected(stream: &UnixStream) -> io::Result<bool> {
+    let mut byte = [0_u8; 1];
+    loop {
+        // SAFETY: `byte` is valid writable storage for one byte and `stream`
+        // owns a live Unix socket for the duration of this nonblocking peek.
+        let read = unsafe {
+            libc::recv(
+                stream.as_raw_fd(),
+                byte.as_mut_ptr().cast(),
+                byte.len(),
+                libc::MSG_DONTWAIT | libc::MSG_PEEK,
+            )
+        };
+        if read > 0 {
+            return Ok(false);
+        }
+        if read == 0 {
+            return Ok(true);
+        }
+        let error = io::Error::last_os_error();
+        match error.kind() {
+            io::ErrorKind::WouldBlock => return Ok(false),
+            io::ErrorKind::Interrupted => {}
+            io::ErrorKind::BrokenPipe
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::ConnectionReset => return Ok(true),
+            _ => return Err(error),
+        }
+    }
 }
 
 fn write_response(stream: &mut UnixStream, response: &Value) -> io::Result<()> {

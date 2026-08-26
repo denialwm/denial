@@ -77,6 +77,18 @@ fn serials_wrap_within_the_exact_json_integer_range() {
 }
 
 #[test]
+fn control_client_slots_are_bounded_and_released() {
+    let active = Arc::new(AtomicUsize::new(MAX_CLIENT_WORKERS - 1));
+    let slot = ActiveControlClient::acquire(&active).expect("reserve final client slot");
+    assert_eq!(active.load(Ordering::Acquire), MAX_CLIENT_WORKERS);
+    assert!(ActiveControlClient::acquire(&active).is_none());
+
+    drop(slot);
+    assert_eq!(active.load(Ordering::Acquire), MAX_CLIENT_WORKERS - 1);
+    assert!(ActiveControlClient::acquire(&active).is_some());
+}
+
+#[test]
 fn dirty_publication_builds_once_and_clean_iterations_do_no_work() {
     let publisher = OutputControlPublisher::new(state("DP-1"));
     let mut dirty = false;
@@ -165,6 +177,55 @@ fn query_is_versioned_and_returns_the_current_snapshot() {
         false
     );
 
+    drop(server);
+    fs::remove_dir(directory).expect("remove test socket directory");
+}
+
+#[test]
+fn settings_subscription_starts_with_a_snapshot_and_streams_new_revisions() {
+    let path = socket_path();
+    let directory = path.parent().expect("test socket has parent").to_owned();
+    let (server, _source) =
+        OutputControlServer::start_at(path.clone(), state("DP-4")).expect("start server");
+    let publisher = server.publisher();
+    let mut subscription = UnixStream::connect(&path).expect("connect subscription");
+    subscription
+        .write_all(b"{\"version\":1,\"id\":18,\"method\":\"settings.document.subscribe\"}\n")
+        .expect("write subscription request");
+    let mut subscription = BufReader::new(subscription);
+    let mut line = String::new();
+    subscription
+        .read_line(&mut line)
+        .expect("read initial settings snapshot");
+    let initial: Value = serde_json::from_str(&line).expect("decode initial snapshot");
+    assert_eq!(initial["id"], 18);
+    assert_eq!(initial["result"]["revision"], 1);
+    assert_eq!(initial["result"]["document"], "{}");
+
+    assert!(publisher.publish_settings_document(2, "{\"version\":10}".to_owned()));
+    line.clear();
+    subscription
+        .read_line(&mut line)
+        .expect("read changed settings snapshot");
+    let changed: Value = serde_json::from_str(&line).expect("decode changed snapshot");
+    assert_eq!(changed["result"]["revision"], 2);
+    assert_eq!(changed["result"]["document"], "{\"version\":10}");
+
+    // A persistent subscriber must not serialize unrelated control clients
+    // behind itself.
+    let mut query = UnixStream::connect(&path).expect("connect parallel query");
+    query
+        .write_all(b"{\"version\":1,\"id\":19,\"method\":\"outputs.get\"}\n")
+        .expect("write parallel query");
+    let mut response = String::new();
+    BufReader::new(query)
+        .read_to_string(&mut response)
+        .expect("read parallel query response");
+    let response: Value = serde_json::from_str(&response).expect("decode parallel response");
+    assert_eq!(response["id"], 19);
+    assert_eq!(response["ok"], true);
+
+    drop(subscription);
     drop(server);
     fs::remove_dir(directory).expect("remove test socket directory");
 }

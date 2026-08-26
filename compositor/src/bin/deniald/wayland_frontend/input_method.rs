@@ -637,6 +637,10 @@ impl InputMethodManager {
     }
 
     pub(super) fn owns_popup_surface(&self, surface: &WlSurface) -> bool {
+        self.popup_root_surface(surface).is_some()
+    }
+
+    pub(super) fn popup_root_surface(&self, surface: &WlSurface) -> Option<WlSurface> {
         let mut root = surface.clone();
         while let Some(parent) = smithay::wayland::compositor::get_parent(&root) {
             root = parent;
@@ -644,6 +648,7 @@ impl InputMethodManager {
         self.popups
             .iter()
             .any(|popup| popup.surface == root && popup.alive())
+            .then_some(root)
     }
 
     fn queue_flutter_transaction(

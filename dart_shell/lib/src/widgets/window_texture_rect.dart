@@ -3,7 +3,7 @@ import 'package:flutter/widgets.dart';
 import '../input/input_layout.dart';
 import '../models/denial_window.dart';
 import '../theme/motion.dart';
-import '../theme/tokens.dart';
+import '../theme/shell_theme.dart';
 import 'shell_backdrop_blur.dart';
 import 'window_surface_tree.dart';
 
@@ -48,7 +48,7 @@ class WindowTextureRect extends StatelessWidget {
       visualHeight: visualStatusBarHeight,
     );
     final statusBarColor = window.statusColorArgb == null
-        ? ShellColors.background
+        ? context.shellColors.background
         : Color(window.statusColorArgb!);
 
     final textureBody = SizedBox(

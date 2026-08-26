@@ -943,7 +943,8 @@ enum PayloadTypeId {
   SettingsResponse(14),
   TextInputState(15),
   XEmbedTrayEvent(16),
-  XEmbedTrayCommand(17);
+  XEmbedTrayCommand(17),
+  ThemeState(18);
 
   final int value;
   const PayloadTypeId(this.value);
@@ -968,6 +969,7 @@ enum PayloadTypeId {
       case 15: return PayloadTypeId.TextInputState;
       case 16: return PayloadTypeId.XEmbedTrayEvent;
       case 17: return PayloadTypeId.XEmbedTrayCommand;
+      case 18: return PayloadTypeId.ThemeState;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -976,7 +978,7 @@ enum PayloadTypeId {
       value == null ? null : PayloadTypeId.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 17;
+  static const int maxValue = 18;
   static const fb.Reader<PayloadTypeId> reader = _PayloadTypeIdReader();
 }
 
@@ -5547,6 +5549,77 @@ class XembedTrayCommandObjectBuilder extends fb.ObjectBuilder {
     return fbBuilder.buffer;
   }
 }
+class ThemeState {
+  ThemeState._(this._bc, this._bcOffset);
+  factory ThemeState(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<ThemeState> reader = _ThemeStateReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  int get accentSrgb => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 4, 0);
+
+  @override
+  String toString() {
+    return 'ThemeState{accentSrgb: ${accentSrgb}}';
+  }
+}
+
+class _ThemeStateReader extends fb.TableReader<ThemeState> {
+  const _ThemeStateReader();
+
+  @override
+  ThemeState createObject(fb.BufferContext bc, int offset) => 
+    ThemeState._(bc, offset);
+}
+
+class ThemeStateBuilder {
+  ThemeStateBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(1);
+  }
+
+  int addAccentSrgb(int? accentSrgb) {
+    fbBuilder.addUint32(0, accentSrgb);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class ThemeStateObjectBuilder extends fb.ObjectBuilder {
+  final int? _accentSrgb;
+
+  ThemeStateObjectBuilder({
+    int? accentSrgb,
+  })
+      : _accentSrgb = accentSrgb;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    fbBuilder.startTable(1);
+    fbBuilder.addUint32(0, _accentSrgb);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
 class Envelope {
   Envelope._(this._bc, this._bcOffset);
   factory Envelope(List<int> bytes) {
@@ -5582,6 +5655,7 @@ class Envelope {
       case 15: return TextInputState.reader.vTableGetNullable(_bc, _bcOffset, 12);
       case 16: return XembedTrayEvent.reader.vTableGetNullable(_bc, _bcOffset, 12);
       case 17: return XembedTrayCommand.reader.vTableGetNullable(_bc, _bcOffset, 12);
+      case 18: return ThemeState.reader.vTableGetNullable(_bc, _bcOffset, 12);
       default: return null;
     }
   }

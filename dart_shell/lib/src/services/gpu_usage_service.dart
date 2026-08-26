@@ -43,6 +43,7 @@ class GpuUsageService {
   final String _drmRoot;
   final NvmlReader _nvml;
   List<_SysfsGpu>? _sysfsGpus;
+  List<File>? _nvidiaRuntimeStatusFiles;
 
   Future<List<GpuSample>> read() async {
     final sysfsGpus = _sysfsGpus ??= await _discoverSysfs();
@@ -53,12 +54,22 @@ class GpuUsageService {
         samples.add(sample);
       }
     }
-    samples.addAll(await _nvml.read());
+    if (await _canReadNvidiaWithoutWake()) {
+      samples.addAll(await _nvml.read());
+    } else {
+      final sleepingNvidiaGpus = _nvidiaRuntimeStatusFiles!.length;
+      for (var index = 0; index < sleepingNvidiaGpus; index += 1) {
+        samples.add(
+          GpuSample(id: 'nvml$index', label: 'NV', usage: 0.0),
+        );
+      }
+    }
     return disambiguateGpuLabels(samples);
   }
 
   Future<List<_SysfsGpu>> _discoverSysfs() async {
     final gpus = <_SysfsGpu>[];
+    final nvidiaRuntimeStatusFiles = <File>[];
     try {
       await for (final entry in Directory(_drmRoot).list(followLinks: false)) {
         final name = p.basename(entry.path);
@@ -66,6 +77,15 @@ class GpuUsageService {
           continue;
         }
         final devicePath = p.join(entry.path, 'device');
+        final label = await _vendorLabel(p.join(devicePath, 'vendor'));
+        if (label == 'NV') {
+          final runtimeStatus = File(
+            p.join(devicePath, 'power', 'runtime_status'),
+          );
+          if (runtimeStatus.existsSync()) {
+            nvidiaRuntimeStatusFiles.add(runtimeStatus);
+          }
+        }
         final busyFile = File(p.join(devicePath, 'gpu_busy_percent'));
         if (!busyFile.existsSync()) {
           continue;
@@ -73,7 +93,7 @@ class GpuUsageService {
         gpus.add(
           _SysfsGpu(
             id: name,
-            label: await _vendorLabel(p.join(devicePath, 'vendor')),
+            label: label,
             busyFile: busyFile,
             temperatureFile: await _discoverGpuTemperatureFile(
               p.join(devicePath, 'hwmon'),
@@ -82,10 +102,44 @@ class GpuUsageService {
         );
       }
     } on FileSystemException {
+      _nvidiaRuntimeStatusFiles = const <File>[];
       return const <_SysfsGpu>[];
     }
+    _nvidiaRuntimeStatusFiles = nvidiaRuntimeStatusFiles;
     gpus.sort((a, b) => a.id.compareTo(b.id));
     return gpus;
+  }
+
+  Future<bool> _canReadNvidiaWithoutWake() async {
+    final statusFiles = _nvidiaRuntimeStatusFiles;
+    if (statusFiles == null || statusFiles.isEmpty) {
+      // Desktop NVIDIA systems may not expose runtime PM through DRM. Keep
+      // NVML available there because querying an always-on GPU cannot wake it.
+      return true;
+    }
+    var suspended = false;
+    for (final statusFile in statusFiles) {
+      try {
+        final status = (await statusFile.readAsString()).trim();
+        if (status == 'active' || status == 'unsupported') {
+          continue;
+        }
+        if (status == 'suspended' ||
+            status == 'suspending' ||
+            status == 'resuming') {
+          suspended = true;
+        } else {
+          // Unknown kernels remain compatible instead of silently hiding a
+          // GPU which is already powered.
+          continue;
+        }
+      } on FileSystemException {
+        continue;
+      }
+    }
+    // NVML utilization and temperature queries power on a runtime-suspended
+    // dGPU. Leave hybrid graphics asleep until another workload activates it.
+    return !suspended;
   }
 
   static final RegExp _cardName = RegExp(r'^card\d+$');

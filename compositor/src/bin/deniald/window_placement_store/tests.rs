@@ -39,8 +39,8 @@ fn state_path_prefers_an_absolute_xdg_state_home() {
 fn placement_round_trips_and_tracks_output_origin_changes() {
     let path = test_path("round-trip");
     let identity = WindowIdentity::wayland("org.example.Editor").unwrap();
-    let output = Rectangle::new((2560, 0).into(), (2560, 1440).into());
-    let geometry = Rectangle::new((3000, 220).into(), (900, 640).into());
+    let output = Rectangle::new((2560, 563).into(), (2560, 1440).into());
+    let geometry = Rectangle::new((3000, 783).into(), (900, 640).into());
     let state = WindowPlacementState {
         maximized: true,
         fullscreen: true,
@@ -70,7 +70,7 @@ fn placement_round_trips_and_tracks_output_origin_changes() {
 
     let loaded = WindowPlacementStore::load(Some(path.clone())).unwrap();
     assert_eq!(loaded.len(), 1);
-    let moved_output = Rectangle::new((-2560, 0).into(), (2560, 1440).into());
+    let moved_output = Rectangle::new((-2560, 120).into(), (2560, 1440).into());
     assert_eq!(
         loaded.restored_placement(
             &identity,
@@ -78,7 +78,7 @@ fn placement_round_trips_and_tracks_output_origin_changes() {
             Rectangle::new((0, 0).into(), (1920, 1080).into()),
         ),
         Some(RestoredWindowPlacement {
-            geometry: Rectangle::new((-2120, 220).into(), (900, 640).into()),
+            geometry: Rectangle::new((-2120, 340).into(), (900, 640).into()),
             state,
         })
     );

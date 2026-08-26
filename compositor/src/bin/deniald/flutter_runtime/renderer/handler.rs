@@ -528,12 +528,19 @@ impl FlutterGlHandler {
         lock(&self.broker).target_available(output)
     }
 
-    pub(in crate::flutter_runtime) fn cancel_output_authorizations(&self, render_view_ids: &[i64]) {
-        lock(&self.broker).cancel_authorizations(render_view_ids);
+    pub(in crate::flutter_runtime) fn with_output_target_availability<T>(
+        &self,
+        now: Instant,
+        action: impl FnOnce(&mut dyn FnMut(OutputId) -> bool) -> T,
+    ) -> (T, usize) {
+        let mut broker = lock(&self.broker);
+        let expired = broker.expire_authorizations(now);
+        let mut target_available = |output| broker.target_available(output);
+        (action(&mut target_available), expired)
     }
 
-    pub(in crate::flutter_runtime) fn expire_output_authorizations(&self, now: Instant) -> usize {
-        lock(&self.broker).expire_authorizations(now)
+    pub(in crate::flutter_runtime) fn cancel_output_authorizations(&self, render_view_ids: &[i64]) {
+        lock(&self.broker).cancel_authorizations(render_view_ids);
     }
 
     pub(in crate::flutter_runtime) fn release_output(

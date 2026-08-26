@@ -130,11 +130,15 @@ class _HsvColorWheelState extends State<HsvColorWheel> {
                       border: Border.all(
                         color: _focused
                             ? ShellTheme.of(context).accent
-                            : ShellColors.hairline,
+                            : context.shellColors.hairline,
                       ),
                     ),
                     child: CustomPaint(
-                      painter: HsvColorWheelPainter(color: widget.color),
+                      painter: HsvColorWheelPainter(
+                        color: widget.color,
+                        shadowColor: context.shellColors.shadow,
+                        indicatorColor: context.shellColors.textPrimary,
+                      ),
                     ),
                   ),
                 ),
@@ -148,9 +152,15 @@ class _HsvColorWheelState extends State<HsvColorWheel> {
 }
 
 class HsvColorWheelPainter extends CustomPainter {
-  const HsvColorWheelPainter({required this.color});
+  const HsvColorWheelPainter({
+    required this.color,
+    required this.shadowColor,
+    required this.indicatorColor,
+  });
 
   final Color color;
+  final Color shadowColor;
+  final Color indicatorColor;
 
   static const List<Color> _hues = <Color>[
     // These are the mathematical RGB gamut stops, not interface tokens.
@@ -186,7 +196,10 @@ class HsvColorWheelPainter extends CustomPainter {
         radius,
         Paint()
           ..shader = RadialGradient(
-            colors: <Color>[Colors.white, Colors.white.withAlpha(0)],
+            colors: const <Color>[
+              ShellMediaColors.contrastLight,
+              ShellMediaColors.transparentLight,
+            ],
           ).createShader(rect),
       );
     if (hsv.value < 1.0) {
@@ -194,7 +207,9 @@ class HsvColorWheelPainter extends CustomPainter {
         center,
         radius,
         Paint()
-          ..color = Colors.black.withAlpha(((1.0 - hsv.value) * 255).round()),
+          ..color = ShellMediaColors.darkness.withAlpha(
+            ((1.0 - hsv.value) * 255).round(),
+          ),
       );
     }
     canvas.restore();
@@ -206,14 +221,16 @@ class HsvColorWheelPainter extends CustomPainter {
         Offset(math.cos(angle), math.sin(angle)) *
             (hsv.saturation * selectionRadius);
     canvas
-      ..drawCircle(indicator, 7.0, Paint()..color = ShellColors.shadow)
-      ..drawCircle(indicator, 6.0, Paint()..color = ShellColors.textPrimary)
+      ..drawCircle(indicator, 7.0, Paint()..color = shadowColor)
+      ..drawCircle(indicator, 6.0, Paint()..color = indicatorColor)
       ..drawCircle(indicator, 3.5, Paint()..color = color);
   }
 
   @override
   bool shouldRepaint(covariant HsvColorWheelPainter oldDelegate) {
-    return color != oldDelegate.color;
+    return color != oldDelegate.color ||
+        shadowColor != oldDelegate.shadowColor ||
+        indicatorColor != oldDelegate.indicatorColor;
   }
 }
 

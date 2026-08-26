@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../localization/denial_localizations.dart';
 import '../../models/input_device_capabilities.dart';
 import '../../state/input_device_capabilities.dart';
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import 'settings_controls.dart';
 
@@ -97,7 +98,9 @@ class _SettingsTouchpadPageState extends ConsumerState<SettingsTouchpadPage> {
             liveRegion: true,
             child: Text(
               error,
-              style: ShellText.base.copyWith(color: ShellColors.performanceBad),
+              style: ShellText.base.copyWith(
+                color: context.shellColors.performanceBad,
+              ),
             ),
           ),
       ],

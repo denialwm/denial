@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../input/shell_interaction_registry.dart';
 import '../theme/motion.dart';
-import '../theme/tokens.dart';
+import '../theme/shell_theme.dart';
 
 enum ShellDismissPolicy { none, outsideTap, outsideTapAndEscape }
 
@@ -39,7 +39,7 @@ class ManagedShellSurface {
   final ShellCompositorPolicy compositorPolicy;
   final ShellDismissPolicy dismissPolicy;
   final Duration transitionDuration;
-  final Color barrierColor;
+  final Color? barrierColor;
   final bool closing;
   final FocusNode? restoreFocus;
 
@@ -84,7 +84,7 @@ class ShellSurfaceController extends Notifier<List<ManagedShellSurface>> {
     ShellCompositorPolicy compositorPolicy = ShellCompositorPolicy.normal,
     ShellDismissPolicy dismissPolicy = ShellDismissPolicy.outsideTapAndEscape,
     Duration transitionDuration = Motion.cardSettle,
-    Color barrierColor = ShellColors.overviewScrim,
+    Color? barrierColor,
   }) {
     if (keyName != null) {
       for (final surface in state.reversed) {
@@ -331,7 +331,11 @@ class _ManagedShellSurfaceLayerState
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: dismissOnOutside ? handle.close : null,
-                  child: ColoredBox(color: surface.barrierColor),
+                  child: ColoredBox(
+                    color:
+                        surface.barrierColor ??
+                        context.shellColors.overviewScrim,
+                  ),
                 ),
                 ScaleTransition(
                   scale: _scale,

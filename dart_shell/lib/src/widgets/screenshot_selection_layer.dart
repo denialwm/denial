@@ -234,7 +234,7 @@ class _ScreenshotSelectionSurfaceState
                           child: IgnorePointer(
                             child: DecoratedBox(
                               decoration: BoxDecoration(
-                                color: ShellColors.surfaceContainerLow,
+                                color: context.shellColors.surfaceContainerLow,
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Padding(
@@ -405,7 +405,10 @@ class _ScreenshotSelectionPainter extends CustomPainter {
         RRect.fromRectAndRadius(selected, const Radius.circular(8)),
       );
     }
-    canvas.drawPath(scrim, Paint()..color = const Color(0x99000000));
+    canvas.drawPath(
+      scrim,
+      Paint()..color = ShellMediaColors.darkness.withValues(alpha: 0.60),
+    );
 
     if (selected == null || selected.isEmpty) {
       return;

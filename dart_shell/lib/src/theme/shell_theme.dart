@@ -1,6 +1,10 @@
-import 'package:flutter/widgets.dart';
+import 'dart:ui' as ui;
+
+import 'package:flutter/material.dart';
 
 import 'backdrop_blur_level.dart';
+import 'shell_color_scheme.dart';
+import 'shell_text_theme.dart';
 import 'tokens.dart';
 
 @immutable
@@ -18,14 +22,35 @@ class ShellAccentPalette {
     required this.selection,
   });
 
-  factory ShellAccentPalette.from(Color source) {
-    final primary = source.withValues(alpha: 1);
-    final container = _tintedSurface(primary, 0.38);
-    final mutedContainer = _tintedSurface(primary, 0.22);
+  factory ShellAccentPalette.from(
+    Color source, [
+    ShellColorScheme colors = ShellColorScheme.dark,
+  ]) {
+    return ShellAccentPalette._fromGenerated(
+      ColorScheme.fromSeed(
+        seedColor: source.withValues(alpha: 1),
+        brightness: colors.brightness,
+        surface: colors.background,
+      ),
+      colors,
+    );
+  }
+
+  factory ShellAccentPalette._fromGenerated(
+    ColorScheme generated,
+    ShellColorScheme colors,
+  ) {
+    final primary = generated.primary;
+    final container = generated.primaryContainer;
+    final mutedContainer = _tintedSurface(
+      primary,
+      colors,
+      colors.brightness == Brightness.dark ? 0.22 : 0.12,
+    );
     final onContainer = _contrastForeground(container);
     return ShellAccentPalette._(
       primary: primary,
-      onPrimary: _accentForeground(primary),
+      onPrimary: _contrastForeground(primary),
       container: container,
       onContainer: onContainer,
       onContainerSecondary: onContainer.withValues(alpha: 0.78),
@@ -47,12 +72,36 @@ class ShellAccentPalette {
   final Color subtle;
   final Color outline;
   final Color selection;
+
+  static ShellAccentPalette lerp(
+    ShellAccentPalette first,
+    ShellAccentPalette second,
+    double t,
+  ) {
+    Color blend(Color a, Color b) => Color.lerp(a, b, t)!;
+    return ShellAccentPalette._(
+      primary: blend(first.primary, second.primary),
+      onPrimary: blend(first.onPrimary, second.onPrimary),
+      container: blend(first.container, second.container),
+      onContainer: blend(first.onContainer, second.onContainer),
+      onContainerSecondary: blend(
+        first.onContainerSecondary,
+        second.onContainerSecondary,
+      ),
+      mutedContainer: blend(first.mutedContainer, second.mutedContainer),
+      onMutedContainer: blend(first.onMutedContainer, second.onMutedContainer),
+      subtle: blend(first.subtle, second.subtle),
+      outline: blend(first.outline, second.outline),
+      selection: blend(first.selection, second.selection),
+    );
+  }
 }
 
 @immutable
 class ShellThemeData {
   const ShellThemeData({
-    this.accent = ShellColors.accent,
+    this.colors = ShellColorScheme.dark,
+    Color accent = ShellBrandColors.defaultAccent,
     this.windowRadius = ShellRadii.window,
     this.panelRadius = ShellRadii.panel,
     this.panelOpacity = ShellOpacity.panel,
@@ -61,9 +110,18 @@ class ShellThemeData {
     this.backdropBlurOpacityThreshold = 0.05,
     this.focusedWindowOpacity = 1,
     this.unfocusedWindowOpacity = 1,
-  });
+    this._resolvedTextTheme,
+    this._resolvedAccentPalette,
+    this._resolvedGeneratedColorScheme,
+    this._resolvedBackdropBlurFilterConfig,
+  }) : accentSeed = accent;
 
-  final Color accent;
+  final ShellColorScheme colors;
+  final Color accentSeed;
+  final ShellTextTheme? _resolvedTextTheme;
+  final ShellAccentPalette? _resolvedAccentPalette;
+  final ColorScheme? _resolvedGeneratedColorScheme;
+  final ImageFilterConfig? _resolvedBackdropBlurFilterConfig;
   final double windowRadius;
   final double panelRadius;
   final double panelOpacity;
@@ -73,18 +131,149 @@ class ShellThemeData {
   final double focusedWindowOpacity;
   final double unfocusedWindowOpacity;
 
+  static final Expando<_ShellThemeResolution> _resolutionCache =
+      Expando<_ShellThemeResolution>('ShellThemeData resolution');
+
+  _ShellThemeResolution get _resolution =>
+      _resolutionCache[this] ??= _ShellThemeResolution(this);
+
   double get backdropBlurSigma => backdropBlurLevel.sigma;
 
   double get backdropBlurDownsampleScale => backdropBlurLevel.downsampleScale;
 
-  ShellAccentPalette get accentPalette => ShellAccentPalette.from(accent);
+  /// Immutable blur blueprint shared by every surface using this theme.
+  ImageFilterConfig get backdropBlurFilterConfig =>
+      _resolution.backdropBlurFilterConfig;
 
-  Color panelColor(Color color) => color.withValues(alpha: panelOpacity);
+  Brightness get brightness => colors.brightness;
+
+  /// Semantic text roles resolved once for this immutable theme value.
+  ShellTextTheme get text => _resolution.text;
+
+  /// Seed-derived accent roles resolved once for this immutable theme value.
+  ShellAccentPalette get accentPalette => _resolution.accentPalette;
+
+  /// The normalized primary role. [accentSeed] is the persisted source color.
+  Color get accent => accentPalette.primary;
+
+  /// The minimum backing needed for semantic panel text to remain readable
+  /// over the opposite extreme wallpaper (white in dark mode, black in light
+  /// mode). The persisted opacity still controls blur and values above the
+  /// floor; it cannot make content-bearing glass illegible.
+  double get effectivePanelOpacity {
+    final floor = brightness == Brightness.dark ? 0.78 : 0.80;
+    final requested = panelOpacity.clamp(0.0, 1.0).toDouble();
+    return requested < floor ? floor : requested;
+  }
+
+  Color panelColor(Color color) =>
+      color.withValues(alpha: effectivePanelOpacity);
+
+  /// Material compatibility theme resolved once for this immutable value.
+  ThemeData toMaterialTheme() => _resolution.materialTheme;
+
+  ShellThemeData copyWith({
+    ShellColorScheme? colors,
+    Color? accent,
+    double? windowRadius,
+    double? panelRadius,
+    double? panelOpacity,
+    bool? backdropBlurEnabled,
+    ShellBackdropBlurLevel? backdropBlurLevel,
+    double? backdropBlurOpacityThreshold,
+    double? focusedWindowOpacity,
+    double? unfocusedWindowOpacity,
+  }) {
+    return ShellThemeData(
+      colors: colors ?? this.colors,
+      accent: accent ?? accentSeed,
+      windowRadius: windowRadius ?? this.windowRadius,
+      panelRadius: panelRadius ?? this.panelRadius,
+      panelOpacity: panelOpacity ?? this.panelOpacity,
+      backdropBlurEnabled: backdropBlurEnabled ?? this.backdropBlurEnabled,
+      backdropBlurLevel: backdropBlurLevel ?? this.backdropBlurLevel,
+      backdropBlurOpacityThreshold:
+          backdropBlurOpacityThreshold ?? this.backdropBlurOpacityThreshold,
+      focusedWindowOpacity: focusedWindowOpacity ?? this.focusedWindowOpacity,
+      unfocusedWindowOpacity:
+          unfocusedWindowOpacity ?? this.unfocusedWindowOpacity,
+    );
+  }
+
+  static ShellThemeData lerp(
+    ShellThemeData first,
+    ShellThemeData second,
+    double t,
+  ) {
+    if (t <= 0) {
+      return first;
+    }
+    if (t >= 1) {
+      return second;
+    }
+    final colorsMatch = first.colors == second.colors;
+    final accentsMatch = first.accentSeed == second.accentSeed;
+    final colorInputsMatch = colorsMatch && accentsMatch;
+    double blend(double a, double b) => a + (b - a) * t;
+    return ShellThemeData(
+      colors: colorsMatch
+          ? first.colors
+          : ShellColorScheme.lerp(first.colors, second.colors, t),
+      accent: accentsMatch
+          ? first.accentSeed
+          : Color.lerp(first.accentSeed, second.accentSeed, t)!,
+      resolvedTextTheme: colorsMatch
+          ? first.text
+          : ShellTextTheme.lerp(first.text, second.text, t),
+      resolvedAccentPalette: colorInputsMatch
+          ? first.accentPalette
+          : ShellAccentPalette.lerp(
+              first.accentPalette,
+              second.accentPalette,
+              t,
+            ),
+      resolvedGeneratedColorScheme: colorInputsMatch
+          ? first._resolution.generatedColorScheme
+          : ColorScheme.lerp(
+              first._resolution.generatedColorScheme,
+              second._resolution.generatedColorScheme,
+              t,
+            ),
+      resolvedBackdropBlurFilterConfig:
+          first.backdropBlurLevel == second.backdropBlurLevel
+          ? first.backdropBlurFilterConfig
+          : t < 0.5
+          ? first.backdropBlurFilterConfig
+          : second.backdropBlurFilterConfig,
+      windowRadius: blend(first.windowRadius, second.windowRadius),
+      panelRadius: blend(first.panelRadius, second.panelRadius),
+      panelOpacity: blend(first.panelOpacity, second.panelOpacity),
+      backdropBlurEnabled: t < 0.5
+          ? first.backdropBlurEnabled
+          : second.backdropBlurEnabled,
+      backdropBlurLevel: t < 0.5
+          ? first.backdropBlurLevel
+          : second.backdropBlurLevel,
+      backdropBlurOpacityThreshold: blend(
+        first.backdropBlurOpacityThreshold,
+        second.backdropBlurOpacityThreshold,
+      ),
+      focusedWindowOpacity: blend(
+        first.focusedWindowOpacity,
+        second.focusedWindowOpacity,
+      ),
+      unfocusedWindowOpacity: blend(
+        first.unfocusedWindowOpacity,
+        second.unfocusedWindowOpacity,
+      ),
+    );
+  }
 
   @override
   bool operator ==(Object other) {
     return other is ShellThemeData &&
-        other.accent == accent &&
+        other.colors == colors &&
+        other.accentSeed == accentSeed &&
         other.windowRadius == windowRadius &&
         other.panelRadius == panelRadius &&
         other.panelOpacity == panelOpacity &&
@@ -97,7 +286,8 @@ class ShellThemeData {
 
   @override
   int get hashCode => Object.hash(
-    accent,
+    colors,
+    accentSeed,
     windowRadius,
     panelRadius,
     panelOpacity,
@@ -106,6 +296,60 @@ class ShellThemeData {
     backdropBlurOpacityThreshold,
     focusedWindowOpacity,
     unfocusedWindowOpacity,
+  );
+}
+
+/// Lazily memoizes derived objects by [ShellThemeData] identity.
+///
+/// Keeping the cache outside the immutable value preserves const construction.
+/// Interpolated animation values also benefit: every widget in one transition
+/// frame shares the same derived text and accent objects, while an accent-only
+/// shell frame never pays to construct a complete Material [ThemeData].
+class _ShellThemeResolution {
+  _ShellThemeResolution(this.theme);
+
+  final ShellThemeData theme;
+
+  late final ShellTextTheme text =
+      theme._resolvedTextTheme ?? ShellTextTheme.from(theme.colors);
+
+  late final ColorScheme generatedColorScheme =
+      theme._resolvedGeneratedColorScheme ??
+      ColorScheme.fromSeed(
+        seedColor: theme.accentSeed.withValues(alpha: 1),
+        brightness: theme.brightness,
+        surface: theme.colors.background,
+      );
+
+  late final ShellAccentPalette accentPalette =
+      theme._resolvedAccentPalette ??
+      ShellAccentPalette._fromGenerated(generatedColorScheme, theme.colors);
+
+  late final ImageFilterConfig backdropBlurFilterConfig =
+      theme._resolvedBackdropBlurFilterConfig ??
+      ImageFilterConfig.blur(
+        sigmaX: theme.backdropBlurSigma,
+        sigmaY: theme.backdropBlurSigma,
+        tileMode: ui.TileMode.clamp,
+        downsampleScale: theme.backdropBlurDownsampleScale,
+      );
+
+  late final ThemeData materialTheme = ThemeData(
+    brightness: theme.brightness,
+    useMaterial3: true,
+    scaffoldBackgroundColor: ShellMediaColors.transparentDark,
+    colorScheme: generatedColorScheme.copyWith(
+      surface: theme.colors.background,
+      onSurface: theme.colors.textPrimary,
+      onSurfaceVariant: theme.colors.textSecondary,
+      outline: theme.colors.hairline,
+      outlineVariant: theme.colors.hairlineSoft,
+      surfaceContainerLow: theme.colors.surfaceContainerLow,
+      surfaceContainer: theme.colors.surfaceContainer,
+      surfaceContainerHigh: theme.colors.surfaceContainerHigh,
+      surfaceContainerHighest: theme.colors.surfaceContainerHighest,
+      shadow: theme.colors.shadow,
+    ),
   );
 }
 
@@ -119,39 +363,93 @@ class ShellTheme extends InheritedWidget {
         const ShellThemeData();
   }
 
+  static ShellColorScheme colorsOf(BuildContext context) => of(context).colors;
+
   @override
   bool updateShouldNotify(covariant ShellTheme oldWidget) {
     return oldWidget.data != data;
   }
 }
 
-Color _tintedSurface(Color accent, double amount) {
-  return Color.alphaBlend(
-    accent.withValues(alpha: amount),
-    ShellColors.surfaceContainerHigh.withValues(alpha: 1),
-  );
+class AnimatedShellTheme extends ImplicitlyAnimatedWidget {
+  const AnimatedShellTheme({
+    required this.data,
+    required this.child,
+    required super.duration,
+    super.curve = Curves.easeInOut,
+    super.key,
+  });
+
+  final ShellThemeData data;
+  final Widget child;
+
+  @override
+  AnimatedWidgetBaseState<AnimatedShellTheme> createState() =>
+      _AnimatedShellThemeState();
 }
 
-Color _accentForeground(Color background) {
-  const dark = Color(0xff000000);
-  const light = Color(0xffffffff);
-  final perceivedBrightness =
-      background.r * 0.299 + background.g * 0.587 + background.b * 0.114;
-  return perceivedBrightness > 0.5 ? dark : light;
+/// Installs the interpolated semantic base style below [AnimatedShellTheme].
+class ShellDefaultTextStyle extends StatelessWidget {
+  const ShellDefaultTextStyle({required this.child, super.key});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTextStyle(style: context.shellTheme.text.base, child: child);
+  }
+}
+
+class _AnimatedShellThemeState
+    extends AnimatedWidgetBaseState<AnimatedShellTheme> {
+  _ShellThemeDataTween? _theme;
+
+  @override
+  void forEachTween(TweenVisitor<dynamic> visitor) {
+    _theme =
+        visitor(
+              _theme,
+              widget.data,
+              (dynamic value) =>
+                  _ShellThemeDataTween(begin: value as ShellThemeData),
+            )
+            as _ShellThemeDataTween?;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ShellTheme(data: _theme!.evaluate(animation), child: widget.child);
+  }
+}
+
+class _ShellThemeDataTween extends Tween<ShellThemeData> {
+  _ShellThemeDataTween({super.begin});
+
+  @override
+  ShellThemeData lerp(double t) => ShellThemeData.lerp(begin!, end!, t);
+}
+
+extension ShellThemeBuildContext on BuildContext {
+  ShellThemeData get shellTheme => ShellTheme.of(this);
+
+  ShellColorScheme get shellColors => ShellTheme.colorsOf(this);
+}
+
+Color _tintedSurface(Color accent, ShellColorScheme colors, double amount) {
+  return Color.alphaBlend(
+    accent.withValues(alpha: amount),
+    colors.surfaceContainerHigh.withValues(alpha: 1),
+  );
 }
 
 Color _contrastForeground(Color background) {
-  const dark = Color(0xff000000);
-  const light = Color(0xffffffff);
+  const dark = ShellMediaColors.darkness;
+  const light = ShellMediaColors.contrastLight;
   final backgroundLuminance = background.computeLuminance();
-  final darkContrast = _contrastRatio(
-    backgroundLuminance,
-    dark.computeLuminance(),
-  );
-  final lightContrast = _contrastRatio(
-    backgroundLuminance,
-    light.computeLuminance(),
-  );
+  const darkLuminance = 0.0;
+  const lightLuminance = 1.0;
+  final darkContrast = _contrastRatio(backgroundLuminance, darkLuminance);
+  final lightContrast = _contrastRatio(backgroundLuminance, lightLuminance);
   return darkContrast >= lightContrast ? dark : light;
 }
 

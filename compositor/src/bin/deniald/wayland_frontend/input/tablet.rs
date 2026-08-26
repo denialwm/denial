@@ -95,11 +95,8 @@ where
     E: AbsolutePositionEvent<LibinputInputBackend> + Event<LibinputInputBackend>,
 {
     let mapping = tablet_output_mapping(frontend, &event.device())?;
-    Some(output_bound_absolute_position(
-        event,
-        mapping.bounds,
-        mapping.transform,
-    ))
+    let position = output_bound_absolute_position(event, mapping.bounds, mapping.transform);
+    Some(frontend.clamp_pointer(position))
 }
 
 fn tablet_handles<E>(state: &mut RuntimeState, event: &E) -> (TabletHandle, TabletToolHandle)

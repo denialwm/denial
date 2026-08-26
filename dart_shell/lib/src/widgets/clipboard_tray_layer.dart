@@ -333,7 +333,7 @@ class _ClipboardTraySurface extends ConsumerWidget {
       child: ShellBackdropBlur(
         borderRadius: radius,
         child: Material(
-          color: Colors.transparent,
+          color: ShellMediaColors.transparentDark,
           child: DecoratedBox(
             decoration: BoxDecoration(
               borderRadius: radius,
@@ -358,10 +358,12 @@ class _ClipboardTraySurface extends ConsumerWidget {
                   shellTheme.panelColor(
                     Color.alphaBlend(
                       accent.primary.withValues(alpha: 0.14),
-                      ShellColors.surfaceContainerLow,
+                      context.shellColors.surfaceContainerLow,
                     ),
                   ),
-                  shellTheme.panelColor(ShellColors.panelBackgroundBottom),
+                  shellTheme.panelColor(
+                    context.shellColors.panelBackgroundBottom,
+                  ),
                 ],
               ),
               boxShadow: [
@@ -370,8 +372,8 @@ class _ClipboardTraySurface extends ConsumerWidget {
                   blurRadius: 32,
                   spreadRadius: -8,
                 ),
-                const BoxShadow(
-                  color: ShellColors.shadow,
+                BoxShadow(
+                  color: context.shellColors.shadow,
                   blurRadius: 36,
                   spreadRadius: -12,
                 ),
@@ -630,12 +632,12 @@ class _ClipboardClearAllButton extends StatelessWidget {
         style: TextButton.styleFrom(
           minimumSize: const Size(0, 34),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          foregroundColor: ShellColors.textSecondary,
-          disabledForegroundColor: ShellColors.glyphInactive,
-          backgroundColor: ShellColors.surfaceContainerHigh,
+          foregroundColor: context.shellColors.textSecondary,
+          disabledForegroundColor: context.shellColors.glyphInactive,
+          backgroundColor: context.shellColors.surfaceContainerHigh,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: const BorderSide(color: ShellColors.hairlineSoft),
+            side: BorderSide(color: context.shellColors.hairlineSoft),
           ),
         ),
         icon: clearing
@@ -643,7 +645,7 @@ class _ClipboardClearAllButton extends StatelessWidget {
                 dimension: 16,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
-            : const Icon(Icons.clear_all_rounded, size: 18),
+            : Icon(Icons.clear_all_rounded, size: 18),
         label: Text(label),
       ),
     );
@@ -904,7 +906,7 @@ class _ClipboardPinButton extends StatelessWidget {
           child: Material(
             color: Color.alphaBlend(
               accent.primary.withValues(alpha: pinned ? 0.34 : 0.18),
-              ShellColors.surfaceContainerHigh,
+              context.shellColors.surfaceContainerHigh,
             ).withValues(alpha: 0.94),
             shape: CircleBorder(
               side: BorderSide(
@@ -918,10 +920,10 @@ class _ClipboardPinButton extends StatelessWidget {
                 pinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
                 size: 13,
                 color: onPressed == null
-                    ? ShellColors.textTertiary
+                    ? context.shellColors.textTertiary
                     : pinned
                     ? accent.primary
-                    : ShellColors.textPrimary,
+                    : context.shellColors.textPrimary,
               ),
             ),
           ),
@@ -949,7 +951,7 @@ class _ClipboardDeleteButton extends StatelessWidget {
           child: Material(
             color: Color.alphaBlend(
               accent.primary.withValues(alpha: 0.18),
-              ShellColors.surfaceContainerHigh,
+              context.shellColors.surfaceContainerHigh,
             ).withValues(alpha: 0.9),
             shape: CircleBorder(
               side: BorderSide(color: accent.primary.withValues(alpha: 0.38)),
@@ -961,8 +963,8 @@ class _ClipboardDeleteButton extends StatelessWidget {
                 Icons.close_rounded,
                 size: 12,
                 color: onPressed == null
-                    ? ShellColors.textTertiary
-                    : ShellColors.textPrimary,
+                    ? context.shellColors.textTertiary
+                    : context.shellColors.textPrimary,
               ),
             ),
           ),
@@ -1056,7 +1058,7 @@ class _ClipboardImagePreview extends ConsumerWidget {
     );
     return RepaintBoundary(
       child: ColoredBox(
-        color: ShellColors.surfaceContainerLow,
+        color: context.shellColors.surfaceContainerLow,
         child: data.when(
           data: (payload) => Image.memory(
             payload.bytes,
@@ -1217,7 +1219,7 @@ class _ClipboardTextTile extends StatelessWidget {
     final normalized = entry.preview.replaceAll(RegExp(r'\s+$'), '');
     final text = normalized.isEmpty ? ' ' : normalized;
     final style = ShellText.base.copyWith(
-      color: ShellColors.textPrimary,
+      color: context.shellColors.textPrimary,
       fontSize: 13,
       height: 1.38,
     );
@@ -1290,7 +1292,7 @@ BoxDecoration _clipboardNoteDecoration(
       colors: [
         Color.alphaBlend(
           accent.primary.withValues(alpha: tint),
-          ShellColors.surfaceContainerLow,
+          context.shellColors.surfaceContainerLow,
         ).withValues(
           alpha: entry.active
               ? 0.62
@@ -1300,7 +1302,7 @@ BoxDecoration _clipboardNoteDecoration(
         ),
         Color.alphaBlend(
           accent.primary.withValues(alpha: tint * 0.3),
-          ShellColors.panelBackgroundBottom,
+          context.shellColors.panelBackgroundBottom,
         ).withValues(
           alpha: entry.active
               ? 0.46
@@ -1422,12 +1424,12 @@ class _PreviewFallback extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: ShellColors.textTertiary),
+          Icon(icon, color: context.shellColors.textTertiary),
           const SizedBox(height: 6),
           Text(
             label,
             style: ShellText.base.copyWith(
-              color: ShellColors.textTertiary,
+              color: context.shellColors.textTertiary,
               fontSize: 10,
             ),
           ),
@@ -1483,7 +1485,7 @@ class _ClipboardMessage extends StatelessWidget {
               message,
               textAlign: TextAlign.center,
               style: ShellText.base.copyWith(
-                color: ShellColors.textTertiary,
+                color: context.shellColors.textTertiary,
                 height: 1.4,
               ),
             ),

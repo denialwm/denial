@@ -860,7 +860,21 @@ void main() {
     );
 
     expect(panel.inputLayoutRevision, initial.inputLayoutRevision);
+    expect(
+      identical(panel.placements, initial.placements),
+      isTrue,
+      reason: 'panel visibility must not clone the complete window map',
+    );
     expect(placement.inputLayoutRevision, panel.inputLayoutRevision + 1);
+  });
+
+  test('panel-only updates do not invalidate the base desktop scene', () {
+    final initial = DesktopWorkspaceState.initial();
+    final launcher = initial.copyWith(panel: DesktopPanel.launcher);
+    final dashboard = launcher.copyWith(panel: DesktopPanel.dashboard);
+
+    expect(desktopWorkspaceHasSameSceneStructure(initial, launcher), isTrue);
+    expect(desktopWorkspaceHasSameSceneStructure(launcher, dashboard), isTrue);
   });
 
   test('live visual frame follows every resized placement edge', () {
@@ -1063,8 +1077,8 @@ void main() {
 
     expect(launcher, const Rect.fromLTWH(2574, 14, 680, 620));
     expect(dashboard, const Rect.fromLTWH(2574, 806, 470, 620));
-    expect(launcherTrigger, const Rect.fromLTWH(2560, 0, 8, 96));
-    expect(dashboardTrigger, const Rect.fromLTWH(2560, 1344, 8, 96));
+    expect(launcherTrigger, const Rect.fromLTWH(2560, 0, 14, 620));
+    expect(dashboardTrigger, const Rect.fromLTWH(2560, 820, 14, 620));
   });
 
   test('desktop panels and hover triggers follow configured anchors', () {
@@ -1089,7 +1103,39 @@ void main() {
         outputRect: secondOutput,
         placement: placement,
       ),
-      const Rect.fromLTWH(5112, 0, 8, 96),
+      const Rect.fromLTWH(5096, 0, 24, 500),
+    );
+  });
+
+  test('edge-centered panel triggers match the panel extent', () {
+    const topCenter = ShellPopupPlacement(
+      anchor: ShellPopupAnchor.topCenter,
+      width: 640,
+      height: 500,
+      margin: 14,
+    );
+    const bottomCenter = ShellPopupPlacement(
+      anchor: ShellPopupAnchor.bottomCenter,
+      width: 640,
+      height: 500,
+      margin: 14,
+    );
+
+    expect(
+      DesktopMetrics.launcherTriggerRect(
+        viewSize,
+        outputRect: secondOutput,
+        placement: topCenter,
+      ),
+      const Rect.fromLTWH(3520, 0, 640, 14),
+    );
+    expect(
+      DesktopMetrics.dashboardTriggerRect(
+        viewSize,
+        outputRect: secondOutput,
+        placement: bottomCenter,
+      ),
+      const Rect.fromLTWH(3520, 1426, 640, 14),
     );
   });
 

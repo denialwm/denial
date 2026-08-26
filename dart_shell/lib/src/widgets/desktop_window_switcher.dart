@@ -8,8 +8,13 @@ import '../localization/denial_localizations.dart';
 import '../models/denial_window.dart';
 import '../state/desktop_window_switcher.dart';
 import '../theme/motion.dart';
+import '../theme/shell_color_scheme.dart';
 import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
+
+// SUPER+TAB is transitional desktop chrome rather than an application
+// surface. Keep it visually stable over every wallpaper and shell theme.
+const _windowSwitcherColors = ShellColorScheme.dark;
 
 /// Geometry and stacking for SUPER+TAB's existing desktop window widgets.
 ///
@@ -403,8 +408,8 @@ class DesktopWindowSwitcherBackdrop extends StatelessWidget {
               : Motion.windowSwitcherCollapse,
           curve: Motion.md3Emphasized,
           color: expanded
-              ? ShellColors.background.withValues(alpha: 0.72)
-              : ShellColors.background.withValues(alpha: 0.0),
+              ? _windowSwitcherColors.background.withValues(alpha: 0.72)
+              : _windowSwitcherColors.background.withValues(alpha: 0.0),
         ),
       ),
     );
@@ -429,6 +434,9 @@ class DesktopWindowSwitcherLayer extends StatelessWidget {
   Widget build(BuildContext context) {
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final expanded = switcher.expandedChromeVisible;
+    final chromeTheme = context.shellTheme.copyWith(
+      colors: _windowSwitcherColors,
+    );
     final duration = reduceMotion
         ? Duration.zero
         : expanded
@@ -474,9 +482,9 @@ class DesktopWindowSwitcherLayer extends StatelessWidget {
                                     ),
                               child: DecoratedBox(
                                 decoration: BoxDecoration(
-                                  color: ShellTheme.of(
-                                    context,
-                                  ).panelColor(ShellColors.panelBackground),
+                                  color: chromeTheme.panelColor(
+                                    _windowSwitcherColors.panelBackground,
+                                  ),
                                   borderRadius: BorderRadius.circular(
                                     ShellRadii.chip,
                                   ),
@@ -494,7 +502,8 @@ class DesktopWindowSwitcherLayer extends StatelessWidget {
                                           switcher.objectIds.length,
                                         ),
                                         style: ShellText.cardTitle.copyWith(
-                                          color: ShellColors.textSecondary,
+                                          color: _windowSwitcherColors
+                                              .textSecondary,
                                         ),
                                       ),
                                       const SizedBox(width: 12.0),
@@ -508,7 +517,10 @@ class DesktopWindowSwitcherLayer extends StatelessWidget {
                                                 ),
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
-                                          style: ShellText.cardTitle,
+                                          style: ShellText.cardTitle.copyWith(
+                                            color: _windowSwitcherColors
+                                                .textPrimary,
+                                          ),
                                         ),
                                       ),
                                     ],

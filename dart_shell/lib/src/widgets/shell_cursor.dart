@@ -8,7 +8,7 @@ import 'package:flutter/widgets.dart';
 import '../models/denial_drag_icon.dart';
 import '../models/display_layout.dart';
 import '../theme/cursor_themes.dart';
-import '../theme/tokens.dart';
+import '../theme/shell_theme.dart';
 import 'retained_translation.dart';
 import 'window_surface_tree.dart';
 
@@ -433,7 +433,11 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
                               )
                             : CustomPaint(
                                 size: artworkSize,
-                                painter: const _ShellCursorPainter(),
+                                painter: _ShellCursorPainter(
+                                  shadowColor: context.shellColors.shadow,
+                                  fillColor: context.shellColors.textPrimary,
+                                  outlineColor: context.shellColors.background,
+                                ),
                               ),
                       ),
                     ),
@@ -577,7 +581,15 @@ String _flutterCursorKind(ShellCursorKind kind) {
 }
 
 class _ShellCursorPainter extends CustomPainter {
-  const _ShellCursorPainter();
+  const _ShellCursorPainter({
+    required this.shadowColor,
+    required this.fillColor,
+    required this.outlineColor,
+  });
+
+  final Color shadowColor;
+  final Color fillColor;
+  final Color outlineColor;
 
   static const Size size = Size(24, 32);
 
@@ -599,17 +611,17 @@ class _ShellCursorPainter extends CustomPainter {
       ..lineTo(21.7, 16.5)
       ..close();
 
-    canvas.drawShadow(path, ShellColors.shadow, 3.0, false);
+    canvas.drawShadow(path, shadowColor, 3.0, false);
     canvas.drawPath(
       path,
       Paint()
-        ..color = ShellColors.textPrimary
+        ..color = fillColor
         ..style = PaintingStyle.fill,
     );
     canvas.drawPath(
       path,
       Paint()
-        ..color = ShellColors.background
+        ..color = outlineColor
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5
         ..strokeJoin = StrokeJoin.round,
@@ -618,5 +630,9 @@ class _ShellCursorPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _ShellCursorPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _ShellCursorPainter oldDelegate) {
+    return oldDelegate.shadowColor != shadowColor ||
+        oldDelegate.fillColor != fillColor ||
+        oldDelegate.outlineColor != outlineColor;
+  }
 }

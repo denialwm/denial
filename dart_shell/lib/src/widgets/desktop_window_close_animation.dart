@@ -4,8 +4,8 @@ import 'package:flutter/widgets.dart';
 
 import '../state/desktop_window_close_effect.dart';
 import '../theme/motion.dart';
+import '../theme/shell_color_scheme.dart';
 import '../theme/shell_theme.dart';
-import '../theme/tokens.dart';
 import 'desktop_window_snapshot.dart';
 
 /// Plays a desktop window's terminal visual without retaining native input.
@@ -90,6 +90,7 @@ class _DesktopWindowCloseAnimationState
   @override
   Widget build(BuildContext context) {
     final accent = ShellTheme.of(context).accent;
+    final colors = context.shellColors;
     final snapshotting =
         widget.effect != DesktopWindowCloseEffect.none &&
         !MediaQuery.disableAnimationsOf(context);
@@ -114,6 +115,7 @@ class _DesktopWindowCloseAnimationState
                         progress: progress,
                         particles: _particles,
                         accent: accent,
+                        colors: colors,
                       )
                     : null,
                 foregroundPainter:
@@ -122,6 +124,7 @@ class _DesktopWindowCloseAnimationState
                         progress: progress,
                         particles: _particles,
                         accent: accent,
+                        colors: colors,
                       )
                     : null,
                 child: Opacity(
@@ -186,11 +189,13 @@ class _ExplosionPainter extends CustomPainter {
     required this.progress,
     required this.particles,
     required this.accent,
+    required this.colors,
   });
 
   final double progress;
   final List<_ExplosionParticle> particles;
   final Color accent;
+  final ShellColorScheme colors;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -205,8 +210,8 @@ class _ExplosionPainter extends CustomPainter {
       final glow = Paint()
         ..shader = RadialGradient(
           colors: <Color>[
-            ShellColors.textPrimary.withValues(alpha: flash * 0.72),
-            ShellColors.performanceWarning.withValues(alpha: flash * 0.48),
+            colors.textPrimary.withValues(alpha: flash * 0.72),
+            colors.performanceWarning.withValues(alpha: flash * 0.48),
             accent.withValues(alpha: flash * 0.20),
             accent.withValues(alpha: 0.0),
           ],
@@ -233,7 +238,8 @@ class _ExplosionPainter extends CustomPainter {
   bool shouldRepaint(covariant _ExplosionPainter oldDelegate) {
     return progress != oldDelegate.progress ||
         particles != oldDelegate.particles ||
-        accent != oldDelegate.accent;
+        accent != oldDelegate.accent ||
+        colors != oldDelegate.colors;
   }
 }
 
@@ -242,19 +248,21 @@ class _ExplosionParticlePainter extends CustomPainter {
     required this.progress,
     required this.particles,
     required this.accent,
+    required this.colors,
   });
 
   final double progress;
   final List<_ExplosionParticle> particles;
   final Color accent;
+  final ShellColorScheme colors;
 
   List<Color> get _palette => <Color>[
-    ShellColors.textPrimary,
+    colors.textPrimary,
     accent,
-    ShellColors.performanceWarning,
-    ShellColors.performanceBad,
-    ShellColors.gestureArmed,
-    ShellColors.surfaceContainerHighest,
+    colors.performanceWarning,
+    colors.performanceBad,
+    colors.gestureArmed,
+    colors.surfaceContainerHighest,
   ];
 
   @override
@@ -318,7 +326,8 @@ class _ExplosionParticlePainter extends CustomPainter {
   bool shouldRepaint(covariant _ExplosionParticlePainter oldDelegate) {
     return progress != oldDelegate.progress ||
         particles != oldDelegate.particles ||
-        accent != oldDelegate.accent;
+        accent != oldDelegate.accent ||
+        colors != oldDelegate.colors;
   }
 }
 

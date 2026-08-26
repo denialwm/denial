@@ -486,7 +486,7 @@ class _PositionSurfaceState extends ConsumerState<_PositionSurface> {
                   l10n.wallpaperMobilePositionHint,
                   textAlign: TextAlign.center,
                   style: ShellText.cardTitle.copyWith(
-                    color: ShellColors.textSecondary,
+                    color: context.shellColors.textSecondary,
                   ),
                 ),
                 const SizedBox(height: 14),
@@ -571,12 +571,12 @@ class _MobileWallpaperTopBar extends StatelessWidget {
           Expanded(
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: ShellColors.panelBackground,
+                color: context.shellColors.panelBackground,
                 borderRadius: BorderRadius.circular(ShellRadii.chip),
-                border: Border.all(color: ShellColors.hairline),
-                boxShadow: const <BoxShadow>[
+                border: Border.all(color: context.shellColors.hairline),
+                boxShadow: <BoxShadow>[
                   BoxShadow(
-                    color: ShellColors.shadowSoft,
+                    color: context.shellColors.shadowSoft,
                     blurRadius: 18,
                     offset: Offset(0, 8),
                   ),
@@ -624,12 +624,12 @@ class _MobileWallpaperPanel extends StatelessWidget {
         constraints: const BoxConstraints(maxWidth: 680),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: theme.panelColor(ShellColors.panelBackgroundBottom),
+            color: theme.panelColor(context.shellColors.panelBackgroundBottom),
             borderRadius: BorderRadius.circular(theme.panelRadius),
-            border: Border.all(color: ShellColors.hairline),
-            boxShadow: const <BoxShadow>[
+            border: Border.all(color: context.shellColors.hairline),
+            boxShadow: <BoxShadow>[
               BoxShadow(
-                color: ShellColors.shadow,
+                color: context.shellColors.shadow,
                 blurRadius: 30,
                 offset: Offset(0, 14),
               ),
@@ -683,10 +683,12 @@ class _MobileWallpaperCandidateCard extends StatelessWidget {
             width: 174,
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: ShellColors.surfaceContainerHigh,
+                color: context.shellColors.surfaceContainerHigh,
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(
-                  color: current ? accent.primary : ShellColors.hairline,
+                  color: current
+                      ? accent.primary
+                      : context.shellColors.hairline,
                   width: current ? 3 : 1,
                 ),
               ),
@@ -702,20 +704,20 @@ class _MobileWallpaperCandidateCard extends StatelessWidget {
                         filterQuality: FilterQuality.medium,
                         gaplessPlayback: true,
                         excludeFromSemantics: true,
-                        errorBuilder: (_, _, _) => const ColoredBox(
-                          color: ShellColors.surfaceContainerHigh,
+                        errorBuilder: (_, _, _) => ColoredBox(
+                          color: context.shellColors.surfaceContainerHigh,
                           child: Icon(
                             Icons.broken_image_rounded,
-                            color: ShellColors.textTertiary,
+                            color: context.shellColors.textTertiary,
                           ),
                         ),
                       )
                     else
-                      const ColoredBox(
-                        color: ShellColors.surfaceContainerHigh,
+                      ColoredBox(
+                        color: context.shellColors.surfaceContainerHigh,
                         child: Icon(
                           Icons.image_rounded,
-                          color: ShellColors.textTertiary,
+                          color: context.shellColors.textTertiary,
                         ),
                       ),
                     Positioned(
@@ -723,7 +725,9 @@ class _MobileWallpaperCandidateCard extends StatelessWidget {
                       right: 0,
                       bottom: 0,
                       child: ColoredBox(
-                        color: const Color(0xc8000000),
+                        color: ShellMediaColors.darkness.withValues(
+                          alpha: 0.78,
+                        ),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 10,
@@ -740,7 +744,7 @@ class _MobileWallpaperCandidateCard extends StatelessWidget {
                     ),
                     if (downloading)
                       ColoredBox(
-                        color: ShellColors.overviewScrim,
+                        color: context.shellColors.overviewScrim,
                         child: Center(
                           child: SizedBox.square(
                             dimension: 38,
@@ -792,10 +796,10 @@ class _MobileWallpaperActionButton extends StatelessWidget {
           decoration: BoxDecoration(
             color: primary
                 ? accent.container
-                : ShellColors.surfaceContainerHigh,
+                : context.shellColors.surfaceContainerHigh,
             borderRadius: BorderRadius.circular(ShellRadii.chip),
             border: Border.all(
-              color: primary ? accent.primary : ShellColors.hairline,
+              color: primary ? accent.primary : context.shellColors.hairline,
             ),
           ),
           child: Padding(
@@ -806,7 +810,9 @@ class _MobileWallpaperActionButton extends StatelessWidget {
                 Icon(
                   icon,
                   size: 20,
-                  color: primary ? accent.onContainer : ShellColors.textPrimary,
+                  color: primary
+                      ? accent.onContainer
+                      : context.shellColors.textPrimary,
                 ),
                 const SizedBox(width: 8),
                 Flexible(
@@ -817,7 +823,7 @@ class _MobileWallpaperActionButton extends StatelessWidget {
                     style: ShellText.cardTitle.copyWith(
                       color: primary
                           ? accent.onContainer
-                          : ShellColors.textPrimary,
+                          : context.shellColors.textPrimary,
                     ),
                   ),
                 ),
@@ -854,12 +860,12 @@ class _MobileWallpaperRoundButton extends StatelessWidget {
           onTap: onPressed,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: ShellColors.panelBackground,
+              color: context.shellColors.panelBackground,
               shape: BoxShape.circle,
-              border: Border.all(color: ShellColors.hairline),
-              boxShadow: const <BoxShadow>[
+              border: Border.all(color: context.shellColors.hairline),
+              boxShadow: <BoxShadow>[
                 BoxShadow(
-                  color: ShellColors.shadowSoft,
+                  color: context.shellColors.shadowSoft,
                   blurRadius: 18,
                   offset: Offset(0, 8),
                 ),
@@ -867,7 +873,11 @@ class _MobileWallpaperRoundButton extends StatelessWidget {
             ),
             child: SizedBox.square(
               dimension: 48,
-              child: Icon(icon, size: 24, color: ShellColors.textPrimary),
+              child: Icon(
+                icon,
+                size: 24,
+                color: context.shellColors.textPrimary,
+              ),
             ),
           ),
         ),

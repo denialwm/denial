@@ -1,0 +1,11 @@
+[Unit]
+Description=Denial development desktop portal backend
+PartOf=denial-session.target
+After=denial-session.target
+
+[Service]
+Type=dbus
+BusName=org.freedesktop.impl.portal.desktop.denial
+ExecStart=@PORTAL_BINARY@
+Restart=on-failure
+RestartSec=250ms

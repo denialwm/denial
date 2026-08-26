@@ -32,12 +32,7 @@ class ShellBackdropBlur extends StatelessWidget {
         blur && theme.backdropBlurEnabled && theme.backdropBlurSigma > 0;
     final Widget filtered;
     if (enabled) {
-      final filterConfig = ImageFilterConfig.blur(
-        sigmaX: theme.backdropBlurSigma,
-        sigmaY: theme.backdropBlurSigma,
-        tileMode: ui.TileMode.clamp,
-        downsampleScale: theme.backdropBlurDownsampleScale,
-      );
+      final filterConfig = theme.backdropBlurFilterConfig;
       filtered = grouped
           ? BackdropFilter.grouped(
               filterConfig: filterConfig,

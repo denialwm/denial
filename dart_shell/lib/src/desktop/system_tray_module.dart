@@ -454,12 +454,12 @@ class _SystemTrayButtonState extends ConsumerState<_SystemTrayButton> {
         output.add(
           _menuInputRegion(
             debugLabel: 'System tray menu separator',
-            child: const Divider(
+            child: Divider(
               height: 1,
               thickness: 1,
               indent: 6,
               endIndent: 6,
-              color: ShellColors.hairlineSoft,
+              color: context.shellColors.hairlineSoft,
             ),
           ),
         );
@@ -531,23 +531,25 @@ class _SystemTrayButtonState extends ConsumerState<_SystemTrayButton> {
     final accent = ShellTheme.of(context).accentPalette;
     final viewHeight = MediaQuery.sizeOf(context).height;
     return MenuStyle(
-      backgroundColor: const WidgetStatePropertyAll<Color>(
-        ShellColors.panelBackgroundBottom,
+      backgroundColor: WidgetStatePropertyAll<Color>(
+        context.shellColors.panelBackgroundBottom,
       ),
-      shadowColor: const WidgetStatePropertyAll<Color>(ShellColors.shadow),
-      surfaceTintColor: const WidgetStatePropertyAll<Color>(Colors.transparent),
-      elevation: const WidgetStatePropertyAll<double>(14),
-      padding: const WidgetStatePropertyAll<EdgeInsetsGeometry>(
+      shadowColor: WidgetStatePropertyAll<Color>(context.shellColors.shadow),
+      surfaceTintColor: WidgetStatePropertyAll<Color>(
+        ShellMediaColors.transparentDark,
+      ),
+      elevation: WidgetStatePropertyAll<double>(14),
+      padding: WidgetStatePropertyAll<EdgeInsetsGeometry>(
         EdgeInsets.symmetric(vertical: 4),
       ),
-      minimumSize: const WidgetStatePropertyAll<Size>(Size(164, 0)),
+      minimumSize: WidgetStatePropertyAll<Size>(Size(164, 0)),
       maximumSize: WidgetStatePropertyAll<Size>(
         Size(320, (viewHeight - 16).clamp(120, 560).toDouble()),
       ),
       side: WidgetStatePropertyAll<BorderSide>(
         BorderSide(color: accent.outline, width: 1),
       ),
-      shape: const WidgetStatePropertyAll<OutlinedBorder>(
+      shape: WidgetStatePropertyAll<OutlinedBorder>(
         RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(10)),
         ),
@@ -564,29 +566,31 @@ class _SystemTrayButtonState extends ConsumerState<_SystemTrayButton> {
     return ButtonStyle(
       foregroundColor: WidgetStateProperty.resolveWith<Color>((states) {
         if (states.contains(WidgetState.disabled)) {
-          return ShellColors.textTertiary;
+          return context.shellColors.textTertiary;
         }
         return destructive
-            ? ShellColors.performanceBad
-            : ShellColors.textPrimary;
+            ? context.shellColors.performanceBad
+            : context.shellColors.textPrimary;
       }),
       iconColor: WidgetStateProperty.resolveWith<Color>((states) {
         if (states.contains(WidgetState.disabled)) {
-          return ShellColors.textTertiary;
+          return context.shellColors.textTertiary;
         }
         return destructive
-            ? ShellColors.performanceBad
-            : ShellColors.textSecondary;
+            ? context.shellColors.performanceBad
+            : context.shellColors.textSecondary;
       }),
       backgroundColor: WidgetStateProperty.resolveWith<Color>((states) {
         if (states.contains(WidgetState.hovered) ||
             states.contains(WidgetState.focused)) {
           return accent.subtle;
         }
-        return Colors.transparent;
+        return ShellMediaColors.transparentDark;
       }),
-      overlayColor: const WidgetStatePropertyAll<Color>(Colors.transparent),
-      textStyle: const WidgetStatePropertyAll<TextStyle>(
+      overlayColor: WidgetStatePropertyAll<Color>(
+        ShellMediaColors.transparentDark,
+      ),
+      textStyle: WidgetStatePropertyAll<TextStyle>(
         TextStyle(
           fontFamilyFallback: ShellText.fallbackFontFamilies,
           fontSize: 12,
@@ -596,14 +600,14 @@ class _SystemTrayButtonState extends ConsumerState<_SystemTrayButton> {
           decoration: TextDecoration.none,
         ),
       ),
-      padding: const WidgetStatePropertyAll<EdgeInsetsGeometry>(
+      padding: WidgetStatePropertyAll<EdgeInsetsGeometry>(
         EdgeInsets.symmetric(horizontal: 10),
       ),
-      minimumSize: const WidgetStatePropertyAll<Size>(Size(164, 28)),
-      maximumSize: const WidgetStatePropertyAll<Size>(Size(320, 28)),
+      minimumSize: WidgetStatePropertyAll<Size>(Size(164, 28)),
+      maximumSize: WidgetStatePropertyAll<Size>(Size(320, 28)),
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       visualDensity: VisualDensity.standard,
-      shape: const WidgetStatePropertyAll<OutlinedBorder>(
+      shape: WidgetStatePropertyAll<OutlinedBorder>(
         RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(6)),
         ),
@@ -620,7 +624,7 @@ class _SystemTrayButtonState extends ConsumerState<_SystemTrayButton> {
       return reserveSpace ? const SizedBox(width: 16, height: 16) : null;
     }
     if (entry.toggleState < 0) {
-      return const Icon(Icons.remove, size: 16);
+      return Icon(Icons.remove, size: 16);
     }
     if (entry.toggleState == 0) {
       return const SizedBox(width: 16, height: 16);

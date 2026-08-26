@@ -1,9 +1,10 @@
 # Installed by @LAUNCHER@
 #
-# GTK remains the general desktop portal. The wlroots backend consumes
-# Denial's zwlr-screencopy-v1 frames and publishes ScreenCast streams through
-# PipeWire; it also provides the sandboxed Screenshot portal.
+# Denial owns its application appearance preference. GTK remains the fallback
+# for Settings keys and general portals that Denial does not implement. The
+# wlroots backend consumes zwlr-screencopy-v1 frames for capture requests.
 [preferred]
 default=gtk
+org.freedesktop.impl.portal.Settings=denial;gtk
 org.freedesktop.impl.portal.ScreenCast=wlr
 org.freedesktop.impl.portal.Screenshot=wlr

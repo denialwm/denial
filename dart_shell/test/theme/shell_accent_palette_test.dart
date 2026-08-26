@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:denial_dart_shell/src/theme/shell_color_scheme.dart';
 import 'package:denial_dart_shell/src/theme/shell_theme.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,8 +12,7 @@ void main() {
     final tealPalette = ShellAccentPalette.from(teal);
     final orangePalette = ShellAccentPalette.from(orange);
 
-    expect(tealPalette.primary, teal);
-    expect(orangePalette.primary, orange);
+    expect(tealPalette.primary, isNot(orangePalette.primary));
     expect(tealPalette.container, isNot(orangePalette.container));
     expect(tealPalette.mutedContainer, isNot(orangePalette.mutedContainer));
     expect(tealPalette.outline, isNot(orangePalette.outline));
@@ -31,18 +31,69 @@ void main() {
     );
   });
 
-  test('accent foreground is automatically pure black or white', () {
-    const lightAccent = Color(0xffffd54f);
-    const redAccent = Color(0xffff0000);
+  test('extreme seeds remain readable in both brightness schemes', () {
+    const seeds = <Color>[
+      Color(0xff000000),
+      Color(0xffffffff),
+      Color(0xffff0000),
+      Color(0xffffd54f),
+      Color(0xff777777),
+    ];
+    for (final scheme in const <ShellColorScheme>[
+      ShellColorScheme.dark,
+      ShellColorScheme.light,
+    ]) {
+      for (final seed in seeds) {
+        final palette = ShellAccentPalette.from(seed, scheme);
+        expect(
+          _contrast(palette.primary, palette.onPrimary),
+          greaterThanOrEqualTo(4.5),
+          reason: '$seed on ${scheme.brightness}',
+        );
+        expect(
+          _contrast(palette.container, palette.onContainer),
+          greaterThanOrEqualTo(4.5),
+          reason: '$seed container on ${scheme.brightness}',
+        );
+        expect(
+          _contrast(palette.mutedContainer, palette.onMutedContainer),
+          greaterThanOrEqualTo(4.5),
+          reason: '$seed muted container on ${scheme.brightness}',
+        );
+      }
+    }
+  });
+
+  test('the same seed resolves to brightness-specific accent roles', () {
+    const seed = Color(0xff28d7bd);
+    final dark = ShellAccentPalette.from(seed);
+    final light = ShellAccentPalette.from(seed, ShellColorScheme.light);
+
+    expect(dark.primary, isNot(light.primary));
+    expect(dark.container, isNot(light.container));
+  });
+
+  test('theme interpolation blends accent roles without a brightness jump', () {
+    const dark = ShellThemeData(
+      colors: ShellColorScheme.dark,
+      accent: Color(0xff00ff00),
+    );
+    const light = ShellThemeData(
+      colors: ShellColorScheme.light,
+      accent: Color(0xffff00ff),
+    );
 
     expect(
-      ShellAccentPalette.from(lightAccent).onPrimary,
-      const Color(0xff000000),
+      ShellThemeData.lerp(dark, light, 0).accentPalette.primary,
+      dark.accentPalette.primary,
     );
     expect(
-      ShellAccentPalette.from(redAccent).onPrimary,
-      const Color(0xffffffff),
+      ShellThemeData.lerp(dark, light, 1).accentPalette.primary,
+      light.accentPalette.primary,
     );
+    final before = ShellThemeData.lerp(dark, light, 0.49).accentPalette.primary;
+    final after = ShellThemeData.lerp(dark, light, 0.51).accentPalette.primary;
+    expect(_channelDistance(before, after), lessThan(0.08));
   });
 
   test('accent-owned surfaces cannot reference legacy accent colors', () {
@@ -55,18 +106,6 @@ void main() {
       'lib/src/wallpaper/widgets',
     ];
     const forbiddenReferences = <String>[
-      'ShellColors.accent',
-      'ShellColors.onAccent',
-      'ShellColors.primaryContainer',
-      'ShellColors.onPrimaryContainer',
-      'ShellColors.onPrimaryContainerSecondary',
-      'ShellColors.secondaryContainer',
-      'ShellColors.onSecondaryContainer',
-      'ShellColors.lockAccent',
-      'ShellColors.focusedWindowBorder',
-      'ShellColors.pinnedWindowBorder',
-      'ShellColors.surfaceTint',
-      'ShellColors.tileIconActive',
       'Colors.purple',
       '0xffd0bcff',
       '0xff381e72',
@@ -114,4 +153,10 @@ double _contrast(Color first, Color second) {
       ? secondLuminance
       : firstLuminance;
   return (lighter + 0.05) / (darker + 0.05);
+}
+
+double _channelDistance(Color first, Color second) {
+  return (first.r - second.r).abs() +
+      (first.g - second.g).abs() +
+      (first.b - second.b).abs();
 }

@@ -53,11 +53,10 @@ final homeClockProvider = Provider<HomeClockInfo>((ref) {
 }, isAutoDispose: true);
 
 final homeBatteryDischargeProvider = StreamProvider<HomeBatteryDischargeSeries>(
-  (ref) async* {
-    while (true) {
-      yield await HomeBatteryDischargeSeries.readDefault();
-      await Future<void>.delayed(const Duration(seconds: 5));
-    }
+  (ref) {
+    final reader = HomeBatteryDischargeTailReader();
+    ref.onDispose(() => unawaited(reader.dispose()));
+    return reader.snapshots;
   },
   isAutoDispose: true,
 );
@@ -82,6 +81,12 @@ class HomeGridState {
     this.draggingSourceIndex,
   }) : slots = List.unmodifiable(slots);
 
+  HomeGridState._({
+    required this.slots,
+    required this.page,
+    required this.draggingSourceIndex,
+  });
+
   final List<HomeGridItem?> slots;
   final int page;
   final int? draggingSourceIndex;
@@ -91,8 +96,8 @@ class HomeGridState {
     int? page,
     Object? draggingSourceIndex = _unset,
   }) {
-    return HomeGridState(
-      slots: slots ?? this.slots,
+    return HomeGridState._(
+      slots: slots == null ? this.slots : List.unmodifiable(slots),
       page: page ?? this.page,
       draggingSourceIndex: identical(draggingSourceIndex, _unset)
           ? this.draggingSourceIndex

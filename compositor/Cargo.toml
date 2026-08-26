@@ -8,7 +8,7 @@ license = "GPL-3.0-or-later"
 publish = false
 
 [workspace]
-members = ["flutter-engine"]
+members = ["denial-portal", "flutter-engine"]
 resolver = "3"
 
 [features]

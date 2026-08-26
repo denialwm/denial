@@ -268,8 +268,8 @@ class _OverviewLayerState extends State<OverviewLayer>
       progress,
     )!;
     final border = Color.lerp(
-      const Color(0x00ffffff),
-      kWindowHairline,
+      ShellMediaColors.transparentLight,
+      context.shellColors.hairlineWindow,
       progress,
     );
 
@@ -448,8 +448,8 @@ class _OverviewScrim extends StatelessWidget {
       onTap: onTap,
       child: ColoredBox(
         color: Color.lerp(
-          const Color(0x00000000),
-          ShellColors.overviewScrim,
+          ShellMediaColors.transparentDark,
+          context.shellColors.overviewScrim,
           progress,
         )!,
       ),
@@ -473,8 +473,8 @@ class _EmptyOverviewState extends StatelessWidget {
           child: Text(
             context.l10n.overviewNoWindows,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: ShellColors.textPrimary,
+            style: TextStyle(
+              color: context.shellColors.textPrimary,
               fontSize: 18,
               fontWeight: FontWeight.w600,
               decoration: TextDecoration.none,

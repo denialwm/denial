@@ -9,10 +9,11 @@ import '../config/startup_environment.dart';
 import '../platform/denial_bridge.dart';
 import '../settings/settings_controller.dart';
 import '../state/shell_controller.dart';
+import '../theme/shell_color_scheme.dart';
 import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
+import '../wallpaper/state/wallpaper_accent.dart';
 import 'settings_application.dart';
-import 'shell_settings.dart';
 import 'widgets/settings_navigation.dart';
 
 /// The process root for the standalone Wayland Settings client.
@@ -67,6 +68,10 @@ class _DenialSettingsStandaloneContentState
     extends ConsumerState<_DenialSettingsStandaloneContent> {
   static const _activationChannel = MethodChannel('denial/settings_activation');
   final AssetBundle _packageAssets = _DenialShellPackageAssetBundle();
+  Color? _lightMaterialThemeAccent;
+  Color? _darkMaterialThemeAccent;
+  ThemeData? _lightMaterialTheme;
+  ThemeData? _darkMaterialTheme;
 
   @override
   void initState() {
@@ -97,42 +102,48 @@ class _DenialSettingsStandaloneContentState
         (settings) => (
           locale: settings.localization.localeOverride,
           appearance: settings.appearance,
+          animationDurationScale: settings.animations.durationScale,
         ),
       ),
     );
     final appearance = presentation.appearance;
-    final accent = appearance.accentSource == ShellAccentSource.custom
-        ? appearance.customAccentColor
-        : ShellColors.accent;
+    final selectedColors =
+        appearance.colorSchemePreference.effectiveBrightness == Brightness.light
+        ? ShellColorScheme.light
+        : ShellColorScheme.dark;
+    final accent = ref.watch(
+      shellAccentProvider.select((accent) => accent.color),
+    );
+    final selectedTheme = ShellThemeData(
+      colors: selectedColors,
+      accent: accent,
+      windowRadius: appearance.windowRadius,
+      panelRadius: appearance.panelRadius,
+      panelOpacity: appearance.panelOpacity,
+      backdropBlurEnabled: false,
+      focusedWindowOpacity: appearance.focusedWindowOpacity,
+      unfocusedWindowOpacity: appearance.unfocusedWindowOpacity,
+    );
+    final materialThemes = _materialThemesFor(accent, selectedTheme.brightness);
     return DefaultAssetBundle(
       bundle: _packageAssets,
-      child: ShellTheme(
-        data: ShellThemeData(
-          accent: accent,
-          windowRadius: appearance.windowRadius,
-          panelRadius: appearance.panelRadius,
-          panelOpacity: appearance.panelOpacity,
-          backdropBlurEnabled: false,
-          focusedWindowOpacity: appearance.focusedWindowOpacity,
-          unfocusedWindowOpacity: appearance.unfocusedWindowOpacity,
+      child: AnimatedShellTheme(
+        data: selectedTheme,
+        duration: Duration(
+          milliseconds: (200 * presentation.animationDurationScale).round(),
         ),
         child: MaterialApp(
           title: 'Denial Settings',
           debugShowCheckedModeBanner: false,
-          color: Colors.transparent,
+          color: ShellMediaColors.transparentDark,
           locale: presentation.locale,
           supportedLocales: AppLocalizations.supportedLocales,
           localizationsDelegates: AppLocalizations.localizationsDelegates,
-          theme: ThemeData(
-            brightness: Brightness.dark,
-            useMaterial3: true,
-            scaffoldBackgroundColor: Colors.transparent,
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: accent,
-              brightness: Brightness.dark,
-              surface: ShellColors.background,
-            ),
-          ),
+          theme: materialThemes.light,
+          darkTheme: materialThemes.dark,
+          themeMode: selectedTheme.brightness == Brightness.light
+              ? ThemeMode.light
+              : ThemeMode.dark,
           home: Stack(
             fit: StackFit.expand,
             children: [
@@ -162,6 +173,43 @@ class _DenialSettingsStandaloneContentState
       ),
     );
   }
+
+  ({ThemeData light, ThemeData dark}) _materialThemesFor(
+    Color accent,
+    Brightness activeBrightness,
+  ) {
+    // Keep the inactive theme available for MaterialApp, but do not rebuild it
+    // for every color-wheel event. It is refreshed when that mode is selected.
+    if (activeBrightness == Brightness.light) {
+      _refreshLightMaterialTheme(accent);
+      _darkMaterialTheme ??= _buildMaterialTheme(ShellColorScheme.dark, accent);
+      _darkMaterialThemeAccent ??= accent;
+    } else {
+      _refreshDarkMaterialTheme(accent);
+      _lightMaterialTheme ??= _buildMaterialTheme(
+        ShellColorScheme.light,
+        accent,
+      );
+      _lightMaterialThemeAccent ??= accent;
+    }
+    return (light: _lightMaterialTheme!, dark: _darkMaterialTheme!);
+  }
+
+  void _refreshLightMaterialTheme(Color accent) {
+    if (_lightMaterialThemeAccent == accent) return;
+    _lightMaterialThemeAccent = accent;
+    _lightMaterialTheme = _buildMaterialTheme(ShellColorScheme.light, accent);
+  }
+
+  void _refreshDarkMaterialTheme(Color accent) {
+    if (_darkMaterialThemeAccent == accent) return;
+    _darkMaterialThemeAccent = accent;
+    _darkMaterialTheme = _buildMaterialTheme(ShellColorScheme.dark, accent);
+  }
+
+  ThemeData _buildMaterialTheme(ShellColorScheme colors, Color accent) {
+    return ShellThemeData(colors: colors, accent: accent).toMaterialTheme();
+  }
 }
 
 class _SettingsSynchronizationLoading extends StatelessWidget {
@@ -170,7 +218,7 @@ class _SettingsSynchronizationLoading extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: ShellColors.background.withValues(alpha: 0.74),
+      color: context.shellColors.background.withValues(alpha: 0.74),
       child: const Center(child: CircularProgressIndicator()),
     );
   }
@@ -183,9 +231,9 @@ class _SettingsSynchronizationFailure extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
+    final l10n = AppLocalizations.of(context);
     return ColoredBox(
-      color: ShellColors.background.withValues(alpha: 0.88),
+      color: context.shellColors.background.withValues(alpha: 0.88),
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -203,7 +251,7 @@ class _SettingsSynchronizationFailure extends StatelessWidget {
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: onRetry,
-              icon: const Icon(Icons.refresh_rounded),
+              icon: Icon(Icons.refresh_rounded),
               label: Text(l10n.commonRetry),
             ),
           ],

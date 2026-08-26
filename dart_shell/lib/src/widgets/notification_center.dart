@@ -114,7 +114,7 @@ class _NotificationCenterState extends ConsumerState<NotificationCenter> {
                                         context.l10n,
                                       ),
                                       style: ShellText.base.copyWith(
-                                        color: ShellColors.textTertiary,
+                                        color: context.shellColors.textTertiary,
                                         fontSize: 10.5,
                                         fontWeight: FontWeight.w600,
                                       ),
@@ -167,7 +167,7 @@ class _NotificationCenterHeader extends StatelessWidget {
             label: l10n.notificationsUnread(unreadCount),
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: ShellColors.primaryContainer,
+                color: context.shellTheme.accentPalette.container,
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Padding(
@@ -175,7 +175,7 @@ class _NotificationCenterHeader extends StatelessWidget {
                 child: Text(
                   l10n.numberValue(unreadCount),
                   style: ShellText.base.copyWith(
-                    color: ShellColors.onPrimaryContainer,
+                    color: context.shellTheme.accentPalette.onContainer,
                     fontSize: 10.5,
                     fontWeight: FontWeight.w800,
                   ),
@@ -226,7 +226,7 @@ class _PrivacyModeSelector extends StatelessWidget {
     final label = Text(
       l10n.notificationsOnLockScreen,
       style: ShellText.base.copyWith(
-        color: ShellColors.textTertiary,
+        color: context.shellColors.textTertiary,
         fontSize: 11,
         fontWeight: FontWeight.w600,
       ),
@@ -345,11 +345,11 @@ class _PrivacyChoiceState extends State<_PrivacyChoice> {
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: widget.selected
-                  ? ShellColors.primaryContainer
-                  : ShellColors.surfaceContainerHigh,
+                  ? context.shellTheme.accentPalette.container
+                  : context.shellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: _focused ? accent : ShellColors.hairlineSoft,
+                color: _focused ? accent : context.shellColors.hairlineSoft,
               ),
             ),
             child: Text(
@@ -359,9 +359,9 @@ class _PrivacyChoiceState extends State<_PrivacyChoice> {
               style: ShellText.base.copyWith(
                 color: widget.enabled
                     ? (widget.selected
-                          ? ShellColors.onPrimaryContainer
-                          : ShellColors.textSecondary)
-                    : ShellColors.glyphInactive,
+                          ? context.shellTheme.accentPalette.onContainer
+                          : context.shellColors.textSecondary)
+                    : context.shellColors.glyphInactive,
                 fontSize: 10.5,
                 fontWeight: FontWeight.w700,
               ),
@@ -382,25 +382,25 @@ class _DoNotDisturbNotice extends StatelessWidget {
       label: context.l10n.notificationsDoNotDisturbSemantics,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: ShellColors.secondaryContainer,
+          color: context.shellTheme.accentPalette.mutedContainer,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: ShellColors.hairlineSoft),
+          border: Border.all(color: context.shellColors.hairlineSoft),
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
           child: Row(
             children: [
-              const Icon(
+              Icon(
                 Icons.notifications_off_rounded,
                 size: 16,
-                color: ShellColors.onSecondaryContainer,
+                color: context.shellTheme.accentPalette.onMutedContainer,
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   context.l10n.notificationsQuietMode,
                   style: ShellText.base.copyWith(
-                    color: ShellColors.onSecondaryContainer,
+                    color: context.shellTheme.accentPalette.onMutedContainer,
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
                   ),
@@ -425,23 +425,23 @@ class _NotificationEmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
+            Icon(
               Icons.notifications_none_rounded,
               size: 34,
-              color: ShellColors.textTertiary,
+              color: context.shellColors.textTertiary,
             ),
             const SizedBox(height: 9),
             Text(
               context.l10n.notificationsAllQuiet,
               style: ShellText.cardTitle.copyWith(
-                color: ShellColors.textSecondary,
+                color: context.shellColors.textSecondary,
               ),
             ),
             const SizedBox(height: 4),
             Text(
               context.l10n.notificationsEmptyDescription,
               style: ShellText.base.copyWith(
-                color: ShellColors.textTertiary,
+                color: context.shellColors.textTertiary,
                 fontSize: 11.5,
               ),
             ),
@@ -515,13 +515,13 @@ class _CenterIconButtonState extends State<_CenterIconButton> {
             height: 34,
             decoration: BoxDecoration(
               color: widget.active
-                  ? ShellColors.primaryContainer
+                  ? context.shellTheme.accentPalette.container
                   : _hovered || _focused
-                  ? ShellColors.surfaceContainerHighest
-                  : ShellColors.surfaceContainerHigh,
+                  ? context.shellColors.surfaceContainerHighest
+                  : context.shellColors.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: _focused ? accent : ShellColors.hairlineSoft,
+                color: _focused ? accent : context.shellColors.hairlineSoft,
               ),
             ),
             child: Icon(
@@ -529,9 +529,9 @@ class _CenterIconButtonState extends State<_CenterIconButton> {
               size: 18,
               color: widget.enabled
                   ? (widget.active
-                        ? ShellColors.onPrimaryContainer
-                        : ShellColors.textSecondary)
-                  : ShellColors.glyphInactive,
+                        ? context.shellTheme.accentPalette.onContainer
+                        : context.shellColors.textSecondary)
+                  : context.shellColors.glyphInactive,
             ),
           ),
         ),

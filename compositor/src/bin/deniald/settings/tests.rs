@@ -37,6 +37,14 @@ fn migrates_existing_shell_document_without_losing_sections() {
     let document: Value = serde_json::from_str(&manager.document_json().unwrap()).unwrap();
     assert_eq!(document["version"], SETTINGS_SCHEMA_VERSION);
     assert_eq!(document["appearance"]["windowRadius"], 31);
+    assert_eq!(
+        document["appearance"]["colorSchemePreference"],
+        "preferDark"
+    );
+    assert_eq!(
+        manager.theme_snapshot(),
+        DesktopThemeSnapshot::new(manager.revision(), DesktopColorSchemePreference::PreferDark,)
+    );
     assert!(document.get("keyboard").is_some());
     assert!(document.get("touchpad").is_some());
     assert_eq!(
@@ -80,16 +88,39 @@ fn shell_update_preserves_native_keyboard_and_checks_revision() {
     let update = manager
         .prepare_shell_update(
             old_revision,
-            r#"{"version":9,"revision":999,"keyboard":{"layouts":[]},"touchpad":{"tapToClickEnabled":false},"power":{"idleDpmsEnabled":false}}"#,
+            r#"{"version":10,"appearance":{"colorSchemePreference":"preferLight"},"revision":999,"keyboard":{"layouts":[]},"touchpad":{"tapToClickEnabled":false},"power":{"idleDpmsEnabled":false}}"#,
         )
         .unwrap();
     manager.commit(update).unwrap();
     assert_eq!(manager.keyboard(), &configured);
     assert_eq!(manager.revision(), old_revision + 1);
+    assert_eq!(
+        manager.theme_snapshot().configured_preference,
+        DesktopColorSchemePreference::PreferLight
+    );
     assert!(matches!(
-        manager.prepare_shell_update(old_revision, r#"{"version":9}"#),
+        manager.prepare_shell_update(
+            old_revision,
+            r#"{"version":10,"appearance":{"colorSchemePreference":"preferDark"}}"#,
+        ),
         Err(SettingsError::Revision { .. })
     ));
+}
+
+#[test]
+fn shell_update_rejects_missing_or_unknown_color_scheme() {
+    let temporary = TemporaryDirectory::new("settings-color-scheme");
+    let manager = SettingsManager::load_path(temporary.settings_path()).unwrap();
+    for document in [
+        r#"{"version":10}"#,
+        r#"{"version":10,"appearance":{}}"#,
+        r#"{"version":10,"appearance":{"colorSchemePreference":"automatic"}}"#,
+    ] {
+        assert!(matches!(
+            manager.prepare_shell_update(manager.revision(), document),
+            Err(SettingsError::Document(_))
+        ));
+    }
 }
 
 #[test]
@@ -137,9 +168,12 @@ fn rejects_external_edits_before_commit() {
     let path = temporary.settings_path();
     let mut manager = SettingsManager::load_path(path.clone()).unwrap();
     let prepared = manager
-        .prepare_shell_update(manager.revision(), r#"{"version":9}"#)
+        .prepare_shell_update(
+            manager.revision(),
+            r#"{"version":10,"appearance":{"colorSchemePreference":"preferDark"}}"#,
+        )
         .unwrap();
-    fs::write(&path, b"{\"version\":9,\"revision\":77}\n").unwrap();
+    fs::write(&path, b"{\"version\":10,\"revision\":77}\n").unwrap();
     assert!(matches!(
         manager.commit(prepared),
         Err(SettingsError::Conflict)

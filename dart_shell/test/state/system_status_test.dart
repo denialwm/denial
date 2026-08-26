@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:denial_dart_shell/src/services/cpu_usage_service.dart';
 import 'package:denial_dart_shell/src/services/gpu_usage_service.dart';
+import 'package:denial_dart_shell/src/services/power_status_service.dart';
+import 'package:denial_dart_shell/src/models/shell_power_status.dart';
 import 'package:denial_dart_shell/src/state/system_status.dart';
 
 void main() {
@@ -38,7 +40,15 @@ void main() {
           CpuSample(busy: 250, total: 500), // 100/200 -> 0.5
         ]);
         final container = ProviderContainer.test(
-          overrides: [cpuUsageServiceProvider.overrideWithValue(service)],
+          overrides: [
+            cpuUsageServiceProvider.overrideWithValue(service),
+            gpuUsageServiceProvider.overrideWithValue(
+              _ScriptedGpuService(const <List<GpuSample>>[<GpuSample>[]]),
+            ),
+            powerStatusServiceProvider.overrideWithValue(
+              const _StaticPowerStatusService(),
+            ),
+          ],
         );
         final subscription = container.listen(cpuUsageProvider, (_, _) {});
         addTearDown(subscription.close);
@@ -67,7 +77,15 @@ void main() {
           [GpuSample(id: 'card2', label: 'AMD', usage: 0.6)],
         ]);
         final container = ProviderContainer.test(
-          overrides: [gpuUsageServiceProvider.overrideWithValue(service)],
+          overrides: [
+            cpuUsageServiceProvider.overrideWithValue(
+              _ScriptedCpuService(const <CpuSample?>[null]),
+            ),
+            gpuUsageServiceProvider.overrideWithValue(service),
+            powerStatusServiceProvider.overrideWithValue(
+              const _StaticPowerStatusService(),
+            ),
+          ],
         );
         final subscription = container.listen(gpuUsageProvider, (_, _) {});
         addTearDown(subscription.close);
@@ -119,4 +137,11 @@ class _ScriptedCpuService extends CpuUsageService {
     }
     return _samples[_next++];
   }
+}
+
+class _StaticPowerStatusService extends PowerStatusService {
+  const _StaticPowerStatusService();
+
+  @override
+  Future<ShellPowerStatus> read() async => ShellPowerStatus.unknown;
 }

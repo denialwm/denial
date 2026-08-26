@@ -631,6 +631,14 @@ table XEmbedTrayCommand {
   y:int;
 }
 
+// Effective, fully resolved visual state from the embedded shell. This is not
+// user-editable settings data: Flutter owns wallpaper accent extraction while
+// deniald remains authoritative for publishing the result to desktop clients.
+table ThemeState {
+  // Opaque sRGB packed as 0x00RRGGBB. The high byte must remain zero.
+  accent_srgb:uint;
+}
+
 union Payload {
   InputLayout,
   WindowSnapshot,
@@ -648,7 +656,8 @@ union Payload {
   SettingsResponse,
   TextInputState,
   XEmbedTrayEvent,
-  XEmbedTrayCommand
+  XEmbedTrayCommand,
+  ThemeState
 }
 
 table Envelope {

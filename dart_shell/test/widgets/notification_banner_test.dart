@@ -8,6 +8,7 @@ import 'package:denial_dart_shell/src/localization/denial_localizations.dart';
 import 'package:denial_dart_shell/src/models/desktop_notification.dart';
 import 'package:denial_dart_shell/src/services/notification_policy_repository.dart';
 import 'package:denial_dart_shell/src/theme/motion.dart';
+import 'package:denial_dart_shell/src/theme/shell_theme.dart';
 import 'package:denial_dart_shell/src/theme/tokens.dart';
 import 'package:denial_dart_shell/src/widgets/notification_banner.dart';
 import 'package:denial_dart_shell/src/widgets/notification_media.dart';
@@ -45,8 +46,9 @@ void main() {
             )
             .first,
       );
-      expect(slide.position.value.dx, lessThan(0));
+      expect(slide.position.value.dx, 0);
       expect(slide.position.value.dy, lessThan(0));
+      expect(find.byType(FadeTransition), findsNothing);
 
       await tester.pump(Motion.notificationBanner);
       await tester.pump();
@@ -114,6 +116,42 @@ void main() {
       ),
     );
     expect(semantics.properties.role, SemanticsRole.alert);
+  });
+
+  testWidgets('banner surface matches the system level HUD treatment', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_host([_notification(42, 'Build finished')]));
+    await tester.pumpAndSettle();
+
+    final surface = tester.widget<DecoratedBox>(
+      find
+          .descendant(
+            of: find.byType(NotificationCard),
+            matching: find.byWidgetPredicate(
+              (widget) =>
+                  widget is DecoratedBox &&
+                  widget.decoration is BoxDecoration &&
+                  (widget.decoration as BoxDecoration).gradient != null,
+            ),
+          )
+          .first,
+    );
+    final decoration = surface.decoration as BoxDecoration;
+    final theme = const ShellThemeData();
+
+    expect((decoration.gradient! as LinearGradient).colors, <Color>[
+      theme.panelColor(theme.colors.panelBackground),
+      theme.panelColor(theme.colors.panelBackgroundBottom),
+    ]);
+    expect(decoration.border, Border.all(color: theme.colors.hairline));
+    expect(decoration.boxShadow, <BoxShadow>[
+      BoxShadow(
+        color: theme.colors.shadow,
+        blurRadius: 22,
+        offset: const Offset(0, 8),
+      ),
+    ]);
   });
 
   testWidgets('visible burst is capped at three newest cards', (tester) async {

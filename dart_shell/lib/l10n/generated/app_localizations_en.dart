@@ -2576,6 +2576,26 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsShapeTitle => 'Shape';
 
   @override
+  String get settingsColorSchemeTitle => 'Colour scheme';
+
+  @override
+  String get settingsColorSchemeDark => 'Dark';
+
+  @override
+  String get settingsColorSchemeLight => 'Light';
+
+  @override
+  String get settingsColorSchemeNoPreference => 'No preference';
+
+  @override
+  String get settingsColorSchemeDescription =>
+      'Use the same colour scheme across Denial and supported applications.';
+
+  @override
+  String get settingsColorSchemeNoPreferenceDescription =>
+      'Denial keeps its default dark appearance while applications choose their own.';
+
+  @override
   String get settingsShellAccentChoose => 'Choose accent color';
 
   @override

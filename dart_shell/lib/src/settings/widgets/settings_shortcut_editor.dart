@@ -336,7 +336,7 @@ class _SettingsShortcutEditorState extends State<SettingsShortcutEditor> {
         explicitChildNodes: true,
         label: title,
         child: ColoredBox(
-          color: ShellColors.overviewScrim,
+          color: context.shellColors.overviewScrim,
           child: LayoutBuilder(
             builder: (context, constraints) {
               return Center(
@@ -387,7 +387,7 @@ class _SettingsShortcutEditorState extends State<SettingsShortcutEditor> {
                   Text(
                     context.l10n.settingsShortcutEditorDescription,
                     style: ShellText.base.copyWith(
-                      color: ShellColors.textSecondary,
+                      color: context.shellColors.textSecondary,
                       height: 1.4,
                     ),
                   ),
@@ -479,7 +479,7 @@ class _SettingsShortcutEditorState extends State<SettingsShortcutEditor> {
             ),
           ),
         ),
-        const Divider(height: 1, color: ShellColors.hairlineSoft),
+        Divider(height: 1, color: context.shellColors.hairlineSoft),
         _EditorFooter(
           canSave: !widget.busy && _validation?.isValid == true,
           saving: widget.busy && !widget.deleteBusy,
@@ -568,13 +568,13 @@ class _EditorSurface extends StatelessWidget {
   Widget build(BuildContext context) {
     final accent = ShellTheme.of(context).accent;
     return Material(
-      color: ShellColors.surfaceContainerHigh,
+      color: context.shellColors.surfaceContainerHigh,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
         side: BorderSide(color: accent.withAlpha(86)),
       ),
       elevation: 18,
-      shadowColor: ShellColors.shadow,
+      shadowColor: context.shellColors.shadow,
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -609,20 +609,19 @@ class _EditorSurface extends StatelessWidget {
                 IconButton(
                   tooltip: context.l10n.settingsShortcutEditorCancel,
                   onPressed: busy ? null : onClose,
-                  icon: const Icon(Icons.close_rounded),
+                  icon: Icon(Icons.close_rounded),
                   style: IconButton.styleFrom(
-                    foregroundColor: ShellColors.textSecondary,
-                    disabledForegroundColor: ShellColors.textTertiary.withAlpha(
-                      92,
-                    ),
-                    hoverColor: ShellColors.textPrimary.withAlpha(18),
-                    focusColor: ShellColors.textPrimary.withAlpha(18),
+                    foregroundColor: context.shellColors.textSecondary,
+                    disabledForegroundColor: context.shellColors.textTertiary
+                        .withAlpha(92),
+                    hoverColor: context.shellColors.textPrimary.withAlpha(18),
+                    focusColor: context.shellColors.textPrimary.withAlpha(18),
                   ),
                 ),
               ],
             ),
           ),
-          const Divider(height: 1, color: ShellColors.hairlineSoft),
+          Divider(height: 1, color: context.shellColors.hairlineSoft),
           Expanded(child: child),
         ],
       ),
@@ -651,7 +650,7 @@ class _ShortcutTextField extends StatelessWidget {
       enableSuggestions: false,
       onChanged: onChanged,
       style: ShellText.base.copyWith(
-        color: ShellColors.textPrimary,
+        color: context.shellColors.textPrimary,
         fontFamily: ShellText.systemBarFontFamily,
       ),
       decoration: InputDecoration(
@@ -660,19 +659,19 @@ class _ShortcutTextField extends StatelessWidget {
         helperText: context.l10n.settingsShortcutEditorShortcutExample,
         helperMaxLines: 2,
         helperStyle: ShellText.base.copyWith(
-          color: ShellColors.textTertiary,
+          color: context.shellColors.textTertiary,
           fontSize: 11,
           height: 1.3,
         ),
         filled: true,
-        fillColor: ShellColors.surfaceContainerHighest,
+        fillColor: context.shellColors.surfaceContainerHighest,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: ShellColors.hairline),
+          borderSide: BorderSide(color: context.shellColors.hairline),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: ShellColors.hairline),
+          borderSide: BorderSide(color: context.shellColors.hairline),
         ),
       ),
     );
@@ -688,7 +687,9 @@ class _EditorFieldLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       label,
-      style: ShellText.cardTitle.copyWith(color: ShellColors.textSecondary),
+      style: ShellText.cardTitle.copyWith(
+        color: context.shellColors.textSecondary,
+      ),
     );
   }
 }
@@ -711,17 +712,17 @@ class _TargetSelectionField extends StatelessWidget {
       segments: <ButtonSegment<_EditorTarget>>[
         ButtonSegment(
           value: _EditorTarget.denialAction,
-          icon: const Icon(Icons.auto_awesome_rounded, size: 17),
+          icon: Icon(Icons.auto_awesome_rounded, size: 17),
           label: Text(context.l10n.settingsShortcutEditorTargetAction),
         ),
         ButtonSegment(
           value: _EditorTarget.spawn,
-          icon: const Icon(Icons.terminal_rounded, size: 17),
+          icon: Icon(Icons.terminal_rounded, size: 17),
           label: Text(context.l10n.settingsShortcutEditorTargetProgram),
         ),
         ButtonSegment(
           value: _EditorTarget.spawnSh,
-          icon: const Icon(Icons.code_rounded, size: 17),
+          icon: Icon(Icons.code_rounded, size: 17),
           label: Text(context.l10n.settingsShortcutEditorTargetShell),
         ),
       ],
@@ -735,22 +736,22 @@ class _TargetSelectionField extends StatelessWidget {
         foregroundColor: WidgetStateProperty.resolveWith((states) {
           return states.contains(WidgetState.selected)
               ? palette.onContainer
-              : ShellColors.textSecondary;
+              : context.shellColors.textSecondary;
         }),
         backgroundColor: WidgetStateProperty.resolveWith((states) {
           return states.contains(WidgetState.selected)
               ? palette.container
-              : ShellColors.surfaceContainerHighest;
+              : context.shellColors.surfaceContainerHighest;
         }),
         side: WidgetStateProperty.resolveWith((states) {
           return BorderSide(
             color: states.contains(WidgetState.selected)
                 ? palette.outline
-                : ShellColors.hairline,
+                : context.shellColors.hairline,
           );
         }),
         overlayColor: WidgetStatePropertyAll(
-          ShellColors.textPrimary.withAlpha(12),
+          context.shellColors.textPrimary.withAlpha(12),
         ),
       ),
     );
@@ -786,7 +787,7 @@ class _DirectCommandEditor extends StatelessWidget {
         Text(
           context.l10n.settingsShortcutEditorProgramDescription,
           style: ShellText.base.copyWith(
-            color: ShellColors.textTertiary,
+            color: context.shellColors.textTertiary,
             fontSize: 12,
             height: 1.35,
           ),
@@ -819,7 +820,7 @@ class _DirectCommandEditor extends StatelessWidget {
             child: Text(
               context.l10n.settingsShortcutEditorNoArguments,
               style: ShellText.base.copyWith(
-                color: ShellColors.textTertiary,
+                color: context.shellColors.textTertiary,
                 fontSize: 12,
               ),
             ),
@@ -848,8 +849,8 @@ class _DirectCommandEditor extends StatelessWidget {
                     index + 1,
                   ),
                   onPressed: enabled ? () => onRemoveArgument(index) : null,
-                  icon: const Icon(Icons.remove_circle_outline_rounded),
-                  color: ShellColors.textSecondary,
+                  icon: Icon(Icons.remove_circle_outline_rounded),
+                  color: context.shellColors.textSecondary,
                 ),
               ],
             ),
@@ -878,7 +879,7 @@ class _ShellCommandEditor extends StatelessWidget {
         Text(
           context.l10n.settingsShortcutEditorShellDescription,
           style: ShellText.base.copyWith(
-            color: ShellColors.textTertiary,
+            color: context.shellColors.textTertiary,
             fontSize: 12,
             height: 1.35,
           ),
@@ -928,21 +929,21 @@ class _CommandTextField extends StatelessWidget {
       maxLines: maxLines,
       onChanged: (_) => onChanged(),
       style: ShellText.base.copyWith(
-        color: ShellColors.textPrimary,
+        color: context.shellColors.textPrimary,
         fontFamily: ShellText.systemBarFontFamily,
       ),
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
         filled: true,
-        fillColor: ShellColors.surfaceContainerHighest,
+        fillColor: context.shellColors.surfaceContainerHighest,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: ShellColors.hairline),
+          borderSide: BorderSide(color: context.shellColors.hairline),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: ShellColors.hairline),
+          borderSide: BorderSide(color: context.shellColors.hairline),
         ),
       ),
     );
@@ -967,9 +968,9 @@ class _ActionSelectionField extends StatelessWidget {
       onPressed: enabled ? onPressed : null,
       style: OutlinedButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-        foregroundColor: ShellColors.textPrimary,
-        backgroundColor: ShellColors.surfaceContainerHighest,
-        side: const BorderSide(color: ShellColors.hairline),
+        foregroundColor: context.shellColors.textPrimary,
+        backgroundColor: context.shellColors.surfaceContainerHighest,
+        side: BorderSide(color: context.shellColors.hairline),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       child: Row(
@@ -983,10 +984,10 @@ class _ActionSelectionField extends StatelessWidget {
               style: ShellText.cardTitle,
             ),
           ),
-          const Icon(
+          Icon(
             Icons.unfold_more_rounded,
             size: 18,
-            color: ShellColors.textTertiary,
+            color: context.shellColors.textTertiary,
           ),
         ],
       ),
@@ -1009,7 +1010,7 @@ class _ValidationMessage extends StatelessWidget {
   Widget build(BuildContext context) {
     if (validating) {
       return _ValidationLine(
-        color: ShellColors.textTertiary,
+        color: context.shellColors.textTertiary,
         icon: Icons.sync_rounded,
         message: context.l10n.settingsShortcutEditorValidating,
         progress: true,
@@ -1017,7 +1018,7 @@ class _ValidationMessage extends StatelessWidget {
     }
     if (failure case final failure?) {
       return _ValidationLine(
-        color: ShellColors.performanceBad,
+        color: context.shellColors.performanceBad,
         icon: Icons.error_outline_rounded,
         message: failure,
       );
@@ -1028,14 +1029,14 @@ class _ValidationMessage extends StatelessWidget {
     }
     return switch (validation.kind) {
       DenialShortcutValidationKind.valid => _ValidationLine(
-        color: ShellColors.performanceGood,
+        color: context.shellColors.performanceGood,
         icon: Icons.check_circle_outline_rounded,
         message: context.l10n.settingsShortcutEditorValid(
           settingsShortcutDisplay(context, validation.canonical!),
         ),
       ),
       DenialShortcutValidationKind.conflict => _ValidationLine(
-        color: ShellColors.performanceWarning,
+        color: context.shellColors.performanceWarning,
         icon: Icons.warning_amber_rounded,
         message: context.l10n.settingsShortcutEditorConflict(
           settingsShortcutDisplay(context, validation.canonical!),
@@ -1043,7 +1044,7 @@ class _ValidationMessage extends StatelessWidget {
         ),
       ),
       DenialShortcutValidationKind.invalid => _ValidationLine(
-        color: ShellColors.performanceWarning,
+        color: context.shellColors.performanceWarning,
         icon: Icons.warning_amber_rounded,
         message: validation.error!,
       ),
@@ -1110,16 +1111,18 @@ class _EditorErrorMessage extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: ShellColors.performanceBad.withAlpha(18),
+        color: context.shellColors.performanceBad.withAlpha(18),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: ShellColors.performanceBad.withAlpha(82)),
+        border: Border.all(
+          color: context.shellColors.performanceBad.withAlpha(82),
+        ),
       ),
       child: Padding(
         padding: const EdgeInsets.all(11),
         child: Text(
           error,
           style: ShellText.base.copyWith(
-            color: ShellColors.textSecondary,
+            color: context.shellColors.textSecondary,
             fontSize: 12,
             height: 1.35,
           ),
@@ -1208,8 +1211,8 @@ class _EditorButton extends StatelessWidget {
     final foreground = primary
         ? palette.onContainer
         : destructive
-        ? ShellColors.performanceBad
-        : ShellColors.textSecondary;
+        ? context.shellColors.performanceBad
+        : context.shellColors.textSecondary;
     final enabled = busy || onPressed != null;
     final displayForeground = enabled ? foreground : foreground.withAlpha(92);
     return FilledButton.icon(
@@ -1218,16 +1221,16 @@ class _EditorButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
         backgroundColor: primary
             ? palette.container
-            : ShellColors.surfaceContainerHighest,
+            : context.shellColors.surfaceContainerHighest,
         foregroundColor: foreground,
         disabledBackgroundColor: primary
             ? palette.container.withAlpha(96)
-            : ShellColors.surfaceContainerHighest.withAlpha(120),
+            : context.shellColors.surfaceContainerHighest.withAlpha(120),
         disabledForegroundColor: foreground.withAlpha(92),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(ShellRadii.chip),
           side: BorderSide(
-            color: primary ? palette.outline : ShellColors.hairline,
+            color: primary ? palette.outline : context.shellColors.hairline,
           ),
         ),
       ),
@@ -1284,11 +1287,11 @@ class _CatalogLayout extends StatelessWidget {
               IconButton(
                 tooltip: context.l10n.settingsShortcutEditorBack,
                 onPressed: onBack,
-                icon: const Icon(Icons.arrow_back_rounded),
+                icon: Icon(Icons.arrow_back_rounded),
                 style: IconButton.styleFrom(
-                  foregroundColor: ShellColors.textSecondary,
-                  hoverColor: ShellColors.textPrimary.withAlpha(18),
-                  focusColor: ShellColors.textPrimary.withAlpha(18),
+                  foregroundColor: context.shellColors.textSecondary,
+                  hoverColor: context.shellColors.textPrimary.withAlpha(18),
+                  focusColor: context.shellColors.textPrimary.withAlpha(18),
                 ),
               ),
               const SizedBox(width: 6),
@@ -1310,16 +1313,16 @@ class _CatalogLayout extends StatelessWidget {
             style: ShellText.base,
             decoration: InputDecoration(
               hintText: context.l10n.settingsShortcutEditorSearch,
-              prefixIcon: const Icon(Icons.search_rounded, size: 19),
+              prefixIcon: Icon(Icons.search_rounded, size: 19),
               filled: true,
-              fillColor: ShellColors.surfaceContainerHighest,
+              fillColor: context.shellColors.surfaceContainerHighest,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: ShellColors.hairline),
+                borderSide: BorderSide(color: context.shellColors.hairline),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: ShellColors.hairline),
+                borderSide: BorderSide(color: context.shellColors.hairline),
               ),
             ),
           ),
@@ -1336,14 +1339,14 @@ class _CatalogLayout extends StatelessWidget {
                   child: Text(
                     context.l10n.settingsShortcutEditorNoResults,
                     style: ShellText.base.copyWith(
-                      color: ShellColors.textTertiary,
+                      color: context.shellColors.textTertiary,
                     ),
                   ),
                 )
               : child,
         ),
         if (footer case final footer?) ...[
-          const Divider(height: 1, color: ShellColors.hairlineSoft),
+          Divider(height: 1, color: context.shellColors.hairlineSoft),
           Padding(padding: const EdgeInsets.all(12), child: footer),
         ],
       ],
@@ -1380,8 +1383,8 @@ class _ShortcutDraftPreview extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: ShellText.cardTitle.copyWith(
                   color: text.isEmpty
-                      ? ShellColors.textTertiary
-                      : ShellColors.textPrimary,
+                      ? context.shellColors.textTertiary
+                      : context.shellColors.textPrimary,
                   fontFamily: ShellText.systemBarFontFamily,
                 ),
               ),
@@ -1408,11 +1411,13 @@ class _ActionCatalogRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = ShellTheme.of(context).accentPalette;
-    final foreground = selected ? palette.onContainer : ShellColors.textPrimary;
+    final foreground = selected
+        ? palette.onContainer
+        : context.shellColors.textPrimary;
     return ListTile(
       selected: selected,
-      iconColor: ShellColors.textTertiary,
-      textColor: ShellColors.textPrimary,
+      iconColor: context.shellColors.textTertiary,
+      textColor: context.shellColors.textPrimary,
       selectedColor: foreground,
       selectedTileColor: palette.container,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
@@ -1449,7 +1454,7 @@ class _InputCatalogRow extends StatelessWidget {
             ? Icons.gesture_rounded
             : Icons.keyboard_rounded,
         size: 20,
-        color: ShellColors.textTertiary,
+        color: context.shellColors.textTertiary,
       ),
       title: Text(
         input.canonical,
@@ -1464,14 +1469,14 @@ class _InputCatalogRow extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: ShellText.base.copyWith(
-                color: ShellColors.textTertiary,
+                color: context.shellColors.textTertiary,
                 fontSize: 11,
               ),
             ),
       trailing: Text(
         settingsShortcutInputCategoryLabel(context, input.category),
         style: ShellText.base.copyWith(
-          color: ShellColors.textTertiary,
+          color: context.shellColors.textTertiary,
           fontSize: 10,
         ),
       ),

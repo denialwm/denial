@@ -4612,6 +4612,42 @@ abstract class AppLocalizations {
   /// **'Shape'**
   String get settingsShapeTitle;
 
+  /// Title for the desktop-wide colour-scheme preference.
+  ///
+  /// In en, this message translates to:
+  /// **'Colour scheme'**
+  String get settingsColorSchemeTitle;
+
+  /// Dark colour-scheme choice.
+  ///
+  /// In en, this message translates to:
+  /// **'Dark'**
+  String get settingsColorSchemeDark;
+
+  /// Light colour-scheme choice.
+  ///
+  /// In en, this message translates to:
+  /// **'Light'**
+  String get settingsColorSchemeLight;
+
+  /// Choice that lets applications select their own colour scheme.
+  ///
+  /// In en, this message translates to:
+  /// **'No preference'**
+  String get settingsColorSchemeNoPreference;
+
+  /// Explanation for an explicit dark or light desktop preference.
+  ///
+  /// In en, this message translates to:
+  /// **'Use the same colour scheme across Denial and supported applications.'**
+  String get settingsColorSchemeDescription;
+
+  /// Explanation of the no-preference state and Denial's concrete fallback.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial keeps its default dark appearance while applications choose their own.'**
+  String get settingsColorSchemeNoPreferenceDescription;
+
   /// English UI text for settingsShellAccentChoose.
   ///
   /// In en, this message translates to:

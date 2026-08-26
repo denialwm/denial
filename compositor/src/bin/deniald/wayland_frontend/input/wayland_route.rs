@@ -75,7 +75,7 @@ pub(super) fn process_wayland_input_event(
             let (position, under) = {
                 let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
                 let local = event.position_transformed(frontend.desktop_bounds.size);
-                let position = local + frontend.desktop_bounds.loc.to_f64();
+                let position = frontend.clamp_pointer(local + frontend.desktop_bounds.loc.to_f64());
                 (position, frontend.surface_under(position))
             };
             let pointer = state

@@ -74,7 +74,7 @@ class SettingsPowerPage extends ConsumerWidget {
             onChanged: onEnabledChanged,
           ),
           const SizedBox(height: 18),
-          const Divider(height: 1, color: ShellColors.hairlineSoft),
+          Divider(height: 1, color: context.shellColors.hairlineSoft),
           const SizedBox(height: 18),
           SettingsSlider(
             key: settingsIdleDpmsTimeoutKey,
@@ -129,26 +129,26 @@ class _IdleInhibitNotice extends StatelessWidget {
       excludeSemantics: true,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: ShellColors.surfaceContainerHigh,
+          color: context.shellColors.surfaceContainerHigh,
           borderRadius: BorderRadius.circular(ShellRadii.chip),
-          border: Border.all(color: ShellColors.hairlineSoft),
+          border: Border.all(color: context.shellColors.hairlineSoft),
         ),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(
+              Icon(
                 Icons.ondemand_video_outlined,
                 size: 18,
-                color: ShellColors.textTertiary,
+                color: context.shellColors.textTertiary,
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   l10n.settingsIdleInhibitDescription,
                   style: ShellText.base.copyWith(
-                    color: ShellColors.textSecondary,
+                    color: context.shellColors.textSecondary,
                     fontSize: 12,
                     height: 1.4,
                   ),

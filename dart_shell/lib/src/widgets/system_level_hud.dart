@@ -41,6 +41,9 @@ class SystemLevelHudLayer extends ConsumerWidget {
         child: _SystemLevelHudCard(
           level: hud.level,
           visible: hud.visible,
+          onDismissed: () => ref
+              .read(systemLevelHudProvider.notifier)
+              .completeDismissal(hud.revision),
           icon: isBrightness
               ? Icons.brightness_6_rounded
               : _volumeIcon(hud.level),
@@ -50,8 +53,8 @@ class SystemLevelHudLayer extends ConsumerWidget {
               ? l10n.outputBrightnessSemantics(output.name)
               : l10n.outputVolumeSemantics,
           inactiveColor: isBrightness
-              ? ShellColors.brightnessTrack
-              : ShellColors.volumeTrack,
+              ? context.shellColors.brightnessTrack
+              : context.shellColors.volumeTrack,
         ),
       ),
     );
@@ -87,6 +90,7 @@ class _SystemLevelHudCard extends StatelessWidget {
   const _SystemLevelHudCard({
     required this.level,
     required this.visible,
+    required this.onDismissed,
     required this.icon,
     required this.title,
     required this.semanticLabel,
@@ -96,6 +100,7 @@ class _SystemLevelHudCard extends StatelessWidget {
 
   final double level;
   final bool visible;
+  final VoidCallback onDismissed;
   final IconData icon;
   final String title;
   final String? detail;
@@ -109,16 +114,18 @@ class _SystemLevelHudCard extends StatelessWidget {
     final percent = (level * 100).round();
     final theme = ShellTheme.of(context);
 
-    return AnimatedSlide(
-      duration: duration,
-      curve: Motion.md3Emphasized,
-      offset: visible ? Offset.zero : const Offset(0, 0.22),
-      child: AnimatedOpacity(
+    return ClipRect(
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(begin: 0, end: visible ? 1 : 0),
         duration: duration,
         curve: visible
             ? Motion.md3EmphasizedDecelerate
             : Motion.md3EmphasizedAccelerate,
-        opacity: visible ? 1 : 0,
+        onEnd: visible ? null : onDismissed,
+        builder: (context, progress, child) => FractionalTranslation(
+          translation: Offset(0, 1 - progress),
+          child: child,
+        ),
         child: Semantics(
           container: true,
           role: .status,
@@ -135,15 +142,17 @@ class _SystemLevelHudCard extends StatelessWidget {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: <Color>[
-                      theme.panelColor(ShellColors.panelBackground),
-                      theme.panelColor(ShellColors.panelBackgroundBottom),
+                      theme.panelColor(context.shellColors.panelBackground),
+                      theme.panelColor(
+                        context.shellColors.panelBackgroundBottom,
+                      ),
                     ],
                   ),
                   borderRadius: BorderRadius.circular(theme.panelRadius),
-                  border: Border.all(color: ShellColors.hairline),
-                  boxShadow: const <BoxShadow>[
+                  border: Border.all(color: context.shellColors.hairline),
+                  boxShadow: <BoxShadow>[
                     BoxShadow(
-                      color: ShellColors.shadow,
+                      color: context.shellColors.shadow,
                       blurRadius: 22,
                       offset: Offset(0, 8),
                     ),
@@ -171,7 +180,7 @@ class _SystemLevelHudCard extends StatelessWidget {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: ShellText.base.copyWith(
-                                        color: ShellColors.textTertiary,
+                                        color: context.shellColors.textTertiary,
                                         fontSize: 11,
                                       ),
                                     ),

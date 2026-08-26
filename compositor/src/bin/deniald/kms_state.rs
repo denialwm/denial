@@ -1112,7 +1112,8 @@ impl FlutterLauncher {
                 reload_requested = true;
             }
         }
-        self.publish_ui_development_state(runtime)?;
+        let publication = self.publish_ui_development_state(runtime);
+        resolve_ui_development_publication(reload_requested, publication)?;
         Ok(reload_requested)
     }
 
@@ -1144,6 +1145,26 @@ impl FlutterLauncher {
 
     pub(super) fn set_work_area(&mut self, work_area: options::WorkAreaOptions) {
         self.work_area = work_area;
+    }
+}
+
+#[cfg(feature = "flutter")]
+fn resolve_ui_development_publication(
+    reload_requested: bool,
+    publication: Result<(), Box<dyn Error>>,
+) -> Result<(), Box<dyn Error>> {
+    match publication {
+        Err(error) if reload_requested => {
+            // A runtime-mode switch replaces the Flutter engine in process. The
+            // retiring engine can reject this final state message, but start()
+            // publishes the complete state again after its replacement is up.
+            warn!(
+                %error,
+                "could not publish UI development state before Flutter runtime refresh"
+            );
+            Ok(())
+        }
+        publication => publication,
     }
 }
 

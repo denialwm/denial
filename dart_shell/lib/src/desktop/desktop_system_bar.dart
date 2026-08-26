@@ -45,19 +45,23 @@ class DesktopSystemBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final accent = ref.watch(shellAccentProvider);
-    final now = ref.watch(clockProvider).value ?? DateTime.now();
-    final battery = ref.watch(batteryProvider);
-    final cpu = ref.watch(cpuUsageProvider);
-    final gpus = ref.watch(gpuUsageProvider);
-    final media =
-        ref.watch(mediaPlaybackProvider).value ??
-        MprisPlaybackState.unavailable();
+    final accent = WallpaperAccent(
+      ref.watch(shellAccentProvider.select((accent) => accent.color)),
+    );
+    final batteryVisible = ref.watch(
+      batteryProvider.select((battery) => battery.capacity != null),
+    );
+    final cpuVisible = ref.watch(
+      cpuUsageProvider.select((cpu) => cpu.current != null),
+    );
+    final gpuCount = ref.watch(gpuUsageProvider.select((gpus) => gpus.length));
+    final mediaVisible = ref.watch(
+      mediaPlaybackProvider.select((media) => media.value?.available ?? false),
+    );
+    final trayVisible = ref.watch(
+      systemTrayProvider.select((items) => items.isNotEmpty),
+    );
     final horizontal = side.isHorizontal;
-    final batteryVisible = battery.capacity != null;
-    final cpuVisible = cpu.current != null;
-    final mediaVisible = media.available;
-    final trayItems = ref.watch(systemTrayProvider);
     return Padding(
       padding: horizontal
           ? const EdgeInsets.symmetric(
@@ -72,7 +76,7 @@ class DesktopSystemBar extends ConsumerWidget {
         direction: horizontal ? Axis.horizontal : Axis.vertical,
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          if (trayItems.isNotEmpty)
+          if (trayVisible)
             Expanded(
               child: Align(
                 alignment: horizontal
@@ -86,11 +90,7 @@ class DesktopSystemBar extends ConsumerWidget {
                     horizontal: horizontal,
                     child: _SystemBarCard(
                       accent: accent,
-                      child: SystemTrayModule(
-                        horizontal: horizontal,
-                        accent: accent.color,
-                        items: trayItems,
-                      ),
+                      child: _SystemTrayStatusModule(horizontal: horizontal),
                     ),
                   ),
                 ),
@@ -101,7 +101,7 @@ class DesktopSystemBar extends ConsumerWidget {
               key: const ValueKey('system-bar-media'),
               index:
                   (cpuVisible ? 1 : 0) +
-                  gpus.length +
+                  gpuCount +
                   (batteryVisible ? 1 : 0) +
                   1,
               horizontal: horizontal,
@@ -111,77 +111,40 @@ class DesktopSystemBar extends ConsumerWidget {
                     : const EdgeInsets.only(bottom: _cardGap),
                 child: _SystemBarCard(
                   accent: accent,
-                  child: _MediaStatusModule(
-                    accent: accent,
-                    side: side,
-                    playback: media,
-                  ),
+                  child: _MediaStatusProviderModule(accent: accent, side: side),
                 ),
               ),
             ),
           if (batteryVisible)
             _SystemBarEntrance(
               key: const ValueKey('system-bar-battery'),
-              index: (cpuVisible ? 1 : 0) + gpus.length + 1,
+              index: (cpuVisible ? 1 : 0) + gpuCount + 1,
               horizontal: horizontal,
               child: Padding(
                 padding: horizontal
                     ? const EdgeInsets.only(right: _cardGap)
                     : const EdgeInsets.only(bottom: _cardGap),
-                child: _BatteryActionCard(
+                child: _BatteryStatusCard(
                   accent: accent,
-                  status: battery,
                   onPressed: onOpenPowerSettings,
                 ),
               ),
             ),
-          for (int i = 0; i < gpus.length; i += 1)
-            _SystemBarEntrance(
-              key: ValueKey('system-bar-gpu-${gpus[i].id}'),
-              index: (cpuVisible ? 1 : 0) + (gpus.length - i),
+          if (gpuCount > 0)
+            _GpuStatusCards(
+              accent: accent,
               horizontal: horizontal,
-              // The gap rides inside the entrance so the neighbouring pill
-              // slides over smoothly when this one appears.
-              child: Padding(
-                padding: horizontal
-                    ? const EdgeInsets.only(right: _cardGap)
-                    : const EdgeInsets.only(bottom: _cardGap),
-                child: _SystemBarCard(
-                  accent: accent,
-                  child: _MeterModule(
-                    accent: accent,
-                    label: gpus[i].label,
-                    series: gpus[i].series,
-                  ),
-                ),
-              ),
+              cpuVisible: cpuVisible,
             ),
           if (cpuVisible)
-            _SystemBarEntrance(
-              key: const ValueKey('system-bar-cpu'),
-              index: 1,
-              horizontal: horizontal,
-              child: Padding(
-                padding: horizontal
-                    ? const EdgeInsets.only(right: _cardGap)
-                    : const EdgeInsets.only(bottom: _cardGap),
-                child: _SystemBarCard(
-                  accent: accent,
-                  child: _MeterModule(
-                    accent: accent,
-                    label: context.l10n.metricCpu,
-                    series: cpu,
-                  ),
-                ),
-              ),
-            ),
+            _CpuStatusCard(accent: accent, horizontal: horizontal),
           _SystemBarEntrance(
             key: const ValueKey('system-bar-clock'),
             index: 0,
             horizontal: horizontal,
             child: _SystemBarCard(
               accent: accent,
-              child: _ClockModule(accent: accent, now: now),
+              child: _ClockStatusModule(accent: accent),
             ),
           ),
         ],
@@ -190,16 +153,164 @@ class DesktopSystemBar extends ConsumerWidget {
   }
 }
 
+/// Keeps changes to tray contents out of the complete system-bar build.
+class _SystemTrayStatusModule extends ConsumerWidget {
+  const _SystemTrayStatusModule({required this.horizontal});
+
+  final bool horizontal;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return SystemTrayModule(
+      horizontal: horizontal,
+      accent: context.shellTheme.accent,
+      items: ref.watch(systemTrayProvider),
+    );
+  }
+}
+
+/// Rebuilds only the media card when MPRIS state changes.
+class _MediaStatusProviderModule extends ConsumerWidget {
+  const _MediaStatusProviderModule({required this.accent, required this.side});
+
+  final WallpaperAccent accent;
+  final SystemBarSide side;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final summary = ref.watch(
+      mediaPlaybackProvider.select((media) {
+        final playback = media.value;
+        return (
+          available: playback?.available ?? false,
+          playing: playback?.playing ?? false,
+        );
+      }),
+    );
+    return _MediaStatusModule(
+      accent: accent,
+      side: side,
+      available: summary.available,
+      playing: summary.playing,
+    );
+  }
+}
+
+/// Rebuilds only the battery card on its slower status cadence.
+class _BatteryStatusCard extends ConsumerWidget {
+  const _BatteryStatusCard({required this.accent, required this.onPressed});
+
+  final WallpaperAccent accent;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return _BatteryActionCard(
+      accent: accent,
+      status: ref.watch(batteryProvider),
+      onPressed: onPressed,
+    );
+  }
+}
+
+/// Rebuilds the GPU group without rebuilding the neighbouring cards.
+class _GpuStatusCards extends ConsumerWidget {
+  const _GpuStatusCards({
+    required this.accent,
+    required this.horizontal,
+    required this.cpuVisible,
+  });
+
+  final WallpaperAccent accent;
+  final bool horizontal;
+  final bool cpuVisible;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gpus = ref.watch(gpuUsageProvider);
+    return Flex(
+      direction: horizontal ? Axis.horizontal : Axis.vertical,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (int i = 0; i < gpus.length; i += 1)
+          _SystemBarEntrance(
+            key: ValueKey('system-bar-gpu-${gpus[i].id}'),
+            index: (cpuVisible ? 1 : 0) + (gpus.length - i),
+            horizontal: horizontal,
+            child: Padding(
+              padding: horizontal
+                  ? const EdgeInsets.only(right: DesktopSystemBar._cardGap)
+                  : const EdgeInsets.only(bottom: DesktopSystemBar._cardGap),
+              child: _SystemBarCard(
+                accent: accent,
+                child: _MeterModule(
+                  accent: accent,
+                  label: gpus[i].label,
+                  series: gpus[i].series,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Rebuilds the CPU meter only when a fresh sample is published.
+class _CpuStatusCard extends ConsumerWidget {
+  const _CpuStatusCard({required this.accent, required this.horizontal});
+
+  final WallpaperAccent accent;
+  final bool horizontal;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return _SystemBarEntrance(
+      key: const ValueKey('system-bar-cpu'),
+      index: 1,
+      horizontal: horizontal,
+      child: Padding(
+        padding: horizontal
+            ? const EdgeInsets.only(right: DesktopSystemBar._cardGap)
+            : const EdgeInsets.only(bottom: DesktopSystemBar._cardGap),
+        child: _SystemBarCard(
+          accent: accent,
+          child: _MeterModule(
+            accent: accent,
+            label: context.l10n.metricCpu,
+            series: ref.watch(cpuUsageProvider),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Rebuilds the clock card only at the minute boundary.
+class _ClockStatusModule extends ConsumerWidget {
+  const _ClockStatusModule({required this.accent});
+
+  final WallpaperAccent accent;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final now = ref.watch(clockProvider).value ?? DateTime.now();
+    return _ClockModule(accent: accent, now: now);
+  }
+}
+
 class _MediaStatusModule extends ConsumerStatefulWidget {
   const _MediaStatusModule({
     required this.accent,
     required this.side,
-    required this.playback,
+    required this.available,
+    required this.playing,
   });
 
   final WallpaperAccent accent;
   final SystemBarSide side;
-  final MprisPlaybackState playback;
+  final bool available;
+  final bool playing;
 
   @override
   ConsumerState<_MediaStatusModule> createState() => _MediaStatusModuleState();
@@ -294,7 +405,7 @@ class _MediaStatusModuleState extends ConsumerState<_MediaStatusModule>
   @override
   void didUpdateWidget(covariant _MediaStatusModule oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!widget.playback.available) {
+    if (!widget.available) {
       _portal.hide();
       _popupMotion.reset();
       _positionTimer?.cancel();
@@ -341,6 +452,7 @@ class _MediaStatusModuleState extends ConsumerState<_MediaStatusModule>
     BuildContext context,
     OverlayChildLayoutInfo layout,
     MediaPlayerService service,
+    MprisPlaybackState playback,
   ) {
     if (layout.childPaintTransform.determinant() == 0) {
       return const SizedBox.shrink();
@@ -401,7 +513,7 @@ class _MediaStatusModuleState extends ConsumerState<_MediaStatusModule>
           child: _animatePopup(
             _MediaPlaybackPopup(
               accent: widget.accent,
-              playback: widget.playback,
+              playback: playback,
               now: _popupNow,
               onPrevious: () => unawaited(service.previous()),
               onPlayPause: () => unawaited(service.playPause()),
@@ -416,12 +528,15 @@ class _MediaStatusModuleState extends ConsumerState<_MediaStatusModule>
   @override
   Widget build(BuildContext context) {
     final service = ref.read(mediaPlayerServiceProvider);
+    final playback = _portal.isShowing
+        ? ref.watch(mediaPlaybackProvider).value ?? service.current
+        : service.current;
     return ShellInputRegion(
       debugLabel: 'System bar media control',
       child: OverlayPortal.overlayChildLayoutBuilder(
         controller: _portal,
         overlayChildBuilder: (context, layout) =>
-            _buildPopup(context, layout, service),
+            _buildPopup(context, layout, service, playback),
         child: Semantics(
           button: true,
           label: context.l10n.mediaControls,
@@ -438,16 +553,16 @@ class _MediaStatusModuleState extends ConsumerState<_MediaStatusModule>
                 height: 24,
                 decoration: BoxDecoration(
                   color: _hovered
-                      ? widget.accent.color.withValues(alpha: 0.18)
-                      : Colors.transparent,
+                      ? context.shellTheme.accent.withValues(alpha: 0.18)
+                      : ShellMediaColors.transparentDark,
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
-                  widget.playback.playing
+                  widget.playing
                       ? Icons.graphic_eq_rounded
                       : Icons.music_note_rounded,
                   size: 17,
-                  color: widget.accent.color,
+                  color: context.shellTheme.accent,
                 ),
               ),
             ),
@@ -508,18 +623,20 @@ class _MediaPlaybackPopup extends StatelessWidget {
               colors: [
                 theme.panelColor(
                   Color.alphaBlend(
-                    accent.color.withValues(alpha: 0.13),
-                    ShellColors.panelBackground.withValues(alpha: 1),
+                    context.shellTheme.accent.withValues(alpha: 0.13),
+                    context.shellColors.panelBackground.withValues(alpha: 1),
                   ),
                 ),
-                theme.panelColor(ShellColors.surfaceContainerLow),
+                theme.panelColor(context.shellColors.surfaceContainerLow),
               ],
             ),
             borderRadius: radius,
-            border: Border.all(color: accent.color.withValues(alpha: 0.3)),
-            boxShadow: const [
+            border: Border.all(
+              color: context.shellTheme.accent.withValues(alpha: 0.3),
+            ),
+            boxShadow: [
               BoxShadow(
-                color: ShellColors.shadow,
+                color: context.shellColors.shadow,
                 blurRadius: 34,
                 spreadRadius: 2,
                 offset: Offset(0, 14),
@@ -539,13 +656,13 @@ class _MediaPlaybackPopup extends StatelessWidget {
                         Icon(
                           Icons.graphic_eq_rounded,
                           size: 14,
-                          color: accent.color,
+                          color: context.shellTheme.accent,
                         ),
                         const SizedBox(width: 6),
                         Text(
                           context.l10n.mediaNowPlaying.toUpperCase(),
                           style: ShellText.systemBarCaption.copyWith(
-                            color: accent.color,
+                            color: context.shellTheme.accent,
                             letterSpacing: 1.05,
                           ),
                         ),
@@ -564,7 +681,7 @@ class _MediaPlaybackPopup extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: ShellText.base.copyWith(
-                        color: ShellColors.textSecondary,
+                        color: context.shellColors.textSecondary,
                         fontSize: 11,
                       ),
                     ),
@@ -577,8 +694,9 @@ class _MediaPlaybackPopup extends StatelessWidget {
                         child: LinearProgressIndicator(
                           minHeight: 4,
                           value: progress,
-                          color: accent.color,
-                          backgroundColor: ShellColors.surfaceContainerHighest,
+                          color: context.shellTheme.accent,
+                          backgroundColor:
+                              context.shellColors.surfaceContainerHighest,
                         ),
                       ),
                     ),
@@ -589,14 +707,14 @@ class _MediaPlaybackPopup extends StatelessWidget {
                           child: Text(
                             _formatMediaTime(position),
                             style: ShellText.systemBarCaption.copyWith(
-                              color: ShellColors.textTertiary,
+                              color: context.shellColors.textTertiary,
                             ),
                           ),
                         ),
                         Text(
                           _formatMediaTime(length),
                           style: ShellText.systemBarCaption.copyWith(
-                            color: ShellColors.textTertiary,
+                            color: context.shellColors.textTertiary,
                           ),
                         ),
                       ],
@@ -698,8 +816,8 @@ class _MediaControlButtonState extends State<_MediaControlButton> {
                 color: widget.prominent
                     ? accent.primary
                     : _hovered
-                    ? ShellColors.surfaceContainerHighest
-                    : ShellColors.surfaceContainerHigh,
+                    ? context.shellColors.surfaceContainerHighest
+                    : context.shellColors.surfaceContainerHigh,
                 shape: BoxShape.circle,
               ),
               child: Icon(
@@ -708,8 +826,8 @@ class _MediaControlButtonState extends State<_MediaControlButton> {
                 color: widget.enabled
                     ? widget.prominent
                           ? accent.onPrimary
-                          : ShellColors.textPrimary
-                    : ShellColors.glyphInactive,
+                          : context.shellColors.textPrimary
+                    : context.shellColors.glyphInactive,
               ),
             ),
           ),
@@ -791,16 +909,16 @@ class _MediaArtworkFallback extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            accent.color.withValues(alpha: 0.64),
-            ShellColors.surfaceContainerHighest,
+            context.shellTheme.accent.withValues(alpha: 0.64),
+            context.shellColors.surfaceContainerHighest,
           ],
         ),
       ),
-      child: const Center(
+      child: Center(
         child: Icon(
           Icons.music_note_rounded,
           size: 48,
-          color: ShellColors.textPrimary,
+          color: context.shellColors.textPrimary,
         ),
       ),
     );
@@ -837,7 +955,7 @@ class _ClockModule extends StatelessWidget {
           duration: Motion.wallpaperReveal,
           curve: Motion.standard,
           style: ShellText.systemBarCaption.copyWith(
-            color: accent.captionColor,
+            color: accent.captionColor(context.shellTheme),
           ),
           child: Text(localizedShortDate(context, now)),
         ),
@@ -906,7 +1024,9 @@ class _BatteryActionCardState extends State<_BatteryActionCard> {
             borderRadius: const BorderRadius.all(Radius.circular(999)),
             mouseCursor: ShellMouseCursors.link,
             splashFactory: NoSplash.splashFactory,
-            overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+            overlayColor: WidgetStatePropertyAll(
+              ShellMediaColors.transparentDark,
+            ),
             onTap: widget.onPressed,
             onHover: (value) => setState(() => _hovered = value),
             onFocusChange: (value) => setState(() => _focused = value),
@@ -949,8 +1069,9 @@ class _BatteryModule extends StatelessWidget {
               painter: _BatteryLevelPainter(
                 level: value,
                 charging: status.charging,
-                accent: accent.color,
-                outline: accent.captionColor,
+                accent: context.shellTheme.accent,
+                outline: accent.captionColor(context.shellTheme),
+                foreground: context.shellColors.textPrimary,
               ),
             ),
           ),
@@ -961,12 +1082,12 @@ class _BatteryModule extends StatelessWidget {
           child: Text.rich(
             TextSpan(
               text: context.l10n.numberValue(capacity),
-              style: ShellText.systemBarValue,
+              style: context.shellTheme.text.systemBarValue,
               children: [
                 TextSpan(
                   text: context.l10n.percentSign,
-                  style: ShellText.systemBarCaption.copyWith(
-                    color: accent.captionColor,
+                  style: context.shellTheme.text.systemBarCaption.copyWith(
+                    color: accent.captionColor(context.shellTheme),
                   ),
                 ),
               ],
@@ -1003,7 +1124,7 @@ class _MeterModule extends StatelessWidget {
           duration: Motion.wallpaperReveal,
           curve: Motion.standard,
           style: ShellText.systemBarCaption.copyWith(
-            color: accent.captionColor,
+            color: accent.captionColor(context.shellTheme),
           ),
           child: Text(label),
         ),
@@ -1013,33 +1134,30 @@ class _MeterModule extends StatelessWidget {
             size: const Size(38, 14),
             painter: _SparklinePainter(
               history: series.history,
-              accent: accent.color,
+              accent: context.shellTheme.accent,
             ),
           ),
         ),
         const SizedBox(width: 7),
-        TweenAnimationBuilder<double>(
-          tween: Tween<double>(begin: 0.0, end: series.current ?? 0.0),
-          duration: Motion.pill,
-          curve: Motion.standard,
-          builder: (context, value, _) => SizedBox(
-            width: 34,
-            child: Text.rich(
-              TextSpan(
-                text: context.l10n.numberValue((value * 100).round()),
-                style: ShellText.systemBarValue,
-                children: [
-                  TextSpan(
-                    text: context.l10n.percentSign,
-                    style: ShellText.systemBarCaption.copyWith(
-                      color: accent.captionColor,
-                    ),
-                  ),
-                ],
+        SizedBox(
+          width: 34,
+          child: Text.rich(
+            TextSpan(
+              text: context.l10n.numberValue(
+                ((series.current ?? 0.0) * 100).round(),
               ),
-              textAlign: TextAlign.right,
-              maxLines: 1,
+              style: ShellText.systemBarValue,
+              children: [
+                TextSpan(
+                  text: context.l10n.percentSign,
+                  style: ShellText.systemBarCaption.copyWith(
+                    color: accent.captionColor(context.shellTheme),
+                  ),
+                ),
+              ],
             ),
+            textAlign: TextAlign.right,
+            maxLines: 1,
           ),
         ),
         if (series.temperatureC case final temperature?) ...[
@@ -1067,7 +1185,7 @@ class _TemperatureValue extends StatelessWidget {
           TextSpan(
             text: context.l10n.celsiusUnit,
             style: ShellText.systemBarCaption.copyWith(
-              color: accent.captionColor,
+              color: accent.captionColor(context.shellTheme),
             ),
           ),
         ],
@@ -1097,12 +1215,14 @@ class _SystemBarCard extends StatelessWidget {
   Widget build(BuildContext context) {
     const radius = BorderRadius.all(Radius.circular(999));
     final theme = ShellTheme.of(context);
+    final cardFillTop = accent.cardFillTop(theme);
+    final cardFill = accent.cardFill(theme);
     final topFill = highlighted
-        ? Color.lerp(accent.cardFillTop, accent.color, 0.12)!
-        : accent.cardFillTop;
+        ? Color.lerp(cardFillTop, theme.accent, 0.12)!
+        : cardFillTop;
     final bottomFill = highlighted
-        ? Color.lerp(accent.cardFill, accent.color, 0.08)!
-        : accent.cardFill;
+        ? Color.lerp(cardFill, theme.accent, 0.08)!
+        : cardFill;
     return ShellBackdropBlur(
       borderRadius: radius,
       child: AnimatedContainer(
@@ -1117,7 +1237,7 @@ class _SystemBarCard extends StatelessWidget {
           ),
           borderRadius: radius,
           border: focused
-              ? Border.all(color: accent.color.withValues(alpha: 0.78))
+              ? Border.all(color: theme.accent.withValues(alpha: 0.78))
               : null,
         ),
         alignment: Alignment.center,
@@ -1263,12 +1383,14 @@ class _BatteryLevelPainter extends CustomPainter {
     required this.charging,
     required this.accent,
     required this.outline,
+    required this.foreground,
   });
 
   final double level;
   final bool charging;
   final Color accent;
   final Color outline;
+  final Color foreground;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1319,7 +1441,7 @@ class _BatteryLevelPainter extends CustomPainter {
         ..lineTo(center.dx + 3.0, center.dy - 0.8)
         ..lineTo(center.dx + 0.5, center.dy - 0.8)
         ..close();
-      canvas.drawPath(bolt, Paint()..color = ShellColors.textPrimary);
+      canvas.drawPath(bolt, Paint()..color = foreground);
     }
   }
 
@@ -1328,7 +1450,8 @@ class _BatteryLevelPainter extends CustomPainter {
     return oldDelegate.level != level ||
         oldDelegate.charging != charging ||
         oldDelegate.accent != accent ||
-        oldDelegate.outline != outline;
+        oldDelegate.outline != outline ||
+        oldDelegate.foreground != foreground;
   }
 }
 

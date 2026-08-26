@@ -30,14 +30,16 @@ class WallpaperSearchField extends StatelessWidget {
       label: l10n.wallpaperSearchSemantics,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: theme.panelColor(ShellColors.panelBackground),
+          color: theme.panelColor(context.shellColors.panelBackground),
           borderRadius: BorderRadius.circular(theme.panelRadius),
           border: Border.all(
-            color: focusNode.hasFocus ? accent.primary : ShellColors.hairline,
+            color: focusNode.hasFocus
+                ? accent.primary
+                : context.shellColors.hairline,
           ),
-          boxShadow: const [
+          boxShadow: [
             BoxShadow(
-              color: ShellColors.shadow,
+              color: context.shellColors.shadow,
               blurRadius: 28,
               spreadRadius: 1,
               offset: Offset(0, 12),
@@ -50,10 +52,10 @@ class WallpaperSearchField extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 18),
             child: Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.search_rounded,
                   size: 23,
-                  color: ShellColors.textSecondary,
+                  color: context.shellColors.textSecondary,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -64,8 +66,8 @@ class WallpaperSearchField extends StatelessWidget {
                         IgnorePointer(
                           child: Text(
                             l10n.wallpaperSearchHint,
-                            style: const TextStyle(
-                              color: ShellColors.textTertiary,
+                            style: TextStyle(
+                              color: context.shellColors.textTertiary,
                               fontSize: 15,
                               decoration: TextDecoration.none,
                             ),
@@ -82,7 +84,8 @@ class WallpaperSearchField extends StatelessWidget {
                         onSubmitted: (_) => onSubmit(),
                         style: ShellText.base.copyWith(fontSize: 15),
                         cursorColor: accent.primary,
-                        backgroundCursorColor: ShellColors.textSecondary,
+                        backgroundCursorColor:
+                            context.shellColors.textSecondary,
                         selectionColor: accent.selection,
                       ),
                     ],
@@ -92,12 +95,12 @@ class WallpaperSearchField extends StatelessWidget {
                   GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTap: onClear,
-                    child: const SizedBox.square(
+                    child: SizedBox.square(
                       dimension: 34,
                       child: Icon(
                         Icons.close_rounded,
                         size: 20,
-                        color: ShellColors.textSecondary,
+                        color: context.shellColors.textSecondary,
                       ),
                     ),
                   ),
@@ -125,16 +128,16 @@ class WallpaperStatusChip extends StatelessWidget {
     final theme = ShellTheme.of(context);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: theme.panelColor(ShellColors.panelBackground),
+        color: theme.panelColor(context.shellColors.panelBackground),
         borderRadius: BorderRadius.circular(ShellRadii.chip),
-        border: Border.all(color: ShellColors.hairline),
+        border: Border.all(color: context.shellColors.hairline),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 18, color: ShellColors.textSecondary),
+            Icon(icon, size: 18, color: context.shellColors.textSecondary),
             const SizedBox(width: 8),
             Flexible(
               child: Text(
@@ -142,7 +145,7 @@ class WallpaperStatusChip extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: ShellText.cardTitle.copyWith(
-                  color: ShellColors.textSecondary,
+                  color: context.shellColors.textSecondary,
                 ),
               ),
             ),
@@ -174,10 +177,10 @@ class WallpaperEmptyState extends StatelessWidget {
           if (loading)
             CircularProgressIndicator(color: accent.primary)
           else
-            const Icon(
+            Icon(
               Icons.image_search_rounded,
               size: 52,
-              color: ShellColors.textTertiary,
+              color: context.shellColors.textTertiary,
             ),
           const SizedBox(height: 16),
           Text(
@@ -185,7 +188,7 @@ class WallpaperEmptyState extends StatelessWidget {
                 ? l10n.wallpaperNoneFound
                 : l10n.wallpaperServiceUnavailable,
             style: ShellText.cardTitle.copyWith(
-              color: ShellColors.textSecondary,
+              color: context.shellColors.textSecondary,
               fontSize: 15,
             ),
           ),

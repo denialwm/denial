@@ -59,12 +59,12 @@ class PowerSessionSurface extends ConsumerWidget {
             role: confirmationAction == null ? .dialog : .alertDialog,
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: theme.panelColor(ShellColors.panelBackground),
+                color: theme.panelColor(context.shellColors.panelBackground),
                 borderRadius: BorderRadius.circular(theme.panelRadius),
-                border: Border.all(color: ShellColors.hairline),
-                boxShadow: const <BoxShadow>[
+                border: Border.all(color: context.shellColors.hairline),
+                boxShadow: <BoxShadow>[
                   BoxShadow(
-                    color: ShellColors.shadow,
+                    color: context.shellColors.shadow,
                     blurRadius: 36,
                     spreadRadius: 3,
                     offset: Offset(0, 16),
@@ -88,7 +88,7 @@ class PowerSessionSurface extends ConsumerWidget {
                           key: const ValueKey<String>('session-power-error'),
                           icon: Icons.error_outline_rounded,
                           message: l10n.powerSessionRequestError,
-                          color: ShellColors.performanceBad,
+                          color: context.shellColors.performanceBad,
                           actionLabel: l10n.actionDismiss,
                           onAction: controller.clearError,
                         ),
@@ -102,7 +102,7 @@ class PowerSessionSurface extends ConsumerWidget {
                           ),
                           icon: Icons.cloud_off_rounded,
                           message: l10n.powerSessionUnavailable,
-                          color: ShellColors.textSecondary,
+                          color: context.shellColors.textSecondary,
                         ),
                         const SizedBox(height: 10),
                       ],
@@ -114,7 +114,7 @@ class PowerSessionSurface extends ConsumerWidget {
                           ),
                           icon: Icons.hourglass_bottom_rounded,
                           message: delay,
-                          color: ShellColors.textSecondary,
+                          color: context.shellColors.textSecondary,
                         ),
                         const SizedBox(height: 10),
                       ],
@@ -201,7 +201,7 @@ class _PowerHeader extends StatelessWidget {
               Text(
                 busy ? l10n.powerSessionBusy : l10n.powerSessionDescription,
                 style: ShellText.base.copyWith(
-                  color: ShellColors.textSecondary,
+                  color: context.shellColors.textSecondary,
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
                 ),
@@ -254,7 +254,7 @@ class _ActionList extends StatelessWidget {
             key: const ValueKey<String>('session-power-loading'),
             icon: Icons.sync_rounded,
             message: context.l10n.powerSessionLoading,
-            color: ShellColors.textSecondary,
+            color: context.shellColors.textSecondary,
             busy: true,
           );
         }
@@ -343,11 +343,13 @@ class _SessionActionTileState extends State<_SessionActionTile> {
               padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 11),
               decoration: BoxDecoration(
                 color: widget.enabled
-                    ? ShellColors.surfaceContainerHigh
-                    : ShellColors.tileOff,
+                    ? context.shellColors.surfaceContainerHigh
+                    : context.shellColors.tileOff,
                 borderRadius: BorderRadius.circular(ShellRadii.tileWide),
                 border: Border.all(
-                  color: _focused ? accent.primary : ShellColors.hairlineSoft,
+                  color: _focused
+                      ? accent.primary
+                      : context.shellColors.hairlineSoft,
                   width: _focused ? 1.5 : 1,
                 ),
               ),
@@ -357,7 +359,7 @@ class _SessionActionTileState extends State<_SessionActionTile> {
                     decoration: BoxDecoration(
                       color: widget.enabled
                           ? accent.container
-                          : ShellColors.surfaceContainerHighest,
+                          : context.shellColors.surfaceContainerHighest,
                       shape: BoxShape.circle,
                     ),
                     child: SizedBox.square(
@@ -375,7 +377,7 @@ class _SessionActionTileState extends State<_SessionActionTile> {
                               size: 21,
                               color: widget.enabled
                                   ? accent.onContainer
-                                  : ShellColors.textTertiary,
+                                  : context.shellColors.textTertiary,
                             ),
                     ),
                   ),
@@ -389,8 +391,8 @@ class _SessionActionTileState extends State<_SessionActionTile> {
                           _actionLabel(action, l10n),
                           style: ShellText.cardTitle.copyWith(
                             color: widget.enabled
-                                ? ShellColors.panelText
-                                : ShellColors.textTertiary,
+                                ? context.shellColors.panelText
+                                : context.shellColors.textTertiary,
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -400,8 +402,8 @@ class _SessionActionTileState extends State<_SessionActionTile> {
                           overflow: TextOverflow.ellipsis,
                           style: ShellText.base.copyWith(
                             color: reason == null
-                                ? ShellColors.textSecondary
-                                : ShellColors.textTertiary,
+                                ? context.shellColors.textSecondary
+                                : context.shellColors.textTertiary,
                             fontSize: 10.5,
                             fontWeight: FontWeight.w600,
                           ),
@@ -410,12 +412,12 @@ class _SessionActionTileState extends State<_SessionActionTile> {
                     ),
                   ),
                   if (action.requiresConfirmation)
-                    const Padding(
+                    Padding(
                       padding: EdgeInsets.only(left: 8),
                       child: Icon(
                         Icons.chevron_right_rounded,
                         size: 20,
-                        color: ShellColors.textTertiary,
+                        color: context.shellColors.textTertiary,
                       ),
                     ),
                 ],
@@ -449,9 +451,9 @@ class _ConfirmationPane extends StatelessWidget {
       primary: false,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: ShellColors.surfaceContainerHigh,
+          color: context.shellColors.surfaceContainerHigh,
           borderRadius: BorderRadius.circular(theme.panelRadius),
-          border: Border.all(color: ShellColors.hairlineSoft),
+          border: Border.all(color: context.shellColors.hairlineSoft),
         ),
         child: Padding(
           padding: const EdgeInsets.all(22),
@@ -483,7 +485,7 @@ class _ConfirmationPane extends StatelessWidget {
                 _confirmationBody(action, l10n),
                 textAlign: TextAlign.center,
                 style: ShellText.base.copyWith(
-                  color: ShellColors.textSecondary,
+                  color: context.shellColors.textSecondary,
                   fontSize: 12,
                   height: 1.35,
                 ),
@@ -538,9 +540,9 @@ class _PowerNotice extends StatelessWidget {
     final accent = ShellTheme.of(context).accentPalette;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: ShellColors.surfaceContainerHigh,
+        color: context.shellColors.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(13),
-        border: Border.all(color: ShellColors.hairlineSoft),
+        border: Border.all(color: context.shellColors.hairlineSoft),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -636,10 +638,12 @@ class _PowerIconButtonState extends State<_PowerIconButton> {
             onTap: widget.enabled ? widget.onPressed : null,
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: ShellColors.surfaceContainerHigh,
+                color: context.shellColors.surfaceContainerHigh,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: _focused ? accent.primary : ShellColors.hairlineSoft,
+                  color: _focused
+                      ? accent.primary
+                      : context.shellColors.hairlineSoft,
                 ),
               ),
               child: SizedBox.square(
@@ -648,8 +652,8 @@ class _PowerIconButtonState extends State<_PowerIconButton> {
                   widget.icon,
                   size: 19,
                   color: widget.enabled
-                      ? ShellColors.panelText
-                      : ShellColors.textTertiary,
+                      ? context.shellColors.panelText
+                      : context.shellColors.textTertiary,
                 ),
               ),
             ),
@@ -708,10 +712,12 @@ class _PowerTextButtonState extends State<_PowerTextButton> {
             decoration: BoxDecoration(
               color: widget.emphasized
                   ? accent.container
-                  : ShellColors.surfaceContainerHighest,
+                  : context.shellColors.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: _focused ? accent.primary : ShellColors.hairlineSoft,
+                color: _focused
+                    ? accent.primary
+                    : context.shellColors.hairlineSoft,
               ),
             ),
             child: SizedBox(
@@ -728,7 +734,7 @@ class _PowerTextButtonState extends State<_PowerTextButton> {
                     style: ShellText.base.copyWith(
                       color: widget.emphasized
                           ? accent.onContainer
-                          : ShellColors.panelText,
+                          : context.shellColors.panelText,
                       fontSize: widget.compact ? 10 : 12,
                       fontWeight: FontWeight.w700,
                     ),

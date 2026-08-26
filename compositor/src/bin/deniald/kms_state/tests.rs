@@ -5,7 +5,27 @@ use super::{
     validate_scanout_identities, validate_scanout_pool_allocation,
 };
 #[cfg(feature = "flutter")]
-use super::{OUTPUT_POOL_LENGTH, ensure_resident_jit_engine_matches};
+use super::{
+    OUTPUT_POOL_LENGTH, ensure_resident_jit_engine_matches, resolve_ui_development_publication,
+};
+
+#[cfg(feature = "flutter")]
+#[test]
+fn runtime_switch_tolerates_retiring_engine_state_publication_failure() {
+    let publication = Err("retiring Flutter engine is unavailable".into());
+
+    assert!(resolve_ui_development_publication(true, publication).is_ok());
+}
+
+#[cfg(feature = "flutter")]
+#[test]
+fn steady_state_ui_publication_failure_remains_fatal() {
+    let publication = Err("active Flutter engine is unavailable".into());
+
+    let error = resolve_ui_development_publication(false, publication)
+        .expect_err("steady-state publication failures must still reach the event loop");
+    assert_eq!(error.to_string(), "active Flutter engine is unavailable");
+}
 
 #[cfg(feature = "flutter")]
 #[test]

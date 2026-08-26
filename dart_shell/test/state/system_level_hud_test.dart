@@ -42,6 +42,19 @@ void main() {
       );
 
       brightnessUpdates.add(
+        const DenialBrightnessState(
+          monitorId: 4,
+          level: 0.35,
+          completesRead: true,
+        ),
+      );
+      expect(
+        container.read(systemLevelHudProvider),
+        isNull,
+        reason: 'a reconciliation read must not look like a brightness gesture',
+      );
+
+      brightnessUpdates.add(
         const DenialBrightnessState(monitorId: 4, level: 0.35),
       );
       expect(
