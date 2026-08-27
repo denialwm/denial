@@ -22,6 +22,7 @@ class Motion {
   static const Duration desktopPanelClose = Duration(milliseconds: 320);
   static const Duration homeFlyAway = Duration(milliseconds: 280);
   static const Duration tile = Duration(milliseconds: 160);
+  static const Duration inputMethodPopup = Duration(milliseconds: 180);
   static const Duration pill = Duration(milliseconds: 90);
   static const Duration cardSettle = Duration(milliseconds: 220);
   static const Duration wallpaperSelector = Duration(milliseconds: 360);

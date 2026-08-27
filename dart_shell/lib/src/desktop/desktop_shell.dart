@@ -1737,10 +1737,14 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                   ),
                   for (final popup in inputMethodPopups)
                     if (popup.geometry case final geometry?)
-                      Positioned.fromRect(
+                      RetainedAnimatedPositioned(
                         key: ValueKey<String>(
                           'desktop-input-method-popup-${popup.objectId}',
                         ),
+                        duration: reduceMotion
+                            ? Duration.zero
+                            : Motion.inputMethodPopup,
+                        curve: Motion.standard,
                         rect: geometry,
                         child: IgnorePointer(
                           child: WindowSurfaceTree(
