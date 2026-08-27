@@ -83,7 +83,7 @@ class DenialShortcutSpawnTarget extends DenialShortcutTarget {
   Map<String, Object> toJson() => <String, Object>{
     'type': 'spawn',
     'command': command,
-    if (desktopFileId != null) 'desktopFileId': desktopFileId!,
+    'desktopFileId': ?desktopFileId,
   };
 }
 

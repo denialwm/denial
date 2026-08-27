@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/gestures.dart' show PointerDeviceKind, PointerExitEvent;
 import 'package:flutter/services.dart'
     show MouseCursor, MouseCursorSession, SystemChannels;
@@ -11,7 +10,6 @@ import '../models/denial_drag_icon.dart';
 import '../models/denial_cursor_state.dart';
 import '../models/display_layout.dart';
 import '../theme/cursor_themes.dart';
-import '../theme/shell_theme.dart';
 import 'retained_translation.dart';
 import 'window_surface_tree.dart';
 

@@ -13,15 +13,14 @@ abstract interface class ApplicationRecentsStore {
 }
 
 class ApplicationRecentsRepository implements ApplicationRecentsStore {
-  const ApplicationRecentsRepository({required RuntimePaths paths})
-    : _paths = paths;
+  const ApplicationRecentsRepository({required this.paths});
 
-  final RuntimePaths _paths;
+  final RuntimePaths paths;
 
   @override
   Future<List<String>> readEntries() async {
     try {
-      final file = await _paths.applicationRecentsFile();
+      final file = await paths.applicationRecentsFile();
       if (!await file.exists()) {
         return const <String>[];
       }
@@ -38,7 +37,7 @@ class ApplicationRecentsRepository implements ApplicationRecentsStore {
   @override
   Future<void> saveEntries(List<String> entries) async {
     try {
-      final file = await _paths.applicationRecentsFile();
+      final file = await paths.applicationRecentsFile();
       final temporary = File('${file.path}.tmp');
       final payload = jsonEncode(<String, Object>{
         'version': 1,

@@ -20,6 +20,9 @@ import 'widgets/home_empty_state.dart';
 import 'widgets/home_tiles.dart';
 import 'widgets/page_dots.dart';
 
+part 'home_surface_view.dart';
+part 'home_surface_models.dart';
+
 class HomeSurface extends ConsumerStatefulWidget {
   const HomeSurface({
     super.key,
@@ -977,253 +980,26 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     });
   }
 
+  void _handlePageChanged(int page, int pageCount) {
+    _clearResizeMode();
+    ref.read(homeGridControllerProvider.notifier).setPage(page);
+    final activeDrag = ref.read(homeDragSessionProvider);
+    if (activeDrag != null) {
+      _syncDragSessionToPointer(
+        activeDrag.pointerGlobalPosition,
+        pageCount: pageCount,
+        autoPage: false,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final gridAsync = ref.watch(homeGridControllerProvider);
-    final gridState = gridAsync.asData?.value;
-
-    return Offstage(
-      offstage: !widget.active,
-      child: IgnorePointer(
-        ignoring: !widget.interactive,
-        child: Listener(
-          behavior: HitTestBehavior.opaque,
-          onPointerDown: _handlePointerDown,
-          onPointerMove: _handlePointerMove,
-          onPointerUp: _handlePointerUp,
-          onPointerCancel: _handlePointerUp,
-          child: Stack(
-            key: _homeStackKey,
-            fit: StackFit.expand,
-            children: [
-              const CustomPaint(painter: HomeBackdropPainter()),
-              Padding(
-                padding: _contentPadding,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          final gridWidth =
-                              constraints.maxWidth - _pageHorizontalPadding * 2;
-                          // Wide panels get more columns (not smaller pages):
-                          // full-bleed paging and no vertical overflow.
-                          HomeGridLayout.columns =
-                              HomeGridLayout.columnsForViewport(gridWidth);
-                          final tileWidth =
-                              (gridWidth -
-                                  HomeGridLayout.gridGap *
-                                      (HomeGridLayout.columns - 1)) /
-                              HomeGridLayout.columns;
-                          // Cell content is fixed-size, so height must not
-                          // follow width past its cap (phone tiles never
-                          // reach it and keep the tuned aspect).
-                          final tileHeight = math.min(
-                            tileWidth / HomeAppPage.childAspectRatio,
-                            HomeGridLayout.maxTileHeight,
-                          );
-                          final rows = HomeGridLayout.rowsForHeight(
-                            constraints.maxHeight - _pageDotsReservedHeight,
-                            tileHeight,
-                          );
-                          final pageSize = HomeGridLayout.columns * rows;
-                          final gridHeight =
-                              rows * tileHeight +
-                              (rows - 1) * HomeGridLayout.gridGap;
-                          final rowVisualHeight = math.min(
-                            tileHeight,
-                            _appRowVisualHeight,
-                          );
-                          final visualRowsHeight =
-                              (rows - 1) *
-                                  (tileHeight + HomeGridLayout.gridGap) +
-                              rowVisualHeight;
-                          final pageDotsTop =
-                              visualRowsHeight +
-                              math.max(
-                                    0,
-                                    constraints.maxHeight -
-                                        visualRowsHeight -
-                                        _pageDotsReservedHeight,
-                                  ) /
-                                  3;
-                          _currentTileWidth = tileWidth;
-                          _currentTileHeight = tileHeight;
-                          _currentRows = rows;
-
-                          final rawSlots =
-                              gridState?.slots ?? const <HomeGridItem?>[];
-                          final slots = HomeGridLayout.ensureSlotCapacity(
-                            rawSlots,
-                            pageSize,
-                          );
-                          final pageCount = HomeGridLayout.pageCountForSlots(
-                            slots,
-                            pageSize,
-                          );
-                          _currentPageCount = pageCount;
-                          final currentPage = gridState?.page ?? 0;
-                          final safePage = currentPage
-                              .clamp(0, pageCount - 1)
-                              .toInt();
-                          _syncSafePage(currentPage, safePage);
-
-                          final content = gridState == null
-                              ? gridAsync.hasError
-                                    ? HomeEmptyState(
-                                        label: context.l10n.commonError,
-                                      )
-                                    : HomeEmptyState(
-                                        label: context.l10n.commonLoading,
-                                      )
-                              : PageView.builder(
-                                  controller: _pageController,
-                                  itemCount: pageCount,
-                                  onPageChanged: (page) {
-                                    _clearResizeMode();
-                                    ref
-                                        .read(
-                                          homeGridControllerProvider.notifier,
-                                        )
-                                        .setPage(page);
-                                    final activeDrag = ref.read(
-                                      homeDragSessionProvider,
-                                    );
-                                    if (activeDrag != null) {
-                                      _syncDragSessionToPointer(
-                                        activeDrag.pointerGlobalPosition,
-                                        pageCount: pageCount,
-                                        autoPage: false,
-                                      );
-                                    }
-                                  },
-                                  itemBuilder: (context, page) {
-                                    final start = page * pageSize;
-                                    return Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: _pageHorizontalPadding,
-                                      ),
-                                      child: HomeAppPage(
-                                        slots: slots,
-                                        startIndex: start,
-                                        pageSize: pageSize,
-                                        columns: HomeGridLayout.columns,
-                                        gap: HomeGridLayout.gridGap,
-                                        tileWidth: tileWidth,
-                                        tileHeight: tileHeight,
-                                        draggingSourceIndex:
-                                            gridState.draggingSourceIndex,
-                                        resizeModeIndex: _resizeModeIndex,
-                                        onLaunch: _launchApp,
-                                        onDragStart: _handleItemDragStart,
-                                        onDragEnd: _handleItemDragEnd,
-                                        onDragUpdate: (details) {
-                                          _handleItemDragUpdate(
-                                            details,
-                                            pageCount,
-                                          );
-                                        },
-                                        onResizeModeStart:
-                                            _handleItemResizeModeStart,
-                                        onResizeModeMove:
-                                            _handleItemResizeModeMove,
-                                        onResizeModeEnd:
-                                            _handleItemResizeModeEnd,
-                                        onResizeStart: _handleItemResizeStart,
-                                        onResizeUpdate: _handleItemResizeUpdate,
-                                        onResizeEnd: _handleItemResizeEnd,
-                                      ),
-                                    );
-                                  },
-                                );
-
-                          return Stack(
-                            children: [
-                              Align(
-                                alignment: Alignment.topCenter,
-                                child: SizedBox(
-                                  width: double.infinity,
-                                  height: gridHeight,
-                                  child: SizedBox.expand(
-                                    key: _gridViewportKey,
-                                    child: content,
-                                  ),
-                                ),
-                              ),
-                              Positioned(
-                                top: pageDotsTop,
-                                left: 0,
-                                right: 0,
-                                child: PageDots(
-                                  count: pageCount,
-                                  active: safePage,
-                                ),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Consumer(
-                builder: (context, ref, _) {
-                  final dragSession = ref.watch(homeDragSessionProvider);
-                  if (dragSession == null) {
-                    return const SizedBox.shrink();
-                  }
-                  final offset = _dragOverlayOffset(dragSession);
-                  if (offset == null) {
-                    return const SizedBox.shrink();
-                  }
-
-                  return Positioned(
-                    left: offset.dx,
-                    top: offset.dy,
-                    width: dragSession.feedbackSize.width,
-                    height: dragSession.feedbackSize.height,
-                    child: IgnorePointer(
-                      child: RepaintBoundary(
-                        child: HomeGridItemCard(
-                          item: dragSession.item,
-                          onLaunch: _launchApp,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
+    return _HomeSurfaceView(
+      owner: this,
+      active: widget.active,
+      interactive: widget.interactive,
+      gridAsync: ref.watch(homeGridControllerProvider),
     );
   }
-}
-
-class _HomeResizeSession {
-  const _HomeResizeSession({
-    required this.item,
-    required this.index,
-    required this.pageSize,
-    required this.startGlobalPosition,
-    required this.startColSpan,
-    required this.startRowSpan,
-  });
-
-  final HomeGridItem item;
-  final int index;
-  final int pageSize;
-  final Offset startGlobalPosition;
-  final int startColSpan;
-  final int startRowSpan;
-}
-
-class _HomeGridSpan {
-  const _HomeGridSpan({required this.colSpan, required this.rowSpan});
-
-  final int colSpan;
-  final int rowSpan;
 }

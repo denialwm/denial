@@ -2190,7 +2190,6 @@ class DenialBridge {
           })
           .catchError((Object _) {
             _setAudioDeviceFromPlatform(nameBytes);
-            return <String, Object?>{};
           }),
     );
   }

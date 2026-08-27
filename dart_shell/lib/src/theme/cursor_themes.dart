@@ -1,5 +1,4 @@
 import 'dart:io' show File;
-import 'dart:ui' show Offset, Size;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
