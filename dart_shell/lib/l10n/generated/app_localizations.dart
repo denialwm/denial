@@ -830,6 +830,30 @@ abstract class AppLocalizations {
   /// **'Activate {windowTitle}'**
   String desktopActivateWindow(String windowTitle);
 
+  /// English UI text for desktopAudioOutputDevicesDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose where desktop audio plays.'**
+  String get desktopAudioOutputDevicesDescription;
+
+  /// English UI text for desktopAudioOutputDevicesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Output devices'**
+  String get desktopAudioOutputDevicesTitle;
+
+  /// English UI text for desktopAudioOutputDevicesUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio output devices are unavailable.'**
+  String get desktopAudioOutputDevicesUnavailable;
+
+  /// Status shown for an audio output whose jack or route is explicitly unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Not connected'**
+  String get desktopAudioOutputDeviceNotConnected;
+
   /// English UI text for desktopApplicationAudioUnavailable.
   ///
   /// In en, this message translates to:
@@ -878,6 +902,12 @@ abstract class AppLocalizations {
   /// **'Close application volume'**
   String get desktopCloseApplicationAudio;
 
+  /// English UI text for desktopCloseAudioOutputDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'Close output devices'**
+  String get desktopCloseAudioOutputDevices;
+
   /// English UI text for desktopConnectDevice.
   ///
   /// In en, this message translates to:
@@ -895,6 +925,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Disconnect {deviceName}'**
   String desktopDisconnectDevice(String deviceName);
+
+  /// English UI text for desktopLoadingAudioOutputDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading output devices…'**
+  String get desktopLoadingAudioOutputDevices;
 
   /// English UI text for desktopEnableBluetoothForDevices.
   ///
@@ -955,6 +991,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No applications are playing audio.'**
   String get desktopNoApplicationAudio;
+
+  /// English UI text for desktopNoAudioOutputDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'No audio output devices found.'**
+  String get desktopNoAudioOutputDevices;
 
   /// English UI text for desktopNoApplicationsFound.
   ///
@@ -1028,6 +1070,12 @@ abstract class AppLocalizations {
   /// **'Refresh application audio'**
   String get desktopRefreshApplicationAudio;
 
+  /// English UI text for desktopRefreshAudioOutputDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh output devices'**
+  String get desktopRefreshAudioOutputDevices;
+
   /// English UI text for desktopRefreshBluetooth.
   ///
   /// In en, this message translates to:
@@ -1051,6 +1099,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Scan for Bluetooth devices'**
   String get desktopScanBluetooth;
+
+  /// English UI text for desktopSelectAudioOutputDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Select audio output device'**
+  String get desktopSelectAudioOutputDevice;
 
   /// English UI text for desktopScanningBluetoothDevices.
   ///

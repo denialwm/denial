@@ -99,6 +99,23 @@ void main() {
         container.read(systemLevelHudProvider)?.revision,
         audioRevision + 1,
       );
+
+      container.read(systemLevelHudAudioSuppressionProvider).suppress(23);
+      audioUpdates.add(const DenialAudioState(level: 0.70, requestSerial: 23));
+      expect(
+        container.read(systemLevelHudProvider)?.revision,
+        audioRevision + 1,
+        reason: 'a dashboard volume acknowledgement must not present the HUD',
+      );
+
+      audioUpdates.add(const DenialAudioState(level: 0.75, requestSerial: 0));
+      expect(container.read(systemLevelHudProvider)?.visible, isTrue);
+      expect(container.read(systemLevelHudProvider)?.level, 0.75);
+      expect(
+        container.read(systemLevelHudProvider)?.revision,
+        audioRevision + 2,
+        reason: 'later hardware volume changes must still present the HUD',
+      );
     },
   );
 }

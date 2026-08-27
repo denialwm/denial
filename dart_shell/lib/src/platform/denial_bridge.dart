@@ -81,6 +81,20 @@ class DenialAudioStream {
   final bool muted;
 }
 
+class DenialAudioDevice {
+  const DenialAudioDevice({
+    required this.name,
+    required this.description,
+    required this.active,
+    required this.available,
+  });
+
+  final String name;
+  final String description;
+  final bool active;
+  final bool available;
+}
+
 class DenialBrightnessState {
   const DenialBrightnessState({
     required this.monitorId,
@@ -132,6 +146,7 @@ class DenialBridge {
       'denial/window_close_complete';
   static const String _audioStateChannel = 'denial/audio_state';
   static const String _audioStreamsStateChannel = 'denial/audio_streams_state';
+  static const String _audioDevicesStateChannel = 'denial/audio_devices_state';
   static const String _brightnessStateChannel = 'denial/brightness_state';
   static final Uint8List _hapticPrewarmPayload = Uint8List.fromList(const <int>[
     0,
@@ -164,6 +179,10 @@ class DenialBridge {
     ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
       _audioStreamsStateChannel,
       _handleAudioStreamsStateMessage,
+    );
+    ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
+      _audioDevicesStateChannel,
+      _handleAudioDevicesStateMessage,
     );
     ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
       _brightnessStateChannel,
@@ -209,6 +228,8 @@ class DenialBridge {
       StreamController<DenialAudioState>.broadcast(sync: true);
   final StreamController<List<DenialAudioStream>> _audioStreamStates =
       StreamController<List<DenialAudioStream>>.broadcast(sync: true);
+  final StreamController<List<DenialAudioDevice>> _audioDeviceStates =
+      StreamController<List<DenialAudioDevice>>.broadcast(sync: true);
   final StreamController<DenialBrightnessState> _brightnessStates =
       StreamController<DenialBrightnessState>.broadcast(sync: true);
   final StreamController<DesktopNotificationEvent> _notificationEvents =
@@ -253,6 +274,8 @@ class DenialBridge {
   Stream<DenialAudioState> get audioStates => _audioStates.stream;
   Stream<List<DenialAudioStream>> get audioStreamStates =>
       _audioStreamStates.stream;
+  Stream<List<DenialAudioDevice>> get audioDeviceStates =>
+      _audioDeviceStates.stream;
   Stream<DenialBrightnessState> get brightnessStates =>
       _brightnessStates.stream;
   Stream<DesktopNotificationEvent> get notificationEvents =>
@@ -487,6 +510,10 @@ class DenialBridge {
       null,
     );
     ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
+      _audioDevicesStateChannel,
+      null,
+    );
+    ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
       _brightnessStateChannel,
       null,
     );
@@ -561,6 +588,7 @@ class DenialBridge {
     unawaited(_dragIcons.close());
     unawaited(_audioStates.close());
     unawaited(_audioStreamStates.close());
+    unawaited(_audioDeviceStates.close());
     unawaited(_brightnessStates.close());
     unawaited(_notificationEvents.close());
     unawaited(_xembedTrayEvents.close());
@@ -2098,6 +2126,67 @@ class DenialBridge {
     );
   }
 
+  void requestAudioDevices() {
+    if (!useControlSocket) {
+      final payload = ByteData(1)..setUint8(0, 4);
+      ServicesBinding.instance.defaultBinaryMessenger
+          .send(_audioChannel, payload)
+          ?.catchError((Object _) => null);
+      return;
+    }
+    unawaited(
+      _sendControlRequest('audio.devices.get')
+          .then((result) {
+            final devices = _audioDevicesFromControl(result);
+            if (!_audioDeviceStates.isClosed) {
+              _audioDeviceStates.add(devices);
+            }
+          })
+          .catchError((Object _) {
+            final payload = ByteData(1)..setUint8(0, 4);
+            ServicesBinding.instance.defaultBinaryMessenger
+                .send(_audioChannel, payload)
+                ?.catchError((Object _) => null);
+          }),
+    );
+  }
+
+  void setAudioDevice(String name) {
+    final nameBytes = utf8.encode(name);
+    if (nameBytes.isEmpty ||
+        nameBytes.length > 1024 ||
+        name.contains('\u0000')) {
+      return;
+    }
+    if (!useControlSocket) {
+      _setAudioDeviceFromPlatform(nameBytes);
+      return;
+    }
+    unawaited(
+      _sendControlRequest(
+            'audio.device.set',
+            parameters: <String, Object>{'name': name},
+          )
+          .then((_) {
+            requestAudioDevices();
+          })
+          .catchError((Object _) {
+            _setAudioDeviceFromPlatform(nameBytes);
+            return <String, Object?>{};
+          }),
+    );
+  }
+
+  void _setAudioDeviceFromPlatform(List<int> nameBytes) {
+    final payload = ByteData(3 + nameBytes.length)
+      ..setUint8(0, 5)
+      ..setUint16(1, nameBytes.length, Endian.little)
+      ..buffer.asUint8List().setRange(3, 3 + nameBytes.length, nameBytes);
+    ServicesBinding.instance.defaultBinaryMessenger
+        .send(_audioChannel, payload)
+        ?.catchError((Object _) => null);
+  }
+
   List<DenialAudioStream> _audioStreamsFromControl(
     Map<String, Object?> result,
   ) {
@@ -2122,6 +2211,38 @@ class DenialBridge {
           name: name,
           level: level.toDouble().clamp(0.0, 1.0),
           muted: muted,
+        );
+      }),
+    );
+  }
+
+  List<DenialAudioDevice> _audioDevicesFromControl(
+    Map<String, Object?> result,
+  ) {
+    final values = result['devices'];
+    if (values is! List<Object?>) {
+      throw const FormatException('invalid audio devices');
+    }
+    return List<DenialAudioDevice>.unmodifiable(
+      values.map((value) {
+        if (value is! Map<String, Object?>) {
+          throw const FormatException('invalid audio device');
+        }
+        final name = value['name'];
+        final description = value['description'];
+        final active = value['active'];
+        final available = value['available'];
+        if (name is! String ||
+            description is! String ||
+            active is! bool ||
+            available is! bool) {
+          throw const FormatException('invalid audio device');
+        }
+        return DenialAudioDevice(
+          name: name,
+          description: description,
+          active: active,
+          available: available,
         );
       }),
     );
@@ -2216,6 +2337,52 @@ class DenialBridge {
 
     if (!_audioStreamStates.isClosed) {
       _audioStreamStates.add(List<DenialAudioStream>.unmodifiable(streams));
+    }
+    return null;
+  }
+
+  Future<ByteData?> _handleAudioDevicesStateMessage(ByteData? data) async {
+    if (data == null || data.lengthInBytes < 4) {
+      return null;
+    }
+
+    final count = data.getUint32(0, Endian.little);
+    var offset = 4;
+    final devices = <DenialAudioDevice>[];
+    for (var i = 0; i < count; i += 1) {
+      if (offset + 6 > data.lengthInBytes) {
+        return null;
+      }
+      final active = data.getUint8(offset) != 0;
+      final available = data.getUint8(offset + 1) != 0;
+      final nameLength = data.getUint16(offset + 2, Endian.little);
+      final descriptionLength = data.getUint16(offset + 4, Endian.little);
+      offset += 6;
+      if (offset + nameLength + descriptionLength > data.lengthInBytes) {
+        return null;
+      }
+      final nameBytes = data.buffer.asUint8List(
+        data.offsetInBytes + offset,
+        nameLength,
+      );
+      offset += nameLength;
+      final descriptionBytes = data.buffer.asUint8List(
+        data.offsetInBytes + offset,
+        descriptionLength,
+      );
+      offset += descriptionLength;
+      devices.add(
+        DenialAudioDevice(
+          name: utf8.decode(nameBytes, allowMalformed: true),
+          description: utf8.decode(descriptionBytes, allowMalformed: true),
+          active: active,
+          available: available,
+        ),
+      );
+    }
+
+    if (!_audioDeviceStates.isClosed) {
+      _audioDeviceStates.add(List<DenialAudioDevice>.unmodifiable(devices));
     }
     return null;
   }

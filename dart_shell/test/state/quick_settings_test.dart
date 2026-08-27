@@ -9,6 +9,7 @@ import 'package:denial_dart_shell/src/services/brightness_service.dart';
 import 'package:denial_dart_shell/src/services/power_profile_service.dart';
 import 'package:denial_dart_shell/src/services/system_actions_service.dart';
 import 'package:denial_dart_shell/src/state/quick_settings.dart';
+import 'package:denial_dart_shell/src/state/system_level_hud.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -103,6 +104,41 @@ void main() {
       );
     },
   );
+
+  test('dashboard volume writes suppress their matching HUD update', () async {
+    final bridge = DenialBridge();
+    final audio = _FakeAudioService(bridge);
+    final brightness = _FakeBrightnessService(DenialBridge());
+    addTearDown(audio.dispose);
+    addTearDown(brightness.dispose);
+    final container = ProviderContainer.test(
+      overrides: [
+        brightnessServiceProvider.overrideWithValue(brightness),
+        audioServiceProvider.overrideWithValue(audio),
+        powerProfileServiceProvider.overrideWithValue(
+          const _FakePowerProfileService(),
+        ),
+        systemActionsServiceProvider.overrideWithValue(
+          const _FakeSystemActionsService(),
+        ),
+      ],
+    );
+    final controller = container.read(quickSettingsProvider.notifier);
+    await Future<void>.delayed(Duration.zero);
+
+    controller.beginVolumeInteraction();
+    controller.setDashboardVolume(0.70);
+    controller.commitDashboardVolume(0.70);
+    await Future<void>.delayed(Duration.zero);
+
+    final requestSerial = audio.writes.single.requestSerial;
+    expect(
+      container
+          .read(systemLevelHudAudioSuppressionProvider)
+          .consume(requestSerial),
+      isTrue,
+    );
+  });
 }
 
 class _FakeAudioService extends AudioService {

@@ -1348,6 +1348,123 @@ void main() {
     }
   });
 
+  test('audio device commands use the native audio channel', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final sent = <ByteData>[];
+    messenger.setMockMessageHandler('denial/audio', (message) async {
+      sent.add(message!);
+      return null;
+    });
+    final bridge = _startedBridge();
+    try {
+      bridge.requestAudioDevices();
+      bridge.setAudioDevice('alsa_output.usb');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(sent, hasLength(2));
+      expect(sent[0].lengthInBytes, 1);
+      expect(sent[0].getUint8(0), 4);
+      expect(sent[1].getUint8(0), 5);
+      final nameLength = sent[1].getUint16(1, Endian.little);
+      expect(nameLength, 15);
+      expect(
+        utf8.decode(
+          sent[1].buffer.asUint8List(sent[1].offsetInBytes + 3, nameLength),
+        ),
+        'alsa_output.usb',
+      );
+    } finally {
+      bridge.dispose();
+      messenger.setMockMessageHandler('denial/audio', null);
+    }
+  });
+
+  test('audio device snapshots preserve descriptions and selection', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final bridge = _startedBridge();
+    final snapshots = <List<DenialAudioDevice>>[];
+    final subscription = bridge.audioDeviceStates.listen(snapshots.add);
+    try {
+      final firstName = utf8.encode('speaker');
+      final firstDescription = utf8.encode('Built-in Speakers');
+      final secondName = utf8.encode('headset');
+      final secondDescription = utf8.encode('USB Headset');
+      final payload = ByteData(
+        4 +
+            6 +
+            firstName.length +
+            firstDescription.length +
+            6 +
+            secondName.length +
+            secondDescription.length,
+      );
+      var offset = 0;
+      payload.setUint32(offset, 2, Endian.little);
+      offset += 4;
+      for (final device
+          in <
+            ({
+              List<int> name,
+              List<int> description,
+              bool active,
+              bool available,
+            })
+          >[
+            (
+              name: firstName,
+              description: firstDescription,
+              active: true,
+              available: true,
+            ),
+            (
+              name: secondName,
+              description: secondDescription,
+              active: false,
+              available: false,
+            ),
+          ]) {
+        payload.setUint8(offset, device.active ? 1 : 0);
+        payload.setUint8(offset + 1, device.available ? 1 : 0);
+        payload.setUint16(offset + 2, device.name.length, Endian.little);
+        payload.setUint16(offset + 4, device.description.length, Endian.little);
+        offset += 6;
+        payload.buffer.asUint8List().setRange(
+          offset,
+          offset + device.name.length,
+          device.name,
+        );
+        offset += device.name.length;
+        payload.buffer.asUint8List().setRange(
+          offset,
+          offset + device.description.length,
+          device.description,
+        );
+        offset += device.description.length;
+      }
+      await messenger.handlePlatformMessage(
+        'denial/audio_devices_state',
+        payload,
+        null,
+      );
+
+      expect(snapshots, hasLength(1));
+      expect(snapshots.single, hasLength(2));
+      expect(snapshots.single[0].name, 'speaker');
+      expect(snapshots.single[0].description, 'Built-in Speakers');
+      expect(snapshots.single[0].active, isTrue);
+      expect(snapshots.single[0].available, isTrue);
+      expect(snapshots.single[1].name, 'headset');
+      expect(snapshots.single[1].description, 'USB Headset');
+      expect(snapshots.single[1].active, isFalse);
+      expect(snapshots.single[1].available, isFalse);
+    } finally {
+      await subscription.cancel();
+      bridge.dispose();
+    }
+  });
+
   test(
     'brightness states preserve the target monitor and native level',
     () async {

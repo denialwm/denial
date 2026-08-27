@@ -423,6 +423,18 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get desktopAudioOutputDevicesDescription => '选择桌面音频的播放位置。';
+
+  @override
+  String get desktopAudioOutputDevicesTitle => '输出设备';
+
+  @override
+  String get desktopAudioOutputDevicesUnavailable => '音频输出设备不可用。';
+
+  @override
+  String get desktopAudioOutputDeviceNotConnected => '未连接';
+
+  @override
   String get desktopApplicationAudioUnavailable => '应用音频不可用。';
 
   @override
@@ -449,6 +461,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get desktopCloseApplicationAudio => '关闭应用音量';
 
   @override
+  String get desktopCloseAudioOutputDevices => '关闭输出设备';
+
+  @override
   String desktopConnectDevice(String deviceName) {
     return '连接 $deviceName';
   }
@@ -460,6 +475,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String desktopDisconnectDevice(String deviceName) {
     return '断开 $deviceName';
   }
+
+  @override
+  String get desktopLoadingAudioOutputDevices => '正在加载输出设备…';
 
   @override
   String get desktopEnableBluetoothForDevices => '开启蓝牙以查看设备。';
@@ -496,6 +514,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get desktopNoApplicationAudio => '没有应用正在播放音频。';
+
+  @override
+  String get desktopNoAudioOutputDevices => '未找到音频输出设备。';
 
   @override
   String get desktopNoApplicationsFound => '未找到应用';
@@ -536,6 +557,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get desktopRefreshApplicationAudio => '刷新应用音频';
 
   @override
+  String get desktopRefreshAudioOutputDevices => '刷新输出设备';
+
+  @override
   String get desktopRefreshBluetooth => '刷新蓝牙设备';
 
   @override
@@ -548,6 +572,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get desktopScanBluetooth => '扫描蓝牙设备';
+
+  @override
+  String get desktopSelectAudioOutputDevice => '选择音频输出设备';
 
   @override
   String get desktopScanningBluetoothDevices => '正在扫描蓝牙设备…';

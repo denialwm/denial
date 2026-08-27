@@ -629,6 +629,22 @@
       }
     }
   },
+  "desktopAudioOutputDevicesDescription": "Choose where desktop audio plays.",
+  "@desktopAudioOutputDevicesDescription": {
+    "description": "English UI text for desktopAudioOutputDevicesDescription."
+  },
+  "desktopAudioOutputDevicesTitle": "Output devices",
+  "@desktopAudioOutputDevicesTitle": {
+    "description": "English UI text for desktopAudioOutputDevicesTitle."
+  },
+  "desktopAudioOutputDevicesUnavailable": "Audio output devices are unavailable.",
+  "@desktopAudioOutputDevicesUnavailable": {
+    "description": "English UI text for desktopAudioOutputDevicesUnavailable."
+  },
+  "desktopAudioOutputDeviceNotConnected": "Not connected",
+  "@desktopAudioOutputDeviceNotConnected": {
+    "description": "Status shown for an audio output whose jack or route is explicitly unavailable."
+  },
   "desktopApplicationAudioUnavailable": "Application audio is unavailable.",
   "@desktopApplicationAudioUnavailable": {
     "description": "English UI text for desktopApplicationAudioUnavailable."
@@ -669,6 +685,10 @@
   "@desktopCloseApplicationAudio": {
     "description": "English UI text for desktopCloseApplicationAudio."
   },
+  "desktopCloseAudioOutputDevices": "Close output devices",
+  "@desktopCloseAudioOutputDevices": {
+    "description": "English UI text for desktopCloseAudioOutputDevices."
+  },
   "desktopConnectDevice": "Connect {deviceName}",
   "@desktopConnectDevice": {
     "description": "English UI text for desktopConnectDevice.",
@@ -690,6 +710,10 @@
         "type": "String"
       }
     }
+  },
+  "desktopLoadingAudioOutputDevices": "Loading output devices…",
+  "@desktopLoadingAudioOutputDevices": {
+    "description": "English UI text for desktopLoadingAudioOutputDevices."
   },
   "desktopEnableBluetoothForDevices": "Turn on Bluetooth to see devices.",
   "@desktopEnableBluetoothForDevices": {
@@ -749,6 +773,10 @@
   "@desktopNoApplicationAudio": {
     "description": "English UI text for desktopNoApplicationAudio."
   },
+  "desktopNoAudioOutputDevices": "No audio output devices found.",
+  "@desktopNoAudioOutputDevices": {
+    "description": "English UI text for desktopNoAudioOutputDevices."
+  },
   "desktopNoApplicationsFound": "No applications found",
   "@desktopNoApplicationsFound": {
     "description": "English UI text for desktopNoApplicationsFound."
@@ -802,6 +830,10 @@
   "@desktopRefreshApplicationAudio": {
     "description": "English UI text for desktopRefreshApplicationAudio."
   },
+  "desktopRefreshAudioOutputDevices": "Refresh output devices",
+  "@desktopRefreshAudioOutputDevices": {
+    "description": "English UI text for desktopRefreshAudioOutputDevices."
+  },
   "desktopRefreshBluetooth": "Refresh Bluetooth devices",
   "@desktopRefreshBluetooth": {
     "description": "English UI text for desktopRefreshBluetooth."
@@ -822,6 +854,10 @@
   "desktopScanBluetooth": "Scan for Bluetooth devices",
   "@desktopScanBluetooth": {
     "description": "English UI text for desktopScanBluetooth."
+  },
+  "desktopSelectAudioOutputDevice": "Select audio output device",
+  "@desktopSelectAudioOutputDevice": {
+    "description": "English UI text for desktopSelectAudioOutputDevice."
   },
   "desktopScanningBluetoothDevices": "Scanning for Bluetooth devices…",
   "@desktopScanningBluetoothDevices": {

@@ -65,6 +65,28 @@ struct PaSinkInfoPrefix {
     owner_module: u32,
     volume: PaCVolume,
     mute: c_int,
+    monitor_source: u32,
+    monitor_source_name: *const c_char,
+    latency: u64,
+    driver: *const c_char,
+    flags: c_int,
+    proplist: *mut PaProplist,
+    configured_latency: u64,
+    base_volume: u32,
+    state: c_int,
+    n_volume_steps: u32,
+    card: u32,
+    n_ports: u32,
+    ports: *mut *mut PaSinkPortInfo,
+    active_port: *mut PaSinkPortInfo,
+}
+
+#[repr(C)]
+struct PaSinkPortInfo {
+    name: *const c_char,
+    description: *const c_char,
+    priority: u32,
+    available: c_int,
 }
 
 #[repr(C)]
@@ -131,6 +153,14 @@ struct PulseApi {
         SinkInfoCallback,
         *mut c_void,
     ) -> *mut PaOperation,
+    context_get_sink_info_list:
+        unsafe extern "C" fn(*mut PaContext, SinkInfoCallback, *mut c_void) -> *mut PaOperation,
+    context_set_default_sink: unsafe extern "C" fn(
+        *mut PaContext,
+        *const c_char,
+        SuccessCallback,
+        *mut c_void,
+    ) -> *mut PaOperation,
     context_set_sink_volume_by_name: unsafe extern "C" fn(
         *mut PaContext,
         *const c_char,
@@ -167,6 +197,13 @@ struct PulseApi {
         *mut PaContext,
         u32,
         c_int,
+        SuccessCallback,
+        *mut c_void,
+    ) -> *mut PaOperation,
+    context_move_sink_input_by_name: unsafe extern "C" fn(
+        *mut PaContext,
+        u32,
+        *const c_char,
         SuccessCallback,
         *mut c_void,
     ) -> *mut PaOperation,
@@ -210,12 +247,15 @@ impl PulseApi {
                 context_subscribe: symbol!("pa_context_subscribe"),
                 context_get_server_info: symbol!("pa_context_get_server_info"),
                 context_get_sink_info_by_name: symbol!("pa_context_get_sink_info_by_name"),
+                context_get_sink_info_list: symbol!("pa_context_get_sink_info_list"),
+                context_set_default_sink: symbol!("pa_context_set_default_sink"),
                 context_set_sink_volume_by_name: symbol!("pa_context_set_sink_volume_by_name"),
                 context_set_sink_mute_by_name: symbol!("pa_context_set_sink_mute_by_name"),
                 context_get_sink_input_info_list: symbol!("pa_context_get_sink_input_info_list"),
                 context_get_sink_input_info: symbol!("pa_context_get_sink_input_info"),
                 context_set_sink_input_volume: symbol!("pa_context_set_sink_input_volume"),
                 context_set_sink_input_mute: symbol!("pa_context_set_sink_input_mute"),
+                context_move_sink_input_by_name: symbol!("pa_context_move_sink_input_by_name"),
                 operation_unref: symbol!("pa_operation_unref"),
                 cvolume_avg: symbol!("pa_cvolume_avg"),
                 cvolume_set: symbol!("pa_cvolume_set"),
@@ -239,9 +279,12 @@ const PA_SUBSCRIPTION_MASK_SINK: u32 = 1 << 0;
 const PA_SUBSCRIPTION_MASK_SINK_INPUT: u32 = 1 << 2;
 const PA_SUBSCRIPTION_MASK_SERVER: u32 = 1 << 7;
 const PA_SUBSCRIPTION_EVENT_FACILITY_MASK: u32 = 0x0f;
+const PA_SUBSCRIPTION_EVENT_TYPE_MASK: u32 = 0x30;
+const PA_SUBSCRIPTION_EVENT_CHANGE: u32 = 0x10;
 const PA_SUBSCRIPTION_EVENT_SINK: u32 = 0;
 const PA_SUBSCRIPTION_EVENT_SINK_INPUT: u32 = 2;
 const PA_SUBSCRIPTION_EVENT_SERVER: u32 = 7;
+const PA_PORT_AVAILABLE_NO: c_int = 1;
 
 unsafe extern "C" fn on_subscription_event(
     _context: *mut PaContext,
@@ -256,8 +299,15 @@ unsafe extern "C" fn on_subscription_event(
     // callback is unregistered and the threaded mainloop has stopped.
     let subscription = unsafe { &*userdata.cast::<PulseSubscription>() };
     match event_type & PA_SUBSCRIPTION_EVENT_FACILITY_MASK {
-        PA_SUBSCRIPTION_EVENT_SINK | PA_SUBSCRIPTION_EVENT_SERVER => {
+        PA_SUBSCRIPTION_EVENT_SINK => {
             let _ = subscription.commands.try_send(AudioCommand::ReadLevel);
+            if event_type & PA_SUBSCRIPTION_EVENT_TYPE_MASK != PA_SUBSCRIPTION_EVENT_CHANGE {
+                let _ = subscription.commands.try_send(AudioCommand::RequestDevices);
+            }
+        }
+        PA_SUBSCRIPTION_EVENT_SERVER => {
+            let _ = subscription.commands.try_send(AudioCommand::ReadLevel);
+            let _ = subscription.commands.try_send(AudioCommand::RequestDevices);
         }
         PA_SUBSCRIPTION_EVENT_SINK_INPUT => {
             let _ = subscription.commands.try_send(AudioCommand::RequestStreams);
@@ -463,6 +513,93 @@ struct PulseSinkState {
     volume: PaCVolume,
     channels: u8,
     muted: bool,
+    available: bool,
+}
+
+struct SinkListQuery {
+    mainloop: *mut PaThreadedMainloop,
+    signal: unsafe extern "C" fn(*mut PaThreadedMainloop, c_int),
+    default_sink: CString,
+    state: Mutex<SinkListQueryState>,
+}
+
+struct SinkListQueryState {
+    done: bool,
+    success: bool,
+    devices: Vec<AudioDeviceState>,
+}
+
+fn pulse_description(value: *const c_char) -> Option<String> {
+    if value.is_null() {
+        return None;
+    }
+    // SAFETY: callers pass strings owned by PulseAudio for callback life.
+    let value = unsafe { CStr::from_ptr(value) }.to_string_lossy();
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_owned())
+}
+
+fn sink_description(info: &PaSinkInfoPrefix, fallback: &CStr) -> String {
+    let port_description = if info.active_port.is_null() {
+        None
+    } else {
+        // SAFETY: active_port belongs to this sink-info callback record.
+        pulse_description(unsafe { (*info.active_port).description })
+    };
+    port_description
+        .or_else(|| pulse_description(info.description))
+        .unwrap_or_else(|| fallback.to_string_lossy().into_owned())
+}
+
+fn sink_is_available(info: &PaSinkInfoPrefix) -> bool {
+    info.active_port.is_null() || {
+        // UNKNOWN is deliberately selectable: many built-in outputs do not
+        // implement jack detection. Only an explicit NO means disconnected.
+        unsafe { (*info.active_port).available != PA_PORT_AVAILABLE_NO }
+    }
+}
+
+unsafe extern "C" fn on_sink_list(
+    _context: *mut PaContext,
+    info: *const PaSinkInfoPrefix,
+    end_of_list: c_int,
+    userdata: *mut c_void,
+) {
+    if userdata.is_null() {
+        return;
+    }
+    // SAFETY: query remains live until the list operation completes.
+    let query = unsafe { &*userdata.cast::<SinkListQuery>() };
+    let mut state = lock_unpoisoned(&query.state);
+    if end_of_list < 0 {
+        state.done = true;
+    } else if end_of_list > 0 {
+        state.done = true;
+        state.success = true;
+    } else if !info.is_null() && state.devices.len() < MAX_AUDIO_DEVICES {
+        // SAFETY: libpulse supplies this record and its strings for callback life.
+        let info = unsafe { &*info };
+        if !info.name.is_null() {
+            // SAFETY: PulseAudio callback strings are NUL-terminated.
+            let name = unsafe { CStr::from_ptr(info.name) };
+            let description = sink_description(info, name);
+            state.devices.push(AudioDeviceState {
+                name: truncate_utf8(
+                    name.to_string_lossy().into_owned(),
+                    MAX_AUDIO_DEVICE_NAME_BYTES,
+                ),
+                description: truncate_utf8(description, MAX_AUDIO_DEVICE_DESCRIPTION_BYTES),
+                active: name == query.default_sink.as_c_str(),
+                available: sink_is_available(info),
+            });
+        }
+    }
+    let done = state.done;
+    drop(state);
+    if done {
+        // SAFETY: this is the live mainloop associated with the query.
+        unsafe { (query.signal)(query.mainloop, 0) };
+    }
 }
 
 unsafe extern "C" fn on_sink_info(
@@ -492,6 +629,7 @@ unsafe extern "C" fn on_sink_info(
                 volume: info.volume,
                 channels,
                 muted: info.mute != 0,
+                available: sink_is_available(info),
             });
         }
     }
@@ -739,6 +877,49 @@ fn query_sink(api: &PulseApi, connection: &PulseConnection, sink: &CStr) -> Opti
         (api.operation_unref)(operation);
         (api.mainloop_unlock)(connection.mainloop);
         lock_unpoisoned(&query.state).sink.take()
+    }
+}
+
+fn query_audio_devices(
+    api: &PulseApi,
+    connection: &PulseConnection,
+) -> Option<Vec<AudioDeviceState>> {
+    let default_sink = query_default_sink(api, connection)?;
+    // SAFETY: the threaded-mainloop lock serializes the list operation and
+    // the callback copies all server-owned strings before returning.
+    unsafe {
+        let query = SinkListQuery {
+            mainloop: connection.mainloop,
+            signal: api.mainloop_signal,
+            default_sink,
+            state: Mutex::new(SinkListQueryState {
+                done: false,
+                success: false,
+                devices: Vec::with_capacity(8),
+            }),
+        };
+        (api.mainloop_lock)(connection.mainloop);
+        let operation = (api.context_get_sink_info_list)(
+            connection.context,
+            Some(on_sink_list),
+            (&query as *const SinkListQuery).cast_mut().cast(),
+        );
+        if operation.is_null() {
+            (api.mainloop_unlock)(connection.mainloop);
+            return None;
+        }
+        while !lock_unpoisoned(&query.state).done
+            && context_state_is_good((api.context_get_state)(connection.context))
+        {
+            (api.mainloop_wait)(connection.mainloop);
+        }
+        (api.operation_unref)(operation);
+        (api.mainloop_unlock)(connection.mainloop);
+        let mut state = lock_unpoisoned(&query.state);
+        state
+            .devices
+            .sort_by_cached_key(|device| device.description.to_lowercase());
+        state.success.then(|| std::mem::take(&mut state.devices))
     }
 }
 
@@ -1038,6 +1219,84 @@ fn set_pulse_stream_level(
     Some(())
 }
 
+fn move_pulse_stream(
+    api: &PulseApi,
+    connection: &PulseConnection,
+    stream_id: u32,
+    sink: &CStr,
+) -> bool {
+    // SAFETY: the context operation is serialized by the threaded-mainloop lock.
+    unsafe { (api.mainloop_lock)(connection.mainloop) };
+    let query = SuccessQuery {
+        mainloop: connection.mainloop,
+        signal: api.mainloop_signal,
+        state: Mutex::new(SuccessQueryState {
+            done: false,
+            success: false,
+        }),
+    };
+    // SAFETY: sink and query remain live through the synchronous wait.
+    let operation = unsafe {
+        (api.context_move_sink_input_by_name)(
+            connection.context,
+            stream_id,
+            sink.as_ptr(),
+            Some(on_success),
+            (&query as *const SuccessQuery).cast_mut().cast(),
+        )
+    };
+    let moved = wait_for_success(api, connection, operation, &query);
+    // SAFETY: balances the lock acquired above.
+    unsafe { (api.mainloop_unlock)(connection.mainloop) };
+    moved
+}
+
+fn set_pulse_output_device(api: &PulseApi, connection: &PulseConnection, name: &str) -> Option<()> {
+    let sink = CString::new(name).ok()?;
+    let sink_state = query_sink(api, connection, &sink)?;
+    if !sink_state.available {
+        // Keep the existing default without treating a disconnected jack as
+        // a failed Pulse connection. The refreshed device snapshot will
+        // reconcile any client that attempted the unavailable selection.
+        return Some(());
+    }
+
+    // SAFETY: the context operation is serialized by the threaded-mainloop lock.
+    unsafe { (api.mainloop_lock)(connection.mainloop) };
+    let query = SuccessQuery {
+        mainloop: connection.mainloop,
+        signal: api.mainloop_signal,
+        state: Mutex::new(SuccessQueryState {
+            done: false,
+            success: false,
+        }),
+    };
+    // SAFETY: sink and query remain live through the synchronous wait.
+    let operation = unsafe {
+        (api.context_set_default_sink)(
+            connection.context,
+            sink.as_ptr(),
+            Some(on_success),
+            (&query as *const SuccessQuery).cast_mut().cast(),
+        )
+    };
+    let selected = wait_for_success(api, connection, operation, &query);
+    // SAFETY: balances the lock acquired above.
+    unsafe { (api.mainloop_unlock)(connection.mainloop) };
+    if !selected {
+        return None;
+    }
+
+    // A default sink affects new streams. Move current application streams as
+    // well so the Dashboard selection is audible immediately.
+    if let Some(streams) = query_sink_inputs(api, connection) {
+        for stream in streams {
+            let _ = move_pulse_stream(api, connection, stream.id, &sink);
+        }
+    }
+    Some(())
+}
+
 pub(super) fn run_audio_worker(
     commands: Receiver<AudioCommand>,
     events: SystemControlEventSender,
@@ -1061,6 +1320,8 @@ pub(super) fn run_audio_worker(
         let mut request_serial = 0;
         let mut streams_requested = false;
         let mut stream_levels = HashMap::<u32, f64>::new();
+        let mut devices_requested = false;
+        let mut selected_device = None;
 
         let mut absorb = |command: AudioCommand| -> bool {
             match command {
@@ -1091,6 +1352,13 @@ pub(super) fn run_audio_worker(
                 AudioCommand::RequestStreams => streams_requested = true,
                 AudioCommand::SetStreamLevel { stream_id, level } => {
                     stream_levels.insert(stream_id, level.clamp(0.0, 1.0));
+                    streams_requested = true;
+                }
+                AudioCommand::RequestDevices => devices_requested = true,
+                AudioCommand::SetDevice { name } => {
+                    selected_device = Some(name);
+                    devices_requested = true;
+                    state_requested = true;
                     streams_requested = true;
                 }
                 AudioCommand::Stop => return false,
@@ -1140,6 +1408,9 @@ pub(super) fn run_audio_worker(
                 }
             }
         }
+        if !operation_failed && let Some(name) = selected_device {
+            operation_failed |= set_pulse_output_device(&api, active, &name).is_none();
+        }
         if !operation_failed && state_requested {
             if let Some(level) = read_pulse_level(&api, active) {
                 let _ = events.try_send(SystemControlEvent::AudioLevel {
@@ -1153,6 +1424,13 @@ pub(super) fn run_audio_worker(
         if !operation_failed && streams_requested {
             if let Some(streams) = query_sink_inputs(&api, active) {
                 let _ = events.try_send(SystemControlEvent::AudioStreams(streams));
+            } else {
+                operation_failed = true;
+            }
+        }
+        if !operation_failed && devices_requested {
+            if let Some(devices) = query_audio_devices(&api, active) {
+                let _ = events.try_send(SystemControlEvent::AudioDevices(devices));
             } else {
                 operation_failed = true;
             }

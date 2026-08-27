@@ -95,15 +95,19 @@ pub(super) fn synchronize_system_control_events(
             let (command, reply) = request.into_parts();
             let (accepted, wait) = match command {
                 SystemControlCommand::Audio(request) => {
-                    let wait = match request {
+                    let wait = match &request {
                         system_controls::AudioRequest::ReadLevel => {
                             Some(SystemControlWaitKind::AudioLevel)
                         }
                         system_controls::AudioRequest::RequestStreams => {
                             Some(SystemControlWaitKind::AudioStreams)
                         }
+                        system_controls::AudioRequest::RequestDevices => {
+                            Some(SystemControlWaitKind::AudioDevices)
+                        }
                         system_controls::AudioRequest::SetLevel { .. }
-                        | system_controls::AudioRequest::SetStreamLevel { .. } => None,
+                        | system_controls::AudioRequest::SetStreamLevel { .. }
+                        | system_controls::AudioRequest::SetDevice { .. } => None,
                     };
                     (controls.handle_audio_request(request), wait)
                 }
@@ -191,6 +195,17 @@ fn resolve_system_control_waits(
                     "name": stream.name,
                     "level": f64::from(stream.level_percent.min(100)) / 100.0,
                     "muted": stream.muted,
+                })).collect::<Vec<_>>(),
+            }),
+        ),
+        system_controls::SystemControlEvent::AudioDevices(devices) => (
+            SystemControlWaitKind::AudioDevices,
+            json!({
+                "devices": devices.iter().map(|device| json!({
+                    "name": device.name,
+                    "description": device.description,
+                    "active": device.active,
+                    "available": device.available,
                 })).collect::<Vec<_>>(),
             }),
         ),

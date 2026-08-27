@@ -43,8 +43,22 @@ fn flutter_audio_packets_decode_strictly_and_clamp_percentages() {
         }
     );
     assert_eq!(
+        decode_audio_request(&[4]).unwrap(),
+        AudioRequest::RequestDevices
+    );
+    assert_eq!(
+        decode_audio_request(&[5, 7, 0, b's', b'p', b'e', b'a', b'k', b'e', b'r']).unwrap(),
+        AudioRequest::SetDevice {
+            name: "speaker".into(),
+        }
+    );
+    assert_eq!(
         decode_audio_request(&[1, 50]).unwrap_err(),
         AudioRequestDecodeError::InvalidSize(2)
+    );
+    assert_eq!(
+        decode_audio_request(&[5, 3, 0, b'a']).unwrap_err(),
+        AudioRequestDecodeError::InvalidSize(4)
     );
     assert_eq!(
         decode_audio_request(&[9]).unwrap_err(),

@@ -37,6 +37,20 @@ class AppAudioStream {
   }
 }
 
+class AudioOutputDevice {
+  const AudioOutputDevice({
+    required this.name,
+    required this.description,
+    required this.active,
+    required this.available,
+  });
+
+  final String name;
+  final String description;
+  final bool active;
+  final bool available;
+}
+
 /// Controls the default output through deniald's persistent native audio
 /// bridge. The embedded Dart runtime must never spawn a CLI for this path.
 class AudioService {
@@ -66,6 +80,20 @@ class AudioService {
         ),
       );
 
+  Stream<List<AudioOutputDevice>> get outputDeviceStates =>
+      _bridge.audioDeviceStates.map(
+        (devices) => List<AudioOutputDevice>.unmodifiable(
+          devices.map(
+            (device) => AudioOutputDevice(
+              name: device.name,
+              description: device.description,
+              active: device.active,
+              available: device.available,
+            ),
+          ),
+        ),
+      );
+
   Future<void> apply(int percent, {required int requestSerial}) {
     _bridge.setAudioLevel(percent, requestSerial: requestSerial);
     return Future<void>.value();
@@ -73,7 +101,11 @@ class AudioService {
 
   void requestAppStreams() => _bridge.requestAudioStreams();
 
+  void requestOutputDevices() => _bridge.requestAudioDevices();
+
   void applyAppStream(int streamId, int percent) {
     _bridge.setAudioStreamLevel(streamId, percent);
   }
+
+  void selectOutputDevice(String name) => _bridge.setAudioDevice(name);
 }

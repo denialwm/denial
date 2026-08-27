@@ -132,6 +132,7 @@ const FLUTTER_LIFECYCLE_HIDDEN: &[u8] = b"AppLifecycleState.hidden";
 const AUDIO_CHANNEL: &CStr = c"denial/audio";
 const AUDIO_STATE_CHANNEL: &CStr = c"denial/audio_state";
 const AUDIO_STREAMS_STATE_CHANNEL: &CStr = c"denial/audio_streams_state";
+const AUDIO_DEVICES_STATE_CHANNEL: &CStr = c"denial/audio_devices_state";
 const BRIGHTNESS_CHANNEL: &CStr = c"denial/brightness";
 const BRIGHTNESS_STATE_CHANNEL: &CStr = c"denial/brightness_state";
 const WINDOW_CLOSE_COMPLETE_CHANNEL: &CStr = c"denial/window_close_complete";

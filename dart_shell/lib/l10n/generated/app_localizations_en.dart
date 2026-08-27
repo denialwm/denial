@@ -442,6 +442,20 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get desktopAudioOutputDevicesDescription =>
+      'Choose where desktop audio plays.';
+
+  @override
+  String get desktopAudioOutputDevicesTitle => 'Output devices';
+
+  @override
+  String get desktopAudioOutputDevicesUnavailable =>
+      'Audio output devices are unavailable.';
+
+  @override
+  String get desktopAudioOutputDeviceNotConnected => 'Not connected';
+
+  @override
   String get desktopApplicationAudioUnavailable =>
       'Application audio is unavailable.';
 
@@ -470,6 +484,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get desktopCloseApplicationAudio => 'Close application volume';
 
   @override
+  String get desktopCloseAudioOutputDevices => 'Close output devices';
+
+  @override
   String desktopConnectDevice(String deviceName) {
     return 'Connect $deviceName';
   }
@@ -481,6 +498,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String desktopDisconnectDevice(String deviceName) {
     return 'Disconnect $deviceName';
   }
+
+  @override
+  String get desktopLoadingAudioOutputDevices => 'Loading output devices…';
 
   @override
   String get desktopEnableBluetoothForDevices =>
@@ -518,6 +538,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get desktopNoApplicationAudio => 'No applications are playing audio.';
+
+  @override
+  String get desktopNoAudioOutputDevices => 'No audio output devices found.';
 
   @override
   String get desktopNoApplicationsFound => 'No applications found';
@@ -558,6 +581,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get desktopRefreshApplicationAudio => 'Refresh application audio';
 
   @override
+  String get desktopRefreshAudioOutputDevices => 'Refresh output devices';
+
+  @override
   String get desktopRefreshBluetooth => 'Refresh Bluetooth devices';
 
   @override
@@ -570,6 +596,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get desktopScanBluetooth => 'Scan for Bluetooth devices';
+
+  @override
+  String get desktopSelectAudioOutputDevice => 'Select audio output device';
 
   @override
   String get desktopScanningBluetoothDevices =>

@@ -29,6 +29,7 @@ import '../settings/settings_application.dart';
 import '../settings/settings_controller.dart';
 import '../settings/widgets/settings_navigation.dart';
 import '../state/app_audio.dart';
+import '../state/audio_devices.dart';
 import '../state/bluetooth.dart';
 import '../state/clipboard_tray.dart';
 import '../state/desktop_power_modes.dart';
@@ -596,6 +597,22 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         );
   }
 
+  void _openAudioDeviceSelector() {
+    _closePanels();
+    ref.read(audioDevicesProvider.notifier).refresh();
+    ref
+        .read(shellSurfaceControllerProvider.notifier)
+        .show(
+          keyName: 'audio-output-device-selector',
+          debugLabel: 'Audio output device selector',
+          pointerPolicy: ShellPointerPolicy.fullScene,
+          keyboardPolicy: ShellKeyboardPolicy.capture,
+          dismissPolicy: ShellDismissPolicy.outsideTapAndEscape,
+          builder: (_, handle) =>
+              _AudioDeviceSelectorSurface(onDismiss: handle.close),
+        );
+  }
+
   void _openSettings() {
     _openSettingsPage(null);
   }
@@ -827,6 +844,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
             onOpenWallpaperSelector: _openWallpaperSelector,
             onCloseWallpaperSelector: _closeWallpaperSelector,
             onOpenAppVolumeManager: _openAppVolumeManager,
+            onOpenAudioDeviceSelector: _openAudioDeviceSelector,
             onOpenSettings: _openSettings,
             onOpenPowerSettings: _openPowerSettings,
             onCancelPanelClose: _cancelPanelClose,
@@ -1289,6 +1307,7 @@ class _DesktopScene extends ConsumerStatefulWidget {
     required this.onOpenWallpaperSelector,
     required this.onCloseWallpaperSelector,
     required this.onOpenAppVolumeManager,
+    required this.onOpenAudioDeviceSelector,
     required this.onOpenSettings,
     required this.onOpenPowerSettings,
     required this.onCancelPanelClose,
@@ -1324,6 +1343,7 @@ class _DesktopScene extends ConsumerStatefulWidget {
   final VoidCallback onOpenWallpaperSelector;
   final VoidCallback onCloseWallpaperSelector;
   final VoidCallback onOpenAppVolumeManager;
+  final VoidCallback onOpenAudioDeviceSelector;
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenPowerSettings;
   final VoidCallback onCancelPanelClose;
@@ -1512,6 +1532,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     final onOpenWallpaperSelector = widget.onOpenWallpaperSelector;
     final onCloseWallpaperSelector = widget.onCloseWallpaperSelector;
     final onOpenAppVolumeManager = widget.onOpenAppVolumeManager;
+    final onOpenAudioDeviceSelector = widget.onOpenAudioDeviceSelector;
     final onCancelPanelClose = widget.onCancelPanelClose;
     final onSchedulePanelClose = widget.onSchedulePanelClose;
     final onLaunchApp = widget.onLaunchApp;
@@ -1706,6 +1727,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                     onOpenDashboard: onOpenDashboard,
                     onOpenWallpaperSelector: onOpenWallpaperSelector,
                     onOpenAppVolumeManager: onOpenAppVolumeManager,
+                    onOpenAudioDeviceSelector: onOpenAudioDeviceSelector,
                     onOpenSettings: onOpenSettings,
                     onCancelPanelClose: onCancelPanelClose,
                     onSchedulePanelClose: onSchedulePanelClose,
@@ -1774,6 +1796,7 @@ class _DesktopPanelOverlay extends ConsumerStatefulWidget {
     required this.onOpenDashboard,
     required this.onOpenWallpaperSelector,
     required this.onOpenAppVolumeManager,
+    required this.onOpenAudioDeviceSelector,
     required this.onOpenSettings,
     required this.onCancelPanelClose,
     required this.onSchedulePanelClose,
@@ -1792,6 +1815,7 @@ class _DesktopPanelOverlay extends ConsumerStatefulWidget {
   final VoidCallback onOpenDashboard;
   final VoidCallback onOpenWallpaperSelector;
   final VoidCallback onOpenAppVolumeManager;
+  final VoidCallback onOpenAudioDeviceSelector;
   final VoidCallback onOpenSettings;
   final VoidCallback onCancelPanelClose;
   final VoidCallback onSchedulePanelClose;
@@ -1836,6 +1860,7 @@ class _DesktopPanelOverlayState extends ConsumerState<_DesktopPanelOverlay> {
         cached.onExit == widget.onSchedulePanelClose &&
         cached.onOpenWallpaper == widget.onOpenWallpaperSelector &&
         cached.onOpenAppVolumeManager == widget.onOpenAppVolumeManager &&
+        cached.onOpenAudioDeviceSelector == widget.onOpenAudioDeviceSelector &&
         cached.onOpenSettings == widget.onOpenSettings) {
       return cached;
     }
@@ -1844,6 +1869,7 @@ class _DesktopPanelOverlayState extends ConsumerState<_DesktopPanelOverlay> {
       onExit: widget.onSchedulePanelClose,
       onOpenWallpaper: widget.onOpenWallpaperSelector,
       onOpenAppVolumeManager: widget.onOpenAppVolumeManager,
+      onOpenAudioDeviceSelector: widget.onOpenAudioDeviceSelector,
       onOpenSettings: widget.onOpenSettings,
     );
   }
@@ -1963,6 +1989,323 @@ class _DesktopPanelOverlayState extends ConsumerState<_DesktopPanelOverlay> {
             ),
           ),
       ],
+    );
+  }
+}
+
+class _AudioDeviceSelectorSurface extends ConsumerWidget {
+  const _AudioDeviceSelectorSurface({required this.onDismiss});
+
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(audioDevicesProvider);
+    final controller = ref.read(audioDevicesProvider.notifier);
+    return MainOutputCenteredSurface(
+      builder: (context, constraints) {
+        return SizedBox(
+          width: math.min(520.0, constraints.maxWidth),
+          height: math.min(480.0, constraints.maxHeight),
+          child: _AudioDeviceSelectorPanel(
+            state: state,
+            onRefresh: controller.refresh,
+            onSelected: controller.select,
+            onDismiss: onDismiss,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _AudioDeviceSelectorPanel extends StatelessWidget {
+  const _AudioDeviceSelectorPanel({
+    required this.state,
+    required this.onRefresh,
+    required this.onSelected,
+    required this.onDismiss,
+  });
+
+  final AudioDevicesState state;
+  final VoidCallback onRefresh;
+  final ValueChanged<String> onSelected;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShellTheme.of(context);
+    final accent = theme.accentPalette;
+    final l10n = context.l10n;
+    return FocusTraversalGroup(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.panelColor(context.shellColors.panelBackground),
+          borderRadius: BorderRadius.circular(theme.panelRadius),
+          border: Border.all(color: context.shellColors.hairline),
+          boxShadow: [
+            BoxShadow(
+              color: context.shellColors.shadow,
+              blurRadius: 42,
+              spreadRadius: 4,
+              offset: Offset(0, 18),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(theme.panelRadius),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 18, 16),
+                child: Row(
+                  children: [
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: accent.container,
+                        shape: BoxShape.circle,
+                      ),
+                      child: SizedBox(
+                        width: 42,
+                        height: 42,
+                        child: Icon(
+                          Icons.speaker_rounded,
+                          size: 23,
+                          color: accent.onContainer,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            l10n.desktopAudioOutputDevicesTitle,
+                            style: context.shellTheme.text.statusClock.copyWith(
+                              fontSize: 20,
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            l10n.desktopAudioOutputDevicesDescription,
+                            style: context.shellTheme.text.cardTitle.copyWith(
+                              color: context.shellColors.textSecondary,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _DashboardIconButton(
+                      semanticLabel: l10n.desktopRefreshAudioOutputDevices,
+                      icon: Icons.refresh_rounded,
+                      busy: state.loading || state.changing,
+                      onTap: onRefresh,
+                    ),
+                    const SizedBox(width: 8),
+                    _DashboardIconButton(
+                      semanticLabel: l10n.desktopCloseAudioOutputDevices,
+                      icon: Icons.close_rounded,
+                      onTap: onDismiss,
+                    ),
+                  ],
+                ),
+              ),
+              Divider(height: 1, color: context.shellColors.hairlineSoft),
+              Expanded(child: _buildBody(context)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
+    final l10n = context.l10n;
+    if (state.loading && state.devices.isEmpty) {
+      return Center(
+        child: SizedBox(
+          width: 28,
+          height: 28,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            color: ShellTheme.of(context).accent,
+          ),
+        ),
+      );
+    }
+    if (state.error != null && state.devices.isEmpty) {
+      return _AppVolumeManagerMessage(
+        icon: Icons.cloud_off_rounded,
+        message: l10n.desktopAudioOutputDevicesUnavailable,
+        actionLabel: l10n.commonRetry,
+        onAction: onRefresh,
+      );
+    }
+    if (state.devices.isEmpty) {
+      return _AppVolumeManagerMessage(
+        icon: Icons.speaker_group_outlined,
+        message: l10n.desktopNoAudioOutputDevices,
+      );
+    }
+
+    return Scrollbar(
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 22),
+        itemCount: state.devices.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 10),
+        itemBuilder: (context, index) {
+          final device = state.devices[index];
+          return _AudioOutputDeviceRow(
+            key: ValueKey<String>(device.name),
+            device: device,
+            enabled: !state.changing,
+            onSelected: () => onSelected(device.name),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _AudioOutputDeviceRow extends StatefulWidget {
+  const _AudioOutputDeviceRow({
+    super.key,
+    required this.device,
+    required this.enabled,
+    required this.onSelected,
+  });
+
+  final AudioOutputDevice device;
+  final bool enabled;
+  final VoidCallback onSelected;
+
+  @override
+  State<_AudioOutputDeviceRow> createState() => _AudioOutputDeviceRowState();
+}
+
+class _AudioOutputDeviceRowState extends State<_AudioOutputDeviceRow> {
+  bool _highlighted = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accentPalette;
+    final l10n = context.l10n;
+    final available = widget.device.available;
+    final enabled = widget.enabled && available && !widget.device.active;
+    void select() {
+      if (enabled) {
+        widget.onSelected();
+      }
+    }
+
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      selected: widget.device.active,
+      label: widget.device.description,
+      value: available ? null : l10n.desktopAudioOutputDeviceNotConnected,
+      child: FocusableActionDetector(
+        enabled: enabled,
+        mouseCursor: enabled
+            ? ShellMouseCursors.link
+            : ShellMouseCursors.normal,
+        onShowFocusHighlight: (highlighted) =>
+            setState(() => _highlighted = highlighted),
+        onShowHoverHighlight: (highlighted) =>
+            setState(() => _highlighted = highlighted),
+        shortcuts: const <ShortcutActivator, Intent>{
+          SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+        },
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              select();
+              return null;
+            },
+          ),
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: select,
+          child: AnimatedContainer(
+            duration: Motion.tile,
+            curve: Motion.standard,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+            decoration: BoxDecoration(
+              color: widget.device.active
+                  ? accent.container
+                  : _highlighted
+                  ? context.shellColors.surfaceContainerHighest
+                  : context.shellColors.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: widget.device.active || _highlighted
+                    ? accent.primary
+                    : context.shellColors.hairlineSoft,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  available ? Icons.speaker_rounded : Icons.link_off_rounded,
+                  size: 21,
+                  color: widget.device.active
+                      ? accent.onContainer
+                      : !available
+                      ? context.shellColors.glyphInactive
+                      : context.shellColors.textSecondary,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.device.description,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: context.shellTheme.text.cardTitle.copyWith(
+                          color: widget.device.active
+                              ? accent.onContainer
+                              : available
+                              ? context.shellColors.textPrimary
+                              : context.shellColors.textTertiary,
+                        ),
+                      ),
+                      if (!available) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          l10n.desktopAudioOutputDeviceNotConnected,
+                          style: context.shellTheme.text.cardTitle.copyWith(
+                            color: context.shellColors.textTertiary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Icon(
+                  widget.device.active
+                      ? Icons.check_circle_rounded
+                      : !available
+                      ? Icons.block_rounded
+                      : Icons.circle_outlined,
+                  size: 21,
+                  color: widget.device.active
+                      ? accent.onContainer
+                      : context.shellColors.glyphInactive,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -3153,6 +3496,7 @@ class _DesktopDashboard extends StatelessWidget {
     required this.onExit,
     required this.onOpenWallpaper,
     required this.onOpenAppVolumeManager,
+    required this.onOpenAudioDeviceSelector,
     required this.onOpenSettings,
   });
 
@@ -3160,6 +3504,7 @@ class _DesktopDashboard extends StatelessWidget {
   final VoidCallback onExit;
   final VoidCallback onOpenWallpaper;
   final VoidCallback onOpenAppVolumeManager;
+  final VoidCallback onOpenAudioDeviceSelector;
   final VoidCallback onOpenSettings;
 
   @override
@@ -3196,6 +3541,7 @@ class _DesktopDashboard extends StatelessWidget {
                 const SizedBox(height: 16),
                 _DashboardVolumeCard(
                   onOpenAppVolumeManager: onOpenAppVolumeManager,
+                  onOpenAudioDeviceSelector: onOpenAudioDeviceSelector,
                 ),
                 const SizedBox(height: 12),
                 const _DesktopPowerModesCard(),
@@ -3279,15 +3625,20 @@ class _DashboardHeader extends ConsumerWidget {
 }
 
 class _DashboardVolumeCard extends ConsumerWidget {
-  const _DashboardVolumeCard({required this.onOpenAppVolumeManager});
+  const _DashboardVolumeCard({
+    required this.onOpenAppVolumeManager,
+    required this.onOpenAudioDeviceSelector,
+  });
 
   final VoidCallback onOpenAppVolumeManager;
+  final VoidCallback onOpenAudioDeviceSelector;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final volume = ref.watch(
       quickSettingsProvider.select((state) => state.volume),
     );
+    final devices = ref.watch(audioDevicesProvider);
     final controller = ref.read(quickSettingsProvider.notifier);
     final l10n = context.l10n;
     final accent = ShellTheme.of(context).accent;
@@ -3313,7 +3664,12 @@ class _DashboardVolumeCard extends ConsumerWidget {
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
+          _DashboardAudioDeviceButton(
+            state: devices,
+            onTap: onOpenAudioDeviceSelector,
+          ),
+          const SizedBox(height: 10),
           RangeBar(
             icon: volume <= 0.01
                 ? Icons.volume_off_rounded
@@ -3322,8 +3678,8 @@ class _DashboardVolumeCard extends ConsumerWidget {
             activeColor: accent,
             inactiveColor: context.shellColors.volumeTrack,
             onChangeStart: controller.beginVolumeInteraction,
-            onChanged: controller.setVolume,
-            onChangeEnd: controller.commitVolume,
+            onChanged: controller.setDashboardVolume,
+            onChangeEnd: controller.commitDashboardVolume,
             height: 48,
           ),
         ],
@@ -4134,6 +4490,133 @@ class _DashboardIconButtonState extends State<_DashboardIconButton> {
                               : context.shellColors.textPrimary
                         : context.shellColors.glyphInactive,
                   ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardAudioDeviceButton extends StatefulWidget {
+  const _DashboardAudioDeviceButton({required this.state, required this.onTap});
+
+  final AudioDevicesState state;
+  final VoidCallback onTap;
+
+  @override
+  State<_DashboardAudioDeviceButton> createState() =>
+      _DashboardAudioDeviceButtonState();
+}
+
+class _DashboardAudioDeviceButtonState
+    extends State<_DashboardAudioDeviceButton> {
+  bool _hovered = false;
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final activeDevice = widget.state.activeDevice;
+    final enabled = !widget.state.loading && !widget.state.changing;
+    final label =
+        activeDevice?.description ??
+        (widget.state.loading
+            ? l10n.desktopLoadingAudioOutputDevices
+            : widget.state.error != null
+            ? l10n.desktopAudioOutputDevicesUnavailable
+            : l10n.desktopNoAudioOutputDevices);
+    final accent = ShellTheme.of(context).accentPalette;
+    void activate() {
+      if (enabled) {
+        widget.onTap();
+      }
+    }
+
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: l10n.desktopSelectAudioOutputDevice,
+      value: label,
+      child: FocusableActionDetector(
+        enabled: enabled,
+        mouseCursor: enabled
+            ? ShellMouseCursors.link
+            : ShellMouseCursors.normal,
+        onShowHoverHighlight: (hovered) => setState(() => _hovered = hovered),
+        onShowFocusHighlight: (focused) => setState(() => _focused = focused),
+        shortcuts: const <ShortcutActivator, Intent>{
+          SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+        },
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              activate();
+              return null;
+            },
+          ),
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: activate,
+          child: AnimatedContainer(
+            duration: Motion.pill,
+            curve: Motion.standard,
+            height: 40,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: _hovered || _focused
+                  ? context.shellColors.surfaceContainerHighest
+                  : context.shellColors.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _focused
+                    ? accent.primary
+                    : context.shellColors.hairlineSoft,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.speaker_rounded,
+                  size: 18,
+                  color: enabled
+                      ? accent.primary
+                      : context.shellColors.glyphInactive,
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.shellTheme.text.cardTitle.copyWith(
+                      color: enabled
+                          ? context.shellColors.textSecondary
+                          : context.shellColors.textTertiary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (widget.state.loading || widget.state.changing)
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: accent.primary,
+                    ),
+                  )
+                else
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 19,
+                    color: enabled
+                        ? accent.primary
+                        : context.shellColors.glyphInactive,
+                  ),
+              ],
+            ),
           ),
         ),
       ),

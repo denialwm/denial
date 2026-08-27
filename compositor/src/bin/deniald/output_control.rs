@@ -570,6 +570,7 @@ impl PendingSystemControl {
 pub(super) enum SystemControlWaitKind {
     AudioLevel,
     AudioStreams,
+    AudioDevices,
     Brightness(i64),
 }
 
@@ -701,6 +702,12 @@ struct AudioLevelParams {
 struct AudioStreamLevelParams {
     stream_id: u32,
     percent: u8,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AudioDeviceParams {
+    name: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1335,6 +1342,41 @@ fn handle_connection(
                 SystemControlCommand::Audio(AudioRequest::SetStreamLevel {
                     stream_id: parameters.stream_id,
                     level: f64::from(parameters.percent) / 100.0,
+                }),
+                events,
+            )
+        }
+        "audio.devices.get" => queue_system_control(
+            request.id,
+            SystemControlCommand::Audio(AudioRequest::RequestDevices),
+            events,
+        ),
+        "audio.device.set" => {
+            let parameters =
+                match parse_settings_params::<AudioDeviceParams>(request.id, request.params) {
+                    Ok(parameters)
+                        if !parameters.name.is_empty()
+                            && parameters.name.len() <= 1024
+                            && !parameters.name.contains('\0') =>
+                    {
+                        parameters
+                    }
+                    Ok(_) => {
+                        return write_response(
+                            &mut stream,
+                            &error_response(
+                                Some(request.id),
+                                "invalid_params",
+                                "audio device name must be between 1 and 1024 bytes",
+                            ),
+                        );
+                    }
+                    Err(response) => return write_response(&mut stream, &response),
+                };
+            queue_system_control(
+                request.id,
+                SystemControlCommand::Audio(AudioRequest::SetDevice {
+                    name: parameters.name,
                 }),
                 events,
             )
