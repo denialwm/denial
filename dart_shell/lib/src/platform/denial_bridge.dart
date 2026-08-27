@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '../input/input_layout.dart';
 import '../models/denial_drag_icon.dart';
+import '../models/denial_cursor_state.dart';
 import '../models/desktop_notification.dart';
 import '../models/display_layout.dart';
 import '../models/input_device_capabilities.dart';
@@ -145,6 +146,7 @@ class DenialBridge {
   static const String _systemCommandChannel = 'denial/system_command';
   static const String _windowCloseCompleteChannel =
       'denial/window_close_complete';
+  static const String _cursorPresentedChannel = 'denial/cursor_presented';
   static const String _audioStateChannel = 'denial/audio_state';
   static const String _audioStreamsStateChannel = 'denial/audio_streams_state';
   static const String _audioDevicesStateChannel = 'denial/audio_devices_state';
@@ -221,6 +223,8 @@ class DenialBridge {
       StreamController<DenialShellActionEvent>.broadcast(sync: true);
   final StreamController<String> _cursorShapes =
       StreamController<String>.broadcast(sync: true);
+  final StreamController<DenialCursorState> _cursorStates =
+      StreamController<DenialCursorState>.broadcast(sync: true);
   final StreamController<Offset> _cursorPositions =
       StreamController<Offset>.broadcast(sync: true);
   final StreamController<DenialDragIcon?> _dragIcons =
@@ -270,6 +274,7 @@ class DenialBridge {
   Stream<DenialWindowEvent> get windowEvents => _windowEvents.stream;
   Stream<DenialShellActionEvent> get shellActions => _shellActions.stream;
   Stream<String> get cursorShapes => _cursorShapes.stream;
+  Stream<DenialCursorState> get cursorStates => _cursorStates.stream;
   Stream<Offset> get cursorPositions => _cursorPositions.stream;
   Stream<DenialDragIcon?> get dragIcons => _dragIcons.stream;
   Stream<DenialAudioState> get audioStates => _audioStates.stream;
@@ -585,6 +590,7 @@ class DenialBridge {
     unawaited(_windowEvents.close());
     unawaited(_shellActions.close());
     unawaited(_cursorShapes.close());
+    unawaited(_cursorStates.close());
     unawaited(_cursorPositions.close());
     unawaited(_dragIcons.close());
     unawaited(_audioStates.close());
@@ -1293,6 +1299,17 @@ class DenialBridge {
     final payload = ByteData(8)..setUint64(0, windowId, Endian.little);
     ServicesBinding.instance.defaultBinaryMessenger
         .send(_windowCloseCompleteChannel, payload)
+        ?.catchError((Object _) => null);
+    return true;
+  }
+
+  bool acknowledgeCursorPresented(int epoch) {
+    if (epoch <= 0) {
+      return false;
+    }
+    final payload = ByteData(8)..setUint64(0, epoch, Endian.little);
+    ServicesBinding.instance.defaultBinaryMessenger
+        .send(_cursorPresentedChannel, payload)
         ?.catchError((Object _) => null);
     return true;
   }
@@ -2495,6 +2512,19 @@ class DenialBridge {
         final shape = payload.shape?.trim().toLowerCase();
         if (shape != null && shape.isNotEmpty && !_cursorShapes.isClosed) {
           _cursorShapes.add(shape);
+        }
+      } else if (payload is wire.CursorState) {
+        final state = _wireCodec.decodeCursorState(payload);
+        if (state != null && !_cursorStates.isClosed) {
+          _cursorStates.add(state);
+          if (state.kind == DenialCursorStateKind.named &&
+              state.shape.isNotEmpty &&
+              !_cursorShapes.isClosed) {
+            _cursorShapes.add(state.shape);
+          } else if (state.kind == DenialCursorStateKind.hidden &&
+              !_cursorShapes.isClosed) {
+            _cursorShapes.add('none');
+          }
         }
       } else if (payload is wire.CursorPosition) {
         if (payload.x.isFinite &&

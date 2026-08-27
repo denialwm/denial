@@ -67,6 +67,8 @@ mod text_input;
 pub(super) use super::wayland_frontend::input_method::InputMethodTransaction;
 pub(super) use text_input::TextInputSnapshot;
 
+#[path = "flutter_runtime/cursor_bridge.rs"]
+mod cursor_bridge;
 #[path = "flutter_runtime/damage.rs"]
 mod damage;
 #[path = "flutter_runtime/engine_session.rs"]
@@ -136,6 +138,7 @@ const AUDIO_DEVICES_STATE_CHANNEL: &CStr = c"denial/audio_devices_state";
 const BRIGHTNESS_CHANNEL: &CStr = c"denial/brightness";
 const BRIGHTNESS_STATE_CHANNEL: &CStr = c"denial/brightness_state";
 const WINDOW_CLOSE_COMPLETE_CHANNEL: &CStr = c"denial/window_close_complete";
+const CURSOR_PRESENTED_CHANNEL: &CStr = c"denial/cursor_presented";
 const GLFW_MOD_CONTROL: u32 = 0x0002;
 const GLFW_MOD_ALT: u32 = 0x0004;
 const MAX_CACHED_DMABUF_BINDINGS_PER_TEXTURE: usize = 8;
@@ -442,6 +445,11 @@ fn decode_window_close_complete(data: &[u8]) -> Option<u64> {
     (window_id > 0).then_some(window_id)
 }
 
+fn decode_cursor_presented(data: &[u8]) -> Option<u64> {
+    let epoch = u64::from_le_bytes(data.try_into().ok()?);
+    (epoch > 0).then_some(epoch)
+}
+
 pub struct FlutterRuntime {
     host: Option<EngineHost>,
     handler: Arc<FlutterGlHandler>,
@@ -465,6 +473,10 @@ pub struct FlutterRuntime {
     next_platform_task_order: u64,
     registered_external_textures: HashSet<i64>,
     scene_texture_ids: HashSet<i64>,
+    cursor_texture_ids: HashSet<i64>,
+    retired_cursor_texture_ids: BTreeMap<u64, HashSet<i64>>,
+    cursor_epoch: u64,
+    cursor_output: Option<OutputId>,
     render_outputs: Vec<RuntimeRenderOutput>,
     render_output_configuration: Vec<RenderOutput>,
     output_rotation_animation: Option<OutputRotationAnimation>,

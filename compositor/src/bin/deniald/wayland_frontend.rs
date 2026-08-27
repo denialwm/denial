@@ -32,7 +32,9 @@ use smithay::input::dnd::{DnDGrab, DndGrabHandler, GrabType, Source};
 #[cfg(feature = "flutter")]
 use smithay::input::keyboard::xkb;
 use smithay::input::keyboard::XkbConfig;
-use smithay::input::pointer::{CursorImageStatus, Focus, PointerHandle};
+use smithay::input::pointer::{
+    CursorImageStatus, CursorImageSurfaceData, Focus, PointerHandle,
+};
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::output::{Mode, Output, PhysicalProperties, Scale, Subpixel};
 use smithay::reexports::calloop::{
@@ -119,9 +121,9 @@ use super::window_placement_store::{
 };
 #[cfg(feature = "flutter")]
 use super::wire::{
-    InputLayoutSnapshot, SurfaceLayerDescription, SurfaceRoleDescription, WindowAction,
-    WindowContentKind, WindowDescription, WindowGeometry, WindowOpacityClass, WindowPlacement,
-    WindowPlacementChange, WindowPlacementPhase,
+    CursorStateDescription, CursorStateKind, InputLayoutSnapshot, SurfaceLayerDescription,
+    SurfaceRoleDescription, WindowAction, WindowContentKind, WindowDescription, WindowGeometry,
+    WindowOpacityClass, WindowPlacement, WindowPlacementChange, WindowPlacementPhase,
 };
 
 #[path = "wayland_frontend/clipboard.rs"]
@@ -285,16 +287,51 @@ impl<K: Clone + Eq + Hash, V> OutputWindowMembership<K, V> {
 }
 
 #[cfg(feature = "flutter")]
-fn software_cursor_shape(status: &CursorImageStatus) -> &'static str {
-    match status {
-        CursorImageStatus::Hidden => "none",
-        CursorImageStatus::Named(icon) => icon.name(),
-        // A client-owned cursor surface cannot be represented by the current
-        // CursorShape wire payload.  Keep exactly one cursor renderer (Dart)
-        // and use its neutral arrow rather than drawing the surface a second
-        // time in the compositor atlas.
-        CursorImageStatus::Surface(_) => "default",
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum CursorPublication {
+    Hidden,
+    Named(&'static str),
+    Surface(WlSurface),
+}
+
+#[cfg(feature = "flutter")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ClientCursorIntent {
+    Hidden,
+    Named(&'static str),
+    Surface,
+}
+
+#[cfg(feature = "flutter")]
+fn resolved_client_cursor_intent(
+    intent: ClientCursorIntent,
+    allow_surface: bool,
+    drag_active: bool,
+) -> ClientCursorIntent {
+    if drag_active {
+        return ClientCursorIntent::Named("default");
     }
+    match intent {
+        ClientCursorIntent::Surface if !allow_surface => ClientCursorIntent::Named("default"),
+        intent => intent,
+    }
+}
+
+#[cfg(feature = "flutter")]
+fn cursor_hotspot_after_buffer_delta(
+    mut hotspot: Point<i32, Logical>,
+    buffer_delta: Point<i32, Logical>,
+) -> Point<i32, Logical> {
+    hotspot -= buffer_delta;
+    hotspot
+}
+
+#[cfg(feature = "flutter")]
+fn cursor_frame_callback_matches(
+    cursor_output: Option<OutputId>,
+    tick_output: OutputId,
+) -> bool {
+    cursor_output.is_none_or(|output| output == tick_output)
 }
 
 #[cfg(feature = "flutter")]
@@ -303,15 +340,6 @@ fn accepted_flutter_cursor_shape(
     shape: &'static str,
 ) -> Option<&'static str> {
     matches!(target, RoutedPointerTarget::Flutter).then_some(shape)
-}
-
-#[cfg(feature = "flutter")]
-fn cursor_shape_for_modality(pointer_visible: bool, active_shape: &'static str) -> &'static str {
-    if pointer_visible {
-        active_shape
-    } else {
-        "none"
-    }
 }
 
 #[cfg(feature = "flutter")]
@@ -451,9 +479,23 @@ pub(super) struct WaylandFrontend {
     /// Last-writer-wins handoff from the routed pointer owner's cursor request
     /// to the Flutter-owned software cursor.
     #[cfg(feature = "flutter")]
-    pending_cursor_shape: Option<&'static str>,
+    pending_cursor_state: Option<CursorPublication>,
     #[cfg(feature = "flutter")]
-    published_cursor_shape: Option<&'static str>,
+    published_cursor_state: Option<CursorPublication>,
+    #[cfg(feature = "flutter")]
+    pending_cursor_metadata: bool,
+    #[cfg(feature = "flutter")]
+    pending_cursor_buffer_surface_ids: HashSet<u64>,
+    #[cfg(feature = "flutter")]
+    cursor_state_layers_scratch: Vec<SurfaceLayerDescription>,
+    #[cfg(feature = "flutter")]
+    cursor_state_textures_scratch: Vec<ExternalTextureFrame>,
+    #[cfg(feature = "flutter")]
+    pending_cursor_frame_callback_roots: HashSet<ObjectId>,
+    #[cfg(feature = "flutter")]
+    cursor_output: Option<OutputId>,
+    #[cfg(feature = "flutter")]
+    cursor_output_scale: Option<f64>,
     /// Latest compositor-authoritative pointer position for cursor painting
     /// while Flutter pointer hit testing is intentionally inactive.
     ///

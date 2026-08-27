@@ -83,6 +83,8 @@ class ShellAppearanceSettings {
     this.focusedWindowOpacity = 1,
     this.unfocusedWindowOpacity = 1,
     this.cursorSize = shellCursorDefaultSize,
+    this.cursorThemeId = 'bibata_modern_ice',
+    this.allowClientCursorSurfaces = true,
   });
 
   final DesktopColorSchemePreference colorSchemePreference;
@@ -97,6 +99,8 @@ class ShellAppearanceSettings {
   final double focusedWindowOpacity;
   final double unfocusedWindowOpacity;
   final double cursorSize;
+  final String cursorThemeId;
+  final bool allowClientCursorSurfaces;
 
   ShellAppearanceSettings copyWith({
     DesktopColorSchemePreference? colorSchemePreference,
@@ -111,6 +115,8 @@ class ShellAppearanceSettings {
     double? focusedWindowOpacity,
     double? unfocusedWindowOpacity,
     double? cursorSize,
+    String? cursorThemeId,
+    bool? allowClientCursorSurfaces,
   }) {
     return ShellAppearanceSettings(
       colorSchemePreference:
@@ -128,6 +134,9 @@ class ShellAppearanceSettings {
       unfocusedWindowOpacity:
           unfocusedWindowOpacity ?? this.unfocusedWindowOpacity,
       cursorSize: cursorSize ?? this.cursorSize,
+      cursorThemeId: cursorThemeId ?? this.cursorThemeId,
+      allowClientCursorSurfaces:
+          allowClientCursorSurfaces ?? this.allowClientCursorSurfaces,
     );
   }
 
@@ -145,7 +154,9 @@ class ShellAppearanceSettings {
         other.backdropBlurOpacityThreshold == backdropBlurOpacityThreshold &&
         other.focusedWindowOpacity == focusedWindowOpacity &&
         other.unfocusedWindowOpacity == unfocusedWindowOpacity &&
-        other.cursorSize == cursorSize;
+        other.cursorSize == cursorSize &&
+        other.cursorThemeId == cursorThemeId &&
+        other.allowClientCursorSurfaces == allowClientCursorSurfaces;
   }
 
   @override
@@ -162,6 +173,8 @@ class ShellAppearanceSettings {
     focusedWindowOpacity,
     unfocusedWindowOpacity,
     cursorSize,
+    cursorThemeId,
+    allowClientCursorSurfaces,
   );
 }
 
@@ -702,7 +715,7 @@ class ShellSettings {
 
   // Blur levels are additive in schema 9. Keep emitting the derived legacy
   // sigma so older shells can read settings written by this version.
-  static const int schemaVersion = 13;
+  static const int schemaVersion = 14;
 
   final ShellLocalizationSettings localization;
   final ShellAppearanceSettings appearance;
@@ -795,6 +808,14 @@ class ShellSettings {
       }
       if (appearance.cursorSize != before.cursorSize) {
         section['cursorSize'] = appearance.cursorSize;
+      }
+      if (appearance.cursorThemeId != before.cursorThemeId) {
+        section['cursorThemeId'] = appearance.cursorThemeId;
+      }
+      if (appearance.allowClientCursorSurfaces !=
+          before.allowClientCursorSurfaces) {
+        section['allowClientCursorSurfaces'] =
+            appearance.allowClientCursorSurfaces;
       }
       patch['appearance'] = section;
     }
@@ -922,6 +943,8 @@ class ShellSettings {
         'focusedWindowOpacity': appearance.focusedWindowOpacity,
         'unfocusedWindowOpacity': appearance.unfocusedWindowOpacity,
         'cursorSize': appearance.cursorSize,
+        'cursorThemeId': appearance.cursorThemeId,
+        'allowClientCursorSurfaces': appearance.allowClientCursorSurfaces,
       },
       'layout': <String, Object>{
         if (layout.systemBarSide case final side?) 'systemBarSide': side.name,
@@ -1055,6 +1078,14 @@ class ShellSettings {
           shellCursorMinimumSize,
           shellCursorMaximumSize,
         ),
+        cursorThemeId: _cursorThemeId(
+          appearanceJson['cursorThemeId'],
+          defaults.appearance.cursorThemeId,
+        ),
+        allowClientCursorSurfaces:
+            appearanceJson['allowClientCursorSurfaces'] is bool
+            ? appearanceJson['allowClientCursorSurfaces'] as bool
+            : defaults.appearance.allowClientCursorSurfaces,
       ),
       layout: ShellLayoutSettings(
         systemBarSide: _nullableEnumValue(
@@ -1286,4 +1317,15 @@ int _integer(Object? value, int fallback, int minimum, int maximum) {
     return fallback;
   }
   return value.round().clamp(minimum, maximum).toInt();
+}
+
+String _cursorThemeId(Object? value, String fallback) {
+  if (value is! String) {
+    return fallback;
+  }
+  final id = value.trim();
+  if (id.isEmpty || id.length > 128 || id.contains('\u0000')) {
+    return fallback;
+  }
+  return id;
 }

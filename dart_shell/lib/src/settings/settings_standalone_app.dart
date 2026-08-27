@@ -153,6 +153,8 @@ class _DenialSettingsStandaloneContentState
                   initialPage: widget.initialPage,
                   onOpenWallpaperSelector: () =>
                       ref.read(denialBridgeProvider).openWallpaperSelector(),
+                  onPickCursorZip: () =>
+                      _activationChannel.invokeMethod<String>('pickCursorZip'),
                 ),
               ),
               if (syncStatus.phase == ShellSettingsSyncPhase.loading)

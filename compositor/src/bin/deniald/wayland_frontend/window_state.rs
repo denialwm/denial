@@ -584,6 +584,8 @@ impl WaylandFrontend {
         for window in &windows {
             self.update_window_output_membership(window);
         }
+        #[cfg(feature = "flutter")]
+        self.update_cursor_output_membership();
         self.window_membership_scratch = windows;
     }
 
@@ -1033,12 +1035,14 @@ impl WaylandFrontend {
             self.pending_surface_commits.remove(&object_id);
             self.pending_frame_callback_windows.remove(&object_id);
             self.pending_input_method_frame_callbacks.remove(&object_id);
+            self.pending_cursor_frame_callback_roots.remove(&object_id);
             self.pending_shm_snapshots.remove(&object_id);
             self.surface_buffer_revisions.remove(&object_id);
             self.minimized_windows.remove(&object_id);
             self.shell_fullscreen_locks.remove(&object_id);
             if let Some(stable_id) = stable_id {
                 self.pointer_constraint_escape.forget_window(stable_id);
+                self.pending_cursor_buffer_surface_ids.remove(&stable_id);
             }
 
             if cached_route_is_stale {

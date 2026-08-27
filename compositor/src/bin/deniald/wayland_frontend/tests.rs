@@ -2,10 +2,11 @@
 use super::OutputWindowMembership;
 #[cfg(feature = "flutter")]
 use super::{
-    CursorImageStatus, RoutedPointerTarget, ShellFullscreenTransition,
-    accepted_flutter_cursor_shape, classify_window_opacity, cursor_position_for_modality,
-    cursor_shape_for_modality, input_routing_changed, input_visibility_changed,
-    shell_fullscreen_transition, software_cursor_shape, window_expects_sample,
+    ClientCursorIntent, RoutedPointerTarget, ShellFullscreenTransition,
+    accepted_flutter_cursor_shape, classify_window_opacity, cursor_frame_callback_matches,
+    cursor_hotspot_after_buffer_delta, cursor_position_for_modality, input_routing_changed,
+    input_visibility_changed, resolved_client_cursor_intent, shell_fullscreen_transition,
+    window_expects_sample,
 };
 use super::{
     InitialXdgPlacementPolicy, MAX_PENDING_DMABUF_IMPORTS, dmabuf_import_queue_has_capacity,
@@ -18,7 +19,6 @@ use crate::wire::{InputLayoutSnapshot, InputRect, WindowOpacityClass};
 #[cfg(feature = "flutter")]
 use denial_core::topology::OutputId;
 #[cfg(feature = "flutter")]
-use smithay::input::pointer::CursorIcon;
 use smithay::reexports::wayland_server::Display;
 #[cfg(feature = "flutter")]
 use smithay::utils::{Logical, Rectangle};
@@ -236,20 +236,6 @@ fn only_primary_unparented_toplevels_restore_shell_owned_state() {
 
 #[cfg(feature = "flutter")]
 #[test]
-fn wayland_cursor_names_and_visibility_map_to_shell_shapes() {
-    assert_eq!(
-        software_cursor_shape(&CursorImageStatus::Named(CursorIcon::Text)),
-        "text"
-    );
-    assert_eq!(
-        software_cursor_shape(&CursorImageStatus::Named(CursorIcon::NwseResize)),
-        "nwse-resize"
-    );
-    assert_eq!(software_cursor_shape(&CursorImageStatus::Hidden), "none");
-}
-
-#[cfg(feature = "flutter")]
-#[test]
 fn only_the_flutter_pointer_owner_can_request_a_shell_cursor() {
     assert_eq!(
         accepted_flutter_cursor_shape(RoutedPointerTarget::Flutter, "text"),
@@ -264,13 +250,49 @@ fn only_the_flutter_pointer_owner_can_request_a_shell_cursor() {
 #[cfg(feature = "flutter")]
 #[test]
 fn touch_modality_suppresses_replayed_cursor_shape_and_position() {
-    assert_eq!(cursor_shape_for_modality(false, "text"), "none");
     assert_eq!(cursor_position_for_modality(false, (32.0, 64.0)), None);
-    assert_eq!(cursor_shape_for_modality(true, "text"), "text");
     assert_eq!(
         cursor_position_for_modality(true, (32.0, 64.0)),
         Some((32.0, 64.0))
     );
+}
+
+#[cfg(feature = "flutter")]
+#[test]
+fn client_cursor_policy_hotspot_and_frame_callback_contracts() {
+    assert_eq!(
+        resolved_client_cursor_intent(ClientCursorIntent::Hidden, true, false),
+        ClientCursorIntent::Hidden
+    );
+    assert_eq!(
+        resolved_client_cursor_intent(ClientCursorIntent::Named("text"), true, false),
+        ClientCursorIntent::Named("text")
+    );
+    assert_eq!(
+        resolved_client_cursor_intent(ClientCursorIntent::Surface, true, false),
+        ClientCursorIntent::Surface
+    );
+    assert_eq!(
+        resolved_client_cursor_intent(ClientCursorIntent::Surface, false, false),
+        ClientCursorIntent::Named("default")
+    );
+    assert_eq!(
+        resolved_client_cursor_intent(ClientCursorIntent::Surface, true, true),
+        ClientCursorIntent::Named("default")
+    );
+
+    assert_eq!(
+        cursor_hotspot_after_buffer_delta((8, 11).into(), (3, -2).into()),
+        (5, 13).into()
+    );
+
+    let cursor_output = OutputId(9);
+    assert!(cursor_frame_callback_matches(Some(cursor_output), cursor_output));
+    assert!(!cursor_frame_callback_matches(
+        Some(cursor_output),
+        OutputId(7)
+    ));
+    assert!(cursor_frame_callback_matches(None, OutputId(7)));
 }
 
 #[cfg(feature = "flutter")]

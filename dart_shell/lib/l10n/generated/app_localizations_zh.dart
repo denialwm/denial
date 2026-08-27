@@ -1588,6 +1588,31 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsCursorTitle => '光标';
 
   @override
+  String get settingsCursorTheme => '光标主题';
+
+  @override
+  String get settingsCursorImport => '导入光标 ZIP';
+
+  @override
+  String get settingsCursorImporting => '正在导入…';
+
+  @override
+  String get settingsCursorImportFailed => '无法导入光标主题。';
+
+  @override
+  String get settingsCursorRemove => '移除导入的光标主题';
+
+  @override
+  String get settingsCursorRemoveFailed => '无法移除导入的光标主题。';
+
+  @override
+  String get settingsCursorAllowApplications => '允许应用显示自己的光标';
+
+  @override
+  String get settingsCursorAllowApplicationsDescription =>
+      'Wayland 和 X11 应用可以提供光标图像。关闭后将始终使用所选的 Denial 主题。';
+
+  @override
   String get settingsDashboardOverlayDescription => '设置桌面仪表板的位置。';
 
   @override

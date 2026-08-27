@@ -242,6 +242,18 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     );
   }
 
+  void setCursorThemeId(String value) {
+    final id = value.trim();
+    if (id.isEmpty || id.length > 128 || id.contains('\u0000')) {
+      return;
+    }
+    _updateAppearance(cursorThemeId: id);
+  }
+
+  void setAllowClientCursorSurfaces(bool value) {
+    _updateAppearance(allowClientCursorSurfaces: value);
+  }
+
   void setSystemBarPlacement({
     required SystemBarSide side,
     required Iterable<String> outputNames,
@@ -533,6 +545,8 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     double? focusedWindowOpacity,
     double? unfocusedWindowOpacity,
     double? cursorSize,
+    String? cursorThemeId,
+    bool? allowClientCursorSurfaces,
   }) {
     _update(
       state.copyWith(
@@ -546,6 +560,8 @@ class ShellSettingsController extends Notifier<ShellSettings> {
           focusedWindowOpacity: focusedWindowOpacity,
           unfocusedWindowOpacity: unfocusedWindowOpacity,
           cursorSize: cursorSize,
+          cursorThemeId: cursorThemeId,
+          allowClientCursorSurfaces: allowClientCursorSurfaces,
         ),
       ),
     );

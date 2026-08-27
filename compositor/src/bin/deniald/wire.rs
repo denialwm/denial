@@ -402,6 +402,47 @@ pub struct SurfaceLayerDescription {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CursorStateKind {
+    Hidden,
+    Named,
+    Surface,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CursorStateDescription {
+    pub epoch: u64,
+    pub kind: CursorStateKind,
+    pub shape: String,
+    pub hotspot_x: f64,
+    pub hotspot_y: f64,
+    pub surfaces: Vec<SurfaceLayerDescription>,
+}
+
+impl CursorStateDescription {
+    pub fn hidden() -> Self {
+        Self {
+            epoch: 0,
+            kind: CursorStateKind::Hidden,
+            shape: String::new(),
+            hotspot_x: 0.0,
+            hotspot_y: 0.0,
+            surfaces: Vec::new(),
+        }
+    }
+
+    pub fn named(shape: impl Into<String>) -> Self {
+        Self {
+            epoch: 0,
+            kind: CursorStateKind::Named,
+            shape: shape.into(),
+            hotspot_x: 0.0,
+            hotspot_y: 0.0,
+            surfaces: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SurfaceRoleDescription {
     Root,
     Subsurface,

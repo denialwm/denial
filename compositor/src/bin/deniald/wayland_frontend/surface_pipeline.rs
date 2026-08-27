@@ -140,6 +140,23 @@ impl WaylandFrontend {
 
     #[cfg(feature = "flutter")]
     pub(super) fn publish_surface_commits(&mut self, root: &WlSurface) -> PublishedSurfaceCommits {
+        self.publish_surface_commits_inner(root, false)
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn publish_cursor_surface_commits(
+        &mut self,
+        root: &WlSurface,
+    ) -> PublishedSurfaceCommits {
+        self.publish_surface_commits_inner(root, true)
+    }
+
+    #[cfg(feature = "flutter")]
+    fn publish_surface_commits_inner(
+        &mut self,
+        root: &WlSurface,
+        cursor_fast_path: bool,
+    ) -> PublishedSurfaceCommits {
         let mut committed_surfaces = std::mem::take(&mut self.committed_surfaces_scratch);
         committed_surfaces.clear();
         let mut buffer_surface_ids = std::mem::take(&mut self.published_surface_ids_scratch);
@@ -206,8 +223,9 @@ impl WaylandFrontend {
                     // has appeared in an accepted full scene. This also
                     // excludes pre-map and zero-geometry commits.
                     let owner = self.scene_surface_windows.get(&surface_id).copied();
-                    if owner == Some(surface_id)
-                        && !self.scene_complex_windows.contains(&surface_id)
+                    if cursor_fast_path
+                        || (owner == Some(surface_id)
+                            && !self.scene_complex_windows.contains(&surface_id))
                     {
                         buffer_surface_ids.push(surface_id);
                     } else {

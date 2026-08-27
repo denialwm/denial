@@ -46,23 +46,24 @@ impl WaylandFrontend {
     pub(crate) fn has_pending_frame_callbacks(&self) -> bool {
         !self.pending_frame_callback_windows.is_empty()
             || !self.pending_input_method_frame_callbacks.is_empty()
+            || !self.pending_cursor_frame_callback_roots.is_empty()
     }
 
     #[cfg(feature = "flutter")]
     pub(super) fn queue_cursor_state_for_flutter_generation(&mut self) {
-        self.published_cursor_shape = None;
+        self.published_cursor_state = None;
         if !self.pointer_cursor_visible {
-            self.pending_cursor_shape = Some("none");
+            self.pending_cursor_state = Some(CursorPublication::Hidden);
             self.pending_cursor_position = None;
             return;
         }
         match self.routed_pointer_target {
             RoutedPointerTarget::Flutter => {
-                self.pending_cursor_shape = None;
+                self.pending_cursor_state = None;
                 self.pending_cursor_position = None;
             }
             RoutedPointerTarget::Client(_) => {
-                self.pending_cursor_shape = Some(software_cursor_shape(&self.cursor_status));
+                self.pending_cursor_state = Some(self.resolved_client_cursor_publication());
                 self.pending_cursor_position = Some(self.flutter_scene_pointer_position());
             }
         }
@@ -307,6 +308,24 @@ impl WaylandFrontend {
             }
         }
         let callback_millis = callback_time.as_millis() as u32;
+        if !self.pending_cursor_frame_callback_roots.is_empty()
+            && cursor_frame_callback_matches(self.cursor_output, tick.output)
+        {
+            let pending = std::mem::take(&mut self.pending_cursor_frame_callback_roots);
+            for root_id in pending {
+                let Some(surface) = self
+                    .surface_ids
+                    .get(&root_id)
+                    .and_then(|surface_id| self.surfaces_by_id.get(surface_id))
+                else {
+                    continue;
+                };
+                sent = sent.saturating_add(presentation::send_surface_frame_callbacks(
+                    surface,
+                    callback_millis,
+                ));
+            }
+        }
         if !self.pending_input_method_frame_callbacks.is_empty() {
             for popup in self.input_method.visible_popups() {
                 if self

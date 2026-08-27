@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 
 import '../../../l10n/generated/app_localizations.dart';
 import '../../localization/denial_localizations.dart';
 import '../../settings/shell_settings.dart';
 import '../../theme/backdrop_blur_level.dart';
+import '../../theme/cursor_theme_repository.dart';
 import '../../theme/cursor_themes.dart';
+import '../../theme/motion.dart';
 import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../../wallpaper/wallpaper.dart';
 import '../../wallpaper/widgets/wallpaper_image.dart';
+import '../../widgets/shell_cursor.dart';
 import 'settings_controls.dart';
 
 const settingsWallpaperTriggerKey = ValueKey<String>(
@@ -54,6 +58,12 @@ class SettingsAppearancePage extends StatelessWidget {
     required this.onFocusedOpacityChanged,
     required this.onUnfocusedOpacityChanged,
     required this.onCursorSizeChanged,
+    required this.cursorThemes,
+    required this.cursorCatalogLoading,
+    required this.onCursorThemeChanged,
+    required this.onAllowClientCursorSurfacesChanged,
+    required this.onImportCursorZip,
+    required this.onRemoveCursorTheme,
     required this.onReset,
     super.key,
   });
@@ -75,6 +85,12 @@ class SettingsAppearancePage extends StatelessWidget {
   final ValueChanged<double> onFocusedOpacityChanged;
   final ValueChanged<double> onUnfocusedOpacityChanged;
   final ValueChanged<double> onCursorSizeChanged;
+  final List<ShellCursorThemeData> cursorThemes;
+  final bool cursorCatalogLoading;
+  final ValueChanged<String> onCursorThemeChanged;
+  final ValueChanged<bool> onAllowClientCursorSurfacesChanged;
+  final Future<ShellCursorThemeData?> Function()? onImportCursorZip;
+  final Future<void> Function(ShellCursorThemeData) onRemoveCursorTheme;
   final VoidCallback onReset;
 
   @override
@@ -266,17 +282,16 @@ class SettingsAppearancePage extends StatelessWidget {
             ),
             SettingsSection(
               title: l10n.settingsCursorTitle,
-              child: SettingsSlider(
-                key: settingsCursorSizeSliderKey,
-                label: l10n.settingsCursorSize,
-                value: settings.cursorSize,
-                minimum: shellCursorMinimumSize,
-                maximum: shellCursorMaximumSize,
-                divisions:
-                    ((shellCursorMaximumSize - shellCursorMinimumSize) / 4)
-                        .round(),
-                valueLabel: l10n.settingsPixels(settings.cursorSize.round()),
-                onChanged: onCursorSizeChanged,
+              child: _CursorSettings(
+                settings: settings,
+                themes: cursorThemes,
+                catalogLoading: cursorCatalogLoading,
+                onThemeChanged: onCursorThemeChanged,
+                onSizeChanged: onCursorSizeChanged,
+                onAllowClientCursorSurfacesChanged:
+                    onAllowClientCursorSurfacesChanged,
+                onImport: onImportCursorZip,
+                onRemove: onRemoveCursorTheme,
               ),
             ),
             SettingsSection(
@@ -312,6 +327,333 @@ class SettingsAppearancePage extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+class _CursorSettings extends StatefulWidget {
+  const _CursorSettings({
+    required this.settings,
+    required this.themes,
+    required this.catalogLoading,
+    required this.onThemeChanged,
+    required this.onSizeChanged,
+    required this.onAllowClientCursorSurfacesChanged,
+    required this.onImport,
+    required this.onRemove,
+  });
+
+  final ShellAppearanceSettings settings;
+  final List<ShellCursorThemeData> themes;
+  final bool catalogLoading;
+  final ValueChanged<String> onThemeChanged;
+  final ValueChanged<double> onSizeChanged;
+  final ValueChanged<bool> onAllowClientCursorSurfacesChanged;
+  final Future<ShellCursorThemeData?> Function()? onImport;
+  final Future<void> Function(ShellCursorThemeData) onRemove;
+
+  @override
+  State<_CursorSettings> createState() => _CursorSettingsState();
+}
+
+class _CursorSettingsState extends State<_CursorSettings> {
+  bool _busy = false;
+  String? _error;
+
+  Future<void> _import() async {
+    final importer = widget.onImport;
+    if (importer == null || _busy) {
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await importer();
+    } on CursorThemeException catch (error) {
+      if (mounted) {
+        setState(() => _error = error.message);
+      }
+    } on Object {
+      if (mounted) {
+        setState(() => _error = context.l10n.settingsCursorImportFailed);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _remove(ShellCursorThemeData theme) async {
+    if (_busy) {
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await widget.onRemove(theme);
+    } on CursorThemeException catch (error) {
+      if (mounted) {
+        setState(() => _error = error.message);
+      }
+    } on Object {
+      if (mounted) {
+        setState(() => _error = context.l10n.settingsCursorRemoveFailed);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return FocusTraversalGroup(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            l10n.settingsCursorTheme,
+            style: ShellText.cardTitle.copyWith(
+              color: context.shellColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 9),
+          if (widget.catalogLoading)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: CircularProgressIndicator(),
+              ),
+            )
+          else
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final theme in widget.themes)
+                  _CursorThemeCard(
+                    theme: theme,
+                    selected: theme.id == widget.settings.cursorThemeId,
+                    enabled: !_busy,
+                    onSelected: () => widget.onThemeChanged(theme.id),
+                    onRemove: theme.isImported ? () => _remove(theme) : null,
+                  ),
+              ],
+            ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: SettingsTextButton(
+              label: _busy
+                  ? l10n.settingsCursorImporting
+                  : l10n.settingsCursorImport,
+              onPressed: widget.onImport == null || _busy ? null : _import,
+            ),
+          ),
+          if (_error case final error?) ...[
+            const SizedBox(height: 8),
+            Semantics(
+              liveRegion: true,
+              child: Text(
+                error,
+                style: ShellText.base.copyWith(
+                  color: Theme.of(context).colorScheme.error,
+                  fontSize: 11,
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          SettingsSlider(
+            key: settingsCursorSizeSliderKey,
+            label: l10n.settingsCursorSize,
+            value: widget.settings.cursorSize,
+            minimum: shellCursorMinimumSize,
+            maximum: shellCursorMaximumSize,
+            divisions: ((shellCursorMaximumSize - shellCursorMinimumSize) / 4)
+                .round(),
+            valueLabel: l10n.settingsPixels(widget.settings.cursorSize.round()),
+            onChanged: widget.onSizeChanged,
+          ),
+          const SizedBox(height: 12),
+          SettingsToggle(
+            label: l10n.settingsCursorAllowApplications,
+            description: l10n.settingsCursorAllowApplicationsDescription,
+            value: widget.settings.allowClientCursorSurfaces,
+            onChanged: widget.onAllowClientCursorSurfacesChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CursorThemeCard extends StatefulWidget {
+  const _CursorThemeCard({
+    required this.theme,
+    required this.selected,
+    required this.enabled,
+    required this.onSelected,
+    required this.onRemove,
+  });
+
+  final ShellCursorThemeData theme;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onSelected;
+  final VoidCallback? onRemove;
+
+  @override
+  State<_CursorThemeCard> createState() => _CursorThemeCardState();
+}
+
+class _CursorThemeCardState extends State<_CursorThemeCard> {
+  bool _hovered = false;
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
+    final colors = context.shellColors;
+    final enabled = widget.enabled;
+    return Semantics(
+      button: true,
+      selected: widget.selected,
+      enabled: enabled,
+      label: widget.theme.label,
+      child: FocusableActionDetector(
+        enabled: enabled,
+        mouseCursor: enabled
+            ? ShellMouseCursors.link
+            : SystemMouseCursors.basic,
+        onShowFocusHighlight: (value) => setState(() => _focused = value),
+        onShowHoverHighlight: (value) => setState(() => _hovered = value),
+        shortcuts: const <ShortcutActivator, Intent>{
+          SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+        },
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              if (enabled) {
+                widget.onSelected();
+              }
+              return null;
+            },
+          ),
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: enabled ? widget.onSelected : null,
+          child: AnimatedOpacity(
+            duration: Motion.tile,
+            opacity: enabled ? 1 : 0.52,
+            child: AnimatedContainer(
+              duration: Motion.tile,
+              width: 250,
+              constraints: const BoxConstraints(minHeight: 124),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: widget.selected
+                    ? accent.withAlpha(34)
+                    : colors.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: widget.selected
+                      ? accent
+                      : _hovered || _focused
+                      ? colors.panelHighlight
+                      : colors.hairline,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              widget.theme.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: ShellText.cardTitle,
+                            ),
+                            if (!widget.theme.isImported &&
+                                widget.theme.author.trim().isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                widget.theme.author,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: ShellText.base.copyWith(
+                                  color: colors.textTertiary,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      if (widget.onRemove case final remove?)
+                        Tooltip(
+                          message: context.l10n.settingsCursorRemove,
+                          child: IconButton(
+                            onPressed: enabled ? remove : null,
+                            icon: const Icon(Icons.delete_outline_rounded),
+                            iconSize: 18,
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        )
+                      else if (widget.selected)
+                        Icon(
+                          Icons.check_circle_rounded,
+                          size: 18,
+                          color: accent,
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  RepaintBoundary(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        for (final kind in const <ShellCursorKind>[
+                          ShellCursorKind.normal,
+                          ShellCursorKind.link,
+                          ShellCursorKind.text,
+                          ShellCursorKind.working,
+                          ShellCursorKind.busy,
+                        ])
+                          SizedBox.square(
+                            dimension: 34,
+                            child: Center(
+                              child: ShellCursorArtwork(
+                                theme: widget.theme,
+                                kind: kind,
+                                longestEdge: 28,
+                                running: enabled,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

@@ -899,6 +899,42 @@ class _SystemBarSideReader extends fb.Reader<SystemBarSide> {
       SystemBarSide.fromValue(const fb.Uint8Reader().read(bc, offset));
 }
 
+enum CursorStateKind {
+  Hidden(0),
+  Named(1),
+  Surface(2);
+
+  final int value;
+  const CursorStateKind(this.value);
+
+  factory CursorStateKind.fromValue(int value) {
+    switch (value) {
+      case 0: return CursorStateKind.Hidden;
+      case 1: return CursorStateKind.Named;
+      case 2: return CursorStateKind.Surface;
+      default: throw StateError('Invalid value $value for bit flag enum');
+    }
+  }
+
+  static CursorStateKind? _createOrNull(int? value) =>
+      value == null ? null : CursorStateKind.fromValue(value);
+
+  static const int minValue = 0;
+  static const int maxValue = 2;
+  static const fb.Reader<CursorStateKind> reader = _CursorStateKindReader();
+}
+
+class _CursorStateKindReader extends fb.Reader<CursorStateKind> {
+  const _CursorStateKindReader();
+
+  @override
+  int get size => 1;
+
+  @override
+  CursorStateKind read(fb.BufferContext bc, int offset) =>
+      CursorStateKind.fromValue(const fb.Uint8Reader().read(bc, offset));
+}
+
 enum ShortcutTargetTypeId {
   NONE(0),
   ShortcutDenialActionTarget(1),
@@ -956,7 +992,8 @@ enum PayloadTypeId {
   TextInputState(15),
   XEmbedTrayEvent(16),
   XEmbedTrayCommand(17),
-  ThemeState(18);
+  ThemeState(18),
+  CursorState(19);
 
   final int value;
   const PayloadTypeId(this.value);
@@ -982,6 +1019,7 @@ enum PayloadTypeId {
       case 16: return PayloadTypeId.XEmbedTrayEvent;
       case 17: return PayloadTypeId.XEmbedTrayCommand;
       case 18: return PayloadTypeId.ThemeState;
+      case 19: return PayloadTypeId.CursorState;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -990,7 +1028,7 @@ enum PayloadTypeId {
       value == null ? null : PayloadTypeId.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 18;
+  static const int maxValue = 19;
   static const fb.Reader<PayloadTypeId> reader = _PayloadTypeIdReader();
 }
 
@@ -2985,6 +3023,119 @@ class CursorShapeObjectBuilder extends fb.ObjectBuilder {
         : fbBuilder.writeString(_shape!);
     fbBuilder.startTable(1);
     fbBuilder.addOffset(0, shapeOffset);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
+class CursorState {
+  CursorState._(this._bc, this._bcOffset);
+  factory CursorState(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<CursorState> reader = _CursorStateReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  int get epoch => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 4, 0);
+  CursorStateKind get kind => CursorStateKind.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 6, 0));
+  String? get shape => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 8);
+  WirePoint? get hotspot => WirePoint.reader.vTableGetNullable(_bc, _bcOffset, 10);
+  List<SurfaceLayer>? get surfaces => const fb.ListReader<SurfaceLayer>(SurfaceLayer.reader).vTableGetNullable(_bc, _bcOffset, 12);
+
+  @override
+  String toString() {
+    return 'CursorState{epoch: ${epoch}, kind: ${kind}, shape: ${shape}, hotspot: ${hotspot}, surfaces: ${surfaces}}';
+  }
+}
+
+class _CursorStateReader extends fb.TableReader<CursorState> {
+  const _CursorStateReader();
+
+  @override
+  CursorState createObject(fb.BufferContext bc, int offset) => 
+    CursorState._(bc, offset);
+}
+
+class CursorStateBuilder {
+  CursorStateBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(5);
+  }
+
+  int addEpoch(int? epoch) {
+    fbBuilder.addUint64(0, epoch);
+    return fbBuilder.offset;
+  }
+  int addKind(CursorStateKind? kind) {
+    fbBuilder.addUint8(1, kind?.value);
+    return fbBuilder.offset;
+  }
+  int addShapeOffset(int? offset) {
+    fbBuilder.addOffset(2, offset);
+    return fbBuilder.offset;
+  }
+  int addHotspot(int offset) {
+    fbBuilder.addStruct(3, offset);
+    return fbBuilder.offset;
+  }
+  int addSurfacesOffset(int? offset) {
+    fbBuilder.addOffset(4, offset);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class CursorStateObjectBuilder extends fb.ObjectBuilder {
+  final int? _epoch;
+  final CursorStateKind? _kind;
+  final String? _shape;
+  final WirePointObjectBuilder? _hotspot;
+  final List<SurfaceLayerObjectBuilder>? _surfaces;
+
+  CursorStateObjectBuilder({
+    int? epoch,
+    CursorStateKind? kind,
+    String? shape,
+    WirePointObjectBuilder? hotspot,
+    List<SurfaceLayerObjectBuilder>? surfaces,
+  })
+      : _epoch = epoch,
+        _kind = kind,
+        _shape = shape,
+        _hotspot = hotspot,
+        _surfaces = surfaces;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    final int? shapeOffset = _shape == null ? null
+        : fbBuilder.writeString(_shape!);
+    final int? surfacesOffset = _surfaces == null ? null
+        : fbBuilder.writeList(_surfaces!.map((b) => b.getOrCreateOffset(fbBuilder)).toList());
+    fbBuilder.startTable(5);
+    fbBuilder.addUint64(0, _epoch);
+    fbBuilder.addUint8(1, _kind?.value);
+    fbBuilder.addOffset(2, shapeOffset);
+    if (_hotspot != null) {
+      fbBuilder.addStruct(3, _hotspot!.finish(fbBuilder));
+    }
+    fbBuilder.addOffset(4, surfacesOffset);
     return fbBuilder.endTable();
   }
 
@@ -5679,6 +5830,7 @@ class Envelope {
       case 16: return XembedTrayEvent.reader.vTableGetNullable(_bc, _bcOffset, 12);
       case 17: return XembedTrayCommand.reader.vTableGetNullable(_bc, _bcOffset, 12);
       case 18: return ThemeState.reader.vTableGetNullable(_bc, _bcOffset, 12);
+      case 19: return CursorState.reader.vTableGetNullable(_bc, _bcOffset, 12);
       default: return null;
     }
   }

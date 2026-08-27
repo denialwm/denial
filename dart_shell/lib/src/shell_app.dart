@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'config/startup_environment.dart';
 import 'desktop/desktop_input_layout_publisher.dart';
 import 'desktop/desktop_shell.dart';
 import 'input/input_layout.dart';
@@ -192,8 +193,24 @@ class _DenialShellAppState extends ConsumerState<DenialShellApp> {
     final effectiveProfile = (displayLayout?.outputs.length ?? 0) > 1
         ? ShellProfile.desktop
         : profile;
-    final cursorTheme = ref.watch(shellCursorThemeProvider);
     final settings = ref.watch(shellSettingsProvider);
+    ref.listen(
+      shellSettingsProvider.select((value) => value.appearance.cursorThemeId),
+      (previous, next) {
+        if (previous != null && previous != next) {
+          unawaited(ref.read(cursorThemeCatalogProvider.notifier).refresh());
+        }
+      },
+    );
+    final startupCursorThemeId = ref
+        .watch(startupEnvironmentProvider)['DENIA_CURSOR_THEME']
+        ?.trim();
+    final cursorTheme = resolveShellCursorTheme(
+      ref.watch(availableShellCursorThemesProvider),
+      startupCursorThemeId?.isNotEmpty == true
+          ? startupCursorThemeId!
+          : settings.appearance.cursorThemeId,
+    );
     final accent = ref.watch(
       shellAccentProvider.select((accent) => accent.color),
     );
@@ -217,6 +234,7 @@ class _DenialShellAppState extends ConsumerState<DenialShellApp> {
     );
     final bridge = ref.watch(denialBridgeProvider);
     final cursorShapes = bridge.cursorShapes;
+    final cursorStates = bridge.cursorStates;
     final cursorPositions = bridge.cursorPositions;
     final dragIcons = bridge.dragIcons;
     final hideCursor = ref.watch(
@@ -270,13 +288,15 @@ class _DenialShellAppState extends ConsumerState<DenialShellApp> {
     final content = ShellCursorHost(
       theme: effectiveProfile == ShellProfile.desktop
           ? cursorTheme
-          : ShellCursorThemes.standard,
+          : ShellCursorThemes.bibataModernIce,
       platformCursorShapes: cursorShapes,
+      platformCursorStates: cursorStates,
       platformCursorPositions: cursorPositions,
       platformDragIcons: dragIcons,
       hideCursor: hideCursor,
       displayLayout: displayLayout,
       cursorSize: settings.appearance.cursorSize,
+      onCursorStatePresented: bridge.acknowledgeCursorPresented,
       child: _ShellOverlayHost(child: scene),
     );
 

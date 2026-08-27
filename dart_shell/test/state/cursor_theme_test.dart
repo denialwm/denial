@@ -14,21 +14,10 @@ void main() {
     );
   });
 
-  test('an explicitly selected registered theme still wins at startup', () {
-    final container = ProviderContainer.test(
-      overrides: [
-        startupEnvironmentProvider.overrideWithValue(
-          StartupEnvironment(const <String, String>{
-            'DENIA_CURSOR_THEME': ' STANDARD ',
-          }),
-        ),
-      ],
-    );
-
-    expect(
-      container.read(shellCursorThemeProvider),
-      same(ShellCursorThemes.standard),
-    );
+  test('Bibata is the only bundled cursor theme', () {
+    expect(ShellCursorThemes.all, <ShellCursorThemeData>[
+      ShellCursorThemes.bibataModernIce,
+    ]);
   });
 
   test('unknown startup themes fail safely to Bibata', () {

@@ -2957,6 +2957,54 @@ abstract class AppLocalizations {
   /// **'Cursor'**
   String get settingsCursorTitle;
 
+  /// Heading above the cursor theme selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Cursor theme'**
+  String get settingsCursorTheme;
+
+  /// Button for importing an animated Windows cursor archive.
+  ///
+  /// In en, this message translates to:
+  /// **'Import cursor ZIP'**
+  String get settingsCursorImport;
+
+  /// Busy label while a cursor archive is being imported.
+  ///
+  /// In en, this message translates to:
+  /// **'Importing…'**
+  String get settingsCursorImporting;
+
+  /// Generic cursor import failure message.
+  ///
+  /// In en, this message translates to:
+  /// **'The cursor theme could not be imported.'**
+  String get settingsCursorImportFailed;
+
+  /// Tooltip for removing an imported cursor theme.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove imported cursor theme'**
+  String get settingsCursorRemove;
+
+  /// Generic cursor removal failure message.
+  ///
+  /// In en, this message translates to:
+  /// **'The imported cursor theme could not be removed.'**
+  String get settingsCursorRemoveFailed;
+
+  /// Toggle label for client-defined cursor surfaces.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow applications to show their own cursor'**
+  String get settingsCursorAllowApplications;
+
+  /// Explanation of the client-defined cursor surface toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Wayland and X11 applications can provide cursor artwork. Turn this off to always use the selected Denial theme.'**
+  String get settingsCursorAllowApplicationsDescription;
+
   /// English UI text for settingsDashboardOverlayDescription.
   ///
   /// In en, this message translates to:

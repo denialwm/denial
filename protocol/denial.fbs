@@ -197,6 +197,12 @@ enum SystemBarSide : ubyte {
   Hidden = 4
 }
 
+enum CursorStateKind : ubyte {
+  Hidden = 0,
+  Named = 1,
+  Surface = 2
+}
+
 struct WireRect {
   x:double;
   y:double;
@@ -419,6 +425,18 @@ table ShellAction {
 // Wayland set_cursor requests both resolve through this message.
 table CursorShape {
   shape:string;
+}
+
+// Atomic compositor-authoritative cursor artwork. Cursor position remains a
+// separate fast stream so pointer motion never republishes surface metadata.
+// A Surface state may have no layers while its root has no attached buffer;
+// receivers must render nothing in that case rather than inventing an arrow.
+table CursorState {
+  epoch:ulong;
+  kind:CursorStateKind = Hidden;
+  shape:string;
+  hotspot:WirePoint;
+  surfaces:[SurfaceLayer];
 }
 
 // Native pointer position updates that do not participate in Flutter hit
@@ -666,7 +684,8 @@ union Payload {
   TextInputState,
   XEmbedTrayEvent,
   XEmbedTrayCommand,
-  ThemeState
+  ThemeState,
+  CursorState
 }
 
 table Envelope {

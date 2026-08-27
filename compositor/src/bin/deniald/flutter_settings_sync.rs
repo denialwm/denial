@@ -148,10 +148,18 @@ pub(super) fn synchronize_settings(
                         .wayland
                         .as_mut()
                         .ok_or("settings request has no Wayland frontend")?;
-                    frontend
+                    let previous_cursor_policy = frontend.settings.allow_client_cursor_surfaces();
+                    let result = frontend
                         .settings
                         .prepare_shell_update(expected_revision, &document)
-                        .and_then(|prepared| frontend.settings.commit(prepared))
+                        .and_then(|prepared| frontend.settings.commit(prepared));
+                    if result.is_ok()
+                        && previous_cursor_policy
+                            != frontend.settings.allow_client_cursor_surfaces()
+                    {
+                        frontend.queue_cursor_policy_update();
+                    }
+                    result
                 };
                 let (revision, document) = {
                     let frontend = events.wayland.as_mut().expect("missing Wayland frontend");
@@ -557,6 +565,8 @@ fn synchronize_control_settings(
                         )
                     })
                     .and_then(|frontend| {
+                        let previous_cursor_policy =
+                            frontend.settings.allow_client_cursor_surfaces();
                         frontend
                             .settings
                             .prepare_shell_update(expected_revision, &document)
@@ -564,6 +574,11 @@ fn synchronize_control_settings(
                             .map_err(|error| {
                                 OutputControlFailure::new("conflict", error.to_string())
                             })?;
+                        if previous_cursor_policy
+                            != frontend.settings.allow_client_cursor_surfaces()
+                        {
+                            frontend.queue_cursor_policy_update();
+                        }
                         frontend.keyboard_configuration_changed = true;
                         frontend
                             .settings

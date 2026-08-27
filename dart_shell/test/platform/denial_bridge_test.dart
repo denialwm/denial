@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:denial_dart_shell/src/input/input_layout.dart';
+import 'package:denial_dart_shell/src/models/denial_cursor_state.dart';
 import 'package:denial_dart_shell/src/models/denial_drag_icon.dart';
 import 'package:denial_dart_shell/src/models/desktop_notification.dart'
     as notification_model;
@@ -932,6 +933,62 @@ void main() {
       }
     },
   );
+
+  test('atomic client cursor surface state is forwarded', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final bridge = _startedBridge();
+    final states = <DenialCursorState>[];
+    final subscription = bridge.cursorStates.listen(states.add);
+    try {
+      await _sendToFlutter(
+        messenger,
+        _envelope(
+          wire.PayloadTypeId.CursorState,
+          wire.CursorStateObjectBuilder(
+            epoch: 17,
+            kind: wire.CursorStateKind.Surface,
+            hotspot: wire.WirePointObjectBuilder(x: 3.5, y: 5.25),
+            surfaces: <wire.SurfaceLayerObjectBuilder>[
+              wire.SurfaceLayerObjectBuilder(
+                surfaceId: 91,
+                parentSurfaceId: 0,
+                popupRootSurfaceId: 0,
+                role: wire.SurfaceRole.Root,
+                textureId: 501,
+                width: 32,
+                height: 48,
+                surfaceX: 0,
+                surfaceY: 0,
+                surfaceWidth: 16,
+                surfaceHeight: 24,
+                textureSourceX: 0,
+                textureSourceY: 0,
+                textureSourceWidth: 32,
+                textureSourceHeight: 48,
+                transform: 0,
+                scale120: 240,
+                compositionOrder: 0,
+                opacity: 1,
+                opaque: false,
+              ),
+            ],
+          ),
+        ),
+      );
+
+      expect(states, hasLength(1));
+      expect(states.single.epoch, 17);
+      expect(states.single.kind, DenialCursorStateKind.surface);
+      expect(states.single.hotspot, const Offset(3.5, 5.25));
+      expect(states.single.surfaceLayers.single.surfaceId, 91);
+      expect(states.single.surfaceLayers.single.textureId, 501);
+      expect(states.single.surfaceLayers.single.scale120, 240);
+    } finally {
+      await subscription.cancel();
+      bridge.dispose();
+    }
+  });
 
   test('native text input state drives the typed bridge stream', () async {
     final messenger =

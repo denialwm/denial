@@ -28,6 +28,14 @@ fn shell_document(value: Value) -> String {
         .as_object()
         .cloned()
         .expect("test shell document must be an object");
+    if let Some(appearance) = document
+        .get_mut("appearance")
+        .and_then(Value::as_object_mut)
+    {
+        appearance
+            .entry("allowClientCursorSurfaces")
+            .or_insert(Value::Bool(true));
+    }
     document.insert("version".to_owned(), Value::from(SETTINGS_SCHEMA_VERSION));
     serde_json::to_string(&document).expect("test shell document serializes")
 }
@@ -50,6 +58,8 @@ fn migrates_existing_shell_document_without_losing_sections() {
         document["appearance"]["colorSchemePreference"],
         "preferDark"
     );
+    assert_eq!(document["appearance"]["allowClientCursorSurfaces"], true);
+    assert!(manager.allow_client_cursor_surfaces());
     assert_eq!(
         manager.theme_snapshot(),
         DesktopThemeSnapshot::new(manager.revision(), DesktopColorSchemePreference::PreferDark,)
@@ -99,7 +109,10 @@ fn shell_update_preserves_native_keyboard_and_checks_revision() {
     manager.commit(update).unwrap();
     let old_revision = manager.revision();
     let shell_update = shell_document(serde_json::json!({
-        "appearance": {"colorSchemePreference": "preferLight"},
+        "appearance": {
+            "colorSchemePreference": "preferLight",
+            "allowClientCursorSurfaces": false
+        },
         "applicationEnvironment": {
             "default": {"MOZ_ENABLE_WAYLAND": "1", "DISPLAY": null},
             "applications": {
@@ -134,6 +147,7 @@ fn shell_update_preserves_native_keyboard_and_checks_revision() {
         manager.theme_snapshot().configured_preference,
         DesktopColorSchemePreference::PreferLight
     );
+    assert!(!manager.allow_client_cursor_surfaces());
     let stale_update = shell_document(serde_json::json!({
         "appearance": {"colorSchemePreference": "preferDark"}
     }));

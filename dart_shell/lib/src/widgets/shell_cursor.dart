@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/gestures.dart' show PointerDeviceKind, PointerExitEvent;
 import 'package:flutter/services.dart'
     show MouseCursor, MouseCursorSession, SystemChannels;
 import 'package:flutter/widgets.dart';
 
 import '../models/denial_drag_icon.dart';
+import '../models/denial_cursor_state.dart';
 import '../models/display_layout.dart';
 import '../theme/cursor_themes.dart';
 import '../theme/shell_theme.dart';
@@ -54,6 +57,27 @@ abstract final class ShellMouseCursors {
 
 String _normalizeShellCursorShape(String shape) {
   return shape.trim().toLowerCase().replaceAll('_', '-');
+}
+
+enum ShellCursorArtworkSource { none, themed, clientSurface }
+
+@visibleForTesting
+ShellCursorArtworkSource shellCursorArtworkSource({
+  required bool hasPosition,
+  required bool themedCursorVisible,
+  required bool cursorHidden,
+  required bool clientSurfaceRequested,
+  required bool dragActive,
+}) {
+  if (!hasPosition || cursorHidden) {
+    return ShellCursorArtworkSource.none;
+  }
+  if (clientSurfaceRequested && !dragActive) {
+    return ShellCursorArtworkSource.clientSurface;
+  }
+  return themedCursorVisible
+      ? ShellCursorArtworkSource.themed
+      : ShellCursorArtworkSource.none;
 }
 
 /// Resolves native Wayland/XCursor names and Flutter system cursor names to
@@ -146,18 +170,21 @@ class ShellCursorHost extends StatefulWidget {
   const ShellCursorHost({
     super.key,
     required this.child,
-    this.theme = ShellCursorThemes.standard,
+    this.theme = ShellCursorThemes.bibataModernIce,
     this.platformCursorShapes,
+    this.platformCursorStates,
     this.platformCursorPositions,
     this.platformDragIcons,
     this.hideCursor = false,
     this.displayLayout,
     this.cursorSize = shellCursorDefaultSize,
+    this.onCursorStatePresented,
   });
 
   final Widget child;
   final ShellCursorThemeData theme;
   final Stream<String>? platformCursorShapes;
+  final Stream<DenialCursorState>? platformCursorStates;
   final Stream<Offset>? platformCursorPositions;
   final Stream<DenialDragIcon?>? platformDragIcons;
   final bool hideCursor;
@@ -165,6 +192,7 @@ class ShellCursorHost extends StatefulWidget {
 
   /// Target size of the longest cursor-artwork edge in physical pixels.
   final double cursorSize;
+  final ValueChanged<int>? onCursorStatePresented;
 
   @override
   State<ShellCursorHost> createState() => _ShellCursorHostState();
@@ -176,13 +204,15 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
   Offset? _position;
   ShellCursorKind _kind = ShellCursorKind.normal;
   bool _visible = true;
-  Timer? _frameTimer;
   StreamSubscription<String>? _platformCursorSubscription;
+  StreamSubscription<DenialCursorState>? _platformCursorStateSubscription;
   StreamSubscription<Offset>? _platformPositionSubscription;
   StreamSubscription<DenialDragIcon?>? _platformDragIconSubscription;
   DenialDragIcon? _dragIcon;
-  int _frame = 0;
-  bool _assetsPrecached = false;
+  DenialCursorState? _platformCursorState;
+  int _pendingCursorAckEpoch = 0;
+  bool _cursorAckScheduled = false;
+  ShellCursorThemeData? _precacheTheme;
 
   @override
   void initState() {
@@ -191,6 +221,7 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
     _visible = _cursorController.visible;
     _cursorController.addListener(_handleCursorKindChanged);
     _subscribeToPlatformCursorShapes();
+    _subscribeToPlatformCursorStates();
     _subscribeToPlatformCursorPositions();
     _subscribeToPlatformDragIcons();
   }
@@ -208,6 +239,10 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
       unawaited(_platformCursorSubscription?.cancel());
       _subscribeToPlatformCursorShapes();
     }
+    if (oldWidget.platformCursorStates != widget.platformCursorStates) {
+      unawaited(_platformCursorStateSubscription?.cancel());
+      _subscribeToPlatformCursorStates();
+    }
     if (oldWidget.platformCursorPositions != widget.platformCursorPositions) {
       unawaited(_platformPositionSubscription?.cancel());
       _subscribeToPlatformCursorPositions();
@@ -219,18 +254,14 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
     if (oldWidget.theme == widget.theme) {
       return;
     }
-    _frame = 0;
-    _assetsPrecached = false;
-    _frameTimer?.cancel();
-    _frameTimer = null;
-    _syncFrameTimer();
+    _precacheTheme = null;
     _precacheCursorAssets();
   }
 
   @override
   void dispose() {
-    _frameTimer?.cancel();
     unawaited(_platformCursorSubscription?.cancel());
+    unawaited(_platformCursorStateSubscription?.cancel());
     unawaited(_platformPositionSubscription?.cancel());
     unawaited(_platformDragIconSubscription?.cancel());
     _cursorController.removeListener(_handleCursorKindChanged);
@@ -239,12 +270,13 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
   }
 
   void _precacheCursorAssets() {
-    if (_assetsPrecached || !widget.theme.usesAssetFrames) {
+    if (identical(_precacheTheme, widget.theme) ||
+        !widget.theme.usesImageFrames) {
       return;
     }
-    _assetsPrecached = true;
-    for (final path in widget.theme.assetPaths) {
-      unawaited(precacheImage(AssetImage(path), context));
+    _precacheTheme = widget.theme;
+    for (final provider in widget.theme.imageProviders) {
+      unawaited(precacheImage(provider, context));
     }
   }
 
@@ -257,17 +289,52 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
     setState(() {
       _kind = kind;
       _visible = visible;
-      _frame = 0;
     });
-    _frameTimer?.cancel();
-    _frameTimer = null;
-    _syncFrameTimer();
   }
 
   void _subscribeToPlatformCursorShapes() {
     _platformCursorSubscription = widget.platformCursorShapes?.listen(
       _cursorController.activatePlatformShape,
     );
+  }
+
+  void _subscribeToPlatformCursorStates() {
+    _platformCursorStateSubscription = widget.platformCursorStates?.listen(
+      _updatePlatformCursorState,
+    );
+  }
+
+  void _updatePlatformCursorState(DenialCursorState state) {
+    if (!mounted ||
+        (_platformCursorState?.epoch ?? 0) >= state.epoch ||
+        state.epoch <= 0) {
+      return;
+    }
+    setState(() => _platformCursorState = state);
+    switch (state.kind) {
+      case DenialCursorStateKind.hidden:
+        _cursorController.activatePlatformShape('none');
+      case DenialCursorStateKind.named:
+        _cursorController.activatePlatformShape(state.shape);
+      case DenialCursorStateKind.surface:
+        break;
+    }
+    _pendingCursorAckEpoch = state.epoch;
+    if (_cursorAckScheduled) {
+      return;
+    }
+    _cursorAckScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _cursorAckScheduled = false;
+      if (!mounted) {
+        return;
+      }
+      final epoch = _pendingCursorAckEpoch;
+      _pendingCursorAckEpoch = 0;
+      if (epoch > 0) {
+        widget.onCursorStatePresented?.call(epoch);
+      }
+    });
   }
 
   void _subscribeToPlatformCursorPositions() {
@@ -317,14 +384,7 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
     _position = position;
     _cursorTranslation.value = position;
     if (wasHidden || outputScaleChanged) {
-      setState(() {
-        if (wasHidden) {
-          _frame = 0;
-        }
-      });
-    }
-    if (wasHidden) {
-      _syncFrameTimer();
+      setState(() {});
     }
   }
 
@@ -338,38 +398,25 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
       return;
     }
     setState(() => _position = null);
-    _syncFrameTimer();
-  }
-
-  void _syncFrameTimer() {
-    final role = widget.theme.usesAssetFrames
-        ? widget.theme.roleFor(_kind)
-        : null;
-    if (_position == null || !_visible || role == null || !role.isAnimated) {
-      _frameTimer?.cancel();
-      _frameTimer = null;
-      return;
-    }
-    _frameTimer ??= Timer.periodic(role.frameDuration, (_) {
-      if (!mounted || _position == null) {
-        _syncFrameTimer();
-        return;
-      }
-      setState(() => _frame = (_frame + 1) % role.frameCount);
-    });
   }
 
   @override
   Widget build(BuildContext context) {
     final position = _position;
     final dragIcon = _dragIcon;
-    final assetRole = widget.theme.usesAssetFrames
-        ? widget.theme.roleFor(_kind)
+    final cursorState = _platformCursorState;
+    final clientSurface = cursorState?.kind == DenialCursorStateKind.surface
+        ? cursorState
         : null;
-    final nativeSize = assetRole?.size ?? _ShellCursorPainter.size;
-    final nativeExtent = nativeSize.width > nativeSize.height
-        ? nativeSize.width
-        : nativeSize.height;
+    final cursorHidden =
+        cursorState?.kind == DenialCursorStateKind.hidden || widget.hideCursor;
+    final artworkSource = shellCursorArtworkSource(
+      hasPosition: position != null,
+      themedCursorVisible: _visible,
+      cursorHidden: cursorHidden,
+      clientSurfaceRequested: clientSurface != null,
+      dragActive: dragIcon != null,
+    );
     final fallbackScale = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0;
     final outputScale = _cursorOutputScale(
       widget.displayLayout,
@@ -379,9 +426,7 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
     final configuredSize = widget.cursorSize.isFinite && widget.cursorSize > 0
         ? widget.cursorSize
         : shellCursorDefaultSize;
-    final artworkScale = configuredSize / nativeExtent / outputScale;
-    final artworkSize = nativeSize * artworkScale;
-    final hotspot = (assetRole?.hotspot ?? Offset.zero) * artworkScale;
+    final artworkExtent = configuredSize / outputScale;
     return MouseRegion(
       opaque: false,
       cursor: ShellMouseCursors.normal,
@@ -413,32 +458,38 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
                   ),
                 ),
               ),
-            if (position != null && _visible && !widget.hideCursor)
+            if (artworkSource == ShellCursorArtworkSource.clientSurface)
               Positioned(
-                left: -hotspot.dx,
-                top: -hotspot.dy,
+                left: 0,
+                top: 0,
                 child: RetainedTranslation(
                   translation: _cursorTranslation,
                   child: IgnorePointer(
                     child: ExcludeSemantics(
                       child: RepaintBoundary(
-                        child: assetRole != null
-                            ? Image.asset(
-                                widget.theme.assetPath(_kind, _frame),
-                                width: artworkSize.width,
-                                height: artworkSize.height,
-                                filterQuality: FilterQuality.none,
-                                gaplessPlayback: true,
-                                excludeFromSemantics: true,
-                              )
-                            : CustomPaint(
-                                size: artworkSize,
-                                painter: _ShellCursorPainter(
-                                  shadowColor: context.shellColors.shadow,
-                                  fillColor: context.shellColors.textPrimary,
-                                  outlineColor: context.shellColors.background,
-                                ),
-                              ),
+                        child: _ClientCursorSurfaceTree(state: clientSurface!),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            if (artworkSource == ShellCursorArtworkSource.themed)
+              Positioned(
+                left: 0,
+                top: 0,
+                child: RetainedTranslation(
+                  translation: _cursorTranslation,
+                  child: IgnorePointer(
+                    child: ExcludeSemantics(
+                      child: RepaintBoundary(
+                        child: ShellCursorArtwork(
+                          theme: widget.theme,
+                          kind: dragIcon == null
+                              ? _kind
+                              : ShellCursorKind.normal,
+                          longestEdge: artworkExtent,
+                          anchorAtHotspot: true,
+                        ),
                       ),
                     ),
                   ),
@@ -448,6 +499,156 @@ class _ShellCursorHostState extends State<ShellCursorHost> {
         ),
       ),
     );
+  }
+}
+
+class _ClientCursorSurfaceTree extends StatelessWidget {
+  const _ClientCursorSurfaceTree({required this.state});
+
+  final DenialCursorState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final layers = state.surfaceLayers
+        .where((layer) => layer.textureId > 0)
+        .toList(growable: false);
+    if (layers.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    var left = layers.first.surfaceX;
+    var top = layers.first.surfaceY;
+    var right = layers.first.surfaceX + layers.first.surfaceWidth;
+    var bottom = layers.first.surfaceY + layers.first.surfaceHeight;
+    for (final layer in layers.skip(1)) {
+      left = math.min(left, layer.surfaceX);
+      top = math.min(top, layer.surfaceY);
+      right = math.max(right, layer.surfaceX + layer.surfaceWidth);
+      bottom = math.max(bottom, layer.surfaceY + layer.surfaceHeight);
+    }
+    return Transform.translate(
+      offset: Offset(left, top) - state.hotspot,
+      child: SizedBox(
+        width: right - left,
+        height: bottom - top,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            for (final layer in layers)
+              Positioned(
+                left: layer.surfaceX - left,
+                top: layer.surfaceY - top,
+                width: layer.surfaceWidth,
+                height: layer.surfaceHeight,
+                child: SurfaceLayerTexture(layer: layer),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Shared image player used by both the live software cursor and Settings
+/// previews. Imported ANI steps may carry different durations and hotspots;
+/// every frame therefore schedules its own successor instead of using a fixed
+/// periodic tick.
+class ShellCursorArtwork extends StatefulWidget {
+  const ShellCursorArtwork({
+    required this.theme,
+    required this.kind,
+    required this.longestEdge,
+    this.anchorAtHotspot = false,
+    this.running = true,
+    super.key,
+  });
+
+  final ShellCursorThemeData theme;
+  final ShellCursorKind kind;
+  final double longestEdge;
+  final bool anchorAtHotspot;
+  final bool running;
+
+  @override
+  State<ShellCursorArtwork> createState() => _ShellCursorArtworkState();
+}
+
+class _ShellCursorArtworkState extends State<ShellCursorArtwork> {
+  Timer? _timer;
+  int _frame = 0;
+
+  ShellCursorRoleData get _role => widget.theme.roleFor(widget.kind);
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleNextFrame();
+  }
+
+  @override
+  void didUpdateWidget(covariant ShellCursorArtwork oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.theme != widget.theme || oldWidget.kind != widget.kind) {
+      _frame = 0;
+    }
+    if (oldWidget.theme != widget.theme ||
+        oldWidget.kind != widget.kind ||
+        oldWidget.running != widget.running) {
+      _scheduleNextFrame();
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleNextFrame() {
+    _timer?.cancel();
+    _timer = null;
+    final role = _role;
+    if (!widget.running || !role.isAnimated) {
+      return;
+    }
+    final duration = role.frameDurationAt(_frame);
+    if (duration.inMicroseconds <= 0) {
+      return;
+    }
+    _timer = Timer(duration, () {
+      if (!mounted || !widget.running) {
+        return;
+      }
+      setState(() => _frame = (_frame + 1) % role.effectiveFrameCount);
+      _scheduleNextFrame();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final role = _role;
+    final nativeSize = role.size;
+    final nativeExtent = nativeSize.width > nativeSize.height
+        ? nativeSize.width
+        : nativeSize.height;
+    final requestedExtent =
+        widget.longestEdge.isFinite && widget.longestEdge > 0
+        ? widget.longestEdge
+        : shellCursorDefaultSize;
+    final scale = requestedExtent / nativeExtent;
+    final artworkSize = nativeSize * scale;
+    final hotspot = role.hotspotAt(_frame);
+    final artwork = Image(
+      image: widget.theme.imageProvider(widget.kind, _frame)!,
+      width: artworkSize.width,
+      height: artworkSize.height,
+      filterQuality: FilterQuality.none,
+      gaplessPlayback: true,
+      excludeFromSemantics: true,
+    );
+    if (!widget.anchorAtHotspot) {
+      return artwork;
+    }
+    return Transform.translate(offset: -hotspot * scale, child: artwork);
   }
 }
 
@@ -578,61 +779,4 @@ String _flutterCursorKind(ShellCursorKind kind) {
     ShellCursorKind.person => 'person',
     ShellCursorKind.pin => 'pin',
   };
-}
-
-class _ShellCursorPainter extends CustomPainter {
-  const _ShellCursorPainter({
-    required this.shadowColor,
-    required this.fillColor,
-    required this.outlineColor,
-  });
-
-  final Color shadowColor;
-  final Color fillColor;
-  final Color outlineColor;
-
-  static const Size size = Size(24, 32);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (size.isEmpty) {
-      return;
-    }
-    canvas
-      ..save()
-      ..scale(size.width / _ShellCursorPainter.size.width);
-    final path = Path()
-      ..moveTo(1.5, 1.0)
-      ..lineTo(1.5, 24.5)
-      ..lineTo(7.9, 18.3)
-      ..lineTo(13.2, 30.2)
-      ..lineTo(18.0, 28.0)
-      ..lineTo(12.8, 16.5)
-      ..lineTo(21.7, 16.5)
-      ..close();
-
-    canvas.drawShadow(path, shadowColor, 3.0, false);
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = fillColor
-        ..style = PaintingStyle.fill,
-    );
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = outlineColor
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5
-        ..strokeJoin = StrokeJoin.round,
-    );
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant _ShellCursorPainter oldDelegate) {
-    return oldDelegate.shadowColor != shadowColor ||
-        oldDelegate.fillColor != fillColor ||
-        oldDelegate.outlineColor != outlineColor;
-  }
 }

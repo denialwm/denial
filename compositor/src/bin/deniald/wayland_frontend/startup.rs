@@ -455,9 +455,23 @@ impl WaylandFrontend {
             #[cfg(feature = "flutter")]
             pointer_cursor_visible: false,
             #[cfg(feature = "flutter")]
-            pending_cursor_shape: Some("none"),
+            pending_cursor_state: Some(CursorPublication::Hidden),
             #[cfg(feature = "flutter")]
-            published_cursor_shape: None,
+            published_cursor_state: None,
+            #[cfg(feature = "flutter")]
+            pending_cursor_metadata: false,
+            #[cfg(feature = "flutter")]
+            pending_cursor_buffer_surface_ids: HashSet::new(),
+            #[cfg(feature = "flutter")]
+            cursor_state_layers_scratch: Vec::new(),
+            #[cfg(feature = "flutter")]
+            cursor_state_textures_scratch: Vec::new(),
+            #[cfg(feature = "flutter")]
+            pending_cursor_frame_callback_roots: HashSet::new(),
+            #[cfg(feature = "flutter")]
+            cursor_output: None,
+            #[cfg(feature = "flutter")]
+            cursor_output_scale: None,
             #[cfg(feature = "flutter")]
             pending_cursor_position: None,
             #[cfg(feature = "flutter")]

@@ -12,6 +12,28 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('cursor artwork priority never combines theme and client surface', () {
+    ShellCursorArtworkSource resolve({
+      bool positioned = true,
+      bool visible = true,
+      bool hidden = false,
+      bool client = false,
+      bool drag = false,
+    }) => shellCursorArtworkSource(
+      hasPosition: positioned,
+      themedCursorVisible: visible,
+      cursorHidden: hidden,
+      clientSurfaceRequested: client,
+      dragActive: drag,
+    );
+
+    expect(resolve(), ShellCursorArtworkSource.themed);
+    expect(resolve(client: true), ShellCursorArtworkSource.clientSurface);
+    expect(resolve(client: true, drag: true), ShellCursorArtworkSource.themed);
+    expect(resolve(client: true, hidden: true), ShellCursorArtworkSource.none);
+    expect(resolve(positioned: false), ShellCursorArtworkSource.none);
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('Bibata covers every static role with its upstream hotspot', () {

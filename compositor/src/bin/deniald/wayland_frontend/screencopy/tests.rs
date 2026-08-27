@@ -96,7 +96,7 @@ fn framebuffer_sources_keep_atlas_top_left_coordinates() {
 }
 
 #[test]
-fn transformed_output_composition_uses_output_local_damage() {
+fn transformed_output_composition_uses_inverse_transform_and_local_damage() {
     // A portrait output placed to the right of a landscape output has a
     // non-zero atlas origin. Smithay's texture draw takes an atlas-space
     // destination but destination-local damage and opaque regions.
@@ -105,4 +105,21 @@ fn transformed_output_composition_uses_output_local_damage() {
         output_composite_local_rect(destination),
         Rectangle::from_size((1440, 2560).into())
     );
+
+    let cases = [
+        (Transform::Normal, Transform::Normal),
+        (Transform::_90, Transform::_270),
+        (Transform::_180, Transform::_180),
+        (Transform::_270, Transform::_90),
+        (Transform::Flipped, Transform::Flipped),
+        (Transform::Flipped90, Transform::Flipped270),
+        (Transform::Flipped180, Transform::Flipped180),
+        (Transform::Flipped270, Transform::Flipped90),
+    ];
+    for (projection, source_transform) in cases {
+        assert_eq!(
+            output_composite_source_transform(projection),
+            source_transform
+        );
+    }
 }

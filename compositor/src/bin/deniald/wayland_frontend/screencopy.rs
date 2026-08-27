@@ -678,13 +678,19 @@ pub(crate) fn compose_output_targets_to_atlas(
         // atlas origin is non-zero down to an empty draw, leaving that output
         // black in both the selection texture and the saved screenshot.
         let destination_local = output_composite_local_rect(source.destination);
+        // Flutter's output projection maps the atlas scene into the native
+        // connector buffer. Smithay's source transform describes the reverse,
+        // buffer-to-scene orientation, so do not reuse that projection in the
+        // same direction. On 90/270-degree outputs doing so adds another half
+        // turn when reconstructing the atlas.
+        let source_transform = output_composite_source_transform(source.transform);
         frame.render_texture_from_to(
             &texture,
             source_rect,
             source.destination,
             &[destination_local],
             &[destination_local],
-            source.transform,
+            source_transform,
             1.0,
             None,
             &[],
@@ -698,6 +704,10 @@ fn output_composite_local_rect(
     destination: Rectangle<i32, Physical>,
 ) -> Rectangle<i32, Physical> {
     Rectangle::from_size(destination.size)
+}
+
+fn output_composite_source_transform(transform: Transform) -> Transform {
+    transform.invert()
 }
 
 fn copy_to_dmabuf(

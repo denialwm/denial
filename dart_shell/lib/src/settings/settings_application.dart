@@ -10,9 +10,11 @@ import '../launcher/models/desktop_app.dart';
 import '../localization/denial_localizations.dart';
 import '../models/display_layout.dart';
 import '../state/display_layout.dart';
+import '../state/cursor_theme.dart';
 import '../state/output_configuration.dart';
 import '../state/ui_development.dart';
 import '../theme/motion.dart';
+import '../theme/cursor_themes.dart';
 import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
 import '../wallpaper/state/wallpaper_accent.dart';
@@ -126,11 +128,13 @@ class DenialSettingsApplication extends ConsumerStatefulWidget {
   const DenialSettingsApplication({
     this.initialPage = SettingsPageId.appearance,
     this.onOpenWallpaperSelector,
+    this.onPickCursorZip,
     super.key,
   });
 
   final SettingsPageId initialPage;
   final Future<void> Function()? onOpenWallpaperSelector;
+  final Future<String?> Function()? onPickCursorZip;
 
   @override
   ConsumerState<DenialSettingsApplication> createState() =>
@@ -230,6 +234,7 @@ class _DenialSettingsApplicationState
                                   setState(() => _colorPickerOpen = true),
                               onOpenWallpaperSelector: () =>
                                   unawaited(_openWallpaperSelector()),
+                              onPickCursorZip: widget.onPickCursorZip,
                             ),
                           ),
                         ),
@@ -324,11 +329,13 @@ class _SettingsPageBody extends ConsumerWidget {
     required this.page,
     required this.onOpenAccentPicker,
     required this.onOpenWallpaperSelector,
+    required this.onPickCursorZip,
   });
 
   final SettingsPageId page;
   final VoidCallback onOpenAccentPicker;
   final VoidCallback onOpenWallpaperSelector;
+  final Future<String?> Function()? onPickCursorZip;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -342,6 +349,10 @@ class _SettingsPageBody extends ConsumerWidget {
         final assignment = ref.watch(
           wallpaperControllerProvider.select((state) => state.assignment),
         );
+        final cursorThemes = ref.watch(availableShellCursorThemesProvider);
+        final cursorCatalogLoading = ref
+            .watch(cursorThemeCatalogProvider)
+            .isLoading;
         return SettingsAppearancePage(
           settings: settings,
           extractedAccent: ref.watch(wallpaperAccentProvider).color,
@@ -360,6 +371,32 @@ class _SettingsPageBody extends ConsumerWidget {
           onFocusedOpacityChanged: controller.setFocusedWindowOpacity,
           onUnfocusedOpacityChanged: controller.setUnfocusedWindowOpacity,
           onCursorSizeChanged: controller.setCursorSize,
+          cursorThemes: cursorThemes,
+          cursorCatalogLoading: cursorCatalogLoading,
+          onCursorThemeChanged: controller.setCursorThemeId,
+          onAllowClientCursorSurfacesChanged:
+              controller.setAllowClientCursorSurfaces,
+          onImportCursorZip: onPickCursorZip == null
+              ? null
+              : () async {
+                  final path = await onPickCursorZip!();
+                  if (path == null) {
+                    return null;
+                  }
+                  final imported = await ref
+                      .read(cursorThemeCatalogProvider.notifier)
+                      .importZip(path);
+                  controller.setCursorThemeId(imported.id);
+                  await controller.flush();
+                  return imported;
+                },
+          onRemoveCursorTheme: (theme) async {
+            if (settings.cursorThemeId == theme.id) {
+              controller.setCursorThemeId(ShellCursorThemes.bibataModernIce.id);
+              await controller.flush();
+            }
+            await ref.read(cursorThemeCatalogProvider.notifier).remove(theme);
+          },
           onReset: controller.resetAppearance,
         );
       case SettingsPageId.language:

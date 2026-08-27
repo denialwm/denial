@@ -173,14 +173,14 @@ impl WireBridge {
         Ok(self.outbound_builder.finished_data())
     }
 
-    pub fn encode_cursor_shape(&mut self, shape: &str) -> Result<&[u8], WireError> {
-        let shape = shape.trim();
-        if shape.is_empty() || shape.len() > MAX_STRING_BYTES {
-            return Err(WireError::String);
-        }
+    pub fn encode_cursor_state(
+        &mut self,
+        state: &CursorStateDescription,
+    ) -> Result<&[u8], WireError> {
+        validate_cursor_state(state)?;
         let sequence = self.take_sequence();
         self.outbound_builder.reset();
-        encode_cursor_shape(&mut self.outbound_builder, sequence, shape)?;
+        encode_cursor_state(&mut self.outbound_builder, sequence, state)?;
         Ok(self.outbound_builder.finished_data())
     }
 
@@ -681,20 +681,143 @@ fn encode_shell_action(
     validate_finished_message(builder)
 }
 
-fn encode_cursor_shape(
+fn validate_cursor_state(state: &CursorStateDescription) -> Result<(), WireError> {
+    if state.epoch == 0 || !state.hotspot_x.is_finite() || !state.hotspot_y.is_finite() {
+        return Err(WireError::Geometry);
+    }
+    let shape = state.shape.trim();
+    match state.kind {
+        CursorStateKind::Hidden => {
+            if !shape.is_empty() || !state.surfaces.is_empty() {
+                return Err(WireError::Payload);
+            }
+        }
+        CursorStateKind::Named => {
+            if shape.is_empty() || shape.len() > MAX_STRING_BYTES || !state.surfaces.is_empty() {
+                return Err(WireError::Payload);
+            }
+        }
+        CursorStateKind::Surface => {
+            if !shape.is_empty() || state.surfaces.len() > MAX_SURFACES {
+                return Err(WireError::Payload);
+            }
+        }
+    }
+
+    let mut identities = HashSet::with_capacity(state.surfaces.len());
+    let mut previous_order = None;
+    for (index, surface) in state.surfaces.iter().enumerate() {
+        if surface.surface_id == 0
+            || !identities.insert(surface.surface_id)
+            || surface.transform > 7
+            || surface.scale_120 == 0
+            || !valid_opacity(surface.opacity)
+            || [
+                surface.surface_x,
+                surface.surface_y,
+                surface.surface_width,
+                surface.surface_height,
+                surface.texture_source_x,
+                surface.texture_source_y,
+                surface.texture_source_width,
+                surface.texture_source_height,
+            ]
+            .iter()
+            .any(|value| !value.is_finite())
+            || surface.surface_width <= 0.0
+            || surface.surface_height <= 0.0
+            || (surface.texture_id > 0
+                && (surface.width == 0
+                    || surface.height == 0
+                    || surface.texture_source_width <= 0.0
+                    || surface.texture_source_height <= 0.0))
+            || previous_order.is_some_and(|order| surface.composition_order < order)
+        {
+            return Err(WireError::Payload);
+        }
+        if index == 0 {
+            if surface.role != SurfaceRoleDescription::Root || surface.parent_surface_id != 0 {
+                return Err(WireError::Payload);
+            }
+        } else if surface.role != SurfaceRoleDescription::Subsurface
+            || surface.parent_surface_id == 0
+            || !identities.contains(&surface.parent_surface_id)
+        {
+            return Err(WireError::Payload);
+        }
+        if surface.popup_root_surface_id != 0 {
+            return Err(WireError::Payload);
+        }
+        previous_order = Some(surface.composition_order);
+    }
+    Ok(())
+}
+
+fn create_surface_layer<'a>(
+    builder: &mut FlatBufferBuilder<'a>,
+    surface: &SurfaceLayerDescription,
+) -> WIPOffset<fb::SurfaceLayer<'a>> {
+    fb::SurfaceLayer::create(
+        builder,
+        &fb::SurfaceLayerArgs {
+            surface_id: surface.surface_id,
+            parent_surface_id: surface.parent_surface_id,
+            popup_root_surface_id: surface.popup_root_surface_id,
+            role: surface.role.wire(),
+            texture_id: surface.texture_id,
+            width: surface.width,
+            height: surface.height,
+            surface_x: surface.surface_x,
+            surface_y: surface.surface_y,
+            surface_width: surface.surface_width,
+            surface_height: surface.surface_height,
+            texture_source_x: surface.texture_source_x,
+            texture_source_y: surface.texture_source_y,
+            texture_source_width: surface.texture_source_width,
+            texture_source_height: surface.texture_source_height,
+            transform: surface.transform,
+            scale_120: surface.scale_120,
+            composition_order: surface.composition_order,
+            opacity: surface.opacity,
+            opaque: surface.opaque,
+        },
+    )
+}
+
+fn encode_cursor_state(
     builder: &mut FlatBufferBuilder<'_>,
     sequence: u64,
-    shape: &str,
+    state: &CursorStateDescription,
 ) -> Result<(), WireError> {
-    let shape = builder.create_string(shape);
-    let cursor = fb::CursorShape::create(builder, &fb::CursorShapeArgs { shape: Some(shape) });
+    let shape = (!state.shape.is_empty()).then(|| builder.create_string(state.shape.trim()));
+    let surfaces = state
+        .surfaces
+        .iter()
+        .map(|surface| create_surface_layer(builder, surface))
+        .collect::<Vec<_>>();
+    let surfaces = builder.create_vector(&surfaces);
+    let hotspot = fb::WirePoint::new(state.hotspot_x, state.hotspot_y);
+    let cursor = fb::CursorState::create(
+        builder,
+        &fb::CursorStateArgs {
+            epoch: state.epoch,
+            kind: match state.kind {
+                CursorStateKind::Hidden => fb::CursorStateKind::Hidden,
+                CursorStateKind::Named => fb::CursorStateKind::Named,
+                CursorStateKind::Surface => fb::CursorStateKind::Surface,
+            },
+            shape,
+            hotspot: Some(&hotspot),
+            surfaces: Some(surfaces),
+        },
+    );
     let envelope = fb::Envelope::create(
         builder,
         &fb::EnvelopeArgs {
             protocol_version: PROTOCOL_VERSION,
             sequence,
             request_id: 0,
-            payload_type: fb::Payload::CursorShape,
+            payload_type: fb::Payload::CursorState,
             payload: Some(cursor.as_union_value()),
         },
     );

@@ -2328,6 +2328,38 @@
   "@settingsCursorTitle": {
     "description": "Heading for cursor appearance settings."
   },
+  "settingsCursorTheme": "Cursor theme",
+  "@settingsCursorTheme": {
+    "description": "Heading above the cursor theme selector."
+  },
+  "settingsCursorImport": "Import cursor ZIP",
+  "@settingsCursorImport": {
+    "description": "Button for importing an animated Windows cursor archive."
+  },
+  "settingsCursorImporting": "Importing…",
+  "@settingsCursorImporting": {
+    "description": "Busy label while a cursor archive is being imported."
+  },
+  "settingsCursorImportFailed": "The cursor theme could not be imported.",
+  "@settingsCursorImportFailed": {
+    "description": "Generic cursor import failure message."
+  },
+  "settingsCursorRemove": "Remove imported cursor theme",
+  "@settingsCursorRemove": {
+    "description": "Tooltip for removing an imported cursor theme."
+  },
+  "settingsCursorRemoveFailed": "The imported cursor theme could not be removed.",
+  "@settingsCursorRemoveFailed": {
+    "description": "Generic cursor removal failure message."
+  },
+  "settingsCursorAllowApplications": "Allow applications to show their own cursor",
+  "@settingsCursorAllowApplications": {
+    "description": "Toggle label for client-defined cursor surfaces."
+  },
+  "settingsCursorAllowApplicationsDescription": "Wayland and X11 applications can provide cursor artwork. Turn this off to always use the selected Denial theme.",
+  "@settingsCursorAllowApplicationsDescription": {
+    "description": "Explanation of the client-defined cursor surface toggle."
+  },
   "settingsDashboardOverlayDescription": "Position the desktop dashboard.",
   "@settingsDashboardOverlayDescription": {
     "description": "English UI text for settingsDashboardOverlayDescription."

@@ -21,7 +21,7 @@ use tracing::warn;
 
 use denial_core::portal_protocol::{DesktopColorSchemePreference, DesktopThemeSnapshot};
 
-pub(super) const SETTINGS_SCHEMA_VERSION: u64 = 13;
+pub(super) const SETTINGS_SCHEMA_VERSION: u64 = 14;
 const MAX_SETTINGS_BYTES: usize = 256 * 1024;
 const MAX_APPLICATION_ENVIRONMENT_ENTRIES: usize = 256;
 const MAX_APPLICATION_ENVIRONMENT_APPLICATIONS: usize = 256;
@@ -531,6 +531,7 @@ pub(super) struct SettingsManager {
     keyboard: KeyboardSettings,
     touchpad: TouchpadSettings,
     color_scheme_preference: DesktopColorSchemePreference,
+    allow_client_cursor_surfaces: bool,
     /// Exact bytes last observed or committed by deniald. This catches an
     /// editor changing the file while the session is live, even if it forgets
     /// to update the human-visible revision field.
@@ -554,6 +555,7 @@ impl SettingsManager {
                         keyboard: parsed.keyboard,
                         touchpad: parsed.touchpad,
                         color_scheme_preference: parsed.color_scheme_preference,
+                        allow_client_cursor_surfaces: parsed.allow_client_cursor_surfaces,
                         persisted_bytes: existing,
                     };
                     if parsed.migrated
@@ -569,7 +571,14 @@ impl SettingsManager {
             }
         }
 
-        let (document, revision, keyboard, touchpad, color_scheme_preference) = default_document();
+        let (
+            document,
+            revision,
+            keyboard,
+            touchpad,
+            color_scheme_preference,
+            allow_client_cursor_surfaces,
+        ) = default_document();
         let mut manager = Self {
             path,
             document,
@@ -577,6 +586,7 @@ impl SettingsManager {
             keyboard,
             touchpad,
             color_scheme_preference,
+            allow_client_cursor_surfaces,
             persisted_bytes: existing,
         };
         if manager.persisted_bytes.is_none()
@@ -605,6 +615,10 @@ impl SettingsManager {
 
     pub(super) fn theme_snapshot(&self) -> DesktopThemeSnapshot {
         DesktopThemeSnapshot::new(self.revision, self.color_scheme_preference)
+    }
+
+    pub(super) fn allow_client_cursor_surfaces(&self) -> bool {
+        self.allow_client_cursor_surfaces
     }
 
     pub(super) fn document_json(&self) -> Result<String, SettingsError> {
@@ -663,11 +677,13 @@ impl SettingsManager {
             serde_json::to_value(&self.touchpad).expect("validated touchpad settings serialize"),
         );
         let color_scheme_preference = parse_color_scheme_preference(&incoming)?;
+        let allow_client_cursor_surfaces = parse_allow_client_cursor_surfaces(&incoming)?;
         self.prepare(
             incoming,
             self.keyboard.clone(),
             self.touchpad.clone(),
             color_scheme_preference,
+            allow_client_cursor_surfaces,
         )
     }
 
@@ -689,6 +705,7 @@ impl SettingsManager {
             keyboard,
             self.touchpad.clone(),
             self.color_scheme_preference,
+            self.allow_client_cursor_surfaces,
         )
     }
 
@@ -710,6 +727,7 @@ impl SettingsManager {
             self.keyboard.clone(),
             touchpad,
             self.color_scheme_preference,
+            self.allow_client_cursor_surfaces,
         )
     }
 
@@ -732,6 +750,7 @@ impl SettingsManager {
         self.keyboard = std::mem::take(&mut prepared.keyboard);
         self.touchpad = std::mem::take(&mut prepared.touchpad);
         self.color_scheme_preference = prepared.color_scheme_preference;
+        self.allow_client_cursor_surfaces = prepared.allow_client_cursor_surfaces;
         self.persisted_bytes = Some(std::mem::take(&mut prepared.bytes));
         // Rename is the transaction's point of no return. Keep memory and the
         // live keyboard aligned with the renamed file even on filesystems
@@ -765,6 +784,7 @@ impl SettingsManager {
         keyboard: KeyboardSettings,
         touchpad: TouchpadSettings,
         color_scheme_preference: DesktopColorSchemePreference,
+        allow_client_cursor_surfaces: bool,
     ) -> Result<PreparedSettingsUpdate, SettingsError> {
         let application_environment = ApplicationEnvironment::from_document(&document)?;
         application_environment.write_to_document(&mut document);
@@ -782,6 +802,7 @@ impl SettingsManager {
             keyboard,
             touchpad,
             color_scheme_preference,
+            allow_client_cursor_surfaces,
             bytes,
             committed: false,
         })
@@ -811,6 +832,7 @@ pub(super) struct PreparedSettingsUpdate {
     keyboard: KeyboardSettings,
     touchpad: TouchpadSettings,
     color_scheme_preference: DesktopColorSchemePreference,
+    allow_client_cursor_surfaces: bool,
     bytes: Vec<u8>,
     committed: bool,
 }
@@ -839,6 +861,7 @@ struct ParsedSettingsDocument {
     keyboard: KeyboardSettings,
     touchpad: TouchpadSettings,
     color_scheme_preference: DesktopColorSchemePreference,
+    allow_client_cursor_surfaces: bool,
     application_environment: ApplicationEnvironment,
     migrated: bool,
 }
@@ -890,12 +913,23 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         DesktopColorSchemePreference::PreferDark
     };
     set_color_scheme_preference(&mut document, color_scheme_preference)?;
+    let had_allow_client_cursor_surfaces = document
+        .get("appearance")
+        .and_then(Value::as_object)
+        .is_some_and(|appearance| appearance.contains_key("allowClientCursorSurfaces"));
+    let allow_client_cursor_surfaces = if had_allow_client_cursor_surfaces {
+        parse_allow_client_cursor_surfaces(&document)?
+    } else {
+        true
+    };
+    set_allow_client_cursor_surfaces(&mut document, allow_client_cursor_surfaces)?;
     let migrated = version != SETTINGS_SCHEMA_VERSION
         || !document.contains_key("revision")
         || !document.contains_key("keyboard")
         || !document.contains_key("touchpad")
         || !had_application_environment
-        || !had_color_scheme_preference;
+        || !had_color_scheme_preference
+        || !had_allow_client_cursor_surfaces;
     document.insert("version".to_owned(), Value::from(SETTINGS_SCHEMA_VERSION));
     document.insert("revision".to_owned(), Value::from(revision));
     document.insert(
@@ -912,6 +946,7 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         keyboard,
         touchpad,
         color_scheme_preference,
+        allow_client_cursor_surfaces,
         application_environment,
         migrated,
     })
@@ -923,11 +958,13 @@ fn default_document() -> (
     KeyboardSettings,
     TouchpadSettings,
     DesktopColorSchemePreference,
+    bool,
 ) {
     let revision = 1;
     let keyboard = KeyboardSettings::default();
     let touchpad = TouchpadSettings::default();
     let color_scheme_preference = DesktopColorSchemePreference::PreferDark;
+    let allow_client_cursor_surfaces = true;
     let mut document = Map::new();
     document.insert("version".to_owned(), Value::from(SETTINGS_SCHEMA_VERSION));
     document.insert("revision".to_owned(), Value::from(revision));
@@ -942,12 +979,15 @@ fn default_document() -> (
     ApplicationEnvironment::default().write_to_document(&mut document);
     set_color_scheme_preference(&mut document, color_scheme_preference)
         .expect("default appearance settings serialize");
+    set_allow_client_cursor_surfaces(&mut document, allow_client_cursor_surfaces)
+        .expect("default cursor surface setting serializes");
     (
         document,
         revision,
         keyboard,
         touchpad,
         color_scheme_preference,
+        allow_client_cursor_surfaces,
     )
 }
 
@@ -988,6 +1028,38 @@ fn set_color_scheme_preference(
         "colorSchemePreference".to_owned(),
         Value::String(preference.settings_name().to_owned()),
     );
+    Ok(())
+}
+
+fn parse_allow_client_cursor_surfaces(
+    document: &Map<String, Value>,
+) -> Result<bool, SettingsError> {
+    document
+        .get("appearance")
+        .and_then(Value::as_object)
+        .and_then(|appearance| appearance.get("allowClientCursorSurfaces"))
+        .and_then(Value::as_bool)
+        .ok_or_else(|| {
+            SettingsError::Document(
+                "appearance.allowClientCursorSurfaces is missing or is not a boolean".to_owned(),
+            )
+        })
+}
+
+fn set_allow_client_cursor_surfaces(
+    document: &mut Map<String, Value>,
+    allowed: bool,
+) -> Result<(), SettingsError> {
+    if !document.contains_key("appearance") {
+        document.insert("appearance".to_owned(), Value::Object(Map::new()));
+    }
+    let appearance = document
+        .get_mut("appearance")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| {
+            SettingsError::Document("settings appearance must be an object".to_owned())
+        })?;
+    appearance.insert("allowClientCursorSurfaces".to_owned(), Value::Bool(allowed));
     Ok(())
 }
 

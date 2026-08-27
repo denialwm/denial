@@ -9,6 +9,7 @@ import 'package:denial_wire_protocol/denial_denial.wire_generated.dart'
 import '../input/input_layout.dart';
 import '../models/display_layout.dart';
 import '../models/denial_drag_icon.dart';
+import '../models/denial_cursor_state.dart';
 import '../models/desktop_notification.dart' as model;
 import '../models/input_device_capabilities.dart';
 import '../models/keyboard_configuration.dart';
@@ -810,6 +811,66 @@ class DenialWireCodec {
         menuAvailable: true,
         primaryOpensMenu: false,
       ),
+    );
+  }
+
+  DenialCursorState? decodeCursorState(generated.CursorState state) {
+    final hotspot = state.hotspot;
+    final shape = state.shape?.trim().toLowerCase() ?? '';
+    final sourceLayers = state.surfaces ?? const <generated.SurfaceLayer>[];
+    if (state.epoch <= 0 ||
+        hotspot == null ||
+        !hotspot.x.isFinite ||
+        !hotspot.y.isFinite ||
+        sourceLayers.length > denialWireMaxSurfaces) {
+      rejectedStructuredMessages += 1;
+      return null;
+    }
+
+    final kind = switch (state.kind) {
+      generated.CursorStateKind.Hidden => DenialCursorStateKind.hidden,
+      generated.CursorStateKind.Named => DenialCursorStateKind.named,
+      generated.CursorStateKind.Surface => DenialCursorStateKind.surface,
+    };
+    if ((kind == DenialCursorStateKind.named &&
+            (shape.isEmpty || shape.length > denialWireMaxStringLength)) ||
+        (kind != DenialCursorStateKind.named && shape.isNotEmpty) ||
+        (kind != DenialCursorStateKind.surface && sourceLayers.isNotEmpty)) {
+      rejectedStructuredMessages += 1;
+      return null;
+    }
+
+    final identities = <int>{};
+    final layers = <DenialSurfaceLayer>[];
+    var lastCompositionOrder = -1;
+    for (var index = 0; index < sourceLayers.length; index += 1) {
+      final layer = sourceLayers[index];
+      final isRoot = index == 0;
+      if (!_validSurfaceLayer(layer) ||
+          layer.transform > 7 ||
+          layer.scale120 <= 0 ||
+          !identities.add(layer.surfaceId) ||
+          layer.popupRootSurfaceId != 0 ||
+          layer.compositionOrder < lastCompositionOrder ||
+          (isRoot &&
+              (layer.role != generated.SurfaceRole.Root ||
+                  layer.parentSurfaceId != 0)) ||
+          (!isRoot &&
+              (layer.role != generated.SurfaceRole.Subsurface ||
+                  layer.parentSurfaceId <= 0 ||
+                  !identities.contains(layer.parentSurfaceId)))) {
+        rejectedStructuredMessages += 1;
+        return null;
+      }
+      lastCompositionOrder = layer.compositionOrder;
+      layers.add(_decodeSurfaceLayer(layer));
+    }
+    return DenialCursorState(
+      epoch: state.epoch,
+      kind: kind,
+      shape: shape,
+      hotspot: Offset(hotspot.x, hotspot.y),
+      surfaceLayers: List<DenialSurfaceLayer>.unmodifiable(layers),
     );
   }
 
@@ -1845,11 +1906,41 @@ bool _nativePayloadType(generated.PayloadTypeId type) {
       type == generated.PayloadTypeId.WindowEvent ||
       type == generated.PayloadTypeId.ShellAction ||
       type == generated.PayloadTypeId.CursorShape ||
+      type == generated.PayloadTypeId.CursorState ||
       type == generated.PayloadTypeId.CursorPosition ||
       type == generated.PayloadTypeId.TextInputState ||
       type == generated.PayloadTypeId.DesktopNotificationEvent ||
       type == generated.PayloadTypeId.SettingsResponse ||
       type == generated.PayloadTypeId.XEmbedTrayEvent;
+}
+
+DenialSurfaceLayer _decodeSurfaceLayer(generated.SurfaceLayer layer) {
+  return DenialSurfaceLayer(
+    surfaceId: layer.surfaceId,
+    parentSurfaceId: layer.parentSurfaceId,
+    popupRootSurfaceId: layer.popupRootSurfaceId,
+    role: switch (layer.role) {
+      generated.SurfaceRole.Subsurface => DenialSurfaceRole.subsurface,
+      generated.SurfaceRole.Popup => DenialSurfaceRole.popup,
+      generated.SurfaceRole.Root => DenialSurfaceRole.root,
+    },
+    textureId: layer.textureId,
+    width: layer.width,
+    height: layer.height,
+    surfaceX: layer.surfaceX,
+    surfaceY: layer.surfaceY,
+    surfaceWidth: layer.surfaceWidth,
+    surfaceHeight: layer.surfaceHeight,
+    textureSourceX: layer.textureSourceX,
+    textureSourceY: layer.textureSourceY,
+    textureSourceWidth: layer.textureSourceWidth,
+    textureSourceHeight: layer.textureSourceHeight,
+    transform: layer.transform,
+    scale120: layer.scale120,
+    compositionOrder: layer.compositionOrder,
+    opacity: layer.opacity,
+    opaque: layer.opaque,
+  );
 }
 
 bool _validXkbName(String value, {required bool emptyAllowed}) {

@@ -145,11 +145,17 @@ impl FlutterRuntime {
         self.render_output_configuration = ffi_outputs;
         self.render_outputs = runtime_outputs;
         self.texture_output_membership.clear();
+        let cursor_ids = self.cursor_texture_ids.clone();
+        self.install_cursor_texture_membership(&cursor_ids);
         for output in &self.render_outputs {
             self.pending_output_updates
                 .entry(output.output_id)
                 .or_default()
                 .extend(self.scene_texture_ids.iter().copied());
+            self.pending_output_updates
+                .entry(output.output_id)
+                .or_default()
+                .extend(self.cursor_texture_ids.iter().copied());
         }
         Ok(())
     }

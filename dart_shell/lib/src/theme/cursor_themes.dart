@@ -1,6 +1,9 @@
+import 'dart:io' show File;
 import 'dart:ui' show Offset, Size;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
+import 'package:path/path.dart' as p;
 
 /// The saved cursor size is a physical-pixel target. Cursor artwork is drawn
 /// at this size on every output, independent of that output's display scale.
@@ -29,6 +32,21 @@ enum ShellCursorKind {
 }
 
 @immutable
+class ShellCursorFrameData {
+  const ShellCursorFrameData({
+    required this.path,
+    required this.duration,
+    required this.hotspot,
+  });
+
+  /// Relative to the role directory for bundled themes and to the imported
+  /// theme root for locally installed themes.
+  final String path;
+  final Duration duration;
+  final Offset hotspot;
+}
+
+@immutable
 class ShellCursorRoleData {
   const ShellCursorRoleData({
     required this.assetDirectory,
@@ -36,6 +54,7 @@ class ShellCursorRoleData {
     required this.hotspot,
     this.frameCount = 1,
     this.frameDuration = Duration.zero,
+    this.frames = const <ShellCursorFrameData>[],
   }) : assert(frameCount > 0);
 
   final String assetDirectory;
@@ -47,8 +66,39 @@ class ShellCursorRoleData {
   /// Multiple frames and a positive duration opt into renderer animation.
   final int frameCount;
   final Duration frameDuration;
+  final List<ShellCursorFrameData> frames;
 
-  bool get isAnimated => frameCount > 1 && frameDuration.inMicroseconds > 0;
+  int get effectiveFrameCount => frames.isEmpty ? frameCount : frames.length;
+
+  bool get isAnimated =>
+      effectiveFrameCount > 1 &&
+      List<Duration>.generate(
+        effectiveFrameCount,
+        frameDurationAt,
+        growable: false,
+      ).any((duration) => duration.inMicroseconds > 0);
+
+  Duration frameDurationAt(int frame) {
+    if (frames.isNotEmpty) {
+      return frames[frame % frames.length].duration;
+    }
+    return frameDuration;
+  }
+
+  Offset hotspotAt(int frame) {
+    if (frames.isNotEmpty) {
+      return frames[frame % frames.length].hotspot;
+    }
+    return hotspot;
+  }
+
+  String relativeFramePath(int frame) {
+    if (frames.isNotEmpty) {
+      return frames[frame % frames.length].path;
+    }
+    final frameName = (frame % frameCount).toString().padLeft(2, '0');
+    return '$assetDirectory/$frameName.png';
+  }
 }
 
 @immutable
@@ -58,6 +108,7 @@ class ShellCursorThemeData {
     required this.label,
     required this.author,
     required this.assetRoot,
+    this.fileRoot,
     required this.roles,
   });
 
@@ -65,11 +116,13 @@ class ShellCursorThemeData {
   final String label;
   final String author;
 
-  /// Null only for the shell's built-in vector fallback.
+  /// Bundled frame root. Imported themes instead use [fileRoot].
   final String? assetRoot;
+  final String? fileRoot;
   final Map<ShellCursorKind, ShellCursorRoleData> roles;
 
-  bool get usesAssetFrames => assetRoot != null;
+  bool get usesImageFrames => assetRoot != null || fileRoot != null;
+  bool get isImported => fileRoot != null;
 
   ShellCursorRoleData roleFor(ShellCursorKind kind) {
     return roles[kind] ?? roles[ShellCursorKind.normal]!;
@@ -79,17 +132,41 @@ class ShellCursorThemeData {
     final root = assetRoot;
     assert(root != null, 'The vector cursor has no asset path.');
     final role = roleFor(kind);
-    final frameName = frame.toString().padLeft(2, '0');
-    return '$root/${role.assetDirectory}/$frameName.png';
+    return '$root/${role.relativeFramePath(frame)}';
   }
 
-  Iterable<String> get assetPaths sync* {
-    if (!usesAssetFrames) {
+  ImageProvider<Object>? imageProvider(ShellCursorKind kind, int frame) {
+    final role = roleFor(kind);
+    final relativePath = role.relativeFramePath(frame);
+    if (assetRoot case final root?) {
+      return AssetImage('$root/$relativePath');
+    }
+    if (fileRoot case final root?) {
+      return FileImage(File(p.join(root, relativePath)));
+    }
+    return null;
+  }
+
+  Iterable<ImageProvider<Object>> get imageProviders sync* {
+    if (!usesImageFrames) {
       return;
     }
     for (final kind in ShellCursorKind.values) {
       final role = roleFor(kind);
-      for (var frame = 0; frame < role.frameCount; frame += 1) {
+      for (var frame = 0; frame < role.effectiveFrameCount; frame += 1) {
+        yield imageProvider(kind, frame)!;
+      }
+    }
+  }
+
+  /// Bundled compatibility view used by asset validation and older tests.
+  Iterable<String> get assetPaths sync* {
+    if (assetRoot == null) {
+      return;
+    }
+    for (final kind in ShellCursorKind.values) {
+      final role = roleFor(kind);
+      for (var frame = 0; frame < role.effectiveFrameCount; frame += 1) {
         yield assetPath(kind, frame);
       }
     }
@@ -97,14 +174,6 @@ class ShellCursorThemeData {
 }
 
 abstract final class ShellCursorThemes {
-  static const standard = ShellCursorThemeData(
-    id: 'standard',
-    label: 'Denia Standard',
-    author: 'Denia',
-    assetRoot: null,
-    roles: <ShellCursorKind, ShellCursorRoleData>{},
-  );
-
   static const _bibataSize = Size(32, 32);
 
   static const _bibataNormal = ShellCursorRoleData(
@@ -221,7 +290,6 @@ abstract final class ShellCursorThemes {
 
   static const List<ShellCursorThemeData> all = <ShellCursorThemeData>[
     bibataModernIce,
-    standard,
   ];
 
   static ShellCursorThemeData? find(String id) {

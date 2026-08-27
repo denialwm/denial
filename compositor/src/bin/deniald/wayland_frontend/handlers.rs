@@ -691,6 +691,33 @@ impl CompositorHandler for RuntimeState {
             }
         }
         on_commit_buffer_handler::<Self>(surface);
+        #[cfg(feature = "flutter")]
+        if matches!(
+            self.wayland
+                .as_ref()
+                .expect("missing Wayland frontend")
+                .cursor_status,
+            CursorImageStatus::Surface(ref cursor_surface) if cursor_surface == surface
+        ) {
+            with_states(surface, |states| {
+                let buffer_delta = states
+                    .cached_state
+                    .get::<SurfaceAttributes>()
+                    .current()
+                    .buffer_delta
+                    .take();
+                if let (Some(buffer_delta), Some(attributes)) = (
+                    buffer_delta,
+                    states.data_map.get::<CursorImageSurfaceData>(),
+                ) {
+                    let mut attributes = attributes
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    attributes.hotspot =
+                        cursor_hotspot_after_buffer_delta(attributes.hotspot, buffer_delta);
+                }
+            });
+        }
         let input_method_changed = {
             let frontend = self.wayland.as_mut().expect("missing Wayland frontend");
             frontend.text_input.surface_committed(surface);
@@ -746,13 +773,26 @@ impl CompositorHandler for RuntimeState {
         }
         #[cfg(feature = "flutter")]
         let mut published_surface_commits = None;
+        #[cfg(feature = "flutter")]
+        let active_cursor_root = (!synchronized)
+            .then(|| frontend.active_cursor_root_for(surface))
+            .flatten();
+        #[cfg(feature = "flutter")]
+        let cursor_callback_root = (!synchronized)
+            .then(|| frontend.cursor_root_for(surface))
+            .flatten();
         if !synchronized {
             #[cfg(feature = "flutter")]
             {
                 // A callback-only Chromium commit must not create a new
                 // external-texture generation. Pending synchronized child
                 // damage is still published by this parent transaction.
-                published_surface_commits = Some(frontend.publish_surface_commits(surface));
+                if let Some(cursor_root) = active_cursor_root.as_ref() {
+                    let commits = frontend.publish_cursor_surface_commits(cursor_root);
+                    frontend.record_cursor_surface_commits(cursor_root, commits);
+                } else {
+                    published_surface_commits = Some(frontend.publish_surface_commits(surface));
+                }
             }
             let mut root = surface.clone();
             while let Some(parent) = get_parent(&root) {
@@ -804,7 +844,15 @@ impl CompositorHandler for RuntimeState {
         let input_method_popup = frontend.input_method.popup_root_surface(surface);
         #[cfg(feature = "flutter")]
         if has_frame_callbacks {
-            if let Some(popup_root) = input_method_popup.as_ref() {
+            // A client cursor's scheduling contract is independent of
+            // whether policy currently lets Flutter display its artwork.
+            // Xwayland retains one cursor upload until this callback arrives
+            // and otherwise cannot submit a later non-null X cursor.
+            if let Some(cursor_root) = cursor_callback_root.as_ref() {
+                frontend
+                    .pending_cursor_frame_callback_roots
+                    .insert(cursor_root.id());
+            } else if let Some(popup_root) = input_method_popup.as_ref() {
                 frontend
                     .pending_input_method_frame_callbacks
                     .insert(popup_root.id());

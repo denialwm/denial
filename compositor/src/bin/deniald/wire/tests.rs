@@ -1902,34 +1902,76 @@ fn screenshot_actions_carry_the_workflow_identity_and_texture() {
 }
 
 #[test]
-fn encodes_cursor_shapes_and_rejects_invalid_values_without_sequence_gaps() {
+fn encodes_atomic_cursor_states_and_rejects_invalid_values_without_sequence_gaps() {
     let mut bridge = bridge();
-    let oversized = "x".repeat(MAX_STRING_BYTES + 1);
-
+    let invalid_named = CursorStateDescription {
+        epoch: 1,
+        kind: CursorStateKind::Named,
+        shape: " \t\n ".into(),
+        hotspot_x: 0.0,
+        hotspot_y: 0.0,
+        surfaces: Vec::new(),
+    };
     assert!(matches!(
-        bridge.encode_cursor_shape(" \t\n "),
-        Err(WireError::String)
-    ));
-    assert!(matches!(
-        bridge.encode_cursor_shape(&oversized),
-        Err(WireError::String)
+        bridge.encode_cursor_state(&invalid_named),
+        Err(WireError::Payload)
     ));
 
-    let bytes = bridge.encode_cursor_shape("  text  ").unwrap();
+    let state = CursorStateDescription {
+        epoch: 27,
+        kind: CursorStateKind::Surface,
+        shape: String::new(),
+        hotspot_x: 4.5,
+        hotspot_y: 7.25,
+        surfaces: vec![SurfaceLayerDescription {
+            surface_id: 91,
+            parent_surface_id: 0,
+            popup_root_surface_id: 0,
+            role: SurfaceRoleDescription::Root,
+            texture_id: 501,
+            width: 32,
+            height: 48,
+            surface_x: 0.0,
+            surface_y: 0.0,
+            surface_width: 16.0,
+            surface_height: 24.0,
+            texture_source_x: 0.0,
+            texture_source_y: 0.0,
+            texture_source_width: 32.0,
+            texture_source_height: 48.0,
+            transform: 0,
+            scale_120: 240,
+            composition_order: 0,
+            opacity: 1.0,
+            opaque: false,
+        }],
+    };
+    let bytes = bridge.encode_cursor_state(&state).unwrap();
     let envelope = fb::root_as_envelope(bytes).unwrap();
-    let cursor = envelope.payload_as_cursor_shape().unwrap();
+    let cursor = envelope.payload_as_cursor_state().unwrap();
+    let hotspot = cursor.hotspot().unwrap();
+    let surface = cursor.surfaces().unwrap().get(0);
     assert_eq!(envelope.protocol_version(), PROTOCOL_VERSION);
     assert_eq!(envelope.sequence(), 1);
     assert_eq!(envelope.request_id(), 0);
-    assert_eq!(envelope.payload_type(), fb::Payload::CursorShape);
-    assert_eq!(cursor.shape(), Some("text"));
+    assert_eq!(envelope.payload_type(), fb::Payload::CursorState);
+    assert_eq!(cursor.epoch(), 27);
+    assert_eq!(cursor.kind(), fb::CursorStateKind::Surface);
+    assert_eq!((hotspot.x(), hotspot.y()), (4.5, 7.25));
+    assert_eq!(surface.surface_id(), 91);
+    assert_eq!(surface.texture_id(), 501);
+    assert_eq!(surface.scale_120(), 240);
 
-    let bytes = bridge.encode_cursor_shape("pointer").unwrap();
+    let named = CursorStateDescription {
+        epoch: 28,
+        ..CursorStateDescription::named("text")
+    };
+    let bytes = bridge.encode_cursor_state(&named).unwrap();
     let envelope = fb::root_as_envelope(bytes).unwrap();
     assert_eq!(envelope.sequence(), 2);
     assert_eq!(
-        envelope.payload_as_cursor_shape().unwrap().shape(),
-        Some("pointer")
+        envelope.payload_as_cursor_state().unwrap().shape(),
+        Some("text")
     );
 }
 

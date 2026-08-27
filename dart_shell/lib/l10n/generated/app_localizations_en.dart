@@ -1646,6 +1646,34 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsCursorTitle => 'Cursor';
 
   @override
+  String get settingsCursorTheme => 'Cursor theme';
+
+  @override
+  String get settingsCursorImport => 'Import cursor ZIP';
+
+  @override
+  String get settingsCursorImporting => 'Importing…';
+
+  @override
+  String get settingsCursorImportFailed =>
+      'The cursor theme could not be imported.';
+
+  @override
+  String get settingsCursorRemove => 'Remove imported cursor theme';
+
+  @override
+  String get settingsCursorRemoveFailed =>
+      'The imported cursor theme could not be removed.';
+
+  @override
+  String get settingsCursorAllowApplications =>
+      'Allow applications to show their own cursor';
+
+  @override
+  String get settingsCursorAllowApplicationsDescription =>
+      'Wayland and X11 applications can provide cursor artwork. Turn this off to always use the selected Denial theme.';
+
+  @override
   String get settingsDashboardOverlayDescription =>
       'Position the desktop dashboard.';
 
