@@ -33,6 +33,9 @@ trait NotificationsTest {
     #[zbus(signal, name = "NotificationClosed")]
     fn notification_closed(&self, id: u32, reason: u32) -> zbus::Result<()>;
 
+    #[zbus(signal, name = "ActivationToken")]
+    fn activation_token(&self, id: u32, activation_token: &str) -> zbus::Result<()>;
+
     #[zbus(signal, name = "ActionInvoked")]
     fn action_invoked(&self, id: u32, action_key: &str) -> zbus::Result<()>;
 }
@@ -180,6 +183,9 @@ fn serves_dbus_replacement_expiry_close_and_action_round_trips() {
     let mut closed_signals = proxy
         .receive_notification_closed()
         .expect("subscribe to close signals");
+    let mut activation_token_signals = proxy
+        .receive_activation_token()
+        .expect("subscribe to activation-token signals");
     let mut action_signals = proxy
         .receive_action_invoked()
         .expect("subscribe to action signals");
@@ -241,7 +247,13 @@ fn serves_dbus_replacement_expiry_close_and_action_round_trips() {
         "Updated"
     );
 
-    assert!(server.invoke_default(id));
+    assert!(server.invoke_default(id, Some("denial-test-token".into())));
+    let activation_token = activation_token_signals
+        .next()
+        .expect("activation-token signal");
+    let activation_token = activation_token.args().expect("activation-token arguments");
+    assert_eq!(*activation_token.id(), id);
+    assert_eq!(*activation_token.activation_token(), "denial-test-token");
     let action = action_signals.next().expect("default action signal");
     let action = action.args().expect("default action arguments");
     assert_eq!(*action.id(), id);

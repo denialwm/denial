@@ -17,6 +17,29 @@ fn pending_window_focus_is_last_writer_wins() {
 }
 
 #[test]
+fn restored_activation_reaches_flutter_before_focus() {
+    let mut queue = PendingWindowEventQueue::default();
+    queue.push_activation(11, true);
+
+    assert_eq!(
+        queue.as_slice(),
+        &[
+            PendingWindowEvent::Action(11, wire::WindowAction::Restore),
+            PendingWindowEvent::Activated(11),
+        ]
+    );
+
+    queue.push_activation(22, false);
+    assert_eq!(
+        queue.as_slice(),
+        &[
+            PendingWindowEvent::Action(11, wire::WindowAction::Restore),
+            PendingWindowEvent::Activated(22),
+        ]
+    );
+}
+
+#[test]
 fn pending_window_updates_and_safe_actions_are_compacted() {
     let placement = |x| {
         PendingWindowEvent::Placement(wire::WindowPlacement {

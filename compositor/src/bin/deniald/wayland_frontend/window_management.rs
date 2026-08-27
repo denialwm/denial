@@ -216,15 +216,19 @@ pub(super) fn activate_window(
             .and_then(|surface| frontend.surface_id(&surface))
     });
 
+    #[cfg(feature = "flutter")]
+    let resumed;
     {
         let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
         #[cfg(feature = "flutter")]
-        let resumed = frontend
-            .window_root_surface(window)
-            .is_some_and(|surface| frontend.set_surface_minimized(surface.id(), false))
-            && window
-                .toplevel()
-                .is_some_and(|toplevel| set_toplevel_suspended(toplevel, false));
+        {
+            resumed = frontend
+                .window_root_surface(window)
+                .is_some_and(|surface| frontend.set_surface_minimized(surface.id(), false));
+            if resumed && let Some(toplevel) = window.toplevel() {
+                set_toplevel_suspended(toplevel, false);
+            }
+        }
         #[cfg(not(feature = "flutter"))]
         let resumed = false;
 
@@ -250,7 +254,7 @@ pub(super) fn activate_window(
     if let Some(window_id) = window_id {
         state
             .pending_window_events
-            .push(PendingWindowEvent::Activated(window_id));
+            .push_activation(window_id, resumed);
     }
     state.scene_sync.mark_dirty();
     true

@@ -194,7 +194,12 @@ impl NotificationServer {
                 .is_ok()
     }
 
-    pub(super) fn invoke_action(&self, notification_id: u32, action_key: String) -> bool {
+    pub(super) fn invoke_action(
+        &self,
+        notification_id: u32,
+        action_key: String,
+        activation_token: Option<String>,
+    ) -> bool {
         notification_id != 0
             && !action_key.is_empty()
             && action_key.len() <= MAX_STRING_BYTES
@@ -203,12 +208,17 @@ impl NotificationServer {
                 .try_send(Command::InvokeAction {
                     notification_id,
                     action_key,
+                    activation_token,
                 })
                 .is_ok()
     }
 
-    pub(super) fn invoke_default(&self, notification_id: u32) -> bool {
-        self.invoke_action(notification_id, "default".into())
+    pub(super) fn invoke_default(
+        &self,
+        notification_id: u32,
+        activation_token: Option<String>,
+    ) -> bool {
+        self.invoke_action(notification_id, "default".into(), activation_token)
     }
 }
 
@@ -323,6 +333,13 @@ impl NotificationsInterface {
         reason: u32,
     ) -> zbus::Result<()>;
 
+    #[zbus(signal, name = "ActivationToken")]
+    async fn activation_token(
+        signal_emitter: &SignalEmitter<'_>,
+        id: u32,
+        activation_token: &str,
+    ) -> zbus::Result<()>;
+
     #[zbus(signal, name = "ActionInvoked")]
     async fn action_invoked(
         signal_emitter: &SignalEmitter<'_>,
@@ -355,6 +372,7 @@ enum Command {
     InvokeAction {
         notification_id: u32,
         action_key: String,
+        activation_token: Option<String>,
     },
     Stop,
 }
@@ -434,6 +452,7 @@ fn run_worker(
             Ok(Command::InvokeAction {
                 notification_id,
                 action_key,
+                activation_token,
             }) => invoke_action(
                 &connection,
                 &publish,
@@ -441,6 +460,7 @@ fn run_worker(
                 &mut store,
                 notification_id,
                 action_key,
+                activation_token.as_deref(),
             ),
             Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => break,
             Err(RecvTimeoutError::Timeout) => {}
@@ -458,6 +478,7 @@ fn invoke_action(
     store: &mut NotificationStore,
     notification_id: u32,
     action_key: String,
+    activation_token: Option<&str>,
 ) {
     let resident = match store.begin_action(notification_id, &action_key) {
         ActionDecision::Invoke { resident } => resident,
@@ -477,6 +498,18 @@ fn invoke_action(
             return;
         }
     };
+
+    if let Some(activation_token) = activation_token
+        && let Err(error) = connection.emit_signal(
+            None::<&str>,
+            OBJECT_PATH,
+            INTERFACE_NAME,
+            "ActivationToken",
+            &(notification_id, activation_token),
+        )
+    {
+        warn!(notification_id, %error, "failed to emit notification activation token");
+    }
 
     if let Err(error) = connection.emit_signal(
         None::<&str>,

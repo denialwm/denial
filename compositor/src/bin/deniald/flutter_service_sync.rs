@@ -254,12 +254,25 @@ pub(super) fn synchronize_notification_events(
             wire::NotificationCommand::InvokeAction {
                 notification_id,
                 action_key,
-            } => (
-                notification_id,
-                server.invoke_action(notification_id, action_key),
-            ),
+            } => {
+                let activation_token = events
+                    .wayland
+                    .as_mut()
+                    .map(wayland_frontend::WaylandFrontend::create_launch_activation_token);
+                (
+                    notification_id,
+                    server.invoke_action(notification_id, action_key, activation_token),
+                )
+            }
             wire::NotificationCommand::InvokeDefault { notification_id } => {
-                (notification_id, server.invoke_default(notification_id))
+                let activation_token = events
+                    .wayland
+                    .as_mut()
+                    .map(wayland_frontend::WaylandFrontend::create_launch_activation_token);
+                (
+                    notification_id,
+                    server.invoke_default(notification_id, activation_token),
+                )
             }
         };
         if !queued {
