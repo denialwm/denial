@@ -250,11 +250,12 @@ class _DesktopWindowFrame extends ConsumerWidget {
                           windowId: window.objectId,
                           borderPainter: _DesktopWindowBorderPainter(
                             windowId: window.objectId,
-                            color: window.pinned
-                                ? theme.accentPalette.container
-                                : active
-                                ? theme.accent
-                                : context.shellColors.hairlineWindow,
+                            color: desktopWindowBorderColor(
+                              pinned: window.pinned,
+                              active: active,
+                              theme: theme,
+                              inactiveColor: context.shellColors.hairlineWindow,
+                            ),
                             devicePixelRatio: devicePixelRatio,
                             radius: windowRadius,
                           ),
@@ -429,13 +430,16 @@ class _DesktopWindowContent extends ConsumerWidget {
     final localApplication = window.isLocalFlutter
         ? ref.watch(localFlutterApplicationRegistryProvider)[window.appId]
         : null;
+    final singleWindowSurface =
+        !window.isLocalFlutter && window.mainVisibleSurfaceIds.length == 1;
     return ShellBackdropBlur(
-      blur: desktopWindowBackdropBlurEnabled(
+      blur: desktopWindowNeedsBackdropTexture(
         window: window,
         shellOpacity: windowOpacity,
-        opacityThreshold: theme.backdropBlurOpacityThreshold,
         localContentTranslucent: localApplication?.translucent ?? false,
       ),
+      useWindowAlphaThreshold: true,
+      singleWindowSurface: singleWindowSurface,
       child: content,
     );
   }

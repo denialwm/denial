@@ -651,18 +651,21 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     final systemBars = _systemBarGeometries(viewSize, displayLayout);
     // True fullscreen owns the complete output, so the bar yields instead of
     // floating above the fullscreen surface.
-    final visibleSystemBars = desktop.overviewActive
-        ? systemBars
-        : systemBars
-              .where(
-                (bar) => !placements.any(
-                  (placement) =>
-                      placement.fullscreen &&
-                      !placement.minimized &&
-                      placement.monitorId == bar.monitorId,
-                ),
-              )
-              .toList(growable: false);
+    final List<({int monitorId, Rect rect, SystemBarSide side})>
+    visibleSystemBars;
+    if (desktop.overviewActive) {
+      visibleSystemBars = systemBars;
+    } else {
+      final fullscreenMonitorIds = <int>{
+        for (final placement in placements)
+          if (placement.fullscreen && !placement.minimized) placement.monitorId,
+      };
+      visibleSystemBars = fullscreenMonitorIds.isEmpty
+          ? systemBars
+          : systemBars
+                .where((bar) => !fullscreenMonitorIds.contains(bar.monitorId))
+                .toList(growable: false);
+    }
     final canvas = Offset.zero & viewSize;
     final requestedDisplayRect = mainOutputRect?.intersect(canvas);
     final mainDisplayRect =

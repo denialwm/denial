@@ -124,7 +124,7 @@ class _DesktopLockStatusBar extends StatelessWidget {
           color: context.shellTheme.panelColor(
             context.shellColors.panelBackground,
           ),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: context.shellTheme.borderRadius(16),
           border: Border.all(color: context.shellColors.hairlineSoft),
         ),
         child: Padding(
@@ -175,7 +175,7 @@ class _DesktopPerformanceMetric extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: context.shellColors.surfaceContainerHigh.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(11),
+        borderRadius: context.shellTheme.borderRadius(11),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
@@ -274,7 +274,7 @@ class _LockSwipePill extends StatelessWidget {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: context.shellColors.gesturePill,
-                borderRadius: BorderRadius.circular(3),
+                borderRadius: context.shellTheme.borderRadius(3),
               ),
               child: const SizedBox(width: 132, height: 5),
             ),

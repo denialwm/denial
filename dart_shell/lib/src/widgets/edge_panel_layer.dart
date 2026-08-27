@@ -262,7 +262,7 @@ class _EdgePanelContent extends ConsumerWidget {
     final haptics = ref.read(hapticsServiceProvider);
     final theme = ShellTheme.of(context);
     return ShellBackdropBlur(
-      blur: theme.panelOpacity < 1.0,
+      blur: theme.effectivePanelOpacity < 1.0,
       borderRadius: BorderRadius.vertical(
         top: Radius.circular(theme.panelRadius),
       ),

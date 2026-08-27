@@ -24,7 +24,7 @@ class _WifiCredentialPanel extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: context.shellColors.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: context.shellTheme.borderRadius(16),
         border: Border.all(
           color: error == null
               ? context.shellColors.hairlineSoft
@@ -49,8 +49,8 @@ class _WifiCredentialPanel extends StatelessWidget {
               label: l10n.wifiPasswordField(network.ssid),
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  color: theme.panelColor(context.shellColors.panelBackground),
-                  borderRadius: BorderRadius.circular(12),
+                  color: theme.cardColor(context.shellColors.panelBackground),
+                  borderRadius: context.shellTheme.borderRadius(12),
                   border: Border.all(
                     color: focusNode.hasFocus
                         ? theme.accent
@@ -168,7 +168,7 @@ class _WifiNotice extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: context.shellTheme.accentPalette.mutedContainer,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: context.shellTheme.borderRadius(12),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -208,7 +208,7 @@ class _WifiErrorNotice extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: context.shellColors.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: context.shellTheme.borderRadius(12),
         border: Border.all(color: context.shellColors.performanceBad),
       ),
       child: Padding(
@@ -322,7 +322,7 @@ class _WifiIconButtonState extends State<_WifiIconButton> {
               color: widget.active
                   ? context.shellTheme.accentPalette.container
                   : context.shellColors.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: context.shellTheme.borderRadius(12),
               border: Border.all(
                 color: _focused ? accent : context.shellColors.hairlineSoft,
               ),
@@ -408,7 +408,7 @@ class _WifiInlineButtonState extends State<_WifiInlineButton> {
             width: 30,
             height: 30,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(9),
+              borderRadius: context.shellTheme.borderRadius(9),
               border: _focused ? Border.all(color: accent) : null,
             ),
             child: Icon(
@@ -475,7 +475,7 @@ class _WifiTextButtonState extends State<_WifiTextButton> {
               color: widget.emphasized
                   ? context.shellTheme.accentPalette.container
                   : context.shellColors.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(11),
+              borderRadius: context.shellTheme.borderRadius(11),
               border: Border.all(
                 color: _focused ? accent : context.shellColors.hairlineSoft,
               ),

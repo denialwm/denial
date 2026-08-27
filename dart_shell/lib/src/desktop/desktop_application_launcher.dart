@@ -490,14 +490,6 @@ class _DesktopApplicationLauncherState
               color: theme.panelColor(context.shellColors.panelBackground),
               borderRadius: BorderRadius.circular(theme.panelRadius),
               border: Border.all(color: context.shellColors.hairline),
-              boxShadow: [
-                BoxShadow(
-                  color: context.shellColors.shadow,
-                  blurRadius: 36,
-                  spreadRadius: 3,
-                  offset: Offset(0, 16),
-                ),
-              ],
             ),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),

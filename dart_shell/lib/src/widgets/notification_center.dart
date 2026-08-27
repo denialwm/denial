@@ -168,7 +168,7 @@ class _NotificationCenterHeader extends StatelessWidget {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: context.shellTheme.accentPalette.container,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: context.shellTheme.borderRadius(10),
               ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
@@ -347,7 +347,7 @@ class _PrivacyChoiceState extends State<_PrivacyChoice> {
               color: widget.selected
                   ? context.shellTheme.accentPalette.container
                   : context.shellColors.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: context.shellTheme.borderRadius(10),
               border: Border.all(
                 color: _focused ? accent : context.shellColors.hairlineSoft,
               ),
@@ -383,7 +383,7 @@ class _DoNotDisturbNotice extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: context.shellTheme.accentPalette.mutedContainer,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: context.shellTheme.borderRadius(12),
           border: Border.all(color: context.shellColors.hairlineSoft),
         ),
         child: Padding(
@@ -519,7 +519,7 @@ class _CenterIconButtonState extends State<_CenterIconButton> {
                   : _hovered || _focused
                   ? context.shellColors.surfaceContainerHighest
                   : context.shellColors.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: context.shellTheme.borderRadius(12),
               border: Border.all(
                 color: _focused ? accent : context.shellColors.hairlineSoft,
               ),

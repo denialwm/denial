@@ -55,14 +55,6 @@ class _AppVolumeManagerPanel extends StatelessWidget {
           color: theme.panelColor(context.shellColors.panelBackground),
           borderRadius: BorderRadius.circular(theme.panelRadius),
           border: Border.all(color: context.shellColors.hairline),
-          boxShadow: [
-            BoxShadow(
-              color: context.shellColors.shadow,
-              blurRadius: 42,
-              spreadRadius: 4,
-              offset: Offset(0, 18),
-            ),
-          ],
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(theme.panelRadius),
@@ -301,7 +293,7 @@ class _AppVolumeRowState extends State<_AppVolumeRow> {
               color: _focused
                   ? context.shellColors.surfaceContainerHigh
                   : context.shellColors.surfaceContainerLow,
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: context.shellTheme.borderRadius(18),
               border: Border.all(
                 color: _focused ? accent : context.shellColors.hairlineSoft,
               ),

@@ -74,12 +74,13 @@ class ShellAppearanceSettings {
     this.colorSchemePreference = DesktopColorSchemePreference.preferDark,
     this.accentSource = ShellAccentSource.wallpaper,
     this.customAccentColor = ShellBrandColors.defaultAccent,
-    this.windowRadius = ShellRadii.window,
-    this.panelRadius = ShellRadii.panel,
+    this.cornerRadiusScale = ShellRoundness.normal,
     this.panelOpacity = ShellOpacity.panel,
+    this.cardOpacity = ShellOpacity.card,
     this.backdropBlurEnabled = true,
     this.backdropBlurLevel = ShellBackdropBlurLevel.fast,
-    this.backdropBlurOpacityThreshold = 0.05,
+    this.backdropBlurOpacityThreshold = 0.2,
+    this.focusedWindowBorderEnabled = true,
     this.focusedWindowOpacity = 1,
     this.unfocusedWindowOpacity = 1,
     this.cursorSize = shellCursorDefaultSize,
@@ -90,12 +91,13 @@ class ShellAppearanceSettings {
   final DesktopColorSchemePreference colorSchemePreference;
   final ShellAccentSource accentSource;
   final Color customAccentColor;
-  final double windowRadius;
-  final double panelRadius;
+  final double cornerRadiusScale;
   final double panelOpacity;
+  final double cardOpacity;
   final bool backdropBlurEnabled;
   final ShellBackdropBlurLevel backdropBlurLevel;
   final double backdropBlurOpacityThreshold;
+  final bool focusedWindowBorderEnabled;
   final double focusedWindowOpacity;
   final double unfocusedWindowOpacity;
   final double cursorSize;
@@ -106,12 +108,13 @@ class ShellAppearanceSettings {
     DesktopColorSchemePreference? colorSchemePreference,
     ShellAccentSource? accentSource,
     Color? customAccentColor,
-    double? windowRadius,
-    double? panelRadius,
+    double? cornerRadiusScale,
     double? panelOpacity,
+    double? cardOpacity,
     bool? backdropBlurEnabled,
     ShellBackdropBlurLevel? backdropBlurLevel,
     double? backdropBlurOpacityThreshold,
+    bool? focusedWindowBorderEnabled,
     double? focusedWindowOpacity,
     double? unfocusedWindowOpacity,
     double? cursorSize,
@@ -123,13 +126,15 @@ class ShellAppearanceSettings {
           colorSchemePreference ?? this.colorSchemePreference,
       accentSource: accentSource ?? this.accentSource,
       customAccentColor: customAccentColor ?? this.customAccentColor,
-      windowRadius: windowRadius ?? this.windowRadius,
-      panelRadius: panelRadius ?? this.panelRadius,
+      cornerRadiusScale: cornerRadiusScale ?? this.cornerRadiusScale,
       panelOpacity: panelOpacity ?? this.panelOpacity,
+      cardOpacity: cardOpacity ?? this.cardOpacity,
       backdropBlurEnabled: backdropBlurEnabled ?? this.backdropBlurEnabled,
       backdropBlurLevel: backdropBlurLevel ?? this.backdropBlurLevel,
       backdropBlurOpacityThreshold:
           backdropBlurOpacityThreshold ?? this.backdropBlurOpacityThreshold,
+      focusedWindowBorderEnabled:
+          focusedWindowBorderEnabled ?? this.focusedWindowBorderEnabled,
       focusedWindowOpacity: focusedWindowOpacity ?? this.focusedWindowOpacity,
       unfocusedWindowOpacity:
           unfocusedWindowOpacity ?? this.unfocusedWindowOpacity,
@@ -146,12 +151,13 @@ class ShellAppearanceSettings {
         other.colorSchemePreference == colorSchemePreference &&
         other.accentSource == accentSource &&
         other.customAccentColor == customAccentColor &&
-        other.windowRadius == windowRadius &&
-        other.panelRadius == panelRadius &&
+        other.cornerRadiusScale == cornerRadiusScale &&
         other.panelOpacity == panelOpacity &&
+        other.cardOpacity == cardOpacity &&
         other.backdropBlurEnabled == backdropBlurEnabled &&
         other.backdropBlurLevel == backdropBlurLevel &&
         other.backdropBlurOpacityThreshold == backdropBlurOpacityThreshold &&
+        other.focusedWindowBorderEnabled == focusedWindowBorderEnabled &&
         other.focusedWindowOpacity == focusedWindowOpacity &&
         other.unfocusedWindowOpacity == unfocusedWindowOpacity &&
         other.cursorSize == cursorSize &&
@@ -164,12 +170,13 @@ class ShellAppearanceSettings {
     colorSchemePreference,
     accentSource,
     customAccentColor,
-    windowRadius,
-    panelRadius,
+    cornerRadiusScale,
     panelOpacity,
+    cardOpacity,
     backdropBlurEnabled,
     backdropBlurLevel,
     backdropBlurOpacityThreshold,
+    focusedWindowBorderEnabled,
     focusedWindowOpacity,
     unfocusedWindowOpacity,
     cursorSize,
@@ -715,7 +722,7 @@ class ShellSettings {
 
   // Blur levels are additive in schema 9. Keep emitting the derived legacy
   // sigma so older shells can read settings written by this version.
-  static const int schemaVersion = 14;
+  static const int schemaVersion = 15;
 
   final ShellLocalizationSettings localization;
   final ShellAppearanceSettings appearance;
@@ -779,14 +786,14 @@ class ShellSettings {
       if (appearance.customAccentColor != before.customAccentColor) {
         section['customAccentColor'] = appearance.customAccentColor.toARGB32();
       }
-      if (appearance.windowRadius != before.windowRadius) {
-        section['windowRadius'] = appearance.windowRadius;
-      }
-      if (appearance.panelRadius != before.panelRadius) {
-        section['panelRadius'] = appearance.panelRadius;
+      if (appearance.cornerRadiusScale != before.cornerRadiusScale) {
+        section['cornerRadiusScale'] = appearance.cornerRadiusScale;
       }
       if (appearance.panelOpacity != before.panelOpacity) {
         section['panelOpacity'] = appearance.panelOpacity;
+      }
+      if (appearance.cardOpacity != before.cardOpacity) {
+        section['cardOpacity'] = appearance.cardOpacity;
       }
       if (appearance.backdropBlurEnabled != before.backdropBlurEnabled) {
         section['backdropBlurEnabled'] = appearance.backdropBlurEnabled;
@@ -797,8 +804,13 @@ class ShellSettings {
       }
       if (appearance.backdropBlurOpacityThreshold !=
           before.backdropBlurOpacityThreshold) {
-        section['backdropBlurOpacityThreshold'] =
+        section['backdropBlurPixelOpacityThreshold'] =
             appearance.backdropBlurOpacityThreshold;
+      }
+      if (appearance.focusedWindowBorderEnabled !=
+          before.focusedWindowBorderEnabled) {
+        section['focusedWindowBorderEnabled'] =
+            appearance.focusedWindowBorderEnabled;
       }
       if (appearance.focusedWindowOpacity != before.focusedWindowOpacity) {
         section['focusedWindowOpacity'] = appearance.focusedWindowOpacity;
@@ -933,13 +945,15 @@ class ShellSettings {
         'colorSchemePreference': appearance.colorSchemePreference.name,
         'accentSource': appearance.accentSource.name,
         'customAccentColor': appearance.customAccentColor.toARGB32(),
-        'windowRadius': appearance.windowRadius,
-        'panelRadius': appearance.panelRadius,
+        'cornerRadiusScale': appearance.cornerRadiusScale,
         'panelOpacity': appearance.panelOpacity,
+        'cardOpacity': appearance.cardOpacity,
         'backdropBlurEnabled': appearance.backdropBlurEnabled,
         'backdropBlurLevel': appearance.backdropBlurLevel.name,
         'backdropBlurSigma': appearance.backdropBlurLevel.sigma,
-        'backdropBlurOpacityThreshold': appearance.backdropBlurOpacityThreshold,
+        'backdropBlurPixelOpacityThreshold':
+            appearance.backdropBlurOpacityThreshold,
+        'focusedWindowBorderEnabled': appearance.focusedWindowBorderEnabled,
         'focusedWindowOpacity': appearance.focusedWindowOpacity,
         'unfocusedWindowOpacity': appearance.unfocusedWindowOpacity,
         'cursorSize': appearance.cursorSize,
@@ -1001,10 +1015,36 @@ class ShellSettings {
             hoverTriggerEnabled: legacyHoverTriggersEnabled,
           )
         : defaults.overlays.dashboard;
-    final outputNames = <String>[
-      for (final value in _list(layoutJson['systemBarOutputs']))
-        if (value is String && value.trim().isNotEmpty) value.trim(),
-    ];
+    var legacyCornerRadiusScale = defaults.appearance.cornerRadiusScale;
+    if (appearanceJson.containsKey('panelRadius')) {
+      legacyCornerRadiusScale =
+          _number(
+            appearanceJson['panelRadius'],
+            ShellRadii.panel,
+            0,
+            ShellRadii.panel * ShellRoundness.maximum,
+          ) /
+          ShellRadii.panel;
+    } else if (appearanceJson.containsKey('windowRadius')) {
+      legacyCornerRadiusScale =
+          _number(
+            appearanceJson['windowRadius'],
+            ShellRadii.window,
+            0,
+            ShellRadii.window * ShellRoundness.maximum,
+          ) /
+          ShellRadii.window;
+    }
+    final outputNames = <String>[];
+    for (final value in _list(layoutJson['systemBarOutputs'])) {
+      if (value is! String) {
+        continue;
+      }
+      final outputName = value.trim();
+      if (outputName.isNotEmpty) {
+        outputNames.add(outputName);
+      }
+    }
     return ShellSettings(
       localization: ShellLocalizationSettings(
         locale: _enumValue(
@@ -1028,22 +1068,22 @@ class ShellSettings {
           appearanceJson['customAccentColor'],
           defaults.appearance.customAccentColor,
         ),
-        windowRadius: _number(
-          appearanceJson['windowRadius'],
-          defaults.appearance.windowRadius,
-          0,
-          48,
-        ),
-        panelRadius: _number(
-          appearanceJson['panelRadius'],
-          defaults.appearance.panelRadius,
-          0,
-          56,
+        cornerRadiusScale: _number(
+          appearanceJson['cornerRadiusScale'],
+          legacyCornerRadiusScale,
+          ShellRoundness.minimum,
+          ShellRoundness.maximum,
         ),
         panelOpacity: _number(
           appearanceJson['panelOpacity'],
           defaults.appearance.panelOpacity,
-          0.35,
+          ShellOpacity.minimumPanel,
+          1,
+        ),
+        cardOpacity: _number(
+          appearanceJson['cardOpacity'],
+          defaults.appearance.cardOpacity,
+          ShellOpacity.minimumCard,
           1,
         ),
         backdropBlurEnabled: appearanceJson['backdropBlurEnabled'] is bool
@@ -1055,11 +1095,15 @@ class ShellSettings {
           defaults.appearance.backdropBlurLevel,
         ),
         backdropBlurOpacityThreshold: _number(
-          appearanceJson['backdropBlurOpacityThreshold'],
+          appearanceJson['backdropBlurPixelOpacityThreshold'],
           defaults.appearance.backdropBlurOpacityThreshold,
           0,
           1,
         ),
+        focusedWindowBorderEnabled:
+            appearanceJson['focusedWindowBorderEnabled'] is bool
+            ? appearanceJson['focusedWindowBorderEnabled'] as bool
+            : defaults.appearance.focusedWindowBorderEnabled,
         focusedWindowOpacity: _number(
           appearanceJson['focusedWindowOpacity'],
           defaults.appearance.focusedWindowOpacity,

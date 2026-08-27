@@ -132,17 +132,9 @@ class _ColorPickerPanel extends StatelessWidget {
       label: routeLabel,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: theme.panelColor(context.shellColors.panelBackgroundBottom),
+          color: theme.cardColor(context.shellColors.panelBackgroundBottom),
           borderRadius: BorderRadius.circular(theme.panelRadius),
           border: Border.all(color: context.shellColors.hairline),
-          boxShadow: [
-            BoxShadow(
-              color: context.shellColors.shadow,
-              blurRadius: 36,
-              spreadRadius: 3,
-              offset: Offset(0, 16),
-            ),
-          ],
         ),
         child: FocusTraversalGroup(
           child: Padding(
@@ -316,7 +308,7 @@ class _PickerButtonState extends State<_PickerButton> {
                   : highlighted
                   ? context.shellColors.surfaceContainerHighest
                   : context.shellColors.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(ShellRadii.chip),
+              borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
               border: Border.all(
                 color: _focused ? accent : context.shellColors.hairline,
               ),

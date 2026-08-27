@@ -36,8 +36,11 @@ const settingsBackdropBlurOpacityThresholdKey = ValueKey<String>(
 const settingsCursorSizeSliderKey = ValueKey<String>(
   'settings-cursor-size-slider',
 );
-const settingsPanelRadiusSliderKey = ValueKey<String>(
-  'settings-panel-radius-slider',
+const settingsCornerRoundnessSliderKey = ValueKey<String>(
+  'settings-corner-roundness-slider',
+);
+const settingsCardOpacitySliderKey = ValueKey<String>(
+  'settings-card-opacity-slider',
 );
 
 class SettingsAppearancePage extends StatelessWidget {
@@ -49,12 +52,13 @@ class SettingsAppearancePage extends StatelessWidget {
     required this.onColorSchemePreferenceChanged,
     required this.onAccentSourceChanged,
     required this.onOpenAccentPicker,
-    required this.onWindowRadiusChanged,
-    required this.onPanelRadiusChanged,
+    required this.onCornerRadiusScaleChanged,
     required this.onPanelOpacityChanged,
+    required this.onCardOpacityChanged,
     required this.onBackdropBlurEnabledChanged,
     required this.onBackdropBlurLevelChanged,
     required this.onBackdropBlurOpacityThresholdChanged,
+    required this.onFocusedWindowBorderEnabledChanged,
     required this.onFocusedOpacityChanged,
     required this.onUnfocusedOpacityChanged,
     required this.onCursorSizeChanged,
@@ -76,12 +80,13 @@ class SettingsAppearancePage extends StatelessWidget {
   onColorSchemePreferenceChanged;
   final ValueChanged<ShellAccentSource> onAccentSourceChanged;
   final VoidCallback onOpenAccentPicker;
-  final ValueChanged<double> onWindowRadiusChanged;
-  final ValueChanged<double> onPanelRadiusChanged;
+  final ValueChanged<double> onCornerRadiusScaleChanged;
   final ValueChanged<double> onPanelOpacityChanged;
+  final ValueChanged<double> onCardOpacityChanged;
   final ValueChanged<bool> onBackdropBlurEnabledChanged;
   final ValueChanged<ShellBackdropBlurLevel> onBackdropBlurLevelChanged;
   final ValueChanged<double> onBackdropBlurOpacityThresholdChanged;
+  final ValueChanged<bool> onFocusedWindowBorderEnabledChanged;
   final ValueChanged<double> onFocusedOpacityChanged;
   final ValueChanged<double> onUnfocusedOpacityChanged;
   final ValueChanged<double> onCursorSizeChanged;
@@ -242,40 +247,41 @@ class SettingsAppearancePage extends StatelessWidget {
               child: Column(
                 children: [
                   SettingsSlider(
-                    label: l10n.settingsWindowRadius,
-                    value: settings.windowRadius,
-                    minimum: 0,
-                    maximum: 48,
-                    divisions: 48,
-                    valueLabel: l10n.settingsPixels(
-                      settings.windowRadius.round(),
+                    key: settingsCornerRoundnessSliderKey,
+                    label: l10n.settingsCornerRoundness,
+                    value: settings.cornerRadiusScale,
+                    minimum: ShellRoundness.minimum,
+                    maximum: ShellRoundness.maximum,
+                    divisions: 40,
+                    valueLabel: l10n.settingsPercent(
+                      (settings.cornerRadiusScale * 100).round(),
                     ),
-                    onChanged: onWindowRadiusChanged,
-                  ),
-                  const SizedBox(height: 8),
-                  SettingsSlider(
-                    key: settingsPanelRadiusSliderKey,
-                    label: l10n.settingsPanelRadius,
-                    value: settings.panelRadius,
-                    minimum: 0,
-                    maximum: 56,
-                    divisions: 56,
-                    valueLabel: l10n.settingsPixels(
-                      settings.panelRadius.round(),
-                    ),
-                    onChanged: onPanelRadiusChanged,
+                    onChanged: onCornerRadiusScaleChanged,
                   ),
                   const SizedBox(height: 8),
                   SettingsSlider(
                     label: l10n.settingsPanelOpacity,
                     value: settings.panelOpacity,
-                    minimum: 0.35,
+                    minimum: ShellOpacity.minimumPanel,
                     maximum: 1,
-                    divisions: 65,
+                    divisions: 95,
                     valueLabel: l10n.settingsPercent(
                       (settings.panelOpacity * 100).round(),
                     ),
                     onChanged: onPanelOpacityChanged,
+                  ),
+                  const SizedBox(height: 8),
+                  SettingsSlider(
+                    key: settingsCardOpacitySliderKey,
+                    label: l10n.settingsCardOpacity,
+                    value: settings.cardOpacity,
+                    minimum: ShellOpacity.minimumCard,
+                    maximum: 1,
+                    divisions: 95,
+                    valueLabel: l10n.settingsPercent(
+                      (settings.cardOpacity * 100).round(),
+                    ),
+                    onChanged: onCardOpacityChanged,
                   ),
                 ],
               ),
@@ -298,6 +304,13 @@ class SettingsAppearancePage extends StatelessWidget {
               title: l10n.settingsWindowOpacityTitle,
               child: Column(
                 children: [
+                  SettingsToggle(
+                    label: l10n.settingsFocusedWindowBorder,
+                    description: l10n.settingsFocusedWindowBorderDescription,
+                    value: settings.focusedWindowBorderEnabled,
+                    onChanged: onFocusedWindowBorderEnabledChanged,
+                  ),
+                  const SizedBox(height: 12),
                   SettingsSlider(
                     label: l10n.settingsFocusedWindows,
                     value: settings.focusedWindowOpacity,
@@ -520,7 +533,8 @@ class _CursorThemeCardState extends State<_CursorThemeCard> {
 
   @override
   Widget build(BuildContext context) {
-    final accent = ShellTheme.of(context).accent;
+    final theme = ShellTheme.of(context);
+    final accent = theme.accent;
     final colors = context.shellColors;
     final enabled = widget.enabled;
     return Semantics(
@@ -562,9 +576,14 @@ class _CursorThemeCardState extends State<_CursorThemeCard> {
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: widget.selected
-                    ? accent.withAlpha(34)
-                    : colors.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(12),
+                    ? theme.cardColor(
+                        Color.alphaBlend(
+                          accent.withAlpha(34),
+                          colors.surfaceContainerHigh.withValues(alpha: 1),
+                        ),
+                      )
+                    : theme.cardColor(colors.surfaceContainerHigh),
+                borderRadius: context.shellTheme.borderRadius(12),
                 border: Border.all(
                   color: widget.selected
                       ? accent
@@ -681,7 +700,7 @@ class _WallpaperThumbnail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final radius = BorderRadius.circular(10);
+    final radius = context.shellTheme.borderRadius(10);
     return Semantics(
       image: true,
       label: semanticsLabel,

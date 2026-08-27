@@ -2741,10 +2741,10 @@ abstract class AppLocalizations {
   /// **'Best'**
   String get settingsBackdropBlurLevelBest;
 
-  /// Slider label for the minimum effective window opacity at which backdrop blur is rendered.
+  /// Slider label for the strict final-composition pixel alpha threshold above which backdrop blur is rendered.
   ///
   /// In en, this message translates to:
-  /// **'Minimum window opacity for blur'**
+  /// **'Minimum pixel opacity for blur'**
   String get settingsBackdropBlurOpacityThreshold;
 
   /// English UI text for settingsBackdropDimming.
@@ -2836,6 +2836,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Brightness'**
   String get settingsBrightness;
+
+  /// Opacity of card backgrounds inside shell panels and Settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Card opacity'**
+  String get settingsCardOpacity;
 
   /// English UI text for settingsClockScale.
   ///
@@ -3279,6 +3285,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Focused windows'**
   String get settingsFocusedWindows;
+
+  /// Toggle label for changing the focused window border to the accent colour.
+  ///
+  /// In en, this message translates to:
+  /// **'Highlight the focused window border'**
+  String get settingsFocusedWindowBorder;
+
+  /// Explanation of the focused-window border highlight toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn this off to keep focused and unfocused window borders the same colour.'**
+  String get settingsFocusedWindowBorderDescription;
 
   /// Compact product and section context shown in the Settings header.
   ///
@@ -4972,12 +4990,6 @@ abstract class AppLocalizations {
   /// **'Panel opacity'**
   String get settingsPanelOpacity;
 
-  /// English UI text for settingsPanelRadius.
-  ///
-  /// In en, this message translates to:
-  /// **'Panel radius'**
-  String get settingsPanelRadius;
-
   /// English UI text for settingsPanelTravel.
   ///
   /// In en, this message translates to:
@@ -5053,7 +5065,7 @@ abstract class AppLocalizations {
   /// English UI text for settingsShapeDescription.
   ///
   /// In en, this message translates to:
-  /// **'Tune window and panel corner radii.'**
+  /// **'Scale every shell corner while preserving the hierarchy between windows, panels, cards, and controls.'**
   String get settingsShapeDescription;
 
   /// English UI text for settingsShapeTitle.
@@ -5061,6 +5073,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Shape'**
   String get settingsShapeTitle;
+
+  /// Slider label for the global shell corner-radius scale.
+  ///
+  /// In en, this message translates to:
+  /// **'Corner roundness'**
+  String get settingsCornerRoundness;
 
   /// Title for the desktop-wide colour-scheme preference.
   ///
@@ -5343,12 +5361,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Window opacity'**
   String get settingsWindowOpacityTitle;
-
-  /// English UI text for settingsWindowRadius.
-  ///
-  /// In en, this message translates to:
-  /// **'Window radius'**
-  String get settingsWindowRadius;
 
   /// English UI text for shortDate.
   ///

@@ -92,11 +92,15 @@ class _RangeBarState extends State<RangeBar> {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: widget.inactiveColor,
-                borderRadius: BorderRadius.circular(widget.height / 2),
+                borderRadius: context.shellTheme.borderRadius(
+                  widget.height / 2,
+                ),
                 border: Border.all(color: context.shellColors.hairlineSoft),
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(widget.height / 2),
+                borderRadius: context.shellTheme.borderRadius(
+                  widget.height / 2,
+                ),
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
@@ -116,7 +120,7 @@ class _RangeBarState extends State<RangeBar> {
                       child: DecoratedBox(
                         decoration: BoxDecoration(
                           color: context.shellColors.sliderThumb,
-                          borderRadius: BorderRadius.circular(4),
+                          borderRadius: context.shellTheme.borderRadius(4),
                         ),
                       ),
                     ),

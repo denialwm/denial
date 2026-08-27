@@ -76,15 +76,16 @@ class _DesktopAppSearchField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasQuery = controller.text.isNotEmpty;
-    final accent = ShellTheme.of(context).accentPalette;
+    final theme = ShellTheme.of(context);
+    final accent = theme.accentPalette;
     final l10n = context.l10n;
     return Semantics(
       textField: true,
       label: l10n.desktopSearchApplications,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: context.shellColors.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(ShellRadii.chip),
+          color: theme.cardColor(context.shellColors.surfaceContainerHigh),
+          borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
         ),
         child: Stack(
           children: <Widget>[
@@ -170,7 +171,9 @@ class _DesktopAppSearchField extends StatelessWidget {
                   listenable: focusNode,
                   builder: (context, child) => DecoratedBox(
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(ShellRadii.chip),
+                      borderRadius: context.shellTheme.borderRadius(
+                        ShellRadii.chip,
+                      ),
                       border: Border.all(
                         color: focusNode.hasFocus
                             ? accent.primary
@@ -252,7 +255,8 @@ class _DesktopAppTileState extends State<_DesktopAppTile> {
 
   @override
   Widget build(BuildContext context) {
-    final accent = ShellTheme.of(context).accentPalette;
+    final theme = ShellTheme.of(context);
+    final accent = theme.accentPalette;
     final l10n = context.l10n;
     final highlighted = _selected || _hovered;
     final name = Text(
@@ -287,9 +291,9 @@ class _DesktopAppTileState extends State<_DesktopAppTile> {
               // alpha transition never flashes through neutral grey before
               // reaching the highlighted state.
               color: highlighted
-                  ? accent.container
+                  ? theme.cardColor(accent.container)
                   : accent.container.withValues(alpha: 0),
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: context.shellTheme.borderRadius(18),
               border: _selected ? Border.all(color: accent.primary) : null,
             ),
             child: Column(

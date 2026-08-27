@@ -534,7 +534,9 @@ class _EnvironmentApplicationScopeList extends StatelessWidget {
                     vertical: 10,
                   ),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(ShellRadii.chip),
+                    borderRadius: context.shellTheme.borderRadius(
+                      ShellRadii.chip,
+                    ),
                     borderSide: BorderSide(color: context.shellColors.hairline),
                   ),
                 ),
@@ -669,7 +671,7 @@ class _EnvironmentScopeTile extends StatelessWidget {
             selected: selected,
             selectedTileColor: accent.withValues(alpha: 0.12),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(ShellRadii.chip),
+              borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
               side: BorderSide(
                 color: selected
                     ? accent.withValues(alpha: 0.72)
@@ -734,7 +736,7 @@ class _EnvironmentCountBadge extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: ShellTheme.of(context).accent.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(ShellRadii.chip),
+        borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
         border: Border.all(
           color: ShellTheme.of(context).accent.withValues(alpha: 0.45),
         ),
@@ -889,7 +891,7 @@ class _EnvironmentModeTabs extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: context.shellColors.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(ShellRadii.chip),
+          borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
           border: Border.all(color: context.shellColors.hairline),
         ),
         child: Padding(
@@ -987,7 +989,9 @@ class _EnvironmentModeTabState extends State<_EnvironmentModeTab> {
                   : (_hovered || _focused)
                   ? context.shellColors.surfaceContainerHighest
                   : null,
-              borderRadius: BorderRadius.circular(ShellRadii.chip - 3),
+              borderRadius: context.shellTheme.borderRadius(
+                ShellRadii.chip - 3,
+              ),
               border: Border.all(
                 color: widget.selected || _focused
                     ? widget.color.withValues(alpha: 0.8)
@@ -1256,7 +1260,7 @@ class _EnvironmentStatusMarker extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(7),
+          borderRadius: context.shellTheme.borderRadius(7),
           border: Border.all(color: color.withValues(alpha: 0.62)),
         ),
         child: SizedBox.square(
@@ -1335,14 +1339,14 @@ class _EnvironmentTextField extends StatelessWidget {
             vertical: 12,
           ),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(ShellRadii.chip),
+            borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(ShellRadii.chip),
+            borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
             borderSide: BorderSide(color: context.shellColors.hairline),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(ShellRadii.chip),
+            borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
             borderSide: BorderSide(color: accent),
           ),
         ),

@@ -407,7 +407,7 @@ class _DesktopUnlockPrompt extends StatelessWidget {
                           DecoratedBox(
                             decoration: BoxDecoration(
                               color: accent.primary,
-                              borderRadius: BorderRadius.circular(16),
+                              borderRadius: context.shellTheme.borderRadius(16),
                             ),
                             child: Padding(
                               padding: const EdgeInsets.symmetric(

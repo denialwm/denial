@@ -169,8 +169,10 @@ class _BatteryNotice extends StatelessWidget {
       excludeSemantics: true,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: context.shellColors.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(ShellRadii.chip),
+          color: context.shellTheme.cardColor(
+            context.shellColors.surfaceContainerHigh,
+          ),
+          borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
           border: Border.all(color: context.shellColors.hairlineSoft),
         ),
         child: Padding(
@@ -230,8 +232,10 @@ class _BatteryPanel extends StatelessWidget {
       explicitChildNodes: true,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: context.shellColors.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(ShellRadii.tile),
+          color: context.shellTheme.cardColor(
+            context.shellColors.surfaceContainerHigh,
+          ),
+          borderRadius: context.shellTheme.borderRadius(ShellRadii.tile),
           border: Border.all(color: context.shellColors.hairlineSoft),
         ),
         child: Padding(
@@ -361,7 +365,7 @@ class _BatteryLevelIndicator extends StatelessWidget {
       label: l10n.settingsBatteryChargeLevel,
       value: l10n.settingsPercent(percentage.round()),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(ShellRadii.chip),
+        borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
         child: LinearProgressIndicator(
           value: percentage / 100,
           minHeight: 6,
@@ -413,7 +417,7 @@ class _BatteryMetricTile extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: context.shellColors.surfaceContainer,
-        borderRadius: BorderRadius.circular(ShellRadii.chip),
+        borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
         border: Border.all(color: context.shellColors.hairlineSoft),
       ),
       child: Padding(
@@ -534,7 +538,7 @@ class _ThresholdChip extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: accent.withAlpha(20),
-        borderRadius: BorderRadius.circular(ShellRadii.chip),
+        borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
         border: Border.all(color: accent.withAlpha(70)),
       ),
       child: Padding(

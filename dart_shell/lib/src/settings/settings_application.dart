@@ -185,7 +185,9 @@ class _DenialSettingsApplicationState
       role: .main,
       label: context.l10n.settingsApplicationSemanticsLabel,
       child: Material(
-        color: context.shellColors.background.withValues(alpha: 0.74),
+        color: context.shellTheme.panelColor(
+          context.shellColors.panelBackground,
+        ),
         child: LayoutBuilder(
           builder: (context, constraints) {
             final compactNavigation = constraints.maxWidth < 700;
@@ -361,13 +363,15 @@ class _SettingsPageBody extends ConsumerWidget {
           onColorSchemePreferenceChanged: controller.setColorSchemePreference,
           onAccentSourceChanged: controller.setAccentSource,
           onOpenAccentPicker: onOpenAccentPicker,
-          onWindowRadiusChanged: controller.setWindowRadius,
-          onPanelRadiusChanged: controller.setPanelRadius,
+          onCornerRadiusScaleChanged: controller.setCornerRadiusScale,
           onPanelOpacityChanged: controller.setPanelOpacity,
+          onCardOpacityChanged: controller.setCardOpacity,
           onBackdropBlurEnabledChanged: controller.setBackdropBlurEnabled,
           onBackdropBlurLevelChanged: controller.setBackdropBlurLevel,
           onBackdropBlurOpacityThresholdChanged:
               controller.setBackdropBlurOpacityThreshold,
+          onFocusedWindowBorderEnabledChanged:
+              controller.setFocusedWindowBorderEnabled,
           onFocusedOpacityChanged: controller.setFocusedWindowOpacity,
           onUnfocusedOpacityChanged: controller.setUnfocusedWindowOpacity,
           onCursorSizeChanged: controller.setCursorSize,

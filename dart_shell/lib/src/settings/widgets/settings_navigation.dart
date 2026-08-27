@@ -247,7 +247,7 @@ class _NavigationDestinationState extends State<_NavigationDestination> {
               color: widget.selected
                   ? accent.withAlpha(36)
                   : ShellMediaColors.transparentDark,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: context.shellTheme.borderRadius(12),
               border: Border.all(
                 color: widget.selected
                     ? accent.withAlpha(112)
@@ -267,7 +267,7 @@ class _NavigationDestinationState extends State<_NavigationDestination> {
                           color: widget.selected
                               ? accent.withAlpha(20)
                               : context.shellColors.surfaceContainerHigh,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: context.shellTheme.borderRadius(12),
                           border: _focused ? Border.all(color: accent) : null,
                         ),
                       ),

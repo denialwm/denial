@@ -84,7 +84,7 @@ class _BatteryActionCardState extends State<_BatteryActionCard> {
           type: MaterialType.transparency,
           child: InkWell(
             key: systemBarBatteryButtonKey,
-            borderRadius: const BorderRadius.all(Radius.circular(999)),
+            borderRadius: context.shellTheme.borderRadius(999),
             mouseCursor: ShellMouseCursors.link,
             splashFactory: NoSplash.splashFactory,
             overlayColor: WidgetStatePropertyAll(
@@ -135,6 +135,7 @@ class _BatteryModule extends StatelessWidget {
                 accent: context.shellTheme.accent,
                 outline: accent.captionColor(context.shellTheme),
                 foreground: context.shellColors.textPrimary,
+                cornerRadiusScale: context.shellTheme.cornerRadiusScale,
               ),
             ),
           ),
@@ -276,8 +277,8 @@ class _SystemBarCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const radius = BorderRadius.all(Radius.circular(999));
     final theme = ShellTheme.of(context);
+    final radius = theme.borderRadius(999);
     final cardFillTop = accent.cardFillTop(theme);
     final cardFill = accent.cardFill(theme);
     final topFill = highlighted
@@ -287,6 +288,7 @@ class _SystemBarCard extends StatelessWidget {
         ? Color.lerp(cardFill, theme.accent, 0.08)!
         : cardFill;
     return ShellBackdropBlur(
+      blur: theme.effectiveCardOpacity < 1.0,
       borderRadius: radius,
       child: AnimatedContainer(
         duration: Motion.wallpaperReveal,
@@ -296,7 +298,7 @@ class _SystemBarCard extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [theme.panelColor(topFill), theme.panelColor(bottomFill)],
+            colors: [theme.cardColor(topFill), theme.cardColor(bottomFill)],
           ),
           borderRadius: radius,
           border: focused
@@ -447,6 +449,7 @@ class _BatteryLevelPainter extends CustomPainter {
     required this.accent,
     required this.outline,
     required this.foreground,
+    required this.cornerRadiusScale,
   });
 
   final double level;
@@ -454,12 +457,13 @@ class _BatteryLevelPainter extends CustomPainter {
   final Color accent;
   final Color outline;
   final Color foreground;
+  final double cornerRadiusScale;
 
   @override
   void paint(Canvas canvas, Size size) {
     final body = RRect.fromRectAndRadius(
       Rect.fromLTWH(0.75, 1.25, size.width - 4.0, size.height - 2.5),
-      const Radius.circular(3.0),
+      Radius.circular(3.0 * cornerRadiusScale),
     );
     canvas.drawRRect(
       body,
@@ -476,7 +480,7 @@ class _BatteryLevelPainter extends CustomPainter {
           1.8,
           size.height * 0.32,
         ),
-        const Radius.circular(0.8),
+        Radius.circular(0.8 * cornerRadiusScale),
       ),
       Paint()..color = outline,
     );
@@ -489,7 +493,10 @@ class _BatteryLevelPainter extends CustomPainter {
     );
     if (fillBounds.width > 0.0) {
       canvas.drawRRect(
-        RRect.fromRectAndRadius(fillBounds, const Radius.circular(1.5)),
+        RRect.fromRectAndRadius(
+          fillBounds,
+          Radius.circular(1.5 * cornerRadiusScale),
+        ),
         Paint()..color = accent,
       );
     }
@@ -514,7 +521,8 @@ class _BatteryLevelPainter extends CustomPainter {
         oldDelegate.charging != charging ||
         oldDelegate.accent != accent ||
         oldDelegate.outline != outline ||
-        oldDelegate.foreground != foreground;
+        oldDelegate.foreground != foreground ||
+        oldDelegate.cornerRadiusScale != cornerRadiusScale;
   }
 }
 

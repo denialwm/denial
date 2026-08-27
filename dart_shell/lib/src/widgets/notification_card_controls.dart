@@ -40,7 +40,9 @@ class _NotificationActivatorState extends State<_NotificationActivator> {
         onTap: widget.onActivate,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(ShellRadii.notification),
+            borderRadius: context.shellTheme.borderRadius(
+              ShellRadii.notification,
+            ),
             border: _focused
                 ? Border.all(color: ShellTheme.of(context).accent, width: 1.5)
                 : null,
@@ -106,7 +108,7 @@ class _NotificationActionButtonState extends State<_NotificationActionButton> {
               color: _hovered || _focused
                   ? context.shellTheme.accentPalette.container
                   : context.shellColors.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: context.shellTheme.borderRadius(12),
               border: Border.all(
                 color: _focused
                     ? ShellTheme.of(context).accent
@@ -180,7 +182,7 @@ class _NotificationIconButtonState extends State<_NotificationIconButton> {
               color: _hovered || _focused
                   ? context.shellColors.surfaceContainerHighest
                   : ShellMediaColors.transparentDark,
-              borderRadius: BorderRadius.circular(11),
+              borderRadius: context.shellTheme.borderRadius(11),
               border: _focused
                   ? Border.all(color: ShellTheme.of(context).accent)
                   : null,

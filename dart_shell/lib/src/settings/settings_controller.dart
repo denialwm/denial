@@ -10,6 +10,7 @@ import '../models/shell_popup_placement.dart';
 import '../state/desktop_window_close_effect.dart';
 import '../theme/backdrop_blur_level.dart';
 import '../theme/cursor_themes.dart';
+import '../theme/tokens.dart';
 import '../state/shell_controller.dart';
 import '../platform/denial_bridge.dart';
 import 'settings_store.dart';
@@ -200,16 +201,24 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     );
   }
 
-  void setWindowRadius(double value) {
-    _updateAppearance(windowRadius: value.clamp(0, 48).toDouble());
-  }
-
-  void setPanelRadius(double value) {
-    _updateAppearance(panelRadius: value.clamp(0, 56).toDouble());
+  void setCornerRadiusScale(double value) {
+    _updateAppearance(
+      cornerRadiusScale: value
+          .clamp(ShellRoundness.minimum, ShellRoundness.maximum)
+          .toDouble(),
+    );
   }
 
   void setPanelOpacity(double value) {
-    _updateAppearance(panelOpacity: value.clamp(0.35, 1).toDouble());
+    _updateAppearance(
+      panelOpacity: value.clamp(ShellOpacity.minimumPanel, 1).toDouble(),
+    );
+  }
+
+  void setCardOpacity(double value) {
+    _updateAppearance(
+      cardOpacity: value.clamp(ShellOpacity.minimumCard, 1).toDouble(),
+    );
   }
 
   void setBackdropBlurEnabled(bool value) {
@@ -224,6 +233,10 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     _updateAppearance(
       backdropBlurOpacityThreshold: value.clamp(0, 1).toDouble(),
     );
+  }
+
+  void setFocusedWindowBorderEnabled(bool value) {
+    _updateAppearance(focusedWindowBorderEnabled: value);
   }
 
   void setFocusedWindowOpacity(double value) {
@@ -536,12 +549,13 @@ class ShellSettingsController extends Notifier<ShellSettings> {
   }
 
   void _updateAppearance({
-    double? windowRadius,
-    double? panelRadius,
+    double? cornerRadiusScale,
     double? panelOpacity,
+    double? cardOpacity,
     bool? backdropBlurEnabled,
     ShellBackdropBlurLevel? backdropBlurLevel,
     double? backdropBlurOpacityThreshold,
+    bool? focusedWindowBorderEnabled,
     double? focusedWindowOpacity,
     double? unfocusedWindowOpacity,
     double? cursorSize,
@@ -551,12 +565,13 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     _update(
       state.copyWith(
         appearance: state.appearance.copyWith(
-          windowRadius: windowRadius,
-          panelRadius: panelRadius,
+          cornerRadiusScale: cornerRadiusScale,
           panelOpacity: panelOpacity,
+          cardOpacity: cardOpacity,
           backdropBlurEnabled: backdropBlurEnabled,
           backdropBlurLevel: backdropBlurLevel,
           backdropBlurOpacityThreshold: backdropBlurOpacityThreshold,
+          focusedWindowBorderEnabled: focusedWindowBorderEnabled,
           focusedWindowOpacity: focusedWindowOpacity,
           unfocusedWindowOpacity: unfocusedWindowOpacity,
           cursorSize: cursorSize,

@@ -123,7 +123,7 @@ class _WallpaperTargetButtonState extends State<_WallpaperTargetButton> {
                   : highlighted
                   ? context.shellColors.surfaceContainerHighest
                   : context.shellColors.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(ShellRadii.chip),
+              borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
               border: Border.all(
                 color: highlighted || selected
                     ? accent.primary

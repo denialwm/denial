@@ -8,10 +8,7 @@ import '../state/shell_controller.dart';
 /// Custom shell features can watch this provider without reproducing Denial's
 /// filtering rules for protocol helper surfaces.
 final userAppWindowsProvider = Provider<List<DenialWindow>>((ref) {
-  final windows = ref.watch(
-    shellControllerProvider.select((state) => state.windows),
-  );
-  return List<DenialWindow>.unmodifiable(
-    windows.where((window) => window.isUserApp),
+  return ref.watch(
+    shellControllerProvider.select((state) => state.openAppWindows),
   );
 });

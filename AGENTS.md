@@ -158,6 +158,9 @@ advancing `SOURCE_LOCK.json`, run
 all modes' tracked `args.gn` and canonical checksums, builds the invalidated
 targets, populates the new immutable cache entry, and stages its artifacts.
 Never repair an expected checksum one mode at a time.
+Before committing a lock advance, refresh both package manifests and run
+`tools/denial-release source-audit --branch dev`.
+Before pushing Denial, verify every locked fork commit exists on its remote.
 
 Iterate on local engine experiments before advancing the source lock or
 running that full release procedure. Use only the release-engine fast path:

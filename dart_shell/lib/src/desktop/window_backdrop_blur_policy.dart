@@ -1,18 +1,16 @@
 import '../models/denial_window.dart';
 
-bool desktopWindowBackdropBlurEnabled({
+bool desktopWindowNeedsBackdropTexture({
   required DenialWindow window,
   required double shellOpacity,
-  required double opacityThreshold,
   bool localContentTranslucent = false,
 }) {
-  final effectiveOpacity = (shellOpacity * window.opacity).clamp(0.0, 1.0);
-  final threshold = opacityThreshold.clamp(0.0, 1.0);
-  if (effectiveOpacity <= 0.0 || effectiveOpacity < threshold) {
+  if (shellOpacity <= 0.0) {
     return false;
   }
 
-  return localContentTranslucent ||
-      (!window.isLocalFlutter && window.isContentTranslucent) ||
-      shellOpacity < 1.0;
+  if (window.isLocalFlutter) {
+    return localContentTranslucent || shellOpacity < 1.0;
+  }
+  return !window.isOpaque || shellOpacity < 1.0;
 }

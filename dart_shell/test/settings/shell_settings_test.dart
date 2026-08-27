@@ -3,6 +3,7 @@ import 'package:denial_dart_shell/src/models/shell_popup_placement.dart';
 import 'package:denial_dart_shell/src/settings/shell_settings.dart';
 import 'package:denial_dart_shell/src/theme/backdrop_blur_level.dart';
 import 'package:denial_dart_shell/src/theme/cursor_themes.dart';
+import 'package:denial_dart_shell/src/theme/tokens.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -16,12 +17,12 @@ void main() {
         colorSchemePreference: DesktopColorSchemePreference.preferLight,
         accentSource: ShellAccentSource.custom,
         customAccentColor: Color(0xffc062ff),
-        windowRadius: 23,
-        panelRadius: 31,
+        cornerRadiusScale: 1.35,
         panelOpacity: 0.78,
         backdropBlurEnabled: false,
         backdropBlurLevel: ShellBackdropBlurLevel.best,
         backdropBlurOpacityThreshold: 0.18,
+        focusedWindowBorderEnabled: false,
         focusedWindowOpacity: 0.96,
         unfocusedWindowOpacity: 0.72,
         cursorSize: 44,
@@ -123,8 +124,8 @@ void main() {
 
     expect(settings.localization.locale, ShellLocalePreference.system);
     expect(settings.appearance.accentSource, ShellAccentSource.wallpaper);
-    expect(settings.appearance.windowRadius, 48);
-    expect(settings.appearance.panelOpacity, 0.35);
+    expect(settings.appearance.cornerRadiusScale, ShellRoundness.maximum);
+    expect(settings.appearance.panelOpacity, ShellOpacity.minimumPanel);
     expect(settings.appearance.cursorSize, shellCursorMaximumSize);
     expect(settings.appearance.cursorThemeId, 'bibata_modern_ice');
     expect(settings.appearance.allowClientCursorSurfaces, isTrue);
@@ -135,5 +136,16 @@ void main() {
     expect(settings.layout.clipboardTrayExtent, clipboardTrayMaximumExtent);
     expect(settings.power.idleDpmsEnabled, isTrue);
     expect(settings.power.idleDpmsTimeoutMinutes, 120);
+  });
+
+  test('legacy panel radius migrates to the global roundness scale', () {
+    final settings = ShellSettings.fromJson(<String, dynamic>{
+      'appearance': <String, dynamic>{'panelRadius': 42},
+    });
+
+    expect(settings.appearance.cornerRadiusScale, 1.5);
+    final appearance = settings.toJson()['appearance']! as Map<String, Object>;
+    expect(appearance.containsKey('windowRadius'), isFalse);
+    expect(appearance.containsKey('panelRadius'), isFalse);
   });
 }

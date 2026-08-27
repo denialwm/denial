@@ -453,7 +453,7 @@ stage_engine_test() {
     printf 'Building only the release Flutter engine at %.12s...\n' "$revision"
     PATH="$ENGINE_TEST_SOURCE_ROOT/engine/src/flutter/third_party/depot_tools:$PATH" \
         /usr/bin/ninja -C "$ENGINE_TEST_NINJA_OUT" \
-        -j "$BUILD_JOBS" libflutter_engine.so
+        -j "$BUILD_JOBS" libflutter_engine.so flutter_patched_sdk
     require_file "$engine_source"
     [[ "$revision" == "$(git -C "$ENGINE_TEST_SOURCE_ROOT" rev-parse HEAD)" ]] \
         || die "Flutter revision changed while the engine was building"

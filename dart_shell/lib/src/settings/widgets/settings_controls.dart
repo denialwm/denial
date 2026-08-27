@@ -29,7 +29,8 @@ class SettingsPageLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = ShellTheme.of(context).accent;
+    final theme = ShellTheme.of(context);
+    final accent = theme.accent;
     return LayoutBuilder(
       builder: (context, constraints) {
         final horizontalPadding = constraints.maxWidth < 560 ? 14.0 : 20.0;
@@ -116,7 +117,7 @@ class SettingsSavedBadge extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: context.shellColors.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(ShellRadii.chip),
+          borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
           border: Border.all(color: context.shellColors.hairlineSoft),
         ),
         child: Padding(
@@ -160,7 +161,7 @@ class SettingsCardGroup extends StatelessWidget {
     final radius = BorderRadius.circular(theme.panelRadius);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: theme.panelColor(context.shellColors.surfaceContainerLow),
+        color: theme.cardColor(context.shellColors.surfaceContainerLow),
         borderRadius: radius,
         border: Border.all(color: context.shellColors.hairline),
       ),
@@ -280,7 +281,8 @@ class SettingsSlider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = ShellTheme.of(context).accent;
+    final theme = ShellTheme.of(context);
+    final accent = theme.accent;
     final displayValue = valueLabel ?? value.toStringAsFixed(0);
     return Semantics(
       slider: true,
@@ -320,6 +322,19 @@ class SettingsSlider extends StatelessWidget {
                 thumbColor: context.shellColors.sliderThumb,
                 overlayColor: accent.withAlpha(32),
                 trackHeight: 5,
+                trackShape: _SettingsSliderTrackShape(
+                  cornerRadiusScale: theme.cornerRadiusScale,
+                ),
+                thumbShape: _SettingsSliderThumbShape(
+                  cornerRadiusScale: theme.cornerRadiusScale,
+                  shadowColor: context.shellColors.shadow,
+                ),
+                overlayShape: _SettingsSliderOverlayShape(
+                  cornerRadiusScale: theme.cornerRadiusScale,
+                ),
+                tickMarkShape: _SettingsSliderTickMarkShape(
+                  cornerRadiusScale: theme.cornerRadiusScale,
+                ),
               ),
               child: Slider(
                 value: value.clamp(minimum, maximum).toDouble(),
@@ -388,7 +403,8 @@ class SettingsToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = ShellTheme.of(context).accent;
+    final theme = ShellTheme.of(context);
+    final accent = theme.accent;
     return Semantics(
       button: true,
       enabled: enabled,
@@ -450,7 +466,7 @@ class SettingsToggle extends StatelessWidget {
                     color: value
                         ? accent
                         : context.shellColors.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(99),
+                    borderRadius: context.shellTheme.borderRadius(99),
                     border: Border.all(
                       color: value ? accent : context.shellColors.hairline,
                     ),
@@ -458,7 +474,7 @@ class SettingsToggle extends StatelessWidget {
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       color: context.shellColors.sliderThumb,
-                      shape: BoxShape.circle,
+                      borderRadius: theme.borderRadius(8.5),
                     ),
                     child: SizedBox.square(dimension: 17),
                   ),
@@ -471,6 +487,252 @@ class SettingsToggle extends StatelessWidget {
     );
   }
 }
+
+class _SettingsSliderTrackShape extends SliderTrackShape
+    with BaseSliderTrackShape {
+  const _SettingsSliderTrackShape({required this.cornerRadiusScale});
+
+  final double cornerRadiusScale;
+
+  @override
+  bool get isRounded => cornerRadiusScale > 0;
+
+  @override
+  void paint(
+    PaintingContext context,
+    Offset offset, {
+    required RenderBox parentBox,
+    required SliderThemeData sliderTheme,
+    required Animation<double> enableAnimation,
+    required Offset thumbCenter,
+    Offset? secondaryOffset,
+    bool isEnabled = false,
+    bool isDiscrete = false,
+    required TextDirection textDirection,
+  }) {
+    final trackHeight = sliderTheme.trackHeight;
+    if (trackHeight == null || trackHeight <= 0) {
+      return;
+    }
+    final trackRect = getPreferredRect(
+      parentBox: parentBox,
+      offset: offset,
+      sliderTheme: sliderTheme,
+      isEnabled: isEnabled,
+      isDiscrete: isDiscrete,
+    );
+    final radius = Radius.circular(
+      _scaledControlRadius(trackRect.height / 2, cornerRadiusScale),
+    );
+    final activePaint = Paint()
+      ..color = ColorTween(
+        begin: sliderTheme.disabledActiveTrackColor,
+        end: sliderTheme.activeTrackColor,
+      ).evaluate(enableAnimation)!;
+    final inactivePaint = Paint()
+      ..color = ColorTween(
+        begin: sliderTheme.disabledInactiveTrackColor,
+        end: sliderTheme.inactiveTrackColor,
+      ).evaluate(enableAnimation)!;
+    final canvas = context.canvas;
+    canvas.drawRRect(RRect.fromRectAndRadius(trackRect, radius), inactivePaint);
+
+    final thumbX = thumbCenter.dx.clamp(trackRect.left, trackRect.right);
+    final activeRect = textDirection == TextDirection.ltr
+        ? Rect.fromLTRB(trackRect.left, trackRect.top, thumbX, trackRect.bottom)
+        : Rect.fromLTRB(
+            thumbX,
+            trackRect.top,
+            trackRect.right,
+            trackRect.bottom,
+          );
+    if (!activeRect.isEmpty) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(activeRect, radius),
+        activePaint,
+      );
+    }
+
+    final secondaryColor = ColorTween(
+      begin: sliderTheme.disabledSecondaryActiveTrackColor,
+      end: sliderTheme.secondaryActiveTrackColor,
+    ).evaluate(enableAnimation);
+    if (secondaryOffset == null || secondaryColor == null) {
+      return;
+    }
+    final secondaryX = secondaryOffset.dx.clamp(
+      trackRect.left,
+      trackRect.right,
+    );
+    final secondaryRect = textDirection == TextDirection.ltr
+        ? Rect.fromLTRB(thumbX, trackRect.top, secondaryX, trackRect.bottom)
+        : Rect.fromLTRB(secondaryX, trackRect.top, thumbX, trackRect.bottom);
+    if (!secondaryRect.isEmpty) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(secondaryRect, radius),
+        Paint()..color = secondaryColor,
+      );
+    }
+  }
+}
+
+class _SettingsSliderThumbShape extends SliderComponentShape {
+  const _SettingsSliderThumbShape({
+    required this.cornerRadiusScale,
+    required this.shadowColor,
+  });
+
+  static const double _extent = 20;
+
+  final double cornerRadiusScale;
+  final Color shadowColor;
+
+  @override
+  Size getPreferredSize(bool isEnabled, bool isDiscrete) =>
+      const Size.square(_extent);
+
+  @override
+  void paint(
+    PaintingContext context,
+    Offset center, {
+    required Animation<double> activationAnimation,
+    required Animation<double> enableAnimation,
+    required bool isDiscrete,
+    required TextPainter labelPainter,
+    required RenderBox parentBox,
+    required SliderThemeData sliderTheme,
+    required TextDirection textDirection,
+    required double value,
+    required double textScaleFactor,
+    required Size sizeWithOverflow,
+  }) {
+    final color = ColorTween(
+      begin: sliderTheme.disabledThumbColor,
+      end: sliderTheme.thumbColor,
+    ).evaluate(enableAnimation)!;
+    final rect = Rect.fromCenter(
+      center: center,
+      width: _extent,
+      height: _extent,
+    );
+    final shape = RRect.fromRectAndRadius(
+      rect,
+      Radius.circular(_scaledControlRadius(_extent / 2, cornerRadiusScale)),
+    );
+    final canvas = context.canvas;
+    canvas.drawShadow(
+      Path()..addRRect(shape),
+      shadowColor,
+      1 + 5 * activationAnimation.value,
+      true,
+    );
+    canvas.drawRRect(shape, Paint()..color = color);
+  }
+}
+
+class _SettingsSliderOverlayShape extends SliderComponentShape {
+  const _SettingsSliderOverlayShape({required this.cornerRadiusScale});
+
+  static const double _extent = 40;
+
+  final double cornerRadiusScale;
+
+  @override
+  Size getPreferredSize(bool isEnabled, bool isDiscrete) =>
+      const Size.square(_extent);
+
+  @override
+  void paint(
+    PaintingContext context,
+    Offset center, {
+    required Animation<double> activationAnimation,
+    required Animation<double> enableAnimation,
+    required bool isDiscrete,
+    required TextPainter labelPainter,
+    required RenderBox parentBox,
+    required SliderThemeData sliderTheme,
+    required TextDirection textDirection,
+    required double value,
+    required double textScaleFactor,
+    required Size sizeWithOverflow,
+  }) {
+    final overlayColor = sliderTheme.overlayColor;
+    final opacity = activationAnimation.value;
+    if (overlayColor == null || opacity <= 0) {
+      return;
+    }
+    final rect = Rect.fromCenter(
+      center: center,
+      width: _extent,
+      height: _extent,
+    );
+    context.canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        rect,
+        Radius.circular(_scaledControlRadius(_extent / 2, cornerRadiusScale)),
+      ),
+      Paint()..color = overlayColor.withValues(alpha: overlayColor.a * opacity),
+    );
+  }
+}
+
+class _SettingsSliderTickMarkShape extends SliderTickMarkShape {
+  const _SettingsSliderTickMarkShape({required this.cornerRadiusScale});
+
+  final double cornerRadiusScale;
+
+  @override
+  Size getPreferredSize({
+    required SliderThemeData sliderTheme,
+    required bool isEnabled,
+  }) {
+    final extent = (sliderTheme.trackHeight ?? 0) / 2;
+    return Size.square(extent);
+  }
+
+  @override
+  void paint(
+    PaintingContext context,
+    Offset center, {
+    required RenderBox parentBox,
+    required SliderThemeData sliderTheme,
+    required Animation<double> enableAnimation,
+    required Offset thumbCenter,
+    required bool isEnabled,
+    required TextDirection textDirection,
+  }) {
+    final inactive = switch (textDirection) {
+      TextDirection.ltr => center.dx > thumbCenter.dx,
+      TextDirection.rtl => center.dx < thumbCenter.dx,
+    };
+    final color = ColorTween(
+      begin: inactive
+          ? sliderTheme.disabledInactiveTickMarkColor
+          : sliderTheme.disabledActiveTickMarkColor,
+      end: inactive
+          ? sliderTheme.inactiveTickMarkColor
+          : sliderTheme.activeTickMarkColor,
+    ).evaluate(enableAnimation);
+    final extent = getPreferredSize(
+      sliderTheme: sliderTheme,
+      isEnabled: isEnabled,
+    ).width;
+    if (color == null || extent <= 0) {
+      return;
+    }
+    final rect = Rect.fromCenter(center: center, width: extent, height: extent);
+    context.canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        rect,
+        Radius.circular(_scaledControlRadius(extent / 2, cornerRadiusScale)),
+      ),
+      Paint()..color = color,
+    );
+  }
+}
+
+double _scaledControlRadius(double maximum, double scale) =>
+    (maximum * scale).clamp(0.0, maximum).toDouble();
 
 class SettingsChoice<T> {
   const SettingsChoice(this.value, this.label);
@@ -537,7 +799,7 @@ class SettingsColorButton extends StatelessWidget {
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: context.shellColors.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(ShellRadii.chip),
+            borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
             border: Border.all(color: context.shellColors.hairline),
           ),
           child: Padding(
@@ -701,7 +963,7 @@ class _SettingsChoiceChipState extends State<_SettingsChoiceChip> {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: context.shellColors.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(ShellRadii.chip),
+                borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
                 border: Border.all(color: context.shellColors.hairline),
               ),
               child: Stack(
@@ -715,7 +977,7 @@ class _SettingsChoiceChipState extends State<_SettingsChoiceChip> {
                         child: DecoratedBox(
                           decoration: BoxDecoration(
                             color: accent.withAlpha(42),
-                            borderRadius: BorderRadius.circular(
+                            borderRadius: context.shellTheme.borderRadius(
                               ShellRadii.chip,
                             ),
                             border: Border.all(color: accent),
@@ -735,7 +997,7 @@ class _SettingsChoiceChipState extends State<_SettingsChoiceChip> {
                         child: DecoratedBox(
                           decoration: BoxDecoration(
                             color: context.shellColors.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(
+                            borderRadius: context.shellTheme.borderRadius(
                               ShellRadii.chip,
                             ),
                             border: Border.all(
@@ -799,7 +1061,7 @@ class _AnchorButton extends StatelessWidget {
             color: selected
                 ? accent.withAlpha(46)
                 : context.shellColors.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: context.shellTheme.borderRadius(8),
             border: Border.all(
               color: selected ? accent : context.shellColors.hairline,
             ),

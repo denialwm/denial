@@ -96,13 +96,15 @@ class _DesktopHomeWidget extends StatelessWidget {
       child: item.type == HomeGridItemType.clock
           ? content
           : ShellBackdropBlur(
-              blur: theme.panelOpacity < 1.0,
+              blur: theme.effectiveCardOpacity < 1.0,
               grouped: true,
-              borderRadius: BorderRadius.circular(ShellRadii.tile),
+              borderRadius: context.shellTheme.borderRadius(ShellRadii.tile),
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  color: theme.panelColor(context.shellColors.panelBackground),
-                  borderRadius: BorderRadius.circular(ShellRadii.tile),
+                  color: theme.cardColor(context.shellColors.panelBackground),
+                  borderRadius: context.shellTheme.borderRadius(
+                    ShellRadii.tile,
+                  ),
                   border: Border.all(color: context.shellColors.hairlineSoft),
                 ),
                 child: content,
@@ -231,6 +233,8 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
                         alignSizeToDevicePixels: true,
                         child: ShellBackdropBlur(
                           blur: !layer.opaque || layer.opacity < 1.0,
+                          useWindowAlphaThreshold: true,
+                          singleWindowSurface: true,
                           child: SurfaceLayerTexture(
                             layer: layer,
                             filterQuality: filterQuality,

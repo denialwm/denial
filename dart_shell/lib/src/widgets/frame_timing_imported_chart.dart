@@ -25,6 +25,7 @@ class _ImportedTextureFrameTimeOverlay extends StatelessWidget {
                 stats: sampler.stats,
                 l10n: context.l10n,
                 colors: context.shellColors,
+                cornerRadiusScale: context.shellTheme.cornerRadiusScale,
               ),
             ),
           );
@@ -168,12 +169,14 @@ class _ImportedFrameTimePainter extends CustomPainter {
     required this.stats,
     required this.l10n,
     required this.colors,
+    required this.cornerRadiusScale,
   });
 
   final String title;
   final _ImportedFrameStats stats;
   final AppLocalizations l10n;
   final ShellColorScheme colors;
+  final double cornerRadiusScale;
 
   TextStyle get _labelStyle => TextStyle(
     color: colors.textSecondary,
@@ -194,7 +197,10 @@ class _ImportedFrameTimePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final bounds = Offset.zero & size;
-    final panel = RRect.fromRectAndRadius(bounds, const Radius.circular(10));
+    final panel = RRect.fromRectAndRadius(
+      bounds,
+      Radius.circular(10 * cornerRadiusScale),
+    );
     canvas.drawRRect(panel, Paint()..color = colors.panelBackground);
     canvas.drawRRect(
       panel.deflate(0.5),
@@ -250,7 +256,7 @@ class _ImportedFrameTimePainter extends CustomPainter {
 
   void _paintGraph(Canvas canvas, Rect rect) {
     canvas.drawRRect(
-      RRect.fromRectAndRadius(rect, const Radius.circular(4)),
+      RRect.fromRectAndRadius(rect, Radius.circular(4 * cornerRadiusScale)),
       Paint()..color = colors.background.withValues(alpha: 0.62),
     );
     if (stats.samples.isEmpty) {
@@ -338,6 +344,7 @@ class _ImportedFrameTimePainter extends CustomPainter {
     return oldDelegate.title != title ||
         oldDelegate.stats != stats ||
         oldDelegate.l10n.localeName != l10n.localeName ||
-        oldDelegate.colors != colors;
+        oldDelegate.colors != colors ||
+        oldDelegate.cornerRadiusScale != cornerRadiusScale;
   }
 }

@@ -34,6 +34,7 @@ class _ClipboardTraySurface extends ConsumerWidget {
 
     return RepaintBoundary(
       child: ShellBackdropBlur(
+        blur: shellTheme.effectivePanelOpacity < 1.0,
         borderRadius: radius,
         child: Material(
           color: ShellMediaColors.transparentDark,
@@ -69,18 +70,6 @@ class _ClipboardTraySurface extends ConsumerWidget {
                   ),
                 ],
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: accent.primary.withValues(alpha: 0.14),
-                  blurRadius: 32,
-                  spreadRadius: -8,
-                ),
-                BoxShadow(
-                  color: context.shellColors.shadow,
-                  blurRadius: 36,
-                  spreadRadius: -12,
-                ),
-              ],
             ),
             child: Stack(
               children: [
@@ -247,18 +236,20 @@ class _ClipboardHistoryBody extends StatelessWidget {
       );
     }
 
-    final entries = <ClipboardHistoryEntry>[
-      ...state.entries.where((entry) => entry.pinned),
-      ...state.entries.where((entry) => !entry.pinned),
-    ];
-    final clearable = entries.any((entry) => !entry.pinned);
+    final pinnedEntries = <ClipboardHistoryEntry>[];
+    final unpinnedEntries = <ClipboardHistoryEntry>[];
+    for (final entry in state.entries) {
+      (entry.pinned ? pinnedEntries : unpinnedEntries).add(entry);
+    }
+    final pinnedCount = pinnedEntries.length;
+    final entryCount = pinnedCount + unpinnedEntries.length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Align(
           alignment: Alignment.centerRight,
           child: _ClipboardClearAllButton(
-            enabled: clearable && !state.clearing,
+            enabled: unpinnedEntries.isNotEmpty && !state.clearing,
             clearing: state.clearing,
             onPressed: onClearAll,
           ),
@@ -273,13 +264,15 @@ class _ClipboardHistoryBody extends StatelessWidget {
                     ? null
                     : const NeverScrollableScrollPhysics(),
                 padding: const EdgeInsets.only(bottom: 6),
-                itemCount: entries.length,
+                itemCount: entryCount,
                 separatorBuilder: (_, _) => SizedBox(
                   width: horizontal ? 12 : 0,
                   height: horizontal ? 0 : 12,
                 ),
                 itemBuilder: (context, index) {
-                  final entry = entries[index];
+                  final entry = index < pinnedCount
+                      ? pinnedEntries[index]
+                      : unpinnedEntries[index - pinnedCount];
                   return Align(
                     alignment: horizontal
                         ? Alignment.centerLeft
@@ -339,7 +332,7 @@ class _ClipboardClearAllButton extends StatelessWidget {
           disabledForegroundColor: context.shellColors.glyphInactive,
           backgroundColor: context.shellColors.surfaceContainerHigh,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: context.shellTheme.borderRadius(12),
             side: BorderSide(color: context.shellColors.hairlineSoft),
           ),
         ),

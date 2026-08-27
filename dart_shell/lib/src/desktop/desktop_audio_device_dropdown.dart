@@ -141,7 +141,7 @@ class _DashboardAudioDeviceDropdownState
                   color: _hovered || _focused || _expanded
                       ? context.shellColors.surfaceContainerHighest
                       : context.shellColors.surfaceContainerHigh,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: context.shellTheme.borderRadius(12),
                   border: Border.all(
                     color: _focused || _expanded
                         ? accent.primary
@@ -241,19 +241,14 @@ class _AudioDeviceOptions extends StatelessWidget {
       constraints: const BoxConstraints(maxHeight: 190),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: context.shellColors.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(12),
+          color: context.shellTheme.cardColor(
+            context.shellColors.surfaceContainerHighest,
+          ),
+          borderRadius: context.shellTheme.borderRadius(12),
           border: Border.all(color: context.shellColors.hairlineSoft),
-          boxShadow: <BoxShadow>[
-            BoxShadow(
-              color: context.shellColors.shadow.withValues(alpha: 0.24),
-              blurRadius: 14,
-              offset: const Offset(0, 6),
-            ),
-          ],
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(11),
+          borderRadius: context.shellTheme.borderRadius(11),
           child: ListView.separated(
             shrinkWrap: true,
             padding: const EdgeInsets.all(5),
@@ -343,7 +338,7 @@ class _AudioDeviceOptionState extends State<_AudioDeviceOption> {
                   : _highlighted
                   ? context.shellColors.surfaceContainerHigh
                   : ShellMediaColors.transparentDark,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: context.shellTheme.borderRadius(8),
             ),
             child: Row(
               children: <Widget>[

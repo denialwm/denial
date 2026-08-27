@@ -425,8 +425,8 @@ class _MediaPlaybackPopup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const radius = BorderRadius.all(Radius.circular(24));
     final theme = ShellTheme.of(context);
+    final radius = theme.borderRadius(24);
     final position = playback.positionAt(now);
     final length = playback.length;
     final progress = length > Duration.zero
@@ -442,6 +442,7 @@ class _MediaPlaybackPopup extends StatelessWidget {
     return Material(
       type: MaterialType.transparency,
       child: ShellBackdropBlur(
+        blur: theme.effectiveCardOpacity < 1.0,
         borderRadius: radius,
         child: Container(
           width: size.width,
@@ -452,27 +453,19 @@ class _MediaPlaybackPopup extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                theme.panelColor(
+                theme.cardColor(
                   Color.alphaBlend(
                     context.shellTheme.accent.withValues(alpha: 0.13),
                     context.shellColors.panelBackground.withValues(alpha: 1),
                   ),
                 ),
-                theme.panelColor(context.shellColors.surfaceContainerLow),
+                theme.cardColor(context.shellColors.surfaceContainerLow),
               ],
             ),
             borderRadius: radius,
             border: Border.all(
               color: context.shellTheme.accent.withValues(alpha: 0.3),
             ),
-            boxShadow: [
-              BoxShadow(
-                color: context.shellColors.shadow,
-                blurRadius: 34,
-                spreadRadius: 2,
-                offset: Offset(0, 14),
-              ),
-            ],
           ),
           child: Row(
             children: [
@@ -521,7 +514,7 @@ class _MediaPlaybackPopup extends StatelessWidget {
                       value:
                           '${_formatMediaTime(position)} / ${_formatMediaTime(length)}',
                       child: ClipRRect(
-                        borderRadius: BorderRadius.circular(99),
+                        borderRadius: context.shellTheme.borderRadius(99),
                         child: LinearProgressIndicator(
                           minHeight: 4,
                           value: progress,
@@ -719,7 +712,7 @@ class _MediaArtwork extends ConsumerWidget {
       child: SizedBox.square(
         dimension: size,
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: context.shellTheme.borderRadius(18),
           child: artwork,
         ),
       ),

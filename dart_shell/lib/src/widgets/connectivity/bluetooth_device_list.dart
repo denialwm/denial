@@ -167,7 +167,7 @@ class _BluetoothDeviceRowState extends State<_BluetoothDeviceRow> {
                   : _hovered || _focused
                   ? context.shellColors.surfaceContainerHighest
                   : context.shellColors.surfaceContainer,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: context.shellTheme.borderRadius(16),
               border: Border.all(
                 color: _focused ? accent : context.shellColors.hairlineSoft,
               ),

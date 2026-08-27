@@ -36,7 +36,7 @@ class BatteryMark extends StatelessWidget {
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     border: Border.all(color: foreground, width: 1.4 * scale),
-                    borderRadius: BorderRadius.circular(3 * scale),
+                    borderRadius: context.shellTheme.borderRadius(3 * scale),
                   ),
                 ),
               ),
@@ -48,7 +48,7 @@ class BatteryMark extends StatelessWidget {
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     color: foreground,
-                    borderRadius: BorderRadius.circular(1 * scale),
+                    borderRadius: context.shellTheme.borderRadius(1 * scale),
                   ),
                 ),
               ),
@@ -60,7 +60,7 @@ class BatteryMark extends StatelessWidget {
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     color: foreground,
-                    borderRadius: BorderRadius.circular(2 * scale),
+                    borderRadius: context.shellTheme.borderRadius(2 * scale),
                   ),
                 ),
               ),
@@ -112,7 +112,7 @@ class BatteryIconMark extends StatelessWidget {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 border: Border.all(color: foreground, width: 1.4 * scale),
-                borderRadius: BorderRadius.circular(3 * scale),
+                borderRadius: context.shellTheme.borderRadius(3 * scale),
               ),
             ),
           ),
@@ -124,7 +124,7 @@ class BatteryIconMark extends StatelessWidget {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: foreground,
-                borderRadius: BorderRadius.circular(1 * scale),
+                borderRadius: context.shellTheme.borderRadius(1 * scale),
               ),
             ),
           ),
@@ -136,7 +136,7 @@ class BatteryIconMark extends StatelessWidget {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: foreground,
-                borderRadius: BorderRadius.circular(2 * scale),
+                borderRadius: context.shellTheme.borderRadius(2 * scale),
               ),
             ),
           ),
@@ -194,7 +194,7 @@ class SignalGlyph extends StatelessWidget {
               height: (4.0 + i * 2.2) * scale,
               decoration: BoxDecoration(
                 color: glyphColor,
-                borderRadius: BorderRadius.circular(1.5 * scale),
+                borderRadius: context.shellTheme.borderRadius(1.5 * scale),
               ),
             ),
             if (i != 3) SizedBox(width: 2 * scale),

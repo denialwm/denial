@@ -276,7 +276,7 @@ class _EdgeChoiceState extends State<_EdgeChoice> {
                   : highlighted
                   ? context.shellColors.surfaceContainerHighest
                   : context.shellColors.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(ShellRadii.chip),
+              borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
               border: Border.all(
                 color: _focused || widget.selected
                     ? accent
@@ -440,7 +440,7 @@ class _DisplayChoiceState extends State<_DisplayChoice> {
                   : highlighted
                   ? context.shellColors.surfaceContainerHighest
                   : context.shellColors.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(ShellRadii.chip),
+              borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
               border: Border.all(
                 color: _focused || widget.selected
                     ? accent
@@ -519,7 +519,7 @@ class _MonitorPreview extends StatelessWidget {
     final bar = DecoratedBox(
       decoration: BoxDecoration(
         color: selected ? accent : context.shellColors.textTertiary,
-        borderRadius: BorderRadius.circular(2),
+        borderRadius: context.shellTheme.borderRadius(2),
       ),
     );
     return AnimatedContainer(
@@ -529,7 +529,7 @@ class _MonitorPreview extends StatelessWidget {
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
         color: context.shellColors.windowFrameSurface,
-        borderRadius: BorderRadius.circular(7),
+        borderRadius: context.shellTheme.borderRadius(7),
         border: Border.all(
           color: selected ? accent : context.shellColors.hairline,
         ),
@@ -549,7 +549,7 @@ class _MonitorPreview extends StatelessWidget {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: context.shellColors.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(4),
+                borderRadius: context.shellTheme.borderRadius(4),
               ),
             ),
           ),
@@ -600,7 +600,7 @@ class _MainBadge extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: context.shellColors.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(ShellRadii.chip),
+        borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
@@ -627,7 +627,7 @@ class _UnavailableMessage extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: context.shellColors.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(ShellRadii.chip),
+        borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
       ),
       child: Padding(
         padding: const EdgeInsets.all(14),

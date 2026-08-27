@@ -17,12 +17,10 @@ class MobilePrimaryWindowStage extends StatelessWidget {
   final double opacity;
 
   static const double _switchGap = ShellMetrics.appSwitchGap;
-  static const BorderRadius _switchRadius = BorderRadius.all(
-    Radius.circular(18),
-  );
 
   @override
   Widget build(BuildContext context) {
+    final switchRadius = context.shellTheme.borderRadius(18);
     final target = switchTargetWindow;
     if (target == null || switchDragX.abs() < 0.5) {
       final texture = WindowContentRect(
@@ -54,7 +52,7 @@ class MobilePrimaryWindowStage extends StatelessWidget {
                   key: ValueKey<int>(currentWindow.objectId),
                   window: currentWindow,
                   active: true,
-                  borderRadius: _switchRadius,
+                  borderRadius: switchRadius,
                 ),
               ),
             ),
@@ -64,7 +62,7 @@ class MobilePrimaryWindowStage extends StatelessWidget {
                 child: WindowContentRect(
                   key: ValueKey<int>(target.objectId),
                   window: target,
-                  borderRadius: _switchRadius,
+                  borderRadius: switchRadius,
                 ),
               ),
             ),

@@ -672,9 +672,11 @@ class _EditorSurface extends StatelessWidget {
   Widget build(BuildContext context) {
     final accent = ShellTheme.of(context).accent;
     return Material(
-      color: context.shellColors.surfaceContainerHigh,
+      color: context.shellTheme.cardColor(
+        context.shellColors.surfaceContainerHigh,
+      ),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: context.shellTheme.borderRadius(20),
         side: BorderSide(color: accent.withAlpha(86)),
       ),
       elevation: 18,
@@ -770,11 +772,11 @@ class _ShortcutTextField extends StatelessWidget {
         filled: true,
         fillColor: context.shellColors.surfaceContainerHighest,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: context.shellTheme.borderRadius(12),
           borderSide: BorderSide(color: context.shellColors.hairline),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: context.shellTheme.borderRadius(12),
           borderSide: BorderSide(color: context.shellColors.hairline),
         ),
       ),
@@ -899,7 +901,9 @@ class _ApplicationSelectionField extends StatelessWidget {
         foregroundColor: context.shellColors.textPrimary,
         backgroundColor: context.shellColors.surfaceContainerHighest,
         side: BorderSide(color: context.shellColors.hairline),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(
+          borderRadius: context.shellTheme.borderRadius(12),
+        ),
       ),
       child: Row(
         children: [
@@ -1129,11 +1133,11 @@ class _CommandTextField extends StatelessWidget {
         filled: true,
         fillColor: context.shellColors.surfaceContainerHighest,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: context.shellTheme.borderRadius(12),
           borderSide: BorderSide(color: context.shellColors.hairline),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: context.shellTheme.borderRadius(12),
           borderSide: BorderSide(color: context.shellColors.hairline),
         ),
       ),
@@ -1162,7 +1166,9 @@ class _ActionSelectionField extends StatelessWidget {
         foregroundColor: context.shellColors.textPrimary,
         backgroundColor: context.shellColors.surfaceContainerHighest,
         side: BorderSide(color: context.shellColors.hairline),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(
+          borderRadius: context.shellTheme.borderRadius(12),
+        ),
       ),
       child: Row(
         children: [
@@ -1303,7 +1309,7 @@ class _EditorErrorMessage extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: context.shellColors.performanceBad.withAlpha(18),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: context.shellTheme.borderRadius(10),
         border: Border.all(
           color: context.shellColors.performanceBad.withAlpha(82),
         ),
@@ -1419,7 +1425,7 @@ class _EditorButton extends StatelessWidget {
             : context.shellColors.surfaceContainerHighest.withAlpha(120),
         disabledForegroundColor: foreground.withAlpha(92),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(ShellRadii.chip),
+          borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
           side: BorderSide(
             color: primary ? palette.outline : context.shellColors.hairline,
           ),
@@ -1508,11 +1514,11 @@ class _CatalogLayout extends StatelessWidget {
               filled: true,
               fillColor: context.shellColors.surfaceContainerHighest,
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: context.shellTheme.borderRadius(12),
                 borderSide: BorderSide(color: context.shellColors.hairline),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: context.shellTheme.borderRadius(12),
                 borderSide: BorderSide(color: context.shellColors.hairline),
               ),
             ),
@@ -1556,7 +1562,7 @@ class _ShortcutDraftPreview extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: accent.withAlpha(22),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: context.shellTheme.borderRadius(10),
         border: Border.all(color: accent.withAlpha(70)),
       ),
       child: Padding(
@@ -1611,7 +1617,9 @@ class _ActionCatalogRow extends StatelessWidget {
       textColor: context.shellColors.textPrimary,
       selectedColor: foreground,
       selectedTileColor: palette.container,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+      shape: RoundedRectangleBorder(
+        borderRadius: context.shellTheme.borderRadius(11),
+      ),
       leading: Icon(settingsShortcutActionIcon(action), size: 20),
       title: Text(
         settingsShortcutActionLabel(context, action),
@@ -1647,7 +1655,9 @@ class _ApplicationCatalogRow extends StatelessWidget {
       selected: selected,
       selectedColor: foreground,
       selectedTileColor: palette.container,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+      shape: RoundedRectangleBorder(
+        borderRadius: context.shellTheme.borderRadius(11),
+      ),
       leading: SizedBox.square(
         dimension: 30,
         child: DeferredAppIcon(iconPath: application.iconPath),
@@ -1692,7 +1702,9 @@ class _InputCatalogRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final aliases = input.aliases.join(', ');
     return ListTile(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+      shape: RoundedRectangleBorder(
+        borderRadius: context.shellTheme.borderRadius(11),
+      ),
       leading: Icon(
         input.kind == DenialShortcutInputKind.gesture
             ? Icons.gesture_rounded

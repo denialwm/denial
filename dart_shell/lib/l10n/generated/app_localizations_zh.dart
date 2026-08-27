@@ -1480,7 +1480,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsBackdropBlurLevelBest => '最佳';
 
   @override
-  String get settingsBackdropBlurOpacityThreshold => '模糊的最低窗口不透明度';
+  String get settingsBackdropBlurOpacityThreshold => '模糊的最低像素不透明度';
 
   @override
   String get settingsBackdropDimming => '背景变暗';
@@ -1526,6 +1526,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsBrightness => '亮度';
+
+  @override
+  String get settingsCardOpacity => '卡片不透明度';
 
   @override
   String get settingsClockScale => '时钟缩放';
@@ -1764,6 +1767,13 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsFocusedWindows => '聚焦窗口';
+
+  @override
+  String get settingsFocusedWindowBorder => '高亮聚焦窗口边框';
+
+  @override
+  String get settingsFocusedWindowBorderDescription =>
+      '关闭后，聚焦与未聚焦窗口将使用相同的边框颜色。';
 
   @override
   String get settingsHeaderContext => 'DENIAL / 系统';
@@ -2660,9 +2670,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsPanelOpacity => '面板不透明度';
 
   @override
-  String get settingsPanelRadius => '面板圆角';
-
-  @override
   String get settingsPanelTravel => '面板移动距离';
 
   @override
@@ -2703,10 +2710,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsScreenAnchor => '屏幕锚点';
 
   @override
-  String get settingsShapeDescription => '调整窗口和面板的圆角。';
+  String get settingsShapeDescription => '统一缩放窗口、面板、卡片和控件的所有圆角。';
 
   @override
   String get settingsShapeTitle => '形状';
+
+  @override
+  String get settingsCornerRoundness => '全局圆角';
 
   @override
   String get settingsColorSchemeTitle => '配色方案';
@@ -2864,9 +2874,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsWindowOpacityTitle => '窗口不透明度';
-
-  @override
-  String get settingsWindowRadius => '窗口圆角';
 
   @override
   String shortDate(String weekday, int day, String month) {

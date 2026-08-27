@@ -241,6 +241,7 @@ class _ShellFrameTimeOverlayState extends State<ShellFrameTimeOverlay> {
                 stats: _stats,
                 l10n: context.l10n,
                 colors: context.shellColors,
+                cornerRadiusScale: context.shellTheme.cornerRadiusScale,
               ),
             ),
           ),

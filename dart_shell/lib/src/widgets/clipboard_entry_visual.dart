@@ -50,7 +50,7 @@ class _ClipboardImageTile extends StatelessWidget {
           width: size.width,
           height: size.height,
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: context.shellTheme.borderRadius(16),
             child: _ClipboardImagePreview(
               entry: entry,
               mimeType: mimeType,
@@ -84,7 +84,9 @@ class _ClipboardImagePreview extends ConsumerWidget {
     );
     return RepaintBoundary(
       child: ColoredBox(
-        color: context.shellColors.surfaceContainerLow,
+        color: context.shellTheme.cardColor(
+          context.shellColors.surfaceContainerLow,
+        ),
         child: data.when(
           data: (payload) => Image.memory(
             payload.bytes,
@@ -164,7 +166,7 @@ class _ClipboardFileTile extends ConsumerWidget {
           SizedBox.square(
             dimension: 46,
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(11),
+              borderRadius: context.shellTheme.borderRadius(11),
               child: ColoredBox(
                 color: accent.subtle,
                 child: thumbnail == null
@@ -304,7 +306,8 @@ BoxDecoration _clipboardNoteDecoration(
   required bool highlighted,
   required bool lifted,
 }) {
-  final accent = ShellTheme.of(context).accentPalette;
+  final theme = ShellTheme.of(context);
+  final accent = theme.accentPalette;
   final raised = highlighted || lifted;
   final tint = entry.active
       ? 0.16
@@ -316,29 +319,21 @@ BoxDecoration _clipboardNoteDecoration(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
       colors: [
-        Color.alphaBlend(
-          accent.primary.withValues(alpha: tint),
-          context.shellColors.surfaceContainerLow,
-        ).withValues(
-          alpha: entry.active
-              ? 0.62
-              : raised
-              ? 0.54
-              : 0.44,
+        theme.cardColor(
+          Color.alphaBlend(
+            accent.primary.withValues(alpha: tint),
+            context.shellColors.surfaceContainerLow.withValues(alpha: 1),
+          ),
         ),
-        Color.alphaBlend(
-          accent.primary.withValues(alpha: tint * 0.3),
-          context.shellColors.panelBackgroundBottom,
-        ).withValues(
-          alpha: entry.active
-              ? 0.46
-              : raised
-              ? 0.38
-              : 0.3,
+        theme.cardColor(
+          Color.alphaBlend(
+            accent.primary.withValues(alpha: tint * 0.3),
+            context.shellColors.panelBackgroundBottom.withValues(alpha: 1),
+          ),
         ),
       ],
     ),
-    borderRadius: BorderRadius.circular(18),
+    borderRadius: context.shellTheme.borderRadius(18),
     border: Border.all(
       color: accent.primary.withValues(
         alpha: entry.active

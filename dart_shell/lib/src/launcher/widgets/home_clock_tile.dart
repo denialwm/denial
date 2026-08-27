@@ -183,6 +183,7 @@ class _HomeClockBatteryGlyph extends StatelessWidget {
         painter: _HomeClockBatteryPainter(
           level: power.batteryLevel,
           color: color,
+          cornerRadiusScale: context.shellTheme.cornerRadiusScale,
         ),
       ),
     );
@@ -190,10 +191,15 @@ class _HomeClockBatteryGlyph extends StatelessWidget {
 }
 
 class _HomeClockBatteryPainter extends CustomPainter {
-  const _HomeClockBatteryPainter({required this.level, required this.color});
+  const _HomeClockBatteryPainter({
+    required this.level,
+    required this.color,
+    required this.cornerRadiusScale,
+  });
 
   final double level;
   final Color color;
+  final double cornerRadiusScale;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -212,7 +218,7 @@ class _HomeClockBatteryPainter extends CustomPainter {
     final bodyHeight = size.height * 0.8;
     final body = RRect.fromRectAndRadius(
       Rect.fromLTWH(0, bodyTop, bodyWidth, bodyHeight),
-      Radius.circular(size.height * 0.2),
+      Radius.circular(size.height * 0.2 * cornerRadiusScale),
     );
     canvas.drawRRect(body, stroke);
 
@@ -229,7 +235,7 @@ class _HomeClockBatteryPainter extends CustomPainter {
             fillWidth,
             bodyHeight - inset * 2,
           ),
-          Radius.circular(size.height * 0.1),
+          Radius.circular(size.height * 0.1 * cornerRadiusScale),
         ),
         fill,
       );
@@ -243,7 +249,7 @@ class _HomeClockBatteryPainter extends CustomPainter {
           terminalWidth,
           size.height * 0.35,
         ),
-        Radius.circular(size.height * 0.05),
+        Radius.circular(size.height * 0.05 * cornerRadiusScale),
       ),
       fill,
     );
@@ -251,7 +257,9 @@ class _HomeClockBatteryPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _HomeClockBatteryPainter oldDelegate) {
-    return oldDelegate.level != level || oldDelegate.color != color;
+    return oldDelegate.level != level ||
+        oldDelegate.color != color ||
+        oldDelegate.cornerRadiusScale != cornerRadiusScale;
   }
 }
 

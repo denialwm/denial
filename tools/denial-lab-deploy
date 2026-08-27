@@ -62,6 +62,15 @@ jobs="${DENIAL_BUILD_JOBS:-$((cpu_count > 2 ? cpu_count - 2 : 1))}"
 revision="$(git -C "$FLUTTER_ROOT" rev-parse HEAD)"
 parent_revision="$(git -C "$FLUTTER_ROOT" rev-parse HEAD^)"
 depot_tools="$FLUTTER_ROOT/engine/src/flutter/third_party/depot_tools"
+printf 'Synchronizing cached engine artifacts for %.12s...\n' "$revision"
+PATH="$depot_tools:$PATH" /usr/bin/ninja -C "$ENGINE_OUT" -j "$jobs" \
+    libflutter_engine.so flutter_patched_sdk
+engine="$ENGINE_OUT/libflutter_engine.so"
+[[ -f "$engine" ]] || {
+    printf 'denial-lab-deploy: engine build output is missing: %s\n' "$engine" >&2
+    exit 1
+}
+engine_sha="$(sha256sum "$engine" | cut -d' ' -f1)"
 mkdir -p -- "$ARTIFACT_STORE"
 shell_source_inputs=(
     "$ROOT/dart_shell/lib"
@@ -95,7 +104,8 @@ source_fingerprint_for_revision() {
     local source_revision="$1"
     {
         printf '%s\n' "$shell_source_manifest"
-        printf 'flutter=%s\nschema=%s\n' "$source_revision" "$dart_schema"
+        printf 'flutter=%s\nengine=%s\nschema=%s\n' \
+            "$source_revision" "$engine_sha" "$dart_schema"
     } | sha256sum | cut -d' ' -f1
 }
 source_fingerprint="$(source_fingerprint_for_revision "$revision")"
@@ -176,7 +186,6 @@ trap cleanup EXIT
 if [[ -n "$artifact" ]]; then
     printf 'Reusing verified artifact %s.\n' "${artifact##*/}"
 else
-    printf 'Preparing cached engine artifacts for %.12s...\n' "$revision"
     work="$(mktemp -d -- "$ARTIFACT_STORE/.build.XXXXXX")"
     settings_bundle=""
     settings_depfile="$(
@@ -204,7 +213,7 @@ else
         fi
     fi
 
-    engine_targets=(libflutter_engine.so)
+    engine_targets=(libflutter_engine.so flutter_patched_sdk)
     if [[ -z "$settings_bundle" ]]; then
         engine_targets+=(
             libflutter_linux_gtk.so
@@ -279,7 +288,6 @@ else
         )
         settings_bundle="$ROOT/settings_app/build/linux/x64/release/bundle"
     fi
-    engine="$ENGINE_OUT/libflutter_engine.so"
     for required in \
         "$shell_app" \
         "$assembly/flutter_assets/AssetManifest.bin" \
@@ -310,7 +318,6 @@ else
         printf 'Verified reused shell AOT against the new engine.\n'
     fi
 
-    engine_sha="$(sha256sum "$engine" | cut -d' ' -f1)"
     shell_sha="$(sha256sum "$shell_app" | cut -d' ' -f1)"
     settings_sha="$(sha256sum "$settings_bundle/lib/libapp.so" | cut -d' ' -f1)"
     payload_sha="$({

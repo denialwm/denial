@@ -163,23 +163,34 @@ class _DesktopPanelTransitionState extends State<DesktopPanelTransition>
                 direction.dx * (constraints.maxWidth + widget.entryDistance),
                 direction.dy * (constraints.maxHeight + widget.entryDistance),
               );
+              final panelRadius = BorderRadius.circular(theme.panelRadius);
+              if (fadesInPlace) {
+                return RepaintBoundary(
+                  child: AnimatedBuilder(
+                    animation: _progress,
+                    child: widget.child,
+                    builder: (context, child) => ShellBackdropBlur(
+                      // Keep the backdrop outside the opacity save-layer. The
+                      // filter strength follows that layer so both retire in
+                      // the same frame without sampling an isolated backdrop.
+                      blur: theme.effectivePanelOpacity < 1.0,
+                      strength: _progress.value,
+                      borderRadius: panelRadius,
+                      child: Opacity(opacity: _progress.value, child: child),
+                    ),
+                  ),
+                );
+              }
               return AnimatedBuilder(
                 animation: _progress,
                 child: RepaintBoundary(
                   child: ShellBackdropBlur(
-                    // A BackdropFilter inside an Opacity save-layer samples
-                    // that isolated layer instead of the desktop on the
-                    // embedder, producing a black rectangle during a fade.
-                    // Centered panels therefore use a pure alpha transition.
-                    blur: theme.panelOpacity < 1.0 && !fadesInPlace,
-                    borderRadius: BorderRadius.circular(theme.panelRadius),
+                    blur: theme.effectivePanelOpacity < 1.0,
+                    borderRadius: panelRadius,
                     child: widget.child,
                   ),
                 ),
                 builder: (context, child) {
-                  if (fadesInPlace) {
-                    return Opacity(opacity: _progress.value, child: child);
-                  }
                   return Transform.translate(
                     offset: travel * (1.0 - _progress.value),
                     child: child,

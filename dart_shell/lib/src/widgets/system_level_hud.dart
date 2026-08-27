@@ -134,29 +134,16 @@ class _SystemLevelHudCard extends StatelessWidget {
           value: context.l10n.percentValue(percent),
           child: RepaintBoundary(
             child: ShellBackdropBlur(
-              blur: theme.panelOpacity < 1.0,
+              blur: theme.effectivePanelOpacity < 1.0,
               borderRadius: BorderRadius.circular(theme.panelRadius),
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: <Color>[
-                      theme.panelColor(context.shellColors.panelBackground),
-                      theme.panelColor(
-                        context.shellColors.panelBackgroundBottom,
-                      ),
-                    ],
+                  gradient: theme.panelGradient(
+                    context.shellColors.panelBackground,
+                    context.shellColors.panelBackgroundBottom,
                   ),
                   borderRadius: BorderRadius.circular(theme.panelRadius),
                   border: Border.all(color: context.shellColors.hairline),
-                  boxShadow: <BoxShadow>[
-                    BoxShadow(
-                      color: context.shellColors.shadow,
-                      blurRadius: 22,
-                      offset: Offset(0, 8),
-                    ),
-                  ],
                 ),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 18),
@@ -233,7 +220,7 @@ class _LevelProgress extends StatelessWidget {
       // value, so rapid hardware-key presses form one continuous glide.
       curve: Motion.md3EmphasizedDecelerate,
       builder: (context, value, _) => ClipRRect(
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: context.shellTheme.borderRadius(4),
         child: SizedBox(
           height: 7,
           child: Stack(

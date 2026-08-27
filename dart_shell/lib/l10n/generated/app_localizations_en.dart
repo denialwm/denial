@@ -1531,7 +1531,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsBackdropBlurOpacityThreshold =>
-      'Minimum window opacity for blur';
+      'Minimum pixel opacity for blur';
 
   @override
   String get settingsBackdropDimming => 'Backdrop dimming';
@@ -1582,6 +1582,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsBrightness => 'Brightness';
+
+  @override
+  String get settingsCardOpacity => 'Card opacity';
 
   @override
   String get settingsClockScale => 'Clock scale';
@@ -1835,6 +1838,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsFocusedWindows => 'Focused windows';
+
+  @override
+  String get settingsFocusedWindowBorder =>
+      'Highlight the focused window border';
+
+  @override
+  String get settingsFocusedWindowBorderDescription =>
+      'Turn this off to keep focused and unfocused window borders the same colour.';
 
   @override
   String get settingsHeaderContext => 'DENIAL / SYSTEM';
@@ -2790,9 +2801,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsPanelOpacity => 'Panel opacity';
 
   @override
-  String get settingsPanelRadius => 'Panel radius';
-
-  @override
   String get settingsPanelTravel => 'Panel travel';
 
   @override
@@ -2834,10 +2842,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsScreenAnchor => 'Screen anchor';
 
   @override
-  String get settingsShapeDescription => 'Tune window and panel corner radii.';
+  String get settingsShapeDescription =>
+      'Scale every shell corner while preserving the hierarchy between windows, panels, cards, and controls.';
 
   @override
   String get settingsShapeTitle => 'Shape';
+
+  @override
+  String get settingsCornerRoundness => 'Corner roundness';
 
   @override
   String get settingsColorSchemeTitle => 'Colour scheme';
@@ -3009,9 +3021,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsWindowOpacityTitle => 'Window opacity';
-
-  @override
-  String get settingsWindowRadius => 'Window radius';
 
   @override
   String shortDate(String weekday, int day, String month) {

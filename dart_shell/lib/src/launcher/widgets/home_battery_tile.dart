@@ -33,16 +33,11 @@ class _HomeBatteryDischargeTile extends StatelessWidget {
 
         return DecoratedBox(
           decoration: BoxDecoration(
-            color: ShellMediaColors.glassSurface,
-            borderRadius: BorderRadius.circular(8),
+            color: context.shellTheme.cardColor(
+              context.shellColors.surfaceContainerLow,
+            ),
+            borderRadius: context.shellTheme.borderRadius(8),
             border: Border.all(color: ShellMediaColors.lightOutline),
-            boxShadow: const [
-              BoxShadow(
-                color: ShellMediaColors.wallpaperScrim,
-                blurRadius: 18,
-                offset: Offset(0, 8),
-              ),
-            ],
           ),
           child: Padding(
             padding: EdgeInsets.fromLTRB(
@@ -63,6 +58,7 @@ class _HomeBatteryDischargeTile extends StatelessWidget {
                             .clamp(0.0, 1.0)
                             .toDouble(),
                         color: accent,
+                        cornerRadiusScale: context.shellTheme.cornerRadiusScale,
                       ),
                     ),
                     const SizedBox(width: 9),
@@ -149,6 +145,7 @@ class _HomeBatteryDischargeTile extends StatelessWidget {
                       graph: graph,
                       accent: accent,
                       l10n: context.l10n,
+                      cornerRadiusScale: context.shellTheme.cornerRadiusScale,
                     ),
                     child: const SizedBox.expand(),
                   ),
@@ -258,10 +255,15 @@ class _BatteryMetricText extends StatelessWidget {
 }
 
 class _MiniBatteryPainter extends CustomPainter {
-  const _MiniBatteryPainter({required this.level, required this.color});
+  const _MiniBatteryPainter({
+    required this.level,
+    required this.color,
+    required this.cornerRadiusScale,
+  });
 
   final double level;
   final Color color;
+  final double cornerRadiusScale;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -277,7 +279,7 @@ class _MiniBatteryPainter extends CustomPainter {
     final bodyWidth = size.width - terminalWidth - gap;
     final body = RRect.fromRectAndRadius(
       Rect.fromLTWH(0, 0, bodyWidth, size.height),
-      Radius.circular(size.height * 0.22),
+      Radius.circular(size.height * 0.22 * cornerRadiusScale),
     );
     canvas.drawRRect(body, stroke);
     final inset = size.height * 0.18;
@@ -288,7 +290,7 @@ class _MiniBatteryPainter extends CustomPainter {
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromLTWH(inset, inset, fillWidth, size.height - inset * 2),
-          Radius.circular(size.height * 0.1),
+          Radius.circular(size.height * 0.1 * cornerRadiusScale),
         ),
         fill,
       );
@@ -301,7 +303,7 @@ class _MiniBatteryPainter extends CustomPainter {
           terminalWidth,
           size.height * 0.38,
         ),
-        Radius.circular(size.height * 0.06),
+        Radius.circular(size.height * 0.06 * cornerRadiusScale),
       ),
       fill,
     );
@@ -309,7 +311,9 @@ class _MiniBatteryPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _MiniBatteryPainter oldDelegate) {
-    return oldDelegate.level != level || oldDelegate.color != color;
+    return oldDelegate.level != level ||
+        oldDelegate.color != color ||
+        oldDelegate.cornerRadiusScale != cornerRadiusScale;
   }
 }
 
@@ -318,11 +322,13 @@ class _BatteryDischargeGraphPainter extends CustomPainter {
     required this.graph,
     required this.accent,
     required this.l10n,
+    required this.cornerRadiusScale,
   });
 
   final HomeBatteryDischargeGraphViewModel graph;
   final Color accent;
   final AppLocalizations l10n;
+  final double cornerRadiusScale;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -473,7 +479,7 @@ class _BatteryDischargeGraphPainter extends CustomPainter {
     final labelTop = preferredTop < 0 ? y + 7 : preferredTop;
     final rect = RRect.fromRectAndRadius(
       Rect.fromLTWH(labelLeft, labelTop, labelWidth, labelHeight),
-      const Radius.circular(6),
+      Radius.circular(6 * cornerRadiusScale),
     );
     canvas.drawRRect(
       rect,
@@ -495,7 +501,8 @@ class _BatteryDischargeGraphPainter extends CustomPainter {
   bool shouldRepaint(covariant _BatteryDischargeGraphPainter oldDelegate) {
     return oldDelegate.graph != graph ||
         oldDelegate.accent != accent ||
-        oldDelegate.l10n.localeName != l10n.localeName;
+        oldDelegate.l10n.localeName != l10n.localeName ||
+        oldDelegate.cornerRadiusScale != cornerRadiusScale;
   }
 }
 

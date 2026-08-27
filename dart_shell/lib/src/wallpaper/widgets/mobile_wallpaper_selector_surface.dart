@@ -571,16 +571,11 @@ class _MobileWallpaperTopBar extends StatelessWidget {
           Expanded(
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: context.shellColors.panelBackground,
-                borderRadius: BorderRadius.circular(ShellRadii.chip),
+                color: context.shellTheme.panelColor(
+                  context.shellColors.panelBackground,
+                ),
+                borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
                 border: Border.all(color: context.shellColors.hairline),
-                boxShadow: <BoxShadow>[
-                  BoxShadow(
-                    color: context.shellColors.shadowSoft,
-                    blurRadius: 18,
-                    offset: Offset(0, 8),
-                  ),
-                ],
               ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
@@ -627,13 +622,6 @@ class _MobileWallpaperPanel extends StatelessWidget {
             color: theme.panelColor(context.shellColors.panelBackgroundBottom),
             borderRadius: BorderRadius.circular(theme.panelRadius),
             border: Border.all(color: context.shellColors.hairline),
-            boxShadow: <BoxShadow>[
-              BoxShadow(
-                color: context.shellColors.shadow,
-                blurRadius: 30,
-                offset: Offset(0, 14),
-              ),
-            ],
           ),
           child: Padding(padding: const EdgeInsets.all(16), child: child),
         ),
@@ -684,7 +672,7 @@ class _MobileWallpaperCandidateCard extends StatelessWidget {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: context.shellColors.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: context.shellTheme.borderRadius(18),
                 border: Border.all(
                   color: current
                       ? accent.primary
@@ -693,7 +681,9 @@ class _MobileWallpaperCandidateCard extends StatelessWidget {
                 ),
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(current ? 14 : 17),
+                borderRadius: context.shellTheme.borderRadius(
+                  current ? 14 : 17,
+                ),
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
@@ -797,7 +787,7 @@ class _MobileWallpaperActionButton extends StatelessWidget {
             color: primary
                 ? accent.container
                 : context.shellColors.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(ShellRadii.chip),
+            borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
             border: Border.all(
               color: primary ? accent.primary : context.shellColors.hairline,
             ),
@@ -860,16 +850,11 @@ class _MobileWallpaperRoundButton extends StatelessWidget {
           onTap: onPressed,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: context.shellColors.panelBackground,
+              color: context.shellTheme.cardColor(
+                context.shellColors.panelBackground,
+              ),
               shape: BoxShape.circle,
               border: Border.all(color: context.shellColors.hairline),
-              boxShadow: <BoxShadow>[
-                BoxShadow(
-                  color: context.shellColors.shadowSoft,
-                  blurRadius: 18,
-                  offset: Offset(0, 8),
-                ),
-              ],
             ),
             child: SizedBox.square(
               dimension: 48,

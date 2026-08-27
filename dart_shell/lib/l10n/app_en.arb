@@ -2184,9 +2184,9 @@
   "@settingsBackdropBlurLevelBest": {
     "description": "Highest-quality compositor backdrop blur level."
   },
-  "settingsBackdropBlurOpacityThreshold": "Minimum window opacity for blur",
+  "settingsBackdropBlurOpacityThreshold": "Minimum pixel opacity for blur",
   "@settingsBackdropBlurOpacityThreshold": {
-    "description": "Slider label for the minimum effective window opacity at which backdrop blur is rendered."
+    "description": "Slider label for the strict final-composition pixel alpha threshold above which backdrop blur is rendered."
   },
   "settingsBackdropDimming": "Backdrop dimming",
   "@settingsBackdropDimming": {
@@ -2247,6 +2247,10 @@
   "settingsBrightness": "Brightness",
   "@settingsBrightness": {
     "description": "English UI text for settingsBrightness."
+  },
+  "settingsCardOpacity": "Card opacity",
+  "@settingsCardOpacity": {
+    "description": "Opacity of card backgrounds inside shell panels and Settings."
   },
   "settingsClockScale": "Clock scale",
   "@settingsClockScale": {
@@ -2568,6 +2572,14 @@
   "settingsFocusedWindows": "Focused windows",
   "@settingsFocusedWindows": {
     "description": "English UI text for settingsFocusedWindows."
+  },
+  "settingsFocusedWindowBorder": "Highlight the focused window border",
+  "@settingsFocusedWindowBorder": {
+    "description": "Toggle label for changing the focused window border to the accent colour."
+  },
+  "settingsFocusedWindowBorderDescription": "Turn this off to keep focused and unfocused window borders the same colour.",
+  "@settingsFocusedWindowBorderDescription": {
+    "description": "Explanation of the focused-window border highlight toggle."
   },
   "settingsHeaderContext": "DENIAL / SYSTEM",
   "@settingsHeaderContext": {
@@ -3773,10 +3785,6 @@
   "@settingsPanelOpacity": {
     "description": "English UI text for settingsPanelOpacity."
   },
-  "settingsPanelRadius": "Panel radius",
-  "@settingsPanelRadius": {
-    "description": "English UI text for settingsPanelRadius."
-  },
   "settingsPanelTravel": "Panel travel",
   "@settingsPanelTravel": {
     "description": "English UI text for settingsPanelTravel."
@@ -3835,13 +3843,17 @@
   "@settingsScreenAnchor": {
     "description": "English UI text for settingsScreenAnchor."
   },
-  "settingsShapeDescription": "Tune window and panel corner radii.",
+  "settingsShapeDescription": "Scale every shell corner while preserving the hierarchy between windows, panels, cards, and controls.",
   "@settingsShapeDescription": {
     "description": "English UI text for settingsShapeDescription."
   },
   "settingsShapeTitle": "Shape",
   "@settingsShapeTitle": {
     "description": "English UI text for settingsShapeTitle."
+  },
+  "settingsCornerRoundness": "Corner roundness",
+  "@settingsCornerRoundness": {
+    "description": "Slider label for the global shell corner-radius scale."
   },
   "settingsColorSchemeTitle": "Colour scheme",
   "@settingsColorSchemeTitle": {
@@ -4061,10 +4073,6 @@
   "settingsWindowOpacityTitle": "Window opacity",
   "@settingsWindowOpacityTitle": {
     "description": "English UI text for settingsWindowOpacityTitle."
-  },
-  "settingsWindowRadius": "Window radius",
-  "@settingsWindowRadius": {
-    "description": "English UI text for settingsWindowRadius."
   },
   "shortDate": "{weekday} {day} {month}",
   "@shortDate": {

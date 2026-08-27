@@ -32,15 +32,17 @@ class NotificationCard extends StatelessWidget {
               : notification.summary)
         : l10n.notificationNew;
     final body = fullPreview ? plainNotificationBody(notification.body) : '';
-    final hasDefaultAction =
-        fullPreview &&
-        onDefaultAction != null &&
-        notification.actions.any((action) => action.key == 'default');
-    final namedActions = fullPreview
-        ? notification.actions
-              .where((action) => action.key != 'default')
-              .toList(growable: false)
-        : const <DesktopNotificationAction>[];
+    var hasDefaultAction = false;
+    final namedActions = <DesktopNotificationAction>[];
+    if (fullPreview) {
+      for (final action in notification.actions) {
+        if (action.key == 'default') {
+          hasDefaultAction = onDefaultAction != null;
+        } else {
+          namedActions.add(action);
+        }
+      }
+    }
     final semanticLabel = body.isEmpty
         ? l10n.notificationSemantics(appName, summary)
         : l10n.notificationSemanticsWithBody(appName, summary, body);
@@ -48,15 +50,13 @@ class NotificationCard extends StatelessWidget {
 
     final content = DecoratedBox(
       decoration: BoxDecoration(
-        color: theme.panelColor(context.shellColors.surfaceContainerLow),
+        color: banner
+            ? null
+            : theme.cardColor(context.shellColors.surfaceContainerLow),
         gradient: banner
-            ? LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: <Color>[
-                  theme.panelColor(context.shellColors.panelBackground),
-                  theme.panelColor(context.shellColors.panelBackgroundBottom),
-                ],
+            ? theme.panelGradient(
+                context.shellColors.panelBackground,
+                context.shellColors.panelBackgroundBottom,
               )
             : null,
         borderRadius: BorderRadius.circular(theme.panelRadius),
@@ -65,15 +65,6 @@ class NotificationCard extends StatelessWidget {
               ? context.shellColors.hairline
               : context.shellColors.hairlineSoft,
         ),
-        boxShadow: compact
-            ? <BoxShadow>[]
-            : <BoxShadow>[
-                BoxShadow(
-                  color: context.shellColors.shadow,
-                  blurRadius: 22,
-                  offset: Offset(0, 8),
-                ),
-              ],
       ),
       child: Padding(
         padding: EdgeInsets.fromLTRB(
@@ -290,7 +281,7 @@ class _NotificationProgress extends StatelessWidget {
       label: context.l10n.notificationProgress(normalized),
       value: context.l10n.settingsPercent(normalized),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(2),
+        borderRadius: context.shellTheme.borderRadius(2),
         child: SizedBox(
           height: 3,
           child: Stack(

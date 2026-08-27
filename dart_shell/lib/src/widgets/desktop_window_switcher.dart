@@ -482,10 +482,10 @@ class DesktopWindowSwitcherLayer extends StatelessWidget {
                                     ),
                               child: DecoratedBox(
                                 decoration: BoxDecoration(
-                                  color: chromeTheme.panelColor(
+                                  color: chromeTheme.cardColor(
                                     _windowSwitcherColors.panelBackground,
                                   ),
-                                  borderRadius: BorderRadius.circular(
+                                  borderRadius: chromeTheme.borderRadius(
                                     ShellRadii.chip,
                                   ),
                                 ),

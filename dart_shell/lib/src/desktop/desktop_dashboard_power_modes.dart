@@ -250,7 +250,7 @@ class _PowerModeRow extends StatelessWidget {
         DecoratedBox(
           decoration: BoxDecoration(
             color: context.shellColors.surfaceContainer,
-            borderRadius: BorderRadius.circular(15),
+            borderRadius: context.shellTheme.borderRadius(15),
             border: Border.all(color: context.shellColors.hairlineSoft),
           ),
           child: Padding(
@@ -343,7 +343,7 @@ class _PowerModeOptionState extends State<_PowerModeOption> {
                   : _hovered
                   ? context.shellColors.surfaceContainerHighest
                   : ShellMediaColors.transparentDark,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: context.shellTheme.borderRadius(12),
               border: _focused
                   ? Border.all(color: accent.primary, width: 1.5)
                   : null,

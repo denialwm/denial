@@ -61,7 +61,16 @@ class DenialShell extends ConsumerWidget {
     final effectiveProfile = (displayLayout?.outputs.length ?? 0) > 1
         ? ShellProfile.desktop
         : profile;
-    final settings = ref.watch(shellSettingsProvider);
+    final presentation = ref.watch(
+      shellSettingsProvider.select(
+        (settings) => (
+          appearance: settings.appearance,
+          animationDurationScale: settings.animations.durationScale,
+          locale: settings.localization.localeOverride,
+        ),
+      ),
+    );
+    final appearance = presentation.appearance;
     final startupCursorThemeId = ref
         .watch(startupEnvironmentProvider)['DENIA_CURSOR_THEME']
         ?.trim();
@@ -69,28 +78,27 @@ class DenialShell extends ConsumerWidget {
       ref.watch(availableShellCursorThemesProvider),
       startupCursorThemeId?.isNotEmpty == true
           ? startupCursorThemeId!
-          : settings.appearance.cursorThemeId,
+          : appearance.cursorThemeId,
     );
     final accent = ref.watch(
       shellAccentProvider.select((accent) => accent.color),
     );
     final colors =
-        settings.appearance.colorSchemePreference.effectiveBrightness ==
-            Brightness.light
+        appearance.colorSchemePreference.effectiveBrightness == Brightness.light
         ? ShellColorScheme.light
         : ShellColorScheme.dark;
     final theme = ShellThemeData(
       colors: colors,
       accent: accent,
-      windowRadius: settings.appearance.windowRadius,
-      panelRadius: settings.appearance.panelRadius,
-      panelOpacity: settings.appearance.panelOpacity,
-      backdropBlurEnabled: settings.appearance.backdropBlurEnabled,
-      backdropBlurLevel: settings.appearance.backdropBlurLevel,
-      backdropBlurOpacityThreshold:
-          settings.appearance.backdropBlurOpacityThreshold,
-      focusedWindowOpacity: settings.appearance.focusedWindowOpacity,
-      unfocusedWindowOpacity: settings.appearance.unfocusedWindowOpacity,
+      cornerRadiusScale: appearance.cornerRadiusScale,
+      panelOpacity: appearance.panelOpacity,
+      cardOpacity: appearance.cardOpacity,
+      backdropBlurEnabled: appearance.backdropBlurEnabled,
+      backdropBlurLevel: appearance.backdropBlurLevel,
+      backdropBlurOpacityThreshold: appearance.backdropBlurOpacityThreshold,
+      focusedWindowBorderEnabled: appearance.focusedWindowBorderEnabled,
+      focusedWindowOpacity: appearance.focusedWindowOpacity,
+      unfocusedWindowOpacity: appearance.unfocusedWindowOpacity,
     );
     final bridge = ref.watch(denialBridgeProvider);
     final hideCursor = ref.watch(
@@ -112,7 +120,7 @@ class DenialShell extends ConsumerWidget {
       platformDragIcons: bridge.dragIcons,
       hideCursor: hideCursor,
       displayLayout: displayLayout,
-      cursorSize: settings.appearance.cursorSize,
+      cursorSize: appearance.cursorSize,
       onCursorStatePresented: bridge.acknowledgeCursorPresented,
       child: ShellOverlayHost(child: scene),
     );
@@ -123,10 +131,10 @@ class DenialShell extends ConsumerWidget {
       child: AnimatedShellTheme(
         data: theme,
         duration: Duration(
-          milliseconds: (200 * settings.animations.durationScale).round(),
+          milliseconds: (200 * presentation.animationDurationScale).round(),
         ),
         child: DenialLocalizationScope(
-          locale: settings.localization.localeOverride,
+          locale: presentation.locale,
           child: _ShellEnvironment(profile: effectiveProfile, child: content),
         ),
       ),
