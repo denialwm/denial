@@ -108,12 +108,20 @@ for pacman_os in arch cachyos; do
     || fail "$pacman_os setup invoked the package manager"
 done
 
-for apt_case in 'debian 13 trixie' 'ubuntu 24.04 noble'; do
-  read -r os_id os_version suite <<<"$apt_case"
-  apt_root="$work_root/$os_id"
+for apt_case in \
+  'debian-trixie debian 13 trixie trixie' \
+  'debian-forky debian - forky trixie' \
+  'ubuntu-noble ubuntu 24.04 noble noble'; do
+  read -r case_name os_id os_version os_codename suite <<<"$apt_case"
+  apt_root="$work_root/$case_name"
   install -d -m 0755 "$apt_root"
-  printf 'ID=%s\nVERSION_ID="%s"\nVERSION_CODENAME=%s\n' \
-    "$os_id" "$os_version" "$suite" >"$apt_root/os-release"
+  if [[ "$os_version" == - ]]; then
+    printf 'ID=%s\nVERSION_CODENAME=%s\n' \
+      "$os_id" "$os_codename" >"$apt_root/os-release"
+  else
+    printf 'ID=%s\nVERSION_ID="%s"\nVERSION_CODENAME=%s\n' \
+      "$os_id" "$os_version" "$os_codename" >"$apt_root/os-release"
+  fi
   : >"$apt_root/pacman.conf"
   : >"$apt_root/admin.log"
   : >"$apt_root/package.log"
@@ -148,10 +156,10 @@ run_setup "$fedora_root"
   || fail 'Fedora setup invoked DNF'
 
 printf 'Types: deb\nURIs: https://example.invalid\n' \
-  >"$work_root/debian/apt/sources.list.d/denial.sources"
-if run_setup "$work_root/debian" y >/dev/null 2>&1; then
+  >"$work_root/debian-trixie/apt/sources.list.d/denial.sources"
+if run_setup "$work_root/debian-trixie" y >/dev/null 2>&1; then
   fail 'APT setup accepted a conflicting existing source definition'
 fi
 
 printf '%s\n' \
-  'Repository setup tests passed for Arch, CachyOS, Debian, Ubuntu, and Fedora.'
+  'Repository setup tests passed for Arch, CachyOS, Debian, Forky/Sid, Ubuntu, and Fedora.'

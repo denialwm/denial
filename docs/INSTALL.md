@@ -99,6 +99,8 @@ The guided setup installs these exact configurations:
   keyring;
 - Debian 13: `https://denialwm.github.io/denial/apt`, suite `trixie`, component
   `main`, with `/etc/apt/keyrings/denial.asc` as `Signed-By`;
+- Debian Forky/Sid: the Debian 13 `trixie` suite on a best-effort basis; this
+  rolling target has not completed Denial's full runtime validation;
 - Ubuntu 24.04: the same APT root, suite `noble`, component `main`, and the same
   scoped keyring;
 - Fedora 44: `https://denialwm.github.io/denial/rpm/fedora/$releasever/$basearch`,

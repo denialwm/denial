@@ -160,6 +160,7 @@ os_codename="$(os_release_value VERSION_CODENAME)"
 mode=''
 suite=''
 install_command=''
+compatibility_note=''
 case "$os_id:$os_version:$os_codename" in
   arch:* | cachyos:* | endeavouros:* | manjaro:*)
     mode='pacman'
@@ -169,6 +170,12 @@ case "$os_id:$os_version:$os_codename" in
     mode='apt'
     suite='trixie'
     install_command='sudo apt update && sudo apt install denial'
+    ;;
+  debian:*:forky)
+    mode='apt'
+    suite='trixie'
+    install_command='sudo apt update && sudo apt install denial'
+    compatibility_note='Debian Forky/Sid uses the Debian 13 package repository on a best-effort basis.'
     ;;
   ubuntu:24.04:* | ubuntu:*:noble)
     mode='apt'
@@ -264,6 +271,9 @@ esac
 
 printf '\nDenial repository setup\n'
 printf '=======================\n\n'
+if [ -n "$compatibility_note" ]; then
+  printf 'Compatibility note: %s\n\n' "$compatibility_note"
+fi
 printf 'This setup will:\n'
 printf '  1. Download the Denial public key and require this full fingerprint:\n'
 printf '     %s\n' "$SIGNING_KEY"
