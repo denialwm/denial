@@ -75,6 +75,32 @@ Exec=/bin/true
     expect(await repository.loadApplications(), isEmpty);
   });
 
+  test('uses canonical desktop-file IDs for nested entries', () async {
+    final applications = Directory(
+      p.join(temporary.path, 'profile', 'share', 'applications'),
+    );
+    final nested = Directory(p.join(applications.path, 'vendor'));
+    await nested.create(recursive: true);
+    await File(p.join(nested.path, 'tool.desktop')).writeAsString('''
+[Desktop Entry]
+Type=Application
+Name=Nested Tool
+Exec=/bin/true
+''');
+    final repository = DesktopAppsRepository(
+      paths: RuntimePaths(
+        environment: <String, String>{
+          'HOME': temporary.path,
+          'XDG_DATA_DIRS': p.join(temporary.path, 'profile', 'share'),
+        },
+      ),
+    );
+
+    final found = await repository.loadApplications();
+
+    expect(found.single.id, 'vendor-tool.desktop');
+  });
+
   test('reports newly installed desktop entries', () async {
     final applications = Directory(
       p.join(temporary.path, 'profile', 'share', 'applications'),

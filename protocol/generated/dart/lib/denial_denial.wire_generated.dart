@@ -312,7 +312,8 @@ enum ShellActionKind {
   ScreenshotDone(7),
   ClientPointerPressed(8),
   Wallpaper(9),
-  WindowSwitcherPrevious(10);
+  WindowSwitcherPrevious(10),
+  OpenSettings(11);
 
   final int value;
   const ShellActionKind(this.value);
@@ -330,6 +331,7 @@ enum ShellActionKind {
       case 8: return ShellActionKind.ClientPointerPressed;
       case 9: return ShellActionKind.Wallpaper;
       case 10: return ShellActionKind.WindowSwitcherPrevious;
+      case 11: return ShellActionKind.OpenSettings;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -338,7 +340,7 @@ enum ShellActionKind {
       value == null ? null : ShellActionKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 10;
+  static const int maxValue = 11;
   static const fb.Reader<ShellActionKind> reader = _ShellActionKindReader();
 }
 
@@ -501,7 +503,8 @@ enum ShortcutActionKind {
   BrightnessUp(16),
   BrightnessDown(17),
   NextKeyboardLayout(18),
-  PreviousKeyboardLayout(19);
+  PreviousKeyboardLayout(19),
+  OpenSettings(20);
 
   final int value;
   const ShortcutActionKind(this.value);
@@ -528,6 +531,7 @@ enum ShortcutActionKind {
       case 17: return ShortcutActionKind.BrightnessDown;
       case 18: return ShortcutActionKind.NextKeyboardLayout;
       case 19: return ShortcutActionKind.PreviousKeyboardLayout;
+      case 20: return ShortcutActionKind.OpenSettings;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -536,7 +540,7 @@ enum ShortcutActionKind {
       value == null ? null : ShortcutActionKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 19;
+  static const int maxValue = 20;
   static const fb.Reader<ShortcutActionKind> reader = _ShortcutActionKindReader();
 }
 
@@ -3565,10 +3569,11 @@ class ShortcutSpawnTarget {
   final int _bcOffset;
 
   List<String>? get command => const fb.ListReader<String>(fb.StringReader()).vTableGetNullable(_bc, _bcOffset, 4);
+  String? get desktopFileId => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 6);
 
   @override
   String toString() {
-    return 'ShortcutSpawnTarget{command: ${command}}';
+    return 'ShortcutSpawnTarget{command: ${command}, desktopFileId: ${desktopFileId}}';
   }
 }
 
@@ -3586,11 +3591,15 @@ class ShortcutSpawnTargetBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(1);
+    fbBuilder.startTable(2);
   }
 
   int addCommandOffset(int? offset) {
     fbBuilder.addOffset(0, offset);
+    return fbBuilder.offset;
+  }
+  int addDesktopFileIdOffset(int? offset) {
+    fbBuilder.addOffset(1, offset);
     return fbBuilder.offset;
   }
 
@@ -3601,19 +3610,25 @@ class ShortcutSpawnTargetBuilder {
 
 class ShortcutSpawnTargetObjectBuilder extends fb.ObjectBuilder {
   final List<String>? _command;
+  final String? _desktopFileId;
 
   ShortcutSpawnTargetObjectBuilder({
     List<String>? command,
+    String? desktopFileId,
   })
-      : _command = command;
+      : _command = command,
+        _desktopFileId = desktopFileId;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
     final int? commandOffset = _command == null ? null
         : fbBuilder.writeList(_command!.map(fbBuilder.writeString).toList());
-    fbBuilder.startTable(1);
+    final int? desktopFileIdOffset = _desktopFileId == null ? null
+        : fbBuilder.writeString(_desktopFileId!);
+    fbBuilder.startTable(2);
     fbBuilder.addOffset(0, commandOffset);
+    fbBuilder.addOffset(1, desktopFileIdOffset);
     return fbBuilder.endTable();
   }
 

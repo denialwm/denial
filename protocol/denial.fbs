@@ -77,7 +77,8 @@ enum ShellActionKind : ubyte {
   ScreenshotDone = 7,
   ClientPointerPressed = 8,
   Wallpaper = 9,
-  WindowSwitcherPrevious = 10
+  WindowSwitcherPrevious = 10,
+  OpenSettings = 11
 }
 
 enum KeyboardCommandKind : ubyte {
@@ -128,7 +129,8 @@ enum ShortcutActionKind : ubyte {
   BrightnessUp = 16,
   BrightnessDown = 17,
   NextKeyboardLayout = 18,
-  PreviousKeyboardLayout = 19
+  PreviousKeyboardLayout = 19,
+  OpenSettings = 20
 }
 
 enum ShortcutInputKind : ubyte {
@@ -473,6 +475,9 @@ table ShortcutDenialActionTarget {
 table ShortcutSpawnTarget {
   // Program followed by its exact argument vector.
   command:[string];
+  // Optional standard desktop-file ID. When present, Denial applies that
+  // application's environment scope before exec without guessing from argv.
+  desktop_file_id:string;
 }
 
 table ShortcutSpawnShTarget {

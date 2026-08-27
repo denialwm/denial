@@ -44,6 +44,7 @@ const _settingsPages = <SettingsPageId>[
   SettingsPageId.appearance,
   SettingsPageId.language,
   SettingsPageId.keyboard,
+  SettingsPageId.environment,
   SettingsPageId.animations,
   SettingsPageId.layout,
   SettingsPageId.overlays,
@@ -54,6 +55,12 @@ const _settingsPages = <SettingsPageId>[
 ];
 
 void main() {
+  test('Settings identity matches standalone Wayland app ids', () {
+    expect(isDenialSettingsApplicationId('dev.denial.Settings'), isTrue);
+    expect(isDenialSettingsApplicationId(' dev.denial.settings '), isTrue);
+    expect(isDenialSettingsApplicationId('org.example.Settings'), isFalse);
+  });
+
   testWidgets('settings application presents the live appearance control', (
     tester,
   ) async {
@@ -1221,6 +1228,7 @@ ProviderContainer _settingsContainer({
   return ProviderContainer.test(
     overrides: [
       settingsStoreProvider.overrideWithValue(_MemorySettingsStore()),
+      settingsDesktopApplicationsProvider.overrideWith((ref) async => const []),
       wallpaperSourcesProvider.overrideWithValue(const []),
       denialBridgeProvider.overrideWith((ref) {
         final bridge = _SettingsBridge(

@@ -32,6 +32,14 @@ tools/denial-pc build
 tools/denial-pc test
 ```
 
+Run only the lock-matched Flutter shell tests, optionally forwarding a test
+path or other `flutter test` arguments:
+
+```sh
+tools/denial-pc flutter-test
+tools/denial-pc flutter-test test/settings/settings_application_test.dart
+```
+
 The release compositor is written to:
 
 ```text

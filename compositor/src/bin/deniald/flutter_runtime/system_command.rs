@@ -16,6 +16,9 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 
 use crate::DEFAULT_QT_QPA_PLATFORMTHEME;
+use crate::settings::{
+    ApplicationEnvironment, load_application_environment, validate_desktop_file_id,
+};
 
 pub const CHANNEL: &CStr = c"denial/system_command";
 
@@ -27,6 +30,7 @@ const MAX_TRACKED_APPLICATIONS: usize = 64;
 const MAX_PENDING_APPLICATION_LAUNCHES: usize = 64;
 const REAPER_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const LAUNCH_APPLICATION: u8 = 0;
+const LAUNCH_DESKTOP_APPLICATION: u8 = 1;
 const TAKE_SCREENSHOT: u8 = 2;
 const LOGOUT: u8 = 3;
 const SCREENSHOT_PREPARED: u8 = 4;
@@ -85,6 +89,7 @@ pub struct ScreenshotRequest {
 enum Request {
     LaunchApplication {
         arguments: Vec<String>,
+        desktop_file_id: Option<String>,
         launch_request_id: Option<NonZeroU64>,
     },
     Screenshot(ScreenshotRequest),
@@ -96,6 +101,7 @@ enum Request {
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct PendingApplicationLaunch {
     arguments: Vec<String>,
+    desktop_file_id: Option<String>,
     launch_request_id: Option<NonZeroU64>,
 }
 
@@ -110,6 +116,8 @@ pub enum DecodeError {
     ArgumentIsNotUtf8(usize),
     TrailingBytes,
     LaunchHasNoArguments,
+    DesktopLaunchHasNoIdentity,
+    InvalidDesktopFileId,
     ScreenshotArgumentCount(usize),
     InvalidScreenshotRegion,
     InvalidScreenshotRequestId,
@@ -139,6 +147,12 @@ impl fmt::Display for DecodeError {
             }
             Self::TrailingBytes => formatter.write_str("packet has trailing bytes"),
             Self::LaunchHasNoArguments => formatter.write_str("launch command has no arguments"),
+            Self::DesktopLaunchHasNoIdentity => {
+                formatter.write_str("desktop launch has no desktop-file ID")
+            }
+            Self::InvalidDesktopFileId => {
+                formatter.write_str("desktop launch has an invalid desktop-file ID")
+            }
             Self::ScreenshotArgumentCount(count) => {
                 write!(
                     formatter,
@@ -280,6 +294,7 @@ impl SystemCommandHandler {
         match decode(packet)? {
             Request::LaunchApplication {
                 arguments,
+                desktop_file_id,
                 launch_request_id,
             } => {
                 if self.pending_application_launches.len() >= MAX_PENDING_APPLICATION_LAUNCHES {
@@ -288,6 +303,7 @@ impl SystemCommandHandler {
                 self.pending_application_launches
                     .push_back(PendingApplicationLaunch {
                         arguments,
+                        desktop_file_id,
                         launch_request_id,
                     });
             }
@@ -335,13 +351,16 @@ impl SystemCommandHandler {
             .as_deref()
             .ok_or(DispatchError::WaylandUnavailable)?;
         let executable = launch.arguments[0].clone();
+        let application_environment = self.application_environment();
         let pid = launch_application(
             &launch.arguments,
+            launch.desktop_file_id.as_deref(),
             launch.launch_request_id,
             activation_token,
             display,
             self.x11_display.as_deref(),
             self.output_control_socket.as_deref(),
+            &application_environment,
         )?;
         info!(pid, executable, "launched application from Flutter shell");
         Ok(())
@@ -351,6 +370,7 @@ impl SystemCommandHandler {
         &self,
         mut arguments: Vec<String>,
         shell: bool,
+        desktop_file_id: Option<&str>,
         activation_token: Option<&str>,
     ) -> Result<(), DispatchError> {
         let display = self
@@ -361,16 +381,32 @@ impl SystemCommandHandler {
             expand_shortcut_program_home(&mut arguments[0]);
         }
         let executable = arguments[0].clone();
+        let application_environment = self.application_environment();
         let pid = launch_application(
             &arguments,
+            desktop_file_id,
             None,
             activation_token,
             display,
             self.x11_display.as_deref(),
             self.output_control_socket.as_deref(),
+            &application_environment,
         )?;
-        info!(pid, executable, shell, "launched command from shortcut");
+        info!(
+            pid,
+            executable, shell, desktop_file_id, "launched command from shortcut"
+        );
         Ok(())
+    }
+
+    fn application_environment(&self) -> ApplicationEnvironment {
+        match load_application_environment() {
+            Ok(environment) => environment,
+            Err(error) => {
+                warn!(%error, "ignoring invalid application environment overrides");
+                ApplicationEnvironment::default()
+            }
+        }
     }
 
     pub fn take_screenshot_requested(&mut self) -> Option<ScreenshotRequest> {
@@ -472,6 +508,25 @@ fn decode(packet: &[u8]) -> Result<Request, DecodeError> {
             }
             Ok(Request::LaunchApplication {
                 arguments,
+                desktop_file_id: None,
+                launch_request_id: NonZeroU64::new(request_id),
+            })
+        }
+        LAUNCH_DESKTOP_APPLICATION => {
+            let mut arguments = arguments.into_iter();
+            let desktop_file_id = arguments
+                .next()
+                .ok_or(DecodeError::DesktopLaunchHasNoIdentity)?;
+            if validate_desktop_file_id(&desktop_file_id).is_err() {
+                return Err(DecodeError::InvalidDesktopFileId);
+            }
+            let arguments = arguments.collect::<Vec<_>>();
+            if arguments.is_empty() {
+                return Err(DecodeError::LaunchHasNoArguments);
+            }
+            Ok(Request::LaunchApplication {
+                arguments,
+                desktop_file_id: Some(desktop_file_id),
                 launch_request_id: NonZeroU64::new(request_id),
             })
         }
@@ -532,11 +587,13 @@ fn decode(packet: &[u8]) -> Result<Request, DecodeError> {
 
 fn launch_application(
     arguments: &[String],
+    desktop_file_id: Option<&str>,
     launch_request_id: Option<NonZeroU64>,
     activation_token: Option<&str>,
     wayland_display: &OsStr,
     x11_display: Option<&OsStr>,
     output_control_socket: Option<&OsStr>,
+    application_environment: &ApplicationEnvironment,
 ) -> Result<u32, DispatchError> {
     // Start the reaper first. If the system cannot create that one persistent
     // thread, no process is launched that Denial would be unable to reap.
@@ -555,6 +612,8 @@ fn launch_application(
         x11_display,
         output_control_socket,
         std::env::var_os("QT_QPA_PLATFORMTHEME").as_deref(),
+        application_environment,
+        desktop_file_id,
     );
     let child = command.spawn().map_err(DispatchError::Spawn)?;
     let pid = child.id();
@@ -605,6 +664,8 @@ fn application_command(
     x11_display: Option<&OsStr>,
     output_control_socket: Option<&OsStr>,
     qt_platform_theme: Option<&OsStr>,
+    application_environment: &ApplicationEnvironment,
+    desktop_file_id: Option<&str>,
 ) -> Command {
     let mut command = Command::new(&arguments[0]);
     // Command inherits the user session environment intentionally: PATH,
@@ -639,6 +700,11 @@ fn application_command(
     if let Some(socket) = output_control_socket {
         command.env("DENIAL_SOCKET", socket);
     }
+    // These overrides affect only processes spawned by the compositor. Apply
+    // them after Denial's inherited-session cleanup and endpoint defaults so
+    // an explicit null can remove DISPLAY or another default deliberately.
+    // Per-launch activation metadata below remains compositor-owned.
+    application_environment.apply(&mut command, desktop_file_id);
     // calloop's signalfd intentionally blocks the shutdown signals in every
     // compositor thread. A fork inherits that mask, so undo it in the child
     // between fork and exec; otherwise ordinary applications cannot receive

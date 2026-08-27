@@ -1885,11 +1885,22 @@ pub(super) fn execute_shortcut_disposition(
             cycle_keyboard_layout(state, false);
             true
         }
-        ShortcutDisposition::Spawn(arguments) => {
+        ShortcutDisposition::RequestOpenSettings => {
+            #[cfg(feature = "flutter")]
+            state.queue_shell_action(super::super::wire::ShellAction::OpenSettings, None);
+            true
+        }
+        ShortcutDisposition::Spawn {
+            command,
+            desktop_file_id,
+        } => {
             #[cfg(feature = "flutter")]
             state
                 .pending_shortcut_launches
-                .push_back(ShortcutTarget::Spawn { command: arguments });
+                .push_back(ShortcutTarget::Spawn {
+                    command,
+                    desktop_file_id,
+                });
             true
         }
         ShortcutDisposition::SpawnSh(command) => {

@@ -20,6 +20,115 @@ pub(super) fn collect_output_power_requests(events: &mut RuntimeState) {
     }
 }
 
+#[derive(Debug, Default)]
+pub(super) struct DpmsTopologyGuard {
+    parked_outputs: BTreeSet<OutputId>,
+    waking_outputs: BTreeSet<OutputId>,
+    wake_grace_until: Option<Instant>,
+    deferred_removal: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct DeferredDpmsTopology {
+    pub(super) missing_outputs: usize,
+    pub(super) grace_until: Option<Instant>,
+    pub(super) first_observation: bool,
+}
+
+impl DpmsTopologyGuard {
+    pub(super) fn note_powered_off(&mut self, output: OutputId) {
+        self.waking_outputs.remove(&output);
+        self.parked_outputs.insert(output);
+        if self.waking_outputs.is_empty() {
+            self.wake_grace_until = None;
+        }
+    }
+
+    pub(super) fn note_wake(&mut self, output: OutputId, now: Instant) {
+        self.parked_outputs.remove(&output);
+        self.waking_outputs.insert(output);
+        self.wake_grace_until = Some(now + DPMS_WAKE_TOPOLOGY_GRACE);
+    }
+
+    pub(super) fn defer_missing_outputs(
+        &mut self,
+        now: Instant,
+        current: impl IntoIterator<Item = OutputId>,
+        observed: impl IntoIterator<Item = OutputId>,
+    ) -> Option<DeferredDpmsTopology> {
+        self.expire_wake_grace(now);
+        let current = current.into_iter().collect::<BTreeSet<_>>();
+        let observed = observed.into_iter().collect::<BTreeSet<_>>();
+        let missing = current
+            .iter()
+            .copied()
+            .filter(|output| !observed.contains(output))
+            .collect::<Vec<_>>();
+
+        if missing.is_empty() {
+            // A connector can briefly report connected before another link
+            // training event makes it disappear. Keep the output eligible for
+            // debounce through the complete wake interval, but cancel any
+            // pending removal now that the expected topology was observed.
+            self.deferred_removal = false;
+            return None;
+        }
+        if observed.iter().any(|output| !current.contains(output))
+            || missing.iter().any(|output| {
+                !self.parked_outputs.contains(output) && !self.waking_outputs.contains(output)
+            })
+        {
+            self.cancel();
+            return None;
+        }
+
+        let grace_until = missing
+            .iter()
+            .any(|output| self.waking_outputs.contains(output))
+            .then_some(self.wake_grace_until)
+            .flatten();
+        let first_observation = !std::mem::replace(&mut self.deferred_removal, true);
+        Some(DeferredDpmsTopology {
+            missing_outputs: missing.len(),
+            grace_until,
+            first_observation,
+        })
+    }
+
+    pub(super) fn service_deadline(&mut self, now: Instant) -> bool {
+        if self.wake_grace_until.is_none_or(|deadline| now < deadline) {
+            return false;
+        }
+        self.waking_outputs.clear();
+        self.wake_grace_until = None;
+        std::mem::take(&mut self.deferred_removal)
+    }
+
+    pub(super) fn limit_dispatch_timeout(&self, now: Instant, timeout: Duration) -> Duration {
+        if !self.deferred_removal {
+            return timeout;
+        }
+        self.wake_grace_until.map_or(timeout, |deadline| {
+            timeout.min(deadline.saturating_duration_since(now))
+        })
+    }
+
+    pub(super) fn cancel(&mut self) {
+        *self = Self::default();
+    }
+
+    fn expire_wake_grace(&mut self, now: Instant) {
+        if self
+            .wake_grace_until
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.waking_outputs.clear();
+            self.wake_grace_until = None;
+            self.deferred_removal = false;
+        }
+    }
+}
+
 #[cfg(feature = "flutter")]
 pub(super) fn synchronize_idle_dpms(scanouts: &[Scanout], events: &mut RuntimeState, now: Instant) {
     let inhibited = events
@@ -199,6 +308,7 @@ pub(super) fn apply_output_power_requests(
             for &(output, scanout_index, _) in &targets {
                 scheduler.power_off(runtime, output, scanouts)?;
                 scanouts[scanout_index].powered = false;
+                events.dpms_topology.note_powered_off(output);
                 power_changed = true;
                 events.output_control_dirty = true;
                 events.pending.remove(&scanouts[scanout_index].output.crtc);
@@ -228,6 +338,8 @@ pub(super) fn apply_output_power_requests(
                     .ok_or("DPMS wake has no physical output pools")?,
             )?;
             scanouts[scanout_index].powered = true;
+            events.dpms_topology.note_wake(output, Instant::now());
+            events.topology_dirty = true;
             power_changed = true;
             events.output_control_dirty = true;
             info!(
@@ -241,3 +353,7 @@ pub(super) fn apply_output_power_requests(
     events.output_power_requests = deferred;
     Ok(power_changed)
 }
+
+#[cfg(test)]
+#[path = "dpms/tests.rs"]
+mod tests;

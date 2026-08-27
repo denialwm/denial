@@ -73,6 +73,14 @@ void main() {
       expect(bridge.cancelScreenshot(77), isTrue);
       expect(bridge.requestLogout(), isTrue);
       expect(
+        bridge.launchDesktopApplication(
+          'org.example.Terminal.desktop',
+          const <String>['foot'],
+          launchRequestId: 43,
+        ),
+        isTrue,
+      );
+      expect(
         bridge.launchApplication(const <String>['bad\u0000argument']),
         isFalse,
       );
@@ -89,7 +97,7 @@ void main() {
       bridge.setIdleDpmsTimeout(null);
       bridge.requestDpmsOff();
 
-      expect(systemMessages, hasLength(6));
+      expect(systemMessages, hasLength(7));
       final launch = systemMessages[0];
       expect(launch.getUint8(0), 0);
       expect(launch.getUint64(1, Endian.little), 42);
@@ -118,6 +126,12 @@ void main() {
       expect(systemMessages[4].lengthInBytes, 13);
       expect(systemMessages[5].getUint8(0), 3);
       expect(systemMessages[5].lengthInBytes, 13);
+      expect(systemMessages[6].getUint8(0), 1);
+      expect(systemMessages[6].getUint64(1, Endian.little), 43);
+      expect(_decodeSystemArguments(systemMessages[6]), const <String>[
+        'org.example.Terminal.desktop',
+        'foot',
+      ]);
 
       expect(brightnessMessages, hasLength(2));
       final brightnessRead = brightnessMessages.first;
@@ -726,6 +740,31 @@ void main() {
 
       expect(events, hasLength(1));
       expect(events.single.action, DenialShellAction.wallpaper);
+    } finally {
+      await subscription.cancel();
+      bridge.dispose();
+    }
+  });
+
+  test('open Settings action notifications reach the shell', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final bridge = _startedBridge();
+    final events = <DenialShellActionEvent>[];
+    final subscription = bridge.shellActions.listen(events.add);
+    try {
+      await _sendToFlutter(
+        messenger,
+        _envelope(
+          wire.PayloadTypeId.ShellAction,
+          wire.ShellActionObjectBuilder(
+            action: wire.ShellActionKind.OpenSettings,
+          ),
+        ),
+      );
+
+      expect(events, hasLength(1));
+      expect(events.single.action, DenialShellAction.openSettings);
     } finally {
       await subscription.cancel();
       bridge.dispose();

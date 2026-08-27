@@ -65,6 +65,8 @@ String settingsShortcutActionLabel(
       l10n.settingsShortcutActionNextKeyboardLayout,
     DenialShortcutAction.previousKeyboardLayout =>
       l10n.settingsShortcutActionPreviousKeyboardLayout,
+    DenialShortcutAction.openSettings =>
+      l10n.settingsShortcutActionOpenSettings,
   };
 }
 
@@ -77,8 +79,10 @@ String settingsShortcutTargetLabel(
       context,
       action,
     ),
-    DenialShortcutSpawnTarget(:final command) =>
-      command.map(_displayCommandArgument).join(' '),
+    DenialShortcutSpawnTarget(:final command, :final desktopFileId) =>
+      desktopFileId == null
+          ? command.map(_displayCommandArgument).join(' ')
+          : context.l10n.settingsShortcutApplicationTarget(desktopFileId),
     DenialShortcutSpawnShTarget(:final command) => command,
   };
 }
@@ -88,7 +92,8 @@ IconData settingsShortcutTargetIcon(DenialShortcutBinding binding) {
     DenialShortcutActionTarget(:final action) => settingsShortcutActionIcon(
       action,
     ),
-    DenialShortcutSpawnTarget() => Icons.terminal_rounded,
+    DenialShortcutSpawnTarget(:final desktopFileId) =>
+      desktopFileId == null ? Icons.terminal_rounded : Icons.apps_rounded,
     DenialShortcutSpawnShTarget() => Icons.code_rounded,
   };
 }
@@ -124,6 +129,7 @@ IconData settingsShortcutActionIcon(DenialShortcutAction action) {
       Icons.keyboard_arrow_right_rounded,
     DenialShortcutAction.previousKeyboardLayout =>
       Icons.keyboard_arrow_left_rounded,
+    DenialShortcutAction.openSettings => Icons.settings_rounded,
   };
 }
 

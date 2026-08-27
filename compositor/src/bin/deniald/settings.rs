@@ -4,12 +4,14 @@
 //! file.  Every mutation is revision checked and committed by deniald through
 //! an fsync/rename transaction so compositor and shell settings cannot race.
 
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
@@ -19,8 +21,13 @@ use tracing::warn;
 
 use denial_core::portal_protocol::{DesktopColorSchemePreference, DesktopThemeSnapshot};
 
-pub(super) const SETTINGS_SCHEMA_VERSION: u64 = 10;
+pub(super) const SETTINGS_SCHEMA_VERSION: u64 = 12;
 const MAX_SETTINGS_BYTES: usize = 256 * 1024;
+const MAX_APPLICATION_ENVIRONMENT_ENTRIES: usize = 256;
+const MAX_APPLICATION_ENVIRONMENT_APPLICATIONS: usize = 256;
+const MAX_DESKTOP_FILE_ID_BYTES: usize = 4096;
+const MAX_APPLICATION_ENVIRONMENT_NAME_BYTES: usize = 256;
+const MAX_APPLICATION_ENVIRONMENT_VALUE_BYTES: usize = 16 * 1024;
 const MAX_KEYBOARD_LAYOUTS: usize = 8;
 const MAX_KEYBOARD_OPTIONS: usize = 32;
 const MAX_XKB_NAME_BYTES: usize = 64;
@@ -33,6 +40,232 @@ pub(super) const MIN_TOUCHPAD_SCROLL_SPEED_FACTOR: f64 = 0.05;
 pub(super) const MAX_TOUCHPAD_SCROLL_SPEED_FACTOR: f64 = 5.0;
 const DEFAULT_TOUCHPAD_SCROLL_SPEED_FACTOR: f64 = 1.0;
 static SETTINGS_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+/// Environment overrides applied only to processes launched by Denial.
+///
+/// The default map applies to every direct launch. A map keyed by the standard
+/// desktop-file ID is layered over it for launches originating from that
+/// desktop entry. A string sets a variable (including to the empty string),
+/// while `null` removes it from the child environment.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(super) struct ApplicationEnvironment {
+    default_overrides: BTreeMap<String, Option<String>>,
+    application_overrides: BTreeMap<String, BTreeMap<String, Option<String>>>,
+}
+
+impl ApplicationEnvironment {
+    fn from_document(document: &Map<String, Value>) -> Result<Self, SettingsError> {
+        let Some(value) = document.get("applicationEnvironment") else {
+            return Ok(Self::default());
+        };
+        let object = value.as_object().ok_or_else(|| {
+            SettingsError::Document("settings applicationEnvironment must be an object".to_owned())
+        })?;
+        // Schema 11 stored the default map directly. Accept it here so loading
+        // the document performs a lossless migration to the nested schema.
+        if object
+            .values()
+            .all(|value| value.is_string() || value.is_null())
+        {
+            return Ok(Self {
+                default_overrides: parse_environment_overrides(value, "default")?,
+                application_overrides: BTreeMap::new(),
+            });
+        }
+
+        for key in object.keys() {
+            if !matches!(key.as_str(), "default" | "applications") {
+                return Err(SettingsError::Document(format!(
+                    "unknown application environment field {key:?}"
+                )));
+            }
+        }
+        let default_overrides = object
+            .get("default")
+            .map(|value| parse_environment_overrides(value, "default"))
+            .transpose()?
+            .unwrap_or_default();
+        let applications = match object.get("applications") {
+            Some(value) => value.as_object().cloned().ok_or_else(|| {
+                SettingsError::Document(
+                    "settings applicationEnvironment.applications must be an object".to_owned(),
+                )
+            })?,
+            None => Map::new(),
+        };
+        if applications.len() > MAX_APPLICATION_ENVIRONMENT_APPLICATIONS {
+            return Err(SettingsError::Document(format!(
+                "application environment contains more than {MAX_APPLICATION_ENVIRONMENT_APPLICATIONS} applications"
+            )));
+        }
+        let mut application_overrides = BTreeMap::new();
+        for (desktop_file_id, value) in &applications {
+            validate_desktop_file_id(desktop_file_id)?;
+            application_overrides.insert(
+                desktop_file_id.clone(),
+                parse_environment_overrides(value, desktop_file_id)?,
+            );
+        }
+        Ok(Self {
+            default_overrides,
+            application_overrides,
+        })
+    }
+
+    fn write_to_document(&self, document: &mut Map<String, Value>) {
+        let mut environment = Map::new();
+        environment.insert(
+            "default".to_owned(),
+            serde_json::to_value(&self.default_overrides)
+                .expect("validated default application environment serializes"),
+        );
+        environment.insert(
+            "applications".to_owned(),
+            serde_json::to_value(&self.application_overrides)
+                .expect("validated per-application environments serialize"),
+        );
+        document.insert(
+            "applicationEnvironment".to_owned(),
+            Value::Object(environment),
+        );
+    }
+
+    pub(super) fn apply(&self, command: &mut Command, desktop_file_id: Option<&str>) {
+        apply_environment_overrides(command, &self.default_overrides);
+        if let Some(overrides) = desktop_file_id
+            .and_then(|desktop_file_id| self.application_overrides.get(desktop_file_id))
+        {
+            apply_environment_overrides(command, overrides);
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn parse(bytes: &[u8]) -> Result<Self, SettingsError> {
+        let value = serde_json::from_slice::<Value>(bytes)?;
+        let mut document = Map::new();
+        document.insert("applicationEnvironment".to_owned(), value);
+        Self::from_document(&document)
+    }
+
+    #[cfg(test)]
+    pub(super) fn value(&self, name: &str) -> Option<Option<&str>> {
+        self.default_overrides
+            .get(name)
+            .map(|value| value.as_deref())
+    }
+
+    #[cfg(test)]
+    pub(super) fn application_value(
+        &self,
+        desktop_file_id: &str,
+        name: &str,
+    ) -> Option<Option<&str>> {
+        self.application_overrides
+            .get(desktop_file_id)?
+            .get(name)
+            .map(|value| value.as_deref())
+    }
+}
+
+fn parse_environment_overrides(
+    value: &Value,
+    scope: &str,
+) -> Result<BTreeMap<String, Option<String>>, SettingsError> {
+    let object = value.as_object().ok_or_else(|| {
+        SettingsError::Document(format!(
+            "application environment scope {scope:?} must be an object"
+        ))
+    })?;
+    if object.len() > MAX_APPLICATION_ENVIRONMENT_ENTRIES {
+        return Err(SettingsError::Document(format!(
+            "application environment scope {scope:?} contains more than {MAX_APPLICATION_ENVIRONMENT_ENTRIES} variables"
+        )));
+    }
+    let mut overrides = BTreeMap::new();
+    for (name, value) in object {
+        validate_environment_name(name)?;
+        let value = match value {
+            Value::String(value) => {
+                validate_environment_value(name, value)?;
+                Some(value.clone())
+            }
+            Value::Null => None,
+            _ => {
+                return Err(SettingsError::Document(format!(
+                    "application environment variable {name} must be a string or null"
+                )));
+            }
+        };
+        overrides.insert(name.clone(), value);
+    }
+    Ok(overrides)
+}
+
+fn apply_environment_overrides(
+    command: &mut Command,
+    overrides: &BTreeMap<String, Option<String>>,
+) {
+    for (name, value) in overrides {
+        match value {
+            Some(value) => {
+                command.env(name, value);
+            }
+            None => {
+                command.env_remove(name);
+            }
+        }
+    }
+}
+
+pub(super) fn load_application_environment() -> Result<ApplicationEnvironment, SettingsError> {
+    let path = settings_path()?;
+    let Some(bytes) = read_settings_file(&path)? else {
+        return Ok(ApplicationEnvironment::default());
+    };
+    Ok(parse_document(&bytes)?.application_environment)
+}
+
+fn validate_environment_name(name: &str) -> Result<(), SettingsError> {
+    let mut bytes = name.bytes();
+    let valid = bytes
+        .next()
+        .is_some_and(|byte| byte == b'_' || byte.is_ascii_alphabetic())
+        && bytes.all(|byte| byte == b'_' || byte.is_ascii_alphanumeric());
+    if !valid || name.len() > MAX_APPLICATION_ENVIRONMENT_NAME_BYTES {
+        return Err(SettingsError::Document(format!(
+            "invalid environment variable name {name:?}"
+        )));
+    }
+    Ok(())
+}
+
+pub(super) fn validate_desktop_file_id(desktop_file_id: &str) -> Result<(), SettingsError> {
+    if desktop_file_id.is_empty()
+        || desktop_file_id.len() > MAX_DESKTOP_FILE_ID_BYTES
+        || !desktop_file_id.ends_with(".desktop")
+        || desktop_file_id.contains('/')
+        || desktop_file_id.contains('\0')
+    {
+        return Err(SettingsError::Document(format!(
+            "invalid desktop-file ID {desktop_file_id:?}"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_environment_value(name: &str, value: &str) -> Result<(), SettingsError> {
+    if value.len() > MAX_APPLICATION_ENVIRONMENT_VALUE_BYTES {
+        return Err(SettingsError::Document(format!(
+            "environment variable {name} exceeds {MAX_APPLICATION_ENVIRONMENT_VALUE_BYTES} bytes"
+        )));
+    }
+    if value.contains('\0') {
+        return Err(SettingsError::Document(format!(
+            "environment variable {name} contains NUL"
+        )));
+    }
+    Ok(())
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -528,11 +761,13 @@ impl SettingsManager {
 
     fn prepare(
         &self,
-        document: Map<String, Value>,
+        mut document: Map<String, Value>,
         keyboard: KeyboardSettings,
         touchpad: TouchpadSettings,
         color_scheme_preference: DesktopColorSchemePreference,
     ) -> Result<PreparedSettingsUpdate, SettingsError> {
+        let application_environment = ApplicationEnvironment::from_document(&document)?;
+        application_environment.write_to_document(&mut document);
         let revision = document
             .get("revision")
             .and_then(Value::as_u64)
@@ -604,6 +839,7 @@ struct ParsedSettingsDocument {
     keyboard: KeyboardSettings,
     touchpad: TouchpadSettings,
     color_scheme_preference: DesktopColorSchemePreference,
+    application_environment: ApplicationEnvironment,
     migrated: bool,
 }
 
@@ -641,6 +877,9 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         None => TouchpadSettings::default(),
     };
     touchpad.validate()?;
+    let had_application_environment = document.contains_key("applicationEnvironment");
+    let application_environment = ApplicationEnvironment::from_document(&document)?;
+    application_environment.write_to_document(&mut document);
     let had_color_scheme_preference = document
         .get("appearance")
         .and_then(Value::as_object)
@@ -655,6 +894,7 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         || !document.contains_key("revision")
         || !document.contains_key("keyboard")
         || !document.contains_key("touchpad")
+        || !had_application_environment
         || !had_color_scheme_preference;
     document.insert("version".to_owned(), Value::from(SETTINGS_SCHEMA_VERSION));
     document.insert("revision".to_owned(), Value::from(revision));
@@ -672,6 +912,7 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         keyboard,
         touchpad,
         color_scheme_preference,
+        application_environment,
         migrated,
     })
 }
@@ -698,6 +939,7 @@ fn default_document() -> (
         "touchpad".to_owned(),
         serde_json::to_value(&touchpad).expect("default touchpad settings serialize"),
     );
+    ApplicationEnvironment::default().write_to_document(&mut document);
     set_color_scheme_preference(&mut document, color_scheme_preference)
         .expect("default appearance settings serialize");
     (

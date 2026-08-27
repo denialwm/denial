@@ -112,6 +112,8 @@ pub(super) struct RuntimeState {
     pub(super) output_control_dirty: bool,
     #[cfg(feature = "flutter")]
     pub(super) output_control: Option<output_control::OutputControlPublisher>,
+    #[cfg(feature = "flutter")]
+    pub(super) dpms_topology: dpms::DpmsTopologyGuard,
     pub(super) pending_ui_development: VecDeque<PendingUiDevelopment>,
     #[cfg(feature = "flutter")]
     pub(super) idle_dpms: idle_policy::IdleDpmsPolicy,

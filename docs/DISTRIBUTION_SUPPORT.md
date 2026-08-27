@@ -80,9 +80,11 @@ in the [Alpine Linux 3.24 validation](../packaging/alpine/VALIDATION.md).
   a user D-Bus. Denial always publishes its discovered Wayland, X11, and
   control endpoints to D-Bus activation. When a systemd user manager owns its
   standard bus name, Denial additionally publishes there and manages the
-  packaged graphical-session target; otherwise its launcher process owns the
-  compositor lifecycle directly. This supports elogind-based systems without
-  making UWSM or systemd a runtime requirement.
+  packaged graphical-session target. That target opts into systemd's XDG
+  desktop-autostart target after Denial is ready. Otherwise Denial's launcher
+  process owns the compositor lifecycle directly and XDG desktop autostart is
+  unavailable; this keeps elogind-based sessions supported without making UWSM
+  or systemd a compositor runtime requirement.
 - Native DDC brightness loads libddcutil ABI 5 and resolves both display
   metadata and VCP setter APIs by symbol capability. Newer releases publish a
   DRM connector directly. With the stable metadata API in libddcutil 2.2.0,

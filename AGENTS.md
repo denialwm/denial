@@ -101,6 +101,13 @@ tools/denial-pc build
 tools/denial-pc test
 ```
 
+Never invoke `flutter test` directly for `dart_shell`. Use
+`tools/denial-pc flutter-test [FLUTTER_TEST_ARGS...]` for targeted or
+Flutter-only tests. It prepares or reuses the lock-matched
+`denial_host_debug` build and supplies the required local-engine selection.
+Use `tools/denial-pc test` when the complete compositor and Flutter test suite
+is required.
+
 The compositor binary is written to
 `$XDG_CACHE_HOME/denial/pc-build/rust/release/deniald` by default. The Flutter
 bundle is written to `dart_shell/build/linux/x64/release/bundle`.

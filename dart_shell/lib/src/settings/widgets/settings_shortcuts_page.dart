@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../localization/denial_localizations.dart';
+import '../../launcher/models/desktop_app.dart';
 import '../../models/shortcut_configuration.dart';
 import '../../state/shortcut_configuration.dart';
 import '../../theme/shell_theme.dart';
@@ -13,7 +14,12 @@ import 'settings_shortcut_editor.dart';
 import 'settings_shortcut_presentation.dart';
 
 class SettingsShortcutsPage extends ConsumerStatefulWidget {
-  const SettingsShortcutsPage({super.key});
+  const SettingsShortcutsPage({
+    this.applications = const <DesktopApp>[],
+    super.key,
+  });
+
+  final List<DesktopApp> applications;
 
   @override
   ConsumerState<SettingsShortcutsPage> createState() =>
@@ -66,6 +72,7 @@ class _SettingsShortcutsPageState extends ConsumerState<SettingsShortcutsPage> {
                   : 'shortcut-editor-${_editedBinding!.shortcut}',
             ),
             configuration: configuration,
+            applications: widget.applications,
             binding: _editedBinding,
             busy: state.busy,
             deleteBusy: state.deletingShortcut == _editedBinding?.shortcut,

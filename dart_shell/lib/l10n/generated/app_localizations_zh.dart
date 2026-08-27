@@ -1910,6 +1910,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsShortcutEditorTargetAction => 'Denial 操作';
 
   @override
+  String get settingsShortcutEditorTargetApplication => '应用';
+
+  @override
   String get settingsShortcutEditorTargetProgram => '程序';
 
   @override
@@ -1960,6 +1963,14 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsShortcutEditorChooseAction => '选择操作';
+
+  @override
+  String get settingsShortcutEditorChooseApplication => '选择应用';
+
+  @override
+  String settingsShortcutApplicationTarget(String desktopFileId) {
+    return '应用 · $desktopFileId';
+  }
 
   @override
   String get settingsShortcutEditorValidating => '正在通过合成器检查…';
@@ -2039,6 +2050,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsShortcutActionOpenApplications => '打开应用列表';
+
+  @override
+  String get settingsShortcutActionOpenSettings => '打开设置';
 
   @override
   String get settingsShortcutActionOpenOverview => '打开概览';
@@ -2287,6 +2301,158 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsDeveloperWorkspaceTitle => '源码工作区';
 
   @override
+  String get settingsEnvironmentAdd => '添加';
+
+  @override
+  String get settingsEnvironmentAddedStatus => '已添加到启动的应用';
+
+  @override
+  String get settingsEnvironmentAddModeDescription =>
+      'Denial 执行应用时注入字面值。空值会保留为空字符串。';
+
+  @override
+  String get settingsEnvironmentAllApplications => '所有应用';
+
+  @override
+  String get settingsEnvironmentAllApplicationsDescription => '默认启动环境';
+
+  @override
+  String settingsEnvironmentApplicationInherited(int count) {
+    return '继承 $count 条所有应用规则';
+  }
+
+  @override
+  String get settingsEnvironmentApplicationSearchHint => '搜索应用或桌面 ID';
+
+  @override
+  String get settingsEnvironmentApplicationsTitle => '应用';
+
+  @override
+  String get settingsEnvironmentApplicationsUnavailable => '无法加载已安装的应用。';
+
+  @override
+  String get settingsEnvironmentBackToApplications => '返回应用列表';
+
+  @override
+  String get settingsEnvironmentCancel => '取消';
+
+  @override
+  String get settingsEnvironmentClearScope => '清除';
+
+  @override
+  String settingsEnvironmentDeleteVariable(String variable) {
+    return '删除 $variable';
+  }
+
+  @override
+  String settingsEnvironmentEditVariable(String variable) {
+    return '编辑 $variable';
+  }
+
+  @override
+  String get settingsEnvironmentEditorDescription =>
+      '设置一个值；留空会传递空字符串；选择“移除”则不会把该变量传给子进程。';
+
+  @override
+  String settingsEnvironmentEditorEditTitle(String variable) {
+    return '编辑 $variable';
+  }
+
+  @override
+  String get settingsEnvironmentEditorTitle => '添加覆盖项';
+
+  @override
+  String get settingsEnvironmentEmptyDescription => '在上方添加变量，以更改之后启动的应用环境。';
+
+  @override
+  String get settingsEnvironmentEmptyTitle => '没有覆盖项';
+
+  @override
+  String get settingsEnvironmentEmptyValue => '空字符串';
+
+  @override
+  String get settingsEnvironmentHiddenStatus => '已对启动的应用隐藏';
+
+  @override
+  String get settingsEnvironmentHide => '隐藏';
+
+  @override
+  String get settingsEnvironmentHideModeDescription =>
+      '在 exec 前移除继承的变量。应用会像从未导出过该名称一样运行。';
+
+  @override
+  String get settingsEnvironmentNameDuplicate => '该变量已有覆盖项。';
+
+  @override
+  String get settingsEnvironmentNameHint => '例如 MOZ_ENABLE_WAYLAND';
+
+  @override
+  String get settingsEnvironmentNameInvalid => '仅使用字母、数字和下划线，并以字母或下划线开头。';
+
+  @override
+  String get settingsEnvironmentNameLabel => '变量名';
+
+  @override
+  String get settingsEnvironmentNameRequired => '请输入变量名。';
+
+  @override
+  String get settingsEnvironmentOverridesDefault => '覆盖所有应用规则';
+
+  @override
+  String get settingsEnvironmentModeAdd => '添加变量';
+
+  @override
+  String get settingsEnvironmentModeHide => '隐藏变量';
+
+  @override
+  String get settingsEnvironmentRemoveDescription => 'Denial 会在启动应用前移除继承的这个变量。';
+
+  @override
+  String get settingsEnvironmentRemoveLabel => '从启动的应用中移除';
+
+  @override
+  String get settingsEnvironmentRemovedValue => '已从子进程环境中移除';
+
+  @override
+  String get settingsEnvironmentScopeDescription =>
+      '这些覆盖项仅应用于由 Denial 启动的应用和快捷键命令，并在之后的启动中生效；不会影响 XDG 自启动项、systemd 服务、D-Bus 服务或 Denial 本身。';
+
+  @override
+  String get settingsEnvironmentScopeTitle => '启动范围';
+
+  @override
+  String get settingsEnvironmentSection => '应用';
+
+  @override
+  String get settingsEnvironmentTitle => '自定义由 Denial 启动的应用环境。';
+
+  @override
+  String get settingsEnvironmentUpdate => '更新变量';
+
+  @override
+  String get settingsEnvironmentUnavailableApplication => '不可用的应用';
+
+  @override
+  String get settingsEnvironmentValueHint => '例如 1';
+
+  @override
+  String get settingsEnvironmentValueLabel => '值';
+
+  @override
+  String get settingsEnvironmentValueNul => '值不能包含 NUL 字符。';
+
+  @override
+  String get settingsEnvironmentValueTooLong => '该值过长。';
+
+  @override
+  String settingsEnvironmentVariablesStatus(int count) {
+    return '已配置 $count 项';
+  }
+
+  @override
+  String get settingsEnvironmentVariablesTitle => '已配置的覆盖项';
+
+  @override
   String settingsMinutes(int minutes) {
     return '$minutes 分钟';
   }
@@ -2311,6 +2477,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsNavigationDeveloper => '开发者';
+
+  @override
+  String get settingsNavigationEnvironment => '应用环境';
 
   @override
   String get settingsNavigationDisplays => '显示器与视频';

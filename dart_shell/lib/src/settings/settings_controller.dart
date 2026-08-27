@@ -382,6 +382,57 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     );
   }
 
+  void setApplicationEnvironmentOverride(
+    String name,
+    String? value, {
+    String? desktopFileId,
+  }) {
+    replaceApplicationEnvironmentOverride(
+      desktopFileId: desktopFileId,
+      name: name,
+      value: value,
+    );
+  }
+
+  void replaceApplicationEnvironmentOverride({
+    String? desktopFileId,
+    String? previousName,
+    required String name,
+    required String? value,
+  }) {
+    final normalizedName = name.trim();
+    var applicationEnvironment = state.applicationEnvironment;
+    if (previousName != null && previousName != normalizedName) {
+      applicationEnvironment = applicationEnvironment.withoutOverride(
+        previousName,
+        desktopFileId: desktopFileId,
+      );
+    }
+    _update(
+      state.copyWith(
+        applicationEnvironment: applicationEnvironment.withOverride(
+          normalizedName,
+          value,
+          desktopFileId: desktopFileId,
+        ),
+      ),
+    );
+  }
+
+  void removeApplicationEnvironmentOverride(
+    String name, {
+    String? desktopFileId,
+  }) {
+    _update(
+      state.copyWith(
+        applicationEnvironment: state.applicationEnvironment.withoutOverride(
+          name,
+          desktopFileId: desktopFileId,
+        ),
+      ),
+    );
+  }
+
   void resetAppearance() {
     _update(state.copyWith(appearance: const ShellAppearanceSettings()));
   }
@@ -408,6 +459,32 @@ class ShellSettingsController extends Notifier<ShellSettings> {
 
   void resetPower() {
     _update(state.copyWith(power: const ShellPowerSettings()));
+  }
+
+  void resetApplicationEnvironment() {
+    _update(
+      state.copyWith(
+        applicationEnvironment: const ShellApplicationEnvironmentSettings(),
+      ),
+    );
+  }
+
+  void resetApplicationEnvironmentScope(String? desktopFileId) {
+    if (desktopFileId == null) {
+      var applicationEnvironment = state.applicationEnvironment;
+      for (final name in applicationEnvironment.variables.keys.toList()) {
+        applicationEnvironment = applicationEnvironment.withoutOverride(name);
+      }
+      _update(state.copyWith(applicationEnvironment: applicationEnvironment));
+      return;
+    }
+    _update(
+      state.copyWith(
+        applicationEnvironment: state.applicationEnvironment.withoutApplication(
+          desktopFileId,
+        ),
+      ),
+    );
   }
 
   Future<void> flush() async {
@@ -569,7 +646,9 @@ void _applySettingsPatch(
   for (final entry in patch.entries) {
     final current = document[entry.key];
     final next = entry.value;
-    if (current is Map<String, dynamic> && next is Map<String, Object?>) {
+    if (entry.key != 'applicationEnvironment' &&
+        current is Map<String, dynamic> &&
+        next is Map<String, Object?>) {
       _applySettingsPatch(current, next);
     } else {
       document[entry.key] = next;
@@ -594,7 +673,8 @@ void _removeCommittedSettingsPatch(
   for (final entry in committed.entries) {
     final pendingValue = pending[entry.key];
     final committedValue = entry.value;
-    if (pendingValue is Map<String, Object?> &&
+    if (entry.key != 'applicationEnvironment' &&
+        pendingValue is Map<String, Object?> &&
         committedValue is Map<String, Object?>) {
       _removeCommittedSettingsPatch(pendingValue, committedValue);
       if (pendingValue.isEmpty) {

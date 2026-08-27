@@ -3,11 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../launcher/models/desktop_app.dart';
+import '../../launcher/services/desktop_exec_parser.dart';
 import '../../localization/denial_localizations.dart';
 import '../../models/shortcut_configuration.dart';
 import '../../theme/motion.dart';
 import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/app_icon.dart';
 import 'settings_controls.dart';
 import 'settings_shortcut_presentation.dart';
 
@@ -20,6 +23,7 @@ typedef ShortcutValidationCallback =
 class SettingsShortcutEditor extends StatefulWidget {
   const SettingsShortcutEditor({
     required this.configuration,
+    required this.applications,
     required this.binding,
     required this.busy,
     required this.deleteBusy,
@@ -33,6 +37,7 @@ class SettingsShortcutEditor extends StatefulWidget {
   });
 
   final DenialShortcutConfiguration configuration;
+  final List<DesktopApp> applications;
   final DenialShortcutBinding? binding;
   final bool busy;
   final bool deleteBusy;
@@ -47,9 +52,9 @@ class SettingsShortcutEditor extends StatefulWidget {
   State<SettingsShortcutEditor> createState() => _SettingsShortcutEditorState();
 }
 
-enum _EditorView { form, actions, inputs }
+enum _EditorView { form, actions, applications, inputs }
 
-enum _EditorTarget { denialAction, spawn, spawnSh }
+enum _EditorTarget { denialAction, application, spawn, spawnSh }
 
 class _SettingsShortcutEditorState extends State<SettingsShortcutEditor> {
   static const Duration _validationDebounce = Duration(milliseconds: 300);
@@ -62,7 +67,10 @@ class _SettingsShortcutEditorState extends State<SettingsShortcutEditor> {
   late _EditorTarget _targetKind;
   late DenialShortcutAction _action;
   late List<DenialShortcutAction> _visibleActions;
+  late List<DesktopApp> _visibleApplications;
   late List<DenialShortcutInput> _visibleInputs;
+  String? _selectedDesktopFileId;
+  List<String> _applicationCommand = const <String>[];
   Timer? _validationTimer;
   var _validationGeneration = 0;
   var _validating = false;
@@ -79,6 +87,9 @@ class _SettingsShortcutEditorState extends State<SettingsShortcutEditor> {
     _catalogSearch = TextEditingController();
     final target = widget.binding?.target;
     _targetKind = switch (target) {
+      DenialShortcutSpawnTarget(:final desktopFileId)
+          when desktopFileId != null =>
+        _EditorTarget.application,
       DenialShortcutSpawnTarget() => _EditorTarget.spawn,
       DenialShortcutSpawnShTarget() => _EditorTarget.spawnSh,
       _ => _EditorTarget.denialAction,
@@ -91,6 +102,13 @@ class _SettingsShortcutEditorState extends State<SettingsShortcutEditor> {
       DenialShortcutSpawnTarget(:final command) => command,
       _ => const <String>[],
     };
+    _selectedDesktopFileId = switch (target) {
+      DenialShortcutSpawnTarget(:final desktopFileId) => desktopFileId,
+      _ => null,
+    };
+    if (_selectedDesktopFileId != null) {
+      _applicationCommand = command;
+    }
     _program = TextEditingController(
       text: command.isEmpty ? '' : command.first,
     );
@@ -104,6 +122,7 @@ class _SettingsShortcutEditorState extends State<SettingsShortcutEditor> {
       },
     );
     _visibleActions = widget.configuration.supportedActions;
+    _visibleApplications = widget.applications;
     _visibleInputs = widget.configuration.supportedInputs;
     _validating = true;
     final generation = ++_validationGeneration;
@@ -119,6 +138,9 @@ class _SettingsShortcutEditorState extends State<SettingsShortcutEditor> {
     if (oldWidget.configuration.revision != widget.configuration.revision) {
       _filterCatalog(_catalogSearch.text);
       _scheduleValidation();
+    }
+    if (!identical(oldWidget.applications, widget.applications)) {
+      _visibleApplications = _filteredApplications(_catalogSearch.text);
     }
   }
 
@@ -192,6 +214,13 @@ class _SettingsShortcutEditorState extends State<SettingsShortcutEditor> {
         shortcut: shortcut,
         target: DenialShortcutActionTarget(_action),
       ),
+      _EditorTarget.application => DenialShortcutBinding(
+        shortcut: shortcut,
+        target: DenialShortcutSpawnTarget(
+          _applicationCommand,
+          desktopFileId: _selectedDesktopFileId,
+        ),
+      ),
       _EditorTarget.spawn => DenialShortcutBinding(
         shortcut: shortcut,
         target: DenialShortcutSpawnTarget(<String>[
@@ -230,6 +259,7 @@ class _SettingsShortcutEditorState extends State<SettingsShortcutEditor> {
     setState(() {
       _view = view;
       _visibleActions = widget.configuration.supportedActions;
+      _visibleApplications = widget.applications;
       _visibleInputs = widget.configuration.supportedInputs;
     });
   }
@@ -271,11 +301,39 @@ class _SettingsShortcutEditorState extends State<SettingsShortcutEditor> {
                 })
                 .toList(growable: false);
       setState(() => _visibleInputs = inputs);
+      return;
     }
+    if (_view == _EditorView.applications) {
+      setState(() => _visibleApplications = _filteredApplications(query));
+    }
+  }
+
+  List<DesktopApp> _filteredApplications(String query) {
+    final normalized = query.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return widget.applications;
+    }
+    return widget.applications
+        .where(
+          (application) =>
+              application.name.toLowerCase().contains(normalized) ||
+              application.id.toLowerCase().contains(normalized),
+        )
+        .toList(growable: false);
   }
 
   void _selectAction(DenialShortcutAction action) {
     _action = action;
+    _view = _EditorView.form;
+    _scheduleValidation();
+  }
+
+  void _selectApplication(DesktopApp application) {
+    _selectedDesktopFileId = application.id;
+    _applicationCommand = const DesktopExecParser().parse(
+      application.exec,
+      application,
+    );
     _view = _EditorView.form;
     _scheduleValidation();
   }
@@ -358,6 +416,8 @@ class _SettingsShortcutEditorState extends State<SettingsShortcutEditor> {
                         child: switch (_view) {
                           _EditorView.form => _buildForm(),
                           _EditorView.actions => _buildActionCatalog(),
+                          _EditorView.applications =>
+                            _buildApplicationCatalog(),
                           _EditorView.inputs => _buildInputCatalog(),
                         },
                       ),
@@ -450,6 +510,12 @@ class _SettingsShortcutEditorState extends State<SettingsShortcutEditor> {
                       enabled: !widget.busy,
                       onPressed: () => _openCatalog(_EditorView.actions),
                     ),
+                    _EditorTarget.application => _ApplicationSelectionField(
+                      application: _selectedApplication,
+                      desktopFileId: _selectedDesktopFileId,
+                      enabled: !widget.busy,
+                      onPressed: () => _openCatalog(_EditorView.applications),
+                    ),
                     _EditorTarget.spawn => _DirectCommandEditor(
                       program: _program,
                       arguments: _arguments,
@@ -512,6 +578,44 @@ class _SettingsShortcutEditorState extends State<SettingsShortcutEditor> {
             action: action,
             selected: action == _action,
             onPressed: () => _selectAction(action),
+          );
+        },
+      ),
+    );
+  }
+
+  DesktopApp? get _selectedApplication {
+    final desktopFileId = _selectedDesktopFileId;
+    if (desktopFileId == null) {
+      return null;
+    }
+    for (final application in widget.applications) {
+      if (application.id == desktopFileId) {
+        return application;
+      }
+    }
+    return null;
+  }
+
+  Widget _buildApplicationCatalog() {
+    return _CatalogLayout(
+      key: const ValueKey<String>('shortcut-editor-applications'),
+      title: context.l10n.settingsShortcutEditorChooseApplication,
+      searchController: _catalogSearch,
+      onSearchChanged: _filterCatalog,
+      onBack: _closeCatalog,
+      empty: _visibleApplications.isEmpty,
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+        itemCount: _visibleApplications.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 5),
+        itemBuilder: (context, index) {
+          final application = _visibleApplications[index];
+          return _ApplicationCatalogRow(
+            key: ValueKey<String>(application.id),
+            application: application,
+            selected: application.id == _selectedDesktopFileId,
+            onPressed: () => _selectApplication(application),
           );
         },
       ),
@@ -716,6 +820,11 @@ class _TargetSelectionField extends StatelessWidget {
           label: Text(context.l10n.settingsShortcutEditorTargetAction),
         ),
         ButtonSegment(
+          value: _EditorTarget.application,
+          icon: Icon(Icons.apps_rounded, size: 17),
+          label: Text(context.l10n.settingsShortcutEditorTargetApplication),
+        ),
+        ButtonSegment(
           value: _EditorTarget.spawn,
           icon: Icon(Icons.terminal_rounded, size: 17),
           label: Text(context.l10n.settingsShortcutEditorTargetProgram),
@@ -758,6 +867,88 @@ class _TargetSelectionField extends StatelessWidget {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: selector,
+    );
+  }
+}
+
+class _ApplicationSelectionField extends StatelessWidget {
+  const _ApplicationSelectionField({
+    required this.application,
+    required this.desktopFileId,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final DesktopApp? application;
+  final String? desktopFileId;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final application = this.application;
+    final label =
+        application?.name ??
+        desktopFileId ??
+        context.l10n.settingsShortcutEditorChooseApplication;
+    final identity = application?.id ?? desktopFileId;
+    return OutlinedButton(
+      onPressed: enabled ? onPressed : null,
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        foregroundColor: context.shellColors.textPrimary,
+        backgroundColor: context.shellColors.surfaceContainerHighest,
+        side: BorderSide(color: context.shellColors.hairline),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      child: Row(
+        children: [
+          SizedBox.square(
+            dimension: 28,
+            child: application == null
+                ? Icon(
+                    desktopFileId == null
+                        ? Icons.apps_rounded
+                        : Icons.app_blocking_rounded,
+                    color: context.shellColors.textTertiary,
+                    size: 21,
+                  )
+                : DeferredAppIcon(iconPath: application.iconPath),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: ShellText.cardTitle,
+                ),
+                if (identity != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    identity,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: ShellText.base.copyWith(
+                      color: context.shellColors.textTertiary,
+                      fontFamily: ShellText.systemBarFontFamily,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Icon(
+            Icons.unfold_more_rounded,
+            size: 18,
+            color: context.shellColors.textTertiary,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1425,6 +1616,59 @@ class _ActionCatalogRow extends StatelessWidget {
       title: Text(
         settingsShortcutActionLabel(context, action),
         style: ShellText.cardTitle.copyWith(color: foreground),
+      ),
+      trailing: selected
+          ? Icon(Icons.check_rounded, size: 18, color: foreground)
+          : null,
+      onTap: onPressed,
+    );
+  }
+}
+
+class _ApplicationCatalogRow extends StatelessWidget {
+  const _ApplicationCatalogRow({
+    required this.application,
+    required this.selected,
+    required this.onPressed,
+    super.key,
+  });
+
+  final DesktopApp application;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = ShellTheme.of(context).accentPalette;
+    final foreground = selected
+        ? palette.onContainer
+        : context.shellColors.textPrimary;
+    return ListTile(
+      selected: selected,
+      selectedColor: foreground,
+      selectedTileColor: palette.container,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+      leading: SizedBox.square(
+        dimension: 30,
+        child: DeferredAppIcon(iconPath: application.iconPath),
+      ),
+      title: Text(
+        application.name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: ShellText.cardTitle.copyWith(color: foreground),
+      ),
+      subtitle: Text(
+        application.id,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: ShellText.base.copyWith(
+          color: selected
+              ? foreground.withAlpha(170)
+              : context.shellColors.textTertiary,
+          fontFamily: ShellText.systemBarFontFamily,
+          fontSize: 10,
+        ),
       ),
       trailing: selected
           ? Icon(Icons.check_rounded, size: 18, color: foreground)

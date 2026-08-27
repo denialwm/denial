@@ -48,6 +48,10 @@ fn migrates_existing_shell_document_without_losing_sections() {
     assert!(document.get("keyboard").is_some());
     assert!(document.get("touchpad").is_some());
     assert_eq!(
+        document["applicationEnvironment"],
+        serde_json::json!({"default": {}, "applications": {}})
+    );
+    assert_eq!(
         fs::metadata(path).unwrap().permissions().mode() & 0o777,
         0o600
     );
@@ -88,12 +92,25 @@ fn shell_update_preserves_native_keyboard_and_checks_revision() {
     let update = manager
         .prepare_shell_update(
             old_revision,
-            r#"{"version":10,"appearance":{"colorSchemePreference":"preferLight"},"revision":999,"keyboard":{"layouts":[]},"touchpad":{"tapToClickEnabled":false},"power":{"idleDpmsEnabled":false}}"#,
+            r#"{"version":12,"appearance":{"colorSchemePreference":"preferLight"},"applicationEnvironment":{"default":{"MOZ_ENABLE_WAYLAND":"1","DISPLAY":null},"applications":{"org.mozilla.firefox.desktop":{"MOZ_ENABLE_WAYLAND":"0"}}},"revision":999,"keyboard":{"layouts":[]},"touchpad":{"tapToClickEnabled":false},"power":{"idleDpmsEnabled":false}}"#,
         )
         .unwrap();
     manager.commit(update).unwrap();
     assert_eq!(manager.keyboard(), &configured);
     assert_eq!(manager.revision(), old_revision + 1);
+    let document: Value = serde_json::from_str(&manager.document_json().unwrap()).unwrap();
+    assert_eq!(
+        document["applicationEnvironment"]["default"]["MOZ_ENABLE_WAYLAND"],
+        "1"
+    );
+    assert_eq!(
+        document["applicationEnvironment"]["default"]["DISPLAY"],
+        Value::Null
+    );
+    assert_eq!(
+        document["applicationEnvironment"]["applications"]["org.mozilla.firefox.desktop"]["MOZ_ENABLE_WAYLAND"],
+        "0"
+    );
     assert_eq!(
         manager.theme_snapshot().configured_preference,
         DesktopColorSchemePreference::PreferLight
@@ -101,7 +118,7 @@ fn shell_update_preserves_native_keyboard_and_checks_revision() {
     assert!(matches!(
         manager.prepare_shell_update(
             old_revision,
-            r#"{"version":10,"appearance":{"colorSchemePreference":"preferDark"}}"#,
+            r#"{"version":12,"appearance":{"colorSchemePreference":"preferDark"}}"#,
         ),
         Err(SettingsError::Revision { .. })
     ));
@@ -112,9 +129,9 @@ fn shell_update_rejects_missing_or_unknown_color_scheme() {
     let temporary = TemporaryDirectory::new("settings-color-scheme");
     let manager = SettingsManager::load_path(temporary.settings_path()).unwrap();
     for document in [
-        r#"{"version":10}"#,
-        r#"{"version":10,"appearance":{}}"#,
-        r#"{"version":10,"appearance":{"colorSchemePreference":"automatic"}}"#,
+        r#"{"version":12}"#,
+        r#"{"version":12,"appearance":{}}"#,
+        r#"{"version":12,"appearance":{"colorSchemePreference":"automatic"}}"#,
     ] {
         assert!(matches!(
             manager.prepare_shell_update(manager.revision(), document),
@@ -170,10 +187,10 @@ fn rejects_external_edits_before_commit() {
     let prepared = manager
         .prepare_shell_update(
             manager.revision(),
-            r#"{"version":10,"appearance":{"colorSchemePreference":"preferDark"}}"#,
+            r#"{"version":12,"appearance":{"colorSchemePreference":"preferDark"}}"#,
         )
         .unwrap();
-    fs::write(&path, b"{\"version\":10,\"revision\":77}\n").unwrap();
+    fs::write(&path, b"{\"version\":12,\"revision\":77}\n").unwrap();
     assert!(matches!(
         manager.commit(prepared),
         Err(SettingsError::Conflict)
@@ -212,4 +229,29 @@ fn validates_keyboard_bounds_and_installed_keymaps() {
         missing.compiled_layout_names(),
         Err(SettingsError::Keyboard(_))
     ));
+}
+
+#[test]
+fn validates_application_environment_before_writing() {
+    let temporary = TemporaryDirectory::new("settings-application-environment");
+    let manager = SettingsManager::load_path(temporary.settings_path()).unwrap();
+    let valid = manager
+        .prepare_shell_update(
+            manager.revision(),
+            r#"{"version":12,"appearance":{"colorSchemePreference":"preferDark"},"applicationEnvironment":{"default":{"EMPTY":"","REMOVE_ME":null},"applications":{"org.example.App.desktop":{"APP_ONLY":"1"}}}}"#,
+        )
+        .expect("valid application environment");
+    drop(valid);
+
+    for document in [
+        r#"{"version":12,"appearance":{"colorSchemePreference":"preferDark"},"applicationEnvironment":[]}"#,
+        r#"{"version":12,"appearance":{"colorSchemePreference":"preferDark"},"applicationEnvironment":{"default":{"invalid-name":"value"},"applications":{}}}"#,
+        r#"{"version":12,"appearance":{"colorSchemePreference":"preferDark"},"applicationEnvironment":{"default":{"VALID":3},"applications":{}}}"#,
+        r#"{"version":12,"appearance":{"colorSchemePreference":"preferDark"},"applicationEnvironment":{"default":{},"applications":{"not/a.desktop":{"VALID":"1"}}}}"#,
+    ] {
+        assert!(matches!(
+            manager.prepare_shell_update(manager.revision(), document),
+            Err(SettingsError::Document(_))
+        ));
+    }
 }

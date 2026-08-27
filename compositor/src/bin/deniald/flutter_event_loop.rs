@@ -335,6 +335,10 @@ pub(super) fn run_flutter_event_loop(
             service_native_app_plugins(event_loop, &mut events, allocator)?;
         }
         let iteration_now = Instant::now();
+        if events.dpms_topology.service_deadline(iteration_now) {
+            events.topology_dirty = true;
+            info!("DPMS wake topology grace expired; applying the observed connector state");
+        }
         let flutter_background_event = events
             .flutter_events
             .iter()
@@ -1203,7 +1207,59 @@ pub(super) fn run_flutter_event_loop(
         {
             events.topology_dirty = false;
             let outputs = connected_outputs(drm_scanner, drm, max_outputs, &output_configuration)?;
-            if outputs.is_empty() {
+            let observed_output_changed = outputs.iter().any(|output| {
+                scanouts
+                    .iter()
+                    .find(|scanout| scanout.output.id == output.id)
+                    .is_none_or(|scanout| {
+                        scanout.output.crtc != output.crtc
+                            || scanout.output.mode != output.mode
+                            || scanout.output.connector != output.connector
+                            || scanout.output.vrr_enabled != output.vrr_enabled
+                    })
+            });
+            let dpms_debounce_bypassed = scanout_rebased
+                || kms_reconfigure_requested
+                || resident_geometry_reconfigure_requested
+                || observed_output_changed;
+            if dpms_debounce_bypassed {
+                // A VT/KMS rebase invalidates scheduler ownership, while an
+                // explicit reconfiguration or another output change is
+                // authoritative. None may be held behind a stale DPMS
+                // connector exception.
+                events.dpms_topology.cancel();
+            }
+            let deferred_dpms_topology = if dpms_debounce_bypassed {
+                None
+            } else {
+                events.dpms_topology.defer_missing_outputs(
+                    Instant::now(),
+                    scanouts.iter().map(|scanout| scanout.output.id),
+                    outputs.iter().map(|output| output.id),
+                )
+            };
+            let topology_deferred = if let Some(deferred) = deferred_dpms_topology {
+                if deferred.first_observation {
+                    if let Some(grace_until) = deferred.grace_until {
+                        info!(
+                            missing_outputs = deferred.missing_outputs,
+                            grace_ms = grace_until
+                                .saturating_duration_since(Instant::now())
+                                .as_millis(),
+                            "deferred transient connector removal during DPMS wake"
+                        );
+                    } else {
+                        info!(
+                            missing_outputs = deferred.missing_outputs,
+                            "deferred connector removal while its output remains DPMS-off"
+                        );
+                    }
+                }
+                true
+            } else {
+                false
+            };
+            if outputs.is_empty() && !topology_deferred {
                 if !outputs_disconnected {
                     outputs_disconnected = true;
                     events.output_control_dirty = true;
@@ -1220,34 +1276,28 @@ pub(super) fn run_flutter_event_loop(
                 event_loop.dispatch(KMS_PRESENTATION_RECOVERY_RETRY, &mut events)?;
                 continue;
             }
-            if outputs_disconnected {
+            if !topology_deferred && outputs_disconnected {
                 outputs_disconnected = false;
                 info!(
                     connected_outputs = outputs.len(),
                     "DRM output reconnected; rebuilding presentation state"
                 );
             }
-            events.output_control_dirty = true;
-            let changed = outputs.len() != scanouts.len()
-                || outputs.iter().any(|output| {
-                    scanouts
-                        .iter()
-                        .find(|scanout| scanout.output.id == output.id)
-                        .is_none_or(|scanout| {
-                            scanout.output.crtc != output.crtc
-                                || scanout.output.mode != output.mode
-                                || scanout.output.connector != output.connector
-                                || scanout.output.vrr_enabled != output.vrr_enabled
-                        })
-                });
-            info!(
-                connected_outputs = outputs.len(),
-                changed,
-                resumed = scanout_rebased,
-                forced = kms_reconfigure_requested,
-                resident_geometry = resident_geometry_reconfigure_requested,
-                "completed event-driven DRM topology rescan"
-            );
+            if !topology_deferred {
+                events.output_control_dirty = true;
+            }
+            let changed =
+                !topology_deferred && (outputs.len() != scanouts.len() || observed_output_changed);
+            if !topology_deferred {
+                info!(
+                    connected_outputs = outputs.len(),
+                    changed,
+                    resumed = scanout_rebased,
+                    forced = kms_reconfigure_requested,
+                    resident_geometry = resident_geometry_reconfigure_requested,
+                    "completed event-driven DRM topology rescan"
+                );
+            }
             if changed
                 || scanout_rebased
                 || kms_reconfigure_requested
@@ -1655,6 +1705,9 @@ pub(super) fn run_flutter_event_loop(
             operation_cadence.limit_dispatch_timeout(now, next_dispatch_timeout);
         next_dispatch_timeout = events
             .idle_dpms
+            .limit_dispatch_timeout(now, next_dispatch_timeout);
+        next_dispatch_timeout = events
+            .dpms_topology
             .limit_dispatch_timeout(now, next_dispatch_timeout);
         if drm.is_active() {
             next_dispatch_timeout =

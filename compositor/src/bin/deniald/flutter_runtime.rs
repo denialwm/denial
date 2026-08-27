@@ -98,7 +98,7 @@ use event_pipeline::{
 pub use input::InputQueue;
 use input::{InputRecord, KeyboardRecord, flutter_physical_scroll_delta, glfw_keycode};
 #[cfg(test)]
-use input::{PointerRecord, flutter_application_scroll_delta, push_bounded_input};
+use input::{PointerRecord, TRACKPAD_DEVICE, flutter_application_scroll_delta, push_bounded_input};
 pub use output_pipeline::ReadyOutputFrame;
 #[cfg(test)]
 use output_pipeline::{BufferState, OutputBufferPool};

@@ -3550,6 +3550,12 @@ abstract class AppLocalizations {
   /// **'Denial action'**
   String get settingsShortcutEditorTargetAction;
 
+  /// Shortcut target option for a desktop application with a stable desktop-file identity.
+  ///
+  /// In en, this message translates to:
+  /// **'Application'**
+  String get settingsShortcutEditorTargetApplication;
+
   /// Shortcut target option for directly spawning a program.
   ///
   /// In en, this message translates to:
@@ -3639,6 +3645,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Choose an action'**
   String get settingsShortcutEditorChooseAction;
+
+  /// Title and empty selection label for the shortcut application catalog.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose an application'**
+  String get settingsShortcutEditorChooseApplication;
+
+  /// Configured shortcut target carrying a standard desktop-file identity.
+  ///
+  /// In en, this message translates to:
+  /// **'Application · {desktopFileId}'**
+  String settingsShortcutApplicationTarget(String desktopFileId);
 
   /// Status shown while Rust validates a shortcut draft.
   ///
@@ -3789,6 +3807,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Open applications'**
   String get settingsShortcutActionOpenApplications;
+
+  /// Display name for the open Settings shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Settings'**
+  String get settingsShortcutActionOpenSettings;
 
   /// Display name for the open overview shortcut action.
   ///
@@ -4264,6 +4288,282 @@ abstract class AppLocalizations {
   /// **'Source workspace'**
   String get settingsDeveloperWorkspaceTitle;
 
+  /// Button label for adding an application environment override.
+  ///
+  /// In en, this message translates to:
+  /// **'Add'**
+  String get settingsEnvironmentAdd;
+
+  /// Accessibility label for the green plus on a set environment override.
+  ///
+  /// In en, this message translates to:
+  /// **'Added to launched applications'**
+  String get settingsEnvironmentAddedStatus;
+
+  /// Technical explanation shown in Add Variable mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Inject a literal value when Denial executes an application. An empty value is preserved as an empty string.'**
+  String get settingsEnvironmentAddModeDescription;
+
+  /// Name of the default environment scope applied to every direct Denial application launch.
+  ///
+  /// In en, this message translates to:
+  /// **'All applications'**
+  String get settingsEnvironmentAllApplications;
+
+  /// Technical subtitle for the all-applications environment scope.
+  ///
+  /// In en, this message translates to:
+  /// **'Default launch environment'**
+  String get settingsEnvironmentAllApplicationsDescription;
+
+  /// Count of default environment rules inherited by a selected application.
+  ///
+  /// In en, this message translates to:
+  /// **'Inherits {count} all-app rules'**
+  String settingsEnvironmentApplicationInherited(int count);
+
+  /// Placeholder for filtering the application environment scope list.
+  ///
+  /// In en, this message translates to:
+  /// **'Search applications or desktop IDs'**
+  String get settingsEnvironmentApplicationSearchHint;
+
+  /// Title for the application environment scope list.
+  ///
+  /// In en, this message translates to:
+  /// **'Applications'**
+  String get settingsEnvironmentApplicationsTitle;
+
+  /// Error shown when desktop entries cannot be loaded for per-application environment settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Installed applications could not be loaded.'**
+  String get settingsEnvironmentApplicationsUnavailable;
+
+  /// Tooltip for returning from a narrow application environment editor to the application list.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to applications'**
+  String get settingsEnvironmentBackToApplications;
+
+  /// Button label for cancelling application environment editing.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get settingsEnvironmentCancel;
+
+  /// Button label for clearing every environment override in the selected scope.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get settingsEnvironmentClearScope;
+
+  /// Tooltip for deleting an application environment override.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete {variable}'**
+  String settingsEnvironmentDeleteVariable(String variable);
+
+  /// Tooltip for editing an application environment override.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit {variable}'**
+  String settingsEnvironmentEditVariable(String variable);
+
+  /// Instructions for the application environment editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Set a value, leave it empty to pass an empty string, or choose Remove to keep the variable out of the child process.'**
+  String get settingsEnvironmentEditorDescription;
+
+  /// Title shown while editing an existing environment override.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit {variable}'**
+  String settingsEnvironmentEditorEditTitle(String variable);
+
+  /// Title for the application environment editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Add an override'**
+  String get settingsEnvironmentEditorTitle;
+
+  /// Description shown when there are no application environment overrides.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a variable above to change the environment of subsequently launched applications.'**
+  String get settingsEnvironmentEmptyDescription;
+
+  /// Title shown when there are no application environment overrides.
+  ///
+  /// In en, this message translates to:
+  /// **'No overrides'**
+  String get settingsEnvironmentEmptyTitle;
+
+  /// Value label for an environment variable set to an empty string.
+  ///
+  /// In en, this message translates to:
+  /// **'Empty string'**
+  String get settingsEnvironmentEmptyValue;
+
+  /// Accessibility label for the red minus on a hidden environment override.
+  ///
+  /// In en, this message translates to:
+  /// **'Hidden from launched applications'**
+  String get settingsEnvironmentHiddenStatus;
+
+  /// Button label for hiding an inherited application environment variable.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide'**
+  String get settingsEnvironmentHide;
+
+  /// Technical explanation shown in Hide Variable mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Strip an inherited variable immediately before exec. The application behaves as if that name was never exported.'**
+  String get settingsEnvironmentHideModeDescription;
+
+  /// Validation error for a duplicate application environment variable.
+  ///
+  /// In en, this message translates to:
+  /// **'That variable already has an override.'**
+  String get settingsEnvironmentNameDuplicate;
+
+  /// Example environment variable name.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. MOZ_ENABLE_WAYLAND'**
+  String get settingsEnvironmentNameHint;
+
+  /// Validation error for an invalid environment variable name.
+  ///
+  /// In en, this message translates to:
+  /// **'Use letters, numbers, and underscores, beginning with a letter or underscore.'**
+  String get settingsEnvironmentNameInvalid;
+
+  /// Field label for an application environment variable name.
+  ///
+  /// In en, this message translates to:
+  /// **'Variable name'**
+  String get settingsEnvironmentNameLabel;
+
+  /// Validation error for an empty environment variable name.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a variable name.'**
+  String get settingsEnvironmentNameRequired;
+
+  /// Tooltip for an application rule that replaces an all-applications rule with the same variable name.
+  ///
+  /// In en, this message translates to:
+  /// **'Overrides the all-applications rule'**
+  String get settingsEnvironmentOverridesDefault;
+
+  /// Tab label for setting an application environment variable.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Variable'**
+  String get settingsEnvironmentModeAdd;
+
+  /// Tab label for removing an inherited application environment variable.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide Variable'**
+  String get settingsEnvironmentModeHide;
+
+  /// Description of the remove-from-child environment option.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial will remove this inherited variable before starting the application.'**
+  String get settingsEnvironmentRemoveDescription;
+
+  /// Label for an environment override whose value is null.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from launched applications'**
+  String get settingsEnvironmentRemoveLabel;
+
+  /// Value label for an environment variable removed before launch.
+  ///
+  /// In en, this message translates to:
+  /// **'Removed from child environment'**
+  String get settingsEnvironmentRemovedValue;
+
+  /// Explains the scope and timing of application environment overrides.
+  ///
+  /// In en, this message translates to:
+  /// **'These overrides apply only to applications and shortcut commands started by Denial. They affect subsequent launches, not XDG autostart entries, systemd services, D-Bus services, or Denial itself.'**
+  String get settingsEnvironmentScopeDescription;
+
+  /// Title for the application environment scope explanation.
+  ///
+  /// In en, this message translates to:
+  /// **'Launch scope'**
+  String get settingsEnvironmentScopeTitle;
+
+  /// Eyebrow label for the application environment page.
+  ///
+  /// In en, this message translates to:
+  /// **'APPLICATIONS'**
+  String get settingsEnvironmentSection;
+
+  /// Title text for the application environment page.
+  ///
+  /// In en, this message translates to:
+  /// **'Customize the environment of applications launched by Denial.'**
+  String get settingsEnvironmentTitle;
+
+  /// Button label for updating an application environment override.
+  ///
+  /// In en, this message translates to:
+  /// **'Update variable'**
+  String get settingsEnvironmentUpdate;
+
+  /// Fallback name for a configured desktop-file ID that is no longer installed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unavailable application'**
+  String get settingsEnvironmentUnavailableApplication;
+
+  /// Example application environment variable value.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. 1'**
+  String get settingsEnvironmentValueHint;
+
+  /// Field label for an application environment variable value.
+  ///
+  /// In en, this message translates to:
+  /// **'Value'**
+  String get settingsEnvironmentValueLabel;
+
+  /// Validation error for an environment value containing NUL.
+  ///
+  /// In en, this message translates to:
+  /// **'Values cannot contain a NUL character.'**
+  String get settingsEnvironmentValueNul;
+
+  /// Validation error for an oversized environment value.
+  ///
+  /// In en, this message translates to:
+  /// **'The value is too long.'**
+  String get settingsEnvironmentValueTooLong;
+
+  /// Count of configured application environment overrides.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} configured'**
+  String settingsEnvironmentVariablesStatus(int count);
+
+  /// Title for the list of configured application environment overrides.
+  ///
+  /// In en, this message translates to:
+  /// **'Configured overrides'**
+  String get settingsEnvironmentVariablesTitle;
+
   /// English UI text for settingsMinutes.
   ///
   /// In en, this message translates to:
@@ -4311,6 +4611,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Developer'**
   String get settingsNavigationDeveloper;
+
+  /// Settings navigation label for application environment overrides.
+  ///
+  /// In en, this message translates to:
+  /// **'App environment'**
+  String get settingsNavigationEnvironment;
 
   /// English UI text for settingsNavigationDisplays.
   ///

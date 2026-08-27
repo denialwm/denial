@@ -236,6 +236,7 @@ pub enum ShellAction {
     ScreenshotDone,
     ClientPointerPressed,
     Wallpaper,
+    OpenSettings,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -266,6 +267,7 @@ impl ShellAction {
             Self::ScreenshotDone => fb::ShellActionKind::ScreenshotDone,
             Self::ClientPointerPressed => fb::ShellActionKind::ClientPointerPressed,
             Self::Wallpaper => fb::ShellActionKind::Wallpaper,
+            Self::OpenSettings => fb::ShellActionKind::OpenSettings,
         }
     }
 }

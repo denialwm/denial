@@ -21,7 +21,20 @@ fn decodes_launch_screenshot_and_logout_packets() {
         )),
         Ok(Request::LaunchApplication {
             arguments: vec!["foot".into(), "--title".into(), "è".into()],
+            desktop_file_id: None,
             launch_request_id: NonZeroU64::new(42),
+        })
+    );
+    assert_eq!(
+        decode(&packet(
+            LAUNCH_DESKTOP_APPLICATION,
+            43,
+            &[b"org.example.Terminal.desktop", b"foot"]
+        )),
+        Ok(Request::LaunchApplication {
+            arguments: vec!["foot".into()],
+            desktop_file_id: Some("org.example.Terminal.desktop".into()),
+            launch_request_id: NonZeroU64::new(43),
         })
     );
     assert_eq!(
@@ -77,6 +90,7 @@ fn queues_launch_until_the_compositor_can_attach_an_activation_token() {
         handler.take_application_launch(),
         Some(PendingApplicationLaunch {
             arguments: vec!["foot".into(), "--title".into(), "queued".into()],
+            desktop_file_id: None,
             launch_request_id: NonZeroU64::new(19),
         })
     );
@@ -131,6 +145,18 @@ fn validates_command_specific_fields() {
     assert_eq!(
         decode(&packet(LAUNCH_APPLICATION, 0, &[])),
         Err(DecodeError::LaunchHasNoArguments)
+    );
+    assert_eq!(
+        decode(&packet(LAUNCH_DESKTOP_APPLICATION, 0, &[])),
+        Err(DecodeError::DesktopLaunchHasNoIdentity)
+    );
+    assert_eq!(
+        decode(&packet(
+            LAUNCH_DESKTOP_APPLICATION,
+            0,
+            &[b"not/a.desktop", b"foot"]
+        )),
+        Err(DecodeError::InvalidDesktopFileId)
     );
     assert_eq!(
         decode(&packet(LOGOUT, 1, &[])),
@@ -206,6 +232,8 @@ fn builds_a_direct_process_with_denial_wayland_environment() {
         OsStr::new("wayland-7"),
         Some(OsStr::new(":42")),
         Some(OsStr::new("/run/user/1000/denial/control.sock")),
+        None,
+        &ApplicationEnvironment::default(),
         None,
     );
     assert_eq!(command.get_program(), OsStr::new("foot"));
@@ -295,6 +323,8 @@ fn launch_without_output_control_removes_an_inherited_stale_socket() {
         None,
         None,
         Some(OsStr::new("kde")),
+        &ApplicationEnvironment::default(),
+        None,
     );
     let environment = command
         .get_envs()
@@ -309,5 +339,146 @@ fn launch_without_output_control_removes_an_inherited_stale_socket() {
     assert_eq!(
         environment.get(OsStr::new("QT_QPA_PLATFORMTHEME")),
         Some(&Some(OsString::from("kde")))
+    );
+}
+
+#[test]
+fn parses_set_empty_and_remove_application_environment_overrides() {
+    let environment = ApplicationEnvironment::parse(
+        br#"{
+            "MOZ_ENABLE_WAYLAND": "1",
+            "GTK_THEME": "",
+            "DISPLAY": null
+        }"#,
+    )
+    .expect("valid application environment");
+
+    assert_eq!(environment.value("MOZ_ENABLE_WAYLAND"), Some(Some("1")));
+    assert_eq!(environment.value("GTK_THEME"), Some(Some("")));
+    assert_eq!(environment.value("DISPLAY"), Some(None));
+    assert_eq!(environment.value("MISSING"), None);
+
+    let error = ApplicationEnvironment::parse(br#"{"invalid-name": "value"}"#)
+        .expect_err("invalid environment name");
+    assert!(
+        error
+            .to_string()
+            .contains("invalid environment variable name")
+    );
+    assert!(
+        ApplicationEnvironment::parse(br#"{"VALID": 3}"#).is_err(),
+        "non-string environment values must be rejected"
+    );
+
+    let layered = ApplicationEnvironment::parse(
+        br#"{
+            "default": {"MODE": "global"},
+            "applications": {
+                "org.example.App.desktop": {"MODE": "app", "GLOBAL_ONLY": null}
+            }
+        }"#,
+    )
+    .expect("layered application environment");
+    assert_eq!(layered.value("MODE"), Some(Some("global")));
+    assert_eq!(
+        layered.application_value("org.example.App.desktop", "MODE"),
+        Some(Some("app"))
+    );
+    assert_eq!(
+        layered.application_value("org.example.App.desktop", "GLOBAL_ONLY"),
+        Some(None)
+    );
+}
+
+#[test]
+fn desktop_application_environment_layers_over_the_default_scope() {
+    let application_environment = ApplicationEnvironment::parse(
+        br#"{
+            "default": {"DEFAULT_ONLY": "1", "MODE": "global", "REMOVE_ME": "set"},
+            "applications": {
+                "org.example.App.desktop": {
+                    "MODE": "app",
+                    "REMOVE_ME": null,
+                    "APP_ONLY": "2"
+                }
+            }
+        }"#,
+    )
+    .expect("layered application environment");
+    let command = application_command(
+        &["foot".into()],
+        None,
+        None,
+        OsStr::new("wayland-7"),
+        None,
+        None,
+        None,
+        &application_environment,
+        Some("org.example.App.desktop"),
+    );
+    let environment = command
+        .get_envs()
+        .map(|(key, value)| (key.to_owned(), value.map(OsStr::to_owned)))
+        .collect::<std::collections::BTreeMap<_, _>>();
+
+    assert_eq!(
+        environment.get(OsStr::new("DEFAULT_ONLY")),
+        Some(&Some(OsString::from("1")))
+    );
+    assert_eq!(
+        environment.get(OsStr::new("MODE")),
+        Some(&Some(OsString::from("app")))
+    );
+    assert_eq!(environment.get(OsStr::new("REMOVE_ME")), Some(&None));
+    assert_eq!(
+        environment.get(OsStr::new("APP_ONLY")),
+        Some(&Some(OsString::from("2")))
+    );
+}
+
+#[test]
+fn application_environment_overrides_defaults_but_not_launch_metadata() {
+    let application_environment = ApplicationEnvironment::parse(
+        br#"{
+            "DISPLAY": null,
+            "QT_QPA_PLATFORMTHEME": "kde",
+            "NO_COLOR": "1",
+            "XDG_ACTIVATION_TOKEN": "stale",
+            "DENIA_LAUNCH_REQUEST_ID": "999"
+        }"#,
+    )
+    .expect("valid application environment");
+    let command = application_command(
+        &["foot".into()],
+        NonZeroU64::new(17),
+        Some("fresh-token"),
+        OsStr::new("wayland-7"),
+        Some(OsStr::new(":42")),
+        Some(OsStr::new("/run/user/1000/denial/control.sock")),
+        None,
+        &application_environment,
+        None,
+    );
+    let environment = command
+        .get_envs()
+        .map(|(key, value)| (key.to_owned(), value.map(OsStr::to_owned)))
+        .collect::<std::collections::BTreeMap<_, _>>();
+
+    assert_eq!(environment.get(OsStr::new("DISPLAY")), Some(&None));
+    assert_eq!(
+        environment.get(OsStr::new("QT_QPA_PLATFORMTHEME")),
+        Some(&Some(OsString::from("kde")))
+    );
+    assert_eq!(
+        environment.get(OsStr::new("NO_COLOR")),
+        Some(&Some(OsString::from("1")))
+    );
+    assert_eq!(
+        environment.get(OsStr::new("XDG_ACTIVATION_TOKEN")),
+        Some(&Some(OsString::from("fresh-token")))
+    );
+    assert_eq!(
+        environment.get(OsStr::new("DENIA_LAUNCH_REQUEST_ID")),
+        Some(&Some(OsString::from("17")))
     );
 }

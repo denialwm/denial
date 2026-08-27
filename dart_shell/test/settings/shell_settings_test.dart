@@ -122,6 +122,17 @@ void main() {
         idleDpmsEnabled: false,
         idleDpmsTimeoutMinutes: 47,
       ),
+      applicationEnvironment: ShellApplicationEnvironmentSettings(
+        variables: <String, String?>{
+          'DISPLAY': null,
+          'MOZ_ENABLE_WAYLAND': '1',
+        },
+        applications: <String, Map<String, String?>>{
+          'org.mozilla.firefox.desktop': <String, String?>{
+            'MOZ_ENABLE_WAYLAND': '0',
+          },
+        },
+      ),
     );
 
     expect(ShellSettings.fromJson(settings.toJson()), settings);
@@ -149,6 +160,80 @@ void main() {
       },
       'layout': <String, Object?>{'systemBarSide': null},
     });
+  });
+
+  test('application environment differences replace the complete map', () {
+    const previous = ShellSettings(
+      applicationEnvironment: ShellApplicationEnvironmentSettings(
+        variables: <String, String?>{'A': 'old', 'REMOVE_ME': null},
+      ),
+    );
+    final next = previous.copyWith(
+      applicationEnvironment: previous.applicationEnvironment
+          .withoutOverride('A')
+          .withOverride('EMPTY', ''),
+    );
+
+    expect(next.differenceFrom(previous), <String, Object?>{
+      'applicationEnvironment': <String, Object?>{
+        'default': <String, Object?>{'REMOVE_ME': null, 'EMPTY': ''},
+        'applications': <String, Object?>{},
+      },
+    });
+    expect(
+      ShellSettings.fromJson(next.toJson()).applicationEnvironment,
+      next.applicationEnvironment,
+    );
+  });
+
+  test('application environment parsing discards invalid entries', () {
+    final settings = ShellSettings.fromJson(<String, dynamic>{
+      'applicationEnvironment': <String, dynamic>{
+        'default': <String, dynamic>{
+          'VALID': 'yes',
+          '_REMOVE': null,
+          '9INVALID': 'no',
+          'ALSO_INVALID': 12,
+        },
+        'applications': <String, dynamic>{
+          'org.example.App.desktop': <String, dynamic>{'APP_ONLY': '1'},
+          'not/a.desktop': <String, dynamic>{'IGNORED': '1'},
+        },
+      },
+    });
+
+    expect(settings.applicationEnvironment.variables, <String, String?>{
+      'VALID': 'yes',
+      '_REMOVE': null,
+    });
+    expect(
+      settings.applicationEnvironment.applications,
+      <String, Map<String, String?>>{
+        'org.example.App.desktop': <String, String?>{'APP_ONLY': '1'},
+      },
+    );
+  });
+
+  test('per-application overrides are isolated and restore inheritance', () {
+    final settings =
+        const ShellApplicationEnvironmentSettings(
+          variables: <String, String?>{'MODE': 'global'},
+        ).withOverride(
+          'MODE',
+          'application',
+          desktopFileId: 'org.example.App.desktop',
+        );
+
+    expect(settings.variables, <String, String?>{'MODE': 'global'});
+    expect(settings.variablesFor('org.example.App.desktop'), <String, String?>{
+      'MODE': 'application',
+    });
+    expect(
+      settings
+          .withoutOverride('MODE', desktopFileId: 'org.example.App.desktop')
+          .applications,
+      isEmpty,
+    );
   });
 
   test('malformed and out-of-range values are safe and clamped', () {

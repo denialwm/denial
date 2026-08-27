@@ -925,16 +925,23 @@ fn encode_shortcut_binding<'a>(
                 target.as_union_value(),
             )
         }
-        ShortcutTarget::Spawn { command } => {
+        ShortcutTarget::Spawn {
+            command,
+            desktop_file_id,
+        } => {
             let command = command
                 .iter()
                 .map(|argument| builder.create_string(argument))
                 .collect::<Vec<_>>();
             let command = builder.create_vector(&command);
+            let desktop_file_id = desktop_file_id
+                .as_deref()
+                .map(|desktop_file_id| builder.create_string(desktop_file_id));
             let target = fb::ShortcutSpawnTarget::create(
                 builder,
                 &fb::ShortcutSpawnTargetArgs {
                     command: Some(command),
+                    desktop_file_id,
                 },
             );
             (
@@ -988,6 +995,7 @@ fn shortcut_action_to_wire(action: ShortcutAction) -> fb::ShortcutActionKind {
         ShortcutAction::BrightnessDown => fb::ShortcutActionKind::BrightnessDown,
         ShortcutAction::NextKeyboardLayout => fb::ShortcutActionKind::NextKeyboardLayout,
         ShortcutAction::PreviousKeyboardLayout => fb::ShortcutActionKind::PreviousKeyboardLayout,
+        ShortcutAction::OpenSettings => fb::ShortcutActionKind::OpenSettings,
     }
 }
 

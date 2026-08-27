@@ -109,10 +109,15 @@ impl FlutterRuntime {
         &mut self,
         arguments: Vec<String>,
         shell: bool,
+        desktop_file_id: Option<&str>,
         activation_token: Option<&str>,
     ) -> Result<(), system_command::DispatchError> {
-        self.system_commands
-            .start_shortcut_application(arguments, shell, activation_token)
+        self.system_commands.start_shortcut_application(
+            arguments,
+            shell,
+            desktop_file_id,
+            activation_token,
+        )
     }
 
     pub fn take_screenshot_requested(&mut self) -> Option<system_command::ScreenshotRequest> {

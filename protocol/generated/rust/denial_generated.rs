@@ -753,10 +753,10 @@ impl flatbuffers::SimpleToVerifyInSlice for WindowActionKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SHELL_ACTION_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 10;
+pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 11;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 11] = [
+pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 12] = [
   ShellActionKind::Applications,
   ShellActionKind::Overview,
   ShellActionKind::WindowSwitcherNext,
@@ -768,6 +768,7 @@ pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 11] = [
   ShellActionKind::ClientPointerPressed,
   ShellActionKind::Wallpaper,
   ShellActionKind::WindowSwitcherPrevious,
+  ShellActionKind::OpenSettings,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -786,9 +787,10 @@ impl ShellActionKind {
   pub const ClientPointerPressed: Self = Self(8);
   pub const Wallpaper: Self = Self(9);
   pub const WindowSwitcherPrevious: Self = Self(10);
+  pub const OpenSettings: Self = Self(11);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 10;
+  pub const ENUM_MAX: u8 = 11;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Applications,
     Self::Overview,
@@ -801,6 +803,7 @@ impl ShellActionKind {
     Self::ClientPointerPressed,
     Self::Wallpaper,
     Self::WindowSwitcherPrevious,
+    Self::OpenSettings,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -816,6 +819,7 @@ impl ShellActionKind {
       Self::ClientPointerPressed => Some("ClientPointerPressed"),
       Self::Wallpaper => Some("Wallpaper"),
       Self::WindowSwitcherPrevious => Some("WindowSwitcherPrevious"),
+      Self::OpenSettings => Some("OpenSettings"),
       _ => None,
     }
   }
@@ -1181,10 +1185,10 @@ impl flatbuffers::SimpleToVerifyInSlice for SettingsResponseKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SHORTCUT_ACTION_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SHORTCUT_ACTION_KIND: u8 = 19;
+pub const ENUM_MAX_SHORTCUT_ACTION_KIND: u8 = 20;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 20] = [
+pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 21] = [
   ShortcutActionKind::Shutdown,
   ShortcutActionKind::OpenApplications,
   ShortcutActionKind::OpenOverview,
@@ -1205,6 +1209,7 @@ pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 20] = [
   ShortcutActionKind::BrightnessDown,
   ShortcutActionKind::NextKeyboardLayout,
   ShortcutActionKind::PreviousKeyboardLayout,
+  ShortcutActionKind::OpenSettings,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1232,9 +1237,10 @@ impl ShortcutActionKind {
   pub const BrightnessDown: Self = Self(17);
   pub const NextKeyboardLayout: Self = Self(18);
   pub const PreviousKeyboardLayout: Self = Self(19);
+  pub const OpenSettings: Self = Self(20);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 19;
+  pub const ENUM_MAX: u8 = 20;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Shutdown,
     Self::OpenApplications,
@@ -1256,6 +1262,7 @@ impl ShortcutActionKind {
     Self::BrightnessDown,
     Self::NextKeyboardLayout,
     Self::PreviousKeyboardLayout,
+    Self::OpenSettings,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -1280,6 +1287,7 @@ impl ShortcutActionKind {
       Self::BrightnessDown => Some("BrightnessDown"),
       Self::NextKeyboardLayout => Some("NextKeyboardLayout"),
       Self::PreviousKeyboardLayout => Some("PreviousKeyboardLayout"),
+      Self::OpenSettings => Some("OpenSettings"),
       _ => None,
     }
   }
@@ -6618,6 +6626,7 @@ impl<'a> flatbuffers::Follow<'a> for ShortcutSpawnTarget<'a> {
 
 impl<'a> ShortcutSpawnTarget<'a> {
   pub const VT_COMMAND: flatbuffers::VOffsetT = 4;
+  pub const VT_DESKTOP_FILE_ID: flatbuffers::VOffsetT = 6;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -6629,6 +6638,7 @@ impl<'a> ShortcutSpawnTarget<'a> {
     args: &'args ShortcutSpawnTargetArgs<'args>
   ) -> flatbuffers::WIPOffset<ShortcutSpawnTarget<'bldr>> {
     let mut builder = ShortcutSpawnTargetBuilder::new(_fbb);
+    if let Some(x) = args.desktop_file_id { builder.add_desktop_file_id(x); }
     if let Some(x) = args.command { builder.add_command(x); }
     builder.finish()
   }
@@ -6641,6 +6651,13 @@ impl<'a> ShortcutSpawnTarget<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>>>(ShortcutSpawnTarget::VT_COMMAND, None)}
   }
+  #[inline]
+  pub fn desktop_file_id(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(ShortcutSpawnTarget::VT_DESKTOP_FILE_ID, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for ShortcutSpawnTarget<'_> {
@@ -6651,18 +6668,21 @@ impl flatbuffers::Verifiable for ShortcutSpawnTarget<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<&'_ str>>>>("command", Self::VT_COMMAND, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("desktop_file_id", Self::VT_DESKTOP_FILE_ID, false)?
      .finish();
     Ok(())
   }
 }
 pub struct ShortcutSpawnTargetArgs<'a> {
     pub command: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>>>,
+    pub desktop_file_id: Option<flatbuffers::WIPOffset<&'a str>>,
 }
 impl<'a> Default for ShortcutSpawnTargetArgs<'a> {
   #[inline]
   fn default() -> Self {
     ShortcutSpawnTargetArgs {
       command: None,
+      desktop_file_id: None,
     }
   }
 }
@@ -6675,6 +6695,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ShortcutSpawnTargetBuilder<'a, 
   #[inline]
   pub fn add_command(&mut self, command: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<&'b  str>>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ShortcutSpawnTarget::VT_COMMAND, command);
+  }
+  #[inline]
+  pub fn add_desktop_file_id(&mut self, desktop_file_id: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ShortcutSpawnTarget::VT_DESKTOP_FILE_ID, desktop_file_id);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ShortcutSpawnTargetBuilder<'a, 'b, A> {
@@ -6695,6 +6719,7 @@ impl core::fmt::Debug for ShortcutSpawnTarget<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("ShortcutSpawnTarget");
       ds.field("command", &self.command());
+      ds.field("desktop_file_id", &self.desktop_file_id());
       ds.finish()
   }
 }

@@ -186,6 +186,24 @@ mod native_escape_tests {
         );
         assert!(runtime.pending_shell_actions.is_empty());
     }
+
+    #[cfg(feature = "flutter")]
+    #[test]
+    fn open_settings_shortcut_queues_the_shell_action() {
+        let mut runtime = RuntimeState::default();
+
+        assert!(execute_shortcut_disposition(
+            &mut runtime,
+            ShortcutDisposition::RequestOpenSettings,
+        ));
+        assert_eq!(
+            runtime.pending_shell_actions.pop_front(),
+            Some((
+                super::super::super::super::wire::ShellAction::OpenSettings,
+                None,
+            ))
+        );
+    }
 }
 
 #[cfg(all(test, feature = "flutter"))]

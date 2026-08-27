@@ -1454,6 +1454,94 @@ fn settings_responses_preserve_document_and_keyboard_metadata() {
 }
 
 #[test]
+fn shortcut_wire_preserves_desktop_application_identity() {
+    let mut builder = FlatBufferBuilder::new();
+    let program = builder.create_string("foot");
+    let command = builder.create_vector(&[program]);
+    let desktop_file_id = builder.create_string("org.example.Terminal.desktop");
+    let target = fb::ShortcutSpawnTarget::create(
+        &mut builder,
+        &fb::ShortcutSpawnTargetArgs {
+            command: Some(command),
+            desktop_file_id: Some(desktop_file_id),
+        },
+    );
+    let shortcut = builder.create_string("Super+T");
+    let binding = fb::ShortcutBinding::create(
+        &mut builder,
+        &fb::ShortcutBindingArgs {
+            shortcut: Some(shortcut),
+            target_type: fb::ShortcutTarget::ShortcutSpawnTarget,
+            target: Some(target.as_union_value()),
+        },
+    );
+    let request = fb::SettingsRequest::create(
+        &mut builder,
+        &fb::SettingsRequestArgs {
+            kind: fb::SettingsRequestKind::AddShortcut,
+            expected_revision: 4,
+            shortcut: Some(binding),
+            ..Default::default()
+        },
+    );
+    let envelope = fb::Envelope::create(
+        &mut builder,
+        &fb::EnvelopeArgs {
+            protocol_version: PROTOCOL_VERSION,
+            sequence: 12,
+            request_id: 71,
+            payload_type: fb::Payload::SettingsRequest,
+            payload: Some(request.as_union_value()),
+        },
+    );
+    fb::finish_envelope_buffer(&mut builder, envelope);
+
+    let mut bridge = bridge();
+    bridge.handle(builder.finished_data()).unwrap();
+    assert_eq!(
+        bridge.drain_settings_commands().next(),
+        Some(SettingsCommand::AddShortcut {
+            request_id: 71,
+            expected_revision: 4,
+            shortcut: ShortcutBinding {
+                shortcut: "Super+T".to_owned(),
+                target: ShortcutTarget::Spawn {
+                    command: vec!["foot".to_owned()],
+                    desktop_file_id: Some("org.example.Terminal.desktop".to_owned()),
+                },
+            },
+        })
+    );
+
+    let binding = ShortcutBinding {
+        shortcut: "Super+T".to_owned(),
+        target: ShortcutTarget::Spawn {
+            command: vec!["foot".to_owned()],
+            desktop_file_id: Some("org.example.Terminal.desktop".to_owned()),
+        },
+    };
+    let bytes = bridge
+        .encode_shortcut_configuration_response(72, 5, &[binding], &[], None)
+        .unwrap();
+    let response = fb::root_as_envelope(bytes)
+        .unwrap()
+        .payload_as_settings_response()
+        .unwrap();
+    let target = response
+        .shortcuts()
+        .unwrap()
+        .shortcuts()
+        .unwrap()
+        .get(0)
+        .target_as_shortcut_spawn_target()
+        .unwrap();
+    assert_eq!(
+        target.desktop_file_id(),
+        Some("org.example.Terminal.desktop")
+    );
+}
+
+#[test]
 fn enforces_message_collection_and_command_queue_limits() {
     let mut bridge = bridge();
     assert!(matches!(
@@ -1771,6 +1859,14 @@ fn encodes_shell_actions_with_optional_monitor_and_ordered_sequence() {
     let action = envelope.payload_as_shell_action().unwrap();
     assert_eq!(envelope.sequence(), 6);
     assert_eq!(action.action(), fb::ShellActionKind::Wallpaper);
+
+    let bytes = bridge
+        .encode_shell_action(ShellAction::OpenSettings, None)
+        .unwrap();
+    let envelope = fb::root_as_envelope(bytes).unwrap();
+    let action = envelope.payload_as_shell_action().unwrap();
+    assert_eq!(envelope.sequence(), 7);
+    assert_eq!(action.action(), fb::ShellActionKind::OpenSettings);
 }
 
 #[test]

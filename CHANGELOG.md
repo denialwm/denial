@@ -8,6 +8,14 @@ boundaries may change before 1.0.
 
 ### Added
 
+- Systemd-managed Denial sessions now launch standard XDG desktop autostart
+  entries after the compositor and its discovered display endpoints are ready.
+- Settings can configure environment variables for applications launched by
+  Denial, globally or for a selected desktop application. Rust validates and
+  atomically persists rules keyed by standard desktop-file IDs; variables can
+  be set, set to an empty string, or removed without changing the compositor
+  or systemd activation environment. Shortcut Application targets preserve the
+  same identity and receive the selected application's rules.
 - End-to-end fractional display scaling now keeps Flutter, native Wayland clients, and Xwayland sharp and consistently sized.
 - `Super+Shift+S` now opens a compositor-native region screenshot workflow with direct Wayland screencopy support.
 - Settings now runs as a built-in local Flutter application that can be launched from the desktop and mobile home surfaces.

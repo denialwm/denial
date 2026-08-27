@@ -19,13 +19,20 @@ pub(super) fn synchronize_flutter_window_management(
                 .as_mut()
                 .map(wayland_frontend::WaylandFrontend::create_launch_activation_token);
             let result = match target {
-                native_shortcut::ShortcutTarget::Spawn { command } => {
-                    runtime.start_shortcut_application(command, false, activation_token.as_deref())
-                }
+                native_shortcut::ShortcutTarget::Spawn {
+                    command,
+                    desktop_file_id,
+                } => runtime.start_shortcut_application(
+                    command,
+                    false,
+                    desktop_file_id.as_deref(),
+                    activation_token.as_deref(),
+                ),
                 native_shortcut::ShortcutTarget::SpawnSh { command } => runtime
                     .start_shortcut_application(
                         vec!["sh".to_owned(), "-c".to_owned(), command],
                         true,
+                        None,
                         activation_token.as_deref(),
                     ),
                 native_shortcut::ShortcutTarget::DenialAction { .. } => continue,

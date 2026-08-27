@@ -19,9 +19,13 @@ every initial output has accepted a real atomic commit, Denial also publishes
 the environment to an available systemd user manager and starts its packaged
 `denial-session.target`. That target binds to the standard
 `graphical-session.target`, allowing portals and other desktop services to
-start against the discovered sockets. Denial stops the target on shutdown,
-and the launcher provides a cleanup fallback after the compositor process
-exits.
+start against the discovered sockets. It also starts systemd's
+`xdg-desktop-autostart.target`, so the user manager launches the effective
+desktop entries from `$XDG_CONFIG_HOME/autostart` and the `autostart` child of
+every directory in `$XDG_CONFIG_DIRS` only after Denial is ready. Entries can
+target Denial with `OnlyShowIn=Denial;`. Denial stops the graphical-session
+target on shutdown, and the launcher provides a cleanup fallback after the
+compositor process exits.
 
 The D-Bus-activated `denial-portal.service` is part of that target. It connects
 to deniald's private appearance-state socket before owning the Settings portal
@@ -38,9 +42,68 @@ The Denial portal D-Bus file also carries a direct `Exec` fallback, so its
 lifetime remains bounded by the private compositor connection without
 requiring a user service manager.
 
+Denial does not implement a second XDG autostart runner. On systems without a
+systemd user manager, desktop entries in the XDG autostart directories are not
+started by Denial; use that system's session-service mechanism or an explicit
+launcher instead. This does not affect D-Bus activation or applications
+launched from the Denial shell.
+
 The same publication is the readiness contract UWSM discovers when a user
 elects to run Denial inside UWSM; no launcher flag or separate finalization
 command is needed.
+
+## Application environment
+
+Denial can override the environment of processes launched by its application
+launcher and native shortcuts. Configure the default rules and optional
+per-application rules on the **App environment** page in Settings. A value
+sets the variable, including to an empty string; **Hide variable** removes an
+inherited variable from the child process.
+
+Flutter does not open or write a configuration file. It submits the desired
+rules through the settings bridge, and deniald validates and atomically commits
+the `applicationEnvironment` object inside its Rust-owned
+`$XDG_CONFIG_HOME/denial/settings.json` document. Its stored shape is:
+
+```json
+{
+  "default": {
+    "QT_QPA_PLATFORM": "wayland;xcb",
+    "DISPLAY": null
+  },
+  "applications": {
+    "org.mozilla.firefox.desktop": {
+      "MOZ_ENABLE_WAYLAND": "1",
+      "QT_QPA_PLATFORM": "wayland"
+    }
+  }
+}
+```
+
+The `default` map applies to every process launched by Denial. Each entry in
+`applications` is a delta keyed by the standard freedesktop desktop-file ID;
+it applies after the default map when that desktop entry is launched from the
+shell. Deleting a per-application rule restores inheritance from `default`.
+Shortcuts configured with the **Application** target carry the same desktop-file
+identity and therefore receive that application's map. Raw **Program** and
+**Shell command** shortcuts are generic commands and receive only the default
+map. Denial does not edit desktop files or guess application identity from
+executable names.
+
+Settings lists the effective launchable desktop entries from the XDG data
+directories and retains configured IDs whose desktop files have disappeared,
+so stale rules can still be removed. Values are literal: Denial does not
+perform shell expansion. The authoritative settings document is read for
+every new launch, so changes affect subsequent launches without restarting the
+compositor. Invalid environment data is rejected before Rust writes it. An
+invalid settings file encountered at launch is reported in the Denial log and
+ignored rather than making the application launcher unusable.
+
+These overrides intentionally do not change deniald's own environment and are
+not published to systemd or D-Bus activation. Consequently, they do not affect
+applications launched through `xdg-desktop-autostart.target`. Put variables in
+the login environment instead when every process in the graphical session must
+inherit them.
 
 ## Qt application theming
 

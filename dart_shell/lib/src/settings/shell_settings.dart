@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -434,6 +435,257 @@ class ShellPowerSettings {
   int get hashCode => Object.hash(idleDpmsEnabled, idleDpmsTimeoutMinutes);
 }
 
+const int applicationEnvironmentMaximumNameBytes = 256;
+const int applicationEnvironmentMaximumValueBytes = 16 * 1024;
+const int applicationEnvironmentMaximumDesktopFileIdBytes = 4096;
+
+bool isValidApplicationEnvironmentVariableName(String name) {
+  if (name.isEmpty ||
+      utf8.encode(name).length > applicationEnvironmentMaximumNameBytes) {
+    return false;
+  }
+  final first = name.codeUnitAt(0);
+  if (first != 0x5f &&
+      !(first >= 0x41 && first <= 0x5a) &&
+      !(first >= 0x61 && first <= 0x7a)) {
+    return false;
+  }
+  for (var index = 1; index < name.length; index += 1) {
+    final codeUnit = name.codeUnitAt(index);
+    if (codeUnit != 0x5f &&
+        !(codeUnit >= 0x30 && codeUnit <= 0x39) &&
+        !(codeUnit >= 0x41 && codeUnit <= 0x5a) &&
+        !(codeUnit >= 0x61 && codeUnit <= 0x7a)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool isValidApplicationEnvironmentDesktopFileId(String desktopFileId) {
+  return desktopFileId.isNotEmpty &&
+      desktopFileId.endsWith('.desktop') &&
+      !desktopFileId.contains('/') &&
+      !desktopFileId.contains('\u0000') &&
+      utf8.encode(desktopFileId).length <=
+          applicationEnvironmentMaximumDesktopFileIdBytes;
+}
+
+@immutable
+class ShellApplicationEnvironmentSettings {
+  const ShellApplicationEnvironmentSettings({
+    this.variables = const <String, String?>{},
+    this.applications = const <String, Map<String, String?>>{},
+  });
+
+  /// Overrides applied to every application launched directly by Denial.
+  final Map<String, String?> variables;
+  final Map<String, Map<String, String?>> applications;
+
+  Map<String, String?> variablesFor(String? desktopFileId) {
+    if (desktopFileId == null) {
+      return variables;
+    }
+    return applications[desktopFileId] ?? const <String, String?>{};
+  }
+
+  ShellApplicationEnvironmentSettings withOverride(
+    String name,
+    String? value, {
+    String? desktopFileId,
+  }) {
+    if (!isValidApplicationEnvironmentVariableName(name)) {
+      throw ArgumentError.value(name, 'name', 'invalid environment variable');
+    }
+    if (value != null &&
+        utf8.encode(value).length > applicationEnvironmentMaximumValueBytes) {
+      throw ArgumentError.value(
+        value,
+        'value',
+        'environment value is too long',
+      );
+    }
+    if (desktopFileId != null &&
+        !isValidApplicationEnvironmentDesktopFileId(desktopFileId)) {
+      throw ArgumentError.value(
+        desktopFileId,
+        'desktopFileId',
+        'invalid desktop-file ID',
+      );
+    }
+    if (desktopFileId != null) {
+      final scoped = <String, String?>{
+        ...variablesFor(desktopFileId),
+        name: value,
+      };
+      return ShellApplicationEnvironmentSettings(
+        variables: variables,
+        applications: _immutableApplicationEnvironmentMaps(
+          <String, Map<String, String?>>{
+            ...applications,
+            desktopFileId: scoped,
+          },
+        ),
+      );
+    }
+    return ShellApplicationEnvironmentSettings(
+      variables: Map<String, String?>.unmodifiable(<String, String?>{
+        ...variables,
+        name: value,
+      }),
+      applications: applications,
+    );
+  }
+
+  ShellApplicationEnvironmentSettings withoutOverride(
+    String name, {
+    String? desktopFileId,
+  }) {
+    final scoped = variablesFor(desktopFileId);
+    if (!scoped.containsKey(name)) {
+      return this;
+    }
+    final next = Map<String, String?>.of(scoped)..remove(name);
+    if (desktopFileId != null) {
+      final applicationMaps = <String, Map<String, String?>>{...applications};
+      if (next.isEmpty) {
+        applicationMaps.remove(desktopFileId);
+      } else {
+        applicationMaps[desktopFileId] = next;
+      }
+      return ShellApplicationEnvironmentSettings(
+        variables: variables,
+        applications: _immutableApplicationEnvironmentMaps(applicationMaps),
+      );
+    }
+    return ShellApplicationEnvironmentSettings(
+      variables: Map<String, String?>.unmodifiable(next),
+      applications: applications,
+    );
+  }
+
+  ShellApplicationEnvironmentSettings withoutApplication(String desktopFileId) {
+    if (!applications.containsKey(desktopFileId)) {
+      return this;
+    }
+    return ShellApplicationEnvironmentSettings(
+      variables: variables,
+      applications: _immutableApplicationEnvironmentMaps(
+        <String, Map<String, String?>>{...applications}..remove(desktopFileId),
+      ),
+    );
+  }
+
+  factory ShellApplicationEnvironmentSettings.fromJson(Object? value) {
+    final json = _map(value);
+    if (json.values.every((value) => value == null || value is String)) {
+      return ShellApplicationEnvironmentSettings(
+        variables: _parseApplicationEnvironmentVariables(json),
+      );
+    }
+    final variables = _parseApplicationEnvironmentVariables(json['default']);
+    final applications = <String, Map<String, String?>>{};
+    for (final entry in _map(json['applications']).entries) {
+      if (!isValidApplicationEnvironmentDesktopFileId(entry.key)) {
+        continue;
+      }
+      applications[entry.key] = _parseApplicationEnvironmentVariables(
+        entry.value,
+      );
+    }
+    return ShellApplicationEnvironmentSettings(
+      variables: variables,
+      applications: _immutableApplicationEnvironmentMaps(applications),
+    );
+  }
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'default': <String, Object?>{
+      for (final entry in variables.entries) entry.key: entry.value,
+    },
+    'applications': <String, Object?>{
+      for (final application in applications.entries)
+        application.key: <String, Object?>{
+          for (final entry in application.value.entries) entry.key: entry.value,
+        },
+    },
+  };
+
+  @override
+  bool operator ==(Object other) {
+    return other is ShellApplicationEnvironmentSettings &&
+        mapEquals(other.variables, variables) &&
+        _applicationEnvironmentMapsEqual(other.applications, applications);
+  }
+
+  @override
+  int get hashCode {
+    final defaultEntries = variables.entries.toList(growable: false)
+      ..sort((first, second) => first.key.compareTo(second.key));
+    final applicationEntries = applications.entries.toList(growable: false)
+      ..sort((first, second) => first.key.compareTo(second.key));
+    return Object.hash(
+      Object.hashAll(
+        defaultEntries.map((entry) => Object.hash(entry.key, entry.value)),
+      ),
+      Object.hashAll(
+        applicationEntries.map((application) {
+          final entries = application.value.entries.toList(growable: false)
+            ..sort((first, second) => first.key.compareTo(second.key));
+          return Object.hash(
+            application.key,
+            Object.hashAll(
+              entries.map((entry) => Object.hash(entry.key, entry.value)),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+}
+
+Map<String, String?> _parseApplicationEnvironmentVariables(Object? value) {
+  final variables = <String, String?>{};
+  for (final entry in _map(value).entries) {
+    if (isValidApplicationEnvironmentVariableName(entry.key) &&
+        (entry.value == null || entry.value is String)) {
+      final stringValue = entry.value as String?;
+      if (stringValue == null ||
+          utf8.encode(stringValue).length <=
+              applicationEnvironmentMaximumValueBytes) {
+        variables[entry.key] = stringValue;
+      }
+    }
+  }
+  return Map<String, String?>.unmodifiable(variables);
+}
+
+Map<String, Map<String, String?>> _immutableApplicationEnvironmentMaps(
+  Map<String, Map<String, String?>> applications,
+) {
+  return Map<String, Map<String, String?>>.unmodifiable(
+    <String, Map<String, String?>>{
+      for (final entry in applications.entries)
+        entry.key: Map<String, String?>.unmodifiable(entry.value),
+    },
+  );
+}
+
+bool _applicationEnvironmentMapsEqual(
+  Map<String, Map<String, String?>> first,
+  Map<String, Map<String, String?>> second,
+) {
+  if (first.length != second.length) {
+    return false;
+  }
+  for (final entry in first.entries) {
+    if (!mapEquals(entry.value, second[entry.key])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 @immutable
 class ShellSettings {
   const ShellSettings({
@@ -444,11 +696,12 @@ class ShellSettings {
     this.animations = const ShellAnimationSettings(),
     this.lockScreen = const ShellLockScreenSettings(),
     this.power = const ShellPowerSettings(),
+    this.applicationEnvironment = const ShellApplicationEnvironmentSettings(),
   });
 
   // Blur levels are additive in schema 9. Keep emitting the derived legacy
   // sigma so older shells can read settings written by this version.
-  static const int schemaVersion = 10;
+  static const int schemaVersion = 12;
 
   final ShellLocalizationSettings localization;
   final ShellAppearanceSettings appearance;
@@ -457,6 +710,7 @@ class ShellSettings {
   final ShellAnimationSettings animations;
   final ShellLockScreenSettings lockScreen;
   final ShellPowerSettings power;
+  final ShellApplicationEnvironmentSettings applicationEnvironment;
 
   ShellSettings copyWith({
     ShellLocalizationSettings? localization,
@@ -466,6 +720,7 @@ class ShellSettings {
     ShellAnimationSettings? animations,
     ShellLockScreenSettings? lockScreen,
     ShellPowerSettings? power,
+    ShellApplicationEnvironmentSettings? applicationEnvironment,
   }) {
     return ShellSettings(
       localization: localization ?? this.localization,
@@ -475,6 +730,8 @@ class ShellSettings {
       animations: animations ?? this.animations,
       lockScreen: lockScreen ?? this.lockScreen,
       power: power ?? this.power,
+      applicationEnvironment:
+          applicationEnvironment ?? this.applicationEnvironment,
     );
   }
 
@@ -637,6 +894,12 @@ class ShellSettings {
       patch['power'] = section;
     }
 
+    if (applicationEnvironment != previous.applicationEnvironment) {
+      // This section is a complete desired map: absence means delete the
+      // override, so it must never be recursively merged with an older map.
+      patch['applicationEnvironment'] = applicationEnvironment.toJson();
+    }
+
     return patch;
   }
 
@@ -690,6 +953,7 @@ class ShellSettings {
         'idleDpmsEnabled': power.idleDpmsEnabled,
         'idleDpmsTimeoutMinutes': power.idleDpmsTimeoutMinutes,
       },
+      'applicationEnvironment': applicationEnvironment.toJson(),
     };
   }
 
@@ -895,6 +1159,9 @@ class ShellSettings {
           ShellPowerSettings.maximumIdleDpmsMinutes,
         ),
       ),
+      applicationEnvironment: ShellApplicationEnvironmentSettings.fromJson(
+        json['applicationEnvironment'],
+      ),
     );
   }
 
@@ -907,7 +1174,8 @@ class ShellSettings {
         other.overlays == overlays &&
         other.animations == animations &&
         other.lockScreen == lockScreen &&
-        other.power == power;
+        other.power == power &&
+        other.applicationEnvironment == applicationEnvironment;
   }
 
   @override
@@ -919,6 +1187,7 @@ class ShellSettings {
     animations,
     lockScreen,
     power,
+    applicationEnvironment,
   );
 }
 

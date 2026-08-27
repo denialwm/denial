@@ -74,6 +74,51 @@ void main() {
     expect(store.writes.single, merged);
   });
 
+  test(
+    'native revisions do not resurrect a removed environment entry',
+    () async {
+      final store = _StreamingSettingsStore();
+      final container = ProviderContainer.test(
+        overrides: [settingsStoreProvider.overrideWithValue(store)],
+      );
+      addTearDown(container.dispose);
+      addTearDown(store.dispose);
+
+      final controller = container.read(shellSettingsProvider.notifier);
+      await Future<void>.delayed(Duration.zero);
+      store.publish(
+        const ShellSettings(
+          applicationEnvironment: ShellApplicationEnvironmentSettings(
+            variables: <String, String?>{'KEEP': '1', 'DELETE': '2'},
+          ),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      controller.removeApplicationEnvironmentOverride('DELETE');
+      store.publish(
+        const ShellSettings(
+          appearance: ShellAppearanceSettings(panelOpacity: 0.63),
+          applicationEnvironment: ShellApplicationEnvironmentSettings(
+            variables: <String, String?>{'KEEP': '1', 'DELETE': '2'},
+          ),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final merged = container.read(shellSettingsProvider);
+      expect(merged.applicationEnvironment.variables, <String, String?>{
+        'KEEP': '1',
+      });
+      expect(merged.appearance.panelOpacity, 0.63);
+      await controller.flush();
+      expect(
+        store.writes.single.applicationEnvironment.variables,
+        <String, String?>{'KEEP': '1'},
+      );
+    },
+  );
+
   test('a late disk read cannot overwrite an immediate user change', () async {
     final read = Completer<ShellSettings?>();
     final store = _MemorySettingsStore(read.future);

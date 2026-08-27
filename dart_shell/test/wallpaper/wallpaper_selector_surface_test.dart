@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -19,6 +20,7 @@ import 'package:denial_dart_shell/src/wallpaper/widgets/mobile_wallpaper_selecto
 import 'package:denial_dart_shell/src/wallpaper/widgets/wallpaper_search_controls.dart';
 import 'package:denial_dart_shell/src/wallpaper/widgets/wallpaper_selector_surface.dart';
 import 'package:denial_dart_shell/src/wallpaper/widgets/wallpaper_span_controls.dart';
+import 'package:denial_dart_shell/src/wallpaper/widgets/wallpaper_strip.dart';
 import 'package:denial_dart_shell/src/wallpaper/widgets/wallpaper_target_selector.dart';
 import 'package:denial_dart_shell/src/widgets/edge_panel_layer.dart';
 import 'package:denial_dart_shell/src/widgets/shade/range_bar.dart';
@@ -135,6 +137,166 @@ void main() {
     await alignmentGesture.up();
     await tester.pump();
     expect(tester.widget<AnimatedOpacity>(tileOpacity).opacity, 1.0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('desktop carousel follows native horizontal trackpad pan', (
+    tester,
+  ) async {
+    final temporary = Directory(
+      '${Directory.systemTemp.path}/denial-wallpaper-desktop-scroll-'
+      '${DateTime.now().microsecondsSinceEpoch}',
+    )..createSync(recursive: true);
+    addTearDown(() => temporary.deleteSync(recursive: true));
+    final candidates = List<WallpaperCandidate>.generate(
+      8,
+      (index) => WallpaperCandidate(
+        id: 'candidate-$index',
+        providerId: 'fixed',
+        label: 'Candidate $index',
+        previewUri: Uri(scheme: 'asset', path: defaultShellWallpaperAsset),
+        width: 1920,
+        height: 1080,
+        resource: WallpaperResource.defaultWallpaper,
+      ),
+    );
+    final harness = WallpaperControllerTestHarness(
+      sources: <WallpaperProvider>[_WallpaperListProvider(candidates)],
+      store: WallpaperStore(
+        RuntimePaths(environment: <String, String>{'HOME': temporary.path}),
+      ),
+      displayLayout: _desktopDisplayLayout,
+    );
+    addTearDown(harness.container.dispose);
+    harness.controller.openSelector(targetPixelSize: const Size(1264, 2780));
+
+    await tester.pumpWidget(
+      DenialLocalizationScope(
+        locale: const Locale('en'),
+        child: UncontrolledProviderScope(
+          container: harness.container,
+          child: MediaQuery(
+            data: const MediaQueryData(size: Size(800, 700)),
+            child: WallpaperSelectorOverlay(
+              visible: true,
+              displayRect: const Rect.fromLTWH(0, 0, 800, 700),
+              onDismiss: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    final pageView = tester.widget<PageView>(find.byType(PageView));
+    final pageController = pageView.controller!;
+    expect(pageController.offset, 0.0);
+
+    final pointerPosition = tester.getCenter(find.byType(WallpaperStrip).first);
+    const pointer = 17;
+    await tester.sendEventToBinding(
+      PointerPanZoomStartEvent(
+        pointer: pointer,
+        position: pointerPosition,
+        timeStamp: Duration.zero,
+      ),
+    );
+    for (var sample = 0; sample < 3; sample++) {
+      await tester.sendEventToBinding(
+        PointerPanZoomUpdateEvent(
+          pointer: pointer,
+          position: pointerPosition,
+          pan: Offset(-20.0 * (sample + 1), 0),
+          panDelta: const Offset(-20, 0),
+          timeStamp: Duration(milliseconds: 8 * (sample + 1)),
+        ),
+      );
+      await tester.pump();
+    }
+
+    expect(pageController.offset, closeTo(60, 0.01));
+    await tester.sendEventToBinding(
+      PointerPanZoomEndEvent(
+        pointer: pointer,
+        position: pointerPosition,
+        timeStamp: const Duration(milliseconds: 32),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('desktop carousel preserves native fling momentum', (
+    tester,
+  ) async {
+    final temporary = Directory(
+      '${Directory.systemTemp.path}/denial-wallpaper-desktop-fling-'
+      '${DateTime.now().microsecondsSinceEpoch}',
+    )..createSync(recursive: true);
+    addTearDown(() => temporary.deleteSync(recursive: true));
+    final candidates = List<WallpaperCandidate>.generate(
+      24,
+      (index) => WallpaperCandidate(
+        id: 'candidate-$index',
+        providerId: 'fixed',
+        label: 'Candidate $index',
+        previewUri: Uri(scheme: 'asset', path: defaultShellWallpaperAsset),
+        width: 1920,
+        height: 1080,
+        resource: WallpaperResource.defaultWallpaper,
+      ),
+    );
+    final harness = WallpaperControllerTestHarness(
+      sources: <WallpaperProvider>[_WallpaperListProvider(candidates)],
+      store: WallpaperStore(
+        RuntimePaths(environment: <String, String>{'HOME': temporary.path}),
+      ),
+      displayLayout: _desktopDisplayLayout,
+    );
+    addTearDown(harness.container.dispose);
+    harness.controller.openSelector(targetPixelSize: const Size(1264, 2780));
+
+    await tester.pumpWidget(
+      DenialLocalizationScope(
+        locale: const Locale('en'),
+        child: UncontrolledProviderScope(
+          container: harness.container,
+          child: MediaQuery(
+            data: const MediaQueryData(size: Size(800, 700)),
+            child: WallpaperSelectorOverlay(
+              visible: true,
+              displayRect: const Rect.fromLTWH(0, 0, 800, 700),
+              onDismiss: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    final pageView = tester.widget<PageView>(find.byType(PageView));
+    final pageController = pageView.controller!;
+    final pageExtent = 800 * pageController.viewportFraction;
+
+    // A fast fling must retain the ambient scroll behavior's momentum. The
+    // old carousel spring discarded it and hard-capped every fling at three
+    // wallpaper cards.
+    expect(pageView.physics, isNull);
+    final scrollable = tester.state<ScrollableState>(
+      find.descendant(
+        of: find.byType(PageView),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    final simulation = scrollable.position.physics.createBallisticSimulation(
+      scrollable.position,
+      8000,
+    );
+
+    expect(simulation, isNotNull);
+    expect(simulation!.x(100), greaterThan(pageExtent * 4));
     expect(tester.takeException(), isNull);
   });
 
@@ -607,6 +769,35 @@ class _FixedWallpaperProvider implements WallpaperProvider {
       page: query.page,
       hasMore: false,
     );
+  }
+
+  @override
+  Future<WallpaperResource> materialize(
+    WallpaperCandidate candidate, {
+    WallpaperDownloadProgress? onProgress,
+  }) async {
+    onProgress?.call(1.0);
+    return candidate.resource!;
+  }
+
+  @override
+  void dispose() {}
+}
+
+class _WallpaperListProvider implements WallpaperProvider {
+  const _WallpaperListProvider(this.candidates);
+
+  final List<WallpaperCandidate> candidates;
+
+  @override
+  String get id => 'fixed';
+
+  @override
+  String get displayName => 'Fixed';
+
+  @override
+  Future<WallpaperPage> search(WallpaperQuery query) async {
+    return WallpaperPage(items: candidates, page: query.page, hasMore: false);
   }
 
   @override

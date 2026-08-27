@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/generated/app_localizations_en.dart';
 import '../local_apps/local_flutter_application.dart';
+import '../launcher/controllers/home_grid_controller.dart';
+import '../launcher/models/desktop_app.dart';
 import '../localization/denial_localizations.dart';
 import '../models/display_layout.dart';
 import '../state/display_layout.dart';
@@ -24,6 +26,7 @@ import 'widgets/settings_appearance_page.dart';
 import 'widgets/settings_animations_page.dart';
 import 'widgets/settings_developer_page.dart';
 import 'widgets/settings_displays_page.dart';
+import 'widgets/settings_environment_page.dart';
 import 'widgets/settings_layout_page.dart';
 import 'widgets/settings_keyboard_page.dart';
 import 'widgets/settings_language_page.dart';
@@ -36,6 +39,14 @@ import 'widgets/settings_system_pages.dart';
 import 'widgets/settings_touchpad_page.dart';
 
 final _englishSettings = AppLocalizationsEn();
+final settingsDesktopApplicationsProvider = FutureProvider<List<DesktopApp>>(
+  (ref) => ref.watch(desktopAppsRepositoryProvider).loadApplications(),
+  isAutoDispose: true,
+);
+const denialSettingsApplicationId = 'dev.denial.settings';
+
+bool isDenialSettingsApplicationId(String appId) =>
+    appId.trim().toLowerCase() == denialSettingsApplicationId;
 
 @immutable
 class SettingsPageOpenRequest {
@@ -73,7 +84,7 @@ class SettingsPageOpenRequestController
 }
 
 final denialSettingsApplication = LocalFlutterApplication(
-  id: 'dev.denial.settings',
+  id: denialSettingsApplicationId,
   title: _englishSettings.settingsApplicationTitle,
   defaultSize: const Size(900, 620),
   minimumSize: const Size(520, 400),
@@ -365,7 +376,39 @@ class _SettingsPageBody extends ConsumerWidget {
       case SettingsPageId.touchpad:
         return const SettingsTouchpadPage();
       case SettingsPageId.shortcuts:
-        return const SettingsShortcutsPage();
+        final applications = ref.watch(settingsDesktopApplicationsProvider);
+        return SettingsShortcutsPage(
+          applications: applications.asData?.value ?? const <DesktopApp>[],
+        );
+      case SettingsPageId.environment:
+        final settings = ref.watch(
+          shellSettingsProvider.select(
+            (settings) => settings.applicationEnvironment,
+          ),
+        );
+        final applications = ref.watch(settingsDesktopApplicationsProvider);
+        return SettingsEnvironmentPage(
+          settings: settings,
+          applications: applications.asData?.value ?? const <DesktopApp>[],
+          applicationsLoading: applications.isLoading,
+          applicationsUnavailable: applications.hasError,
+          onSave: (desktopFileId, previousName, name, value) {
+            controller.replaceApplicationEnvironmentOverride(
+              desktopFileId: desktopFileId,
+              previousName: previousName,
+              name: name,
+              value: value,
+            );
+          },
+          onDelete: (desktopFileId, name) {
+            controller.removeApplicationEnvironmentOverride(
+              name,
+              desktopFileId: desktopFileId,
+            );
+          },
+          onReset: controller.resetApplicationEnvironment,
+          onResetScope: controller.resetApplicationEnvironmentScope,
+        );
       case SettingsPageId.layout:
         final settings = ref.watch(
           shellSettingsProvider.select((settings) => settings.layout),

@@ -1998,6 +1998,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsShortcutEditorTargetAction => 'Denial action';
 
   @override
+  String get settingsShortcutEditorTargetApplication => 'Application';
+
+  @override
   String get settingsShortcutEditorTargetProgram => 'Program';
 
   @override
@@ -2048,6 +2051,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsShortcutEditorChooseAction => 'Choose an action';
+
+  @override
+  String get settingsShortcutEditorChooseApplication => 'Choose an application';
+
+  @override
+  String settingsShortcutApplicationTarget(String desktopFileId) {
+    return 'Application · $desktopFileId';
+  }
 
   @override
   String get settingsShortcutEditorValidating =>
@@ -2131,6 +2142,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsShortcutActionOpenApplications => 'Open applications';
+
+  @override
+  String get settingsShortcutActionOpenSettings => 'Open Settings';
 
   @override
   String get settingsShortcutActionOpenOverview => 'Open overview';
@@ -2393,6 +2407,172 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsDeveloperWorkspaceTitle => 'Source workspace';
 
   @override
+  String get settingsEnvironmentAdd => 'Add';
+
+  @override
+  String get settingsEnvironmentAddedStatus => 'Added to launched applications';
+
+  @override
+  String get settingsEnvironmentAddModeDescription =>
+      'Inject a literal value when Denial executes an application. An empty value is preserved as an empty string.';
+
+  @override
+  String get settingsEnvironmentAllApplications => 'All applications';
+
+  @override
+  String get settingsEnvironmentAllApplicationsDescription =>
+      'Default launch environment';
+
+  @override
+  String settingsEnvironmentApplicationInherited(int count) {
+    return 'Inherits $count all-app rules';
+  }
+
+  @override
+  String get settingsEnvironmentApplicationSearchHint =>
+      'Search applications or desktop IDs';
+
+  @override
+  String get settingsEnvironmentApplicationsTitle => 'Applications';
+
+  @override
+  String get settingsEnvironmentApplicationsUnavailable =>
+      'Installed applications could not be loaded.';
+
+  @override
+  String get settingsEnvironmentBackToApplications => 'Back to applications';
+
+  @override
+  String get settingsEnvironmentCancel => 'Cancel';
+
+  @override
+  String get settingsEnvironmentClearScope => 'Clear';
+
+  @override
+  String settingsEnvironmentDeleteVariable(String variable) {
+    return 'Delete $variable';
+  }
+
+  @override
+  String settingsEnvironmentEditVariable(String variable) {
+    return 'Edit $variable';
+  }
+
+  @override
+  String get settingsEnvironmentEditorDescription =>
+      'Set a value, leave it empty to pass an empty string, or choose Remove to keep the variable out of the child process.';
+
+  @override
+  String settingsEnvironmentEditorEditTitle(String variable) {
+    return 'Edit $variable';
+  }
+
+  @override
+  String get settingsEnvironmentEditorTitle => 'Add an override';
+
+  @override
+  String get settingsEnvironmentEmptyDescription =>
+      'Add a variable above to change the environment of subsequently launched applications.';
+
+  @override
+  String get settingsEnvironmentEmptyTitle => 'No overrides';
+
+  @override
+  String get settingsEnvironmentEmptyValue => 'Empty string';
+
+  @override
+  String get settingsEnvironmentHiddenStatus =>
+      'Hidden from launched applications';
+
+  @override
+  String get settingsEnvironmentHide => 'Hide';
+
+  @override
+  String get settingsEnvironmentHideModeDescription =>
+      'Strip an inherited variable immediately before exec. The application behaves as if that name was never exported.';
+
+  @override
+  String get settingsEnvironmentNameDuplicate =>
+      'That variable already has an override.';
+
+  @override
+  String get settingsEnvironmentNameHint => 'e.g. MOZ_ENABLE_WAYLAND';
+
+  @override
+  String get settingsEnvironmentNameInvalid =>
+      'Use letters, numbers, and underscores, beginning with a letter or underscore.';
+
+  @override
+  String get settingsEnvironmentNameLabel => 'Variable name';
+
+  @override
+  String get settingsEnvironmentNameRequired => 'Enter a variable name.';
+
+  @override
+  String get settingsEnvironmentOverridesDefault =>
+      'Overrides the all-applications rule';
+
+  @override
+  String get settingsEnvironmentModeAdd => 'Add Variable';
+
+  @override
+  String get settingsEnvironmentModeHide => 'Hide Variable';
+
+  @override
+  String get settingsEnvironmentRemoveDescription =>
+      'Denial will remove this inherited variable before starting the application.';
+
+  @override
+  String get settingsEnvironmentRemoveLabel =>
+      'Remove from launched applications';
+
+  @override
+  String get settingsEnvironmentRemovedValue =>
+      'Removed from child environment';
+
+  @override
+  String get settingsEnvironmentScopeDescription =>
+      'These overrides apply only to applications and shortcut commands started by Denial. They affect subsequent launches, not XDG autostart entries, systemd services, D-Bus services, or Denial itself.';
+
+  @override
+  String get settingsEnvironmentScopeTitle => 'Launch scope';
+
+  @override
+  String get settingsEnvironmentSection => 'APPLICATIONS';
+
+  @override
+  String get settingsEnvironmentTitle =>
+      'Customize the environment of applications launched by Denial.';
+
+  @override
+  String get settingsEnvironmentUpdate => 'Update variable';
+
+  @override
+  String get settingsEnvironmentUnavailableApplication =>
+      'Unavailable application';
+
+  @override
+  String get settingsEnvironmentValueHint => 'e.g. 1';
+
+  @override
+  String get settingsEnvironmentValueLabel => 'Value';
+
+  @override
+  String get settingsEnvironmentValueNul =>
+      'Values cannot contain a NUL character.';
+
+  @override
+  String get settingsEnvironmentValueTooLong => 'The value is too long.';
+
+  @override
+  String settingsEnvironmentVariablesStatus(int count) {
+    return '$count configured';
+  }
+
+  @override
+  String get settingsEnvironmentVariablesTitle => 'Configured overrides';
+
+  @override
   String settingsMinutes(int minutes) {
     return '$minutes min';
   }
@@ -2417,6 +2597,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsNavigationDeveloper => 'Developer';
+
+  @override
+  String get settingsNavigationEnvironment => 'App environment';
 
   @override
   String get settingsNavigationDisplays => 'Displays & video';

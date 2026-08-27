@@ -276,6 +276,8 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
         dismissOpenSystemTrayMenu(ref);
       case DenialShellAction.wallpaper:
         unawaited(_showWallpaperSelector());
+      case DenialShellAction.openSettings:
+        _openSettings();
     }
   }
 
@@ -612,6 +614,15 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       return;
     }
     _closePanels();
+    for (final window in ref.read(shellControllerProvider).openAppWindows) {
+      if (isDenialSettingsApplicationId(window.appId)) {
+        _activateWindow(window);
+        if (page == null) {
+          return;
+        }
+        break;
+      }
+    }
     final binary = environment['DENIAL_SETTINGS_BINARY']?.trim();
     final executable = binary == null || binary.isEmpty
         ? '/usr/bin/denial-settings'

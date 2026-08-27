@@ -30,6 +30,62 @@ fn shortcut_binding<'a>(file: &'a ShortcutFile, shortcut: &str) -> &'a ShortcutB
         .unwrap_or_else(|| panic!("missing shortcut {shortcut}"))
 }
 
+#[test]
+fn open_settings_is_supported_without_a_default_shortcut() {
+    assert!(ShortcutAction::ALL.contains(&ShortcutAction::OpenSettings));
+    assert!(default_shortcut_file().shortcuts.iter().all(|binding| {
+        !matches!(
+            &binding.target,
+            ShortcutTarget::DenialAction {
+                action: ShortcutAction::OpenSettings
+            }
+        )
+    }));
+    assert_eq!(
+        ShortcutDisposition::from(ShortcutAction::OpenSettings),
+        ShortcutDisposition::RequestOpenSettings
+    );
+}
+
+#[test]
+fn application_spawn_targets_preserve_their_desktop_identity() {
+    let target = ShortcutTarget::Spawn {
+        command: vec![
+            "foot".to_owned(),
+            "--title".to_owned(),
+            "Terminal".to_owned(),
+        ],
+        desktop_file_id: Some("org.example.Terminal.desktop".to_owned()),
+    };
+    target
+        .validate()
+        .expect("valid application shortcut target");
+    assert_eq!(
+        ShortcutDisposition::from(target.clone()),
+        ShortcutDisposition::Spawn {
+            command: vec![
+                "foot".to_owned(),
+                "--title".to_owned(),
+                "Terminal".to_owned()
+            ],
+            desktop_file_id: Some("org.example.Terminal.desktop".to_owned()),
+        }
+    );
+
+    let json = serde_json::to_value(&target).expect("serialize application shortcut target");
+    assert_eq!(json["desktopFileId"], "org.example.Terminal.desktop");
+    assert_eq!(
+        serde_json::from_value::<ShortcutTarget>(json).expect("deserialize target"),
+        target
+    );
+
+    let invalid = ShortcutTarget::Spawn {
+        command: vec!["foot".to_owned()],
+        desktop_file_id: Some("not/a.desktop".to_owned()),
+    };
+    assert!(invalid.validate().is_err());
+}
+
 fn press(shortcut: &mut NativeEscapeShortcut, keycode: u32) -> ShortcutDisposition {
     shortcut.observe(keycode, true)
 }
@@ -56,6 +112,7 @@ fn window_switcher_engine(shortcut: &str) -> NativeEscapeShortcut {
 fn version_one_migration_adds_only_non_conflicting_new_shortcuts() {
     let custom_left = ShortcutTarget::Spawn {
         command: vec!["custom-left".to_owned()],
+        desktop_file_id: None,
     };
     let mut file = ShortcutFile {
         version: 1,

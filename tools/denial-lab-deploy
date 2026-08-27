@@ -479,7 +479,7 @@ stop_settings() {
 wait_for_deniald() {
     local previous_pid="$1"
     local candidate=""
-    for _ in $(seq 1 30); do
+    while sudo systemctl is-active --quiet greetd.service; do
         candidate="$(pgrep -n -x deniald 2>/dev/null || true)"
         if [[ "$candidate" =~ ^[1-9][0-9]*$ ]] \
             && [[ "$candidate" != "$previous_pid" ]] \
@@ -488,7 +488,10 @@ wait_for_deniald() {
             new_deniald="$candidate"
             return 0
         fi
-        sleep 1
+        if pgrep -x agreety >/dev/null 2>&1; then
+            return 2
+        fi
+        sleep 0.1
     done
     return 1
 }
@@ -501,14 +504,16 @@ if [[ "$restart_required" == true ]] \
     stop_settings
     old_deniald="$new_deniald"
     sudo systemctl restart greetd.service
-    if ! wait_for_deniald "$old_deniald"; then
-        printf 'Denial startup raced with session teardown; retrying greetd once...\n' >&2
-        sleep 2
-        sudo systemctl restart greetd.service
-        wait_for_deniald "" || {
-            printf 'denial-lab-deploy: deniald did not load the deployed engine\n' >&2
-            exit 1
-        }
+    if wait_for_deniald "$old_deniald"; then
+        :
+    else
+        outcome="$?"
+        if [[ "$outcome" == 2 ]]; then
+            printf 'denial-lab-deploy: greetd entered its textual greeter after the first restart; no recovery was attempted\n' >&2
+        else
+            printf 'denial-lab-deploy: greetd stopped before deniald loaded the deployed engine; no recovery was attempted\n' >&2
+        fi
+        exit 1
     fi
 fi
 

@@ -271,6 +271,82 @@ fn flutter_scroll_delta_matches_wayland_application_speed() {
 }
 
 #[test]
+fn finger_axis_samples_match_flutter_linux_trackpad_distance() {
+    let mut input = InputQueue::new(PixelSize::new(1920, 1080));
+    input.synchronize_pointer_position(320.0, 240.0);
+
+    input.handle_touchpad_pan_sample(Some(2.0), Some(0.0), 0.5);
+    input.handle_touchpad_pan_sample(Some(3.0), Some(-1.0), 0.5);
+    input.handle_touchpad_pan_sample(Some(0.0), Some(0.0), 0.5);
+
+    let events = input
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            InputRecord::Pointer(event) => Some(*event),
+            InputRecord::Keyboard(_) => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(events.len(), 4);
+    assert_eq!(events[0].phase, sys::FlutterPointerPhase_kPanZoomStart);
+    assert_eq!(events[1].phase, sys::FlutterPointerPhase_kPanZoomUpdate);
+    assert!((events[1].pan_x - -5.3).abs() < 1e-9);
+    assert_eq!(events[1].pan_y, 0.0);
+    assert_eq!(events[2].phase, sys::FlutterPointerPhase_kPanZoomUpdate);
+    assert!((events[2].pan_x - -13.25).abs() < 1e-9);
+    assert!((events[2].pan_y - 2.65).abs() < 1e-9);
+    assert_eq!(events[3].phase, sys::FlutterPointerPhase_kPanZoomEnd);
+    assert!((events[3].pan_x - -13.25).abs() < 1e-9);
+    assert!((events[3].pan_y - 2.65).abs() < 1e-9);
+    assert!(events.iter().all(|event| {
+        event.device == TRACKPAD_DEVICE
+            && event.device_kind == sys::FlutterPointerDeviceKind_kFlutterPointerDeviceKindTrackpad
+            && event.signal_kind == sys::FlutterPointerSignalKind_kFlutterPointerSignalKindNone
+            && event.x == 320.0
+            && event.y == 240.0
+    }));
+    assert_eq!(events[1].scale, 1.0);
+    assert_eq!(events[2].scale, 1.0);
+    assert_eq!(events[0].scale, 0.0);
+    assert_eq!(events[3].scale, 0.0);
+}
+
+#[test]
+fn finger_axis_pan_ends_only_after_every_active_axis_stops() {
+    let mut input = InputQueue::new(PixelSize::new(1920, 1080));
+
+    input.handle_touchpad_pan_sample(Some(1.0), Some(2.0), 1.0);
+    input.handle_touchpad_pan_sample(Some(0.0), Some(1.0), 1.0);
+    assert!(input.events.iter().all(|event| !matches!(
+        event,
+        InputRecord::Pointer(event)
+            if event.phase == sys::FlutterPointerPhase_kPanZoomEnd
+    )));
+    input.handle_touchpad_pan_sample(None, Some(0.0), 1.0);
+
+    let phases = input
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            InputRecord::Pointer(event) => Some(event.phase),
+            InputRecord::Keyboard(_) => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        phases,
+        vec![
+            sys::FlutterPointerPhase_kPanZoomStart,
+            sys::FlutterPointerPhase_kPanZoomUpdate,
+            sys::FlutterPointerPhase_kPanZoomUpdate,
+            sys::FlutterPointerPhase_kPanZoomEnd,
+        ]
+    );
+
+    input.finish_touchpad_pan();
+    assert_eq!(input.events.len(), 4);
+}
+
+#[test]
 fn closing_window_textures_remain_leased_until_flutter_completes() {
     let now = Instant::now();
     let mut leases = WindowCloseTextureLeases::default();
@@ -510,6 +586,10 @@ fn queued_pointer(
         signal_kind: sys::FlutterPointerSignalKind_kFlutterPointerSignalKindNone,
         scroll_x: 0.0,
         scroll_y: 0.0,
+        pan_x: 0.0,
+        pan_y: 0.0,
+        scale: 0.0,
+        rotation: 0.0,
         device_kind: if device == 0 {
             sys::FlutterPointerDeviceKind_kFlutterPointerDeviceKindMouse
         } else {
@@ -529,6 +609,10 @@ fn queued_scroll(delta: f64) -> InputRecord {
         signal_kind: sys::FlutterPointerSignalKind_kFlutterPointerSignalKindScroll,
         scroll_x: 0.0,
         scroll_y: delta,
+        pan_x: 0.0,
+        pan_y: 0.0,
+        scale: 0.0,
+        rotation: 0.0,
         device_kind: sys::FlutterPointerDeviceKind_kFlutterPointerDeviceKindMouse,
         buttons: 0,
         replaceable_motion: false,

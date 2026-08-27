@@ -33,6 +33,7 @@ enum DenialShellAction {
   screenshotDone,
   clientPointerPressed,
   wallpaper,
+  openSettings,
 }
 
 class DenialShellActionEvent {
@@ -143,6 +144,7 @@ class DenialBridge {
     _hapticTapPayload,
   );
   static const int _launchApplicationCommand = 0;
+  static const int _launchDesktopApplicationCommand = 1;
   static const int _takeScreenshotCommand = 2;
   static const int _logoutCommand = 3;
   static const int _screenshotPreparedCommand = 4;
@@ -1646,6 +1648,25 @@ class DenialBridge {
     );
   }
 
+  bool launchDesktopApplication(
+    String desktopFileId,
+    List<String> argv, {
+    int? launchRequestId,
+  }) {
+    if (desktopFileId.isEmpty ||
+        !desktopFileId.endsWith('.desktop') ||
+        desktopFileId.contains('/') ||
+        desktopFileId.contains('\u0000') ||
+        argv.isEmpty) {
+      return false;
+    }
+    return _sendSystemCommand(
+      _launchDesktopApplicationCommand,
+      argv: <String>[desktopFileId, ...argv],
+      requestId: launchRequestId,
+    );
+  }
+
   bool takeScreenshot() => _sendSystemCommand(_takeScreenshotCommand);
 
   bool screenshotPrepared(int requestId) =>
@@ -2287,6 +2308,7 @@ class DenialBridge {
           wire.ShellActionKind.ClientPointerPressed =>
             DenialShellAction.clientPointerPressed,
           wire.ShellActionKind.Wallpaper => DenialShellAction.wallpaper,
+          wire.ShellActionKind.OpenSettings => DenialShellAction.openSettings,
         };
         if (!_shellActions.isClosed) {
           _shellActions.add(

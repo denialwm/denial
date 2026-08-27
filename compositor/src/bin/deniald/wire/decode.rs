@@ -576,7 +576,16 @@ fn decode_shortcut_binding(binding: fb::ShortcutBinding<'_>) -> Result<ShortcutB
                 }
                 arguments.push(argument.to_owned());
             }
-            ShortcutTarget::Spawn { command: arguments }
+            let desktop_file_id = target.desktop_file_id().map(str::to_owned);
+            if desktop_file_id.as_deref().is_some_and(|desktop_file_id| {
+                crate::settings::validate_desktop_file_id(desktop_file_id).is_err()
+            }) {
+                return Err(WireError::String);
+            }
+            ShortcutTarget::Spawn {
+                command: arguments,
+                desktop_file_id,
+            }
         }
         fb::ShortcutTarget::ShortcutSpawnShTarget => {
             let target = binding
@@ -628,6 +637,7 @@ fn shortcut_action_from_wire(action: fb::ShortcutActionKind) -> Result<ShortcutA
         fb::ShortcutActionKind::PreviousKeyboardLayout => {
             Ok(ShortcutAction::PreviousKeyboardLayout)
         }
+        fb::ShortcutActionKind::OpenSettings => Ok(ShortcutAction::OpenSettings),
         _ => Err(WireError::Enumeration),
     }
 }

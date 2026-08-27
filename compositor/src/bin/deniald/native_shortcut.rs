@@ -147,11 +147,13 @@ pub(super) enum ShortcutAction {
     BrightnessDown,
     NextKeyboardLayout,
     PreviousKeyboardLayout,
+    OpenSettings,
 }
 
 impl ShortcutAction {
-    pub(super) const ALL: [Self; 20] = [
+    pub(super) const ALL: [Self; 21] = [
         Self::OpenApplications,
+        Self::OpenSettings,
         Self::OpenOverview,
         Self::WindowSwitcher,
         Self::OpenClipboard,
@@ -218,16 +220,43 @@ pub(super) enum ShortcutValidation {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub(super) enum ShortcutTarget {
-    DenialAction { action: ShortcutAction },
-    Spawn { command: Vec<String> },
-    SpawnSh { command: String },
+    DenialAction {
+        action: ShortcutAction,
+    },
+    Spawn {
+        command: Vec<String>,
+        #[serde(
+            default,
+            rename = "desktopFileId",
+            skip_serializing_if = "Option::is_none"
+        )]
+        desktop_file_id: Option<String>,
+    },
+    SpawnSh {
+        command: String,
+    },
 }
 
 impl ShortcutTarget {
     fn validate(&self) -> Result<(), ShortcutError> {
         match self {
             Self::DenialAction { .. } => Ok(()),
-            Self::Spawn { command } => validate_spawn(command),
+            Self::Spawn {
+                command,
+                desktop_file_id,
+            } => {
+                validate_spawn(command)?;
+                if let Some(desktop_file_id) = desktop_file_id {
+                    crate::settings::validate_desktop_file_id(desktop_file_id).map_err(
+                        |error| {
+                            ShortcutError::Document(format!(
+                                "spawn desktop-file identity is invalid: {error}"
+                            ))
+                        },
+                    )?;
+                }
+                Ok(())
+            }
             Self::SpawnSh { command } => validate_spawn_sh(command),
         }
     }
@@ -1389,7 +1418,9 @@ pub(super) enum ShortcutDisposition {
     RequestToggleVerticalMaximize,
     RequestWindowSwitcherNext,
     RequestWindowSwitcherPrevious,
-    RequestWindowSwitcherEnd { forward: bool },
+    RequestWindowSwitcherEnd {
+        forward: bool,
+    },
     RequestClipboard,
     RequestScreenshotRegion,
     RequestClose,
@@ -1405,7 +1436,11 @@ pub(super) enum ShortcutDisposition {
     RequestBrightnessDown,
     RequestNextKeyboardLayout,
     RequestPreviousKeyboardLayout,
-    Spawn(Vec<String>),
+    RequestOpenSettings,
+    Spawn {
+        command: Vec<String>,
+        desktop_file_id: Option<String>,
+    },
     SpawnSh(String),
 }
 
@@ -1745,6 +1780,7 @@ impl From<ShortcutAction> for ShortcutDisposition {
             ShortcutAction::BrightnessDown => Self::RequestBrightnessDown,
             ShortcutAction::NextKeyboardLayout => Self::RequestNextKeyboardLayout,
             ShortcutAction::PreviousKeyboardLayout => Self::RequestPreviousKeyboardLayout,
+            ShortcutAction::OpenSettings => Self::RequestOpenSettings,
         }
     }
 }
@@ -1753,7 +1789,13 @@ impl From<ShortcutTarget> for ShortcutDisposition {
     fn from(target: ShortcutTarget) -> Self {
         match target {
             ShortcutTarget::DenialAction { action } => action.into(),
-            ShortcutTarget::Spawn { command } => Self::Spawn(command),
+            ShortcutTarget::Spawn {
+                command,
+                desktop_file_id,
+            } => Self::Spawn {
+                command,
+                desktop_file_id,
+            },
             ShortcutTarget::SpawnSh { command } => Self::SpawnSh(command),
         }
     }

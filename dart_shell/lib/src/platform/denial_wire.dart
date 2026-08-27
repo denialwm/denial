@@ -1575,11 +1575,14 @@ generated.ShortcutBindingObjectBuilder _shortcutBindingBuilder(
           action: _shortcutActionToWire(action),
         ),
       ),
-    DenialShortcutSpawnTarget(:final command) =>
+    DenialShortcutSpawnTarget(:final command, :final desktopFileId) =>
       generated.ShortcutBindingObjectBuilder(
         shortcut: binding.shortcut,
         targetType: generated.ShortcutTargetTypeId.ShortcutSpawnTarget,
-        target: generated.ShortcutSpawnTargetObjectBuilder(command: command),
+        target: generated.ShortcutSpawnTargetObjectBuilder(
+          command: command,
+          desktopFileId: desktopFileId,
+        ),
       ),
     DenialShortcutSpawnShTarget(:final command) =>
       generated.ShortcutBindingObjectBuilder(
@@ -1609,7 +1612,10 @@ DenialShortcutBinding? _decodeShortcutBinding(
       ),
     (
       generated.ShortcutTargetTypeId.ShortcutSpawnTarget,
-      generated.ShortcutSpawnTarget(command: final command?),
+      generated.ShortcutSpawnTarget(
+        command: final command?,
+        desktopFileId: final desktopFileId,
+      ),
     )
         when command.isNotEmpty &&
             command.length <= _maxShortcutCommandArguments &&
@@ -1617,10 +1623,14 @@ DenialShortcutBinding? _decodeShortcutBinding(
               (argument) =>
                   _validShortcutWireString(argument, emptyAllowed: true),
             ) &&
-            command.first.isNotEmpty =>
+            command.first.isNotEmpty &&
+            (desktopFileId == null || _validDesktopFileId(desktopFileId)) =>
       DenialShortcutBinding(
         shortcut: shortcut,
-        target: DenialShortcutSpawnTarget(command),
+        target: DenialShortcutSpawnTarget(
+          command,
+          desktopFileId: desktopFileId,
+        ),
       ),
     (
       generated.ShortcutTargetTypeId.ShortcutSpawnShTarget,
@@ -1674,6 +1684,8 @@ generated.ShortcutActionKind _shortcutActionToWire(
       generated.ShortcutActionKind.NextKeyboardLayout,
     DenialShortcutAction.previousKeyboardLayout =>
       generated.ShortcutActionKind.PreviousKeyboardLayout,
+    DenialShortcutAction.openSettings =>
+      generated.ShortcutActionKind.OpenSettings,
   };
 }
 
@@ -1716,6 +1728,8 @@ DenialShortcutAction _shortcutActionFromWire(
       DenialShortcutAction.nextKeyboardLayout,
     generated.ShortcutActionKind.PreviousKeyboardLayout =>
       DenialShortcutAction.previousKeyboardLayout,
+    generated.ShortcutActionKind.OpenSettings =>
+      DenialShortcutAction.openSettings,
   };
 }
 
@@ -1759,6 +1773,12 @@ bool _validShortcutWireString(String value, {bool emptyAllowed = false}) {
       !bytes.contains(0);
 }
 
+bool _validDesktopFileId(String value) {
+  return _validShortcutWireString(value) &&
+      value.endsWith('.desktop') &&
+      !value.contains('/');
+}
+
 bool _validShortcutBindingWire(
   DenialShortcutBinding binding, {
   bool emptyShortcutAllowed = false,
@@ -1771,12 +1791,13 @@ bool _validShortcutBindingWire(
   }
   return switch (binding.target) {
     DenialShortcutActionTarget() => true,
-    DenialShortcutSpawnTarget(:final command) =>
+    DenialShortcutSpawnTarget(:final command, :final desktopFileId) =>
       command.length <= _maxShortcutCommandArguments &&
           command.every(
             (argument) =>
                 _validShortcutWireString(argument, emptyAllowed: true),
-          ),
+          ) &&
+          (desktopFileId == null || _validDesktopFileId(desktopFileId)),
     DenialShortcutSpawnShTarget(:final command) => _validShortcutWireString(
       command,
       emptyAllowed: true,

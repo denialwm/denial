@@ -3,3 +3,5 @@ Description=Denial graphical session
 Documentation=https://github.com/denialwm/denial
 BindsTo=graphical-session.target
 Before=graphical-session.target
+Wants=xdg-desktop-autostart.target
+Before=xdg-desktop-autostart.target
