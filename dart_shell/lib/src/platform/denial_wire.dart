@@ -1652,6 +1652,8 @@ generated.ShortcutActionKind _shortcutActionToWire(
     DenialShortcutAction.shutdown => generated.ShortcutActionKind.Shutdown,
     DenialShortcutAction.openApplications =>
       generated.ShortcutActionKind.OpenApplications,
+    DenialShortcutAction.openDashboard =>
+      generated.ShortcutActionKind.OpenDashboard,
     DenialShortcutAction.openOverview =>
       generated.ShortcutActionKind.OpenOverview,
     DenialShortcutAction.toggleVerticalMaximize =>
@@ -1666,6 +1668,8 @@ generated.ShortcutActionKind _shortcutActionToWire(
       generated.ShortcutActionKind.CloseWindow,
     DenialShortcutAction.minimizeWindow =>
       generated.ShortcutActionKind.MinimizeWindow,
+    DenialShortcutAction.minimizeAllWindows =>
+      generated.ShortcutActionKind.MinimizeAllWindows,
     DenialShortcutAction.toggleMaximize =>
       generated.ShortcutActionKind.ToggleMaximize,
     DenialShortcutAction.toggleFullscreen =>
@@ -1696,6 +1700,8 @@ DenialShortcutAction _shortcutActionFromWire(
     generated.ShortcutActionKind.Shutdown => DenialShortcutAction.shutdown,
     generated.ShortcutActionKind.OpenApplications =>
       DenialShortcutAction.openApplications,
+    generated.ShortcutActionKind.OpenDashboard =>
+      DenialShortcutAction.openDashboard,
     generated.ShortcutActionKind.OpenOverview =>
       DenialShortcutAction.openOverview,
     generated.ShortcutActionKind.ToggleVerticalMaximize =>
@@ -1710,6 +1716,8 @@ DenialShortcutAction _shortcutActionFromWire(
       DenialShortcutAction.closeWindow,
     generated.ShortcutActionKind.MinimizeWindow =>
       DenialShortcutAction.minimizeWindow,
+    generated.ShortcutActionKind.MinimizeAllWindows =>
+      DenialShortcutAction.minimizeAllWindows,
     generated.ShortcutActionKind.ToggleMaximize =>
       DenialShortcutAction.toggleMaximize,
     generated.ShortcutActionKind.ToggleFullscreen =>

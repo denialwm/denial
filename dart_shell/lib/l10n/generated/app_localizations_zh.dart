@@ -443,6 +443,9 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get desktopApplicationSuggestionsTitle => '建议';
+
+  @override
   String get desktopApplicationVolumeDescription => '分别调节各个应用的音频。';
 
   @override
@@ -1747,6 +1750,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsHeight => '高度';
 
   @override
+  String get settingsHoverTrigger => '悬停屏幕边缘时打开';
+
+  @override
+  String get settingsHoverTriggerDescription => '当指针到达对应屏幕边缘时显示此面板。';
+
+  @override
   String get settingsHudOverlayDescription => '设置音量和亮度反馈的位置。';
 
   @override
@@ -2079,6 +2088,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsShortcutActionOpenApplications => '打开应用列表';
 
   @override
+  String get settingsShortcutActionOpenDashboard => '打开仪表板';
+
+  @override
   String get settingsShortcutActionOpenSettings => '打开设置';
 
   @override
@@ -2101,6 +2113,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsShortcutActionMinimizeWindow => '最小化窗口';
+
+  @override
+  String get settingsShortcutActionMinimizeAllWindows => '最小化所有窗口';
 
   @override
   String get settingsShortcutActionToggleMaximize => '最大化或还原';

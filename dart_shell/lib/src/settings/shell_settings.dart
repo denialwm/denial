@@ -39,6 +39,7 @@ enum ClipboardTrayEdge { left, right, top, bottom }
 const double clipboardTrayMinimumExtent = 100;
 const double clipboardTrayMaximumExtent = 300;
 const double clipboardTrayDefaultExtent = 250;
+const double launcherOverlayMinimumHeight = 200;
 
 enum ShellLocalePreference { system, english, simplifiedChinese }
 
@@ -701,7 +702,7 @@ class ShellSettings {
 
   // Blur levels are additive in schema 9. Keep emitting the derived legacy
   // sigma so older shells can read settings written by this version.
-  static const int schemaVersion = 12;
+  static const int schemaVersion = 13;
 
   final ShellLocalizationSettings localization;
   final ShellAppearanceSettings appearance;
@@ -966,6 +967,17 @@ class ShellSettings {
     final animationsJson = _map(json['animations']);
     final lockJson = _map(json['lockScreen']);
     final powerJson = _map(json['power']);
+    final legacyHoverTriggersEnabled = overlaysJson['hoverTriggersEnabled'];
+    final launcherFallback = legacyHoverTriggersEnabled is bool
+        ? defaults.overlays.launcher.copyWith(
+            hoverTriggerEnabled: legacyHoverTriggersEnabled,
+          )
+        : defaults.overlays.launcher;
+    final dashboardFallback = legacyHoverTriggersEnabled is bool
+        ? defaults.overlays.dashboard.copyWith(
+            hoverTriggerEnabled: legacyHoverTriggersEnabled,
+          )
+        : defaults.overlays.dashboard;
     final outputNames = <String>[
       for (final value in _list(layoutJson['systemBarOutputs']))
         if (value is String && value.trim().isNotEmpty) value.trim(),
@@ -1077,13 +1089,13 @@ class ShellSettings {
       overlays: ShellOverlaySettings(
         launcher: _placement(
           overlaysJson['launcher'],
-          defaults.overlays.launcher,
+          launcherFallback,
           minWidth: 420,
-          minHeight: 360,
+          minHeight: launcherOverlayMinimumHeight,
         ),
         dashboard: _placement(
           overlaysJson['dashboard'],
-          defaults.overlays.dashboard,
+          dashboardFallback,
           minWidth: 320,
           minHeight: 360,
         ),
@@ -1197,6 +1209,7 @@ Map<String, Object> _placementToJson(ShellPopupPlacement placement) {
     'width': placement.width,
     'height': placement.height,
     'margin': placement.margin,
+    'hoverTriggerEnabled': placement.hoverTriggerEnabled,
   };
 }
 
@@ -1216,6 +1229,9 @@ ShellPopupPlacement _placement(
     width: _number(json['width'], fallback.width, minWidth, 1400),
     height: _number(json['height'], fallback.height, minHeight, 1200),
     margin: _number(json['margin'], fallback.margin, 0, 96),
+    hoverTriggerEnabled: json['hoverTriggerEnabled'] is bool
+        ? json['hoverTriggerEnabled'] as bool
+        : fallback.hoverTriggerEnabled,
   );
 }
 

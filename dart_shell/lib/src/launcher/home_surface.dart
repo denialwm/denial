@@ -9,6 +9,7 @@ import '../local_apps/local_flutter_application.dart';
 import '../localization/denial_localizations.dart';
 import '../state/display_layout.dart';
 import '../state/shell_controller.dart';
+import 'controllers/application_recents_controller.dart';
 import 'controllers/home_grid_controller.dart';
 import 'controllers/home_grid_layout.dart';
 import 'models/home_drag_session.dart';
@@ -196,6 +197,9 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     if (app == null) {
       return;
     }
+    ref
+        .read(applicationRecentsProvider.notifier)
+        .record(desktopApplicationRecentId(app.id));
     final launcher = ref.read(appLauncherProvider);
     if (!widget.useShellLaunchTransition) {
       await launcher.launch(app);
@@ -235,6 +239,9 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
   }
 
   void _launchLocalApp(LocalFlutterApplication app) {
+    ref
+        .read(applicationRecentsProvider.notifier)
+        .record(localApplicationRecentId(app.id));
     final displayLayout = ref.read(displayLayoutProvider);
     final mainOutput = displayLayout?.mainOutput;
     final availableBounds = mainOutput == null

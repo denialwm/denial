@@ -12,6 +12,7 @@ import 'package:denial_dart_shell/src/settings/widgets/settings_language_page.da
 import 'package:denial_dart_shell/src/settings/widgets/settings_power_page.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_touchpad_page.dart';
 import 'package:denial_dart_shell/src/settings/widgets/settings_navigation.dart';
+import 'package:denial_dart_shell/src/settings/widgets/settings_overlays_page.dart';
 import 'package:denial_dart_shell/src/settings/widgets/system_bar_placement_card.dart';
 import 'package:denial_dart_shell/src/localization/denial_localizations.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart';
@@ -1208,6 +1209,99 @@ void main() {
     expect(
       container.read(shellSettingsProvider).overlays.launcher.anchor.name,
       'topRight',
+    );
+    await container.read(shellSettingsProvider.notifier).flush();
+  });
+
+  testWidgets(
+    'applications overlay allows 200px height and center disables edge distance',
+    (tester) async {
+      final container = _settingsContainer();
+      addTearDown(container.dispose);
+      await _pumpSettings(tester, container, size: const Size(900, 680));
+
+      await tester.tap(find.text('Overlays'));
+      await tester.pumpAndSettle();
+
+      final heightSlider = tester.widget<SettingsSlider>(
+        find.byKey(
+          settingsOverlayHeightSliderKey(ShellOverlaySurface.launcher),
+        ),
+      );
+      final edgeDistance = find.byKey(
+        settingsEdgeDistanceSliderKey(ShellOverlaySurface.launcher),
+      );
+      expect(heightSlider.minimum, launcherOverlayMinimumHeight);
+      expect(tester.widget<SettingsSlider>(edgeDistance).enabled, isTrue);
+
+      await tester.tap(find.bySemanticsLabel('Center').first);
+      await tester.pump();
+
+      expect(tester.widget<SettingsSlider>(edgeDistance).enabled, isFalse);
+      expect(
+        tester
+            .widget<Slider>(
+              find.descendant(of: edgeDistance, matching: find.byType(Slider)),
+            )
+            .onChanged,
+        isNull,
+      );
+
+      await tester.tap(find.bySemanticsLabel('Top left').first);
+      await tester.pump();
+
+      expect(tester.widget<SettingsSlider>(edgeDistance).enabled, isTrue);
+      await container.read(shellSettingsProvider.notifier).flush();
+    },
+  );
+
+  testWidgets('overlay hover triggers can be disabled independently', (
+    tester,
+  ) async {
+    final container = _settingsContainer();
+    addTearDown(container.dispose);
+    await _pumpSettings(tester, container, size: const Size(900, 680));
+
+    await tester.tap(find.text('Overlays'));
+    await tester.pumpAndSettle();
+    final launcherToggle = find.byKey(
+      settingsHoverTriggerToggleKey(ShellOverlaySurface.launcher),
+    );
+    await tester.ensureVisible(launcherToggle);
+    await tester.tap(launcherToggle);
+    await tester.pump();
+
+    expect(
+      container
+          .read(shellSettingsProvider)
+          .overlays
+          .launcher
+          .hoverTriggerEnabled,
+      isFalse,
+    );
+    expect(
+      container
+          .read(shellSettingsProvider)
+          .overlays
+          .dashboard
+          .hoverTriggerEnabled,
+      isTrue,
+    );
+
+    final dashboardToggle = find.byKey(
+      settingsHoverTriggerToggleKey(ShellOverlaySurface.dashboard),
+    );
+    await tester.ensureVisible(dashboardToggle);
+    await tester.tap(dashboardToggle);
+    await tester.pump();
+
+    expect(
+      container
+          .read(shellSettingsProvider)
+          .overlays
+          .dashboard
+          .hoverTriggerEnabled,
+      isFalse,
     );
     await container.read(shellSettingsProvider.notifier).flush();
   });

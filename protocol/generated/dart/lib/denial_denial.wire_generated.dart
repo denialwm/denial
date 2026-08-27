@@ -313,7 +313,8 @@ enum ShellActionKind {
   ClientPointerPressed(8),
   Wallpaper(9),
   WindowSwitcherPrevious(10),
-  OpenSettings(11);
+  OpenSettings(11),
+  Dashboard(12);
 
   final int value;
   const ShellActionKind(this.value);
@@ -332,6 +333,7 @@ enum ShellActionKind {
       case 9: return ShellActionKind.Wallpaper;
       case 10: return ShellActionKind.WindowSwitcherPrevious;
       case 11: return ShellActionKind.OpenSettings;
+      case 12: return ShellActionKind.Dashboard;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -340,7 +342,7 @@ enum ShellActionKind {
       value == null ? null : ShellActionKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 11;
+  static const int maxValue = 12;
   static const fb.Reader<ShellActionKind> reader = _ShellActionKindReader();
 }
 
@@ -504,7 +506,9 @@ enum ShortcutActionKind {
   BrightnessDown(17),
   NextKeyboardLayout(18),
   PreviousKeyboardLayout(19),
-  OpenSettings(20);
+  OpenSettings(20),
+  OpenDashboard(21),
+  MinimizeAllWindows(22);
 
   final int value;
   const ShortcutActionKind(this.value);
@@ -532,6 +536,8 @@ enum ShortcutActionKind {
       case 18: return ShortcutActionKind.NextKeyboardLayout;
       case 19: return ShortcutActionKind.PreviousKeyboardLayout;
       case 20: return ShortcutActionKind.OpenSettings;
+      case 21: return ShortcutActionKind.OpenDashboard;
+      case 22: return ShortcutActionKind.MinimizeAllWindows;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -540,7 +546,7 @@ enum ShortcutActionKind {
       value == null ? null : ShortcutActionKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 20;
+  static const int maxValue = 22;
   static const fb.Reader<ShortcutActionKind> reader = _ShortcutActionKindReader();
 }
 

@@ -1149,6 +1149,25 @@ void main() {
     );
   });
 
+  test('desktop panel placements disable hover triggers independently', () {
+    const placement = ShellPopupPlacement(
+      anchor: ShellPopupAnchor.topRight,
+      width: 640,
+      height: 500,
+      margin: 24,
+      hoverTriggerEnabled: false,
+    );
+
+    expect(
+      DesktopMetrics.launcherTriggerRect(
+        viewSize,
+        outputRect: secondOutput,
+        placement: placement,
+      ),
+      Rect.zero,
+    );
+  });
+
   test('edge-centered panel triggers match the panel extent', () {
     const topCenter = ShellPopupPlacement(
       anchor: ShellPopupAnchor.topCenter,
@@ -1178,6 +1197,24 @@ void main() {
         placement: bottomCenter,
       ),
       const Rect.fromLTWH(3520, 1426, 640, 14),
+    );
+  });
+
+  test('centered panels do not expose an edge trigger', () {
+    const placement = ShellPopupPlacement(
+      anchor: ShellPopupAnchor.center,
+      width: 640,
+      height: 500,
+      margin: 14,
+    );
+
+    expect(
+      DesktopMetrics.launcherTriggerRect(
+        viewSize,
+        outputRect: secondOutput,
+        placement: placement,
+      ),
+      Rect.zero,
     );
   });
 

@@ -21,7 +21,7 @@ use tracing::warn;
 
 use denial_core::portal_protocol::{DesktopColorSchemePreference, DesktopThemeSnapshot};
 
-pub(super) const SETTINGS_SCHEMA_VERSION: u64 = 12;
+pub(super) const SETTINGS_SCHEMA_VERSION: u64 = 13;
 const MAX_SETTINGS_BYTES: usize = 256 * 1024;
 const MAX_APPLICATION_ENVIRONMENT_ENTRIES: usize = 256;
 const MAX_APPLICATION_ENVIRONMENT_APPLICATIONS: usize = 256;

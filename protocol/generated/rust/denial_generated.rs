@@ -753,10 +753,10 @@ impl flatbuffers::SimpleToVerifyInSlice for WindowActionKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SHELL_ACTION_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 11;
+pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 12;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 12] = [
+pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 13] = [
   ShellActionKind::Applications,
   ShellActionKind::Overview,
   ShellActionKind::WindowSwitcherNext,
@@ -769,6 +769,7 @@ pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 12] = [
   ShellActionKind::Wallpaper,
   ShellActionKind::WindowSwitcherPrevious,
   ShellActionKind::OpenSettings,
+  ShellActionKind::Dashboard,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -788,9 +789,10 @@ impl ShellActionKind {
   pub const Wallpaper: Self = Self(9);
   pub const WindowSwitcherPrevious: Self = Self(10);
   pub const OpenSettings: Self = Self(11);
+  pub const Dashboard: Self = Self(12);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 11;
+  pub const ENUM_MAX: u8 = 12;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Applications,
     Self::Overview,
@@ -804,6 +806,7 @@ impl ShellActionKind {
     Self::Wallpaper,
     Self::WindowSwitcherPrevious,
     Self::OpenSettings,
+    Self::Dashboard,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -820,6 +823,7 @@ impl ShellActionKind {
       Self::Wallpaper => Some("Wallpaper"),
       Self::WindowSwitcherPrevious => Some("WindowSwitcherPrevious"),
       Self::OpenSettings => Some("OpenSettings"),
+      Self::Dashboard => Some("Dashboard"),
       _ => None,
     }
   }
@@ -1185,10 +1189,10 @@ impl flatbuffers::SimpleToVerifyInSlice for SettingsResponseKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SHORTCUT_ACTION_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SHORTCUT_ACTION_KIND: u8 = 20;
+pub const ENUM_MAX_SHORTCUT_ACTION_KIND: u8 = 22;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 21] = [
+pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 23] = [
   ShortcutActionKind::Shutdown,
   ShortcutActionKind::OpenApplications,
   ShortcutActionKind::OpenOverview,
@@ -1210,6 +1214,8 @@ pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 21] = [
   ShortcutActionKind::NextKeyboardLayout,
   ShortcutActionKind::PreviousKeyboardLayout,
   ShortcutActionKind::OpenSettings,
+  ShortcutActionKind::OpenDashboard,
+  ShortcutActionKind::MinimizeAllWindows,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1238,9 +1244,11 @@ impl ShortcutActionKind {
   pub const NextKeyboardLayout: Self = Self(18);
   pub const PreviousKeyboardLayout: Self = Self(19);
   pub const OpenSettings: Self = Self(20);
+  pub const OpenDashboard: Self = Self(21);
+  pub const MinimizeAllWindows: Self = Self(22);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 20;
+  pub const ENUM_MAX: u8 = 22;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Shutdown,
     Self::OpenApplications,
@@ -1263,6 +1271,8 @@ impl ShortcutActionKind {
     Self::NextKeyboardLayout,
     Self::PreviousKeyboardLayout,
     Self::OpenSettings,
+    Self::OpenDashboard,
+    Self::MinimizeAllWindows,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -1288,6 +1298,8 @@ impl ShortcutActionKind {
       Self::NextKeyboardLayout => Some("NextKeyboardLayout"),
       Self::PreviousKeyboardLayout => Some("PreviousKeyboardLayout"),
       Self::OpenSettings => Some("OpenSettings"),
+      Self::OpenDashboard => Some("OpenDashboard"),
+      Self::MinimizeAllWindows => Some("MinimizeAllWindows"),
       _ => None,
     }
   }

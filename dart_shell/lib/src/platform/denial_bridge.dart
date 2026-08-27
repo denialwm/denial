@@ -23,6 +23,7 @@ import 'ui_development_protocol.dart';
 
 enum DenialShellAction {
   applications,
+  dashboard,
   overview,
   windowSwitcherNext,
   windowSwitcherPrevious,
@@ -2458,6 +2459,7 @@ class DenialBridge {
       } else if (payload is wire.ShellAction) {
         final action = switch (payload.action) {
           wire.ShellActionKind.Applications => DenialShellAction.applications,
+          wire.ShellActionKind.Dashboard => DenialShellAction.dashboard,
           wire.ShellActionKind.Overview => DenialShellAction.overview,
           wire.ShellActionKind.WindowSwitcherNext =>
             DenialShellAction.windowSwitcherNext,

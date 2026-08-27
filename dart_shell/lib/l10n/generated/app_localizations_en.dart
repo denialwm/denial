@@ -465,6 +465,9 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get desktopApplicationSuggestionsTitle => 'Suggested';
+
+  @override
   String get desktopApplicationVolumeDescription =>
       'Adjust audio for individual applications.';
 
@@ -1815,6 +1818,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsHeight => 'Height';
 
   @override
+  String get settingsHoverTrigger => 'Open on edge hover';
+
+  @override
+  String get settingsHoverTriggerDescription =>
+      'Reveal this panel when the pointer reaches its screen edge.';
+
+  @override
   String get settingsHudOverlayDescription =>
       'Position volume and brightness feedback.';
 
@@ -2173,6 +2183,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsShortcutActionOpenApplications => 'Open applications';
 
   @override
+  String get settingsShortcutActionOpenDashboard => 'Open dashboard';
+
+  @override
   String get settingsShortcutActionOpenSettings => 'Open Settings';
 
   @override
@@ -2196,6 +2209,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsShortcutActionMinimizeWindow => 'Minimize window';
+
+  @override
+  String get settingsShortcutActionMinimizeAllWindows => 'Minimize all windows';
 
   @override
   String get settingsShortcutActionToggleMaximize => 'Maximize or restore';

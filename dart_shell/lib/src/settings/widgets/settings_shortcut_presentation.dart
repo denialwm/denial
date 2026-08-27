@@ -34,6 +34,8 @@ String settingsShortcutActionLabel(
     DenialShortcutAction.shutdown => l10n.settingsShortcutActionShutdown,
     DenialShortcutAction.openApplications =>
       l10n.settingsShortcutActionOpenApplications,
+    DenialShortcutAction.openDashboard =>
+      l10n.settingsShortcutActionOpenDashboard,
     DenialShortcutAction.openOverview =>
       l10n.settingsShortcutActionOpenOverview,
     DenialShortcutAction.toggleVerticalMaximize =>
@@ -47,6 +49,8 @@ String settingsShortcutActionLabel(
     DenialShortcutAction.closeWindow => l10n.settingsShortcutActionCloseWindow,
     DenialShortcutAction.minimizeWindow =>
       l10n.settingsShortcutActionMinimizeWindow,
+    DenialShortcutAction.minimizeAllWindows =>
+      l10n.settingsShortcutActionMinimizeAllWindows,
     DenialShortcutAction.toggleMaximize =>
       l10n.settingsShortcutActionToggleMaximize,
     DenialShortcutAction.toggleFullscreen =>
@@ -109,6 +113,7 @@ IconData settingsShortcutActionIcon(DenialShortcutAction action) {
   return switch (action) {
     DenialShortcutAction.shutdown => Icons.power_settings_new_rounded,
     DenialShortcutAction.openApplications => Icons.apps_rounded,
+    DenialShortcutAction.openDashboard => Icons.dashboard_rounded,
     DenialShortcutAction.openOverview => Icons.view_quilt_outlined,
     DenialShortcutAction.toggleVerticalMaximize => Icons.height_rounded,
     DenialShortcutAction.windowSwitcher => Icons.flip_to_front_rounded,
@@ -116,6 +121,8 @@ IconData settingsShortcutActionIcon(DenialShortcutAction action) {
     DenialShortcutAction.captureRegion => Icons.crop_free_rounded,
     DenialShortcutAction.closeWindow => Icons.close_rounded,
     DenialShortcutAction.minimizeWindow => Icons.minimize_rounded,
+    DenialShortcutAction.minimizeAllWindows =>
+      Icons.keyboard_double_arrow_down_rounded,
     DenialShortcutAction.toggleMaximize => Icons.crop_square_rounded,
     DenialShortcutAction.toggleFullscreen => Icons.fullscreen_rounded,
     DenialShortcutAction.releasePointer => Icons.mouse_outlined,

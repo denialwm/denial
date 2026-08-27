@@ -673,12 +673,17 @@ pub(crate) fn compose_output_targets_to_atlas(
         let source_rect = Rectangle::<f64, BufferCoords>::from_size(
             (f64::from(source_size.w), f64::from(source_size.h)).into(),
         );
+        // Frame damage and opaque regions are destination-local. Passing the
+        // atlas-space destination here clips every transformed output whose
+        // atlas origin is non-zero down to an empty draw, leaving that output
+        // black in both the selection texture and the saved screenshot.
+        let destination_local = output_composite_local_rect(source.destination);
         frame.render_texture_from_to(
             &texture,
             source_rect,
             source.destination,
-            &[source.destination],
-            &[source.destination],
+            &[destination_local],
+            &[destination_local],
             source.transform,
             1.0,
             None,
@@ -687,6 +692,12 @@ pub(crate) fn compose_output_targets_to_atlas(
         frame.finish()?.wait()?;
     }
     Ok(())
+}
+
+fn output_composite_local_rect(
+    destination: Rectangle<i32, Physical>,
+) -> Rectangle<i32, Physical> {
+    Rectangle::from_size(destination.size)
 }
 
 fn copy_to_dmabuf(

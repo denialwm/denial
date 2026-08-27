@@ -661,6 +661,10 @@
       }
     }
   },
+  "desktopApplicationSuggestionsTitle": "Suggested",
+  "@desktopApplicationSuggestionsTitle": {
+    "description": "Heading for the dedicated row of recently opened launcher applications."
+  },
   "desktopApplicationVolumeDescription": "Adjust audio for individual applications.",
   "@desktopApplicationVolumeDescription": {
     "description": "English UI text for desktopApplicationVolumeDescription."
@@ -2545,6 +2549,14 @@
   "@settingsHeight": {
     "description": "English UI text for settingsHeight."
   },
+  "settingsHoverTrigger": "Open on edge hover",
+  "@settingsHoverTrigger": {
+    "description": "Per-panel toggle label for a pointer hover trigger at the output edge."
+  },
+  "settingsHoverTriggerDescription": "Reveal this panel when the pointer reaches its screen edge.",
+  "@settingsHoverTriggerDescription": {
+    "description": "Explanation for a panel's hover-trigger preference."
+  },
   "settingsHudOverlayDescription": "Position volume and brightness feedback.",
   "@settingsHudOverlayDescription": {
     "description": "English UI text for settingsHudOverlayDescription."
@@ -3003,6 +3015,10 @@
   "@settingsShortcutActionOpenApplications": {
     "description": "Display name for the open applications shortcut action."
   },
+  "settingsShortcutActionOpenDashboard": "Open dashboard",
+  "@settingsShortcutActionOpenDashboard": {
+    "description": "Display name for the open dashboard shortcut action."
+  },
   "settingsShortcutActionOpenSettings": "Open Settings",
   "@settingsShortcutActionOpenSettings": {
     "description": "Display name for the open Settings shortcut action."
@@ -3034,6 +3050,10 @@
   "settingsShortcutActionMinimizeWindow": "Minimize window",
   "@settingsShortcutActionMinimizeWindow": {
     "description": "Display name for the minimize window shortcut action."
+  },
+  "settingsShortcutActionMinimizeAllWindows": "Minimize all windows",
+  "@settingsShortcutActionMinimizeAllWindows": {
+    "description": "Display name for the minimize all windows shortcut action."
   },
   "settingsShortcutActionToggleMaximize": "Maximize or restore",
   "@settingsShortcutActionToggleMaximize": {

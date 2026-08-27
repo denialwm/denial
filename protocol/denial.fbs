@@ -78,7 +78,8 @@ enum ShellActionKind : ubyte {
   ClientPointerPressed = 8,
   Wallpaper = 9,
   WindowSwitcherPrevious = 10,
-  OpenSettings = 11
+  OpenSettings = 11,
+  Dashboard = 12
 }
 
 enum KeyboardCommandKind : ubyte {
@@ -130,7 +131,9 @@ enum ShortcutActionKind : ubyte {
   BrightnessDown = 17,
   NextKeyboardLayout = 18,
   PreviousKeyboardLayout = 19,
-  OpenSettings = 20
+  OpenSettings = 20,
+  OpenDashboard = 21,
+  MinimizeAllWindows = 22
 }
 
 enum ShortcutInputKind : ubyte {

@@ -1,6 +1,7 @@
 enum DenialShortcutAction {
   shutdown,
   openApplications,
+  openDashboard,
   openOverview,
   toggleVerticalMaximize,
   windowSwitcher,
@@ -8,6 +9,7 @@ enum DenialShortcutAction {
   captureRegion,
   closeWindow,
   minimizeWindow,
+  minimizeAllWindows,
   toggleMaximize,
   toggleFullscreen,
   releasePointer,

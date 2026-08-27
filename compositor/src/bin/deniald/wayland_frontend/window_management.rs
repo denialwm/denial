@@ -833,6 +833,41 @@ pub(super) fn minimize_focused_toplevel(state: &mut RuntimeState) -> bool {
 }
 
 #[cfg(feature = "flutter")]
+pub(super) fn minimize_all_toplevels(state: &mut RuntimeState) -> bool {
+    let (local_window_ids, client_windows) = {
+        let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
+        let local_window_ids = frontend
+            .local_windows
+            .iter()
+            .map(|window| window.id)
+            .collect::<Vec<_>>();
+        let client_windows = frontend
+            .space
+            .elements()
+            .filter(|window| {
+                window
+                    .x11_surface()
+                    .is_none_or(|x11| !x11.is_override_redirect())
+                    && frontend.window_root_surface(window).is_some_and(|root| {
+                        root.is_alive() && !frontend.minimized_windows.contains(&root.id())
+                    })
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        (local_window_ids, client_windows)
+    };
+
+    let mut minimized = false;
+    for window_id in local_window_ids {
+        minimized |= minimize_toplevel_by_id(state, window_id);
+    }
+    for window in client_windows {
+        minimized |= minimize_window(state, &window);
+    }
+    minimized
+}
+
+#[cfg(feature = "flutter")]
 pub(super) fn minimize_toplevel_by_id(state: &mut RuntimeState, window_id: u64) -> bool {
     let local = state
         .wayland

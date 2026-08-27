@@ -1,4 +1,5 @@
 import 'package:denial_dart_shell/src/desktop/desktop_panel_transition.dart';
+import 'package:denial_dart_shell/src/widgets/shell_backdrop_blur.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -50,6 +51,100 @@ void main() {
     expect(
       transform.transform.getTranslation().x,
       closeTo(initialX / 2, 0.001),
+    );
+  });
+
+  testWidgets('zero-direction panels fade instead of sliding', (tester) async {
+    final visible = ValueNotifier<bool>(false);
+    addTearDown(visible.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: SizedBox(
+            width: 640,
+            height: 480,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: visible,
+              builder: (context, isVisible, child) {
+                return DesktopPanelTransition(
+                  inputDebugLabel: 'Fade test panel',
+                  visible: isVisible,
+                  entryDirection: Offset.zero,
+                  child: const SizedBox.expand(),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    visible.value = true;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 90));
+
+    final opacity = tester.widget<Opacity>(
+      find.descendant(
+        of: find.byType(DesktopPanelTransition),
+        matching: find.byType(Opacity),
+      ),
+    );
+    expect(opacity.opacity, closeTo(0.5, 0.001));
+    expect(
+      tester
+          .widget<ShellBackdropBlur>(
+            find.descendant(
+              of: find.byType(DesktopPanelTransition),
+              matching: find.byType(ShellBackdropBlur),
+            ),
+          )
+          .blur,
+      isFalse,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(DesktopPanelTransition),
+        matching: find.byType(Transform),
+      ),
+      findsNothing,
+    );
+
+    await tester.pump(const Duration(milliseconds: 90));
+    expect(
+      tester
+          .widget<Opacity>(
+            find.descendant(
+              of: find.byType(DesktopPanelTransition),
+              matching: find.byType(Opacity),
+            ),
+          )
+          .opacity,
+      1.0,
+    );
+
+    visible.value = false;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 149));
+    expect(
+      find.descendant(
+        of: find.byType(DesktopPanelTransition),
+        matching: find.byType(Opacity),
+      ),
+      findsOneWidget,
+    );
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(
+      tester
+          .widget<Opacity>(
+            find.descendant(
+              of: find.byType(DesktopPanelTransition),
+              matching: find.byType(Opacity),
+            ),
+          )
+          .opacity,
+      0.0,
     );
   });
 

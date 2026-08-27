@@ -1,7 +1,9 @@
 import 'dart:ui' show PointerDeviceKind;
 
 import 'package:denial_dart_shell/src/desktop/desktop_shell.dart';
+import 'package:denial_dart_shell/src/launcher/controllers/application_recents_controller.dart';
 import 'package:denial_dart_shell/src/launcher/controllers/home_grid_controller.dart';
+import 'package:denial_dart_shell/src/launcher/repositories/application_recents_repository.dart';
 import 'package:denial_dart_shell/src/local_apps/local_flutter_application.dart';
 import 'package:denial_dart_shell/src/localization/denial_localizations.dart';
 import 'package:denial_dart_shell/src/settings/settings_application.dart';
@@ -21,16 +23,13 @@ void main() {
     expect(identical(changed.slots, state.slots), isTrue);
   });
 
-  testWidgets('light theme resolves launcher titles and app names', (
-    tester,
-  ) async {
+  testWidgets('light theme resolves launcher app names', (tester) async {
     await _pumpLauncher(
       tester,
       applications: _testApplications(2),
       colors: ShellColorScheme.light,
     );
 
-    final title = tester.widget<Text>(find.text('Applications'));
     final selectedApp = tester.widget<Text>(find.text('App 01'));
     final unselectedApp = tester.widget<Text>(find.text('App 02'));
     final accent = ShellAccentPalette.from(
@@ -38,7 +37,6 @@ void main() {
       ShellColorScheme.light,
     );
 
-    expect(title.style?.color, ShellColorScheme.light.textPrimary);
     expect(selectedApp.style?.color, accent.onContainer);
     expect(unselectedApp.style?.color, ShellColorScheme.light.textPrimary);
   });
@@ -76,6 +74,186 @@ void main() {
     expect(label.style?.color, accent.onContainer);
   });
 
+  testWidgets('recents use one row while the full catalog stays searchable', (
+    tester,
+  ) async {
+    final apps = _testApplications(6);
+    final harness = await _pumpLauncher(
+      tester,
+      applications: apps,
+      width: 300,
+      recentEntries: <String>[
+        localApplicationRecentId(apps[5].id),
+        localApplicationRecentId(apps[4].id),
+        localApplicationRecentId(apps[3].id),
+        localApplicationRecentId(apps[2].id),
+      ],
+    );
+
+    expect(find.byKey(desktopApplicationSuggestionsRowKey), findsOneWidget);
+    expect(find.byKey(desktopApplicationSuggestionsDividerKey), findsOneWidget);
+    expect(find.text('SUGGESTED'), findsNothing);
+    expect(
+      tester.getSize(find.byKey(desktopApplicationSuggestionsRowKey)).height,
+      96,
+    );
+    for (final app in apps.reversed.take(3)) {
+      expect(
+        find.byKey(
+          ValueKey<String>(
+            'desktop-suggested-app-${localApplicationRecentId(app.id)}',
+          ),
+        ),
+        findsOneWidget,
+      );
+    }
+    expect(
+      find.byKey(
+        ValueKey<String>(
+          'desktop-suggested-app-${localApplicationRecentId(apps[2].id)}',
+        ),
+      ),
+      findsNothing,
+      reason: 'suggestions must never overflow into a second row',
+    );
+    final firstSuggested = find.byKey(
+      const ValueKey<String>('desktop-suggested-app-local:test.app.6'),
+    );
+    final firstSuggestedName = tester.widget<Text>(
+      find.descendant(of: firstSuggested, matching: find.text('App 06')),
+    );
+    final firstSuggestedDecoration =
+        tester
+                .widget<AnimatedContainer>(
+                  find.descendant(
+                    of: firstSuggested,
+                    matching: find.byType(AnimatedContainer),
+                  ),
+                )
+                .decoration!
+            as BoxDecoration;
+    expect(firstSuggestedName.maxLines, 1);
+    expect(
+      firstSuggestedDecoration.border,
+      isNotNull,
+      reason: 'the first recent app must own the initial keyboard selection',
+    );
+    for (final app in apps) {
+      expect(
+        find.byKey(
+          ValueKey<String>('desktop-app-${localApplicationRecentId(app.id)}'),
+        ),
+        findsOneWidget,
+        reason: 'the full catalog must still include suggested apps',
+      );
+    }
+    expect(
+      tester
+          .getTopLeft(
+            find.byKey(
+              const ValueKey<String>('desktop-suggested-app-local:test.app.6'),
+            ),
+          )
+          .dy,
+      lessThan(
+        tester
+            .getTopLeft(
+              find.byKey(
+                const ValueKey<String>('desktop-app-local:test.app.1'),
+              ),
+            )
+            .dy,
+      ),
+    );
+    expect(
+      tester
+          .getTopLeft(
+            find.byKey(const ValueKey<String>('desktop-app-local:test.app.1')),
+          )
+          .dx,
+      lessThan(
+        tester
+            .getTopLeft(
+              find.byKey(
+                const ValueKey<String>('desktop-app-local:test.app.2'),
+              ),
+            )
+            .dx,
+      ),
+      reason: 'recency must not reorder the complete application catalog',
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pump();
+    expect(harness.launched, <LocalFlutterApplication>[apps[0]]);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pump();
+    expect(harness.launched, <LocalFlutterApplication>[apps[0], apps[4]]);
+
+    await tester.enterText(find.byType(EditableText), 'App 06');
+    await tester.pump();
+
+    expect(find.byKey(desktopApplicationSuggestionsRowKey), findsNothing);
+    expect(find.byKey(desktopApplicationSuggestionsDividerKey), findsNothing);
+    expect(
+      find.byKey(
+        const ValueKey<String>('desktop-suggested-app-local:test.app.6'),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('desktop-app-local:test.app.6')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('desktop-app-local:test.app.6')),
+        matching: find.text('App 06'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('launcher remains layout-safe at its 200px minimum height', (
+    tester,
+  ) async {
+    final apps = _testApplications(6);
+    await _pumpLauncher(
+      tester,
+      applications: apps,
+      height: 200,
+      recentEntries: <String>[
+        localApplicationRecentId(apps[2].id),
+        localApplicationRecentId(apps[1].id),
+        localApplicationRecentId(apps[0].id),
+      ],
+    );
+
+    expect(find.byKey(desktopApplicationSuggestionsRowKey), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    final suggestionsTop = tester
+        .getTopLeft(find.byKey(desktopApplicationSuggestionsRowKey))
+        .dy;
+    final scrollView = find.byType(CustomScrollView);
+    await tester.drag(scrollView, const Offset(0, -80));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<CustomScrollView>(scrollView).controller!.offset,
+      greaterThan(0),
+    );
+    expect(
+      tester.getTopLeft(find.byKey(desktopApplicationSuggestionsRowKey)).dy,
+      lessThan(suggestionsTop),
+      reason: 'the recent row must scroll with the complete application grid',
+    );
+  });
+
   testWidgets('Applications includes and launches registered local apps', (
     tester,
   ) async {
@@ -84,8 +262,8 @@ void main() {
       applications: <LocalFlutterApplication>[denialSettingsApplication],
     );
 
-    expect(find.text('Applications'), findsOneWidget);
-    expect(find.text('Installed applications: 1'), findsOneWidget);
+    expect(find.text('Applications'), findsNothing);
+    expect(find.text('Installed applications: 1'), findsNothing);
     expect(find.text('Settings'), findsOneWidget);
     expect(
       find.byKey(
@@ -120,12 +298,17 @@ void main() {
   ) async {
     final apps = _testApplications(2);
     final harness = await _pumpLauncher(tester, applications: apps);
-    final grid = tester.widget<GridView>(find.byType(GridView));
+    final scrollView = tester.widget<CustomScrollView>(
+      find.byType(CustomScrollView),
+    );
 
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pump();
     expect(
-      identical(tester.widget<GridView>(find.byType(GridView)), grid),
+      identical(
+        tester.widget<CustomScrollView>(find.byType(CustomScrollView)),
+        scrollView,
+      ),
       isTrue,
       reason: 'keyboard selection must update only the old and new tiles',
     );
@@ -259,11 +442,16 @@ void main() {
     final harness = await _pumpLauncher(tester, applications: apps);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-    final grid = tester.widget<GridView>(find.byType(GridView));
+    final scrollView = tester.widget<CustomScrollView>(
+      find.byType(CustomScrollView),
+    );
     harness.searchFocusNode.unfocus();
     await tester.pump();
     expect(
-      identical(tester.widget<GridView>(find.byType(GridView)), grid),
+      identical(
+        tester.widget<CustomScrollView>(find.byType(CustomScrollView)),
+        scrollView,
+      ),
       isTrue,
       reason: 'focus changes must rebuild only the search border',
     );
@@ -315,8 +503,10 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    final grid = tester.widget<GridView>(find.byType(GridView));
-    expect(grid.controller!.offset, greaterThan(0));
+    final scrollView = tester.widget<CustomScrollView>(
+      find.byType(CustomScrollView),
+    );
+    expect(scrollView.controller!.offset, greaterThan(0));
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pumpAndSettle();
     expect(harness.launched, <LocalFlutterApplication>[apps[8]]);
@@ -341,13 +531,16 @@ Future<_LauncherTestHarness> _pumpLauncher(
   double width = 680,
   double height = 620,
   ShellColorScheme colors = ShellColorScheme.dark,
+  List<String> recentEntries = const <String>[],
 }) async {
   final harness = _LauncherTestHarness(FocusNode());
+  final recentsStore = _MemoryApplicationRecentsStore(recentEntries);
   addTearDown(harness.searchFocusNode.dispose);
 
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
+        applicationRecentsStoreProvider.overrideWithValue(recentsStore),
         homeGridControllerProvider.overrideWith(_EmptyHomeGridController.new),
         localFlutterApplicationsProvider.overrideWithValue(applications),
       ],
@@ -400,3 +593,18 @@ Widget _placeholderBuilder(
   BuildContext context,
   LocalFlutterWindowHandle handle,
 ) => const SizedBox.shrink();
+
+class _MemoryApplicationRecentsStore implements ApplicationRecentsStore {
+  _MemoryApplicationRecentsStore(List<String> entries)
+    : entries = List<String>.unmodifiable(entries);
+
+  List<String> entries;
+
+  @override
+  Future<List<String>> readEntries() async => entries;
+
+  @override
+  Future<void> saveEntries(List<String> entries) async {
+    this.entries = List<String>.unmodifiable(entries);
+  }
+}

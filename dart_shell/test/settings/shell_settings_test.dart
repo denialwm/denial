@@ -110,6 +110,7 @@ void main() {
           width: 720,
           height: 650,
           margin: 20,
+          hoverTriggerEnabled: false,
         ),
       ),
       lockScreen: ShellLockScreenSettings(
@@ -137,6 +138,57 @@ void main() {
 
     expect(ShellSettings.fromJson(settings.toJson()), settings);
     expect(settings.toJson()['version'], ShellSettings.schemaVersion);
+  });
+
+  test(
+    'per-placement hover trigger defaults on and rejects malformed JSON',
+    () {
+      expect(const ShellOverlaySettings().launcher.hoverTriggerEnabled, isTrue);
+      expect(
+        ShellSettings.fromJson(<String, dynamic>{
+          'overlays': <String, dynamic>{
+            'launcher': <String, dynamic>{'hoverTriggerEnabled': 'sometimes'},
+          },
+        }).overlays.launcher.hoverTriggerEnabled,
+        isTrue,
+      );
+    },
+  );
+
+  test('legacy global hover preference migrates to both triggers', () {
+    final settings = ShellSettings.fromJson(<String, dynamic>{
+      'overlays': <String, dynamic>{'hoverTriggersEnabled': false},
+    });
+
+    expect(settings.overlays.launcher.hoverTriggerEnabled, isFalse);
+    expect(settings.overlays.dashboard.hoverTriggerEnabled, isFalse);
+  });
+
+  test('per-placement hover trigger is included in typed differences', () {
+    const previous = ShellSettings();
+    const next = ShellSettings(
+      overlays: ShellOverlaySettings(
+        launcher: ShellPopupPlacement(
+          anchor: ShellPopupAnchor.topLeft,
+          width: 680,
+          height: 620,
+          margin: 14,
+          hoverTriggerEnabled: false,
+        ),
+      ),
+    );
+
+    expect(next.differenceFrom(previous), <String, Object?>{
+      'overlays': <String, Object?>{
+        'launcher': <String, Object>{
+          'anchor': 'topLeft',
+          'width': 680.0,
+          'height': 620.0,
+          'margin': 14.0,
+          'hoverTriggerEnabled': false,
+        },
+      },
+    });
   });
 
   test('typed differences contain only changed settings fields', () {
@@ -306,6 +358,20 @@ void main() {
     expect(settings.lockScreen.clockScale, 1);
     expect(settings.power.idleDpmsEnabled, isTrue);
     expect(settings.power.idleDpmsTimeoutMinutes, 120);
+  });
+
+  test('application popup height accepts 200 pixels and clamps below it', () {
+    ShellSettings settingsWithHeight(double height) =>
+        ShellSettings.fromJson(<String, dynamic>{
+          'overlays': <String, dynamic>{
+            'launcher': <String, dynamic>{'height': height},
+          },
+        });
+
+    expect(launcherOverlayMinimumHeight, 200);
+    expect(settingsWithHeight(200).overlays.launcher.height, 200);
+    expect(settingsWithHeight(199).overlays.launcher.height, 200);
+    expect(settingsWithHeight(240).overlays.launcher.height, 240);
   });
 
   test('older settings inherit the optimized blur defaults', () {

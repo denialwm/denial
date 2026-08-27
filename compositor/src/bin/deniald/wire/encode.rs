@@ -977,6 +977,7 @@ fn shortcut_action_to_wire(action: ShortcutAction) -> fb::ShortcutActionKind {
     match action {
         ShortcutAction::Shutdown => fb::ShortcutActionKind::Shutdown,
         ShortcutAction::OpenApplications => fb::ShortcutActionKind::OpenApplications,
+        ShortcutAction::OpenDashboard => fb::ShortcutActionKind::OpenDashboard,
         ShortcutAction::OpenOverview => fb::ShortcutActionKind::OpenOverview,
         ShortcutAction::ToggleVerticalMaximize => fb::ShortcutActionKind::ToggleVerticalMaximize,
         ShortcutAction::WindowSwitcher => fb::ShortcutActionKind::WindowSwitcher,
@@ -984,6 +985,7 @@ fn shortcut_action_to_wire(action: ShortcutAction) -> fb::ShortcutActionKind {
         ShortcutAction::CaptureRegion => fb::ShortcutActionKind::CaptureRegion,
         ShortcutAction::CloseWindow => fb::ShortcutActionKind::CloseWindow,
         ShortcutAction::MinimizeWindow => fb::ShortcutActionKind::MinimizeWindow,
+        ShortcutAction::MinimizeAllWindows => fb::ShortcutActionKind::MinimizeAllWindows,
         ShortcutAction::ToggleMaximize => fb::ShortcutActionKind::ToggleMaximize,
         ShortcutAction::ToggleFullscreen => fb::ShortcutActionKind::ToggleFullscreen,
         ShortcutAction::ReleasePointer => fb::ShortcutActionKind::ReleasePointer,

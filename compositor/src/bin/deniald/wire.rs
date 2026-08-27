@@ -222,6 +222,7 @@ pub enum WindowAction {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ShellAction {
     Applications,
+    Dashboard,
     #[allow(dead_code)]
     Overview,
     #[allow(dead_code)]
@@ -257,6 +258,7 @@ impl ShellAction {
     fn wire(self) -> fb::ShellActionKind {
         match self {
             Self::Applications => fb::ShellActionKind::Applications,
+            Self::Dashboard => fb::ShellActionKind::Dashboard,
             Self::Overview => fb::ShellActionKind::Overview,
             Self::WindowSwitcherNext => fb::ShellActionKind::WindowSwitcherNext,
             Self::WindowSwitcherPrevious => fb::ShellActionKind::WindowSwitcherPrevious,

@@ -33,24 +33,28 @@ class ShellPopupPlacement {
     required this.width,
     required this.height,
     required this.margin,
+    this.hoverTriggerEnabled = true,
   });
 
   final ShellPopupAnchor anchor;
   final double width;
   final double height;
   final double margin;
+  final bool hoverTriggerEnabled;
 
   ShellPopupPlacement copyWith({
     ShellPopupAnchor? anchor,
     double? width,
     double? height,
     double? margin,
+    bool? hoverTriggerEnabled,
   }) {
     return ShellPopupPlacement(
       anchor: anchor ?? this.anchor,
       width: width ?? this.width,
       height: height ?? this.height,
       margin: margin ?? this.margin,
+      hoverTriggerEnabled: hoverTriggerEnabled ?? this.hoverTriggerEnabled,
     );
   }
 
@@ -101,7 +105,9 @@ class ShellPopupPlacement {
     double thickness = 8,
     double extent = 96,
   }) {
-    if (outputBounds.isEmpty) {
+    if (outputBounds.isEmpty ||
+        !hoverTriggerEnabled ||
+        anchor == ShellPopupAnchor.center) {
       return Rect.zero;
     }
     final usesVerticalEdge = anchor.horizontal != 0;
@@ -145,9 +151,11 @@ class ShellPopupPlacement {
         other.anchor == anchor &&
         other.width == width &&
         other.height == height &&
-        other.margin == margin;
+        other.margin == margin &&
+        other.hoverTriggerEnabled == hoverTriggerEnabled;
   }
 
   @override
-  int get hashCode => Object.hash(anchor, width, height, margin);
+  int get hashCode =>
+      Object.hash(anchor, width, height, margin, hoverTriggerEnabled);
 }

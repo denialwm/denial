@@ -45,6 +45,29 @@ void main() {
     expect(bottom.edgeTrigger(output), const Rect.fromLTWH(1552, 692, 96, 8));
   });
 
+  test('centered placement has no hover trigger', () {
+    const placement = ShellPopupPlacement(
+      anchor: ShellPopupAnchor.center,
+      width: 400,
+      height: 400,
+      margin: 14,
+    );
+
+    expect(placement.edgeTrigger(output), Rect.zero);
+  });
+
+  test('a placement can disable its own hover trigger', () {
+    const placement = ShellPopupPlacement(
+      anchor: ShellPopupAnchor.topLeft,
+      width: 400,
+      height: 400,
+      margin: 14,
+      hoverTriggerEnabled: false,
+    );
+
+    expect(placement.edgeTrigger(output), Rect.zero);
+  });
+
   test('centered triggers accept the requested extent beyond half an edge', () {
     const top = ShellPopupPlacement(
       anchor: ShellPopupAnchor.topCenter,

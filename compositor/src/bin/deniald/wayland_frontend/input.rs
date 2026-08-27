@@ -1763,6 +1763,11 @@ pub(super) fn execute_shortcut_disposition(
             state.queue_shell_action(super::super::wire::ShellAction::Applications, None);
             true
         }
+        ShortcutDisposition::RequestDashboard => {
+            #[cfg(feature = "flutter")]
+            state.queue_shell_action(super::super::wire::ShellAction::Dashboard, None);
+            true
+        }
         ShortcutDisposition::RequestOverview => {
             #[cfg(feature = "flutter")]
             {
@@ -1822,6 +1827,11 @@ pub(super) fn execute_shortcut_disposition(
         ShortcutDisposition::RequestMinimize => {
             #[cfg(feature = "flutter")]
             super::window_management::minimize_focused_toplevel(state);
+            true
+        }
+        ShortcutDisposition::RequestMinimizeAll => {
+            #[cfg(feature = "flutter")]
+            super::window_management::minimize_all_toplevels(state);
             true
         }
         ShortcutDisposition::RequestClose => {

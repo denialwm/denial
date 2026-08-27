@@ -48,6 +48,38 @@ fn open_settings_is_supported_without_a_default_shortcut() {
 }
 
 #[test]
+fn open_dashboard_is_supported_without_a_default_shortcut() {
+    assert!(ShortcutAction::ALL.contains(&ShortcutAction::OpenDashboard));
+    assert!(default_shortcut_file().shortcuts.iter().all(|binding| {
+        !matches!(
+            &binding.target,
+            ShortcutTarget::DenialAction {
+                action: ShortcutAction::OpenDashboard
+            }
+        )
+    }));
+    assert_eq!(
+        ShortcutDisposition::from(ShortcutAction::OpenDashboard),
+        ShortcutDisposition::RequestDashboard
+    );
+}
+
+#[test]
+fn minimize_all_windows_is_supported_with_a_default_shortcut() {
+    assert!(ShortcutAction::ALL.contains(&ShortcutAction::MinimizeAllWindows));
+    assert_eq!(
+        shortcut_binding(&default_shortcut_file(), "Super+Shift+M").target,
+        ShortcutTarget::DenialAction {
+            action: ShortcutAction::MinimizeAllWindows,
+        }
+    );
+    assert_eq!(
+        ShortcutDisposition::from(ShortcutAction::MinimizeAllWindows),
+        ShortcutDisposition::RequestMinimizeAll
+    );
+}
+
+#[test]
 fn application_spawn_targets_preserve_their_desktop_identity() {
     let target = ShortcutTarget::Spawn {
         command: vec![
@@ -131,7 +163,7 @@ fn version_one_migration_adds_only_non_conflicting_new_shortcuts() {
         ],
     };
 
-    assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(1));
+    assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(2));
     normalize_and_compile_shortcuts(&mut file).unwrap();
 
     assert_eq!(file.version, SHORTCUT_SCHEMA_VERSION);
@@ -144,6 +176,12 @@ fn version_one_migration_adds_only_non_conflicting_new_shortcuts() {
         shortcut_binding(&file, "ThreeFingerSwipeRight").target,
         ShortcutTarget::DenialAction {
             action: ShortcutAction::WindowSwitcher,
+        }
+    );
+    assert_eq!(
+        shortcut_binding(&file, "Super+Shift+M").target,
+        ShortcutTarget::DenialAction {
+            action: ShortcutAction::MinimizeAllWindows,
         }
     );
     assert!(
@@ -176,6 +214,7 @@ fn manager_persists_shortcut_migration_once_on_load() {
     assert_eq!(manager.revision(), 8);
     shortcut_binding(manager.file(), "ThreeFingerSwipeLeft");
     shortcut_binding(manager.file(), "ThreeFingerSwipeRight");
+    shortcut_binding(manager.file(), "Super+Shift+M");
     drop(manager);
 
     let persisted_bytes = fs::read(&path).unwrap();
@@ -186,6 +225,27 @@ fn manager_persists_shortcut_migration_once_on_load() {
     let reloaded = ShortcutManager::load_path(path).unwrap();
     assert_eq!(reloaded.revision(), 8);
     assert_eq!(reloaded.persisted_bytes, persisted_bytes);
+}
+
+#[test]
+fn version_two_migration_preserves_a_custom_minimize_all_chord() {
+    let custom = ShortcutTarget::Spawn {
+        command: vec!["custom-minimize".to_owned()],
+        desktop_file_id: None,
+    };
+    let mut file = ShortcutFile {
+        version: 2,
+        revision: 4,
+        shortcuts: vec![ShortcutBinding {
+            shortcut: "Super+Shift+M".to_owned(),
+            target: custom.clone(),
+        }],
+    };
+
+    assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(0));
+    assert_eq!(file.version, SHORTCUT_SCHEMA_VERSION);
+    assert_eq!(file.revision, 5);
+    assert_eq!(shortcut_binding(&file, "Super+Shift+M").target, custom);
 }
 
 #[test]
@@ -347,6 +407,43 @@ fn super_window_chords_request_native_actions_once() {
             ShortcutDisposition::Consume
         );
     }
+}
+
+#[test]
+fn super_shift_m_requests_minimize_all_without_replacing_super_m() {
+    let mut shortcut = NativeEscapeShortcut::default();
+
+    assert_eq!(
+        press(&mut shortcut, KEY_LEFT_SHIFT),
+        ShortcutDisposition::Forward
+    );
+    assert_eq!(
+        press(&mut shortcut, KEY_LEFT_META),
+        ShortcutDisposition::Consume
+    );
+    assert_eq!(
+        press(&mut shortcut, KEY_M),
+        ShortcutDisposition::RequestMinimizeAll
+    );
+    assert_eq!(press(&mut shortcut, KEY_M), ShortcutDisposition::Consume);
+    assert_eq!(release(&mut shortcut, KEY_M), ShortcutDisposition::Consume);
+    assert_eq!(
+        release(&mut shortcut, KEY_LEFT_SHIFT),
+        ShortcutDisposition::Forward
+    );
+    assert_eq!(
+        release(&mut shortcut, KEY_LEFT_META),
+        ShortcutDisposition::Consume
+    );
+
+    assert_eq!(
+        press(&mut shortcut, KEY_LEFT_META),
+        ShortcutDisposition::Consume
+    );
+    assert_eq!(
+        press(&mut shortcut, KEY_M),
+        ShortcutDisposition::RequestMinimize
+    );
 }
 
 #[test]

@@ -13,7 +13,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-const SHORTCUT_SCHEMA_VERSION: u64 = 2;
+const SHORTCUT_SCHEMA_VERSION: u64 = 3;
 const OLDEST_SHORTCUT_SCHEMA_VERSION: u64 = 1;
 const MAX_SHORTCUT_FILE_BYTES: usize = 128 * 1024;
 pub(super) const MAX_SHORTCUTS: usize = 256;
@@ -28,6 +28,9 @@ const SHORTCUT_V2_ADDITIONS: &[(&str, ShortcutAction)] = &[
     ("ThreeFingerSwipeLeft", ShortcutAction::WindowSwitcher),
     ("ThreeFingerSwipeRight", ShortcutAction::WindowSwitcher),
 ];
+
+const SHORTCUT_V3_ADDITIONS: &[(&str, ShortcutAction)] =
+    &[("Super+Shift+M", ShortcutAction::MinimizeAllWindows)];
 
 const KEY_ESCAPE: u32 = 1;
 const KEY_BACKSPACE: u32 = 14;
@@ -129,6 +132,7 @@ impl ShortcutGesture {
 pub(super) enum ShortcutAction {
     Shutdown,
     OpenApplications,
+    OpenDashboard,
     OpenOverview,
     ToggleVerticalMaximize,
     WindowSwitcher,
@@ -136,6 +140,7 @@ pub(super) enum ShortcutAction {
     CaptureRegion,
     CloseWindow,
     MinimizeWindow,
+    MinimizeAllWindows,
     ToggleMaximize,
     ToggleFullscreen,
     ReleasePointer,
@@ -151,8 +156,9 @@ pub(super) enum ShortcutAction {
 }
 
 impl ShortcutAction {
-    pub(super) const ALL: [Self; 21] = [
+    pub(super) const ALL: [Self; 23] = [
         Self::OpenApplications,
+        Self::OpenDashboard,
         Self::OpenSettings,
         Self::OpenOverview,
         Self::WindowSwitcher,
@@ -160,6 +166,7 @@ impl ShortcutAction {
         Self::CaptureRegion,
         Self::CloseWindow,
         Self::MinimizeWindow,
+        Self::MinimizeAllWindows,
         Self::ToggleVerticalMaximize,
         Self::ToggleMaximize,
         Self::ToggleFullscreen,
@@ -650,15 +657,16 @@ fn read_and_parse(path: &Path) -> Result<(ShortcutFile, Vec<u8>, Option<usize>),
 }
 
 fn migrate_shortcut_file(file: &mut ShortcutFile) -> Result<Option<usize>, ShortcutError> {
-    match file.version {
+    let additions: &[&[(&str, ShortcutAction)]] = match file.version {
         SHORTCUT_SCHEMA_VERSION => return Ok(None),
-        OLDEST_SHORTCUT_SCHEMA_VERSION => {}
+        OLDEST_SHORTCUT_SCHEMA_VERSION => &[SHORTCUT_V2_ADDITIONS, SHORTCUT_V3_ADDITIONS],
+        2 => &[SHORTCUT_V3_ADDITIONS],
         version => {
             return Err(ShortcutError::Document(format!(
                 "shortcut version {version} is not supported; expected {OLDEST_SHORTCUT_SCHEMA_VERSION}..={SHORTCUT_SCHEMA_VERSION}"
             )));
         }
-    }
+    };
     if file.revision == 0 {
         return Err(ShortcutError::Document(
             "shortcut revision must be greater than zero".to_owned(),
@@ -675,17 +683,19 @@ fn migrate_shortcut_file(file: &mut ShortcutFile) -> Result<Option<usize>, Short
         configured.insert(parse_shortcut(&binding.shortcut)?);
     }
     let mut added = 0;
-    for &(shortcut, action) in SHORTCUT_V2_ADDITIONS {
-        let trigger = parse_shortcut(shortcut)?;
-        if configured.contains(&trigger) || file.shortcuts.len() == MAX_SHORTCUTS {
-            continue;
+    for additions in additions {
+        for &(shortcut, action) in *additions {
+            let trigger = parse_shortcut(shortcut)?;
+            if configured.contains(&trigger) || file.shortcuts.len() == MAX_SHORTCUTS {
+                continue;
+            }
+            configured.insert(trigger.clone());
+            file.shortcuts.push(ShortcutBinding {
+                shortcut: trigger.canonical,
+                target: ShortcutTarget::DenialAction { action },
+            });
+            added += 1;
         }
-        configured.insert(trigger.clone());
-        file.shortcuts.push(ShortcutBinding {
-            shortcut: trigger.canonical,
-            target: ShortcutTarget::DenialAction { action },
-        });
-        added += 1;
     }
     file.version = SHORTCUT_SCHEMA_VERSION;
     file.revision = file.revision.saturating_add(1);
@@ -857,6 +867,7 @@ fn default_shortcut_file() -> ShortcutFile {
         ("Super+V", ShortcutAction::OpenClipboard),
         ("Super+Shift+S", ShortcutAction::CaptureRegion),
         ("Super+M", ShortcutAction::MinimizeWindow),
+        ("Super+Shift+M", ShortcutAction::MinimizeAllWindows),
         ("Super+Up", ShortcutAction::ToggleMaximize),
         ("Super+F", ShortcutAction::ToggleFullscreen),
         ("Super+Escape", ShortcutAction::ReleasePointer),
@@ -1414,6 +1425,7 @@ pub(super) enum ShortcutDisposition {
     Consume,
     RequestShutdown,
     RequestApplications,
+    RequestDashboard,
     RequestOverview,
     RequestToggleVerticalMaximize,
     RequestWindowSwitcherNext,
@@ -1425,6 +1437,7 @@ pub(super) enum ShortcutDisposition {
     RequestScreenshotRegion,
     RequestClose,
     RequestMinimize,
+    RequestMinimizeAll,
     RequestToggleMaximize,
     RequestToggleFullscreen,
     RequestReleasePointer,
@@ -1762,6 +1775,7 @@ impl From<ShortcutAction> for ShortcutDisposition {
         match action {
             ShortcutAction::Shutdown => Self::RequestShutdown,
             ShortcutAction::OpenApplications => Self::RequestApplications,
+            ShortcutAction::OpenDashboard => Self::RequestDashboard,
             ShortcutAction::OpenOverview => Self::RequestOverview,
             ShortcutAction::ToggleVerticalMaximize => Self::RequestToggleVerticalMaximize,
             ShortcutAction::WindowSwitcher => Self::RequestWindowSwitcherNext,
@@ -1769,6 +1783,7 @@ impl From<ShortcutAction> for ShortcutDisposition {
             ShortcutAction::CaptureRegion => Self::RequestScreenshotRegion,
             ShortcutAction::CloseWindow => Self::RequestClose,
             ShortcutAction::MinimizeWindow => Self::RequestMinimize,
+            ShortcutAction::MinimizeAllWindows => Self::RequestMinimizeAll,
             ShortcutAction::ToggleMaximize => Self::RequestToggleMaximize,
             ShortcutAction::ToggleFullscreen => Self::RequestToggleFullscreen,
             ShortcutAction::ReleasePointer => Self::RequestReleasePointer,

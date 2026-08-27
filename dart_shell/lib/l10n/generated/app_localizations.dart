@@ -866,6 +866,12 @@ abstract class AppLocalizations {
   /// **'{visible} of {total} applications'**
   String desktopApplicationSearchResults(int visible, int total);
 
+  /// Heading for the dedicated row of recently opened launcher applications.
+  ///
+  /// In en, this message translates to:
+  /// **'Suggested'**
+  String get desktopApplicationSuggestionsTitle;
+
   /// English UI text for desktopApplicationVolumeDescription.
   ///
   /// In en, this message translates to:
@@ -3244,6 +3250,18 @@ abstract class AppLocalizations {
   /// **'Height'**
   String get settingsHeight;
 
+  /// Per-panel toggle label for a pointer hover trigger at the output edge.
+  ///
+  /// In en, this message translates to:
+  /// **'Open on edge hover'**
+  String get settingsHoverTrigger;
+
+  /// Explanation for a panel's hover-trigger preference.
+  ///
+  /// In en, this message translates to:
+  /// **'Reveal this panel when the pointer reaches its screen edge.'**
+  String get settingsHoverTriggerDescription;
+
   /// English UI text for settingsHudOverlayDescription.
   ///
   /// In en, this message translates to:
@@ -3862,6 +3880,12 @@ abstract class AppLocalizations {
   /// **'Open applications'**
   String get settingsShortcutActionOpenApplications;
 
+  /// Display name for the open dashboard shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Open dashboard'**
+  String get settingsShortcutActionOpenDashboard;
+
   /// Display name for the open Settings shortcut action.
   ///
   /// In en, this message translates to:
@@ -3909,6 +3933,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Minimize window'**
   String get settingsShortcutActionMinimizeWindow;
+
+  /// Display name for the minimize all windows shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Minimize all windows'**
+  String get settingsShortcutActionMinimizeAllWindows;
 
   /// Display name for the toggle maximize shortcut action.
   ///

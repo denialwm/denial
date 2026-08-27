@@ -1867,6 +1867,14 @@ fn encodes_shell_actions_with_optional_monitor_and_ordered_sequence() {
     let action = envelope.payload_as_shell_action().unwrap();
     assert_eq!(envelope.sequence(), 7);
     assert_eq!(action.action(), fb::ShellActionKind::OpenSettings);
+
+    let bytes = bridge
+        .encode_shell_action(ShellAction::Dashboard, None)
+        .unwrap();
+    let envelope = fb::root_as_envelope(bytes).unwrap();
+    let action = envelope.payload_as_shell_action().unwrap();
+    assert_eq!(envelope.sequence(), 8);
+    assert_eq!(action.action(), fb::ShellActionKind::Dashboard);
 }
 
 #[test]

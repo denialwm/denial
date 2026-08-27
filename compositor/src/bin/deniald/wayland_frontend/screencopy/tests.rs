@@ -94,3 +94,15 @@ fn framebuffer_sources_keep_atlas_top_left_coordinates() {
         None
     );
 }
+
+#[test]
+fn transformed_output_composition_uses_output_local_damage() {
+    // A portrait output placed to the right of a landscape output has a
+    // non-zero atlas origin. Smithay's texture draw takes an atlas-space
+    // destination but destination-local damage and opaque regions.
+    let destination = Rectangle::new((2560, 563).into(), (1440, 2560).into());
+    assert_eq!(
+        output_composite_local_rect(destination),
+        Rectangle::from_size((1440, 2560).into())
+    );
+}

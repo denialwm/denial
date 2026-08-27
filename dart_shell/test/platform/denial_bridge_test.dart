@@ -771,6 +771,29 @@ void main() {
     }
   });
 
+  test('dashboard action notifications reach the shell', () async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final bridge = _startedBridge();
+    final events = <DenialShellActionEvent>[];
+    final subscription = bridge.shellActions.listen(events.add);
+    try {
+      await _sendToFlutter(
+        messenger,
+        _envelope(
+          wire.PayloadTypeId.ShellAction,
+          wire.ShellActionObjectBuilder(action: wire.ShellActionKind.Dashboard),
+        ),
+      );
+
+      expect(events, hasLength(1));
+      expect(events.single.action, DenialShellAction.dashboard);
+    } finally {
+      await subscription.cancel();
+      bridge.dispose();
+    }
+  });
+
   test('wallpaper requests use the compositor control socket', () async {
     final directory = await Directory.systemTemp.createTemp(
       'denial-wallpaper-control-',
