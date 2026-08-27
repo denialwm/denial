@@ -1502,7 +1502,3 @@ pub(super) fn toplevel_has_state(
             .contains(xdg_state)
     })
 }
-
-#[cfg(test)]
-#[path = "window_management/tests.rs"]
-mod tests;

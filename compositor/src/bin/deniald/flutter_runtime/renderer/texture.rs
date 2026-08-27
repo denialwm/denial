@@ -6,8 +6,6 @@ use super::*;
 mod handler;
 
 pub(in crate::flutter_runtime) use handler::FlutterGlHandler;
-#[cfg(test)]
-pub(in crate::flutter_runtime) use handler::vm_service_uri_from_log;
 
 #[derive(Debug, Default)]
 pub(in crate::flutter_runtime) struct ExternalTextureResourceBudget {
@@ -28,11 +26,6 @@ impl ExternalTextureResourceBudget {
         Some(ExternalTextureResourcePermit {
             budget: Arc::clone(self),
         })
-    }
-
-    #[cfg(test)]
-    pub(in crate::flutter_runtime) fn live(&self) -> usize {
-        self.live.load(Ordering::Acquire)
     }
 }
 
@@ -257,11 +250,6 @@ impl<K: Eq, V: Clone> RecencyCache<K, V> {
         removed
     }
 
-    #[cfg(test)]
-    pub(in crate::flutter_runtime) fn stats(&self) -> RecencyCacheStats {
-        self.stats
-    }
-
     pub(in crate::flutter_runtime) fn drain(&mut self) -> Vec<V> {
         self.entries.drain(..).map(|entry| entry.value).collect()
     }
@@ -377,12 +365,6 @@ impl ShmSnapshotPool {
         state.buffers.push(buffer);
         state.retained_bytes = next_retained;
     }
-
-    #[cfg(test)]
-    pub(in crate::flutter_runtime) fn retained_state(&self) -> (usize, usize) {
-        let state = lock(&self.state);
-        (state.buffers.len(), state.retained_bytes)
-    }
 }
 
 struct ShmPixelStorage {
@@ -410,16 +392,6 @@ pub(crate) struct ShmTextureFrame {
 }
 
 impl ShmTextureFrame {
-    #[cfg(test)]
-    pub(in crate::flutter_runtime) fn new(
-        width: u32,
-        height: u32,
-        revision: u64,
-        rgba: Vec<u8>,
-    ) -> Result<Self, &'static str> {
-        Self::from_pixels(width, height, revision, rgba, Weak::new())
-    }
-
     pub(crate) fn new_pooled(
         width: u32,
         height: u32,
@@ -780,46 +752,6 @@ impl ProducerArbiter {
         );
         lock(&self.requested_at).take();
         previous
-    }
-
-    #[cfg(test)]
-    pub(in crate::flutter_runtime) fn recover_no_raster(
-        &self,
-        now: Instant,
-        timeout: Duration,
-    ) -> bool {
-        if FlutterProducerState::from_u8(self.state.load(Ordering::Acquire))
-            != FlutterProducerState::Requested
-        {
-            return false;
-        }
-        let mut requested_at = lock(&self.requested_at);
-        let Some(started_at) = *requested_at else {
-            return false;
-        };
-        if now.saturating_duration_since(started_at) < timeout {
-            return false;
-        }
-        if self
-            .state
-            .compare_exchange(
-                FlutterProducerState::Requested.as_u8(),
-                FlutterProducerState::Idle.as_u8(),
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
-            .is_err()
-        {
-            return false;
-        }
-        requested_at.take();
-        true
-    }
-
-    #[cfg(test)]
-    pub(in crate::flutter_runtime) fn is_busy(&self) -> bool {
-        FlutterProducerState::from_u8(self.state.load(Ordering::Acquire))
-            != FlutterProducerState::Idle
     }
 }
 

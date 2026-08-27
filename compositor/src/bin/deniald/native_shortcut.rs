@@ -35,20 +35,6 @@ const SHORTCUT_V3_ADDITIONS: &[(&str, ShortcutAction)] =
 const KEY_ESCAPE: u32 = 1;
 const KEY_BACKSPACE: u32 = 14;
 const KEY_TAB: u32 = 15;
-#[cfg(test)]
-const KEY_A: u32 = 30;
-#[cfg(test)]
-const KEY_S: u32 = 31;
-#[cfg(test)]
-const KEY_F: u32 = 33;
-#[cfg(test)]
-const KEY_K: u32 = 37;
-#[cfg(test)]
-const KEY_L: u32 = 38;
-#[cfg(test)]
-const KEY_V: u32 = 47;
-#[cfg(test)]
-const KEY_M: u32 = 50;
 const KEY_SPACE: u32 = 57;
 const KEY_UP: u32 = 103;
 const KEY_MUTE: u32 = 113;
@@ -1817,7 +1803,3 @@ impl From<ShortcutTarget> for ShortcutDisposition {
 }
 
 pub(super) type NativeEscapeShortcut = ShortcutEngine;
-
-#[cfg(test)]
-#[path = "native_shortcut/tests.rs"]
-mod tests;

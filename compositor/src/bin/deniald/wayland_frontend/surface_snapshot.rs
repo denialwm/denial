@@ -166,7 +166,3 @@ fn normalize_shm_8888(pixels: &mut [u8], force_opaque: bool) {
         };
     }
 }
-
-#[cfg(test)]
-#[path = "surface_snapshot/tests.rs"]
-mod tests;

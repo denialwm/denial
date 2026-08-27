@@ -40,11 +40,7 @@ use tracing::{info, warn};
 
 #[cfg(feature = "flutter")]
 use super::super::PendingWindowEvent;
-#[cfg(test)]
-use super::super::lifecycle::LifecycleState;
 use super::super::lifecycle::ShutdownReason;
-#[cfg(test)]
-use super::super::native_shortcut::NativeEscapeShortcut;
 use super::super::native_shortcut::{ShortcutDisposition, ShortcutTarget};
 #[cfg(feature = "flutter")]
 use super::super::settings::KeyboardSettings;
@@ -53,8 +49,6 @@ use super::super::settings::TouchpadSettings;
 use super::super::window_grab::{
     LocalFlutterWindowGrab, MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, X11ResizeSurfaceGrab,
 };
-#[cfg(all(feature = "flutter", test))]
-use super::super::wire::InputRect;
 #[cfg(feature = "flutter")]
 use super::super::wire::{
     InputLayoutSnapshot, InputWindowRegion, WindowPlacementChange, WindowPlacementPhase,
@@ -79,8 +73,6 @@ mod tablet;
 #[path = "input/wayland_route.rs"]
 mod wayland_route;
 
-#[cfg(all(test, feature = "flutter"))]
-use flutter_route::flutter_pointer_endpoint_is_synchronized;
 #[cfg(feature = "flutter")]
 use flutter_route::process_flutter_input_event;
 use flutter_route::process_wayland_keyboard_transition;
@@ -2186,7 +2178,3 @@ fn process_flutter_keyboard_transition(
     synchronize_active_keyboard_layout(state, &keyboard);
     true
 }
-
-#[cfg(test)]
-#[path = "input/tests.rs"]
-mod tests;

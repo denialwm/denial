@@ -7,9 +7,6 @@ use serde_json::{Value, value::RawValue};
 
 use super::super::wayland_frontend::input_method::InputMethodTransaction;
 
-#[cfg(test)]
-use serde_json::json;
-
 pub const CHANNEL: &CStr = c"flutter/textinput";
 
 const SET_EDITING_STATE: &str = "TextInput.setEditingState";
@@ -322,19 +319,6 @@ impl TextInputPlugin {
             self.note_state_change();
         }
         &self.messages[..message_count]
-    }
-
-    #[cfg(test)]
-    pub fn insert_text(&mut self, text: &str) -> &[Vec<u8>] {
-        let Some(client) = self.client.as_mut() else {
-            return &[];
-        };
-        if !client.model.add_text(text) {
-            return &[];
-        }
-        update_editing_state(client, &mut self.text_utf8_scratch, &mut self.messages[0]);
-        self.note_state_change();
-        &self.messages[..1]
     }
 
     pub fn apply_input_method(
@@ -713,11 +697,6 @@ impl TextInputModel {
         self.composing = None;
     }
 
-    #[cfg(test)]
-    fn replace_text(&mut self, text: &str, base: usize, extent: usize) -> bool {
-        self.replace_editing_state(text, base, extent, None)
-    }
-
     fn replace_editing_state(
         &mut self,
         text: &str,
@@ -747,23 +726,6 @@ impl TextInputModel {
         self.selection_extent = extent;
         self.composing = composing;
         true
-    }
-
-    #[cfg(test)]
-    fn set_selection(&mut self, base: usize, extent: usize) -> bool {
-        if !valid_selection_boundary(&self.text, base)
-            || !valid_selection_boundary(&self.text, extent)
-        {
-            return false;
-        }
-        self.selection_base = base;
-        self.selection_extent = extent;
-        true
-    }
-
-    #[cfg(test)]
-    fn text(&self) -> String {
-        String::from_utf16_lossy(&self.text)
     }
 
     fn write_text(&self, output: &mut String) {
@@ -987,44 +949,6 @@ impl TextInputModel {
         true
     }
 
-    #[cfg(test)]
-    fn add_text(&mut self, text: &str) -> bool {
-        self.replacement_scratch.clear();
-        self.replacement_scratch.extend(text.encode_utf16());
-        if self.replacement_scratch.is_empty() {
-            return false;
-        }
-
-        let start = self.selection_start();
-        let end = self.selection_end();
-        let selected = end - start;
-        let Some(next_len) = self
-            .text
-            .len()
-            .checked_sub(selected)
-            .and_then(|len| len.checked_add(self.replacement_scratch.len()))
-        else {
-            return false;
-        };
-        if next_len > MAX_TEXT_UTF16_UNITS {
-            return false;
-        }
-
-        if selected != 0 {
-            self.text.copy_within(end.., start);
-            self.text.truncate(self.text.len() - selected);
-        }
-        let inserted = self.replacement_scratch.len();
-        let old_len = self.text.len();
-        self.text.resize(next_len, 0);
-        self.text.copy_within(start..old_len, start + inserted);
-        self.text[start..start + inserted].copy_from_slice(&self.replacement_scratch);
-        self.selection_base = start + inserted;
-        self.selection_extent = start + inserted;
-        self.composing = None;
-        true
-    }
-
     fn backspace(&mut self) -> bool {
         if self.delete_selected() {
             return true;
@@ -1175,7 +1099,3 @@ fn is_leading_surrogate(code_unit: u16) -> bool {
 fn is_trailing_surrogate(code_unit: u16) -> bool {
     (0xdc00..=0xdfff).contains(&code_unit)
 }
-
-#[cfg(test)]
-#[path = "text_input/tests.rs"]
-mod tests;

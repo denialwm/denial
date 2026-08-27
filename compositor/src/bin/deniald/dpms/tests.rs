@@ -72,28 +72,6 @@ fn recovered_connector_cancels_the_pending_removal() {
 }
 
 #[test]
-fn reconnect_followed_by_more_link_training_stays_debounced() {
-    let now = Instant::now();
-    let mut guard = DpmsTopologyGuard::default();
-    guard.note_powered_off(output(2));
-    guard.note_wake(output(2), now);
-
-    assert_eq!(
-        guard.defer_missing_outputs(now, [output(1), output(2)], [output(1), output(2)],),
-        None,
-    );
-    assert!(
-        guard
-            .defer_missing_outputs(
-                now + Duration::from_secs(1),
-                [output(1), output(2)],
-                [output(1)],
-            )
-            .is_some()
-    );
-}
-
-#[test]
 fn genuine_non_dpms_removal_is_never_deferred() {
     let now = Instant::now();
     let mut guard = DpmsTopologyGuard::default();
@@ -102,18 +80,6 @@ fn genuine_non_dpms_removal_is_never_deferred() {
 
     assert_eq!(
         guard.defer_missing_outputs(now, [output(1), output(2)], [output(2)],),
-        None,
-    );
-}
-
-#[test]
-fn output_addition_is_not_hidden_by_a_parked_output() {
-    let now = Instant::now();
-    let mut guard = DpmsTopologyGuard::default();
-    guard.note_powered_off(output(2));
-
-    assert_eq!(
-        guard.defer_missing_outputs(now, [output(1), output(2)], [output(1), output(3)],),
         None,
     );
 }

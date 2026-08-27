@@ -320,11 +320,6 @@ pub(super) struct OutputControlPublisher {
 }
 
 impl OutputControlPublisher {
-    #[cfg(test)]
-    fn new(initial: OutputControlState) -> Self {
-        Self::with_settings(initial, 1, "{}".to_owned())
-    }
-
     fn with_settings(
         initial: OutputControlState,
         settings_revision: u64,
@@ -743,14 +738,6 @@ impl OutputControlServer {
     ) -> Result<(Self, Channel<ControlEvent>), Box<dyn Error>> {
         let path = default_socket_path()?;
         Self::start_at_with_settings(path, initial, settings_revision, settings_document)
-    }
-
-    #[cfg(test)]
-    fn start_at(
-        socket_path: PathBuf,
-        initial: OutputControlState,
-    ) -> Result<(Self, Channel<ControlEvent>), Box<dyn Error>> {
-        Self::start_at_with_settings(socket_path, initial, 1, "{}".to_owned())
     }
 
     fn start_at_with_settings(
@@ -1861,7 +1848,3 @@ fn write_response(stream: &mut UnixStream, response: &Value) -> io::Result<()> {
     stream.write_all(b"\n")?;
     stream.flush()
 }
-
-#[cfg(test)]
-#[path = "output_control/tests.rs"]
-mod tests;

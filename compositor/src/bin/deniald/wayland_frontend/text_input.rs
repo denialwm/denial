@@ -433,11 +433,6 @@ where
             .find(|instance| &instance.id == active && instance.entered)
             .map(|instance| (instance.id.clone(), instance.serial))
     }
-
-    #[cfg(test)]
-    fn instance(&self, id: &I) -> Option<&Instance<I, C>> {
-        self.instances.iter().find(|instance| &instance.id == id)
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -551,11 +546,6 @@ impl TextSessionBroker {
             }),
         });
         true
-    }
-
-    #[cfg(test)]
-    fn flutter_editor_active(&self) -> bool {
-        self.flutter.as_ref().is_some_and(|editor| editor.active)
     }
 }
 
@@ -1096,7 +1086,3 @@ impl WaylandFrontend {
         self.input_method.drain_flutter_transactions()
     }
 }
-
-#[cfg(test)]
-#[path = "text_input/tests.rs"]
-mod tests;

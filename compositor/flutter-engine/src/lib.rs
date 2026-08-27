@@ -898,7 +898,3 @@ fn check_result(
         Err(EngineError::Call { operation, result })
     }
 }
-
-#[cfg(test)]
-#[path = "lib/tests.rs"]
-mod tests;

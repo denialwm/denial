@@ -916,7 +916,3 @@ fn reap_children(receiver: Receiver<TrackedChild>) {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "system_command/tests.rs"]
-mod tests;

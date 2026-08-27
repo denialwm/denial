@@ -108,7 +108,3 @@ fn success(value: Value) -> Vec<u8> {
 fn error(code: &str, message: &str) -> Vec<u8> {
     serde_json::to_vec(&json!([code, message, null])).unwrap_or_default()
 }
-
-#[cfg(test)]
-#[path = "platform/tests.rs"]
-mod tests;

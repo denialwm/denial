@@ -16,24 +16,12 @@ use gl_resources::{
     destroy_shader_blit, destroy_targets,
 };
 use gpu_timing::GpuTimingState;
-#[cfg(test)]
-pub(super) use output_projection::{
-    AnimatedOutputRotation, animated_rotation_transform, shortest_rotation_delta,
-};
 pub(crate) use output_projection::{OutputGeometryTransition, OutputRotationAdvance};
 pub(super) use output_projection::{
     OutputRotationAnimation, PendingOutputGeometry, RuntimeRenderOutput,
 };
 pub(super) use texture::FlutterGlHandler;
 pub use texture::SampledBufferHoldBatch;
-#[cfg(test)]
-pub(super) use texture::{
-    CachedTextureBinding, ExternalTextureBinding, ExternalTextureLease,
-    ExternalTextureLeaseResource, ExternalTextureResourceBudget, ExternalTextureSlot,
-    ExternalTextureSource, FlutterProducerState, PartitionedRecencyCache, ProducerArbiter,
-    RecencyCache, RecencyCacheStats, RetiredExternalBindingQueue, contain_ffi_unwind,
-    retire_external_texture, vm_service_uri_from_log,
-};
 pub(crate) use texture::{
     ExternalTextureFrame, ShmSnapshotPool, ShmTextureFrame, SyncedWaylandScene,
 };

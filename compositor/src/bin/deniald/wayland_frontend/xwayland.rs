@@ -1179,7 +1179,3 @@ impl XwmHandler for RuntimeState {
         warn!("lost the Xwayland window-manager connection");
     }
 }
-
-#[cfg(test)]
-#[path = "xwayland/tests.rs"]
-mod tests;

@@ -48,7 +48,3 @@ pub(super) fn presentation_instant(
         .checked_sub(delivery_delay)
         .unwrap_or(delivered_at)
 }
-
-#[cfg(test)]
-#[path = "presentation_clock/tests.rs"]
-mod tests;

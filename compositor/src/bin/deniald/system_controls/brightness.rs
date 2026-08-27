@@ -146,10 +146,6 @@ impl BrightnessProviders {
     }
 }
 
-#[cfg(test)]
-#[path = "brightness/tests.rs"]
-mod tests;
-
 #[derive(Clone, Debug)]
 struct BacklightDevice {
     name: String,

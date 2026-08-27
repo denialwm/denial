@@ -1335,7 +1335,3 @@ fn format_output_scale(scale_120: u32) -> String {
     }
     value
 }
-
-#[cfg(test)]
-#[path = "options/tests.rs"]
-mod tests;

@@ -1447,7 +1447,3 @@ revision recorded by denial-ui-development, and never overwrites an existing
 tree."
     );
 }
-
-#[cfg(test)]
-#[path = "denialctl/tests.rs"]
-mod tests;

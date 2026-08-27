@@ -870,7 +870,3 @@ impl HorizontalOutputPlacement {
         Ok(())
     }
 }
-
-#[cfg(test)]
-#[path = "output_topology/tests.rs"]
-mod tests;

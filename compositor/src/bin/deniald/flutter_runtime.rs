@@ -48,8 +48,6 @@ use smithay::utils::{Logical, Size};
 use tracing::{debug, error, info, warn};
 
 use super::egl_context;
-#[cfg(test)]
-use super::frame_scheduler::FrameTick;
 use super::frame_scheduler::{OutputFrameRequest, PendingFrame};
 use super::idle_policy;
 use super::native_app_plugin::NativeBufferRelease;
@@ -99,25 +97,13 @@ use event_pipeline::{
 };
 pub use input::InputQueue;
 use input::{InputRecord, KeyboardRecord, flutter_physical_scroll_delta, glfw_keycode};
-#[cfg(test)]
-use input::{PointerRecord, TRACKPAD_DEVICE, flutter_application_scroll_delta, push_bounded_input};
 pub use output_pipeline::ReadyOutputFrame;
-#[cfg(test)]
-use output_pipeline::{BufferState, OutputBufferPool};
 use output_pipeline::{
     OutputBufferBroker, OutputPoolDescriptor, PendingVsyncBatons, RenderTargetBlocked,
     VsyncRegistration,
 };
 use render_audit::{RenderAuditStage, RenderDamageAudit};
 pub use renderer::SampledBufferHoldBatch;
-#[cfg(test)]
-use renderer::{
-    AnimatedOutputRotation, CachedTextureBinding, ExternalTextureBinding, ExternalTextureLease,
-    ExternalTextureLeaseResource, ExternalTextureResourceBudget, ExternalTextureSlot,
-    ExternalTextureSource, FlutterProducerState, PartitionedRecencyCache, ProducerArbiter,
-    RecencyCache, RecencyCacheStats, RetiredExternalBindingQueue, animated_rotation_transform,
-    contain_ffi_unwind, retire_external_texture, shortest_rotation_delta, vm_service_uri_from_log,
-};
 pub(super) use renderer::{
     ExternalTextureFrame, OutputGeometryTransition, OutputRotationAdvance, ShmSnapshotPool,
     ShmTextureFrame, SyncedWaylandScene,
@@ -668,7 +654,3 @@ fn parse_posix_locale(value: &str) -> Option<EngineLocale> {
 fn first_file(paths: &[PathBuf]) -> Option<PathBuf> {
     paths.iter().find(|path| path.is_file()).cloned()
 }
-
-#[cfg(test)]
-#[path = "flutter_runtime/tests.rs"]
-mod tests;

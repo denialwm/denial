@@ -381,8 +381,8 @@ impl WaylandFrontend {
                 .find(|entry| entry.logical_geometry.contains(pointer))
         });
         let next_output = next_output_entry.map(|entry| entry.id);
-        let next_output_scale = next_output_entry
-            .map(|entry| entry.output.current_scale().fractional_scale());
+        let next_output_scale =
+            next_output_entry.map(|entry| entry.output.current_scale().fractional_scale());
         if self.cursor_output == next_output
             && self.cursor_output_scale == next_output_scale
             && cursor_surface.is_some()

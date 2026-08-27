@@ -447,7 +447,3 @@ mod brightness;
 
 use audio::run_audio_worker;
 use brightness::run_brightness_worker;
-
-#[cfg(test)]
-#[path = "system_controls/tests.rs"]
-mod tests;

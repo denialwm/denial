@@ -20,11 +20,6 @@ impl PlatformTaskBudget {
             budget: Arc::clone(self),
         })
     }
-
-    #[cfg(test)]
-    pub(super) fn pending(&self) -> usize {
-        self.pending.load(Ordering::Acquire)
-    }
 }
 
 #[derive(Debug)]

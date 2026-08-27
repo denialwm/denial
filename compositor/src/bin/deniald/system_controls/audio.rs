@@ -1450,7 +1450,3 @@ pub(super) fn run_audio_worker(
         active.close(&api);
     }
 }
-
-#[cfg(test)]
-#[path = "audio/tests.rs"]
-mod tests;

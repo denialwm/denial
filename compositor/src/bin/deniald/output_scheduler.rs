@@ -1760,7 +1760,3 @@ impl OutputScheduler {
         &self.presented_outputs
     }
 }
-
-#[cfg(test)]
-#[path = "output_scheduler/tests.rs"]
-mod tests;

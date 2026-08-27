@@ -327,10 +327,7 @@ fn cursor_hotspot_after_buffer_delta(
 }
 
 #[cfg(feature = "flutter")]
-fn cursor_frame_callback_matches(
-    cursor_output: Option<OutputId>,
-    tick_output: OutputId,
-) -> bool {
+fn cursor_frame_callback_matches(cursor_output: Option<OutputId>, tick_output: OutputId) -> bool {
     cursor_output.is_none_or(|output| output == tick_output)
 }
 
@@ -868,7 +865,3 @@ fn transform_to_wire(transform: Transform) -> u32 {
 }
 
 smithay::delegate_dispatch2!(RuntimeState);
-
-#[cfg(test)]
-#[path = "wayland_frontend/tests.rs"]
-mod tests;

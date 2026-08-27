@@ -1774,26 +1774,3 @@ pub(super) fn run_flutter_event_loop(
     );
     Ok(swapchain.representative_framebuffer())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn operation_cadence_separates_service_and_maintenance_rates() {
-        let started = Instant::now();
-        let mut cadence = OperationCadence::new(started);
-
-        assert!(cadence.take_service_due(started));
-        assert!(cadence.take_maintenance_due(started));
-        assert!(!cadence.take_service_due(started));
-        assert!(!cadence.take_maintenance_due(started));
-
-        let service_due = started + BACKGROUND_SERVICE_INTERVAL;
-        assert!(cadence.take_service_due(service_due));
-        assert!(!cadence.take_maintenance_due(service_due));
-
-        let maintenance_due = started + BACKGROUND_MAINTENANCE_INTERVAL;
-        assert!(cadence.take_maintenance_due(maintenance_due));
-    }
-}

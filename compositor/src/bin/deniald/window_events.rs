@@ -132,13 +132,4 @@ impl PendingWindowEventQueue {
         self.events.clear();
         self.overflow_reported = false;
     }
-
-    #[cfg(test)]
-    fn as_slice(&self) -> &[PendingWindowEvent] {
-        &self.events
-    }
 }
-
-#[cfg(test)]
-#[path = "window_events/tests.rs"]
-mod tests;

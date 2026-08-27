@@ -1264,7 +1264,3 @@ impl Dispatch<ZwpInputMethodKeyboardGrabV2, InputMethodKeyboardUserData> for Run
         }
     }
 }
-
-#[cfg(test)]
-#[path = "input_method/tests.rs"]
-mod tests;

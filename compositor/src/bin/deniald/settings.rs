@@ -138,33 +138,6 @@ impl ApplicationEnvironment {
             apply_environment_overrides(command, overrides);
         }
     }
-
-    #[cfg(test)]
-    pub(super) fn parse(bytes: &[u8]) -> Result<Self, SettingsError> {
-        let value = serde_json::from_slice::<Value>(bytes)?;
-        let mut document = Map::new();
-        document.insert("applicationEnvironment".to_owned(), value);
-        Self::from_document(&document)
-    }
-
-    #[cfg(test)]
-    pub(super) fn value(&self, name: &str) -> Option<Option<&str>> {
-        self.default_overrides
-            .get(name)
-            .map(|value| value.as_deref())
-    }
-
-    #[cfg(test)]
-    pub(super) fn application_value(
-        &self,
-        desktop_file_id: &str,
-        name: &str,
-    ) -> Option<Option<&str>> {
-        self.application_overrides
-            .get(desktop_file_id)?
-            .get(name)
-            .map(|value| value.as_deref())
-    }
 }
 
 fn parse_environment_overrides(

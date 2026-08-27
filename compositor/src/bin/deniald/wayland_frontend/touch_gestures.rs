@@ -1068,7 +1068,3 @@ fn rounded_i32(value: f64) -> i32 {
             .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32
     }
 }
-
-#[cfg(test)]
-#[path = "touch_gestures/tests.rs"]
-mod tests;

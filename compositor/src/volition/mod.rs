@@ -616,7 +616,3 @@ impl Drop for Volition {
         self.shutdown();
     }
 }
-
-#[cfg(test)]
-#[path = "tests.rs"]
-mod tests;

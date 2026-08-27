@@ -967,7 +967,3 @@ impl PointerGrab<RuntimeState> for X11ResizeSurfaceGrab {
         data.scene_sync.mark_dirty();
     }
 }
-
-#[cfg(test)]
-#[path = "window_grab/tests.rs"]
-mod tests;

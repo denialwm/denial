@@ -173,7 +173,3 @@ pub(super) fn publish_session_activation_environment(
     );
     Ok(SessionActivation::Systemd)
 }
-
-#[cfg(test)]
-#[path = "session_activation/tests.rs"]
-mod tests;

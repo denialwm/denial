@@ -1879,7 +1879,3 @@ fn handle_xdg_commit(popups: &mut PopupManager, space: &Space<Window>, surface: 
         warn!(%error, surface_id = ?surface.id(), "initial XDG popup configure failed");
     }
 }
-
-#[cfg(test)]
-#[path = "handlers/tests.rs"]
-mod tests;

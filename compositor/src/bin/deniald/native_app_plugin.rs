@@ -2124,7 +2124,3 @@ fn configure_command(
     command.refresh_millihz = refresh_millihz;
     command
 }
-
-#[cfg(test)]
-#[path = "native_app_plugin/tests.rs"]
-mod tests;

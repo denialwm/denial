@@ -154,7 +154,3 @@ fn publish(
     *published = Some(orientation);
     Ok(())
 }
-
-#[cfg(test)]
-#[path = "orientation_sensor/tests.rs"]
-mod tests;

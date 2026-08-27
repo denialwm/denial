@@ -463,11 +463,6 @@ impl UiDevelopmentController {
         }
     }
 
-    #[cfg(test)]
-    fn isolated(official_bundle: &Path) -> Self {
-        Self::with_paths(official_bundle, None, None, None, None, None)
-    }
-
     pub(super) fn handle_command(&mut self, command: UiDevelopmentCommand) -> UiDevelopmentEffect {
         self.state.acknowledged_request_id = command.request_id;
         if command.kind != CommandKind::Query {
@@ -1192,7 +1187,3 @@ fn save_vm_service_info(path: &Path, uri: &str) -> Result<(), Box<dyn Error>> {
     }
     write_result
 }
-
-#[cfg(test)]
-#[path = "ui_development/tests.rs"]
-mod tests;

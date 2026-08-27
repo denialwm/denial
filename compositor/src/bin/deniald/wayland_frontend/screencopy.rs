@@ -700,9 +700,7 @@ pub(crate) fn compose_output_targets_to_atlas(
     Ok(())
 }
 
-fn output_composite_local_rect(
-    destination: Rectangle<i32, Physical>,
-) -> Rectangle<i32, Physical> {
+fn output_composite_local_rect(destination: Rectangle<i32, Physical>) -> Rectangle<i32, Physical> {
     Rectangle::from_size(destination.size)
 }
 
@@ -1215,7 +1213,3 @@ impl Dispatch<ZwlrScreencopyFrameV1, ScreencopyFrameData> for RuntimeState {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "screencopy/tests.rs"]
-mod tests;

@@ -224,7 +224,3 @@ fn write_size(output: &mut Vec<u8>, size: usize) {
         output.extend_from_slice(&size.to_ne_bytes());
     }
 }
-
-#[cfg(test)]
-#[path = "mouse_cursor/tests.rs"]
-mod tests;

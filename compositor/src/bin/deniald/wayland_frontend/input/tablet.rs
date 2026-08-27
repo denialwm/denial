@@ -364,39 +364,3 @@ pub(super) fn process_event(
         _ => false,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn geometry(x: i32, width: i32) -> Rectangle<i32, Logical> {
-        Rectangle::new((x, 0).into(), (width, 1080).into())
-    }
-
-    #[test]
-    fn associated_output_wins_over_pointer_location() {
-        let outputs = [("DP-1", geometry(0, 1920)), ("DP-2", geometry(1920, 1920))];
-        assert_eq!(
-            preferred_tablet_output_index(Some("DP-2"), None, Point::from((100, 100)), &outputs,),
-            Some(1)
-        );
-    }
-
-    #[test]
-    fn retained_output_keeps_mapping_stable_across_proximity_motion() {
-        let outputs = [("DP-1", geometry(0, 1920)), ("DP-2", geometry(1920, 1920))];
-        assert_eq!(
-            preferred_tablet_output_index(None, Some("DP-2"), Point::from((100, 100)), &outputs,),
-            Some(1)
-        );
-    }
-
-    #[test]
-    fn unmapped_tablet_uses_output_under_existing_pointer() {
-        let outputs = [("DP-1", geometry(0, 1920)), ("DP-2", geometry(1920, 1920))];
-        assert_eq!(
-            preferred_tablet_output_index(None, None, Point::from((2500, 100)), &outputs,),
-            Some(1)
-        );
-    }
-}

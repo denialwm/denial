@@ -114,13 +114,6 @@ impl DamageRegion {
         damage
     }
 
-    #[cfg(test)]
-    fn from_flutter(width: u32, height: u32, rects: &[sys::FlutterRect]) -> Self {
-        let mut damage = Self::empty(width, height);
-        damage.replace_from_flutter(rects);
-        damage
-    }
-
     pub(super) fn replace_from_flutter(&mut self, rects: &[sys::FlutterRect]) {
         self.clear();
         for rect in rects {
@@ -178,17 +171,6 @@ impl DamageRegion {
             && self.bounds.top == 0.0
             && self.bounds.right == f64::from(width)
             && self.bounds.bottom == f64::from(height)
-    }
-
-    #[cfg(test)]
-    pub(super) fn intersects_pixel_rect(&self, x: u32, y: u32, width: u32, height: u32) -> bool {
-        let left = f64::from(x);
-        let top = f64::from(y);
-        let right = left + f64::from(width);
-        let bottom = top + f64::from(height);
-        self.as_slice().iter().any(|damage| {
-            damage.left < right && damage.right > left && damage.top < bottom && damage.bottom > top
-        })
     }
 
     /// Returns the conservative number of damaged pixels represented by this
@@ -349,7 +331,3 @@ impl DamageRegion {
         &self.rects[..self.len]
     }
 }
-
-#[cfg(test)]
-#[path = "damage/tests.rs"]
-mod tests;

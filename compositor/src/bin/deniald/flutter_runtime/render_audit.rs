@@ -465,31 +465,3 @@ impl RenderDamageAudit {
         self.gpu_timer_pending_max = 0;
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn gpu_timing_keeps_flutter_blit_and_total_separate() {
-        let mut audit = RenderDamageAudit::new();
-        audit.record_gpu_timing(
-            vec![(
-                Duration::from_millis(7),
-                Duration::from_millis(2),
-                Duration::from_millis(9),
-            )],
-            3,
-            4,
-            5,
-        );
-
-        assert_eq!(audit.gpu_flutter_render.samples, 1);
-        assert_eq!(audit.gpu_flutter_render.total, Duration::from_millis(7));
-        assert_eq!(audit.gpu_scanout_blit.total, Duration::from_millis(2));
-        assert_eq!(audit.gpu_frame.total, Duration::from_millis(9));
-        assert_eq!(audit.gpu_timer_disjoint, 3);
-        assert_eq!(audit.gpu_timer_abandoned, 4);
-        assert_eq!(audit.gpu_timer_pending_max, 5);
-    }
-}

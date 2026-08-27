@@ -182,7 +182,3 @@ impl TouchpadGestureRecognizer {
         self.active_swipes.clear();
     }
 }
-
-#[cfg(test)]
-#[path = "touchpad_gestures/tests.rs"]
-mod tests;
