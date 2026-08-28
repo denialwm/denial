@@ -108,6 +108,13 @@ trap cleanup EXIT
 
 release_version="${RELEASE_TAG#v}"
 readonly release_version
+IFS=. read -r release_major release_minor release_patch <<<"$release_version"
+[[ "$release_major" =~ ^[0-9]+$ \
+  && "$release_minor" =~ ^[0-9]+$ \
+  && "$release_patch" =~ ^[0-9]+$ ]] \
+  || fail "release tag has an invalid semantic version: $RELEASE_TAG"
+ui_denial_before="${release_major}.$((release_minor + 1)).0"
+readonly ui_denial_before
 source_date_epoch="$(git -C "$ROOT" show -s --format=%ct "$SOURCE_SHA")"
 readonly source_date_epoch
 packager="${DENIAL_PACKAGE_PACKAGER:-Doctor Logix <doctor.logix@gmail.com>}"
@@ -270,6 +277,7 @@ for package_name in \
     "DENIAL_PACKAGE_SOURCE_ROOT=$ROOT"
     "DENIAL_PACKAGE_PAYLOAD_ROOT=$candidate_payload"
     "DENIAL_PACKAGE_VERSION=$release_version"
+    "DENIAL_PACKAGE_DENIAL_VERSION_BEFORE=$ui_denial_before"
     'DENIAL_PACKAGE_RELEASE=1'
     "PKGDEST=$OUTPUT_ROOT"
     "BUILDDIR=$build_root"
@@ -344,6 +352,8 @@ grep -Fqx "pkgver = ${release_version}-1" <<<"$ui_package_info" \
   || fail 'promoted UI-development package has the wrong version'
 grep -Fqx "depend = denial>=${release_version}" <<<"$ui_package_info" \
   || fail 'promoted UI-development package has the wrong Denial minimum'
+grep -Fqx "depend = denial<${ui_denial_before}" <<<"$ui_package_info" \
+  || fail 'promoted UI-development package has the wrong Denial compatibility ceiling'
 
 verification_root="$work_root/runtime-version-verification"
 extract_payload "$denial_package" "$verification_root"

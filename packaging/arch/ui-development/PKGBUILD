@@ -7,9 +7,10 @@ pkgdesc='Pinned live Flutter UI development environment for Denial'
 arch=('x86_64')
 url='https://github.com/denialwm/denial'
 license=('BSD-3-Clause' 'GPL-3.0-or-later')
+_denial_version_before="${DENIAL_PACKAGE_DENIAL_VERSION_BEFORE:-0.3.0}"
 depends=(
   "denial>=$pkgver"
-  'denial<0.3.0'
+  "denial<$_denial_version_before"
   'denial-flutter-engine-abi=3.44.7.denial1'
   'fontconfig'
   'git'

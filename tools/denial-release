@@ -1048,6 +1048,20 @@ source_audit() {
         "$audit_package_version" \
         "$(jq -r '.compatibility.denial_version_before' "$ui_manifest")")" \
       "$ui_dependency_bounds"
+    promoted_ui_dependency_bounds="$(
+      (
+        export DENIAL_PACKAGE_VERSION=9.8.7
+        export DENIAL_PACKAGE_DENIAL_VERSION_BEFORE=9.9.0
+        # shellcheck disable=SC1091
+        source "$ROOT/packaging/arch/ui-development/PKGBUILD"
+        # shellcheck disable=SC2154
+        printf '%s\n' "${depends[@]}" | grep -E '^denial(>=|<)'
+      )
+    )"
+    check_equal \
+      'UI-development release promotion accepts tag-derived compatibility bounds' \
+      "$(printf 'denial>=%s\ndenial<%s' 9.8.7 9.9.0)" \
+      "$promoted_ui_dependency_bounds"
   else
     fail \
       "source-manifest versions are not numeric semantic versions: Cargo $cargo_version, Dart $dart_version"
