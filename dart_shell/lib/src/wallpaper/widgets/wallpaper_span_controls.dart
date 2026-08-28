@@ -175,7 +175,7 @@ class _WallpaperAlignmentSliderState extends State<WallpaperAlignmentSlider> {
           curve: Motion.standard,
           padding: const EdgeInsets.symmetric(horizontal: 4),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(ShellRadii.tile),
+            borderRadius: context.shellTheme.borderRadius(ShellRadii.tile),
             border: Border.all(
               color: _focused
                   ? accent.primary
@@ -304,22 +304,15 @@ class _ShellIconControlState extends State<_ShellIconControl> {
                   ? accent.container
                   : highlighted
                   ? context.shellColors.surfaceContainerHighest
-                  : context.shellColors.panelBackground,
+                  : context.shellTheme.cardColor(
+                      context.shellColors.panelBackground,
+                    ),
               shape: BoxShape.circle,
               border: Border.all(
                 color: widget.selected || highlighted
                     ? accent.primary
                     : context.shellColors.hairline,
               ),
-              boxShadow: widget.dimension > 40
-                  ? <BoxShadow>[
-                      BoxShadow(
-                        color: context.shellColors.shadowSoft,
-                        blurRadius: 18,
-                        offset: Offset(0, 8),
-                      ),
-                    ]
-                  : null,
             ),
             child: Icon(
               widget.icon,

@@ -37,14 +37,6 @@ class WallpaperSearchField extends StatelessWidget {
                 ? accent.primary
                 : context.shellColors.hairline,
           ),
-          boxShadow: [
-            BoxShadow(
-              color: context.shellColors.shadow,
-              blurRadius: 28,
-              spreadRadius: 1,
-              offset: Offset(0, 12),
-            ),
-          ],
         ),
         child: SizedBox(
           height: 58,
@@ -129,7 +121,7 @@ class WallpaperStatusChip extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: theme.panelColor(context.shellColors.panelBackground),
-        borderRadius: BorderRadius.circular(ShellRadii.chip),
+        borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
         border: Border.all(color: context.shellColors.hairline),
       ),
       child: Padding(

@@ -62,6 +62,12 @@ class RuntimePaths {
     return File(p.join(dir.path, 'notifications.json'));
   }
 
+  Future<File> applicationRecentsFile() async {
+    final dir = Directory(p.join(stateHome, 'denial'));
+    await dir.create(recursive: true);
+    return File(p.join(dir.path, 'application-recents.json'));
+  }
+
   List<Directory> desktopApplicationDirs() {
     final paths = <String>[
       p.join(dataHome, 'applications'),

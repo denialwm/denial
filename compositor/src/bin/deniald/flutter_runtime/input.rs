@@ -3,9 +3,16 @@
 use super::*;
 
 const APPLICATION_WHEEL_SCROLL_PIXELS: f64 = 120.0;
+// GTK's Wayland backend divides compositor axis values by 10 before Flutter's
+// Linux embedder converts those GDK smooth-scroll units to pointer-pan pixels
+// with its Chromium-derived multiplier of 53. Denial receives compositor-axis
+// units directly, so preserve the combined frontend contract here before
+// applying the user's touchpad speed setting.
+const FLUTTER_LINUX_WAYLAND_SCROLL_MULTIPLIER: f64 = 53.0 / 10.0;
 const WHEEL_ANGLE_PER_STEP: f64 = 15.0;
 const V120_UNITS_PER_WHEEL_STEP: f64 = 120.0;
 const MAX_QUEUED_INPUT_EVENTS: usize = 4096;
+pub(super) const TRACKPAD_DEVICE: i32 = i32::MAX;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct PointerRecord {
@@ -16,6 +23,10 @@ pub(super) struct PointerRecord {
     pub(super) signal_kind: sys::FlutterPointerSignalKind,
     pub(super) scroll_x: f64,
     pub(super) scroll_y: f64,
+    pub(super) pan_x: f64,
+    pub(super) pan_y: f64,
+    pub(super) scale: f64,
+    pub(super) rotation: f64,
     pub(super) device_kind: sys::FlutterPointerDeviceKind,
     pub(super) buttons: i64,
     /// True only for position samples which can be superseded before Flutter
@@ -36,6 +47,14 @@ pub(super) struct KeyboardRecord {
 pub(super) enum InputRecord {
     Pointer(PointerRecord),
     Keyboard(KeyboardRecord),
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct TrackpadPan {
+    pan_x: f64,
+    pan_y: f64,
+    horizontal_active: bool,
+    vertical_active: bool,
 }
 
 pub(super) fn flutter_application_scroll_delta(
@@ -77,6 +96,7 @@ pub struct InputQueue {
     pub(super) pointer_y: f64,
     pub(super) pointer_buttons: i64,
     pub(super) mouse_added: bool,
+    trackpad_pan: Option<TrackpadPan>,
     pub(super) touch_positions: HashMap<i32, (f64, f64)>,
     pub(super) events: VecDeque<InputRecord>,
 }
@@ -97,6 +117,7 @@ impl InputQueue {
             pointer_y: f64::from(height) / 2.0,
             pointer_buttons: 0,
             mouse_added: false,
+            trackpad_pan: None,
             touch_positions: HashMap::with_capacity(10),
             events: VecDeque::with_capacity(64),
         }
@@ -115,6 +136,7 @@ impl InputQueue {
         // position and let subsequent input establish a fresh lifecycle.
         self.pointer_buttons = 0;
         self.mouse_added = false;
+        self.trackpad_pan = None;
         self.events.clear();
         self.touch_positions.clear();
     }
@@ -176,6 +198,15 @@ impl InputQueue {
                 );
             }
             SmithayInputEvent::PointerAxis { event, .. } => {
+                if event.source() == AxisSource::Finger {
+                    self.handle_touchpad_pan_sample(
+                        event.amount(Axis::Horizontal),
+                        event.amount(Axis::Vertical),
+                        scroll_speed_factor,
+                    );
+                    return;
+                }
+                self.finish_touchpad_pan();
                 self.ensure_mouse_added();
                 let scroll_x = flutter_application_scroll_delta(
                     event.amount(Axis::Horizontal),
@@ -202,6 +233,10 @@ impl InputQueue {
                         signal_kind: sys::FlutterPointerSignalKind_kFlutterPointerSignalKindScroll,
                         scroll_x,
                         scroll_y,
+                        pan_x: 0.0,
+                        pan_y: 0.0,
+                        scale: 0.0,
+                        rotation: 0.0,
                         device_kind: sys::FlutterPointerDeviceKind_kFlutterPointerDeviceKindMouse,
                         buttons: self.pointer_buttons,
                         replaceable_motion: false,
@@ -317,6 +352,7 @@ impl InputQueue {
     /// the shell input endpoint.
     pub fn handle_pointer_leave_at(&mut self, x: f64, y: f64) {
         self.synchronize_pointer_position(x, y);
+        self.finish_touchpad_pan();
         if !self.mouse_added {
             return;
         }
@@ -341,6 +377,7 @@ impl InputQueue {
 
     pub fn cancel_device_lifecycles(&mut self, pointer: bool, touch: bool) {
         if pointer {
+            self.finish_touchpad_pan();
             if self.mouse_added {
                 if self.pointer_buttons != 0 {
                     self.pointer_buttons = 0;
@@ -418,6 +455,10 @@ impl InputQueue {
             signal_kind: sys::FlutterPointerSignalKind_kFlutterPointerSignalKindNone,
             scroll_x: 0.0,
             scroll_y: 0.0,
+            pan_x: 0.0,
+            pan_y: 0.0,
+            scale: 0.0,
+            rotation: 0.0,
             device_kind: sys::FlutterPointerDeviceKind_kFlutterPointerDeviceKindMouse,
             buttons: self.pointer_buttons,
             replaceable_motion,
@@ -440,9 +481,98 @@ impl InputQueue {
             signal_kind: sys::FlutterPointerSignalKind_kFlutterPointerSignalKindNone,
             scroll_x: 0.0,
             scroll_y: 0.0,
+            pan_x: 0.0,
+            pan_y: 0.0,
+            scale: 0.0,
+            rotation: 0.0,
             device_kind: sys::FlutterPointerDeviceKind_kFlutterPointerDeviceKindTouch,
             buttons: 0,
             replaceable_motion,
+        }));
+    }
+
+    pub(super) fn handle_touchpad_pan_sample(
+        &mut self,
+        horizontal: Option<f64>,
+        vertical: Option<f64>,
+        scroll_speed_factor: f64,
+    ) {
+        let horizontal_delta = horizontal.unwrap_or(0.0)
+            * FLUTTER_LINUX_WAYLAND_SCROLL_MULTIPLIER
+            * scroll_speed_factor;
+        let vertical_delta =
+            vertical.unwrap_or(0.0) * FLUTTER_LINUX_WAYLAND_SCROLL_MULTIPLIER * scroll_speed_factor;
+        let has_update = horizontal_delta != 0.0 || vertical_delta != 0.0;
+
+        if self.trackpad_pan.is_none() {
+            if !has_update {
+                return;
+            }
+            self.trackpad_pan = Some(TrackpadPan::default());
+            self.push_trackpad_pan(sys::FlutterPointerPhase_kPanZoomStart, 0.0, 0.0);
+        }
+
+        let (pan_x, pan_y, finished) = {
+            let pan = self
+                .trackpad_pan
+                .as_mut()
+                .expect("touchpad pan must be active after its start event");
+            if let Some(amount) = horizontal {
+                pan.horizontal_active = amount != 0.0;
+            }
+            if let Some(amount) = vertical {
+                pan.vertical_active = amount != 0.0;
+            }
+            if has_update {
+                // Flutter's drag recognizers interpret pan as content-following
+                // finger movement, while libinput's positive axis direction means
+                // scrolling content right or down. Match Flutter's Linux embedder
+                // by reversing the cumulative pan offset.
+                pan.pan_x -= horizontal_delta;
+                pan.pan_y -= vertical_delta;
+            }
+            (
+                pan.pan_x,
+                pan.pan_y,
+                !pan.horizontal_active && !pan.vertical_active,
+            )
+        };
+        if has_update {
+            self.push_trackpad_pan(sys::FlutterPointerPhase_kPanZoomUpdate, pan_x, pan_y);
+        }
+
+        if finished {
+            self.finish_touchpad_pan();
+        }
+    }
+
+    pub fn finish_touchpad_pan(&mut self) {
+        let Some(pan) = self.trackpad_pan.take() else {
+            return;
+        };
+        self.push_trackpad_pan(sys::FlutterPointerPhase_kPanZoomEnd, pan.pan_x, pan.pan_y);
+    }
+
+    fn push_trackpad_pan(&mut self, phase: sys::FlutterPointerPhase, pan_x: f64, pan_y: f64) {
+        self.push(InputRecord::Pointer(PointerRecord {
+            phase,
+            x: self.pointer_x,
+            y: self.pointer_y,
+            device: TRACKPAD_DEVICE,
+            signal_kind: sys::FlutterPointerSignalKind_kFlutterPointerSignalKindNone,
+            scroll_x: 0.0,
+            scroll_y: 0.0,
+            pan_x,
+            pan_y,
+            scale: if phase == sys::FlutterPointerPhase_kPanZoomUpdate {
+                1.0
+            } else {
+                0.0
+            },
+            rotation: 0.0,
+            device_kind: sys::FlutterPointerDeviceKind_kFlutterPointerDeviceKindTrackpad,
+            buttons: 0,
+            replaceable_motion: false,
         }));
     }
 

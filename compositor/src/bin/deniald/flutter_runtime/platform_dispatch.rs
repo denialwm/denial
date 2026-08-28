@@ -9,6 +9,7 @@ impl FlutterRuntime {
     ) -> Result<(), Box<dyn Error>> {
         for texture_id in texture_ids {
             if self.scene_texture_ids.contains(&texture_id)
+                || self.retains_cursor_texture(texture_id)
                 || self.screenshot_texture_id == Some(texture_id)
                 || self.window_close_texture_leases.retains_texture(texture_id)
                 || !self.registered_external_textures.contains(&texture_id)
@@ -187,6 +188,12 @@ impl FlutterRuntime {
                     self.retire_window_close_textures(retired.texture_ids)?;
                 }
                 None => warn!("rejected malformed window close completion from Flutter"),
+            }
+        } else if message.channel.as_bytes() == CURSOR_PRESENTED_CHANNEL.to_bytes() {
+            match decode_cursor_presented(&message.data) {
+                Some(epoch) if self.acknowledge_cursor_epoch(epoch)? => {}
+                Some(epoch) => warn!(epoch, "rejected future cursor presentation epoch"),
+                None => warn!("rejected malformed cursor presentation acknowledgement"),
             }
         }
         Ok(())

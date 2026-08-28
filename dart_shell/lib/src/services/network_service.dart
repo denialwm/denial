@@ -4,7 +4,6 @@ import 'package:dbus/dbus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'iwd_service.dart';
-import 'network_backend.dart';
 import 'network_manager_service.dart';
 
 export 'network_backend.dart';

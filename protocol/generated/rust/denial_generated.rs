@@ -753,10 +753,10 @@ impl flatbuffers::SimpleToVerifyInSlice for WindowActionKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SHELL_ACTION_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 9;
+pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 12;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 10] = [
+pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 13] = [
   ShellActionKind::Applications,
   ShellActionKind::Overview,
   ShellActionKind::WindowSwitcherNext,
@@ -767,6 +767,9 @@ pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 10] = [
   ShellActionKind::ScreenshotDone,
   ShellActionKind::ClientPointerPressed,
   ShellActionKind::Wallpaper,
+  ShellActionKind::WindowSwitcherPrevious,
+  ShellActionKind::OpenSettings,
+  ShellActionKind::Dashboard,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -784,9 +787,12 @@ impl ShellActionKind {
   pub const ScreenshotDone: Self = Self(7);
   pub const ClientPointerPressed: Self = Self(8);
   pub const Wallpaper: Self = Self(9);
+  pub const WindowSwitcherPrevious: Self = Self(10);
+  pub const OpenSettings: Self = Self(11);
+  pub const Dashboard: Self = Self(12);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 9;
+  pub const ENUM_MAX: u8 = 12;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Applications,
     Self::Overview,
@@ -798,6 +804,9 @@ impl ShellActionKind {
     Self::ScreenshotDone,
     Self::ClientPointerPressed,
     Self::Wallpaper,
+    Self::WindowSwitcherPrevious,
+    Self::OpenSettings,
+    Self::Dashboard,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -812,6 +821,9 @@ impl ShellActionKind {
       Self::ScreenshotDone => Some("ScreenshotDone"),
       Self::ClientPointerPressed => Some("ClientPointerPressed"),
       Self::Wallpaper => Some("Wallpaper"),
+      Self::WindowSwitcherPrevious => Some("WindowSwitcherPrevious"),
+      Self::OpenSettings => Some("OpenSettings"),
+      Self::Dashboard => Some("Dashboard"),
       _ => None,
     }
   }
@@ -1177,10 +1189,10 @@ impl flatbuffers::SimpleToVerifyInSlice for SettingsResponseKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SHORTCUT_ACTION_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SHORTCUT_ACTION_KIND: u8 = 19;
+pub const ENUM_MAX_SHORTCUT_ACTION_KIND: u8 = 22;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 20] = [
+pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 23] = [
   ShortcutActionKind::Shutdown,
   ShortcutActionKind::OpenApplications,
   ShortcutActionKind::OpenOverview,
@@ -1201,6 +1213,9 @@ pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 20] = [
   ShortcutActionKind::BrightnessDown,
   ShortcutActionKind::NextKeyboardLayout,
   ShortcutActionKind::PreviousKeyboardLayout,
+  ShortcutActionKind::OpenSettings,
+  ShortcutActionKind::OpenDashboard,
+  ShortcutActionKind::MinimizeAllWindows,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1228,9 +1243,12 @@ impl ShortcutActionKind {
   pub const BrightnessDown: Self = Self(17);
   pub const NextKeyboardLayout: Self = Self(18);
   pub const PreviousKeyboardLayout: Self = Self(19);
+  pub const OpenSettings: Self = Self(20);
+  pub const OpenDashboard: Self = Self(21);
+  pub const MinimizeAllWindows: Self = Self(22);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 19;
+  pub const ENUM_MAX: u8 = 22;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Shutdown,
     Self::OpenApplications,
@@ -1252,6 +1270,9 @@ impl ShortcutActionKind {
     Self::BrightnessDown,
     Self::NextKeyboardLayout,
     Self::PreviousKeyboardLayout,
+    Self::OpenSettings,
+    Self::OpenDashboard,
+    Self::MinimizeAllWindows,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -1276,6 +1297,9 @@ impl ShortcutActionKind {
       Self::BrightnessDown => Some("BrightnessDown"),
       Self::NextKeyboardLayout => Some("NextKeyboardLayout"),
       Self::PreviousKeyboardLayout => Some("PreviousKeyboardLayout"),
+      Self::OpenSettings => Some("OpenSettings"),
+      Self::OpenDashboard => Some("OpenDashboard"),
+      Self::MinimizeAllWindows => Some("MinimizeAllWindows"),
       _ => None,
     }
   }
@@ -2161,6 +2185,95 @@ impl<'a> flatbuffers::Verifiable for SystemBarSide {
 
 impl flatbuffers::SimpleToVerifyInSlice for SystemBarSide {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_CURSOR_STATE_KIND: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_CURSOR_STATE_KIND: u8 = 2;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_CURSOR_STATE_KIND: [CursorStateKind; 3] = [
+  CursorStateKind::Hidden,
+  CursorStateKind::Named,
+  CursorStateKind::Surface,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct CursorStateKind(pub u8);
+#[allow(non_upper_case_globals)]
+impl CursorStateKind {
+  pub const Hidden: Self = Self(0);
+  pub const Named: Self = Self(1);
+  pub const Surface: Self = Self(2);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Hidden,
+    Self::Named,
+    Self::Surface,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Hidden => Some("Hidden"),
+      Self::Named => Some("Named"),
+      Self::Surface => Some("Surface"),
+      _ => None,
+    }
+  }
+}
+impl core::fmt::Debug for CursorStateKind {
+  fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> flatbuffers::Follow<'a> for CursorStateKind {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl flatbuffers::Push for CursorStateKind {
+    type Output = CursorStateKind;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { flatbuffers::emplace_scalar::<u8>(dst, self.0); }
+    }
+}
+
+impl flatbuffers::EndianScalar for CursorStateKind {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> flatbuffers::Verifiable for CursorStateKind {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for CursorStateKind {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SHORTCUT_TARGET: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MAX_SHORTCUT_TARGET: u8 = 3;
@@ -2258,10 +2371,10 @@ pub struct ShortcutTargetUnionTableOffset {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_PAYLOAD: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_PAYLOAD: u8 = 18;
+pub const ENUM_MAX_PAYLOAD: u8 = 19;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_PAYLOAD: [Payload; 19] = [
+pub const ENUM_VALUES_PAYLOAD: [Payload; 20] = [
   Payload::NONE,
   Payload::InputLayout,
   Payload::WindowSnapshot,
@@ -2281,6 +2394,7 @@ pub const ENUM_VALUES_PAYLOAD: [Payload; 19] = [
   Payload::XEmbedTrayEvent,
   Payload::XEmbedTrayCommand,
   Payload::ThemeState,
+  Payload::CursorState,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -2307,9 +2421,10 @@ impl Payload {
   pub const XEmbedTrayEvent: Self = Self(16);
   pub const XEmbedTrayCommand: Self = Self(17);
   pub const ThemeState: Self = Self(18);
+  pub const CursorState: Self = Self(19);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 18;
+  pub const ENUM_MAX: u8 = 19;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::NONE,
     Self::InputLayout,
@@ -2330,6 +2445,7 @@ impl Payload {
     Self::XEmbedTrayEvent,
     Self::XEmbedTrayCommand,
     Self::ThemeState,
+    Self::CursorState,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -2353,6 +2469,7 @@ impl Payload {
       Self::XEmbedTrayEvent => Some("XEmbedTrayEvent"),
       Self::XEmbedTrayCommand => Some("XEmbedTrayCommand"),
       Self::ThemeState => Some("ThemeState"),
+      Self::CursorState => Some("CursorState"),
       _ => None,
     }
   }
@@ -5777,6 +5894,171 @@ impl core::fmt::Debug for CursorShape<'_> {
       ds.finish()
   }
 }
+pub enum CursorStateOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct CursorState<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for CursorState<'a> {
+  type Inner = CursorState<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> CursorState<'a> {
+  pub const VT_EPOCH: flatbuffers::VOffsetT = 4;
+  pub const VT_KIND: flatbuffers::VOffsetT = 6;
+  pub const VT_SHAPE: flatbuffers::VOffsetT = 8;
+  pub const VT_HOTSPOT: flatbuffers::VOffsetT = 10;
+  pub const VT_SURFACES: flatbuffers::VOffsetT = 12;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    CursorState { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args CursorStateArgs<'args>
+  ) -> flatbuffers::WIPOffset<CursorState<'bldr>> {
+    let mut builder = CursorStateBuilder::new(_fbb);
+    builder.add_epoch(args.epoch);
+    if let Some(x) = args.surfaces { builder.add_surfaces(x); }
+    if let Some(x) = args.hotspot { builder.add_hotspot(x); }
+    if let Some(x) = args.shape { builder.add_shape(x); }
+    builder.add_kind(args.kind);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn epoch(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(CursorState::VT_EPOCH, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn kind(&self) -> CursorStateKind {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<CursorStateKind>(CursorState::VT_KIND, Some(CursorStateKind::Hidden)).unwrap()}
+  }
+  #[inline]
+  pub fn shape(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(CursorState::VT_SHAPE, None)}
+  }
+  #[inline]
+  pub fn hotspot(&self) -> Option<&'a WirePoint> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<WirePoint>(CursorState::VT_HOTSPOT, None)}
+  }
+  #[inline]
+  pub fn surfaces(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<SurfaceLayer<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<SurfaceLayer>>>>(CursorState::VT_SURFACES, None)}
+  }
+}
+
+impl flatbuffers::Verifiable for CursorState<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<u64>("epoch", Self::VT_EPOCH, false)?
+     .visit_field::<CursorStateKind>("kind", Self::VT_KIND, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("shape", Self::VT_SHAPE, false)?
+     .visit_field::<WirePoint>("hotspot", Self::VT_HOTSPOT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<SurfaceLayer>>>>("surfaces", Self::VT_SURFACES, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct CursorStateArgs<'a> {
+    pub epoch: u64,
+    pub kind: CursorStateKind,
+    pub shape: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub hotspot: Option<&'a WirePoint>,
+    pub surfaces: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<SurfaceLayer<'a>>>>>,
+}
+impl<'a> Default for CursorStateArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    CursorStateArgs {
+      epoch: 0,
+      kind: CursorStateKind::Hidden,
+      shape: None,
+      hotspot: None,
+      surfaces: None,
+    }
+  }
+}
+
+pub struct CursorStateBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> CursorStateBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_epoch(&mut self, epoch: u64) {
+    self.fbb_.push_slot::<u64>(CursorState::VT_EPOCH, epoch, 0);
+  }
+  #[inline]
+  pub fn add_kind(&mut self, kind: CursorStateKind) {
+    self.fbb_.push_slot::<CursorStateKind>(CursorState::VT_KIND, kind, CursorStateKind::Hidden);
+  }
+  #[inline]
+  pub fn add_shape(&mut self, shape: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(CursorState::VT_SHAPE, shape);
+  }
+  #[inline]
+  pub fn add_hotspot(&mut self, hotspot: &WirePoint) {
+    self.fbb_.push_slot_always::<&WirePoint>(CursorState::VT_HOTSPOT, hotspot);
+  }
+  #[inline]
+  pub fn add_surfaces(&mut self, surfaces: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<SurfaceLayer<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(CursorState::VT_SURFACES, surfaces);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> CursorStateBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    CursorStateBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<CursorState<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for CursorState<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("CursorState");
+      ds.field("epoch", &self.epoch());
+      ds.field("kind", &self.kind());
+      ds.field("shape", &self.shape());
+      ds.field("hotspot", &self.hotspot());
+      ds.field("surfaces", &self.surfaces());
+      ds.finish()
+  }
+}
 pub enum CursorPositionOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -6614,6 +6896,7 @@ impl<'a> flatbuffers::Follow<'a> for ShortcutSpawnTarget<'a> {
 
 impl<'a> ShortcutSpawnTarget<'a> {
   pub const VT_COMMAND: flatbuffers::VOffsetT = 4;
+  pub const VT_DESKTOP_FILE_ID: flatbuffers::VOffsetT = 6;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -6625,6 +6908,7 @@ impl<'a> ShortcutSpawnTarget<'a> {
     args: &'args ShortcutSpawnTargetArgs<'args>
   ) -> flatbuffers::WIPOffset<ShortcutSpawnTarget<'bldr>> {
     let mut builder = ShortcutSpawnTargetBuilder::new(_fbb);
+    if let Some(x) = args.desktop_file_id { builder.add_desktop_file_id(x); }
     if let Some(x) = args.command { builder.add_command(x); }
     builder.finish()
   }
@@ -6637,6 +6921,13 @@ impl<'a> ShortcutSpawnTarget<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>>>(ShortcutSpawnTarget::VT_COMMAND, None)}
   }
+  #[inline]
+  pub fn desktop_file_id(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(ShortcutSpawnTarget::VT_DESKTOP_FILE_ID, None)}
+  }
 }
 
 impl flatbuffers::Verifiable for ShortcutSpawnTarget<'_> {
@@ -6647,18 +6938,21 @@ impl flatbuffers::Verifiable for ShortcutSpawnTarget<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<&'_ str>>>>("command", Self::VT_COMMAND, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("desktop_file_id", Self::VT_DESKTOP_FILE_ID, false)?
      .finish();
     Ok(())
   }
 }
 pub struct ShortcutSpawnTargetArgs<'a> {
     pub command: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>>>,
+    pub desktop_file_id: Option<flatbuffers::WIPOffset<&'a str>>,
 }
 impl<'a> Default for ShortcutSpawnTargetArgs<'a> {
   #[inline]
   fn default() -> Self {
     ShortcutSpawnTargetArgs {
       command: None,
+      desktop_file_id: None,
     }
   }
 }
@@ -6671,6 +6965,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ShortcutSpawnTargetBuilder<'a, 
   #[inline]
   pub fn add_command(&mut self, command: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<&'b  str>>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ShortcutSpawnTarget::VT_COMMAND, command);
+  }
+  #[inline]
+  pub fn add_desktop_file_id(&mut self, desktop_file_id: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(ShortcutSpawnTarget::VT_DESKTOP_FILE_ID, desktop_file_id);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ShortcutSpawnTargetBuilder<'a, 'b, A> {
@@ -6691,6 +6989,7 @@ impl core::fmt::Debug for ShortcutSpawnTarget<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("ShortcutSpawnTarget");
       ds.field("command", &self.command());
+      ds.field("desktop_file_id", &self.desktop_file_id());
       ds.finish()
   }
 }
@@ -10070,6 +10369,21 @@ impl<'a> Envelope<'a> {
     }
   }
 
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_cursor_state(&self) -> Option<CursorState<'a>> {
+    if self.payload_type() == Payload::CursorState {
+      self.payload().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { CursorState::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
 }
 
 impl flatbuffers::Verifiable for Envelope<'_> {
@@ -10102,6 +10416,7 @@ impl flatbuffers::Verifiable for Envelope<'_> {
           Payload::XEmbedTrayEvent => v.verify_union_variant::<flatbuffers::ForwardsUOffset<XEmbedTrayEvent>>("Payload::XEmbedTrayEvent", pos),
           Payload::XEmbedTrayCommand => v.verify_union_variant::<flatbuffers::ForwardsUOffset<XEmbedTrayCommand>>("Payload::XEmbedTrayCommand", pos),
           Payload::ThemeState => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ThemeState>>("Payload::ThemeState", pos),
+          Payload::CursorState => v.verify_union_variant::<flatbuffers::ForwardsUOffset<CursorState>>("Payload::CursorState", pos),
           _ => Ok(()),
         }
      })?
@@ -10298,6 +10613,13 @@ impl core::fmt::Debug for Envelope<'_> {
         },
         Payload::ThemeState => {
           if let Some(x) = self.payload_as_theme_state() {
+            ds.field("payload", &x)
+          } else {
+            ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        Payload::CursorState => {
+          if let Some(x) = self.payload_as_cursor_state() {
             ds.field("payload", &x)
           } else {
             ds.field("payload", &"InvalidFlatbuffer: Union discriminant does not match value.")

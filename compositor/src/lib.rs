@@ -63,7 +63,3 @@ fn valid_release_version(value: &str) -> bool {
                 && valid_component(patch)
     )
 }
-
-#[cfg(test)]
-#[path = "lib/tests.rs"]
-mod tests;

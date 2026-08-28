@@ -77,10 +77,13 @@ with `deniald` over its versioned Unix control socket. Its rendering workload
 is isolated from the compositor's Flutter engine, while Rust remains the sole
 authority for persistent and hardware state.
 
-This bundle boundary is also the path toward alternative Flutter shells. As
-the compatibility contract stabilizes, a compatible user-provided bundle will
-be able to replace Denial's reference shell without replacing the native
-compositor beneath it.
+This bundle boundary is also the path toward alternative Flutter shells. The
+Flutter package now exposes a supported `package:denial_dart_shell/denial.dart`
+framework boundary: custom UI supplies feature scenes while Denial retains the
+compositor lifecycle, input, cursor, theme, localization, lock, and overlay
+plumbing. See [Custom Flutter shells](docs/CUSTOM_SHELLS.md). Activating an
+independently built bundle still depends on the compatibility and recovery
+work tracked by the live-development tooling.
 
 ## Why Denial
 

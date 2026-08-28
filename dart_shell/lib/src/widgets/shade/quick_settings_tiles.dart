@@ -198,17 +198,20 @@ class _QuickTileState extends State<QuickTile> {
 
   @override
   Widget build(BuildContext context) {
-    final accent = ShellTheme.of(context).accentPalette;
-    final background = widget.active
-        ? accent.primary
-        : context.shellColors.tileOff;
+    final theme = ShellTheme.of(context);
+    final accent = theme.accentPalette;
+    final background = theme.cardColor(
+      widget.active ? accent.primary : context.shellColors.tileOff,
+    );
     final foreground = widget.active
         ? accent.onPrimary
         : context.shellColors.panelText;
     final secondary = widget.active
         ? accent.onPrimary.withValues(alpha: 0.78)
         : context.shellColors.textTertiary;
-    final radius = widget.wide ? ShellRadii.tileWide : ShellRadii.tile;
+    final radius = theme.scaledRadius(
+      widget.wide ? ShellRadii.tileWide : ShellRadii.tile,
+    );
 
     return Semantics(
       button: true,
@@ -384,7 +387,7 @@ class _TileIcon extends StatelessWidget {
         color: active
             ? context.shellTheme.accentPalette.subtle
             : context.shellColors.tileIcon,
-        borderRadius: BorderRadius.circular(size / 2),
+        borderRadius: context.shellTheme.borderRadius(size / 2),
       ),
       child: SizedBox(
         width: size,
@@ -450,7 +453,7 @@ class _TileDetailsButtonState extends State<_TileDetailsButton> {
               color: _focused
                   ? context.shellColors.surfaceContainerHighest
                   : ShellMediaColors.transparentDark,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: context.shellTheme.borderRadius(10),
               border: _focused ? Border.all(color: accent) : null,
             ),
             child: SizedBox.square(
@@ -543,7 +546,9 @@ class _RoundButtonState extends State<_RoundButton> {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: context.shellColors.chip,
-                borderRadius: BorderRadius.circular(ShellRadii.roundButton),
+                borderRadius: context.shellTheme.borderRadius(
+                  ShellRadii.roundButton,
+                ),
                 border: Border.all(
                   color: _focused ? accent : context.shellColors.hairlineSoft,
                 ),

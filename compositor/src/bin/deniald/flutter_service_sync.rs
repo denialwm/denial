@@ -95,15 +95,19 @@ pub(super) fn synchronize_system_control_events(
             let (command, reply) = request.into_parts();
             let (accepted, wait) = match command {
                 SystemControlCommand::Audio(request) => {
-                    let wait = match request {
+                    let wait = match &request {
                         system_controls::AudioRequest::ReadLevel => {
                             Some(SystemControlWaitKind::AudioLevel)
                         }
                         system_controls::AudioRequest::RequestStreams => {
                             Some(SystemControlWaitKind::AudioStreams)
                         }
+                        system_controls::AudioRequest::RequestDevices => {
+                            Some(SystemControlWaitKind::AudioDevices)
+                        }
                         system_controls::AudioRequest::SetLevel { .. }
-                        | system_controls::AudioRequest::SetStreamLevel { .. } => None,
+                        | system_controls::AudioRequest::SetStreamLevel { .. }
+                        | system_controls::AudioRequest::SetDevice { .. } => None,
                     };
                     (controls.handle_audio_request(request), wait)
                 }
@@ -194,6 +198,17 @@ fn resolve_system_control_waits(
                 })).collect::<Vec<_>>(),
             }),
         ),
+        system_controls::SystemControlEvent::AudioDevices(devices) => (
+            SystemControlWaitKind::AudioDevices,
+            json!({
+                "devices": devices.iter().map(|device| json!({
+                    "name": device.name,
+                    "description": device.description,
+                    "active": device.active,
+                    "available": device.available,
+                })).collect::<Vec<_>>(),
+            }),
+        ),
         system_controls::SystemControlEvent::BrightnessLevel { monitor_id, level } => (
             SystemControlWaitKind::Brightness(*monitor_id),
             json!({
@@ -239,12 +254,25 @@ pub(super) fn synchronize_notification_events(
             wire::NotificationCommand::InvokeAction {
                 notification_id,
                 action_key,
-            } => (
-                notification_id,
-                server.invoke_action(notification_id, action_key),
-            ),
+            } => {
+                let activation_token = events
+                    .wayland
+                    .as_mut()
+                    .map(wayland_frontend::WaylandFrontend::create_launch_activation_token);
+                (
+                    notification_id,
+                    server.invoke_action(notification_id, action_key, activation_token),
+                )
+            }
             wire::NotificationCommand::InvokeDefault { notification_id } => {
-                (notification_id, server.invoke_default(notification_id))
+                let activation_token = events
+                    .wayland
+                    .as_mut()
+                    .map(wayland_frontend::WaylandFrontend::create_launch_activation_token);
+                (
+                    notification_id,
+                    server.invoke_default(notification_id, activation_token),
+                )
             }
         };
         if !queued {

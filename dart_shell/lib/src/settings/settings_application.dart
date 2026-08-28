@@ -5,12 +5,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/generated/app_localizations_en.dart';
 import '../local_apps/local_flutter_application.dart';
+import '../launcher/controllers/home_grid_controller.dart';
+import '../launcher/models/desktop_app.dart';
 import '../localization/denial_localizations.dart';
 import '../models/display_layout.dart';
 import '../state/display_layout.dart';
+import '../state/cursor_theme.dart';
 import '../state/output_configuration.dart';
 import '../state/ui_development.dart';
 import '../theme/motion.dart';
+import '../theme/cursor_themes.dart';
 import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
 import '../wallpaper/state/wallpaper_accent.dart';
@@ -24,6 +28,7 @@ import 'widgets/settings_appearance_page.dart';
 import 'widgets/settings_animations_page.dart';
 import 'widgets/settings_developer_page.dart';
 import 'widgets/settings_displays_page.dart';
+import 'widgets/settings_environment_page.dart';
 import 'widgets/settings_layout_page.dart';
 import 'widgets/settings_keyboard_page.dart';
 import 'widgets/settings_language_page.dart';
@@ -36,6 +41,14 @@ import 'widgets/settings_system_pages.dart';
 import 'widgets/settings_touchpad_page.dart';
 
 final _englishSettings = AppLocalizationsEn();
+final settingsDesktopApplicationsProvider = FutureProvider<List<DesktopApp>>(
+  (ref) => ref.watch(desktopAppsRepositoryProvider).loadApplications(),
+  isAutoDispose: true,
+);
+const denialSettingsApplicationId = 'dev.denial.settings';
+
+bool isDenialSettingsApplicationId(String appId) =>
+    appId.trim().toLowerCase() == denialSettingsApplicationId;
 
 @immutable
 class SettingsPageOpenRequest {
@@ -73,7 +86,7 @@ class SettingsPageOpenRequestController
 }
 
 final denialSettingsApplication = LocalFlutterApplication(
-  id: 'dev.denial.settings',
+  id: denialSettingsApplicationId,
   title: _englishSettings.settingsApplicationTitle,
   defaultSize: const Size(900, 620),
   minimumSize: const Size(520, 400),
@@ -115,11 +128,13 @@ class DenialSettingsApplication extends ConsumerStatefulWidget {
   const DenialSettingsApplication({
     this.initialPage = SettingsPageId.appearance,
     this.onOpenWallpaperSelector,
+    this.onPickCursorZip,
     super.key,
   });
 
   final SettingsPageId initialPage;
   final Future<void> Function()? onOpenWallpaperSelector;
+  final Future<String?> Function()? onPickCursorZip;
 
   @override
   ConsumerState<DenialSettingsApplication> createState() =>
@@ -170,7 +185,9 @@ class _DenialSettingsApplicationState
       role: .main,
       label: context.l10n.settingsApplicationSemanticsLabel,
       child: Material(
-        color: context.shellColors.background.withValues(alpha: 0.74),
+        color: context.shellTheme.panelColor(
+          context.shellColors.panelBackground,
+        ),
         child: LayoutBuilder(
           builder: (context, constraints) {
             final compactNavigation = constraints.maxWidth < 700;
@@ -219,6 +236,7 @@ class _DenialSettingsApplicationState
                                   setState(() => _colorPickerOpen = true),
                               onOpenWallpaperSelector: () =>
                                   unawaited(_openWallpaperSelector()),
+                              onPickCursorZip: widget.onPickCursorZip,
                             ),
                           ),
                         ),
@@ -313,11 +331,13 @@ class _SettingsPageBody extends ConsumerWidget {
     required this.page,
     required this.onOpenAccentPicker,
     required this.onOpenWallpaperSelector,
+    required this.onPickCursorZip,
   });
 
   final SettingsPageId page;
   final VoidCallback onOpenAccentPicker;
   final VoidCallback onOpenWallpaperSelector;
+  final Future<String?> Function()? onPickCursorZip;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -331,6 +351,10 @@ class _SettingsPageBody extends ConsumerWidget {
         final assignment = ref.watch(
           wallpaperControllerProvider.select((state) => state.assignment),
         );
+        final cursorThemes = ref.watch(availableShellCursorThemesProvider);
+        final cursorCatalogLoading = ref
+            .watch(cursorThemeCatalogProvider)
+            .isLoading;
         return SettingsAppearancePage(
           settings: settings,
           extractedAccent: ref.watch(wallpaperAccentProvider).color,
@@ -339,16 +363,44 @@ class _SettingsPageBody extends ConsumerWidget {
           onColorSchemePreferenceChanged: controller.setColorSchemePreference,
           onAccentSourceChanged: controller.setAccentSource,
           onOpenAccentPicker: onOpenAccentPicker,
-          onWindowRadiusChanged: controller.setWindowRadius,
-          onPanelRadiusChanged: controller.setPanelRadius,
+          onCornerRadiusScaleChanged: controller.setCornerRadiusScale,
           onPanelOpacityChanged: controller.setPanelOpacity,
+          onCardOpacityChanged: controller.setCardOpacity,
           onBackdropBlurEnabledChanged: controller.setBackdropBlurEnabled,
           onBackdropBlurLevelChanged: controller.setBackdropBlurLevel,
           onBackdropBlurOpacityThresholdChanged:
               controller.setBackdropBlurOpacityThreshold,
+          onFocusedWindowBorderEnabledChanged:
+              controller.setFocusedWindowBorderEnabled,
           onFocusedOpacityChanged: controller.setFocusedWindowOpacity,
           onUnfocusedOpacityChanged: controller.setUnfocusedWindowOpacity,
           onCursorSizeChanged: controller.setCursorSize,
+          cursorThemes: cursorThemes,
+          cursorCatalogLoading: cursorCatalogLoading,
+          onCursorThemeChanged: controller.setCursorThemeId,
+          onAllowClientCursorSurfacesChanged:
+              controller.setAllowClientCursorSurfaces,
+          onImportCursorZip: onPickCursorZip == null
+              ? null
+              : () async {
+                  final path = await onPickCursorZip!();
+                  if (path == null) {
+                    return null;
+                  }
+                  final imported = await ref
+                      .read(cursorThemeCatalogProvider.notifier)
+                      .importZip(path);
+                  controller.setCursorThemeId(imported.id);
+                  await controller.flush();
+                  return imported;
+                },
+          onRemoveCursorTheme: (theme) async {
+            if (settings.cursorThemeId == theme.id) {
+              controller.setCursorThemeId(ShellCursorThemes.bibataModernIce.id);
+              await controller.flush();
+            }
+            await ref.read(cursorThemeCatalogProvider.notifier).remove(theme);
+          },
           onReset: controller.resetAppearance,
         );
       case SettingsPageId.language:
@@ -365,7 +417,39 @@ class _SettingsPageBody extends ConsumerWidget {
       case SettingsPageId.touchpad:
         return const SettingsTouchpadPage();
       case SettingsPageId.shortcuts:
-        return const SettingsShortcutsPage();
+        final applications = ref.watch(settingsDesktopApplicationsProvider);
+        return SettingsShortcutsPage(
+          applications: applications.asData?.value ?? const <DesktopApp>[],
+        );
+      case SettingsPageId.environment:
+        final settings = ref.watch(
+          shellSettingsProvider.select(
+            (settings) => settings.applicationEnvironment,
+          ),
+        );
+        final applications = ref.watch(settingsDesktopApplicationsProvider);
+        return SettingsEnvironmentPage(
+          settings: settings,
+          applications: applications.asData?.value ?? const <DesktopApp>[],
+          applicationsLoading: applications.isLoading,
+          applicationsUnavailable: applications.hasError,
+          onSave: (desktopFileId, previousName, name, value) {
+            controller.replaceApplicationEnvironmentOverride(
+              desktopFileId: desktopFileId,
+              previousName: previousName,
+              name: name,
+              value: value,
+            );
+          },
+          onDelete: (desktopFileId, name) {
+            controller.removeApplicationEnvironmentOverride(
+              name,
+              desktopFileId: desktopFileId,
+            );
+          },
+          onReset: controller.resetApplicationEnvironment,
+          onResetScope: controller.resetApplicationEnvironmentScope,
+        );
       case SettingsPageId.layout:
         final settings = ref.watch(
           shellSettingsProvider.select((settings) => settings.layout),

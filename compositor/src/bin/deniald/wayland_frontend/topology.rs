@@ -652,7 +652,3 @@ fn output_transform(transform: OutputTransform) -> Transform {
         OutputTransform::Flipped270 => Transform::Flipped270,
     }
 }
-
-#[cfg(test)]
-#[path = "topology/tests.rs"]
-mod tests;

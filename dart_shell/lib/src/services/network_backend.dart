@@ -294,7 +294,6 @@ abstract interface class NetworkBackend {
   Future<void> dispose();
 }
 
-@visibleForTesting
 List<WifiNetwork> normalizeWifiNetworks(
   Iterable<WifiNetwork> candidates,
   Iterable<SavedWifiConnectionInfo> savedConnections, {

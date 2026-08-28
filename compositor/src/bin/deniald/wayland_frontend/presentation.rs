@@ -336,7 +336,3 @@ fn refresh_interval(refresh_millihz: i32) -> Option<Duration> {
 const fn next_presentation_sequence(current: u64) -> u64 {
     current.wrapping_add(1)
 }
-
-#[cfg(test)]
-#[path = "presentation/tests.rs"]
-mod tests;

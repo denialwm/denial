@@ -109,10 +109,15 @@ impl FlutterRuntime {
         &mut self,
         arguments: Vec<String>,
         shell: bool,
+        desktop_file_id: Option<&str>,
         activation_token: Option<&str>,
     ) -> Result<(), system_command::DispatchError> {
-        self.system_commands
-            .start_shortcut_application(arguments, shell, activation_token)
+        self.system_commands.start_shortcut_application(
+            arguments,
+            shell,
+            desktop_file_id,
+            activation_token,
+        )
     }
 
     pub fn take_screenshot_requested(&mut self) -> Option<system_command::ScreenshotRequest> {
@@ -247,17 +252,6 @@ impl FlutterRuntime {
             .wire
             .encode_screenshot_action(action, request_id, texture_id)?;
         engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, event)?;
-        Ok(())
-    }
-
-    pub fn send_cursor_shape(&mut self, shape: &str) -> Result<(), Box<dyn Error>> {
-        let engine = self
-            .host
-            .as_ref()
-            .expect("Flutter runtime is shutting down")
-            .engine();
-        let update = self.wire.encode_cursor_shape(shape)?;
-        engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, update)?;
         Ok(())
     }
 
@@ -490,6 +484,40 @@ impl FlutterRuntime {
                 self.host()
                     .engine()
                     .send_platform_message(AUDIO_STREAMS_STATE_CHANNEL, &packet)?;
+            }
+            crate::system_controls::SystemControlEvent::AudioDevices(devices) => {
+                let payload_size = devices.iter().try_fold(size_of::<u32>(), |size, device| {
+                    size.checked_add(6)?
+                        .checked_add(device.name.len())?
+                        .checked_add(device.description.len())
+                });
+                let Some(payload_size) = payload_size else {
+                    return Err("audio device-state packet size overflow".into());
+                };
+                let mut packet = Vec::with_capacity(payload_size);
+                packet.extend_from_slice(
+                    &u32::try_from(devices.len())
+                        .map_err(|_| "too many audio devices for the platform packet")?
+                        .to_le_bytes(),
+                );
+                for device in devices {
+                    let name = device.name.as_bytes();
+                    let description = device.description.as_bytes();
+                    let name_length = u16::try_from(name.len())
+                        .map_err(|_| "audio device name exceeds the platform packet limit")?;
+                    let description_length = u16::try_from(description.len()).map_err(
+                        |_| "audio device description exceeds the platform packet limit",
+                    )?;
+                    packet.push(u8::from(device.active));
+                    packet.push(u8::from(device.available));
+                    packet.extend_from_slice(&name_length.to_le_bytes());
+                    packet.extend_from_slice(&description_length.to_le_bytes());
+                    packet.extend_from_slice(name);
+                    packet.extend_from_slice(description);
+                }
+                self.host()
+                    .engine()
+                    .send_platform_message(AUDIO_DEVICES_STATE_CHANNEL, &packet)?;
             }
             crate::system_controls::SystemControlEvent::BrightnessLevel { monitor_id, level } => {
                 let mut packet = [0u8; 9];

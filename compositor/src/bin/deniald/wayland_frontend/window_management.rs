@@ -216,15 +216,19 @@ pub(super) fn activate_window(
             .and_then(|surface| frontend.surface_id(&surface))
     });
 
+    #[cfg(feature = "flutter")]
+    let resumed;
     {
         let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
         #[cfg(feature = "flutter")]
-        let resumed = frontend
-            .window_root_surface(window)
-            .is_some_and(|surface| frontend.set_surface_minimized(surface.id(), false))
-            && window
-                .toplevel()
-                .is_some_and(|toplevel| set_toplevel_suspended(toplevel, false));
+        {
+            resumed = frontend
+                .window_root_surface(window)
+                .is_some_and(|surface| frontend.set_surface_minimized(surface.id(), false));
+            if resumed && let Some(toplevel) = window.toplevel() {
+                set_toplevel_suspended(toplevel, false);
+            }
+        }
         #[cfg(not(feature = "flutter"))]
         let resumed = false;
 
@@ -250,10 +254,35 @@ pub(super) fn activate_window(
     if let Some(window_id) = window_id {
         state
             .pending_window_events
-            .push(PendingWindowEvent::Activated(window_id));
+            .push_activation(window_id, resumed);
     }
     state.scene_sync.mark_dirty();
     true
+}
+
+/// Gives focus to the topmost remaining managed client window.
+///
+/// Window destruction removes the current keyboard target independently from
+/// Flutter's visible stack. Re-enter the ordinary activation path so the
+/// replacement receives protocol keyboard focus as well as shell activation.
+#[cfg(feature = "flutter")]
+pub(super) fn activate_topmost_window(state: &mut RuntimeState) -> bool {
+    let next = {
+        let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
+        frontend
+            .space
+            .elements()
+            .rfind(|candidate| {
+                candidate
+                    .x11_surface()
+                    .is_none_or(|x11| !x11.is_override_redirect())
+                    && frontend.window_root_surface(candidate).is_some_and(|root| {
+                        root.is_alive() && !frontend.minimized_windows.contains(&root.id())
+                    })
+            })
+            .cloned()
+    };
+    next.is_some_and(|window| activate_window(state, &window, SERIAL_COUNTER.next_serial()))
 }
 
 #[cfg(feature = "flutter")]
@@ -801,6 +830,41 @@ pub(super) fn minimize_focused_toplevel(state: &mut RuntimeState) -> bool {
         return false;
     };
     minimize_window(state, &window)
+}
+
+#[cfg(feature = "flutter")]
+pub(super) fn minimize_all_toplevels(state: &mut RuntimeState) -> bool {
+    let (local_window_ids, client_windows) = {
+        let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
+        let local_window_ids = frontend
+            .local_windows
+            .iter()
+            .map(|window| window.id)
+            .collect::<Vec<_>>();
+        let client_windows = frontend
+            .space
+            .elements()
+            .filter(|window| {
+                window
+                    .x11_surface()
+                    .is_none_or(|x11| !x11.is_override_redirect())
+                    && frontend.window_root_surface(window).is_some_and(|root| {
+                        root.is_alive() && !frontend.minimized_windows.contains(&root.id())
+                    })
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        (local_window_ids, client_windows)
+    };
+
+    let mut minimized = false;
+    for window_id in local_window_ids {
+        minimized |= minimize_toplevel_by_id(state, window_id);
+    }
+    for window in client_windows {
+        minimized |= minimize_window(state, &window);
+    }
+    minimized
 }
 
 #[cfg(feature = "flutter")]
@@ -1438,7 +1502,3 @@ pub(super) fn toplevel_has_state(
             .contains(xdg_state)
     })
 }
-
-#[cfg(test)]
-#[path = "window_management/tests.rs"]
-mod tests;

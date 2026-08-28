@@ -30,6 +30,46 @@ static void clear_window_opaque_region(GtkWidget* widget, gpointer user_data) {
   }
 }
 
+static void settings_method_call_cb(FlMethodChannel* channel,
+                                    FlMethodCall* method_call,
+                                    gpointer user_data) {
+  SettingsApplication* self = DENIAL_SETTINGS_APPLICATION(user_data);
+  const gchar* method = fl_method_call_get_name(method_call);
+  g_autoptr(FlMethodResponse) response = nullptr;
+  if (strcmp(method, "pickCursorZip") == 0) {
+    GtkWidget* dialog = gtk_file_chooser_dialog_new(
+        "Import cursor ZIP", self->window, GTK_FILE_CHOOSER_ACTION_OPEN,
+        "_Cancel", GTK_RESPONSE_CANCEL, "_Import", GTK_RESPONSE_ACCEPT,
+        nullptr);
+    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+    GtkFileFilter* zip_filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(zip_filter, "Cursor ZIP archives");
+    gtk_file_filter_add_mime_type(zip_filter, "application/zip");
+    gtk_file_filter_add_pattern(zip_filter, "*.zip");
+    gtk_file_filter_add_pattern(zip_filter, "*.ZIP");
+    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), zip_filter);
+
+    g_autoptr(FlValue) result = nullptr;
+    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
+      g_autofree gchar* filename =
+          gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
+      if (filename != nullptr) {
+        result = fl_value_new_string(filename);
+      }
+    }
+    gtk_widget_destroy(dialog);
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(result));
+  } else {
+    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+  }
+
+  g_autoptr(GError) error = nullptr;
+  if (!fl_method_call_respond(method_call, response, &error)) {
+    g_warning("Failed to respond to Settings method %s: %s", method,
+              error->message);
+  }
+}
+
 static void settings_application_activate(GApplication* application) {
   SettingsApplication* self = DENIAL_SETTINGS_APPLICATION(application);
   if (self->window != nullptr) {
@@ -71,6 +111,8 @@ static void settings_application_activate(GApplication* application) {
   self->activation_channel = fl_method_channel_new(
       fl_engine_get_binary_messenger(fl_view_get_engine(view)),
       "denial/settings_activation", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(
+      self->activation_channel, settings_method_call_cb, self, nullptr);
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
 

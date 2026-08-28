@@ -4,9 +4,23 @@ import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:flutter/widgets.dart';
 
 import '../theme/shell_theme.dart';
-import '../theme/tokens.dart';
 import 'desktop_window_render_telemetry.dart';
 import 'desktop_workspace.dart';
+
+Color desktopWindowBorderColor({
+  required bool pinned,
+  required bool active,
+  required ShellThemeData theme,
+  required Color inactiveColor,
+}) {
+  if (pinned) {
+    return theme.accentPalette.container;
+  }
+  if (active && theme.focusedWindowBorderEnabled) {
+    return theme.accent;
+  }
+  return inactiveColor;
+}
 
 /// Keeps the static server-side decoration isolated from the live client
 /// texture and from the stateful focus border.
@@ -107,7 +121,7 @@ class RenderDesktopWindowRepaintBoundary extends RenderRepaintBoundary {
 class DesktopWindowFramePainter extends CustomPainter {
   const DesktopWindowFramePainter({
     this.windowId = 0,
-    this.radius = ShellRadii.window,
+    required this.radius,
     required this.shadowColor,
     required this.frameColor,
   });
@@ -141,7 +155,7 @@ class DesktopWindowFramePainter extends CustomPainter {
       ..save()
       ..clipPath(outsideFrame)
       ..drawRRect(
-        RRect.fromRectAndRadius(shadowRect, Radius.circular(radius + 2)),
+        RRect.fromRectAndRadius(shadowRect, Radius.circular(radius * 1.25)),
         shadowPaint,
       )
       ..restore();

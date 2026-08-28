@@ -576,7 +576,16 @@ fn decode_shortcut_binding(binding: fb::ShortcutBinding<'_>) -> Result<ShortcutB
                 }
                 arguments.push(argument.to_owned());
             }
-            ShortcutTarget::Spawn { command: arguments }
+            let desktop_file_id = target.desktop_file_id().map(str::to_owned);
+            if desktop_file_id.as_deref().is_some_and(|desktop_file_id| {
+                crate::settings::validate_desktop_file_id(desktop_file_id).is_err()
+            }) {
+                return Err(WireError::String);
+            }
+            ShortcutTarget::Spawn {
+                command: arguments,
+                desktop_file_id,
+            }
         }
         fb::ShortcutTarget::ShortcutSpawnShTarget => {
             let target = binding
@@ -606,6 +615,7 @@ fn shortcut_action_from_wire(action: fb::ShortcutActionKind) -> Result<ShortcutA
     match action {
         fb::ShortcutActionKind::Shutdown => Ok(ShortcutAction::Shutdown),
         fb::ShortcutActionKind::OpenApplications => Ok(ShortcutAction::OpenApplications),
+        fb::ShortcutActionKind::OpenDashboard => Ok(ShortcutAction::OpenDashboard),
         fb::ShortcutActionKind::OpenOverview => Ok(ShortcutAction::OpenOverview),
         fb::ShortcutActionKind::ToggleVerticalMaximize => {
             Ok(ShortcutAction::ToggleVerticalMaximize)
@@ -615,6 +625,7 @@ fn shortcut_action_from_wire(action: fb::ShortcutActionKind) -> Result<ShortcutA
         fb::ShortcutActionKind::CaptureRegion => Ok(ShortcutAction::CaptureRegion),
         fb::ShortcutActionKind::CloseWindow => Ok(ShortcutAction::CloseWindow),
         fb::ShortcutActionKind::MinimizeWindow => Ok(ShortcutAction::MinimizeWindow),
+        fb::ShortcutActionKind::MinimizeAllWindows => Ok(ShortcutAction::MinimizeAllWindows),
         fb::ShortcutActionKind::ToggleMaximize => Ok(ShortcutAction::ToggleMaximize),
         fb::ShortcutActionKind::ToggleFullscreen => Ok(ShortcutAction::ToggleFullscreen),
         fb::ShortcutActionKind::ReleasePointer => Ok(ShortcutAction::ReleasePointer),
@@ -628,6 +639,7 @@ fn shortcut_action_from_wire(action: fb::ShortcutActionKind) -> Result<ShortcutA
         fb::ShortcutActionKind::PreviousKeyboardLayout => {
             Ok(ShortcutAction::PreviousKeyboardLayout)
         }
+        fb::ShortcutActionKind::OpenSettings => Ok(ShortcutAction::OpenSettings),
         _ => Err(WireError::Enumeration),
     }
 }

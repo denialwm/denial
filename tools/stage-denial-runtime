@@ -31,7 +31,7 @@ if [[ "${DENIAL_PROMOTION_MODE:-0}" == 1 ]]; then
   die 'staging is disabled during signed-tag promotion'
 fi
 
-for required_command in find git gzip install jq mktemp objdump readlink sha256sum sort; do
+for required_command in find git grep gzip install jq mktemp objdump readlink sha256sum sort; do
   command -v "$required_command" >/dev/null 2>&1 \
     || die "$required_command is required"
 done
@@ -99,6 +99,15 @@ DENIAL_PC_BUNDLE_ASSEMBLY="$BUNDLE_ASSEMBLY" \
 [[ -x "$BINARY" ]] || die "missing compositor: $BINARY"
 [[ -x "$CONTROL_BINARY" ]] || die "missing control client: $CONTROL_BINARY"
 [[ -x "$PORTAL_BINARY" ]] || die "missing portal backend: $PORTAL_BINARY"
+session_target="$ROOT/packaging/denial-session.target"
+for directive in \
+  'BindsTo=graphical-session.target' \
+  'Before=graphical-session.target' \
+  'Wants=xdg-desktop-autostart.target' \
+  'Before=xdg-desktop-autostart.target'; do
+  grep -Fqx "$directive" "$session_target" \
+    || die "session target is missing required directive: $directive"
+done
 for required in \
   "$BUNDLE/data/icudtl.dat" \
   "$BUNDLE/data/flutter_assets/AssetManifest.bin" \

@@ -424,7 +424,7 @@ class _OskKeyButtonState extends State<_OskKeyButton>
                         : accent,
                     glow * 0.48,
                   ),
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: context.shellTheme.borderRadius(16),
                   border: Border.all(color: border),
                   boxShadow: glowAlpha <= 0
                       ? []

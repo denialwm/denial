@@ -15,6 +15,7 @@ enum SettingsPageId {
   keyboard,
   touchpad,
   shortcuts,
+  environment,
   animations,
   layout,
   overlays,
@@ -36,6 +37,7 @@ extension SettingsPageIdPresentation on SettingsPageId {
     SettingsPageId.keyboard => context.l10n.settingsNavigationKeyboard,
     SettingsPageId.touchpad => context.l10n.settingsNavigationTouchpad,
     SettingsPageId.shortcuts => context.l10n.settingsNavigationShortcuts,
+    SettingsPageId.environment => context.l10n.settingsNavigationEnvironment,
     SettingsPageId.animations => context.l10n.settingsNavigationAnimations,
     SettingsPageId.layout => context.l10n.settingsNavigationDesktopLayout,
     SettingsPageId.overlays => context.l10n.settingsNavigationOverlays,
@@ -55,6 +57,7 @@ extension SettingsPageIdPresentation on SettingsPageId {
     SettingsPageId.keyboard => Icons.keyboard_rounded,
     SettingsPageId.touchpad => Icons.touch_app_rounded,
     SettingsPageId.shortcuts => Icons.keyboard_command_key_rounded,
+    SettingsPageId.environment => Icons.terminal_rounded,
     SettingsPageId.animations => Icons.animation_rounded,
     SettingsPageId.layout => Icons.space_dashboard_outlined,
     SettingsPageId.overlays => Icons.picture_in_picture_alt_outlined,
@@ -244,7 +247,7 @@ class _NavigationDestinationState extends State<_NavigationDestination> {
               color: widget.selected
                   ? accent.withAlpha(36)
                   : ShellMediaColors.transparentDark,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: context.shellTheme.borderRadius(12),
               border: Border.all(
                 color: widget.selected
                     ? accent.withAlpha(112)
@@ -264,7 +267,7 @@ class _NavigationDestinationState extends State<_NavigationDestination> {
                           color: widget.selected
                               ? accent.withAlpha(20)
                               : context.shellColors.surfaceContainerHigh,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: context.shellTheme.borderRadius(12),
                           border: _focused ? Border.all(color: accent) : null,
                         ),
                       ),

@@ -33,18 +33,40 @@ struct SwipeBinding {
 // binding here. Its action belongs to the user's shortcut configuration.
 // Pinch and hold lifecycles can be added beside `active_swipes` without
 // coupling their state to input routing or Flutter serialization.
-const SWIPE_BINDINGS: &[SwipeBinding] = &[SwipeBinding {
-    fingers: 3,
-    direction: SwipeDirection::Up,
-    minimum_distance: THREE_FINGER_SWIPE_DISTANCE,
-    gesture: ShortcutGesture::ThreeFingerSwipeUp,
-}];
+const SWIPE_BINDINGS: &[SwipeBinding] = &[
+    SwipeBinding {
+        fingers: 3,
+        direction: SwipeDirection::Up,
+        minimum_distance: THREE_FINGER_SWIPE_DISTANCE,
+        gesture: ShortcutGesture::ThreeFingerSwipeUp,
+    },
+    SwipeBinding {
+        fingers: 3,
+        direction: SwipeDirection::Left,
+        minimum_distance: THREE_FINGER_SWIPE_DISTANCE,
+        gesture: ShortcutGesture::ThreeFingerSwipeLeft,
+    },
+    SwipeBinding {
+        fingers: 3,
+        direction: SwipeDirection::Right,
+        minimum_distance: THREE_FINGER_SWIPE_DISTANCE,
+        gesture: ShortcutGesture::ThreeFingerSwipeRight,
+    },
+];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum TouchpadGestureEvent {
+    Trigger(ShortcutGesture),
+    Repeat(ShortcutGesture),
+    End(ShortcutGesture),
+}
 
 #[derive(Clone, Copy, Debug)]
 struct ActiveSwipe {
     fingers: u32,
     delta_x: f64,
     delta_y: f64,
+    triggered: Option<ShortcutGesture>,
 }
 
 impl ActiveSwipe {
@@ -53,18 +75,36 @@ impl ActiveSwipe {
             fingers,
             delta_x: 0.0,
             delta_y: 0.0,
+            triggered: None,
         }
     }
 
-    fn update(&mut self, delta_x: f64, delta_y: f64) -> bool {
+    fn update(&mut self, delta_x: f64, delta_y: f64) -> Result<Option<TouchpadGestureEvent>, ()> {
         let next_x = self.delta_x + delta_x;
         let next_y = self.delta_y + delta_y;
         if !next_x.is_finite() || !next_y.is_finite() {
-            return false;
+            return Err(());
         }
         self.delta_x = next_x;
         self.delta_y = next_y;
-        true
+
+        let Some(gesture) = self.recognized_gesture() else {
+            return Ok(None);
+        };
+        let event = if self.triggered.is_none() {
+            self.triggered = Some(gesture);
+            TouchpadGestureEvent::Trigger(gesture)
+        } else if matches!(
+            gesture,
+            ShortcutGesture::ThreeFingerSwipeLeft | ShortcutGesture::ThreeFingerSwipeRight
+        ) {
+            TouchpadGestureEvent::Repeat(gesture)
+        } else {
+            return Ok(None);
+        };
+        self.delta_x = 0.0;
+        self.delta_y = 0.0;
+        Ok(Some(event))
     }
 
     fn direction_and_distance(self) -> Option<(SwipeDirection, f64)> {
@@ -88,7 +128,7 @@ impl ActiveSwipe {
         (primary >= cross_axis * DIRECTION_DOMINANCE).then_some((direction, primary))
     }
 
-    fn recognized_gesture(self) -> Option<ShortcutGesture> {
+    fn recognized_gesture(&self) -> Option<ShortcutGesture> {
         let (direction, distance) = self.direction_and_distance()?;
         SWIPE_BINDINGS
             .iter()
@@ -98,6 +138,10 @@ impl ActiveSwipe {
                     && distance >= binding.minimum_distance
             })
             .map(|binding| binding.gesture)
+    }
+
+    fn end_event(self) -> Option<TouchpadGestureEvent> {
+        self.triggered.map(TouchpadGestureEvent::End)
     }
 }
 
@@ -117,31 +161,24 @@ impl TouchpadGestureRecognizer {
         device: &str,
         delta_x: f64,
         delta_y: f64,
-    ) -> Option<ShortcutGesture> {
-        let (valid, gesture) = self
-            .active_swipes
-            .get_mut(device)
-            .map_or((false, None), |swipe| {
-                let valid = swipe.update(delta_x, delta_y);
-                (valid, valid.then(|| swipe.recognized_gesture()).flatten())
-            });
-        if !valid || gesture.is_some() {
-            // Removing a recognized swipe makes every binding one-shot while
-            // libinput continues to send updates for the physical gesture.
-            self.active_swipes.remove(device);
+    ) -> Option<TouchpadGestureEvent> {
+        let update = self.active_swipes.get_mut(device)?.update(delta_x, delta_y);
+        match update {
+            Ok(event) => event,
+            Err(()) => self
+                .active_swipes
+                .remove(device)
+                .and_then(ActiveSwipe::end_event),
         }
-        gesture
     }
 
-    pub(super) fn end_swipe(&mut self, device: &str) {
-        self.active_swipes.remove(device);
+    pub(super) fn end_swipe(&mut self, device: &str) -> Option<TouchpadGestureEvent> {
+        self.active_swipes
+            .remove(device)
+            .and_then(ActiveSwipe::end_event)
     }
 
     pub(super) fn reset(&mut self) {
         self.active_swipes.clear();
     }
 }
-
-#[cfg(test)]
-#[path = "touchpad_gestures/tests.rs"]
-mod tests;

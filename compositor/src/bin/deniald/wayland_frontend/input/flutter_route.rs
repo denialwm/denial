@@ -357,6 +357,7 @@ pub(super) fn process_flutter_input_event(
                     .handle_with_scroll_speed_factor(&event, scroll_speed_factor);
                 false
             } else {
+                state.flutter_input.finish_touchpad_pan();
                 route_pointer_axis(state, axis);
                 true
             }

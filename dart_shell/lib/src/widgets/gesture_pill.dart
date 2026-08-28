@@ -18,7 +18,7 @@ class GesturePill extends StatelessWidget {
         color: armed
             ? context.shellColors.gestureArmed
             : context.shellColors.gesturePill,
-        borderRadius: BorderRadius.circular(3),
+        borderRadius: context.shellTheme.borderRadius(3),
         boxShadow: <BoxShadow>[
           BoxShadow(
             color: context.shellColors.shadowSoft,

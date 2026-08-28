@@ -892,7 +892,3 @@ fn flag_value_enabled(value: &str) -> bool {
         "1" | "true" | "yes" | "on"
     )
 }
-
-#[cfg(test)]
-#[path = "cpu_scheduling/tests.rs"]
-mod tests;

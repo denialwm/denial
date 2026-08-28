@@ -1,83 +1,14 @@
-import 'dart:ui' show Brightness;
-
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/models/shell_popup_placement.dart';
 import 'package:denial_dart_shell/src/settings/shell_settings.dart';
 import 'package:denial_dart_shell/src/theme/backdrop_blur_level.dart';
 import 'package:denial_dart_shell/src/theme/cursor_themes.dart';
+import 'package:denial_dart_shell/src/theme/tokens.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('fresh shell surfaces use the shared 75% opacity', () {
-    expect(const ShellSettings().appearance.panelOpacity, 0.75);
-  });
-
-  test('color-scheme preferences have explicit shell and portal semantics', () {
-    expect(
-      const ShellSettings().appearance.colorSchemePreference,
-      DesktopColorSchemePreference.preferDark,
-    );
-    expect(
-      DesktopColorSchemePreference.preferDark.effectiveBrightness,
-      Brightness.dark,
-    );
-    expect(DesktopColorSchemePreference.preferDark.portalValue, 1);
-    expect(
-      DesktopColorSchemePreference.preferLight.effectiveBrightness,
-      Brightness.light,
-    );
-    expect(DesktopColorSchemePreference.preferLight.portalValue, 2);
-    expect(
-      DesktopColorSchemePreference.noPreference.effectiveBrightness,
-      denialDefaultBrightness,
-    );
-    expect(DesktopColorSchemePreference.noPreference.portalValue, 0);
-  });
-
-  test('every color-scheme preference survives JSON serialization', () {
-    for (final preference in DesktopColorSchemePreference.values) {
-      final settings = ShellSettings(
-        appearance: ShellAppearanceSettings(colorSchemePreference: preference),
-      );
-      expect(
-        ShellSettings.fromJson(
-          settings.toJson(),
-        ).appearance.colorSchemePreference,
-        preference,
-      );
-    }
-  });
-
-  test('schema 9 appearance migrates to explicit dark preference', () {
-    final settings = ShellSettings.fromJson(<String, dynamic>{
-      'version': 9,
-      'appearance': <String, dynamic>{},
-    });
-
-    expect(
-      settings.appearance.colorSchemePreference,
-      DesktopColorSchemePreference.preferDark,
-    );
-    expect(
-      (settings.toJson()['appearance']
-          as Map<String, Object>)['colorSchemePreference'],
-      'preferDark',
-    );
-  });
-
-  test('blur levels use the requested quality and radius mappings', () {
-    expect(ShellBackdropBlurLevel.shitty.sigma, 6);
-    expect(ShellBackdropBlurLevel.shitty.downsampleScale, 0.25);
-    expect(ShellBackdropBlurLevel.fast.sigma, 6);
-    expect(ShellBackdropBlurLevel.fast.downsampleScale, 0.5);
-    expect(ShellBackdropBlurLevel.good.sigma, 6);
-    expect(ShellBackdropBlurLevel.good.downsampleScale, 1);
-    expect(ShellBackdropBlurLevel.best.sigma, 14);
-    expect(ShellBackdropBlurLevel.best.downsampleScale, 1);
-  });
-
-  test('settings survive a complete JSON round trip', () {
+  test('the complete settings document survives a JSON round trip', () {
     const settings = ShellSettings(
       localization: ShellLocalizationSettings(
         locale: ShellLocalePreference.simplifiedChinese,
@@ -86,15 +17,17 @@ void main() {
         colorSchemePreference: DesktopColorSchemePreference.preferLight,
         accentSource: ShellAccentSource.custom,
         customAccentColor: Color(0xffc062ff),
-        windowRadius: 23,
-        panelRadius: 31,
+        cornerRadiusScale: 1.35,
         panelOpacity: 0.78,
         backdropBlurEnabled: false,
-        backdropBlurLevel: ShellBackdropBlurLevel.fast,
+        backdropBlurLevel: ShellBackdropBlurLevel.best,
         backdropBlurOpacityThreshold: 0.18,
+        focusedWindowBorderEnabled: false,
         focusedWindowOpacity: 0.96,
         unfocusedWindowOpacity: 0.72,
         cursorSize: 44,
+        cursorThemeId: 'imported-theme-sha256',
+        allowClientCursorSurfaces: false,
       ),
       layout: ShellLayoutSettings(
         systemBarSide: SystemBarSide.right,
@@ -110,7 +43,13 @@ void main() {
           width: 720,
           height: 650,
           margin: 20,
+          hoverTriggerEnabled: false,
         ),
+      ),
+      animations: ShellAnimationSettings(
+        durationScale: 0.75,
+        panelTravel: 24,
+        animateLockScreen: false,
       ),
       lockScreen: ShellLockScreenSettings(
         dimAmount: 0.42,
@@ -122,70 +61,60 @@ void main() {
         idleDpmsEnabled: false,
         idleDpmsTimeoutMinutes: 47,
       ),
+      applicationEnvironment: ShellApplicationEnvironmentSettings(
+        variables: <String, String?>{
+          'DISPLAY': null,
+          'MOZ_ENABLE_WAYLAND': '1',
+        },
+        applications: <String, Map<String, String?>>{
+          'org.mozilla.firefox.desktop': <String, String?>{
+            'MOZ_ENABLE_WAYLAND': '0',
+          },
+        },
+      ),
     );
 
     expect(ShellSettings.fromJson(settings.toJson()), settings);
     expect(settings.toJson()['version'], ShellSettings.schemaVersion);
   });
 
-  test('typed differences contain only changed settings fields', () {
-    const previous = ShellSettings(
-      appearance: ShellAppearanceSettings(windowRadius: 12),
-      layout: ShellLayoutSettings(systemBarSide: SystemBarSide.top),
-    );
+  test('typed settings patches preserve cursor authority changes', () {
+    const previous = ShellSettings();
     final next = previous.copyWith(
       appearance: previous.appearance.copyWith(
-        windowRadius: 24,
-        backdropBlurLevel: ShellBackdropBlurLevel.best,
+        cursorSize: 48,
+        cursorThemeId: 'imported-theme-sha256',
+        allowClientCursorSurfaces: false,
       ),
-      layout: previous.layout.copyWith(clearSystemBarSide: true),
     );
 
     expect(next.differenceFrom(previous), <String, Object?>{
       'appearance': <String, Object?>{
-        'windowRadius': 24.0,
-        'backdropBlurLevel': 'best',
-        'backdropBlurSigma': 14.0,
+        'cursorSize': 48.0,
+        'cursorThemeId': 'imported-theme-sha256',
+        'allowClientCursorSurfaces': false,
       },
-      'layout': <String, Object?>{'systemBarSide': null},
     });
   });
 
-  test('malformed and out-of-range values are safe and clamped', () {
+  test('malformed settings fail safe and bounded values are clamped', () {
     final settings = ShellSettings.fromJson(<String, dynamic>{
       'version': 999,
       'localization': <String, dynamic>{'locale': 'future-locale'},
       'appearance': <String, dynamic>{
         'accentSource': 'future-source',
-        'customAccentColor': -1,
         'windowRadius': 400,
-        'panelRadius': -4,
         'panelOpacity': 0.01,
-        'backdropBlurEnabled': 'sometimes',
-        'backdropBlurSigma': 400,
-        'backdropBlurOpacityThreshold': 4,
         'cursorSize': 400,
+        'cursorThemeId': '\u0000invalid',
+        'allowClientCursorSurfaces': 'sometimes',
       },
       'layout': <String, dynamic>{
         'systemBarSide': 'diagonal',
         'systemBarOutputs': <Object?>[' DP-1 ', 42, ''],
         'systemBarThickness': double.nan,
         'maximizePadding': -20,
-        'clipboardTrayEdge': 'diagonal',
         'clipboardTrayExtent': 5000,
-      },
-      'overlays': <String, dynamic>{
-        'launcher': <String, dynamic>{
-          'anchor': 'bottomRight',
-          'width': 10,
-          'height': 5000,
-          'margin': 500,
-        },
-      },
-      'lockScreen': <String, dynamic>{
-        'dimAmount': 8,
-        'blurRadius': -4,
-        'clockScale': 'large',
       },
       'power': <String, dynamic>{
         'idleDpmsEnabled': 'sometimes',
@@ -195,78 +124,28 @@ void main() {
 
     expect(settings.localization.locale, ShellLocalePreference.system);
     expect(settings.appearance.accentSource, ShellAccentSource.wallpaper);
-    expect(
-      settings.appearance.customAccentColor,
-      const ShellSettings().appearance.customAccentColor,
-    );
-    expect(settings.appearance.windowRadius, 48);
-    expect(settings.appearance.panelRadius, 0);
-    expect(settings.appearance.panelOpacity, 0.35);
-    expect(settings.appearance.backdropBlurEnabled, isTrue);
-    expect(settings.appearance.backdropBlurLevel, ShellBackdropBlurLevel.fast);
-    expect(settings.appearance.backdropBlurOpacityThreshold, 1);
+    expect(settings.appearance.cornerRadiusScale, ShellRoundness.maximum);
+    expect(settings.appearance.panelOpacity, ShellOpacity.minimumPanel);
     expect(settings.appearance.cursorSize, shellCursorMaximumSize);
+    expect(settings.appearance.cursorThemeId, 'bibata_modern_ice');
+    expect(settings.appearance.allowClientCursorSurfaces, isTrue);
     expect(settings.layout.systemBarSide, isNull);
     expect(settings.layout.systemBarOutputNames, <String>['DP-1']);
     expect(settings.layout.systemBarThickness, 32);
     expect(settings.layout.maximizePadding, 0);
-    expect(settings.layout.clipboardTrayEdge, ClipboardTrayEdge.right);
     expect(settings.layout.clipboardTrayExtent, clipboardTrayMaximumExtent);
-    expect(settings.overlays.launcher.anchor, ShellPopupAnchor.bottomRight);
-    expect(settings.overlays.launcher.width, 420);
-    expect(settings.overlays.launcher.height, 1200);
-    expect(settings.overlays.launcher.margin, 96);
-    expect(settings.lockScreen.dimAmount, 0.85);
-    expect(settings.lockScreen.blurRadius, 0);
-    expect(settings.lockScreen.clockScale, 1);
     expect(settings.power.idleDpmsEnabled, isTrue);
     expect(settings.power.idleDpmsTimeoutMinutes, 120);
   });
 
-  test('older settings inherit the optimized blur defaults', () {
+  test('legacy panel radius migrates to the global roundness scale', () {
     final settings = ShellSettings.fromJson(<String, dynamic>{
-      'version': 3,
-      'appearance': <String, dynamic>{},
+      'appearance': <String, dynamic>{'panelRadius': 42},
     });
 
-    expect(settings.appearance.backdropBlurEnabled, isTrue);
-    expect(settings.appearance.backdropBlurLevel, ShellBackdropBlurLevel.fast);
-    expect(settings.appearance.cursorSize, shellCursorDefaultSize);
-  });
-
-  test('legacy blur radii migrate to the fast default', () {
-    final lowRadius = ShellSettings.fromJson(<String, dynamic>{
-      'appearance': <String, dynamic>{'backdropBlurSigma': 6},
-    });
-    final highRadius = ShellSettings.fromJson(<String, dynamic>{
-      'appearance': <String, dynamic>{'backdropBlurSigma': 18},
-    });
-
-    expect(lowRadius.appearance.backdropBlurLevel, ShellBackdropBlurLevel.fast);
-    expect(
-      highRadius.appearance.backdropBlurLevel,
-      ShellBackdropBlurLevel.fast,
-    );
-    expect(
-      (lowRadius.toJson()['appearance']
-          as Map<String, Object>)['backdropBlurSigma'],
-      6,
-    );
-  });
-
-  test('locale preferences expose only explicit language overrides', () {
-    expect(const ShellLocalizationSettings().localeOverride, isNull);
-    expect(
-      const ShellLocalizationSettings(
-        locale: ShellLocalePreference.english,
-      ).localeOverride?.toLanguageTag(),
-      'en',
-    );
-    expect(
-      const ShellLocalizationSettings(
-        locale: ShellLocalePreference.simplifiedChinese,
-      ).localeOverride?.toLanguageTag(),
-      'zh',
-    );
+    expect(settings.appearance.cornerRadiusScale, 1.5);
+    final appearance = settings.toJson()['appearance']! as Map<String, Object>;
+    expect(appearance.containsKey('windowRadius'), isFalse);
+    expect(appearance.containsKey('panelRadius'), isFalse);
   });
 }

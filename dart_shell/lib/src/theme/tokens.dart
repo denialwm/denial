@@ -48,15 +48,30 @@ abstract final class ShellTelemetryColors {
 /// Default opacity for the shell's frosted surfaces.
 abstract final class ShellOpacity {
   static const double panel = 0.75;
+  static const double card = 0.95;
+  static const double minimumPanel = 0.05;
+  static const double minimumCard = 0;
 }
 
-/// Corner radii used throughout the shell.
+/// Global scale applied to every semantic shell corner radius.
+///
+/// A scale keeps the visual hierarchy between windows, panels, cards, chips,
+/// and controls while giving users one coherent roundness control. A value of
+/// zero makes every themed corner square.
+abstract final class ShellRoundness {
+  static const double normal = 1.0;
+  static const double minimum = 0.0;
+  static const double maximum = 2.0;
+}
+
+/// Base corner radii used throughout the shell at normal roundness.
 abstract final class ShellRadii {
-  static const double window = 8.0;
+  /// Windows and panels are peer top-level surfaces and must share one shape.
+  static const double panel = 28.0;
+  static const double window = panel;
   static const double notification = 18.0;
   static const double tile = 24.0;
   static const double tileWide = 24.0;
-  static const double panel = 28.0;
   static const double chip = 21.0;
   static const double roundButton = 21.0;
 }

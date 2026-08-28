@@ -380,7 +380,7 @@ class _WorkspaceSetupPanel extends StatelessWidget {
           const SizedBox(height: 10),
           LinearProgressIndicator(
             minHeight: 4,
-            borderRadius: BorderRadius.circular(99),
+            borderRadius: context.shellTheme.borderRadius(99),
             color: ShellTheme.of(context).accent,
             backgroundColor: context.shellColors.surfaceContainerHighest,
           ),
@@ -440,15 +440,15 @@ class _WorkspaceField extends StatelessWidget {
               vertical: 12,
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(ShellRadii.chip),
+              borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
               borderSide: BorderSide(color: context.shellColors.hairline),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(ShellRadii.chip),
+              borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
               borderSide: BorderSide(color: accent),
             ),
             disabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(ShellRadii.chip),
+              borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
               borderSide: BorderSide(color: context.shellColors.hairlineSoft),
             ),
           ),
@@ -510,7 +510,7 @@ class _RuntimeSummary extends StatelessWidget {
           LinearProgressIndicator(
             value: progress,
             minHeight: 4,
-            borderRadius: BorderRadius.circular(99),
+            borderRadius: context.shellTheme.borderRadius(99),
             color: ShellTheme.of(context).accent,
             backgroundColor: context.shellColors.surfaceContainerHighest,
           ),
@@ -530,7 +530,7 @@ class _WarningBanner extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: context.shellColors.performanceWarning.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: context.shellTheme.borderRadius(12),
         border: Border.all(
           color: context.shellColors.performanceWarning.withValues(alpha: 0.28),
         ),

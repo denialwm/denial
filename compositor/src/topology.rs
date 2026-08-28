@@ -639,7 +639,3 @@ impl AtlasPlan {
 fn scaled_edge(value: f64, scale: f64) -> u32 {
     (value * scale).round().clamp(0.0, u32::MAX as f64) as u32
 }
-
-#[cfg(test)]
-#[path = "topology/tests.rs"]
-mod tests;

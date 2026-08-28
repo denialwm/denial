@@ -5,6 +5,15 @@ import '../../models/shell_popup_placement.dart';
 import '../shell_settings.dart';
 import 'settings_controls.dart';
 
+Key settingsHoverTriggerToggleKey(ShellOverlaySurface surface) =>
+    ValueKey<String>('settings-${surface.name}-hover-trigger-toggle');
+
+Key settingsOverlayHeightSliderKey(ShellOverlaySurface surface) =>
+    ValueKey<String>('settings-${surface.name}-height-slider');
+
+Key settingsEdgeDistanceSliderKey(ShellOverlaySurface surface) =>
+    ValueKey<String>('settings-${surface.name}-edge-distance-slider');
+
 class SettingsOverlaysPage extends StatelessWidget {
   const SettingsOverlaysPage({
     required this.settings,
@@ -38,7 +47,8 @@ class SettingsOverlaysPage extends StatelessWidget {
               placement: settings.launcher,
               onChanged: onChanged,
               minimumWidth: 420,
-              minimumHeight: 360,
+              minimumHeight: launcherOverlayMinimumHeight,
+              showHoverTrigger: true,
             ),
             _PlacementEditor(
               title: l10n.settingsDashboardOverlayTitle,
@@ -47,6 +57,7 @@ class SettingsOverlaysPage extends StatelessWidget {
               onChanged: onChanged,
               minimumWidth: 320,
               minimumHeight: 360,
+              showHoverTrigger: true,
             ),
             _PlacementEditor(
               title: l10n.settingsNotificationOverlayTitle,
@@ -82,6 +93,7 @@ class _PlacementEditor extends StatelessWidget {
     required this.minimumWidth,
     required this.minimumHeight,
     this.showHeight = true,
+    this.showHoverTrigger = false,
   });
 
   final String title;
@@ -95,6 +107,7 @@ class _PlacementEditor extends StatelessWidget {
   final double minimumWidth;
   final double minimumHeight;
   final bool showHeight;
+  final bool showHoverTrigger;
 
   @override
   Widget build(BuildContext context) {
@@ -108,6 +121,20 @@ class _PlacementEditor extends StatelessWidget {
           final controls = Expanded(
             child: Column(
               children: [
+                if (showHoverTrigger) ...[
+                  SettingsToggle(
+                    key: settingsHoverTriggerToggleKey(surface),
+                    label: l10n.settingsHoverTrigger,
+                    description: l10n.settingsHoverTriggerDescription,
+                    value:
+                        placement.hoverTriggerEnabled &&
+                        placement.anchor != ShellPopupAnchor.center,
+                    enabled: placement.anchor != ShellPopupAnchor.center,
+                    onChanged: (value) =>
+                        update(placement.copyWith(hoverTriggerEnabled: value)),
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 SettingsSlider(
                   label: l10n.settingsWidth,
                   value: placement.width,
@@ -121,6 +148,7 @@ class _PlacementEditor extends StatelessWidget {
                 if (showHeight) ...[
                   const SizedBox(height: 6),
                   SettingsSlider(
+                    key: settingsOverlayHeightSliderKey(surface),
                     label: l10n.settingsHeight,
                     value: placement.height,
                     minimum: minimumHeight,
@@ -133,12 +161,14 @@ class _PlacementEditor extends StatelessWidget {
                 ],
                 const SizedBox(height: 6),
                 SettingsSlider(
+                  key: settingsEdgeDistanceSliderKey(surface),
                   label: l10n.settingsEdgeDistance,
                   value: placement.margin,
                   minimum: 0,
                   maximum: 96,
                   divisions: 48,
                   valueLabel: l10n.settingsPixels(placement.margin.round()),
+                  enabled: placement.anchor != ShellPopupAnchor.center,
                   onChanged: (value) =>
                       update(placement.copyWith(margin: value)),
                 ),

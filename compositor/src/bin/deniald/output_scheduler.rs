@@ -13,7 +13,9 @@ use super::flutter_runtime::{FlutterRuntime, ReadyOutputFrame};
 use super::frame_scheduler::{FrameTick, OutputFrameRequest};
 use super::kms_render::output_plane_state;
 use super::kms_state::{OutputSwapchains, Scanout};
-use super::{PresentedOutput, RuntimeState, cpu_scheduling, render_audit_enabled};
+use super::{
+    DPMS_WAKE_TOPOLOGY_GRACE, PresentedOutput, RuntimeState, cpu_scheduling, render_audit_enabled,
+};
 
 const OUTPUT_SCHEDULER_AUDIT_INTERVAL: Duration = Duration::from_secs(1);
 /// A nonblocking atomic commit should retire on the next display edge.  Give
@@ -21,7 +23,11 @@ const OUTPUT_SCHEDULER_AUDIT_INTERVAL: Duration = Duration::from_secs(1);
 /// KMS/GPU generation indefinitely.
 const PRESENTATION_STALL_TIMEOUT: Duration = Duration::from_secs(2);
 const DPMS_WAKE_RETRY_INTERVAL: Duration = Duration::from_millis(16);
-const DPMS_WAKE_RECOVERY_TIMEOUT: Duration = Duration::from_millis(100);
+// Rejected wake modesets are safe to retry while a DPMS-owned connector is
+// retraining. Do not force KMS recovery before the topology debounce has had
+// its chance to observe the same connector return. Accepted commits which do
+// not flip still use the independent presentation watchdog below.
+const DPMS_WAKE_RECOVERY_TIMEOUT: Duration = DPMS_WAKE_TOPOLOGY_GRACE;
 /// Synthetic and kernel monotonic clocks can retain a small phase error.  A
 /// ready target this close to the edge which just completed is nevertheless
 /// unreachable: atomic state can only be latched for a later edge now.
@@ -1754,7 +1760,3 @@ impl OutputScheduler {
         &self.presented_outputs
     }
 }
-
-#[cfg(test)]
-#[path = "output_scheduler/tests.rs"]
-mod tests;

@@ -19,13 +19,20 @@ pub(super) fn synchronize_flutter_window_management(
                 .as_mut()
                 .map(wayland_frontend::WaylandFrontend::create_launch_activation_token);
             let result = match target {
-                native_shortcut::ShortcutTarget::Spawn { command } => {
-                    runtime.start_shortcut_application(command, false, activation_token.as_deref())
-                }
+                native_shortcut::ShortcutTarget::Spawn {
+                    command,
+                    desktop_file_id,
+                } => runtime.start_shortcut_application(
+                    command,
+                    false,
+                    desktop_file_id.as_deref(),
+                    activation_token.as_deref(),
+                ),
                 native_shortcut::ShortcutTarget::SpawnSh { command } => runtime
                     .start_shortcut_application(
                         vec!["sh".to_owned(), "-c".to_owned(), command],
                         true,
+                        None,
                         activation_token.as_deref(),
                     ),
                 native_shortcut::ShortcutTarget::DenialAction { .. } => continue,
@@ -141,10 +148,18 @@ pub(super) fn synchronize_settings(
                         .wayland
                         .as_mut()
                         .ok_or("settings request has no Wayland frontend")?;
-                    frontend
+                    let previous_cursor_policy = frontend.settings.allow_client_cursor_surfaces();
+                    let result = frontend
                         .settings
                         .prepare_shell_update(expected_revision, &document)
-                        .and_then(|prepared| frontend.settings.commit(prepared))
+                        .and_then(|prepared| frontend.settings.commit(prepared));
+                    if result.is_ok()
+                        && previous_cursor_policy
+                            != frontend.settings.allow_client_cursor_surfaces()
+                    {
+                        frontend.queue_cursor_policy_update();
+                    }
+                    result
                 };
                 let (revision, document) = {
                     let frontend = events.wayland.as_mut().expect("missing Wayland frontend");
@@ -550,6 +565,8 @@ fn synchronize_control_settings(
                         )
                     })
                     .and_then(|frontend| {
+                        let previous_cursor_policy =
+                            frontend.settings.allow_client_cursor_surfaces();
                         frontend
                             .settings
                             .prepare_shell_update(expected_revision, &document)
@@ -557,6 +574,11 @@ fn synchronize_control_settings(
                             .map_err(|error| {
                                 OutputControlFailure::new("conflict", error.to_string())
                             })?;
+                        if previous_cursor_policy
+                            != frontend.settings.allow_client_cursor_surfaces()
+                        {
+                            frontend.queue_cursor_policy_update();
+                        }
                         frontend.keyboard_configuration_changed = true;
                         frontend
                             .settings

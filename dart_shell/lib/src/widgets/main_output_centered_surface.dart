@@ -49,7 +49,7 @@ class MainOutputCenteredSurface extends ConsumerWidget {
                   behavior: HitTestBehavior.opaque,
                   onTap: () {},
                   child: ShellBackdropBlur(
-                    blur: theme.panelOpacity < 1.0,
+                    blur: theme.effectivePanelOpacity < 1.0,
                     borderRadius: BorderRadius.circular(theme.panelRadius),
                     child: builder(context, constraints),
                   ),

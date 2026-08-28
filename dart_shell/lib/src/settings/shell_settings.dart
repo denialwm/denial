@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -38,6 +39,7 @@ enum ClipboardTrayEdge { left, right, top, bottom }
 const double clipboardTrayMinimumExtent = 100;
 const double clipboardTrayMaximumExtent = 300;
 const double clipboardTrayDefaultExtent = 250;
+const double launcherOverlayMinimumHeight = 200;
 
 enum ShellLocalePreference { system, english, simplifiedChinese }
 
@@ -72,60 +74,74 @@ class ShellAppearanceSettings {
     this.colorSchemePreference = DesktopColorSchemePreference.preferDark,
     this.accentSource = ShellAccentSource.wallpaper,
     this.customAccentColor = ShellBrandColors.defaultAccent,
-    this.windowRadius = ShellRadii.window,
-    this.panelRadius = ShellRadii.panel,
+    this.cornerRadiusScale = ShellRoundness.normal,
     this.panelOpacity = ShellOpacity.panel,
+    this.cardOpacity = ShellOpacity.card,
     this.backdropBlurEnabled = true,
     this.backdropBlurLevel = ShellBackdropBlurLevel.fast,
-    this.backdropBlurOpacityThreshold = 0.05,
+    this.backdropBlurOpacityThreshold = 0.2,
+    this.focusedWindowBorderEnabled = true,
     this.focusedWindowOpacity = 1,
     this.unfocusedWindowOpacity = 1,
     this.cursorSize = shellCursorDefaultSize,
+    this.cursorThemeId = 'bibata_modern_ice',
+    this.allowClientCursorSurfaces = true,
   });
 
   final DesktopColorSchemePreference colorSchemePreference;
   final ShellAccentSource accentSource;
   final Color customAccentColor;
-  final double windowRadius;
-  final double panelRadius;
+  final double cornerRadiusScale;
   final double panelOpacity;
+  final double cardOpacity;
   final bool backdropBlurEnabled;
   final ShellBackdropBlurLevel backdropBlurLevel;
   final double backdropBlurOpacityThreshold;
+  final bool focusedWindowBorderEnabled;
   final double focusedWindowOpacity;
   final double unfocusedWindowOpacity;
   final double cursorSize;
+  final String cursorThemeId;
+  final bool allowClientCursorSurfaces;
 
   ShellAppearanceSettings copyWith({
     DesktopColorSchemePreference? colorSchemePreference,
     ShellAccentSource? accentSource,
     Color? customAccentColor,
-    double? windowRadius,
-    double? panelRadius,
+    double? cornerRadiusScale,
     double? panelOpacity,
+    double? cardOpacity,
     bool? backdropBlurEnabled,
     ShellBackdropBlurLevel? backdropBlurLevel,
     double? backdropBlurOpacityThreshold,
+    bool? focusedWindowBorderEnabled,
     double? focusedWindowOpacity,
     double? unfocusedWindowOpacity,
     double? cursorSize,
+    String? cursorThemeId,
+    bool? allowClientCursorSurfaces,
   }) {
     return ShellAppearanceSettings(
       colorSchemePreference:
           colorSchemePreference ?? this.colorSchemePreference,
       accentSource: accentSource ?? this.accentSource,
       customAccentColor: customAccentColor ?? this.customAccentColor,
-      windowRadius: windowRadius ?? this.windowRadius,
-      panelRadius: panelRadius ?? this.panelRadius,
+      cornerRadiusScale: cornerRadiusScale ?? this.cornerRadiusScale,
       panelOpacity: panelOpacity ?? this.panelOpacity,
+      cardOpacity: cardOpacity ?? this.cardOpacity,
       backdropBlurEnabled: backdropBlurEnabled ?? this.backdropBlurEnabled,
       backdropBlurLevel: backdropBlurLevel ?? this.backdropBlurLevel,
       backdropBlurOpacityThreshold:
           backdropBlurOpacityThreshold ?? this.backdropBlurOpacityThreshold,
+      focusedWindowBorderEnabled:
+          focusedWindowBorderEnabled ?? this.focusedWindowBorderEnabled,
       focusedWindowOpacity: focusedWindowOpacity ?? this.focusedWindowOpacity,
       unfocusedWindowOpacity:
           unfocusedWindowOpacity ?? this.unfocusedWindowOpacity,
       cursorSize: cursorSize ?? this.cursorSize,
+      cursorThemeId: cursorThemeId ?? this.cursorThemeId,
+      allowClientCursorSurfaces:
+          allowClientCursorSurfaces ?? this.allowClientCursorSurfaces,
     );
   }
 
@@ -135,15 +151,18 @@ class ShellAppearanceSettings {
         other.colorSchemePreference == colorSchemePreference &&
         other.accentSource == accentSource &&
         other.customAccentColor == customAccentColor &&
-        other.windowRadius == windowRadius &&
-        other.panelRadius == panelRadius &&
+        other.cornerRadiusScale == cornerRadiusScale &&
         other.panelOpacity == panelOpacity &&
+        other.cardOpacity == cardOpacity &&
         other.backdropBlurEnabled == backdropBlurEnabled &&
         other.backdropBlurLevel == backdropBlurLevel &&
         other.backdropBlurOpacityThreshold == backdropBlurOpacityThreshold &&
+        other.focusedWindowBorderEnabled == focusedWindowBorderEnabled &&
         other.focusedWindowOpacity == focusedWindowOpacity &&
         other.unfocusedWindowOpacity == unfocusedWindowOpacity &&
-        other.cursorSize == cursorSize;
+        other.cursorSize == cursorSize &&
+        other.cursorThemeId == cursorThemeId &&
+        other.allowClientCursorSurfaces == allowClientCursorSurfaces;
   }
 
   @override
@@ -151,15 +170,18 @@ class ShellAppearanceSettings {
     colorSchemePreference,
     accentSource,
     customAccentColor,
-    windowRadius,
-    panelRadius,
+    cornerRadiusScale,
     panelOpacity,
+    cardOpacity,
     backdropBlurEnabled,
     backdropBlurLevel,
     backdropBlurOpacityThreshold,
+    focusedWindowBorderEnabled,
     focusedWindowOpacity,
     unfocusedWindowOpacity,
     cursorSize,
+    cursorThemeId,
+    allowClientCursorSurfaces,
   );
 }
 
@@ -434,6 +456,257 @@ class ShellPowerSettings {
   int get hashCode => Object.hash(idleDpmsEnabled, idleDpmsTimeoutMinutes);
 }
 
+const int applicationEnvironmentMaximumNameBytes = 256;
+const int applicationEnvironmentMaximumValueBytes = 16 * 1024;
+const int applicationEnvironmentMaximumDesktopFileIdBytes = 4096;
+
+bool isValidApplicationEnvironmentVariableName(String name) {
+  if (name.isEmpty ||
+      utf8.encode(name).length > applicationEnvironmentMaximumNameBytes) {
+    return false;
+  }
+  final first = name.codeUnitAt(0);
+  if (first != 0x5f &&
+      !(first >= 0x41 && first <= 0x5a) &&
+      !(first >= 0x61 && first <= 0x7a)) {
+    return false;
+  }
+  for (var index = 1; index < name.length; index += 1) {
+    final codeUnit = name.codeUnitAt(index);
+    if (codeUnit != 0x5f &&
+        !(codeUnit >= 0x30 && codeUnit <= 0x39) &&
+        !(codeUnit >= 0x41 && codeUnit <= 0x5a) &&
+        !(codeUnit >= 0x61 && codeUnit <= 0x7a)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool isValidApplicationEnvironmentDesktopFileId(String desktopFileId) {
+  return desktopFileId.isNotEmpty &&
+      desktopFileId.endsWith('.desktop') &&
+      !desktopFileId.contains('/') &&
+      !desktopFileId.contains('\u0000') &&
+      utf8.encode(desktopFileId).length <=
+          applicationEnvironmentMaximumDesktopFileIdBytes;
+}
+
+@immutable
+class ShellApplicationEnvironmentSettings {
+  const ShellApplicationEnvironmentSettings({
+    this.variables = const <String, String?>{},
+    this.applications = const <String, Map<String, String?>>{},
+  });
+
+  /// Overrides applied to every application launched directly by Denial.
+  final Map<String, String?> variables;
+  final Map<String, Map<String, String?>> applications;
+
+  Map<String, String?> variablesFor(String? desktopFileId) {
+    if (desktopFileId == null) {
+      return variables;
+    }
+    return applications[desktopFileId] ?? const <String, String?>{};
+  }
+
+  ShellApplicationEnvironmentSettings withOverride(
+    String name,
+    String? value, {
+    String? desktopFileId,
+  }) {
+    if (!isValidApplicationEnvironmentVariableName(name)) {
+      throw ArgumentError.value(name, 'name', 'invalid environment variable');
+    }
+    if (value != null &&
+        utf8.encode(value).length > applicationEnvironmentMaximumValueBytes) {
+      throw ArgumentError.value(
+        value,
+        'value',
+        'environment value is too long',
+      );
+    }
+    if (desktopFileId != null &&
+        !isValidApplicationEnvironmentDesktopFileId(desktopFileId)) {
+      throw ArgumentError.value(
+        desktopFileId,
+        'desktopFileId',
+        'invalid desktop-file ID',
+      );
+    }
+    if (desktopFileId != null) {
+      final scoped = <String, String?>{
+        ...variablesFor(desktopFileId),
+        name: value,
+      };
+      return ShellApplicationEnvironmentSettings(
+        variables: variables,
+        applications: _immutableApplicationEnvironmentMaps(
+          <String, Map<String, String?>>{
+            ...applications,
+            desktopFileId: scoped,
+          },
+        ),
+      );
+    }
+    return ShellApplicationEnvironmentSettings(
+      variables: Map<String, String?>.unmodifiable(<String, String?>{
+        ...variables,
+        name: value,
+      }),
+      applications: applications,
+    );
+  }
+
+  ShellApplicationEnvironmentSettings withoutOverride(
+    String name, {
+    String? desktopFileId,
+  }) {
+    final scoped = variablesFor(desktopFileId);
+    if (!scoped.containsKey(name)) {
+      return this;
+    }
+    final next = Map<String, String?>.of(scoped)..remove(name);
+    if (desktopFileId != null) {
+      final applicationMaps = <String, Map<String, String?>>{...applications};
+      if (next.isEmpty) {
+        applicationMaps.remove(desktopFileId);
+      } else {
+        applicationMaps[desktopFileId] = next;
+      }
+      return ShellApplicationEnvironmentSettings(
+        variables: variables,
+        applications: _immutableApplicationEnvironmentMaps(applicationMaps),
+      );
+    }
+    return ShellApplicationEnvironmentSettings(
+      variables: Map<String, String?>.unmodifiable(next),
+      applications: applications,
+    );
+  }
+
+  ShellApplicationEnvironmentSettings withoutApplication(String desktopFileId) {
+    if (!applications.containsKey(desktopFileId)) {
+      return this;
+    }
+    return ShellApplicationEnvironmentSettings(
+      variables: variables,
+      applications: _immutableApplicationEnvironmentMaps(
+        <String, Map<String, String?>>{...applications}..remove(desktopFileId),
+      ),
+    );
+  }
+
+  factory ShellApplicationEnvironmentSettings.fromJson(Object? value) {
+    final json = _map(value);
+    if (json.values.every((value) => value == null || value is String)) {
+      return ShellApplicationEnvironmentSettings(
+        variables: _parseApplicationEnvironmentVariables(json),
+      );
+    }
+    final variables = _parseApplicationEnvironmentVariables(json['default']);
+    final applications = <String, Map<String, String?>>{};
+    for (final entry in _map(json['applications']).entries) {
+      if (!isValidApplicationEnvironmentDesktopFileId(entry.key)) {
+        continue;
+      }
+      applications[entry.key] = _parseApplicationEnvironmentVariables(
+        entry.value,
+      );
+    }
+    return ShellApplicationEnvironmentSettings(
+      variables: variables,
+      applications: _immutableApplicationEnvironmentMaps(applications),
+    );
+  }
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'default': <String, Object?>{
+      for (final entry in variables.entries) entry.key: entry.value,
+    },
+    'applications': <String, Object?>{
+      for (final application in applications.entries)
+        application.key: <String, Object?>{
+          for (final entry in application.value.entries) entry.key: entry.value,
+        },
+    },
+  };
+
+  @override
+  bool operator ==(Object other) {
+    return other is ShellApplicationEnvironmentSettings &&
+        mapEquals(other.variables, variables) &&
+        _applicationEnvironmentMapsEqual(other.applications, applications);
+  }
+
+  @override
+  int get hashCode {
+    final defaultEntries = variables.entries.toList(growable: false)
+      ..sort((first, second) => first.key.compareTo(second.key));
+    final applicationEntries = applications.entries.toList(growable: false)
+      ..sort((first, second) => first.key.compareTo(second.key));
+    return Object.hash(
+      Object.hashAll(
+        defaultEntries.map((entry) => Object.hash(entry.key, entry.value)),
+      ),
+      Object.hashAll(
+        applicationEntries.map((application) {
+          final entries = application.value.entries.toList(growable: false)
+            ..sort((first, second) => first.key.compareTo(second.key));
+          return Object.hash(
+            application.key,
+            Object.hashAll(
+              entries.map((entry) => Object.hash(entry.key, entry.value)),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+}
+
+Map<String, String?> _parseApplicationEnvironmentVariables(Object? value) {
+  final variables = <String, String?>{};
+  for (final entry in _map(value).entries) {
+    if (isValidApplicationEnvironmentVariableName(entry.key) &&
+        (entry.value == null || entry.value is String)) {
+      final stringValue = entry.value as String?;
+      if (stringValue == null ||
+          utf8.encode(stringValue).length <=
+              applicationEnvironmentMaximumValueBytes) {
+        variables[entry.key] = stringValue;
+      }
+    }
+  }
+  return Map<String, String?>.unmodifiable(variables);
+}
+
+Map<String, Map<String, String?>> _immutableApplicationEnvironmentMaps(
+  Map<String, Map<String, String?>> applications,
+) {
+  return Map<String, Map<String, String?>>.unmodifiable(
+    <String, Map<String, String?>>{
+      for (final entry in applications.entries)
+        entry.key: Map<String, String?>.unmodifiable(entry.value),
+    },
+  );
+}
+
+bool _applicationEnvironmentMapsEqual(
+  Map<String, Map<String, String?>> first,
+  Map<String, Map<String, String?>> second,
+) {
+  if (first.length != second.length) {
+    return false;
+  }
+  for (final entry in first.entries) {
+    if (!mapEquals(entry.value, second[entry.key])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 @immutable
 class ShellSettings {
   const ShellSettings({
@@ -444,11 +717,12 @@ class ShellSettings {
     this.animations = const ShellAnimationSettings(),
     this.lockScreen = const ShellLockScreenSettings(),
     this.power = const ShellPowerSettings(),
+    this.applicationEnvironment = const ShellApplicationEnvironmentSettings(),
   });
 
   // Blur levels are additive in schema 9. Keep emitting the derived legacy
   // sigma so older shells can read settings written by this version.
-  static const int schemaVersion = 10;
+  static const int schemaVersion = 15;
 
   final ShellLocalizationSettings localization;
   final ShellAppearanceSettings appearance;
@@ -457,6 +731,7 @@ class ShellSettings {
   final ShellAnimationSettings animations;
   final ShellLockScreenSettings lockScreen;
   final ShellPowerSettings power;
+  final ShellApplicationEnvironmentSettings applicationEnvironment;
 
   ShellSettings copyWith({
     ShellLocalizationSettings? localization,
@@ -466,6 +741,7 @@ class ShellSettings {
     ShellAnimationSettings? animations,
     ShellLockScreenSettings? lockScreen,
     ShellPowerSettings? power,
+    ShellApplicationEnvironmentSettings? applicationEnvironment,
   }) {
     return ShellSettings(
       localization: localization ?? this.localization,
@@ -475,6 +751,8 @@ class ShellSettings {
       animations: animations ?? this.animations,
       lockScreen: lockScreen ?? this.lockScreen,
       power: power ?? this.power,
+      applicationEnvironment:
+          applicationEnvironment ?? this.applicationEnvironment,
     );
   }
 
@@ -508,14 +786,14 @@ class ShellSettings {
       if (appearance.customAccentColor != before.customAccentColor) {
         section['customAccentColor'] = appearance.customAccentColor.toARGB32();
       }
-      if (appearance.windowRadius != before.windowRadius) {
-        section['windowRadius'] = appearance.windowRadius;
-      }
-      if (appearance.panelRadius != before.panelRadius) {
-        section['panelRadius'] = appearance.panelRadius;
+      if (appearance.cornerRadiusScale != before.cornerRadiusScale) {
+        section['cornerRadiusScale'] = appearance.cornerRadiusScale;
       }
       if (appearance.panelOpacity != before.panelOpacity) {
         section['panelOpacity'] = appearance.panelOpacity;
+      }
+      if (appearance.cardOpacity != before.cardOpacity) {
+        section['cardOpacity'] = appearance.cardOpacity;
       }
       if (appearance.backdropBlurEnabled != before.backdropBlurEnabled) {
         section['backdropBlurEnabled'] = appearance.backdropBlurEnabled;
@@ -526,8 +804,13 @@ class ShellSettings {
       }
       if (appearance.backdropBlurOpacityThreshold !=
           before.backdropBlurOpacityThreshold) {
-        section['backdropBlurOpacityThreshold'] =
+        section['backdropBlurPixelOpacityThreshold'] =
             appearance.backdropBlurOpacityThreshold;
+      }
+      if (appearance.focusedWindowBorderEnabled !=
+          before.focusedWindowBorderEnabled) {
+        section['focusedWindowBorderEnabled'] =
+            appearance.focusedWindowBorderEnabled;
       }
       if (appearance.focusedWindowOpacity != before.focusedWindowOpacity) {
         section['focusedWindowOpacity'] = appearance.focusedWindowOpacity;
@@ -537,6 +820,14 @@ class ShellSettings {
       }
       if (appearance.cursorSize != before.cursorSize) {
         section['cursorSize'] = appearance.cursorSize;
+      }
+      if (appearance.cursorThemeId != before.cursorThemeId) {
+        section['cursorThemeId'] = appearance.cursorThemeId;
+      }
+      if (appearance.allowClientCursorSurfaces !=
+          before.allowClientCursorSurfaces) {
+        section['allowClientCursorSurfaces'] =
+            appearance.allowClientCursorSurfaces;
       }
       patch['appearance'] = section;
     }
@@ -637,6 +928,12 @@ class ShellSettings {
       patch['power'] = section;
     }
 
+    if (applicationEnvironment != previous.applicationEnvironment) {
+      // This section is a complete desired map: absence means delete the
+      // override, so it must never be recursively merged with an older map.
+      patch['applicationEnvironment'] = applicationEnvironment.toJson();
+    }
+
     return patch;
   }
 
@@ -648,16 +945,20 @@ class ShellSettings {
         'colorSchemePreference': appearance.colorSchemePreference.name,
         'accentSource': appearance.accentSource.name,
         'customAccentColor': appearance.customAccentColor.toARGB32(),
-        'windowRadius': appearance.windowRadius,
-        'panelRadius': appearance.panelRadius,
+        'cornerRadiusScale': appearance.cornerRadiusScale,
         'panelOpacity': appearance.panelOpacity,
+        'cardOpacity': appearance.cardOpacity,
         'backdropBlurEnabled': appearance.backdropBlurEnabled,
         'backdropBlurLevel': appearance.backdropBlurLevel.name,
         'backdropBlurSigma': appearance.backdropBlurLevel.sigma,
-        'backdropBlurOpacityThreshold': appearance.backdropBlurOpacityThreshold,
+        'backdropBlurPixelOpacityThreshold':
+            appearance.backdropBlurOpacityThreshold,
+        'focusedWindowBorderEnabled': appearance.focusedWindowBorderEnabled,
         'focusedWindowOpacity': appearance.focusedWindowOpacity,
         'unfocusedWindowOpacity': appearance.unfocusedWindowOpacity,
         'cursorSize': appearance.cursorSize,
+        'cursorThemeId': appearance.cursorThemeId,
+        'allowClientCursorSurfaces': appearance.allowClientCursorSurfaces,
       },
       'layout': <String, Object>{
         if (layout.systemBarSide case final side?) 'systemBarSide': side.name,
@@ -690,6 +991,7 @@ class ShellSettings {
         'idleDpmsEnabled': power.idleDpmsEnabled,
         'idleDpmsTimeoutMinutes': power.idleDpmsTimeoutMinutes,
       },
+      'applicationEnvironment': applicationEnvironment.toJson(),
     };
   }
 
@@ -702,10 +1004,47 @@ class ShellSettings {
     final animationsJson = _map(json['animations']);
     final lockJson = _map(json['lockScreen']);
     final powerJson = _map(json['power']);
-    final outputNames = <String>[
-      for (final value in _list(layoutJson['systemBarOutputs']))
-        if (value is String && value.trim().isNotEmpty) value.trim(),
-    ];
+    final legacyHoverTriggersEnabled = overlaysJson['hoverTriggersEnabled'];
+    final launcherFallback = legacyHoverTriggersEnabled is bool
+        ? defaults.overlays.launcher.copyWith(
+            hoverTriggerEnabled: legacyHoverTriggersEnabled,
+          )
+        : defaults.overlays.launcher;
+    final dashboardFallback = legacyHoverTriggersEnabled is bool
+        ? defaults.overlays.dashboard.copyWith(
+            hoverTriggerEnabled: legacyHoverTriggersEnabled,
+          )
+        : defaults.overlays.dashboard;
+    var legacyCornerRadiusScale = defaults.appearance.cornerRadiusScale;
+    if (appearanceJson.containsKey('panelRadius')) {
+      legacyCornerRadiusScale =
+          _number(
+            appearanceJson['panelRadius'],
+            ShellRadii.panel,
+            0,
+            ShellRadii.panel * ShellRoundness.maximum,
+          ) /
+          ShellRadii.panel;
+    } else if (appearanceJson.containsKey('windowRadius')) {
+      legacyCornerRadiusScale =
+          _number(
+            appearanceJson['windowRadius'],
+            ShellRadii.window,
+            0,
+            ShellRadii.window * ShellRoundness.maximum,
+          ) /
+          ShellRadii.window;
+    }
+    final outputNames = <String>[];
+    for (final value in _list(layoutJson['systemBarOutputs'])) {
+      if (value is! String) {
+        continue;
+      }
+      final outputName = value.trim();
+      if (outputName.isNotEmpty) {
+        outputNames.add(outputName);
+      }
+    }
     return ShellSettings(
       localization: ShellLocalizationSettings(
         locale: _enumValue(
@@ -729,22 +1068,22 @@ class ShellSettings {
           appearanceJson['customAccentColor'],
           defaults.appearance.customAccentColor,
         ),
-        windowRadius: _number(
-          appearanceJson['windowRadius'],
-          defaults.appearance.windowRadius,
-          0,
-          48,
-        ),
-        panelRadius: _number(
-          appearanceJson['panelRadius'],
-          defaults.appearance.panelRadius,
-          0,
-          56,
+        cornerRadiusScale: _number(
+          appearanceJson['cornerRadiusScale'],
+          legacyCornerRadiusScale,
+          ShellRoundness.minimum,
+          ShellRoundness.maximum,
         ),
         panelOpacity: _number(
           appearanceJson['panelOpacity'],
           defaults.appearance.panelOpacity,
-          0.35,
+          ShellOpacity.minimumPanel,
+          1,
+        ),
+        cardOpacity: _number(
+          appearanceJson['cardOpacity'],
+          defaults.appearance.cardOpacity,
+          ShellOpacity.minimumCard,
           1,
         ),
         backdropBlurEnabled: appearanceJson['backdropBlurEnabled'] is bool
@@ -756,11 +1095,15 @@ class ShellSettings {
           defaults.appearance.backdropBlurLevel,
         ),
         backdropBlurOpacityThreshold: _number(
-          appearanceJson['backdropBlurOpacityThreshold'],
+          appearanceJson['backdropBlurPixelOpacityThreshold'],
           defaults.appearance.backdropBlurOpacityThreshold,
           0,
           1,
         ),
+        focusedWindowBorderEnabled:
+            appearanceJson['focusedWindowBorderEnabled'] is bool
+            ? appearanceJson['focusedWindowBorderEnabled'] as bool
+            : defaults.appearance.focusedWindowBorderEnabled,
         focusedWindowOpacity: _number(
           appearanceJson['focusedWindowOpacity'],
           defaults.appearance.focusedWindowOpacity,
@@ -779,6 +1122,14 @@ class ShellSettings {
           shellCursorMinimumSize,
           shellCursorMaximumSize,
         ),
+        cursorThemeId: _cursorThemeId(
+          appearanceJson['cursorThemeId'],
+          defaults.appearance.cursorThemeId,
+        ),
+        allowClientCursorSurfaces:
+            appearanceJson['allowClientCursorSurfaces'] is bool
+            ? appearanceJson['allowClientCursorSurfaces'] as bool
+            : defaults.appearance.allowClientCursorSurfaces,
       ),
       layout: ShellLayoutSettings(
         systemBarSide: _nullableEnumValue(
@@ -813,13 +1164,13 @@ class ShellSettings {
       overlays: ShellOverlaySettings(
         launcher: _placement(
           overlaysJson['launcher'],
-          defaults.overlays.launcher,
+          launcherFallback,
           minWidth: 420,
-          minHeight: 360,
+          minHeight: launcherOverlayMinimumHeight,
         ),
         dashboard: _placement(
           overlaysJson['dashboard'],
-          defaults.overlays.dashboard,
+          dashboardFallback,
           minWidth: 320,
           minHeight: 360,
         ),
@@ -895,6 +1246,9 @@ class ShellSettings {
           ShellPowerSettings.maximumIdleDpmsMinutes,
         ),
       ),
+      applicationEnvironment: ShellApplicationEnvironmentSettings.fromJson(
+        json['applicationEnvironment'],
+      ),
     );
   }
 
@@ -907,7 +1261,8 @@ class ShellSettings {
         other.overlays == overlays &&
         other.animations == animations &&
         other.lockScreen == lockScreen &&
-        other.power == power;
+        other.power == power &&
+        other.applicationEnvironment == applicationEnvironment;
   }
 
   @override
@@ -919,6 +1274,7 @@ class ShellSettings {
     animations,
     lockScreen,
     power,
+    applicationEnvironment,
   );
 }
 
@@ -928,6 +1284,7 @@ Map<String, Object> _placementToJson(ShellPopupPlacement placement) {
     'width': placement.width,
     'height': placement.height,
     'margin': placement.margin,
+    'hoverTriggerEnabled': placement.hoverTriggerEnabled,
   };
 }
 
@@ -947,6 +1304,9 @@ ShellPopupPlacement _placement(
     width: _number(json['width'], fallback.width, minWidth, 1400),
     height: _number(json['height'], fallback.height, minHeight, 1200),
     margin: _number(json['margin'], fallback.margin, 0, 96),
+    hoverTriggerEnabled: json['hoverTriggerEnabled'] is bool
+        ? json['hoverTriggerEnabled'] as bool
+        : fallback.hoverTriggerEnabled,
   );
 }
 
@@ -1001,4 +1361,15 @@ int _integer(Object? value, int fallback, int minimum, int maximum) {
     return fallback;
   }
   return value.round().clamp(minimum, maximum).toInt();
+}
+
+String _cursorThemeId(Object? value, String fallback) {
+  if (value is! String) {
+    return fallback;
+  }
+  final id = value.trim();
+  if (id.isEmpty || id.length > 128 || id.contains('\u0000')) {
+    return fallback;
+  }
+  return id;
 }

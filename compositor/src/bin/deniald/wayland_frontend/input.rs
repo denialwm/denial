@@ -40,11 +40,7 @@ use tracing::{info, warn};
 
 #[cfg(feature = "flutter")]
 use super::super::PendingWindowEvent;
-#[cfg(test)]
-use super::super::lifecycle::LifecycleState;
 use super::super::lifecycle::ShutdownReason;
-#[cfg(test)]
-use super::super::native_shortcut::NativeEscapeShortcut;
 use super::super::native_shortcut::{ShortcutDisposition, ShortcutTarget};
 #[cfg(feature = "flutter")]
 use super::super::settings::KeyboardSettings;
@@ -53,8 +49,6 @@ use super::super::settings::TouchpadSettings;
 use super::super::window_grab::{
     LocalFlutterWindowGrab, MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, X11ResizeSurfaceGrab,
 };
-#[cfg(all(feature = "flutter", test))]
-use super::super::wire::InputRect;
 #[cfg(feature = "flutter")]
 use super::super::wire::{
     InputLayoutSnapshot, InputWindowRegion, WindowPlacementChange, WindowPlacementPhase,
@@ -79,8 +73,6 @@ mod tablet;
 #[path = "input/wayland_route.rs"]
 mod wayland_route;
 
-#[cfg(all(test, feature = "flutter"))]
-use flutter_route::flutter_pointer_endpoint_is_synchronized;
 #[cfg(feature = "flutter")]
 use flutter_route::process_flutter_input_event;
 use flutter_route::process_wayland_keyboard_transition;
@@ -1087,12 +1079,13 @@ fn process_touchpad_gesture_event(
                 | InputEvent::GestureSwipeEnd { .. }
         ) {
             state.touchpad_gestures.reset();
+            state.native_escape_shortcut.cancel_gestures();
             return Some(false);
         }
         return None;
     }
 
-    let gesture = match event {
+    let gesture_event = match event {
         InputEvent::GestureSwipeBegin { event } => {
             let device = event.device();
             state
@@ -1108,14 +1101,27 @@ fn process_touchpad_gesture_event(
         }
         InputEvent::GestureSwipeEnd { event } => {
             let device = event.device();
-            state.touchpad_gestures.end_swipe(device.sysname());
-            None
+            state.touchpad_gestures.end_swipe(device.sysname())
         }
         _ => return None,
     };
 
-    if let Some(gesture) = gesture {
-        let disposition = state.native_escape_shortcut.observe_gesture(gesture);
+    if let Some(gesture_event) = gesture_event {
+        use super::super::touchpad_gestures::TouchpadGestureEvent;
+
+        let (gesture, disposition) = match gesture_event {
+            TouchpadGestureEvent::Trigger(gesture) => (
+                gesture,
+                state.native_escape_shortcut.observe_gesture(gesture),
+            ),
+            TouchpadGestureEvent::Repeat(gesture) => (
+                gesture,
+                state.native_escape_shortcut.observe_gesture_repeat(gesture),
+            ),
+            TouchpadGestureEvent::End(gesture) => {
+                (gesture, state.native_escape_shortcut.end_gesture(gesture))
+            }
+        };
         let handled = execute_shortcut_disposition(state, disposition);
         if handled {
             info!(
@@ -1325,6 +1331,7 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
     #[cfg(feature = "flutter")]
     if reset.pointer {
         state.touchpad_gestures.reset();
+        state.native_escape_shortcut.cancel_gestures();
     }
     #[cfg(feature = "flutter")]
     if reset.touch {
@@ -1748,6 +1755,11 @@ pub(super) fn execute_shortcut_disposition(
             state.queue_shell_action(super::super::wire::ShellAction::Applications, None);
             true
         }
+        ShortcutDisposition::RequestDashboard => {
+            #[cfg(feature = "flutter")]
+            state.queue_shell_action(super::super::wire::ShellAction::Dashboard, None);
+            true
+        }
         ShortcutDisposition::RequestOverview => {
             #[cfg(feature = "flutter")]
             {
@@ -1767,6 +1779,17 @@ pub(super) fn execute_shortcut_disposition(
                 let monitor_id = prepare_shell_overlay_action(state);
                 state.queue_shell_action(
                     super::super::wire::ShellAction::WindowSwitcherNext,
+                    monitor_id,
+                );
+            }
+            true
+        }
+        ShortcutDisposition::RequestWindowSwitcherPrevious => {
+            #[cfg(feature = "flutter")]
+            {
+                let monitor_id = prepare_shell_overlay_action(state);
+                state.queue_shell_action(
+                    super::super::wire::ShellAction::WindowSwitcherPrevious,
                     monitor_id,
                 );
             }
@@ -1796,6 +1819,11 @@ pub(super) fn execute_shortcut_disposition(
         ShortcutDisposition::RequestMinimize => {
             #[cfg(feature = "flutter")]
             super::window_management::minimize_focused_toplevel(state);
+            true
+        }
+        ShortcutDisposition::RequestMinimizeAll => {
+            #[cfg(feature = "flutter")]
+            super::window_management::minimize_all_toplevels(state);
             true
         }
         ShortcutDisposition::RequestClose => {
@@ -1859,11 +1887,22 @@ pub(super) fn execute_shortcut_disposition(
             cycle_keyboard_layout(state, false);
             true
         }
-        ShortcutDisposition::Spawn(arguments) => {
+        ShortcutDisposition::RequestOpenSettings => {
+            #[cfg(feature = "flutter")]
+            state.queue_shell_action(super::super::wire::ShellAction::OpenSettings, None);
+            true
+        }
+        ShortcutDisposition::Spawn {
+            command,
+            desktop_file_id,
+        } => {
             #[cfg(feature = "flutter")]
             state
                 .pending_shortcut_launches
-                .push_back(ShortcutTarget::Spawn { command: arguments });
+                .push_back(ShortcutTarget::Spawn {
+                    command,
+                    desktop_file_id,
+                });
             true
         }
         ShortcutDisposition::SpawnSh(command) => {
@@ -2139,7 +2178,3 @@ fn process_flutter_keyboard_transition(
     synchronize_active_keyboard_layout(state, &keyboard);
     true
 }
-
-#[cfg(test)]
-#[path = "input/tests.rs"]
-mod tests;

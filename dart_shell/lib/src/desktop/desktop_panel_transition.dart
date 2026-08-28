@@ -54,11 +54,8 @@ class _DesktopPanelTransitionState extends State<DesktopPanelTransition>
     _controller = AnimationController(
       vsync: this,
       value: widget.visible ? 1.0 : 0.0,
-      duration: _scaledDuration(Motion.desktopPanelOpen, widget.durationScale),
-      reverseDuration: _scaledDuration(
-        Motion.desktopPanelClose,
-        widget.durationScale,
-      ),
+      duration: _scaledDuration(_openingDuration, widget.durationScale),
+      reverseDuration: _scaledDuration(_closingDuration, widget.durationScale),
     );
     _progress = CurvedAnimation(
       parent: _controller,
@@ -76,7 +73,8 @@ class _DesktopPanelTransitionState extends State<DesktopPanelTransition>
   @override
   void didUpdateWidget(covariant DesktopPanelTransition oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.durationScale != oldWidget.durationScale) {
+    if (widget.durationScale != oldWidget.durationScale ||
+        widget.entryDirection != oldWidget.entryDirection) {
       _updateDurations();
     }
     if (widget.visible == oldWidget.visible) {
@@ -120,11 +118,19 @@ class _DesktopPanelTransitionState extends State<DesktopPanelTransition>
     _controller
       ..duration = reduceMotion
           ? Duration.zero
-          : _scaledDuration(Motion.desktopPanelOpen, widget.durationScale)
+          : _scaledDuration(_openingDuration, widget.durationScale)
       ..reverseDuration = reduceMotion
           ? Duration.zero
-          : _scaledDuration(Motion.desktopPanelClose, widget.durationScale);
+          : _scaledDuration(_closingDuration, widget.durationScale);
   }
+
+  Duration get _openingDuration => widget.entryDirection == Offset.zero
+      ? Motion.desktopPanelFadeOpen
+      : Motion.desktopPanelOpen;
+
+  Duration get _closingDuration => widget.entryDirection == Offset.zero
+      ? Motion.desktopPanelFadeClose
+      : Motion.desktopPanelClose;
 
   @override
   void dispose() {
@@ -152,16 +158,35 @@ class _DesktopPanelTransitionState extends State<DesktopPanelTransition>
           child: LayoutBuilder(
             builder: (context, constraints) {
               final direction = widget.entryDirection;
+              final fadesInPlace = direction == Offset.zero;
               final travel = Offset(
                 direction.dx * (constraints.maxWidth + widget.entryDistance),
                 direction.dy * (constraints.maxHeight + widget.entryDistance),
               );
+              final panelRadius = BorderRadius.circular(theme.panelRadius);
+              if (fadesInPlace) {
+                return RepaintBoundary(
+                  child: AnimatedBuilder(
+                    animation: _progress,
+                    child: widget.child,
+                    builder: (context, child) => ShellBackdropBlur(
+                      // Keep the backdrop outside the opacity save-layer. The
+                      // filter strength follows that layer so both retire in
+                      // the same frame without sampling an isolated backdrop.
+                      blur: theme.effectivePanelOpacity < 1.0,
+                      strength: _progress.value,
+                      borderRadius: panelRadius,
+                      child: Opacity(opacity: _progress.value, child: child),
+                    ),
+                  ),
+                );
+              }
               return AnimatedBuilder(
                 animation: _progress,
                 child: RepaintBoundary(
                   child: ShellBackdropBlur(
-                    blur: theme.panelOpacity < 1.0,
-                    borderRadius: BorderRadius.circular(theme.panelRadius),
+                    blur: theme.effectivePanelOpacity < 1.0,
+                    borderRadius: panelRadius,
                     child: widget.child,
                   ),
                 ),

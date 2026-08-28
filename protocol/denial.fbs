@@ -76,7 +76,10 @@ enum ShellActionKind : ubyte {
   ScreenshotTextureReady = 6,
   ScreenshotDone = 7,
   ClientPointerPressed = 8,
-  Wallpaper = 9
+  Wallpaper = 9,
+  WindowSwitcherPrevious = 10,
+  OpenSettings = 11,
+  Dashboard = 12
 }
 
 enum KeyboardCommandKind : ubyte {
@@ -127,7 +130,10 @@ enum ShortcutActionKind : ubyte {
   BrightnessUp = 16,
   BrightnessDown = 17,
   NextKeyboardLayout = 18,
-  PreviousKeyboardLayout = 19
+  PreviousKeyboardLayout = 19,
+  OpenSettings = 20,
+  OpenDashboard = 21,
+  MinimizeAllWindows = 22
 }
 
 enum ShortcutInputKind : ubyte {
@@ -189,6 +195,12 @@ enum SystemBarSide : ubyte {
   Top = 2,
   Bottom = 3,
   Hidden = 4
+}
+
+enum CursorStateKind : ubyte {
+  Hidden = 0,
+  Named = 1,
+  Surface = 2
 }
 
 struct WireRect {
@@ -415,6 +427,18 @@ table CursorShape {
   shape:string;
 }
 
+// Atomic compositor-authoritative cursor artwork. Cursor position remains a
+// separate fast stream so pointer motion never republishes surface metadata.
+// A Surface state may have no layers while its root has no attached buffer;
+// receivers must render nothing in that case rather than inventing an arrow.
+table CursorState {
+  epoch:ulong;
+  kind:CursorStateKind = Hidden;
+  shape:string;
+  hotspot:WirePoint;
+  surfaces:[SurfaceLayer];
+}
+
 // Native pointer position updates that do not participate in Flutter hit
 // testing. These keep Rust authoritative while a Wayland client, an xdg-popup
 // seat grab, or drag-and-drop bypasses normal Flutter pointer routing.
@@ -472,6 +496,9 @@ table ShortcutDenialActionTarget {
 table ShortcutSpawnTarget {
   // Program followed by its exact argument vector.
   command:[string];
+  // Optional standard desktop-file ID. When present, Denial applies that
+  // application's environment scope before exec without guessing from argv.
+  desktop_file_id:string;
 }
 
 table ShortcutSpawnShTarget {
@@ -657,7 +684,8 @@ union Payload {
   TextInputState,
   XEmbedTrayEvent,
   XEmbedTrayCommand,
-  ThemeState
+  ThemeState,
+  CursorState
 }
 
 table Envelope {

@@ -129,8 +129,10 @@ class _IdleInhibitNotice extends StatelessWidget {
       excludeSemantics: true,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: context.shellColors.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(ShellRadii.chip),
+          color: context.shellTheme.cardColor(
+            context.shellColors.surfaceContainerHigh,
+          ),
+          borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
           border: Border.all(color: context.shellColors.hairlineSoft),
         ),
         child: Padding(

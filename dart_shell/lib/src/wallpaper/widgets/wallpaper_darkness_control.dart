@@ -89,7 +89,7 @@ class _WallpaperDarknessControlState extends State<WallpaperDarknessControl> {
           padding: const EdgeInsets.fromLTRB(12, 7, 8, 7),
           decoration: BoxDecoration(
             color: theme.panelColor(context.shellColors.panelBackground),
-            borderRadius: BorderRadius.circular(ShellRadii.tile),
+            borderRadius: context.shellTheme.borderRadius(ShellRadii.tile),
             border: Border.all(
               color: _focused ? accent.primary : context.shellColors.hairline,
             ),

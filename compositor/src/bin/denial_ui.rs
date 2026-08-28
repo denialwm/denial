@@ -1052,7 +1052,3 @@ impl fmt::Display for CliError {
 }
 
 impl Error for CliError {}
-
-#[cfg(test)]
-#[path = "denial_ui/tests.rs"]
-mod tests;

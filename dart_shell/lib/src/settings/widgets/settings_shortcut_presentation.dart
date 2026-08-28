@@ -4,9 +4,16 @@ import '../../localization/denial_localizations.dart';
 import '../../models/shortcut_configuration.dart';
 
 String settingsShortcutDisplay(BuildContext context, String shortcut) {
-  if (shortcut == 'ThreeFingerSwipeUp') {
-    return context.l10n.settingsShortcutGestureThreeFingerSwipeUp.toUpperCase();
-  }
+  final gesture = switch (shortcut) {
+    'ThreeFingerSwipeUp' =>
+      context.l10n.settingsShortcutGestureThreeFingerSwipeUp,
+    'ThreeFingerSwipeLeft' =>
+      context.l10n.settingsShortcutGestureThreeFingerSwipeLeft,
+    'ThreeFingerSwipeRight' =>
+      context.l10n.settingsShortcutGestureThreeFingerSwipeRight,
+    _ => null,
+  };
+  if (gesture != null) return gesture.toUpperCase();
   return shortcut
       .split('+')
       .map((part) {
@@ -27,6 +34,8 @@ String settingsShortcutActionLabel(
     DenialShortcutAction.shutdown => l10n.settingsShortcutActionShutdown,
     DenialShortcutAction.openApplications =>
       l10n.settingsShortcutActionOpenApplications,
+    DenialShortcutAction.openDashboard =>
+      l10n.settingsShortcutActionOpenDashboard,
     DenialShortcutAction.openOverview =>
       l10n.settingsShortcutActionOpenOverview,
     DenialShortcutAction.toggleVerticalMaximize =>
@@ -40,6 +49,8 @@ String settingsShortcutActionLabel(
     DenialShortcutAction.closeWindow => l10n.settingsShortcutActionCloseWindow,
     DenialShortcutAction.minimizeWindow =>
       l10n.settingsShortcutActionMinimizeWindow,
+    DenialShortcutAction.minimizeAllWindows =>
+      l10n.settingsShortcutActionMinimizeAllWindows,
     DenialShortcutAction.toggleMaximize =>
       l10n.settingsShortcutActionToggleMaximize,
     DenialShortcutAction.toggleFullscreen =>
@@ -58,6 +69,8 @@ String settingsShortcutActionLabel(
       l10n.settingsShortcutActionNextKeyboardLayout,
     DenialShortcutAction.previousKeyboardLayout =>
       l10n.settingsShortcutActionPreviousKeyboardLayout,
+    DenialShortcutAction.openSettings =>
+      l10n.settingsShortcutActionOpenSettings,
   };
 }
 
@@ -70,8 +83,10 @@ String settingsShortcutTargetLabel(
       context,
       action,
     ),
-    DenialShortcutSpawnTarget(:final command) =>
-      command.map(_displayCommandArgument).join(' '),
+    DenialShortcutSpawnTarget(:final command, :final desktopFileId) =>
+      desktopFileId == null
+          ? command.map(_displayCommandArgument).join(' ')
+          : context.l10n.settingsShortcutApplicationTarget(desktopFileId),
     DenialShortcutSpawnShTarget(:final command) => command,
   };
 }
@@ -81,7 +96,8 @@ IconData settingsShortcutTargetIcon(DenialShortcutBinding binding) {
     DenialShortcutActionTarget(:final action) => settingsShortcutActionIcon(
       action,
     ),
-    DenialShortcutSpawnTarget() => Icons.terminal_rounded,
+    DenialShortcutSpawnTarget(:final desktopFileId) =>
+      desktopFileId == null ? Icons.terminal_rounded : Icons.apps_rounded,
     DenialShortcutSpawnShTarget() => Icons.code_rounded,
   };
 }
@@ -97,6 +113,7 @@ IconData settingsShortcutActionIcon(DenialShortcutAction action) {
   return switch (action) {
     DenialShortcutAction.shutdown => Icons.power_settings_new_rounded,
     DenialShortcutAction.openApplications => Icons.apps_rounded,
+    DenialShortcutAction.openDashboard => Icons.dashboard_rounded,
     DenialShortcutAction.openOverview => Icons.view_quilt_outlined,
     DenialShortcutAction.toggleVerticalMaximize => Icons.height_rounded,
     DenialShortcutAction.windowSwitcher => Icons.flip_to_front_rounded,
@@ -104,6 +121,8 @@ IconData settingsShortcutActionIcon(DenialShortcutAction action) {
     DenialShortcutAction.captureRegion => Icons.crop_free_rounded,
     DenialShortcutAction.closeWindow => Icons.close_rounded,
     DenialShortcutAction.minimizeWindow => Icons.minimize_rounded,
+    DenialShortcutAction.minimizeAllWindows =>
+      Icons.keyboard_double_arrow_down_rounded,
     DenialShortcutAction.toggleMaximize => Icons.crop_square_rounded,
     DenialShortcutAction.toggleFullscreen => Icons.fullscreen_rounded,
     DenialShortcutAction.releasePointer => Icons.mouse_outlined,
@@ -117,6 +136,7 @@ IconData settingsShortcutActionIcon(DenialShortcutAction action) {
       Icons.keyboard_arrow_right_rounded,
     DenialShortcutAction.previousKeyboardLayout =>
       Icons.keyboard_arrow_left_rounded,
+    DenialShortcutAction.openSettings => Icons.settings_rounded,
   };
 }
 

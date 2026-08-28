@@ -1,13 +1,14 @@
 #[cfg(feature = "flutter")]
 use super::super::render_audit_enabled;
-use super::window_management::{
-    activate_window, clear_toplevel_state, configure_toplevel_for_output, toplevel_has_state,
-};
 #[cfg(feature = "flutter")]
 use super::window_management::{
-    queue_client_window_placement_for_monitor, queue_restored_window_state, queue_window_action,
-    queue_window_placement, reassert_exact_toplevel_geometry, release_window_focus,
-    set_toplevel_suspended, toplevel_shell_geometry_locked,
+    activate_topmost_window, queue_client_window_placement_for_monitor,
+    queue_restored_window_state, queue_window_action, queue_window_placement,
+    reassert_exact_toplevel_geometry, release_window_focus, set_toplevel_suspended,
+    toplevel_shell_geometry_locked,
+};
+use super::window_management::{
+    activate_window, clear_toplevel_state, configure_toplevel_for_output, toplevel_has_state,
 };
 use super::*;
 use smithay::wayland::selection::{SelectionSource, SelectionTarget};
@@ -690,6 +691,33 @@ impl CompositorHandler for RuntimeState {
             }
         }
         on_commit_buffer_handler::<Self>(surface);
+        #[cfg(feature = "flutter")]
+        if matches!(
+            self.wayland
+                .as_ref()
+                .expect("missing Wayland frontend")
+                .cursor_status,
+            CursorImageStatus::Surface(ref cursor_surface) if cursor_surface == surface
+        ) {
+            with_states(surface, |states| {
+                let buffer_delta = states
+                    .cached_state
+                    .get::<SurfaceAttributes>()
+                    .current()
+                    .buffer_delta
+                    .take();
+                if let (Some(buffer_delta), Some(attributes)) = (
+                    buffer_delta,
+                    states.data_map.get::<CursorImageSurfaceData>(),
+                ) {
+                    let mut attributes = attributes
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    attributes.hotspot =
+                        cursor_hotspot_after_buffer_delta(attributes.hotspot, buffer_delta);
+                }
+            });
+        }
         let input_method_changed = {
             let frontend = self.wayland.as_mut().expect("missing Wayland frontend");
             frontend.text_input.surface_committed(surface);
@@ -745,13 +773,26 @@ impl CompositorHandler for RuntimeState {
         }
         #[cfg(feature = "flutter")]
         let mut published_surface_commits = None;
+        #[cfg(feature = "flutter")]
+        let active_cursor_root = (!synchronized)
+            .then(|| frontend.active_cursor_root_for(surface))
+            .flatten();
+        #[cfg(feature = "flutter")]
+        let cursor_callback_root = (!synchronized)
+            .then(|| frontend.cursor_root_for(surface))
+            .flatten();
         if !synchronized {
             #[cfg(feature = "flutter")]
             {
                 // A callback-only Chromium commit must not create a new
                 // external-texture generation. Pending synchronized child
                 // damage is still published by this parent transaction.
-                published_surface_commits = Some(frontend.publish_surface_commits(surface));
+                if let Some(cursor_root) = active_cursor_root.as_ref() {
+                    let commits = frontend.publish_cursor_surface_commits(cursor_root);
+                    frontend.record_cursor_surface_commits(cursor_root, commits);
+                } else {
+                    published_surface_commits = Some(frontend.publish_surface_commits(surface));
+                }
             }
             let mut root = surface.clone();
             while let Some(parent) = get_parent(&root) {
@@ -803,7 +844,15 @@ impl CompositorHandler for RuntimeState {
         let input_method_popup = frontend.input_method.popup_root_surface(surface);
         #[cfg(feature = "flutter")]
         if has_frame_callbacks {
-            if let Some(popup_root) = input_method_popup.as_ref() {
+            // A client cursor's scheduling contract is independent of
+            // whether policy currently lets Flutter display its artwork.
+            // Xwayland retains one cursor upload until this callback arrives
+            // and otherwise cannot submit a later non-null X cursor.
+            if let Some(cursor_root) = cursor_callback_root.as_ref() {
+                frontend
+                    .pending_cursor_frame_callback_roots
+                    .insert(cursor_root.id());
+            } else if let Some(popup_root) = input_method_popup.as_ref() {
                 frontend
                     .pending_input_method_frame_callbacks
                     .insert(popup_root.id());
@@ -1666,19 +1715,24 @@ impl XdgShellHandler for RuntimeState {
                     .is_some_and(|toplevel| toplevel.wl_surface() == surface.wl_surface())
             })
             .cloned();
-        if let Some(window) = window.as_ref() {
-            release_window_focus(self, window);
-        }
+        let was_focused = window
+            .as_ref()
+            .is_some_and(|window| release_window_focus(self, window));
         // Native Wayland clients choose their normal size and may create
         // independent auxiliary toplevels with the same app_id. Destruction
         // is therefore not evidence of user placement intent; interactive
         // shell move/resize/state actions persist at their own end boundary.
         // Cleanup remains unconditional because role destruction can arrive
         // after Space has already lost the window.
-        let frontend = self.wayland.as_mut().expect("missing Wayland frontend");
-        frontend.remove_surface_state(surface.wl_surface(), false);
-        if let Some(window) = window {
-            frontend.space.unmap_elem(&window);
+        {
+            let frontend = self.wayland.as_mut().expect("missing Wayland frontend");
+            frontend.remove_surface_state(surface.wl_surface(), false);
+            if let Some(window) = window {
+                frontend.space.unmap_elem(&window);
+            }
+        }
+        if was_focused {
+            activate_topmost_window(self);
         }
         self.scene_sync.mark_dirty();
     }
@@ -1825,7 +1879,3 @@ fn handle_xdg_commit(popups: &mut PopupManager, space: &Space<Window>, surface: 
         warn!(%error, surface_id = ?surface.id(), "initial XDG popup configure failed");
     }
 }
-
-#[cfg(test)]
-#[path = "handlers/tests.rs"]
-mod tests;

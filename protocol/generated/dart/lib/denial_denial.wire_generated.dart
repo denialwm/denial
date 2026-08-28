@@ -311,7 +311,10 @@ enum ShellActionKind {
   ScreenshotTextureReady(6),
   ScreenshotDone(7),
   ClientPointerPressed(8),
-  Wallpaper(9);
+  Wallpaper(9),
+  WindowSwitcherPrevious(10),
+  OpenSettings(11),
+  Dashboard(12);
 
   final int value;
   const ShellActionKind(this.value);
@@ -328,6 +331,9 @@ enum ShellActionKind {
       case 7: return ShellActionKind.ScreenshotDone;
       case 8: return ShellActionKind.ClientPointerPressed;
       case 9: return ShellActionKind.Wallpaper;
+      case 10: return ShellActionKind.WindowSwitcherPrevious;
+      case 11: return ShellActionKind.OpenSettings;
+      case 12: return ShellActionKind.Dashboard;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -336,7 +342,7 @@ enum ShellActionKind {
       value == null ? null : ShellActionKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 9;
+  static const int maxValue = 12;
   static const fb.Reader<ShellActionKind> reader = _ShellActionKindReader();
 }
 
@@ -499,7 +505,10 @@ enum ShortcutActionKind {
   BrightnessUp(16),
   BrightnessDown(17),
   NextKeyboardLayout(18),
-  PreviousKeyboardLayout(19);
+  PreviousKeyboardLayout(19),
+  OpenSettings(20),
+  OpenDashboard(21),
+  MinimizeAllWindows(22);
 
   final int value;
   const ShortcutActionKind(this.value);
@@ -526,6 +535,9 @@ enum ShortcutActionKind {
       case 17: return ShortcutActionKind.BrightnessDown;
       case 18: return ShortcutActionKind.NextKeyboardLayout;
       case 19: return ShortcutActionKind.PreviousKeyboardLayout;
+      case 20: return ShortcutActionKind.OpenSettings;
+      case 21: return ShortcutActionKind.OpenDashboard;
+      case 22: return ShortcutActionKind.MinimizeAllWindows;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -534,7 +546,7 @@ enum ShortcutActionKind {
       value == null ? null : ShortcutActionKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 19;
+  static const int maxValue = 22;
   static const fb.Reader<ShortcutActionKind> reader = _ShortcutActionKindReader();
 }
 
@@ -887,6 +899,42 @@ class _SystemBarSideReader extends fb.Reader<SystemBarSide> {
       SystemBarSide.fromValue(const fb.Uint8Reader().read(bc, offset));
 }
 
+enum CursorStateKind {
+  Hidden(0),
+  Named(1),
+  Surface(2);
+
+  final int value;
+  const CursorStateKind(this.value);
+
+  factory CursorStateKind.fromValue(int value) {
+    switch (value) {
+      case 0: return CursorStateKind.Hidden;
+      case 1: return CursorStateKind.Named;
+      case 2: return CursorStateKind.Surface;
+      default: throw StateError('Invalid value $value for bit flag enum');
+    }
+  }
+
+  static CursorStateKind? _createOrNull(int? value) =>
+      value == null ? null : CursorStateKind.fromValue(value);
+
+  static const int minValue = 0;
+  static const int maxValue = 2;
+  static const fb.Reader<CursorStateKind> reader = _CursorStateKindReader();
+}
+
+class _CursorStateKindReader extends fb.Reader<CursorStateKind> {
+  const _CursorStateKindReader();
+
+  @override
+  int get size => 1;
+
+  @override
+  CursorStateKind read(fb.BufferContext bc, int offset) =>
+      CursorStateKind.fromValue(const fb.Uint8Reader().read(bc, offset));
+}
+
 enum ShortcutTargetTypeId {
   NONE(0),
   ShortcutDenialActionTarget(1),
@@ -944,7 +992,8 @@ enum PayloadTypeId {
   TextInputState(15),
   XEmbedTrayEvent(16),
   XEmbedTrayCommand(17),
-  ThemeState(18);
+  ThemeState(18),
+  CursorState(19);
 
   final int value;
   const PayloadTypeId(this.value);
@@ -970,6 +1019,7 @@ enum PayloadTypeId {
       case 16: return PayloadTypeId.XEmbedTrayEvent;
       case 17: return PayloadTypeId.XEmbedTrayCommand;
       case 18: return PayloadTypeId.ThemeState;
+      case 19: return PayloadTypeId.CursorState;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -978,7 +1028,7 @@ enum PayloadTypeId {
       value == null ? null : PayloadTypeId.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 18;
+  static const int maxValue = 19;
   static const fb.Reader<PayloadTypeId> reader = _PayloadTypeIdReader();
 }
 
@@ -2984,6 +3034,119 @@ class CursorShapeObjectBuilder extends fb.ObjectBuilder {
     return fbBuilder.buffer;
   }
 }
+class CursorState {
+  CursorState._(this._bc, this._bcOffset);
+  factory CursorState(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<CursorState> reader = _CursorStateReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  int get epoch => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 4, 0);
+  CursorStateKind get kind => CursorStateKind.fromValue(const fb.Uint8Reader().vTableGet(_bc, _bcOffset, 6, 0));
+  String? get shape => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 8);
+  WirePoint? get hotspot => WirePoint.reader.vTableGetNullable(_bc, _bcOffset, 10);
+  List<SurfaceLayer>? get surfaces => const fb.ListReader<SurfaceLayer>(SurfaceLayer.reader).vTableGetNullable(_bc, _bcOffset, 12);
+
+  @override
+  String toString() {
+    return 'CursorState{epoch: ${epoch}, kind: ${kind}, shape: ${shape}, hotspot: ${hotspot}, surfaces: ${surfaces}}';
+  }
+}
+
+class _CursorStateReader extends fb.TableReader<CursorState> {
+  const _CursorStateReader();
+
+  @override
+  CursorState createObject(fb.BufferContext bc, int offset) => 
+    CursorState._(bc, offset);
+}
+
+class CursorStateBuilder {
+  CursorStateBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(5);
+  }
+
+  int addEpoch(int? epoch) {
+    fbBuilder.addUint64(0, epoch);
+    return fbBuilder.offset;
+  }
+  int addKind(CursorStateKind? kind) {
+    fbBuilder.addUint8(1, kind?.value);
+    return fbBuilder.offset;
+  }
+  int addShapeOffset(int? offset) {
+    fbBuilder.addOffset(2, offset);
+    return fbBuilder.offset;
+  }
+  int addHotspot(int offset) {
+    fbBuilder.addStruct(3, offset);
+    return fbBuilder.offset;
+  }
+  int addSurfacesOffset(int? offset) {
+    fbBuilder.addOffset(4, offset);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class CursorStateObjectBuilder extends fb.ObjectBuilder {
+  final int? _epoch;
+  final CursorStateKind? _kind;
+  final String? _shape;
+  final WirePointObjectBuilder? _hotspot;
+  final List<SurfaceLayerObjectBuilder>? _surfaces;
+
+  CursorStateObjectBuilder({
+    int? epoch,
+    CursorStateKind? kind,
+    String? shape,
+    WirePointObjectBuilder? hotspot,
+    List<SurfaceLayerObjectBuilder>? surfaces,
+  })
+      : _epoch = epoch,
+        _kind = kind,
+        _shape = shape,
+        _hotspot = hotspot,
+        _surfaces = surfaces;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    final int? shapeOffset = _shape == null ? null
+        : fbBuilder.writeString(_shape!);
+    final int? surfacesOffset = _surfaces == null ? null
+        : fbBuilder.writeList(_surfaces!.map((b) => b.getOrCreateOffset(fbBuilder)).toList());
+    fbBuilder.startTable(5);
+    fbBuilder.addUint64(0, _epoch);
+    fbBuilder.addUint8(1, _kind?.value);
+    fbBuilder.addOffset(2, shapeOffset);
+    if (_hotspot != null) {
+      fbBuilder.addStruct(3, _hotspot!.finish(fbBuilder));
+    }
+    fbBuilder.addOffset(4, surfacesOffset);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
 class CursorPosition {
   CursorPosition._(this._bc, this._bcOffset);
   factory CursorPosition(List<int> bytes) {
@@ -3563,10 +3726,11 @@ class ShortcutSpawnTarget {
   final int _bcOffset;
 
   List<String>? get command => const fb.ListReader<String>(fb.StringReader()).vTableGetNullable(_bc, _bcOffset, 4);
+  String? get desktopFileId => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 6);
 
   @override
   String toString() {
-    return 'ShortcutSpawnTarget{command: ${command}}';
+    return 'ShortcutSpawnTarget{command: ${command}, desktopFileId: ${desktopFileId}}';
   }
 }
 
@@ -3584,11 +3748,15 @@ class ShortcutSpawnTargetBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(1);
+    fbBuilder.startTable(2);
   }
 
   int addCommandOffset(int? offset) {
     fbBuilder.addOffset(0, offset);
+    return fbBuilder.offset;
+  }
+  int addDesktopFileIdOffset(int? offset) {
+    fbBuilder.addOffset(1, offset);
     return fbBuilder.offset;
   }
 
@@ -3599,19 +3767,25 @@ class ShortcutSpawnTargetBuilder {
 
 class ShortcutSpawnTargetObjectBuilder extends fb.ObjectBuilder {
   final List<String>? _command;
+  final String? _desktopFileId;
 
   ShortcutSpawnTargetObjectBuilder({
     List<String>? command,
+    String? desktopFileId,
   })
-      : _command = command;
+      : _command = command,
+        _desktopFileId = desktopFileId;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
     final int? commandOffset = _command == null ? null
         : fbBuilder.writeList(_command!.map(fbBuilder.writeString).toList());
-    fbBuilder.startTable(1);
+    final int? desktopFileIdOffset = _desktopFileId == null ? null
+        : fbBuilder.writeString(_desktopFileId!);
+    fbBuilder.startTable(2);
     fbBuilder.addOffset(0, commandOffset);
+    fbBuilder.addOffset(1, desktopFileIdOffset);
     return fbBuilder.endTable();
   }
 
@@ -5656,6 +5830,7 @@ class Envelope {
       case 16: return XembedTrayEvent.reader.vTableGetNullable(_bc, _bcOffset, 12);
       case 17: return XembedTrayCommand.reader.vTableGetNullable(_bc, _bcOffset, 12);
       case 18: return ThemeState.reader.vTableGetNullable(_bc, _bcOffset, 12);
+      case 19: return CursorState.reader.vTableGetNullable(_bc, _bcOffset, 12);
       default: return null;
     }
   }

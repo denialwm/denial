@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 
 class PageDots extends StatelessWidget {
@@ -28,7 +29,7 @@ class PageDots extends StatelessWidget {
               color: index == active
                   ? ShellMediaColors.lightForeground.withValues(alpha: 0.87)
                   : ShellMediaColors.lightForeground.withValues(alpha: 0.33),
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: context.shellTheme.borderRadius(4),
             ),
           ),
       ],

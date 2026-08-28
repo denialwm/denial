@@ -144,6 +144,7 @@ Commands:
   fedora-package    Build installable Fedora RPM packages
   alpine-package    Build installable Alpine Linux APK packages
   native-packages   Build Debian-family and Fedora packages from one payload
+  flutter-test      Run lock-matched Flutter shell tests; forwards remaining arguments
   test              Run compositor and lock-matched Flutter shell tests
   session           Run the real DRM session (normally invoked by a display manager)
   engine-test-build Build only the local release engine and stage an isolated test bundle
@@ -452,7 +453,7 @@ stage_engine_test() {
     printf 'Building only the release Flutter engine at %.12s...\n' "$revision"
     PATH="$ENGINE_TEST_SOURCE_ROOT/engine/src/flutter/third_party/depot_tools:$PATH" \
         /usr/bin/ninja -C "$ENGINE_TEST_NINJA_OUT" \
-        -j "$BUILD_JOBS" libflutter_engine.so
+        -j "$BUILD_JOBS" libflutter_engine.so flutter_patched_sdk
     require_file "$engine_source"
     [[ "$revision" == "$(git -C "$ENGINE_TEST_SOURCE_ROOT" rev-parse HEAD)" ]] \
         || die "Flutter revision changed while the engine was building"
@@ -765,11 +766,15 @@ test_compositor() {
     )
 }
 
-test_all() {
-    test_compositor
+test_flutter() {
     prepare_flutter_toolchain
     DENIAL_FLUTTER_TEST_COMMAND="$FLUTTER" \
-        "$ROOT/tools/denial-flutter-engine" flutter-test
+        "$ROOT/tools/denial-flutter-engine" flutter-test -- "$@"
+}
+
+test_all() {
+    test_compositor
+    test_flutter
 }
 
 resolve_drm_device() {
@@ -1282,6 +1287,10 @@ case "${1:-}" in
     fedora-package) "$ROOT/tools/package-denial-rpm" ;;
     alpine-package) "$ROOT/tools/package-denial-apk" ;;
     native-packages) "$ROOT/tools/package-denial-native" ;;
+    flutter-test)
+        shift
+        test_flutter "$@"
+        ;;
     test) test_all ;;
     session) run_display_manager_session ;;
     engine-test-build) stage_engine_test ;;

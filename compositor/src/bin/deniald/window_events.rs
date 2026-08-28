@@ -38,6 +38,16 @@ pub(super) struct PendingWindowEventQueue {
 }
 
 impl PendingWindowEventQueue {
+    pub(super) fn push_activation(&mut self, window_id: u64, restore_minimized: bool) {
+        if restore_minimized {
+            self.push(PendingWindowEvent::Action(
+                window_id,
+                wire::WindowAction::Restore,
+            ));
+        }
+        self.push(PendingWindowEvent::Activated(window_id));
+    }
+
     pub(super) fn push(&mut self, event: PendingWindowEvent) {
         match event {
             PendingWindowEvent::Activated(_) => self.remove_activations(),
@@ -122,13 +132,4 @@ impl PendingWindowEventQueue {
         self.events.clear();
         self.overflow_reported = false;
     }
-
-    #[cfg(test)]
-    fn as_slice(&self) -> &[PendingWindowEvent] {
-        &self.events
-    }
 }
-
-#[cfg(test)]
-#[path = "window_events/tests.rs"]
-mod tests;

@@ -89,7 +89,8 @@ class _DesktopWindowCloseAnimationState
 
   @override
   Widget build(BuildContext context) {
-    final accent = ShellTheme.of(context).accent;
+    final theme = ShellTheme.of(context);
+    final accent = theme.accent;
     final colors = context.shellColors;
     final snapshotting =
         widget.effect != DesktopWindowCloseEffect.none &&
@@ -125,6 +126,7 @@ class _DesktopWindowCloseAnimationState
                         particles: _particles,
                         accent: accent,
                         colors: colors,
+                        cornerRadiusScale: theme.cornerRadiusScale,
                       )
                     : null,
                 child: Opacity(
@@ -249,12 +251,14 @@ class _ExplosionParticlePainter extends CustomPainter {
     required this.particles,
     required this.accent,
     required this.colors,
+    required this.cornerRadiusScale,
   });
 
   final double progress;
   final List<_ExplosionParticle> particles;
   final Color accent;
   final ShellColorScheme colors;
+  final double cornerRadiusScale;
 
   List<Color> get _palette => <Color>[
     colors.textPrimary,
@@ -313,7 +317,7 @@ class _ExplosionParticlePainter extends CustomPainter {
         canvas.drawRRect(
           RRect.fromRectAndRadius(
             Rect.fromCenter(center: Offset.zero, width: width, height: height),
-            Radius.circular(width * 0.18),
+            Radius.circular(width * 0.18 * cornerRadiusScale),
           ),
           paint,
         );
@@ -327,7 +331,8 @@ class _ExplosionParticlePainter extends CustomPainter {
     return progress != oldDelegate.progress ||
         particles != oldDelegate.particles ||
         accent != oldDelegate.accent ||
-        colors != oldDelegate.colors;
+        colors != oldDelegate.colors ||
+        cornerRadiusScale != oldDelegate.cornerRadiusScale;
   }
 }
 

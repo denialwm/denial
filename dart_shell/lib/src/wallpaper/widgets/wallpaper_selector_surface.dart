@@ -11,7 +11,6 @@ import '../../state/display_layout.dart';
 import '../../theme/motion.dart';
 import '../state/wallpaper_controller.dart';
 import '../wallpaper.dart';
-import 'wallpaper_carousel_physics.dart';
 import 'wallpaper_darkness_control.dart';
 import 'wallpaper_image.dart';
 import 'wallpaper_search_controls.dart';
@@ -362,7 +361,6 @@ class _WallpaperSelectorSurfaceState
                         )
                       : PageView.builder(
                           controller: _pageController,
-                          physics: const WallpaperCarouselPhysics(),
                           pageSnapping: false,
                           padEnds: true,
                           allowImplicitScrolling: true,

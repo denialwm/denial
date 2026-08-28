@@ -211,14 +211,41 @@ pub(super) fn synchronize_wayland_cursor(
     {
         frontend.request_flutter_cursor_shape(shape);
     }
-    let (shape, position) = events.wayland.as_mut().map_or((None, None), |frontend| {
-        (
-            frontend.take_cursor_shape_update(),
-            frontend.take_cursor_position_update(),
-        )
-    });
-    if let Some(shape) = shape {
-        runtime.send_cursor_shape(shape)?;
+    let (publication, position, output) =
+        events
+            .wayland
+            .as_mut()
+            .map_or((None, None, None), |frontend| {
+                (
+                    frontend.take_cursor_state_update(),
+                    frontend.take_cursor_position_update(),
+                    frontend.cursor_output_id(),
+                )
+            });
+    runtime.set_cursor_output(output);
+    if let Some(publication) = publication {
+        let (state, textures) = events
+            .wayland
+            .as_mut()
+            .expect("cursor publication has no Wayland frontend")
+            .flutter_cursor_state(publication);
+        let (state, textures) = runtime.sync_cursor_state(state, textures, output)?;
+        events
+            .wayland
+            .as_mut()
+            .expect("cursor publication lost its Wayland frontend")
+            .recycle_flutter_cursor_state(state, textures);
+    } else if let Some(textures) = events
+        .wayland
+        .as_mut()
+        .and_then(wayland_frontend::WaylandFrontend::take_cursor_buffer_updates)
+    {
+        let textures = runtime.sync_cursor_buffers(textures)?;
+        events
+            .wayland
+            .as_mut()
+            .expect("cursor buffer update lost its Wayland frontend")
+            .recycle_cursor_buffer_updates(textures);
     }
     if let Some((x, y)) = position {
         runtime.send_cursor_position(x, y)?;

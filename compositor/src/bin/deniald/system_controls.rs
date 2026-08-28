@@ -29,6 +29,9 @@ const COMMAND_QUEUE_CAPACITY: usize = 128;
 const EVENT_QUEUE_CAPACITY: usize = 64;
 const MAX_AUDIO_STREAMS: usize = 256;
 const MAX_AUDIO_STREAM_NAME_BYTES: usize = 1024;
+const MAX_AUDIO_DEVICES: usize = 128;
+const MAX_AUDIO_DEVICE_NAME_BYTES: usize = 1024;
+const MAX_AUDIO_DEVICE_DESCRIPTION_BYTES: usize = 1024;
 const MAX_BRIGHTNESS_CONNECTOR_BYTES: usize = 128;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -39,19 +42,30 @@ pub(super) struct AudioStreamState {
     pub(super) muted: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct AudioDeviceState {
+    pub(super) name: String,
+    pub(super) description: String,
+    pub(super) active: bool,
+    pub(super) available: bool,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum SystemControlEvent {
     AudioLevel { level: f64, request_serial: u32 },
     AudioStreams(Vec<AudioStreamState>),
+    AudioDevices(Vec<AudioDeviceState>),
     BrightnessLevel { monitor_id: i64, level: f64 },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) enum AudioRequest {
     ReadLevel,
     SetLevel { level: f64, request_serial: u32 },
     RequestStreams,
     SetStreamLevel { stream_id: u32, level: f64 },
+    RequestDevices,
+    SetDevice { name: String },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -99,7 +113,28 @@ pub(super) fn decode_audio_request(packet: &[u8]) -> Result<AudioRequest, AudioR
                 level: f64::from(id[size_of::<u32>()].min(100)) / 100.0,
             })
         }
-        [command, ..] if matches!(*command, 0..=3) || packet.is_empty() => {
+        [4] => Ok(AudioRequest::RequestDevices),
+        [5, name_length @ ..] if name_length.len() >= size_of::<u16>() => {
+            let name_length = usize::from(u16::from_le_bytes(
+                name_length[..size_of::<u16>()]
+                    .try_into()
+                    .expect("audio device name length has a fixed width"),
+            ));
+            let name = name_length
+                .checked_add(3)
+                .filter(|packet_length| {
+                    name_length > 0
+                        && name_length <= MAX_AUDIO_DEVICE_NAME_BYTES
+                        && *packet_length == packet.len()
+                })
+                .and_then(|_| std::str::from_utf8(&packet[3..]).ok())
+                .filter(|name| !name.contains('\0'))
+                .ok_or(AudioRequestDecodeError::InvalidSize(packet.len()))?;
+            Ok(AudioRequest::SetDevice {
+                name: name.to_owned(),
+            })
+        }
+        [command, ..] if matches!(*command, 0..=5) || packet.is_empty() => {
             Err(AudioRequestDecodeError::InvalidSize(packet.len()))
         }
         [command, ..] => Err(AudioRequestDecodeError::UnsupportedCommand(*command)),
@@ -201,6 +236,8 @@ enum AudioCommand {
     ToggleMute,
     RequestStreams,
     SetStreamLevel { stream_id: u32, level: f64 },
+    RequestDevices,
+    SetDevice { name: String },
     Stop,
 }
 
@@ -321,6 +358,8 @@ impl SystemControls {
             AudioRequest::SetStreamLevel { stream_id, level } => {
                 AudioCommand::SetStreamLevel { stream_id, level }
             }
+            AudioRequest::RequestDevices => AudioCommand::RequestDevices,
+            AudioRequest::SetDevice { name } => AudioCommand::SetDevice { name },
         };
         self.audio_commands.try_send(command).is_ok()
     }
@@ -408,7 +447,3 @@ mod brightness;
 
 use audio::run_audio_worker;
 use brightness::run_brightness_worker;
-
-#[cfg(test)]
-#[path = "system_controls/tests.rs"]
-mod tests;

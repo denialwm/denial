@@ -10,6 +10,7 @@ import '../services/power_profile_service.dart';
 import '../services/system_actions_service.dart';
 import 'notifier_lifecycle.dart';
 import 'shell_controller.dart';
+import 'system_level_hud.dart';
 
 /// Immutable state for the quick-settings shade controls.
 @immutable
@@ -71,6 +72,7 @@ class QuickSettingsController extends Notifier<QuickSettingsState>
   QuickSettingsState build() {
     _brightness = ref.watch(brightnessServiceProvider);
     _audio = ref.watch(audioServiceProvider);
+    _audioHudSuppression = ref.watch(systemLevelHudAudioSuppressionProvider);
     _power = ref.watch(powerProfileServiceProvider);
     _actions = ref.watch(systemActionsServiceProvider);
     _brightnessTimer = null;
@@ -122,6 +124,7 @@ class QuickSettingsController extends Notifier<QuickSettingsState>
 
   late BrightnessService _brightness;
   late AudioService _audio;
+  late SystemLevelHudAudioSuppression _audioHudSuppression;
   late PowerProfileService _power;
   late SystemActionsService _actions;
   late int _buildGeneration;
@@ -274,6 +277,11 @@ class QuickSettingsController extends Notifier<QuickSettingsState>
     _scheduleVolumeApply();
   }
 
+  void setDashboardVolume(double value) {
+    _recordVolumeIntent(value, suppressHud: true);
+    _scheduleVolumeApply();
+  }
+
   void commitVolume(double value) {
     _recordVolumeIntent(value, force: true);
     _volumeInteracting = false;
@@ -281,7 +289,18 @@ class QuickSettingsController extends Notifier<QuickSettingsState>
     _applyDeferredAudioStateIfIdle();
   }
 
-  void _recordVolumeIntent(double value, {bool force = false}) {
+  void commitDashboardVolume(double value) {
+    _recordVolumeIntent(value, force: true, suppressHud: true);
+    _volumeInteracting = false;
+    _scheduleVolumeApply(immediate: true);
+    _applyDeferredAudioStateIfIdle();
+  }
+
+  void _recordVolumeIntent(
+    double value, {
+    bool force = false,
+    bool suppressHud = false,
+  }) {
     final clamped = value.clamp(0.0, 1.0).toDouble();
     final percent = (clamped * 100).round().clamp(0, 100);
     state = state.copyWith(volume: clamped);
@@ -297,6 +316,9 @@ class QuickSettingsController extends Notifier<QuickSettingsState>
     }
 
     final requestSerial = _allocateVolumeRequestSerial();
+    if (suppressHud) {
+      _audioHudSuppression.suppress(requestSerial);
+    }
     _pendingVolume = percent;
     _pendingVolumeSerial = requestSerial;
     _latestDesiredVolumePercent = percent;

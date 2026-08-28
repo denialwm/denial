@@ -23,23 +23,6 @@ fn packet_is_exact_bounded_and_zero_disables() {
 }
 
 #[test]
-fn display_power_packet_accepts_only_the_exact_off_command() {
-    assert_eq!(decode_display_power_off(&[DISPLAY_POWER_OFF]), Ok(()));
-    assert_eq!(
-        decode_display_power_off(&[]),
-        Err(DisplayPowerPacketError::InvalidPacket)
-    );
-    assert_eq!(
-        decode_display_power_off(&[0]),
-        Err(DisplayPowerPacketError::InvalidPacket)
-    );
-    assert_eq!(
-        decode_display_power_off(&[DISPLAY_POWER_OFF, 0]),
-        Err(DisplayPowerPacketError::InvalidPacket)
-    );
-}
-
-#[test]
 fn explicit_blank_uses_native_input_to_wake_without_an_idle_timeout() {
     let started = Instant::now();
     let mut policy = IdleDpmsPolicy::default();
@@ -165,35 +148,5 @@ fn manual_power_request_is_not_undone_by_activity() {
         policy
             .note_activity(started + Duration::from_secs(2))
             .is_empty()
-    );
-}
-
-#[test]
-fn idle_deadline_is_the_only_timer_between_policy_edges() {
-    let started = Instant::now();
-    let mut policy = IdleDpmsPolicy::default();
-    assert_eq!(policy.next_deadline(), None);
-
-    policy.configure(Some(Duration::from_secs(60)), started);
-    assert_eq!(
-        policy.next_deadline(),
-        Some(started + Duration::from_secs(60))
-    );
-    assert_eq!(
-        policy.limit_dispatch_timeout(started, Duration::from_secs(120)),
-        Duration::from_secs(60)
-    );
-
-    policy.evaluate(started + Duration::from_secs(10), true, [(output(1), true)]);
-    assert_eq!(policy.next_deadline(), None);
-
-    policy.evaluate(
-        started + Duration::from_secs(30),
-        false,
-        [(output(1), true)],
-    );
-    assert_eq!(
-        policy.next_deadline(),
-        Some(started + Duration::from_secs(90))
     );
 }

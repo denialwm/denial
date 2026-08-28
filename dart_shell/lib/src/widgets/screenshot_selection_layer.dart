@@ -223,6 +223,7 @@ class _ScreenshotSelectionSurfaceState
                           painter: _ScreenshotSelectionPainter(
                             selection: selection,
                             accent: theme.accent,
+                            radius: theme.scaledRadius(8),
                           ),
                         ),
                       ),
@@ -235,7 +236,9 @@ class _ScreenshotSelectionSurfaceState
                             child: DecoratedBox(
                               decoration: BoxDecoration(
                                 color: context.shellColors.surfaceContainerLow,
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: context.shellTheme.borderRadius(
+                                  8,
+                                ),
                               ),
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(
@@ -282,6 +285,7 @@ class _ScreenshotTakeAnimation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final radius = context.shellTheme.scaledRadius(8);
     return RepaintBoundary(
       child: AnimatedBuilder(
         animation: animation,
@@ -306,7 +310,7 @@ class _ScreenshotTakeAnimation extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               ClipPath(
-                clipper: _ScreenshotTakeClipper(collapsed),
+                clipper: _ScreenshotTakeClipper(collapsed, radius),
                 child: Transform.scale(
                   scale: scale,
                   alignment: _alignmentFor(selection.center, canvasSize),
@@ -317,6 +321,7 @@ class _ScreenshotTakeAnimation extends StatelessWidget {
                 painter: _ScreenshotTakeOutlinePainter(
                   selection: collapsed,
                   accent: accent.withValues(alpha: scale),
+                  radius: radius,
                 ),
               ),
             ],
@@ -338,32 +343,35 @@ class _ScreenshotTakeAnimation extends StatelessWidget {
 }
 
 class _ScreenshotTakeClipper extends CustomClipper<Path> {
-  const _ScreenshotTakeClipper(this.selection);
+  const _ScreenshotTakeClipper(this.selection, this.radius);
 
   final Rect selection;
+  final double radius;
 
   @override
   Path getClip(Size size) => Path()
     ..addRRect(
       RRect.fromRectAndRadius(
         selection.intersect(Offset.zero & size),
-        const Radius.circular(8),
+        Radius.circular(radius),
       ),
     );
 
   @override
   bool shouldReclip(covariant _ScreenshotTakeClipper oldClipper) =>
-      oldClipper.selection != selection;
+      oldClipper.selection != selection || oldClipper.radius != radius;
 }
 
 class _ScreenshotTakeOutlinePainter extends CustomPainter {
   const _ScreenshotTakeOutlinePainter({
     required this.selection,
     required this.accent,
+    required this.radius,
   });
 
   final Rect selection;
   final Color accent;
+  final double radius;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -372,7 +380,10 @@ class _ScreenshotTakeOutlinePainter extends CustomPainter {
       return;
     }
     canvas.drawRRect(
-      RRect.fromRectAndRadius(selected.deflate(1), const Radius.circular(7)),
+      RRect.fromRectAndRadius(
+        selected.deflate(1),
+        Radius.circular(radius > 1 ? radius - 1 : 0),
+      ),
       Paint()
         ..color = accent
         ..style = PaintingStyle.stroke
@@ -382,17 +393,21 @@ class _ScreenshotTakeOutlinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ScreenshotTakeOutlinePainter oldDelegate) =>
-      oldDelegate.selection != selection || oldDelegate.accent != accent;
+      oldDelegate.selection != selection ||
+      oldDelegate.accent != accent ||
+      oldDelegate.radius != radius;
 }
 
 class _ScreenshotSelectionPainter extends CustomPainter {
   const _ScreenshotSelectionPainter({
     required this.selection,
     required this.accent,
+    required this.radius,
   });
 
   final Rect? selection;
   final Color accent;
+  final double radius;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -402,7 +417,7 @@ class _ScreenshotSelectionPainter extends CustomPainter {
     scrim.addRect(canvasRect);
     if (selected != null && !selected.isEmpty) {
       scrim.addRRect(
-        RRect.fromRectAndRadius(selected, const Radius.circular(8)),
+        RRect.fromRectAndRadius(selected, Radius.circular(radius)),
       );
     }
     canvas.drawPath(
@@ -414,11 +429,14 @@ class _ScreenshotSelectionPainter extends CustomPainter {
       return;
     }
     canvas.drawRRect(
-      RRect.fromRectAndRadius(selected, const Radius.circular(8)),
+      RRect.fromRectAndRadius(selected, Radius.circular(radius)),
       Paint()..color = accent.withValues(alpha: 0.10),
     );
     canvas.drawRRect(
-      RRect.fromRectAndRadius(selected.deflate(1), const Radius.circular(7)),
+      RRect.fromRectAndRadius(
+        selected.deflate(1),
+        Radius.circular(radius > 1 ? radius - 1 : 0),
+      ),
       Paint()
         ..color = accent
         ..style = PaintingStyle.stroke
@@ -428,6 +446,8 @@ class _ScreenshotSelectionPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ScreenshotSelectionPainter oldDelegate) {
-    return oldDelegate.selection != selection || oldDelegate.accent != accent;
+    return oldDelegate.selection != selection ||
+        oldDelegate.accent != accent ||
+        oldDelegate.radius != radius;
   }
 }

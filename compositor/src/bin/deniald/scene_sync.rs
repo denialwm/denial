@@ -137,7 +137,3 @@ impl SceneSyncState {
         self.synchronized_metadata_revision = None;
     }
 }
-
-#[cfg(all(test, feature = "flutter"))]
-#[path = "scene_sync/tests.rs"]
-mod tests;

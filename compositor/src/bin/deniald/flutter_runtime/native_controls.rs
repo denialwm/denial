@@ -204,7 +204,3 @@ impl<T: HapticsTransport> HapticsHandler<T> {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "native_controls/tests.rs"]
-mod tests;

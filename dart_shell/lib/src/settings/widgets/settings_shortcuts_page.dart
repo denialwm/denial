@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../localization/denial_localizations.dart';
+import '../../launcher/models/desktop_app.dart';
 import '../../models/shortcut_configuration.dart';
 import '../../state/shortcut_configuration.dart';
 import '../../theme/shell_theme.dart';
@@ -13,7 +14,12 @@ import 'settings_shortcut_editor.dart';
 import 'settings_shortcut_presentation.dart';
 
 class SettingsShortcutsPage extends ConsumerStatefulWidget {
-  const SettingsShortcutsPage({super.key});
+  const SettingsShortcutsPage({
+    this.applications = const <DesktopApp>[],
+    super.key,
+  });
+
+  final List<DesktopApp> applications;
 
   @override
   ConsumerState<SettingsShortcutsPage> createState() =>
@@ -66,6 +72,7 @@ class _SettingsShortcutsPageState extends ConsumerState<SettingsShortcutsPage> {
                   : 'shortcut-editor-${_editedBinding!.shortcut}',
             ),
             configuration: configuration,
+            applications: widget.applications,
             binding: _editedBinding,
             busy: state.busy,
             deleteBusy: state.deletingShortcut == _editedBinding?.shortcut,
@@ -235,7 +242,7 @@ class _ShortcutCountBadge extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: context.shellColors.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(ShellRadii.chip),
+        borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
         border: Border.all(color: context.shellColors.hairlineSoft),
       ),
       child: Padding(
@@ -293,7 +300,7 @@ class _ShortcutList extends StatelessWidget {
     final radius = BorderRadius.circular(theme.panelRadius);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: theme.panelColor(context.shellColors.surfaceContainerLow),
+        color: theme.cardColor(context.shellColors.surfaceContainerLow),
         borderRadius: radius,
         border: Border.all(color: context.shellColors.hairline),
       ),
@@ -366,7 +373,7 @@ class _ShortcutRow extends StatelessWidget {
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       color: context.shellColors.surfaceContainerHigh,
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: context.shellTheme.borderRadius(10),
                       border: Border.all(color: context.shellColors.hairline),
                     ),
                     child: Padding(
@@ -499,7 +506,7 @@ class _ShortcutIconButton extends StatelessWidget {
         hoverColor: foreground.withAlpha(28),
         focusColor: foreground.withAlpha(28),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(11),
+          borderRadius: context.shellTheme.borderRadius(11),
           side: BorderSide(color: context.shellColors.hairline),
         ),
       ),
@@ -534,7 +541,7 @@ class _ShortcutErrorBanner extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: context.shellColors.performanceBad.withAlpha(18),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: context.shellTheme.borderRadius(12),
           border: Border.all(
             color: context.shellColors.performanceBad.withAlpha(82),
           ),
@@ -648,7 +655,7 @@ class _AddShortcutButton extends StatelessWidget {
         elevation: 8,
         shadowColor: context.shellColors.shadowSoft,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(ShellRadii.chip),
+          borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
           side: BorderSide(color: palette.outline),
         ),
       ),

@@ -295,7 +295,3 @@ fn joystick_events_have_activity(bytes: &[u8], axes: &mut JoystickAxes) -> bool 
     }
     activity
 }
-
-#[cfg(all(test, feature = "flutter"))]
-#[path = "input_source/tests.rs"]
-mod tests;

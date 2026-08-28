@@ -222,10 +222,13 @@ pub enum WindowAction {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ShellAction {
     Applications,
+    Dashboard,
     #[allow(dead_code)]
     Overview,
     #[allow(dead_code)]
     WindowSwitcherNext,
+    #[allow(dead_code)]
+    WindowSwitcherPrevious,
     #[allow(dead_code)]
     WindowSwitcherEnd,
     Clipboard,
@@ -234,6 +237,7 @@ pub enum ShellAction {
     ScreenshotDone,
     ClientPointerPressed,
     Wallpaper,
+    OpenSettings,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -254,8 +258,10 @@ impl ShellAction {
     fn wire(self) -> fb::ShellActionKind {
         match self {
             Self::Applications => fb::ShellActionKind::Applications,
+            Self::Dashboard => fb::ShellActionKind::Dashboard,
             Self::Overview => fb::ShellActionKind::Overview,
             Self::WindowSwitcherNext => fb::ShellActionKind::WindowSwitcherNext,
+            Self::WindowSwitcherPrevious => fb::ShellActionKind::WindowSwitcherPrevious,
             Self::WindowSwitcherEnd => fb::ShellActionKind::WindowSwitcherEnd,
             Self::Clipboard => fb::ShellActionKind::Clipboard,
             Self::ScreenshotRegion => fb::ShellActionKind::ScreenshotRegion,
@@ -263,6 +269,7 @@ impl ShellAction {
             Self::ScreenshotDone => fb::ShellActionKind::ScreenshotDone,
             Self::ClientPointerPressed => fb::ShellActionKind::ClientPointerPressed,
             Self::Wallpaper => fb::ShellActionKind::Wallpaper,
+            Self::OpenSettings => fb::ShellActionKind::OpenSettings,
         }
     }
 }
@@ -392,6 +399,47 @@ pub struct SurfaceLayerDescription {
     pub composition_order: u32,
     pub opacity: f32,
     pub opaque: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CursorStateKind {
+    Hidden,
+    Named,
+    Surface,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CursorStateDescription {
+    pub epoch: u64,
+    pub kind: CursorStateKind,
+    pub shape: String,
+    pub hotspot_x: f64,
+    pub hotspot_y: f64,
+    pub surfaces: Vec<SurfaceLayerDescription>,
+}
+
+impl CursorStateDescription {
+    pub fn hidden() -> Self {
+        Self {
+            epoch: 0,
+            kind: CursorStateKind::Hidden,
+            shape: String::new(),
+            hotspot_x: 0.0,
+            hotspot_y: 0.0,
+            surfaces: Vec::new(),
+        }
+    }
+
+    pub fn named(shape: impl Into<String>) -> Self {
+        Self {
+            epoch: 0,
+            kind: CursorStateKind::Named,
+            shape: shape.into(),
+            hotspot_x: 0.0,
+            hotspot_y: 0.0,
+            surfaces: Vec::new(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -73,7 +73,11 @@ class AppLauncher {
       return false;
     }
 
-    return _bridge.launchApplication(argv, launchRequestId: launchRequestId);
+    return _bridge.launchDesktopApplication(
+      app.id,
+      argv,
+      launchRequestId: launchRequestId,
+    );
   }
 
   String? _executableFrom(List<String> argv) {

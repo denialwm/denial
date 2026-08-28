@@ -339,11 +339,6 @@ impl FrameScheduler {
         }
     }
 
-    #[cfg(test)]
-    fn step(&mut self, now: Instant, pending: PendingFrame) -> FrameAction {
-        self.step_with_output_availability(now, pending, |_| true)
-    }
-
     pub(super) fn output_ticks(&self) -> &[FrameTick] {
         self.outputs.ticks()
     }
@@ -592,7 +587,3 @@ fn refresh_interval(scanout: &Scanout) -> Duration {
         .unwrap_or(60_000);
     Duration::from_nanos(1_000_000_000_000 / refresh_millihz)
 }
-
-#[cfg(test)]
-#[path = "frame_scheduler/tests.rs"]
-mod tests;

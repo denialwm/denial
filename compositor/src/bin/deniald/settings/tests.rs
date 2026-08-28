@@ -23,6 +23,23 @@ impl Drop for TemporaryDirectory {
     }
 }
 
+fn shell_document(value: Value) -> String {
+    let mut document = value
+        .as_object()
+        .cloned()
+        .expect("test shell document must be an object");
+    if let Some(appearance) = document
+        .get_mut("appearance")
+        .and_then(Value::as_object_mut)
+    {
+        appearance
+            .entry("allowClientCursorSurfaces")
+            .or_insert(Value::Bool(true));
+    }
+    document.insert("version".to_owned(), Value::from(SETTINGS_SCHEMA_VERSION));
+    serde_json::to_string(&document).expect("test shell document serializes")
+}
+
 #[test]
 fn migrates_existing_shell_document_without_losing_sections() {
     let temporary = TemporaryDirectory::new("settings-migrate");
@@ -41,12 +58,18 @@ fn migrates_existing_shell_document_without_losing_sections() {
         document["appearance"]["colorSchemePreference"],
         "preferDark"
     );
+    assert_eq!(document["appearance"]["allowClientCursorSurfaces"], true);
+    assert!(manager.allow_client_cursor_surfaces());
     assert_eq!(
         manager.theme_snapshot(),
         DesktopThemeSnapshot::new(manager.revision(), DesktopColorSchemePreference::PreferDark,)
     );
     assert!(document.get("keyboard").is_some());
     assert!(document.get("touchpad").is_some());
+    assert_eq!(
+        document["applicationEnvironment"],
+        serde_json::json!({"default": {}, "applications": {}})
+    );
     assert_eq!(
         fs::metadata(path).unwrap().permissions().mode() & 0o777,
         0o600
@@ -85,24 +108,51 @@ fn shell_update_preserves_native_keyboard_and_checks_revision() {
         .unwrap();
     manager.commit(update).unwrap();
     let old_revision = manager.revision();
+    let shell_update = shell_document(serde_json::json!({
+        "appearance": {
+            "colorSchemePreference": "preferLight",
+            "allowClientCursorSurfaces": false
+        },
+        "applicationEnvironment": {
+            "default": {"MOZ_ENABLE_WAYLAND": "1", "DISPLAY": null},
+            "applications": {
+                "org.mozilla.firefox.desktop": {"MOZ_ENABLE_WAYLAND": "0"}
+            }
+        },
+        "revision": 999,
+        "keyboard": {"layouts": []},
+        "touchpad": {"tapToClickEnabled": false},
+        "power": {"idleDpmsEnabled": false}
+    }));
     let update = manager
-        .prepare_shell_update(
-            old_revision,
-            r#"{"version":10,"appearance":{"colorSchemePreference":"preferLight"},"revision":999,"keyboard":{"layouts":[]},"touchpad":{"tapToClickEnabled":false},"power":{"idleDpmsEnabled":false}}"#,
-        )
+        .prepare_shell_update(old_revision, &shell_update)
         .unwrap();
     manager.commit(update).unwrap();
     assert_eq!(manager.keyboard(), &configured);
     assert_eq!(manager.revision(), old_revision + 1);
+    let document: Value = serde_json::from_str(&manager.document_json().unwrap()).unwrap();
+    assert_eq!(
+        document["applicationEnvironment"]["default"]["MOZ_ENABLE_WAYLAND"],
+        "1"
+    );
+    assert_eq!(
+        document["applicationEnvironment"]["default"]["DISPLAY"],
+        Value::Null
+    );
+    assert_eq!(
+        document["applicationEnvironment"]["applications"]["org.mozilla.firefox.desktop"]["MOZ_ENABLE_WAYLAND"],
+        "0"
+    );
     assert_eq!(
         manager.theme_snapshot().configured_preference,
         DesktopColorSchemePreference::PreferLight
     );
+    assert!(!manager.allow_client_cursor_surfaces());
+    let stale_update = shell_document(serde_json::json!({
+        "appearance": {"colorSchemePreference": "preferDark"}
+    }));
     assert!(matches!(
-        manager.prepare_shell_update(
-            old_revision,
-            r#"{"version":10,"appearance":{"colorSchemePreference":"preferDark"}}"#,
-        ),
+        manager.prepare_shell_update(old_revision, &stale_update),
         Err(SettingsError::Revision { .. })
     ));
 }
@@ -112,12 +162,14 @@ fn shell_update_rejects_missing_or_unknown_color_scheme() {
     let temporary = TemporaryDirectory::new("settings-color-scheme");
     let manager = SettingsManager::load_path(temporary.settings_path()).unwrap();
     for document in [
-        r#"{"version":10}"#,
-        r#"{"version":10,"appearance":{}}"#,
-        r#"{"version":10,"appearance":{"colorSchemePreference":"automatic"}}"#,
+        shell_document(serde_json::json!({})),
+        shell_document(serde_json::json!({"appearance": {}})),
+        shell_document(serde_json::json!({
+            "appearance": {"colorSchemePreference": "automatic"}
+        })),
     ] {
         assert!(matches!(
-            manager.prepare_shell_update(manager.revision(), document),
+            manager.prepare_shell_update(manager.revision(), &document),
             Err(SettingsError::Document(_))
         ));
     }
@@ -167,13 +219,14 @@ fn rejects_external_edits_before_commit() {
     let temporary = TemporaryDirectory::new("settings-conflict");
     let path = temporary.settings_path();
     let mut manager = SettingsManager::load_path(path.clone()).unwrap();
+    let shell_update = shell_document(serde_json::json!({
+        "appearance": {"colorSchemePreference": "preferDark"}
+    }));
     let prepared = manager
-        .prepare_shell_update(
-            manager.revision(),
-            r#"{"version":10,"appearance":{"colorSchemePreference":"preferDark"}}"#,
-        )
+        .prepare_shell_update(manager.revision(), &shell_update)
         .unwrap();
-    fs::write(&path, b"{\"version\":10,\"revision\":77}\n").unwrap();
+    let external_edit = shell_document(serde_json::json!({"revision": 77}));
+    fs::write(&path, format!("{external_edit}\n")).unwrap();
     assert!(matches!(
         manager.commit(prepared),
         Err(SettingsError::Conflict)
@@ -212,4 +265,52 @@ fn validates_keyboard_bounds_and_installed_keymaps() {
         missing.compiled_layout_names(),
         Err(SettingsError::Keyboard(_))
     ));
+}
+
+#[test]
+fn validates_application_environment_before_writing() {
+    let temporary = TemporaryDirectory::new("settings-application-environment");
+    let manager = SettingsManager::load_path(temporary.settings_path()).unwrap();
+    let valid_document = shell_document(serde_json::json!({
+        "appearance": {"colorSchemePreference": "preferDark"},
+        "applicationEnvironment": {
+            "default": {"EMPTY": "", "REMOVE_ME": null},
+            "applications": {"org.example.App.desktop": {"APP_ONLY": "1"}}
+        }
+    }));
+    let valid = manager
+        .prepare_shell_update(manager.revision(), &valid_document)
+        .expect("valid application environment");
+    drop(valid);
+
+    for document in [
+        shell_document(serde_json::json!({
+            "appearance": {"colorSchemePreference": "preferDark"},
+            "applicationEnvironment": []
+        })),
+        shell_document(serde_json::json!({
+            "appearance": {"colorSchemePreference": "preferDark"},
+            "applicationEnvironment": {
+                "default": {"invalid-name": "value"}, "applications": {}
+            }
+        })),
+        shell_document(serde_json::json!({
+            "appearance": {"colorSchemePreference": "preferDark"},
+            "applicationEnvironment": {
+                "default": {"VALID": 3}, "applications": {}
+            }
+        })),
+        shell_document(serde_json::json!({
+            "appearance": {"colorSchemePreference": "preferDark"},
+            "applicationEnvironment": {
+                "default": {},
+                "applications": {"not/a.desktop": {"VALID": "1"}}
+            }
+        })),
+    ] {
+        assert!(matches!(
+            manager.prepare_shell_update(manager.revision(), &document),
+            Err(SettingsError::Document(_))
+        ));
+    }
 }

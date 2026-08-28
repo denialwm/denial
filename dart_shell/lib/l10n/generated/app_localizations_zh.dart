@@ -423,12 +423,27 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get desktopAudioOutputDevicesDescription => '选择桌面音频的播放位置。';
+
+  @override
+  String get desktopAudioOutputDevicesTitle => '输出设备';
+
+  @override
+  String get desktopAudioOutputDevicesUnavailable => '音频输出设备不可用。';
+
+  @override
+  String get desktopAudioOutputDeviceNotConnected => '未连接';
+
+  @override
   String get desktopApplicationAudioUnavailable => '应用音频不可用。';
 
   @override
   String desktopApplicationSearchResults(int visible, int total) {
     return '共 $total 个应用，显示 $visible 个';
   }
+
+  @override
+  String get desktopApplicationSuggestionsTitle => '建议';
 
   @override
   String get desktopApplicationVolumeDescription => '分别调节各个应用的音频。';
@@ -449,6 +464,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get desktopCloseApplicationAudio => '关闭应用音量';
 
   @override
+  String get desktopCloseAudioOutputDevices => '关闭输出设备';
+
+  @override
   String desktopConnectDevice(String deviceName) {
     return '连接 $deviceName';
   }
@@ -460,6 +478,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String desktopDisconnectDevice(String deviceName) {
     return '断开 $deviceName';
   }
+
+  @override
+  String get desktopLoadingAudioOutputDevices => '正在加载输出设备…';
 
   @override
   String get desktopEnableBluetoothForDevices => '开启蓝牙以查看设备。';
@@ -496,6 +517,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get desktopNoApplicationAudio => '没有应用正在播放音频。';
+
+  @override
+  String get desktopNoAudioOutputDevices => '未找到音频输出设备。';
 
   @override
   String get desktopNoApplicationsFound => '未找到应用';
@@ -536,6 +560,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get desktopRefreshApplicationAudio => '刷新应用音频';
 
   @override
+  String get desktopRefreshAudioOutputDevices => '刷新输出设备';
+
+  @override
   String get desktopRefreshBluetooth => '刷新蓝牙设备';
 
   @override
@@ -548,6 +575,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get desktopScanBluetooth => '扫描蓝牙设备';
+
+  @override
+  String get desktopSelectAudioOutputDevice => '选择音频输出设备';
 
   @override
   String get desktopScanningBluetoothDevices => '正在扫描蓝牙设备…';
@@ -1450,7 +1480,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsBackdropBlurLevelBest => '最佳';
 
   @override
-  String get settingsBackdropBlurOpacityThreshold => '模糊的最低窗口不透明度';
+  String get settingsBackdropBlurOpacityThreshold => '模糊的最低像素不透明度';
 
   @override
   String get settingsBackdropDimming => '背景变暗';
@@ -1496,6 +1526,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsBrightness => '亮度';
+
+  @override
+  String get settingsCardOpacity => '卡片不透明度';
 
   @override
   String get settingsClockScale => '时钟缩放';
@@ -1556,6 +1589,31 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsCursorTitle => '光标';
+
+  @override
+  String get settingsCursorTheme => '光标主题';
+
+  @override
+  String get settingsCursorImport => '导入光标 ZIP';
+
+  @override
+  String get settingsCursorImporting => '正在导入…';
+
+  @override
+  String get settingsCursorImportFailed => '无法导入光标主题。';
+
+  @override
+  String get settingsCursorRemove => '移除导入的光标主题';
+
+  @override
+  String get settingsCursorRemoveFailed => '无法移除导入的光标主题。';
+
+  @override
+  String get settingsCursorAllowApplications => '允许应用显示自己的光标';
+
+  @override
+  String get settingsCursorAllowApplicationsDescription =>
+      'Wayland 和 X11 应用可以提供光标图像。关闭后将始终使用所选的 Denial 主题。';
 
   @override
   String get settingsDashboardOverlayDescription => '设置桌面仪表板的位置。';
@@ -1711,6 +1769,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsFocusedWindows => '聚焦窗口';
 
   @override
+  String get settingsFocusedWindowBorder => '高亮聚焦窗口边框';
+
+  @override
+  String get settingsFocusedWindowBorderDescription =>
+      '关闭后，聚焦与未聚焦窗口将使用相同的边框颜色。';
+
+  @override
   String get settingsHeaderContext => 'DENIAL / 系统';
 
   @override
@@ -1718,6 +1783,12 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsHeight => '高度';
+
+  @override
+  String get settingsHoverTrigger => '悬停屏幕边缘时打开';
+
+  @override
+  String get settingsHoverTriggerDescription => '当指针到达对应屏幕边缘时显示此面板。';
 
   @override
   String get settingsHudOverlayDescription => '设置音量和亮度反馈的位置。';
@@ -1898,7 +1969,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsShortcutEditorShortcutExample =>
-      '示例：Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeUp';
+      '示例：Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeLeft';
 
   @override
   String get settingsShortcutEditorSupportedInputs => '支持的输入';
@@ -1908,6 +1979,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsShortcutEditorTargetAction => 'Denial 操作';
+
+  @override
+  String get settingsShortcutEditorTargetApplication => '应用';
 
   @override
   String get settingsShortcutEditorTargetProgram => '程序';
@@ -1962,6 +2036,14 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsShortcutEditorChooseAction => '选择操作';
 
   @override
+  String get settingsShortcutEditorChooseApplication => '选择应用';
+
+  @override
+  String settingsShortcutApplicationTarget(String desktopFileId) {
+    return '应用 · $desktopFileId';
+  }
+
+  @override
   String get settingsShortcutEditorValidating => '正在通过合成器检查…';
 
   @override
@@ -2002,6 +2084,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsShortcutGestureThreeFingerSwipeUp => '三指向上轻扫';
 
   @override
+  String get settingsShortcutGestureThreeFingerSwipeLeft => '三指向左轻扫';
+
+  @override
+  String get settingsShortcutGestureThreeFingerSwipeRight => '三指向右轻扫';
+
+  @override
   String get settingsShortcutInputCategoryModifier => '修饰键';
 
   @override
@@ -2035,6 +2123,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsShortcutActionOpenApplications => '打开应用列表';
 
   @override
+  String get settingsShortcutActionOpenDashboard => '打开仪表板';
+
+  @override
+  String get settingsShortcutActionOpenSettings => '打开设置';
+
+  @override
   String get settingsShortcutActionOpenOverview => '打开概览';
 
   @override
@@ -2054,6 +2148,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsShortcutActionMinimizeWindow => '最小化窗口';
+
+  @override
+  String get settingsShortcutActionMinimizeAllWindows => '最小化所有窗口';
 
   @override
   String get settingsShortcutActionToggleMaximize => '最大化或还原';
@@ -2281,6 +2378,158 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsDeveloperWorkspaceTitle => '源码工作区';
 
   @override
+  String get settingsEnvironmentAdd => '添加';
+
+  @override
+  String get settingsEnvironmentAddedStatus => '已添加到启动的应用';
+
+  @override
+  String get settingsEnvironmentAddModeDescription =>
+      'Denial 执行应用时注入字面值。空值会保留为空字符串。';
+
+  @override
+  String get settingsEnvironmentAllApplications => '所有应用';
+
+  @override
+  String get settingsEnvironmentAllApplicationsDescription => '默认启动环境';
+
+  @override
+  String settingsEnvironmentApplicationInherited(int count) {
+    return '继承 $count 条所有应用规则';
+  }
+
+  @override
+  String get settingsEnvironmentApplicationSearchHint => '搜索应用或桌面 ID';
+
+  @override
+  String get settingsEnvironmentApplicationsTitle => '应用';
+
+  @override
+  String get settingsEnvironmentApplicationsUnavailable => '无法加载已安装的应用。';
+
+  @override
+  String get settingsEnvironmentBackToApplications => '返回应用列表';
+
+  @override
+  String get settingsEnvironmentCancel => '取消';
+
+  @override
+  String get settingsEnvironmentClearScope => '清除';
+
+  @override
+  String settingsEnvironmentDeleteVariable(String variable) {
+    return '删除 $variable';
+  }
+
+  @override
+  String settingsEnvironmentEditVariable(String variable) {
+    return '编辑 $variable';
+  }
+
+  @override
+  String get settingsEnvironmentEditorDescription =>
+      '设置一个值；留空会传递空字符串；选择“移除”则不会把该变量传给子进程。';
+
+  @override
+  String settingsEnvironmentEditorEditTitle(String variable) {
+    return '编辑 $variable';
+  }
+
+  @override
+  String get settingsEnvironmentEditorTitle => '添加覆盖项';
+
+  @override
+  String get settingsEnvironmentEmptyDescription => '在上方添加变量，以更改之后启动的应用环境。';
+
+  @override
+  String get settingsEnvironmentEmptyTitle => '没有覆盖项';
+
+  @override
+  String get settingsEnvironmentEmptyValue => '空字符串';
+
+  @override
+  String get settingsEnvironmentHiddenStatus => '已对启动的应用隐藏';
+
+  @override
+  String get settingsEnvironmentHide => '隐藏';
+
+  @override
+  String get settingsEnvironmentHideModeDescription =>
+      '在 exec 前移除继承的变量。应用会像从未导出过该名称一样运行。';
+
+  @override
+  String get settingsEnvironmentNameDuplicate => '该变量已有覆盖项。';
+
+  @override
+  String get settingsEnvironmentNameHint => '例如 MOZ_ENABLE_WAYLAND';
+
+  @override
+  String get settingsEnvironmentNameInvalid => '仅使用字母、数字和下划线，并以字母或下划线开头。';
+
+  @override
+  String get settingsEnvironmentNameLabel => '变量名';
+
+  @override
+  String get settingsEnvironmentNameRequired => '请输入变量名。';
+
+  @override
+  String get settingsEnvironmentOverridesDefault => '覆盖所有应用规则';
+
+  @override
+  String get settingsEnvironmentModeAdd => '添加变量';
+
+  @override
+  String get settingsEnvironmentModeHide => '隐藏变量';
+
+  @override
+  String get settingsEnvironmentRemoveDescription => 'Denial 会在启动应用前移除继承的这个变量。';
+
+  @override
+  String get settingsEnvironmentRemoveLabel => '从启动的应用中移除';
+
+  @override
+  String get settingsEnvironmentRemovedValue => '已从子进程环境中移除';
+
+  @override
+  String get settingsEnvironmentScopeDescription =>
+      '这些覆盖项仅应用于由 Denial 启动的应用和快捷键命令，并在之后的启动中生效；不会影响 XDG 自启动项、systemd 服务、D-Bus 服务或 Denial 本身。';
+
+  @override
+  String get settingsEnvironmentScopeTitle => '启动范围';
+
+  @override
+  String get settingsEnvironmentSection => '应用';
+
+  @override
+  String get settingsEnvironmentTitle => '自定义由 Denial 启动的应用环境。';
+
+  @override
+  String get settingsEnvironmentUpdate => '更新变量';
+
+  @override
+  String get settingsEnvironmentUnavailableApplication => '不可用的应用';
+
+  @override
+  String get settingsEnvironmentValueHint => '例如 1';
+
+  @override
+  String get settingsEnvironmentValueLabel => '值';
+
+  @override
+  String get settingsEnvironmentValueNul => '值不能包含 NUL 字符。';
+
+  @override
+  String get settingsEnvironmentValueTooLong => '该值过长。';
+
+  @override
+  String settingsEnvironmentVariablesStatus(int count) {
+    return '已配置 $count 项';
+  }
+
+  @override
+  String get settingsEnvironmentVariablesTitle => '已配置的覆盖项';
+
+  @override
   String settingsMinutes(int minutes) {
     return '$minutes 分钟';
   }
@@ -2305,6 +2554,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsNavigationDeveloper => '开发者';
+
+  @override
+  String get settingsNavigationEnvironment => '应用环境';
 
   @override
   String get settingsNavigationDisplays => '显示器与视频';
@@ -2418,9 +2670,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsPanelOpacity => '面板不透明度';
 
   @override
-  String get settingsPanelRadius => '面板圆角';
-
-  @override
   String get settingsPanelTravel => '面板移动距离';
 
   @override
@@ -2461,10 +2710,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsScreenAnchor => '屏幕锚点';
 
   @override
-  String get settingsShapeDescription => '调整窗口和面板的圆角。';
+  String get settingsShapeDescription => '统一缩放窗口、面板、卡片和控件的所有圆角。';
 
   @override
   String get settingsShapeTitle => '形状';
+
+  @override
+  String get settingsCornerRoundness => '全局圆角';
 
   @override
   String get settingsColorSchemeTitle => '配色方案';
@@ -2622,9 +2874,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsWindowOpacityTitle => '窗口不透明度';
-
-  @override
-  String get settingsWindowRadius => '窗口圆角';
 
   @override
   String shortDate(String weekday, int day, String month) {

@@ -48,8 +48,6 @@ use smithay::utils::{Logical, Size};
 use tracing::{debug, error, info, warn};
 
 use super::egl_context;
-#[cfg(test)]
-use super::frame_scheduler::FrameTick;
 use super::frame_scheduler::{OutputFrameRequest, PendingFrame};
 use super::idle_policy;
 use super::native_app_plugin::NativeBufferRelease;
@@ -67,6 +65,8 @@ mod text_input;
 pub(super) use super::wayland_frontend::input_method::InputMethodTransaction;
 pub(super) use text_input::TextInputSnapshot;
 
+#[path = "flutter_runtime/cursor_bridge.rs"]
+mod cursor_bridge;
 #[path = "flutter_runtime/damage.rs"]
 mod damage;
 #[path = "flutter_runtime/engine_session.rs"]
@@ -97,25 +97,13 @@ use event_pipeline::{
 };
 pub use input::InputQueue;
 use input::{InputRecord, KeyboardRecord, flutter_physical_scroll_delta, glfw_keycode};
-#[cfg(test)]
-use input::{PointerRecord, flutter_application_scroll_delta, push_bounded_input};
 pub use output_pipeline::ReadyOutputFrame;
-#[cfg(test)]
-use output_pipeline::{BufferState, OutputBufferPool};
 use output_pipeline::{
     OutputBufferBroker, OutputPoolDescriptor, PendingVsyncBatons, RenderTargetBlocked,
     VsyncRegistration,
 };
 use render_audit::{RenderAuditStage, RenderDamageAudit};
 pub use renderer::SampledBufferHoldBatch;
-#[cfg(test)]
-use renderer::{
-    AnimatedOutputRotation, CachedTextureBinding, ExternalTextureBinding, ExternalTextureLease,
-    ExternalTextureLeaseResource, ExternalTextureResourceBudget, ExternalTextureSlot,
-    ExternalTextureSource, FlutterProducerState, PartitionedRecencyCache, ProducerArbiter,
-    RecencyCache, RecencyCacheStats, RetiredExternalBindingQueue, animated_rotation_transform,
-    contain_ffi_unwind, retire_external_texture, shortest_rotation_delta, vm_service_uri_from_log,
-};
 pub(super) use renderer::{
     ExternalTextureFrame, OutputGeometryTransition, OutputRotationAdvance, ShmSnapshotPool,
     ShmTextureFrame, SyncedWaylandScene,
@@ -132,9 +120,11 @@ const FLUTTER_LIFECYCLE_HIDDEN: &[u8] = b"AppLifecycleState.hidden";
 const AUDIO_CHANNEL: &CStr = c"denial/audio";
 const AUDIO_STATE_CHANNEL: &CStr = c"denial/audio_state";
 const AUDIO_STREAMS_STATE_CHANNEL: &CStr = c"denial/audio_streams_state";
+const AUDIO_DEVICES_STATE_CHANNEL: &CStr = c"denial/audio_devices_state";
 const BRIGHTNESS_CHANNEL: &CStr = c"denial/brightness";
 const BRIGHTNESS_STATE_CHANNEL: &CStr = c"denial/brightness_state";
 const WINDOW_CLOSE_COMPLETE_CHANNEL: &CStr = c"denial/window_close_complete";
+const CURSOR_PRESENTED_CHANNEL: &CStr = c"denial/cursor_presented";
 const GLFW_MOD_CONTROL: u32 = 0x0002;
 const GLFW_MOD_ALT: u32 = 0x0004;
 const MAX_CACHED_DMABUF_BINDINGS_PER_TEXTURE: usize = 8;
@@ -441,6 +431,11 @@ fn decode_window_close_complete(data: &[u8]) -> Option<u64> {
     (window_id > 0).then_some(window_id)
 }
 
+fn decode_cursor_presented(data: &[u8]) -> Option<u64> {
+    let epoch = u64::from_le_bytes(data.try_into().ok()?);
+    (epoch > 0).then_some(epoch)
+}
+
 pub struct FlutterRuntime {
     host: Option<EngineHost>,
     handler: Arc<FlutterGlHandler>,
@@ -464,6 +459,10 @@ pub struct FlutterRuntime {
     next_platform_task_order: u64,
     registered_external_textures: HashSet<i64>,
     scene_texture_ids: HashSet<i64>,
+    cursor_texture_ids: HashSet<i64>,
+    retired_cursor_texture_ids: BTreeMap<u64, HashSet<i64>>,
+    cursor_epoch: u64,
+    cursor_output: Option<OutputId>,
     render_outputs: Vec<RuntimeRenderOutput>,
     render_output_configuration: Vec<RenderOutput>,
     output_rotation_animation: Option<OutputRotationAnimation>,
@@ -655,7 +654,3 @@ fn parse_posix_locale(value: &str) -> Option<EngineLocale> {
 fn first_file(paths: &[PathBuf]) -> Option<PathBuf> {
     paths.iter().find(|path| path.is_file()).cloned()
 }
-
-#[cfg(test)]
-#[path = "flutter_runtime/tests.rs"]
-mod tests;

@@ -83,7 +83,7 @@ class _AboutHero extends StatelessWidget {
           DecoratedBox(
             decoration: BoxDecoration(
               color: accent.withAlpha(26),
-              borderRadius: BorderRadius.circular(ShellRadii.chip),
+              borderRadius: context.shellTheme.borderRadius(ShellRadii.chip),
               border: Border.all(color: accent.withAlpha(76)),
             ),
             child: Padding(

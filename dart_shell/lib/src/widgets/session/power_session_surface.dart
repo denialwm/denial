@@ -62,14 +62,6 @@ class PowerSessionSurface extends ConsumerWidget {
                 color: theme.panelColor(context.shellColors.panelBackground),
                 borderRadius: BorderRadius.circular(theme.panelRadius),
                 border: Border.all(color: context.shellColors.hairline),
-                boxShadow: <BoxShadow>[
-                  BoxShadow(
-                    color: context.shellColors.shadow,
-                    blurRadius: 36,
-                    spreadRadius: 3,
-                    offset: Offset(0, 16),
-                  ),
-                ],
               ),
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
@@ -345,7 +337,9 @@ class _SessionActionTileState extends State<_SessionActionTile> {
                 color: widget.enabled
                     ? context.shellColors.surfaceContainerHigh
                     : context.shellColors.tileOff,
-                borderRadius: BorderRadius.circular(ShellRadii.tileWide),
+                borderRadius: context.shellTheme.borderRadius(
+                  ShellRadii.tileWide,
+                ),
                 border: Border.all(
                   color: _focused
                       ? accent.primary
@@ -541,7 +535,7 @@ class _PowerNotice extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: context.shellColors.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(13),
+        borderRadius: context.shellTheme.borderRadius(13),
         border: Border.all(color: context.shellColors.hairlineSoft),
       ),
       child: Padding(
@@ -639,7 +633,7 @@ class _PowerIconButtonState extends State<_PowerIconButton> {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: context.shellColors.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: context.shellTheme.borderRadius(12),
                 border: Border.all(
                   color: _focused
                       ? accent.primary
@@ -713,7 +707,7 @@ class _PowerTextButtonState extends State<_PowerTextButton> {
               color: widget.emphasized
                   ? accent.container
                   : context.shellColors.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: context.shellTheme.borderRadius(12),
               border: Border.all(
                 color: _focused
                     ? accent.primary

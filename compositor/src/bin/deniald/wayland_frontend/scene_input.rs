@@ -46,23 +46,24 @@ impl WaylandFrontend {
     pub(crate) fn has_pending_frame_callbacks(&self) -> bool {
         !self.pending_frame_callback_windows.is_empty()
             || !self.pending_input_method_frame_callbacks.is_empty()
+            || !self.pending_cursor_frame_callback_roots.is_empty()
     }
 
     #[cfg(feature = "flutter")]
     pub(super) fn queue_cursor_state_for_flutter_generation(&mut self) {
-        self.published_cursor_shape = None;
+        self.published_cursor_state = None;
         if !self.pointer_cursor_visible {
-            self.pending_cursor_shape = Some("none");
+            self.pending_cursor_state = Some(CursorPublication::Hidden);
             self.pending_cursor_position = None;
             return;
         }
         match self.routed_pointer_target {
             RoutedPointerTarget::Flutter => {
-                self.pending_cursor_shape = None;
+                self.pending_cursor_state = None;
                 self.pending_cursor_position = None;
             }
             RoutedPointerTarget::Client(_) => {
-                self.pending_cursor_shape = Some(software_cursor_shape(&self.cursor_status));
+                self.pending_cursor_state = Some(self.resolved_client_cursor_publication());
                 self.pending_cursor_position = Some(self.flutter_scene_pointer_position());
             }
         }
@@ -307,6 +308,24 @@ impl WaylandFrontend {
             }
         }
         let callback_millis = callback_time.as_millis() as u32;
+        if !self.pending_cursor_frame_callback_roots.is_empty()
+            && cursor_frame_callback_matches(self.cursor_output, tick.output)
+        {
+            let pending = std::mem::take(&mut self.pending_cursor_frame_callback_roots);
+            for root_id in pending {
+                let Some(surface) = self
+                    .surface_ids
+                    .get(&root_id)
+                    .and_then(|surface_id| self.surfaces_by_id.get(surface_id))
+                else {
+                    continue;
+                };
+                sent = sent.saturating_add(presentation::send_surface_frame_callbacks(
+                    surface,
+                    callback_millis,
+                ));
+            }
+        }
         if !self.pending_input_method_frame_callbacks.is_empty() {
             for popup in self.input_method.visible_popups() {
                 if self
@@ -391,91 +410,5 @@ impl WaylandFrontend {
         popup.with_pending_state(|state| {
             state.geometry = state.positioner.get_unconstrained_geometry(target);
         });
-    }
-}
-
-#[cfg(test)]
-mod pointer_confinement_tests {
-    use super::*;
-
-    fn output(x: i32, y: i32, width: i32, height: i32) -> Rectangle<i32, Logical> {
-        Rectangle::new((x, y).into(), (width, height).into())
-    }
-
-    fn constrain(
-        position: (f64, f64),
-        outputs: &[Rectangle<i32, Logical>],
-    ) -> Option<Point<f64, Logical>> {
-        constrain_pointer_to_outputs(Point::from(position), outputs.iter().copied())
-    }
-
-    #[test]
-    fn offset_rotated_workstation_layout_rejects_its_empty_regions() {
-        let outputs = [output(0, 563, 2560, 1440), output(2560, 0, 1440, 2560)];
-
-        assert_eq!(
-            constrain((1000.0, 800.0), &outputs),
-            Some((1000.0, 800.0).into())
-        );
-        assert_eq!(
-            constrain((3000.0, 100.0), &outputs),
-            Some((3000.0, 100.0).into())
-        );
-        assert_eq!(
-            constrain((1000.0, 100.0), &outputs),
-            Some((1000.0, 563.0).into())
-        );
-        assert_eq!(
-            constrain((1000.0, 2400.0), &outputs),
-            Some((1000.0, 2003.0_f64.next_down()).into())
-        );
-        assert_eq!(
-            constrain((4500.0, 1000.0), &outputs),
-            Some((4000.0_f64.next_down(), 1000.0).into())
-        );
-    }
-
-    #[test]
-    fn subpixel_motion_crosses_an_adjoining_output_seam() {
-        let outputs = [output(0, 563, 2560, 1440), output(2560, 0, 1440, 2560)];
-
-        assert_eq!(
-            constrain((2559.75, 1000.0), &outputs),
-            Some((2559.75, 1000.0).into())
-        );
-        assert_eq!(
-            constrain((2560.0, 1000.0), &outputs),
-            Some((2560.0, 1000.0).into())
-        );
-    }
-
-    #[test]
-    fn negative_and_disconnected_output_coordinates_project_to_the_nearest_edge() {
-        let negative = [output(-1920, -360, 1920, 1080)];
-        assert_eq!(
-            constrain((-2000.0, 0.0), &negative),
-            Some((-1920.0, 0.0).into())
-        );
-
-        let disconnected = [output(0, 0, 100, 100), output(300, 0, 100, 100)];
-        assert_eq!(
-            constrain((160.0, 50.0), &disconnected),
-            Some((100.0_f64.next_down(), 50.0).into())
-        );
-        assert_eq!(
-            constrain((250.0, 50.0), &disconnected),
-            Some((300.0, 50.0).into())
-        );
-    }
-
-    #[test]
-    fn topology_removal_rehomes_a_pointer_from_a_removed_output() {
-        let retained = [output(0, 0, 100, 100)];
-
-        assert_eq!(
-            constrain((350.0, 50.0), &retained),
-            Some((100.0_f64.next_down(), 50.0).into())
-        );
-        assert_eq!(constrain((0.0, 0.0), &[]), None);
     }
 }

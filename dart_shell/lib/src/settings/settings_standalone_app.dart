@@ -117,10 +117,11 @@ class _DenialSettingsStandaloneContentState
     final selectedTheme = ShellThemeData(
       colors: selectedColors,
       accent: accent,
-      windowRadius: appearance.windowRadius,
-      panelRadius: appearance.panelRadius,
+      cornerRadiusScale: appearance.cornerRadiusScale,
       panelOpacity: appearance.panelOpacity,
+      cardOpacity: appearance.cardOpacity,
       backdropBlurEnabled: false,
+      focusedWindowBorderEnabled: appearance.focusedWindowBorderEnabled,
       focusedWindowOpacity: appearance.focusedWindowOpacity,
       unfocusedWindowOpacity: appearance.unfocusedWindowOpacity,
     );
@@ -153,6 +154,8 @@ class _DenialSettingsStandaloneContentState
                   initialPage: widget.initialPage,
                   onOpenWallpaperSelector: () =>
                       ref.read(denialBridgeProvider).openWallpaperSelector(),
+                  onPickCursorZip: () =>
+                      _activationChannel.invokeMethod<String>('pickCursorZip'),
                 ),
               ),
               if (syncStatus.phase == ShellSettingsSyncPhase.loading)

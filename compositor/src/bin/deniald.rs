@@ -298,6 +298,8 @@ fn logical_axis_scroll_delta(
 #[cfg(feature = "flutter")]
 const NOTIFICATION_EVENT_QUEUE_CAPACITY: usize = 512;
 #[cfg(feature = "flutter")]
+const DPMS_WAKE_TOPOLOGY_GRACE: Duration = Duration::from_secs(5);
+#[cfg(feature = "flutter")]
 const KMS_PRESENTATION_RECOVERY_RETRY: Duration = Duration::from_millis(250);
 #[cfg(feature = "flutter")]
 const COMPOSITOR_BACKGROUND_SLICE: Duration = Duration::from_millis(2);

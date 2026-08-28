@@ -358,9 +358,8 @@ class _SystemTrayButtonState extends ConsumerState<_SystemTrayButton> {
     _menuSessions = ref.read(_systemTrayMenuSessionProvider.notifier);
   }
 
-  Future<bool> _invoke(SystemTrayAction action, Offset position) async {
-    return await widget.onInvoke(widget.item, action, position);
-  }
+  Future<bool> _invoke(SystemTrayAction action, Offset position) async =>
+      widget.onInvoke(widget.item, action, position);
 
   Offset _centerPosition() {
     final box = context.findRenderObject();
@@ -551,7 +550,7 @@ class _SystemTrayButtonState extends ConsumerState<_SystemTrayButton> {
       ),
       shape: WidgetStatePropertyAll<OutlinedBorder>(
         RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(10)),
+          borderRadius: context.shellTheme.borderRadius(10),
         ),
       ),
       visualDensity: VisualDensity.compact,
@@ -609,7 +608,7 @@ class _SystemTrayButtonState extends ConsumerState<_SystemTrayButton> {
       visualDensity: VisualDensity.standard,
       shape: WidgetStatePropertyAll<OutlinedBorder>(
         RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(6)),
+          borderRadius: context.shellTheme.borderRadius(6),
         ),
       ),
       alignment: AlignmentDirectional.centerStart,

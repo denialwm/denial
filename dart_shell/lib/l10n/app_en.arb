@@ -629,6 +629,22 @@
       }
     }
   },
+  "desktopAudioOutputDevicesDescription": "Choose where desktop audio plays.",
+  "@desktopAudioOutputDevicesDescription": {
+    "description": "English UI text for desktopAudioOutputDevicesDescription."
+  },
+  "desktopAudioOutputDevicesTitle": "Output devices",
+  "@desktopAudioOutputDevicesTitle": {
+    "description": "English UI text for desktopAudioOutputDevicesTitle."
+  },
+  "desktopAudioOutputDevicesUnavailable": "Audio output devices are unavailable.",
+  "@desktopAudioOutputDevicesUnavailable": {
+    "description": "English UI text for desktopAudioOutputDevicesUnavailable."
+  },
+  "desktopAudioOutputDeviceNotConnected": "Not connected",
+  "@desktopAudioOutputDeviceNotConnected": {
+    "description": "Status shown for an audio output whose jack or route is explicitly unavailable."
+  },
   "desktopApplicationAudioUnavailable": "Application audio is unavailable.",
   "@desktopApplicationAudioUnavailable": {
     "description": "English UI text for desktopApplicationAudioUnavailable."
@@ -644,6 +660,10 @@
         "type": "int"
       }
     }
+  },
+  "desktopApplicationSuggestionsTitle": "Suggested",
+  "@desktopApplicationSuggestionsTitle": {
+    "description": "Heading for the dedicated row of recently opened launcher applications."
   },
   "desktopApplicationVolumeDescription": "Adjust audio for individual applications.",
   "@desktopApplicationVolumeDescription": {
@@ -669,6 +689,10 @@
   "@desktopCloseApplicationAudio": {
     "description": "English UI text for desktopCloseApplicationAudio."
   },
+  "desktopCloseAudioOutputDevices": "Close output devices",
+  "@desktopCloseAudioOutputDevices": {
+    "description": "English UI text for desktopCloseAudioOutputDevices."
+  },
   "desktopConnectDevice": "Connect {deviceName}",
   "@desktopConnectDevice": {
     "description": "English UI text for desktopConnectDevice.",
@@ -690,6 +714,10 @@
         "type": "String"
       }
     }
+  },
+  "desktopLoadingAudioOutputDevices": "Loading output devices…",
+  "@desktopLoadingAudioOutputDevices": {
+    "description": "English UI text for desktopLoadingAudioOutputDevices."
   },
   "desktopEnableBluetoothForDevices": "Turn on Bluetooth to see devices.",
   "@desktopEnableBluetoothForDevices": {
@@ -749,6 +777,10 @@
   "@desktopNoApplicationAudio": {
     "description": "English UI text for desktopNoApplicationAudio."
   },
+  "desktopNoAudioOutputDevices": "No audio output devices found.",
+  "@desktopNoAudioOutputDevices": {
+    "description": "English UI text for desktopNoAudioOutputDevices."
+  },
   "desktopNoApplicationsFound": "No applications found",
   "@desktopNoApplicationsFound": {
     "description": "English UI text for desktopNoApplicationsFound."
@@ -802,6 +834,10 @@
   "@desktopRefreshApplicationAudio": {
     "description": "English UI text for desktopRefreshApplicationAudio."
   },
+  "desktopRefreshAudioOutputDevices": "Refresh output devices",
+  "@desktopRefreshAudioOutputDevices": {
+    "description": "English UI text for desktopRefreshAudioOutputDevices."
+  },
   "desktopRefreshBluetooth": "Refresh Bluetooth devices",
   "@desktopRefreshBluetooth": {
     "description": "English UI text for desktopRefreshBluetooth."
@@ -822,6 +858,10 @@
   "desktopScanBluetooth": "Scan for Bluetooth devices",
   "@desktopScanBluetooth": {
     "description": "English UI text for desktopScanBluetooth."
+  },
+  "desktopSelectAudioOutputDevice": "Select audio output device",
+  "@desktopSelectAudioOutputDevice": {
+    "description": "English UI text for desktopSelectAudioOutputDevice."
   },
   "desktopScanningBluetoothDevices": "Scanning for Bluetooth devices…",
   "@desktopScanningBluetoothDevices": {
@@ -2144,9 +2184,9 @@
   "@settingsBackdropBlurLevelBest": {
     "description": "Highest-quality compositor backdrop blur level."
   },
-  "settingsBackdropBlurOpacityThreshold": "Minimum window opacity for blur",
+  "settingsBackdropBlurOpacityThreshold": "Minimum pixel opacity for blur",
   "@settingsBackdropBlurOpacityThreshold": {
-    "description": "Slider label for the minimum effective window opacity at which backdrop blur is rendered."
+    "description": "Slider label for the strict final-composition pixel alpha threshold above which backdrop blur is rendered."
   },
   "settingsBackdropDimming": "Backdrop dimming",
   "@settingsBackdropDimming": {
@@ -2207,6 +2247,10 @@
   "settingsBrightness": "Brightness",
   "@settingsBrightness": {
     "description": "English UI text for settingsBrightness."
+  },
+  "settingsCardOpacity": "Card opacity",
+  "@settingsCardOpacity": {
+    "description": "Opacity of card backgrounds inside shell panels and Settings."
   },
   "settingsClockScale": "Clock scale",
   "@settingsClockScale": {
@@ -2287,6 +2331,38 @@
   "settingsCursorTitle": "Cursor",
   "@settingsCursorTitle": {
     "description": "Heading for cursor appearance settings."
+  },
+  "settingsCursorTheme": "Cursor theme",
+  "@settingsCursorTheme": {
+    "description": "Heading above the cursor theme selector."
+  },
+  "settingsCursorImport": "Import cursor ZIP",
+  "@settingsCursorImport": {
+    "description": "Button for importing an animated Windows cursor archive."
+  },
+  "settingsCursorImporting": "Importing…",
+  "@settingsCursorImporting": {
+    "description": "Busy label while a cursor archive is being imported."
+  },
+  "settingsCursorImportFailed": "The cursor theme could not be imported.",
+  "@settingsCursorImportFailed": {
+    "description": "Generic cursor import failure message."
+  },
+  "settingsCursorRemove": "Remove imported cursor theme",
+  "@settingsCursorRemove": {
+    "description": "Tooltip for removing an imported cursor theme."
+  },
+  "settingsCursorRemoveFailed": "The imported cursor theme could not be removed.",
+  "@settingsCursorRemoveFailed": {
+    "description": "Generic cursor removal failure message."
+  },
+  "settingsCursorAllowApplications": "Allow applications to show their own cursor",
+  "@settingsCursorAllowApplications": {
+    "description": "Toggle label for client-defined cursor surfaces."
+  },
+  "settingsCursorAllowApplicationsDescription": "Wayland and X11 applications can provide cursor artwork. Turn this off to always use the selected Denial theme.",
+  "@settingsCursorAllowApplicationsDescription": {
+    "description": "Explanation of the client-defined cursor surface toggle."
   },
   "settingsDashboardOverlayDescription": "Position the desktop dashboard.",
   "@settingsDashboardOverlayDescription": {
@@ -2497,6 +2573,14 @@
   "@settingsFocusedWindows": {
     "description": "English UI text for settingsFocusedWindows."
   },
+  "settingsFocusedWindowBorder": "Highlight the focused window border",
+  "@settingsFocusedWindowBorder": {
+    "description": "Toggle label for changing the focused window border to the accent colour."
+  },
+  "settingsFocusedWindowBorderDescription": "Turn this off to keep focused and unfocused window borders the same colour.",
+  "@settingsFocusedWindowBorderDescription": {
+    "description": "Explanation of the focused-window border highlight toggle."
+  },
   "settingsHeaderContext": "DENIAL / SYSTEM",
   "@settingsHeaderContext": {
     "description": "Compact product and section context shown in the Settings header."
@@ -2508,6 +2592,14 @@
   "settingsHeight": "Height",
   "@settingsHeight": {
     "description": "English UI text for settingsHeight."
+  },
+  "settingsHoverTrigger": "Open on edge hover",
+  "@settingsHoverTrigger": {
+    "description": "Per-panel toggle label for a pointer hover trigger at the output edge."
+  },
+  "settingsHoverTriggerDescription": "Reveal this panel when the pointer reaches its screen edge.",
+  "@settingsHoverTriggerDescription": {
+    "description": "Explanation for a panel's hover-trigger preference."
   },
   "settingsHudOverlayDescription": "Position volume and brightness feedback.",
   "@settingsHudOverlayDescription": {
@@ -2751,7 +2843,7 @@
   "@settingsShortcutEditorShortcutHint": {
     "description": "Example shown in an empty shortcut expression field."
   },
-  "settingsShortcutEditorShortcutExample": "Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeUp",
+  "settingsShortcutEditorShortcutExample": "Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeLeft",
   "@settingsShortcutEditorShortcutExample": {
     "description": "Persistent examples of accepted shortcut expression formats."
   },
@@ -2766,6 +2858,10 @@
   "settingsShortcutEditorTargetAction": "Denial action",
   "@settingsShortcutEditorTargetAction": {
     "description": "Shortcut target option for a built-in Denial action."
+  },
+  "settingsShortcutEditorTargetApplication": "Application",
+  "@settingsShortcutEditorTargetApplication": {
+    "description": "Shortcut target option for a desktop application with a stable desktop-file identity."
   },
   "settingsShortcutEditorTargetProgram": "Program",
   "@settingsShortcutEditorTargetProgram": {
@@ -2837,6 +2933,19 @@
   "@settingsShortcutEditorChooseAction": {
     "description": "Title of the shortcut action catalog."
   },
+  "settingsShortcutEditorChooseApplication": "Choose an application",
+  "@settingsShortcutEditorChooseApplication": {
+    "description": "Title and empty selection label for the shortcut application catalog."
+  },
+  "settingsShortcutApplicationTarget": "Application · {desktopFileId}",
+  "@settingsShortcutApplicationTarget": {
+    "description": "Configured shortcut target carrying a standard desktop-file identity.",
+    "placeholders": {
+      "desktopFileId": {
+        "type": "String"
+      }
+    }
+  },
   "settingsShortcutEditorValidating": "Checking with the compositor…",
   "@settingsShortcutEditorValidating": {
     "description": "Status shown while Rust validates a shortcut draft."
@@ -2898,6 +3007,14 @@
   "@settingsShortcutGestureThreeFingerSwipeUp": {
     "description": "Friendly display name for the three-finger swipe-up gesture."
   },
+  "settingsShortcutGestureThreeFingerSwipeLeft": "Three-finger swipe left",
+  "@settingsShortcutGestureThreeFingerSwipeLeft": {
+    "description": "Friendly display name for the three-finger swipe-left gesture."
+  },
+  "settingsShortcutGestureThreeFingerSwipeRight": "Three-finger swipe right",
+  "@settingsShortcutGestureThreeFingerSwipeRight": {
+    "description": "Friendly display name for the three-finger swipe-right gesture."
+  },
   "settingsShortcutInputCategoryModifier": "Modifier",
   "@settingsShortcutInputCategoryModifier": {
     "description": "Supported shortcut input category."
@@ -2942,6 +3059,14 @@
   "@settingsShortcutActionOpenApplications": {
     "description": "Display name for the open applications shortcut action."
   },
+  "settingsShortcutActionOpenDashboard": "Open dashboard",
+  "@settingsShortcutActionOpenDashboard": {
+    "description": "Display name for the open dashboard shortcut action."
+  },
+  "settingsShortcutActionOpenSettings": "Open Settings",
+  "@settingsShortcutActionOpenSettings": {
+    "description": "Display name for the open Settings shortcut action."
+  },
   "settingsShortcutActionOpenOverview": "Open overview",
   "@settingsShortcutActionOpenOverview": {
     "description": "Display name for the open overview shortcut action."
@@ -2969,6 +3094,10 @@
   "settingsShortcutActionMinimizeWindow": "Minimize window",
   "@settingsShortcutActionMinimizeWindow": {
     "description": "Display name for the minimize window shortcut action."
+  },
+  "settingsShortcutActionMinimizeAllWindows": "Minimize all windows",
+  "@settingsShortcutActionMinimizeAllWindows": {
+    "description": "Display name for the minimize all windows shortcut action."
   },
   "settingsShortcutActionToggleMaximize": "Maximize or restore",
   "@settingsShortcutActionToggleMaximize": {
@@ -3258,6 +3387,215 @@
   "@settingsDeveloperWorkspaceTitle": {
     "description": "Heading for Flutter source workspace selection."
   },
+  "settingsEnvironmentAdd": "Add",
+  "@settingsEnvironmentAdd": {
+    "description": "Button label for adding an application environment override."
+  },
+  "settingsEnvironmentAddedStatus": "Added to launched applications",
+  "@settingsEnvironmentAddedStatus": {
+    "description": "Accessibility label for the green plus on a set environment override."
+  },
+  "settingsEnvironmentAddModeDescription": "Inject a literal value when Denial executes an application. An empty value is preserved as an empty string.",
+  "@settingsEnvironmentAddModeDescription": {
+    "description": "Technical explanation shown in Add Variable mode."
+  },
+  "settingsEnvironmentAllApplications": "All applications",
+  "@settingsEnvironmentAllApplications": {
+    "description": "Name of the default environment scope applied to every direct Denial application launch."
+  },
+  "settingsEnvironmentAllApplicationsDescription": "Default launch environment",
+  "@settingsEnvironmentAllApplicationsDescription": {
+    "description": "Technical subtitle for the all-applications environment scope."
+  },
+  "settingsEnvironmentApplicationInherited": "Inherits {count} all-app rules",
+  "@settingsEnvironmentApplicationInherited": {
+    "description": "Count of default environment rules inherited by a selected application.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsEnvironmentApplicationSearchHint": "Search applications or desktop IDs",
+  "@settingsEnvironmentApplicationSearchHint": {
+    "description": "Placeholder for filtering the application environment scope list."
+  },
+  "settingsEnvironmentApplicationsTitle": "Applications",
+  "@settingsEnvironmentApplicationsTitle": {
+    "description": "Title for the application environment scope list."
+  },
+  "settingsEnvironmentApplicationsUnavailable": "Installed applications could not be loaded.",
+  "@settingsEnvironmentApplicationsUnavailable": {
+    "description": "Error shown when desktop entries cannot be loaded for per-application environment settings."
+  },
+  "settingsEnvironmentBackToApplications": "Back to applications",
+  "@settingsEnvironmentBackToApplications": {
+    "description": "Tooltip for returning from a narrow application environment editor to the application list."
+  },
+  "settingsEnvironmentCancel": "Cancel",
+  "@settingsEnvironmentCancel": {
+    "description": "Button label for cancelling application environment editing."
+  },
+  "settingsEnvironmentClearScope": "Clear",
+  "@settingsEnvironmentClearScope": {
+    "description": "Button label for clearing every environment override in the selected scope."
+  },
+  "settingsEnvironmentDeleteVariable": "Delete {variable}",
+  "@settingsEnvironmentDeleteVariable": {
+    "description": "Tooltip for deleting an application environment override.",
+    "placeholders": {
+      "variable": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsEnvironmentEditVariable": "Edit {variable}",
+  "@settingsEnvironmentEditVariable": {
+    "description": "Tooltip for editing an application environment override.",
+    "placeholders": {
+      "variable": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsEnvironmentEditorDescription": "Set a value, leave it empty to pass an empty string, or choose Remove to keep the variable out of the child process.",
+  "@settingsEnvironmentEditorDescription": {
+    "description": "Instructions for the application environment editor."
+  },
+  "settingsEnvironmentEditorEditTitle": "Edit {variable}",
+  "@settingsEnvironmentEditorEditTitle": {
+    "description": "Title shown while editing an existing environment override.",
+    "placeholders": {
+      "variable": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsEnvironmentEditorTitle": "Add an override",
+  "@settingsEnvironmentEditorTitle": {
+    "description": "Title for the application environment editor."
+  },
+  "settingsEnvironmentEmptyDescription": "Add a variable above to change the environment of subsequently launched applications.",
+  "@settingsEnvironmentEmptyDescription": {
+    "description": "Description shown when there are no application environment overrides."
+  },
+  "settingsEnvironmentEmptyTitle": "No overrides",
+  "@settingsEnvironmentEmptyTitle": {
+    "description": "Title shown when there are no application environment overrides."
+  },
+  "settingsEnvironmentEmptyValue": "Empty string",
+  "@settingsEnvironmentEmptyValue": {
+    "description": "Value label for an environment variable set to an empty string."
+  },
+  "settingsEnvironmentHiddenStatus": "Hidden from launched applications",
+  "@settingsEnvironmentHiddenStatus": {
+    "description": "Accessibility label for the red minus on a hidden environment override."
+  },
+  "settingsEnvironmentHide": "Hide",
+  "@settingsEnvironmentHide": {
+    "description": "Button label for hiding an inherited application environment variable."
+  },
+  "settingsEnvironmentHideModeDescription": "Strip an inherited variable immediately before exec. The application behaves as if that name was never exported.",
+  "@settingsEnvironmentHideModeDescription": {
+    "description": "Technical explanation shown in Hide Variable mode."
+  },
+  "settingsEnvironmentNameDuplicate": "That variable already has an override.",
+  "@settingsEnvironmentNameDuplicate": {
+    "description": "Validation error for a duplicate application environment variable."
+  },
+  "settingsEnvironmentNameHint": "e.g. MOZ_ENABLE_WAYLAND",
+  "@settingsEnvironmentNameHint": {
+    "description": "Example environment variable name."
+  },
+  "settingsEnvironmentNameInvalid": "Use letters, numbers, and underscores, beginning with a letter or underscore.",
+  "@settingsEnvironmentNameInvalid": {
+    "description": "Validation error for an invalid environment variable name."
+  },
+  "settingsEnvironmentNameLabel": "Variable name",
+  "@settingsEnvironmentNameLabel": {
+    "description": "Field label for an application environment variable name."
+  },
+  "settingsEnvironmentNameRequired": "Enter a variable name.",
+  "@settingsEnvironmentNameRequired": {
+    "description": "Validation error for an empty environment variable name."
+  },
+  "settingsEnvironmentOverridesDefault": "Overrides the all-applications rule",
+  "@settingsEnvironmentOverridesDefault": {
+    "description": "Tooltip for an application rule that replaces an all-applications rule with the same variable name."
+  },
+  "settingsEnvironmentModeAdd": "Add Variable",
+  "@settingsEnvironmentModeAdd": {
+    "description": "Tab label for setting an application environment variable."
+  },
+  "settingsEnvironmentModeHide": "Hide Variable",
+  "@settingsEnvironmentModeHide": {
+    "description": "Tab label for removing an inherited application environment variable."
+  },
+  "settingsEnvironmentRemoveDescription": "Denial will remove this inherited variable before starting the application.",
+  "@settingsEnvironmentRemoveDescription": {
+    "description": "Description of the remove-from-child environment option."
+  },
+  "settingsEnvironmentRemoveLabel": "Remove from launched applications",
+  "@settingsEnvironmentRemoveLabel": {
+    "description": "Label for an environment override whose value is null."
+  },
+  "settingsEnvironmentRemovedValue": "Removed from child environment",
+  "@settingsEnvironmentRemovedValue": {
+    "description": "Value label for an environment variable removed before launch."
+  },
+  "settingsEnvironmentScopeDescription": "These overrides apply only to applications and shortcut commands started by Denial. They affect subsequent launches, not XDG autostart entries, systemd services, D-Bus services, or Denial itself.",
+  "@settingsEnvironmentScopeDescription": {
+    "description": "Explains the scope and timing of application environment overrides."
+  },
+  "settingsEnvironmentScopeTitle": "Launch scope",
+  "@settingsEnvironmentScopeTitle": {
+    "description": "Title for the application environment scope explanation."
+  },
+  "settingsEnvironmentSection": "APPLICATIONS",
+  "@settingsEnvironmentSection": {
+    "description": "Eyebrow label for the application environment page."
+  },
+  "settingsEnvironmentTitle": "Customize the environment of applications launched by Denial.",
+  "@settingsEnvironmentTitle": {
+    "description": "Title text for the application environment page."
+  },
+  "settingsEnvironmentUpdate": "Update variable",
+  "@settingsEnvironmentUpdate": {
+    "description": "Button label for updating an application environment override."
+  },
+  "settingsEnvironmentUnavailableApplication": "Unavailable application",
+  "@settingsEnvironmentUnavailableApplication": {
+    "description": "Fallback name for a configured desktop-file ID that is no longer installed."
+  },
+  "settingsEnvironmentValueHint": "e.g. 1",
+  "@settingsEnvironmentValueHint": {
+    "description": "Example application environment variable value."
+  },
+  "settingsEnvironmentValueLabel": "Value",
+  "@settingsEnvironmentValueLabel": {
+    "description": "Field label for an application environment variable value."
+  },
+  "settingsEnvironmentValueNul": "Values cannot contain a NUL character.",
+  "@settingsEnvironmentValueNul": {
+    "description": "Validation error for an environment value containing NUL."
+  },
+  "settingsEnvironmentValueTooLong": "The value is too long.",
+  "@settingsEnvironmentValueTooLong": {
+    "description": "Validation error for an oversized environment value."
+  },
+  "settingsEnvironmentVariablesStatus": "{count} configured",
+  "@settingsEnvironmentVariablesStatus": {
+    "description": "Count of configured application environment overrides.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsEnvironmentVariablesTitle": "Configured overrides",
+  "@settingsEnvironmentVariablesTitle": {
+    "description": "Title for the list of configured application environment overrides."
+  },
   "settingsMinutes": "{minutes} min",
   "@settingsMinutes": {
     "description": "English UI text for settingsMinutes.",
@@ -3294,6 +3632,10 @@
   "settingsNavigationDeveloper": "Developer",
   "@settingsNavigationDeveloper": {
     "description": "Label for the Developer destination in Settings navigation."
+  },
+  "settingsNavigationEnvironment": "App environment",
+  "@settingsNavigationEnvironment": {
+    "description": "Settings navigation label for application environment overrides."
   },
   "settingsNavigationDisplays": "Displays & video",
   "@settingsNavigationDisplays": {
@@ -3443,10 +3785,6 @@
   "@settingsPanelOpacity": {
     "description": "English UI text for settingsPanelOpacity."
   },
-  "settingsPanelRadius": "Panel radius",
-  "@settingsPanelRadius": {
-    "description": "English UI text for settingsPanelRadius."
-  },
   "settingsPanelTravel": "Panel travel",
   "@settingsPanelTravel": {
     "description": "English UI text for settingsPanelTravel."
@@ -3505,13 +3843,17 @@
   "@settingsScreenAnchor": {
     "description": "English UI text for settingsScreenAnchor."
   },
-  "settingsShapeDescription": "Tune window and panel corner radii.",
+  "settingsShapeDescription": "Scale every shell corner while preserving the hierarchy between windows, panels, cards, and controls.",
   "@settingsShapeDescription": {
     "description": "English UI text for settingsShapeDescription."
   },
   "settingsShapeTitle": "Shape",
   "@settingsShapeTitle": {
     "description": "English UI text for settingsShapeTitle."
+  },
+  "settingsCornerRoundness": "Corner roundness",
+  "@settingsCornerRoundness": {
+    "description": "Slider label for the global shell corner-radius scale."
   },
   "settingsColorSchemeTitle": "Colour scheme",
   "@settingsColorSchemeTitle": {
@@ -3731,10 +4073,6 @@
   "settingsWindowOpacityTitle": "Window opacity",
   "@settingsWindowOpacityTitle": {
     "description": "English UI text for settingsWindowOpacityTitle."
-  },
-  "settingsWindowRadius": "Window radius",
-  "@settingsWindowRadius": {
-    "description": "English UI text for settingsWindowRadius."
   },
   "shortDate": "{weekday} {day} {month}",
   "@shortDate": {

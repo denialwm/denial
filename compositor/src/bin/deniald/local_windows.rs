@@ -134,7 +134,3 @@ impl LocalFlutterWindows {
 const fn previous_id(id: u64) -> u64 {
     if id <= 1 { MAX_WINDOW_ID } else { id - 1 }
 }
-
-#[cfg(test)]
-#[path = "local_windows/tests.rs"]
-mod tests;

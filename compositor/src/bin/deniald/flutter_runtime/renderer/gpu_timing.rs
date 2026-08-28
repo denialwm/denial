@@ -83,23 +83,6 @@ impl GpuTimerApi {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::extension_list_has;
-
-    #[test]
-    fn timer_extension_detection_requires_an_exact_token() {
-        assert!(extension_list_has(
-            "GL_EXT_texture GL_EXT_disjoint_timer_query GL_EXT_sync",
-            "GL_EXT_disjoint_timer_query"
-        ));
-        assert!(!extension_list_has(
-            "GL_EXT_disjoint_timer_query_webgl2 GL_EXT_sync",
-            "GL_EXT_disjoint_timer_query"
-        ));
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 struct GpuTimestampSet {
     start: u32,

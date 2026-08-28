@@ -5,8 +5,58 @@ import '../models/app_launch_request.dart';
 import '../models/denial_window.dart';
 
 class ShellState {
-  const ShellState({
+  factory ShellState({
+    required List<DenialWindow> windows,
+    required int windowSnapshotSequence,
+    required bool overviewVisible,
+    required Offset gestureDrag,
+    required bool quickSettingsVisible,
+    required Offset quickSettingsDrag,
+    required bool quickSettingsDragActive,
+    required bool edgePanelVisible,
+    required Offset edgePanelDrag,
+    required bool edgePanelDragActive,
+    required double edgePanelViewportScroll,
+    required bool locked,
+    required bool lockLayerVisible,
+    required int? foregroundObjectId,
+    required int? launchingObjectId,
+    required AppLaunchRequest? launchRequest,
+    required bool homeTransitionActive,
+  }) {
+    return ShellState._(
+      windows: windows,
+      windowsByObjectId: Map<int, DenialWindow>.unmodifiable(
+        <int, DenialWindow>{
+          for (final window in windows) window.objectId: window,
+        },
+      ),
+      openAppWindows: List<DenialWindow>.unmodifiable(
+        windows.where((window) => window.isUserApp),
+      ),
+      windowSnapshotSequence: windowSnapshotSequence,
+      overviewVisible: overviewVisible,
+      gestureDrag: gestureDrag,
+      quickSettingsVisible: quickSettingsVisible,
+      quickSettingsDrag: quickSettingsDrag,
+      quickSettingsDragActive: quickSettingsDragActive,
+      edgePanelVisible: edgePanelVisible,
+      edgePanelDrag: edgePanelDrag,
+      edgePanelDragActive: edgePanelDragActive,
+      edgePanelViewportScroll: edgePanelViewportScroll,
+      locked: locked,
+      lockLayerVisible: lockLayerVisible,
+      foregroundObjectId: foregroundObjectId,
+      launchingObjectId: launchingObjectId,
+      launchRequest: launchRequest,
+      homeTransitionActive: homeTransitionActive,
+    );
+  }
+
+  const ShellState._({
     required this.windows,
+    required this._windowsByObjectId,
+    required this.openAppWindows,
     required this.windowSnapshotSequence,
     required this.overviewVisible,
     required this.gestureDrag,
@@ -48,6 +98,8 @@ class ShellState {
   }
 
   final List<DenialWindow> windows;
+  final Map<int, DenialWindow> _windowsByObjectId;
+  final List<DenialWindow> openAppWindows;
   final int windowSnapshotSequence;
   final bool overviewVisible;
   final Offset gestureDrag;
@@ -118,8 +170,20 @@ class ShellState {
     bool clearLaunchRequest = false,
     bool? homeTransitionActive,
   }) {
-    return ShellState(
-      windows: windows ?? this.windows,
+    final nextWindows = windows ?? this.windows;
+    final windowsUnchanged = identical(nextWindows, this.windows);
+    return ShellState._(
+      windows: nextWindows,
+      windowsByObjectId: windowsUnchanged
+          ? _windowsByObjectId
+          : Map<int, DenialWindow>.unmodifiable(<int, DenialWindow>{
+              for (final window in nextWindows) window.objectId: window,
+            }),
+      openAppWindows: windowsUnchanged
+          ? openAppWindows
+          : List<DenialWindow>.unmodifiable(
+              nextWindows.where((window) => window.isUserApp),
+            ),
       windowSnapshotSequence:
           windowSnapshotSequence ?? this.windowSnapshotSequence,
       overviewVisible: overviewVisible ?? this.overviewVisible,
@@ -176,19 +240,7 @@ class ShellState {
     return primaryWindow;
   }
 
-  List<DenialWindow> get openAppWindows {
-    return windows.where((window) => window.isUserApp).toList(growable: false);
-  }
-
-  int get openAppWindowCount {
-    var count = 0;
-    for (final window in windows) {
-      if (window.isUserApp) {
-        count += 1;
-      }
-    }
-    return count;
-  }
+  int get openAppWindowCount => openAppWindows.length;
 
   DenialWindow? get appSwitchTargetWindow {
     if (lockLayerVisible ||
@@ -251,13 +303,7 @@ class ShellState {
       return null;
     }
 
-    for (final window in windows) {
-      if (window.objectId == objectId) {
-        return window;
-      }
-    }
-
-    return null;
+    return _windowsByObjectId[objectId];
   }
 
   DenialWindow? windowByWindowId(int windowId) {

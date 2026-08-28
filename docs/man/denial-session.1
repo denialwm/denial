@@ -19,8 +19,11 @@ Display-manager session entries invoke this command directly. On systems with
 an active systemd user manager, Denial activates its packaged
 .B denial-session.target
 after the compositor has published its endpoints and completed initial KMS
-presentation. On other logind-compatible systems the launcher process owns
-the compositor lifecycle directly.
+presentation. That target also activates systemd's
+.B xdg-desktop-autostart.target
+so standard XDG desktop autostart entries run only after Denial is ready. On
+other logind-compatible systems the launcher process owns the compositor
+lifecycle directly and Denial does not process XDG desktop autostart entries.
 .SH OPTIONS
 .TP
 .B \-\-check
@@ -58,6 +61,29 @@ System output template copied to a user's configuration on first launch.
 .TP
 .I $XDG_CONFIG_HOME/denial/outputs.conf
 Per-user persistent output configuration.
+.TP
+.I $XDG_CONFIG_HOME/denial/settings.json
+Rust-owned per-user settings document. The Settings application submits
+application-environment changes through Denial's native settings bridge;
+deniald validates and atomically writes the document. String values in its
+.B applicationEnvironment
+default and per-application maps set variables and null values remove them.
+Per-application maps are keyed by standard desktop-file IDs and override the
+default map only when Denial launches that desktop entry. Native shortcuts
+using the Application target carry the same identity; raw Program and Shell
+command shortcuts receive only the default map. Changes apply to subsequent
+launches without restarting Denial. These overrides do not affect systemd or
+D-Bus activated applications, including XDG desktop autostart entries.
+.TP
+.I $XDG_CONFIG_HOME/autostart/*.desktop
+Per-user XDG desktop autostart entries. These are processed by the systemd user
+manager when available; use
+.B OnlyShowIn=Denial;
+to restrict an entry to Denial.
+.TP
+.I $XDG_CONFIG_DIRS/autostart/*.desktop
+System and administrator XDG desktop autostart entries processed by the
+systemd user manager.
 .TP
 .I /usr/lib/systemd/user/denial-session.target
 Packaged graphical-session target used when a systemd user manager is

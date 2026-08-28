@@ -54,7 +54,7 @@ usage() {
 Usage:
   tools/denial-flutter-engine cache-key
   tools/denial-flutter-engine build [--github-env FILE]
-  tools/denial-flutter-engine flutter-test
+  tools/denial-flutter-engine flutter-test [-- FLUTTER_TEST_ARGS...]
   tools/denial-flutter-engine prepare-app-build
   tools/denial-flutter-engine prepare-development-sdk
   tools/denial-flutter-engine refresh-metadata
@@ -65,6 +65,7 @@ Commands:
   build      Reuse/build all modes and stage them into prebuilt/ for local use.
   flutter-test
              Build the lock-matched debug flutter_tester and run the shell tests.
+             Arguments after -- are forwarded to flutter test.
   prepare-app-build
              Build lock-matched release platform, AOT, and Linux GTK artifacts.
   prepare-development-sdk
@@ -918,7 +919,8 @@ run_flutter_tests() {
     "$flutter_test_command" test \
       --local-engine-src-path="$local_engine_src_path" \
       --local-engine="$target" \
-      --local-engine-host="$target"
+      --local-engine-host="$target" \
+      "$@"
   )
 }
 
@@ -1078,6 +1080,7 @@ prepare_development_sdk() {
 main() {
   local command_name="${1:-}"
   local github_env=''
+  local -a command_args=()
 
   for command in \
     awk chmod cmp flock git install jq mktemp mv ninja nm readlink rm sha1sum sha256sum stat; do
@@ -1099,6 +1102,11 @@ main() {
         usage
         return
         ;;
+      --)
+        shift
+        command_args=("$@")
+        break
+        ;;
       *)
         fail "unknown option: $1"
         ;;
@@ -1118,7 +1126,7 @@ main() {
     flutter-test)
       [[ -z "$github_env" ]] \
         || fail 'flutter-test does not accept --github-env'
-      run_flutter_tests
+      run_flutter_tests "${command_args[@]}"
       ;;
     prepare-app-build)
       [[ -z "$github_env" ]] \

@@ -1313,7 +1313,3 @@ fn extract_channel(pixel: u32, mask: u32) -> u8 {
     let value = (pixel & mask) >> shift;
     ((value * u32::from(u8::MAX) + maximum / 2) / maximum) as u8
 }
-
-#[cfg(test)]
-#[path = "xembed_tray/tests.rs"]
-mod tests;

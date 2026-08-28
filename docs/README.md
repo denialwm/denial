@@ -20,6 +20,7 @@ Project-level release documents live at the repository root:
 - [Session startup and locking](SESSION_STARTUP.md)
 - [denialctl](DENIALCTL.md)
 - [Live Flutter UI development](UI_DEVELOPMENT.md)
+- [Custom Flutter shells](CUSTOM_SHELLS.md)
 - [Screenshots and screen sharing](SCREEN_CAPTURE.md)
 - [Window rendering diagnostics](RENDER_AUDIT.md)
 

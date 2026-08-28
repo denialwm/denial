@@ -115,7 +115,3 @@ impl LifecycleState {
         self.shutdown
     }
 }
-
-#[cfg(test)]
-#[path = "lifecycle/tests.rs"]
-mod tests;

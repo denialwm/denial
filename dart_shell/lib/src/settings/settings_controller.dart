@@ -10,6 +10,7 @@ import '../models/shell_popup_placement.dart';
 import '../state/desktop_window_close_effect.dart';
 import '../theme/backdrop_blur_level.dart';
 import '../theme/cursor_themes.dart';
+import '../theme/tokens.dart';
 import '../state/shell_controller.dart';
 import '../platform/denial_bridge.dart';
 import 'settings_store.dart';
@@ -200,16 +201,24 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     );
   }
 
-  void setWindowRadius(double value) {
-    _updateAppearance(windowRadius: value.clamp(0, 48).toDouble());
-  }
-
-  void setPanelRadius(double value) {
-    _updateAppearance(panelRadius: value.clamp(0, 56).toDouble());
+  void setCornerRadiusScale(double value) {
+    _updateAppearance(
+      cornerRadiusScale: value
+          .clamp(ShellRoundness.minimum, ShellRoundness.maximum)
+          .toDouble(),
+    );
   }
 
   void setPanelOpacity(double value) {
-    _updateAppearance(panelOpacity: value.clamp(0.35, 1).toDouble());
+    _updateAppearance(
+      panelOpacity: value.clamp(ShellOpacity.minimumPanel, 1).toDouble(),
+    );
+  }
+
+  void setCardOpacity(double value) {
+    _updateAppearance(
+      cardOpacity: value.clamp(ShellOpacity.minimumCard, 1).toDouble(),
+    );
   }
 
   void setBackdropBlurEnabled(bool value) {
@@ -226,6 +235,10 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     );
   }
 
+  void setFocusedWindowBorderEnabled(bool value) {
+    _updateAppearance(focusedWindowBorderEnabled: value);
+  }
+
   void setFocusedWindowOpacity(double value) {
     _updateAppearance(focusedWindowOpacity: value.clamp(0.35, 1).toDouble());
   }
@@ -240,6 +253,18 @@ class ShellSettingsController extends Notifier<ShellSettings> {
           .clamp(shellCursorMinimumSize, shellCursorMaximumSize)
           .toDouble(),
     );
+  }
+
+  void setCursorThemeId(String value) {
+    final id = value.trim();
+    if (id.isEmpty || id.length > 128 || id.contains('\u0000')) {
+      return;
+    }
+    _updateAppearance(cursorThemeId: id);
+  }
+
+  void setAllowClientCursorSurfaces(bool value) {
+    _updateAppearance(allowClientCursorSurfaces: value);
   }
 
   void setSystemBarPlacement({
@@ -382,6 +407,57 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     );
   }
 
+  void setApplicationEnvironmentOverride(
+    String name,
+    String? value, {
+    String? desktopFileId,
+  }) {
+    replaceApplicationEnvironmentOverride(
+      desktopFileId: desktopFileId,
+      name: name,
+      value: value,
+    );
+  }
+
+  void replaceApplicationEnvironmentOverride({
+    String? desktopFileId,
+    String? previousName,
+    required String name,
+    required String? value,
+  }) {
+    final normalizedName = name.trim();
+    var applicationEnvironment = state.applicationEnvironment;
+    if (previousName != null && previousName != normalizedName) {
+      applicationEnvironment = applicationEnvironment.withoutOverride(
+        previousName,
+        desktopFileId: desktopFileId,
+      );
+    }
+    _update(
+      state.copyWith(
+        applicationEnvironment: applicationEnvironment.withOverride(
+          normalizedName,
+          value,
+          desktopFileId: desktopFileId,
+        ),
+      ),
+    );
+  }
+
+  void removeApplicationEnvironmentOverride(
+    String name, {
+    String? desktopFileId,
+  }) {
+    _update(
+      state.copyWith(
+        applicationEnvironment: state.applicationEnvironment.withoutOverride(
+          name,
+          desktopFileId: desktopFileId,
+        ),
+      ),
+    );
+  }
+
   void resetAppearance() {
     _update(state.copyWith(appearance: const ShellAppearanceSettings()));
   }
@@ -408,6 +484,32 @@ class ShellSettingsController extends Notifier<ShellSettings> {
 
   void resetPower() {
     _update(state.copyWith(power: const ShellPowerSettings()));
+  }
+
+  void resetApplicationEnvironment() {
+    _update(
+      state.copyWith(
+        applicationEnvironment: const ShellApplicationEnvironmentSettings(),
+      ),
+    );
+  }
+
+  void resetApplicationEnvironmentScope(String? desktopFileId) {
+    if (desktopFileId == null) {
+      var applicationEnvironment = state.applicationEnvironment;
+      for (final name in applicationEnvironment.variables.keys.toList()) {
+        applicationEnvironment = applicationEnvironment.withoutOverride(name);
+      }
+      _update(state.copyWith(applicationEnvironment: applicationEnvironment));
+      return;
+    }
+    _update(
+      state.copyWith(
+        applicationEnvironment: state.applicationEnvironment.withoutApplication(
+          desktopFileId,
+        ),
+      ),
+    );
   }
 
   Future<void> flush() async {
@@ -447,28 +549,34 @@ class ShellSettingsController extends Notifier<ShellSettings> {
   }
 
   void _updateAppearance({
-    double? windowRadius,
-    double? panelRadius,
+    double? cornerRadiusScale,
     double? panelOpacity,
+    double? cardOpacity,
     bool? backdropBlurEnabled,
     ShellBackdropBlurLevel? backdropBlurLevel,
     double? backdropBlurOpacityThreshold,
+    bool? focusedWindowBorderEnabled,
     double? focusedWindowOpacity,
     double? unfocusedWindowOpacity,
     double? cursorSize,
+    String? cursorThemeId,
+    bool? allowClientCursorSurfaces,
   }) {
     _update(
       state.copyWith(
         appearance: state.appearance.copyWith(
-          windowRadius: windowRadius,
-          panelRadius: panelRadius,
+          cornerRadiusScale: cornerRadiusScale,
           panelOpacity: panelOpacity,
+          cardOpacity: cardOpacity,
           backdropBlurEnabled: backdropBlurEnabled,
           backdropBlurLevel: backdropBlurLevel,
           backdropBlurOpacityThreshold: backdropBlurOpacityThreshold,
+          focusedWindowBorderEnabled: focusedWindowBorderEnabled,
           focusedWindowOpacity: focusedWindowOpacity,
           unfocusedWindowOpacity: unfocusedWindowOpacity,
           cursorSize: cursorSize,
+          cursorThemeId: cursorThemeId,
+          allowClientCursorSurfaces: allowClientCursorSurfaces,
         ),
       ),
     );
@@ -569,7 +677,9 @@ void _applySettingsPatch(
   for (final entry in patch.entries) {
     final current = document[entry.key];
     final next = entry.value;
-    if (current is Map<String, dynamic> && next is Map<String, Object?>) {
+    if (entry.key != 'applicationEnvironment' &&
+        current is Map<String, dynamic> &&
+        next is Map<String, Object?>) {
       _applySettingsPatch(current, next);
     } else {
       document[entry.key] = next;
@@ -594,7 +704,8 @@ void _removeCommittedSettingsPatch(
   for (final entry in committed.entries) {
     final pendingValue = pending[entry.key];
     final committedValue = entry.value;
-    if (pendingValue is Map<String, Object?> &&
+    if (entry.key != 'applicationEnvironment' &&
+        pendingValue is Map<String, Object?> &&
         committedValue is Map<String, Object?>) {
       _removeCommittedSettingsPatch(pendingValue, committedValue);
       if (pendingValue.isEmpty) {

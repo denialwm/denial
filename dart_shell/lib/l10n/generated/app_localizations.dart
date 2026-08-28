@@ -830,6 +830,30 @@ abstract class AppLocalizations {
   /// **'Activate {windowTitle}'**
   String desktopActivateWindow(String windowTitle);
 
+  /// English UI text for desktopAudioOutputDevicesDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose where desktop audio plays.'**
+  String get desktopAudioOutputDevicesDescription;
+
+  /// English UI text for desktopAudioOutputDevicesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Output devices'**
+  String get desktopAudioOutputDevicesTitle;
+
+  /// English UI text for desktopAudioOutputDevicesUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio output devices are unavailable.'**
+  String get desktopAudioOutputDevicesUnavailable;
+
+  /// Status shown for an audio output whose jack or route is explicitly unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Not connected'**
+  String get desktopAudioOutputDeviceNotConnected;
+
   /// English UI text for desktopApplicationAudioUnavailable.
   ///
   /// In en, this message translates to:
@@ -841,6 +865,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{visible} of {total} applications'**
   String desktopApplicationSearchResults(int visible, int total);
+
+  /// Heading for the dedicated row of recently opened launcher applications.
+  ///
+  /// In en, this message translates to:
+  /// **'Suggested'**
+  String get desktopApplicationSuggestionsTitle;
 
   /// English UI text for desktopApplicationVolumeDescription.
   ///
@@ -878,6 +908,12 @@ abstract class AppLocalizations {
   /// **'Close application volume'**
   String get desktopCloseApplicationAudio;
 
+  /// English UI text for desktopCloseAudioOutputDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'Close output devices'**
+  String get desktopCloseAudioOutputDevices;
+
   /// English UI text for desktopConnectDevice.
   ///
   /// In en, this message translates to:
@@ -895,6 +931,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Disconnect {deviceName}'**
   String desktopDisconnectDevice(String deviceName);
+
+  /// English UI text for desktopLoadingAudioOutputDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading output devices…'**
+  String get desktopLoadingAudioOutputDevices;
 
   /// English UI text for desktopEnableBluetoothForDevices.
   ///
@@ -955,6 +997,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No applications are playing audio.'**
   String get desktopNoApplicationAudio;
+
+  /// English UI text for desktopNoAudioOutputDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'No audio output devices found.'**
+  String get desktopNoAudioOutputDevices;
 
   /// English UI text for desktopNoApplicationsFound.
   ///
@@ -1028,6 +1076,12 @@ abstract class AppLocalizations {
   /// **'Refresh application audio'**
   String get desktopRefreshApplicationAudio;
 
+  /// English UI text for desktopRefreshAudioOutputDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh output devices'**
+  String get desktopRefreshAudioOutputDevices;
+
   /// English UI text for desktopRefreshBluetooth.
   ///
   /// In en, this message translates to:
@@ -1051,6 +1105,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Scan for Bluetooth devices'**
   String get desktopScanBluetooth;
+
+  /// English UI text for desktopSelectAudioOutputDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Select audio output device'**
+  String get desktopSelectAudioOutputDevice;
 
   /// English UI text for desktopScanningBluetoothDevices.
   ///
@@ -2681,10 +2741,10 @@ abstract class AppLocalizations {
   /// **'Best'**
   String get settingsBackdropBlurLevelBest;
 
-  /// Slider label for the minimum effective window opacity at which backdrop blur is rendered.
+  /// Slider label for the strict final-composition pixel alpha threshold above which backdrop blur is rendered.
   ///
   /// In en, this message translates to:
-  /// **'Minimum window opacity for blur'**
+  /// **'Minimum pixel opacity for blur'**
   String get settingsBackdropBlurOpacityThreshold;
 
   /// English UI text for settingsBackdropDimming.
@@ -2776,6 +2836,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Brightness'**
   String get settingsBrightness;
+
+  /// Opacity of card backgrounds inside shell panels and Settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Card opacity'**
+  String get settingsCardOpacity;
 
   /// English UI text for settingsClockScale.
   ///
@@ -2896,6 +2962,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Cursor'**
   String get settingsCursorTitle;
+
+  /// Heading above the cursor theme selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Cursor theme'**
+  String get settingsCursorTheme;
+
+  /// Button for importing an animated Windows cursor archive.
+  ///
+  /// In en, this message translates to:
+  /// **'Import cursor ZIP'**
+  String get settingsCursorImport;
+
+  /// Busy label while a cursor archive is being imported.
+  ///
+  /// In en, this message translates to:
+  /// **'Importing…'**
+  String get settingsCursorImporting;
+
+  /// Generic cursor import failure message.
+  ///
+  /// In en, this message translates to:
+  /// **'The cursor theme could not be imported.'**
+  String get settingsCursorImportFailed;
+
+  /// Tooltip for removing an imported cursor theme.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove imported cursor theme'**
+  String get settingsCursorRemove;
+
+  /// Generic cursor removal failure message.
+  ///
+  /// In en, this message translates to:
+  /// **'The imported cursor theme could not be removed.'**
+  String get settingsCursorRemoveFailed;
+
+  /// Toggle label for client-defined cursor surfaces.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow applications to show their own cursor'**
+  String get settingsCursorAllowApplications;
+
+  /// Explanation of the client-defined cursor surface toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Wayland and X11 applications can provide cursor artwork. Turn this off to always use the selected Denial theme.'**
+  String get settingsCursorAllowApplicationsDescription;
 
   /// English UI text for settingsDashboardOverlayDescription.
   ///
@@ -3172,6 +3286,18 @@ abstract class AppLocalizations {
   /// **'Focused windows'**
   String get settingsFocusedWindows;
 
+  /// Toggle label for changing the focused window border to the accent colour.
+  ///
+  /// In en, this message translates to:
+  /// **'Highlight the focused window border'**
+  String get settingsFocusedWindowBorder;
+
+  /// Explanation of the focused-window border highlight toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn this off to keep focused and unfocused window borders the same colour.'**
+  String get settingsFocusedWindowBorderDescription;
+
   /// Compact product and section context shown in the Settings header.
   ///
   /// In en, this message translates to:
@@ -3189,6 +3315,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Height'**
   String get settingsHeight;
+
+  /// Per-panel toggle label for a pointer hover trigger at the output edge.
+  ///
+  /// In en, this message translates to:
+  /// **'Open on edge hover'**
+  String get settingsHoverTrigger;
+
+  /// Explanation for a panel's hover-trigger preference.
+  ///
+  /// In en, this message translates to:
+  /// **'Reveal this panel when the pointer reaches its screen edge.'**
+  String get settingsHoverTriggerDescription;
 
   /// English UI text for settingsHudOverlayDescription.
   ///
@@ -3529,7 +3667,7 @@ abstract class AppLocalizations {
   /// Persistent examples of accepted shortcut expression formats.
   ///
   /// In en, this message translates to:
-  /// **'Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeUp'**
+  /// **'Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeLeft'**
   String get settingsShortcutEditorShortcutExample;
 
   /// Button and catalog title for supported shortcut inputs.
@@ -3549,6 +3687,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Denial action'**
   String get settingsShortcutEditorTargetAction;
+
+  /// Shortcut target option for a desktop application with a stable desktop-file identity.
+  ///
+  /// In en, this message translates to:
+  /// **'Application'**
+  String get settingsShortcutEditorTargetApplication;
 
   /// Shortcut target option for directly spawning a program.
   ///
@@ -3640,6 +3784,18 @@ abstract class AppLocalizations {
   /// **'Choose an action'**
   String get settingsShortcutEditorChooseAction;
 
+  /// Title and empty selection label for the shortcut application catalog.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose an application'**
+  String get settingsShortcutEditorChooseApplication;
+
+  /// Configured shortcut target carrying a standard desktop-file identity.
+  ///
+  /// In en, this message translates to:
+  /// **'Application · {desktopFileId}'**
+  String settingsShortcutApplicationTarget(String desktopFileId);
+
   /// Status shown while Rust validates a shortcut draft.
   ///
   /// In en, this message translates to:
@@ -3712,6 +3868,18 @@ abstract class AppLocalizations {
   /// **'Three-finger swipe up'**
   String get settingsShortcutGestureThreeFingerSwipeUp;
 
+  /// Friendly display name for the three-finger swipe-left gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Three-finger swipe left'**
+  String get settingsShortcutGestureThreeFingerSwipeLeft;
+
+  /// Friendly display name for the three-finger swipe-right gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Three-finger swipe right'**
+  String get settingsShortcutGestureThreeFingerSwipeRight;
+
   /// Supported shortcut input category.
   ///
   /// In en, this message translates to:
@@ -3778,6 +3946,18 @@ abstract class AppLocalizations {
   /// **'Open applications'**
   String get settingsShortcutActionOpenApplications;
 
+  /// Display name for the open dashboard shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Open dashboard'**
+  String get settingsShortcutActionOpenDashboard;
+
+  /// Display name for the open Settings shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Settings'**
+  String get settingsShortcutActionOpenSettings;
+
   /// Display name for the open overview shortcut action.
   ///
   /// In en, this message translates to:
@@ -3819,6 +3999,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Minimize window'**
   String get settingsShortcutActionMinimizeWindow;
+
+  /// Display name for the minimize all windows shortcut action.
+  ///
+  /// In en, this message translates to:
+  /// **'Minimize all windows'**
+  String get settingsShortcutActionMinimizeAllWindows;
 
   /// Display name for the toggle maximize shortcut action.
   ///
@@ -4252,6 +4438,282 @@ abstract class AppLocalizations {
   /// **'Source workspace'**
   String get settingsDeveloperWorkspaceTitle;
 
+  /// Button label for adding an application environment override.
+  ///
+  /// In en, this message translates to:
+  /// **'Add'**
+  String get settingsEnvironmentAdd;
+
+  /// Accessibility label for the green plus on a set environment override.
+  ///
+  /// In en, this message translates to:
+  /// **'Added to launched applications'**
+  String get settingsEnvironmentAddedStatus;
+
+  /// Technical explanation shown in Add Variable mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Inject a literal value when Denial executes an application. An empty value is preserved as an empty string.'**
+  String get settingsEnvironmentAddModeDescription;
+
+  /// Name of the default environment scope applied to every direct Denial application launch.
+  ///
+  /// In en, this message translates to:
+  /// **'All applications'**
+  String get settingsEnvironmentAllApplications;
+
+  /// Technical subtitle for the all-applications environment scope.
+  ///
+  /// In en, this message translates to:
+  /// **'Default launch environment'**
+  String get settingsEnvironmentAllApplicationsDescription;
+
+  /// Count of default environment rules inherited by a selected application.
+  ///
+  /// In en, this message translates to:
+  /// **'Inherits {count} all-app rules'**
+  String settingsEnvironmentApplicationInherited(int count);
+
+  /// Placeholder for filtering the application environment scope list.
+  ///
+  /// In en, this message translates to:
+  /// **'Search applications or desktop IDs'**
+  String get settingsEnvironmentApplicationSearchHint;
+
+  /// Title for the application environment scope list.
+  ///
+  /// In en, this message translates to:
+  /// **'Applications'**
+  String get settingsEnvironmentApplicationsTitle;
+
+  /// Error shown when desktop entries cannot be loaded for per-application environment settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Installed applications could not be loaded.'**
+  String get settingsEnvironmentApplicationsUnavailable;
+
+  /// Tooltip for returning from a narrow application environment editor to the application list.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to applications'**
+  String get settingsEnvironmentBackToApplications;
+
+  /// Button label for cancelling application environment editing.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get settingsEnvironmentCancel;
+
+  /// Button label for clearing every environment override in the selected scope.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get settingsEnvironmentClearScope;
+
+  /// Tooltip for deleting an application environment override.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete {variable}'**
+  String settingsEnvironmentDeleteVariable(String variable);
+
+  /// Tooltip for editing an application environment override.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit {variable}'**
+  String settingsEnvironmentEditVariable(String variable);
+
+  /// Instructions for the application environment editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Set a value, leave it empty to pass an empty string, or choose Remove to keep the variable out of the child process.'**
+  String get settingsEnvironmentEditorDescription;
+
+  /// Title shown while editing an existing environment override.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit {variable}'**
+  String settingsEnvironmentEditorEditTitle(String variable);
+
+  /// Title for the application environment editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Add an override'**
+  String get settingsEnvironmentEditorTitle;
+
+  /// Description shown when there are no application environment overrides.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a variable above to change the environment of subsequently launched applications.'**
+  String get settingsEnvironmentEmptyDescription;
+
+  /// Title shown when there are no application environment overrides.
+  ///
+  /// In en, this message translates to:
+  /// **'No overrides'**
+  String get settingsEnvironmentEmptyTitle;
+
+  /// Value label for an environment variable set to an empty string.
+  ///
+  /// In en, this message translates to:
+  /// **'Empty string'**
+  String get settingsEnvironmentEmptyValue;
+
+  /// Accessibility label for the red minus on a hidden environment override.
+  ///
+  /// In en, this message translates to:
+  /// **'Hidden from launched applications'**
+  String get settingsEnvironmentHiddenStatus;
+
+  /// Button label for hiding an inherited application environment variable.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide'**
+  String get settingsEnvironmentHide;
+
+  /// Technical explanation shown in Hide Variable mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Strip an inherited variable immediately before exec. The application behaves as if that name was never exported.'**
+  String get settingsEnvironmentHideModeDescription;
+
+  /// Validation error for a duplicate application environment variable.
+  ///
+  /// In en, this message translates to:
+  /// **'That variable already has an override.'**
+  String get settingsEnvironmentNameDuplicate;
+
+  /// Example environment variable name.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. MOZ_ENABLE_WAYLAND'**
+  String get settingsEnvironmentNameHint;
+
+  /// Validation error for an invalid environment variable name.
+  ///
+  /// In en, this message translates to:
+  /// **'Use letters, numbers, and underscores, beginning with a letter or underscore.'**
+  String get settingsEnvironmentNameInvalid;
+
+  /// Field label for an application environment variable name.
+  ///
+  /// In en, this message translates to:
+  /// **'Variable name'**
+  String get settingsEnvironmentNameLabel;
+
+  /// Validation error for an empty environment variable name.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a variable name.'**
+  String get settingsEnvironmentNameRequired;
+
+  /// Tooltip for an application rule that replaces an all-applications rule with the same variable name.
+  ///
+  /// In en, this message translates to:
+  /// **'Overrides the all-applications rule'**
+  String get settingsEnvironmentOverridesDefault;
+
+  /// Tab label for setting an application environment variable.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Variable'**
+  String get settingsEnvironmentModeAdd;
+
+  /// Tab label for removing an inherited application environment variable.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide Variable'**
+  String get settingsEnvironmentModeHide;
+
+  /// Description of the remove-from-child environment option.
+  ///
+  /// In en, this message translates to:
+  /// **'Denial will remove this inherited variable before starting the application.'**
+  String get settingsEnvironmentRemoveDescription;
+
+  /// Label for an environment override whose value is null.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from launched applications'**
+  String get settingsEnvironmentRemoveLabel;
+
+  /// Value label for an environment variable removed before launch.
+  ///
+  /// In en, this message translates to:
+  /// **'Removed from child environment'**
+  String get settingsEnvironmentRemovedValue;
+
+  /// Explains the scope and timing of application environment overrides.
+  ///
+  /// In en, this message translates to:
+  /// **'These overrides apply only to applications and shortcut commands started by Denial. They affect subsequent launches, not XDG autostart entries, systemd services, D-Bus services, or Denial itself.'**
+  String get settingsEnvironmentScopeDescription;
+
+  /// Title for the application environment scope explanation.
+  ///
+  /// In en, this message translates to:
+  /// **'Launch scope'**
+  String get settingsEnvironmentScopeTitle;
+
+  /// Eyebrow label for the application environment page.
+  ///
+  /// In en, this message translates to:
+  /// **'APPLICATIONS'**
+  String get settingsEnvironmentSection;
+
+  /// Title text for the application environment page.
+  ///
+  /// In en, this message translates to:
+  /// **'Customize the environment of applications launched by Denial.'**
+  String get settingsEnvironmentTitle;
+
+  /// Button label for updating an application environment override.
+  ///
+  /// In en, this message translates to:
+  /// **'Update variable'**
+  String get settingsEnvironmentUpdate;
+
+  /// Fallback name for a configured desktop-file ID that is no longer installed.
+  ///
+  /// In en, this message translates to:
+  /// **'Unavailable application'**
+  String get settingsEnvironmentUnavailableApplication;
+
+  /// Example application environment variable value.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. 1'**
+  String get settingsEnvironmentValueHint;
+
+  /// Field label for an application environment variable value.
+  ///
+  /// In en, this message translates to:
+  /// **'Value'**
+  String get settingsEnvironmentValueLabel;
+
+  /// Validation error for an environment value containing NUL.
+  ///
+  /// In en, this message translates to:
+  /// **'Values cannot contain a NUL character.'**
+  String get settingsEnvironmentValueNul;
+
+  /// Validation error for an oversized environment value.
+  ///
+  /// In en, this message translates to:
+  /// **'The value is too long.'**
+  String get settingsEnvironmentValueTooLong;
+
+  /// Count of configured application environment overrides.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} configured'**
+  String settingsEnvironmentVariablesStatus(int count);
+
+  /// Title for the list of configured application environment overrides.
+  ///
+  /// In en, this message translates to:
+  /// **'Configured overrides'**
+  String get settingsEnvironmentVariablesTitle;
+
   /// English UI text for settingsMinutes.
   ///
   /// In en, this message translates to:
@@ -4299,6 +4761,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Developer'**
   String get settingsNavigationDeveloper;
+
+  /// Settings navigation label for application environment overrides.
+  ///
+  /// In en, this message translates to:
+  /// **'App environment'**
+  String get settingsNavigationEnvironment;
 
   /// English UI text for settingsNavigationDisplays.
   ///
@@ -4522,12 +4990,6 @@ abstract class AppLocalizations {
   /// **'Panel opacity'**
   String get settingsPanelOpacity;
 
-  /// English UI text for settingsPanelRadius.
-  ///
-  /// In en, this message translates to:
-  /// **'Panel radius'**
-  String get settingsPanelRadius;
-
   /// English UI text for settingsPanelTravel.
   ///
   /// In en, this message translates to:
@@ -4603,7 +5065,7 @@ abstract class AppLocalizations {
   /// English UI text for settingsShapeDescription.
   ///
   /// In en, this message translates to:
-  /// **'Tune window and panel corner radii.'**
+  /// **'Scale every shell corner while preserving the hierarchy between windows, panels, cards, and controls.'**
   String get settingsShapeDescription;
 
   /// English UI text for settingsShapeTitle.
@@ -4611,6 +5073,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Shape'**
   String get settingsShapeTitle;
+
+  /// Slider label for the global shell corner-radius scale.
+  ///
+  /// In en, this message translates to:
+  /// **'Corner roundness'**
+  String get settingsCornerRoundness;
 
   /// Title for the desktop-wide colour-scheme preference.
   ///
@@ -4893,12 +5361,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Window opacity'**
   String get settingsWindowOpacityTitle;
-
-  /// English UI text for settingsWindowRadius.
-  ///
-  /// In en, this message translates to:
-  /// **'Window radius'**
-  String get settingsWindowRadius;
 
   /// English UI text for shortDate.
   ///

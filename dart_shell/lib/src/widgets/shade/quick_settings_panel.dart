@@ -93,31 +93,19 @@ class _ControlPanel extends StatelessWidget {
 
     return RepaintBoundary(
       child: ShellBackdropBlur(
-        blur: theme.panelOpacity < 1.0,
+        blur: theme.effectivePanelOpacity < 1.0,
         borderRadius: BorderRadius.vertical(
           bottom: Radius.circular(theme.panelRadius),
         ),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: theme.panelColor(context.shellColors.panelBackground),
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                theme.panelColor(context.shellColors.panelBackground),
-                theme.panelColor(context.shellColors.panelBackgroundBottom),
-              ],
+            gradient: theme.panelGradient(
+              context.shellColors.panelBackground,
+              context.shellColors.panelBackgroundBottom,
             ),
             border: Border(
               bottom: BorderSide(color: context.shellColors.hairline, width: 1),
             ),
-            boxShadow: [
-              BoxShadow(
-                color: context.shellColors.shadow,
-                blurRadius: 24,
-                offset: Offset(0, 10),
-              ),
-            ],
           ),
           child: Padding(
             padding: EdgeInsets.fromLTRB(20, padding.top + 18, 20, 12),
@@ -350,7 +338,7 @@ class _StatusPill extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: context.shellColors.surfaceContainer,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: context.shellTheme.borderRadius(22),
         border: Border.all(color: context.shellColors.hairlineSoft),
       ),
       child: Padding(
@@ -400,7 +388,7 @@ class _ShadeHandle extends ConsumerWidget {
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   color: context.shellColors.textTertiary,
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: context.shellTheme.borderRadius(2),
                 ),
                 child: const SizedBox(width: 44, height: 4),
               ),

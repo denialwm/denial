@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../controllers/home_grid_layout.dart';
 import '../models/home_grid_item.dart';
@@ -224,7 +225,11 @@ class _PositionedGridItem extends StatelessWidget {
               Positioned.fill(child: tile),
               Positioned.fill(
                 child: IgnorePointer(
-                  child: CustomPaint(painter: _ResizeFramePainter()),
+                  child: CustomPaint(
+                    painter: _ResizeFramePainter(
+                      radius: context.shellTheme.scaledRadius(8),
+                    ),
+                  ),
                 ),
               ),
               Align(
@@ -281,7 +286,9 @@ class _PositionedGridItem extends StatelessWidget {
 }
 
 class _ResizeFramePainter extends CustomPainter {
-  const _ResizeFramePainter();
+  const _ResizeFramePainter({required this.radius});
+
+  final double radius;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -291,7 +298,7 @@ class _ResizeFramePainter extends CustomPainter {
       ..style = PaintingStyle.stroke;
     final rect = RRect.fromRectAndRadius(
       Offset.zero & size,
-      const Radius.circular(8),
+      Radius.circular(radius),
     );
     final outline = rect.deflate(3);
     canvas.drawRRect(outline, border);
@@ -311,7 +318,7 @@ class _ResizeFramePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ResizeFramePainter oldDelegate) {
-    return false;
+    return oldDelegate.radius != radius;
   }
 }
 
@@ -344,7 +351,7 @@ class _ResizeHandle extends StatelessWidget {
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: ShellMediaColors.lightForeground.withValues(alpha: 0.87),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: context.shellTheme.borderRadius(16),
               border: Border.all(
                 color: ShellMediaColors.darkSurface.withValues(alpha: 0.54),
               ),

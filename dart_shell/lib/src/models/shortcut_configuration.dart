@@ -1,6 +1,7 @@
 enum DenialShortcutAction {
   shutdown,
   openApplications,
+  openDashboard,
   openOverview,
   toggleVerticalMaximize,
   windowSwitcher,
@@ -8,6 +9,7 @@ enum DenialShortcutAction {
   captureRegion,
   closeWindow,
   minimizeWindow,
+  minimizeAllWindows,
   toggleMaximize,
   toggleFullscreen,
   releasePointer,
@@ -19,6 +21,7 @@ enum DenialShortcutAction {
   brightnessDown,
   nextKeyboardLayout,
   previousKeyboardLayout,
+  openSettings,
 }
 
 enum DenialShortcutInputKind { key, gesture }
@@ -47,6 +50,7 @@ sealed class DenialShortcutTarget {
       ),
       'spawn' => DenialShortcutSpawnTarget(
         (json['command'] as List<Object?>).whereType<String>().toList(),
+        desktopFileId: json['desktopFileId'] as String?,
       ),
       'spawnSh' => DenialShortcutSpawnShTarget(json['command'] as String),
       _ => throw const FormatException('invalid shortcut target'),
@@ -69,15 +73,17 @@ class DenialShortcutActionTarget extends DenialShortcutTarget {
 }
 
 class DenialShortcutSpawnTarget extends DenialShortcutTarget {
-  DenialShortcutSpawnTarget(List<String> command)
+  DenialShortcutSpawnTarget(List<String> command, {this.desktopFileId})
     : command = List<String>.unmodifiable(command);
 
   final List<String> command;
+  final String? desktopFileId;
 
   @override
   Map<String, Object> toJson() => <String, Object>{
     'type': 'spawn',
     'command': command,
+    'desktopFileId': ?desktopFileId,
   };
 }
 

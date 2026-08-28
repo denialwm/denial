@@ -101,6 +101,13 @@ tools/denial-pc build
 tools/denial-pc test
 ```
 
+Never invoke `flutter test` directly for `dart_shell`. Use
+`tools/denial-pc flutter-test [FLUTTER_TEST_ARGS...]` for targeted or
+Flutter-only tests. It prepares or reuses the lock-matched
+`denial_host_debug` build and supplies the required local-engine selection.
+Use `tools/denial-pc test` when the complete compositor and Flutter test suite
+is required.
+
 The compositor binary is written to
 `$XDG_CACHE_HOME/denial/pc-build/rust/release/deniald` by default. The Flutter
 bundle is written to `dart_shell/build/linux/x64/release/bundle`.
@@ -151,6 +158,9 @@ advancing `SOURCE_LOCK.json`, run
 all modes' tracked `args.gn` and canonical checksums, builds the invalidated
 targets, populates the new immutable cache entry, and stages its artifacts.
 Never repair an expected checksum one mode at a time.
+Before committing a lock advance, refresh both package manifests and run
+`tools/denial-release source-audit --branch dev`.
+Before pushing Denial, verify every locked fork commit exists on its remote.
 
 Iterate on local engine experiments before advancing the source lock or
 running that full release procedure. Use only the release-engine fast path:

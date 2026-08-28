@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '../input/input_layout.dart';
 import '../models/denial_drag_icon.dart';
+import '../models/denial_cursor_state.dart';
 import '../models/desktop_notification.dart';
 import '../models/display_layout.dart';
 import '../models/input_device_capabilities.dart';
@@ -23,8 +24,10 @@ import 'ui_development_protocol.dart';
 
 enum DenialShellAction {
   applications,
+  dashboard,
   overview,
   windowSwitcherNext,
+  windowSwitcherPrevious,
   windowSwitcherEnd,
   clipboard,
   screenshotPrepare,
@@ -32,6 +35,7 @@ enum DenialShellAction {
   screenshotDone,
   clientPointerPressed,
   wallpaper,
+  openSettings,
 }
 
 class DenialShellActionEvent {
@@ -77,6 +81,20 @@ class DenialAudioStream {
   final String name;
   final double level;
   final bool muted;
+}
+
+class DenialAudioDevice {
+  const DenialAudioDevice({
+    required this.name,
+    required this.description,
+    required this.active,
+    required this.available,
+  });
+
+  final String name;
+  final String description;
+  final bool active;
+  final bool available;
 }
 
 class DenialBrightnessState {
@@ -128,8 +146,10 @@ class DenialBridge {
   static const String _systemCommandChannel = 'denial/system_command';
   static const String _windowCloseCompleteChannel =
       'denial/window_close_complete';
+  static const String _cursorPresentedChannel = 'denial/cursor_presented';
   static const String _audioStateChannel = 'denial/audio_state';
   static const String _audioStreamsStateChannel = 'denial/audio_streams_state';
+  static const String _audioDevicesStateChannel = 'denial/audio_devices_state';
   static const String _brightnessStateChannel = 'denial/brightness_state';
   static final Uint8List _hapticPrewarmPayload = Uint8List.fromList(const <int>[
     0,
@@ -142,6 +162,7 @@ class DenialBridge {
     _hapticTapPayload,
   );
   static const int _launchApplicationCommand = 0;
+  static const int _launchDesktopApplicationCommand = 1;
   static const int _takeScreenshotCommand = 2;
   static const int _logoutCommand = 3;
   static const int _screenshotPreparedCommand = 4;
@@ -161,6 +182,10 @@ class DenialBridge {
     ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
       _audioStreamsStateChannel,
       _handleAudioStreamsStateMessage,
+    );
+    ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
+      _audioDevicesStateChannel,
+      _handleAudioDevicesStateMessage,
     );
     ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
       _brightnessStateChannel,
@@ -198,6 +223,8 @@ class DenialBridge {
       StreamController<DenialShellActionEvent>.broadcast(sync: true);
   final StreamController<String> _cursorShapes =
       StreamController<String>.broadcast(sync: true);
+  final StreamController<DenialCursorState> _cursorStates =
+      StreamController<DenialCursorState>.broadcast(sync: true);
   final StreamController<Offset> _cursorPositions =
       StreamController<Offset>.broadcast(sync: true);
   final StreamController<DenialDragIcon?> _dragIcons =
@@ -206,6 +233,8 @@ class DenialBridge {
       StreamController<DenialAudioState>.broadcast(sync: true);
   final StreamController<List<DenialAudioStream>> _audioStreamStates =
       StreamController<List<DenialAudioStream>>.broadcast(sync: true);
+  final StreamController<List<DenialAudioDevice>> _audioDeviceStates =
+      StreamController<List<DenialAudioDevice>>.broadcast(sync: true);
   final StreamController<DenialBrightnessState> _brightnessStates =
       StreamController<DenialBrightnessState>.broadcast(sync: true);
   final StreamController<DesktopNotificationEvent> _notificationEvents =
@@ -245,11 +274,14 @@ class DenialBridge {
   Stream<DenialWindowEvent> get windowEvents => _windowEvents.stream;
   Stream<DenialShellActionEvent> get shellActions => _shellActions.stream;
   Stream<String> get cursorShapes => _cursorShapes.stream;
+  Stream<DenialCursorState> get cursorStates => _cursorStates.stream;
   Stream<Offset> get cursorPositions => _cursorPositions.stream;
   Stream<DenialDragIcon?> get dragIcons => _dragIcons.stream;
   Stream<DenialAudioState> get audioStates => _audioStates.stream;
   Stream<List<DenialAudioStream>> get audioStreamStates =>
       _audioStreamStates.stream;
+  Stream<List<DenialAudioDevice>> get audioDeviceStates =>
+      _audioDeviceStates.stream;
   Stream<DenialBrightnessState> get brightnessStates =>
       _brightnessStates.stream;
   Stream<DesktopNotificationEvent> get notificationEvents =>
@@ -484,6 +516,10 @@ class DenialBridge {
       null,
     );
     ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
+      _audioDevicesStateChannel,
+      null,
+    );
+    ServicesBinding.instance.defaultBinaryMessenger.setMessageHandler(
       _brightnessStateChannel,
       null,
     );
@@ -554,10 +590,12 @@ class DenialBridge {
     unawaited(_windowEvents.close());
     unawaited(_shellActions.close());
     unawaited(_cursorShapes.close());
+    unawaited(_cursorStates.close());
     unawaited(_cursorPositions.close());
     unawaited(_dragIcons.close());
     unawaited(_audioStates.close());
     unawaited(_audioStreamStates.close());
+    unawaited(_audioDeviceStates.close());
     unawaited(_brightnessStates.close());
     unawaited(_notificationEvents.close());
     unawaited(_xembedTrayEvents.close());
@@ -1265,6 +1303,17 @@ class DenialBridge {
     return true;
   }
 
+  bool acknowledgeCursorPresented(int epoch) {
+    if (epoch <= 0) {
+      return false;
+    }
+    final payload = ByteData(8)..setUint64(0, epoch, Endian.little);
+    ServicesBinding.instance.defaultBinaryMessenger
+        .send(_cursorPresentedChannel, payload)
+        ?.catchError((Object _) => null);
+    return true;
+  }
+
   void focusWindow(DenialWindow window) {
     if (window.windowId <= 0) {
       return;
@@ -1641,6 +1690,25 @@ class DenialBridge {
     return _sendSystemCommand(
       _launchApplicationCommand,
       argv: argv,
+      requestId: launchRequestId,
+    );
+  }
+
+  bool launchDesktopApplication(
+    String desktopFileId,
+    List<String> argv, {
+    int? launchRequestId,
+  }) {
+    if (desktopFileId.isEmpty ||
+        !desktopFileId.endsWith('.desktop') ||
+        desktopFileId.contains('/') ||
+        desktopFileId.contains('\u0000') ||
+        argv.isEmpty) {
+      return false;
+    }
+    return _sendSystemCommand(
+      _launchDesktopApplicationCommand,
+      argv: <String>[desktopFileId, ...argv],
       requestId: launchRequestId,
     );
   }
@@ -2076,6 +2144,66 @@ class DenialBridge {
     );
   }
 
+  void requestAudioDevices() {
+    if (!useControlSocket) {
+      final payload = ByteData(1)..setUint8(0, 4);
+      ServicesBinding.instance.defaultBinaryMessenger
+          .send(_audioChannel, payload)
+          ?.catchError((Object _) => null);
+      return;
+    }
+    unawaited(
+      _sendControlRequest('audio.devices.get')
+          .then((result) {
+            final devices = _audioDevicesFromControl(result);
+            if (!_audioDeviceStates.isClosed) {
+              _audioDeviceStates.add(devices);
+            }
+          })
+          .catchError((Object _) {
+            final payload = ByteData(1)..setUint8(0, 4);
+            ServicesBinding.instance.defaultBinaryMessenger
+                .send(_audioChannel, payload)
+                ?.catchError((Object _) => null);
+          }),
+    );
+  }
+
+  void setAudioDevice(String name) {
+    final nameBytes = utf8.encode(name);
+    if (nameBytes.isEmpty ||
+        nameBytes.length > 1024 ||
+        name.contains('\u0000')) {
+      return;
+    }
+    if (!useControlSocket) {
+      _setAudioDeviceFromPlatform(nameBytes);
+      return;
+    }
+    unawaited(
+      _sendControlRequest(
+            'audio.device.set',
+            parameters: <String, Object>{'name': name},
+          )
+          .then((_) {
+            requestAudioDevices();
+          })
+          .catchError((Object _) {
+            _setAudioDeviceFromPlatform(nameBytes);
+          }),
+    );
+  }
+
+  void _setAudioDeviceFromPlatform(List<int> nameBytes) {
+    final payload = ByteData(3 + nameBytes.length)
+      ..setUint8(0, 5)
+      ..setUint16(1, nameBytes.length, Endian.little)
+      ..buffer.asUint8List().setRange(3, 3 + nameBytes.length, nameBytes);
+    ServicesBinding.instance.defaultBinaryMessenger
+        .send(_audioChannel, payload)
+        ?.catchError((Object _) => null);
+  }
+
   List<DenialAudioStream> _audioStreamsFromControl(
     Map<String, Object?> result,
   ) {
@@ -2100,6 +2228,38 @@ class DenialBridge {
           name: name,
           level: level.toDouble().clamp(0.0, 1.0),
           muted: muted,
+        );
+      }),
+    );
+  }
+
+  List<DenialAudioDevice> _audioDevicesFromControl(
+    Map<String, Object?> result,
+  ) {
+    final values = result['devices'];
+    if (values is! List<Object?>) {
+      throw const FormatException('invalid audio devices');
+    }
+    return List<DenialAudioDevice>.unmodifiable(
+      values.map((value) {
+        if (value is! Map<String, Object?>) {
+          throw const FormatException('invalid audio device');
+        }
+        final name = value['name'];
+        final description = value['description'];
+        final active = value['active'];
+        final available = value['available'];
+        if (name is! String ||
+            description is! String ||
+            active is! bool ||
+            available is! bool) {
+          throw const FormatException('invalid audio device');
+        }
+        return DenialAudioDevice(
+          name: name,
+          description: description,
+          active: active,
+          available: available,
         );
       }),
     );
@@ -2198,6 +2358,52 @@ class DenialBridge {
     return null;
   }
 
+  Future<ByteData?> _handleAudioDevicesStateMessage(ByteData? data) async {
+    if (data == null || data.lengthInBytes < 4) {
+      return null;
+    }
+
+    final count = data.getUint32(0, Endian.little);
+    var offset = 4;
+    final devices = <DenialAudioDevice>[];
+    for (var i = 0; i < count; i += 1) {
+      if (offset + 6 > data.lengthInBytes) {
+        return null;
+      }
+      final active = data.getUint8(offset) != 0;
+      final available = data.getUint8(offset + 1) != 0;
+      final nameLength = data.getUint16(offset + 2, Endian.little);
+      final descriptionLength = data.getUint16(offset + 4, Endian.little);
+      offset += 6;
+      if (offset + nameLength + descriptionLength > data.lengthInBytes) {
+        return null;
+      }
+      final nameBytes = data.buffer.asUint8List(
+        data.offsetInBytes + offset,
+        nameLength,
+      );
+      offset += nameLength;
+      final descriptionBytes = data.buffer.asUint8List(
+        data.offsetInBytes + offset,
+        descriptionLength,
+      );
+      offset += descriptionLength;
+      devices.add(
+        DenialAudioDevice(
+          name: utf8.decode(nameBytes, allowMalformed: true),
+          description: utf8.decode(descriptionBytes, allowMalformed: true),
+          active: active,
+          available: available,
+        ),
+      );
+    }
+
+    if (!_audioDeviceStates.isClosed) {
+      _audioDeviceStates.add(List<DenialAudioDevice>.unmodifiable(devices));
+    }
+    return null;
+  }
+
   Future<ByteData?> _handleBrightnessStateMessage(ByteData? data) async {
     if (data == null || data.lengthInBytes < 9) {
       return null;
@@ -2269,9 +2475,12 @@ class DenialBridge {
       } else if (payload is wire.ShellAction) {
         final action = switch (payload.action) {
           wire.ShellActionKind.Applications => DenialShellAction.applications,
+          wire.ShellActionKind.Dashboard => DenialShellAction.dashboard,
           wire.ShellActionKind.Overview => DenialShellAction.overview,
           wire.ShellActionKind.WindowSwitcherNext =>
             DenialShellAction.windowSwitcherNext,
+          wire.ShellActionKind.WindowSwitcherPrevious =>
+            DenialShellAction.windowSwitcherPrevious,
           wire.ShellActionKind.WindowSwitcherEnd =>
             DenialShellAction.windowSwitcherEnd,
           wire.ShellActionKind.Clipboard => DenialShellAction.clipboard,
@@ -2284,6 +2493,7 @@ class DenialBridge {
           wire.ShellActionKind.ClientPointerPressed =>
             DenialShellAction.clientPointerPressed,
           wire.ShellActionKind.Wallpaper => DenialShellAction.wallpaper,
+          wire.ShellActionKind.OpenSettings => DenialShellAction.openSettings,
         };
         if (!_shellActions.isClosed) {
           _shellActions.add(
@@ -2301,6 +2511,19 @@ class DenialBridge {
         final shape = payload.shape?.trim().toLowerCase();
         if (shape != null && shape.isNotEmpty && !_cursorShapes.isClosed) {
           _cursorShapes.add(shape);
+        }
+      } else if (payload is wire.CursorState) {
+        final state = _wireCodec.decodeCursorState(payload);
+        if (state != null && !_cursorStates.isClosed) {
+          _cursorStates.add(state);
+          if (state.kind == DenialCursorStateKind.named &&
+              state.shape.isNotEmpty &&
+              !_cursorShapes.isClosed) {
+            _cursorShapes.add(state.shape);
+          } else if (state.kind == DenialCursorStateKind.hidden &&
+              !_cursorShapes.isClosed) {
+            _cursorShapes.add('none');
+          }
         }
       } else if (payload is wire.CursorPosition) {
         if (payload.x.isFinite &&

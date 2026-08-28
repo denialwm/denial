@@ -442,6 +442,20 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get desktopAudioOutputDevicesDescription =>
+      'Choose where desktop audio plays.';
+
+  @override
+  String get desktopAudioOutputDevicesTitle => 'Output devices';
+
+  @override
+  String get desktopAudioOutputDevicesUnavailable =>
+      'Audio output devices are unavailable.';
+
+  @override
+  String get desktopAudioOutputDeviceNotConnected => 'Not connected';
+
+  @override
   String get desktopApplicationAudioUnavailable =>
       'Application audio is unavailable.';
 
@@ -449,6 +463,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String desktopApplicationSearchResults(int visible, int total) {
     return '$visible of $total applications';
   }
+
+  @override
+  String get desktopApplicationSuggestionsTitle => 'Suggested';
 
   @override
   String get desktopApplicationVolumeDescription =>
@@ -470,6 +487,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get desktopCloseApplicationAudio => 'Close application volume';
 
   @override
+  String get desktopCloseAudioOutputDevices => 'Close output devices';
+
+  @override
   String desktopConnectDevice(String deviceName) {
     return 'Connect $deviceName';
   }
@@ -481,6 +501,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String desktopDisconnectDevice(String deviceName) {
     return 'Disconnect $deviceName';
   }
+
+  @override
+  String get desktopLoadingAudioOutputDevices => 'Loading output devices…';
 
   @override
   String get desktopEnableBluetoothForDevices =>
@@ -518,6 +541,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get desktopNoApplicationAudio => 'No applications are playing audio.';
+
+  @override
+  String get desktopNoAudioOutputDevices => 'No audio output devices found.';
 
   @override
   String get desktopNoApplicationsFound => 'No applications found';
@@ -558,6 +584,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get desktopRefreshApplicationAudio => 'Refresh application audio';
 
   @override
+  String get desktopRefreshAudioOutputDevices => 'Refresh output devices';
+
+  @override
   String get desktopRefreshBluetooth => 'Refresh Bluetooth devices';
 
   @override
@@ -570,6 +599,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get desktopScanBluetooth => 'Scan for Bluetooth devices';
+
+  @override
+  String get desktopSelectAudioOutputDevice => 'Select audio output device';
 
   @override
   String get desktopScanningBluetoothDevices =>
@@ -1499,7 +1531,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsBackdropBlurOpacityThreshold =>
-      'Minimum window opacity for blur';
+      'Minimum pixel opacity for blur';
 
   @override
   String get settingsBackdropDimming => 'Backdrop dimming';
@@ -1550,6 +1582,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsBrightness => 'Brightness';
+
+  @override
+  String get settingsCardOpacity => 'Card opacity';
 
   @override
   String get settingsClockScale => 'Clock scale';
@@ -1612,6 +1647,34 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsCursorTitle => 'Cursor';
+
+  @override
+  String get settingsCursorTheme => 'Cursor theme';
+
+  @override
+  String get settingsCursorImport => 'Import cursor ZIP';
+
+  @override
+  String get settingsCursorImporting => 'Importing…';
+
+  @override
+  String get settingsCursorImportFailed =>
+      'The cursor theme could not be imported.';
+
+  @override
+  String get settingsCursorRemove => 'Remove imported cursor theme';
+
+  @override
+  String get settingsCursorRemoveFailed =>
+      'The imported cursor theme could not be removed.';
+
+  @override
+  String get settingsCursorAllowApplications =>
+      'Allow applications to show their own cursor';
+
+  @override
+  String get settingsCursorAllowApplicationsDescription =>
+      'Wayland and X11 applications can provide cursor artwork. Turn this off to always use the selected Denial theme.';
 
   @override
   String get settingsDashboardOverlayDescription =>
@@ -1777,6 +1840,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsFocusedWindows => 'Focused windows';
 
   @override
+  String get settingsFocusedWindowBorder =>
+      'Highlight the focused window border';
+
+  @override
+  String get settingsFocusedWindowBorderDescription =>
+      'Turn this off to keep focused and unfocused window borders the same colour.';
+
+  @override
   String get settingsHeaderContext => 'DENIAL / SYSTEM';
 
   @override
@@ -1784,6 +1855,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsHeight => 'Height';
+
+  @override
+  String get settingsHoverTrigger => 'Open on edge hover';
+
+  @override
+  String get settingsHoverTriggerDescription =>
+      'Reveal this panel when the pointer reaches its screen edge.';
 
   @override
   String get settingsHudOverlayDescription =>
@@ -1986,7 +2064,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsShortcutEditorShortcutExample =>
-      'Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeUp';
+      'Examples: Super+K · Ctrl+Alt+Backspace · ThreeFingerSwipeLeft';
 
   @override
   String get settingsShortcutEditorSupportedInputs => 'Supported inputs';
@@ -1996,6 +2074,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsShortcutEditorTargetAction => 'Denial action';
+
+  @override
+  String get settingsShortcutEditorTargetApplication => 'Application';
 
   @override
   String get settingsShortcutEditorTargetProgram => 'Program';
@@ -2050,6 +2131,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsShortcutEditorChooseAction => 'Choose an action';
 
   @override
+  String get settingsShortcutEditorChooseApplication => 'Choose an application';
+
+  @override
+  String settingsShortcutApplicationTarget(String desktopFileId) {
+    return 'Application · $desktopFileId';
+  }
+
+  @override
   String get settingsShortcutEditorValidating =>
       'Checking with the compositor…';
 
@@ -2092,6 +2181,14 @@ class AppLocalizationsEn extends AppLocalizations {
       'Three-finger swipe up';
 
   @override
+  String get settingsShortcutGestureThreeFingerSwipeLeft =>
+      'Three-finger swipe left';
+
+  @override
+  String get settingsShortcutGestureThreeFingerSwipeRight =>
+      'Three-finger swipe right';
+
+  @override
   String get settingsShortcutInputCategoryModifier => 'Modifier';
 
   @override
@@ -2125,6 +2222,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsShortcutActionOpenApplications => 'Open applications';
 
   @override
+  String get settingsShortcutActionOpenDashboard => 'Open dashboard';
+
+  @override
+  String get settingsShortcutActionOpenSettings => 'Open Settings';
+
+  @override
   String get settingsShortcutActionOpenOverview => 'Open overview';
 
   @override
@@ -2145,6 +2248,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsShortcutActionMinimizeWindow => 'Minimize window';
+
+  @override
+  String get settingsShortcutActionMinimizeAllWindows => 'Minimize all windows';
 
   @override
   String get settingsShortcutActionToggleMaximize => 'Maximize or restore';
@@ -2385,6 +2491,172 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsDeveloperWorkspaceTitle => 'Source workspace';
 
   @override
+  String get settingsEnvironmentAdd => 'Add';
+
+  @override
+  String get settingsEnvironmentAddedStatus => 'Added to launched applications';
+
+  @override
+  String get settingsEnvironmentAddModeDescription =>
+      'Inject a literal value when Denial executes an application. An empty value is preserved as an empty string.';
+
+  @override
+  String get settingsEnvironmentAllApplications => 'All applications';
+
+  @override
+  String get settingsEnvironmentAllApplicationsDescription =>
+      'Default launch environment';
+
+  @override
+  String settingsEnvironmentApplicationInherited(int count) {
+    return 'Inherits $count all-app rules';
+  }
+
+  @override
+  String get settingsEnvironmentApplicationSearchHint =>
+      'Search applications or desktop IDs';
+
+  @override
+  String get settingsEnvironmentApplicationsTitle => 'Applications';
+
+  @override
+  String get settingsEnvironmentApplicationsUnavailable =>
+      'Installed applications could not be loaded.';
+
+  @override
+  String get settingsEnvironmentBackToApplications => 'Back to applications';
+
+  @override
+  String get settingsEnvironmentCancel => 'Cancel';
+
+  @override
+  String get settingsEnvironmentClearScope => 'Clear';
+
+  @override
+  String settingsEnvironmentDeleteVariable(String variable) {
+    return 'Delete $variable';
+  }
+
+  @override
+  String settingsEnvironmentEditVariable(String variable) {
+    return 'Edit $variable';
+  }
+
+  @override
+  String get settingsEnvironmentEditorDescription =>
+      'Set a value, leave it empty to pass an empty string, or choose Remove to keep the variable out of the child process.';
+
+  @override
+  String settingsEnvironmentEditorEditTitle(String variable) {
+    return 'Edit $variable';
+  }
+
+  @override
+  String get settingsEnvironmentEditorTitle => 'Add an override';
+
+  @override
+  String get settingsEnvironmentEmptyDescription =>
+      'Add a variable above to change the environment of subsequently launched applications.';
+
+  @override
+  String get settingsEnvironmentEmptyTitle => 'No overrides';
+
+  @override
+  String get settingsEnvironmentEmptyValue => 'Empty string';
+
+  @override
+  String get settingsEnvironmentHiddenStatus =>
+      'Hidden from launched applications';
+
+  @override
+  String get settingsEnvironmentHide => 'Hide';
+
+  @override
+  String get settingsEnvironmentHideModeDescription =>
+      'Strip an inherited variable immediately before exec. The application behaves as if that name was never exported.';
+
+  @override
+  String get settingsEnvironmentNameDuplicate =>
+      'That variable already has an override.';
+
+  @override
+  String get settingsEnvironmentNameHint => 'e.g. MOZ_ENABLE_WAYLAND';
+
+  @override
+  String get settingsEnvironmentNameInvalid =>
+      'Use letters, numbers, and underscores, beginning with a letter or underscore.';
+
+  @override
+  String get settingsEnvironmentNameLabel => 'Variable name';
+
+  @override
+  String get settingsEnvironmentNameRequired => 'Enter a variable name.';
+
+  @override
+  String get settingsEnvironmentOverridesDefault =>
+      'Overrides the all-applications rule';
+
+  @override
+  String get settingsEnvironmentModeAdd => 'Add Variable';
+
+  @override
+  String get settingsEnvironmentModeHide => 'Hide Variable';
+
+  @override
+  String get settingsEnvironmentRemoveDescription =>
+      'Denial will remove this inherited variable before starting the application.';
+
+  @override
+  String get settingsEnvironmentRemoveLabel =>
+      'Remove from launched applications';
+
+  @override
+  String get settingsEnvironmentRemovedValue =>
+      'Removed from child environment';
+
+  @override
+  String get settingsEnvironmentScopeDescription =>
+      'These overrides apply only to applications and shortcut commands started by Denial. They affect subsequent launches, not XDG autostart entries, systemd services, D-Bus services, or Denial itself.';
+
+  @override
+  String get settingsEnvironmentScopeTitle => 'Launch scope';
+
+  @override
+  String get settingsEnvironmentSection => 'APPLICATIONS';
+
+  @override
+  String get settingsEnvironmentTitle =>
+      'Customize the environment of applications launched by Denial.';
+
+  @override
+  String get settingsEnvironmentUpdate => 'Update variable';
+
+  @override
+  String get settingsEnvironmentUnavailableApplication =>
+      'Unavailable application';
+
+  @override
+  String get settingsEnvironmentValueHint => 'e.g. 1';
+
+  @override
+  String get settingsEnvironmentValueLabel => 'Value';
+
+  @override
+  String get settingsEnvironmentValueNul =>
+      'Values cannot contain a NUL character.';
+
+  @override
+  String get settingsEnvironmentValueTooLong => 'The value is too long.';
+
+  @override
+  String settingsEnvironmentVariablesStatus(int count) {
+    return '$count configured';
+  }
+
+  @override
+  String get settingsEnvironmentVariablesTitle => 'Configured overrides';
+
+  @override
   String settingsMinutes(int minutes) {
     return '$minutes min';
   }
@@ -2409,6 +2681,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsNavigationDeveloper => 'Developer';
+
+  @override
+  String get settingsNavigationEnvironment => 'App environment';
 
   @override
   String get settingsNavigationDisplays => 'Displays & video';
@@ -2526,9 +2801,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsPanelOpacity => 'Panel opacity';
 
   @override
-  String get settingsPanelRadius => 'Panel radius';
-
-  @override
   String get settingsPanelTravel => 'Panel travel';
 
   @override
@@ -2570,10 +2842,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsScreenAnchor => 'Screen anchor';
 
   @override
-  String get settingsShapeDescription => 'Tune window and panel corner radii.';
+  String get settingsShapeDescription =>
+      'Scale every shell corner while preserving the hierarchy between windows, panels, cards, and controls.';
 
   @override
   String get settingsShapeTitle => 'Shape';
+
+  @override
+  String get settingsCornerRoundness => 'Corner roundness';
 
   @override
   String get settingsColorSchemeTitle => 'Colour scheme';
@@ -2745,9 +3021,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsWindowOpacityTitle => 'Window opacity';
-
-  @override
-  String get settingsWindowRadius => 'Window radius';
 
   @override
   String shortDate(String weekday, int day, String month) {

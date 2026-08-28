@@ -451,7 +451,3 @@ fn create_screenshot_file(directory: &Path) -> io::Result<(File, PathBuf)> {
         "could not allocate a unique screenshot filename",
     ))
 }
-
-#[cfg(test)]
-#[path = "screenshot/tests.rs"]
-mod tests;

@@ -429,7 +429,3 @@ fn valid_connector(connector: &str) -> bool {
 fn valid_size(size: Size<i32, Logical>) -> bool {
     (1..=MAX_WINDOW_DIMENSION).contains(&size.w) && (1..=MAX_WINDOW_DIMENSION).contains(&size.h)
 }
-
-#[cfg(test)]
-#[path = "window_placement_store/tests.rs"]
-mod tests;

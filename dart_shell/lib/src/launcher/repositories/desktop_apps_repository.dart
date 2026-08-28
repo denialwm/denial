@@ -53,7 +53,10 @@ class DesktopAppsRepository {
         continue;
       }
 
-      await for (final entity in dir.list(followLinks: false)) {
+      await for (final entity in dir.list(
+        recursive: true,
+        followLinks: false,
+      )) {
         if (!entity.path.endsWith('.desktop')) {
           continue;
         }
@@ -65,7 +68,9 @@ class DesktopAppsRepository {
           continue;
         }
 
-        filesById.putIfAbsent(p.basename(entity.path), () => File(entity.path));
+        final relative = p.relative(entity.path, from: dir.path);
+        final desktopFileId = p.split(relative).join('-');
+        filesById.putIfAbsent(desktopFileId, () => File(entity.path));
       }
     }
 

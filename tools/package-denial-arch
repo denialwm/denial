@@ -273,13 +273,25 @@ validate_denial_package() (
       printf 'package-denial-arch: Settings portal routing is invalid\n' >&2
       return 1
     }
-  [[ -f "$validation_root/usr/lib/systemd/user/denial-session.target" ]] \
-    && grep -Fqx 'BindsTo=graphical-session.target' \
-      "$validation_root/usr/lib/systemd/user/denial-session.target" \
+  session_target="$validation_root/usr/lib/systemd/user/denial-session.target"
+  [[ -f "$session_target" ]] \
     || {
-      printf 'package-denial-arch: graphical-session target is missing or invalid\n' >&2
+      printf 'package-denial-arch: graphical-session target is missing\n' >&2
       return 1
     }
+  for directive in \
+    'BindsTo=graphical-session.target' \
+    'Before=graphical-session.target' \
+    'Wants=xdg-desktop-autostart.target' \
+    'Before=xdg-desktop-autostart.target'; do
+    grep -Fqx "$directive" "$session_target" \
+      || {
+        printf \
+          'package-denial-arch: graphical-session target is missing %s\n' \
+          "$directive" >&2
+        return 1
+      }
+  done
   grep -Fqx 'depend = rtkit' "$validation_root/.PKGINFO" \
     || {
       printf 'package-denial-arch: Denial package does not require rtkit\n' >&2
