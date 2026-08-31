@@ -106,6 +106,7 @@ class DesktopLiveWindowPlacements {
       <int, ValueNotifier<Offset>>{};
   final Map<int, _DesktopLivePlacementSession> _sessions =
       <int, _DesktopLivePlacementSession>{};
+  final Map<int, Offset> _settleTranslations = <int, Offset>{};
 
   ValueListenable<Offset> translationFor(int objectId) {
     return _translations.putIfAbsent(
@@ -116,6 +117,7 @@ class DesktopLiveWindowPlacements {
 
   void start(int objectId, DenialWindowPlacementEvent event) {
     assert(event.change == DenialWindowPlacementChange.move);
+    _settleTranslations.remove(objectId);
     _sessions[objectId] = _DesktopLivePlacementSession(
       event.contentRect,
       event.sequence,
@@ -156,13 +158,25 @@ class DesktopLiveWindowPlacements {
 
   /// Ends a live session and returns its last uncommitted placement, if any.
   DenialWindowPlacementEvent? finish(int objectId) {
-    final event = _sessions.remove(objectId)?.latestEvent;
+    final session = _sessions.remove(objectId);
+    final translation = _translations[objectId]?.value ?? Offset.zero;
+    if (session != null && translation != Offset.zero) {
+      // Retain the paint offset after clearing the live render transform. The
+      // keyed position widget consumes it as the origin of its settle tween,
+      // preserving exact visual continuity across the release frame.
+      _settleTranslations[objectId] = translation;
+    } else {
+      _settleTranslations.remove(objectId);
+    }
     _setTranslation(objectId, Offset.zero);
-    return event;
+    return session?.latestEvent;
   }
+
+  Offset? settleTranslationFor(int objectId) => _settleTranslations[objectId];
 
   void clear() {
     _sessions.clear();
+    _settleTranslations.clear();
     for (final translation in _translations.values) {
       translation.value = Offset.zero;
     }
@@ -174,6 +188,7 @@ class DesktopLiveWindowPlacements {
     }
     _translations.clear();
     _sessions.clear();
+    _settleTranslations.clear();
   }
 
   void _setTranslation(int objectId, Offset value) {
@@ -308,9 +323,13 @@ final desktopWindowCoordinatorProvider = Provider<void>((ref) {
       case DenialWindowPlacementEvent(phase: DenialWindowPlacementPhase.update):
         schedulePlacementUpdate(event);
       case DenialWindowPlacementEvent():
-        // Begin and end packets both contain authoritative geometry. They
-        // supersede an update that has not reached a frame yet.
-        placementFrameBatch.remove(event.windowId);
+        // Preserve the last sampled pointer rectangle before an end packet
+        // replaces it with a layout-owned tile. The release handoff uses this
+        // exact visual point as the settle animation's origin.
+        final pending = placementFrameBatch.remove(event.windowId);
+        if (pending != null && event.phase == DenialWindowPlacementPhase.end) {
+          processPlacementUpdate(pending);
+        }
         processPlacementBoundary(event);
       case DenialWindowActionEvent():
         // Preserve per-window ordering when an action follows a placement in
@@ -387,7 +406,8 @@ bool _reduceWindowEvent(Ref ref, DenialWindowEvent event) {
   final workspace = ref.read(desktopWorkspaceProvider.notifier);
   switch (event) {
     case DenialWindowPlacementEvent():
-      if (event.phase == DenialWindowPlacementPhase.begin) {
+      if (event.phase == DenialWindowPlacementPhase.begin &&
+          event.change != DenialWindowPlacementChange.layoutPreview) {
         ref.read(shellControllerProvider.notifier).focusWindow(target);
       }
       return workspace.applyNativePlacement(target.objectId, event);

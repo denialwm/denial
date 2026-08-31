@@ -25,6 +25,7 @@ class _DesktopHomeLayoutCache {
   _DesktopHomeLayoutCache({
     required this.viewSize,
     required this.displayLayout,
+    required this.minimizedWindowPlacement,
     required Iterable<DesktopWindowPlacement> placements,
     required List<HomeGridItem?>? homeSlots,
     required this.hasBatteryData,
@@ -56,6 +57,7 @@ class _DesktopHomeLayoutCache {
 
   final Size viewSize;
   final DisplayLayout? displayLayout;
+  final MinimizedWindowPlacement minimizedWindowPlacement;
   final bool hasBatteryData;
   final Map<int, _DesktopHomePlacementSignature> minimizedPlacements;
   final List<_DesktopHomeWidgetSignature> widgets;
@@ -64,12 +66,14 @@ class _DesktopHomeLayoutCache {
   bool matches({
     required Size viewSize,
     required DisplayLayout? displayLayout,
+    required MinimizedWindowPlacement minimizedWindowPlacement,
     required Iterable<DesktopWindowPlacement> placements,
     required List<HomeGridItem?>? homeSlots,
     required bool hasBatteryData,
   }) {
     if (this.viewSize != viewSize ||
         !identical(this.displayLayout, displayLayout) ||
+        this.minimizedWindowPlacement != minimizedWindowPlacement ||
         this.hasBatteryData != hasBatteryData) {
       return false;
     }
@@ -123,6 +127,7 @@ String _desktopHomeWindowKey(int objectId) => 'home-window:$objectId';
 _DesktopHomeSceneLayout _layoutDesktopHome({
   required Size viewSize,
   required DisplayLayout? displayLayout,
+  required MinimizedWindowPlacement minimizedWindowPlacement,
   required Iterable<DesktopWindowPlacement> placements,
   required List<HomeGridItem?>? homeSlots,
   required bool hasBatteryData,
@@ -201,9 +206,13 @@ _DesktopHomeSceneLayout _layoutDesktopHome({
 
   final widgetFrames = <String, Rect>{};
   final windowFrames = <int, Rect>{};
+  final showMinimizedWindowsOnDesktop =
+      minimizedWindowPlacement == MinimizedWindowPlacement.desktop;
   for (final area in outputAreas) {
-    final outputWindows =
-        placementsByMonitor[area.monitorId] ?? const <DesktopWindowPlacement>[];
+    final outputWindows = showMinimizedWindowsOnDesktop
+        ? placementsByMonitor[area.monitorId] ??
+              const <DesktopWindowPlacement>[]
+        : const <DesktopWindowPlacement>[];
     final denseWindowMode = DesktopHomeLayout.usesDenseWindowMode(
       outputWindows.length,
     );
@@ -244,6 +253,14 @@ _DesktopHomeSceneLayout _layoutDesktopHome({
       }
     }
   }
+  if (!showMinimizedWindowsOnDesktop) {
+    for (final placement in minimized) {
+      windowFrames[placement.objectId] = DesktopHomeLayout.offscreenFrame(
+        bounds: canvas,
+        source: placement.frame,
+      );
+    }
+  }
   return (
     widgets: List<HomeGridItem>.unmodifiable(
       widgets.where((item) => widgetFrames.containsKey(item.id)),
@@ -258,6 +275,12 @@ List<Widget> _buildDesktopWindowLayers({
   required Map<int, DenialWindow> windowsById,
   required DesktopWorkspaceState desktop,
   required bool desktopPlane,
+  required DesktopMinimizeLayerHandoffController minimizeLayerHandoff,
+  required DesktopMinimizedPlacementTransitionController
+  minimizedPlacementTransition,
+  required Map<int, Rect> minimizedPlacementExitFrames,
+  required Rect minimizeOffscreenBounds,
+  required MinimizedWindowPlacement minimizedWindowPlacement,
   required Map<int, Rect> desktopWidgetFrames,
   required DesktopWindowSwitcherState? switcher,
   required Rect switcherStageBounds,
@@ -278,11 +301,51 @@ List<Widget> _buildDesktopWindowLayers({
     final switching =
         !overview &&
         DesktopWindowSwitcherLayout.contains(switcher, placement.objectId);
-    final desktopWidget = placement.minimized && !overview && !switching;
-    if (desktopWidget != desktopPlane) {
+    final minimizedIdle = placement.minimized && !overview && !switching;
+    final minimizingForeground =
+        minimizedIdle &&
+        minimizeLayerHandoff.keepsOnForeground(placement.objectId);
+    final usesDesktopPlane = minimizedIdle && !minimizingForeground;
+    final configuredDesktopPlacement =
+        minimizedWindowPlacement == MinimizedWindowPlacement.desktop;
+    final usesDesktopPlacement = minimizedPlacementTransition
+        .usesDesktopPlacement(
+          placement.objectId,
+          configuredDesktop: configuredDesktopPlacement,
+        );
+    final desktopWidget =
+        minimizedIdle && usesDesktopPlane && usesDesktopPlacement;
+    final offscreenMinimized =
+        minimizedIdle && usesDesktopPlane && !usesDesktopPlacement;
+    final placementEntering = minimizedPlacementTransition.entersDesktop(
+      placement.objectId,
+    );
+    final desktopWidgetEntering =
+        desktopWidget &&
+        (minimizeLayerHandoff.slidesIntoDesktop(placement.objectId) ||
+            placementEntering);
+    final desktopWidgetExiting =
+        desktopWidget &&
+        minimizedPlacementTransition.exitsDesktop(placement.objectId);
+    final desktopWidgetTransitionDuration =
+        placementEntering || desktopWidgetExiting
+        ? Motion.desktopWindowPlacementTransition
+        : Motion.desktopWindowWidgetEnter;
+    final suppressPositionAnimation =
+        desktopWidgetEntering ||
+        (minimizedIdle &&
+            minimizedPlacementTransition.commitsOffscreen(placement.objectId));
+    if (usesDesktopPlane != desktopPlane) {
       continue;
     }
-    final arrangedFrame = desktopWidget
+    final arrangedFrame = minimizingForeground
+        ? DesktopHomeLayout.offscreenFrame(
+            bounds: minimizeOffscreenBounds,
+            source: placement.frame,
+          )
+        : desktopWidgetExiting
+        ? minimizedPlacementExitFrames[placement.objectId]
+        : minimizedIdle
         ? desktopWidgetFrames[placement.objectId]
         : switching
         ? DesktopWindowSwitcherLayout.visualFrame(
@@ -299,10 +362,11 @@ List<Widget> _buildDesktopWindowLayers({
       frame: arrangedFrame,
       contentInset: placement.frameBorder,
       devicePixelRatio: devicePixelRatio,
-      enabled: !overview && !switching && !desktopWidget,
+      enabled: !overview && !switching && !minimizedIdle,
       alignSize: true,
     );
     final visible =
+        minimizingForeground ||
         desktopWidget ||
         overview ||
         (switching
@@ -310,10 +374,10 @@ List<Widget> _buildDesktopWindowLayers({
                 placement: placement,
                 switcher: switcher,
               )
-            : true);
+            : !offscreenMinimized);
     final motionDuration = reduceMotion
         ? Duration.zero
-        : desktopWidget
+        : minimizedIdle
         ? Motion.desktopWindowWidget
         : switching
         ? DesktopWindowSwitcherLayout.motionDuration(switcher!)
@@ -331,6 +395,11 @@ List<Widget> _buildDesktopWindowLayers({
         frame: frame,
         minimized: !visible,
         desktopWidget: desktopWidget,
+        offscreenMinimized: minimizingForeground || offscreenMinimized,
+        desktopWidgetEntering: desktopWidgetEntering,
+        desktopWidgetExiting: desktopWidgetExiting,
+        desktopWidgetTransitionDuration: desktopWidgetTransitionDuration,
+        suppressPositionAnimation: suppressPositionAnimation,
         overviewActive: desktop.overviewActive,
         overview: overview,
         switching: switching,
@@ -351,6 +420,7 @@ List<Widget> _buildDesktopWindowLayers({
           placement: placement,
           frame: frame,
           minimized: !visible,
+          offscreenMinimized: minimizingForeground || offscreenMinimized,
           overviewActive: desktop.overviewActive,
           overview: overview,
           switching: switching,
@@ -368,6 +438,7 @@ class _DesktopScene extends ConsumerStatefulWidget {
     required this.windows,
     required this.desktop,
     required this.closeEffect,
+    required this.minimizedWindowPlacement,
     required this.panelTravel,
     required this.panelDurationScale,
     required this.windowSwitcher,
@@ -403,6 +474,7 @@ class _DesktopScene extends ConsumerStatefulWidget {
   final List<DenialWindow> windows;
   final DesktopWorkspaceState desktop;
   final DesktopWindowCloseEffect closeEffect;
+  final MinimizedWindowPlacement minimizedWindowPlacement;
   final double panelTravel;
   final double panelDurationScale;
   final DesktopWindowSwitcherState? windowSwitcher;
@@ -440,9 +512,41 @@ class _DesktopScene extends ConsumerStatefulWidget {
 class _DesktopSceneState extends ConsumerState<_DesktopScene> {
   final Map<int, _ClosingDesktopWindow> _closingWindows =
       <int, _ClosingDesktopWindow>{};
+  final Map<int, Rect> _minimizedPlacementExitFrames = <int, Rect>{};
+  late final DesktopMinimizeLayerHandoffController _minimizeLayerHandoff;
+  late final DesktopMinimizedPlacementTransitionController
+  _minimizedPlacementTransition;
   int _nextCloseId = 1;
   _DesktopHomeLayoutCache? _homeLayoutCache;
   _DesktopSceneTopologyCache? _topologyCache;
+
+  @override
+  void initState() {
+    super.initState();
+    _minimizeLayerHandoff = DesktopMinimizeLayerHandoffController(
+      handoffDelay: Motion.desktopWindowLayerHandoff,
+      desktopEntryDuration: Motion.desktopWindowWidgetEnter,
+      onChanged: () {
+        if (mounted) {
+          setState(() {});
+        }
+      },
+    );
+    _minimizedPlacementTransition =
+        DesktopMinimizedPlacementTransitionController(
+          duration: Motion.desktopWindowPlacementTransition,
+          onChanged: () {
+            if (!mounted) {
+              return;
+            }
+            _minimizedPlacementExitFrames.removeWhere(
+              (objectId, _) =>
+                  !_minimizedPlacementTransition.exitsDesktop(objectId),
+            );
+            setState(() {});
+          },
+        );
+  }
 
   _DesktopSceneTopology _cachedTopology({
     required List<DenialWindow> windows,
@@ -496,6 +600,69 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     final activeObjectIds = <int>{
       for (final window in widget.windows) window.objectId,
     };
+    _minimizeLayerHandoff.retainOnly(activeObjectIds);
+    final animateMinimize = !MediaQuery.disableAnimationsOf(context);
+    for (final placement in widget.desktop.placements.values) {
+      final previous = oldWidget.desktop.placements[placement.objectId];
+      if (!placement.minimized) {
+        _minimizeLayerHandoff.cancel(placement.objectId);
+      } else if (previous?.minimized == false) {
+        _minimizeLayerHandoff.begin(
+          placement.objectId,
+          animate: animateMinimize,
+        );
+      }
+    }
+    final minimizedObjectIds = <int>{
+      for (final placement in widget.desktop.placements.values)
+        if (placement.minimized && activeObjectIds.contains(placement.objectId))
+          placement.objectId,
+    };
+    _minimizedPlacementTransition.retainOnly(minimizedObjectIds);
+    _minimizedPlacementExitFrames.removeWhere(
+      (objectId, _) => !minimizedObjectIds.contains(objectId),
+    );
+    if (oldWidget.minimizedWindowPlacement != widget.minimizedWindowPlacement) {
+      final settledObjectIds = minimizedObjectIds
+          .where(
+            (objectId) => !_minimizeLayerHandoff.keepsOnForeground(objectId),
+          )
+          .toSet();
+      final toDesktop =
+          widget.minimizedWindowPlacement == MinimizedWindowPlacement.desktop;
+      if (toDesktop) {
+        _minimizedPlacementExitFrames.clear();
+        _minimizedPlacementTransition.begin(
+          settledObjectIds,
+          toDesktop: true,
+          animate: animateMinimize,
+        );
+      } else if (animateMinimize) {
+        final previousFrames =
+            _homeLayoutCache?.layout.windowFrames ?? const <int, Rect>{};
+        _minimizedPlacementExitFrames
+          ..clear()
+          ..addEntries(
+            settledObjectIds
+                .where(previousFrames.containsKey)
+                .map(
+                  (objectId) => MapEntry(objectId, previousFrames[objectId]!),
+                ),
+          );
+        _minimizedPlacementTransition.begin(
+          _minimizedPlacementExitFrames.keys,
+          toDesktop: false,
+          animate: true,
+        );
+      } else {
+        _minimizedPlacementExitFrames.clear();
+        _minimizedPlacementTransition.begin(
+          const <int>[],
+          toDesktop: false,
+          animate: false,
+        );
+      }
+    }
     for (final window in oldWidget.windows.where(
       (window) => window.isUserApp,
     )) {
@@ -544,6 +711,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
   _DesktopHomeSceneLayout _cachedDesktopHomeLayout({
     required Size viewSize,
     required DisplayLayout? displayLayout,
+    required MinimizedWindowPlacement minimizedWindowPlacement,
     required Iterable<DesktopWindowPlacement> placements,
     required List<HomeGridItem?>? homeSlots,
     required bool hasBatteryData,
@@ -553,6 +721,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
         cached.matches(
           viewSize: viewSize,
           displayLayout: displayLayout,
+          minimizedWindowPlacement: minimizedWindowPlacement,
           placements: placements,
           homeSlots: homeSlots,
           hasBatteryData: hasBatteryData,
@@ -562,6 +731,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     final layout = _layoutDesktopHome(
       viewSize: viewSize,
       displayLayout: displayLayout,
+      minimizedWindowPlacement: minimizedWindowPlacement,
       placements: placements,
       homeSlots: homeSlots,
       hasBatteryData: hasBatteryData,
@@ -569,6 +739,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     _homeLayoutCache = _DesktopHomeLayoutCache(
       viewSize: viewSize,
       displayLayout: displayLayout,
+      minimizedWindowPlacement: minimizedWindowPlacement,
       placements: placements,
       homeSlots: homeSlots,
       hasBatteryData: hasBatteryData,
@@ -579,6 +750,9 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
 
   @override
   void dispose() {
+    _minimizeLayerHandoff.dispose();
+    _minimizedPlacementTransition.dispose();
+    _minimizedPlacementExitFrames.clear();
     for (final closing in _closingWindows.values) {
       widget.onCloseLeaseComplete(closing.window.windowId);
     }
@@ -593,6 +767,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     final desktop = widget.desktop;
     final windowSwitcher = widget.windowSwitcher;
     final displayLayout = widget.displayLayout;
+    final minimizedWindowPlacement = widget.minimizedWindowPlacement;
     final frameTimingOptions = widget.frameTimingOptions;
     final wallpaperSelectorVisible = widget.wallpaperSelectorVisible;
     final shellOutputRect = widget.shellOutputRect;
@@ -643,6 +818,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     final homeLayout = _cachedDesktopHomeLayout(
       viewSize: viewSize,
       displayLayout: displayLayout,
+      minimizedWindowPlacement: minimizedWindowPlacement,
       placements: placements,
       homeSlots: homeSlots,
       hasBatteryData: hasBatteryData,
@@ -709,6 +885,11 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                     windowsById: windowsById,
                     desktop: desktop,
                     desktopPlane: true,
+                    minimizeLayerHandoff: _minimizeLayerHandoff,
+                    minimizedPlacementTransition: _minimizedPlacementTransition,
+                    minimizedPlacementExitFrames: _minimizedPlacementExitFrames,
+                    minimizeOffscreenBounds: canvas,
+                    minimizedWindowPlacement: minimizedWindowPlacement,
                     desktopWidgetFrames: homeLayout.windowFrames,
                     switcher: windowSwitcher,
                     switcherStageBounds: switcherStageBounds,
@@ -758,6 +939,11 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                     windowsById: windowsById,
                     desktop: desktop,
                     desktopPlane: false,
+                    minimizeLayerHandoff: _minimizeLayerHandoff,
+                    minimizedPlacementTransition: _minimizedPlacementTransition,
+                    minimizedPlacementExitFrames: _minimizedPlacementExitFrames,
+                    minimizeOffscreenBounds: canvas,
+                    minimizedWindowPlacement: minimizedWindowPlacement,
                     desktopWidgetFrames: homeLayout.windowFrames,
                     switcher: windowSwitcher,
                     switcherStageBounds: switcherStageBounds,

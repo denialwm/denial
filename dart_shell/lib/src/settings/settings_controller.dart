@@ -281,6 +281,10 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     );
   }
 
+  void setDesktopWindowLayout(DesktopWindowLayout value) {
+    _update(state.copyWith(layout: state.layout.copyWith(windowLayout: value)));
+  }
+
   void setSystemBarThickness(double value) {
     _update(
       state.copyWith(
@@ -297,6 +301,14 @@ class ShellSettingsController extends Notifier<ShellSettings> {
         layout: state.layout.copyWith(
           maximizePadding: value.clamp(0, 64).toDouble(),
         ),
+      ),
+    );
+  }
+
+  void setMinimizedWindowPlacement(MinimizedWindowPlacement value) {
+    _update(
+      state.copyWith(
+        layout: state.layout.copyWith(minimizedWindowPlacement: value),
       ),
     );
   }
@@ -392,16 +404,70 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     );
   }
 
-  void setIdleDpmsTimeoutMinutes(int value) {
+  void setIdleLockEnabled(bool value) {
+    _update(
+      state.copyWith(power: state.power.copyWith(idleLockEnabled: value)),
+    );
+  }
+
+  void setIdleLockTimeoutMinutes(int value) {
     _update(
       state.copyWith(
         power: state.power.copyWith(
-          idleDpmsTimeoutMinutes: value
+          idleLockTimeoutMinutes: value
               .clamp(
-                ShellPowerSettings.minimumIdleDpmsMinutes,
-                ShellPowerSettings.maximumIdleDpmsMinutes,
+                ShellPowerSettings.minimumIdleTimeoutMinutes,
+                state.power.idleSuspendTimeoutMinutes,
               )
               .toInt(),
+        ),
+      ),
+    );
+  }
+
+  void setIdleDpmsTimeoutMinutes(int value) {
+    final timeout = value
+        .clamp(
+          ShellPowerSettings.minimumIdleTimeoutMinutes,
+          ShellPowerSettings.maximumIdleTimeoutMinutes,
+        )
+        .toInt();
+    _update(
+      state.copyWith(
+        power: state.power.copyWith(
+          idleDpmsTimeoutMinutes: timeout,
+          idleSuspendTimeoutMinutes:
+              timeout > state.power.idleSuspendTimeoutMinutes
+              ? timeout
+              : state.power.idleSuspendTimeoutMinutes,
+        ),
+      ),
+    );
+  }
+
+  void setIdleSuspendEnabled(bool value) {
+    _update(
+      state.copyWith(power: state.power.copyWith(idleSuspendEnabled: value)),
+    );
+  }
+
+  void setIdleSuspendTimeoutMinutes(int value) {
+    final timeout = value
+        .clamp(
+          ShellPowerSettings.minimumIdleTimeoutMinutes,
+          ShellPowerSettings.maximumIdleTimeoutMinutes,
+        )
+        .toInt();
+    _update(
+      state.copyWith(
+        power: state.power.copyWith(
+          idleLockTimeoutMinutes: state.power.idleLockTimeoutMinutes > timeout
+              ? timeout
+              : state.power.idleLockTimeoutMinutes,
+          idleDpmsTimeoutMinutes: state.power.idleDpmsTimeoutMinutes > timeout
+              ? timeout
+              : state.power.idleDpmsTimeoutMinutes,
+          idleSuspendTimeoutMinutes: timeout,
         ),
       ),
     );

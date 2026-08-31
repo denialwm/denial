@@ -140,7 +140,9 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
         // rectangle with the retained live-move delta and visibly apply the
         // motion twice. Placement packets remain the only geometry authority
         // until their end phase commits the final frame.
-        if (!existing.dragging && nativeGeometry != null) {
+        if (!existing.dragging &&
+            !existing.layoutPreviewing &&
+            nativeGeometry != null) {
           final nativeFrame = existing.fullscreen
               ? nativeGeometry.intersect(Offset.zero & viewSize)
               : _initialFrame(
@@ -171,6 +173,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
             }
           }
         } else if (!existing.dragging &&
+            !existing.layoutPreviewing &&
             decorationChanged &&
             !existing.fullscreen) {
           frame = _initialFrame(
@@ -179,6 +182,7 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
           );
           monitorId = window.monitorId;
         } else if (!existing.dragging &&
+            !existing.layoutPreviewing &&
             _pendingNativeFrames[window.objectId] == null) {
           monitorId = window.monitorId;
         }
@@ -429,7 +433,6 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     }
     final targetOutput = outputBounds[targetMonitorId];
     if (targetMonitorId == null ||
-        targetMonitorId == placement.monitorId ||
         targetOutput == null ||
         targetOutput.isEmpty) {
       _restoreOverviewDrag(objectId, placement, overview);
@@ -593,7 +596,9 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
     if (state.overviewActive) {
       return false;
     }
-    if (event.phase == DenialWindowPlacementPhase.begin) {
+    final layoutPreview =
+        event.change == DenialWindowPlacementChange.layoutPreview;
+    if (event.phase == DenialWindowPlacementPhase.begin && !layoutPreview) {
       activate(objectId);
     }
     final placement = state.placements[objectId];
@@ -629,7 +634,12 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
         frame: fullscreenFrame,
         monitorId: event.monitorId,
         workspaceId: event.workspaceId,
-        dragging: event.phase != DenialWindowPlacementPhase.end,
+        dragging: layoutPreview
+            ? placement.dragging
+            : event.phase != DenialWindowPlacementPhase.end,
+        layoutPreviewing: layoutPreview
+            ? event.phase != DenialWindowPlacementPhase.end
+            : placement.layoutPreviewing,
         fullscreenRestoreFrame: monitorChanged
             ? placement.fullscreenRestoreFrame?.shift(delta)
             : placement.fullscreenRestoreFrame,
@@ -654,7 +664,12 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
       minimized: false,
       maximized: false,
       fullscreen: false,
-      dragging: event.phase != DenialWindowPlacementPhase.end,
+      dragging: layoutPreview
+          ? placement.dragging
+          : event.phase != DenialWindowPlacementPhase.end,
+      layoutPreviewing: layoutPreview
+          ? event.phase != DenialWindowPlacementPhase.end
+          : placement.layoutPreviewing,
       clearRestoreFrame: true,
       clearFullscreenRestoreFrame: true,
     );

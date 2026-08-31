@@ -36,6 +36,12 @@ enum ShellOverlaySurface { launcher, dashboard, notifications, systemHud }
 
 enum ClipboardTrayEdge { left, right, top, bottom }
 
+enum MinimizedWindowPlacement { desktop, offscreen }
+
+/// Compositor geometry policy for ordinary, non-transient desktop windows.
+/// Each value maps to a Rust `WindowLayout` implementation.
+enum DesktopWindowLayout { stacking, dwindle }
+
 const double clipboardTrayMinimumExtent = 100;
 const double clipboardTrayMaximumExtent = 300;
 const double clipboardTrayDefaultExtent = 250;
@@ -234,31 +240,38 @@ class ShellAnimationSettings {
 @immutable
 class ShellLayoutSettings {
   const ShellLayoutSettings({
+    this.windowLayout = DesktopWindowLayout.stacking,
     this.systemBarSide,
     this.systemBarOutputNames = const <String>[],
     this.systemBarThickness = 32,
     this.maximizePadding = 10,
+    this.minimizedWindowPlacement = MinimizedWindowPlacement.desktop,
     this.clipboardTrayEdge = ClipboardTrayEdge.right,
     this.clipboardTrayExtent = clipboardTrayDefaultExtent,
   });
 
+  final DesktopWindowLayout windowLayout;
   final SystemBarSide? systemBarSide;
   final List<String> systemBarOutputNames;
   final double systemBarThickness;
   final double maximizePadding;
+  final MinimizedWindowPlacement minimizedWindowPlacement;
   final ClipboardTrayEdge clipboardTrayEdge;
   final double clipboardTrayExtent;
 
   ShellLayoutSettings copyWith({
+    DesktopWindowLayout? windowLayout,
     SystemBarSide? systemBarSide,
     bool clearSystemBarSide = false,
     List<String>? systemBarOutputNames,
     double? systemBarThickness,
     double? maximizePadding,
+    MinimizedWindowPlacement? minimizedWindowPlacement,
     ClipboardTrayEdge? clipboardTrayEdge,
     double? clipboardTrayExtent,
   }) {
     return ShellLayoutSettings(
+      windowLayout: windowLayout ?? this.windowLayout,
       systemBarSide: clearSystemBarSide
           ? null
           : systemBarSide ?? this.systemBarSide,
@@ -267,6 +280,8 @@ class ShellLayoutSettings {
       ),
       systemBarThickness: systemBarThickness ?? this.systemBarThickness,
       maximizePadding: maximizePadding ?? this.maximizePadding,
+      minimizedWindowPlacement:
+          minimizedWindowPlacement ?? this.minimizedWindowPlacement,
       clipboardTrayEdge: clipboardTrayEdge ?? this.clipboardTrayEdge,
       clipboardTrayExtent: clipboardTrayExtent ?? this.clipboardTrayExtent,
     );
@@ -275,20 +290,24 @@ class ShellLayoutSettings {
   @override
   bool operator ==(Object other) {
     return other is ShellLayoutSettings &&
+        other.windowLayout == windowLayout &&
         other.systemBarSide == systemBarSide &&
         listEquals(other.systemBarOutputNames, systemBarOutputNames) &&
         other.systemBarThickness == systemBarThickness &&
         other.maximizePadding == maximizePadding &&
+        other.minimizedWindowPlacement == minimizedWindowPlacement &&
         other.clipboardTrayEdge == clipboardTrayEdge &&
         other.clipboardTrayExtent == clipboardTrayExtent;
   }
 
   @override
   int get hashCode => Object.hash(
+    windowLayout,
     systemBarSide,
     Object.hashAll(systemBarOutputNames),
     systemBarThickness,
     maximizePadding,
+    minimizedWindowPlacement,
     clipboardTrayEdge,
     clipboardTrayExtent,
   );
@@ -424,36 +443,67 @@ class ShellLockScreenSettings {
 @immutable
 class ShellPowerSettings {
   const ShellPowerSettings({
+    this.idleLockEnabled = true,
+    this.idleLockTimeoutMinutes = 5,
     this.idleDpmsEnabled = true,
     this.idleDpmsTimeoutMinutes = 10,
+    this.idleSuspendEnabled = false,
+    this.idleSuspendTimeoutMinutes = 30,
   });
 
-  static const int minimumIdleDpmsMinutes = 1;
-  static const int maximumIdleDpmsMinutes = 120;
+  static const int minimumIdleTimeoutMinutes = 1;
+  static const int maximumIdleTimeoutMinutes = 120;
+  static const int minimumIdleDpmsMinutes = minimumIdleTimeoutMinutes;
+  static const int maximumIdleDpmsMinutes = maximumIdleTimeoutMinutes;
 
+  final bool idleLockEnabled;
+  final int idleLockTimeoutMinutes;
   final bool idleDpmsEnabled;
   final int idleDpmsTimeoutMinutes;
+  final bool idleSuspendEnabled;
+  final int idleSuspendTimeoutMinutes;
 
   ShellPowerSettings copyWith({
+    bool? idleLockEnabled,
+    int? idleLockTimeoutMinutes,
     bool? idleDpmsEnabled,
     int? idleDpmsTimeoutMinutes,
+    bool? idleSuspendEnabled,
+    int? idleSuspendTimeoutMinutes,
   }) {
     return ShellPowerSettings(
+      idleLockEnabled: idleLockEnabled ?? this.idleLockEnabled,
+      idleLockTimeoutMinutes:
+          idleLockTimeoutMinutes ?? this.idleLockTimeoutMinutes,
       idleDpmsEnabled: idleDpmsEnabled ?? this.idleDpmsEnabled,
       idleDpmsTimeoutMinutes:
           idleDpmsTimeoutMinutes ?? this.idleDpmsTimeoutMinutes,
+      idleSuspendEnabled: idleSuspendEnabled ?? this.idleSuspendEnabled,
+      idleSuspendTimeoutMinutes:
+          idleSuspendTimeoutMinutes ?? this.idleSuspendTimeoutMinutes,
     );
   }
 
   @override
   bool operator ==(Object other) {
     return other is ShellPowerSettings &&
+        other.idleLockEnabled == idleLockEnabled &&
+        other.idleLockTimeoutMinutes == idleLockTimeoutMinutes &&
         other.idleDpmsEnabled == idleDpmsEnabled &&
-        other.idleDpmsTimeoutMinutes == idleDpmsTimeoutMinutes;
+        other.idleDpmsTimeoutMinutes == idleDpmsTimeoutMinutes &&
+        other.idleSuspendEnabled == idleSuspendEnabled &&
+        other.idleSuspendTimeoutMinutes == idleSuspendTimeoutMinutes;
   }
 
   @override
-  int get hashCode => Object.hash(idleDpmsEnabled, idleDpmsTimeoutMinutes);
+  int get hashCode => Object.hash(
+    idleLockEnabled,
+    idleLockTimeoutMinutes,
+    idleDpmsEnabled,
+    idleDpmsTimeoutMinutes,
+    idleSuspendEnabled,
+    idleSuspendTimeoutMinutes,
+  );
 }
 
 const int applicationEnvironmentMaximumNameBytes = 256;
@@ -722,7 +772,7 @@ class ShellSettings {
 
   // Blur levels are additive in schema 9. Keep emitting the derived legacy
   // sigma so older shells can read settings written by this version.
-  static const int schemaVersion = 15;
+  static const int schemaVersion = 21;
 
   final ShellLocalizationSettings localization;
   final ShellAppearanceSettings appearance;
@@ -835,6 +885,9 @@ class ShellSettings {
     if (layout != previous.layout) {
       final before = previous.layout;
       final section = <String, Object?>{};
+      if (layout.windowLayout != before.windowLayout) {
+        section['windowLayout'] = layout.windowLayout.name;
+      }
       if (layout.systemBarSide != before.systemBarSide) {
         section['systemBarSide'] = layout.systemBarSide?.name;
       }
@@ -849,6 +902,10 @@ class ShellSettings {
       }
       if (layout.maximizePadding != before.maximizePadding) {
         section['maximizePadding'] = layout.maximizePadding;
+      }
+      if (layout.minimizedWindowPlacement != before.minimizedWindowPlacement) {
+        section['minimizedWindowPlacement'] =
+            layout.minimizedWindowPlacement.name;
       }
       if (layout.clipboardTrayEdge != before.clipboardTrayEdge) {
         section['clipboardTrayEdge'] = layout.clipboardTrayEdge.name;
@@ -919,11 +976,23 @@ class ShellSettings {
     if (power != previous.power) {
       final before = previous.power;
       final section = <String, Object?>{};
+      if (power.idleLockEnabled != before.idleLockEnabled) {
+        section['idleLockEnabled'] = power.idleLockEnabled;
+      }
+      if (power.idleLockTimeoutMinutes != before.idleLockTimeoutMinutes) {
+        section['idleLockTimeoutMinutes'] = power.idleLockTimeoutMinutes;
+      }
       if (power.idleDpmsEnabled != before.idleDpmsEnabled) {
         section['idleDpmsEnabled'] = power.idleDpmsEnabled;
       }
       if (power.idleDpmsTimeoutMinutes != before.idleDpmsTimeoutMinutes) {
         section['idleDpmsTimeoutMinutes'] = power.idleDpmsTimeoutMinutes;
+      }
+      if (power.idleSuspendEnabled != before.idleSuspendEnabled) {
+        section['idleSuspendEnabled'] = power.idleSuspendEnabled;
+      }
+      if (power.idleSuspendTimeoutMinutes != before.idleSuspendTimeoutMinutes) {
+        section['idleSuspendTimeoutMinutes'] = power.idleSuspendTimeoutMinutes;
       }
       patch['power'] = section;
     }
@@ -961,10 +1030,12 @@ class ShellSettings {
         'allowClientCursorSurfaces': appearance.allowClientCursorSurfaces,
       },
       'layout': <String, Object>{
+        'windowLayout': layout.windowLayout.name,
         if (layout.systemBarSide case final side?) 'systemBarSide': side.name,
         'systemBarOutputs': layout.systemBarOutputNames,
         'systemBarThickness': layout.systemBarThickness,
         'maximizePadding': layout.maximizePadding,
+        'minimizedWindowPlacement': layout.minimizedWindowPlacement.name,
         'clipboardTrayEdge': layout.clipboardTrayEdge.name,
         'clipboardTrayExtent': layout.clipboardTrayExtent,
       },
@@ -988,8 +1059,12 @@ class ShellSettings {
         'showSystemStatus': lockScreen.showSystemStatus,
       },
       'power': <String, Object>{
+        'idleLockEnabled': power.idleLockEnabled,
+        'idleLockTimeoutMinutes': power.idleLockTimeoutMinutes,
         'idleDpmsEnabled': power.idleDpmsEnabled,
         'idleDpmsTimeoutMinutes': power.idleDpmsTimeoutMinutes,
+        'idleSuspendEnabled': power.idleSuspendEnabled,
+        'idleSuspendTimeoutMinutes': power.idleSuspendTimeoutMinutes,
       },
       'applicationEnvironment': applicationEnvironment.toJson(),
     };
@@ -1045,6 +1120,36 @@ class ShellSettings {
         outputNames.add(outputName);
       }
     }
+    final idleDpmsTimeoutMinutes = _integer(
+      powerJson['idleDpmsTimeoutMinutes'],
+      defaults.power.idleDpmsTimeoutMinutes,
+      ShellPowerSettings.minimumIdleTimeoutMinutes,
+      ShellPowerSettings.maximumIdleTimeoutMinutes,
+    );
+    final idleSuspendTimeoutMinutes =
+        _integer(
+              powerJson['idleSuspendTimeoutMinutes'],
+              defaults.power.idleSuspendTimeoutMinutes,
+              ShellPowerSettings.minimumIdleTimeoutMinutes,
+              ShellPowerSettings.maximumIdleTimeoutMinutes,
+            )
+            .clamp(
+              idleDpmsTimeoutMinutes,
+              ShellPowerSettings.maximumIdleTimeoutMinutes,
+            )
+            .toInt();
+    final idleLockTimeoutMinutes =
+        _integer(
+              powerJson['idleLockTimeoutMinutes'],
+              defaults.power.idleLockTimeoutMinutes,
+              ShellPowerSettings.minimumIdleTimeoutMinutes,
+              ShellPowerSettings.maximumIdleTimeoutMinutes,
+            )
+            .clamp(
+              ShellPowerSettings.minimumIdleTimeoutMinutes,
+              idleSuspendTimeoutMinutes,
+            )
+            .toInt();
     return ShellSettings(
       localization: ShellLocalizationSettings(
         locale: _enumValue(
@@ -1132,6 +1237,11 @@ class ShellSettings {
             : defaults.appearance.allowClientCursorSurfaces,
       ),
       layout: ShellLayoutSettings(
+        windowLayout: _enumValue(
+          DesktopWindowLayout.values,
+          layoutJson['windowLayout'],
+          defaults.layout.windowLayout,
+        ),
         systemBarSide: _nullableEnumValue(
           SystemBarSide.values,
           layoutJson['systemBarSide'],
@@ -1148,6 +1258,11 @@ class ShellSettings {
           defaults.layout.maximizePadding,
           0,
           64,
+        ),
+        minimizedWindowPlacement: _enumValue(
+          MinimizedWindowPlacement.values,
+          layoutJson['minimizedWindowPlacement'],
+          defaults.layout.minimizedWindowPlacement,
         ),
         clipboardTrayEdge: _enumValue(
           ClipboardTrayEdge.values,
@@ -1236,15 +1351,18 @@ class ShellSettings {
             : defaults.lockScreen.showSystemStatus,
       ),
       power: ShellPowerSettings(
+        idleLockEnabled: powerJson['idleLockEnabled'] is bool
+            ? powerJson['idleLockEnabled'] as bool
+            : defaults.power.idleLockEnabled,
+        idleLockTimeoutMinutes: idleLockTimeoutMinutes,
         idleDpmsEnabled: powerJson['idleDpmsEnabled'] is bool
             ? powerJson['idleDpmsEnabled'] as bool
             : defaults.power.idleDpmsEnabled,
-        idleDpmsTimeoutMinutes: _integer(
-          powerJson['idleDpmsTimeoutMinutes'],
-          defaults.power.idleDpmsTimeoutMinutes,
-          ShellPowerSettings.minimumIdleDpmsMinutes,
-          ShellPowerSettings.maximumIdleDpmsMinutes,
-        ),
+        idleDpmsTimeoutMinutes: idleDpmsTimeoutMinutes,
+        idleSuspendEnabled: powerJson['idleSuspendEnabled'] is bool
+            ? powerJson['idleSuspendEnabled'] as bool
+            : defaults.power.idleSuspendEnabled,
+        idleSuspendTimeoutMinutes: idleSuspendTimeoutMinutes,
       ),
       applicationEnvironment: ShellApplicationEnvironmentSettings.fromJson(
         json['applicationEnvironment'],

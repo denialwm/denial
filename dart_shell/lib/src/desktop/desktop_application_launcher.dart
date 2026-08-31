@@ -462,7 +462,6 @@ class _DesktopApplicationLauncherState
     final recentEntryIds = ref.watch(applicationRecentsProvider);
     final allApps = _resolveInstalledApps(context, slots, localRegistry);
     final apps = _resolveFilteredApps(allApps, _searchController.text);
-    final searching = _searchController.text.trim().isNotEmpty;
     final theme = ShellTheme.of(context);
     final l10n = context.l10n;
     return MouseRegion(
@@ -509,13 +508,11 @@ class _DesktopApplicationLauncherState
                         final columnCount = _crossAxisCountFor(
                           constraints.maxWidth,
                         );
-                        final suggestedApps = searching
-                            ? const <_DesktopLauncherEntry>[]
-                            : _resolveSuggestedApps(
-                                allApps,
-                                recentEntryIds,
-                                columnCount,
-                              );
+                        final suggestedApps = _resolveSuggestedApps(
+                          apps,
+                          recentEntryIds,
+                          columnCount,
+                        );
                         final navigationTargets = _resolveNavigationTargets(
                           suggestedApps,
                           apps,

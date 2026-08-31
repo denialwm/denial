@@ -33,6 +33,11 @@ class Motion {
   static const Duration desktopWindowRevealLeadIn = Duration(milliseconds: 64);
   static const Duration desktopWindowReveal = Duration(milliseconds: 320);
   static const Duration desktopWindowWidget = Duration(milliseconds: 360);
+  static const Duration desktopWindowLayerHandoff = desktopWindowWidget;
+  static const Duration desktopWindowWidgetEnter = Duration(milliseconds: 240);
+  static const Duration desktopWindowPlacementTransition = Duration(
+    milliseconds: 400,
+  );
   static const Duration desktopWindowCloseExplosion = Duration(
     milliseconds: 400,
   );

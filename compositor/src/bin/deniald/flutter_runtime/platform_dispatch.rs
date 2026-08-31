@@ -172,8 +172,8 @@ impl FlutterRuntime {
                 }
             }
         } else if message.channel.as_bytes() == idle_policy::CHANNEL.to_bytes() {
-            match idle_policy::decode_timeout(&message.data) {
-                Ok(timeout) => self.pending_idle_dpms_timeout = Some(timeout),
+            match idle_policy::decode_configuration(&message.data) {
+                Ok(configuration) => self.pending_idle_policy = Some(configuration),
                 Err(error) => warn!(%error, "rejected Denial idle policy from Flutter"),
             }
         } else if message.channel.as_bytes() == idle_policy::DISPLAY_POWER_CHANNEL.to_bytes() {

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:denial_dart_shell/src/models/denial_cursor_state.dart';
 import 'package:denial_dart_shell/src/platform/denial_bridge.dart';
 import 'package:denial_dart_shell/src/platform/denial_wire.dart' as wire;
@@ -70,6 +72,45 @@ void main() {
       } finally {
         await subscription.cancel();
         bridge.dispose();
+      }
+    },
+  );
+
+  test(
+    'idle policy packet preserves optional actions and timeout order',
+    () async {
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      ByteData? packet;
+      messenger.setMockMessageHandler('denial/idle_policy', (message) async {
+        packet = message;
+        return null;
+      });
+      final bridge = DenialBridge();
+
+      try {
+        bridge.setIdlePolicy(
+          lockEnabled: true,
+          lockTimeout: const Duration(minutes: 5),
+          dpmsEnabled: true,
+          dpmsTimeout: const Duration(minutes: 10),
+          suspendEnabled: false,
+          suspendTimeout: const Duration(minutes: 30),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        final data = packet;
+        expect(data, isNotNull);
+        expect(data!.lengthInBytes, 32);
+        expect(data.getUint8(0), 1);
+        expect(data.getUint8(1), 0x03);
+        expect(data.buffer.asUint8List(2, 6), everyElement(0));
+        expect(data.getUint64(8, Endian.little), 5 * 60 * 1000);
+        expect(data.getUint64(16, Endian.little), 10 * 60 * 1000);
+        expect(data.getUint64(24, Endian.little), 30 * 60 * 1000);
+      } finally {
+        bridge.dispose();
+        messenger.setMockMessageHandler('denial/idle_policy', null);
       }
     },
   );

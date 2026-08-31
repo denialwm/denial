@@ -303,6 +303,8 @@ impl WireBridge {
         revision: u64,
         has_touchpad: bool,
         touchpad: &TouchpadSettings,
+        has_mouse: bool,
+        mouse: &MouseSettings,
         error: Option<&str>,
     ) -> Result<&[u8], WireError> {
         if revision == 0 || error.is_some_and(|error| error.len() > MAX_STRING_BYTES) {
@@ -318,11 +320,17 @@ impl WireBridge {
                 scroll_speed_factor: touchpad.scroll_speed_factor,
             },
         );
+        let mouse = fb::MouseConfiguration::create(
+            &mut self.outbound_builder,
+            &fb::MouseConfigurationArgs { speed: mouse.speed },
+        );
         let input_devices = fb::InputDeviceCapabilities::create(
             &mut self.outbound_builder,
             &fb::InputDeviceCapabilitiesArgs {
                 has_touchpad,
                 touchpad: Some(touchpad),
+                has_mouse,
+                mouse: Some(mouse),
             },
         );
         let error = error.map(|error| self.outbound_builder.create_string(error));
@@ -1121,6 +1129,14 @@ fn shortcut_action_to_wire(action: ShortcutAction) -> fb::ShortcutActionKind {
         ShortcutAction::NextKeyboardLayout => fb::ShortcutActionKind::NextKeyboardLayout,
         ShortcutAction::PreviousKeyboardLayout => fb::ShortcutActionKind::PreviousKeyboardLayout,
         ShortcutAction::OpenSettings => fb::ShortcutActionKind::OpenSettings,
+        ShortcutAction::FocusLeft => fb::ShortcutActionKind::FocusLeft,
+        ShortcutAction::FocusRight => fb::ShortcutActionKind::FocusRight,
+        ShortcutAction::FocusUp => fb::ShortcutActionKind::FocusUp,
+        ShortcutAction::FocusDown => fb::ShortcutActionKind::FocusDown,
+        ShortcutAction::SwapLeft => fb::ShortcutActionKind::SwapLeft,
+        ShortcutAction::SwapRight => fb::ShortcutActionKind::SwapRight,
+        ShortcutAction::SwapUp => fb::ShortcutActionKind::SwapUp,
+        ShortcutAction::SwapDown => fb::ShortcutActionKind::SwapDown,
     }
 }
 

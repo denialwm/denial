@@ -63,6 +63,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get batteryIdle => 'Idle';
 
   @override
+  String batteryLowNotificationBody(int percent) {
+    return 'Battery is at $percent%. Connect a charger.';
+  }
+
+  @override
+  String get batteryLowNotificationTitle => 'Low battery';
+
+  @override
+  String get batteryCriticalNotificationTitle => 'Critical battery';
+
+  @override
   String batteryStateAndPercent(String state, int percent) {
     return '$state $percent%';
   }
@@ -1334,7 +1345,24 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsAutomaticDisplayPowerToggleDescription =>
-      'The timer resets whenever keyboard or pointer activity is detected.';
+      'Power down connected displays after inactivity.';
+
+  @override
+  String get settingsAutomaticIdleTitle => 'Automatic idle actions';
+
+  @override
+  String get settingsAutomaticLockToggle => 'Lock automatically';
+
+  @override
+  String get settingsAutomaticLockToggleDescription =>
+      'Show the lock screen and require authentication after inactivity.';
+
+  @override
+  String get settingsAutomaticSuspendToggle => 'Suspend automatically';
+
+  @override
+  String get settingsAutomaticSuspendToggleDescription =>
+      'Keep the session in memory and enter low power after extended inactivity.';
 
   @override
   String get settingsAvailable => 'Available';
@@ -1871,15 +1899,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsHudOverlayTitle => 'System level display';
 
   @override
+  String get settingsDisplayOffTimeout => 'Turn displays off after';
+
+  @override
   String get settingsIdleInhibitDescription =>
-      'Honor application requests that temporarily prevent display power-off.';
+      'Application activity such as video playback can temporarily pause these timers.';
 
   @override
   String get settingsIdleInhibitSemantics =>
-      'Applications may keep displays awake';
+      'Applications may pause automatic idle actions';
 
   @override
   String get settingsInactivityTimeout => 'Inactivity timeout';
+
+  @override
+  String get settingsLockTimeout => 'Lock after';
 
   @override
   String get settingsLauncherOverlayDescription =>
@@ -1980,7 +2014,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsTouchpadSection => 'INPUT';
 
   @override
-  String get settingsTouchpadTitle => 'Use your touchpad across the desktop.';
+  String get settingsTouchpadTitle => 'Tune mouse and touchpad behavior.';
 
   @override
   String get settingsTouchpadTapToClick => 'Tap to click';
@@ -1998,6 +2032,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsTouchpadScrollSpeed => 'Finger scroll speed';
+
+  @override
+  String get settingsMousePointerSpeed => 'Mouse pointer speed';
 
   @override
   String get settingsShortcutsSection => 'SHORTCUTS';
@@ -2288,6 +2325,30 @@ class AppLocalizationsEn extends AppLocalizations {
       'Previous keyboard layout';
 
   @override
+  String get settingsShortcutActionFocusLeft => 'Focus window left';
+
+  @override
+  String get settingsShortcutActionFocusRight => 'Focus window right';
+
+  @override
+  String get settingsShortcutActionFocusUp => 'Focus window above';
+
+  @override
+  String get settingsShortcutActionFocusDown => 'Focus window below';
+
+  @override
+  String get settingsShortcutActionSwapLeft => 'Swap window left';
+
+  @override
+  String get settingsShortcutActionSwapRight => 'Swap window right';
+
+  @override
+  String get settingsShortcutActionSwapUp => 'Swap window upward';
+
+  @override
+  String get settingsShortcutActionSwapDown => 'Swap window downward';
+
+  @override
   String get settingsLayoutDescription =>
       'Control the spacing reserved around ordinary and maximized windows.';
 
@@ -2296,6 +2357,19 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsLayoutTitle => 'Give every window room to breathe.';
+
+  @override
+  String get settingsWindowLayoutDescription =>
+      'Stacking lets windows overlap and move freely. Tiling uses a dynamic binary tree while keeping transient windows floating.';
+
+  @override
+  String get settingsWindowLayoutDwindle => 'Tiling';
+
+  @override
+  String get settingsWindowLayoutStacking => 'Stacking';
+
+  @override
+  String get settingsWindowLayoutTitle => 'Window layout';
 
   @override
   String get settingsLiveBadge => 'LIVE';
@@ -2695,7 +2769,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsNavigationKeyboard => 'Keyboard';
 
   @override
-  String get settingsNavigationTouchpad => 'Touchpad';
+  String get settingsNavigationTouchpad => 'Mouse & touchpad';
 
   @override
   String get settingsNavigationShortcuts => 'Shortcuts';
@@ -2973,6 +3047,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsTwoHours => '2 hours';
 
   @override
+  String get settingsSuspendTimeout => 'Suspend after';
+
+  @override
   String get settingsUnfocusedWindows => 'Unfocused windows';
 
   @override
@@ -3014,6 +3091,19 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsWindowCloseEffectTitle => 'Window closing effect';
+
+  @override
+  String get settingsWindowMinimizationDescription =>
+      'Keep minimized windows as live previews on the desktop, or glide them beyond the screen edge until restored.';
+
+  @override
+  String get settingsWindowMinimizationDesktop => 'On desktop';
+
+  @override
+  String get settingsWindowMinimizationOffscreen => 'Off-screen';
+
+  @override
+  String get settingsWindowMinimizationTitle => 'Window minimization';
 
   @override
   String get settingsWindowOpacityDescription =>

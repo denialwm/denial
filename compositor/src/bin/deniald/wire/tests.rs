@@ -52,6 +52,17 @@ fn window_request_with_sequence(
     geometry: Option<fb::WireRect>,
     sequence: u64,
 ) -> Vec<u8> {
+    window_request_with_flags(kind, request_id, window_id, geometry, sequence, 0)
+}
+
+fn window_request_with_flags(
+    kind: fb::WindowRequestKind,
+    request_id: u64,
+    window_id: u64,
+    geometry: Option<fb::WireRect>,
+    sequence: u64,
+    flags: u32,
+) -> Vec<u8> {
     let mut builder = FlatBufferBuilder::new();
     let request = fb::WindowRequest::create(
         &mut builder,
@@ -61,6 +72,7 @@ fn window_request_with_sequence(
             geometry: geometry.as_ref(),
             app_id: None,
             title: None,
+            flags,
             ..Default::default()
         },
     );
@@ -76,6 +88,51 @@ fn window_request_with_sequence(
     );
     fb::finish_envelope_buffer(&mut builder, envelope);
     builder.finished_data().to_vec()
+}
+
+#[test]
+fn configure_window_distinguishes_layout_drops_from_exact_geometry() {
+    let geometry = fb::WireRect::new(100.0, 200.0, 800.0, 600.0);
+    let mut bridge = bridge();
+    assert!(
+        bridge
+            .handle(&window_request_with_flags(
+                fb::WindowRequestKind::ConfigureWindow,
+                0,
+                42,
+                Some(geometry),
+                4,
+                2,
+            ))
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        bridge.drain_window_commands().collect::<Vec<_>>(),
+        vec![WindowCommand::Configure {
+            window_id: 42,
+            geometry: WindowGeometry {
+                x: 100.0,
+                y: 200.0,
+                width: 800.0,
+                height: 600.0,
+            },
+            exact: false,
+            layout_drop: true,
+        }]
+    );
+
+    assert!(matches!(
+        bridge.handle(&window_request_with_flags(
+            fb::WindowRequestKind::ConfigureWindow,
+            0,
+            42,
+            Some(geometry),
+            5,
+            3,
+        )),
+        Err(WireError::Flags)
+    ));
 }
 
 fn input_layout(

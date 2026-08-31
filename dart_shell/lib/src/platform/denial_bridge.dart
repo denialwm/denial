@@ -892,6 +892,25 @@ class DenialBridge {
     return applied;
   }
 
+  Future<DenialInputDeviceCapabilities> configureMouse(
+    DenialInputDeviceCapabilities capabilities,
+  ) async {
+    if (!useControlSocket) {
+      return _configureMouseThroughPlatform(capabilities);
+    }
+    final applied = DenialInputDeviceCapabilities.fromJson(
+      await _sendSettingsControlRequest(
+        'settings.mouse.apply',
+        parameters: <String, Object>{
+          'expected_revision': capabilities.revision,
+          'mouse': capabilities.mouseToApplyJson(),
+        },
+      ),
+    );
+    _inputDeviceCapabilities.add(applied);
+    return applied;
+  }
+
   Future<DenialKeyboardConfiguration> configureKeyboard(
     DenialKeyboardConfiguration configuration,
   ) async {
@@ -1150,6 +1169,31 @@ class DenialBridge {
     );
   }
 
+  Future<DenialInputDeviceCapabilities> _configureMouseThroughPlatform(
+    DenialInputDeviceCapabilities capabilities,
+  ) {
+    final requestId = _nextRequestId++;
+    final bytes = _wireCodec.encodeMouseConfiguration(
+      requestId: requestId,
+      capabilities: capabilities,
+    );
+    if (bytes == null) {
+      return Future<DenialInputDeviceCapabilities>.error(
+        ArgumentError('invalid Denial mouse configuration'),
+      );
+    }
+    final completer = Completer<DenialInputDeviceCapabilities>();
+    _pendingInputDeviceRequests[requestId] = completer;
+    _sendWire(bytes);
+    return completer.future.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () {
+        _pendingInputDeviceRequests.remove(requestId);
+        throw TimeoutException('Denial mouse settings update timed out');
+      },
+    );
+  }
+
   Future<DenialKeyboardConfiguration> _configureKeyboardThroughPlatform(
     DenialKeyboardConfiguration configuration,
   ) {
@@ -1330,7 +1374,9 @@ class DenialBridge {
     DenialWindow window,
     Rect contentRect, {
     bool exact = false,
+    bool layoutDrop = false,
   }) {
+    assert(!exact || !layoutDrop);
     if (window.windowId <= 0 ||
         contentRect.width < 1.0 ||
         contentRect.height < 1.0) {
@@ -1347,7 +1393,7 @@ class DenialBridge {
         wire.WindowRequestKind.ConfigureWindow,
         windowId: window.windowId,
         geometry: geometry,
-        flags: exact ? 1 : 0,
+        flags: (exact ? 1 : 0) | (layoutDrop ? 2 : 0),
       ),
     );
   }
@@ -1533,13 +1579,35 @@ class DenialBridge {
         ?.catchError((Object _) => null);
   }
 
-  /// Configures compositor-owned inactivity DPMS. A null timeout disables it.
-  void setIdleDpmsTimeout(Duration? timeout) {
-    final milliseconds = timeout?.inMilliseconds ?? 0;
-    if (milliseconds < 0) {
+  /// Configures the compositor-owned lock, DPMS, and suspend idle policy.
+  void setIdlePolicy({
+    required bool lockEnabled,
+    required Duration lockTimeout,
+    required bool dpmsEnabled,
+    required Duration dpmsTimeout,
+    required bool suspendEnabled,
+    required Duration suspendTimeout,
+  }) {
+    final lockMilliseconds = lockTimeout.inMilliseconds;
+    final dpmsMilliseconds = dpmsTimeout.inMilliseconds;
+    final suspendMilliseconds = suspendTimeout.inMilliseconds;
+    if (lockMilliseconds <= 0 ||
+        dpmsMilliseconds <= 0 ||
+        suspendMilliseconds <= 0 ||
+        lockMilliseconds > suspendMilliseconds ||
+        dpmsMilliseconds > suspendMilliseconds) {
       return;
     }
-    final data = ByteData(8)..setUint64(0, milliseconds, Endian.little);
+    final flags =
+        (lockEnabled ? 1 : 0) |
+        (dpmsEnabled ? 2 : 0) |
+        (suspendEnabled ? 4 : 0);
+    final data = ByteData(32)
+      ..setUint8(0, 1)
+      ..setUint8(1, flags)
+      ..setUint64(8, lockMilliseconds, Endian.little)
+      ..setUint64(16, dpmsMilliseconds, Endian.little)
+      ..setUint64(24, suspendMilliseconds, Endian.little);
     ServicesBinding.instance.defaultBinaryMessenger
         .send(_idlePolicyChannel, data)
         ?.catchError((Object _) => null);

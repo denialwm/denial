@@ -382,6 +382,96 @@ pub(super) fn synchronize_settings(
                     frontend.keyboard_configuration_changed = true;
                 }
             }
+            wire::SettingsCommand::ConfigureMouse {
+                request_id,
+                expected_revision,
+                mouse,
+            } => {
+                let prepared = events
+                    .wayland
+                    .as_ref()
+                    .ok_or("mouse update has no Wayland frontend")?
+                    .settings
+                    .prepare_mouse_update(expected_revision, mouse);
+                let result = match prepared {
+                    Ok(prepared) => {
+                        let previous = events
+                            .wayland
+                            .as_ref()
+                            .expect("missing Wayland frontend")
+                            .settings
+                            .mouse()
+                            .clone();
+                        let next = prepared.mouse().clone();
+                        match wayland_frontend::install_mouse_settings(events, &next) {
+                            Ok(()) => {
+                                let commit = events
+                                    .wayland
+                                    .as_mut()
+                                    .expect("missing Wayland frontend")
+                                    .settings
+                                    .commit(prepared);
+                                if let Err(error) = commit {
+                                    if let Err(rollback_error) =
+                                        wayland_frontend::install_mouse_settings(events, &previous)
+                                    {
+                                        return Err(format!(
+                                            "mouse settings commit failed ({error}) and the live configuration rollback failed ({rollback_error})"
+                                        )
+                                        .into());
+                                    }
+                                    Err(error)
+                                } else {
+                                    info!(
+                                        revision = events
+                                            .wayland
+                                            .as_ref()
+                                            .expect("missing Wayland frontend")
+                                            .settings
+                                            .revision(),
+                                        speed = next.speed,
+                                        "applied persistent mouse settings"
+                                    );
+                                    Ok(())
+                                }
+                            }
+                            Err(error) => {
+                                if let Err(rollback_error) =
+                                    wayland_frontend::install_mouse_settings(events, &previous)
+                                {
+                                    return Err(format!(
+                                        "mouse configuration failed ({error}) and the live configuration rollback failed ({rollback_error})"
+                                    )
+                                    .into());
+                                }
+                                send_input_device_settings(
+                                    runtime,
+                                    events,
+                                    request_id,
+                                    Some(&error),
+                                )?;
+                                continue;
+                            }
+                        }
+                    }
+                    Err(error) => Err(error),
+                };
+                send_input_device_settings(
+                    runtime,
+                    events,
+                    request_id,
+                    result
+                        .as_ref()
+                        .err()
+                        .map(|error| error.to_string())
+                        .as_deref(),
+                )?;
+                if result.is_ok()
+                    && let Some(frontend) = events.wayland.as_mut()
+                {
+                    frontend.keyboard_configuration_changed = true;
+                }
+            }
             wire::SettingsCommand::ReadShortcuts { request_id } => {
                 send_shortcut_settings(runtime, events, request_id, None)?;
             }
@@ -467,6 +557,13 @@ pub(super) fn synchronize_settings(
     }
     if std::mem::take(&mut events.input_device_capabilities_changed) {
         send_input_device_settings(runtime, events, 0, None)?;
+    }
+    let layout_changed = events.wayland.as_mut().is_some_and(|frontend| {
+        let kind = frontend.settings.window_layout_kind();
+        frontend.set_window_layout_kind(kind)
+    });
+    if layout_changed {
+        events.scene_sync.mark_dirty();
     }
     publish_settings_document(events)?;
     synchronize_committed_theme(runtime, events)?;
@@ -615,6 +712,10 @@ fn synchronize_control_settings(
                 expected_revision,
                 touchpad,
             } => apply_control_touchpad(events, expected_revision, touchpad),
+            SettingsControlCommand::WriteMouse {
+                expected_revision,
+                mouse,
+            } => apply_control_mouse(events, expected_revision, mouse),
             SettingsControlCommand::ReadShortcuts => control_shortcut_snapshot(events),
             SettingsControlCommand::ValidateShortcut {
                 shortcut,
@@ -722,9 +823,12 @@ fn control_input_snapshot(
         .as_ref()
         .ok_or_else(|| control_unavailable("input settings"))?;
     let touchpad = frontend.settings.touchpad();
+    let mouse = frontend.settings.mouse();
     Ok(json!({
         "revision": frontend.settings.revision(),
         "has_touchpad": !events.touchpad_devices.is_empty(),
+        "has_mouse": !events.mouse_devices.is_empty(),
+        "mouse_speed": mouse.speed,
         "tap_to_click_enabled": touchpad.tap_to_click_enabled,
         "natural_scroll_enabled": touchpad.natural_scroll_enabled,
         "scroll_speed_factor": touchpad.scroll_speed_factor,
@@ -797,6 +901,44 @@ fn apply_control_touchpad(
         .commit(prepared)
     {
         wayland_frontend::install_touchpad_settings(events, &previous).map_err(control_failed)?;
+        return Err(control_failed(error));
+    }
+    if let Some(frontend) = events.wayland.as_mut() {
+        frontend.keyboard_configuration_changed = true;
+    }
+    control_input_snapshot(events)
+}
+
+#[cfg(feature = "flutter")]
+fn apply_control_mouse(
+    events: &mut RuntimeState,
+    expected_revision: u64,
+    mouse: settings::MouseSettings,
+) -> Result<serde_json::Value, OutputControlFailure> {
+    let prepared = events
+        .wayland
+        .as_ref()
+        .ok_or_else(|| control_unavailable("mouse update"))?
+        .settings
+        .prepare_mouse_update(expected_revision, mouse)
+        .map_err(control_conflict)?;
+    let previous = events
+        .wayland
+        .as_ref()
+        .expect("missing Wayland frontend")
+        .settings
+        .mouse()
+        .clone();
+    let next = prepared.mouse().clone();
+    wayland_frontend::install_mouse_settings(events, &next).map_err(control_failed)?;
+    if let Err(error) = events
+        .wayland
+        .as_mut()
+        .expect("missing Wayland frontend")
+        .settings
+        .commit(prepared)
+    {
+        wayland_frontend::install_mouse_settings(events, &previous).map_err(control_failed)?;
         return Err(control_failed(error));
     }
     if let Some(frontend) = events.wayland.as_mut() {
@@ -1008,12 +1150,14 @@ pub(super) fn send_input_device_settings(
     let frontend = events
         .wayland
         .as_ref()
-        .ok_or("touchpad settings response has no Wayland frontend")?;
+        .ok_or("input device settings response has no Wayland frontend")?;
     runtime.send_input_device_capabilities_response(
         request_id,
         frontend.settings.revision(),
         !events.touchpad_devices.is_empty(),
         frontend.settings.touchpad(),
+        !events.mouse_devices.is_empty(),
+        frontend.settings.mouse(),
         error,
     )
 }

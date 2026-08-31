@@ -28,6 +28,7 @@ import '../services/lact_service.dart';
 import '../services/power_profile_service.dart';
 import '../settings/settings_application.dart';
 import '../settings/settings_controller.dart';
+import '../settings/shell_settings.dart';
 import '../settings/widgets/settings_navigation.dart';
 import '../state/app_audio.dart';
 import '../state/audio_devices.dart';
@@ -68,6 +69,7 @@ import 'desktop_audio_device_dropdown.dart';
 import 'desktop_overview_layout.dart';
 import 'desktop_overview_target.dart';
 import 'desktop_home_layout.dart';
+import 'desktop_minimize_layer_handoff.dart';
 import 'desktop_panel_hover_controller.dart';
 import 'desktop_panel_transition.dart';
 import 'desktop_pixel_alignment.dart';
@@ -778,6 +780,14 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
           workAreas: layout?.workAreasByMonitor() ?? const <int, Rect>{},
         );
     if (transferred) {
+      final placement = ref
+          .read(desktopWorkspaceProvider)
+          .placements[window.objectId];
+      if (placement != null) {
+        ref
+            .read(denialBridgeProvider)
+            .configureWindow(window, placement.contentRect, layoutDrop: true);
+      }
       ref.read(shellControllerProvider.notifier).focusWindow(window);
     }
   }
@@ -822,6 +832,11 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     final animations = ref.watch(
       shellSettingsProvider.select((settings) => settings.animations),
     );
+    final minimizedWindowPlacement = ref.watch(
+      shellSettingsProvider.select(
+        (settings) => settings.layout.minimizedWindowPlacement,
+      ),
+    );
     final windowSwitcher = ref.watch(desktopWindowSwitcherProvider);
     final nativeDisplayLayout = ref.watch(displayLayoutProvider);
     // DENIA_SHELL_DEV_LAYOUT lets the shell run as an ordinary Wayland client
@@ -851,6 +866,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
             windows: windows,
             desktop: desktop,
             closeEffect: animations.windowCloseEffect,
+            minimizedWindowPlacement: minimizedWindowPlacement,
             panelTravel: animations.panelTravel,
             panelDurationScale: animations.durationScale,
             windowSwitcher: windowSwitcher,

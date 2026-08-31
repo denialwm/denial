@@ -84,6 +84,10 @@ class InputDeviceCapabilitiesController
     );
   }
 
+  void setMouseSpeed(double speed) {
+    unawaited(_configureMouse(state.capabilities.copyWith(mouseSpeed: speed)));
+  }
+
   Future<void> _refresh(int generation) async {
     try {
       final capabilities = await _bridge.readInputDeviceCapabilities();
@@ -123,6 +127,49 @@ class InputDeviceCapabilitiesController
           requested.copyWith(
             revision: latest.revision,
             hasTouchpad: latest.hasTouchpad,
+          ),
+        );
+      }
+      if (generation == _generation) {
+        state = state.copyWith(
+          capabilities: applied,
+          busy: false,
+          clearError: true,
+        );
+      }
+    } on Object catch (error) {
+      if (generation == _generation) {
+        state = state.copyWith(
+          capabilities: fallback,
+          busy: false,
+          error: error.toString(),
+        );
+      }
+    }
+  }
+
+  Future<void> _configureMouse(DenialInputDeviceCapabilities requested) async {
+    if (state.busy || requested.revision <= 0 || !requested.hasMouse) {
+      return;
+    }
+    final generation = _generation;
+    var fallback = state.capabilities;
+    state = state.copyWith(
+      capabilities: requested,
+      busy: true,
+      clearError: true,
+    );
+    try {
+      DenialInputDeviceCapabilities applied;
+      try {
+        applied = await _bridge.configureMouse(requested);
+      } on StateError {
+        final latest = await _bridge.readInputDeviceCapabilities();
+        fallback = latest;
+        applied = await _bridge.configureMouse(
+          requested.copyWith(
+            revision: latest.revision,
+            hasMouse: latest.hasMouse,
           ),
         );
       }

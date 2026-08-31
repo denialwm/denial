@@ -200,6 +200,24 @@ abstract class AppLocalizations {
   /// **'Idle'**
   String get batteryIdle;
 
+  /// Message shown when the battery crosses a low-charge warning threshold.
+  ///
+  /// In en, this message translates to:
+  /// **'Battery is at {percent}%. Connect a charger.'**
+  String batteryLowNotificationBody(int percent);
+
+  /// Title for the 20% and 15% battery notifications.
+  ///
+  /// In en, this message translates to:
+  /// **'Low battery'**
+  String get batteryLowNotificationTitle;
+
+  /// Title for the 10%, 5%, and 1% battery notifications.
+  ///
+  /// In en, this message translates to:
+  /// **'Critical battery'**
+  String get batteryCriticalNotificationTitle;
+
   /// English UI text for batteryStateAndPercent.
   ///
   /// In en, this message translates to:
@@ -2390,8 +2408,38 @@ abstract class AppLocalizations {
   /// English UI text for settingsAutomaticDisplayPowerToggleDescription.
   ///
   /// In en, this message translates to:
-  /// **'The timer resets whenever keyboard or pointer activity is detected.'**
+  /// **'Power down connected displays after inactivity.'**
   String get settingsAutomaticDisplayPowerToggleDescription;
+
+  /// Title for the coordinated idle lock, display power, and suspend settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic idle actions'**
+  String get settingsAutomaticIdleTitle;
+
+  /// Toggle for automatically locking the session after inactivity.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock automatically'**
+  String get settingsAutomaticLockToggle;
+
+  /// Description for automatic session locking.
+  ///
+  /// In en, this message translates to:
+  /// **'Show the lock screen and require authentication after inactivity.'**
+  String get settingsAutomaticLockToggleDescription;
+
+  /// Toggle for automatically suspending the system after inactivity.
+  ///
+  /// In en, this message translates to:
+  /// **'Suspend automatically'**
+  String get settingsAutomaticSuspendToggle;
+
+  /// Description for automatic system suspend.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep the session in memory and enter low power after extended inactivity.'**
+  String get settingsAutomaticSuspendToggleDescription;
 
   /// English UI text for settingsAvailable.
   ///
@@ -3340,16 +3388,22 @@ abstract class AppLocalizations {
   /// **'System level display'**
   String get settingsHudOverlayTitle;
 
+  /// Label for the automatic display power-off timeout.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn displays off after'**
+  String get settingsDisplayOffTimeout;
+
   /// English UI text for settingsIdleInhibitDescription.
   ///
   /// In en, this message translates to:
-  /// **'Honor application requests that temporarily prevent display power-off.'**
+  /// **'Application activity such as video playback can temporarily pause these timers.'**
   String get settingsIdleInhibitDescription;
 
   /// English UI text for settingsIdleInhibitSemantics.
   ///
   /// In en, this message translates to:
-  /// **'Applications may keep displays awake'**
+  /// **'Applications may pause automatic idle actions'**
   String get settingsIdleInhibitSemantics;
 
   /// English UI text for settingsInactivityTimeout.
@@ -3357,6 +3411,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Inactivity timeout'**
   String get settingsInactivityTimeout;
+
+  /// Label for the automatic lock timeout.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock after'**
+  String get settingsLockTimeout;
 
   /// English UI text for settingsLauncherOverlayDescription.
   ///
@@ -3532,16 +3592,16 @@ abstract class AppLocalizations {
   /// **'Enter at least one valid XKB layout.'**
   String get settingsKeyboardInvalidLayouts;
 
-  /// Eyebrow label for touchpad settings.
+  /// Eyebrow label for mouse and touchpad settings.
   ///
   /// In en, this message translates to:
   /// **'INPUT'**
   String get settingsTouchpadSection;
 
-  /// Description of the touchpad settings page.
+  /// Description of the mouse and touchpad settings page.
   ///
   /// In en, this message translates to:
-  /// **'Use your touchpad across the desktop.'**
+  /// **'Tune mouse and touchpad behavior.'**
   String get settingsTouchpadTitle;
 
   /// Label for the touchpad tap-to-click toggle.
@@ -3573,6 +3633,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Finger scroll speed'**
   String get settingsTouchpadScrollSpeed;
+
+  /// Label for the mouse pointer speed slider.
+  ///
+  /// In en, this message translates to:
+  /// **'Mouse pointer speed'**
+  String get settingsMousePointerSpeed;
 
   /// Eyebrow label for the configured shortcuts page.
   ///
@@ -4072,6 +4138,54 @@ abstract class AppLocalizations {
   /// **'Previous keyboard layout'**
   String get settingsShortcutActionPreviousKeyboardLayout;
 
+  /// Display name for focusing the tiled window to the left.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus window left'**
+  String get settingsShortcutActionFocusLeft;
+
+  /// Display name for focusing the tiled window to the right.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus window right'**
+  String get settingsShortcutActionFocusRight;
+
+  /// Display name for focusing the tiled window above.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus window above'**
+  String get settingsShortcutActionFocusUp;
+
+  /// Display name for focusing the tiled window below.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus window below'**
+  String get settingsShortcutActionFocusDown;
+
+  /// Display name for swapping a tiled window to the left.
+  ///
+  /// In en, this message translates to:
+  /// **'Swap window left'**
+  String get settingsShortcutActionSwapLeft;
+
+  /// Display name for swapping a tiled window to the right.
+  ///
+  /// In en, this message translates to:
+  /// **'Swap window right'**
+  String get settingsShortcutActionSwapRight;
+
+  /// Display name for swapping a tiled window upward.
+  ///
+  /// In en, this message translates to:
+  /// **'Swap window upward'**
+  String get settingsShortcutActionSwapUp;
+
+  /// Display name for swapping a tiled window downward.
+  ///
+  /// In en, this message translates to:
+  /// **'Swap window downward'**
+  String get settingsShortcutActionSwapDown;
+
   /// English UI text for settingsLayoutDescription.
   ///
   /// In en, this message translates to:
@@ -4089,6 +4203,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Give every window room to breathe.'**
   String get settingsLayoutTitle;
+
+  /// Explains the difference between stacking and tiling window layouts.
+  ///
+  /// In en, this message translates to:
+  /// **'Stacking lets windows overlap and move freely. Tiling uses a dynamic binary tree while keeping transient windows floating.'**
+  String get settingsWindowLayoutDescription;
+
+  /// Label for the Dwindle tiling window layout.
+  ///
+  /// In en, this message translates to:
+  /// **'Tiling'**
+  String get settingsWindowLayoutDwindle;
+
+  /// Label for the freely overlapping window layout.
+  ///
+  /// In en, this message translates to:
+  /// **'Stacking'**
+  String get settingsWindowLayoutStacking;
+
+  /// Title for choosing how desktop windows are arranged.
+  ///
+  /// In en, this message translates to:
+  /// **'Window layout'**
+  String get settingsWindowLayoutTitle;
 
   /// Short uppercase status label indicating immediate application.
   ///
@@ -4786,10 +4924,10 @@ abstract class AppLocalizations {
   /// **'Keyboard'**
   String get settingsNavigationKeyboard;
 
-  /// Settings navigation label for touchpad information.
+  /// Settings navigation label for mouse and touchpad configuration.
   ///
   /// In en, this message translates to:
-  /// **'Touchpad'**
+  /// **'Mouse & touchpad'**
   String get settingsNavigationTouchpad;
 
   /// Settings navigation label for configured shortcuts.
@@ -5272,6 +5410,12 @@ abstract class AppLocalizations {
   /// **'2 hours'**
   String get settingsTwoHours;
 
+  /// Label for the automatic suspend timeout.
+  ///
+  /// In en, this message translates to:
+  /// **'Suspend after'**
+  String get settingsSuspendTimeout;
+
   /// English UI text for settingsUnfocusedWindows.
   ///
   /// In en, this message translates to:
@@ -5349,6 +5493,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Window closing effect'**
   String get settingsWindowCloseEffectTitle;
+
+  /// Explanation of the minimized-window placement setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep minimized windows as live previews on the desktop, or glide them beyond the screen edge until restored.'**
+  String get settingsWindowMinimizationDescription;
+
+  /// Choice that places minimized windows on the desktop.
+  ///
+  /// In en, this message translates to:
+  /// **'On desktop'**
+  String get settingsWindowMinimizationDesktop;
+
+  /// Choice that places minimized windows beyond the screen edge.
+  ///
+  /// In en, this message translates to:
+  /// **'Off-screen'**
+  String get settingsWindowMinimizationOffscreen;
+
+  /// Title for the minimized-window placement setting.
+  ///
+  /// In en, this message translates to:
+  /// **'Window minimization'**
+  String get settingsWindowMinimizationTitle;
 
   /// English UI text for settingsWindowOpacityDescription.
   ///

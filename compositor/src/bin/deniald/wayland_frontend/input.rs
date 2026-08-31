@@ -44,11 +44,14 @@ use super::super::lifecycle::ShutdownReason;
 use super::super::native_shortcut::{ShortcutDisposition, ShortcutTarget};
 #[cfg(feature = "flutter")]
 use super::super::settings::KeyboardSettings;
-use super::super::settings::TouchpadSettings;
+use super::super::settings::{MouseSettings, TouchpadSettings};
 #[cfg(feature = "flutter")]
 use super::super::window_grab::{
-    LocalFlutterWindowGrab, MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, X11ResizeSurfaceGrab,
+    LocalFlutterWindowGrab, MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, TileResizeGrab,
+    TileSwapGrab, X11ResizeSurfaceGrab,
 };
+#[cfg(feature = "flutter")]
+use super::super::window_layout::LayoutResizeEdges;
 #[cfg(feature = "flutter")]
 use super::super::wire::{
     InputLayoutSnapshot, InputWindowRegion, WindowPlacementChange, WindowPlacementPhase,
@@ -1050,6 +1053,49 @@ fn is_touchpad_device(device: &LibinputDevice) -> bool {
     udev_marks_touchpad.unwrap_or_else(|| device.config_tap_finger_count() > 0)
 }
 
+fn is_mouse_device(device: &LibinputDevice) -> bool {
+    // Do not infer this from pointer capability alone: touchpads expose the
+    // same capability and have an independently configurable input model.
+    let udev_marks_mouse = unsafe { device.udev_device() }.and_then(|device| {
+        device
+            .property_value("ID_INPUT_MOUSE")
+            .map(|value| value == OsStr::new("1"))
+    });
+    udev_marks_mouse.unwrap_or(false) && device.config_accel_is_available()
+}
+
+fn configure_mouse_device(
+    device: &mut LibinputDevice,
+    settings: &MouseSettings,
+) -> Result<(), String> {
+    device
+        .config_accel_set_speed(settings.speed)
+        .map_err(|error| {
+            format!(
+                "could not set pointer speed on {} to {}: {error:?}",
+                device.name(),
+                settings.speed
+            )
+        })?;
+    info!(
+        device = %device.name(),
+        speed = settings.speed,
+        "configured mouse pointer speed"
+    );
+    Ok(())
+}
+
+#[cfg(feature = "flutter")]
+pub(in super::super) fn install_mouse_settings(
+    state: &mut RuntimeState,
+    settings: &MouseSettings,
+) -> Result<(), String> {
+    for device in state.mouse_devices.values_mut() {
+        configure_mouse_device(device, settings)?;
+    }
+    Ok(())
+}
+
 #[cfg(feature = "flutter")]
 pub(in super::super) fn install_touchpad_settings(
     state: &mut RuntimeState,
@@ -1062,7 +1108,7 @@ pub(in super::super) fn install_touchpad_settings(
 }
 
 #[cfg(feature = "flutter")]
-fn touchpad_presence_changed(previous_count: usize, current_count: usize) -> bool {
+fn device_presence_changed(previous_count: usize, current_count: usize) -> bool {
     (previous_count == 0) != (current_count == 0)
 }
 
@@ -1176,7 +1222,27 @@ fn process_input_event(
                     .touchpad_devices
                     .insert(device.sysname().to_owned(), device.clone());
                 state.input_device_capabilities_changed |=
-                    touchpad_presence_changed(previous_count, state.touchpad_devices.len());
+                    device_presence_changed(previous_count, state.touchpad_devices.len());
+            }
+        }
+        let mouse = is_mouse_device(device);
+        if mouse {
+            let settings = state
+                .wayland
+                .as_ref()
+                .map(|frontend| frontend.settings.mouse().clone())
+                .unwrap_or_default();
+            if let Err(error) = configure_mouse_device(device, &settings) {
+                warn!(%error, "could not apply persisted mouse settings");
+            }
+            #[cfg(feature = "flutter")]
+            {
+                let previous_count = state.mouse_devices.len();
+                state
+                    .mouse_devices
+                    .insert(device.sysname().to_owned(), device.clone());
+                state.input_device_capabilities_changed |=
+                    device_presence_changed(previous_count, state.mouse_devices.len());
             }
         }
     }
@@ -1191,7 +1257,11 @@ fn process_input_event(
             let previous_count = state.touchpad_devices.len();
             state.touchpad_devices.remove(device.sysname());
             state.input_device_capabilities_changed |=
-                touchpad_presence_changed(previous_count, state.touchpad_devices.len());
+                device_presence_changed(previous_count, state.touchpad_devices.len());
+            let previous_count = state.mouse_devices.len();
+            state.mouse_devices.remove(device.sysname());
+            state.input_device_capabilities_changed |=
+                device_presence_changed(previous_count, state.mouse_devices.len());
         }
         let reset = InputDeviceReset {
             keyboard: Device::has_capability(device, DeviceCapability::Keyboard),
@@ -1653,9 +1723,10 @@ fn dispatch_flutter_repeat(state: &mut RuntimeState, keycode: u32) -> bool {
 /// Deliver a key returned by the external input method to its Flutter editor.
 ///
 /// The physical transition has already updated Smithay's XKB state before the
-/// input-method grab received it. Reusing that state here avoids a second XKB
-/// transition and, critically, does not re-enter the input-method grab. Keys
-/// not owned by Flutter remain on the ordinary virtual-keyboard path.
+/// input-method grab received it. A modifier state explicitly supplied by the
+/// companion virtual keyboard takes precedence for the replayed Flutter event,
+/// without replacing that physical state or re-entering the grab. Keys not
+/// owned by Flutter remain on the ordinary virtual-keyboard path.
 #[cfg(feature = "flutter")]
 pub(super) fn dispatch_input_method_key_to_flutter(
     state: &mut RuntimeState,
@@ -1663,6 +1734,7 @@ pub(super) fn dispatch_input_method_key_to_flutter(
     keycode: Keycode,
     key_state: KeyState,
     flutter_editor_active: bool,
+    virtual_modifiers: Option<smithay::input::keyboard::ModifiersState>,
 ) -> bool {
     let disposition = {
         let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
@@ -1686,7 +1758,7 @@ pub(super) fn dispatch_input_method_key_to_flutter(
         // SAFETY: the state reference remains inside the XKB mutex guard.
         unsafe { xkb.state() }.key_get_one_sym(keycode)
     });
-    let modifiers = keyboard.modifier_state();
+    let modifiers = virtual_modifiers.unwrap_or_else(|| keyboard.modifier_state());
     let unicode = if matches!(key_state, KeyState::Pressed) {
         let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
         flutter_unicode_for_keysym(frontend.flutter_compose.as_mut(), keysym)
@@ -1771,6 +1843,16 @@ pub(super) fn execute_shortcut_disposition(
         ShortcutDisposition::RequestToggleVerticalMaximize => {
             #[cfg(feature = "flutter")]
             super::window_management::toggle_shell_vertical_maximize_focused_toplevel(state);
+            true
+        }
+        ShortcutDisposition::RequestFocus(direction) => {
+            #[cfg(feature = "flutter")]
+            super::window_management::focus_toplevel_in_direction(state, direction);
+            true
+        }
+        ShortcutDisposition::RequestSwap(direction) => {
+            #[cfg(feature = "flutter")]
+            super::window_management::swap_toplevel_in_direction(state, direction);
             true
         }
         ShortcutDisposition::RequestWindowSwitcherNext => {

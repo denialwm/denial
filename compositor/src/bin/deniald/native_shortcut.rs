@@ -13,7 +13,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-const SHORTCUT_SCHEMA_VERSION: u64 = 3;
+use super::window_layout::LayoutDirection;
+
+const SHORTCUT_SCHEMA_VERSION: u64 = 4;
 const OLDEST_SHORTCUT_SCHEMA_VERSION: u64 = 1;
 const MAX_SHORTCUT_FILE_BYTES: usize = 128 * 1024;
 pub(super) const MAX_SHORTCUTS: usize = 256;
@@ -31,6 +33,17 @@ const SHORTCUT_V2_ADDITIONS: &[(&str, ShortcutAction)] = &[
 
 const SHORTCUT_V3_ADDITIONS: &[(&str, ShortcutAction)] =
     &[("Super+Shift+M", ShortcutAction::MinimizeAllWindows)];
+
+const SHORTCUT_V4_ADDITIONS: &[(&str, ShortcutAction)] = &[
+    ("Super+Left", ShortcutAction::FocusLeft),
+    ("Super+Right", ShortcutAction::FocusRight),
+    ("Super+Up", ShortcutAction::FocusUp),
+    ("Super+Down", ShortcutAction::FocusDown),
+    ("Super+Ctrl+Left", ShortcutAction::SwapLeft),
+    ("Super+Ctrl+Right", ShortcutAction::SwapRight),
+    ("Super+Ctrl+Up", ShortcutAction::SwapUp),
+    ("Super+Ctrl+Down", ShortcutAction::SwapDown),
+];
 
 const KEY_ESCAPE: u32 = 1;
 const KEY_BACKSPACE: u32 = 14;
@@ -139,10 +152,18 @@ pub(super) enum ShortcutAction {
     NextKeyboardLayout,
     PreviousKeyboardLayout,
     OpenSettings,
+    FocusLeft,
+    FocusRight,
+    FocusUp,
+    FocusDown,
+    SwapLeft,
+    SwapRight,
+    SwapUp,
+    SwapDown,
 }
 
 impl ShortcutAction {
-    pub(super) const ALL: [Self; 23] = [
+    pub(super) const ALL: [Self; 31] = [
         Self::OpenApplications,
         Self::OpenDashboard,
         Self::OpenSettings,
@@ -166,6 +187,14 @@ impl ShortcutAction {
         Self::BrightnessDown,
         Self::NextKeyboardLayout,
         Self::PreviousKeyboardLayout,
+        Self::FocusLeft,
+        Self::FocusRight,
+        Self::FocusUp,
+        Self::FocusDown,
+        Self::SwapLeft,
+        Self::SwapRight,
+        Self::SwapUp,
+        Self::SwapDown,
     ];
 }
 
@@ -261,7 +290,15 @@ impl ShortcutTarget {
                 action: ShortcutAction::VolumeUp
                     | ShortcutAction::VolumeDown
                     | ShortcutAction::BrightnessUp
-                    | ShortcutAction::BrightnessDown,
+                    | ShortcutAction::BrightnessDown
+                    | ShortcutAction::FocusLeft
+                    | ShortcutAction::FocusRight
+                    | ShortcutAction::FocusUp
+                    | ShortcutAction::FocusDown
+                    | ShortcutAction::SwapLeft
+                    | ShortcutAction::SwapRight
+                    | ShortcutAction::SwapUp
+                    | ShortcutAction::SwapDown,
             }
         )
     }
@@ -645,8 +682,13 @@ fn read_and_parse(path: &Path) -> Result<(ShortcutFile, Vec<u8>, Option<usize>),
 fn migrate_shortcut_file(file: &mut ShortcutFile) -> Result<Option<usize>, ShortcutError> {
     let additions: &[&[(&str, ShortcutAction)]] = match file.version {
         SHORTCUT_SCHEMA_VERSION => return Ok(None),
-        OLDEST_SHORTCUT_SCHEMA_VERSION => &[SHORTCUT_V2_ADDITIONS, SHORTCUT_V3_ADDITIONS],
-        2 => &[SHORTCUT_V3_ADDITIONS],
+        OLDEST_SHORTCUT_SCHEMA_VERSION => &[
+            SHORTCUT_V2_ADDITIONS,
+            SHORTCUT_V3_ADDITIONS,
+            SHORTCUT_V4_ADDITIONS,
+        ],
+        2 => &[SHORTCUT_V3_ADDITIONS, SHORTCUT_V4_ADDITIONS],
+        3 => &[SHORTCUT_V4_ADDITIONS],
         version => {
             return Err(ShortcutError::Document(format!(
                 "shortcut version {version} is not supported; expected {OLDEST_SHORTCUT_SCHEMA_VERSION}..={SHORTCUT_SCHEMA_VERSION}"
@@ -664,11 +706,15 @@ fn migrate_shortcut_file(file: &mut ShortcutFile) -> Result<Option<usize>, Short
         )));
     }
 
+    // SUPER+Arrow is the directional vocabulary. Relocate only Denial's exact
+    // legacy default; a user-authored action on SUPER+Up remains untouched.
+    let relocated =
+        migrate_default_shortcut(file, "Super+Up", ShortcutAction::ToggleMaximize, "Super+W")?;
     let mut configured = HashSet::with_capacity(file.shortcuts.len());
     for binding in &file.shortcuts {
         configured.insert(parse_shortcut(&binding.shortcut)?);
     }
-    let mut added = 0;
+    let mut added = usize::from(relocated);
     for additions in additions {
         for &(shortcut, action) in *additions {
             let trigger = parse_shortcut(shortcut)?;
@@ -686,6 +732,31 @@ fn migrate_shortcut_file(file: &mut ShortcutFile) -> Result<Option<usize>, Short
     file.version = SHORTCUT_SCHEMA_VERSION;
     file.revision = file.revision.saturating_add(1);
     Ok(Some(added))
+}
+
+fn migrate_default_shortcut(
+    file: &mut ShortcutFile,
+    from: &str,
+    action: ShortcutAction,
+    to: &str,
+) -> Result<bool, ShortcutError> {
+    let from = parse_shortcut(from)?;
+    let to = parse_shortcut(to)?;
+    if file
+        .shortcuts
+        .iter()
+        .any(|binding| parse_shortcut(&binding.shortcut).is_ok_and(|trigger| trigger == to))
+    {
+        return Ok(false);
+    }
+    let Some(binding) = file.shortcuts.iter_mut().find(|binding| {
+        binding.target == (ShortcutTarget::DenialAction { action })
+            && parse_shortcut(&binding.shortcut).is_ok_and(|trigger| trigger == from)
+    }) else {
+        return Ok(false);
+    };
+    binding.shortcut = to.canonical;
+    Ok(true)
 }
 
 fn read_shortcut_bytes(path: &Path) -> Result<Vec<u8>, ShortcutError> {
@@ -854,7 +925,7 @@ fn default_shortcut_file() -> ShortcutFile {
         ("Super+Shift+S", ShortcutAction::CaptureRegion),
         ("Super+M", ShortcutAction::MinimizeWindow),
         ("Super+Shift+M", ShortcutAction::MinimizeAllWindows),
-        ("Super+Up", ShortcutAction::ToggleMaximize),
+        ("Super+W", ShortcutAction::ToggleMaximize),
         ("Super+F", ShortcutAction::ToggleFullscreen),
         ("Super+Escape", ShortcutAction::ReleasePointer),
         ("Super+K", ShortcutAction::CloseWindow),
@@ -875,6 +946,7 @@ fn default_shortcut_file() -> ShortcutFile {
         shortcuts: definitions
             .into_iter()
             .chain(SHORTCUT_V2_ADDITIONS.iter().copied())
+            .chain(SHORTCUT_V4_ADDITIONS.iter().copied())
             .map(|(shortcut, action)| ShortcutBinding {
                 shortcut: shortcut.to_owned(),
                 target: ShortcutTarget::DenialAction { action },
@@ -1436,6 +1508,8 @@ pub(super) enum ShortcutDisposition {
     RequestNextKeyboardLayout,
     RequestPreviousKeyboardLayout,
     RequestOpenSettings,
+    RequestFocus(LayoutDirection),
+    RequestSwap(LayoutDirection),
     Spawn {
         command: Vec<String>,
         desktop_file_id: Option<String>,
@@ -1782,6 +1856,14 @@ impl From<ShortcutAction> for ShortcutDisposition {
             ShortcutAction::NextKeyboardLayout => Self::RequestNextKeyboardLayout,
             ShortcutAction::PreviousKeyboardLayout => Self::RequestPreviousKeyboardLayout,
             ShortcutAction::OpenSettings => Self::RequestOpenSettings,
+            ShortcutAction::FocusLeft => Self::RequestFocus(LayoutDirection::Left),
+            ShortcutAction::FocusRight => Self::RequestFocus(LayoutDirection::Right),
+            ShortcutAction::FocusUp => Self::RequestFocus(LayoutDirection::Up),
+            ShortcutAction::FocusDown => Self::RequestFocus(LayoutDirection::Down),
+            ShortcutAction::SwapLeft => Self::RequestSwap(LayoutDirection::Left),
+            ShortcutAction::SwapRight => Self::RequestSwap(LayoutDirection::Right),
+            ShortcutAction::SwapUp => Self::RequestSwap(LayoutDirection::Up),
+            ShortcutAction::SwapDown => Self::RequestSwap(LayoutDirection::Down),
         }
     }
 }
@@ -1803,3 +1885,40 @@ impl From<ShortcutTarget> for ShortcutDisposition {
 }
 
 pub(super) type NativeEscapeShortcut = ShortcutEngine;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn v4_migration_relocates_the_legacy_maximize_binding_for_navigation() {
+        let mut file = ShortcutFile {
+            version: 3,
+            revision: 1,
+            shortcuts: vec![ShortcutBinding {
+                shortcut: "Super+Up".to_owned(),
+                target: ShortcutTarget::DenialAction {
+                    action: ShortcutAction::ToggleMaximize,
+                },
+            }],
+        };
+
+        assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(9));
+        assert_eq!(file.version, SHORTCUT_SCHEMA_VERSION);
+        let action_for = |shortcut: &str| {
+            file.shortcuts
+                .iter()
+                .find(|binding| binding.shortcut == shortcut)
+                .and_then(|binding| match binding.target {
+                    ShortcutTarget::DenialAction { action } => Some(action),
+                    _ => None,
+                })
+        };
+        assert_eq!(action_for("Super+W"), Some(ShortcutAction::ToggleMaximize));
+        assert_eq!(action_for("Super+Up"), Some(ShortcutAction::FocusUp));
+        assert_eq!(
+            action_for("Super+Ctrl+Right"),
+            Some(ShortcutAction::SwapRight)
+        );
+    }
+}

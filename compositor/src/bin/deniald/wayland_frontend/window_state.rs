@@ -294,6 +294,9 @@ impl WaylandFrontend {
         &mut self,
         window: &Window,
     ) -> Option<(RestoredWindowPlacement, Rectangle<i32, Logical>)> {
+        if self.window_is_layout_managed(window) {
+            return None;
+        }
         let toplevel = window.toplevel()?;
         let root = toplevel.wl_surface();
         let object_id = root.id();
@@ -503,6 +506,9 @@ impl WaylandFrontend {
         let geometry = self
             .window_root_surface(window)
             .and_then(|root| {
+                if let Some(geometry) = self.layout_restore_geometries.get(&root.id()).copied() {
+                    return Some(geometry);
+                }
                 #[cfg(feature = "flutter")]
                 if let Some(geometry) = self
                     .shell_maximize_restore_geometries
@@ -982,6 +988,9 @@ impl WaylandFrontend {
         self.configured_window_geometries.remove(&object_id);
         self.exact_window_geometries.remove(&object_id);
         self.restore_window_geometries.remove(&object_id);
+        let layout_changed = self.window_layout.remove(&object_id);
+        self.layout_restore_geometries.remove(&object_id);
+        self.layout_insertion_anchors.remove(&object_id);
         self.restored_window_positions.remove(&object_id);
         self.client_geometry_state_requests.remove(&object_id);
         self.pending_client_sized_placements.remove(&object_id);
@@ -1070,6 +1079,12 @@ impl WaylandFrontend {
                     .as_ref()
                     .is_none_or(|candidate| candidate == surface)
             );
+        }
+        if layout_changed {
+            // Role-destruction normally removes the window first, but a client
+            // disconnect can destroy wl_surface directly. Reflow here as the
+            // final safety net so surviving tiles still receive their resize.
+            self.arrange_layout_windows();
         }
     }
 }

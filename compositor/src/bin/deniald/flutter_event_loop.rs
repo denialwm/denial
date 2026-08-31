@@ -346,7 +346,11 @@ pub(super) fn run_flutter_event_loop(
         let background_services_due = operation_cadence.take_service_due(iteration_now)
             || flutter_background_event
             || interactive_service_work_pending(&events);
-        let background_maintenance_due = operation_cadence.take_maintenance_due(iteration_now);
+        let background_maintenance_due = operation_cadence.take_maintenance_due(iteration_now)
+            || events
+                .idle_policy
+                .next_deadline()
+                .is_some_and(|deadline| iteration_now >= deadline);
         if let Some(orientation) = events.pending_orientation.take() {
             pending_sensor_rotation = orientation.output_rotation();
             debug!(?orientation, rotation = ?pending_sensor_rotation, "observed device orientation");
@@ -1704,7 +1708,7 @@ pub(super) fn run_flutter_event_loop(
         next_dispatch_timeout =
             operation_cadence.limit_dispatch_timeout(now, next_dispatch_timeout);
         next_dispatch_timeout = events
-            .idle_dpms
+            .idle_policy
             .limit_dispatch_timeout(now, next_dispatch_timeout);
         next_dispatch_timeout = events
             .dpms_topology

@@ -71,6 +71,14 @@ String settingsShortcutActionLabel(
       l10n.settingsShortcutActionPreviousKeyboardLayout,
     DenialShortcutAction.openSettings =>
       l10n.settingsShortcutActionOpenSettings,
+    DenialShortcutAction.focusLeft => l10n.settingsShortcutActionFocusLeft,
+    DenialShortcutAction.focusRight => l10n.settingsShortcutActionFocusRight,
+    DenialShortcutAction.focusUp => l10n.settingsShortcutActionFocusUp,
+    DenialShortcutAction.focusDown => l10n.settingsShortcutActionFocusDown,
+    DenialShortcutAction.swapLeft => l10n.settingsShortcutActionSwapLeft,
+    DenialShortcutAction.swapRight => l10n.settingsShortcutActionSwapRight,
+    DenialShortcutAction.swapUp => l10n.settingsShortcutActionSwapUp,
+    DenialShortcutAction.swapDown => l10n.settingsShortcutActionSwapDown,
   };
 }
 
@@ -137,6 +145,14 @@ IconData settingsShortcutActionIcon(DenialShortcutAction action) {
     DenialShortcutAction.previousKeyboardLayout =>
       Icons.keyboard_arrow_left_rounded,
     DenialShortcutAction.openSettings => Icons.settings_rounded,
+    DenialShortcutAction.focusLeft => Icons.keyboard_arrow_left_rounded,
+    DenialShortcutAction.focusRight => Icons.keyboard_arrow_right_rounded,
+    DenialShortcutAction.focusUp => Icons.keyboard_arrow_up_rounded,
+    DenialShortcutAction.focusDown => Icons.keyboard_arrow_down_rounded,
+    DenialShortcutAction.swapLeft => Icons.arrow_back_rounded,
+    DenialShortcutAction.swapRight => Icons.arrow_forward_rounded,
+    DenialShortcutAction.swapUp => Icons.arrow_upward_rounded,
+    DenialShortcutAction.swapDown => Icons.arrow_downward_rounded,
   };
 }
 

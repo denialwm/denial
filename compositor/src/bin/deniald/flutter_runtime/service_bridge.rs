@@ -132,8 +132,8 @@ impl FlutterRuntime {
         self.system_commands.take_screenshot_cancelled()
     }
 
-    pub fn take_idle_dpms_timeout(&mut self) -> Option<Option<Duration>> {
-        self.pending_idle_dpms_timeout.take()
+    pub fn take_idle_policy(&mut self) -> Option<idle_policy::IdlePolicyConfiguration> {
+        self.pending_idle_policy.take()
     }
 
     pub fn take_dpms_off_requested(&mut self) -> bool {
@@ -356,6 +356,8 @@ impl FlutterRuntime {
         revision: u64,
         has_touchpad: bool,
         touchpad: &crate::settings::TouchpadSettings,
+        has_mouse: bool,
+        mouse: &crate::settings::MouseSettings,
         error: Option<&str>,
     ) -> Result<(), Box<dyn Error>> {
         let engine = self
@@ -368,6 +370,8 @@ impl FlutterRuntime {
             revision,
             has_touchpad,
             touchpad,
+            has_mouse,
+            mouse,
             error,
         )?;
         engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, response)?;

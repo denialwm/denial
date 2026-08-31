@@ -8,7 +8,7 @@ sealed class DenialWindowEvent {
 
 enum DenialWindowPlacementPhase { begin, update, end }
 
-enum DenialWindowPlacementChange { move, resize }
+enum DenialWindowPlacementChange { move, resize, layoutPreview }
 
 @immutable
 class DenialWindowPlacementEvent extends DenialWindowEvent {

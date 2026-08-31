@@ -13,7 +13,7 @@ use smithay::backend::input::{KeyState, Keycode};
 use smithay::input::Seat;
 use smithay::input::keyboard::{
     GrabStartData as KeyboardGrabStartData, KeyboardGrab, KeyboardHandle, KeyboardInnerHandle,
-    KeymapFile, ModifiersState,
+    KeyboardTarget, KeymapFile, ModifiersState, SerializedMods, xkb,
 };
 use smithay::reexports::wayland_protocols::wp::text_input::zv3::server::zwp_text_input_v3::{
     ChangeCause, ContentHint, ContentPurpose,
@@ -754,6 +754,7 @@ pub(super) struct InputMethodKeyboardUserData {
 pub(super) struct VirtualKeyboardUserData {
     accepted: bool,
     keymap_ready: AtomicBool,
+    modifiers: Mutex<Option<ModifiersState>>,
 }
 
 impl VirtualKeyboardUserData {
@@ -761,11 +762,26 @@ impl VirtualKeyboardUserData {
         Self {
             accepted,
             keymap_ready: AtomicBool::new(false),
+            modifiers: Mutex::new(None),
         }
     }
 
     fn ready(&self) -> bool {
         self.keymap_ready.load(Ordering::Acquire)
+    }
+
+    fn modifiers(&self) -> Option<ModifiersState> {
+        *self
+            .modifiers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn set_modifiers(&self, modifiers: ModifiersState) {
+        *self
+            .modifiers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(modifiers);
     }
 }
 
@@ -775,6 +791,46 @@ fn virtual_key_state(raw: u32) -> Option<KeyState> {
         1 => Some(KeyState::Pressed),
         _ => None,
     }
+}
+
+fn forward_virtual_modifiers(
+    keyboard: &KeyboardHandle<RuntimeState>,
+    state: &mut RuntimeState,
+    serialized: SerializedMods,
+) -> ModifiersState {
+    // The companion virtual keyboard uses the keymap Denial supplied to the
+    // input-method grab, so its modifier indices are compatible with the
+    // physical seat. Decode the masks in an isolated XKB state: the result is
+    // needed by Flutter key events, but must not replace the compositor-owned
+    // physical state or a disappearing input method could strand a modifier.
+    let modifiers = keyboard.with_xkb_state(state, |context| {
+        let xkb = context.xkb().lock().unwrap();
+        // SAFETY: the keymap is borrowed only while the XKB mutex is held.
+        let mut virtual_state = xkb::State::new(unsafe { xkb.keymap() });
+        virtual_state.update_mask(
+            serialized.depressed,
+            serialized.latched,
+            serialized.locked,
+            0,
+            0,
+            serialized.layout_effective,
+        );
+        let mut modifiers = ModifiersState::default();
+        modifiers.update_with(&virtual_state);
+        // Preserve the exact protocol masks rather than a lossy high-level
+        // round trip through ModifiersState.
+        modifiers.serialized = serialized;
+        modifiers
+    });
+
+    if let Some((seat, focus)) = state
+        .wayland
+        .as_ref()
+        .and_then(|frontend| Some((frontend.seat.clone(), keyboard.current_focus()?)))
+    {
+        focus.modifiers(&seat, state, modifiers, SERIAL_COUNTER.next_serial());
+    }
+    modifiers
 }
 
 impl GlobalDispatch<ZwpVirtualKeyboardManagerV1, ()> for RuntimeState {
@@ -904,16 +960,17 @@ impl Dispatch<ZwpVirtualKeyboardV1, VirtualKeyboardUserData> for RuntimeState {
                     keycode,
                     key_state,
                     flutter_editor_active,
+                    data.modifiers(),
                 ) {
                     return;
                 }
                 route.forward_virtual_key(&keyboard, state, key, key_state, time);
             }
             zwp_virtual_keyboard_v1::Request::Modifiers {
-                mods_depressed: _,
-                mods_latched: _,
-                mods_locked: _,
-                group: _,
+                mods_depressed,
+                mods_latched,
+                mods_locked,
+                group,
             } => {
                 if !data.ready() {
                     resource.post_error(
@@ -922,10 +979,6 @@ impl Dispatch<ZwpVirtualKeyboardV1, VirtualKeyboardUserData> for RuntimeState {
                     );
                     return;
                 }
-                // The seat state was already updated by the corresponding
-                // physical key before the input method received it. Re-advertise that
-                // canonical state to the focused client after the forwarded
-                // virtual key, matching wl_keyboard event ordering.
                 let keyboard = state.wayland.as_ref().and_then(|frontend| {
                     frontend
                         .input_method
@@ -933,7 +986,17 @@ impl Dispatch<ZwpVirtualKeyboardV1, VirtualKeyboardUserData> for RuntimeState {
                         .then(|| frontend.seat.get_keyboard())?
                 });
                 if let Some(keyboard) = keyboard {
-                    keyboard.advertise_modifier_state(state);
+                    let modifiers = forward_virtual_modifiers(
+                        &keyboard,
+                        state,
+                        SerializedMods {
+                            depressed: mods_depressed,
+                            latched: mods_latched,
+                            locked: mods_locked,
+                            layout_effective: group,
+                        },
+                    );
+                    data.set_modifiers(modifiers);
                 }
             }
             zwp_virtual_keyboard_v1::Request::Destroy => {}

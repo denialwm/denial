@@ -76,6 +76,23 @@
   "@batteryIdle": {
     "description": "English UI text for batteryIdle."
   },
+  "batteryLowNotificationBody": "Battery is at {percent}%. Connect a charger.",
+  "@batteryLowNotificationBody": {
+    "description": "Message shown when the battery crosses a low-charge warning threshold.",
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "batteryLowNotificationTitle": "Low battery",
+  "@batteryLowNotificationTitle": {
+    "description": "Title for the 20% and 15% battery notifications."
+  },
+  "batteryCriticalNotificationTitle": "Critical battery",
+  "@batteryCriticalNotificationTitle": {
+    "description": "Title for the 10%, 5%, and 1% battery notifications."
+  },
   "batteryStateAndPercent": "{state} {percent}%",
   "@batteryStateAndPercent": {
     "description": "English UI text for batteryStateAndPercent.",
@@ -1914,9 +1931,29 @@
   "@settingsAutomaticDisplayPowerToggle": {
     "description": "English UI text for settingsAutomaticDisplayPowerToggle."
   },
-  "settingsAutomaticDisplayPowerToggleDescription": "The timer resets whenever keyboard or pointer activity is detected.",
+  "settingsAutomaticDisplayPowerToggleDescription": "Power down connected displays after inactivity.",
   "@settingsAutomaticDisplayPowerToggleDescription": {
     "description": "English UI text for settingsAutomaticDisplayPowerToggleDescription."
+  },
+  "settingsAutomaticIdleTitle": "Automatic idle actions",
+  "@settingsAutomaticIdleTitle": {
+    "description": "Title for the coordinated idle lock, display power, and suspend settings."
+  },
+  "settingsAutomaticLockToggle": "Lock automatically",
+  "@settingsAutomaticLockToggle": {
+    "description": "Toggle for automatically locking the session after inactivity."
+  },
+  "settingsAutomaticLockToggleDescription": "Show the lock screen and require authentication after inactivity.",
+  "@settingsAutomaticLockToggleDescription": {
+    "description": "Description for automatic session locking."
+  },
+  "settingsAutomaticSuspendToggle": "Suspend automatically",
+  "@settingsAutomaticSuspendToggle": {
+    "description": "Toggle for automatically suspending the system after inactivity."
+  },
+  "settingsAutomaticSuspendToggleDescription": "Keep the session in memory and enter low power after extended inactivity.",
+  "@settingsAutomaticSuspendToggleDescription": {
+    "description": "Description for automatic system suspend."
   },
   "settingsAvailable": "Available",
   "@settingsAvailable": {
@@ -2609,17 +2646,25 @@
   "@settingsHudOverlayTitle": {
     "description": "English UI text for settingsHudOverlayTitle."
   },
-  "settingsIdleInhibitDescription": "Honor application requests that temporarily prevent display power-off.",
+  "settingsDisplayOffTimeout": "Turn displays off after",
+  "@settingsDisplayOffTimeout": {
+    "description": "Label for the automatic display power-off timeout."
+  },
+  "settingsIdleInhibitDescription": "Application activity such as video playback can temporarily pause these timers.",
   "@settingsIdleInhibitDescription": {
     "description": "English UI text for settingsIdleInhibitDescription."
   },
-  "settingsIdleInhibitSemantics": "Applications may keep displays awake",
+  "settingsIdleInhibitSemantics": "Applications may pause automatic idle actions",
   "@settingsIdleInhibitSemantics": {
     "description": "English UI text for settingsIdleInhibitSemantics."
   },
   "settingsInactivityTimeout": "Inactivity timeout",
   "@settingsInactivityTimeout": {
     "description": "English UI text for settingsInactivityTimeout."
+  },
+  "settingsLockTimeout": "Lock after",
+  "@settingsLockTimeout": {
+    "description": "Label for the automatic lock timeout."
   },
   "settingsLauncherOverlayDescription": "Position the application launcher.",
   "@settingsLauncherOverlayDescription": {
@@ -2739,11 +2784,11 @@
   },
   "settingsTouchpadSection": "INPUT",
   "@settingsTouchpadSection": {
-    "description": "Eyebrow label for touchpad settings."
+    "description": "Eyebrow label for mouse and touchpad settings."
   },
-  "settingsTouchpadTitle": "Use your touchpad across the desktop.",
+  "settingsTouchpadTitle": "Tune mouse and touchpad behavior.",
   "@settingsTouchpadTitle": {
-    "description": "Description of the touchpad settings page."
+    "description": "Description of the mouse and touchpad settings page."
   },
   "settingsTouchpadTapToClick": "Tap to click",
   "@settingsTouchpadTapToClick": {
@@ -2764,6 +2809,10 @@
   "settingsTouchpadScrollSpeed": "Finger scroll speed",
   "@settingsTouchpadScrollSpeed": {
     "description": "Label for the continuous touchpad scroll speed slider."
+  },
+  "settingsMousePointerSpeed": "Mouse pointer speed",
+  "@settingsMousePointerSpeed": {
+    "description": "Label for the mouse pointer speed slider."
   },
   "settingsShortcutsSection": "SHORTCUTS",
   "@settingsShortcutsSection": {
@@ -3143,6 +3192,38 @@
   "@settingsShortcutActionPreviousKeyboardLayout": {
     "description": "Display name for the previous keyboard layout shortcut action."
   },
+  "settingsShortcutActionFocusLeft": "Focus window left",
+  "@settingsShortcutActionFocusLeft": {
+    "description": "Display name for focusing the tiled window to the left."
+  },
+  "settingsShortcutActionFocusRight": "Focus window right",
+  "@settingsShortcutActionFocusRight": {
+    "description": "Display name for focusing the tiled window to the right."
+  },
+  "settingsShortcutActionFocusUp": "Focus window above",
+  "@settingsShortcutActionFocusUp": {
+    "description": "Display name for focusing the tiled window above."
+  },
+  "settingsShortcutActionFocusDown": "Focus window below",
+  "@settingsShortcutActionFocusDown": {
+    "description": "Display name for focusing the tiled window below."
+  },
+  "settingsShortcutActionSwapLeft": "Swap window left",
+  "@settingsShortcutActionSwapLeft": {
+    "description": "Display name for swapping a tiled window to the left."
+  },
+  "settingsShortcutActionSwapRight": "Swap window right",
+  "@settingsShortcutActionSwapRight": {
+    "description": "Display name for swapping a tiled window to the right."
+  },
+  "settingsShortcutActionSwapUp": "Swap window upward",
+  "@settingsShortcutActionSwapUp": {
+    "description": "Display name for swapping a tiled window upward."
+  },
+  "settingsShortcutActionSwapDown": "Swap window downward",
+  "@settingsShortcutActionSwapDown": {
+    "description": "Display name for swapping a tiled window downward."
+  },
   "settingsLayoutDescription": "Control the spacing reserved around ordinary and maximized windows.",
   "@settingsLayoutDescription": {
     "description": "English UI text for settingsLayoutDescription."
@@ -3154,6 +3235,22 @@
   "settingsLayoutTitle": "Give every window room to breathe.",
   "@settingsLayoutTitle": {
     "description": "English UI text for settingsLayoutTitle."
+  },
+  "settingsWindowLayoutDescription": "Stacking lets windows overlap and move freely. Tiling uses a dynamic binary tree while keeping transient windows floating.",
+  "@settingsWindowLayoutDescription": {
+    "description": "Explains the difference between stacking and tiling window layouts."
+  },
+  "settingsWindowLayoutDwindle": "Tiling",
+  "@settingsWindowLayoutDwindle": {
+    "description": "Label for the Dwindle tiling window layout."
+  },
+  "settingsWindowLayoutStacking": "Stacking",
+  "@settingsWindowLayoutStacking": {
+    "description": "Label for the freely overlapping window layout."
+  },
+  "settingsWindowLayoutTitle": "Window layout",
+  "@settingsWindowLayoutTitle": {
+    "description": "Title for choosing how desktop windows are arranged."
   },
   "settingsLiveBadge": "LIVE",
   "@settingsLiveBadge": {
@@ -3649,9 +3746,9 @@
   "@settingsNavigationKeyboard": {
     "description": "Settings navigation label for physical keyboard configuration."
   },
-  "settingsNavigationTouchpad": "Touchpad",
+  "settingsNavigationTouchpad": "Mouse & touchpad",
   "@settingsNavigationTouchpad": {
-    "description": "Settings navigation label for touchpad information."
+    "description": "Settings navigation label for mouse and touchpad configuration."
   },
   "settingsNavigationShortcuts": "Shortcuts",
   "@settingsNavigationShortcuts": {
@@ -4014,6 +4111,10 @@
   "@settingsTwoHours": {
     "description": "English UI text for settingsTwoHours."
   },
+  "settingsSuspendTimeout": "Suspend after",
+  "@settingsSuspendTimeout": {
+    "description": "Label for the automatic suspend timeout."
+  },
   "settingsUnfocusedWindows": "Unfocused windows",
   "@settingsUnfocusedWindows": {
     "description": "English UI text for settingsUnfocusedWindows."
@@ -4065,6 +4166,22 @@
   "settingsWindowCloseEffectTitle": "Window closing effect",
   "@settingsWindowCloseEffectTitle": {
     "description": "English UI text for settingsWindowCloseEffectTitle."
+  },
+  "settingsWindowMinimizationDescription": "Keep minimized windows as live previews on the desktop, or glide them beyond the screen edge until restored.",
+  "@settingsWindowMinimizationDescription": {
+    "description": "Explanation of the minimized-window placement setting."
+  },
+  "settingsWindowMinimizationDesktop": "On desktop",
+  "@settingsWindowMinimizationDesktop": {
+    "description": "Choice that places minimized windows on the desktop."
+  },
+  "settingsWindowMinimizationOffscreen": "Off-screen",
+  "@settingsWindowMinimizationOffscreen": {
+    "description": "Choice that places minimized windows beyond the screen edge."
+  },
+  "settingsWindowMinimizationTitle": "Window minimization",
+  "@settingsWindowMinimizationTitle": {
+    "description": "Title for the minimized-window placement setting."
   },
   "settingsWindowOpacityDescription": "Control the opacity of focused and unfocused windows.",
   "@settingsWindowOpacityDescription": {

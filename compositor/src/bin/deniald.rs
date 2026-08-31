@@ -107,6 +107,8 @@ mod wayland_frontend;
 mod window_events;
 #[path = "deniald/window_grab.rs"]
 mod window_grab;
+#[path = "deniald/window_layout.rs"]
+mod window_layout;
 #[path = "deniald/window_placement_store.rs"]
 mod window_placement_store;
 #[cfg(feature = "flutter")]

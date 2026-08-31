@@ -458,6 +458,7 @@ class _SettingsPageBody extends ConsumerWidget {
         return SettingsLayoutPage(
           settings: settings,
           displayLayout: displayLayout,
+          onWindowLayoutChanged: controller.setDesktopWindowLayout,
           onSystemBarChanged: (side, monitorIds) {
             final outputNames = <String>[
               for (final output
@@ -474,6 +475,8 @@ class _SettingsPageBody extends ConsumerWidget {
           },
           onSystemBarThicknessChanged: controller.setSystemBarThickness,
           onMaximizePaddingChanged: controller.setMaximizePadding,
+          onMinimizedWindowPlacementChanged:
+              controller.setMinimizedWindowPlacement,
           onClipboardTrayEdgeChanged: controller.setClipboardTrayEdge,
           onClipboardTrayExtentChanged: controller.setClipboardTrayExtent,
           onReset: controller.resetLayout,
@@ -505,8 +508,12 @@ class _SettingsPageBody extends ConsumerWidget {
         );
         return SettingsPowerPage(
           settings: settings,
-          onEnabledChanged: controller.setIdleDpmsEnabled,
-          onTimeoutChanged: controller.setIdleDpmsTimeoutMinutes,
+          onLockEnabledChanged: controller.setIdleLockEnabled,
+          onLockTimeoutChanged: controller.setIdleLockTimeoutMinutes,
+          onDpmsEnabledChanged: controller.setIdleDpmsEnabled,
+          onDpmsTimeoutChanged: controller.setIdleDpmsTimeoutMinutes,
+          onSuspendEnabledChanged: controller.setIdleSuspendEnabled,
+          onSuspendTimeoutChanged: controller.setIdleSuspendTimeoutMinutes,
           onReset: controller.resetPower,
         );
       case SettingsPageId.lockScreen:

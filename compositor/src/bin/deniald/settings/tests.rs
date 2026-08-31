@@ -36,6 +36,14 @@ fn shell_document(value: Value) -> String {
             .entry("allowClientCursorSurfaces")
             .or_insert(Value::Bool(true));
     }
+    let layout = document
+        .entry("layout")
+        .or_insert_with(|| Value::Object(Map::new()))
+        .as_object_mut()
+        .expect("test shell layout must be an object");
+    layout
+        .entry("windowLayout")
+        .or_insert_with(|| Value::String("stacking".to_owned()));
     document.insert("version".to_owned(), Value::from(SETTINGS_SCHEMA_VERSION));
     serde_json::to_string(&document).expect("test shell document serializes")
 }
@@ -50,6 +58,7 @@ fn migrates_existing_shell_document_without_losing_sections() {
     let manager = SettingsManager::load_path(path.clone()).unwrap();
     assert_eq!(manager.revision(), 1);
     assert_eq!(manager.keyboard(), &KeyboardSettings::default());
+    assert_eq!(manager.mouse(), &MouseSettings::default());
     assert_eq!(manager.touchpad(), &TouchpadSettings::default());
     let document: Value = serde_json::from_str(&manager.document_json().unwrap()).unwrap();
     assert_eq!(document["version"], SETTINGS_SCHEMA_VERSION);
@@ -59,12 +68,15 @@ fn migrates_existing_shell_document_without_losing_sections() {
         "preferDark"
     );
     assert_eq!(document["appearance"]["allowClientCursorSurfaces"], true);
+    assert_eq!(document["layout"]["windowLayout"], "stacking");
+    assert_eq!(manager.window_layout_kind(), WindowLayoutKind::Stacking);
     assert!(manager.allow_client_cursor_surfaces());
     assert_eq!(
         manager.theme_snapshot(),
         DesktopThemeSnapshot::new(manager.revision(), DesktopColorSchemePreference::PreferDark,)
     );
     assert!(document.get("keyboard").is_some());
+    assert!(document.get("mouse").is_some());
     assert!(document.get("touchpad").is_some());
     assert_eq!(
         document["applicationEnvironment"],
@@ -86,6 +98,7 @@ fn malformed_document_is_never_overwritten_during_startup() {
 
     let manager = SettingsManager::load_path(path.clone()).unwrap();
     assert_eq!(manager.keyboard(), &KeyboardSettings::default());
+    assert_eq!(manager.mouse(), &MouseSettings::default());
     assert_eq!(manager.touchpad(), &TouchpadSettings::default());
     assert_eq!(fs::read(path).unwrap(), malformed);
 }
@@ -107,6 +120,11 @@ fn shell_update_preserves_native_keyboard_and_checks_revision() {
         .prepare_keyboard_update(manager.revision(), configured.clone())
         .unwrap();
     manager.commit(update).unwrap();
+    let configured_mouse = MouseSettings { speed: 0.35 };
+    let update = manager
+        .prepare_mouse_update(manager.revision(), configured_mouse.clone())
+        .unwrap();
+    manager.commit(update).unwrap();
     let old_revision = manager.revision();
     let shell_update = shell_document(serde_json::json!({
         "appearance": {
@@ -121,6 +139,7 @@ fn shell_update_preserves_native_keyboard_and_checks_revision() {
         },
         "revision": 999,
         "keyboard": {"layouts": []},
+        "mouse": {"speed": -0.8},
         "touchpad": {"tapToClickEnabled": false},
         "power": {"idleDpmsEnabled": false}
     }));
@@ -129,6 +148,7 @@ fn shell_update_preserves_native_keyboard_and_checks_revision() {
         .unwrap();
     manager.commit(update).unwrap();
     assert_eq!(manager.keyboard(), &configured);
+    assert_eq!(manager.mouse(), &configured_mouse);
     assert_eq!(manager.revision(), old_revision + 1);
     let document: Value = serde_json::from_str(&manager.document_json().unwrap()).unwrap();
     assert_eq!(
@@ -176,6 +196,42 @@ fn shell_update_rejects_missing_or_unknown_color_scheme() {
 }
 
 #[test]
+fn window_layout_is_validated_and_persisted() {
+    let temporary = TemporaryDirectory::new("settings-window-layout");
+    let path = temporary.settings_path();
+    let mut manager = SettingsManager::load_path(path.clone()).unwrap();
+    let update = manager
+        .prepare_shell_update(
+            manager.revision(),
+            &shell_document(serde_json::json!({
+                "appearance": {"colorSchemePreference": "preferDark"},
+                "layout": {"windowLayout": "dwindle"}
+            })),
+        )
+        .unwrap();
+    manager.commit(update).unwrap();
+
+    assert_eq!(manager.window_layout_kind(), WindowLayoutKind::Dwindle);
+    assert_eq!(
+        SettingsManager::load_path(path)
+            .unwrap()
+            .window_layout_kind(),
+        WindowLayoutKind::Dwindle
+    );
+
+    for window_layout in [Value::String("columns".to_owned()), Value::Bool(true)] {
+        let document = shell_document(serde_json::json!({
+            "appearance": {"colorSchemePreference": "preferDark"},
+            "layout": {"windowLayout": window_layout}
+        }));
+        assert!(matches!(
+            manager.prepare_shell_update(manager.revision(), &document),
+            Err(SettingsError::Document(_))
+        ));
+    }
+}
+
+#[test]
 fn touchpad_update_is_persistent_and_revisioned() {
     let temporary = TemporaryDirectory::new("settings-touchpad-update");
     let path = temporary.settings_path();
@@ -210,6 +266,37 @@ fn rejects_touchpad_scroll_speed_outside_supported_range() {
         assert!(matches!(
             manager.prepare_touchpad_update(manager.revision(), configured),
             Err(SettingsError::Touchpad(_))
+        ));
+    }
+}
+
+#[test]
+fn mouse_update_is_persistent_and_revisioned() {
+    let temporary = TemporaryDirectory::new("settings-mouse-update");
+    let path = temporary.settings_path();
+    let mut manager = SettingsManager::load_path(path.clone()).unwrap();
+    let configured = MouseSettings { speed: 0.55 };
+    let old_revision = manager.revision();
+    let update = manager
+        .prepare_mouse_update(old_revision, configured.clone())
+        .unwrap();
+    manager.commit(update).unwrap();
+
+    assert_eq!(manager.revision(), old_revision + 1);
+    assert_eq!(manager.mouse(), &configured);
+    let reloaded = SettingsManager::load_path(path).unwrap();
+    assert_eq!(reloaded.revision(), old_revision + 1);
+    assert_eq!(reloaded.mouse(), &configured);
+}
+
+#[test]
+fn rejects_mouse_speed_outside_supported_range() {
+    let temporary = TemporaryDirectory::new("settings-mouse-speed");
+    let manager = SettingsManager::load_path(temporary.settings_path()).unwrap();
+    for speed in [-1.001, 1.001, f64::NAN] {
+        assert!(matches!(
+            manager.prepare_mouse_update(manager.revision(), MouseSettings { speed }),
+            Err(SettingsError::Mouse(_))
         ));
     }
 }

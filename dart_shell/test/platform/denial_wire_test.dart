@@ -7,10 +7,91 @@ import 'package:denial_dart_shell/src/input/input_layout.dart';
 import 'package:denial_dart_shell/src/models/display_layout.dart' as model;
 import 'package:denial_dart_shell/src/models/denial_window.dart';
 import 'package:denial_dart_shell/src/models/denial_window_event.dart';
+import 'package:denial_dart_shell/src/models/input_device_capabilities.dart';
 import 'package:denial_dart_shell/src/platform/denial_wire.dart'
     hide InputWindowRegion;
 
 void main() {
+  test('mouse speed request is bounded and independently encoded', () {
+    final codec = DenialWireCodec();
+    const capabilities = DenialInputDeviceCapabilities(
+      revision: 7,
+      hasMouse: true,
+      mouseSpeed: 0.35,
+      hasTouchpad: true,
+      tapToClickEnabled: true,
+      naturalScrollEnabled: false,
+      scrollSpeedFactor: 1,
+    );
+
+    final bytes = codec.encodeMouseConfiguration(
+      requestId: 19,
+      capabilities: capabilities,
+    );
+
+    expect(bytes, isNotNull);
+    final envelope = Envelope(bytes!);
+    final request = envelope.payload as SettingsRequest;
+    expect(envelope.requestId, 19);
+    expect(request.kind, SettingsRequestKind.ConfigureMouse);
+    expect(request.expectedRevision, 7);
+    expect(request.mouse!.speed, closeTo(0.35, 0.0001));
+    expect(request.touchpad, isNull);
+    expect(
+      codec.encodeMouseConfiguration(
+        requestId: 20,
+        capabilities: capabilities.copyWith(mouseSpeed: 1.001),
+      ),
+      isNull,
+    );
+    expect(
+      codec.encodeMouseConfiguration(
+        requestId: 21,
+        capabilities: capabilities.copyWith(mouseSpeed: double.nan),
+      ),
+      isNull,
+    );
+  });
+
+  test('input capability response carries mouse and touchpad settings', () {
+    final bytes = EnvelopeObjectBuilder(
+      protocolVersion: 1,
+      sequence: 1,
+      requestId: 23,
+      payloadType: PayloadTypeId.SettingsResponse,
+      payload: SettingsResponseObjectBuilder(
+        kind: SettingsResponseKind.InputDevices,
+        success: true,
+        revision: 9,
+        inputDevices: InputDeviceCapabilitiesObjectBuilder(
+          hasMouse: true,
+          mouse: MouseConfigurationObjectBuilder(speed: -0.4),
+          hasTouchpad: true,
+          touchpad: TouchpadConfigurationObjectBuilder(
+            tapToClickEnabled: false,
+            naturalScrollEnabled: true,
+            scrollSpeedFactor: 2.25,
+          ),
+        ),
+      ),
+    ).toBytes('DENW');
+    final codec = DenialWireCodec();
+    final envelope = codec.decodeStructured(ByteData.sublistView(bytes));
+
+    expect(envelope, isNotNull);
+    final capabilities = codec.decodeInputDeviceCapabilities(
+      envelope!.payload as SettingsResponse,
+    );
+    expect(capabilities, isNotNull);
+    expect(capabilities!.revision, 9);
+    expect(capabilities.hasMouse, isTrue);
+    expect(capabilities.mouseSpeed, closeTo(-0.4, 0.0001));
+    expect(capabilities.hasTouchpad, isTrue);
+    expect(capabilities.tapToClickEnabled, isFalse);
+    expect(capabilities.naturalScrollEnabled, isTrue);
+    expect(capabilities.scrollSpeedFactor, closeTo(2.25, 0.0001));
+  });
+
   test('theme accent is encoded as opaque packed sRGB', () {
     final bytes = DenialWireCodec().encodeThemeAccent(0x7f123456);
 
@@ -19,6 +100,21 @@ void main() {
     final theme = envelope.payload as ThemeState;
     expect(envelope.requestId, 0);
     expect(theme.accentSrgb, 0x123456);
+  });
+
+  test('overview layout drops use a distinct configure flag', () {
+    final bytes = DenialWireCodec().encodeWindowRequest(
+      WindowRequestKind.ConfigureWindow,
+      windowId: 42,
+      geometry: const Rect.fromLTWH(100, 200, 800, 600),
+      flags: 1 << 1,
+    );
+
+    final envelope = Envelope(bytes);
+    final request = envelope.payload as WindowRequest;
+    expect(request.kind, WindowRequestKind.ConfigureWindow);
+    expect(request.windowId, 42);
+    expect(request.flags, 2);
   });
 
   test('keyboard key lifecycle preserves tap, press, and release', () {
@@ -653,6 +749,14 @@ void main() {
       ..setUint64(12, 10, Endian.little)
       ..setFloat64(64, double.nan, Endian.little);
     expect(codec.decodePlacement(nanWidth), isNull);
+    final preview = codec.decodePlacement(
+      _placementPacket(
+        sequence: 10,
+        phase: DenialWindowPlacementPhase.begin,
+        change: DenialWindowPlacementChange.layoutPreview,
+      ),
+    );
+    expect(preview?.change, DenialWindowPlacementChange.layoutPreview);
     expect(codec.decodePlacement(ByteData(79)), isNull);
   });
 

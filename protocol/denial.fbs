@@ -99,7 +99,8 @@ enum SettingsRequestKind : ubyte {
   RemoveShortcut = 8,
   RestoreShortcuts = 9,
   ReadInputDevices = 10,
-  ConfigureTouchpad = 11
+  ConfigureTouchpad = 11,
+  ConfigureMouse = 12
 }
 
 enum SettingsResponseKind : ubyte {
@@ -133,7 +134,15 @@ enum ShortcutActionKind : ubyte {
   PreviousKeyboardLayout = 19,
   OpenSettings = 20,
   OpenDashboard = 21,
-  MinimizeAllWindows = 22
+  MinimizeAllWindows = 22,
+  FocusLeft = 23,
+  FocusRight = 24,
+  FocusUp = 25,
+  FocusDown = 26,
+  SwapLeft = 27,
+  SwapRight = 28,
+  SwapUp = 29,
+  SwapDown = 30
 }
 
 enum ShortcutInputKind : ubyte {
@@ -396,7 +405,9 @@ table WindowRequest {
   // ConfigureWindow.flags bit 0 requests an exact compositor-owned viewport.
   // The native compositor ignores client size hints and retains this geometry
   // across client-authored maximize/fullscreen requests until a later normal
-  // ConfigureWindow releases it.
+  // ConfigureWindow releases it. Bit 1 marks a desktop overview drop: stacking
+  // applies its rectangle normally, while managed layouts resolve its centre
+  // to a layout-owned tile operation. The two bits are mutually exclusive.
   flags:uint;
 }
 
@@ -541,6 +552,8 @@ table ShortcutValidation {
 table InputDeviceCapabilities {
   has_touchpad:bool;
   touchpad:TouchpadConfiguration;
+  has_mouse:bool;
+  mouse:MouseConfiguration;
 }
 
 table TouchpadConfiguration {
@@ -549,10 +562,14 @@ table TouchpadConfiguration {
   scroll_speed_factor:double = 1.0;
 }
 
+table MouseConfiguration {
+  speed:double;
+}
+
 table SettingsRequest {
   kind:SettingsRequestKind = ReadDocument;
   expected_revision:ulong;
-  // WriteDocument only. Keyboard is native-owned and ignored if echoed here.
+  // WriteDocument only. Input settings are native-owned and ignored if echoed here.
   document:string;
   // ConfigureKeyboard only.
   keyboard:KeyboardConfiguration;
@@ -563,6 +580,8 @@ table SettingsRequest {
   existing_shortcut:string;
   // ConfigureTouchpad only.
   touchpad:TouchpadConfiguration;
+  // ConfigureMouse only.
+  mouse:MouseConfiguration;
 }
 
 table SettingsResponse {

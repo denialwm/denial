@@ -403,7 +403,8 @@ enum SettingsRequestKind {
   RemoveShortcut(8),
   RestoreShortcuts(9),
   ReadInputDevices(10),
-  ConfigureTouchpad(11);
+  ConfigureTouchpad(11),
+  ConfigureMouse(12);
 
   final int value;
   const SettingsRequestKind(this.value);
@@ -422,6 +423,7 @@ enum SettingsRequestKind {
       case 9: return SettingsRequestKind.RestoreShortcuts;
       case 10: return SettingsRequestKind.ReadInputDevices;
       case 11: return SettingsRequestKind.ConfigureTouchpad;
+      case 12: return SettingsRequestKind.ConfigureMouse;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -430,7 +432,7 @@ enum SettingsRequestKind {
       value == null ? null : SettingsRequestKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 11;
+  static const int maxValue = 12;
   static const fb.Reader<SettingsRequestKind> reader = _SettingsRequestKindReader();
 }
 
@@ -508,7 +510,15 @@ enum ShortcutActionKind {
   PreviousKeyboardLayout(19),
   OpenSettings(20),
   OpenDashboard(21),
-  MinimizeAllWindows(22);
+  MinimizeAllWindows(22),
+  FocusLeft(23),
+  FocusRight(24),
+  FocusUp(25),
+  FocusDown(26),
+  SwapLeft(27),
+  SwapRight(28),
+  SwapUp(29),
+  SwapDown(30);
 
   final int value;
   const ShortcutActionKind(this.value);
@@ -538,6 +548,14 @@ enum ShortcutActionKind {
       case 20: return ShortcutActionKind.OpenSettings;
       case 21: return ShortcutActionKind.OpenDashboard;
       case 22: return ShortcutActionKind.MinimizeAllWindows;
+      case 23: return ShortcutActionKind.FocusLeft;
+      case 24: return ShortcutActionKind.FocusRight;
+      case 25: return ShortcutActionKind.FocusUp;
+      case 26: return ShortcutActionKind.FocusDown;
+      case 27: return ShortcutActionKind.SwapLeft;
+      case 28: return ShortcutActionKind.SwapRight;
+      case 29: return ShortcutActionKind.SwapUp;
+      case 30: return ShortcutActionKind.SwapDown;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -546,7 +564,7 @@ enum ShortcutActionKind {
       value == null ? null : ShortcutActionKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 22;
+  static const int maxValue = 30;
   static const fb.Reader<ShortcutActionKind> reader = _ShortcutActionKindReader();
 }
 
@@ -4283,10 +4301,12 @@ class InputDeviceCapabilities {
 
   bool get hasTouchpad => const fb.BoolReader().vTableGet(_bc, _bcOffset, 4, false);
   TouchpadConfiguration? get touchpad => TouchpadConfiguration.reader.vTableGetNullable(_bc, _bcOffset, 6);
+  bool get hasMouse => const fb.BoolReader().vTableGet(_bc, _bcOffset, 8, false);
+  MouseConfiguration? get mouse => MouseConfiguration.reader.vTableGetNullable(_bc, _bcOffset, 10);
 
   @override
   String toString() {
-    return 'InputDeviceCapabilities{hasTouchpad: ${hasTouchpad}, touchpad: ${touchpad}}';
+    return 'InputDeviceCapabilities{hasTouchpad: ${hasTouchpad}, touchpad: ${touchpad}, hasMouse: ${hasMouse}, mouse: ${mouse}}';
   }
 }
 
@@ -4304,7 +4324,7 @@ class InputDeviceCapabilitiesBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(2);
+    fbBuilder.startTable(4);
   }
 
   int addHasTouchpad(bool? hasTouchpad) {
@@ -4313,6 +4333,14 @@ class InputDeviceCapabilitiesBuilder {
   }
   int addTouchpadOffset(int? offset) {
     fbBuilder.addOffset(1, offset);
+    return fbBuilder.offset;
+  }
+  int addHasMouse(bool? hasMouse) {
+    fbBuilder.addBool(2, hasMouse);
+    return fbBuilder.offset;
+  }
+  int addMouseOffset(int? offset) {
+    fbBuilder.addOffset(3, offset);
     return fbBuilder.offset;
   }
 
@@ -4324,21 +4352,30 @@ class InputDeviceCapabilitiesBuilder {
 class InputDeviceCapabilitiesObjectBuilder extends fb.ObjectBuilder {
   final bool? _hasTouchpad;
   final TouchpadConfigurationObjectBuilder? _touchpad;
+  final bool? _hasMouse;
+  final MouseConfigurationObjectBuilder? _mouse;
 
   InputDeviceCapabilitiesObjectBuilder({
     bool? hasTouchpad,
     TouchpadConfigurationObjectBuilder? touchpad,
+    bool? hasMouse,
+    MouseConfigurationObjectBuilder? mouse,
   })
       : _hasTouchpad = hasTouchpad,
-        _touchpad = touchpad;
+        _touchpad = touchpad,
+        _hasMouse = hasMouse,
+        _mouse = mouse;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
     final int? touchpadOffset = _touchpad?.getOrCreateOffset(fbBuilder);
-    fbBuilder.startTable(2);
+    final int? mouseOffset = _mouse?.getOrCreateOffset(fbBuilder);
+    fbBuilder.startTable(4);
     fbBuilder.addBool(0, _hasTouchpad);
     fbBuilder.addOffset(1, touchpadOffset);
+    fbBuilder.addBool(2, _hasMouse);
+    fbBuilder.addOffset(3, mouseOffset);
     return fbBuilder.endTable();
   }
 
@@ -4439,6 +4476,77 @@ class TouchpadConfigurationObjectBuilder extends fb.ObjectBuilder {
     return fbBuilder.buffer;
   }
 }
+class MouseConfiguration {
+  MouseConfiguration._(this._bc, this._bcOffset);
+  factory MouseConfiguration(List<int> bytes) {
+    final rootRef = fb.BufferContext.fromBytes(bytes);
+    return reader.read(rootRef, 0);
+  }
+
+  static const fb.Reader<MouseConfiguration> reader = _MouseConfigurationReader();
+
+  final fb.BufferContext _bc;
+  final int _bcOffset;
+
+  double get speed => const fb.Float64Reader().vTableGet(_bc, _bcOffset, 4, 0.0);
+
+  @override
+  String toString() {
+    return 'MouseConfiguration{speed: ${speed}}';
+  }
+}
+
+class _MouseConfigurationReader extends fb.TableReader<MouseConfiguration> {
+  const _MouseConfigurationReader();
+
+  @override
+  MouseConfiguration createObject(fb.BufferContext bc, int offset) => 
+    MouseConfiguration._(bc, offset);
+}
+
+class MouseConfigurationBuilder {
+  MouseConfigurationBuilder(this.fbBuilder);
+
+  final fb.Builder fbBuilder;
+
+  void begin() {
+    fbBuilder.startTable(1);
+  }
+
+  int addSpeed(double? speed) {
+    fbBuilder.addFloat64(0, speed);
+    return fbBuilder.offset;
+  }
+
+  int finish() {
+    return fbBuilder.endTable();
+  }
+}
+
+class MouseConfigurationObjectBuilder extends fb.ObjectBuilder {
+  final double? _speed;
+
+  MouseConfigurationObjectBuilder({
+    double? speed,
+  })
+      : _speed = speed;
+
+  /// Finish building, and store into the [fbBuilder].
+  @override
+  int finish(fb.Builder fbBuilder) {
+    fbBuilder.startTable(1);
+    fbBuilder.addFloat64(0, _speed);
+    return fbBuilder.endTable();
+  }
+
+  /// Convenience method to serialize to byte list.
+  @override
+  Uint8List toBytes([String? fileIdentifier]) {
+    final fbBuilder = fb.Builder(deduplicateTables: false);
+    fbBuilder.finish(finish(fbBuilder), fileIdentifier);
+    return fbBuilder.buffer;
+  }
+}
 class SettingsRequest {
   SettingsRequest._(this._bc, this._bcOffset);
   factory SettingsRequest(List<int> bytes) {
@@ -4458,10 +4566,11 @@ class SettingsRequest {
   ShortcutBinding? get shortcut => ShortcutBinding.reader.vTableGetNullable(_bc, _bcOffset, 12);
   String? get existingShortcut => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 14);
   TouchpadConfiguration? get touchpad => TouchpadConfiguration.reader.vTableGetNullable(_bc, _bcOffset, 16);
+  MouseConfiguration? get mouse => MouseConfiguration.reader.vTableGetNullable(_bc, _bcOffset, 18);
 
   @override
   String toString() {
-    return 'SettingsRequest{kind: ${kind}, expectedRevision: ${expectedRevision}, document: ${document}, keyboard: ${keyboard}, shortcut: ${shortcut}, existingShortcut: ${existingShortcut}, touchpad: ${touchpad}}';
+    return 'SettingsRequest{kind: ${kind}, expectedRevision: ${expectedRevision}, document: ${document}, keyboard: ${keyboard}, shortcut: ${shortcut}, existingShortcut: ${existingShortcut}, touchpad: ${touchpad}, mouse: ${mouse}}';
   }
 }
 
@@ -4479,7 +4588,7 @@ class SettingsRequestBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(7);
+    fbBuilder.startTable(8);
   }
 
   int addKind(SettingsRequestKind? kind) {
@@ -4510,6 +4619,10 @@ class SettingsRequestBuilder {
     fbBuilder.addOffset(6, offset);
     return fbBuilder.offset;
   }
+  int addMouseOffset(int? offset) {
+    fbBuilder.addOffset(7, offset);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -4524,6 +4637,7 @@ class SettingsRequestObjectBuilder extends fb.ObjectBuilder {
   final ShortcutBindingObjectBuilder? _shortcut;
   final String? _existingShortcut;
   final TouchpadConfigurationObjectBuilder? _touchpad;
+  final MouseConfigurationObjectBuilder? _mouse;
 
   SettingsRequestObjectBuilder({
     SettingsRequestKind? kind,
@@ -4533,6 +4647,7 @@ class SettingsRequestObjectBuilder extends fb.ObjectBuilder {
     ShortcutBindingObjectBuilder? shortcut,
     String? existingShortcut,
     TouchpadConfigurationObjectBuilder? touchpad,
+    MouseConfigurationObjectBuilder? mouse,
   })
       : _kind = kind,
         _expectedRevision = expectedRevision,
@@ -4540,7 +4655,8 @@ class SettingsRequestObjectBuilder extends fb.ObjectBuilder {
         _keyboard = keyboard,
         _shortcut = shortcut,
         _existingShortcut = existingShortcut,
-        _touchpad = touchpad;
+        _touchpad = touchpad,
+        _mouse = mouse;
 
   /// Finish building, and store into the [fbBuilder].
   @override
@@ -4552,7 +4668,8 @@ class SettingsRequestObjectBuilder extends fb.ObjectBuilder {
     final int? existingShortcutOffset = _existingShortcut == null ? null
         : fbBuilder.writeString(_existingShortcut!);
     final int? touchpadOffset = _touchpad?.getOrCreateOffset(fbBuilder);
-    fbBuilder.startTable(7);
+    final int? mouseOffset = _mouse?.getOrCreateOffset(fbBuilder);
+    fbBuilder.startTable(8);
     fbBuilder.addUint8(0, _kind?.value);
     fbBuilder.addUint64(1, _expectedRevision);
     fbBuilder.addOffset(2, documentOffset);
@@ -4560,6 +4677,7 @@ class SettingsRequestObjectBuilder extends fb.ObjectBuilder {
     fbBuilder.addOffset(4, shortcutOffset);
     fbBuilder.addOffset(5, existingShortcutOffset);
     fbBuilder.addOffset(6, touchpadOffset);
+    fbBuilder.addOffset(7, mouseOffset);
     return fbBuilder.endTable();
   }
 

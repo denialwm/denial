@@ -421,6 +421,30 @@ class DenialWireCodec {
     );
   }
 
+  Uint8List? encodeMouseConfiguration({
+    required int requestId,
+    required DenialInputDeviceCapabilities capabilities,
+  }) {
+    if (requestId <= 0 ||
+        capabilities.revision <= 0 ||
+        !capabilities.mouseSpeed.isFinite ||
+        capabilities.mouseSpeed < mouseSpeedMinimum ||
+        capabilities.mouseSpeed > mouseSpeedMaximum) {
+      return null;
+    }
+    return _encodeEnvelope(
+      generated.PayloadTypeId.SettingsRequest,
+      generated.SettingsRequestObjectBuilder(
+        kind: generated.SettingsRequestKind.ConfigureMouse,
+        expectedRevision: capabilities.revision,
+        mouse: generated.MouseConfigurationObjectBuilder(
+          speed: capabilities.mouseSpeed,
+        ),
+      ),
+      requestId: requestId,
+    );
+  }
+
   Uint8List encodeShortcutRead({required int requestId}) {
     if (requestId <= 0) {
       throw ArgumentError('invalid shortcut read request');
@@ -500,21 +524,30 @@ class DenialWireCodec {
   ) {
     final inputDevices = response.inputDevices;
     final touchpad = inputDevices?.touchpad;
+    final mouse = inputDevices?.mouse;
     final scrollSpeedFactor = touchpad?.scrollSpeedFactor;
+    final mouseSpeed = mouse?.speed;
     if (!response.success ||
         response.kind != generated.SettingsResponseKind.InputDevices ||
         response.revision <= 0 ||
         inputDevices == null ||
         touchpad == null ||
+        mouse == null ||
         scrollSpeedFactor == null ||
+        mouseSpeed == null ||
         !scrollSpeedFactor.isFinite ||
         scrollSpeedFactor < touchpadScrollSpeedFactorMinimum ||
-        scrollSpeedFactor > touchpadScrollSpeedFactorMaximum) {
+        scrollSpeedFactor > touchpadScrollSpeedFactorMaximum ||
+        !mouseSpeed.isFinite ||
+        mouseSpeed < mouseSpeedMinimum ||
+        mouseSpeed > mouseSpeedMaximum) {
       rejectedStructuredMessages += 1;
       return null;
     }
     return DenialInputDeviceCapabilities(
       revision: response.revision,
+      hasMouse: inputDevices.hasMouse,
+      mouseSpeed: mouseSpeed,
       hasTouchpad: inputDevices.hasTouchpad,
       tapToClickEnabled: touchpad.tapToClickEnabled,
       naturalScrollEnabled: touchpad.naturalScrollEnabled,
@@ -956,7 +989,7 @@ class DenialWireCodec {
           monitorId < 0 ||
           workspaceId == -1 ||
           rawPhase > 2 ||
-          rawChange > 1 ||
+          rawChange > 2 ||
           !x.isFinite ||
           !y.isFinite ||
           !width.isFinite ||
