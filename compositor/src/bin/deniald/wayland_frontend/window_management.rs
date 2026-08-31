@@ -21,6 +21,8 @@ use super::super::PendingWindowEvent;
 use super::super::RuntimeState;
 use super::super::window_grab::constrain_dimension;
 #[cfg(feature = "flutter")]
+use super::super::window_layout::LayoutDirection;
+#[cfg(feature = "flutter")]
 use super::super::window_placement_store::RestoredWindowPlacement;
 #[cfg(feature = "flutter")]
 use super::super::wire::{
@@ -228,6 +230,9 @@ pub(super) fn activate_window(
             if resumed && let Some(toplevel) = window.toplevel() {
                 set_toplevel_suspended(toplevel, false);
             }
+            if resumed {
+                frontend.reconcile_window_layout(window);
+            }
         }
         #[cfg(not(feature = "flutter"))]
         let resumed = false;
@@ -386,8 +391,45 @@ pub(in super::super) fn apply_window_commands(
                 activate_window(state, &window, SERIAL_COUNTER.next_serial());
             }
             WindowCommand::Configure {
-                geometry, exact, ..
+                geometry,
+                exact,
+                layout_drop,
+                ..
             } => {
+                if layout_drop {
+                    let scene_origin = state
+                        .wayland
+                        .as_ref()
+                        .expect("missing Wayland frontend")
+                        .atlas_origin;
+                    let drop_location = Point::<i32, Logical>::from((
+                        (geometry.x + geometry.width / 2.0 + scene_origin.x)
+                            .round()
+                            .clamp(f64::from(i32::MIN), f64::from(i32::MAX))
+                            as i32,
+                        (geometry.y + geometry.height / 2.0 + scene_origin.y)
+                            .round()
+                            .clamp(f64::from(i32::MIN), f64::from(i32::MAX))
+                            as i32,
+                    ));
+                    let layout_geometry = {
+                        let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+                        frontend
+                            .apply_layout_drop(&window, drop_location)
+                            .then(|| frontend.window_geometry_target(&window))
+                    };
+                    if let Some(layout_geometry) = layout_geometry {
+                        queue_transient_window_placement(
+                            state,
+                            &window,
+                            layout_geometry,
+                            WindowPlacementPhase::End,
+                            WindowPlacementChange::Move,
+                        );
+                        state.scene_sync.mark_dirty();
+                        continue;
+                    }
+                }
                 let requested_size = Size::<i32, Logical>::from((
                     geometry.width.round() as i32,
                     geometry.height.round() as i32,
@@ -435,6 +477,17 @@ pub(in super::super) fn apply_window_commands(
                         .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32,
                 ));
                 let target = Rectangle::new(target_location, size);
+                if !exact {
+                    let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
+                    if frontend.window_is_layout_managed(&window)
+                        && frontend.window_geometry_target(&window) != target
+                    {
+                        // Flutter mirrors compositor geometry for rendering and
+                        // also emits interactive stacking placement. A managed
+                        // layout remains the sole geometry authority.
+                        continue;
+                    }
+                }
                 let (preserve_client_fullscreen, transferred_shell_restore) = {
                     let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
                     let client_fullscreen =
@@ -524,6 +577,15 @@ pub(in super::super) fn apply_window_commands(
                 if transferred_shell_restore {
                     frontend.remember_window_placement(&window);
                 }
+                if layout_drop {
+                    queue_window_placement(
+                        state,
+                        &window,
+                        target,
+                        WindowPlacementPhase::End,
+                        WindowPlacementChange::Move,
+                    );
+                }
                 state.scene_sync.mark_dirty();
             }
             WindowCommand::CreateLocal { .. } => unreachable!(),
@@ -597,6 +659,22 @@ pub(in super::super) fn queue_window_placement(
     change: WindowPlacementChange,
 ) {
     queue_window_placement_for_monitor(state, window, geometry, geometry, phase, change);
+}
+
+/// Publishes compositor-owned presentation geometry without treating it as a
+/// stacking placement to restore in a future session. Layout drags use this
+/// for their translated preview and their authoritative destination tile.
+#[cfg(feature = "flutter")]
+pub(in super::super) fn queue_transient_window_placement(
+    state: &mut RuntimeState,
+    window: &Window,
+    geometry: Rectangle<i32, Logical>,
+    phase: WindowPlacementPhase,
+    change: WindowPlacementChange,
+) {
+    queue_window_placement_for_monitor_with_persistence(
+        state, window, geometry, geometry, phase, change, false,
+    );
 }
 
 #[cfg(feature = "flutter")]
@@ -775,6 +853,64 @@ fn focused_window(state: &RuntimeState) -> Option<Window> {
     frontend.window_for_root_surface(&root)
 }
 
+#[cfg(feature = "flutter")]
+pub(super) fn focus_toplevel_in_direction(
+    state: &mut RuntimeState,
+    direction: LayoutDirection,
+) -> bool {
+    let Some(focused) = focused_window(state) else {
+        return false;
+    };
+    let target = state
+        .wayland
+        .as_ref()
+        .expect("missing Wayland frontend")
+        .layout_neighbor_window(&focused, direction);
+    target.is_some_and(|target| activate_window(state, &target, SERIAL_COUNTER.next_serial()))
+}
+
+#[cfg(feature = "flutter")]
+pub(super) fn swap_toplevel_in_direction(
+    state: &mut RuntimeState,
+    direction: LayoutDirection,
+) -> bool {
+    let Some(focused) = focused_window(state) else {
+        return false;
+    };
+    let Some(target) = state
+        .wayland
+        .as_ref()
+        .expect("missing Wayland frontend")
+        .layout_neighbor_window(&focused, direction)
+    else {
+        return false;
+    };
+    let changed = state
+        .wayland
+        .as_mut()
+        .expect("missing Wayland frontend")
+        .swap_layout_windows(&focused, &target);
+    if !changed {
+        return false;
+    }
+    for window in [&focused, &target] {
+        let geometry = state
+            .wayland
+            .as_ref()
+            .expect("missing Wayland frontend")
+            .window_geometry_target(window);
+        queue_transient_window_placement(
+            state,
+            window,
+            geometry,
+            WindowPlacementPhase::End,
+            WindowPlacementChange::Move,
+        );
+    }
+    state.scene_sync.mark_dirty();
+    true
+}
+
 /// Drop keyboard/activation focus only when `window` currently owns it.
 ///
 /// Minimized clients remain mapped so Flutter can keep presenting their live
@@ -905,6 +1041,11 @@ fn minimize_window(state: &mut RuntimeState, window: &Window) -> bool {
         .as_mut()
         .expect("missing Wayland frontend")
         .set_surface_minimized(root.id(), true);
+    state
+        .wayland
+        .as_mut()
+        .expect("missing Wayland frontend")
+        .remove_window_from_layout(window, false);
     if let Some(toplevel) = window.toplevel()
         && set_toplevel_suspended(toplevel, true)
     {
@@ -1053,6 +1194,13 @@ pub(super) fn toggle_shell_maximize_focused_toplevel(state: &mut RuntimeState) -
         .as_mut()
         .expect("missing Wayland frontend")
         .set_window_geometry_target(&window, target);
+    if matches!(action, WindowAction::Restore) {
+        state
+            .wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .arrange_layout_windows();
+    }
     state
         .wayland
         .as_mut()
@@ -1261,6 +1409,7 @@ pub(super) fn toggle_shell_fullscreen_focused_toplevel(state: &mut RuntimeState)
                     .shell_fullscreen_restore_geometries
                     .remove(&root.id());
             }
+            frontend.arrange_layout_windows();
         }
         super::ShellFullscreenTransition::ExitClient => {
             exit_client_fullscreen_for_shell_shortcut(state, &window);
@@ -1291,6 +1440,11 @@ fn exit_client_fullscreen_for_shell_shortcut(state: &mut RuntimeState, window: &
         warn!(%error, window = x11.window_id(), "could not leave X11 fullscreen for SUPER+F");
     }
     super::xwayland::configure_x11_for_output(state, &x11, false, false);
+    state
+        .wayland
+        .as_mut()
+        .expect("missing Wayland frontend")
+        .arrange_layout_windows();
 }
 
 pub(super) fn configure_toplevel_for_output(
@@ -1473,6 +1627,21 @@ pub(super) fn clear_toplevel_state(
                     .remove(&surface_id);
             }
         }
+    }
+    if changed
+        && unconstrained
+        && let Some(window) = window.as_ref()
+        && state
+            .wayland
+            .as_ref()
+            .expect("missing Wayland frontend")
+            .window_is_layout_managed(window)
+    {
+        state
+            .wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .arrange_layout_windows();
     }
     if surface.is_initial_configure_sent() {
         surface.send_configure();

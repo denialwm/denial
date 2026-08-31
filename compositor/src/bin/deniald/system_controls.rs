@@ -259,6 +259,12 @@ enum BrightnessCommand {
     Stop,
 }
 
+#[cfg(feature = "flutter")]
+enum SessionCommand {
+    Suspend,
+    Stop,
+}
+
 #[derive(Clone)]
 struct SystemControlEventSender {
     sender: SyncSender<SystemControlEvent>,
@@ -285,11 +291,15 @@ impl SystemControlEventSender {
 pub(super) struct SystemControls {
     audio_commands: SyncSender<AudioCommand>,
     brightness_commands: SyncSender<BrightnessCommand>,
+    #[cfg(feature = "flutter")]
+    session_commands: SyncSender<SessionCommand>,
     #[cfg_attr(not(feature = "flutter"), allow(dead_code))]
     events: Receiver<SystemControlEvent>,
     events_pending: Arc<AtomicBool>,
     audio_worker: Option<JoinHandle<()>>,
     brightness_worker: Option<JoinHandle<()>>,
+    #[cfg(feature = "flutter")]
+    session_worker: Option<JoinHandle<()>>,
 }
 
 impl SystemControls {
@@ -322,13 +332,36 @@ impl SystemControls {
             }
         };
 
+        #[cfg(feature = "flutter")]
+        let (session_commands, session_rx) = mpsc::sync_channel(4);
+        #[cfg(feature = "flutter")]
+        let session_worker = match thread::Builder::new()
+            .name("denial-session-power".into())
+            .spawn(move || {
+                crate::cpu_scheduling::normalize_current_worker("session power");
+                run_session_worker(session_rx);
+            }) {
+            Ok(worker) => worker,
+            Err(error) => {
+                let _ = audio_commands.send(AudioCommand::Stop);
+                let _ = brightness_commands.send(BrightnessCommand::Stop);
+                let _ = audio_worker.join();
+                let _ = brightness_worker.join();
+                return Err(error);
+            }
+        };
+
         Ok(Self {
             audio_commands,
             brightness_commands,
+            #[cfg(feature = "flutter")]
+            session_commands,
             events,
             events_pending,
             audio_worker: Some(audio_worker),
             brightness_worker: Some(brightness_worker),
+            #[cfg(feature = "flutter")]
+            session_worker: Some(session_worker),
         })
     }
 
@@ -386,6 +419,13 @@ impl SystemControls {
         self.brightness_commands.try_send(command).is_ok()
     }
 
+    #[cfg(feature = "flutter")]
+    pub(super) fn suspend(&self) -> bool {
+        self.session_commands
+            .try_send(SessionCommand::Suspend)
+            .is_ok()
+    }
+
     fn adjust_audio(&self, delta: f64) {
         let _ = self.audio_commands.try_send(AudioCommand::Adjust(delta));
     }
@@ -423,6 +463,8 @@ impl Drop for SystemControls {
     fn drop(&mut self) {
         let _ = self.audio_commands.send(AudioCommand::Stop);
         let _ = self.brightness_commands.send(BrightnessCommand::Stop);
+        #[cfg(feature = "flutter")]
+        let _ = self.session_commands.send(SessionCommand::Stop);
         if self
             .audio_worker
             .take()
@@ -437,6 +479,16 @@ impl Drop for SystemControls {
         {
             warn!("native brightness worker panicked during shutdown");
         }
+        #[cfg(feature = "flutter")]
+        {
+            if self
+                .session_worker
+                .take()
+                .is_some_and(|worker| worker.join().is_err())
+            {
+                warn!("native session power worker panicked during shutdown");
+            }
+        }
     }
 }
 
@@ -444,6 +496,11 @@ impl Drop for SystemControls {
 mod audio;
 #[path = "system_controls/brightness.rs"]
 mod brightness;
+#[cfg(feature = "flutter")]
+#[path = "system_controls/session.rs"]
+mod session;
 
 use audio::run_audio_worker;
 use brightness::run_brightness_worker;
+#[cfg(feature = "flutter")]
+use session::run_session_worker;

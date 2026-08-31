@@ -154,6 +154,7 @@ class DesktopWindowPlacement {
     this.fullscreen = false,
     this.serverSideDecorated = true,
     this.dragging = false,
+    this.layoutPreviewing = false,
     this.restoreFrame,
     this.fullscreenRestoreFrame,
   });
@@ -168,6 +169,9 @@ class DesktopWindowPlacement {
   final bool fullscreen;
   final bool serverSideDecorated;
   final bool dragging;
+
+  /// Whether this window is temporarily displaced by a managed layout drag.
+  final bool layoutPreviewing;
   final Rect? restoreFrame;
   final Rect? fullscreenRestoreFrame;
 
@@ -186,6 +190,7 @@ class DesktopWindowPlacement {
     bool? fullscreen,
     bool? serverSideDecorated,
     bool? dragging,
+    bool? layoutPreviewing,
     Rect? restoreFrame,
     bool clearRestoreFrame = false,
     Rect? fullscreenRestoreFrame,
@@ -202,6 +207,7 @@ class DesktopWindowPlacement {
       fullscreen: fullscreen ?? this.fullscreen,
       serverSideDecorated: serverSideDecorated ?? this.serverSideDecorated,
       dragging: dragging ?? this.dragging,
+      layoutPreviewing: layoutPreviewing ?? this.layoutPreviewing,
       restoreFrame: clearRestoreFrame
           ? null
           : restoreFrame ?? this.restoreFrame,
@@ -381,6 +387,7 @@ bool _desktopPlacementHasSameSceneStructure(
       left.fullscreen == right.fullscreen &&
       left.serverSideDecorated == right.serverSideDecorated &&
       left.dragging == right.dragging &&
+      left.layoutPreviewing == right.layoutPreviewing &&
       left.restoreFrame == right.restoreFrame &&
       left.fullscreenRestoreFrame == right.fullscreenRestoreFrame;
 }

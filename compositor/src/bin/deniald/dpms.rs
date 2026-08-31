@@ -12,7 +12,7 @@ pub(super) fn collect_output_power_requests(events: &mut RuntimeState) {
     for request in requests {
         #[cfg(feature = "flutter")]
         events
-            .idle_dpms
+            .idle_policy
             .note_external_power_request(request.output, request.powered);
         events
             .output_power_requests
@@ -135,14 +135,37 @@ pub(super) fn synchronize_idle_dpms(scanouts: &[Scanout], events: &mut RuntimeSt
         .wayland
         .as_mut()
         .is_some_and(wayland_frontend::WaylandFrontend::idle_inhibited);
-    let requests = events.idle_dpms.evaluate(
+    let idle_policy::IdlePolicyActions {
+        power_requests,
+        lock,
+        suspend,
+    } = events.idle_policy.evaluate(
         now,
         inhibited,
         scanouts
             .iter()
             .map(|scanout| (scanout.output.id, scanout.powered)),
     );
-    events.queue_idle_power_requests(requests);
+    events.queue_idle_power_requests(power_requests);
+    if lock {
+        if let Some(authentication) = events.authentication.as_ref() {
+            authentication.lock();
+            info!("locked the session after inactivity");
+        } else {
+            warn!("could not lock the session after inactivity: authentication is unavailable");
+        }
+    }
+    if suspend {
+        if events
+            .system_controls
+            .as_ref()
+            .is_some_and(system_controls::SystemControls::suspend)
+        {
+            info!("requested system suspend after inactivity");
+        } else {
+            warn!("could not request system suspend after inactivity");
+        }
+    }
 }
 
 #[cfg(feature = "flutter")]
@@ -150,19 +173,19 @@ pub(super) fn synchronize_idle_dpms_configuration(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &mut RuntimeState,
 ) {
-    let Some(timeout) = runtime.take_idle_dpms_timeout() else {
+    let Some(configuration) = runtime.take_idle_policy() else {
         return;
     };
-    let requests = events.idle_dpms.configure(timeout, Instant::now());
+    let requests = events.idle_policy.configure(configuration, Instant::now());
     events.queue_idle_power_requests(requests);
-    if let Some(timeout) = timeout {
-        info!(
-            timeout_seconds = timeout.as_secs(),
-            "configured automatic display power-off"
-        );
-    } else {
-        info!("disabled automatic display power-off");
-    }
+    info!(
+        lock_timeout_seconds = configuration.lock_timeout.map(|timeout| timeout.as_secs()),
+        dpms_timeout_seconds = configuration.dpms_timeout.map(|timeout| timeout.as_secs()),
+        suspend_timeout_seconds = configuration
+            .suspend_timeout
+            .map(|timeout| timeout.as_secs()),
+        "configured automatic inactivity policy"
+    );
 }
 
 #[cfg(feature = "flutter")]
@@ -174,7 +197,7 @@ pub(super) fn synchronize_requested_dpms_off(
     if !runtime.take_dpms_off_requested() {
         return;
     }
-    let requests = events.idle_dpms.blank_now(
+    let requests = events.idle_policy.blank_now(
         scanouts
             .iter()
             .map(|scanout| (scanout.output.id, scanout.powered)),
@@ -202,7 +225,9 @@ pub(super) fn apply_output_power_requests(
             .iter()
             .position(|scanout| scanout.output.id == output)
         else {
-            events.idle_dpms.note_power_failure(output, Instant::now());
+            events
+                .idle_policy
+                .note_power_failure(output, Instant::now());
             if let Some(frontend) = events.wayland.as_mut() {
                 frontend.fail_output_power(output);
             }
@@ -285,7 +310,9 @@ pub(super) fn apply_output_power_requests(
             }
             for &(output, _) in &power_off {
                 scheduler.cancel_power_off(output, scanouts);
-                events.idle_dpms.note_power_failure(output, Instant::now());
+                events
+                    .idle_policy
+                    .note_power_failure(output, Instant::now());
                 if let Some(frontend) = events.wayland.as_mut() {
                     frontend.fail_output_power(output);
                 }

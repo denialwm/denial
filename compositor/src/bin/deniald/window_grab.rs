@@ -20,6 +20,8 @@ use smithay::xwayland::xwm::ResizeEdge as X11ResizeEdge;
 
 use super::RuntimeState;
 #[cfg(feature = "flutter")]
+use super::window_layout::LayoutResizeEdges;
+#[cfg(feature = "flutter")]
 use super::wire::{WindowGeometry, WindowPlacementChange, WindowPlacementPhase};
 
 const MAX_WINDOW_DIMENSION: i32 = 16_384;
@@ -60,6 +62,32 @@ fn round_to_i32_saturating(value: f64, fallback: i32) -> i32 {
     } else {
         value.round() as i32
     }
+}
+
+fn translated_move_location(
+    initial: Point<i32, Logical>,
+    pointer_start: Point<f64, Logical>,
+    pointer_current: Point<f64, Logical>,
+) -> Option<Point<i32, Logical>> {
+    if !pointer_start.x.is_finite()
+        || !pointer_start.y.is_finite()
+        || !pointer_current.x.is_finite()
+        || !pointer_current.y.is_finite()
+    {
+        return None;
+    }
+    let delta = pointer_current - pointer_start;
+    Some(Point::from((
+        round_to_i32_saturating(f64::from(initial.x) + delta.x, initial.x),
+        round_to_i32_saturating(f64::from(initial.y) + delta.y, initial.y),
+    )))
+}
+
+fn translated_layout_preview_geometry(
+    destination: Point<i32, Logical>,
+    current: Rectangle<i32, Logical>,
+) -> Rectangle<i32, Logical> {
+    Rectangle::new(destination, current.size)
 }
 
 fn anchored_resize_origin(origin: i32, initial_extent: i32, resized_extent: i32) -> i32 {
@@ -275,24 +303,13 @@ impl PointerGrab<RuntimeState> for MoveSurfaceGrab {
             handle.unset_grab(self, data, event.serial, event.time, true);
             return;
         }
-        if !event.location.x.is_finite()
-            || !event.location.y.is_finite()
-            || !self.start_data.location.x.is_finite()
-            || !self.start_data.location.y.is_finite()
-        {
+        let Some(location) = translated_move_location(
+            self.initial_location,
+            self.start_data.location,
+            event.location,
+        ) else {
             return;
-        }
-        let delta = event.location - self.start_data.location;
-        let location = Point::from((
-            round_to_i32_saturating(
-                f64::from(self.initial_location.x) + delta.x,
-                self.initial_location.x,
-            ),
-            round_to_i32_saturating(
-                f64::from(self.initial_location.y) + delta.y,
-                self.initial_location.y,
-            ),
-        ));
+        };
         let geometry = {
             let frontend = data.wayland.as_ref().expect("missing Wayland frontend");
             let current = frontend.window_geometry_target(&self.window);
@@ -353,6 +370,335 @@ impl PointerGrab<RuntimeState> for MoveSurfaceGrab {
                 geometry,
                 WindowPlacementPhase::End,
                 WindowPlacementChange::Move,
+            );
+        }
+        data.scene_sync.mark_dirty();
+    }
+}
+
+/// Compositor-owned SUPER+drag for managed layouts.
+///
+/// The layout leaf remains authoritative while Flutter paints the dragged
+/// window at a translated presentation rectangle. On release the layout
+/// resolves the destination, then Flutter animates from that exact rectangle
+/// to the resulting tile without issuing speculative client configures.
+#[cfg(feature = "flutter")]
+pub(super) struct TileSwapGrab {
+    start_data: GrabStartData<RuntimeState>,
+    window: Window,
+    initial_geometry: Rectangle<i32, Logical>,
+    last_geometry: Rectangle<i32, Logical>,
+    last_pointer_location: Point<f64, Logical>,
+    preview_target: Option<Window>,
+}
+
+#[cfg(feature = "flutter")]
+impl TileSwapGrab {
+    pub(super) fn new(
+        start_data: GrabStartData<RuntimeState>,
+        window: Window,
+        initial_geometry: Rectangle<i32, Logical>,
+    ) -> Self {
+        let last_pointer_location = start_data.location;
+        Self {
+            start_data,
+            window,
+            initial_geometry,
+            last_geometry: initial_geometry,
+            last_pointer_location,
+            preview_target: None,
+        }
+    }
+
+    fn update_preview(&mut self, data: &mut RuntimeState, target: Option<Window>) {
+        let target = target.filter(|target| target != &self.window);
+        if self.preview_target == target {
+            return;
+        }
+        if let Some(previous) = self.preview_target.take()
+            && window_is_mapped(data, &previous)
+        {
+            let geometry = data
+                .wayland
+                .as_ref()
+                .expect("missing Wayland frontend")
+                .window_geometry_target(&previous);
+            super::wayland_frontend::queue_transient_window_placement(
+                data,
+                &previous,
+                geometry,
+                WindowPlacementPhase::End,
+                WindowPlacementChange::LayoutPreview,
+            );
+        }
+        if let Some(target) = target {
+            let geometry = data
+                .wayland
+                .as_ref()
+                .expect("missing Wayland frontend")
+                .window_geometry_target(&target);
+            let preview_geometry =
+                translated_layout_preview_geometry(self.initial_geometry.loc, geometry);
+            super::wayland_frontend::queue_transient_window_placement(
+                data,
+                &target,
+                preview_geometry,
+                WindowPlacementPhase::Begin,
+                WindowPlacementChange::LayoutPreview,
+            );
+            self.preview_target = Some(target);
+        }
+    }
+
+    fn clear_preview(&mut self, data: &mut RuntimeState) {
+        let Some(target) = self.preview_target.take() else {
+            return;
+        };
+        if !window_is_mapped(data, &target) {
+            return;
+        }
+        let geometry = data
+            .wayland
+            .as_ref()
+            .expect("missing Wayland frontend")
+            .window_geometry_target(&target);
+        super::wayland_frontend::queue_transient_window_placement(
+            data,
+            &target,
+            geometry,
+            WindowPlacementPhase::End,
+            WindowPlacementChange::LayoutPreview,
+        );
+    }
+}
+
+#[cfg(feature = "flutter")]
+impl PointerGrab<RuntimeState> for TileSwapGrab {
+    fn motion(
+        &mut self,
+        data: &mut RuntimeState,
+        handle: &mut PointerInnerHandle<'_, RuntimeState>,
+        _focus: Option<(WlSurface, Point<f64, Logical>)>,
+        event: &MotionEvent,
+    ) {
+        handle.motion(data, None, event);
+        let managed = data
+            .wayland
+            .as_ref()
+            .is_some_and(|frontend| frontend.window_is_layout_managed(&self.window));
+        if !managed || !window_is_mapped(data, &self.window) {
+            handle.unset_grab(self, data, event.serial, event.time, true);
+            return;
+        }
+        let Some(location) = translated_move_location(
+            self.initial_geometry.loc,
+            self.start_data.location,
+            event.location,
+        ) else {
+            return;
+        };
+        self.last_pointer_location = event.location;
+        self.last_geometry.loc = location;
+        let drop_location = Point::from((
+            round_to_i32_saturating(event.location.x, self.initial_geometry.loc.x),
+            round_to_i32_saturating(event.location.y, self.initial_geometry.loc.y),
+        ));
+        let target = data
+            .wayland
+            .as_ref()
+            .expect("missing Wayland frontend")
+            .layout_drop_target_at(&self.window, drop_location);
+        self.update_preview(data, target);
+        super::wayland_frontend::queue_transient_window_placement(
+            data,
+            &self.window,
+            self.last_geometry,
+            WindowPlacementPhase::Update,
+            WindowPlacementChange::Move,
+        );
+    }
+
+    fn button(
+        &mut self,
+        data: &mut RuntimeState,
+        handle: &mut PointerInnerHandle<'_, RuntimeState>,
+        event: &ButtonEvent,
+    ) {
+        if event.state == ButtonState::Released
+            && !handle.current_pressed().contains(&self.start_data.button)
+        {
+            handle.unset_grab(self, data, event.serial, event.time, true);
+        }
+    }
+
+    forward_pointer_events!();
+
+    fn start_data(&self) -> &GrabStartData<RuntimeState> {
+        &self.start_data
+    }
+
+    fn unset(&mut self, data: &mut RuntimeState) {
+        if !window_is_mapped(data, &self.window) {
+            self.clear_preview(data);
+            return;
+        }
+        // Publish one exact release sample even when the button-up races the
+        // frame sampler. Dart folds it into the retained translation before
+        // consuming the authoritative layout destination below.
+        super::wayland_frontend::queue_transient_window_placement(
+            data,
+            &self.window,
+            self.last_geometry,
+            WindowPlacementPhase::Update,
+            WindowPlacementChange::Move,
+        );
+        let final_geometry = {
+            let frontend = data.wayland.as_mut().expect("missing Wayland frontend");
+            if frontend.window_is_layout_managed(&self.window) {
+                let location = Point::from((
+                    round_to_i32_saturating(
+                        self.last_pointer_location.x,
+                        self.initial_geometry.loc.x,
+                    ),
+                    round_to_i32_saturating(
+                        self.last_pointer_location.y,
+                        self.initial_geometry.loc.y,
+                    ),
+                ));
+                frontend.apply_layout_drop(&self.window, location);
+            }
+            frontend.window_geometry_target(&self.window)
+        };
+        self.clear_preview(data);
+        super::wayland_frontend::queue_transient_window_placement(
+            data,
+            &self.window,
+            final_geometry,
+            WindowPlacementPhase::End,
+            WindowPlacementChange::Move,
+        );
+        data.scene_sync.mark_dirty();
+    }
+}
+
+/// Compositor-owned SUPER+RMB resize for a managed layout leaf.
+///
+/// The grab publishes every geometry changed by the layout, not only the
+/// window under the pointer. This keeps sibling tiles and client configures in
+/// one interactive transaction when a shared split boundary moves.
+#[cfg(feature = "flutter")]
+pub(super) struct TileResizeGrab {
+    start_data: GrabStartData<RuntimeState>,
+    window: Window,
+    edges: LayoutResizeEdges,
+    last_pointer_location: Point<f64, Logical>,
+    affected_windows: Vec<Window>,
+}
+
+#[cfg(feature = "flutter")]
+impl TileResizeGrab {
+    pub(super) fn new(
+        start_data: GrabStartData<RuntimeState>,
+        window: Window,
+        edges: LayoutResizeEdges,
+    ) -> Self {
+        let last_pointer_location = start_data.location;
+        Self {
+            start_data,
+            affected_windows: vec![window.clone()],
+            window,
+            edges,
+            last_pointer_location,
+        }
+    }
+}
+
+#[cfg(feature = "flutter")]
+impl PointerGrab<RuntimeState> for TileResizeGrab {
+    fn motion(
+        &mut self,
+        data: &mut RuntimeState,
+        handle: &mut PointerInnerHandle<'_, RuntimeState>,
+        _focus: Option<(WlSurface, Point<f64, Logical>)>,
+        event: &MotionEvent,
+    ) {
+        handle.motion(data, None, event);
+        let managed = data
+            .wayland
+            .as_ref()
+            .is_some_and(|frontend| frontend.window_is_layout_managed(&self.window));
+        if !managed || !window_is_mapped(data, &self.window) {
+            handle.unset_grab(self, data, event.serial, event.time, true);
+            return;
+        }
+        if !event.location.x.is_finite()
+            || !event.location.y.is_finite()
+            || !self.last_pointer_location.x.is_finite()
+            || !self.last_pointer_location.y.is_finite()
+        {
+            return;
+        }
+        let delta = event.location - self.last_pointer_location;
+        self.last_pointer_location = event.location;
+        let changed = data
+            .wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .resize_layout_window(&self.window, self.edges, delta.x, delta.y);
+        for (window, geometry) in changed {
+            if !self
+                .affected_windows
+                .iter()
+                .any(|candidate| candidate == &window)
+            {
+                self.affected_windows.push(window.clone());
+            }
+            super::wayland_frontend::queue_transient_window_placement(
+                data,
+                &window,
+                geometry,
+                WindowPlacementPhase::Update,
+                WindowPlacementChange::Resize,
+            );
+        }
+        data.scene_sync.mark_dirty();
+    }
+
+    fn button(
+        &mut self,
+        data: &mut RuntimeState,
+        handle: &mut PointerInnerHandle<'_, RuntimeState>,
+        event: &ButtonEvent,
+    ) {
+        if event.state == ButtonState::Released
+            && !handle.current_pressed().contains(&self.start_data.button)
+        {
+            handle.unset_grab(self, data, event.serial, event.time, true);
+        }
+    }
+
+    forward_pointer_events!();
+
+    fn start_data(&self) -> &GrabStartData<RuntimeState> {
+        &self.start_data
+    }
+
+    fn unset(&mut self, data: &mut RuntimeState) {
+        for window in self.affected_windows.clone() {
+            if !window_is_mapped(data, &window) {
+                continue;
+            }
+            let geometry = data
+                .wayland
+                .as_ref()
+                .expect("missing Wayland frontend")
+                .window_geometry_target(&window);
+            super::wayland_frontend::queue_transient_window_placement(
+                data,
+                &window,
+                geometry,
+                WindowPlacementPhase::End,
+                WindowPlacementChange::Resize,
             );
         }
         data.scene_sync.mark_dirty();
@@ -965,5 +1311,34 @@ impl PointerGrab<RuntimeState> for X11ResizeSurfaceGrab {
             );
         }
         data.scene_sync.mark_dirty();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn translated_move_location_preserves_pointer_offset_and_rejects_non_finite_input() {
+        let initial = Point::<i32, Logical>::from((100, 200));
+        let start = Point::<f64, Logical>::from((320.25, 180.75));
+        assert_eq!(
+            translated_move_location(initial, start, Point::from((400.75, 151.25))),
+            Some(Point::from((181, 171)))
+        );
+        assert_eq!(
+            translated_move_location(initial, start, Point::from((f64::NAN, 151.25))),
+            None
+        );
+    }
+
+    #[test]
+    fn layout_preview_translates_without_resizing_the_displaced_window() {
+        let current = Rectangle::<i32, Logical>::new((640, 80).into(), (480, 720).into());
+
+        assert_eq!(
+            translated_layout_preview_geometry(Point::from((40, 120)), current),
+            Rectangle::new((40, 120).into(), (480, 720).into()),
+        );
     }
 }

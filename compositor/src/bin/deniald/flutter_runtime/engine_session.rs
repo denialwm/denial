@@ -153,7 +153,7 @@ impl FlutterRuntime {
             pending_audio_requests: VecDeque::with_capacity(16),
             pending_brightness_requests: VecDeque::with_capacity(16),
             pending_ui_development_commands: VecDeque::with_capacity(8),
-            pending_idle_dpms_timeout: None,
+            pending_idle_policy: None,
             pending_dpms_off: false,
             pending_vm_service_uri: None,
             generation,

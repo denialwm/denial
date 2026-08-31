@@ -138,10 +138,13 @@ class _ShellRuntimeBindingsState extends ConsumerState<ShellRuntimeBindings> {
       }
       ref
           .read(denialBridgeProvider)
-          .setIdleDpmsTimeout(
-            power.idleDpmsEnabled
-                ? Duration(minutes: power.idleDpmsTimeoutMinutes)
-                : null,
+          .setIdlePolicy(
+            lockEnabled: power.idleLockEnabled,
+            lockTimeout: Duration(minutes: power.idleLockTimeoutMinutes),
+            dpmsEnabled: power.idleDpmsEnabled,
+            dpmsTimeout: Duration(minutes: power.idleDpmsTimeoutMinutes),
+            suspendEnabled: power.idleSuspendEnabled,
+            suspendTimeout: Duration(minutes: power.idleSuspendTimeoutMinutes),
           );
     });
   }

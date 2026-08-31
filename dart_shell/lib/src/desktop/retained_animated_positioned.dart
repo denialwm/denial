@@ -13,6 +13,7 @@ class RetainedAnimatedPositioned extends ImplicitlyAnimatedWidget {
     required this.rect,
     required this.child,
     this.layoutRect,
+    this.animationOrigin,
     this.layoutDuringAnimation = false,
     required super.duration,
     super.curve,
@@ -23,6 +24,13 @@ class RetainedAnimatedPositioned extends ImplicitlyAnimatedWidget {
   final Rect rect;
   final Widget child;
   final Rect? layoutRect;
+
+  /// Overrides the visual begin rectangle when [rect] changes.
+  ///
+  /// This is useful when a retained child had a temporary paint transform:
+  /// the transform can be removed while its absolute visual rectangle becomes
+  /// the position tween's origin, avoiding a one-frame snap.
+  final Rect? animationOrigin;
   final bool layoutDuringAnimation;
 
   @override
@@ -33,6 +41,18 @@ class RetainedAnimatedPositioned extends ImplicitlyAnimatedWidget {
 class _RetainedAnimatedPositionedState
     extends AnimatedWidgetBaseState<RetainedAnimatedPositioned> {
   RectTween? _rect;
+
+  @override
+  void didUpdateWidget(covariant RetainedAnimatedPositioned oldWidget) {
+    final origin = widget.animationOrigin;
+    if (origin != null && origin != oldWidget.animationOrigin) {
+      // Make the presentation origin the tween's current value. This also
+      // starts a return animation when the authoritative destination equals
+      // the pre-drag rectangle.
+      _rect = RectTween(begin: origin, end: origin);
+    }
+    super.didUpdateWidget(oldWidget);
+  }
 
   @override
   void forEachTween(TweenVisitor<dynamic> visitor) {

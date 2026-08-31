@@ -809,6 +809,7 @@ impl CompositorHandler for RuntimeState {
                 // immediately before the first configure. Normal toplevels
                 // retain only Denial's location intent and receive a zero-size
                 // configure so the client can reveal its own dimensions.
+                frontend.reconcile_window_layout(&window);
                 let restored = frontend.restore_xdg_window_placement(&window);
                 #[cfg(feature = "flutter")]
                 if let Some((restored, target)) = restored {
@@ -1285,6 +1286,7 @@ impl XdgShellHandler for RuntimeState {
             let location = initial_toplevel_location(frontend.fallback_output_geometry(), offset);
             frontend.space.map_element(window.clone(), location, true);
             frontend.update_window_output_membership(&window);
+            frontend.remember_layout_insertion_anchor(&window);
             for candidate in frontend.space.elements() {
                 let changed = candidate.set_activated(candidate == &window);
                 if changed && let Some(toplevel) = candidate.toplevel() {
@@ -1387,6 +1389,15 @@ impl XdgShellHandler for RuntimeState {
         let Some(window) = window else {
             return;
         };
+        if self
+            .wayland
+            .as_ref()
+            .expect("missing Wayland frontend")
+            .window_is_layout_managed(&window)
+        {
+            warn!("ignored XDG move for a layout-managed toplevel");
+            return;
+        }
         let initial_location = self
             .wayland
             .as_ref()
@@ -1468,6 +1479,15 @@ impl XdgShellHandler for RuntimeState {
         let Some(window) = window else {
             return;
         };
+        if self
+            .wayland
+            .as_ref()
+            .expect("missing Wayland frontend")
+            .window_is_layout_managed(&window)
+        {
+            warn!("ignored XDG resize for a layout-managed toplevel");
+            return;
+        }
         let (initial_location, initial_size) = {
             let frontend = self.wayland.as_ref().expect("missing Wayland frontend");
             (
@@ -1513,6 +1533,24 @@ impl XdgShellHandler for RuntimeState {
 
     fn maximize_request(&mut self, surface: ToplevelSurface) {
         if reassert_exact_toplevel_geometry(self, &surface) {
+            return;
+        }
+        let layout_managed = self
+            .wayland
+            .as_ref()
+            .and_then(|frontend| frontend.window_for_root_surface(surface.wl_surface()))
+            .is_some_and(|window| {
+                self.wayland
+                    .as_ref()
+                    .expect("missing Wayland frontend")
+                    .window_is_layout_managed(&window)
+            });
+        if layout_managed {
+            self.wayland
+                .as_mut()
+                .expect("missing Wayland frontend")
+                .arrange_layout_windows();
+            self.scene_sync.mark_dirty();
             return;
         }
         self.wayland
@@ -1624,6 +1662,10 @@ impl XdgShellHandler for RuntimeState {
                 _surface.send_pending_configure();
             }
             if let Some(window) = window.as_ref() {
+                self.wayland
+                    .as_mut()
+                    .expect("missing Wayland frontend")
+                    .remove_window_from_layout(window, false);
                 release_window_focus(self, window);
             }
             queue_window_action(self, &_surface, WindowAction::Minimize);
@@ -1726,6 +1768,9 @@ impl XdgShellHandler for RuntimeState {
         // after Space has already lost the window.
         {
             let frontend = self.wayland.as_mut().expect("missing Wayland frontend");
+            if let Some(window) = window.as_ref() {
+                frontend.remove_window_from_layout(window, true);
+            }
             frontend.remove_surface_state(surface.wl_surface(), false);
             if let Some(window) = window {
                 frontend.space.unmap_elem(&window);

@@ -115,6 +115,7 @@ use super::window_grab::{
     MoveSurfaceGrab, ResizeEdges, ResizeSurfaceGrab, X11ResizeSurfaceGrab, checked_pointer_grab,
     constrain_dimension,
 };
+use super::window_layout::{WindowLayout, create_window_layout};
 use super::window_placement_store::{
     RestoredWindowPlacement, WindowIdentity, WindowPlacementState, WindowPlacementStore,
     default_state_path,
@@ -171,6 +172,8 @@ mod topology;
 #[cfg(feature = "flutter")]
 #[path = "wayland_frontend/touch_gestures.rs"]
 mod touch_gestures;
+#[path = "wayland_frontend/window_layout.rs"]
+mod window_layout_adapter;
 #[path = "wayland_frontend/window_management.rs"]
 mod window_management;
 #[path = "wayland_frontend/window_state.rs"]
@@ -190,7 +193,9 @@ use idle_inhibit::IdleInhibitors;
 use input::{ClientInputRoute, RoutedPointerTarget};
 pub(super) use input::{init_libinput, reset_all_input_devices};
 #[cfg(feature = "flutter")]
-pub(super) use input::{install_keyboard_settings, install_touchpad_settings};
+pub(super) use input::{
+    install_keyboard_settings, install_mouse_settings, install_touchpad_settings,
+};
 #[cfg(feature = "flutter")]
 use input_method::EditorEndpoint;
 use input_method::InputMethodManager;
@@ -206,7 +211,8 @@ use topology::{
 use window_management::toplevel_has_state;
 #[cfg(feature = "flutter")]
 pub(super) use window_management::{
-    apply_window_commands, queue_local_flutter_window_placement, queue_window_placement,
+    apply_window_commands, queue_local_flutter_window_placement, queue_transient_window_placement,
+    queue_window_placement,
 };
 #[cfg(feature = "flutter")]
 use window_management::{
@@ -428,6 +434,9 @@ pub(super) struct WaylandFrontend {
     configured_window_geometries: HashMap<ObjectId, Rectangle<i32, Logical>>,
     exact_window_geometries: HashMap<ObjectId, Rectangle<i32, Logical>>,
     restore_window_geometries: HashMap<ObjectId, Rectangle<i32, Logical>>,
+    window_layout: Box<dyn WindowLayout<ObjectId>>,
+    layout_restore_geometries: HashMap<ObjectId, Rectangle<i32, Logical>>,
+    layout_insertion_anchors: HashMap<ObjectId, ObjectId>,
     #[cfg(feature = "flutter")]
     shell_maximize_restore_geometries: HashMap<ObjectId, Rectangle<i32, Logical>>,
     #[cfg(feature = "flutter")]

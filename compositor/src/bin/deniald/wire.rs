@@ -20,7 +20,7 @@ use super::notification_server::{
     Notification, NotificationEvent, NotificationEventKind, NotificationUrgency,
 };
 use super::options::{SystemBarOptions, SystemBarSide, WorkAreaOptions};
-use super::settings::{KeyboardLayout, KeyboardSettings, TouchpadSettings};
+use super::settings::{KeyboardLayout, KeyboardSettings, MouseSettings, TouchpadSettings};
 use super::xembed_tray::{
     XEmbedTrayAction, XEmbedTrayCommand, XEmbedTrayEvent, XEmbedTrayEventKind,
 };
@@ -120,6 +120,7 @@ pub enum WindowCommand {
         window_id: u64,
         geometry: WindowGeometry,
         exact: bool,
+        layout_drop: bool,
     },
 }
 
@@ -193,6 +194,11 @@ pub enum SettingsCommand {
         request_id: u64,
         expected_revision: u64,
         touchpad: TouchpadSettings,
+    },
+    ConfigureMouse {
+        request_id: u64,
+        expected_revision: u64,
+        mouse: MouseSettings,
     },
 }
 
@@ -287,6 +293,8 @@ pub enum WindowPlacementPhase {
 pub enum WindowPlacementChange {
     Move = 0,
     Resize = 1,
+    /// Presentation-only displacement used while previewing a layout drop.
+    LayoutPreview = 2,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

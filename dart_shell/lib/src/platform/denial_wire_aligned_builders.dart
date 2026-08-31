@@ -244,6 +244,14 @@ generated.ShortcutActionKind _shortcutActionToWire(
       generated.ShortcutActionKind.PreviousKeyboardLayout,
     DenialShortcutAction.openSettings =>
       generated.ShortcutActionKind.OpenSettings,
+    DenialShortcutAction.focusLeft => generated.ShortcutActionKind.FocusLeft,
+    DenialShortcutAction.focusRight => generated.ShortcutActionKind.FocusRight,
+    DenialShortcutAction.focusUp => generated.ShortcutActionKind.FocusUp,
+    DenialShortcutAction.focusDown => generated.ShortcutActionKind.FocusDown,
+    DenialShortcutAction.swapLeft => generated.ShortcutActionKind.SwapLeft,
+    DenialShortcutAction.swapRight => generated.ShortcutActionKind.SwapRight,
+    DenialShortcutAction.swapUp => generated.ShortcutActionKind.SwapUp,
+    DenialShortcutAction.swapDown => generated.ShortcutActionKind.SwapDown,
   };
 }
 
@@ -292,6 +300,14 @@ DenialShortcutAction _shortcutActionFromWire(
       DenialShortcutAction.previousKeyboardLayout,
     generated.ShortcutActionKind.OpenSettings =>
       DenialShortcutAction.openSettings,
+    generated.ShortcutActionKind.FocusLeft => DenialShortcutAction.focusLeft,
+    generated.ShortcutActionKind.FocusRight => DenialShortcutAction.focusRight,
+    generated.ShortcutActionKind.FocusUp => DenialShortcutAction.focusUp,
+    generated.ShortcutActionKind.FocusDown => DenialShortcutAction.focusDown,
+    generated.ShortcutActionKind.SwapLeft => DenialShortcutAction.swapLeft,
+    generated.ShortcutActionKind.SwapRight => DenialShortcutAction.swapRight,
+    generated.ShortcutActionKind.SwapUp => DenialShortcutAction.swapUp,
+    generated.ShortcutActionKind.SwapDown => DenialShortcutAction.swapDown,
   };
 }
 

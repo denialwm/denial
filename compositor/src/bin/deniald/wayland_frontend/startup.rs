@@ -57,6 +57,7 @@ impl WaylandFrontend {
         let data_device_state = DataDeviceState::new::<RuntimeState>(&display_handle);
         let mut seat_state = SeatState::new();
         let mut seat = seat_state.new_wl_seat(&display_handle, "seat0");
+        let window_layout_kind = settings.window_layout_kind();
         let keyboard = settings.keyboard();
         let keyboard_layout_names = keyboard.compiled_layout_names()?;
         let xkb_names = keyboard.xkb_names();
@@ -415,6 +416,9 @@ impl WaylandFrontend {
             configured_window_geometries: HashMap::new(),
             exact_window_geometries: HashMap::new(),
             restore_window_geometries: HashMap::new(),
+            window_layout: create_window_layout(window_layout_kind),
+            layout_restore_geometries: HashMap::new(),
+            layout_insertion_anchors: HashMap::new(),
             #[cfg(feature = "flutter")]
             shell_maximize_restore_geometries: HashMap::new(),
             #[cfg(feature = "flutter")]

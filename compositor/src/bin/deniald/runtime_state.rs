@@ -67,6 +67,8 @@ pub(super) struct RuntimeState {
     pub(super) touchpad_gestures: touchpad_gestures::TouchpadGestureRecognizer,
     pub(super) keyboard_devices: BTreeMap<String, smithay::reexports::input::Device>,
     #[cfg(feature = "flutter")]
+    pub(super) mouse_devices: BTreeMap<String, smithay::reexports::input::Device>,
+    #[cfg(feature = "flutter")]
     pub(super) touchpad_devices: BTreeMap<String, smithay::reexports::input::Device>,
     #[cfg(feature = "flutter")]
     pub(super) input_device_capabilities_changed: bool,
@@ -116,7 +118,7 @@ pub(super) struct RuntimeState {
     pub(super) dpms_topology: dpms::DpmsTopologyGuard,
     pub(super) pending_ui_development: VecDeque<PendingUiDevelopment>,
     #[cfg(feature = "flutter")]
-    pub(super) idle_dpms: idle_policy::IdleDpmsPolicy,
+    pub(super) idle_policy: idle_policy::IdlePolicy,
 }
 
 #[cfg(feature = "flutter")]
@@ -198,7 +200,7 @@ impl RuntimeState {
     }
 
     pub(super) fn note_user_activity(&mut self) {
-        let requests = self.idle_dpms.note_activity(Instant::now());
+        let requests = self.idle_policy.note_activity(Instant::now());
         self.queue_idle_power_requests(requests);
     }
 

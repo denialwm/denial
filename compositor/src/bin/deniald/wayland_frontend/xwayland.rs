@@ -338,8 +338,7 @@ fn map_x11_window(state: &mut RuntimeState, surface: X11Surface, override_redire
                 initial_managed_x11_geometry(geometry, output, transient_parent.unwrap_or(output));
             let identity = WindowIdentity::x11(&surface.class());
             let restored = identity.and_then(|identity| {
-                transient_parent
-                    .is_none()
+                (transient_parent.is_none() && !frontend.window_layout_manages_geometry())
                     .then(|| frontend.restored_placement_for_identity(&identity, output))
                     .flatten()
                     .map(|restored| (identity, restored))
@@ -411,6 +410,11 @@ fn map_x11_window(state: &mut RuntimeState, surface: X11Surface, override_redire
             .as_mut()
             .expect("missing Wayland frontend")
             .set_window_geometry_target(&window, configured);
+        state
+            .wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .reconcile_window_layout(&window);
         #[cfg(feature = "flutter")]
         if let Some((_, restored)) = restored_record {
             queue_restored_window_state(state, &window, restored, configured);
@@ -470,7 +474,11 @@ fn unmap_x11_window(state: &mut RuntimeState, surface: &X11Surface) {
         let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
         #[cfg(feature = "flutter")]
         frontend.invalidate_window_input_routes(&window);
-        frontend.remember_window_placement(&window);
+        let was_layout_managed = frontend.window_is_layout_managed(&window);
+        frontend.remove_window_from_layout(&window, true);
+        if !was_layout_managed {
+            frontend.remember_window_placement(&window);
+        }
         #[cfg(feature = "flutter")]
         if let Some(root) = frontend.window_root_surface(&window) {
             frontend.remove_window_output_membership(&root);
@@ -630,6 +638,7 @@ impl XWaylandShellHandler for RuntimeState {
             // associated. The initial map cannot index a root surface in that
             // ordering, so finish the one-time membership update here.
             frontend.update_window_output_membership(&window);
+            frontend.reconcile_window_layout(&window);
         }
         #[cfg(feature = "flutter")]
         let focused = matches!(
@@ -732,7 +741,13 @@ impl XwmHandler for RuntimeState {
                     .window_geometry_target(element)
             },
         );
-        if shell_geometry_locked {
+        let layout_managed = element.as_ref().is_some_and(|element| {
+            self.wayland
+                .as_ref()
+                .expect("missing Wayland frontend")
+                .window_is_layout_managed(element)
+        });
+        if shell_geometry_locked || layout_managed {
             if let Some(element) = element {
                 self.wayland
                     .as_mut()
@@ -803,13 +818,38 @@ impl XwmHandler for RuntimeState {
         self.scene_sync.mark_dirty();
     }
 
-    fn property_notify(&mut self, _xwm: XwmId, _window: X11Surface, _property: WmWindowProperty) {
+    fn property_notify(&mut self, _xwm: XwmId, window: X11Surface, property: WmWindowProperty) {
+        if matches!(
+            property,
+            WmWindowProperty::NormalHints
+                | WmWindowProperty::TransientFor
+                | WmWindowProperty::WindowType
+        ) && let Some(element) = window_for_x11(self, &window)
+        {
+            self.wayland
+                .as_mut()
+                .expect("missing Wayland frontend")
+                .reconcile_window_layout(&element);
+        }
         self.scene_sync.mark_dirty();
     }
 
     fn maximize_request(&mut self, _xwm: XwmId, window: X11Surface) {
         #[cfg(feature = "flutter")]
         if reassert_exact_x11_geometry(self, &window) {
+            return;
+        }
+        if window_for_x11(self, &window).is_some_and(|element| {
+            self.wayland
+                .as_ref()
+                .expect("missing Wayland frontend")
+                .window_is_layout_managed(&element)
+        }) {
+            self.wayland
+                .as_mut()
+                .expect("missing Wayland frontend")
+                .arrange_layout_windows();
+            self.scene_sync.mark_dirty();
             return;
         }
         #[cfg(feature = "flutter")]
@@ -859,6 +899,10 @@ impl XwmHandler for RuntimeState {
             return;
         }
         configure_x11_for_output(self, &window, false, false);
+        self.wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .arrange_layout_windows();
         #[cfg(feature = "flutter")]
         if !shell_geometry_locked {
             queue_x11_action(self, &window, WindowAction::Restore);
@@ -917,6 +961,10 @@ impl XwmHandler for RuntimeState {
             return;
         }
         configure_x11_for_output(self, &window, false, false);
+        self.wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .arrange_layout_windows();
         #[cfg(feature = "flutter")]
         if !shell_geometry_locked {
             queue_x11_action(self, &window, WindowAction::ToggleFullscreen);
@@ -935,6 +983,10 @@ impl XwmHandler for RuntimeState {
         }
         #[cfg(feature = "flutter")]
         if let Some(window) = window.as_ref() {
+            self.wayland
+                .as_mut()
+                .expect("missing Wayland frontend")
+                .remove_window_from_layout(window, false);
             release_window_focus(self, window);
         }
         #[cfg(feature = "flutter")]
@@ -952,6 +1004,12 @@ impl XwmHandler for RuntimeState {
                 .as_mut()
                 .expect("missing Wayland frontend")
                 .set_surface_minimized(root.id(), false);
+        }
+        if let Some(element) = window_for_x11(self, &window) {
+            self.wayland
+                .as_mut()
+                .expect("missing Wayland frontend")
+                .reconcile_window_layout(&element);
         }
         #[cfg(feature = "flutter")]
         queue_x11_action(self, &window, WindowAction::Restore);
@@ -983,6 +1041,14 @@ impl XwmHandler for RuntimeState {
         let Some(element) = window_for_x11(self, &window) else {
             return;
         };
+        if self
+            .wayland
+            .as_ref()
+            .expect("missing Wayland frontend")
+            .window_is_layout_managed(&element)
+        {
+            return;
+        }
         let geometry = self
             .wayland
             .as_ref()
@@ -1027,6 +1093,14 @@ impl XwmHandler for RuntimeState {
         let Some(element) = window_for_x11(self, &window) else {
             return;
         };
+        if self
+            .wayland
+            .as_ref()
+            .expect("missing Wayland frontend")
+            .window_is_layout_managed(&element)
+        {
+            return;
+        }
         let initial_location = self
             .wayland
             .as_ref()

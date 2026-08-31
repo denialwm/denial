@@ -31,7 +31,7 @@ use super::ui_development::{
 };
 use super::{
     native_shortcut::ShortcutBinding,
-    settings::{KeyboardSettings, TouchpadSettings},
+    settings::{KeyboardSettings, MouseSettings, TouchpadSettings},
     system_controls::{AudioRequest, BrightnessRequest},
 };
 
@@ -505,6 +505,10 @@ pub(super) enum SettingsControlCommand {
         expected_revision: u64,
         touchpad: TouchpadSettings,
     },
+    WriteMouse {
+        expected_revision: u64,
+        mouse: MouseSettings,
+    },
     ReadShortcuts,
     ValidateShortcut {
         shortcut: ShortcutBinding,
@@ -646,6 +650,13 @@ struct KeyboardWriteParams {
 struct TouchpadWriteParams {
     expected_revision: u64,
     touchpad: TouchpadSettings,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MouseWriteParams {
+    expected_revision: u64,
+    mouse: MouseSettings,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1177,6 +1188,31 @@ fn handle_connection(
                 SettingsControlCommand::WriteTouchpad {
                     expected_revision: parameters.expected_revision,
                     touchpad: parameters.touchpad,
+                },
+                events,
+            )
+        }
+        "settings.mouse.apply" => {
+            let parameters =
+                match parse_settings_params::<MouseWriteParams>(request.id, request.params) {
+                    Ok(parameters) if parameters.expected_revision != 0 => parameters,
+                    Ok(_) => {
+                        return write_response(
+                            &mut stream,
+                            &error_response(
+                                Some(request.id),
+                                "invalid_params",
+                                "settings revision must be nonzero",
+                            ),
+                        );
+                    }
+                    Err(response) => return write_response(&mut stream, &response),
+                };
+            queue_settings(
+                request.id,
+                SettingsControlCommand::WriteMouse {
+                    expected_revision: parameters.expected_revision,
+                    mouse: parameters.mouse,
                 },
                 events,
             )

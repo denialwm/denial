@@ -11,6 +11,7 @@ import 'settings_controls.dart';
 const settingsTapToClickToggleKey = Key('settings-touchpad-tap-to-click');
 const settingsNaturalScrollToggleKey = Key('settings-touchpad-natural-scroll');
 const settingsScrollSpeedSliderKey = Key('settings-touchpad-scroll-speed');
+const settingsMouseSpeedSliderKey = Key('settings-mouse-speed');
 
 class SettingsTouchpadPage extends ConsumerStatefulWidget {
   const SettingsTouchpadPage({super.key});
@@ -21,6 +22,8 @@ class SettingsTouchpadPage extends ConsumerStatefulWidget {
 }
 
 class _SettingsTouchpadPageState extends ConsumerState<SettingsTouchpadPage> {
+  double? _draftMouseSpeed;
+  var _changingMouseSpeed = false;
   double? _draftScrollSpeedFactor;
   var _changingScrollSpeed = false;
 
@@ -30,12 +33,16 @@ class _SettingsTouchpadPageState extends ConsumerState<SettingsTouchpadPage> {
     final state = ref.watch(inputDeviceCapabilitiesProvider);
     final controller = ref.read(inputDeviceCapabilitiesProvider.notifier);
     final capabilities = state.capabilities;
-    final controlsEnabled = capabilities.hasTouchpad && !state.busy;
+    final mouseControlsEnabled = capabilities.hasMouse && !state.busy;
+    final touchpadControlsEnabled = capabilities.hasTouchpad && !state.busy;
+    final mouseSpeed = _changingMouseSpeed || state.busy
+        ? _draftMouseSpeed ?? capabilities.mouseSpeed
+        : capabilities.mouseSpeed;
     final scrollSpeedFactor = _changingScrollSpeed || state.busy
         ? _draftScrollSpeedFactor ?? capabilities.scrollSpeedFactor
         : capabilities.scrollSpeedFactor;
     return SettingsPageLayout(
-      icon: Icons.touch_app_rounded,
+      icon: Icons.mouse_rounded,
       eyebrow: l10n.settingsTouchpadSection,
       title: l10n.settingsTouchpadTitle,
       children: [
@@ -43,12 +50,40 @@ class _SettingsTouchpadPageState extends ConsumerState<SettingsTouchpadPage> {
           children: [
             Padding(
               padding: const EdgeInsets.all(16),
+              child: SettingsSlider(
+                key: settingsMouseSpeedSliderKey,
+                label: l10n.settingsMousePointerSpeed,
+                value: mouseSpeed,
+                minimum: mouseSpeedMinimum,
+                maximum: mouseSpeedMaximum,
+                divisions: 40,
+                valueLabel: l10n.settingsPercent((mouseSpeed * 100).round()),
+                enabled: mouseControlsEnabled,
+                onChangeStart: (value) => setState(() {
+                  _changingMouseSpeed = true;
+                  _draftMouseSpeed = _normalizedMouseSpeed(value);
+                }),
+                onChanged: (value) => setState(
+                  () => _draftMouseSpeed = _normalizedMouseSpeed(value),
+                ),
+                onChangeEnd: (value) {
+                  final speed = _normalizedMouseSpeed(value);
+                  setState(() {
+                    _changingMouseSpeed = false;
+                    _draftMouseSpeed = speed;
+                  });
+                  controller.setMouseSpeed(speed);
+                },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
               child: SettingsToggle(
                 key: settingsTapToClickToggleKey,
                 label: l10n.settingsTouchpadTapToClick,
                 description: l10n.settingsTouchpadTapToClickDescription,
                 value: capabilities.tapToClickEnabled,
-                enabled: controlsEnabled,
+                enabled: touchpadControlsEnabled,
                 onChanged: controller.setTapToClick,
               ),
             ),
@@ -62,7 +97,7 @@ class _SettingsTouchpadPageState extends ConsumerState<SettingsTouchpadPage> {
                 maximum: touchpadScrollSpeedFactorMaximum,
                 divisions: 99,
                 valueLabel: '${scrollSpeedFactor.toStringAsFixed(2)}×',
-                enabled: controlsEnabled,
+                enabled: touchpadControlsEnabled,
                 onChangeStart: (value) => setState(() {
                   _changingScrollSpeed = true;
                   _draftScrollSpeedFactor = _normalizedFactor(value);
@@ -87,7 +122,7 @@ class _SettingsTouchpadPageState extends ConsumerState<SettingsTouchpadPage> {
                 label: l10n.settingsTouchpadNaturalScroll,
                 description: l10n.settingsTouchpadNaturalScrollDescription,
                 value: capabilities.naturalScrollEnabled,
-                enabled: controlsEnabled,
+                enabled: touchpadControlsEnabled,
                 onChanged: controller.setNaturalScroll,
               ),
             ),
@@ -106,6 +141,10 @@ class _SettingsTouchpadPageState extends ConsumerState<SettingsTouchpadPage> {
       ],
     );
   }
+
+  double _normalizedMouseSpeed(double value) => ((value * 20).round() / 20)
+      .clamp(mouseSpeedMinimum, mouseSpeedMaximum)
+      .toDouble();
 
   double _normalizedFactor(double value) => ((value * 20).round() / 20)
       .clamp(touchpadScrollSpeedFactorMinimum, touchpadScrollSpeedFactorMaximum)

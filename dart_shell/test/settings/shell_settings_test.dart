@@ -8,6 +8,20 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'idle policy defaults lock and display off on while suspend stays off',
+    () {
+      const power = ShellPowerSettings();
+
+      expect(power.idleLockEnabled, isTrue);
+      expect(power.idleLockTimeoutMinutes, 5);
+      expect(power.idleDpmsEnabled, isTrue);
+      expect(power.idleDpmsTimeoutMinutes, 10);
+      expect(power.idleSuspendEnabled, isFalse);
+      expect(power.idleSuspendTimeoutMinutes, 30);
+    },
+  );
+
   test('the complete settings document survives a JSON round trip', () {
     const settings = ShellSettings(
       localization: ShellLocalizationSettings(
@@ -30,10 +44,12 @@ void main() {
         allowClientCursorSurfaces: false,
       ),
       layout: ShellLayoutSettings(
+        windowLayout: DesktopWindowLayout.dwindle,
         systemBarSide: SystemBarSide.right,
         systemBarOutputNames: <String>['DP-1', 'HDMI-A-1'],
         systemBarThickness: 46,
         maximizePadding: 18,
+        minimizedWindowPlacement: MinimizedWindowPlacement.offscreen,
         clipboardTrayEdge: ClipboardTrayEdge.bottom,
         clipboardTrayExtent: 288,
       ),
@@ -58,8 +74,12 @@ void main() {
         showSystemStatus: false,
       ),
       power: ShellPowerSettings(
+        idleLockEnabled: false,
+        idleLockTimeoutMinutes: 13,
         idleDpmsEnabled: false,
         idleDpmsTimeoutMinutes: 47,
+        idleSuspendEnabled: true,
+        idleSuspendTimeoutMinutes: 72,
       ),
       applicationEnvironment: ShellApplicationEnvironmentSettings(
         variables: <String, String?>{
@@ -76,6 +96,40 @@ void main() {
 
     expect(ShellSettings.fromJson(settings.toJson()), settings);
     expect(settings.toJson()['version'], ShellSettings.schemaVersion);
+  });
+
+  test('window layout persists and produces a typed patch', () {
+    const previous = ShellSettings();
+    final next = previous.copyWith(
+      layout: previous.layout.copyWith(
+        windowLayout: DesktopWindowLayout.dwindle,
+      ),
+    );
+
+    expect(
+      ShellSettings.fromJson(next.toJson()).layout.windowLayout,
+      DesktopWindowLayout.dwindle,
+    );
+    expect(next.differenceFrom(previous), <String, Object?>{
+      'layout': <String, Object?>{'windowLayout': 'dwindle'},
+    });
+  });
+
+  test('minimized window placement persists and produces a typed patch', () {
+    const previous = ShellSettings();
+    final next = previous.copyWith(
+      layout: previous.layout.copyWith(
+        minimizedWindowPlacement: MinimizedWindowPlacement.offscreen,
+      ),
+    );
+
+    expect(
+      ShellSettings.fromJson(next.toJson()).layout.minimizedWindowPlacement,
+      MinimizedWindowPlacement.offscreen,
+    );
+    expect(next.differenceFrom(previous), <String, Object?>{
+      'layout': <String, Object?>{'minimizedWindowPlacement': 'offscreen'},
+    });
   });
 
   test('typed settings patches preserve cursor authority changes', () {
@@ -110,15 +164,21 @@ void main() {
         'allowClientCursorSurfaces': 'sometimes',
       },
       'layout': <String, dynamic>{
+        'windowLayout': 'future-layout',
         'systemBarSide': 'diagonal',
         'systemBarOutputs': <Object?>[' DP-1 ', 42, ''],
         'systemBarThickness': double.nan,
         'maximizePadding': -20,
+        'minimizedWindowPlacement': 'somewhere-else',
         'clipboardTrayExtent': 5000,
       },
       'power': <String, dynamic>{
+        'idleLockEnabled': 'sometimes',
+        'idleLockTimeoutMinutes': 900,
         'idleDpmsEnabled': 'sometimes',
         'idleDpmsTimeoutMinutes': 900,
+        'idleSuspendEnabled': 'sometimes',
+        'idleSuspendTimeoutMinutes': 2,
       },
     });
 
@@ -129,13 +189,36 @@ void main() {
     expect(settings.appearance.cursorSize, shellCursorMaximumSize);
     expect(settings.appearance.cursorThemeId, 'bibata_modern_ice');
     expect(settings.appearance.allowClientCursorSurfaces, isTrue);
+    expect(settings.layout.windowLayout, DesktopWindowLayout.stacking);
     expect(settings.layout.systemBarSide, isNull);
     expect(settings.layout.systemBarOutputNames, <String>['DP-1']);
     expect(settings.layout.systemBarThickness, 32);
     expect(settings.layout.maximizePadding, 0);
+    expect(
+      settings.layout.minimizedWindowPlacement,
+      MinimizedWindowPlacement.desktop,
+    );
     expect(settings.layout.clipboardTrayExtent, clipboardTrayMaximumExtent);
+    expect(settings.power.idleLockEnabled, isTrue);
+    expect(settings.power.idleLockTimeoutMinutes, 120);
     expect(settings.power.idleDpmsEnabled, isTrue);
     expect(settings.power.idleDpmsTimeoutMinutes, 120);
+    expect(settings.power.idleSuspendEnabled, isFalse);
+    expect(settings.power.idleSuspendTimeoutMinutes, 120);
+  });
+
+  test('idle timeout ordering is repaired without shortening display off', () {
+    final settings = ShellSettings.fromJson(<String, dynamic>{
+      'power': <String, dynamic>{
+        'idleLockTimeoutMinutes': 90,
+        'idleDpmsTimeoutMinutes': 80,
+        'idleSuspendTimeoutMinutes': 30,
+      },
+    });
+
+    expect(settings.power.idleDpmsTimeoutMinutes, 80);
+    expect(settings.power.idleSuspendTimeoutMinutes, 80);
+    expect(settings.power.idleLockTimeoutMinutes, 80);
   });
 
   test('legacy panel radius migrates to the global roundness scale', () {

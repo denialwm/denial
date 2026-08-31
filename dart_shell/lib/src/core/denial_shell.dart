@@ -16,6 +16,7 @@ import '../theme/shell_color_scheme.dart';
 import '../theme/shell_theme.dart';
 import '../wallpaper/state/wallpaper_accent.dart';
 import '../widgets/input_layout_publisher.dart';
+import '../widgets/low_battery_notification_binding.dart';
 import '../widgets/mobile_text_input_policy.dart';
 import '../widgets/edge_panel_layer.dart';
 import '../widgets/screenshot_selection_layer.dart';
@@ -135,7 +136,9 @@ class DenialShell extends ConsumerWidget {
         ),
         child: DenialLocalizationScope(
           locale: presentation.locale,
-          child: _ShellEnvironment(profile: effectiveProfile, child: content),
+          child: LowBatteryNotificationBinding(
+            child: _ShellEnvironment(profile: effectiveProfile, child: content),
+          ),
         ),
       ),
     );

@@ -114,6 +114,82 @@ class _DesktopHomeWidget extends StatelessWidget {
   }
 }
 
+class _DesktopWidgetVerticalTransition extends StatefulWidget {
+  const _DesktopWidgetVerticalTransition({
+    required this.entering,
+    required this.exiting,
+    required this.duration,
+    required this.child,
+  });
+
+  final bool entering;
+  final bool exiting;
+  final Duration duration;
+  final Widget child;
+
+  @override
+  State<_DesktopWidgetVerticalTransition> createState() =>
+      _DesktopWidgetVerticalTransitionState();
+}
+
+class _DesktopWidgetVerticalTransitionState
+    extends State<_DesktopWidgetVerticalTransition>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _progress;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: widget.duration,
+      value: widget.entering ? 0.0 : 1.0,
+      vsync: this,
+    );
+    _progress = _controller.drive(
+      CurveTween(curve: Motion.md3EmphasizedDecelerate),
+    );
+    if (widget.entering) {
+      _controller.forward();
+    } else if (widget.exiting) {
+      _controller.reverse();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _DesktopWidgetVerticalTransition oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.duration != widget.duration) {
+      _controller.duration = widget.duration;
+    }
+    if (!oldWidget.entering && widget.entering) {
+      _controller.forward(from: 0.0);
+    } else if (!oldWidget.exiting && widget.exiting) {
+      _controller.reverse(from: 1.0);
+    } else if (!widget.entering && !widget.exiting) {
+      _controller.value = 1.0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _progress,
+      child: widget.child,
+      builder: (context, child) => FractionalTranslation(
+        translation: Offset(0, -1.0 + _progress.value),
+        child: child,
+      ),
+    );
+  }
+}
+
 class _DesktopPopupSurfaceLayers extends StatelessWidget {
   const _DesktopPopupSurfaceLayers({
     super.key,
@@ -121,6 +197,7 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
     required this.placement,
     required this.frame,
     required this.minimized,
+    required this.offscreenMinimized,
     required this.overviewActive,
     required this.overview,
     required this.switching,
@@ -131,6 +208,7 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
   final DesktopWindowPlacement placement;
   final Rect frame;
   final bool minimized;
+  final bool offscreenMinimized;
   final bool overviewActive;
   final bool overview;
   final bool switching;
@@ -177,7 +255,7 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
                 livePlacementFrame: placement.frame,
               )
             : this.frame;
-        final transformed = overview || switching;
+        final transformed = overview || switching || offscreenMinimized;
         final frame = desktopPixelAlignedWindowFrame(
           frame: liveFrame,
           contentInset: placement.frameBorder,
@@ -211,7 +289,9 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
           child: IgnorePointer(
             child: AnimatedOpacity(
               duration: duration,
-              curve: Motion.md3EmphasizedAccelerate,
+              curve: minimized
+                  ? Motion.md3EmphasizedAccelerate
+                  : Motion.md3EmphasizedDecelerate,
               opacity: minimized ? 0.0 : 1.0,
               child: Stack(
                 clipBehavior: Clip.none,
@@ -228,7 +308,9 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
                         placementObjectId: placement.objectId,
                         overview: overview,
                         switching: switching,
+                        offscreenMinimized: offscreenMinimized,
                         dragging: placement.dragging,
+                        layoutPreviewing: placement.layoutPreviewing,
                         pixelAlignmentInset: 0.0,
                         alignSizeToDevicePixels: true,
                         child: ShellBackdropBlur(

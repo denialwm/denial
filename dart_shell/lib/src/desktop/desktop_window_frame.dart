@@ -71,6 +71,11 @@ class _DesktopWindowFrame extends ConsumerWidget {
     required this.frame,
     required this.minimized,
     required this.desktopWidget,
+    required this.offscreenMinimized,
+    required this.desktopWidgetEntering,
+    required this.desktopWidgetExiting,
+    required this.desktopWidgetTransitionDuration,
+    required this.suppressPositionAnimation,
     required this.overviewActive,
     required this.overview,
     required this.switching,
@@ -88,6 +93,11 @@ class _DesktopWindowFrame extends ConsumerWidget {
   final Rect frame;
   final bool minimized;
   final bool desktopWidget;
+  final bool offscreenMinimized;
+  final bool desktopWidgetEntering;
+  final bool desktopWidgetExiting;
+  final Duration desktopWidgetTransitionDuration;
+  final bool suppressPositionAnimation;
   final bool overviewActive;
   final bool overview;
   final bool switching;
@@ -134,7 +144,8 @@ class _DesktopWindowFrame extends ConsumerWidget {
           )
         : this.frame;
     final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
-    final transformed = overview || switching || desktopWidget;
+    final transformed =
+        overview || switching || desktopWidget || offscreenMinimized;
     final frame = desktopPixelAlignedWindowFrame(
       frame: liveFrame,
       contentInset: placement.frameBorder,
@@ -150,6 +161,9 @@ class _DesktopWindowFrame extends ConsumerWidget {
           : window.appId,
     );
     final duration = motionDuration;
+    final minimizeEffectDuration = desktopWidgetEntering
+        ? Duration.zero
+        : duration;
     final fullscreenVisual = placement.fullscreen && !transformed;
     final drawsServerFrame = !fullscreenVisual && placement.serverSideDecorated;
     final theme = ShellTheme.of(context);
@@ -164,104 +178,127 @@ class _DesktopWindowFrame extends ConsumerWidget {
       targetSize: targetContentSize,
       sourceSize: window.contentCoordinateRect.size,
     );
+    final minimizeDelta = frame.center - placement.frame.center;
+    final minimizedOffset = offscreenMinimized
+        ? minimizeDelta.dx.abs() > minimizeDelta.dy.abs()
+              ? Offset(0.12 * minimizeDelta.dx.sign, 0)
+              : Offset(0, 0.12 * minimizeDelta.dy.sign)
+        : const Offset(0, 0.16);
+    final minimizeCurve = minimized
+        ? Motion.md3EmphasizedAccelerate
+        : Motion.md3EmphasizedDecelerate;
     return _DesktopAnimatedWindowPosition(
-      duration: placement.dragging ? Duration.zero : duration,
+      duration: placement.dragging || suppressPositionAnimation
+          ? Duration.zero
+          : duration,
       rect: frame,
       layoutRect: transformed ? placement.frame : null,
       placementObjectId: placement.objectId,
       overview: overview,
       switching: switching,
       desktopWidget: desktopWidget,
+      offscreenMinimized: offscreenMinimized,
       dragging: placement.dragging,
+      layoutPreviewing: placement.layoutPreviewing,
       pixelAlignmentInset: placement.frameBorder,
       alignSizeToDevicePixels: true,
-      child: DesktopWindowReveal(
-        key: ValueKey<String>('desktop-window-content-${window.objectId}'),
-        enabled: window.shouldAnimateEntrance,
-        child: IgnorePointer(
-          ignoring: minimized || (desktopWidget && overviewActive),
-          child: AnimatedSlide(
-            duration: duration,
-            curve: Motion.md3EmphasizedAccelerate,
-            offset: minimized ? const Offset(0, 0.16) : Offset.zero,
-            child: AnimatedScale(
-              duration: duration,
-              curve: Motion.md3EmphasizedAccelerate,
-              scale: minimized ? 0.84 : 1.0,
-              child: AnimatedOpacity(
-                duration: duration,
-                curve: Motion.md3EmphasizedAccelerate,
-                opacity: minimized
-                    ? 0.0
-                    : desktopWidget
-                    ? 0.86 * windowOpacity
-                    : windowOpacity,
-                child: DesktopWindowRepaintBoundary(
-                  outset: drawsServerFrame
-                      ? DesktopWindowFramePainter.shadowOutset
-                      : 0,
-                  child: DesktopOverviewPreviewInteraction(
-                    overviewActive: overviewActive,
-                    overview: overview,
-                    desktopWidget: desktopWidget,
-                    dragging: placement.dragging,
-                    label: desktopWidget
-                        ? context.l10n.desktopRestoreWindow(
-                            localizedWindowTitle(context, window),
-                          )
-                        : context.l10n.desktopActivateWindow(
-                            localizedWindowTitle(context, window),
-                          ),
-                    onTap: onOverviewTap,
-                    onDragStart: onOverviewDragStart,
-                    onDragUpdate: onOverviewDragUpdate,
-                    onDragEnd: onOverviewDragEnd,
-                    onDragCancel: onOverviewDragCancel,
-                    child: Builder(
-                      builder: (context) {
-                        final client = ClipRRect(
-                          borderRadius: BorderRadius.circular(
-                            math.max(0.0, windowRadius - 1.0),
-                          ),
-                          child: Padding(
-                            // The native client keeps its real geometry
-                            // during overview; only its live texture scales.
-                            padding: drawsServerFrame
-                                ? const EdgeInsets.all(
-                                    DesktopMetrics.frameBorder,
-                                  )
-                                : EdgeInsets.zero,
-                            child: SizedBox.expand(
-                              child: _DesktopWindowContent(
-                                window: window,
-                                smooth: transformed || resizing,
-                                active: active && !minimized,
-                                localLayoutSize: window.isLocalFlutter
-                                    ? placement.contentRect.size
-                                    : null,
+      child: _DesktopWidgetVerticalTransition(
+        entering: desktopWidgetEntering,
+        exiting: desktopWidgetExiting,
+        duration: desktopWidgetTransitionDuration,
+        child: DesktopWindowReveal(
+          key: ValueKey<String>('desktop-window-content-${window.objectId}'),
+          enabled: window.shouldAnimateEntrance,
+          child: IgnorePointer(
+            ignoring:
+                minimized ||
+                desktopWidgetEntering ||
+                desktopWidgetExiting ||
+                (desktopWidget && overviewActive),
+            child: AnimatedSlide(
+              duration: minimizeEffectDuration,
+              curve: minimizeCurve,
+              offset: minimized ? minimizedOffset : Offset.zero,
+              child: AnimatedScale(
+                duration: minimizeEffectDuration,
+                curve: minimizeCurve,
+                scale: minimized ? 0.84 : 1.0,
+                child: AnimatedOpacity(
+                  duration: minimizeEffectDuration,
+                  curve: minimizeCurve,
+                  opacity: minimized
+                      ? 0.0
+                      : desktopWidget
+                      ? 0.86 * windowOpacity
+                      : windowOpacity,
+                  child: DesktopWindowRepaintBoundary(
+                    outset: drawsServerFrame
+                        ? DesktopWindowFramePainter.shadowOutset
+                        : 0,
+                    child: DesktopOverviewPreviewInteraction(
+                      overviewActive: overviewActive,
+                      overview: overview,
+                      desktopWidget: desktopWidget,
+                      dragging: placement.dragging,
+                      label: desktopWidget
+                          ? context.l10n.desktopRestoreWindow(
+                              localizedWindowTitle(context, window),
+                            )
+                          : context.l10n.desktopActivateWindow(
+                              localizedWindowTitle(context, window),
+                            ),
+                      onTap: onOverviewTap,
+                      onDragStart: onOverviewDragStart,
+                      onDragUpdate: onOverviewDragUpdate,
+                      onDragEnd: onOverviewDragEnd,
+                      onDragCancel: onOverviewDragCancel,
+                      child: Builder(
+                        builder: (context) {
+                          final client = ClipRRect(
+                            borderRadius: BorderRadius.circular(
+                              math.max(0.0, windowRadius - 1.0),
+                            ),
+                            child: Padding(
+                              // The native client keeps its real geometry
+                              // during overview; only its live texture scales.
+                              padding: drawsServerFrame
+                                  ? const EdgeInsets.all(
+                                      DesktopMetrics.frameBorder,
+                                    )
+                                  : EdgeInsets.zero,
+                              child: SizedBox.expand(
+                                child: _DesktopWindowContent(
+                                  window: window,
+                                  smooth: transformed || resizing,
+                                  active: active && !minimized,
+                                  localLayoutSize: window.isLocalFlutter
+                                      ? placement.contentRect.size
+                                      : null,
+                                ),
                               ),
                             ),
-                          ),
-                        );
-                        if (!drawsServerFrame) {
-                          return client;
-                        }
-                        return DesktopWindowFrameLayers(
-                          windowId: window.objectId,
-                          borderPainter: _DesktopWindowBorderPainter(
+                          );
+                          if (!drawsServerFrame) {
+                            return client;
+                          }
+                          return DesktopWindowFrameLayers(
                             windowId: window.objectId,
-                            color: desktopWindowBorderColor(
-                              pinned: window.pinned,
-                              active: active,
-                              theme: theme,
-                              inactiveColor: context.shellColors.hairlineWindow,
+                            borderPainter: _DesktopWindowBorderPainter(
+                              windowId: window.objectId,
+                              color: desktopWindowBorderColor(
+                                pinned: window.pinned,
+                                active: active,
+                                theme: theme,
+                                inactiveColor:
+                                    context.shellColors.hairlineWindow,
+                              ),
+                              devicePixelRatio: devicePixelRatio,
+                              radius: windowRadius,
                             ),
-                            devicePixelRatio: devicePixelRatio,
-                            radius: windowRadius,
-                          ),
-                          child: client,
-                        );
-                      },
+                            child: client,
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ),
@@ -284,7 +321,9 @@ class _DesktopAnimatedWindowPosition extends ConsumerStatefulWidget {
     required this.overview,
     required this.switching,
     this.desktopWidget = false,
+    this.offscreenMinimized = false,
     required this.dragging,
+    required this.layoutPreviewing,
     this.pixelAlignmentInset,
     this.alignSizeToDevicePixels = false,
     required this.child,
@@ -297,7 +336,9 @@ class _DesktopAnimatedWindowPosition extends ConsumerStatefulWidget {
   final bool overview;
   final bool switching;
   final bool desktopWidget;
+  final bool offscreenMinimized;
   final bool dragging;
+  final bool layoutPreviewing;
   final double? pixelAlignmentInset;
   final bool alignSizeToDevicePixels;
   final Widget child;
@@ -311,7 +352,8 @@ class _DesktopAnimatedWindowPositionState
     extends ConsumerState<_DesktopAnimatedWindowPosition> {
   late Curve _curve;
   bool _overviewTransitionActive = false;
-  bool _suppressNextPositionAnimation = false;
+  bool _layoutPreviewExitActive = false;
+  Rect? _dragReleaseAnimationOrigin;
 
   @override
   void initState() {
@@ -323,7 +365,15 @@ class _DesktopAnimatedWindowPositionState
   void didUpdateWidget(covariant _DesktopAnimatedWindowPosition oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.dragging && !widget.dragging) {
-      _suppressNextPositionAnimation = true;
+      final translation = ref
+          .read(desktopLiveWindowPlacementsProvider)
+          .settleTranslationFor(widget.placementObjectId);
+      _dragReleaseAnimationOrigin = translation == null
+          ? null
+          : oldWidget.rect.shift(translation);
+    }
+    if (oldWidget.layoutPreviewing && !widget.layoutPreviewing) {
+      _layoutPreviewExitActive = true;
     }
     final interruptedOverviewTransition = _overviewTransitionActive;
     if (!oldWidget.overview && widget.overview) {
@@ -337,6 +387,7 @@ class _DesktopAnimatedWindowPositionState
           : Motion.overviewExitCurve;
       _overviewTransitionActive = true;
     } else if (widget.desktopWidget != oldWidget.desktopWidget ||
+        widget.offscreenMinimized != oldWidget.offscreenMinimized ||
         widget.switching ||
         oldWidget.switching) {
       _curve = Motion.md3Emphasized;
@@ -359,7 +410,11 @@ class _DesktopAnimatedWindowPositionState
         frame: rect,
         contentInset: pixelAlignmentInset,
         devicePixelRatio: devicePixelRatio,
-        enabled: !widget.overview && !widget.switching && !widget.desktopWidget,
+        enabled:
+            !widget.overview &&
+            !widget.switching &&
+            !widget.desktopWidget &&
+            !widget.offscreenMinimized,
         alignSize: widget.alignSizeToDevicePixels,
       );
       if (layoutRect != null) {
@@ -374,19 +429,27 @@ class _DesktopAnimatedWindowPositionState
     final liveTranslation = ref
         .read(desktopLiveWindowPlacementsProvider)
         .translationFor(widget.placementObjectId);
-    final suppressPositionAnimation = _suppressNextPositionAnimation;
-    _suppressNextPositionAnimation = false;
+    final previewMotionActive =
+        widget.layoutPreviewing || _layoutPreviewExitActive;
+    final positionDuration = widget.dragging
+        ? Duration.zero
+        : previewMotionActive && widget.duration != Duration.zero
+        ? Motion.tile
+        : widget.duration;
     return RetainedAnimatedPositioned(
-      duration: widget.dragging || suppressPositionAnimation
-          ? Duration.zero
-          : widget.duration,
+      duration: positionDuration,
       curve: _curve,
       rect: rect,
+      animationOrigin: _dragReleaseAnimationOrigin,
       // SUPER+A and SUPER+Tab retain the real window geometry. Their live
       // texture, frame, shadow, and hit-test region move as one composited
       // layer instead of resizing and repainting on every animation tick.
       layoutRect: layoutRect,
-      onEnd: () => _overviewTransitionActive = false,
+      onEnd: () {
+        _overviewTransitionActive = false;
+        _layoutPreviewExitActive = false;
+        _dragReleaseAnimationOrigin = null;
+      },
       child: RetainedTranslation(
         translation: liveTranslation,
         enabled: widget.dragging,

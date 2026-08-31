@@ -450,7 +450,7 @@ pub struct FlutterRuntime {
     pending_audio_requests: VecDeque<super::system_controls::AudioRequest>,
     pending_brightness_requests: VecDeque<super::system_controls::BrightnessRequest>,
     pending_ui_development_commands: VecDeque<super::ui_development::UiDevelopmentCommand>,
-    pending_idle_dpms_timeout: Option<Option<Duration>>,
+    pending_idle_policy: Option<idle_policy::IdlePolicyConfiguration>,
     pending_dpms_off: bool,
     pending_vm_service_uri: Option<String>,
     generation: u64,

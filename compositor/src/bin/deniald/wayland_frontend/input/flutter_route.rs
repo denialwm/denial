@@ -1210,6 +1210,60 @@ pub(super) fn begin_super_pointer_grab(
     if route.region.geometry_locked() {
         return false;
     }
+    let layout_managed = state
+        .wayland
+        .as_ref()
+        .expect("missing Wayland frontend")
+        .window_is_layout_managed(&window);
+    if layout_managed {
+        let (position, geometry) = {
+            let frontend = state.wayland.as_ref().expect("missing Wayland frontend");
+            (
+                frontend.pointer_location,
+                frontend.window_geometry_target(&window),
+            )
+        };
+        let start_data = GrabStartData {
+            focus: Some(route.focus_at(position)),
+            button,
+            location: position,
+        };
+        activate_client_route(state, route, serial);
+        super::super::queue_transient_window_placement(
+            state,
+            &window,
+            geometry,
+            WindowPlacementPhase::Begin,
+            match action {
+                SuperPointerAction::Move => WindowPlacementChange::Move,
+                SuperPointerAction::Resize => WindowPlacementChange::Resize,
+            },
+        );
+        let pointer = state
+            .wayland
+            .as_ref()
+            .expect("missing Wayland frontend")
+            .seat
+            .get_pointer()
+            .expect("seat has no pointer");
+        match action {
+            SuperPointerAction::Move => pointer.set_grab(
+                state,
+                TileSwapGrab::new(start_data, window, geometry),
+                serial,
+                Focus::Clear,
+            ),
+            SuperPointerAction::Resize => {
+                pointer.set_grab(
+                    state,
+                    TileResizeGrab::new(start_data, window, LayoutResizeEdges::all()),
+                    serial,
+                    Focus::Clear,
+                );
+            }
+        }
+        return true;
+    }
     release_client_geometry_for_shell_grab(state, &window);
     let (position, initial_location, geometry) = {
         let frontend = state.wayland.as_ref().expect("missing Wayland frontend");

@@ -139,7 +139,11 @@ impl WaylandFrontend {
     }
 
     pub(crate) fn set_work_area(&mut self, work_area: crate::options::WorkAreaOptions) {
+        if self.work_area == work_area {
+            return;
+        }
         self.work_area = work_area;
+        self.arrange_layout_windows();
     }
 
     pub fn update_topology(&mut self, snapshot: &TopologySnapshot) -> Result<(), Box<dyn Error>> {
@@ -396,6 +400,7 @@ impl WaylandFrontend {
         if xwayland_scale_changed {
             self.reconfigure_x11_for_scale()?;
         }
+        self.rebuild_window_layout();
         self.space.refresh();
         info!(
             epoch = snapshot.epoch,

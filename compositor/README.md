@@ -98,6 +98,25 @@ windows retain normal compositor placement; every non-transient toplevel is
 eligible for restoration, including new windows opened by single-instance
 applications.
 
+The Desktop Layout settings page can switch window placement between
+`stacking` and `dwindle` at runtime. Stacking preserves Denial's freely
+overlapping placement. Dwindle follows Hyprland's binary-tree model: a new
+window splits the focused tile, each parent chooses its split direction from
+its current aspect ratio, and removing a window collapses the empty branch.
+The existing maximize padding is also used as the gap between sibling tiles.
+Transient dialogs, fixed-size toplevels, auxiliary X11 window types, and
+override-redirect X11 surfaces remain floating, while maximized and fullscreen
+windows temporarily cover their retained tile. Hold SUPER and left-drag a tile
+onto another tile to swap their leaves without rebuilding the tree. Switching
+back to stacking restores the windows' pre-tiling rectangles.
+
+Layout algorithms are protocol-independent implementations of `WindowLayout`
+in `src/bin/deniald/window_layout.rs`. To add one, implement that trait and add
+it to `WindowLayoutKind` and `create_window_layout`; the Smithay adapter owns
+window eligibility, output work areas, saved stacking geometry, and protocol
+configures, so a layout implementation only manages IDs and returns logical
+rectangles.
+
 The bounded state file is written atomically at
 `${XDG_STATE_HOME:-$HOME/.local/state}/denial/window-placements.json`. Removing
 that file resets remembered placements.

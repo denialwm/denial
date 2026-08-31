@@ -43,6 +43,20 @@ class DesktopHomeLayout {
     return minimizedWindowCount >= denseWindowThreshold;
   }
 
+  /// Returns a minimize destination directly below the canvas while
+  /// preserving the window's retained horizontal position and layout size.
+  static Rect offscreenFrame({required Rect bounds, required Rect source}) {
+    if (bounds.isEmpty || source.isEmpty) {
+      return source;
+    }
+    return Rect.fromLTWH(
+      source.left,
+      bounds.bottom + outerPadding,
+      source.width,
+      source.height,
+    );
+  }
+
   static Map<String, Rect> arrange({
     required Rect bounds,
     required List<DesktopHomeLayoutItem> items,

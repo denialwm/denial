@@ -55,7 +55,7 @@ extension SettingsPageIdPresentation on SettingsPageId {
     SettingsPageId.appearance => Icons.palette_outlined,
     SettingsPageId.language => Icons.translate_rounded,
     SettingsPageId.keyboard => Icons.keyboard_rounded,
-    SettingsPageId.touchpad => Icons.touch_app_rounded,
+    SettingsPageId.touchpad => Icons.mouse_rounded,
     SettingsPageId.shortcuts => Icons.keyboard_command_key_rounded,
     SettingsPageId.environment => Icons.terminal_rounded,
     SettingsPageId.animations => Icons.animation_rounded,

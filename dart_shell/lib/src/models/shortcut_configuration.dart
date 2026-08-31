@@ -22,6 +22,14 @@ enum DenialShortcutAction {
   nextKeyboardLayout,
   previousKeyboardLayout,
   openSettings,
+  focusLeft,
+  focusRight,
+  focusUp,
+  focusDown,
+  swapLeft,
+  swapRight,
+  swapUp,
+  swapDown,
 }
 
 enum DenialShortcutInputKind { key, gesture }

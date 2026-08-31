@@ -215,12 +215,20 @@ impl WireBridge {
                     fb::WindowRequestKind::CloseWindow => WindowCommand::Close { window_id },
                     fb::WindowRequestKind::FocusWindow => WindowCommand::Focus { window_id },
                     fb::WindowRequestKind::ConfigureWindow => {
+                        const EXACT: u32 = 1 << 0;
+                        const LAYOUT_DROP: u32 = 1 << 1;
+                        const FLAGS_MASK: u32 = EXACT | LAYOUT_DROP;
+                        let flags = request.flags();
+                        if flags & !FLAGS_MASK != 0 || flags & FLAGS_MASK == FLAGS_MASK {
+                            return Err(WireError::Flags);
+                        }
                         let geometry =
                             decode_window_geometry(request.geometry().ok_or(WireError::Geometry)?)?;
                         WindowCommand::Configure {
                             window_id,
                             geometry,
-                            exact: request.flags() & 1 != 0,
+                            exact: flags & EXACT != 0,
+                            layout_drop: flags & LAYOUT_DROP != 0,
                         }
                     }
                     _ => unreachable!(),
@@ -353,6 +361,7 @@ fn decode_settings_request(
                 || request.shortcut().is_some()
                 || request.existing_shortcut().is_some()
                 || request.touchpad().is_some()
+                || request.mouse().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -367,6 +376,7 @@ fn decode_settings_request(
                 || request.shortcut().is_some()
                 || request.existing_shortcut().is_some()
                 || request.touchpad().is_some()
+                || request.mouse().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -383,6 +393,7 @@ fn decode_settings_request(
                 || request.shortcut().is_some()
                 || request.existing_shortcut().is_some()
                 || request.touchpad().is_some()
+                || request.mouse().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -394,6 +405,7 @@ fn decode_settings_request(
                 || request.shortcut().is_some()
                 || request.existing_shortcut().is_some()
                 || request.touchpad().is_some()
+                || request.mouse().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -411,6 +423,7 @@ fn decode_settings_request(
                 || request.shortcut().is_some()
                 || request.existing_shortcut().is_some()
                 || request.touchpad().is_some()
+                || request.mouse().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -421,6 +434,7 @@ fn decode_settings_request(
                 || request.document().is_some()
                 || request.keyboard().is_some()
                 || request.touchpad().is_some()
+                || request.mouse().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -447,6 +461,7 @@ fn decode_settings_request(
                 || request.keyboard().is_some()
                 || request.existing_shortcut().is_some()
                 || request.touchpad().is_some()
+                || request.mouse().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -461,6 +476,7 @@ fn decode_settings_request(
                 || request.document().is_some()
                 || request.keyboard().is_some()
                 || request.touchpad().is_some()
+                || request.mouse().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -482,6 +498,7 @@ fn decode_settings_request(
                 || request.keyboard().is_some()
                 || request.shortcut().is_some()
                 || request.touchpad().is_some()
+                || request.mouse().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -503,6 +520,7 @@ fn decode_settings_request(
                 || request.shortcut().is_some()
                 || request.existing_shortcut().is_some()
                 || request.touchpad().is_some()
+                || request.mouse().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -518,6 +536,7 @@ fn decode_settings_request(
                 || request.shortcut().is_some()
                 || request.existing_shortcut().is_some()
                 || request.touchpad().is_some()
+                || request.mouse().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -529,6 +548,7 @@ fn decode_settings_request(
                 || request.keyboard().is_some()
                 || request.shortcut().is_some()
                 || request.existing_shortcut().is_some()
+                || request.mouse().is_some()
             {
                 return Err(WireError::Payload);
             }
@@ -540,6 +560,25 @@ fn decode_settings_request(
                     tap_to_click_enabled: touchpad.tap_to_click_enabled(),
                     natural_scroll_enabled: touchpad.natural_scroll_enabled(),
                     scroll_speed_factor: touchpad.scroll_speed_factor(),
+                },
+            })
+        }
+        fb::SettingsRequestKind::ConfigureMouse => {
+            if request.expected_revision() == 0
+                || request.document().is_some()
+                || request.keyboard().is_some()
+                || request.shortcut().is_some()
+                || request.existing_shortcut().is_some()
+                || request.touchpad().is_some()
+            {
+                return Err(WireError::Payload);
+            }
+            let mouse = request.mouse().ok_or(WireError::Payload)?;
+            Ok(SettingsCommand::ConfigureMouse {
+                request_id,
+                expected_revision: request.expected_revision(),
+                mouse: MouseSettings {
+                    speed: mouse.speed(),
                 },
             })
         }
@@ -640,6 +679,14 @@ fn shortcut_action_from_wire(action: fb::ShortcutActionKind) -> Result<ShortcutA
             Ok(ShortcutAction::PreviousKeyboardLayout)
         }
         fb::ShortcutActionKind::OpenSettings => Ok(ShortcutAction::OpenSettings),
+        fb::ShortcutActionKind::FocusLeft => Ok(ShortcutAction::FocusLeft),
+        fb::ShortcutActionKind::FocusRight => Ok(ShortcutAction::FocusRight),
+        fb::ShortcutActionKind::FocusUp => Ok(ShortcutAction::FocusUp),
+        fb::ShortcutActionKind::FocusDown => Ok(ShortcutAction::FocusDown),
+        fb::ShortcutActionKind::SwapLeft => Ok(ShortcutAction::SwapLeft),
+        fb::ShortcutActionKind::SwapRight => Ok(ShortcutAction::SwapRight),
+        fb::ShortcutActionKind::SwapUp => Ok(ShortcutAction::SwapUp),
+        fb::ShortcutActionKind::SwapDown => Ok(ShortcutAction::SwapDown),
         _ => Err(WireError::Enumeration),
     }
 }

@@ -21,7 +21,9 @@ use tracing::warn;
 
 use denial_core::portal_protocol::{DesktopColorSchemePreference, DesktopThemeSnapshot};
 
-pub(super) const SETTINGS_SCHEMA_VERSION: u64 = 15;
+use super::window_layout::WindowLayoutKind;
+
+pub(super) const SETTINGS_SCHEMA_VERSION: u64 = 21;
 const MAX_SETTINGS_BYTES: usize = 256 * 1024;
 const MAX_APPLICATION_ENVIRONMENT_ENTRIES: usize = 256;
 const MAX_APPLICATION_ENVIRONMENT_APPLICATIONS: usize = 256;
@@ -39,6 +41,9 @@ const DEFAULT_REPEAT_RATE_HZ: u32 = 25;
 pub(super) const MIN_TOUCHPAD_SCROLL_SPEED_FACTOR: f64 = 0.05;
 pub(super) const MAX_TOUCHPAD_SCROLL_SPEED_FACTOR: f64 = 5.0;
 const DEFAULT_TOUCHPAD_SCROLL_SPEED_FACTOR: f64 = 1.0;
+pub(super) const MIN_MOUSE_SPEED: f64 = -1.0;
+pub(super) const MAX_MOUSE_SPEED: f64 = 1.0;
+const DEFAULT_MOUSE_SPEED: f64 = 0.0;
 static SETTINGS_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Environment overrides applied only to processes launched by Denial.
@@ -386,6 +391,31 @@ impl KeyboardSettings {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct MouseSettings {
+    pub(super) speed: f64,
+}
+
+impl Default for MouseSettings {
+    fn default() -> Self {
+        Self {
+            speed: DEFAULT_MOUSE_SPEED,
+        }
+    }
+}
+
+impl MouseSettings {
+    pub(super) fn validate(&self) -> Result<(), SettingsError> {
+        if !self.speed.is_finite() || !(MIN_MOUSE_SPEED..=MAX_MOUSE_SPEED).contains(&self.speed) {
+            return Err(SettingsError::Mouse(format!(
+                "mouse speed must be within {MIN_MOUSE_SPEED}..={MAX_MOUSE_SPEED}"
+            )));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct TouchpadSettings {
     pub(super) tap_to_click_enabled: bool,
     pub(super) natural_scroll_enabled: bool,
@@ -451,6 +481,7 @@ pub(super) enum SettingsError {
     Json(serde_json::Error),
     Document(String),
     Keyboard(String),
+    Mouse(String),
     Touchpad(String),
     Revision { expected: u64, actual: u64 },
     Conflict,
@@ -462,6 +493,7 @@ impl fmt::Display for SettingsError {
             Self::Path(reason)
             | Self::Document(reason)
             | Self::Keyboard(reason)
+            | Self::Mouse(reason)
             | Self::Touchpad(reason) => formatter.write_str(reason),
             Self::Io(error) => write!(formatter, "settings I/O failed: {error}"),
             Self::Json(error) => write!(formatter, "settings JSON is invalid: {error}"),
@@ -502,6 +534,7 @@ pub(super) struct SettingsManager {
     document: Map<String, Value>,
     revision: u64,
     keyboard: KeyboardSettings,
+    mouse: MouseSettings,
     touchpad: TouchpadSettings,
     color_scheme_preference: DesktopColorSchemePreference,
     allow_client_cursor_surfaces: bool,
@@ -526,6 +559,7 @@ impl SettingsManager {
                         document: parsed.document,
                         revision: parsed.revision,
                         keyboard: parsed.keyboard,
+                        mouse: parsed.mouse,
                         touchpad: parsed.touchpad,
                         color_scheme_preference: parsed.color_scheme_preference,
                         allow_client_cursor_surfaces: parsed.allow_client_cursor_surfaces,
@@ -548,6 +582,7 @@ impl SettingsManager {
             document,
             revision,
             keyboard,
+            mouse,
             touchpad,
             color_scheme_preference,
             allow_client_cursor_surfaces,
@@ -557,6 +592,7 @@ impl SettingsManager {
             document,
             revision,
             keyboard,
+            mouse,
             touchpad,
             color_scheme_preference,
             allow_client_cursor_surfaces,
@@ -582,6 +618,10 @@ impl SettingsManager {
         &self.keyboard
     }
 
+    pub(super) fn mouse(&self) -> &MouseSettings {
+        &self.mouse
+    }
+
     pub(super) fn touchpad(&self) -> &TouchpadSettings {
         &self.touchpad
     }
@@ -592,6 +632,13 @@ impl SettingsManager {
 
     pub(super) fn allow_client_cursor_surfaces(&self) -> bool {
         self.allow_client_cursor_surfaces
+    }
+
+    pub(super) fn window_layout_kind(&self) -> WindowLayoutKind {
+        // Authoritative documents are validated before load/commit. Keep the
+        // fallback defensive for the safe in-memory defaults used after an
+        // invalid file is deliberately left untouched.
+        parse_window_layout_kind(&self.document).unwrap_or_default()
     }
 
     pub(super) fn document_json(&self) -> Result<String, SettingsError> {
@@ -638,6 +685,7 @@ impl SettingsManager {
         // replaced through the shell-document request.
         incoming.remove("revision");
         incoming.remove("keyboard");
+        incoming.remove("mouse");
         incoming.remove("touchpad");
         incoming.insert("version".to_owned(), Value::from(SETTINGS_SCHEMA_VERSION));
         incoming.insert("revision".to_owned(), Value::from(self.next_revision()?));
@@ -646,14 +694,20 @@ impl SettingsManager {
             serde_json::to_value(&self.keyboard).expect("validated keyboard settings serialize"),
         );
         incoming.insert(
+            "mouse".to_owned(),
+            serde_json::to_value(&self.mouse).expect("validated mouse settings serialize"),
+        );
+        incoming.insert(
             "touchpad".to_owned(),
             serde_json::to_value(&self.touchpad).expect("validated touchpad settings serialize"),
         );
         let color_scheme_preference = parse_color_scheme_preference(&incoming)?;
         let allow_client_cursor_surfaces = parse_allow_client_cursor_surfaces(&incoming)?;
+        parse_window_layout_kind(&incoming)?;
         self.prepare(
             incoming,
             self.keyboard.clone(),
+            self.mouse.clone(),
             self.touchpad.clone(),
             color_scheme_preference,
             allow_client_cursor_surfaces,
@@ -676,6 +730,7 @@ impl SettingsManager {
         self.prepare(
             document,
             keyboard,
+            self.mouse.clone(),
             self.touchpad.clone(),
             self.color_scheme_preference,
             self.allow_client_cursor_surfaces,
@@ -698,7 +753,31 @@ impl SettingsManager {
         self.prepare(
             document,
             self.keyboard.clone(),
+            self.mouse.clone(),
             touchpad,
+            self.color_scheme_preference,
+            self.allow_client_cursor_surfaces,
+        )
+    }
+
+    pub(super) fn prepare_mouse_update(
+        &self,
+        expected_revision: u64,
+        mouse: MouseSettings,
+    ) -> Result<PreparedSettingsUpdate, SettingsError> {
+        self.check_revision(expected_revision)?;
+        mouse.validate()?;
+        let mut document = self.document.clone();
+        document.insert("revision".to_owned(), Value::from(self.next_revision()?));
+        document.insert(
+            "mouse".to_owned(),
+            serde_json::to_value(&mouse).expect("validated mouse settings serialize"),
+        );
+        self.prepare(
+            document,
+            self.keyboard.clone(),
+            mouse,
+            self.touchpad.clone(),
             self.color_scheme_preference,
             self.allow_client_cursor_surfaces,
         )
@@ -721,6 +800,7 @@ impl SettingsManager {
         self.document = std::mem::take(&mut prepared.document);
         self.revision = prepared.revision;
         self.keyboard = std::mem::take(&mut prepared.keyboard);
+        self.mouse = std::mem::take(&mut prepared.mouse);
         self.touchpad = std::mem::take(&mut prepared.touchpad);
         self.color_scheme_preference = prepared.color_scheme_preference;
         self.allow_client_cursor_surfaces = prepared.allow_client_cursor_surfaces;
@@ -755,6 +835,7 @@ impl SettingsManager {
         &self,
         mut document: Map<String, Value>,
         keyboard: KeyboardSettings,
+        mouse: MouseSettings,
         touchpad: TouchpadSettings,
         color_scheme_preference: DesktopColorSchemePreference,
         allow_client_cursor_surfaces: bool,
@@ -773,6 +854,7 @@ impl SettingsManager {
             document,
             revision,
             keyboard,
+            mouse,
             touchpad,
             color_scheme_preference,
             allow_client_cursor_surfaces,
@@ -803,6 +885,7 @@ pub(super) struct PreparedSettingsUpdate {
     document: Map<String, Value>,
     revision: u64,
     keyboard: KeyboardSettings,
+    mouse: MouseSettings,
     touchpad: TouchpadSettings,
     color_scheme_preference: DesktopColorSchemePreference,
     allow_client_cursor_surfaces: bool,
@@ -813,6 +896,10 @@ pub(super) struct PreparedSettingsUpdate {
 impl PreparedSettingsUpdate {
     pub(super) fn keyboard(&self) -> &KeyboardSettings {
         &self.keyboard
+    }
+
+    pub(super) fn mouse(&self) -> &MouseSettings {
+        &self.mouse
     }
 
     pub(super) fn touchpad(&self) -> &TouchpadSettings {
@@ -832,6 +919,7 @@ struct ParsedSettingsDocument {
     document: Map<String, Value>,
     revision: u64,
     keyboard: KeyboardSettings,
+    mouse: MouseSettings,
     touchpad: TouchpadSettings,
     color_scheme_preference: DesktopColorSchemePreference,
     allow_client_cursor_surfaces: bool,
@@ -868,6 +956,11 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         None => KeyboardSettings::default(),
     };
     keyboard.validate()?;
+    let mouse = match document.get("mouse") {
+        Some(value) => serde_json::from_value::<MouseSettings>(value.clone())?,
+        None => MouseSettings::default(),
+    };
+    mouse.validate()?;
     let touchpad = match document.get("touchpad") {
         Some(value) => serde_json::from_value::<TouchpadSettings>(value.clone())?,
         None => TouchpadSettings::default(),
@@ -896,18 +989,34 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         true
     };
     set_allow_client_cursor_surfaces(&mut document, allow_client_cursor_surfaces)?;
+    let had_window_layout = document
+        .get("layout")
+        .and_then(Value::as_object)
+        .is_some_and(|layout| layout.contains_key("windowLayout"));
+    let window_layout = if had_window_layout {
+        parse_window_layout_kind(&document)?
+    } else {
+        WindowLayoutKind::Stacking
+    };
+    set_window_layout_kind(&mut document, window_layout)?;
     let migrated = version != SETTINGS_SCHEMA_VERSION
         || !document.contains_key("revision")
         || !document.contains_key("keyboard")
+        || !document.contains_key("mouse")
         || !document.contains_key("touchpad")
         || !had_application_environment
         || !had_color_scheme_preference
-        || !had_allow_client_cursor_surfaces;
+        || !had_allow_client_cursor_surfaces
+        || !had_window_layout;
     document.insert("version".to_owned(), Value::from(SETTINGS_SCHEMA_VERSION));
     document.insert("revision".to_owned(), Value::from(revision));
     document.insert(
         "keyboard".to_owned(),
         serde_json::to_value(&keyboard).expect("validated keyboard settings serialize"),
+    );
+    document.insert(
+        "mouse".to_owned(),
+        serde_json::to_value(&mouse).expect("validated mouse settings serialize"),
     );
     document.insert(
         "touchpad".to_owned(),
@@ -917,6 +1026,7 @@ fn parse_document(bytes: &[u8]) -> Result<ParsedSettingsDocument, SettingsError>
         document,
         revision,
         keyboard,
+        mouse,
         touchpad,
         color_scheme_preference,
         allow_client_cursor_surfaces,
@@ -929,12 +1039,14 @@ fn default_document() -> (
     Map<String, Value>,
     u64,
     KeyboardSettings,
+    MouseSettings,
     TouchpadSettings,
     DesktopColorSchemePreference,
     bool,
 ) {
     let revision = 1;
     let keyboard = KeyboardSettings::default();
+    let mouse = MouseSettings::default();
     let touchpad = TouchpadSettings::default();
     let color_scheme_preference = DesktopColorSchemePreference::PreferDark;
     let allow_client_cursor_surfaces = true;
@@ -946,6 +1058,10 @@ fn default_document() -> (
         serde_json::to_value(&keyboard).expect("default keyboard settings serialize"),
     );
     document.insert(
+        "mouse".to_owned(),
+        serde_json::to_value(&mouse).expect("default mouse settings serialize"),
+    );
+    document.insert(
         "touchpad".to_owned(),
         serde_json::to_value(&touchpad).expect("default touchpad settings serialize"),
     );
@@ -954,10 +1070,13 @@ fn default_document() -> (
         .expect("default appearance settings serialize");
     set_allow_client_cursor_surfaces(&mut document, allow_client_cursor_surfaces)
         .expect("default cursor surface setting serializes");
+    set_window_layout_kind(&mut document, WindowLayoutKind::Stacking)
+        .expect("default window layout setting serializes");
     (
         document,
         revision,
         keyboard,
+        mouse,
         touchpad,
         color_scheme_preference,
         allow_client_cursor_surfaces,
@@ -1033,6 +1152,40 @@ fn set_allow_client_cursor_surfaces(
             SettingsError::Document("settings appearance must be an object".to_owned())
         })?;
     appearance.insert("allowClientCursorSurfaces".to_owned(), Value::Bool(allowed));
+    Ok(())
+}
+
+fn parse_window_layout_kind(
+    document: &Map<String, Value>,
+) -> Result<WindowLayoutKind, SettingsError> {
+    let value = document
+        .get("layout")
+        .and_then(Value::as_object)
+        .and_then(|layout| layout.get("windowLayout"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            SettingsError::Document("layout.windowLayout is missing or is not a string".to_owned())
+        })?;
+    WindowLayoutKind::from_settings_name(value).ok_or_else(|| {
+        SettingsError::Document(format!("unsupported layout.windowLayout {value:?}"))
+    })
+}
+
+fn set_window_layout_kind(
+    document: &mut Map<String, Value>,
+    kind: WindowLayoutKind,
+) -> Result<(), SettingsError> {
+    if !document.contains_key("layout") {
+        document.insert("layout".to_owned(), Value::Object(Map::new()));
+    }
+    let layout = document
+        .get_mut("layout")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| SettingsError::Document("settings layout must be an object".to_owned()))?;
+    layout.insert(
+        "windowLayout".to_owned(),
+        Value::String(kind.settings_name().to_owned()),
+    );
     Ok(())
 }
 

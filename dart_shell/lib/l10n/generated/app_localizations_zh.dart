@@ -62,6 +62,17 @@ class AppLocalizationsZh extends AppLocalizations {
   String get batteryIdle => '空闲';
 
   @override
+  String batteryLowNotificationBody(int percent) {
+    return '电池电量仅剩 $percent%。请连接充电器。';
+  }
+
+  @override
+  String get batteryLowNotificationTitle => '电池电量低';
+
+  @override
+  String get batteryCriticalNotificationTitle => '电池电量严重不足';
+
+  @override
   String batteryStateAndPercent(String state, int percent) {
     return '$state $percent%';
   }
@@ -1291,7 +1302,23 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsAutomaticDisplayPowerToggleDescription =>
-      '检测到键盘或指针活动时，计时器会重置。';
+      '无活动后关闭已连接显示器的电源。';
+
+  @override
+  String get settingsAutomaticIdleTitle => '自动空闲操作';
+
+  @override
+  String get settingsAutomaticLockToggle => '自动锁定';
+
+  @override
+  String get settingsAutomaticLockToggleDescription => '无活动后显示锁屏并要求身份验证。';
+
+  @override
+  String get settingsAutomaticSuspendToggle => '自动挂起';
+
+  @override
+  String get settingsAutomaticSuspendToggleDescription =>
+      '长时间无活动后在内存中保留会话并进入低功耗状态。';
 
   @override
   String get settingsAvailable => '可用';
@@ -1797,13 +1824,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsHudOverlayTitle => '系统级显示';
 
   @override
-  String get settingsIdleInhibitDescription => '遵循应用暂时阻止显示器关闭的请求。';
+  String get settingsDisplayOffTimeout => '关闭显示器前等待';
 
   @override
-  String get settingsIdleInhibitSemantics => '应用可以让显示器保持唤醒';
+  String get settingsIdleInhibitDescription => '视频播放等应用活动可以暂时暂停这些计时器。';
+
+  @override
+  String get settingsIdleInhibitSemantics => '应用可以暂停自动空闲操作';
 
   @override
   String get settingsInactivityTimeout => '无活动超时';
+
+  @override
+  String get settingsLockTimeout => '锁定前等待';
 
   @override
   String get settingsLauncherOverlayDescription => '设置应用启动器的位置。';
@@ -1899,7 +1932,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsTouchpadSection => '输入';
 
   @override
-  String get settingsTouchpadTitle => '在整个桌面上使用触控板。';
+  String get settingsTouchpadTitle => '调整鼠标和触控板的操作方式。';
 
   @override
   String get settingsTouchpadTapToClick => '轻触点击';
@@ -1915,6 +1948,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsTouchpadScrollSpeed => '手指滚动速度';
+
+  @override
+  String get settingsMousePointerSpeed => '鼠标指针速度';
 
   @override
   String get settingsShortcutsSection => '快捷键';
@@ -2186,6 +2222,30 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsShortcutActionPreviousKeyboardLayout => '上一个键盘布局';
 
   @override
+  String get settingsShortcutActionFocusLeft => '聚焦左侧窗口';
+
+  @override
+  String get settingsShortcutActionFocusRight => '聚焦右侧窗口';
+
+  @override
+  String get settingsShortcutActionFocusUp => '聚焦上方窗口';
+
+  @override
+  String get settingsShortcutActionFocusDown => '聚焦下方窗口';
+
+  @override
+  String get settingsShortcutActionSwapLeft => '向左交换窗口';
+
+  @override
+  String get settingsShortcutActionSwapRight => '向右交换窗口';
+
+  @override
+  String get settingsShortcutActionSwapUp => '向上交换窗口';
+
+  @override
+  String get settingsShortcutActionSwapDown => '向下交换窗口';
+
+  @override
   String get settingsLayoutDescription => '控制普通窗口和最大化窗口周围的预留间距。';
 
   @override
@@ -2193,6 +2253,19 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsLayoutTitle => '给每个窗口留出呼吸空间。';
+
+  @override
+  String get settingsWindowLayoutDescription =>
+      '堆叠允许窗口自由移动和重叠。平铺使用动态二叉树排列窗口，并让临时窗口保持浮动。';
+
+  @override
+  String get settingsWindowLayoutDwindle => '平铺';
+
+  @override
+  String get settingsWindowLayoutStacking => '堆叠';
+
+  @override
+  String get settingsWindowLayoutTitle => '窗口布局';
 
   @override
   String get settingsLiveBadge => '实时';
@@ -2568,7 +2641,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsNavigationKeyboard => '键盘';
 
   @override
-  String get settingsNavigationTouchpad => '触控板';
+  String get settingsNavigationTouchpad => '鼠标和触控板';
 
   @override
   String get settingsNavigationShortcuts => '快捷键';
@@ -2831,6 +2904,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsTwoHours => '2 小时';
 
   @override
+  String get settingsSuspendTimeout => '挂起前等待';
+
+  @override
   String get settingsUnfocusedWindows => '未聚焦窗口';
 
   @override
@@ -2868,6 +2944,19 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsWindowCloseEffectTitle => '窗口关闭效果';
+
+  @override
+  String get settingsWindowMinimizationDescription =>
+      '让最小化窗口作为实时预览留在桌面上，或让它们滑出屏幕边缘，直到恢复。';
+
+  @override
+  String get settingsWindowMinimizationDesktop => '留在桌面';
+
+  @override
+  String get settingsWindowMinimizationOffscreen => '移至屏幕外';
+
+  @override
+  String get settingsWindowMinimizationTitle => '窗口最小化';
 
   @override
   String get settingsWindowOpacityDescription => '控制聚焦和未聚焦窗口的不透明度。';
