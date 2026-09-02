@@ -178,6 +178,9 @@ mod window_layout_adapter;
 mod window_management;
 #[path = "wayland_frontend/window_state.rs"]
 mod window_state;
+#[cfg(feature = "flutter")]
+#[path = "wayland_frontend/workspace.rs"]
+mod workspace;
 #[path = "wayland_frontend/xwayland.rs"]
 mod xwayland;
 
@@ -535,6 +538,20 @@ pub(super) struct WaylandFrontend {
     retired_input_method_keys: HashSet<u32>,
     #[cfg(feature = "flutter")]
     minimized_windows: HashSet<ObjectId>,
+    #[cfg(feature = "flutter")]
+    minimized_local_windows: HashSet<u64>,
+    #[cfg(feature = "flutter")]
+    workspaces_enabled: bool,
+    #[cfg(feature = "flutter")]
+    workspace_count: u8,
+    #[cfg(feature = "flutter")]
+    active_workspaces: HashMap<OutputId, u8>,
+    #[cfg(feature = "flutter")]
+    window_workspaces: HashMap<u64, workspace::WorkspaceLocation>,
+    #[cfg(feature = "flutter")]
+    minimized_window_outputs: HashMap<u64, OutputId>,
+    #[cfg(feature = "flutter")]
+    workspace_focus_history: HashMap<(OutputId, u8), u64>,
     window_placements: WindowPlacementStore,
     restored_window_positions: HashSet<ObjectId>,
     client_geometry_state_requests: HashSet<ObjectId>,

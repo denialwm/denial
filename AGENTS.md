@@ -45,13 +45,24 @@ confirms that they have logged back in. Perform local session-control actions
 only when the user explicitly asks for that exact action.
 
 This restriction does not apply to the dedicated remote Denial hosts
-`192.168.1.18` (`.18`) and `192.168.1.183` (`.183`). Agents may autonomously
-stop or restart their compositor, greetd/login session, launch test
-applications, and reboot them when required. After deploying a compositor or
-Flutter bundle to either host, the agent is responsible for restarting its
-Denial session and confirming that a new `deniald` process is running; no
-additional authorization is required. Treat both machines as agent-managed
-test hosts, not as the user's local graphical session.
+`192.168.1.18` (`.18`), `192.168.1.183` (`.183`), and `192.168.1.188`
+(`.188`). Agents may autonomously stop or restart their compositor,
+greetd/login session, and reboot them when required. After deploying a
+compositor or Flutter bundle to any of these hosts, the agent is responsible
+for restarting its Denial session and confirming that a new `deniald` process
+is running; no additional authorization is required. Treat all three machines
+as agent-managed test hosts, not as the user's local graphical session.
+
+## User-owned visual validation and test triggers
+
+The user performs all visual validation. Never capture or inspect screenshots,
+judge rendered output, launch applications for visual inspection, or create UI
+state for visual QA on the local machine or any remote Denial host.
+
+Never trigger a notification or any other visible or interactive test event
+unless the user explicitly requests that specific trigger. Permission to
+implement, test, deploy, restart a remote session, or verify process health
+does not include permission to trigger UI events.
 
 The shared Denial lab Limine entries on these hosts hash staged kernel and
 initramfs URI payloads with **BLAKE2b-512**, not SHA-512. Generate each URI
@@ -61,10 +72,10 @@ suffixes in `limine.conf`. A SHA-512 suffix has the same 128-hex-character
 shape but is invalid; Limine will stop before Linux starts with
 `hash for URI does not match!`.
 
-On the greetd-backed `.183`, restart `greetd.service` directly. Do not
-terminate the login session first or wait for Denial to return: greetd runs its
-configured `initial_session` only once per daemon start and otherwise falls
-back to its greeter.
+On the greetd-backed `.183` and `.188`, restart `greetd.service` directly. Do
+not terminate the login session first or wait for Denial to return: greetd runs
+its configured `initial_session` only once per daemon start and otherwise
+falls back to its greeter.
 
 ## Why Denial
 

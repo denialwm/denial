@@ -1955,6 +1955,30 @@
   "@settingsAutomaticSuspendToggleDescription": {
     "description": "Description for automatic system suspend."
   },
+  "settingsSuspendMode": "Suspend mode",
+  "@settingsSuspendMode": {
+    "description": "Label for choosing the kernel memory sleep mode."
+  },
+  "settingsSuspendModeDescription": "Choose how Linux keeps memory powered. This applies to every suspend while Denial is active.",
+  "@settingsSuspendModeDescription": {
+    "description": "Explanation for the kernel memory sleep mode selector."
+  },
+  "settingsSuspendModeS2idle": "Suspend to idle (s2idle)",
+  "@settingsSuspendModeS2idle": {
+    "description": "Friendly label for the Linux s2idle memory sleep mode."
+  },
+  "settingsSuspendModeShallow": "Standby (shallow)",
+  "@settingsSuspendModeShallow": {
+    "description": "Friendly label for the Linux shallow memory sleep mode."
+  },
+  "settingsSuspendModeDeep": "Suspend to RAM (deep)",
+  "@settingsSuspendModeDeep": {
+    "description": "Friendly label for the Linux deep memory sleep mode."
+  },
+  "settingsSuspendModeUnavailable": "Unavailable",
+  "@settingsSuspendModeUnavailable": {
+    "description": "Disabled suspend mode selector value when Linux exposes no memory sleep mode."
+  },
   "settingsAvailable": "Available",
   "@settingsAvailable": {
     "description": "English UI text for settingsAvailable."
@@ -2560,6 +2584,18 @@
   "@settingsDisplayScale": {
     "description": "Label for the monitor scale selector."
   },
+  "settingsDisplayScaleInvalid": "Enter a value from 50 to 600.",
+  "@settingsDisplayScaleInvalid": {
+    "description": "Validation error for a monitor scale outside the editable percentage range."
+  },
+  "settingsDisplayScalePreset": "Presets",
+  "@settingsDisplayScalePreset": {
+    "description": "Label for the common monitor scale preset selector."
+  },
+  "settingsDisplayScaleRange": "Enter 50–600%. Values are rounded to the nearest supported scale. Below 100% may look softer.",
+  "@settingsDisplayScaleRange": {
+    "description": "Guidance shown below the editable monitor scale percentage."
+  },
   "settingsDisplayVariableRefreshRate": "Variable refresh rate (VRR)",
   "@settingsDisplayVariableRefreshRate": {
     "description": "Label for enabling variable refresh rate on a supported monitor."
@@ -3064,6 +3100,14 @@
   "@settingsShortcutGestureThreeFingerSwipeRight": {
     "description": "Friendly display name for the three-finger swipe-right gesture."
   },
+  "settingsShortcutGestureFourFingerSwipeLeft": "Four-finger swipe left",
+  "@settingsShortcutGestureFourFingerSwipeLeft": {
+    "description": "Friendly display name for the four-finger swipe-left gesture."
+  },
+  "settingsShortcutGestureFourFingerSwipeRight": "Four-finger swipe right",
+  "@settingsShortcutGestureFourFingerSwipeRight": {
+    "description": "Friendly display name for the four-finger swipe-right gesture."
+  },
   "settingsShortcutInputCategoryModifier": "Modifier",
   "@settingsShortcutInputCategoryModifier": {
     "description": "Supported shortcut input category."
@@ -3224,6 +3268,36 @@
   "@settingsShortcutActionSwapDown": {
     "description": "Display name for swapping a tiled window downward."
   },
+  "settingsShortcutActionPreviousWorkspace": "Previous workspace",
+  "@settingsShortcutActionPreviousWorkspace": {
+    "description": "Display name for switching to the previous monitor-local workspace."
+  },
+  "settingsShortcutActionNextWorkspace": "Next workspace",
+  "@settingsShortcutActionNextWorkspace": {
+    "description": "Display name for switching to the next monitor-local workspace."
+  },
+  "settingsShortcutActionMoveToPreviousWorkspace": "Move window to previous workspace",
+  "@settingsShortcutActionMoveToPreviousWorkspace": {
+    "description": "Display name for moving the focused window to the previous workspace."
+  },
+  "settingsShortcutActionMoveToNextWorkspace": "Move window to next workspace",
+  "@settingsShortcutActionMoveToNextWorkspace": {
+    "description": "Display name for moving the focused window to the next workspace."
+  },
+  "settingsShortcutActionSwitchWorkspace": "Switch to workspace {workspace}",
+  "@settingsShortcutActionSwitchWorkspace": {
+    "description": "Display name for switching directly to a numbered workspace.",
+    "placeholders": {
+      "workspace": {"type": "int"}
+    }
+  },
+  "settingsShortcutActionMoveToWorkspace": "Move window to workspace {workspace}",
+  "@settingsShortcutActionMoveToWorkspace": {
+    "description": "Display name for moving the focused window to a numbered workspace.",
+    "placeholders": {
+      "workspace": {"type": "int"}
+    }
+  },
   "settingsLayoutDescription": "Control the spacing reserved around ordinary and maximized windows.",
   "@settingsLayoutDescription": {
     "description": "English UI text for settingsLayoutDescription."
@@ -3251,6 +3325,41 @@
   "settingsWindowLayoutTitle": "Window layout",
   "@settingsWindowLayoutTitle": {
     "description": "Title for choosing how desktop windows are arranged."
+  },
+  "settingsWorkspacesTitle": "Workspaces",
+  "@settingsWorkspacesTitle": {
+    "description": "Heading for monitor-local workspace settings."
+  },
+  "settingsWorkspacesEnable": "Enable workspaces",
+  "@settingsWorkspacesEnable": {
+    "description": "Toggle which enables monitor-local workspaces."
+  },
+  "settingsWorkspacesDescription": "Each monitor switches workspaces independently. Minimized windows remain available across every workspace on their monitor.",
+  "@settingsWorkspacesDescription": {
+    "description": "Explanation of Denial's monitor-local workspace model."
+  },
+  "settingsWorkspaceCount": "Workspace count",
+  "@settingsWorkspaceCount": {
+    "description": "Label for the number of workspaces per monitor."
+  },
+  "workspaceLabel": "Workspace {workspace}",
+  "@workspaceLabel": {
+    "description": "Accessible and visible label for a numbered workspace.",
+    "placeholders": {
+      "workspace": {"type": "int"}
+    }
+  },
+  "workspaceActive": "active",
+  "@workspaceActive": {
+    "description": "Accessible workspace state for the currently active workspace."
+  },
+  "workspaceOccupied": "occupied",
+  "@workspaceOccupied": {
+    "description": "Accessible workspace state when ordinary windows are present."
+  },
+  "workspaceEmpty": "empty",
+  "@workspaceEmpty": {
+    "description": "Accessible workspace state when no ordinary windows are present."
   },
   "settingsLiveBadge": "LIVE",
   "@settingsLiveBadge": {

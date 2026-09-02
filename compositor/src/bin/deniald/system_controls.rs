@@ -261,6 +261,7 @@ enum BrightnessCommand {
 
 #[cfg(feature = "flutter")]
 enum SessionCommand {
+    SetSuspendMode(crate::idle_policy::SuspendMode),
     Suspend,
     Stop,
 }
@@ -293,6 +294,8 @@ pub(super) struct SystemControls {
     brightness_commands: SyncSender<BrightnessCommand>,
     #[cfg(feature = "flutter")]
     session_commands: SyncSender<SessionCommand>,
+    #[cfg(feature = "flutter")]
+    suspend_mode: Mutex<Option<crate::idle_policy::SuspendMode>>,
     #[cfg_attr(not(feature = "flutter"), allow(dead_code))]
     events: Receiver<SystemControlEvent>,
     events_pending: Arc<AtomicBool>,
@@ -356,6 +359,8 @@ impl SystemControls {
             brightness_commands,
             #[cfg(feature = "flutter")]
             session_commands,
+            #[cfg(feature = "flutter")]
+            suspend_mode: Mutex::new(None),
             events,
             events_pending,
             audio_worker: Some(audio_worker),
@@ -424,6 +429,25 @@ impl SystemControls {
         self.session_commands
             .try_send(SessionCommand::Suspend)
             .is_ok()
+    }
+
+    #[cfg(feature = "flutter")]
+    pub(super) fn set_suspend_mode(&self, mode: crate::idle_policy::SuspendMode) -> bool {
+        let Ok(mut current) = self.suspend_mode.lock() else {
+            return false;
+        };
+        if *current == Some(mode) {
+            return true;
+        }
+        if self
+            .session_commands
+            .try_send(SessionCommand::SetSuspendMode(mode))
+            .is_err()
+        {
+            return false;
+        }
+        *current = Some(mode);
+        true
     }
 
     fn adjust_audio(&self, delta: f64) {

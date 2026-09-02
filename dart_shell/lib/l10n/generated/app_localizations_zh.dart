@@ -1321,6 +1321,25 @@ class AppLocalizationsZh extends AppLocalizations {
       '长时间无活动后在内存中保留会话并进入低功耗状态。';
 
   @override
+  String get settingsSuspendMode => '挂起模式';
+
+  @override
+  String get settingsSuspendModeDescription =>
+      '选择 Linux 在挂起时如何保持内存供电。Denial 活动期间的每次挂起都会使用此设置。';
+
+  @override
+  String get settingsSuspendModeS2idle => '挂起到空闲（s2idle）';
+
+  @override
+  String get settingsSuspendModeShallow => '待机（shallow）';
+
+  @override
+  String get settingsSuspendModeDeep => '挂起到内存（deep）';
+
+  @override
+  String get settingsSuspendModeUnavailable => '不可用';
+
+  @override
   String get settingsAvailable => '可用';
 
   @override
@@ -1758,6 +1777,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsDisplayScale => '缩放';
 
   @override
+  String get settingsDisplayScaleInvalid => '请输入 50 到 600 之间的数值。';
+
+  @override
+  String get settingsDisplayScalePreset => '预设';
+
+  @override
+  String get settingsDisplayScaleRange =>
+      '输入 50–600%。数值会舍入到最接近的受支持缩放比例。低于 100% 时画面可能较柔和。';
+
+  @override
   String get settingsDisplayVariableRefreshRate => '可变刷新率 (VRR)';
 
   @override
@@ -2126,6 +2155,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsShortcutGestureThreeFingerSwipeRight => '三指向右轻扫';
 
   @override
+  String get settingsShortcutGestureFourFingerSwipeLeft => '四指向左轻扫';
+
+  @override
+  String get settingsShortcutGestureFourFingerSwipeRight => '四指向右轻扫';
+
+  @override
   String get settingsShortcutInputCategoryModifier => '修饰键';
 
   @override
@@ -2246,6 +2281,30 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsShortcutActionSwapDown => '向下交换窗口';
 
   @override
+  String get settingsShortcutActionPreviousWorkspace => 'Previous workspace';
+
+  @override
+  String get settingsShortcutActionNextWorkspace => 'Next workspace';
+
+  @override
+  String get settingsShortcutActionMoveToPreviousWorkspace =>
+      'Move window to previous workspace';
+
+  @override
+  String get settingsShortcutActionMoveToNextWorkspace =>
+      'Move window to next workspace';
+
+  @override
+  String settingsShortcutActionSwitchWorkspace(int workspace) {
+    return 'Switch to workspace $workspace';
+  }
+
+  @override
+  String settingsShortcutActionMoveToWorkspace(int workspace) {
+    return 'Move window to workspace $workspace';
+  }
+
+  @override
   String get settingsLayoutDescription => '控制普通窗口和最大化窗口周围的预留间距。';
 
   @override
@@ -2266,6 +2325,33 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsWindowLayoutTitle => '窗口布局';
+
+  @override
+  String get settingsWorkspacesTitle => 'Workspaces';
+
+  @override
+  String get settingsWorkspacesEnable => 'Enable workspaces';
+
+  @override
+  String get settingsWorkspacesDescription =>
+      'Each monitor switches workspaces independently. Minimized windows remain available across every workspace on their monitor.';
+
+  @override
+  String get settingsWorkspaceCount => 'Workspace count';
+
+  @override
+  String workspaceLabel(int workspace) {
+    return 'Workspace $workspace';
+  }
+
+  @override
+  String get workspaceActive => 'active';
+
+  @override
+  String get workspaceOccupied => 'occupied';
+
+  @override
+  String get workspaceEmpty => 'empty';
 
   @override
   String get settingsLiveBadge => '实时';

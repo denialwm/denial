@@ -15,11 +15,12 @@ RUST_TARGET="${DENIAL_PC_RUST_TARGET:-${DENIAL_PC_BUILD_ROOT:-$CACHE_HOME/denial
 DENIALD="$RUST_TARGET/release/deniald"
 DENIALCTL="$RUST_TARGET/release/denialctl"
 DENIAL_PORTAL="$RUST_TARGET/release/denial-portal"
+SUSPEND_MODE_HOOK="$ROOT/packaging/denial-suspend-mode"
 
 case "$TARGET" in
-    192.168.1.18|192.168.1.183|logix@192.168.1.18|logix@192.168.1.183) ;;
+    192.168.1.18|192.168.1.183|192.168.1.188|logix@192.168.1.18|logix@192.168.1.183|logix@192.168.1.188) ;;
     *)
-        printf 'denial-lab-deploy: target must be .18 or .183, got %s\n' "$TARGET" >&2
+        printf 'denial-lab-deploy: target must be .18, .183, or .188, got %s\n' "$TARGET" >&2
         exit 2
         ;;
 esac
@@ -30,6 +31,12 @@ for command in git jq make ninja sha256sum ssh tar; do
         exit 1
     }
 done
+[[ -x "$SUSPEND_MODE_HOOK" ]] || {
+    printf 'denial-lab-deploy: suspend mode hook is missing: %s\n' \
+        "$SUSPEND_MODE_HOOK" >&2
+    exit 1
+}
+sh -n "$SUSPEND_MODE_HOOK"
 [[ -x "$FLUTTER" ]] || {
     printf 'denial-lab-deploy: Flutter launcher is missing: %s\n' "$FLUTTER" >&2
     exit 1
@@ -371,8 +378,10 @@ done
 deniald_sha="$(sha256sum "$DENIALD" | cut -d' ' -f1)"
 denialctl_sha="$(sha256sum "$DENIALCTL" | cut -d' ' -f1)"
 denial_portal_sha="$(sha256sum "$DENIAL_PORTAL" | cut -d' ' -f1)"
+suspend_mode_hook_sha="$(sha256sum "$SUSPEND_MODE_HOOK" | cut -d' ' -f1)"
 native_id="$({
-    printf '%s\n' "$deniald_sha" "$denialctl_sha" "$denial_portal_sha"
+    printf '%s\n' "$deniald_sha" "$denialctl_sha" "$denial_portal_sha" \
+        "$suspend_mode_hook_sha"
 } | sha256sum | cut -d' ' -f1)"
 native_id="${native_id:0:24}"
 
@@ -385,23 +394,25 @@ else
     incoming="$REMOTE_STORE/.incoming.$artifact_id.$$"
     invalid="$REMOTE_STORE/.invalid.$artifact_id.$$"
     tar -C "$artifact" -cf - . | ssh "$TARGET" \
-        "set -eu; mkdir -p '$incoming'; tar -C '$incoming' -xf -; cd '$incoming'; sha256sum -c SHA256SUMS >/dev/null; mkdir -p '$REMOTE_STORE/artifacts'; if [ -d '$remote_artifact' ]; then chmod u+w '$remote_artifact'; mv '$remote_artifact' '$invalid'; fi; chmod u+w '$incoming'; mv '$incoming' '$remote_artifact'; chmod -R a-w '$remote_artifact'"
+        "bash -c 'set -eu; mkdir -p \"$incoming\"; tar -C \"$incoming\" -xf -; cd \"$incoming\"; sha256sum -c SHA256SUMS >/dev/null; mkdir -p \"$REMOTE_STORE/artifacts\"; if [ -d \"$remote_artifact\" ]; then chmod u+w \"$remote_artifact\"; mv \"$remote_artifact\" \"$invalid\"; fi; chmod u+w \"$incoming\"; mv \"$incoming\" \"$remote_artifact\"; chmod -R a-w \"$remote_artifact\"'"
 fi
 
 remote_native="$REMOTE_STORE/native/$native_id"
 if ssh "$TARGET" \
-    "test -x '$remote_native/deniald' && test -x '$remote_native/denialctl' && test -x '$remote_native/denial-portal' && test \"\$(sha256sum '$remote_native/deniald' | cut -d' ' -f1)\" = '$deniald_sha' && test \"\$(sha256sum '$remote_native/denialctl' | cut -d' ' -f1)\" = '$denialctl_sha' && test \"\$(sha256sum '$remote_native/denial-portal' | cut -d' ' -f1)\" = '$denial_portal_sha'"; then
+    "test -x '$remote_native/deniald' && test -x '$remote_native/denialctl' && test -x '$remote_native/denial-portal' && test -x '$remote_native/denial-suspend-mode' && test \"\$(sha256sum '$remote_native/deniald' | cut -d' ' -f1)\" = '$deniald_sha' && test \"\$(sha256sum '$remote_native/denialctl' | cut -d' ' -f1)\" = '$denialctl_sha' && test \"\$(sha256sum '$remote_native/denial-portal' | cut -d' ' -f1)\" = '$denial_portal_sha' && test \"\$(sha256sum '$remote_native/denial-suspend-mode' | cut -d' ' -f1)\" = '$suspend_mode_hook_sha'"; then
     printf 'Reusing verified remote native artifact %s.\n' "$native_id"
 else
     printf 'Uploading verified native artifact %s to %s...\n' "$native_id" "$TARGET"
     incoming="$REMOTE_STORE/.incoming.native.$native_id.$$"
     invalid="$REMOTE_STORE/.invalid.native.$native_id.$$"
-    tar -C "$RUST_TARGET/release" -cf - deniald denialctl denial-portal | ssh "$TARGET" \
-        "set -eu; mkdir -p '$incoming'; tar -C '$incoming' -xf -; test \"\$(sha256sum '$incoming/deniald' | cut -d' ' -f1)\" = '$deniald_sha'; test \"\$(sha256sum '$incoming/denialctl' | cut -d' ' -f1)\" = '$denialctl_sha'; test \"\$(sha256sum '$incoming/denial-portal' | cut -d' ' -f1)\" = '$denial_portal_sha'; mkdir -p '$REMOTE_STORE/native'; if [ -d '$remote_native' ]; then chmod -R u+w '$remote_native'; mv '$remote_native' '$invalid'; fi; mv '$incoming' '$remote_native'; chmod -R a-w '$remote_native'"
+    tar -C "$RUST_TARGET/release" -cf - deniald denialctl denial-portal \
+        -C "$ROOT/packaging" denial-suspend-mode | ssh "$TARGET" \
+        "bash -c 'set -eu; mkdir -p \"$incoming\"; tar -C \"$incoming\" -xf -; test \"\$(sha256sum \"$incoming/deniald\" | cut -d\" \" -f1)\" = \"$deniald_sha\"; test \"\$(sha256sum \"$incoming/denialctl\" | cut -d\" \" -f1)\" = \"$denialctl_sha\"; test \"\$(sha256sum \"$incoming/denial-portal\" | cut -d\" \" -f1)\" = \"$denial_portal_sha\"; test \"\$(sha256sum \"$incoming/denial-suspend-mode\" | cut -d\" \" -f1)\" = \"$suspend_mode_hook_sha\"; mkdir -p \"$REMOTE_STORE/native\"; if [ -d \"$remote_native\" ]; then chmod -R u+w \"$remote_native\"; mv \"$remote_native\" \"$invalid\"; fi; mv \"$incoming\" \"$remote_native\"; chmod -R a-w \"$remote_native\"'"
 fi
 
 ssh "$TARGET" bash -s -- \
-    "$artifact_id" "$REMOTE_STORE" "$native_id" "$deniald_sha" "$denialctl_sha" "$denial_portal_sha" <<'REMOTE'
+    "$artifact_id" "$REMOTE_STORE" "$native_id" "$deniald_sha" "$denialctl_sha" \
+    "$denial_portal_sha" "$suspend_mode_hook_sha" <<'REMOTE'
 set -euo pipefail
 artifact_id="$1"
 store="$2"
@@ -409,6 +420,7 @@ native_id="$3"
 deniald_sha="$4"
 denialctl_sha="$5"
 denial_portal_sha="$6"
+suspend_mode_hook_sha="$7"
 artifact="$store/artifacts/$artifact_id"
 native="$store/native/$native_id"
 current="$store/current"
@@ -416,12 +428,26 @@ session_conf="/etc/denial/session.conf"
 bundle="$current/shell"
 settings_binary="$current/settings/denial-settings"
 settings_launcher="/usr/bin/denial-settings"
+greetd_runfile="$(
+    sed -n 's/^[[:space:]]*runfile[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+        /etc/greetd/config.toml | head -n 1
+)"
+greetd_runfile="${greetd_runfile:-/run/greetd.run}"
+case "$greetd_runfile" in
+    /run/greetd.run|/run/greetd-denial-initial-session) ;;
+    *)
+        printf 'denial-lab-deploy: refusing to clear unexpected greetd runfile %s\n' \
+            "$greetd_runfile" >&2
+        exit 1
+        ;;
+esac
 
 cd -- "$artifact"
 sha256sum -c SHA256SUMS >/dev/null
 [[ "$(sha256sum "$native/deniald" | cut -d' ' -f1)" == "$deniald_sha" ]]
 [[ "$(sha256sum "$native/denialctl" | cut -d' ' -f1)" == "$denialctl_sha" ]]
 [[ "$(sha256sum "$native/denial-portal" | cut -d' ' -f1)" == "$denial_portal_sha" ]]
+[[ "$(sha256sum "$native/denial-suspend-mode" | cut -d' ' -f1)" == "$suspend_mode_hook_sha" ]]
 
 next="$store/.current.$$"
 ln -s -- "$artifact" "$next"
@@ -475,6 +501,18 @@ if [[ ! -x /usr/bin/denial-portal ]] \
     portal_restart_required=true
 fi
 
+for suspend_hook in \
+    /usr/lib/systemd/system-sleep/denial-suspend-mode \
+    /usr/lib/elogind/system-sleep/denial-suspend-mode; do
+    if [[ ! -x "$suspend_hook" ]] \
+        || [[ "$(sha256sum "$suspend_hook" | cut -d' ' -f1)" != "$suspend_mode_hook_sha" ]]; then
+        staged_suspend_hook="${suspend_hook}.denial-lab.$$"
+        sudo install -Dm 0755 -- "$native/denial-suspend-mode" "$staged_suspend_hook"
+        sudo mv -f -- "$staged_suspend_hook" "$suspend_hook"
+    fi
+    [[ "$(sha256sum "$suspend_hook" | cut -d' ' -f1)" == "$suspend_mode_hook_sha" ]]
+done
+
 stop_settings() {
     XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="$bus" \
         systemctl --user stop denial-settings-experimental.service 2>/dev/null || true
@@ -485,7 +523,9 @@ stop_settings() {
 
 wait_for_deniald() {
     local previous_pid="$1"
+    local previous_agreety="${2:-}"
     local candidate=""
+    local greeter=""
     while sudo systemctl is-active --quiet greetd.service; do
         candidate="$(pgrep -n -x deniald 2>/dev/null || true)"
         if [[ "$candidate" =~ ^[1-9][0-9]*$ ]] \
@@ -495,8 +535,27 @@ wait_for_deniald() {
             new_deniald="$candidate"
             return 0
         fi
-        if pgrep -x agreety >/dev/null 2>&1; then
+        greeter="$(pgrep -n -x agreety 2>/dev/null || true)"
+        if [[ -n "$greeter" && "$greeter" != "$previous_agreety" ]]; then
             return 2
+        fi
+        sleep 0.1
+    done
+    return 1
+}
+
+wait_for_graphical_session_cleanup() {
+    local status=""
+    for _ in $(seq 1 300); do
+        status="$(
+            XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="$bus" \
+                systemctl --user is-active graphical-session-pre.target \
+                2>/dev/null || true
+        )"
+        if [[ "$status" != active \
+            && "$status" != activating \
+            && "$status" != deactivating ]]; then
+            return 0
         fi
         sleep 0.1
     done
@@ -510,17 +569,34 @@ if [[ "$restart_required" == true ]] \
     || ! grep -Fq "$artifact_id/shell/lib/libflutter_engine.so" "/proc/$new_deniald/maps"; then
     stop_settings
     old_deniald="$new_deniald"
+    old_agreety="$(pgrep -n -x agreety 2>/dev/null || true)"
+    # The lab hosts use a one-shot runfile for greetd's automatic Denial
+    # session. Clear only that ephemeral marker so a deliberate lab deploy
+    # restart selects the configured initial_session again instead of agreety.
+    sudo rm -f -- "$greetd_runfile"
     sudo systemctl restart greetd.service
-    if wait_for_deniald "$old_deniald"; then
+    if wait_for_deniald "$old_deniald" "$old_agreety"; then
         :
     else
         outcome="$?"
-        if [[ "$outcome" == 2 ]]; then
-            printf 'denial-lab-deploy: greetd entered its textual greeter after the first restart; no recovery was attempted\n' >&2
+        if [[ "$outcome" == 2 ]] && wait_for_graphical_session_cleanup; then
+            # UWSM can still be deactivating when greetd immediately launches
+            # the replacement initial session. Retry only after that target is
+            # inactive, and distinguish the old agreety from a failed retry.
+            old_agreety="$(pgrep -n -x agreety 2>/dev/null || true)"
+            sudo rm -f -- "$greetd_runfile"
+            sudo systemctl restart greetd.service
+            if ! wait_for_deniald "$old_deniald" "$old_agreety"; then
+                printf 'denial-lab-deploy: Denial did not start after the bounded UWSM cleanup retry\n' >&2
+                exit 1
+            fi
+        elif [[ "$outcome" == 2 ]]; then
+            printf 'denial-lab-deploy: UWSM did not finish cleanup after greetd entered its textual greeter\n' >&2
+            exit 1
         else
             printf 'denial-lab-deploy: greetd stopped before deniald loaded the deployed engine; no recovery was attempted\n' >&2
+            exit 1
         fi
-        exit 1
     fi
 fi
 
@@ -550,47 +626,6 @@ done
     exit 1
 }
 
-settings_pid="$(
-    XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="$bus" \
-        systemctl --user show denial-settings-experimental.service \
-            --property=MainPID --value 2>/dev/null || true
-)"
-settings_ready=false
-if [[ "$settings_pid" =~ ^[1-9][0-9]*$ ]] \
-    && [[ -r "/proc/$settings_pid/maps" ]] \
-    && grep -Fq "$artifact_id/settings/lib/libapp.so" "/proc/$settings_pid/maps"; then
-    settings_ready=true
-else
-    stop_settings
-    XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="$bus" \
-        systemd-run --user \
-            --unit=denial-settings-experimental \
-            --collect \
-            --setenv=WAYLAND_DISPLAY=wayland-1 \
-            --setenv=DISPLAY=:0 \
-            "$current/settings/denial-settings" >/dev/null 2>&1
-fi
-
-for _ in $(seq 1 30); do
-    [[ "$settings_ready" == true ]] && break
-    settings_pid="$(
-        XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="$bus" \
-            systemctl --user show denial-settings-experimental.service \
-                --property=MainPID --value 2>/dev/null || true
-    )"
-    if [[ "$settings_pid" =~ ^[1-9][0-9]*$ ]] \
-        && [[ -r "/proc/$settings_pid/maps" ]] \
-        && grep -Fq "$artifact_id/settings/lib/libapp.so" "/proc/$settings_pid/maps"; then
-        settings_ready=true
-        break
-    fi
-    sleep 1
-done
-[[ "$settings_ready" == true ]] || {
-    printf 'denial-lab-deploy: Settings did not finish loading the deployed application\n' >&2
-    exit 1
-}
-
 grep -Fq "$artifact_id/shell/lib/libflutter_engine.so" "/proc/$new_deniald/maps" || {
     printf 'denial-lab-deploy: deniald is not using the deployed engine\n' >&2
     exit 1
@@ -603,5 +638,5 @@ printf 'Deployed %s\n' "$artifact_id"
 printf '  native: %s\n' "$native_id"
 printf '  deniald: %s\n' "$new_deniald"
 printf '  portal: %s\n' "$portal_pid"
-printf '  Settings: %s\n' "$settings_pid"
+printf '  Settings: staged (not launched)\n'
 REMOTE

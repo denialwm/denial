@@ -265,6 +265,8 @@ impl WaylandFrontend {
             });
         }
         self.outputs.sort_by_key(|entry| entry.id);
+        #[cfg(feature = "flutter")]
+        self.reconcile_workspace_outputs();
 
         let new_output_geometries = self
             .outputs

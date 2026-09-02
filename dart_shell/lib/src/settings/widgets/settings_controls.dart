@@ -741,6 +741,114 @@ class SettingsChoice<T> {
   final String label;
 }
 
+class SettingsSelect<T> extends StatelessWidget {
+  const SettingsSelect({
+    required this.label,
+    required this.description,
+    required this.value,
+    required this.choices,
+    required this.onChanged,
+    this.enabled = true,
+    super.key,
+  });
+
+  final String label;
+  final String description;
+  final T value;
+  final List<SettingsChoice<T>> choices;
+  final ValueChanged<T> onChanged;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = choices.firstWhere((choice) => choice.value == value);
+    final heading = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(label, style: ShellText.cardTitle),
+        const SizedBox(height: 4),
+        Text(
+          description,
+          style: ShellText.base.copyWith(
+            color: context.shellColors.textTertiary,
+            fontSize: 12,
+          ),
+        ),
+      ],
+    );
+    final selector = Semantics(
+      button: true,
+      enabled: enabled,
+      label: label,
+      value: selected.label,
+      child: AnimatedOpacity(
+        duration: Motion.tile,
+        opacity: enabled ? 1 : 0.46,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: context.shellColors.surfaceContainerHigh,
+            borderRadius: context.shellTheme.borderRadius(10),
+            border: Border.all(color: context.shellColors.hairline),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<T>(
+                value: value,
+                isExpanded: true,
+                borderRadius: context.shellTheme.borderRadius(10),
+                dropdownColor: context.shellColors.surfaceContainerHighest,
+                focusColor: Colors.transparent,
+                icon: Icon(
+                  Icons.expand_more_rounded,
+                  color: context.shellColors.textTertiary,
+                ),
+                items: <DropdownMenuItem<T>>[
+                  for (final choice in choices)
+                    DropdownMenuItem<T>(
+                      value: choice.value,
+                      child: Text(
+                        choice.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: ShellText.cardTitle,
+                      ),
+                    ),
+                ],
+                onChanged: enabled
+                    ? (next) {
+                        if (next != null) {
+                          onChanged(next);
+                        }
+                      }
+                    : null,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 560) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[heading, const SizedBox(height: 12), selector],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Expanded(child: heading),
+            const SizedBox(width: 18),
+            SizedBox(width: 260, child: selector),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class SettingsSegmentedControl<T> extends StatelessWidget {
   const SettingsSegmentedControl({
     required this.value,

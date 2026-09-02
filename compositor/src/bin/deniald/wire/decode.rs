@@ -171,6 +171,21 @@ impl WireBridge {
                 if monitor_ids.is_empty() || monitor_ids.len() > self.snapshot.outputs.len() {
                     return Err(WireError::Count);
                 }
+                let thickness = request.system_bar_thickness();
+                if thickness != -1.0
+                    && (!thickness.is_finite()
+                        || thickness <= 0.0
+                        || thickness > MAX_SYSTEM_BAR_THICKNESS)
+                {
+                    return Err(WireError::Payload);
+                }
+                let maximize_padding = request.maximize_padding();
+                if maximize_padding != -1.0
+                    && (!maximize_padding.is_finite()
+                        || !(0.0..=MAX_MAXIMIZE_PADDING).contains(&maximize_padding))
+                {
+                    return Err(WireError::Payload);
+                }
                 let mut unique_ids = HashSet::with_capacity(monitor_ids.len());
                 let mut outputs = Vec::with_capacity(monitor_ids.len());
                 for requested_monitor_id in monitor_ids {
@@ -187,6 +202,12 @@ impl WireBridge {
                 }
                 self.work_area.system_bar.outputs = outputs;
                 self.work_area.system_bar.side = side;
+                if thickness >= 0.0 {
+                    self.work_area.system_bar.thickness = thickness;
+                }
+                if maximize_padding >= 0.0 {
+                    self.work_area.maximize_padding = maximize_padding;
+                }
                 self.pending_work_area = Some(self.work_area.clone());
 
                 let sequence = self.take_sequence();
@@ -200,6 +221,52 @@ impl WireBridge {
                     &self.work_area,
                 )?;
                 Ok(Some(self.outbound_builder.finished_data()))
+            }
+            fb::WindowRequestKind::SwitchWorkspace => {
+                if request_id != 0 {
+                    return Err(WireError::RequestId);
+                }
+                if self.pending_window_commands.len() >= MAX_PENDING_WINDOW_COMMANDS {
+                    return Err(WireError::Count);
+                }
+                let monitor_id = request.monitor_id();
+                let workspace_id = u8::try_from(request.workspace_id())
+                    .ok()
+                    .filter(|workspace| (1..=9).contains(workspace))
+                    .ok_or(WireError::Identity)?;
+                if monitor_id < 0 {
+                    return Err(WireError::Identity);
+                }
+                self.pending_window_commands
+                    .push_back(WindowCommand::SwitchWorkspace {
+                        monitor_id,
+                        workspace_id,
+                    });
+                Ok(None)
+            }
+            fb::WindowRequestKind::MoveWindowToWorkspace => {
+                if request_id != 0 {
+                    return Err(WireError::RequestId);
+                }
+                if self.pending_window_commands.len() >= MAX_PENDING_WINDOW_COMMANDS {
+                    return Err(WireError::Count);
+                }
+                let window_id = request.window_id();
+                let workspace_id = u8::try_from(request.workspace_id())
+                    .ok()
+                    .filter(|workspace| (1..=9).contains(workspace))
+                    .ok_or(WireError::Identity)?;
+                if window_id == 0 || request.flags() & !1 != 0 {
+                    return Err(WireError::Identity);
+                }
+                self.pending_window_commands
+                    .push_back(WindowCommand::MoveToWorkspace {
+                        window_id,
+                        monitor_id: (request.monitor_id() >= 0).then(|| request.monitor_id()),
+                        workspace_id,
+                        follow: request.flags() & 1 != 0,
+                    });
+                Ok(None)
             }
             kind @ (fb::WindowRequestKind::CloseWindow
             | fb::WindowRequestKind::FocusWindow
@@ -687,6 +754,30 @@ fn shortcut_action_from_wire(action: fb::ShortcutActionKind) -> Result<ShortcutA
         fb::ShortcutActionKind::SwapRight => Ok(ShortcutAction::SwapRight),
         fb::ShortcutActionKind::SwapUp => Ok(ShortcutAction::SwapUp),
         fb::ShortcutActionKind::SwapDown => Ok(ShortcutAction::SwapDown),
+        fb::ShortcutActionKind::PreviousWorkspace => Ok(ShortcutAction::PreviousWorkspace),
+        fb::ShortcutActionKind::NextWorkspace => Ok(ShortcutAction::NextWorkspace),
+        fb::ShortcutActionKind::MoveToPreviousWorkspace => {
+            Ok(ShortcutAction::MoveToPreviousWorkspace)
+        }
+        fb::ShortcutActionKind::MoveToNextWorkspace => Ok(ShortcutAction::MoveToNextWorkspace),
+        fb::ShortcutActionKind::SwitchWorkspace1 => Ok(ShortcutAction::SwitchWorkspace1),
+        fb::ShortcutActionKind::SwitchWorkspace2 => Ok(ShortcutAction::SwitchWorkspace2),
+        fb::ShortcutActionKind::SwitchWorkspace3 => Ok(ShortcutAction::SwitchWorkspace3),
+        fb::ShortcutActionKind::SwitchWorkspace4 => Ok(ShortcutAction::SwitchWorkspace4),
+        fb::ShortcutActionKind::SwitchWorkspace5 => Ok(ShortcutAction::SwitchWorkspace5),
+        fb::ShortcutActionKind::SwitchWorkspace6 => Ok(ShortcutAction::SwitchWorkspace6),
+        fb::ShortcutActionKind::SwitchWorkspace7 => Ok(ShortcutAction::SwitchWorkspace7),
+        fb::ShortcutActionKind::SwitchWorkspace8 => Ok(ShortcutAction::SwitchWorkspace8),
+        fb::ShortcutActionKind::SwitchWorkspace9 => Ok(ShortcutAction::SwitchWorkspace9),
+        fb::ShortcutActionKind::MoveToWorkspace1 => Ok(ShortcutAction::MoveToWorkspace1),
+        fb::ShortcutActionKind::MoveToWorkspace2 => Ok(ShortcutAction::MoveToWorkspace2),
+        fb::ShortcutActionKind::MoveToWorkspace3 => Ok(ShortcutAction::MoveToWorkspace3),
+        fb::ShortcutActionKind::MoveToWorkspace4 => Ok(ShortcutAction::MoveToWorkspace4),
+        fb::ShortcutActionKind::MoveToWorkspace5 => Ok(ShortcutAction::MoveToWorkspace5),
+        fb::ShortcutActionKind::MoveToWorkspace6 => Ok(ShortcutAction::MoveToWorkspace6),
+        fb::ShortcutActionKind::MoveToWorkspace7 => Ok(ShortcutAction::MoveToWorkspace7),
+        fb::ShortcutActionKind::MoveToWorkspace8 => Ok(ShortcutAction::MoveToWorkspace8),
+        fb::ShortcutActionKind::MoveToWorkspace9 => Ok(ShortcutAction::MoveToWorkspace9),
         _ => Err(WireError::Enumeration),
     }
 }

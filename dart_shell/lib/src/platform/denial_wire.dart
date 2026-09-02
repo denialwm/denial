@@ -34,6 +34,8 @@ const int denialWireMaxTrayIconBytes = 512 * 1024;
 const int denialWireMaxLocalAppIdBytes = 256;
 const int denialWireMaxLocalWindowTitleBytes = 1024;
 const int denialWireMaxSettingsDocumentBytes = 256 * 1024;
+const double denialWireMaxSystemBarThickness = 512;
+const double denialWireMaxMaximizePadding = 256;
 const int _maxShortcutBindings = 256;
 const int _maxShortcutInputs = 256;
 const int _maxShortcutCommandArguments = 64;
@@ -202,6 +204,8 @@ class DenialWireCodec {
     generated.SystemBarSide? systemBarSide,
     List<int>? systemBarMonitorIds,
     int flags = 0,
+    int monitorId = -1,
+    int workspaceId = 1,
   }) {
     return _encodeEnvelope(
       generated.PayloadTypeId.WindowRequest,
@@ -214,6 +218,8 @@ class DenialWireCodec {
         systemBarSide: systemBarSide,
         systemBarMonitorIds: systemBarMonitorIds,
         flags: flags,
+        monitorId: monitorId,
+        workspaceId: workspaceId,
       ),
       requestId: requestId,
     );
@@ -223,13 +229,21 @@ class DenialWireCodec {
     required int requestId,
     required SystemBarSide side,
     required List<int> monitorIds,
+    required double systemBarThickness,
+    required double maximizePadding,
   }) {
     if (requestId <= 0 ||
         side == SystemBarSide.hidden ||
         monitorIds.isEmpty ||
         monitorIds.length > denialWireMaxWindows ||
         monitorIds.any((monitorId) => monitorId < 0) ||
-        monitorIds.toSet().length != monitorIds.length) {
+        monitorIds.toSet().length != monitorIds.length ||
+        !systemBarThickness.isFinite ||
+        systemBarThickness <= 0 ||
+        systemBarThickness > denialWireMaxSystemBarThickness ||
+        !maximizePadding.isFinite ||
+        maximizePadding < 0 ||
+        maximizePadding > denialWireMaxMaximizePadding) {
       return null;
     }
     final wireSide = switch (side) {
@@ -246,6 +260,8 @@ class DenialWireCodec {
       _AlignedSystemBarRequestObjectBuilder(
         side: wireSide,
         monitorIds: List<int>.unmodifiable(monitorIds),
+        systemBarThickness: systemBarThickness,
+        maximizePadding: maximizePadding,
       ),
       requestId: requestId,
     );
@@ -1374,6 +1390,8 @@ class DenialWireCodec {
           geometryWidth: window.geometryWidth,
           geometryHeight: window.geometryHeight,
           monitorId: window.monitorId,
+          workspaceId: window.workspaceId,
+          minimized: window.minimized,
           transform: window.transform,
           scale120: window.scale120,
           pinned: window.pinned,

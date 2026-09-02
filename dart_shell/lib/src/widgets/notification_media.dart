@@ -16,20 +16,23 @@ class NotificationIconRequest {
   const NotificationIconRequest({
     required this.appIcon,
     required this.desktopEntry,
+    required this.appName,
   });
 
   final String appIcon;
   final String desktopEntry;
+  final String appName;
 
   @override
   bool operator ==(Object other) {
     return other is NotificationIconRequest &&
         other.appIcon == appIcon &&
-        other.desktopEntry == desktopEntry;
+        other.desktopEntry == desktopEntry &&
+        other.appName == appName;
   }
 
   @override
-  int get hashCode => Object.hash(appIcon, desktopEntry);
+  int get hashCode => Object.hash(appIcon, desktopEntry, appName);
 }
 
 final notificationIconPathProvider =
@@ -39,6 +42,7 @@ final notificationIconPathProvider =
         () => repository.resolveNotificationIcon(
           appIcon: request.appIcon,
           desktopEntry: request.desktopEntry,
+          appName: request.appName,
         ),
       );
     }, isAutoDispose: true);
@@ -86,7 +90,9 @@ class NotificationAppIcon extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (notification.appIcon.isEmpty && notification.desktopEntry.isEmpty) {
+    if (notification.appIcon.isEmpty &&
+        notification.desktopEntry.isEmpty &&
+        notification.appName.isEmpty) {
       return const AppIconImage(iconPath: null);
     }
     final resolved = ref.watch(
@@ -94,6 +100,7 @@ class NotificationAppIcon extends ConsumerWidget {
         NotificationIconRequest(
           appIcon: notification.appIcon,
           desktopEntry: notification.desktopEntry,
+          appName: notification.appName,
         ),
       ),
     );

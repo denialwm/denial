@@ -8,6 +8,8 @@ import '../input/shell_interaction_registry.dart';
 import '../models/denial_window.dart';
 import '../state/desktop_window_switcher.dart';
 import '../state/shell_controller.dart';
+import '../state/display_layout.dart';
+import '../settings/settings_controller.dart';
 import 'desktop_workspace.dart';
 
 class DesktopInputLayoutPublisher extends ConsumerStatefulWidget {
@@ -40,6 +42,13 @@ class _DesktopInputLayoutPublisherState
       desktopWorkspaceProvider.select((state) => state.inputLayoutRevision),
     );
     ref.watch(desktopWindowSwitcherProvider);
+    ref.watch(
+      shellSettingsProvider.select(
+        (settings) =>
+            (settings.layout.workspacesEnabled, settings.layout.workspaceCount),
+      ),
+    );
+    ref.watch(displayLayoutProvider);
     ref.watch(shellInteractionRegistryProvider);
     _schedulePublish(
       MediaQuery.sizeOf(context),
@@ -61,6 +70,19 @@ class _DesktopInputLayoutPublisherState
 
       final shell = ref.read(shellControllerProvider);
       final windows = shell.windows;
+      final settings = ref.read(shellSettingsProvider).layout;
+      final displayLayout = ref.read(displayLayoutProvider);
+      ref
+          .read(desktopWorkspaceProvider.notifier)
+          .syncWorkspaceConfiguration(
+            enabled: settings.workspacesEnabled,
+            count: settings.workspaceCount,
+            monitorIds:
+                displayLayout?.outputs.map((output) => output.monitorId) ??
+                windows
+                    .where((window) => window.monitorId >= 0)
+                    .map((window) => window.monitorId),
+          );
       ref
           .read(desktopWorkspaceProvider.notifier)
           .syncWindows(
@@ -115,6 +137,8 @@ class _DesktopInputLayoutPublisherState
                   (!placement.minimized ||
                       desktop.isInOverview(placement.objectId) ||
                       sampledSwitcherIds.contains(placement.objectId)) &&
+                  (desktop.isPlacementOnActiveWorkspace(placement) ||
+                      desktop.isInOverview(placement.objectId)) &&
                   windowsById.containsKey(placement.objectId),
             )
             .toList(growable: false)

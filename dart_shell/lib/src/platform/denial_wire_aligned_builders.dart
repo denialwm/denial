@@ -58,18 +58,24 @@ class _AlignedSystemBarRequestObjectBuilder extends fb.ObjectBuilder {
   _AlignedSystemBarRequestObjectBuilder({
     required this.side,
     required this.monitorIds,
+    required this.systemBarThickness,
+    required this.maximizePadding,
   });
 
   final generated.SystemBarSide side;
   final List<int> monitorIds;
+  final double systemBarThickness;
+  final double maximizePadding;
 
   @override
   int finish(fb.Builder builder) {
     final monitorIdsOffset = _writeAlignedInt64Vector(builder, monitorIds);
-    builder.startTable(7);
+    builder.startTable(12);
     builder.addUint8(0, generated.WindowRequestKind.ConfigureSystemBar.value);
     builder.addUint8(5, side.value);
     builder.addOffset(6, monitorIdsOffset);
+    builder.addFloat64(10, systemBarThickness);
+    builder.addFloat64(11, maximizePadding);
     return builder.endTable();
   }
 
@@ -252,6 +258,50 @@ generated.ShortcutActionKind _shortcutActionToWire(
     DenialShortcutAction.swapRight => generated.ShortcutActionKind.SwapRight,
     DenialShortcutAction.swapUp => generated.ShortcutActionKind.SwapUp,
     DenialShortcutAction.swapDown => generated.ShortcutActionKind.SwapDown,
+    DenialShortcutAction.previousWorkspace =>
+      generated.ShortcutActionKind.PreviousWorkspace,
+    DenialShortcutAction.nextWorkspace =>
+      generated.ShortcutActionKind.NextWorkspace,
+    DenialShortcutAction.moveToPreviousWorkspace =>
+      generated.ShortcutActionKind.MoveToPreviousWorkspace,
+    DenialShortcutAction.moveToNextWorkspace =>
+      generated.ShortcutActionKind.MoveToNextWorkspace,
+    DenialShortcutAction.switchWorkspace1 =>
+      generated.ShortcutActionKind.SwitchWorkspace1,
+    DenialShortcutAction.switchWorkspace2 =>
+      generated.ShortcutActionKind.SwitchWorkspace2,
+    DenialShortcutAction.switchWorkspace3 =>
+      generated.ShortcutActionKind.SwitchWorkspace3,
+    DenialShortcutAction.switchWorkspace4 =>
+      generated.ShortcutActionKind.SwitchWorkspace4,
+    DenialShortcutAction.switchWorkspace5 =>
+      generated.ShortcutActionKind.SwitchWorkspace5,
+    DenialShortcutAction.switchWorkspace6 =>
+      generated.ShortcutActionKind.SwitchWorkspace6,
+    DenialShortcutAction.switchWorkspace7 =>
+      generated.ShortcutActionKind.SwitchWorkspace7,
+    DenialShortcutAction.switchWorkspace8 =>
+      generated.ShortcutActionKind.SwitchWorkspace8,
+    DenialShortcutAction.switchWorkspace9 =>
+      generated.ShortcutActionKind.SwitchWorkspace9,
+    DenialShortcutAction.moveToWorkspace1 =>
+      generated.ShortcutActionKind.MoveToWorkspace1,
+    DenialShortcutAction.moveToWorkspace2 =>
+      generated.ShortcutActionKind.MoveToWorkspace2,
+    DenialShortcutAction.moveToWorkspace3 =>
+      generated.ShortcutActionKind.MoveToWorkspace3,
+    DenialShortcutAction.moveToWorkspace4 =>
+      generated.ShortcutActionKind.MoveToWorkspace4,
+    DenialShortcutAction.moveToWorkspace5 =>
+      generated.ShortcutActionKind.MoveToWorkspace5,
+    DenialShortcutAction.moveToWorkspace6 =>
+      generated.ShortcutActionKind.MoveToWorkspace6,
+    DenialShortcutAction.moveToWorkspace7 =>
+      generated.ShortcutActionKind.MoveToWorkspace7,
+    DenialShortcutAction.moveToWorkspace8 =>
+      generated.ShortcutActionKind.MoveToWorkspace8,
+    DenialShortcutAction.moveToWorkspace9 =>
+      generated.ShortcutActionKind.MoveToWorkspace9,
   };
 }
 
@@ -308,6 +358,50 @@ DenialShortcutAction _shortcutActionFromWire(
     generated.ShortcutActionKind.SwapRight => DenialShortcutAction.swapRight,
     generated.ShortcutActionKind.SwapUp => DenialShortcutAction.swapUp,
     generated.ShortcutActionKind.SwapDown => DenialShortcutAction.swapDown,
+    generated.ShortcutActionKind.PreviousWorkspace =>
+      DenialShortcutAction.previousWorkspace,
+    generated.ShortcutActionKind.NextWorkspace =>
+      DenialShortcutAction.nextWorkspace,
+    generated.ShortcutActionKind.MoveToPreviousWorkspace =>
+      DenialShortcutAction.moveToPreviousWorkspace,
+    generated.ShortcutActionKind.MoveToNextWorkspace =>
+      DenialShortcutAction.moveToNextWorkspace,
+    generated.ShortcutActionKind.SwitchWorkspace1 =>
+      DenialShortcutAction.switchWorkspace1,
+    generated.ShortcutActionKind.SwitchWorkspace2 =>
+      DenialShortcutAction.switchWorkspace2,
+    generated.ShortcutActionKind.SwitchWorkspace3 =>
+      DenialShortcutAction.switchWorkspace3,
+    generated.ShortcutActionKind.SwitchWorkspace4 =>
+      DenialShortcutAction.switchWorkspace4,
+    generated.ShortcutActionKind.SwitchWorkspace5 =>
+      DenialShortcutAction.switchWorkspace5,
+    generated.ShortcutActionKind.SwitchWorkspace6 =>
+      DenialShortcutAction.switchWorkspace6,
+    generated.ShortcutActionKind.SwitchWorkspace7 =>
+      DenialShortcutAction.switchWorkspace7,
+    generated.ShortcutActionKind.SwitchWorkspace8 =>
+      DenialShortcutAction.switchWorkspace8,
+    generated.ShortcutActionKind.SwitchWorkspace9 =>
+      DenialShortcutAction.switchWorkspace9,
+    generated.ShortcutActionKind.MoveToWorkspace1 =>
+      DenialShortcutAction.moveToWorkspace1,
+    generated.ShortcutActionKind.MoveToWorkspace2 =>
+      DenialShortcutAction.moveToWorkspace2,
+    generated.ShortcutActionKind.MoveToWorkspace3 =>
+      DenialShortcutAction.moveToWorkspace3,
+    generated.ShortcutActionKind.MoveToWorkspace4 =>
+      DenialShortcutAction.moveToWorkspace4,
+    generated.ShortcutActionKind.MoveToWorkspace5 =>
+      DenialShortcutAction.moveToWorkspace5,
+    generated.ShortcutActionKind.MoveToWorkspace6 =>
+      DenialShortcutAction.moveToWorkspace6,
+    generated.ShortcutActionKind.MoveToWorkspace7 =>
+      DenialShortcutAction.moveToWorkspace7,
+    generated.ShortcutActionKind.MoveToWorkspace8 =>
+      DenialShortcutAction.moveToWorkspace8,
+    generated.ShortcutActionKind.MoveToWorkspace9 =>
+      DenialShortcutAction.moveToWorkspace9,
   };
 }
 

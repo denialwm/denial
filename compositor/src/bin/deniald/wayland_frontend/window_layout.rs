@@ -52,6 +52,7 @@ impl WaylandFrontend {
             .rev()
             .find(|window| {
                 self.window_is_layout_managed(window)
+                    && self.window_is_in_visible_layout_workspace(window)
                     && !self.window_has_constrained_state(window)
                     && self.window_geometry_target(window).contains(point)
             })
@@ -76,6 +77,7 @@ impl WaylandFrontend {
                 .elements()
                 .filter(|candidate| {
                     self.window_is_layout_managed(candidate)
+                        && self.window_is_in_visible_layout_workspace(candidate)
                         && !self.window_has_constrained_state(candidate)
                         && self
                             .output_for_geometry(self.window_geometry_target(candidate))
@@ -179,7 +181,7 @@ impl WaylandFrontend {
         if !self.window_is_layout_managed(window) {
             return false;
         }
-        let Some(output) = self
+        let Some(physical_output) = self
             .outputs
             .iter()
             .find(|output| output.logical_geometry.contains(location))
@@ -187,6 +189,13 @@ impl WaylandFrontend {
         else {
             return true;
         };
+        let Some(window_id) = self.window_root_surface(window).map(|root| root.id()) else {
+            return true;
+        };
+        #[cfg(feature = "flutter")]
+        if let Some(stable_id) = self.surface_ids.get(&window_id).copied() {
+            self.reconcile_workspace_assignment(stable_id, physical_output, false);
+        }
         let target = self.layout_drop_target_at(window, location);
         if let Some(target) = target {
             if target != *window {
@@ -195,9 +204,7 @@ impl WaylandFrontend {
             return true;
         }
 
-        let Some(window_id) = self.window_root_surface(window).map(|root| root.id()) else {
-            return true;
-        };
+        let output = self.layout_output_for_window(window, physical_output);
         self.window_layout.insert(LayoutInsertion {
             window: window_id,
             output,
@@ -265,7 +272,7 @@ impl WaylandFrontend {
             .copied()
             .filter(|geometry| has_visible_size(*geometry))
             .unwrap_or_else(|| self.stacking_geometry_for_layout(window, geometry));
-        let Some(output) = self
+        let Some(physical_output) = self
             .output_for_geometry(restore)
             .map(|output| output.id)
             .or(self.ticker_output)
@@ -273,6 +280,11 @@ impl WaylandFrontend {
         else {
             return false;
         };
+        #[cfg(feature = "flutter")]
+        if let Some(stable_id) = self.surface_ids.get(&window_id).copied() {
+            self.reconcile_workspace_assignment(stable_id, physical_output, false);
+        }
+        let output = self.layout_output_for_window(window, physical_output);
         if has_visible_size(restore) {
             self.layout_restore_geometries
                 .entry(window_id.clone())
@@ -331,7 +343,7 @@ impl WaylandFrontend {
 
     /// Rebuild output membership after hotplug/rotation while preserving each
     /// window's original stacking rectangle.
-    pub(super) fn rebuild_window_layout(&mut self) -> bool {
+    pub(crate) fn rebuild_window_layout(&mut self) -> bool {
         if !self.window_layout.manages_geometry() {
             return false;
         }
@@ -345,11 +357,12 @@ impl WaylandFrontend {
                 let root = self.window_root_surface(window)?;
                 let geometry = self.window_geometry_target(window);
                 let restore = self.stacking_geometry_for_layout(window, geometry);
-                let output = self
+                let physical_output = self
                     .output_for_geometry(restore)
                     .map(|output| output.id)
                     .or(self.ticker_output)
                     .or_else(|| self.outputs.first().map(|output| output.id))?;
+                let output = self.layout_output_for_window(window, physical_output);
                 Some((root.id(), output, restore))
             })
             .collect::<Vec<_>>();
@@ -437,7 +450,13 @@ impl WaylandFrontend {
             .flat_map(|output| {
                 let work_area =
                     self.maximize_work_area(Some(&output.output), output.logical_geometry);
-                self.window_layout.arrange(output.id, work_area, gap)
+                (1..=self.layout_workspace_count()).flat_map(move |workspace| {
+                    self.window_layout.arrange(
+                        layout_output_id(output.id, workspace),
+                        work_area,
+                        gap,
+                    )
+                })
             })
             .collect()
     }
@@ -617,6 +636,65 @@ impl WaylandFrontend {
             .owning_toplevel_surface(&surface)
             .unwrap_or_else(|| surface.into_owned());
         Some(root.id())
+    }
+
+    fn layout_workspace_count(&self) -> u8 {
+        #[cfg(feature = "flutter")]
+        {
+            if self.workspaces_enabled() {
+                return self.workspace_count();
+            }
+        }
+        1
+    }
+
+    fn layout_output_for_window(&self, window: &Window, physical_output: OutputId) -> OutputId {
+        #[cfg(feature = "flutter")]
+        {
+            let location = self
+                .window_root_surface(window)
+                .and_then(|root| self.surface_ids.get(&root.id()).copied())
+                .and_then(|stable_id| self.workspace_location(stable_id));
+            return location.map_or_else(
+                || layout_output_id(physical_output, self.active_workspace(physical_output)),
+                |location| layout_output_id(location.output, location.workspace),
+            );
+        }
+        #[cfg(not(feature = "flutter"))]
+        {
+            physical_output
+        }
+    }
+
+    fn window_is_in_visible_layout_workspace(&self, window: &Window) -> bool {
+        #[cfg(feature = "flutter")]
+        {
+            return self
+                .window_root_surface(window)
+                .and_then(|root| self.surface_ids.get(&root.id()).copied())
+                .is_none_or(|stable_id| self.window_is_on_active_workspace(stable_id));
+        }
+        #[cfg(not(feature = "flutter"))]
+        {
+            true
+        }
+    }
+}
+
+fn layout_output_id(output: OutputId, workspace: u8) -> OutputId {
+    #[cfg(feature = "flutter")]
+    {
+        return OutputId(
+            output
+                .0
+                .saturating_mul(16)
+                .saturating_add(u64::from(workspace)),
+        );
+    }
+    #[cfg(not(feature = "flutter"))]
+    {
+        let _ = workspace;
+        output
     }
 }
 

@@ -22,9 +22,9 @@ const MANAGED_OUTPUT_CONFIG_HEADER: &str = "# Output settings managed by Denial 
 static OUTPUT_CONFIG_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 pub(super) const SIMULATED_HOTPLUG_GAP_FRAMES: u64 = 30;
 const DEFAULT_SYSTEM_BAR_THICKNESS: f64 = 32.0;
-const MAX_SYSTEM_BAR_THICKNESS: f64 = 512.0;
+pub(super) const MAX_SYSTEM_BAR_THICKNESS: f64 = 512.0;
 const DEFAULT_MAXIMIZE_PADDING: f64 = 10.0;
-const MAX_MAXIMIZE_PADDING: f64 = 256.0;
+pub(super) const MAX_MAXIMIZE_PADDING: f64 = 256.0;
 const SYSTEM_BAR_SPEC_HELP: &str =
     "system bar must use SIDE,THICKNESS[,OUTPUT[+OUTPUT...]] or hidden";
 

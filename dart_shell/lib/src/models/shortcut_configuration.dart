@@ -30,6 +30,54 @@ enum DenialShortcutAction {
   swapRight,
   swapUp,
   swapDown,
+  previousWorkspace,
+  nextWorkspace,
+  moveToPreviousWorkspace,
+  moveToNextWorkspace,
+  switchWorkspace1,
+  switchWorkspace2,
+  switchWorkspace3,
+  switchWorkspace4,
+  switchWorkspace5,
+  switchWorkspace6,
+  switchWorkspace7,
+  switchWorkspace8,
+  switchWorkspace9,
+  moveToWorkspace1,
+  moveToWorkspace2,
+  moveToWorkspace3,
+  moveToWorkspace4,
+  moveToWorkspace5,
+  moveToWorkspace6,
+  moveToWorkspace7,
+  moveToWorkspace8,
+  moveToWorkspace9;
+
+  int? get workspaceNumber => switch (this) {
+    switchWorkspace1 || moveToWorkspace1 => 1,
+    switchWorkspace2 || moveToWorkspace2 => 2,
+    switchWorkspace3 || moveToWorkspace3 => 3,
+    switchWorkspace4 || moveToWorkspace4 => 4,
+    switchWorkspace5 || moveToWorkspace5 => 5,
+    switchWorkspace6 || moveToWorkspace6 => 6,
+    switchWorkspace7 || moveToWorkspace7 => 7,
+    switchWorkspace8 || moveToWorkspace8 => 8,
+    switchWorkspace9 || moveToWorkspace9 => 9,
+    _ => null,
+  };
+
+  bool get movesWindowToWorkspace => switch (this) {
+    moveToWorkspace1 ||
+    moveToWorkspace2 ||
+    moveToWorkspace3 ||
+    moveToWorkspace4 ||
+    moveToWorkspace5 ||
+    moveToWorkspace6 ||
+    moveToWorkspace7 ||
+    moveToWorkspace8 ||
+    moveToWorkspace9 => true,
+    _ => false,
+  };
 }
 
 enum DenialShortcutInputKind { key, gesture }

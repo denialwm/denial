@@ -12,6 +12,7 @@ use super::native_shortcut::ShortcutGesture;
 
 const DIRECTION_DOMINANCE: f64 = 1.5;
 const THREE_FINGER_SWIPE_DISTANCE: f64 = 100.0;
+const FOUR_FINGER_SWIPE_DISTANCE: f64 = 100.0;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SwipeDirection {
@@ -51,6 +52,18 @@ const SWIPE_BINDINGS: &[SwipeBinding] = &[
         direction: SwipeDirection::Right,
         minimum_distance: THREE_FINGER_SWIPE_DISTANCE,
         gesture: ShortcutGesture::ThreeFingerSwipeRight,
+    },
+    SwipeBinding {
+        fingers: 4,
+        direction: SwipeDirection::Left,
+        minimum_distance: FOUR_FINGER_SWIPE_DISTANCE,
+        gesture: ShortcutGesture::FourFingerSwipeLeft,
+    },
+    SwipeBinding {
+        fingers: 4,
+        direction: SwipeDirection::Right,
+        minimum_distance: FOUR_FINGER_SWIPE_DISTANCE,
+        gesture: ShortcutGesture::FourFingerSwipeRight,
     },
 ];
 
@@ -180,5 +193,48 @@ impl TouchpadGestureRecognizer {
 
     pub(super) fn reset(&mut self) {
         self.active_swipes.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn four_finger_horizontal_swipes_trigger_once_per_sequence() {
+        let mut recognizer = TouchpadGestureRecognizer::default();
+
+        recognizer.begin_swipe("touchpad", 4);
+        assert_eq!(recognizer.update_swipe("touchpad", 60.0, 2.0), None);
+        assert_eq!(
+            recognizer.update_swipe("touchpad", 41.0, 1.0),
+            Some(TouchpadGestureEvent::Trigger(
+                ShortcutGesture::FourFingerSwipeRight
+            ))
+        );
+        assert_eq!(recognizer.update_swipe("touchpad", 120.0, 0.0), None);
+        assert_eq!(
+            recognizer.end_swipe("touchpad"),
+            Some(TouchpadGestureEvent::End(
+                ShortcutGesture::FourFingerSwipeRight
+            ))
+        );
+
+        recognizer.begin_swipe("touchpad", 4);
+        assert_eq!(
+            recognizer.update_swipe("touchpad", -101.0, 0.0),
+            Some(TouchpadGestureEvent::Trigger(
+                ShortcutGesture::FourFingerSwipeLeft
+            ))
+        );
+    }
+
+    #[test]
+    fn four_finger_diagonal_motion_does_not_trigger_a_workspace_swipe() {
+        let mut recognizer = TouchpadGestureRecognizer::default();
+        recognizer.begin_swipe("touchpad", 4);
+
+        assert_eq!(recognizer.update_swipe("touchpad", 110.0, 90.0), None);
+        assert_eq!(recognizer.end_swipe("touchpad"), None);
     }
 }

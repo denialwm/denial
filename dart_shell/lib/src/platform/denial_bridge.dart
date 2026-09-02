@@ -15,6 +15,7 @@ import '../models/keyboard_configuration.dart';
 import '../models/output_configuration.dart';
 import '../models/shortcut_configuration.dart';
 import '../models/system_tray_item.dart';
+import '../models/suspend_mode.dart';
 import '../models/denial_window.dart';
 import '../models/denial_window_event.dart';
 import '../models/denial_window_snapshot.dart';
@@ -36,6 +37,7 @@ enum DenialShellAction {
   clientPointerPressed,
   wallpaper,
   openSettings,
+  workspaceChanged,
 }
 
 class DenialShellActionEvent {
@@ -44,12 +46,14 @@ class DenialShellActionEvent {
     required this.monitorId,
     required this.requestId,
     required this.textureId,
+    required this.workspaceId,
   });
 
   final DenialShellAction action;
   final int? monitorId;
   final int requestId;
   final int? textureId;
+  final int? workspaceId;
 }
 
 class DenialAudioState {
@@ -749,12 +753,16 @@ class DenialBridge {
   Future<DisplayLayout?> configureSystemBar({
     required SystemBarSide side,
     required List<int> monitorIds,
+    required double systemBarThickness,
+    required double maximizePadding,
   }) {
     final requestId = _nextRequestId++;
     final bytes = _wireCodec.encodeSystemBarConfiguration(
       requestId: requestId,
       side: side,
       monitorIds: monitorIds,
+      systemBarThickness: systemBarThickness,
+      maximizePadding: maximizePadding,
     );
     if (bytes == null) {
       return Future<DisplayLayout?>.value(null);
@@ -1370,6 +1378,39 @@ class DenialBridge {
     );
   }
 
+  void switchWorkspace({required int monitorId, required int workspaceId}) {
+    if (monitorId < 0 || workspaceId < 1 || workspaceId > 9) {
+      return;
+    }
+    _sendWire(
+      _wireCodec.encodeWindowRequest(
+        wire.WindowRequestKind.SwitchWorkspace,
+        monitorId: monitorId,
+        workspaceId: workspaceId,
+      ),
+    );
+  }
+
+  void moveWindowToWorkspace(
+    DenialWindow window, {
+    int? monitorId,
+    required int workspaceId,
+    bool follow = true,
+  }) {
+    if (window.windowId <= 0 || workspaceId < 1 || workspaceId > 9) {
+      return;
+    }
+    _sendWire(
+      _wireCodec.encodeWindowRequest(
+        wire.WindowRequestKind.MoveWindowToWorkspace,
+        windowId: window.windowId,
+        monitorId: monitorId ?? -1,
+        workspaceId: workspaceId,
+        flags: follow ? 1 : 0,
+      ),
+    );
+  }
+
   void configureWindow(
     DenialWindow window,
     Rect contentRect, {
@@ -1587,6 +1628,7 @@ class DenialBridge {
     required Duration dpmsTimeout,
     required bool suspendEnabled,
     required Duration suspendTimeout,
+    required SuspendMode suspendMode,
   }) {
     final lockMilliseconds = lockTimeout.inMilliseconds;
     final dpmsMilliseconds = dpmsTimeout.inMilliseconds;
@@ -1603,8 +1645,9 @@ class DenialBridge {
         (dpmsEnabled ? 2 : 0) |
         (suspendEnabled ? 4 : 0);
     final data = ByteData(32)
-      ..setUint8(0, 1)
+      ..setUint8(0, 2)
       ..setUint8(1, flags)
+      ..setUint8(2, suspendMode.wireValue)
       ..setUint64(8, lockMilliseconds, Endian.little)
       ..setUint64(16, dpmsMilliseconds, Endian.little)
       ..setUint64(24, suspendMilliseconds, Endian.little);
@@ -2562,6 +2605,8 @@ class DenialBridge {
             DenialShellAction.clientPointerPressed,
           wire.ShellActionKind.Wallpaper => DenialShellAction.wallpaper,
           wire.ShellActionKind.OpenSettings => DenialShellAction.openSettings,
+          wire.ShellActionKind.WorkspaceChanged =>
+            DenialShellAction.workspaceChanged,
         };
         if (!_shellActions.isClosed) {
           _shellActions.add(
@@ -2572,6 +2617,11 @@ class DenialBridge {
                   : null,
               requestId: decoded.requestId,
               textureId: payload.textureId > 0 ? payload.textureId : null,
+              workspaceId:
+                  payload.action == wire.ShellActionKind.WorkspaceChanged &&
+                      payload.workspaceId > 0
+                  ? payload.workspaceId
+                  : null,
             ),
           );
         }

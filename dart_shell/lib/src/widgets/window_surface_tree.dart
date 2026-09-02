@@ -55,11 +55,18 @@ class WindowSurfaceTree extends StatelessWidget {
     required this.window,
     this.filterQuality = FilterQuality.none,
     this.includePopups = false,
+    this.presentationScale,
+    this.pixelGridOrigin = Offset.zero,
   });
 
   final DenialWindow window;
   final FilterQuality filterQuality;
   final bool includePopups;
+
+  /// Scale and origin of the output that owns this surface. When omitted,
+  /// ordinary Flutter view metrics are used for non-desktop callers.
+  final double? presentationScale;
+  final Offset pixelGridOrigin;
 
   @override
   Widget build(BuildContext context) {
@@ -74,6 +81,8 @@ class WindowSurfaceTree extends StatelessWidget {
           return _LegacyWindowTexture(
             window: window,
             filterQuality: filterQuality,
+            presentationScale: presentationScale,
+            pixelGridOrigin: pixelGridOrigin,
           );
         }
 
@@ -92,6 +101,8 @@ class WindowSurfaceTree extends StatelessWidget {
                     child: SurfaceLayerTexture(
                       layer: layer,
                       filterQuality: filterQuality,
+                      presentationScale: presentationScale,
+                      pixelGridOrigin: pixelGridOrigin,
                     ),
                   ),
             ],
@@ -107,10 +118,14 @@ class SurfaceLayerTexture extends StatelessWidget {
     super.key,
     required this.layer,
     this.filterQuality = FilterQuality.none,
+    this.presentationScale,
+    this.pixelGridOrigin = Offset.zero,
   });
 
   final DenialSurfaceLayer layer;
   final FilterQuality filterQuality;
+  final double? presentationScale;
+  final Offset pixelGridOrigin;
 
   @override
   Widget build(BuildContext context) {
@@ -135,18 +150,22 @@ class SurfaceLayerTexture extends StatelessWidget {
           sourceWidth,
           sourceHeight,
         );
+        final devicePixelRatio =
+            presentationScale ?? MediaQuery.devicePixelRatioOf(context);
         final effectiveFilterQuality = _effectiveTextureFilterQuality(
           requested: filterQuality,
           transform: layer.transform,
           targetSize: target,
           sourceRect: sourceRect,
-          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+          devicePixelRatio: devicePixelRatio,
         );
         return _SurfaceOpacity(
           opacity: layer.opacity,
           child: _ExternalTextureViewport(
             bufferSize: Size(bufferWidth, bufferHeight),
             sourceRect: sourceRect,
+            devicePixelRatio: devicePixelRatio,
+            pixelGridOrigin: pixelGridOrigin,
             alignNativePixels:
                 effectiveFilterQuality == FilterQuality.none &&
                 layer.transform == 0,
@@ -167,10 +186,14 @@ class _LegacyWindowTexture extends StatelessWidget {
   const _LegacyWindowTexture({
     required this.window,
     required this.filterQuality,
+    required this.presentationScale,
+    required this.pixelGridOrigin,
   });
 
   final DenialWindow window;
   final FilterQuality filterQuality;
+  final double? presentationScale;
+  final Offset pixelGridOrigin;
 
   @override
   Widget build(BuildContext context) {
@@ -195,18 +218,22 @@ class _LegacyWindowTexture extends StatelessWidget {
           sourceWidth,
           sourceHeight,
         );
+        final devicePixelRatio =
+            presentationScale ?? MediaQuery.devicePixelRatioOf(context);
         final effectiveFilterQuality = _effectiveTextureFilterQuality(
           requested: filterQuality,
           transform: window.transform,
           targetSize: target,
           sourceRect: sourceRect,
-          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+          devicePixelRatio: devicePixelRatio,
         );
         return _SurfaceOpacity(
           opacity: window.opacity,
           child: _ExternalTextureViewport(
             bufferSize: Size(bufferWidth, bufferHeight),
             sourceRect: sourceRect,
+            devicePixelRatio: devicePixelRatio,
+            pixelGridOrigin: pixelGridOrigin,
             alignNativePixels:
                 effectiveFilterQuality == FilterQuality.none &&
                 window.transform == 0,
@@ -242,12 +269,16 @@ class _ExternalTextureViewport extends SingleChildRenderObjectWidget {
   const _ExternalTextureViewport({
     required this.bufferSize,
     required this.sourceRect,
+    required this.devicePixelRatio,
+    required this.pixelGridOrigin,
     required this.alignNativePixels,
     required super.child,
   });
 
   final Size bufferSize;
   final Rect sourceRect;
+  final double devicePixelRatio;
+  final Offset pixelGridOrigin;
   final bool alignNativePixels;
 
   @override
@@ -255,7 +286,8 @@ class _ExternalTextureViewport extends SingleChildRenderObjectWidget {
     return _RenderExternalTextureViewport(
       bufferSize: bufferSize,
       sourceRect: sourceRect,
-      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+      devicePixelRatio: devicePixelRatio,
+      pixelGridOrigin: pixelGridOrigin,
       alignNativePixels: alignNativePixels,
     );
   }
@@ -268,7 +300,8 @@ class _ExternalTextureViewport extends SingleChildRenderObjectWidget {
     renderObject
       ..bufferSize = bufferSize
       ..sourceRect = sourceRect
-      ..devicePixelRatio = MediaQuery.devicePixelRatioOf(context)
+      ..devicePixelRatio = devicePixelRatio
+      ..pixelGridOrigin = pixelGridOrigin
       ..alignNativePixels = alignNativePixels;
   }
 }
@@ -278,6 +311,7 @@ class _RenderExternalTextureViewport extends RenderShiftedBox {
     required this._bufferSize,
     required this._sourceRect,
     required this._devicePixelRatio,
+    required this._pixelGridOrigin,
     required this._alignNativePixels,
     RenderBox? child,
   }) : super(child);
@@ -285,6 +319,7 @@ class _RenderExternalTextureViewport extends RenderShiftedBox {
   Size _bufferSize;
   Rect _sourceRect;
   double _devicePixelRatio;
+  Offset _pixelGridOrigin;
   bool _alignNativePixels;
   bool _usesNativePixels = false;
   Offset _paintOffset = Offset.zero;
@@ -317,6 +352,16 @@ class _RenderExternalTextureViewport extends RenderShiftedBox {
     }
     _devicePixelRatio = value;
     markNeedsLayout();
+  }
+
+  Offset get pixelGridOrigin => _pixelGridOrigin;
+
+  set pixelGridOrigin(Offset value) {
+    if (_pixelGridOrigin == value) {
+      return;
+    }
+    _pixelGridOrigin = value;
+    markNeedsPaint();
   }
 
   bool get alignNativePixels => _alignNativePixels;
@@ -386,12 +431,14 @@ class _RenderExternalTextureViewport extends RenderShiftedBox {
         logicalExtent: size.width,
         sourceExtent: _sourceRect.width,
         ratio: ratio,
+        gridOrigin: _pixelGridOrigin.dx,
       ),
       _safeAxisCorrection(
         logicalOrigin: translation.dy,
         logicalExtent: size.height,
         sourceExtent: _sourceRect.height,
         ratio: ratio,
+        gridOrigin: _pixelGridOrigin.dy,
       ),
     );
   }
@@ -401,11 +448,12 @@ class _RenderExternalTextureViewport extends RenderShiftedBox {
     required double logicalExtent,
     required double sourceExtent,
     required double ratio,
+    required double gridOrigin,
   }) {
     // getTransformTo(null) deliberately stops at the RenderView and therefore
-    // reports the global position in logical pixels. Apply the view DPR once
-    // here to reason about actual atlas pixel coverage.
-    final physicalOrigin = logicalOrigin * ratio;
+    // reports the global position in logical pixels. Each native output has
+    // its own scale and pixel-grid origin within that shared coordinate space.
+    final physicalOrigin = (logicalOrigin - gridOrigin) * ratio;
     final physicalEnd = physicalOrigin + logicalExtent * ratio;
     final lower = physicalOrigin.floorToDouble();
     final upper = physicalOrigin.ceilToDouble();
@@ -424,7 +472,9 @@ class _RenderExternalTextureViewport extends RenderShiftedBox {
         alignedOrigin = candidate;
       }
     }
-    return alignedOrigin == null ? 0.0 : alignedOrigin / ratio - logicalOrigin;
+    return alignedOrigin == null
+        ? 0.0
+        : alignedOrigin / ratio + gridOrigin - logicalOrigin;
   }
 
   @override

@@ -209,6 +209,11 @@ install -Dm644 "$ROOT/packaging/denial-session.target" \
   "$denial_root/usr/lib/systemd/user/denial-session.target"
 install -Dm644 "$ROOT/packaging/arch/denial-portal.service" \
   "$denial_root/usr/lib/systemd/user/denial-portal.service"
+sh -n "$ROOT/packaging/denial-suspend-mode"
+install -Dm755 "$ROOT/packaging/denial-suspend-mode" \
+  "$denial_root/usr/lib/systemd/system-sleep/denial-suspend-mode"
+install -Dm755 "$ROOT/packaging/denial-suspend-mode" \
+  "$denial_root/usr/lib/elogind/system-sleep/denial-suspend-mode"
 install -d -m 0755 "$denial_root/usr/lib/denial/flutter/data"
 cp -a -- "$BUNDLE/data/flutter_assets" \
   "$denial_root/usr/lib/denial/flutter/data/flutter_assets"

@@ -44,7 +44,9 @@ enum WindowRequestKind : ubyte {
   FocusWindow = 3,
   ConfigureWindow = 4,
   CreateLocalWindow = 5,
-  ConfigureSystemBar = 6
+  ConfigureSystemBar = 6,
+  SwitchWorkspace = 7,
+  MoveWindowToWorkspace = 8
 }
 
 enum WindowResponseKind : ubyte {
@@ -79,7 +81,8 @@ enum ShellActionKind : ubyte {
   Wallpaper = 9,
   WindowSwitcherPrevious = 10,
   OpenSettings = 11,
-  Dashboard = 12
+  Dashboard = 12,
+  WorkspaceChanged = 13
 }
 
 enum KeyboardCommandKind : ubyte {
@@ -142,7 +145,29 @@ enum ShortcutActionKind : ubyte {
   SwapLeft = 27,
   SwapRight = 28,
   SwapUp = 29,
-  SwapDown = 30
+  SwapDown = 30,
+  PreviousWorkspace = 31,
+  NextWorkspace = 32,
+  MoveToPreviousWorkspace = 33,
+  MoveToNextWorkspace = 34,
+  SwitchWorkspace1 = 35,
+  SwitchWorkspace2 = 36,
+  SwitchWorkspace3 = 37,
+  SwitchWorkspace4 = 38,
+  SwitchWorkspace5 = 39,
+  SwitchWorkspace6 = 40,
+  SwitchWorkspace7 = 41,
+  SwitchWorkspace8 = 42,
+  SwitchWorkspace9 = 43,
+  MoveToWorkspace1 = 44,
+  MoveToWorkspace2 = 45,
+  MoveToWorkspace3 = 46,
+  MoveToWorkspace4 = 47,
+  MoveToWorkspace5 = 48,
+  MoveToWorkspace6 = 49,
+  MoveToWorkspace7 = 50,
+  MoveToWorkspace8 = 51,
+  MoveToWorkspace9 = 52
 }
 
 enum ShortcutInputKind : ubyte {
@@ -346,6 +371,10 @@ table Window {
   // Appended for wire compatibility. Older senders conservatively default to
   // content translucency, preserving the previous blur behavior.
   opacity_class:WindowOpacityClass = ContentTranslucent;
+  // Monitor-local workspace membership. Minimized windows deliberately carry
+  // -1 because minimization is a workspace-less state.
+  workspace_id:long = 1;
+  minimized:bool;
 }
 
 table WindowSnapshot {
@@ -409,6 +438,14 @@ table WindowRequest {
   // applies its rectangle normally, while managed layouts resolve its centre
   // to a layout-owned tile operation. The two bits are mutually exclusive.
   flags:uint;
+  // Workspace requests only. monitor_id selects the independently switching
+  // output; workspace_id is one-based.
+  monitor_id:long = -1;
+  workspace_id:uint = 1;
+  // ConfigureSystemBar only. Negative defaults preserve the compositor's
+  // existing values when decoding requests from an older shell.
+  system_bar_thickness:double = -1.0;
+  maximize_padding:double = -1.0;
 }
 
 table WindowResponse {
@@ -430,6 +467,8 @@ table ShellAction {
   monitor_id:long = -1;
   has_monitor_id:bool;
   texture_id:long;
+  // WorkspaceChanged only. One-based and scoped by monitor_id.
+  workspace_id:uint = 1;
 }
 
 // Rust-authoritative software cursor state. Flutter cursor intents and

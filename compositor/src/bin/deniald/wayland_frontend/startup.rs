@@ -58,6 +58,8 @@ impl WaylandFrontend {
         let mut seat_state = SeatState::new();
         let mut seat = seat_state.new_wl_seat(&display_handle, "seat0");
         let window_layout_kind = settings.window_layout_kind();
+        #[cfg(feature = "flutter")]
+        let workspace_settings = settings.workspace_settings();
         let keyboard = settings.keyboard();
         let keyboard_layout_names = keyboard.compiled_layout_names()?;
         let xkb_names = keyboard.xkb_names();
@@ -505,6 +507,24 @@ impl WaylandFrontend {
             retired_input_method_keys: HashSet::new(),
             #[cfg(feature = "flutter")]
             minimized_windows: HashSet::new(),
+            #[cfg(feature = "flutter")]
+            minimized_local_windows: HashSet::new(),
+            #[cfg(feature = "flutter")]
+            workspaces_enabled: workspace_settings.enabled,
+            #[cfg(feature = "flutter")]
+            workspace_count: workspace_settings.count,
+            #[cfg(feature = "flutter")]
+            active_workspaces: snapshot
+                .outputs
+                .iter()
+                .map(|output| (output.id, 1))
+                .collect(),
+            #[cfg(feature = "flutter")]
+            window_workspaces: HashMap::new(),
+            #[cfg(feature = "flutter")]
+            minimized_window_outputs: HashMap::new(),
+            #[cfg(feature = "flutter")]
+            workspace_focus_history: HashMap::new(),
             window_placements,
             restored_window_positions: HashSet::new(),
             client_geometry_state_requests: HashSet::new(),

@@ -5,12 +5,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/generated/app_localizations.dart';
 import '../../localization/denial_localizations.dart';
+import '../../models/suspend_mode.dart';
+import '../../state/suspend_modes.dart';
 import '../../state/upower.dart';
 import '../../theme/shell_theme.dart';
 import '../../theme/tokens.dart';
 import '../shell_settings.dart';
 import 'settings_battery_section.dart';
 import 'settings_controls.dart';
+import 'settings_suspend_mode_selector.dart';
 
 const settingsIdleDpmsToggleKey = ValueKey<String>('settings-idle-dpms-toggle');
 const settingsIdleDpmsTimeoutKey = ValueKey<String>(
@@ -26,6 +29,7 @@ const settingsIdleSuspendToggleKey = ValueKey<String>(
 const settingsIdleSuspendTimeoutKey = ValueKey<String>(
   'settings-idle-suspend-timeout',
 );
+const settingsSuspendModeKey = ValueKey<String>('settings-suspend-mode');
 
 class SettingsPowerPage extends ConsumerWidget {
   const SettingsPowerPage({
@@ -36,6 +40,7 @@ class SettingsPowerPage extends ConsumerWidget {
     required this.onDpmsTimeoutChanged,
     required this.onSuspendEnabledChanged,
     required this.onSuspendTimeoutChanged,
+    required this.onSuspendModeChanged,
     required this.onReset,
     super.key,
   });
@@ -47,6 +52,7 @@ class SettingsPowerPage extends ConsumerWidget {
   final ValueChanged<int> onDpmsTimeoutChanged;
   final ValueChanged<bool> onSuspendEnabledChanged;
   final ValueChanged<int> onSuspendTimeoutChanged;
+  final ValueChanged<SuspendMode> onSuspendModeChanged;
   final VoidCallback onReset;
 
   @override
@@ -54,6 +60,7 @@ class SettingsPowerPage extends ConsumerWidget {
     final l10n = context.l10n;
     final upower = ref.watch(upowerProvider);
     final upowerController = ref.read(upowerProvider.notifier);
+    final suspendModes = ref.watch(suspendModeCapabilitiesProvider);
     return SettingsPageLayout(
       icon: Icons.power_settings_new_rounded,
       eyebrow: l10n.settingsPowerSection,
@@ -69,14 +76,17 @@ class SettingsPowerPage extends ConsumerWidget {
                 upowerController.setChargeThresholdEnabled(battery, enabled),
               ),
             ),
-            _idlePolicySection(context),
+            _idlePolicySection(context, suspendModes),
           ],
         ),
       ],
     );
   }
 
-  Widget _idlePolicySection(BuildContext context) {
+  Widget _idlePolicySection(
+    BuildContext context,
+    AsyncValue<SuspendModeCapabilities> suspendModes,
+  ) {
     final l10n = context.l10n;
     final lockMaximum = settings.idleSuspendTimeoutMinutes;
     final suspendMinimum = settings.idleDpmsTimeoutMinutes;
@@ -130,6 +140,15 @@ class SettingsPowerPage extends ConsumerWidget {
             maximum: ShellPowerSettings.maximumIdleTimeoutMinutes,
             onEnabledChanged: onSuspendEnabledChanged,
             onTimeoutChanged: onSuspendTimeoutChanged,
+          ),
+          const SizedBox(height: 18),
+          SettingsSuspendModeSelector(
+            key: settingsSuspendModeKey,
+            capabilities:
+                suspendModes.asData?.value ??
+                const SuspendModeCapabilities.unavailable(),
+            preferredMode: settings.suspendMode,
+            onChanged: onSuspendModeChanged,
           ),
           const SizedBox(height: 18),
           const _IdleInhibitNotice(),

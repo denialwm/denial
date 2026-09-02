@@ -20,6 +20,77 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
   int _lastSyncedSnapshotSequence = -1;
   double _devicePixelRatio = 1.0;
   Map<int, Rect> _workAreas = const <int, Rect>{};
+  int _workspaceTransitionSerial = 0;
+
+  void syncWorkspaceConfiguration({
+    required bool enabled,
+    required int count,
+    required Iterable<int> monitorIds,
+  }) {
+    final safeCount = count.clamp(2, 9).toInt();
+    final monitors = monitorIds.toSet();
+    final active = <int, int>{
+      for (final monitorId in monitors)
+        monitorId: enabled
+            ? (state.activeWorkspaces[monitorId] ?? 1)
+                  .clamp(1, safeCount)
+                  .toInt()
+            : 1,
+    };
+    if (state.workspacesEnabled == enabled &&
+        state.workspaceCount == safeCount &&
+        mapEquals(state.activeWorkspaces, active)) {
+      return;
+    }
+    state = state.copyWith(
+      workspacesEnabled: enabled,
+      workspaceCount: safeCount,
+      activeWorkspaces: active,
+      workspaceTransitions: const <int, DesktopWorkspaceTransition>{},
+      clearOverview: state.overviewActive,
+    );
+  }
+
+  void applyWorkspaceChanged(int monitorId, int workspaceId) {
+    if (!state.workspacesEnabled ||
+        workspaceId < 1 ||
+        workspaceId > state.workspaceCount) {
+      return;
+    }
+    final previous = state.activeWorkspaceFor(monitorId);
+    final active = Map<int, int>.of(state.activeWorkspaces)
+      ..[monitorId] = workspaceId;
+    final transitions = Map<int, DesktopWorkspaceTransition>.of(
+      state.workspaceTransitions,
+    );
+    if (previous == workspaceId) {
+      transitions.remove(monitorId);
+    } else {
+      transitions[monitorId] = DesktopWorkspaceTransition(
+        monitorId: monitorId,
+        fromWorkspace: previous,
+        toWorkspace: workspaceId,
+        serial: ++_workspaceTransitionSerial,
+      );
+    }
+    state = state.copyWith(
+      activeWorkspaces: active,
+      workspaceTransitions: transitions,
+      panel: DesktopPanel.none,
+      clearOverview: state.overviewActive,
+    );
+  }
+
+  void finishWorkspaceTransition(int monitorId, int serial) {
+    final transition = state.workspaceTransitions[monitorId];
+    if (transition == null || transition.serial != serial) {
+      return;
+    }
+    final transitions = Map<int, DesktopWorkspaceTransition>.of(
+      state.workspaceTransitions,
+    )..remove(monitorId);
+    state = state.copyWith(workspaceTransitions: transitions);
+  }
 
   /// Publishes per-monitor work areas (output rect minus the system bar).
   /// Maximized windows are reconciled immediately so a late display-layout
@@ -117,6 +188,8 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
           ),
           z: nextZ++,
           monitorId: window.monitorId,
+          workspaceId: window.workspaceId,
+          minimized: window.minimized,
           serverSideDecorated: window.serverSideDecorated,
         );
         _nativeSequences[window.objectId] = snapshotSequence;
@@ -190,11 +263,15 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
           frame: frame,
           monitorId: monitorId,
           serverSideDecorated: window.serverSideDecorated,
+          workspaceId: window.workspaceId,
+          minimized: window.minimized,
           fullscreenRestoreFrame: fullscreenRestoreFrame,
         );
         if (current.frame != existing.frame ||
             current.monitorId != existing.monitorId ||
             current.serverSideDecorated != existing.serverSideDecorated ||
+            current.workspaceId != existing.workspaceId ||
+            current.minimized != existing.minimized ||
             current.fullscreenRestoreFrame != existing.fullscreenRestoreFrame) {
           next[window.objectId] = current;
           changed = true;
@@ -295,7 +372,13 @@ class DesktopWorkspaceController extends Notifier<DesktopWorkspaceState> {
       return;
     }
     final next = Map<int, DesktopWindowPlacement>.of(state.placements);
-    next[objectId] = placement.copyWith(z: state.nextZ, minimized: false);
+    next[objectId] = placement.copyWith(
+      z: state.nextZ,
+      minimized: false,
+      workspaceId: placement.minimized
+          ? state.activeWorkspaceFor(placement.monitorId)
+          : placement.workspaceId,
+    );
     state = state.copyWith(
       placements: next,
       nextZ: state.nextZ + 1,

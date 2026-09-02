@@ -18,7 +18,8 @@ pub(super) const DISPLAY_POWER_CHANNEL: &CStr = c"denial/display_power";
 
 const LEGACY_PACKET_BYTES: usize = size_of::<u64>();
 const PACKET_BYTES: usize = 32;
-const PACKET_VERSION: u8 = 1;
+const LEGACY_CONFIGURATION_PACKET_VERSION: u8 = 1;
+const PACKET_VERSION: u8 = 2;
 const LOCK_ENABLED: u8 = 1 << 0;
 const DPMS_ENABLED: u8 = 1 << 1;
 const SUSPEND_ENABLED: u8 = 1 << 2;
@@ -37,6 +38,38 @@ pub(super) struct IdlePolicyConfiguration {
     pub(super) lock_timeout: Option<Duration>,
     pub(super) dpms_timeout: Option<Duration>,
     pub(super) suspend_timeout: Option<Duration>,
+    pub(super) suspend_mode: SuspendMode,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(u8)]
+pub(super) enum SuspendMode {
+    #[default]
+    SystemDefault = 0,
+    S2Idle = 1,
+    Shallow = 2,
+    Deep = 3,
+}
+
+impl SuspendMode {
+    fn decode(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::SystemDefault),
+            1 => Some(Self::S2Idle),
+            2 => Some(Self::Shallow),
+            3 => Some(Self::Deep),
+            _ => None,
+        }
+    }
+
+    pub(super) fn kernel_value(self) -> Option<&'static str> {
+        match self {
+            Self::SystemDefault => None,
+            Self::S2Idle => Some("s2idle"),
+            Self::Shallow => Some("shallow"),
+            Self::Deep => Some("deep"),
+        }
+    }
 }
 
 #[derive(Debug, Default, Eq, PartialEq)]
@@ -51,6 +84,7 @@ pub(super) enum IdlePolicyPacketError {
     InvalidSize(usize),
     UnsupportedVersion(u8),
     InvalidFlags(u8),
+    InvalidSuspendMode(u8),
     NonZeroReservedBytes,
     ZeroTimeout(&'static str),
     TimeoutTooLarge {
@@ -77,6 +111,12 @@ impl fmt::Display for IdlePolicyPacketError {
                 write!(
                     formatter,
                     "idle policy packet has invalid flags {flags:#04x}"
+                )
+            }
+            Self::InvalidSuspendMode(mode) => {
+                write!(
+                    formatter,
+                    "idle policy packet has invalid suspend mode {mode}"
                 )
             }
             Self::NonZeroReservedBytes => {
@@ -142,17 +182,26 @@ pub(super) fn decode_configuration(
     if packet.len() != PACKET_BYTES {
         return Err(IdlePolicyPacketError::InvalidSize(packet.len()));
     }
-    if packet[0] != PACKET_VERSION {
-        return Err(IdlePolicyPacketError::UnsupportedVersion(packet[0]));
-    }
+    let suspend_mode = match packet[0] {
+        LEGACY_CONFIGURATION_PACKET_VERSION => {
+            if packet[2..8].iter().any(|byte| *byte != 0) {
+                return Err(IdlePolicyPacketError::NonZeroReservedBytes);
+            }
+            SuspendMode::SystemDefault
+        }
+        PACKET_VERSION => {
+            if packet[3..8].iter().any(|byte| *byte != 0) {
+                return Err(IdlePolicyPacketError::NonZeroReservedBytes);
+            }
+            SuspendMode::decode(packet[2])
+                .ok_or(IdlePolicyPacketError::InvalidSuspendMode(packet[2]))?
+        }
+        version => return Err(IdlePolicyPacketError::UnsupportedVersion(version)),
+    };
     let flags = packet[1];
     if flags & !ENABLED_MASK != 0 {
         return Err(IdlePolicyPacketError::InvalidFlags(flags));
     }
-    if packet[2..8].iter().any(|byte| *byte != 0) {
-        return Err(IdlePolicyPacketError::NonZeroReservedBytes);
-    }
-
     let lock_timeout = decode_packet_timeout("lock", &packet[8..16])?;
     let dpms_timeout = decode_packet_timeout("display power-off", &packet[16..24])?;
     let suspend_timeout = decode_packet_timeout("suspend", &packet[24..32])?;
@@ -169,6 +218,7 @@ pub(super) fn decode_configuration(
         lock_timeout: (flags & LOCK_ENABLED != 0).then_some(lock_timeout),
         dpms_timeout: (flags & DPMS_ENABLED != 0).then_some(dpms_timeout),
         suspend_timeout: (flags & SUSPEND_ENABLED != 0).then_some(suspend_timeout),
+        suspend_mode,
     })
 }
 

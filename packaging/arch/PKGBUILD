@@ -60,6 +60,7 @@ options=('!strip' '!debug')
 source=(
   'denial-session'
   "denial-session.target::file://$startdir/../denial-session.target"
+  "denial-suspend-mode::file://$startdir/../denial-suspend-mode"
   'denial.desktop'
   'dev.denial.Settings.desktop'
   'denial-portal.service'
@@ -73,6 +74,7 @@ source=(
 sha256sums=(
   'd3807fd0d955b9f9922a1d068613a64085c5f37f7fadecb22b4b0e38854bb4df'
   'f4672dd57973a65c6b91def4e97a2824da0a69f02132301c625d6177799f207b'
+  '57c146e3579dd87e12c332a180cca32c17602c823fcd39767a7c737f2688fc71'
   'b4fa50a715fdf36737a72241596c307534cb8665d42b8a947b28df54ab04a0b1'
   'b9ef447d94ad8f1ac041462d25e2f86b12c7da52ef67f4df725bfb374f74ea3c'
   'e0b01affe089a35821475cba9f8e2d982e0abbeafcdfe320fa43411d77c82390'
@@ -158,6 +160,10 @@ package() {
     "$pkgdir/usr/lib/systemd/user/denial-session.target"
   install -Dm644 "$srcdir/denial-portal.service" \
     "$pkgdir/usr/lib/systemd/user/denial-portal.service"
+  install -Dm755 "$srcdir/denial-suspend-mode" \
+    "$pkgdir/usr/lib/systemd/system-sleep/denial-suspend-mode"
+  install -Dm755 "$srcdir/denial-suspend-mode" \
+    "$pkgdir/usr/lib/elogind/system-sleep/denial-suspend-mode"
 
   install -dm755 \
     "$pkgdir/usr/lib/denial/flutter/data" \

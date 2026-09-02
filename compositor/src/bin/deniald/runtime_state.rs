@@ -77,7 +77,7 @@ pub(super) struct RuntimeState {
     #[cfg(feature = "flutter")]
     pub(super) pending_unpublished_window_events: PendingWindowEventQueue,
     #[cfg(feature = "flutter")]
-    pub(super) pending_shell_actions: VecDeque<(wire::ShellAction, Option<i64>)>,
+    pub(super) pending_shell_actions: VecDeque<PendingShellAction>,
     #[cfg(feature = "flutter")]
     pub(super) pending_shortcut_launches: VecDeque<native_shortcut::ShortcutTarget>,
     #[cfg(feature = "flutter")]
@@ -138,11 +138,31 @@ impl RuntimeState {
     ) {
         const MAX_PENDING_SHELL_ACTIONS: usize = 64;
         if self.pending_shell_actions.len() < MAX_PENDING_SHELL_ACTIONS {
-            self.pending_shell_actions.push_back((action, monitor_id));
+            self.pending_shell_actions.push_back(PendingShellAction {
+                action,
+                monitor_id,
+                workspace_id: None,
+            });
         } else {
             warn!(
                 limit = MAX_PENDING_SHELL_ACTIONS,
                 "dropping excess native shell shortcut"
+            );
+        }
+    }
+
+    pub(super) fn queue_workspace_action(&mut self, monitor_id: i64, workspace_id: u8) {
+        const MAX_PENDING_SHELL_ACTIONS: usize = 64;
+        if self.pending_shell_actions.len() < MAX_PENDING_SHELL_ACTIONS {
+            self.pending_shell_actions.push_back(PendingShellAction {
+                action: wire::ShellAction::WorkspaceChanged,
+                monitor_id: Some(monitor_id),
+                workspace_id: Some(workspace_id),
+            });
+        } else {
+            warn!(
+                limit = MAX_PENDING_SHELL_ACTIONS,
+                "dropping excess workspace state update"
             );
         }
     }
@@ -197,6 +217,14 @@ impl RuntimeState {
                 tray.request_replay();
             }
         }
+        let workspace_states = self
+            .wayland
+            .as_ref()
+            .map(wayland_frontend::WaylandFrontend::workspace_state_snapshot)
+            .unwrap_or_default();
+        for (monitor_id, workspace_id) in workspace_states {
+            self.queue_workspace_action(monitor_id, workspace_id);
+        }
     }
 
     pub(super) fn note_user_activity(&mut self) {
@@ -213,6 +241,13 @@ impl RuntimeState {
                 .insert(request.output, request.powered);
         }
     }
+}
+
+#[cfg(feature = "flutter")]
+pub(super) struct PendingShellAction {
+    pub(super) action: wire::ShellAction,
+    pub(super) monitor_id: Option<i64>,
+    pub(super) workspace_id: Option<u8>,
 }
 
 impl RuntimeState {

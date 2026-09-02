@@ -1806,7 +1806,11 @@ fn intercept_native_escape(
             _ => true,
         };
     }
-    execute_shortcut_disposition(state, disposition)
+    let handled = execute_shortcut_disposition(state, disposition);
+    if !handled && key_state == KeyState::Pressed {
+        state.native_escape_shortcut.pass_through_key(evdev_keycode);
+    }
+    handled
 }
 
 pub(super) fn execute_shortcut_disposition(
@@ -1839,6 +1843,97 @@ pub(super) fn execute_shortcut_disposition(
                 state.queue_shell_action(super::super::wire::ShellAction::Overview, monitor_id);
             }
             true
+        }
+        direction @ (ShortcutDisposition::RequestPreviousWorkspace
+        | ShortcutDisposition::RequestNextWorkspace) => {
+            #[cfg(feature = "flutter")]
+            {
+                let delta = if matches!(direction, ShortcutDisposition::RequestPreviousWorkspace) {
+                    -1
+                } else {
+                    1
+                };
+                let Some(monitor_id) = prepare_shell_overlay_action(state) else {
+                    return false;
+                };
+                let target = state
+                    .wayland
+                    .as_ref()
+                    .and_then(|frontend| frontend.adjacent_workspace(monitor_id, delta));
+                let Some(target) = target else {
+                    return false;
+                };
+                return super::window_management::switch_monitor_workspace(
+                    state, monitor_id, target,
+                );
+            }
+            #[cfg(not(feature = "flutter"))]
+            false
+        }
+        ShortcutDisposition::RequestSwitchWorkspace(workspace_id) => {
+            #[cfg(feature = "flutter")]
+            {
+                let Some(monitor_id) = prepare_shell_overlay_action(state) else {
+                    return false;
+                };
+                return super::window_management::switch_monitor_workspace(
+                    state,
+                    monitor_id,
+                    workspace_id,
+                );
+            }
+            #[cfg(not(feature = "flutter"))]
+            false
+        }
+        direction @ (ShortcutDisposition::RequestMoveToPreviousWorkspace
+        | ShortcutDisposition::RequestMoveToNextWorkspace) => {
+            #[cfg(feature = "flutter")]
+            {
+                let delta = if matches!(
+                    direction,
+                    ShortcutDisposition::RequestMoveToPreviousWorkspace
+                ) {
+                    -1
+                } else {
+                    1
+                };
+                let Some((window_id, monitor_id)) =
+                    super::window_management::focused_workspace_window(state)
+                else {
+                    return false;
+                };
+                let target = state
+                    .wayland
+                    .as_ref()
+                    .and_then(|frontend| frontend.adjacent_workspace(monitor_id, delta));
+                let Some(target) = target else {
+                    return false;
+                };
+                return super::window_management::move_window_to_workspace(
+                    state, window_id, None, target, true,
+                );
+            }
+            #[cfg(not(feature = "flutter"))]
+            false
+        }
+        ShortcutDisposition::RequestMoveToWorkspace(workspace_id) => {
+            #[cfg(feature = "flutter")]
+            {
+                let Some((window_id, _)) =
+                    super::window_management::focused_workspace_window(state)
+                else {
+                    return false;
+                };
+                return super::window_management::move_window_to_workspace(
+                    state,
+                    window_id,
+                    None,
+                    workspace_id,
+                    true,
+                );
+            }
+            #[cfg(not(feature = "flutter"))]
+            false
         }
         ShortcutDisposition::RequestToggleVerticalMaximize => {
             #[cfg(feature = "flutter")]
@@ -2160,11 +2255,20 @@ fn prepare_shell_overlay_action(state: &mut RuntimeState) -> Option<i64> {
         state.scene_sync.mark_dirty();
     }
 
-    state
+    let pointer_monitor = state
         .wayland
         .as_ref()
         .and_then(WaylandFrontend::control_output_under_pointer)
-        .map(|(_, monitor_id)| monitor_id)
+        .map(|(_, monitor_id)| monitor_id);
+    pointer_monitor
+        .or_else(|| super::window_management::focused_workspace_window(state).map(|(_, id)| id))
+        .or_else(|| {
+            let frontend = state.wayland.as_ref()?;
+            frontend
+                .ticker_output
+                .or_else(|| frontend.outputs.first().map(|output| output.id))
+                .and_then(|output| i64::try_from(output.0).ok())
+        })
 }
 
 fn adjust_brightness_for_pointer_output(state: &RuntimeState, increase: bool) {

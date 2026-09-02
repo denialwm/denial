@@ -14,6 +14,10 @@ class Motion {
   // Scripted durations -------------------------------------------------------
   static const Duration overviewOpen = Duration(milliseconds: 380);
   static const Duration overviewClose = Duration(milliseconds: 280);
+  static const Duration workspaceSwitch = Duration(milliseconds: 320);
+  static const Duration workspaceIndicatorTakeoff = Duration(milliseconds: 72);
+  static const Duration workspaceIndicatorTravel = Duration(milliseconds: 168);
+  static const Duration workspaceIndicatorSettle = Duration(milliseconds: 80);
   static const Duration launch = Duration(milliseconds: 430);
   static const Duration launchReveal = Duration(milliseconds: 160);
   static const Duration focusZoom = Duration(milliseconds: 320);

@@ -13,6 +13,7 @@ fn configuration(
         lock_timeout,
         dpms_timeout,
         suspend_timeout,
+        suspend_mode: SuspendMode::SystemDefault,
     }
 }
 
@@ -57,6 +58,26 @@ fn packet_is_versioned_bounded_ordered_and_preserves_optional_actions() {
     assert!(matches!(
         decode_configuration(&packet(0x80, 1, 1, 1)),
         Err(IdlePolicyPacketError::InvalidFlags(0x80))
+    ));
+    let mut selected_mode = packet(0, 1, 1, 1);
+    selected_mode[2] = SuspendMode::Deep as u8;
+    assert_eq!(
+        decode_configuration(&selected_mode).unwrap().suspend_mode,
+        SuspendMode::Deep
+    );
+    let mut legacy_configuration = selected_mode;
+    legacy_configuration[0] = LEGACY_CONFIGURATION_PACKET_VERSION;
+    legacy_configuration[2] = 0;
+    assert_eq!(
+        decode_configuration(&legacy_configuration)
+            .unwrap()
+            .suspend_mode,
+        SuspendMode::SystemDefault
+    );
+    selected_mode[2] = 99;
+    assert!(matches!(
+        decode_configuration(&selected_mode),
+        Err(IdlePolicyPacketError::InvalidSuspendMode(99))
     ));
     assert!(matches!(
         decode_configuration(&packet(0, 0, 1, 1)),

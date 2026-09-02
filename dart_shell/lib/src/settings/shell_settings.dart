@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/display_layout.dart';
 import '../models/shell_popup_placement.dart';
+import '../models/suspend_mode.dart';
 import '../state/desktop_window_close_effect.dart';
 import '../theme/backdrop_blur_level.dart';
 import '../theme/cursor_themes.dart';
@@ -41,6 +42,10 @@ enum MinimizedWindowPlacement { desktop, offscreen }
 /// Compositor geometry policy for ordinary, non-transient desktop windows.
 /// Each value maps to a Rust `WindowLayout` implementation.
 enum DesktopWindowLayout { stacking, dwindle }
+
+const int minimumWorkspaceCount = 2;
+const int maximumWorkspaceCount = 9;
+const int defaultWorkspaceCount = 4;
 
 const double clipboardTrayMinimumExtent = 100;
 const double clipboardTrayMaximumExtent = 300;
@@ -241,6 +246,8 @@ class ShellAnimationSettings {
 class ShellLayoutSettings {
   const ShellLayoutSettings({
     this.windowLayout = DesktopWindowLayout.stacking,
+    this.workspacesEnabled = false,
+    this.workspaceCount = defaultWorkspaceCount,
     this.systemBarSide,
     this.systemBarOutputNames = const <String>[],
     this.systemBarThickness = 32,
@@ -251,6 +258,8 @@ class ShellLayoutSettings {
   });
 
   final DesktopWindowLayout windowLayout;
+  final bool workspacesEnabled;
+  final int workspaceCount;
   final SystemBarSide? systemBarSide;
   final List<String> systemBarOutputNames;
   final double systemBarThickness;
@@ -261,6 +270,8 @@ class ShellLayoutSettings {
 
   ShellLayoutSettings copyWith({
     DesktopWindowLayout? windowLayout,
+    bool? workspacesEnabled,
+    int? workspaceCount,
     SystemBarSide? systemBarSide,
     bool clearSystemBarSide = false,
     List<String>? systemBarOutputNames,
@@ -272,6 +283,8 @@ class ShellLayoutSettings {
   }) {
     return ShellLayoutSettings(
       windowLayout: windowLayout ?? this.windowLayout,
+      workspacesEnabled: workspacesEnabled ?? this.workspacesEnabled,
+      workspaceCount: workspaceCount ?? this.workspaceCount,
       systemBarSide: clearSystemBarSide
           ? null
           : systemBarSide ?? this.systemBarSide,
@@ -291,6 +304,8 @@ class ShellLayoutSettings {
   bool operator ==(Object other) {
     return other is ShellLayoutSettings &&
         other.windowLayout == windowLayout &&
+        other.workspacesEnabled == workspacesEnabled &&
+        other.workspaceCount == workspaceCount &&
         other.systemBarSide == systemBarSide &&
         listEquals(other.systemBarOutputNames, systemBarOutputNames) &&
         other.systemBarThickness == systemBarThickness &&
@@ -303,6 +318,8 @@ class ShellLayoutSettings {
   @override
   int get hashCode => Object.hash(
     windowLayout,
+    workspacesEnabled,
+    workspaceCount,
     systemBarSide,
     Object.hashAll(systemBarOutputNames),
     systemBarThickness,
@@ -449,6 +466,7 @@ class ShellPowerSettings {
     this.idleDpmsTimeoutMinutes = 10,
     this.idleSuspendEnabled = false,
     this.idleSuspendTimeoutMinutes = 30,
+    this.suspendMode = SuspendMode.systemDefault,
   });
 
   static const int minimumIdleTimeoutMinutes = 1;
@@ -462,6 +480,7 @@ class ShellPowerSettings {
   final int idleDpmsTimeoutMinutes;
   final bool idleSuspendEnabled;
   final int idleSuspendTimeoutMinutes;
+  final SuspendMode suspendMode;
 
   ShellPowerSettings copyWith({
     bool? idleLockEnabled,
@@ -470,6 +489,7 @@ class ShellPowerSettings {
     int? idleDpmsTimeoutMinutes,
     bool? idleSuspendEnabled,
     int? idleSuspendTimeoutMinutes,
+    SuspendMode? suspendMode,
   }) {
     return ShellPowerSettings(
       idleLockEnabled: idleLockEnabled ?? this.idleLockEnabled,
@@ -481,6 +501,7 @@ class ShellPowerSettings {
       idleSuspendEnabled: idleSuspendEnabled ?? this.idleSuspendEnabled,
       idleSuspendTimeoutMinutes:
           idleSuspendTimeoutMinutes ?? this.idleSuspendTimeoutMinutes,
+      suspendMode: suspendMode ?? this.suspendMode,
     );
   }
 
@@ -492,7 +513,8 @@ class ShellPowerSettings {
         other.idleDpmsEnabled == idleDpmsEnabled &&
         other.idleDpmsTimeoutMinutes == idleDpmsTimeoutMinutes &&
         other.idleSuspendEnabled == idleSuspendEnabled &&
-        other.idleSuspendTimeoutMinutes == idleSuspendTimeoutMinutes;
+        other.idleSuspendTimeoutMinutes == idleSuspendTimeoutMinutes &&
+        other.suspendMode == suspendMode;
   }
 
   @override
@@ -503,6 +525,7 @@ class ShellPowerSettings {
     idleDpmsTimeoutMinutes,
     idleSuspendEnabled,
     idleSuspendTimeoutMinutes,
+    suspendMode,
   );
 }
 
@@ -772,7 +795,7 @@ class ShellSettings {
 
   // Blur levels are additive in schema 9. Keep emitting the derived legacy
   // sigma so older shells can read settings written by this version.
-  static const int schemaVersion = 21;
+  static const int schemaVersion = 23;
 
   final ShellLocalizationSettings localization;
   final ShellAppearanceSettings appearance;
@@ -888,6 +911,12 @@ class ShellSettings {
       if (layout.windowLayout != before.windowLayout) {
         section['windowLayout'] = layout.windowLayout.name;
       }
+      if (layout.workspacesEnabled != before.workspacesEnabled) {
+        section['workspacesEnabled'] = layout.workspacesEnabled;
+      }
+      if (layout.workspaceCount != before.workspaceCount) {
+        section['workspaceCount'] = layout.workspaceCount;
+      }
       if (layout.systemBarSide != before.systemBarSide) {
         section['systemBarSide'] = layout.systemBarSide?.name;
       }
@@ -994,6 +1023,9 @@ class ShellSettings {
       if (power.idleSuspendTimeoutMinutes != before.idleSuspendTimeoutMinutes) {
         section['idleSuspendTimeoutMinutes'] = power.idleSuspendTimeoutMinutes;
       }
+      if (power.suspendMode != before.suspendMode) {
+        section['suspendMode'] = power.suspendMode.name;
+      }
       patch['power'] = section;
     }
 
@@ -1031,6 +1063,8 @@ class ShellSettings {
       },
       'layout': <String, Object>{
         'windowLayout': layout.windowLayout.name,
+        'workspacesEnabled': layout.workspacesEnabled,
+        'workspaceCount': layout.workspaceCount,
         if (layout.systemBarSide case final side?) 'systemBarSide': side.name,
         'systemBarOutputs': layout.systemBarOutputNames,
         'systemBarThickness': layout.systemBarThickness,
@@ -1065,6 +1099,7 @@ class ShellSettings {
         'idleDpmsTimeoutMinutes': power.idleDpmsTimeoutMinutes,
         'idleSuspendEnabled': power.idleSuspendEnabled,
         'idleSuspendTimeoutMinutes': power.idleSuspendTimeoutMinutes,
+        'suspendMode': power.suspendMode.name,
       },
       'applicationEnvironment': applicationEnvironment.toJson(),
     };
@@ -1242,6 +1277,15 @@ class ShellSettings {
           layoutJson['windowLayout'],
           defaults.layout.windowLayout,
         ),
+        workspacesEnabled: layoutJson['workspacesEnabled'] is bool
+            ? layoutJson['workspacesEnabled'] as bool
+            : defaults.layout.workspacesEnabled,
+        workspaceCount: _integer(
+          layoutJson['workspaceCount'],
+          defaults.layout.workspaceCount,
+          minimumWorkspaceCount,
+          maximumWorkspaceCount,
+        ),
         systemBarSide: _nullableEnumValue(
           SystemBarSide.values,
           layoutJson['systemBarSide'],
@@ -1363,6 +1407,11 @@ class ShellSettings {
             ? powerJson['idleSuspendEnabled'] as bool
             : defaults.power.idleSuspendEnabled,
         idleSuspendTimeoutMinutes: idleSuspendTimeoutMinutes,
+        suspendMode: _enumValue(
+          SuspendMode.values,
+          powerJson['suspendMode'],
+          defaults.power.suspendMode,
+        ),
       ),
       applicationEnvironment: ShellApplicationEnvironmentSettings.fromJson(
         json['applicationEnvironment'],

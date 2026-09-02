@@ -136,6 +136,23 @@ class DesktopOverviewState {
   bool contains(int objectId) => frames.containsKey(objectId);
 }
 
+@immutable
+class DesktopWorkspaceTransition {
+  const DesktopWorkspaceTransition({
+    required this.monitorId,
+    required this.fromWorkspace,
+    required this.toWorkspace,
+    required this.serial,
+  });
+
+  final int monitorId;
+  final int fromWorkspace;
+  final int toWorkspace;
+  final int serial;
+
+  int get direction => toWorkspace >= fromWorkspace ? 1 : -1;
+}
+
 /// Flutter's canonical live placement for one native window.
 ///
 /// Geometry and monitor/workspace ownership must be updated together. Window
@@ -277,7 +294,14 @@ class DesktopWorkspaceState {
     this.panel = DesktopPanel.none,
     this.overview,
     this.inputLayoutRevision = 0,
-  }) : placements = Map.unmodifiable(placements);
+    this.workspacesEnabled = false,
+    this.workspaceCount = 4,
+    Map<int, int> activeWorkspaces = const <int, int>{},
+    Map<int, DesktopWorkspaceTransition> workspaceTransitions =
+        const <int, DesktopWorkspaceTransition>{},
+  }) : placements = Map.unmodifiable(placements),
+       activeWorkspaces = Map.unmodifiable(activeWorkspaces),
+       workspaceTransitions = Map.unmodifiable(workspaceTransitions);
 
   const DesktopWorkspaceState._({
     required this.placements,
@@ -286,6 +310,10 @@ class DesktopWorkspaceState {
     required this.panel,
     required this.overview,
     required this.inputLayoutRevision,
+    required this.workspacesEnabled,
+    required this.workspaceCount,
+    required this.activeWorkspaces,
+    required this.workspaceTransitions,
   });
 
   factory DesktopWorkspaceState.initial() {
@@ -305,10 +333,33 @@ class DesktopWorkspaceState {
   /// Advances only when state consumed by native input publication may have
   /// changed. Panel-only updates therefore do not rebuild routing maps.
   final int inputLayoutRevision;
+  final bool workspacesEnabled;
+  final int workspaceCount;
+  final Map<int, int> activeWorkspaces;
+  final Map<int, DesktopWorkspaceTransition> workspaceTransitions;
 
   bool get launcherOpen => panel == DesktopPanel.launcher;
   bool get dashboardOpen => panel == DesktopPanel.dashboard;
   bool get overviewActive => overview != null;
+
+  int activeWorkspaceFor(int monitorId) =>
+      workspacesEnabled ? activeWorkspaces[monitorId] ?? 1 : 1;
+
+  bool isPlacementOnActiveWorkspace(DesktopWindowPlacement placement) {
+    return placement.minimized ||
+        !workspacesEnabled ||
+        placement.workspaceId == activeWorkspaceFor(placement.monitorId);
+  }
+
+  bool isPlacementPresented(DesktopWindowPlacement placement) {
+    if (isPlacementOnActiveWorkspace(placement)) {
+      return true;
+    }
+    final transition = workspaceTransitions[placement.monitorId];
+    return transition != null &&
+        (placement.workspaceId == transition.fromWorkspace ||
+            placement.workspaceId == transition.toWorkspace);
+  }
 
   bool isInOverview(int objectId) => overview?.contains(objectId) ?? false;
 
@@ -323,6 +374,10 @@ class DesktopWorkspaceState {
     DesktopPanel? panel,
     DesktopOverviewState? overview,
     bool clearOverview = false,
+    bool? workspacesEnabled,
+    int? workspaceCount,
+    Map<int, int>? activeWorkspaces,
+    Map<int, DesktopWorkspaceTransition>? workspaceTransitions,
   }) {
     return DesktopWorkspaceState._(
       placements: placements == null
@@ -334,7 +389,17 @@ class DesktopWorkspaceState {
       overview: clearOverview ? null : overview ?? this.overview,
       inputLayoutRevision:
           inputLayoutRevision +
-          ((placements != null || overview != null || clearOverview) ? 1 : 0),
+          ((placements != null ||
+                  overview != null ||
+                  clearOverview ||
+                  activeWorkspaces != null ||
+                  workspaceTransitions != null)
+              ? 1
+              : 0),
+      workspacesEnabled: workspacesEnabled ?? this.workspacesEnabled,
+      workspaceCount: workspaceCount ?? this.workspaceCount,
+      activeWorkspaces: activeWorkspaces ?? this.activeWorkspaces,
+      workspaceTransitions: workspaceTransitions ?? this.workspaceTransitions,
     );
   }
 }
@@ -355,6 +420,10 @@ bool desktopWorkspaceHasSameSceneStructure(
   }
   if (left.nextZ != right.nextZ ||
       left.viewSize != right.viewSize ||
+      left.workspacesEnabled != right.workspacesEnabled ||
+      left.workspaceCount != right.workspaceCount ||
+      !mapEquals(left.activeWorkspaces, right.activeWorkspaces) ||
+      !mapEquals(left.workspaceTransitions, right.workspaceTransitions) ||
       !identical(left.overview, right.overview) ||
       left.placements.length != right.placements.length) {
     return false;

@@ -145,6 +145,7 @@ class _ShellRuntimeBindingsState extends ConsumerState<ShellRuntimeBindings> {
             dpmsTimeout: Duration(minutes: power.idleDpmsTimeoutMinutes),
             suspendEnabled: power.idleSuspendEnabled,
             suspendTimeout: Duration(minutes: power.idleSuspendTimeoutMinutes),
+            suspendMode: power.suspendMode,
           );
     });
   }

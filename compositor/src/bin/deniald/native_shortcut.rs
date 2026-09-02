@@ -15,7 +15,7 @@ use tracing::{info, warn};
 
 use super::window_layout::LayoutDirection;
 
-const SHORTCUT_SCHEMA_VERSION: u64 = 4;
+const SHORTCUT_SCHEMA_VERSION: u64 = 8;
 const OLDEST_SHORTCUT_SCHEMA_VERSION: u64 = 1;
 const MAX_SHORTCUT_FILE_BYTES: usize = 128 * 1024;
 pub(super) const MAX_SHORTCUTS: usize = 256;
@@ -43,6 +43,39 @@ const SHORTCUT_V4_ADDITIONS: &[(&str, ShortcutAction)] = &[
     ("Super+Ctrl+Right", ShortcutAction::SwapRight),
     ("Super+Ctrl+Up", ShortcutAction::SwapUp),
     ("Super+Ctrl+Down", ShortcutAction::SwapDown),
+];
+
+const SHORTCUT_V5_ADDITIONS: &[(&str, ShortcutAction)] = &[
+    ("Super+Alt+Left", ShortcutAction::PreviousWorkspace),
+    ("Super+Alt+Right", ShortcutAction::NextWorkspace),
+    (
+        "Super+Alt+Shift+Left",
+        ShortcutAction::MoveToPreviousWorkspace,
+    ),
+    ("Super+Alt+Shift+Right", ShortcutAction::MoveToNextWorkspace),
+    ("Super+1", ShortcutAction::SwitchWorkspace1),
+    ("Super+2", ShortcutAction::SwitchWorkspace2),
+    ("Super+3", ShortcutAction::SwitchWorkspace3),
+    ("Super+4", ShortcutAction::SwitchWorkspace4),
+    ("Super+5", ShortcutAction::SwitchWorkspace5),
+    ("Super+6", ShortcutAction::SwitchWorkspace6),
+    ("Super+7", ShortcutAction::SwitchWorkspace7),
+    ("Super+8", ShortcutAction::SwitchWorkspace8),
+    ("Super+9", ShortcutAction::SwitchWorkspace9),
+    ("Super+Shift+1", ShortcutAction::MoveToWorkspace1),
+    ("Super+Shift+2", ShortcutAction::MoveToWorkspace2),
+    ("Super+Shift+3", ShortcutAction::MoveToWorkspace3),
+    ("Super+Shift+4", ShortcutAction::MoveToWorkspace4),
+    ("Super+Shift+5", ShortcutAction::MoveToWorkspace5),
+    ("Super+Shift+6", ShortcutAction::MoveToWorkspace6),
+    ("Super+Shift+7", ShortcutAction::MoveToWorkspace7),
+    ("Super+Shift+8", ShortcutAction::MoveToWorkspace8),
+    ("Super+Shift+9", ShortcutAction::MoveToWorkspace9),
+];
+
+const SHORTCUT_V6_ADDITIONS: &[(&str, ShortcutAction)] = &[
+    ("FourFingerSwipeRight", ShortcutAction::PreviousWorkspace),
+    ("FourFingerSwipeLeft", ShortcutAction::NextWorkspace),
 ];
 
 const KEY_ESCAPE: u32 = 1;
@@ -114,6 +147,8 @@ pub(super) enum ShortcutGesture {
     ThreeFingerSwipeUp,
     ThreeFingerSwipeLeft,
     ThreeFingerSwipeRight,
+    FourFingerSwipeLeft,
+    FourFingerSwipeRight,
 }
 
 impl ShortcutGesture {
@@ -122,6 +157,8 @@ impl ShortcutGesture {
             Self::ThreeFingerSwipeUp => "ThreeFingerSwipeUp",
             Self::ThreeFingerSwipeLeft => "ThreeFingerSwipeLeft",
             Self::ThreeFingerSwipeRight => "ThreeFingerSwipeRight",
+            Self::FourFingerSwipeLeft => "FourFingerSwipeLeft",
+            Self::FourFingerSwipeRight => "FourFingerSwipeRight",
         }
     }
 }
@@ -160,10 +197,32 @@ pub(super) enum ShortcutAction {
     SwapRight,
     SwapUp,
     SwapDown,
+    PreviousWorkspace,
+    NextWorkspace,
+    MoveToPreviousWorkspace,
+    MoveToNextWorkspace,
+    SwitchWorkspace1,
+    SwitchWorkspace2,
+    SwitchWorkspace3,
+    SwitchWorkspace4,
+    SwitchWorkspace5,
+    SwitchWorkspace6,
+    SwitchWorkspace7,
+    SwitchWorkspace8,
+    SwitchWorkspace9,
+    MoveToWorkspace1,
+    MoveToWorkspace2,
+    MoveToWorkspace3,
+    MoveToWorkspace4,
+    MoveToWorkspace5,
+    MoveToWorkspace6,
+    MoveToWorkspace7,
+    MoveToWorkspace8,
+    MoveToWorkspace9,
 }
 
 impl ShortcutAction {
-    pub(super) const ALL: [Self; 31] = [
+    pub(super) const ALL: [Self; 53] = [
         Self::OpenApplications,
         Self::OpenDashboard,
         Self::OpenSettings,
@@ -195,6 +254,28 @@ impl ShortcutAction {
         Self::SwapRight,
         Self::SwapUp,
         Self::SwapDown,
+        Self::PreviousWorkspace,
+        Self::NextWorkspace,
+        Self::MoveToPreviousWorkspace,
+        Self::MoveToNextWorkspace,
+        Self::SwitchWorkspace1,
+        Self::SwitchWorkspace2,
+        Self::SwitchWorkspace3,
+        Self::SwitchWorkspace4,
+        Self::SwitchWorkspace5,
+        Self::SwitchWorkspace6,
+        Self::SwitchWorkspace7,
+        Self::SwitchWorkspace8,
+        Self::SwitchWorkspace9,
+        Self::MoveToWorkspace1,
+        Self::MoveToWorkspace2,
+        Self::MoveToWorkspace3,
+        Self::MoveToWorkspace4,
+        Self::MoveToWorkspace5,
+        Self::MoveToWorkspace6,
+        Self::MoveToWorkspace7,
+        Self::MoveToWorkspace8,
+        Self::MoveToWorkspace9,
     ];
 }
 
@@ -298,7 +379,11 @@ impl ShortcutTarget {
                     | ShortcutAction::SwapLeft
                     | ShortcutAction::SwapRight
                     | ShortcutAction::SwapUp
-                    | ShortcutAction::SwapDown,
+                    | ShortcutAction::SwapDown
+                    | ShortcutAction::PreviousWorkspace
+                    | ShortcutAction::NextWorkspace
+                    | ShortcutAction::MoveToPreviousWorkspace
+                    | ShortcutAction::MoveToNextWorkspace,
             }
         )
     }
@@ -421,7 +506,7 @@ impl ShortcutManager {
             info!(
                 path = %path.display(),
                 version = SHORTCUT_SCHEMA_VERSION,
-                added,
+                changed = added,
                 "migrated shortcut configuration"
             );
             migrated
@@ -673,22 +758,75 @@ fn validate_spawn_sh(command: &str) -> Result<(), ShortcutError> {
 
 fn read_and_parse(path: &Path) -> Result<(ShortcutFile, Vec<u8>, Option<usize>), ShortcutError> {
     let bytes = read_shortcut_bytes(path)?;
-    let mut file = serde_json::from_slice::<ShortcutFile>(&bytes)?;
+    let mut document = serde_json::from_slice::<serde_json::Value>(&bytes)?;
+    let removed = remove_retired_shortcut_actions(&mut document);
+    let mut file = serde_json::from_value::<ShortcutFile>(document)?;
     let migration = migrate_shortcut_file(&mut file)?;
+    let migration = match migration {
+        Some(changed) => Some(changed + removed),
+        None if removed > 0 => {
+            file.revision = file.revision.saturating_add(1);
+            Some(removed)
+        }
+        None => None,
+    };
     normalize_and_compile_shortcuts(&mut file)?;
     Ok((file, bytes, migration))
 }
 
+/// Removes actions retired before their typed representation is decoded.
+///
+/// Version 6 briefly exposed the discarded workspace overview. Cleaning the
+/// raw document lets upgraded installations retain every unrelated custom
+/// shortcut without keeping the removed action executable or configurable.
+fn remove_retired_shortcut_actions(document: &mut serde_json::Value) -> usize {
+    let Some(shortcuts) = document
+        .get_mut("shortcuts")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return 0;
+    };
+    let before = shortcuts.len();
+    shortcuts.retain(|binding| {
+        let target = binding.get("target");
+        target
+            .and_then(|target| target.get("type"))
+            .and_then(serde_json::Value::as_str)
+            != Some("denialAction")
+            || target
+                .and_then(|target| target.get("action"))
+                .and_then(serde_json::Value::as_str)
+                != Some("openWorkspaces")
+    });
+    before - shortcuts.len()
+}
+
 fn migrate_shortcut_file(file: &mut ShortcutFile) -> Result<Option<usize>, ShortcutError> {
+    let invert_workspace_swipe_defaults = matches!(file.version, 6 | 7);
     let additions: &[&[(&str, ShortcutAction)]] = match file.version {
         SHORTCUT_SCHEMA_VERSION => return Ok(None),
         OLDEST_SHORTCUT_SCHEMA_VERSION => &[
             SHORTCUT_V2_ADDITIONS,
             SHORTCUT_V3_ADDITIONS,
             SHORTCUT_V4_ADDITIONS,
+            SHORTCUT_V5_ADDITIONS,
+            SHORTCUT_V6_ADDITIONS,
         ],
-        2 => &[SHORTCUT_V3_ADDITIONS, SHORTCUT_V4_ADDITIONS],
-        3 => &[SHORTCUT_V4_ADDITIONS],
+        2 => &[
+            SHORTCUT_V3_ADDITIONS,
+            SHORTCUT_V4_ADDITIONS,
+            SHORTCUT_V5_ADDITIONS,
+            SHORTCUT_V6_ADDITIONS,
+        ],
+        3 => &[
+            SHORTCUT_V4_ADDITIONS,
+            SHORTCUT_V5_ADDITIONS,
+            SHORTCUT_V6_ADDITIONS,
+        ],
+        4 => &[SHORTCUT_V5_ADDITIONS, SHORTCUT_V6_ADDITIONS],
+        5 => &[SHORTCUT_V6_ADDITIONS],
+        6 => &[],
+        7 => &[],
         version => {
             return Err(ShortcutError::Document(format!(
                 "shortcut version {version} is not supported; expected {OLDEST_SHORTCUT_SCHEMA_VERSION}..={SHORTCUT_SCHEMA_VERSION}"
@@ -710,11 +848,25 @@ fn migrate_shortcut_file(file: &mut ShortcutFile) -> Result<Option<usize>, Short
     // legacy default; a user-authored action on SUPER+Up remains untouched.
     let relocated =
         migrate_default_shortcut(file, "Super+Up", ShortcutAction::ToggleMaximize, "Super+W")?;
+    let mut changed = usize::from(relocated);
+    if invert_workspace_swipe_defaults {
+        changed += usize::from(migrate_default_shortcut_action(
+            file,
+            "FourFingerSwipeRight",
+            ShortcutAction::NextWorkspace,
+            ShortcutAction::PreviousWorkspace,
+        )?);
+        changed += usize::from(migrate_default_shortcut_action(
+            file,
+            "FourFingerSwipeLeft",
+            ShortcutAction::PreviousWorkspace,
+            ShortcutAction::NextWorkspace,
+        )?);
+    }
     let mut configured = HashSet::with_capacity(file.shortcuts.len());
     for binding in &file.shortcuts {
         configured.insert(parse_shortcut(&binding.shortcut)?);
     }
-    let mut added = usize::from(relocated);
     for additions in additions {
         for &(shortcut, action) in *additions {
             let trigger = parse_shortcut(shortcut)?;
@@ -726,12 +878,12 @@ fn migrate_shortcut_file(file: &mut ShortcutFile) -> Result<Option<usize>, Short
                 shortcut: trigger.canonical,
                 target: ShortcutTarget::DenialAction { action },
             });
-            added += 1;
+            changed += 1;
         }
     }
     file.version = SHORTCUT_SCHEMA_VERSION;
     file.revision = file.revision.saturating_add(1);
-    Ok(Some(added))
+    Ok(Some(changed))
 }
 
 fn migrate_default_shortcut(
@@ -756,6 +908,23 @@ fn migrate_default_shortcut(
         return Ok(false);
     };
     binding.shortcut = to.canonical;
+    Ok(true)
+}
+
+fn migrate_default_shortcut_action(
+    file: &mut ShortcutFile,
+    shortcut: &str,
+    from: ShortcutAction,
+    to: ShortcutAction,
+) -> Result<bool, ShortcutError> {
+    let shortcut = parse_shortcut(shortcut)?;
+    let Some(binding) = file.shortcuts.iter_mut().find(|binding| {
+        binding.target == (ShortcutTarget::DenialAction { action: from })
+            && parse_shortcut(&binding.shortcut).is_ok_and(|configured| configured == shortcut)
+    }) else {
+        return Ok(false);
+    };
+    binding.target = ShortcutTarget::DenialAction { action: to };
     Ok(true)
 }
 
@@ -947,6 +1116,8 @@ fn default_shortcut_file() -> ShortcutFile {
             .into_iter()
             .chain(SHORTCUT_V2_ADDITIONS.iter().copied())
             .chain(SHORTCUT_V4_ADDITIONS.iter().copied())
+            .chain(SHORTCUT_V5_ADDITIONS.iter().copied())
+            .chain(SHORTCUT_V6_ADDITIONS.iter().copied())
             .map(|(shortcut, action)| ShortcutBinding {
                 shortcut: shortcut.to_owned(),
                 target: ShortcutTarget::DenialAction { action },
@@ -1094,6 +1265,8 @@ fn parse_gesture(name: &str) -> Option<ShortcutGesture> {
         "threefingerswiperight" | "3fingerswiperight" => {
             Some(ShortcutGesture::ThreeFingerSwipeRight)
         }
+        "fourfingerswipeleft" | "4fingerswipeleft" => Some(ShortcutGesture::FourFingerSwipeLeft),
+        "fourfingerswiperight" | "4fingerswiperight" => Some(ShortcutGesture::FourFingerSwipeRight),
         _ => None,
     }
 }
@@ -1406,6 +1579,8 @@ pub(super) fn supported_inputs() -> Vec<ShortcutInputDefinition> {
             (ShortcutGesture::ThreeFingerSwipeUp, "3FingerSwipeUp"),
             (ShortcutGesture::ThreeFingerSwipeLeft, "3FingerSwipeLeft"),
             (ShortcutGesture::ThreeFingerSwipeRight, "3FingerSwipeRight"),
+            (ShortcutGesture::FourFingerSwipeLeft, "4FingerSwipeLeft"),
+            (ShortcutGesture::FourFingerSwipeRight, "4FingerSwipeRight"),
         ]
         .into_iter()
         .map(|(gesture, alias)| ShortcutInputDefinition {
@@ -1510,6 +1685,12 @@ pub(super) enum ShortcutDisposition {
     RequestOpenSettings,
     RequestFocus(LayoutDirection),
     RequestSwap(LayoutDirection),
+    RequestPreviousWorkspace,
+    RequestNextWorkspace,
+    RequestMoveToPreviousWorkspace,
+    RequestMoveToNextWorkspace,
+    RequestSwitchWorkspace(u8),
+    RequestMoveToWorkspace(u8),
     Spawn {
         command: Vec<String>,
         desktop_file_id: Option<String>,
@@ -1817,16 +1998,22 @@ impl ShortcutEngine {
         self.window_switcher_release = None;
         self.captured_keys.clear();
     }
+
+    /// Releases a just-matched key when a context-sensitive action declines
+    /// it, allowing both its press and later release to reach the client.
+    pub(super) fn pass_through_key(&mut self, evdev_keycode: u32) {
+        self.captured_keys.remove(&evdev_keycode);
+    }
 }
 
 fn window_switcher_gesture_step(gesture: ShortcutGesture) -> ShortcutDisposition {
     match gesture {
-        ShortcutGesture::ThreeFingerSwipeRight => {
+        ShortcutGesture::ThreeFingerSwipeRight | ShortcutGesture::FourFingerSwipeRight => {
             ShortcutDisposition::RequestWindowSwitcherPrevious
         }
-        ShortcutGesture::ThreeFingerSwipeUp | ShortcutGesture::ThreeFingerSwipeLeft => {
-            ShortcutDisposition::RequestWindowSwitcherNext
-        }
+        ShortcutGesture::ThreeFingerSwipeUp
+        | ShortcutGesture::ThreeFingerSwipeLeft
+        | ShortcutGesture::FourFingerSwipeLeft => ShortcutDisposition::RequestWindowSwitcherNext,
     }
 }
 
@@ -1864,6 +2051,28 @@ impl From<ShortcutAction> for ShortcutDisposition {
             ShortcutAction::SwapRight => Self::RequestSwap(LayoutDirection::Right),
             ShortcutAction::SwapUp => Self::RequestSwap(LayoutDirection::Up),
             ShortcutAction::SwapDown => Self::RequestSwap(LayoutDirection::Down),
+            ShortcutAction::PreviousWorkspace => Self::RequestPreviousWorkspace,
+            ShortcutAction::NextWorkspace => Self::RequestNextWorkspace,
+            ShortcutAction::MoveToPreviousWorkspace => Self::RequestMoveToPreviousWorkspace,
+            ShortcutAction::MoveToNextWorkspace => Self::RequestMoveToNextWorkspace,
+            ShortcutAction::SwitchWorkspace1 => Self::RequestSwitchWorkspace(1),
+            ShortcutAction::SwitchWorkspace2 => Self::RequestSwitchWorkspace(2),
+            ShortcutAction::SwitchWorkspace3 => Self::RequestSwitchWorkspace(3),
+            ShortcutAction::SwitchWorkspace4 => Self::RequestSwitchWorkspace(4),
+            ShortcutAction::SwitchWorkspace5 => Self::RequestSwitchWorkspace(5),
+            ShortcutAction::SwitchWorkspace6 => Self::RequestSwitchWorkspace(6),
+            ShortcutAction::SwitchWorkspace7 => Self::RequestSwitchWorkspace(7),
+            ShortcutAction::SwitchWorkspace8 => Self::RequestSwitchWorkspace(8),
+            ShortcutAction::SwitchWorkspace9 => Self::RequestSwitchWorkspace(9),
+            ShortcutAction::MoveToWorkspace1 => Self::RequestMoveToWorkspace(1),
+            ShortcutAction::MoveToWorkspace2 => Self::RequestMoveToWorkspace(2),
+            ShortcutAction::MoveToWorkspace3 => Self::RequestMoveToWorkspace(3),
+            ShortcutAction::MoveToWorkspace4 => Self::RequestMoveToWorkspace(4),
+            ShortcutAction::MoveToWorkspace5 => Self::RequestMoveToWorkspace(5),
+            ShortcutAction::MoveToWorkspace6 => Self::RequestMoveToWorkspace(6),
+            ShortcutAction::MoveToWorkspace7 => Self::RequestMoveToWorkspace(7),
+            ShortcutAction::MoveToWorkspace8 => Self::RequestMoveToWorkspace(8),
+            ShortcutAction::MoveToWorkspace9 => Self::RequestMoveToWorkspace(9),
         }
     }
 }
@@ -1903,7 +2112,14 @@ mod tests {
             }],
         };
 
-        assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(9));
+        assert_eq!(
+            migrate_shortcut_file(&mut file).unwrap(),
+            Some(
+                1 + SHORTCUT_V4_ADDITIONS.len()
+                    + SHORTCUT_V5_ADDITIONS.len()
+                    + SHORTCUT_V6_ADDITIONS.len()
+            )
+        );
         assert_eq!(file.version, SHORTCUT_SCHEMA_VERSION);
         let action_for = |shortcut: &str| {
             file.shortcuts
@@ -1920,5 +2136,167 @@ mod tests {
             action_for("Super+Ctrl+Right"),
             Some(ShortcutAction::SwapRight)
         );
+    }
+
+    #[test]
+    fn v5_migration_adds_workspace_defaults_without_overwriting_user_bindings() {
+        let mut file = ShortcutFile {
+            version: 4,
+            revision: 7,
+            shortcuts: vec![ShortcutBinding {
+                shortcut: "Super+1".to_owned(),
+                target: ShortcutTarget::SpawnSh {
+                    command: "custom-command".to_owned(),
+                },
+            }],
+        };
+
+        assert!(migrate_shortcut_file(&mut file).unwrap().is_some());
+        assert_eq!(file.version, SHORTCUT_SCHEMA_VERSION);
+        assert!(file.shortcuts.iter().any(|binding| {
+            binding.shortcut == "Super+1"
+                && matches!(
+                    &binding.target,
+                    ShortcutTarget::SpawnSh { command } if command == "custom-command"
+                )
+        }));
+        assert!(
+            !file
+                .shortcuts
+                .iter()
+                .any(|binding| binding.shortcut == "Super+S")
+        );
+    }
+
+    #[test]
+    fn v7_migration_removes_the_retired_workspace_overview_action() {
+        let mut document = serde_json::json!({
+            "version": 6,
+            "revision": 12,
+            "shortcuts": [
+                {
+                    "shortcut": "Super+S",
+                    "target": {
+                        "type": "denialAction",
+                        "action": "openWorkspaces"
+                    }
+                },
+                {
+                    "shortcut": "Super+Alt+Right",
+                    "target": {
+                        "type": "denialAction",
+                        "action": "nextWorkspace"
+                    }
+                }
+            ]
+        });
+
+        assert_eq!(remove_retired_shortcut_actions(&mut document), 1);
+        let mut file = serde_json::from_value::<ShortcutFile>(document).unwrap();
+        assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(0));
+        assert_eq!(file.version, SHORTCUT_SCHEMA_VERSION);
+        assert_eq!(file.revision, 13);
+        assert_eq!(file.shortcuts.len(), 1);
+        assert_eq!(file.shortcuts[0].shortcut, "Super+Alt+Right");
+    }
+
+    #[test]
+    fn v6_migration_adds_workspace_swipes_without_overwriting_user_bindings() {
+        let mut file = ShortcutFile {
+            version: 5,
+            revision: 11,
+            shortcuts: vec![ShortcutBinding {
+                shortcut: "FourFingerSwipeRight".to_owned(),
+                target: ShortcutTarget::SpawnSh {
+                    command: "custom-command".to_owned(),
+                },
+            }],
+        };
+
+        assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(1));
+        assert_eq!(file.version, SHORTCUT_SCHEMA_VERSION);
+        assert_eq!(file.revision, 12);
+        assert!(file.shortcuts.iter().any(|binding| {
+            binding.shortcut == "FourFingerSwipeRight"
+                && matches!(
+                    &binding.target,
+                    ShortcutTarget::SpawnSh { command } if command == "custom-command"
+                )
+        }));
+        assert!(file.shortcuts.iter().any(|binding| {
+            binding.shortcut == "FourFingerSwipeLeft"
+                && matches!(
+                    &binding.target,
+                    ShortcutTarget::DenialAction {
+                        action: ShortcutAction::NextWorkspace
+                    }
+                )
+        }));
+    }
+
+    #[test]
+    fn v8_migration_inverts_only_the_saved_default_workspace_swipes() {
+        let mut file = ShortcutFile {
+            version: 7,
+            revision: 14,
+            shortcuts: vec![
+                ShortcutBinding {
+                    shortcut: "FourFingerSwipeRight".to_owned(),
+                    target: ShortcutTarget::SpawnSh {
+                        command: "custom-command".to_owned(),
+                    },
+                },
+                ShortcutBinding {
+                    shortcut: "FourFingerSwipeLeft".to_owned(),
+                    target: ShortcutTarget::DenialAction {
+                        action: ShortcutAction::PreviousWorkspace,
+                    },
+                },
+            ],
+        };
+
+        assert_eq!(migrate_shortcut_file(&mut file).unwrap(), Some(1));
+        assert_eq!(file.version, SHORTCUT_SCHEMA_VERSION);
+        assert_eq!(file.revision, 15);
+        assert!(matches!(
+            &file.shortcuts[0].target,
+            ShortcutTarget::SpawnSh { command } if command == "custom-command"
+        ));
+        assert_eq!(
+            file.shortcuts[1].target,
+            ShortcutTarget::DenialAction {
+                action: ShortcutAction::NextWorkspace
+            }
+        );
+    }
+
+    #[test]
+    fn four_finger_swipe_defaults_follow_requested_workspace_direction() {
+        let mut engine = ShortcutEngine::from_file(&default_shortcut_file()).unwrap();
+
+        assert_eq!(
+            engine.observe_gesture(ShortcutGesture::FourFingerSwipeRight),
+            ShortcutDisposition::RequestPreviousWorkspace
+        );
+        assert_eq!(
+            engine.observe_gesture(ShortcutGesture::FourFingerSwipeLeft),
+            ShortcutDisposition::RequestNextWorkspace
+        );
+    }
+
+    #[test]
+    fn declined_contextual_workspace_shortcut_forwards_its_release() {
+        let file = default_shortcut_file();
+        let mut engine = ShortcutEngine::from_file(&file).unwrap();
+        assert_eq!(
+            engine.observe(KEY_LEFT_META, true),
+            ShortcutDisposition::Consume
+        );
+        assert_eq!(
+            engine.observe(2, true),
+            ShortcutDisposition::RequestSwitchWorkspace(1)
+        );
+        engine.pass_through_key(2);
+        assert_eq!(engine.observe(2, false), ShortcutDisposition::Forward);
     }
 }

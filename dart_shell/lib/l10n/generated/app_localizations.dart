@@ -2441,6 +2441,42 @@ abstract class AppLocalizations {
   /// **'Keep the session in memory and enter low power after extended inactivity.'**
   String get settingsAutomaticSuspendToggleDescription;
 
+  /// Label for choosing the kernel memory sleep mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Suspend mode'**
+  String get settingsSuspendMode;
+
+  /// Explanation for the kernel memory sleep mode selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose how Linux keeps memory powered. This applies to every suspend while Denial is active.'**
+  String get settingsSuspendModeDescription;
+
+  /// Friendly label for the Linux s2idle memory sleep mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Suspend to idle (s2idle)'**
+  String get settingsSuspendModeS2idle;
+
+  /// Friendly label for the Linux shallow memory sleep mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Standby (shallow)'**
+  String get settingsSuspendModeShallow;
+
+  /// Friendly label for the Linux deep memory sleep mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Suspend to RAM (deep)'**
+  String get settingsSuspendModeDeep;
+
+  /// Disabled suspend mode selector value when Linux exposes no memory sleep mode.
+  ///
+  /// In en, this message translates to:
+  /// **'Unavailable'**
+  String get settingsSuspendModeUnavailable;
+
   /// English UI text for settingsAvailable.
   ///
   /// In en, this message translates to:
@@ -3268,6 +3304,24 @@ abstract class AppLocalizations {
   /// **'Scale'**
   String get settingsDisplayScale;
 
+  /// Validation error for a monitor scale outside the editable percentage range.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a value from 50 to 600.'**
+  String get settingsDisplayScaleInvalid;
+
+  /// Label for the common monitor scale preset selector.
+  ///
+  /// In en, this message translates to:
+  /// **'Presets'**
+  String get settingsDisplayScalePreset;
+
+  /// Guidance shown below the editable monitor scale percentage.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter 50–600%. Values are rounded to the nearest supported scale. Below 100% may look softer.'**
+  String get settingsDisplayScaleRange;
+
   /// Label for enabling variable refresh rate on a supported monitor.
   ///
   /// In en, this message translates to:
@@ -3946,6 +4000,18 @@ abstract class AppLocalizations {
   /// **'Three-finger swipe right'**
   String get settingsShortcutGestureThreeFingerSwipeRight;
 
+  /// Friendly display name for the four-finger swipe-left gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Four-finger swipe left'**
+  String get settingsShortcutGestureFourFingerSwipeLeft;
+
+  /// Friendly display name for the four-finger swipe-right gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Four-finger swipe right'**
+  String get settingsShortcutGestureFourFingerSwipeRight;
+
   /// Supported shortcut input category.
   ///
   /// In en, this message translates to:
@@ -4186,6 +4252,42 @@ abstract class AppLocalizations {
   /// **'Swap window downward'**
   String get settingsShortcutActionSwapDown;
 
+  /// Display name for switching to the previous monitor-local workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous workspace'**
+  String get settingsShortcutActionPreviousWorkspace;
+
+  /// Display name for switching to the next monitor-local workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Next workspace'**
+  String get settingsShortcutActionNextWorkspace;
+
+  /// Display name for moving the focused window to the previous workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Move window to previous workspace'**
+  String get settingsShortcutActionMoveToPreviousWorkspace;
+
+  /// Display name for moving the focused window to the next workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Move window to next workspace'**
+  String get settingsShortcutActionMoveToNextWorkspace;
+
+  /// Display name for switching directly to a numbered workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch to workspace {workspace}'**
+  String settingsShortcutActionSwitchWorkspace(int workspace);
+
+  /// Display name for moving the focused window to a numbered workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Move window to workspace {workspace}'**
+  String settingsShortcutActionMoveToWorkspace(int workspace);
+
   /// English UI text for settingsLayoutDescription.
   ///
   /// In en, this message translates to:
@@ -4227,6 +4329,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Window layout'**
   String get settingsWindowLayoutTitle;
+
+  /// Heading for monitor-local workspace settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Workspaces'**
+  String get settingsWorkspacesTitle;
+
+  /// Toggle which enables monitor-local workspaces.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable workspaces'**
+  String get settingsWorkspacesEnable;
+
+  /// Explanation of Denial's monitor-local workspace model.
+  ///
+  /// In en, this message translates to:
+  /// **'Each monitor switches workspaces independently. Minimized windows remain available across every workspace on their monitor.'**
+  String get settingsWorkspacesDescription;
+
+  /// Label for the number of workspaces per monitor.
+  ///
+  /// In en, this message translates to:
+  /// **'Workspace count'**
+  String get settingsWorkspaceCount;
+
+  /// Accessible and visible label for a numbered workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'Workspace {workspace}'**
+  String workspaceLabel(int workspace);
+
+  /// Accessible workspace state for the currently active workspace.
+  ///
+  /// In en, this message translates to:
+  /// **'active'**
+  String get workspaceActive;
+
+  /// Accessible workspace state when ordinary windows are present.
+  ///
+  /// In en, this message translates to:
+  /// **'occupied'**
+  String get workspaceOccupied;
+
+  /// Accessible workspace state when no ordinary windows are present.
+  ///
+  /// In en, this message translates to:
+  /// **'empty'**
+  String get workspaceEmpty;
 
   /// Short uppercase status label indicating immediate application.
   ///

@@ -38,6 +38,15 @@ const settingsPrimaryDisplaySelectorKey = ValueKey<String>(
 const settingsVariableRefreshRateToggleKey = ValueKey<String>(
   'settings-variable-refresh-rate-toggle',
 );
+const settingsDisplayScaleFieldKey = ValueKey<String>(
+  'settings-display-scale-field',
+);
+const settingsDisplayScaleInputKey = ValueKey<String>(
+  'settings-display-scale-input',
+);
+const settingsDisplayScalePresetKey = ValueKey<String>(
+  'settings-display-scale-preset',
+);
 const settingsDisplayConfirmationDialogKey = ValueKey<String>(
   'settings-display-confirmation-dialog',
 );
@@ -995,7 +1004,6 @@ class _MonitorControls extends StatelessWidget {
               mode.height == selectedResolution.height,
         )
         .toList(growable: false);
-    final scales = <double>{..._commonScales, output.scale}.toList()..sort();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -1083,20 +1091,10 @@ class _MonitorControls extends StatelessWidget {
                 ],
                 onChanged: onTransformChanged,
               ),
-              _DisplayDropdown<double>(
-                key: ValueKey<String>('${output.name}-scale-${output.scale}'),
-                label: context.l10n.settingsDisplayScale,
-                value: output.scale,
-                enabled: enabled && capabilities.scale,
-                choices: <SettingsChoice<double>>[
-                  for (final scale in scales)
-                    SettingsChoice<double>(scale, '${(scale * 100).round()}%'),
-                ],
-                onChanged: onScaleChanged,
-              ),
             ];
+            final Widget fieldLayout;
             if (compact) {
-              return Column(
+              fieldLayout = Column(
                 children: <Widget>[
                   for (
                     var index = 0;
@@ -1108,14 +1106,32 @@ class _MonitorControls extends StatelessWidget {
                   ],
                 ],
               );
-            }
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                for (var index = 0; index < fields.length; index++) ...<Widget>[
-                  Expanded(child: fields[index]),
-                  if (index != fields.length - 1) const SizedBox(width: 10),
+            } else {
+              fieldLayout = Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  for (
+                    var index = 0;
+                    index < fields.length;
+                    index++
+                  ) ...<Widget>[
+                    Expanded(child: fields[index]),
+                    if (index != fields.length - 1) const SizedBox(width: 10),
+                  ],
                 ],
+              );
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                fieldLayout,
+                const SizedBox(height: 10),
+                SettingsDisplayScaleControl(
+                  key: ValueKey<String>('${output.name}-scale'),
+                  scale: output.scale,
+                  enabled: enabled && capabilities.scale,
+                  onChanged: onScaleChanged,
+                ),
               ],
             );
           },
@@ -1136,6 +1152,305 @@ class _MonitorControls extends StatelessWidget {
       ],
     );
   }
+}
+
+class SettingsDisplayScaleControl extends StatefulWidget {
+  const SettingsDisplayScaleControl({
+    required this.scale,
+    required this.enabled,
+    required this.onChanged,
+    super.key,
+  });
+
+  final double scale;
+  final bool enabled;
+  final ValueChanged<double> onChanged;
+
+  @override
+  State<SettingsDisplayScaleControl> createState() =>
+      _SettingsDisplayScaleControlState();
+}
+
+class _SettingsDisplayScaleControlState
+    extends State<SettingsDisplayScaleControl> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+  var _invalid = false;
+  var _focused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: _scalePercentValue(widget.scale));
+    _focusNode = FocusNode()..addListener(_handleFocusChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant SettingsDisplayScaleControl oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.enabled && oldWidget.enabled) {
+      _focusNode.unfocus();
+    }
+    if (widget.scale != oldWidget.scale && !_focusNode.hasFocus) {
+      _setText(widget.scale);
+    }
+  }
+
+  void _handleFocusChanged() {
+    if (!mounted) {
+      return;
+    }
+    final focused = _focusNode.hasFocus;
+    if (_focused != focused) {
+      setState(() => _focused = focused);
+    }
+    if (!focused) {
+      _commit();
+    }
+  }
+
+  void _setText(double scale) {
+    final value = _scalePercentValue(scale);
+    _controller.value = TextEditingValue(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+    );
+  }
+
+  void _commit() {
+    final scale = _parseScalePercent(_controller.text);
+    if (scale == null) {
+      if (!_invalid) {
+        setState(() => _invalid = true);
+      }
+      return;
+    }
+    _setText(scale);
+    if (_invalid) {
+      setState(() => _invalid = false);
+    }
+    if (scale != widget.scale) {
+      widget.onChanged(scale);
+    }
+  }
+
+  void _selectPreset(double scale) {
+    _setText(scale);
+    if (_invalid) {
+      setState(() => _invalid = false);
+    }
+    if (scale != widget.scale) {
+      widget.onChanged(scale);
+    }
+  }
+
+  @override
+  void dispose() {
+    _focusNode
+      ..removeListener(_handleFocusChanged)
+      ..dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final choices = <double>{..._commonScales, widget.scale}.toList()..sort();
+    final field = _ScalePercentField(
+      controller: _controller,
+      focusNode: _focusNode,
+      enabled: widget.enabled,
+      focused: _focused,
+      invalid: _invalid,
+      onChanged: (_) {
+        if (_invalid) {
+          setState(() => _invalid = false);
+        }
+      },
+      onSubmitted: _focusNode.unfocus,
+    );
+    final presets = _DisplayDropdown<double>(
+      key: settingsDisplayScalePresetKey,
+      label: context.l10n.settingsDisplayScalePreset,
+      value: widget.scale,
+      enabled: widget.enabled,
+      choices: <SettingsChoice<double>>[
+        for (final scale in choices)
+          SettingsChoice<double>(scale, _scalePercentLabel(scale)),
+      ],
+      onChanged: _selectPreset,
+    );
+    final message = _invalid
+        ? context.l10n.settingsDisplayScaleInvalid
+        : context.l10n.settingsDisplayScaleRange;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < _scaleControlsRowWidth;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            if (compact) ...<Widget>[
+              SizedBox(width: double.infinity, child: field),
+              const SizedBox(height: 10),
+              SizedBox(width: double.infinity, child: presets),
+            ] else
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  SizedBox(width: _scaleInputWidth, child: field),
+                  const SizedBox(width: 10),
+                  SizedBox(width: _scalePresetWidth, child: presets),
+                ],
+              ),
+            const SizedBox(height: 6),
+            Semantics(
+              liveRegion: _invalid,
+              child: Text(
+                message,
+                style: ShellText.base.copyWith(
+                  color: _invalid
+                      ? context.shellColors.performanceBad
+                      : context.shellColors.textTertiary,
+                  fontSize: 11,
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ScalePercentField extends StatelessWidget {
+  const _ScalePercentField({
+    required this.controller,
+    required this.focusNode,
+    required this.enabled,
+    required this.focused,
+    required this.invalid,
+    required this.onChanged,
+    required this.onSubmitted,
+  });
+
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final bool enabled;
+  final bool focused;
+  final bool invalid;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onSubmitted;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = ShellTheme.of(context).accent;
+    final borderColor = invalid
+        ? context.shellColors.performanceBad
+        : focused
+        ? accent
+        : context.shellColors.hairline;
+    final valueStyle = ShellText.cardTitle.copyWith(
+      color: context.shellColors.textPrimary,
+      fontFamily: ShellText.systemBarFontFamily,
+    );
+    return Semantics(
+      key: settingsDisplayScaleInputKey,
+      container: true,
+      label: context.l10n.settingsDisplayScale,
+      child: AnimatedOpacity(
+        duration: Motion.tile,
+        opacity: enabled ? 1 : 0.46,
+        child: AnimatedContainer(
+          duration: Motion.tile,
+          padding: const EdgeInsets.fromLTRB(12, 8, 9, 8),
+          decoration: BoxDecoration(
+            color: context.shellColors.surfaceContainerHigh,
+            borderRadius: context.shellTheme.borderRadius(10),
+            border: Border.all(color: borderColor),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                context.l10n.settingsDisplayScale,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: ShellText.base.copyWith(
+                  color: invalid
+                      ? context.shellColors.performanceBad
+                      : context.shellColors.textTertiary,
+                  fontSize: 10,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: TextField(
+                      key: settingsDisplayScaleFieldKey,
+                      controller: controller,
+                      focusNode: focusNode,
+                      enabled: enabled,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      textInputAction: TextInputAction.done,
+                      inputFormatters: <TextInputFormatter>[
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+                        LengthLimitingTextInputFormatter(6),
+                      ],
+                      onChanged: onChanged,
+                      onSubmitted: (_) => onSubmitted(),
+                      style: valueStyle,
+                      decoration: const InputDecoration(
+                        isCollapsed: true,
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        disabledBorder: InputBorder.none,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '%',
+                    style: valueStyle.copyWith(
+                      color: context.shellColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+double? _parseScalePercent(String value) {
+  final percent = double.tryParse(value.trim().replaceAll(',', '.'));
+  if (percent == null ||
+      !percent.isFinite ||
+      percent < _minimumScalePercent ||
+      percent > _maximumScalePercent) {
+    return null;
+  }
+  return canonicalizeOutputScale(percent / 100.0);
+}
+
+String _scalePercentLabel(double scale) => '${_scalePercentValue(scale)}%';
+
+String _scalePercentValue(double scale) {
+  final percent = scale * 100.0;
+  if ((percent - percent.roundToDouble()).abs() < 0.005) {
+    return percent.toStringAsFixed(0);
+  }
+  return percent.toStringAsFixed(2).replaceFirst(RegExp(r'0+$'), '');
 }
 
 class _DisplayDropdown<T> extends StatefulWidget {
@@ -1800,21 +2115,13 @@ const _rotations = <DenialOutputTransform>[
   DenialOutputTransform.rotate270,
 ];
 
-const _commonScales = <double>[
-  0.25,
-  0.5,
-  0.75,
-  1,
-  1.25,
-  1.5,
-  1.75,
-  2,
-  2.5,
-  3,
-  4,
-  6,
-  8,
-];
+const _commonScales = <double>[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 6];
+
+const _minimumScalePercent = 50.0;
+const _maximumScalePercent = 600.0;
+const _scaleInputWidth = 132.0;
+const _scalePresetWidth = 176.0;
+const _scaleControlsRowWidth = _scaleInputWidth + 10 + _scalePresetWidth;
 
 class _Resolution {
   const _Resolution(this.width, this.height);

@@ -459,6 +459,8 @@ class _SettingsPageBody extends ConsumerWidget {
           settings: settings,
           displayLayout: displayLayout,
           onWindowLayoutChanged: controller.setDesktopWindowLayout,
+          onWorkspacesEnabledChanged: controller.setWorkspacesEnabled,
+          onWorkspaceCountChanged: controller.setWorkspaceCount,
           onSystemBarChanged: (side, monitorIds) {
             final outputNames = <String>[
               for (final output
@@ -514,6 +516,7 @@ class _SettingsPageBody extends ConsumerWidget {
           onDpmsTimeoutChanged: controller.setIdleDpmsTimeoutMinutes,
           onSuspendEnabledChanged: controller.setIdleSuspendEnabled,
           onSuspendTimeoutChanged: controller.setIdleSuspendTimeoutMinutes,
+          onSuspendModeChanged: controller.setSuspendMode,
           onReset: controller.resetPower,
         );
       case SettingsPageId.lockScreen:

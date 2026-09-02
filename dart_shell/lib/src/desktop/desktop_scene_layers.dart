@@ -248,6 +248,16 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
         final placement = followsLivePlacement
             ? selectedPlacement
             : this.placement;
+        final outputPixelGrid = ref.watch(
+          displayLayoutProvider.select(
+            (layout) =>
+                desktopOutputPixelGridForMonitor(layout, placement.monitorId),
+          ),
+        );
+        final devicePixelRatio =
+            outputPixelGrid?.scale ?? MediaQuery.devicePixelRatioOf(context);
+        final pixelGridOrigin =
+            outputPixelGrid?.logicalRect.topLeft ?? Offset.zero;
         final liveFrame = followsLivePlacement
             ? desktopLivePlacementVisualFrame(
                 visualFrame: this.frame,
@@ -259,7 +269,8 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
         final frame = desktopPixelAlignedWindowFrame(
           frame: liveFrame,
           contentInset: placement.frameBorder,
-          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+          devicePixelRatio: devicePixelRatio,
+          pixelGridOrigin: pixelGridOrigin,
           enabled: !transformed,
           alignSize: true,
         );
@@ -312,6 +323,8 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
                         dragging: placement.dragging,
                         layoutPreviewing: placement.layoutPreviewing,
                         pixelAlignmentInset: 0.0,
+                        pixelGridScale: devicePixelRatio,
+                        pixelGridOrigin: pixelGridOrigin,
                         alignSizeToDevicePixels: true,
                         child: ShellBackdropBlur(
                           blur: !layer.opaque || layer.opacity < 1.0,
@@ -320,6 +333,8 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
                           child: SurfaceLayerTexture(
                             layer: layer,
                             filterQuality: filterQuality,
+                            presentationScale: devicePixelRatio,
+                            pixelGridOrigin: pixelGridOrigin,
                           ),
                         ),
                       ),

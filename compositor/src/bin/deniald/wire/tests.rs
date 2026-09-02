@@ -90,6 +90,163 @@ fn window_request_with_flags(
     builder.finished_data().to_vec()
 }
 
+fn workspace_request(
+    kind: fb::WindowRequestKind,
+    window_id: u64,
+    monitor_id: i64,
+    workspace_id: u32,
+    flags: u32,
+) -> Vec<u8> {
+    let mut builder = FlatBufferBuilder::new();
+    let request = fb::WindowRequest::create(
+        &mut builder,
+        &fb::WindowRequestArgs {
+            kind,
+            window_id,
+            monitor_id,
+            workspace_id,
+            flags,
+            ..Default::default()
+        },
+    );
+    let envelope = fb::Envelope::create(
+        &mut builder,
+        &fb::EnvelopeArgs {
+            protocol_version: PROTOCOL_VERSION,
+            sequence: 4,
+            request_id: 0,
+            payload_type: fb::Payload::WindowRequest,
+            payload: Some(request.as_union_value()),
+        },
+    );
+    fb::finish_envelope_buffer(&mut builder, envelope);
+    builder.finished_data().to_vec()
+}
+
+fn system_bar_request(
+    side: fb::SystemBarSide,
+    monitor_ids: &[i64],
+    thickness: f64,
+    maximize_padding: f64,
+) -> Vec<u8> {
+    let mut builder = FlatBufferBuilder::new();
+    let monitor_ids = builder.create_vector(monitor_ids);
+    let request = fb::WindowRequest::create(
+        &mut builder,
+        &fb::WindowRequestArgs {
+            kind: fb::WindowRequestKind::ConfigureSystemBar,
+            system_bar_side: side,
+            system_bar_monitor_ids: Some(monitor_ids),
+            system_bar_thickness: thickness,
+            maximize_padding,
+            ..Default::default()
+        },
+    );
+    let envelope = fb::Envelope::create(
+        &mut builder,
+        &fb::EnvelopeArgs {
+            protocol_version: PROTOCOL_VERSION,
+            sequence: 4,
+            request_id: 41,
+            payload_type: fb::Payload::WindowRequest,
+            payload: Some(request.as_union_value()),
+        },
+    );
+    fb::finish_envelope_buffer(&mut builder, envelope);
+    builder.finished_data().to_vec()
+}
+
+#[test]
+fn dart_system_bar_request_updates_the_complete_native_work_area() {
+    let mut bridge = bridge();
+    let response = bridge
+        .handle(include_bytes!(
+            "../../../../../protocol/golden/dart_system_bar.denw"
+        ))
+        .unwrap();
+    assert!(response.is_some());
+
+    let work_area = bridge.take_work_area_update().unwrap();
+    assert_eq!(work_area.system_bar.side, SystemBarSide::Right);
+    assert_eq!(work_area.system_bar.outputs, ["left", "main"]);
+    assert_eq!(work_area.system_bar.thickness, 46.0);
+    assert_eq!(work_area.maximize_padding, 18.0);
+}
+
+#[test]
+fn legacy_system_bar_request_retains_native_work_area_metrics() {
+    let mut bridge = bridge();
+    let request = system_bar_request(fb::SystemBarSide::Bottom, &[9], -1.0, -1.0);
+    assert!(bridge.handle(&request).unwrap().is_some());
+
+    let work_area = bridge.take_work_area_update().unwrap();
+    assert_eq!(work_area.system_bar.side, SystemBarSide::Bottom);
+    assert_eq!(work_area.system_bar.outputs, ["main"]);
+    assert_eq!(work_area.system_bar.thickness, 32.0);
+    assert_eq!(work_area.maximize_padding, 10.0);
+}
+
+#[test]
+fn system_bar_request_rejects_invalid_work_area_metrics() {
+    let mut bridge = bridge();
+    for request in [
+        system_bar_request(fb::SystemBarSide::Top, &[9], f64::NAN, 10.0),
+        system_bar_request(
+            fb::SystemBarSide::Top,
+            &[9],
+            32.0,
+            MAX_MAXIMIZE_PADDING + 1.0,
+        ),
+    ] {
+        assert!(matches!(bridge.handle(&request), Err(WireError::Payload)));
+        assert!(bridge.take_work_area_update().is_none());
+    }
+}
+
+#[test]
+fn workspace_requests_preserve_monitor_membership_and_follow_policy() {
+    let mut bridge = bridge();
+    assert!(
+        bridge
+            .handle(&workspace_request(
+                fb::WindowRequestKind::SwitchWorkspace,
+                0,
+                9,
+                4,
+                0,
+            ))
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        bridge
+            .handle(&workspace_request(
+                fb::WindowRequestKind::MoveWindowToWorkspace,
+                42,
+                7,
+                3,
+                1,
+            ))
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        bridge.drain_window_commands().collect::<Vec<_>>(),
+        vec![
+            WindowCommand::SwitchWorkspace {
+                monitor_id: 9,
+                workspace_id: 4,
+            },
+            WindowCommand::MoveToWorkspace {
+                window_id: 42,
+                monitor_id: Some(7),
+                workspace_id: 3,
+                follow: true,
+            },
+        ]
+    );
+}
+
 #[test]
 fn configure_window_distinguishes_layout_drops_from_exact_geometry() {
     let geometry = fb::WireRect::new(100.0, 200.0, 800.0, 600.0);

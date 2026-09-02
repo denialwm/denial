@@ -1,5 +1,15 @@
 import 'dart:ui';
 
+const outputScaleBase = 120;
+
+/// Canonicalizes a requested output scale to Wayland fractional-scale units.
+double canonicalizeOutputScale(double scale) {
+  if (!scale.isFinite || scale <= 0.0) {
+    return scale;
+  }
+  return (scale * outputScaleBase).roundToDouble() / outputScaleBase;
+}
+
 enum DenialOutputTransform {
   normal('normal'),
   rotate90('90'),
@@ -192,7 +202,9 @@ class DenialOutput {
     DenialOutputMode? currentMode,
   }) {
     final nextMode = currentMode ?? this.currentMode ?? effectiveMode;
-    final nextScale = scale ?? this.scale;
+    final nextScale = scale == null
+        ? this.scale
+        : canonicalizeOutputScale(scale);
     final nextTransform = transform ?? this.transform;
     final width = nextTransform.swapsAxes ? nextMode.height : nextMode.width;
     final height = nextTransform.swapsAxes ? nextMode.width : nextMode.height;

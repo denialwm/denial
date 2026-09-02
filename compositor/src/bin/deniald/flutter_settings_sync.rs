@@ -50,8 +50,8 @@ pub(super) fn synchronize_flutter_window_management(
                 warn!(%error, "could not launch application requested by Flutter shell");
             }
         }
-        while let Some((action, monitor_id)) = events.pending_shell_actions.pop_front() {
-            runtime.send_shell_action(action, monitor_id)?;
+        while let Some(action) = events.pending_shell_actions.pop_front() {
+            runtime.send_shell_action(action.action, action.monitor_id, action.workspace_id)?;
         }
         let commands = runtime.drain_window_commands().collect::<Vec<_>>();
         let mut wayland_commands = Vec::with_capacity(commands.len());
@@ -565,6 +565,20 @@ pub(super) fn synchronize_settings(
     if layout_changed {
         events.scene_sync.mark_dirty();
     }
+    let workspace_states = events.wayland.as_mut().and_then(|frontend| {
+        let settings = frontend.settings.workspace_settings();
+        if !frontend.set_workspace_settings(settings) {
+            return None;
+        }
+        frontend.rebuild_window_layout();
+        Some(frontend.workspace_state_snapshot())
+    });
+    if let Some(workspace_states) = workspace_states {
+        for (monitor_id, workspace_id) in workspace_states {
+            events.queue_workspace_action(monitor_id, workspace_id);
+        }
+        events.scene_sync.mark_dirty();
+    }
     publish_settings_document(events)?;
     synchronize_committed_theme(runtime, events)?;
     Ok(())
@@ -960,7 +974,7 @@ fn control_shortcut_snapshot(
     Ok(json!({
         "revision": manager.revision(),
         "shortcuts": manager.file().shortcuts,
-        "supported_actions": native_shortcut::ShortcutAction::ALL,
+        "supported_actions": &native_shortcut::ShortcutAction::ALL[..],
         "supported_inputs": inputs.into_iter().map(|input| json!({
             "canonical": input.canonical,
             "kind": shortcut_input_kind_name(input.kind),

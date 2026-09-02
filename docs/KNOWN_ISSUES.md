@@ -1,5 +1,19 @@
 # Known issues
 
+## A GPU reset currently ends the compositor session
+
+An AMDGPU ring timeout on 2026-09-02, attributed by the kernel to
+`Endfield.exe`'s `UnityGfxDeviceW` thread, forced a full GPU reset and VRAM
+loss. Mesa then aborted Denial's otherwise innocent, non-reset-aware EGL
+context; Chromium and Moonlight also aborted. This implicates the game graphics
+stack or driver rather than Denial, but does not isolate Proton as the cause.
+
+Denial should use compatible reset-aware root and shared EGL contexts, detect
+context loss, and preserve Wayland state while recreating its renderer, KMS
+pools, and Flutter runtime. Invalid client buffers should be isolated to their
+owner. This can preserve surviving applications, but cannot recover unsaved
+state from applications that abort their own GPU process.
+
 ## X11 windows require Denial decorations
 
 With Impeller blur enabled, minimizing a managed X11/Xwayland window that

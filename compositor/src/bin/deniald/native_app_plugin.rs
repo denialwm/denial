@@ -1075,7 +1075,9 @@ impl NativeAppPluginManager {
                 }
                 self.scene_dirty = true;
             }
-            wire::WindowCommand::CreateLocal { .. } => return Ok(false),
+            wire::WindowCommand::CreateLocal { .. }
+            | wire::WindowCommand::SwitchWorkspace { .. }
+            | wire::WindowCommand::MoveToWorkspace { .. } => return Ok(false),
         }
         Ok(true)
     }
@@ -1404,6 +1406,8 @@ impl NativeAppPluginManager {
                 geometry_width: width,
                 geometry_height: height,
                 monitor_id: -1,
+                workspace_id: 1,
+                minimized: false,
                 transform: 0,
                 scale_120: 120,
                 content_x: 0.0,

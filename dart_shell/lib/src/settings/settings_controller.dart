@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/startup_environment.dart';
 import '../models/display_layout.dart';
 import '../models/shell_popup_placement.dart';
+import '../models/suspend_mode.dart';
 import '../state/desktop_window_close_effect.dart';
 import '../theme/backdrop_blur_level.dart';
 import '../theme/cursor_themes.dart';
@@ -285,6 +286,25 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     _update(state.copyWith(layout: state.layout.copyWith(windowLayout: value)));
   }
 
+  void setWorkspacesEnabled(bool value) {
+    _update(
+      state.copyWith(layout: state.layout.copyWith(workspacesEnabled: value)),
+    );
+  }
+
+  void setWorkspaceCount(double value) {
+    _update(
+      state.copyWith(
+        layout: state.layout.copyWith(
+          workspaceCount: value.round().clamp(
+            minimumWorkspaceCount,
+            maximumWorkspaceCount,
+          ),
+        ),
+      ),
+    );
+  }
+
   void setSystemBarThickness(double value) {
     _update(
       state.copyWith(
@@ -449,6 +469,10 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     _update(
       state.copyWith(power: state.power.copyWith(idleSuspendEnabled: value)),
     );
+  }
+
+  void setSuspendMode(SuspendMode value) {
+    _update(state.copyWith(power: state.power.copyWith(suspendMode: value)));
   }
 
   void setIdleSuspendTimeoutMinutes(int value) {

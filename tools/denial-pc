@@ -95,6 +95,8 @@ ENGINE_TEST_SESSION_TEMPLATE="$ROOT/dev/denial-engine-test.desktop.in"
 ENGINE_TEST_SESSION_FILE="${DENIAL_ENGINE_TEST_SESSION_FILE:-/usr/share/wayland-sessions/denial-engine-test.desktop}"
 SESSION_TARGET_SOURCE="$ROOT/packaging/denial-session.target"
 SESSION_TARGET_FILE="${DENIAL_SESSION_TARGET_FILE:-/usr/local/lib/systemd/user/denial-session.target}"
+SUSPEND_MODE_HOOK_SOURCE="$ROOT/packaging/denial-suspend-mode"
+SUSPEND_MODE_HOOK_FILE="${DENIAL_SUSPEND_MODE_HOOK_FILE:-/usr/lib/systemd/system-sleep/denial-suspend-mode}"
 PORTAL_TEMPLATE="$ROOT/dev/denial-portals.conf.in"
 PORTAL_FILE="${DENIAL_PORTAL_FILE:-/usr/share/xdg-desktop-portal/denial-portals.conf}"
 DENIAL_PORTAL_DESCRIPTOR_SOURCE="$ROOT/packaging/arch/denial.portal"
@@ -1006,6 +1008,16 @@ show_session_state() {
             "session target" "$SESSION_TARGET_FILE"
     fi
 
+    if [[ ! -e "$SUSPEND_MODE_HOOK_FILE" ]]; then
+        printf 'missing  %-18s %s\n' "suspend mode hook" "$SUSPEND_MODE_HOOK_FILE"
+    elif [[ -x "$SUSPEND_MODE_HOOK_FILE" ]] \
+        && cmp -s -- "$SUSPEND_MODE_HOOK_SOURCE" "$SUSPEND_MODE_HOOK_FILE"; then
+        printf 'ok       %-18s %s\n' "suspend mode hook" "$SUSPEND_MODE_HOOK_FILE"
+    else
+        printf 'stale    %-18s %s (run install-session)\n' \
+            "suspend mode hook" "$SUSPEND_MODE_HOOK_FILE"
+    fi
+
     if [[ -e "$LEGACY_SESSION_FILE" ]]; then
         printf 'stale    %-18s %s (removed by install-session)\n' \
             "legacy SDDM entry" "$LEGACY_SESSION_FILE"
@@ -1084,6 +1096,7 @@ remove_legacy_session_entry() {
 install_session() {
     require_file "$SESSION_TEMPLATE"
     require_file "$SESSION_TARGET_SOURCE"
+    require_file "$SUSPEND_MODE_HOOK_SOURCE"
     require_file "$PORTAL_TEMPLATE"
     require_file "$DENIAL_PORTAL_DESCRIPTOR_SOURCE"
     require_file "$DENIAL_PORTAL_DBUS_TEMPLATE"
@@ -1122,8 +1135,10 @@ install_session() {
         "$DENIAL_PORTAL_DBUS_TEMPLATE" > "$dbus_rendered"
     sed "s|@PORTAL_BINARY@|$PORTAL_BINARY|g" \
         "$DENIAL_PORTAL_UNIT_TEMPLATE" > "$unit_rendered"
+    sh -n "$SUSPEND_MODE_HOOK_SOURCE"
     if as_root install -Dm644 "$rendered" "$SESSION_FILE" \
         && as_root install -Dm644 "$SESSION_TARGET_SOURCE" "$SESSION_TARGET_FILE" \
+        && as_root install -Dm755 "$SUSPEND_MODE_HOOK_SOURCE" "$SUSPEND_MODE_HOOK_FILE" \
         && as_root install -Dm644 "$portal_rendered" "$PORTAL_FILE" \
         && as_root install -Dm644 "$wlr_portal_rendered" "$WLR_PORTAL_CONFIG" \
         && as_root install -Dm644 "$DENIAL_PORTAL_DESCRIPTOR_SOURCE" "$DENIAL_PORTAL_DESCRIPTOR" \
@@ -1140,9 +1155,10 @@ install_session() {
         "$dbus_rendered" "$unit_rendered"
     systemctl --user daemon-reload >/dev/null 2>&1 || true
     remove_legacy_session_entry
-    printf 'Installed %s\nInstalled %s\nInstalled %s\nInstalled %s\nInstalled %s\nInstalled %s\nInstalled %s\n' \
+    printf 'Installed %s\nInstalled %s\nInstalled %s\nInstalled %s\nInstalled %s\nInstalled %s\nInstalled %s\nInstalled %s\n' \
         "$SESSION_FILE" "$SESSION_TARGET_FILE" "$PORTAL_FILE" "$WLR_PORTAL_CONFIG" \
-        "$DENIAL_PORTAL_DESCRIPTOR" "$DENIAL_PORTAL_DBUS_SERVICE" "$DENIAL_PORTAL_UNIT"
+        "$DENIAL_PORTAL_DESCRIPTOR" "$DENIAL_PORTAL_DBUS_SERVICE" "$DENIAL_PORTAL_UNIT" \
+        "$SUSPEND_MODE_HOOK_FILE"
     printf 'Log out, then choose "Denial (development)" in the display manager.\n'
 }
 

@@ -260,6 +260,22 @@ validate_denial_package() (
         return 1
       }
   done
+  for suspend_hook in \
+    usr/lib/systemd/system-sleep/denial-suspend-mode \
+    usr/lib/elogind/system-sleep/denial-suspend-mode; do
+    [[ -x "$validation_root/$suspend_hook" ]] \
+      || {
+        printf 'package-denial-arch: suspend mode hook is missing: %s\n' \
+          "$suspend_hook" >&2
+        return 1
+      }
+    sh -n "$validation_root/$suspend_hook" \
+      || {
+        printf 'package-denial-arch: suspend mode hook does not parse: %s\n' \
+          "$suspend_hook" >&2
+        return 1
+      }
+  done
   [[ -f "$validation_root/usr/share/man/man1/denial-portal.1" \
     || -f "$validation_root/usr/share/man/man1/denial-portal.1.gz" ]] \
     || {

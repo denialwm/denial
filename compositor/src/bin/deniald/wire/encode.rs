@@ -124,9 +124,15 @@ impl WireBridge {
         &mut self,
         action: ShellAction,
         monitor_id: Option<i64>,
+        workspace_id: Option<u8>,
     ) -> Result<&[u8], WireError> {
         if monitor_id.is_some_and(|monitor_id| monitor_id < 0) {
             return Err(WireError::Topology("invalid shell action monitor"));
+        }
+        if (action == ShellAction::WorkspaceChanged)
+            != (monitor_id.is_some() && workspace_id.is_some_and(|workspace| workspace > 0))
+        {
+            return Err(WireError::Identity);
         }
         let sequence = self.take_sequence();
         self.outbound_builder.reset();
@@ -135,6 +141,7 @@ impl WireBridge {
             sequence,
             action,
             monitor_id,
+            workspace_id,
             0,
             None,
         )?;
@@ -166,6 +173,7 @@ impl WireBridge {
             &mut self.outbound_builder,
             sequence,
             action,
+            None,
             None,
             request_id,
             texture_id,
@@ -524,6 +532,8 @@ fn create_window_snapshot<'a>(
                 geometry_width: description.geometry_width,
                 geometry_height: description.geometry_height,
                 monitor_id: description.monitor_id,
+                workspace_id: description.workspace_id,
+                minimized: description.minimized,
                 transform: description.transform,
                 scale_120: description.scale_120,
                 content_x: description.content_x,
@@ -663,6 +673,7 @@ fn encode_shell_action(
     sequence: u64,
     action: ShellAction,
     monitor_id: Option<i64>,
+    workspace_id: Option<u8>,
     request_id: u64,
     texture_id: Option<i64>,
 ) -> Result<(), WireError> {
@@ -673,6 +684,7 @@ fn encode_shell_action(
             monitor_id: monitor_id.unwrap_or(-1),
             has_monitor_id: monitor_id.is_some(),
             texture_id: texture_id.unwrap_or(0),
+            workspace_id: u32::from(workspace_id.unwrap_or(1)),
         },
     );
     let envelope = fb::Envelope::create(
@@ -1137,6 +1149,28 @@ fn shortcut_action_to_wire(action: ShortcutAction) -> fb::ShortcutActionKind {
         ShortcutAction::SwapRight => fb::ShortcutActionKind::SwapRight,
         ShortcutAction::SwapUp => fb::ShortcutActionKind::SwapUp,
         ShortcutAction::SwapDown => fb::ShortcutActionKind::SwapDown,
+        ShortcutAction::PreviousWorkspace => fb::ShortcutActionKind::PreviousWorkspace,
+        ShortcutAction::NextWorkspace => fb::ShortcutActionKind::NextWorkspace,
+        ShortcutAction::MoveToPreviousWorkspace => fb::ShortcutActionKind::MoveToPreviousWorkspace,
+        ShortcutAction::MoveToNextWorkspace => fb::ShortcutActionKind::MoveToNextWorkspace,
+        ShortcutAction::SwitchWorkspace1 => fb::ShortcutActionKind::SwitchWorkspace1,
+        ShortcutAction::SwitchWorkspace2 => fb::ShortcutActionKind::SwitchWorkspace2,
+        ShortcutAction::SwitchWorkspace3 => fb::ShortcutActionKind::SwitchWorkspace3,
+        ShortcutAction::SwitchWorkspace4 => fb::ShortcutActionKind::SwitchWorkspace4,
+        ShortcutAction::SwitchWorkspace5 => fb::ShortcutActionKind::SwitchWorkspace5,
+        ShortcutAction::SwitchWorkspace6 => fb::ShortcutActionKind::SwitchWorkspace6,
+        ShortcutAction::SwitchWorkspace7 => fb::ShortcutActionKind::SwitchWorkspace7,
+        ShortcutAction::SwitchWorkspace8 => fb::ShortcutActionKind::SwitchWorkspace8,
+        ShortcutAction::SwitchWorkspace9 => fb::ShortcutActionKind::SwitchWorkspace9,
+        ShortcutAction::MoveToWorkspace1 => fb::ShortcutActionKind::MoveToWorkspace1,
+        ShortcutAction::MoveToWorkspace2 => fb::ShortcutActionKind::MoveToWorkspace2,
+        ShortcutAction::MoveToWorkspace3 => fb::ShortcutActionKind::MoveToWorkspace3,
+        ShortcutAction::MoveToWorkspace4 => fb::ShortcutActionKind::MoveToWorkspace4,
+        ShortcutAction::MoveToWorkspace5 => fb::ShortcutActionKind::MoveToWorkspace5,
+        ShortcutAction::MoveToWorkspace6 => fb::ShortcutActionKind::MoveToWorkspace6,
+        ShortcutAction::MoveToWorkspace7 => fb::ShortcutActionKind::MoveToWorkspace7,
+        ShortcutAction::MoveToWorkspace8 => fb::ShortcutActionKind::MoveToWorkspace8,
+        ShortcutAction::MoveToWorkspace9 => fb::ShortcutActionKind::MoveToWorkspace9,
     }
 }
 

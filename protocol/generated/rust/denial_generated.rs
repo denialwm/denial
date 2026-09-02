@@ -377,10 +377,10 @@ impl flatbuffers::SimpleToVerifyInSlice for WindowOpacityClass {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_WINDOW_REQUEST_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_WINDOW_REQUEST_KIND: u8 = 6;
+pub const ENUM_MAX_WINDOW_REQUEST_KIND: u8 = 8;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_WINDOW_REQUEST_KIND: [WindowRequestKind; 7] = [
+pub const ENUM_VALUES_WINDOW_REQUEST_KIND: [WindowRequestKind; 9] = [
   WindowRequestKind::ListWindows,
   WindowRequestKind::GetDisplayLayout,
   WindowRequestKind::CloseWindow,
@@ -388,6 +388,8 @@ pub const ENUM_VALUES_WINDOW_REQUEST_KIND: [WindowRequestKind; 7] = [
   WindowRequestKind::ConfigureWindow,
   WindowRequestKind::CreateLocalWindow,
   WindowRequestKind::ConfigureSystemBar,
+  WindowRequestKind::SwitchWorkspace,
+  WindowRequestKind::MoveWindowToWorkspace,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -402,9 +404,11 @@ impl WindowRequestKind {
   pub const ConfigureWindow: Self = Self(4);
   pub const CreateLocalWindow: Self = Self(5);
   pub const ConfigureSystemBar: Self = Self(6);
+  pub const SwitchWorkspace: Self = Self(7);
+  pub const MoveWindowToWorkspace: Self = Self(8);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 6;
+  pub const ENUM_MAX: u8 = 8;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::ListWindows,
     Self::GetDisplayLayout,
@@ -413,6 +417,8 @@ impl WindowRequestKind {
     Self::ConfigureWindow,
     Self::CreateLocalWindow,
     Self::ConfigureSystemBar,
+    Self::SwitchWorkspace,
+    Self::MoveWindowToWorkspace,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -424,6 +430,8 @@ impl WindowRequestKind {
       Self::ConfigureWindow => Some("ConfigureWindow"),
       Self::CreateLocalWindow => Some("CreateLocalWindow"),
       Self::ConfigureSystemBar => Some("ConfigureSystemBar"),
+      Self::SwitchWorkspace => Some("SwitchWorkspace"),
+      Self::MoveWindowToWorkspace => Some("MoveWindowToWorkspace"),
       _ => None,
     }
   }
@@ -753,10 +761,10 @@ impl flatbuffers::SimpleToVerifyInSlice for WindowActionKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SHELL_ACTION_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 12;
+pub const ENUM_MAX_SHELL_ACTION_KIND: u8 = 13;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 13] = [
+pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 14] = [
   ShellActionKind::Applications,
   ShellActionKind::Overview,
   ShellActionKind::WindowSwitcherNext,
@@ -770,6 +778,7 @@ pub const ENUM_VALUES_SHELL_ACTION_KIND: [ShellActionKind; 13] = [
   ShellActionKind::WindowSwitcherPrevious,
   ShellActionKind::OpenSettings,
   ShellActionKind::Dashboard,
+  ShellActionKind::WorkspaceChanged,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -790,9 +799,10 @@ impl ShellActionKind {
   pub const WindowSwitcherPrevious: Self = Self(10);
   pub const OpenSettings: Self = Self(11);
   pub const Dashboard: Self = Self(12);
+  pub const WorkspaceChanged: Self = Self(13);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 12;
+  pub const ENUM_MAX: u8 = 13;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Applications,
     Self::Overview,
@@ -807,6 +817,7 @@ impl ShellActionKind {
     Self::WindowSwitcherPrevious,
     Self::OpenSettings,
     Self::Dashboard,
+    Self::WorkspaceChanged,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -824,6 +835,7 @@ impl ShellActionKind {
       Self::WindowSwitcherPrevious => Some("WindowSwitcherPrevious"),
       Self::OpenSettings => Some("OpenSettings"),
       Self::Dashboard => Some("Dashboard"),
+      Self::WorkspaceChanged => Some("WorkspaceChanged"),
       _ => None,
     }
   }
@@ -1193,10 +1205,10 @@ impl flatbuffers::SimpleToVerifyInSlice for SettingsResponseKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_SHORTCUT_ACTION_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_SHORTCUT_ACTION_KIND: u8 = 30;
+pub const ENUM_MAX_SHORTCUT_ACTION_KIND: u8 = 52;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 31] = [
+pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 53] = [
   ShortcutActionKind::Shutdown,
   ShortcutActionKind::OpenApplications,
   ShortcutActionKind::OpenOverview,
@@ -1228,6 +1240,28 @@ pub const ENUM_VALUES_SHORTCUT_ACTION_KIND: [ShortcutActionKind; 31] = [
   ShortcutActionKind::SwapRight,
   ShortcutActionKind::SwapUp,
   ShortcutActionKind::SwapDown,
+  ShortcutActionKind::PreviousWorkspace,
+  ShortcutActionKind::NextWorkspace,
+  ShortcutActionKind::MoveToPreviousWorkspace,
+  ShortcutActionKind::MoveToNextWorkspace,
+  ShortcutActionKind::SwitchWorkspace1,
+  ShortcutActionKind::SwitchWorkspace2,
+  ShortcutActionKind::SwitchWorkspace3,
+  ShortcutActionKind::SwitchWorkspace4,
+  ShortcutActionKind::SwitchWorkspace5,
+  ShortcutActionKind::SwitchWorkspace6,
+  ShortcutActionKind::SwitchWorkspace7,
+  ShortcutActionKind::SwitchWorkspace8,
+  ShortcutActionKind::SwitchWorkspace9,
+  ShortcutActionKind::MoveToWorkspace1,
+  ShortcutActionKind::MoveToWorkspace2,
+  ShortcutActionKind::MoveToWorkspace3,
+  ShortcutActionKind::MoveToWorkspace4,
+  ShortcutActionKind::MoveToWorkspace5,
+  ShortcutActionKind::MoveToWorkspace6,
+  ShortcutActionKind::MoveToWorkspace7,
+  ShortcutActionKind::MoveToWorkspace8,
+  ShortcutActionKind::MoveToWorkspace9,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1266,9 +1300,31 @@ impl ShortcutActionKind {
   pub const SwapRight: Self = Self(28);
   pub const SwapUp: Self = Self(29);
   pub const SwapDown: Self = Self(30);
+  pub const PreviousWorkspace: Self = Self(31);
+  pub const NextWorkspace: Self = Self(32);
+  pub const MoveToPreviousWorkspace: Self = Self(33);
+  pub const MoveToNextWorkspace: Self = Self(34);
+  pub const SwitchWorkspace1: Self = Self(35);
+  pub const SwitchWorkspace2: Self = Self(36);
+  pub const SwitchWorkspace3: Self = Self(37);
+  pub const SwitchWorkspace4: Self = Self(38);
+  pub const SwitchWorkspace5: Self = Self(39);
+  pub const SwitchWorkspace6: Self = Self(40);
+  pub const SwitchWorkspace7: Self = Self(41);
+  pub const SwitchWorkspace8: Self = Self(42);
+  pub const SwitchWorkspace9: Self = Self(43);
+  pub const MoveToWorkspace1: Self = Self(44);
+  pub const MoveToWorkspace2: Self = Self(45);
+  pub const MoveToWorkspace3: Self = Self(46);
+  pub const MoveToWorkspace4: Self = Self(47);
+  pub const MoveToWorkspace5: Self = Self(48);
+  pub const MoveToWorkspace6: Self = Self(49);
+  pub const MoveToWorkspace7: Self = Self(50);
+  pub const MoveToWorkspace8: Self = Self(51);
+  pub const MoveToWorkspace9: Self = Self(52);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 30;
+  pub const ENUM_MAX: u8 = 52;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Shutdown,
     Self::OpenApplications,
@@ -1301,6 +1357,28 @@ impl ShortcutActionKind {
     Self::SwapRight,
     Self::SwapUp,
     Self::SwapDown,
+    Self::PreviousWorkspace,
+    Self::NextWorkspace,
+    Self::MoveToPreviousWorkspace,
+    Self::MoveToNextWorkspace,
+    Self::SwitchWorkspace1,
+    Self::SwitchWorkspace2,
+    Self::SwitchWorkspace3,
+    Self::SwitchWorkspace4,
+    Self::SwitchWorkspace5,
+    Self::SwitchWorkspace6,
+    Self::SwitchWorkspace7,
+    Self::SwitchWorkspace8,
+    Self::SwitchWorkspace9,
+    Self::MoveToWorkspace1,
+    Self::MoveToWorkspace2,
+    Self::MoveToWorkspace3,
+    Self::MoveToWorkspace4,
+    Self::MoveToWorkspace5,
+    Self::MoveToWorkspace6,
+    Self::MoveToWorkspace7,
+    Self::MoveToWorkspace8,
+    Self::MoveToWorkspace9,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -1336,6 +1414,28 @@ impl ShortcutActionKind {
       Self::SwapRight => Some("SwapRight"),
       Self::SwapUp => Some("SwapUp"),
       Self::SwapDown => Some("SwapDown"),
+      Self::PreviousWorkspace => Some("PreviousWorkspace"),
+      Self::NextWorkspace => Some("NextWorkspace"),
+      Self::MoveToPreviousWorkspace => Some("MoveToPreviousWorkspace"),
+      Self::MoveToNextWorkspace => Some("MoveToNextWorkspace"),
+      Self::SwitchWorkspace1 => Some("SwitchWorkspace1"),
+      Self::SwitchWorkspace2 => Some("SwitchWorkspace2"),
+      Self::SwitchWorkspace3 => Some("SwitchWorkspace3"),
+      Self::SwitchWorkspace4 => Some("SwitchWorkspace4"),
+      Self::SwitchWorkspace5 => Some("SwitchWorkspace5"),
+      Self::SwitchWorkspace6 => Some("SwitchWorkspace6"),
+      Self::SwitchWorkspace7 => Some("SwitchWorkspace7"),
+      Self::SwitchWorkspace8 => Some("SwitchWorkspace8"),
+      Self::SwitchWorkspace9 => Some("SwitchWorkspace9"),
+      Self::MoveToWorkspace1 => Some("MoveToWorkspace1"),
+      Self::MoveToWorkspace2 => Some("MoveToWorkspace2"),
+      Self::MoveToWorkspace3 => Some("MoveToWorkspace3"),
+      Self::MoveToWorkspace4 => Some("MoveToWorkspace4"),
+      Self::MoveToWorkspace5 => Some("MoveToWorkspace5"),
+      Self::MoveToWorkspace6 => Some("MoveToWorkspace6"),
+      Self::MoveToWorkspace7 => Some("MoveToWorkspace7"),
+      Self::MoveToWorkspace8 => Some("MoveToWorkspace8"),
+      Self::MoveToWorkspace9 => Some("MoveToWorkspace9"),
       _ => None,
     }
   }
@@ -3920,6 +4020,8 @@ impl<'a> Window<'a> {
   pub const VT_OPACITY: flatbuffers::VOffsetT = 72;
   pub const VT_CONTENT_KIND: flatbuffers::VOffsetT = 74;
   pub const VT_OPACITY_CLASS: flatbuffers::VOffsetT = 76;
+  pub const VT_WORKSPACE_ID: flatbuffers::VOffsetT = 78;
+  pub const VT_MINIMIZED: flatbuffers::VOffsetT = 80;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -3931,6 +4033,7 @@ impl<'a> Window<'a> {
     args: &'args WindowArgs<'args>
   ) -> flatbuffers::WIPOffset<Window<'bldr>> {
     let mut builder = WindowBuilder::new(_fbb);
+    builder.add_workspace_id(args.workspace_id);
     builder.add_content_height(args.content_height);
     builder.add_content_width(args.content_width);
     builder.add_content_y(args.content_y);
@@ -3961,6 +4064,7 @@ impl<'a> Window<'a> {
     builder.add_width(args.width);
     if let Some(x) = args.app_id { builder.add_app_id(x); }
     if let Some(x) = args.title { builder.add_title(x); }
+    builder.add_minimized(args.minimized);
     builder.add_opacity_class(args.opacity_class);
     builder.add_content_kind(args.content_kind);
     builder.add_server_side_decorated(args.server_side_decorated);
@@ -4231,6 +4335,20 @@ impl<'a> Window<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<WindowOpacityClass>(Window::VT_OPACITY_CLASS, Some(WindowOpacityClass::ContentTranslucent)).unwrap()}
   }
+  #[inline]
+  pub fn workspace_id(&self) -> i64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<i64>(Window::VT_WORKSPACE_ID, Some(1)).unwrap()}
+  }
+  #[inline]
+  pub fn minimized(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(Window::VT_MINIMIZED, Some(false)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for Window<'_> {
@@ -4277,6 +4395,8 @@ impl flatbuffers::Verifiable for Window<'_> {
      .visit_field::<f32>("opacity", Self::VT_OPACITY, false)?
      .visit_field::<WindowContentKind>("content_kind", Self::VT_CONTENT_KIND, false)?
      .visit_field::<WindowOpacityClass>("opacity_class", Self::VT_OPACITY_CLASS, false)?
+     .visit_field::<i64>("workspace_id", Self::VT_WORKSPACE_ID, false)?
+     .visit_field::<bool>("minimized", Self::VT_MINIMIZED, false)?
      .finish();
     Ok(())
   }
@@ -4319,6 +4439,8 @@ pub struct WindowArgs<'a> {
     pub opacity: f32,
     pub content_kind: WindowContentKind,
     pub opacity_class: WindowOpacityClass,
+    pub workspace_id: i64,
+    pub minimized: bool,
 }
 impl<'a> Default for WindowArgs<'a> {
   #[inline]
@@ -4361,6 +4483,8 @@ impl<'a> Default for WindowArgs<'a> {
       opacity: 1.0,
       content_kind: WindowContentKind::SurfaceTree,
       opacity_class: WindowOpacityClass::ContentTranslucent,
+      workspace_id: 1,
+      minimized: false,
     }
   }
 }
@@ -4519,6 +4643,14 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WindowBuilder<'a, 'b, A> {
     self.fbb_.push_slot::<WindowOpacityClass>(Window::VT_OPACITY_CLASS, opacity_class, WindowOpacityClass::ContentTranslucent);
   }
   #[inline]
+  pub fn add_workspace_id(&mut self, workspace_id: i64) {
+    self.fbb_.push_slot::<i64>(Window::VT_WORKSPACE_ID, workspace_id, 1);
+  }
+  #[inline]
+  pub fn add_minimized(&mut self, minimized: bool) {
+    self.fbb_.push_slot::<bool>(Window::VT_MINIMIZED, minimized, false);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WindowBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     WindowBuilder {
@@ -4573,6 +4705,8 @@ impl core::fmt::Debug for Window<'_> {
       ds.field("opacity", &self.opacity());
       ds.field("content_kind", &self.content_kind());
       ds.field("opacity_class", &self.opacity_class());
+      ds.field("workspace_id", &self.workspace_id());
+      ds.field("minimized", &self.minimized());
       ds.finish()
   }
 }
@@ -5197,6 +5331,10 @@ impl<'a> WindowRequest<'a> {
   pub const VT_SYSTEM_BAR_SIDE: flatbuffers::VOffsetT = 14;
   pub const VT_SYSTEM_BAR_MONITOR_IDS: flatbuffers::VOffsetT = 16;
   pub const VT_FLAGS: flatbuffers::VOffsetT = 18;
+  pub const VT_MONITOR_ID: flatbuffers::VOffsetT = 20;
+  pub const VT_WORKSPACE_ID: flatbuffers::VOffsetT = 22;
+  pub const VT_SYSTEM_BAR_THICKNESS: flatbuffers::VOffsetT = 24;
+  pub const VT_MAXIMIZE_PADDING: flatbuffers::VOffsetT = 26;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -5208,7 +5346,11 @@ impl<'a> WindowRequest<'a> {
     args: &'args WindowRequestArgs<'args>
   ) -> flatbuffers::WIPOffset<WindowRequest<'bldr>> {
     let mut builder = WindowRequestBuilder::new(_fbb);
+    builder.add_maximize_padding(args.maximize_padding);
+    builder.add_system_bar_thickness(args.system_bar_thickness);
+    builder.add_monitor_id(args.monitor_id);
     builder.add_window_id(args.window_id);
+    builder.add_workspace_id(args.workspace_id);
     builder.add_flags(args.flags);
     if let Some(x) = args.system_bar_monitor_ids { builder.add_system_bar_monitor_ids(x); }
     if let Some(x) = args.title { builder.add_title(x); }
@@ -5276,6 +5418,34 @@ impl<'a> WindowRequest<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u32>(WindowRequest::VT_FLAGS, Some(0)).unwrap()}
   }
+  #[inline]
+  pub fn monitor_id(&self) -> i64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<i64>(WindowRequest::VT_MONITOR_ID, Some(-1)).unwrap()}
+  }
+  #[inline]
+  pub fn workspace_id(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(WindowRequest::VT_WORKSPACE_ID, Some(1)).unwrap()}
+  }
+  #[inline]
+  pub fn system_bar_thickness(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(WindowRequest::VT_SYSTEM_BAR_THICKNESS, Some(-1.0)).unwrap()}
+  }
+  #[inline]
+  pub fn maximize_padding(&self) -> f64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<f64>(WindowRequest::VT_MAXIMIZE_PADDING, Some(-1.0)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for WindowRequest<'_> {
@@ -5293,6 +5463,10 @@ impl flatbuffers::Verifiable for WindowRequest<'_> {
      .visit_field::<SystemBarSide>("system_bar_side", Self::VT_SYSTEM_BAR_SIDE, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, i64>>>("system_bar_monitor_ids", Self::VT_SYSTEM_BAR_MONITOR_IDS, false)?
      .visit_field::<u32>("flags", Self::VT_FLAGS, false)?
+     .visit_field::<i64>("monitor_id", Self::VT_MONITOR_ID, false)?
+     .visit_field::<u32>("workspace_id", Self::VT_WORKSPACE_ID, false)?
+     .visit_field::<f64>("system_bar_thickness", Self::VT_SYSTEM_BAR_THICKNESS, false)?
+     .visit_field::<f64>("maximize_padding", Self::VT_MAXIMIZE_PADDING, false)?
      .finish();
     Ok(())
   }
@@ -5306,6 +5480,10 @@ pub struct WindowRequestArgs<'a> {
     pub system_bar_side: SystemBarSide,
     pub system_bar_monitor_ids: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, i64>>>,
     pub flags: u32,
+    pub monitor_id: i64,
+    pub workspace_id: u32,
+    pub system_bar_thickness: f64,
+    pub maximize_padding: f64,
 }
 impl<'a> Default for WindowRequestArgs<'a> {
   #[inline]
@@ -5319,6 +5497,10 @@ impl<'a> Default for WindowRequestArgs<'a> {
       system_bar_side: SystemBarSide::Top,
       system_bar_monitor_ids: None,
       flags: 0,
+      monitor_id: -1,
+      workspace_id: 1,
+      system_bar_thickness: -1.0,
+      maximize_padding: -1.0,
     }
   }
 }
@@ -5361,6 +5543,22 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WindowRequestBuilder<'a, 'b, A>
     self.fbb_.push_slot::<u32>(WindowRequest::VT_FLAGS, flags, 0);
   }
   #[inline]
+  pub fn add_monitor_id(&mut self, monitor_id: i64) {
+    self.fbb_.push_slot::<i64>(WindowRequest::VT_MONITOR_ID, monitor_id, -1);
+  }
+  #[inline]
+  pub fn add_workspace_id(&mut self, workspace_id: u32) {
+    self.fbb_.push_slot::<u32>(WindowRequest::VT_WORKSPACE_ID, workspace_id, 1);
+  }
+  #[inline]
+  pub fn add_system_bar_thickness(&mut self, system_bar_thickness: f64) {
+    self.fbb_.push_slot::<f64>(WindowRequest::VT_SYSTEM_BAR_THICKNESS, system_bar_thickness, -1.0);
+  }
+  #[inline]
+  pub fn add_maximize_padding(&mut self, maximize_padding: f64) {
+    self.fbb_.push_slot::<f64>(WindowRequest::VT_MAXIMIZE_PADDING, maximize_padding, -1.0);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WindowRequestBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     WindowRequestBuilder {
@@ -5386,6 +5584,10 @@ impl core::fmt::Debug for WindowRequest<'_> {
       ds.field("system_bar_side", &self.system_bar_side());
       ds.field("system_bar_monitor_ids", &self.system_bar_monitor_ids());
       ds.field("flags", &self.flags());
+      ds.field("monitor_id", &self.monitor_id());
+      ds.field("workspace_id", &self.workspace_id());
+      ds.field("system_bar_thickness", &self.system_bar_thickness());
+      ds.field("maximize_padding", &self.maximize_padding());
       ds.finish()
   }
 }
@@ -5705,6 +5907,7 @@ impl<'a> ShellAction<'a> {
   pub const VT_MONITOR_ID: flatbuffers::VOffsetT = 6;
   pub const VT_HAS_MONITOR_ID: flatbuffers::VOffsetT = 8;
   pub const VT_TEXTURE_ID: flatbuffers::VOffsetT = 10;
+  pub const VT_WORKSPACE_ID: flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -5718,6 +5921,7 @@ impl<'a> ShellAction<'a> {
     let mut builder = ShellActionBuilder::new(_fbb);
     builder.add_texture_id(args.texture_id);
     builder.add_monitor_id(args.monitor_id);
+    builder.add_workspace_id(args.workspace_id);
     builder.add_has_monitor_id(args.has_monitor_id);
     builder.add_action(args.action);
     builder.finish()
@@ -5752,6 +5956,13 @@ impl<'a> ShellAction<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<i64>(ShellAction::VT_TEXTURE_ID, Some(0)).unwrap()}
   }
+  #[inline]
+  pub fn workspace_id(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(ShellAction::VT_WORKSPACE_ID, Some(1)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for ShellAction<'_> {
@@ -5765,6 +5976,7 @@ impl flatbuffers::Verifiable for ShellAction<'_> {
      .visit_field::<i64>("monitor_id", Self::VT_MONITOR_ID, false)?
      .visit_field::<bool>("has_monitor_id", Self::VT_HAS_MONITOR_ID, false)?
      .visit_field::<i64>("texture_id", Self::VT_TEXTURE_ID, false)?
+     .visit_field::<u32>("workspace_id", Self::VT_WORKSPACE_ID, false)?
      .finish();
     Ok(())
   }
@@ -5774,6 +5986,7 @@ pub struct ShellActionArgs {
     pub monitor_id: i64,
     pub has_monitor_id: bool,
     pub texture_id: i64,
+    pub workspace_id: u32,
 }
 impl<'a> Default for ShellActionArgs {
   #[inline]
@@ -5783,6 +5996,7 @@ impl<'a> Default for ShellActionArgs {
       monitor_id: -1,
       has_monitor_id: false,
       texture_id: 0,
+      workspace_id: 1,
     }
   }
 }
@@ -5809,6 +6023,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ShellActionBuilder<'a, 'b, A> {
     self.fbb_.push_slot::<i64>(ShellAction::VT_TEXTURE_ID, texture_id, 0);
   }
   #[inline]
+  pub fn add_workspace_id(&mut self, workspace_id: u32) {
+    self.fbb_.push_slot::<u32>(ShellAction::VT_WORKSPACE_ID, workspace_id, 1);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> ShellActionBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     ShellActionBuilder {
@@ -5830,6 +6048,7 @@ impl core::fmt::Debug for ShellAction<'_> {
       ds.field("monitor_id", &self.monitor_id());
       ds.field("has_monitor_id", &self.has_monitor_id());
       ds.field("texture_id", &self.texture_id());
+      ds.field("workspace_id", &self.workspace_id());
       ds.finish()
   }
 }

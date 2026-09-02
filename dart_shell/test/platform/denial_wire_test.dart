@@ -117,6 +117,24 @@ void main() {
     expect(request.flags, 2);
   });
 
+  test('workspace requests preserve monitor and workspace targets', () {
+    final bytes = DenialWireCodec().encodeWindowRequest(
+      WindowRequestKind.MoveWindowToWorkspace,
+      windowId: 42,
+      monitorId: 7,
+      workspaceId: 3,
+      flags: 1,
+    );
+
+    final envelope = Envelope(bytes);
+    final request = envelope.payload as WindowRequest;
+    expect(request.kind, WindowRequestKind.MoveWindowToWorkspace);
+    expect(request.windowId, 42);
+    expect(request.monitorId, 7);
+    expect(request.workspaceId, 3);
+    expect(request.flags, 1);
+  });
+
   test('keyboard key lifecycle preserves tap, press, and release', () {
     final codec = DenialWireCodec();
     for (final expectation in <(DenialKeyboardKeyPhase, int)>[
@@ -139,6 +157,8 @@ void main() {
       requestId: 41,
       side: model.SystemBarSide.right,
       monitorIds: const <int>[7, 9],
+      systemBarThickness: 46,
+      maximizePadding: 18,
     );
 
     expect(bytes, isNotNull);
@@ -148,6 +168,8 @@ void main() {
     expect(request.kind, WindowRequestKind.ConfigureSystemBar);
     expect(request.systemBarSide, SystemBarSide.Right);
     expect(request.systemBarMonitorIds, <int>[7, 9]);
+    expect(request.systemBarThickness, 46);
+    expect(request.maximizePadding, 18);
     expect(
       bytes,
       File('../protocol/golden/dart_system_bar.denw').readAsBytesSync(),
@@ -157,6 +179,28 @@ void main() {
         requestId: 42,
         side: model.SystemBarSide.hidden,
         monitorIds: const <int>[7],
+        systemBarThickness: 32,
+        maximizePadding: 10,
+      ),
+      isNull,
+    );
+    expect(
+      codec.encodeSystemBarConfiguration(
+        requestId: 43,
+        side: model.SystemBarSide.top,
+        monitorIds: const <int>[7],
+        systemBarThickness: double.nan,
+        maximizePadding: 10,
+      ),
+      isNull,
+    );
+    expect(
+      codec.encodeSystemBarConfiguration(
+        requestId: 44,
+        side: model.SystemBarSide.top,
+        monitorIds: const <int>[7],
+        systemBarThickness: 32,
+        maximizePadding: -1,
       ),
       isNull,
     );

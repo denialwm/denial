@@ -224,29 +224,26 @@ class DesktopAppsRepository {
     return false;
   }
 
-  /// Resolves a freedesktop icon name or an absolute image path.
+  /// Resolves a freedesktop icon name, absolute image path, or file URI.
   ///
   /// Callers displaying external events should run this filesystem search off
   /// the UI isolate and cache its result.
   String? resolveIconPath(String icon) {
-    if (p.isAbsolute(icon)) {
-      return _isSafeIconFile(icon) ? icon : null;
+    final requested = icon.trim();
+    final directPath = _localIconPath(requested);
+    if (directPath != null) {
+      return _isSafeIconFile(directPath) ? directPath : null;
+    }
+    final uri = Uri.tryParse(requested);
+    if (uri != null && uri.hasScheme) {
+      return null;
     }
 
-    final name = _stripSupportedExtension(icon);
+    final name = _stripSupportedExtension(requested);
+    if (name.isEmpty || name.contains('/') || name.contains(r'\')) {
+      return null;
+    }
     final extensions = ['png', 'webp', 'jpg', 'jpeg', 'svg'];
-    final sizes = [
-      'scalable',
-      '512x512',
-      '256x256',
-      '192x192',
-      '128x128',
-      '96x96',
-      '64x64',
-      '48x48',
-      '32x32',
-    ];
-    final contexts = ['apps', 'categories', 'devices', 'places'];
 
     for (final root in _paths.iconRoots()) {
       for (final extension in extensions) {
@@ -277,13 +274,11 @@ class DesktopAppsRepository {
       }
 
       for (final theme in RuntimePaths.uniquePaths(themes)) {
-        for (final size in sizes) {
-          for (final context in contexts) {
-            for (final extension in extensions) {
-              final path = p.join(theme, size, context, '$name.$extension');
-              if (_isSafeIconFile(path)) {
-                return path;
-              }
+        for (final directory in _iconThemeDirectories(theme)) {
+          for (final extension in extensions) {
+            final path = p.join(theme, directory, '$name.$extension');
+            if (_isSafeIconFile(path)) {
+              return path;
             }
           }
         }
@@ -342,6 +337,7 @@ class DesktopAppsRepository {
   String? resolveNotificationIcon({
     required String appIcon,
     required String desktopEntry,
+    required String appName,
   }) {
     if (appIcon.trim().isNotEmpty) {
       final direct = resolveIconPath(appIcon.trim());
@@ -350,8 +346,58 @@ class DesktopAppsRepository {
       }
     }
 
+    final desktopIcon = _resolveDesktopEntryIcon(desktopEntry);
+    if (desktopIcon != null) {
+      return desktopIcon;
+    }
+
+    final requestedName = _normalizedDesktopIdentity(appName);
+    if (requestedName.isEmpty) {
+      return null;
+    }
+
+    for (final directory in _paths.desktopApplicationDirs()) {
+      try {
+        if (!directory.existsSync()) {
+          continue;
+        }
+        for (final entity in directory.listSync(
+          recursive: true,
+          followLinks: false,
+        )) {
+          if (!entity.path.endsWith('.desktop') ||
+              FileSystemEntity.typeSync(entity.path, followLinks: true) !=
+                  FileSystemEntityType.file) {
+            continue;
+          }
+          final fields = _readDesktopEntryFields(File(entity.path));
+          if (!_desktopEntryMatchesAppName(
+            fields,
+            file: entity.path,
+            directory: directory.path,
+            requestedName: requestedName,
+          )) {
+            continue;
+          }
+          final icon = fields['Icon']?.trim() ?? '';
+          if (icon.isNotEmpty) {
+            final resolved = resolveIconPath(icon);
+            if (resolved != null) {
+              return resolved;
+            }
+          }
+        }
+      } on FileSystemException {
+        continue;
+      }
+    }
+    return null;
+  }
+
+  String? _resolveDesktopEntryIcon(String desktopEntry) {
     final requestedEntry = desktopEntry.trim();
-    if (requestedEntry.contains('/') ||
+    if (requestedEntry.isEmpty ||
+        requestedEntry.contains('/') ||
         requestedEntry.contains(r'\') ||
         requestedEntry == '.' ||
         requestedEntry == '..') {
@@ -360,30 +406,47 @@ class DesktopAppsRepository {
     final normalizedEntry = requestedEntry.endsWith('.desktop')
         ? requestedEntry
         : '$requestedEntry.desktop';
-    if (normalizedEntry == '.desktop') {
-      return null;
-    }
+
     for (final directory in _paths.desktopApplicationDirs()) {
-      final file = File(p.join(directory.path, normalizedEntry));
-      if (!file.existsSync()) {
-        continue;
-      }
       try {
-        var inDesktopEntry = false;
-        for (final rawLine in file.readAsLinesSync()) {
-          final line = rawLine.trim();
-          if (line.startsWith('[') && line.endsWith(']')) {
-            inDesktopEntry = line == '[Desktop Entry]';
+        final direct = File(p.join(directory.path, normalizedEntry));
+        if (direct.existsSync()) {
+          final icon = _readDesktopEntryFields(direct)['Icon']?.trim() ?? '';
+          if (icon.isNotEmpty) {
+            final resolved = resolveIconPath(icon);
+            if (resolved != null) {
+              return resolved;
+            }
+          }
+        }
+        if (!directory.existsSync()) {
+          continue;
+        }
+        for (final entity in directory.listSync(
+          recursive: true,
+          followLinks: false,
+        )) {
+          if (!entity.path.endsWith('.desktop') ||
+              FileSystemEntity.typeSync(entity.path, followLinks: true) !=
+                  FileSystemEntityType.file) {
             continue;
           }
-          if (!inDesktopEntry || !line.startsWith('Icon=')) {
+          final relative = p.relative(entity.path, from: directory.path);
+          final desktopFileId = p.split(relative).join('-');
+          if (desktopFileId != normalizedEntry) {
             continue;
           }
-          final icon = line.substring('Icon='.length).trim();
-          return icon.isEmpty ? null : resolveIconPath(icon);
+          final icon =
+              _readDesktopEntryFields(File(entity.path))['Icon']?.trim() ?? '';
+          if (icon.isNotEmpty) {
+            final resolved = resolveIconPath(icon);
+            if (resolved != null) {
+              return resolved;
+            }
+          }
         }
       } on FileSystemException {
-        return null;
+        continue;
       }
     }
     return null;
@@ -414,6 +477,161 @@ bool _isDesktopApplicationEvent(FileSystemEvent event) {
   return event is FileSystemMoveEvent &&
       (event.destination?.endsWith('.desktop') ?? false);
 }
+
+const List<String> _preferredIconSizes = <String>[
+  'scalable',
+  '512x512',
+  '256x256',
+  '192x192',
+  '128x128',
+  '96x96',
+  '64x64',
+  '48x48',
+  '36x36',
+  '32x32',
+  '24x24',
+  '22x22',
+  '16x16',
+];
+
+const List<String> _preferredIconContexts = <String>[
+  'apps',
+  'status',
+  'actions',
+  'devices',
+  'categories',
+  'places',
+  'mimetypes',
+  'legacy',
+  'panel',
+  'ui',
+];
+
+List<String> _iconThemeDirectories(String theme) {
+  final directories = <String>[
+    for (final size in _preferredIconSizes)
+      for (final context in _preferredIconContexts) p.join(size, context),
+    for (final context in _preferredIconContexts) p.join('symbolic', context),
+  ];
+  final index = File(p.join(theme, 'index.theme'));
+  try {
+    var inIconTheme = false;
+    for (final rawLine in index.readAsLinesSync()) {
+      final line = rawLine.trim();
+      if (line.startsWith('[') && line.endsWith(']')) {
+        inIconTheme = line == '[Icon Theme]';
+        continue;
+      }
+      if (!inIconTheme) {
+        continue;
+      }
+      final equals = line.indexOf('=');
+      if (equals <= 0) {
+        continue;
+      }
+      final key = line.substring(0, equals);
+      if (key != 'Directories' && key != 'ScaledDirectories') {
+        continue;
+      }
+      for (final value in line.substring(equals + 1).split(',')) {
+        final directory = value.trim();
+        if (_isSafeRelativeIconDirectory(directory)) {
+          directories.add(directory);
+        }
+      }
+    }
+  } on FileSystemException {
+    // Themes without an index still get the conventional lookup paths above.
+  }
+  return RuntimePaths.uniquePaths(directories);
+}
+
+bool _isSafeRelativeIconDirectory(String value) {
+  if (value.isEmpty || p.isAbsolute(value)) {
+    return false;
+  }
+  return !p
+      .split(value)
+      .any(
+        (component) =>
+            component.isEmpty || component == '.' || component == '..',
+      );
+}
+
+String? _localIconPath(String value) {
+  if (p.isAbsolute(value)) {
+    return value;
+  }
+  final uri = Uri.tryParse(value);
+  if (uri == null || uri.scheme != 'file') {
+    return null;
+  }
+  try {
+    return uri.toFilePath();
+  } on FormatException {
+    return null;
+  } on UnsupportedError {
+    return null;
+  }
+}
+
+Map<String, String> _readDesktopEntryFields(File file) {
+  final fields = <String, String>{};
+  var inDesktopEntry = false;
+  for (final rawLine in file.readAsLinesSync()) {
+    final line = rawLine.trim();
+    if (line.isEmpty || line.startsWith('#')) {
+      continue;
+    }
+    if (line.startsWith('[') && line.endsWith(']')) {
+      inDesktopEntry = line == '[Desktop Entry]';
+      continue;
+    }
+    if (!inDesktopEntry) {
+      continue;
+    }
+    final equals = line.indexOf('=');
+    if (equals <= 0) {
+      continue;
+    }
+    fields[line.substring(0, equals)] = line.substring(equals + 1);
+  }
+  return fields;
+}
+
+bool _desktopEntryMatchesAppName(
+  Map<String, String> fields, {
+  required String file,
+  required String directory,
+  required String requestedName,
+}) {
+  final relative = p.relative(file, from: directory);
+  final desktopFileId = p.split(relative).join('-');
+  final identities = <String>[
+    desktopFileId.substring(0, desktopFileId.length - '.desktop'.length),
+    fields['Name'] ?? '',
+    fields['GenericName'] ?? '',
+    fields['StartupWMClass'] ?? '',
+    fields['X-GNOME-FullName'] ?? '',
+    for (final entry in fields.entries)
+      if (entry.key.startsWith('Name[')) entry.value,
+  ];
+  for (final identity in identities) {
+    final normalized = _normalizedDesktopIdentity(identity);
+    if (normalized == requestedName ||
+        (requestedName.length >= 4 && normalized.endsWith(requestedName)) ||
+        (normalized.length >= 4 && requestedName.endsWith(normalized))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+String _normalizedDesktopIdentity(String value) {
+  return value.toLowerCase().replaceAll(_desktopIdentityNoise, '');
+}
+
+final RegExp _desktopIdentityNoise = RegExp('[^a-z0-9]');
 
 bool _desktopBool(String? value) {
   return value != null && value.toLowerCase() == 'true';

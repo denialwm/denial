@@ -286,6 +286,7 @@ List<Widget> _buildDesktopWindowLayers({
   required Rect switcherStageBounds,
   required int topZ,
   required bool reduceMotion,
+  required DisplayLayout? displayLayout,
   required double devicePixelRatio,
   required ValueChanged<DenialWindow> onActivateWindow,
   required ValueChanged<DenialWindow> onBeginOverviewDrag,
@@ -296,6 +297,9 @@ List<Widget> _buildDesktopWindowLayers({
 }) {
   final layers = <Widget>[];
   for (final placement in placements) {
+    if (!placement.minimized && !desktop.isPlacementPresented(placement)) {
+      continue;
+    }
     final window = windowsById[placement.objectId]!;
     final overview = desktop.isInOverview(placement.objectId);
     final switching =
@@ -358,10 +362,15 @@ List<Widget> _buildDesktopWindowLayers({
     if (arrangedFrame == null || arrangedFrame.isEmpty) {
       continue;
     }
+    final outputPixelGrid = desktopOutputPixelGridForMonitor(
+      displayLayout,
+      placement.monitorId,
+    );
     final frame = desktopPixelAlignedWindowFrame(
       frame: arrangedFrame,
       contentInset: placement.frameBorder,
-      devicePixelRatio: devicePixelRatio,
+      devicePixelRatio: outputPixelGrid?.scale ?? devicePixelRatio,
+      pixelGridOrigin: outputPixelGrid?.logicalRect.topLeft ?? Offset.zero,
       enabled: !overview && !switching && !minimizedIdle,
       alignSize: true,
     );
@@ -798,7 +807,12 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     );
     final windowsById = topology.windowsById;
     final inputMethodPopups = topology.inputMethodPopups;
-    final placements = topology.placements;
+    final placements = topology.placements
+        .where(
+          (placement) =>
+              placement.minimized || desktop.isPlacementPresented(placement),
+        )
+        .toList(growable: false);
     final homeSlots = ref.watch(
       homeGridControllerProvider.select((state) => state.asData?.value.slots),
     );
@@ -823,7 +837,13 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
       homeSlots: homeSlots,
       hasBatteryData: hasBatteryData,
     );
-    final topZ = topology.topZ;
+    final topZ = placements
+        .where(
+          (placement) =>
+              !placement.minimized &&
+              desktop.isPlacementOnActiveWorkspace(placement),
+        )
+        .fold<int>(0, (value, placement) => math.max(value, placement.z));
     final systemBars = _systemBarGeometries(viewSize, displayLayout);
     // True fullscreen owns the complete output, so the bar yields instead of
     // floating above the fullscreen surface.
@@ -895,6 +915,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                     switcherStageBounds: switcherStageBounds,
                     topZ: topZ,
                     reduceMotion: reduceMotion,
+                    displayLayout: displayLayout,
                     devicePixelRatio: devicePixelRatio,
                     onActivateWindow: onActivateWindow,
                     onBeginOverviewDrag: onBeginOverviewDrag,
@@ -909,6 +930,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                       key: ValueKey<String>('system-bar-${bar.monitorId}'),
                       rect: bar.rect,
                       child: DesktopSystemBar(
+                        monitorId: bar.monitorId,
                         side: bar.side,
                         onOpenPowerSettings: onOpenPowerSettings,
                       ),
@@ -949,6 +971,7 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                     switcherStageBounds: switcherStageBounds,
                     topZ: topZ,
                     reduceMotion: reduceMotion,
+                    displayLayout: displayLayout,
                     devicePixelRatio: devicePixelRatio,
                     onActivateWindow: onActivateWindow,
                     onBeginOverviewDrag: onBeginOverviewDrag,
@@ -1011,6 +1034,16 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
                           child: WindowSurfaceTree(
                             window: popup,
                             includePopups: true,
+                            presentationScale: desktopOutputPixelGridForMonitor(
+                              displayLayout,
+                              popup.monitorId,
+                            )?.scale,
+                            pixelGridOrigin:
+                                desktopOutputPixelGridForMonitor(
+                                  displayLayout,
+                                  popup.monitorId,
+                                )?.logicalRect.topLeft ??
+                                Offset.zero,
                           ),
                         ),
                       ),

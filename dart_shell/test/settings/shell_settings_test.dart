@@ -1,5 +1,6 @@
 import 'package:denial_dart_shell/src/models/display_layout.dart';
 import 'package:denial_dart_shell/src/models/shell_popup_placement.dart';
+import 'package:denial_dart_shell/src/models/suspend_mode.dart';
 import 'package:denial_dart_shell/src/settings/shell_settings.dart';
 import 'package:denial_dart_shell/src/theme/backdrop_blur_level.dart';
 import 'package:denial_dart_shell/src/theme/cursor_themes.dart';
@@ -19,6 +20,7 @@ void main() {
       expect(power.idleDpmsTimeoutMinutes, 10);
       expect(power.idleSuspendEnabled, isFalse);
       expect(power.idleSuspendTimeoutMinutes, 30);
+      expect(power.suspendMode, SuspendMode.systemDefault);
     },
   );
 
@@ -45,6 +47,8 @@ void main() {
       ),
       layout: ShellLayoutSettings(
         windowLayout: DesktopWindowLayout.dwindle,
+        workspacesEnabled: true,
+        workspaceCount: 7,
         systemBarSide: SystemBarSide.right,
         systemBarOutputNames: <String>['DP-1', 'HDMI-A-1'],
         systemBarThickness: 46,
@@ -80,6 +84,7 @@ void main() {
         idleDpmsTimeoutMinutes: 47,
         idleSuspendEnabled: true,
         idleSuspendTimeoutMinutes: 72,
+        suspendMode: SuspendMode.deep,
       ),
       applicationEnvironment: ShellApplicationEnvironmentSettings(
         variables: <String, String?>{
@@ -98,6 +103,21 @@ void main() {
     expect(settings.toJson()['version'], ShellSettings.schemaVersion);
   });
 
+  test('suspend mode persists and produces a typed patch', () {
+    const previous = ShellSettings();
+    final next = previous.copyWith(
+      power: previous.power.copyWith(suspendMode: SuspendMode.s2idle),
+    );
+
+    expect(
+      ShellSettings.fromJson(next.toJson()).power.suspendMode,
+      SuspendMode.s2idle,
+    );
+    expect(next.differenceFrom(previous), <String, Object?>{
+      'power': <String, Object?>{'suspendMode': 's2idle'},
+    });
+  });
+
   test('window layout persists and produces a typed patch', () {
     const previous = ShellSettings();
     final next = previous.copyWith(
@@ -112,6 +132,26 @@ void main() {
     );
     expect(next.differenceFrom(previous), <String, Object?>{
       'layout': <String, Object?>{'windowLayout': 'dwindle'},
+    });
+  });
+
+  test('workspace settings persist and produce a typed patch', () {
+    const previous = ShellSettings();
+    final next = previous.copyWith(
+      layout: previous.layout.copyWith(
+        workspacesEnabled: true,
+        workspaceCount: 6,
+      ),
+    );
+
+    final restored = ShellSettings.fromJson(next.toJson());
+    expect(restored.layout.workspacesEnabled, isTrue);
+    expect(restored.layout.workspaceCount, 6);
+    expect(next.differenceFrom(previous), <String, Object?>{
+      'layout': <String, Object?>{
+        'workspacesEnabled': true,
+        'workspaceCount': 6,
+      },
     });
   });
 

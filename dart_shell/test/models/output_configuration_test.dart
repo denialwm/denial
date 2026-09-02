@@ -2,6 +2,13 @@ import 'package:denial_dart_shell/src/models/output_configuration.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('canonicalizes custom scale percentages to 1/120 units', () {
+    expect(canonicalizeOutputScale(0.94), closeTo(113 / 120, 0.000001));
+    expect(canonicalizeOutputScale(1.05), 1.05);
+    expect(canonicalizeOutputScale(0.5), 0.5);
+    expect(canonicalizeOutputScale(6), 6);
+  });
+
   test('decodes output control snapshots and preserves exact millihertz', () {
     final configuration = DenialOutputConfiguration.fromJson(<String, Object?>{
       'serial': 9,
@@ -110,5 +117,9 @@ void main() {
     final variableRefreshRate = portrait.copyWith(adaptiveSync: true);
     expect(variableRefreshRate.adaptiveSyncSupported, isTrue);
     expect(variableRefreshRate.toApplyJson()['adaptive_sync'], isTrue);
+
+    final customScale = output.copyWith(scale: 0.94);
+    expect(customScale.scale, closeTo(113 / 120, 0.000001));
+    expect(customScale.toApplyJson()['scale'], customScale.scale);
   });
 }

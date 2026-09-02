@@ -176,6 +176,13 @@ pub(super) fn synchronize_idle_dpms_configuration(
     let Some(configuration) = runtime.take_idle_policy() else {
         return;
     };
+    if events
+        .system_controls
+        .as_ref()
+        .is_none_or(|controls| !controls.set_suspend_mode(configuration.suspend_mode))
+    {
+        warn!("could not synchronize the selected suspend mode");
+    }
     let requests = events.idle_policy.configure(configuration, Instant::now());
     events.queue_idle_power_requests(requests);
     info!(
@@ -184,6 +191,10 @@ pub(super) fn synchronize_idle_dpms_configuration(
         suspend_timeout_seconds = configuration
             .suspend_timeout
             .map(|timeout| timeout.as_secs()),
+        suspend_mode = configuration
+            .suspend_mode
+            .kernel_value()
+            .unwrap_or("system-default"),
         "configured automatic inactivity policy"
     );
 }

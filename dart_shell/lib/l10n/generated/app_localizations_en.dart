@@ -1365,6 +1365,25 @@ class AppLocalizationsEn extends AppLocalizations {
       'Keep the session in memory and enter low power after extended inactivity.';
 
   @override
+  String get settingsSuspendMode => 'Suspend mode';
+
+  @override
+  String get settingsSuspendModeDescription =>
+      'Choose how Linux keeps memory powered. This applies to every suspend while Denial is active.';
+
+  @override
+  String get settingsSuspendModeS2idle => 'Suspend to idle (s2idle)';
+
+  @override
+  String get settingsSuspendModeShallow => 'Standby (shallow)';
+
+  @override
+  String get settingsSuspendModeDeep => 'Suspend to RAM (deep)';
+
+  @override
+  String get settingsSuspendModeUnavailable => 'Unavailable';
+
+  @override
   String get settingsAvailable => 'Available';
 
   @override
@@ -1828,6 +1847,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsDisplayScale => 'Scale';
 
   @override
+  String get settingsDisplayScaleInvalid => 'Enter a value from 50 to 600.';
+
+  @override
+  String get settingsDisplayScalePreset => 'Presets';
+
+  @override
+  String get settingsDisplayScaleRange =>
+      'Enter 50–600%. Values are rounded to the nearest supported scale. Below 100% may look softer.';
+
+  @override
   String get settingsDisplayVariableRefreshRate =>
       'Variable refresh rate (VRR)';
 
@@ -2226,6 +2255,14 @@ class AppLocalizationsEn extends AppLocalizations {
       'Three-finger swipe right';
 
   @override
+  String get settingsShortcutGestureFourFingerSwipeLeft =>
+      'Four-finger swipe left';
+
+  @override
+  String get settingsShortcutGestureFourFingerSwipeRight =>
+      'Four-finger swipe right';
+
+  @override
   String get settingsShortcutInputCategoryModifier => 'Modifier';
 
   @override
@@ -2349,6 +2386,30 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsShortcutActionSwapDown => 'Swap window downward';
 
   @override
+  String get settingsShortcutActionPreviousWorkspace => 'Previous workspace';
+
+  @override
+  String get settingsShortcutActionNextWorkspace => 'Next workspace';
+
+  @override
+  String get settingsShortcutActionMoveToPreviousWorkspace =>
+      'Move window to previous workspace';
+
+  @override
+  String get settingsShortcutActionMoveToNextWorkspace =>
+      'Move window to next workspace';
+
+  @override
+  String settingsShortcutActionSwitchWorkspace(int workspace) {
+    return 'Switch to workspace $workspace';
+  }
+
+  @override
+  String settingsShortcutActionMoveToWorkspace(int workspace) {
+    return 'Move window to workspace $workspace';
+  }
+
+  @override
   String get settingsLayoutDescription =>
       'Control the spacing reserved around ordinary and maximized windows.';
 
@@ -2370,6 +2431,33 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsWindowLayoutTitle => 'Window layout';
+
+  @override
+  String get settingsWorkspacesTitle => 'Workspaces';
+
+  @override
+  String get settingsWorkspacesEnable => 'Enable workspaces';
+
+  @override
+  String get settingsWorkspacesDescription =>
+      'Each monitor switches workspaces independently. Minimized windows remain available across every workspace on their monitor.';
+
+  @override
+  String get settingsWorkspaceCount => 'Workspace count';
+
+  @override
+  String workspaceLabel(int workspace) {
+    return 'Workspace $workspace';
+  }
+
+  @override
+  String get workspaceActive => 'active';
+
+  @override
+  String get workspaceOccupied => 'occupied';
+
+  @override
+  String get workspaceEmpty => 'empty';
 
   @override
   String get settingsLiveBadge => 'LIVE';

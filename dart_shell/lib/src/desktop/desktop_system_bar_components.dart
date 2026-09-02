@@ -268,12 +268,14 @@ class _SystemBarCard extends StatelessWidget {
     required this.child,
     this.highlighted = false,
     this.focused = false,
+    this.padding = const EdgeInsets.symmetric(horizontal: 12),
   });
 
   final WallpaperAccent accent;
   final Widget child;
   final bool highlighted;
   final bool focused;
+  final EdgeInsetsGeometry padding;
 
   @override
   Widget build(BuildContext context) {
@@ -293,7 +295,7 @@ class _SystemBarCard extends StatelessWidget {
       child: AnimatedContainer(
         duration: Motion.wallpaperReveal,
         curve: Motion.standard,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: padding,
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,

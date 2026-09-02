@@ -33,6 +33,7 @@ class DesktopWindowReveal extends StatefulWidget {
     super.key,
     required this.child,
     this.enabled = true,
+    this.suppressInitialAnimation = false,
     this.origin,
   });
 
@@ -41,6 +42,14 @@ class DesktopWindowReveal extends StatefulWidget {
   /// False for transient surfaces, such as XWayland menus and tooltips, which
   /// should appear immediately like native xdg_popup surfaces.
   final bool enabled;
+
+  /// Completes a newly mounted reveal immediately without changing the
+  /// window's lasting animation policy.
+  ///
+  /// Workspace-hidden windows leave the scene until their workspace is
+  /// presented again. They must resume as existing windows, rather than
+  /// replaying the application entrance when their keyed entry is remounted.
+  final bool suppressInitialAnimation;
 
   /// An optional fixed origin, primarily useful for previews and tests.
   /// Production callers omit this to select a random quarter centre once.
@@ -76,7 +85,9 @@ class _DesktopWindowRevealState extends State<DesktopWindowReveal>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!widget.enabled || MediaQuery.disableAnimationsOf(context)) {
+    if (!widget.enabled ||
+        widget.suppressInitialAnimation ||
+        MediaQuery.disableAnimationsOf(context)) {
       _completeImmediately();
       return;
     }
@@ -89,7 +100,9 @@ class _DesktopWindowRevealState extends State<DesktopWindowReveal>
     if (widget.origin != oldWidget.origin) {
       _origin = widget.origin ?? _randomOrigin();
     }
-    if (oldWidget.enabled && !widget.enabled) {
+    if ((oldWidget.enabled && !widget.enabled) ||
+        (!oldWidget.suppressInitialAnimation &&
+            widget.suppressInitialAnimation)) {
       _completeImmediately();
       return;
     }
@@ -97,11 +110,12 @@ class _DesktopWindowRevealState extends State<DesktopWindowReveal>
       // XWayland metadata can settle over more than one snapshot. If a normal
       // root was briefly classified as transient, give it its one entrance as
       // soon as the authoritative classification arrives.
-      _resetReveal();
-      if (!MediaQuery.disableAnimationsOf(context)) {
-        _scheduleReveal();
-      } else {
+      if (widget.suppressInitialAnimation ||
+          MediaQuery.disableAnimationsOf(context)) {
         _completeImmediately();
+      } else {
+        _resetReveal();
+        _scheduleReveal();
       }
     }
   }
@@ -116,7 +130,10 @@ class _DesktopWindowRevealState extends State<DesktopWindowReveal>
   }
 
   void _scheduleReveal() {
-    if (_revealScheduled || _revealComplete || !widget.enabled) {
+    if (_revealScheduled ||
+        _revealComplete ||
+        !widget.enabled ||
+        widget.suppressInitialAnimation) {
       return;
     }
 
@@ -126,16 +143,25 @@ class _DesktopWindowRevealState extends State<DesktopWindowReveal>
     // first client frame from swallowing the transition.
     _revealScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _revealComplete || !widget.enabled) {
+      if (!mounted ||
+          _revealComplete ||
+          !widget.enabled ||
+          widget.suppressInitialAnimation) {
         return;
       }
       _leadInTimer = Timer(Motion.desktopWindowRevealLeadIn, () {
-        if (!mounted || _revealComplete || !widget.enabled) {
+        if (!mounted ||
+            _revealComplete ||
+            !widget.enabled ||
+            widget.suppressInitialAnimation) {
           return;
         }
         setState(() => _revealStarted = true);
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted || _revealComplete || !widget.enabled) {
+          if (!mounted ||
+              _revealComplete ||
+              !widget.enabled ||
+              widget.suppressInitialAnimation) {
             return;
           }
           MotionTelemetry.observe(
