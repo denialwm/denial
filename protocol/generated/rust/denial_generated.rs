@@ -894,12 +894,13 @@ impl flatbuffers::SimpleToVerifyInSlice for ShellActionKind {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_KEYBOARD_COMMAND_KIND: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_KEYBOARD_COMMAND_KIND: u8 = 1;
+pub const ENUM_MAX_KEYBOARD_COMMAND_KIND: u8 = 2;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_KEYBOARD_COMMAND_KIND: [KeyboardCommandKind; 2] = [
+pub const ENUM_VALUES_KEYBOARD_COMMAND_KIND: [KeyboardCommandKind; 3] = [
   KeyboardCommandKind::Text,
   KeyboardCommandKind::Key,
+  KeyboardCommandKind::DismissPanel,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -909,18 +910,21 @@ pub struct KeyboardCommandKind(pub u8);
 impl KeyboardCommandKind {
   pub const Text: Self = Self(0);
   pub const Key: Self = Self(1);
+  pub const DismissPanel: Self = Self(2);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 1;
+  pub const ENUM_MAX: u8 = 2;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Text,
     Self::Key,
+    Self::DismissPanel,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
     match self {
       Self::Text => Some("Text"),
       Self::Key => Some("Key"),
+      Self::DismissPanel => Some("DismissPanel"),
       _ => None,
     }
   }
@@ -6449,6 +6453,7 @@ impl<'a> TextInputState<'a> {
   pub const VT_LEGACY: flatbuffers::VOffsetT = 8;
   pub const VT_CONTENT_HINT: flatbuffers::VOffsetT = 10;
   pub const VT_CONTENT_PURPOSE: flatbuffers::VOffsetT = 12;
+  pub const VT_ACTIVATION_SERIAL: flatbuffers::VOffsetT = 14;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -6460,6 +6465,7 @@ impl<'a> TextInputState<'a> {
     args: &'args TextInputStateArgs
   ) -> flatbuffers::WIPOffset<TextInputState<'bldr>> {
     let mut builder = TextInputStateBuilder::new(_fbb);
+    builder.add_activation_serial(args.activation_serial);
     builder.add_content_purpose(args.content_purpose);
     builder.add_content_hint(args.content_hint);
     builder.add_legacy(args.legacy);
@@ -6504,6 +6510,13 @@ impl<'a> TextInputState<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u32>(TextInputState::VT_CONTENT_PURPOSE, Some(0)).unwrap()}
   }
+  #[inline]
+  pub fn activation_serial(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(TextInputState::VT_ACTIVATION_SERIAL, Some(0)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for TextInputState<'_> {
@@ -6518,6 +6531,7 @@ impl flatbuffers::Verifiable for TextInputState<'_> {
      .visit_field::<bool>("legacy", Self::VT_LEGACY, false)?
      .visit_field::<u32>("content_hint", Self::VT_CONTENT_HINT, false)?
      .visit_field::<u32>("content_purpose", Self::VT_CONTENT_PURPOSE, false)?
+     .visit_field::<u64>("activation_serial", Self::VT_ACTIVATION_SERIAL, false)?
      .finish();
     Ok(())
   }
@@ -6528,6 +6542,7 @@ pub struct TextInputStateArgs {
     pub legacy: bool,
     pub content_hint: u32,
     pub content_purpose: u32,
+    pub activation_serial: u64,
 }
 impl<'a> Default for TextInputStateArgs {
   #[inline]
@@ -6538,6 +6553,7 @@ impl<'a> Default for TextInputStateArgs {
       legacy: false,
       content_hint: 0,
       content_purpose: 0,
+      activation_serial: 0,
     }
   }
 }
@@ -6568,6 +6584,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> TextInputStateBuilder<'a, 'b, A
     self.fbb_.push_slot::<u32>(TextInputState::VT_CONTENT_PURPOSE, content_purpose, 0);
   }
   #[inline]
+  pub fn add_activation_serial(&mut self, activation_serial: u64) {
+    self.fbb_.push_slot::<u64>(TextInputState::VT_ACTIVATION_SERIAL, activation_serial, 0);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> TextInputStateBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     TextInputStateBuilder {
@@ -6590,6 +6610,7 @@ impl core::fmt::Debug for TextInputState<'_> {
       ds.field("legacy", &self.legacy());
       ds.field("content_hint", &self.content_hint());
       ds.field("content_purpose", &self.content_purpose());
+      ds.field("activation_serial", &self.activation_serial());
       ds.finish()
   }
 }
@@ -6613,6 +6634,7 @@ impl<'a> KeyboardCommand<'a> {
   pub const VT_TEXT: flatbuffers::VOffsetT = 6;
   pub const VT_KEY: flatbuffers::VOffsetT = 8;
   pub const VT_FLAGS: flatbuffers::VOffsetT = 10;
+  pub const VT_ACTIVATION_SERIAL: flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -6624,6 +6646,7 @@ impl<'a> KeyboardCommand<'a> {
     args: &'args KeyboardCommandArgs<'args>
   ) -> flatbuffers::WIPOffset<KeyboardCommand<'bldr>> {
     let mut builder = KeyboardCommandBuilder::new(_fbb);
+    builder.add_activation_serial(args.activation_serial);
     builder.add_flags(args.flags);
     if let Some(x) = args.key { builder.add_key(x); }
     if let Some(x) = args.text { builder.add_text(x); }
@@ -6660,6 +6683,13 @@ impl<'a> KeyboardCommand<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u32>(KeyboardCommand::VT_FLAGS, Some(0)).unwrap()}
   }
+  #[inline]
+  pub fn activation_serial(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(KeyboardCommand::VT_ACTIVATION_SERIAL, Some(0)).unwrap()}
+  }
 }
 
 impl flatbuffers::Verifiable for KeyboardCommand<'_> {
@@ -6673,6 +6703,7 @@ impl flatbuffers::Verifiable for KeyboardCommand<'_> {
      .visit_field::<flatbuffers::ForwardsUOffset<&str>>("text", Self::VT_TEXT, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<&str>>("key", Self::VT_KEY, false)?
      .visit_field::<u32>("flags", Self::VT_FLAGS, false)?
+     .visit_field::<u64>("activation_serial", Self::VT_ACTIVATION_SERIAL, false)?
      .finish();
     Ok(())
   }
@@ -6682,6 +6713,7 @@ pub struct KeyboardCommandArgs<'a> {
     pub text: Option<flatbuffers::WIPOffset<&'a str>>,
     pub key: Option<flatbuffers::WIPOffset<&'a str>>,
     pub flags: u32,
+    pub activation_serial: u64,
 }
 impl<'a> Default for KeyboardCommandArgs<'a> {
   #[inline]
@@ -6691,6 +6723,7 @@ impl<'a> Default for KeyboardCommandArgs<'a> {
       text: None,
       key: None,
       flags: 0,
+      activation_serial: 0,
     }
   }
 }
@@ -6717,6 +6750,10 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> KeyboardCommandBuilder<'a, 'b, 
     self.fbb_.push_slot::<u32>(KeyboardCommand::VT_FLAGS, flags, 0);
   }
   #[inline]
+  pub fn add_activation_serial(&mut self, activation_serial: u64) {
+    self.fbb_.push_slot::<u64>(KeyboardCommand::VT_ACTIVATION_SERIAL, activation_serial, 0);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> KeyboardCommandBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     KeyboardCommandBuilder {
@@ -6738,6 +6775,7 @@ impl core::fmt::Debug for KeyboardCommand<'_> {
       ds.field("text", &self.text());
       ds.field("key", &self.key());
       ds.field("flags", &self.flags());
+      ds.field("activation_serial", &self.activation_serial());
       ds.finish()
   }
 }

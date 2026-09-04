@@ -300,6 +300,7 @@ impl FlutterRuntime {
             legacy,
             content_hint,
             content_purpose,
+            activation_serial,
         )?;
         engine.send_platform_message(wire::TO_FLUTTER_CHANNEL, update)?;
         self.published_text_input_state = Some(state);

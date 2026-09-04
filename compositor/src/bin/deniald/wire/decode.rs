@@ -383,6 +383,14 @@ fn decode_keyboard_command(command: fb::KeyboardCommand<'_>) -> Result<KeyboardC
     }
 
     match command.kind() {
+        fb::KeyboardCommandKind::DismissPanel => {
+            if command.flags() != 0 || command.text().is_some() || command.key().is_some() {
+                return Err(WireError::Payload);
+            }
+            Ok(KeyboardCommand::DismissPanel {
+                activation_serial: command.activation_serial(),
+            })
+        }
         fb::KeyboardCommandKind::Text => {
             if command.flags() != 0 {
                 return Err(WireError::Flags);

@@ -317,6 +317,11 @@ pub(crate) fn dispatch_shell_keyboard(
     // routes that same focusless stream to Flutter just as it does for a
     // physical keyboard.
     match command {
+        super::super::wire::KeyboardCommand::DismissPanel { activation_serial } => {
+            let frontend = state.wayland.as_mut().expect("missing Wayland frontend");
+            frontend.text_input.dismiss_panel(*activation_serial);
+            true
+        }
         super::super::wire::KeyboardCommand::Text(text) => {
             let mut delivered = false;
             for character in text.chars() {

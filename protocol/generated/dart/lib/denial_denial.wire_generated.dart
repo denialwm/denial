@@ -365,7 +365,8 @@ class _ShellActionKindReader extends fb.Reader<ShellActionKind> {
 
 enum KeyboardCommandKind {
   Text(0),
-  Key(1);
+  Key(1),
+  DismissPanel(2);
 
   final int value;
   const KeyboardCommandKind(this.value);
@@ -374,6 +375,7 @@ enum KeyboardCommandKind {
     switch (value) {
       case 0: return KeyboardCommandKind.Text;
       case 1: return KeyboardCommandKind.Key;
+      case 2: return KeyboardCommandKind.DismissPanel;
       default: throw StateError('Invalid value $value for bit flag enum');
     }
   }
@@ -382,7 +384,7 @@ enum KeyboardCommandKind {
       value == null ? null : KeyboardCommandKind.fromValue(value);
 
   static const int minValue = 0;
-  static const int maxValue = 1;
+  static const int maxValue = 2;
   static const fb.Reader<KeyboardCommandKind> reader = _KeyboardCommandKindReader();
 }
 
@@ -3375,10 +3377,11 @@ class TextInputState {
   bool get legacy => const fb.BoolReader().vTableGet(_bc, _bcOffset, 8, false);
   int get contentHint => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 10, 0);
   int get contentPurpose => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 12, 0);
+  int get activationSerial => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 14, 0);
 
   @override
   String toString() {
-    return 'TextInputState{active: ${active}, inputPanelVisible: ${inputPanelVisible}, legacy: ${legacy}, contentHint: ${contentHint}, contentPurpose: ${contentPurpose}}';
+    return 'TextInputState{active: ${active}, inputPanelVisible: ${inputPanelVisible}, legacy: ${legacy}, contentHint: ${contentHint}, contentPurpose: ${contentPurpose}, activationSerial: ${activationSerial}}';
   }
 }
 
@@ -3396,7 +3399,7 @@ class TextInputStateBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(5);
+    fbBuilder.startTable(6);
   }
 
   int addActive(bool? active) {
@@ -3419,6 +3422,10 @@ class TextInputStateBuilder {
     fbBuilder.addUint32(4, contentPurpose);
     return fbBuilder.offset;
   }
+  int addActivationSerial(int? activationSerial) {
+    fbBuilder.addUint64(5, activationSerial);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -3431,6 +3438,7 @@ class TextInputStateObjectBuilder extends fb.ObjectBuilder {
   final bool? _legacy;
   final int? _contentHint;
   final int? _contentPurpose;
+  final int? _activationSerial;
 
   TextInputStateObjectBuilder({
     bool? active,
@@ -3438,22 +3446,25 @@ class TextInputStateObjectBuilder extends fb.ObjectBuilder {
     bool? legacy,
     int? contentHint,
     int? contentPurpose,
+    int? activationSerial,
   })
       : _active = active,
         _inputPanelVisible = inputPanelVisible,
         _legacy = legacy,
         _contentHint = contentHint,
-        _contentPurpose = contentPurpose;
+        _contentPurpose = contentPurpose,
+        _activationSerial = activationSerial;
 
   /// Finish building, and store into the [fbBuilder].
   @override
   int finish(fb.Builder fbBuilder) {
-    fbBuilder.startTable(5);
+    fbBuilder.startTable(6);
     fbBuilder.addBool(0, _active);
     fbBuilder.addBool(1, _inputPanelVisible);
     fbBuilder.addBool(2, _legacy);
     fbBuilder.addUint32(3, _contentHint);
     fbBuilder.addUint32(4, _contentPurpose);
+    fbBuilder.addUint64(5, _activationSerial);
     return fbBuilder.endTable();
   }
 
@@ -3481,10 +3492,11 @@ class KeyboardCommand {
   String? get text => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 6);
   String? get key => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 8);
   int get flags => const fb.Uint32Reader().vTableGet(_bc, _bcOffset, 10, 0);
+  int get activationSerial => const fb.Uint64Reader().vTableGet(_bc, _bcOffset, 12, 0);
 
   @override
   String toString() {
-    return 'KeyboardCommand{kind: ${kind}, text: ${text}, key: ${key}, flags: ${flags}}';
+    return 'KeyboardCommand{kind: ${kind}, text: ${text}, key: ${key}, flags: ${flags}, activationSerial: ${activationSerial}}';
   }
 }
 
@@ -3502,7 +3514,7 @@ class KeyboardCommandBuilder {
   final fb.Builder fbBuilder;
 
   void begin() {
-    fbBuilder.startTable(4);
+    fbBuilder.startTable(5);
   }
 
   int addKind(KeyboardCommandKind? kind) {
@@ -3521,6 +3533,10 @@ class KeyboardCommandBuilder {
     fbBuilder.addUint32(3, flags);
     return fbBuilder.offset;
   }
+  int addActivationSerial(int? activationSerial) {
+    fbBuilder.addUint64(4, activationSerial);
+    return fbBuilder.offset;
+  }
 
   int finish() {
     return fbBuilder.endTable();
@@ -3532,17 +3548,20 @@ class KeyboardCommandObjectBuilder extends fb.ObjectBuilder {
   final String? _text;
   final String? _key;
   final int? _flags;
+  final int? _activationSerial;
 
   KeyboardCommandObjectBuilder({
     KeyboardCommandKind? kind,
     String? text,
     String? key,
     int? flags,
+    int? activationSerial,
   })
       : _kind = kind,
         _text = text,
         _key = key,
-        _flags = flags;
+        _flags = flags,
+        _activationSerial = activationSerial;
 
   /// Finish building, and store into the [fbBuilder].
   @override
@@ -3551,11 +3570,12 @@ class KeyboardCommandObjectBuilder extends fb.ObjectBuilder {
         : fbBuilder.writeString(_text!);
     final int? keyOffset = _key == null ? null
         : fbBuilder.writeString(_key!);
-    fbBuilder.startTable(4);
+    fbBuilder.startTable(5);
     fbBuilder.addUint8(0, _kind?.value);
     fbBuilder.addOffset(1, textOffset);
     fbBuilder.addOffset(2, keyOffset);
     fbBuilder.addUint32(3, _flags);
+    fbBuilder.addUint64(4, _activationSerial);
     return fbBuilder.endTable();
   }
 

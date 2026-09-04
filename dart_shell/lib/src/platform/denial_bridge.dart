@@ -125,6 +125,7 @@ class DenialTextInputState {
     required this.legacy,
     required this.contentHint,
     required this.contentPurpose,
+    this.activationSerial = 0,
   });
 
   final bool active;
@@ -132,6 +133,7 @@ class DenialTextInputState {
   final bool legacy;
   final int contentHint;
   final int contentPurpose;
+  final int activationSerial;
 }
 
 class DenialSettingsDocument {
@@ -1455,6 +1457,10 @@ class DenialBridge {
     _sendWire(_wireCodec.encodeKeyboardKey(key, ctrl: ctrl));
   }
 
+  void dismissKeyboardPanel(int activationSerial) {
+    _sendWire(_wireCodec.encodeKeyboardPanelDismissal(activationSerial));
+  }
+
   void pressKeyboardKey(String key) {
     if (key.isEmpty) {
       return;
@@ -2659,6 +2665,7 @@ class DenialBridge {
               legacy: payload.legacy,
               contentHint: payload.contentHint,
               contentPurpose: payload.contentPurpose,
+              activationSerial: payload.activationSerial,
             ),
           );
         }

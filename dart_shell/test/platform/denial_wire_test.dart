@@ -151,6 +151,17 @@ void main() {
     }
   });
 
+  test('panel dismissal carries activation identity without a key or text', () {
+    final codec = DenialWireCodec();
+    final envelope = Envelope(codec.encodeKeyboardPanelDismissal(123));
+    final command = envelope.payload as KeyboardCommand;
+    expect(command.kind, KeyboardCommandKind.DismissPanel);
+    expect(command.activationSerial, 123);
+    expect(command.flags, 0);
+    expect(command.text, isNull);
+    expect(command.key, isNull);
+  });
+
   test('system bar configuration encodes its edge and selected outputs', () {
     final codec = DenialWireCodec();
     final bytes = codec.encodeSystemBarConfiguration(

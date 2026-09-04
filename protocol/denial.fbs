@@ -87,7 +87,8 @@ enum ShellActionKind : ubyte {
 
 enum KeyboardCommandKind : ubyte {
   Text = 0,
-  Key = 1
+  Key = 1,
+  DismissPanel = 2
 }
 
 enum SettingsRequestKind : ubyte {
@@ -510,6 +511,7 @@ table TextInputState {
   legacy:bool;
   content_hint:uint;
   content_purpose:uint;
+  activation_serial:ulong;
 }
 
 // KeyboardCommand.flags: bit 0 means Ctrl is held; bit 1 is key press; bit 2
@@ -520,6 +522,8 @@ table KeyboardCommand {
   text:string;
   key:string;
   flags:uint;
+  // Echo the panel activation being dismissed; ignored for Text/Key.
+  activation_serial:ulong;
 }
 
 table KeyboardLayout {

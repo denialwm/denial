@@ -146,6 +146,9 @@ pub enum KeyboardKeyPhase {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum KeyboardCommand {
+    DismissPanel {
+        activation_serial: u64,
+    },
     Text(String),
     Key {
         key: String,

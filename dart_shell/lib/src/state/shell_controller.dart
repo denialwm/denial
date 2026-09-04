@@ -128,6 +128,8 @@ class ShellController extends Notifier<ShellState>
   bool _quickSettingsDragMoved = false;
   bool _edgePanelDragStartedOpen = false;
   bool _edgePanelDragMoved = false;
+  int? _edgePanelDismissalSerial;
+  DenialTextInputState? _lastTextInput;
   bool _refreshInProgress = false;
   bool _refreshQueued = false;
   bool _hasLoadedWindowSnapshot = false;
@@ -141,6 +143,8 @@ class ShellController extends Notifier<ShellState>
   StreamSubscription<DenialTextInputState>? _textInputStateSubscription;
 
   void _resetBuildFields() {
+    _lastTextInput = null;
+    _edgePanelDismissalSerial = null;
     _automaticSoftwareKeyboardCloseTimer?.cancel();
     _automaticSoftwareKeyboardCloseTimer = null;
     unawaited(_textInputStateSubscription?.cancel());
@@ -164,6 +168,7 @@ class ShellController extends Notifier<ShellState>
   }
 
   void _handleTextInputState(DenialTextInputState input) {
+    _lastTextInput = input;
     if (!_automaticSoftwareKeyboard) {
       return;
     }
@@ -884,6 +889,9 @@ class ShellController extends Notifier<ShellState>
   }
 
   void startEdgePanelDrag() {
+    _edgePanelDismissalSerial = _lastTextInput?.active == true
+        ? _lastTextInput!.activationSerial
+        : null;
     _edgePanelDragStartedOpen =
         state.edgePanelVisible || state.edgePanelDragProgress >= 1.0;
     _edgePanelDragMoved = false;
@@ -933,6 +941,14 @@ class ShellController extends Notifier<ShellState>
         ((_edgePanelDragStartedOpen && !_edgePanelDragMoved) ||
             drag >= ShellMetrics.edgePanelOpenDistance ||
             flickOpen);
+    // Only a completed user dismissal sends feedback. Automatic hides and
+    // animation frames must not ask the application to dismiss another editor.
+    if (!shouldOpen &&
+        _edgePanelDragStartedOpen &&
+        _edgePanelDismissalSerial != null) {
+      _bridge.dismissKeyboardPanel(_edgePanelDismissalSerial!);
+    }
+    _edgePanelDismissalSerial = null;
     _edgePanelDragStartedOpen = false;
     _edgePanelDragMoved = false;
     if (shouldOpen) {

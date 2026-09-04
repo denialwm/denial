@@ -422,6 +422,8 @@ dependencies = [
  "smithay-drm-extras",
  "tracing",
  "tracing-subscriber",
+ "wayland-scanner",
+ "wayland-server",
  "winit",
  "x11rb",
  "zbus",

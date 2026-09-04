@@ -74,6 +74,8 @@ drm-ffi = { version = "=0.9.1", optional = true }
 flatbuffers = { version = "=25.9.23", optional = true }
 libc = { version = "0.2", optional = true }
 libloading = { version = "0.9", optional = true }
+wayland-scanner = "0.31.10"
+wayland-server = "0.31.13"
 png = { version = "=0.18.1", optional = true }
 serde = { version = "=1.0.229", features = ["derive"], optional = true }
 serde_json = { version = "=1.0.151", features = ["raw_value"], optional = true }

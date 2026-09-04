@@ -34,6 +34,9 @@ const MAX_TEXT_INPUTS_PER_CLIENT: usize = 16;
 const MAX_SURROUNDING_TEXT_BYTES: usize = 4000;
 const TOUCH_AUTHORIZATION_WINDOW: Duration = Duration::from_millis(250);
 
+#[path = "text_input/panel.rs"]
+mod panel;
+
 #[cfg(feature = "flutter")]
 fn finite_i32(value: f64) -> i32 {
     value
@@ -96,7 +99,7 @@ struct Instance<I, C> {
     current: EditorState,
     input_panel_visible_hint: Option<bool>,
     touch_dismissed: bool,
-    touch_authorization_deadline: Option<Instant>,
+    touch_authorized: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -135,6 +138,7 @@ struct SessionState<I, C, S> {
     instances: Vec<Instance<I, C>>,
     focus: Option<Focus<S, C>>,
     active: Option<I>,
+    activation_serial: u64,
 }
 
 impl<I, C, S> Default for SessionState<I, C, S> {
@@ -143,6 +147,7 @@ impl<I, C, S> Default for SessionState<I, C, S> {
             instances: Vec::new(),
             focus: None,
             active: None,
+            activation_serial: 0,
         }
     }
 }
@@ -168,7 +173,7 @@ where
             current: EditorState::default(),
             input_panel_visible_hint: None,
             touch_dismissed: true,
-            touch_authorization_deadline: None,
+            touch_authorized: false,
         });
         entered
     }
@@ -198,7 +203,7 @@ where
             instance.current = EditorState::default();
             instance.input_panel_visible_hint = None;
             instance.touch_dismissed = true;
-            instance.touch_authorization_deadline = None;
+            instance.touch_authorized = false;
         }
 
         self.focus = focus;
@@ -290,26 +295,28 @@ where
             if instance.input_panel_visible_hint != Some(visible) {
                 instance.input_panel_visible_hint = Some(visible);
             }
-            let touch_authorized = instance
-                .touch_authorization_deadline
-                .is_some_and(|deadline| Instant::now() <= deadline);
+            let touch_authorized = visible && instance.touch_authorized;
             if visible && touch_authorized {
                 instance.touch_dismissed = false;
+                if self.active.as_ref() == Some(id) {
+                    instance.touch_authorized = false;
+                    self.activation_serial = self.activation_serial.wrapping_add(1);
+                }
             } else if !visible {
-                instance.touch_authorization_deadline = None;
+                instance.touch_authorized = false;
                 instance.touch_dismissed = true;
             }
         }
     }
 
-    /// Start a short-lived authorization transaction for a client touch.
+    /// Authorize an editor response on the currently entered surface.
     ///
-    /// The client gets the touch immediately afterward. An editor must commit
-    /// fresh state before the authorization expires. Programmatic focus and
-    /// delayed lifecycle updates therefore cannot open the software keyboard.
+    /// text-input-v3 carries no touch serial linking an editor commit to a
+    /// gesture. A timeout cannot establish that link: asynchronous editors may
+    /// respond later. Keep one pending authorization until editor engagement,
+    /// focus loss, explicit panel dismissal, or an interaction with the shell.
+    /// Clients remain responsible for declaring whether an editor is active.
     fn begin_touch_authorization(&mut self) -> bool {
-        let deadline = Instant::now() + TOUCH_AUTHORIZATION_WINDOW;
-        let active = self.active.clone();
         let mut has_protocol_endpoint = false;
         for instance in self
             .instances
@@ -317,19 +324,16 @@ where
             .filter(|instance| instance.entered)
         {
             has_protocol_endpoint = true;
-            instance.touch_authorization_deadline = Some(deadline);
-            if active.as_ref() == Some(&instance.id) {
-                instance.touch_dismissed = true;
-            }
+            instance.touch_authorized = true;
         }
         has_protocol_endpoint
     }
 
-    fn consume_touch_authorization(instance: &mut Instance<I, C>) -> bool {
-        instance
-            .touch_authorization_deadline
-            .take()
-            .is_some_and(|deadline| Instant::now() <= deadline)
+    fn dismiss_touch_authorization(&mut self) {
+        for instance in &mut self.instances {
+            instance.touch_authorized = false;
+            instance.touch_dismissed = true;
+        }
     }
 
     fn commit(&mut self, id: &I) -> CommitEffect {
@@ -346,7 +350,6 @@ where
         }
 
         let pending = mem::take(&mut self.instances[index].pending);
-        let touch_authorized = Self::consume_touch_authorization(&mut self.instances[index]);
         let editor_engaged = pending.enabled == Some(true)
             || pending.surrounding.is_some()
             || pending.content_type.is_some()
@@ -356,10 +359,17 @@ where
                 if self.active.as_ref().is_some_and(|active| active != id) {
                     return CommitEffect::Ignored;
                 }
+                let already_active = self.active.as_ref() == Some(id);
+                let touch_authorized = mem::take(&mut self.instances[index].touch_authorized);
+                let was_dismissed = self.instances[index].touch_dismissed;
                 self.active = Some(id.clone());
                 self.instances[index].current = EditorState::default();
                 Self::apply_pending(&mut self.instances[index], pending);
-                self.instances[index].touch_dismissed = !touch_authorized;
+                self.instances[index].touch_dismissed =
+                    !touch_authorized && (!already_active || was_dismissed);
+                if touch_authorized {
+                    self.activation_serial = self.activation_serial.wrapping_add(1);
+                }
                 CommitEffect::Activated
             }
             Some(false) => {
@@ -378,8 +388,9 @@ where
                     return CommitEffect::Ignored;
                 }
                 Self::apply_pending(&mut self.instances[index], pending);
-                if editor_engaged && touch_authorized {
+                if editor_engaged && mem::take(&mut self.instances[index].touch_authorized) {
                     self.instances[index].touch_dismissed = false;
+                    self.activation_serial = self.activation_serial.wrapping_add(1);
                 }
                 CommitEffect::Updated
             }
@@ -460,6 +471,7 @@ struct FlutterEditor {
 
 #[derive(Debug, Default)]
 struct TextSessionBroker {
+    last_panel_dismissal: Option<u64>,
     seat_focus: SeatFocusKind,
     shell_capture: bool,
     flutter: Option<FlutterEditor>,
@@ -470,6 +482,17 @@ struct TextSessionBroker {
 }
 
 impl TextSessionBroker {
+    fn take_panel_dismissal(&mut self, current: SoftwareKeyboardState, serial: u64) -> bool {
+        if !current.active
+            || current.activation_serial != serial
+            || self.shell_capture
+            || self.last_panel_dismissal == Some(serial)
+        {
+            return false;
+        }
+        self.last_panel_dismissal = Some(serial);
+        true
+    }
     fn set_seat_focus(&mut self, focus: SeatFocusKind) {
         if self.seat_focus != focus {
             self.legacy_touch_keyboard = false;
@@ -482,12 +505,17 @@ impl TextSessionBroker {
     }
 
     fn note_client_touch(&mut self, protocol_available: bool) {
-        self.activation_serial = self.activation_serial.wrapping_add(1);
         self.legacy_touch_keyboard = !protocol_available
             && matches!(
                 self.seat_focus,
                 SeatFocusKind::Wayland | SeatFocusKind::Xwayland
             );
+        // A protocol-aware touch is only permission for a future editor
+        // response. Republishing the old visible state here would reopen a
+        // manually closed panel even when this touch is unfocusing the field.
+        if self.legacy_touch_keyboard {
+            self.activation_serial = self.activation_serial.wrapping_add(1);
+        }
     }
 
     fn note_flutter_touch(&mut self) {
@@ -562,6 +590,7 @@ pub(crate) struct SoftwareKeyboardState {
 #[derive(Debug)]
 pub(super) struct TextInputManager {
     _global: GlobalId,
+    panels: panel::PanelFeedback,
     sessions: SessionState<ObjectId, ClientId, ObjectId>,
     resources: Vec<ZwpTextInputV3>,
     focus_surface: Option<WlSurface>,
@@ -571,6 +600,7 @@ pub(super) struct TextInputManager {
 impl TextInputManager {
     pub(super) fn new(display: &DisplayHandle) -> Self {
         Self {
+            panels: panel::PanelFeedback::new(display),
             _global: display
                 .create_global::<RuntimeState, ZwpTextInputManagerV3, _>(MANAGER_VERSION, ()),
             sessions: SessionState::default(),
@@ -654,6 +684,9 @@ impl TextInputManager {
     }
 
     pub(super) fn set_shell_capture(&mut self, capture: bool) {
+        if capture {
+            self.sessions.dismiss_touch_authorization();
+        }
         self.broker.set_shell_capture(capture);
     }
 
@@ -682,7 +715,7 @@ impl TextInputManager {
 
     /// A compositor-owned touch is outside the client editor boundary.
     pub(super) fn note_flutter_touch(&mut self) {
-        self.sessions.begin_touch_authorization();
+        self.sessions.dismiss_touch_authorization();
         self.broker.note_flutter_touch();
     }
 
@@ -695,6 +728,24 @@ impl TextInputManager {
             SeatFocusKind::Xwayland => self.legacy_software_keyboard_state(),
             SeatFocusKind::None => self.flutter_software_keyboard_state(),
         }
+    }
+
+    fn keyboard_activation_serial(&self) -> u64 {
+        self.broker
+            .activation_serial
+            .wrapping_add(self.sessions.activation_serial)
+    }
+
+    pub(super) fn dismiss_panel(&mut self, activation_serial: u64) {
+        let current = self.software_keyboard_state();
+        if !self.broker.take_panel_dismissal(current, activation_serial) {
+            return;
+        }
+        if let Some((id, serial)) = self.sessions.active_serial() {
+            self.panels.dismiss(&id, serial);
+        }
+        self.sessions.dismiss_touch_authorization();
+        self.broker.legacy_touch_keyboard = false;
     }
 
     fn wayland_software_keyboard_state(&self) -> SoftwareKeyboardState {
@@ -717,7 +768,7 @@ impl TextInputManager {
             legacy: false,
             content_hint,
             content_purpose,
-            activation_serial: self.broker.activation_serial,
+            activation_serial: self.keyboard_activation_serial(),
         }
     }
 
@@ -726,7 +777,7 @@ impl TextInputManager {
             active: self.broker.legacy_touch_keyboard,
             input_panel_visible: self.broker.legacy_touch_keyboard,
             legacy: true,
-            activation_serial: self.broker.activation_serial,
+            activation_serial: self.keyboard_activation_serial(),
             ..SoftwareKeyboardState::default()
         }
     }
@@ -734,7 +785,7 @@ impl TextInputManager {
     fn flutter_software_keyboard_state(&self) -> SoftwareKeyboardState {
         let Some(editor) = self.broker.flutter.as_ref().filter(|editor| editor.active) else {
             return SoftwareKeyboardState {
-                activation_serial: self.broker.activation_serial,
+                activation_serial: self.keyboard_activation_serial(),
                 ..SoftwareKeyboardState::default()
             };
         };
@@ -744,7 +795,7 @@ impl TextInputManager {
             legacy: false,
             content_hint: editor.content_hint,
             content_purpose: editor.content_purpose,
-            activation_serial: self.broker.activation_serial,
+            activation_serial: self.keyboard_activation_serial(),
         }
     }
 
@@ -1084,5 +1135,243 @@ impl WaylandFrontend {
         &mut self,
     ) -> impl Iterator<Item = (u64, i64, InputMethodTransaction)> + '_ {
         self.input_method.drain_flutter_transactions()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    type Sessions = SessionState<u32, u32, u32>;
+
+    fn focused() -> Sessions {
+        let mut sessions = Sessions::default();
+        sessions.register(1, 10, 1);
+        sessions.set_focus(Some(Focus {
+            surface: 100,
+            client: 10,
+        }));
+        sessions
+    }
+
+    fn enable(sessions: &mut Sessions) {
+        sessions.request_enablement(&1, true);
+        assert_eq!(sessions.commit(&1), CommitEffect::Activated);
+    }
+
+    #[test]
+    fn programmatic_editor_focus_does_not_open_panel() {
+        let mut sessions = focused();
+        enable(&mut sessions);
+        assert!(sessions.instances[0].touch_dismissed);
+    }
+
+    #[test]
+    fn manual_panel_feedback_is_current_once_and_survives_shell_touch_revocation() {
+        let mut broker = TextSessionBroker::default();
+        let current = SoftwareKeyboardState {
+            active: true,
+            input_panel_visible: false,
+            activation_serial: 7,
+            ..SoftwareKeyboardState::default()
+        };
+        assert!(!broker.take_panel_dismissal(current, 6));
+        // A shell drag revokes automatic showing before it finishes dismissing.
+        assert!(broker.take_panel_dismissal(current, 7));
+        assert!(!broker.take_panel_dismissal(current, 7));
+        let next = SoftwareKeyboardState {
+            activation_serial: 8,
+            ..current
+        };
+        assert!(!broker.take_panel_dismissal(next, 7));
+        assert!(!broker.take_panel_dismissal(
+            SoftwareKeyboardState {
+                active: false,
+                ..next
+            },
+            8
+        ));
+        broker.shell_capture = true;
+        assert!(!broker.take_panel_dismissal(next, 8));
+        broker.shell_capture = false;
+        assert!(broker.take_panel_dismissal(next, 8));
+    }
+
+    #[test]
+    fn unfocus_touch_does_not_republish_stale_visible_state() {
+        let mut sessions = focused();
+        let mut broker = TextSessionBroker::default();
+        broker.set_seat_focus(SeatFocusKind::Wayland);
+        broker.note_client_touch(sessions.begin_touch_authorization());
+        enable(&mut sessions);
+        let serial = sessions.activation_serial + broker.activation_serial;
+        assert_eq!(serial, 1);
+
+        // The shell can close its panel without retiring the client's editor.
+        // Until the asynchronous hide arrives, the old visible state remains.
+        broker.note_client_touch(sessions.begin_touch_authorization());
+        assert!(!sessions.instances[0].touch_dismissed);
+        assert_eq!(
+            sessions.activation_serial + broker.activation_serial,
+            serial
+        );
+        sessions.commit(&1); // An empty response is not editor engagement.
+        assert_eq!(
+            sessions.activation_serial + broker.activation_serial,
+            serial
+        );
+        sessions.request_enablement(&1, false);
+        sessions.commit(&1);
+        assert!(sessions.instances[0].touch_dismissed);
+        assert_eq!(
+            sessions.activation_serial + broker.activation_serial,
+            serial
+        );
+    }
+
+    #[test]
+    fn editor_response_reopens_only_once_after_touch() {
+        let mut sessions = focused();
+        sessions.begin_touch_authorization();
+        enable(&mut sessions);
+        assert_eq!(sessions.activation_serial, 1);
+        sessions.begin_touch_authorization();
+        assert_eq!(sessions.activation_serial, 1);
+        sessions.set_content_type(&1, 0, 0);
+        sessions.commit(&1);
+        assert_eq!(sessions.activation_serial, 2);
+        sessions.set_content_type(&1, 0, 0);
+        sessions.commit(&1);
+        enable(&mut sessions);
+        assert_eq!(sessions.activation_serial, 2);
+    }
+
+    #[test]
+    fn explicit_show_counts_activation_when_it_consumes_touch() {
+        let mut sessions = focused();
+        sessions.begin_touch_authorization();
+        sessions.set_input_panel_hint(&1, true);
+        assert_eq!(sessions.activation_serial, 0);
+        enable(&mut sessions);
+        assert_eq!(sessions.activation_serial, 1);
+        sessions.begin_touch_authorization();
+        sessions.set_input_panel_hint(&1, true);
+        assert_eq!(sessions.activation_serial, 2);
+        sessions.set_input_panel_hint(&1, true);
+        sessions.commit(&1);
+        assert_eq!(sessions.activation_serial, 2);
+    }
+
+    #[test]
+    fn legacy_touch_still_requests_keyboard_immediately() {
+        for focus in [SeatFocusKind::Wayland, SeatFocusKind::Xwayland] {
+            let mut broker = TextSessionBroker::default();
+            broker.set_seat_focus(focus);
+            broker.note_client_touch(false);
+            assert!(broker.legacy_touch_keyboard);
+            assert_eq!(broker.activation_serial, 1);
+            broker.note_client_touch(false);
+            assert_eq!(broker.activation_serial, 2);
+        }
+    }
+
+    #[test]
+    fn asynchronous_editor_response_survives_empty_commits() {
+        let mut sessions = focused();
+        assert!(sessions.begin_touch_authorization());
+        // No wall clock participates; processing unrelated state cannot expire
+        // the focused surface's pending editor response.
+        for _ in 0..1024 {
+            sessions.commit(&1);
+        }
+        assert!(sessions.instances[0].touch_authorized);
+        enable(&mut sessions);
+        assert!(!sessions.instances[0].touch_dismissed);
+        assert!(!sessions.instances[0].touch_authorized);
+    }
+
+    #[test]
+    fn repeated_enable_and_client_touches_do_not_flicker() {
+        let mut sessions = focused();
+        sessions.begin_touch_authorization();
+        enable(&mut sessions);
+        enable(&mut sessions);
+        assert!(!sessions.instances[0].touch_dismissed);
+        sessions.begin_touch_authorization();
+        assert!(!sessions.instances[0].touch_dismissed);
+        sessions.set_content_type(&1, 0, 0);
+        sessions.commit(&1);
+        assert!(!sessions.instances[0].touch_dismissed);
+    }
+
+    #[test]
+    fn shell_touch_revokes_pending_and_visible_client_panel() {
+        let mut sessions = focused();
+        sessions.begin_touch_authorization();
+        sessions.dismiss_touch_authorization();
+        enable(&mut sessions);
+        assert!(sessions.instances[0].touch_dismissed);
+        sessions.begin_touch_authorization();
+        enable(&mut sessions);
+        sessions.dismiss_touch_authorization();
+        enable(&mut sessions);
+        assert!(sessions.instances[0].touch_dismissed);
+    }
+
+    #[test]
+    fn focus_change_revokes_grant_even_within_the_same_client() {
+        let mut sessions = focused();
+        sessions.begin_touch_authorization();
+        sessions.set_focus(Some(Focus {
+            surface: 101,
+            client: 10,
+        }));
+        enable(&mut sessions);
+        assert!(sessions.instances[0].touch_dismissed);
+        sessions.begin_touch_authorization();
+        sessions.set_focus(None);
+        sessions.set_focus(Some(Focus {
+            surface: 100,
+            client: 10,
+        }));
+        enable(&mut sessions);
+        assert!(sessions.instances[0].touch_dismissed);
+    }
+
+    #[test]
+    fn switching_editors_can_disable_then_enable_after_the_same_touch() {
+        let mut sessions = focused();
+        sessions.begin_touch_authorization();
+        enable(&mut sessions);
+        sessions.begin_touch_authorization();
+        sessions.request_enablement(&1, false);
+        sessions.commit(&1);
+        assert!(sessions.instances[0].touch_dismissed);
+        enable(&mut sessions);
+        assert!(!sessions.instances[0].touch_dismissed);
+    }
+
+    #[test]
+    fn explicit_hide_prevents_reopening_until_another_touch() {
+        let mut sessions = focused();
+        sessions.begin_touch_authorization();
+        enable(&mut sessions);
+        sessions.set_input_panel_hint(&1, false);
+        sessions.set_input_panel_hint(&1, true);
+        enable(&mut sessions);
+        assert!(sessions.instances[0].touch_dismissed);
+        sessions.begin_touch_authorization();
+        sessions.set_input_panel_hint(&1, true);
+        sessions.commit(&1);
+        assert!(!sessions.instances[0].touch_dismissed);
+    }
+
+    #[test]
+    fn panel_show_before_enable_preserves_authorization() {
+        let mut sessions = focused();
+        sessions.begin_touch_authorization();
+        sessions.set_input_panel_hint(&1, true);
+        enable(&mut sessions);
+        assert!(!sessions.instances[0].touch_dismissed);
     }
 }

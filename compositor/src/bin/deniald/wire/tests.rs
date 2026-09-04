@@ -335,6 +335,38 @@ fn input_layout_with_visible(
     builder.finished_data().to_vec()
 }
 
+#[test]
+fn panel_dismissal_decodes_as_an_intent_not_a_key() {
+    let mut builder = FlatBufferBuilder::new();
+    let command = fb::KeyboardCommand::create(
+        &mut builder,
+        &fb::KeyboardCommandArgs {
+            kind: fb::KeyboardCommandKind::DismissPanel,
+            activation_serial: 42,
+            ..Default::default()
+        },
+    );
+    let envelope = fb::Envelope::create(
+        &mut builder,
+        &fb::EnvelopeArgs {
+            protocol_version: PROTOCOL_VERSION,
+            sequence: 1,
+            payload_type: fb::Payload::KeyboardCommand,
+            payload: Some(command.as_union_value()),
+            ..Default::default()
+        },
+    );
+    fb::finish_envelope_buffer(&mut builder, envelope);
+    let mut bridge = bridge();
+    bridge.handle(builder.finished_data()).unwrap();
+    assert_eq!(
+        bridge.pending_keyboard_commands.pop_front().unwrap(),
+        KeyboardCommand::DismissPanel {
+            activation_serial: 42
+        }
+    );
+}
+
 fn keyboard_command(
     kind: fb::KeyboardCommandKind,
     text: Option<&str>,
@@ -351,6 +383,7 @@ fn keyboard_command(
             text,
             key,
             flags,
+            activation_serial: 0,
         },
     );
     let envelope = fb::Envelope::create(

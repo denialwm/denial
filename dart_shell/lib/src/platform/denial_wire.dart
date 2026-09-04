@@ -301,6 +301,16 @@ class DenialWireCodec {
     );
   }
 
+  Uint8List encodeKeyboardPanelDismissal(int activationSerial) {
+    return _encodeEnvelope(
+      generated.PayloadTypeId.KeyboardCommand,
+      generated.KeyboardCommandObjectBuilder(
+        kind: generated.KeyboardCommandKind.DismissPanel,
+        activationSerial: activationSerial,
+      ),
+    );
+  }
+
   Uint8List encodeKeyboardKey(
     String key, {
     bool ctrl = false,

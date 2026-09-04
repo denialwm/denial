@@ -209,6 +209,7 @@ impl WireBridge {
         legacy: bool,
         content_hint: u32,
         content_purpose: u32,
+        activation_serial: u64,
     ) -> Result<&[u8], WireError> {
         if input_panel_visible && !active {
             return Err(WireError::Payload);
@@ -223,6 +224,7 @@ impl WireBridge {
             legacy,
             content_hint,
             content_purpose,
+            activation_serial,
         )?;
         Ok(self.outbound_builder.finished_data())
     }
@@ -874,6 +876,7 @@ fn encode_text_input_state(
     legacy: bool,
     content_hint: u32,
     content_purpose: u32,
+    activation_serial: u64,
 ) -> Result<(), WireError> {
     let state = fb::TextInputState::create(
         builder,
@@ -883,6 +886,7 @@ fn encode_text_input_state(
             legacy,
             content_hint,
             content_purpose,
+            activation_serial,
         },
     );
     let envelope = fb::Envelope::create(

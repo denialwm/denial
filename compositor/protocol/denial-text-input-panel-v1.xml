@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="denial_text_input_panel_v1">
+  <copyright>Copyright 2026 Denial contributors. SPDX-License-Identifier: MIT</copyright>
+  <!-- Added for Droidloom: Android must learn that the host keyboard was
+       dismissed, so tapping an already-focused editor can request it again.
+       This optional extension is generic and does not change window/input paths. -->
+  <interface name="denial_text_input_panel_manager_v1" version="1">
+    <description summary="feedback for a text-input-v3 input panel">
+      Adds host dismissal feedback missing from text-input-v3. Creating a
+      feedback object neither activates text input nor shows a keyboard.
+      One feedback object is allowed per text input. The associated text input
+      must belong to this client. Destroying it makes feedback inert.
+    </description>
+    <enum name="error"><entry name="invalid_text_input" value="0" summary="invalid or duplicate text input"/></enum>
+    <request name="destroy" type="destructor"/>
+    <request name="get_panel">
+      <arg name="id" type="new_id" interface="denial_text_input_panel_v1"/>
+      <arg name="text_input" type="object" interface="zwp_text_input_v3"/>
+    </request>
+  </interface>
+  <interface name="denial_text_input_panel_v1" version="1">
+    <description summary="host panel dismissal for one text input">
+      Only an explicit user dismissal generates this event. Client disable,
+      focus loss, compositor startup and automatic panel hiding do not.
+      This does not request focus loss, text submission or application navigation.
+      Other compositors may omit the extension; clients must remain usable.
+    </description>
+    <request name="destroy" type="destructor"/>
+    <event name="dismissed">
+      <description summary="user dismissed the input panel">
+        Serial is the associated text-input-v3 commit count at dismissal.
+        Ignore an event whose serial no longer identifies the current editor
+        state. This event is immediate, not part of a text-input done batch.
+        Repeated dismissal without renewed editor engagement is ignored.
+      </description>
+      <arg name="serial" type="uint"/>
+    </event>
+  </interface>
+</protocol>
