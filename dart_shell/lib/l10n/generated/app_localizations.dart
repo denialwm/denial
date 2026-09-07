@@ -98,6 +98,12 @@ abstract class AppLocalizations {
     Locale('zh'),
   ];
 
+  /// Accessible label for a home widget resize handle.
+  ///
+  /// In en, this message translates to:
+  /// **'Resize widget'**
+  String get homeResizeWidget;
+
   /// English UI text for actionCancel.
   ///
   /// In en, this message translates to:
@@ -2830,6 +2836,114 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Minimum pixel opacity for blur'**
   String get settingsBackdropBlurOpacityThreshold;
+
+  /// Title for choosing the visual material behind translucent shell surfaces.
+  ///
+  /// In en, this message translates to:
+  /// **'Transparency material'**
+  String get settingsTransparencyTitle;
+
+  /// Transparency material choice that disables backdrop processing.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get settingsTransparencyOff;
+
+  /// Transparency material choice for the existing backdrop blur.
+  ///
+  /// In en, this message translates to:
+  /// **'Blur'**
+  String get settingsTransparencyBlur;
+
+  /// Transparency material choice for Denial's native glass effect.
+  ///
+  /// In en, this message translates to:
+  /// **'Glass'**
+  String get settingsTransparencyGlass;
+
+  /// Description of the disabled transparency material.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave translucent surfaces clear without processing the desktop behind them.'**
+  String get settingsTransparencyOffDescription;
+
+  /// Description of the existing blur material.
+  ///
+  /// In en, this message translates to:
+  /// **'Use Denial’s current fast Gaussian backdrop blur.'**
+  String get settingsTransparencyBlurDescription;
+
+  /// Description of the native glass material.
+  ///
+  /// In en, this message translates to:
+  /// **'Refract the sharp desktop through a frosted, accent-tinted lens with directional edge lighting.'**
+  String get settingsTransparencyGlassDescription;
+
+  /// Glass setting controlling the backdrop blur radius.
+  ///
+  /// In en, this message translates to:
+  /// **'Frost'**
+  String get settingsGlassFrost;
+
+  /// Glass setting controlling intermediate texture resolution.
+  ///
+  /// In en, this message translates to:
+  /// **'Render quality'**
+  String get settingsGlassQuality;
+
+  /// Glass setting controlling the width of the refractive edge.
+  ///
+  /// In en, this message translates to:
+  /// **'Optical thickness'**
+  String get settingsGlassThickness;
+
+  /// Glass setting controlling background displacement.
+  ///
+  /// In en, this message translates to:
+  /// **'Refraction'**
+  String get settingsGlassRefraction;
+
+  /// Glass setting controlling chromatic separation.
+  ///
+  /// In en, this message translates to:
+  /// **'Color dispersion'**
+  String get settingsGlassDispersion;
+
+  /// Glass setting controlling backdrop color saturation.
+  ///
+  /// In en, this message translates to:
+  /// **'Saturation'**
+  String get settingsGlassSaturation;
+
+  /// Glass setting controlling how much of the shell accent is mixed into the material.
+  ///
+  /// In en, this message translates to:
+  /// **'Accent tint'**
+  String get settingsGlassAccentTint;
+
+  /// Glass setting controlling adaptive brightening or darkening.
+  ///
+  /// In en, this message translates to:
+  /// **'Luminosity'**
+  String get settingsGlassBrightness;
+
+  /// Glass setting controlling the angle of the simulated key light.
+  ///
+  /// In en, this message translates to:
+  /// **'Light direction'**
+  String get settingsGlassLightAngle;
+
+  /// Glass setting controlling directional lighting strength.
+  ///
+  /// In en, this message translates to:
+  /// **'Light intensity'**
+  String get settingsGlassLightIntensity;
+
+  /// Glass setting controlling rim and caustic highlights.
+  ///
+  /// In en, this message translates to:
+  /// **'Edge shine'**
+  String get settingsGlassEdgeStrength;
 
   /// English UI text for settingsBackdropDimming.
   ///

@@ -1,0 +1,47 @@
+[
+  {
+    "run": 1,
+    "complete_audit_windows": 29,
+    "presented_outputs": 1764.0,
+    "audit_seconds": 29.465409364,
+    "frame_damage_avg_pct": 100.0,
+    "buffer_damage_avg_pct": 100.0,
+    "gpu_flutter_render_avg_us": 8218.468586734694,
+    "raster_to_output_ready_avg_us": 1956.4889495464854,
+    "frame_damage_full": 1764.0,
+    "buffer_damage_full": 1764.0,
+    "target_blocked_exhausted": 0.0,
+    "raster_restarts": 0.0,
+    "gpu_timer_disjoint": 0.0
+  },
+  {
+    "run": 2,
+    "complete_audit_windows": 28,
+    "presented_outputs": 1707.0,
+    "audit_seconds": 28.449176375,
+    "frame_damage_avg_pct": 100.0,
+    "buffer_damage_avg_pct": 100.0,
+    "gpu_flutter_render_avg_us": 8160.976269478618,
+    "raster_to_output_ready_avg_us": 1932.6818148799064,
+    "frame_damage_full": 1707.0,
+    "buffer_damage_full": 1707.0,
+    "target_blocked_exhausted": 0.0,
+    "raster_restarts": 0.0,
+    "gpu_timer_disjoint": 0.0
+  },
+  {
+    "run": 3,
+    "complete_audit_windows": 28,
+    "presented_outputs": 1704.0,
+    "audit_seconds": 28.432280709,
+    "frame_damage_avg_pct": 100.0,
+    "buffer_damage_avg_pct": 100.0,
+    "gpu_flutter_render_avg_us": 8186.458142605633,
+    "raster_to_output_ready_avg_us": 1919.3840252347418,
+    "frame_damage_full": 1704.0,
+    "buffer_damage_full": 1704.0,
+    "target_blocked_exhausted": 0.0,
+    "raster_restarts": 0.0,
+    "gpu_timer_disjoint": 0.0
+  }
+]

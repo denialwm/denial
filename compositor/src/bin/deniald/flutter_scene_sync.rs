@@ -21,12 +21,7 @@ pub(super) fn try_synchronize_flutter_buffers(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &mut RuntimeState,
 ) -> Result<bool, Box<dyn Error>> {
-    if events.scene_sync.pending_metadata_revision().is_some()
-        || events
-            .native_app_plugins
-            .as_ref()
-            .is_some_and(native_app_plugin::NativeAppPluginManager::scene_dirty)
-    {
+    if events.scene_sync.pending_metadata_revision().is_some() {
         return Ok(false);
     }
 
@@ -58,15 +53,7 @@ pub(super) fn synchronize_flutter_scene(
 ) -> Result<(), Box<dyn Error>> {
     let mut metadata_revision = events.scene_sync.pending_metadata_revision();
     let pending_buffer_revision = events.scene_sync.pending_buffer_revision();
-    let native_scene_dirty = events
-        .native_app_plugins
-        .as_ref()
-        .is_some_and(native_app_plugin::NativeAppPluginManager::scene_dirty);
-    if native_scene_dirty && metadata_revision.is_none() {
-        events.scene_sync.mark_dirty();
-        metadata_revision = events.scene_sync.pending_metadata_revision();
-    }
-    if metadata_revision.is_none() && pending_buffer_revision.is_none() && !native_scene_dirty {
+    if metadata_revision.is_none() && pending_buffer_revision.is_none() {
         return Ok(());
     }
 
@@ -94,17 +81,12 @@ pub(super) fn synchronize_flutter_scene(
             .map(wayland_frontend::WaylandFrontend::live_toplevel_ids)
             .unwrap_or_default()
     });
-    let (mut windows, mut textures) = events
+    let (windows, textures) = events
         .wayland
         .as_mut()
         .map(wayland_frontend::WaylandFrontend::flutter_scene)
         .transpose()?
         .unwrap_or_default();
-    if let Some(manager) = events.native_app_plugins.as_ref() {
-        let (native_windows, native_textures) = manager.scene();
-        windows.extend(native_windows);
-        textures.extend(native_textures);
-    }
     let flutter_runtime::SyncedWaylandScene {
         windows,
         textures,
@@ -124,9 +106,6 @@ pub(super) fn synchronize_flutter_scene(
     }
     if let Some(frontend) = events.wayland.as_mut() {
         frontend.recycle_flutter_scene(windows, textures);
-    }
-    if let Some(manager) = events.native_app_plugins.as_mut() {
-        manager.mark_scene_synchronized();
     }
     // A later Wayland commit has a newer revision, so acknowledging this
     // captured revision cannot erase work that arrived while Flutter/KMS was
@@ -172,11 +151,6 @@ pub(super) fn synchronize_flutter_input_layout(
     let Some(layout) = runtime.take_input_layout_update() else {
         return Ok(());
     };
-    if let Some(manager) = events.native_app_plugins.as_mut()
-        && let Err(error) = manager.apply_input_layout(&layout)
-    {
-        warn!(%error, "could not apply native plugin input visibility");
-    }
     let Some(frontend) = events.wayland.as_mut() else {
         runtime.recycle_input_layout(layout);
         return Ok(());

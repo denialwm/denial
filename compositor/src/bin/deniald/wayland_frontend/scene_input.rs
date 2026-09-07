@@ -43,13 +43,6 @@ pub(super) fn constrain_pointer_to_outputs(
 
 impl WaylandFrontend {
     #[cfg(feature = "flutter")]
-    pub(crate) fn has_pending_frame_callbacks(&self) -> bool {
-        !self.pending_frame_callback_windows.is_empty()
-            || !self.pending_input_method_frame_callbacks.is_empty()
-            || !self.pending_cursor_frame_callback_roots.is_empty()
-    }
-
-    #[cfg(feature = "flutter")]
     pub(super) fn queue_cursor_state_for_flutter_generation(&mut self) {
         self.published_cursor_state = None;
         if !self.pointer_cursor_visible {
@@ -270,6 +263,8 @@ impl WaylandFrontend {
         let mut feedback_delivered = false;
         let observed_now = Instant::now();
         for presented_output in outputs.iter().copied() {
+            self.frame_timeline
+                .presented(presented_output.id, presented_output.logical_sequence);
             if let Some(entry) = self
                 .outputs
                 .iter_mut()
@@ -292,7 +287,7 @@ impl WaylandFrontend {
     #[cfg(feature = "flutter")]
     pub fn frame_tick(&mut self, tick: FrameTick) -> Result<(), Box<dyn Error>> {
         let callback_time = self.presentation.timeline_time(tick.render_deadline);
-        let mut sent = 0usize;
+        let mut sent = self.publish_frame_grant(tick);
         if !self.pending_frame_callback_windows.is_empty() {
             for window in self.output_window_membership.windows(tick.output) {
                 let Some(root) = window.wl_surface() else {
@@ -403,6 +398,10 @@ impl WaylandFrontend {
             return;
         };
         let mut target = output_geometry;
+        #[cfg(feature = "flutter")]
+        if let Some(mobile) = self.mobile_window_geometry(window) {
+            target = mobile;
+        }
         target.loc = saturating_point_sub(
             saturating_point_sub(target.loc, parent_offset),
             window_geometry.loc,

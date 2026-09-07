@@ -363,3 +363,46 @@ class _HomeClockThermalText extends StatelessWidget {
     );
   }
 }
+
+double _scaled(double value, double scale, double min, double max) {
+  return (value * scale).clamp(min, max).toDouble();
+}
+
+Color _batteryAccentColor(HomePowerStatus power) {
+  if (power.voocCharging) {
+    return ShellTelemetryColors.chargingVooc;
+  }
+  if (power.ppsCharging) {
+    return ShellTelemetryColors.chargingPps;
+  }
+  if (power.pdCharging) {
+    return ShellTelemetryColors.chargingPd;
+  }
+  if (power.fastCharge || power.state == 'charging') {
+    return ShellTelemetryColors.charging;
+  }
+  if (power.state == 'discharging') {
+    final capacity = power.capacity;
+    if (capacity == null || capacity >= 20) {
+      return ShellMediaColors.lightForeground;
+    }
+    if (capacity >= 15) {
+      return ShellTelemetryColors.warning;
+    }
+    return ShellTelemetryColors.danger;
+  }
+  return ShellMediaColors.lightForegroundSecondary;
+}
+
+Color _temperatureColor(int deciC) {
+  if (deciC >= 800) {
+    return ShellTelemetryColors.danger;
+  }
+  if (deciC >= 700) {
+    return ShellTelemetryColors.warm;
+  }
+  if (deciC >= 550) {
+    return ShellTelemetryColors.warning;
+  }
+  return ShellTelemetryColors.nominal;
+}

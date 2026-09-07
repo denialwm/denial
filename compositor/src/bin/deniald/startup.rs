@@ -548,7 +548,7 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
         None
     };
     #[cfg(feature = "flutter")]
-    let flutter = if let Some(launcher) = flutter_launcher.as_mut() {
+    let mut flutter = if let Some(launcher) = flutter_launcher.as_mut() {
         Some(
             launcher.start(
                 &renderer,
@@ -633,7 +633,7 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
                         .publisher(),
                     portal_ipc: portal_ipc_server.as_ref().map(PortalIpcServer::publisher),
                     wayland,
-                    flutter: flutter.ok_or("Flutter runtime was not initialized")?,
+                    flutter: &mut flutter,
                     flutter_launcher: flutter_launcher
                         .as_mut()
                         .ok_or("Flutter launcher was not initialized")?,
@@ -658,7 +658,7 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
                 restore_state: &mut restore_state,
                 wayland,
                 #[cfg(feature = "flutter")]
-                flutter,
+                flutter: flutter.take(),
                 #[cfg(feature = "flutter")]
                 flutter_launcher: flutter_launcher.as_mut(),
                 frame_count,
@@ -706,7 +706,8 @@ pub(super) fn run(options: Options) -> Result<(), Box<dyn Error>> {
         // but an error or panic can leave the Flutter loop before reaching
         // that code. Never let such an exceptional exit fall through to the
         // synchronous atomic restore below: the display manager owns the next
-        // modeset.
+        // modeset. The Flutter event loop only borrows its runtime, so an
+        // exceptional return also retains the engine until after this handoff.
         kms.pause();
     }
     let restore = kms.restore_once(&restore_state, current_fb);

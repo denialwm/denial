@@ -165,6 +165,14 @@ class _DesktopApplicationLauncherState
   }
 
   void _handleVisibilityChanged(bool? previous, bool visible) {
+    // Preserve the exact launcher presentation while it fades out. Resetting
+    // the query here on close would replace filtered results with the complete
+    // catalog while the panel is still visible. The next open notification is
+    // delivered before its first rendered frame, so prepare the clean launcher
+    // then instead.
+    if (!visible) {
+      return;
+    }
     final targets = _visibleTargets;
     final previousIndex = _selectedIndexFor(targets);
     final previousSelection = previousIndex < 0
@@ -178,7 +186,7 @@ class _DesktopApplicationLauncherState
       _setTileSelected(targets.first.selectionId, true);
     }
     _resetGridScroll();
-    if (!visible && _searchController.text.isNotEmpty) {
+    if (_searchController.text.isNotEmpty) {
       _searchController.clear();
     }
   }

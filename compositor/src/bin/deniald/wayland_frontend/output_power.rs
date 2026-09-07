@@ -126,7 +126,11 @@ impl WaylandFrontend {
         let Some(entry) = self.outputs.iter_mut().find(|entry| entry.id == output) else {
             return;
         };
+        let changed = entry.powered != powered;
         entry.powered = powered;
+        if changed {
+            self.invalidate_frame_timeline();
+        }
         if !powered {
             self.fail_screencopies_for_output(output);
         }

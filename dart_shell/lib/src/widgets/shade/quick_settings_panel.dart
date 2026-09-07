@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -20,6 +19,7 @@ import '../connectivity/bluetooth_detail_surface.dart';
 import '../connectivity/wifi_detail_surface.dart';
 import '../session/power_session_surface.dart';
 import '../shell_backdrop_blur.dart';
+import '../retained_translation.dart';
 import '../shell_surface_host.dart';
 import 'quick_settings_tiles.dart';
 import 'range_bar.dart';
@@ -28,21 +28,23 @@ import 'status_glyphs.dart';
 /// The sliding quick-settings panel. [progress] is `0` when fully hidden and
 /// `1` when fully open; the panel translates in from the top edge accordingly.
 class QuickSettingsShade extends ConsumerWidget {
-  const QuickSettingsShade({super.key, required this.progress});
+  const QuickSettingsShade({
+    super.key,
+    required this.progress,
+    this.active = true,
+  });
 
-  final double progress;
+  final Animation<double> progress;
+  final bool active;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.read(shellControllerProvider.notifier);
     final size = MediaQuery.sizeOf(context);
-    final linearProgress = progress.clamp(0.0, 1.0).toDouble();
-    final panelHeight = math
-        .min(size.height * 0.74, ShellMetrics.quickSettingsPanelHeight)
-        .toDouble();
+    final panelHeight = ShellMetrics.quickSettingsPanelExtent(size);
 
     return IgnorePointer(
-      ignoring: linearProgress < 0.02,
+      ignoring: !active,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -51,12 +53,15 @@ class QuickSettingsShade extends ConsumerWidget {
             onTap: controller.closeQuickSettings,
             child: const SizedBox.expand(),
           ),
-          Transform.translate(
-            offset: Offset(0.0, -panelHeight * (1.0 - linearProgress)),
-            child: Align(
-              alignment: Alignment.topCenter,
+          Align(
+            alignment: Alignment.topCenter,
+            child: RetainedTranslation(
+              translation: progress.drive(
+                Tween(begin: Offset(0, -panelHeight), end: Offset.zero),
+              ),
               child: Focus(
-                autofocus: true,
+                autofocus: active,
+                canRequestFocus: active,
                 onKeyEvent: (_, event) {
                   if (event is KeyDownEvent &&
                       event.logicalKey == LogicalKeyboardKey.escape) {
@@ -94,6 +99,7 @@ class _ControlPanel extends StatelessWidget {
     return RepaintBoundary(
       child: ShellBackdropBlur(
         blur: theme.effectivePanelOpacity < 1.0,
+        separateChild: true,
         borderRadius: BorderRadius.vertical(
           bottom: Radius.circular(theme.panelRadius),
         ),
@@ -103,12 +109,15 @@ class _ControlPanel extends StatelessWidget {
               context.shellColors.panelBackground,
               context.shellColors.panelBackgroundBottom,
             ),
+            borderRadius: BorderRadius.vertical(
+              bottom: Radius.circular(theme.panelRadius),
+            ),
             border: Border(
-              bottom: BorderSide(color: context.shellColors.hairline, width: 1),
+              bottom: BorderSide(color: context.shellColors.hairline),
             ),
           ),
           child: Padding(
-            padding: EdgeInsets.fromLTRB(20, padding.top + 18, 20, 12),
+            padding: EdgeInsets.fromLTRB(16, padding.top + 12, 16, 8),
             child: const Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -135,13 +144,11 @@ class _ControlContents extends StatelessWidget {
       primary: false,
       padding: EdgeInsets.zero,
       children: const [
-        _QuickSettingsTilesSection(),
+        RepaintBoundary(child: _QuickSettingsTilesSection()),
         SizedBox(height: 14),
-        _BrightnessRangeBar(),
+        RepaintBoundary(child: _BrightnessRangeBar()),
         SizedBox(height: 10),
-        _VolumeRangeBar(),
-        SizedBox(height: 12),
-        _ShadePowerFooter(),
+        RepaintBoundary(child: _VolumeRangeBar()),
       ],
     );
   }
@@ -271,15 +278,6 @@ class _VolumeRangeBar extends ConsumerWidget {
   }
 }
 
-class _ShadePowerFooter extends ConsumerWidget {
-  const _ShadePowerFooter();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return ShadeFooter(onOpenPower: () => showPowerSessionSurface(ref));
-  }
-}
-
 class _ShadeHeader extends ConsumerWidget {
   const _ShadeHeader();
 
@@ -292,26 +290,39 @@ class _ShadeHeader extends ConsumerWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              localizedTime(context, now),
-              softWrap: false,
-              style: ShellText.shadeClock,
-            ),
-            const SizedBox(height: 7),
-            Text(
-              l10n.quickSettingsDate(_weekday(now.weekday, l10n), now.day),
-              softWrap: false,
-              style: ShellText.shadeDate,
-            ),
-          ],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  localizedTime(context, now),
+                  softWrap: false,
+                  style: ShellText.shadeClock,
+                ),
+              ),
+              const SizedBox(height: 7),
+              Text(
+                l10n.quickSettingsDate(_weekday(now.weekday, l10n), now.day),
+                softWrap: false,
+                style: ShellText.shadeDate,
+              ),
+            ],
+          ),
         ),
-        const Spacer(),
-        Padding(
-          padding: const EdgeInsets.only(top: 2),
-          child: _StatusPill(child: StatusCluster(battery: battery)),
+        const SizedBox(width: 12),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: _StatusPill(child: StatusCluster(battery: battery)),
+            ),
+            const SizedBox(height: 12),
+            ShadeActions(onOpenPower: () => showPowerSessionSurface(ref)),
+          ],
         ),
       ],
     );
@@ -376,8 +387,15 @@ class _ShadeHandle extends ConsumerWidget {
           behavior: HitTestBehavior.opaque,
           onTap: controller.closeQuickSettings,
           onVerticalDragStart: (_) => controller.startQuickSettingsDrag(),
-          onVerticalDragUpdate: (details) =>
-              controller.updateQuickSettingsDrag(Offset(0.0, details.delta.dy)),
+          onVerticalDragUpdate: (details) => controller.updateQuickSettingsDrag(
+            Offset(
+              0.0,
+              details.delta.dy *
+                  ShellMetrics.quickSettingsDragScale(
+                    MediaQuery.sizeOf(context),
+                  ),
+            ),
+          ),
           onVerticalDragEnd: (details) =>
               controller.endQuickSettingsDrag(details.primaryVelocity ?? 0.0),
           onVerticalDragCancel: () => controller.endQuickSettingsDrag(0.0),

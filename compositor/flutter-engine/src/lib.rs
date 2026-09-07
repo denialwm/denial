@@ -15,6 +15,29 @@ use libloading::Library;
 
 mod host;
 
+/// Virtual canvas for an imported external texture. Rectangles use x/y/width/height.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ExternalTexturePresentation {
+    pub struct_size: usize,
+    pub width: f64,
+    pub height: f64,
+    pub source: [f64; 4],
+    pub destination: [f64; 4],
+    /// Filled from the visible source's (5, 5) texel by the engine on the GPU.
+    pub background: [f64; 4],
+    /// Fallback when no source texel is available; no CPU colour sampling.
+    pub background_argb: u32,
+}
+
+type TexturePresentationCallback =
+    Option<unsafe extern "C" fn(*mut c_void, i64, *mut ExternalTexturePresentation) -> bool>;
+type SetTexturePresentationCallback = unsafe extern "C" fn(
+    sys::FlutterEngine,
+    TexturePresentationCallback,
+    *mut c_void,
+) -> sys::FlutterEngineResult;
+
 pub use host::{
     BackingStoreRequest, CompositorBackingStore, DartRuntimeMode, EngineEvent, EngineHost,
     EngineProject, HostError, OpenGlHandler, ParseRendererBackendError, PlatformMessage,
@@ -202,6 +225,7 @@ pub struct EngineLibrary {
         Option<unsafe extern "C" fn(*mut c_void, i64) -> bool>,
         *mut c_void,
     ) -> sys::FlutterEngineResult,
+    set_texture_presentation_callback: SetTexturePresentationCallback,
     _library: Library,
 }
 
@@ -289,6 +313,15 @@ impl EngineLibrary {
                 )
                 .map_err(LoadError::Symbol)?
         };
+        // SAFETY: this extension has the C layout declared above and remains
+        // loaded with the same engine library for the entire host lifetime.
+        let set_texture_presentation_callback = unsafe {
+            *library
+                .get::<SetTexturePresentationCallback>(
+                    b"DenialFlutterEngineSetExternalTexturePresentationCallback\0",
+                )
+                .map_err(LoadError::Symbol)?
+        };
         // SAFETY: the C API explicitly requires a zero-initialized table with
         // only `struct_size` populated before the call.
         let mut table: sys::FlutterEngineProcTable = unsafe { mem::zeroed() };
@@ -332,6 +365,7 @@ impl EngineLibrary {
             schedule_frame_for_external_textures,
             render_outputs,
             set_external_texture_gl_state_callback,
+            set_texture_presentation_callback,
             _library: library,
         })
     }
@@ -548,6 +582,21 @@ impl RunningEngine {
         // copies the function and opaque pointer into its retained resolver.
         check_result("SetExternalTextureGlStateCallback", unsafe {
             function(self.handle, callback, user_data)
+        })
+    }
+
+    /// Install the virtual-canvas callback before registering textures.
+    ///
+    /// # Safety
+    /// Callback data must outlive the engine and callbacks must not unwind.
+    pub(crate) unsafe fn set_texture_presentation_callback(
+        &self,
+        callback: TexturePresentationCallback,
+        data: *mut c_void,
+    ) -> Result<(), EngineError> {
+        // SAFETY: upheld by the caller; the engine retains the callback.
+        check_result("SetExternalTexturePresentationCallback", unsafe {
+            (self.library.set_texture_presentation_callback)(self.handle, callback, data)
         })
     }
 

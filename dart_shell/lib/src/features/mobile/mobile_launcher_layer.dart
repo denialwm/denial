@@ -12,30 +12,27 @@ class MobileLauncherLayer extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final flags = ref.watch(
       shellControllerProvider.select((state) {
-        final heroOwnsForeground =
-            state.foregroundWindow != null &&
-            (state.overviewVisible ||
-                state.gestureDrag.dy < 0.0 ||
-                state.homeTransitionActive);
-        final active = state.primaryWindow == null || heroOwnsForeground;
+        final active =
+            !state.overviewVisible &&
+            state.gestureDrag.dy >= 0 &&
+            (state.primaryWindow == null || state.homeTransitionActive);
         return (
           active: active,
           interactive:
               active &&
               !state.launchTransitionActive &&
               !state.overviewVisible &&
+              state.gestureDrag == Offset.zero &&
               !state.homeTransitionActive &&
               state.quickSettingsDragProgress == 0.0 &&
               !state.lockLayerVisible,
         );
       }),
     );
-    return Offstage(
-      offstage: !flags.active,
-      child: IgnorePointer(
-        ignoring: !flags.interactive,
-        child: const HomeSurface(useShellLaunchTransition: true),
-      ),
+    return HomeSurface(
+      active: flags.active,
+      interactive: flags.interactive,
+      useShellLaunchTransition: true,
     );
   }
 }

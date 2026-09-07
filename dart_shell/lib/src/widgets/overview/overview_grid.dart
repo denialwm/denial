@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/widgets.dart';
 
@@ -19,13 +18,17 @@ class OverviewGrid extends StatelessWidget {
     required this.windows,
     required this.progress,
     required this.foregroundObjectId,
+    this.foregroundInHero = false,
+    this.focusingObjectId,
     required this.onDismissWindow,
     required this.onFocusWindow,
   });
 
   final List<DenialWindow> windows;
-  final double progress;
+  final Animation<double> progress;
   final int? foregroundObjectId;
+  final bool foregroundInHero;
+  final int? focusingObjectId;
   final ValueChanged<DenialWindow> onDismissWindow;
   final void Function(DenialWindow window, Rect startRect) onFocusWindow;
 
@@ -90,7 +93,7 @@ class OverviewGrid extends StatelessWidget {
 
     return AnimatedPositioned(
       key: ValueKey<int>(window.objectId),
-      duration: progress >= 0.995 ? Motion.cardSettle : Duration.zero,
+      duration: progress.value >= 0.995 ? Motion.cardSettle : Duration.zero,
       curve: Motion.md3Emphasized,
       left: itemRect.left,
       top: itemRect.top,
@@ -102,11 +105,9 @@ class OverviewGrid extends StatelessWidget {
         originOffset: originRect.center - previewRect.center,
         child: OverviewWindowCard(
           window: window,
-          index: visualIndex,
-          progress: progress,
-          pageOffset: 0.0,
           cardSize: layout.cardSize,
-          hidden: foregroundObjectId == window.objectId && progress < 0.995,
+          foreground: foregroundInHero && foregroundObjectId == window.objectId,
+          focusing: focusingObjectId == window.objectId,
           onDismiss: onDismissWindow,
           onFocus: onFocusWindow,
         ),
@@ -136,7 +137,7 @@ class _OverviewGridEntry extends StatelessWidget {
     required this.child,
   });
 
-  final double progress;
+  final Animation<double> progress;
   final int delayRank;
   final Offset originOffset;
   final Widget child;
@@ -144,21 +145,21 @@ class _OverviewGridEntry extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final delay = 0.06 + delayRank * 0.035;
-    final rawEntry = interval(progress, delay, math.min(0.86, delay + 0.68));
-    final entry = Motion.md3EmphasizedDecelerate.transform(rawEntry);
-    final offset = Offset.lerp(originOffset, Offset.zero, entry)!;
-    final scale = lerpDouble(0.76, 1.0, entry)!;
-
-    return Opacity(
-      opacity: unit(rawEntry * 1.45),
-      child: Transform.translate(
-        offset: offset,
-        child: Transform.scale(
-          scale: scale,
-          alignment: Alignment.topCenter,
+    return AnimatedBuilder(
+      animation: progress,
+      child: child,
+      builder: (context, child) {
+        final rawEntry = interval(
+          unit(progress.value),
+          delay,
+          math.min(0.86, delay + 0.68),
+        );
+        final entry = Motion.md3EmphasizedDecelerate.transform(rawEntry);
+        return Transform.translate(
+          offset: Offset.lerp(originOffset, Offset.zero, entry)!,
           child: child,
-        ),
-      ),
+        );
+      },
     );
   }
 }

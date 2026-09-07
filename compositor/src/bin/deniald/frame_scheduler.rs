@@ -30,6 +30,10 @@ const PHASE_LOCK_GAIN_DIVISOR: i128 = 8;
 pub(super) struct FrameTick {
     pub(super) output: OutputId,
     pub(super) sequence: u64,
+    /// Stable period derived from the configured output mode. Phase locking
+    /// moves presentation targets but never changes this cadence identity.
+    pub(super) nominal_interval: Duration,
+    /// Phase-corrected duration from this render deadline to its target.
     pub(super) interval: Duration,
     pub(super) render_deadline: Instant,
     pub(super) presentation_target: Instant,
@@ -529,6 +533,7 @@ impl OutputTimeline {
         Some(FrameTick {
             output: self.source.output,
             sequence,
+            nominal_interval: self.source.interval,
             interval: presentation_target.saturating_duration_since(render_deadline),
             render_deadline,
             presentation_target,
@@ -586,4 +591,38 @@ fn refresh_interval(scanout: &Scanout) -> Duration {
         .filter(|refresh| *refresh > 0)
         .unwrap_or(60_000);
     Duration::from_nanos(1_000_000_000_000 / refresh_millihz)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn phase_correction_does_not_change_cadence_identity() {
+        let now = Instant::now();
+        let nominal = Duration::from_micros(8_333);
+        let mut timeline = OutputTimeline::new(
+            TimelineSource {
+                output: OutputId(7),
+                interval: nominal,
+            },
+            now,
+        );
+
+        let first = timeline.take_tick(now).expect("initial tick");
+        assert_eq!(first.nominal_interval, nominal);
+        assert_eq!(first.interval, nominal);
+
+        timeline.pending_phase_adjustment_nanos = 100_000;
+        let second_deadline = timeline.next_tick;
+        let second = timeline
+            .take_tick(second_deadline)
+            .expect("phase-corrected tick");
+        assert_eq!(second.nominal_interval, nominal);
+        assert_eq!(second.interval, nominal + Duration::from_micros(100));
+        assert_eq!(
+            second.presentation_target,
+            second.render_deadline + second.interval
+        );
+    }
 }

@@ -1099,7 +1099,8 @@ fn png_dimensions(data: &[u8]) -> Option<(u32, u32)> {
 }
 
 fn jpeg_dimensions(data: &[u8]) -> Option<(u32, u32)> {
-    data.strip_circumfix(&[0xff, 0xd8], &[0xff, 0xd9])?;
+    data.strip_prefix(&[0xff, 0xd8])?
+        .strip_suffix(&[0xff, 0xd9])?;
     let mut cursor = 2usize;
     while cursor + 1 < data.len() {
         while data.get(cursor) == Some(&0xff) {

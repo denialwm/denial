@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+"""Run the explicitly enabled shell cursor workload and retain comparable data."""
+
+import argparse
+import datetime
+import json
+import math
+import pathlib
+import shlex
+import subprocess
+import sys
+
+
+# This worker runs on the target so SSH transport cannot affect CPU boundaries.
+WORKER = r'''
+import hashlib, json, os, pathlib, socket, sys, time
+
+request = json.loads(sys.argv[1])
+path = sys.argv[2]
+
+def send(value):
+    print(json.dumps(value), flush=True)
+
+def digest(path):
+    with open(path, 'rb') as source:
+        return hashlib.file_digest(source, 'sha256').hexdigest()
+
+def stat(path):
+    value = pathlib.Path(path).read_text()
+    name = value[value.index('(') + 1:value.rindex(')')]
+    fields = value[value.rindex(')') + 2:].split()
+    return {'name': name, 'user': int(fields[11]), 'system': int(fields[12]),
+            'start': int(fields[19])}
+
+def sample(pid):
+    threads = {}
+    for entry in pathlib.Path(f'/proc/{pid}/task').iterdir():
+        try:
+            threads[entry.name] = stat(entry / 'stat')
+        except FileNotFoundError:
+            pass
+    gpu = {}
+    for entry in pathlib.Path(f'/proc/{pid}/fdinfo').iterdir():
+        try:
+            fields = dict(line.split(':', 1) for line in entry.read_text().splitlines()
+                          if line.startswith('drm-') and ':' in line)
+        except (FileNotFoundError, PermissionError):
+            continue
+        if 'drm-client-id' not in fields:
+            continue
+        key = '/'.join(fields.get(k, '').strip() for k in
+                       ('drm-driver', 'drm-pdev', 'drm-client-id'))
+        gpu[key] = {k: int(v.split()[0]) for k, v in fields.items()
+                    if k.startswith('drm-engine-') and v.strip().endswith(' ns')}
+    return {'monotonic_ns': time.monotonic_ns(),
+            'process': stat(f'/proc/{pid}/stat'), 'threads': threads, 'gpu': gpu}
+
+def metadata(pid):
+    maps = pathlib.Path(f'/proc/{pid}/maps').read_text().splitlines()
+    files = {line.split()[-1] for line in maps
+             if line.endswith('/libflutter_engine.so') or line.endswith('/libapp.so')}
+    artifacts = {file: digest(file) for file in sorted(files)}
+    artifacts['/proc/exe'] = digest(f'/proc/{pid}/exe')
+    policies = {}
+    for entry in pathlib.Path('/sys/devices/system/cpu/cpufreq').glob('policy*'):
+        policies[entry.name] = {}
+        for name in ('scaling_driver', 'scaling_governor', 'scaling_min_freq',
+                     'scaling_max_freq', 'energy_performance_preference'):
+            file = entry / name
+            if file.exists():
+                policies[entry.name][name] = file.read_text().strip()
+    environment = {}
+    for value in pathlib.Path(f'/proc/{pid}/environ').read_bytes().split(b'\0'):
+        key, _, data = value.partition(b'=')
+        if key in (b'DENIA_RENDER_AUDIT', b'DENIA_FLUTTER_RENDERER',
+                   b'DENIAL_NO_RT', b'DENIAL_CURSOR_BENCHMARK_SOCKET'):
+            environment[key.decode()] = data.decode()
+    return {'kernel': os.uname().release, 'machine': os.uname().machine,
+            'host': os.uname().nodename, 'cpu_count': os.cpu_count(),
+            'clock_ticks': os.sysconf('SC_CLK_TCK'), 'artifacts_sha256': artifacts,
+            'cpu_policies': policies, 'environment': environment}
+
+connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+connection.settimeout(180)
+connection.connect(path)
+connection.sendall((json.dumps(request) + '\n').encode())
+begin = None
+end = None
+with connection.makefile('r') as source:
+    for line in source:
+        event = json.loads(line)
+        if event['event'] == 'started':
+            pid = event['pid']
+            send({'event': 'metadata', 'value': metadata(pid)})
+        elif event['event'] == 'measurement_start':
+            begin = sample(pid)
+        elif event['event'] == 'measurement_end':
+            end = sample(pid)
+        elif event['event'] == 'completed':
+            if begin is None or end is None:
+                raise RuntimeError('Missing measurement boundaries')
+            if begin['process']['start'] != end['process']['start']:
+                raise RuntimeError('Compositor changed during the benchmark')
+            send({'event': 'cpu_samples', 'begin': begin, 'end': end})
+        send(event)
+        if event['event'] in ('error', 'cancelled'):
+            sys.exit(1)
+'''
+
+
+def distribution(values):
+    values = sorted(values)
+    if not values:
+        return {'count': 0}
+    return {
+        'count': len(values),
+        'mean': sum(values) / len(values),
+        'p50': values[math.ceil(len(values) * .50) - 1],
+        'p95': values[math.ceil(len(values) * .95) - 1],
+        'p99': values[math.ceil(len(values) * .99) - 1],
+        'max': values[-1],
+    }
+
+
+def summarize(events):
+    by_name = {event['event']: event for event in events}
+    result = by_name['completed']
+    samples = by_name['cpu_samples']
+    begin, end = samples['begin'], samples['end']
+    hz = by_name['metadata']['value']['clock_ticks']
+    wall = (end['monotonic_ns'] - begin['monotonic_ns']) / 1e9
+
+    def cpu(first, last):
+        return ((last['user'] - first['user']) +
+                (last['system'] - first['system'])) / hz
+
+    cpu_seconds = cpu(begin['process'], end['process'])
+    threads = []
+    for tid, last in end['threads'].items():
+        first = begin['threads'].get(tid)
+        if first and first['start'] == last['start']:
+            seconds = cpu(first, last)
+            threads.append({'tid': tid, 'name': last['name'],
+                            'cpu_seconds': seconds,
+                            'one_core_percent': seconds / wall * 100})
+    gpu = {}
+    for client, engines in end['gpu'].items():
+        previous = begin['gpu'].get(client, {})
+        gpu[client] = {engine: (elapsed - previous[engine]) / (wall * 1e9) * 100
+                       for engine, elapsed in engines.items() if engine in previous}
+    return {
+        'wall_seconds': wall,
+        'cpu_seconds': cpu_seconds,
+        'cpu_one_core_percent': cpu_seconds / wall * 100,
+        'cursor_ticks': result['cursor_ticks'],
+        'cursor_ticks_per_second': result['cursor_ticks'] / (result['duration_us'] / 1e6),
+        'timed_frames': result['timed_frames'],
+        'build_us': distribution(result['build_us']),
+        'raster_us': distribution(result['raster_us']),
+        'total_span_us': distribution(result['total_span_us']),
+        'tick_intervals_us': distribution(result['tick_intervals_us']),
+        'threads': sorted(threads, key=lambda row: -row['cpu_seconds']),
+        'gpu_engine_busy_percent': gpu,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--host', required=True)
+    parser.add_argument('--socket', default='/run/user/1000/denial/cursor-benchmark.sock')
+    parser.add_argument('--output', required=True, type=pathlib.Path)
+    parser.add_argument('--runs', type=int, default=3)
+    parser.add_argument('--duration', type=float, default=30)
+    parser.add_argument('--warmup', type=float, default=5)
+    parser.add_argument('--period', type=float, default=2)
+    parser.add_argument('--radius', type=float, default=180)
+    parser.add_argument('--monitor-id', type=int)
+    parser.add_argument('--center-x', type=float)
+    parser.add_argument('--center-y', type=float)
+    args = parser.parse_args()
+    if not 1 <= args.runs <= 10:
+        parser.error('--runs must be between 1 and 10')
+    request = {'method': 'run', 'duration_seconds': args.duration,
+               'warmup_seconds': args.warmup, 'period_seconds': args.period,
+               'radius': args.radius}
+    for name in ('monitor_id', 'center_x', 'center_y'):
+        if getattr(args, name) is not None:
+            request[name] = getattr(args, name)
+    args.output.mkdir(parents=True, exist_ok=False)
+    (args.output / 'request.json').write_text(json.dumps(request, indent=2) + '\n')
+    (args.output / 'capture.json').write_text(json.dumps({
+        'host': args.host, 'runs': args.runs,
+        'started_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        'description': 'Shell cursor translation only; no application input injection',
+    }, indent=2) + '\n')
+    summaries = []
+    identity = None
+    for run in range(1, args.runs + 1):
+        print(f'Run {run}/{args.runs}: warm-up {args.warmup}s, measurement {args.duration}s', flush=True)
+        command = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', args.host,
+                   shlex.join(['python3', '-u', '-c', WORKER,
+                               json.dumps(request), args.socket])]
+        events = []
+        with (args.output / f'run-{run}.jsonl').open('w') as destination:
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, text=True)
+            try:
+                for line in process.stdout:
+                    destination.write(line)
+                    destination.flush()
+                    event = json.loads(line)
+                    events.append(event)
+                    if event['event'] in ('measurement_start', 'measurement_end', 'cancelled', 'error'):
+                        print(event, flush=True)
+                status = process.wait()
+            except BaseException:
+                process.terminate()
+                process.wait()
+                raise
+        if status != 0:
+            raise RuntimeError(f'Benchmark run failed ({status}); partial data retained')
+        by_name = {event['event']: event for event in events}
+        current_identity = (by_name['metadata']['value'], by_name['started']['path'],
+                            by_name['started']['output'])
+        if identity is not None and current_identity != identity:
+            raise RuntimeError('Build or configuration changed between runs')
+        identity = current_identity
+        summary = summarize(events)
+        summaries.append(summary)
+        print(json.dumps({key: summary[key] for key in
+                          ('cpu_one_core_percent', 'raster_us', 'cursor_ticks_per_second')}, indent=2))
+    (args.output / 'summary.json').write_text(json.dumps(summaries, indent=2) + '\n')
+    print(f'Saved {args.output}', flush=True)
+
+
+if __name__ == '__main__':
+    main()

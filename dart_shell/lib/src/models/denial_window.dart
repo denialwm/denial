@@ -233,6 +233,16 @@ class DenialWindow {
     return Rect.fromLTWH(surfaceX, surfaceY, fallbackWidth, fallbackHeight);
   }
 
+  /// Native frame bounds include any compositor-owned system-bar strip.
+  Rect get presentationCoordinateRect => surfaceWidth > 0 && surfaceHeight > 0
+      ? Rect.fromLTWH(surfaceX, surfaceY, surfaceWidth, surfaceHeight)
+      : contentCoordinateRect;
+
+  double get nativeInsetTop =>
+      (contentCoordinateRect.top - presentationCoordinateRect.top)
+          .clamp(0.0, presentationCoordinateRect.height)
+          .toDouble();
+
   Iterable<DenialSurfaceLayer> get mainSurfaceLayers =>
       surfaceLayers.where((layer) => !layer.belongsToPopup);
 
@@ -286,7 +296,7 @@ class DenialWindow {
   }
 
   Rect mapSurfaceRect(DenialSurfaceLayer layer, Rect targetContentRect) {
-    final source = contentCoordinateRect;
+    final source = presentationCoordinateRect;
     if (source.width <= 0.0 ||
         source.height <= 0.0 ||
         targetContentRect.width <= 0.0 ||

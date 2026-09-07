@@ -15,6 +15,7 @@ pub(super) struct PageFlipCompletion {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct PresentedOutput {
     pub(super) id: OutputId,
+    pub(super) logical_sequence: u64,
     pub(super) observed_at: Instant,
     pub(super) presented_at: Option<Duration>,
     pub(super) sequence: Option<u64>,

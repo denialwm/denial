@@ -12,8 +12,8 @@ mod output_projection;
 mod texture;
 
 use gl_resources::{
-    ContextBinding, GlApi, GlTarget, ShaderBlit, create_shader_blit, destroy_depth_stencils,
-    destroy_shader_blit, destroy_targets,
+    ContextBinding, GlApi, GlTarget, ShaderBlit, copy_to_scanout, create_shader_blit,
+    destroy_depth_stencils, destroy_shader_blit, destroy_targets,
 };
 use gpu_timing::GpuTimingState;
 pub(crate) use output_projection::{OutputGeometryTransition, OutputRotationAdvance};

@@ -366,10 +366,11 @@ class _SettingsPageBody extends ConsumerWidget {
           onCornerRadiusScaleChanged: controller.setCornerRadiusScale,
           onPanelOpacityChanged: controller.setPanelOpacity,
           onCardOpacityChanged: controller.setCardOpacity,
-          onBackdropBlurEnabledChanged: controller.setBackdropBlurEnabled,
+          onTransparencyModeChanged: controller.setTransparencyMode,
           onBackdropBlurLevelChanged: controller.setBackdropBlurLevel,
           onBackdropBlurOpacityThresholdChanged:
               controller.setBackdropBlurOpacityThreshold,
+          onGlassChanged: controller.setGlassConfiguration,
           onFocusedWindowBorderEnabledChanged:
               controller.setFocusedWindowBorderEnabled,
           onFocusedOpacityChanged: controller.setFocusedWindowOpacity,

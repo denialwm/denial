@@ -436,6 +436,7 @@ class ShellController extends Notifier<ShellState>
     required DenialWindow window,
     required String appName,
     required String? iconPath,
+    Rect? sourceRect,
   }) {
     if (!window.isUserApp) {
       return null;
@@ -445,6 +446,7 @@ class ShellController extends Notifier<ShellState>
       iconPath: iconPath,
       expectedAppIds: <String>[window.appId],
       targetWindow: window,
+      sourceRect: sourceRect,
     );
   }
 
@@ -453,6 +455,7 @@ class ShellController extends Notifier<ShellState>
     required String? iconPath,
     required Iterable<String> expectedAppIds,
     DenialWindow? targetWindow,
+    Rect? sourceRect,
   }) {
     if (state.lockLayerVisible || state.launchRequest != null) {
       return null;
@@ -466,6 +469,7 @@ class ShellController extends Notifier<ShellState>
       expectedAppIds: expectedAppIds,
       existingObjectIds: state.openAppWindows.map((window) => window.objectId),
       targetObjectId: targetWindow?.objectId,
+      sourceRect: sourceRect,
     );
 
     _rawGestureDrag = Offset.zero;
@@ -522,6 +526,7 @@ class ShellController extends Notifier<ShellState>
       _gestureAxis = _GestureAxis.undecided;
       state = state.copyWith(
         overviewVisible: true,
+        homeTransitionActive: false,
         gestureDrag: Offset.zero,
         quickSettingsVisible: false,
         quickSettingsDrag: Offset.zero,
@@ -639,6 +644,7 @@ class ShellController extends Notifier<ShellState>
     _gestureAxis = _GestureAxis.undecided;
     state = state.copyWith(
       foregroundObjectId: window.objectId,
+      homeTransitionActive: false,
       overviewVisible: false,
       gestureDrag: Offset.zero,
       quickSettingsVisible: false,

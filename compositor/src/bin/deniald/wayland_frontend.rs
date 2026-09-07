@@ -133,6 +133,9 @@ mod clipboard_io;
 mod cursor_state;
 #[path = "wayland_frontend/focus.rs"]
 mod focus;
+#[cfg(feature = "flutter")]
+#[path = "wayland_frontend/frame_timeline.rs"]
+mod frame_timeline;
 #[path = "wayland_frontend/handlers.rs"]
 mod handlers;
 #[cfg(feature = "flutter")]
@@ -142,6 +145,9 @@ mod idle_inhibit;
 mod input;
 #[path = "wayland_frontend/input_method.rs"]
 pub(super) mod input_method;
+#[cfg(feature = "flutter")]
+#[path = "wayland_frontend/insets.rs"]
+mod insets;
 #[cfg(feature = "flutter")]
 pub(super) use input::{dispatch_shell_keyboard, reconcile_flutter_pointer_route};
 #[path = "wayland_frontend/input_source.rs"]
@@ -567,6 +573,10 @@ pub(super) struct WaylandFrontend {
     pub(super) active_keyboard_layout: usize,
     pub(super) keyboard_configuration_changed: bool,
     presentation: presentation::PresentationTracker,
+    #[cfg(feature = "flutter")]
+    frame_timeline: frame_timeline::FrameTimelineManager,
+    #[cfg(feature = "flutter")]
+    mobile_shell: bool,
     #[cfg(feature = "flutter")]
     idle_inhibitors: IdleInhibitors,
     #[cfg(feature = "flutter")]

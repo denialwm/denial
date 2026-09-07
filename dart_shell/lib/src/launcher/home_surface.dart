@@ -9,6 +9,7 @@ import '../local_apps/local_flutter_application.dart';
 import '../localization/denial_localizations.dart';
 import '../state/display_layout.dart';
 import '../state/shell_controller.dart';
+import '../widgets/retained_translation.dart';
 import 'controllers/application_recents_controller.dart';
 import 'controllers/home_grid_controller.dart';
 import 'controllers/home_grid_layout.dart';
@@ -21,6 +22,8 @@ import 'widgets/home_tiles.dart';
 import 'widgets/page_dots.dart';
 
 part 'home_surface_view.dart';
+part 'home_pager.dart';
+part 'home_drag_overlay.dart';
 part 'home_surface_models.dart';
 
 class HomeSurface extends ConsumerStatefulWidget {
@@ -189,10 +192,10 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     }
   }
 
-  Future<void> _launchApp(HomeGridItem item) async {
+  Future<void> _launchApp(HomeGridItem item, Rect sourceRect) async {
     final localApp = item.localApp;
     if (localApp != null) {
-      _launchLocalApp(localApp);
+      _launchLocalApp(localApp, sourceRect);
       return;
     }
 
@@ -223,6 +226,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
         window: existingWindow,
         appName: app.name,
         iconPath: app.iconPath,
+        sourceRect: sourceRect,
       );
       return;
     }
@@ -241,7 +245,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     }
   }
 
-  void _launchLocalApp(LocalFlutterApplication app) {
+  void _launchLocalApp(LocalFlutterApplication app, Rect sourceRect) {
     ref
         .read(applicationRecentsProvider.notifier)
         .record(localApplicationRecentId(app.id));
@@ -279,6 +283,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
               window: window,
               appName: title,
               iconPath: null,
+              sourceRect: sourceRect,
             );
         launcher.launch(
           app.id,
@@ -531,7 +536,7 @@ class _HomeSurfaceState extends ConsumerState<HomeSurface> {
     if (_resizeModeIndex == null) {
       return;
     }
-    if (details.offsetFromOrigin.distance < 12) {
+    if (details.offsetFromOrigin.distance < 28) {
       return;
     }
 

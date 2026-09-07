@@ -59,106 +59,86 @@ class QuickSettingsTiles extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        const gap = 12.0;
-        final cell = ((constraints.maxWidth - gap * 3) / 4)
-            .clamp(58.0, double.infinity)
-            .toDouble();
-        final wide = cell * 2 + gap;
-
-        return Column(
-          children: [
-            Row(
-              children: [
-                SizedBox(
-                  width: wide,
-                  height: 72,
-                  child: QuickTile(
-                    icon: _profileIcon(profile),
-                    title: l10n.quickSettingsPerformance,
-                    subtitle: _profileLabel(profile, l10n),
-                    active: profile != PowerProfile.balanced,
-                    onTap: onCycleProfile,
-                    wide: true,
-                  ),
+    return Column(
+      children: [
+        SizedBox(
+          height: 124,
+          child: Row(
+            children: [
+              Expanded(
+                child: QuickTile(
+                  icon: Icons.wifi_rounded,
+                  title: l10n.commonWifi,
+                  subtitle: wifiSubtitle,
+                  active: wifi,
+                  enabled: wifiEnabled,
+                  busy: wifiBusy,
+                  onTap: onToggleWifi,
+                  onDetails: onOpenWifi,
+                  wide: true,
                 ),
-                const SizedBox(width: gap),
-                SizedBox(
-                  width: wide,
-                  height: 72,
-                  child: QuickTile(
-                    icon: Icons.notifications_off_rounded,
-                    title: l10n.quickSettingsSilent,
-                    subtitle: dndReady
-                        ? (dnd ? l10n.commonOn : l10n.quickSettingsNormal)
-                        : l10n.commonLoading,
-                    active: dnd,
-                    enabled: dndReady,
-                    onTap: onToggleDnd,
-                    wide: true,
-                  ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: QuickTile(
+                  icon: Icons.bluetooth_rounded,
+                  title: l10n.commonBluetooth,
+                  subtitle: bluetoothSubtitle,
+                  active: bluetooth,
+                  enabled: bluetoothEnabled,
+                  busy: bluetoothBusy,
+                  onTap: onToggleBluetooth,
+                  onDetails: onOpenBluetooth,
+                  wide: true,
                 ),
-              ],
-            ),
-            const SizedBox(height: gap),
-            Row(
-              children: [
-                SizedBox(
-                  width: wide,
-                  height: 72,
-                  child: QuickTile(
-                    icon: Icons.wifi_rounded,
-                    title: l10n.commonWifi,
-                    subtitle: wifiSubtitle,
-                    active: wifi,
-                    enabled: wifiEnabled,
-                    busy: wifiBusy,
-                    onTap: onToggleWifi,
-                    onDetails: onOpenWifi,
-                    wide: true,
-                  ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 88,
+          child: Row(
+            children: [
+              Expanded(
+                child: QuickTile(
+                  icon: _profileIcon(profile),
+                  title: _profileLabel(profile, l10n),
+                  active: profile != PowerProfile.balanced,
+                  onTap: onCycleProfile,
                 ),
-                const SizedBox(width: gap),
-                SizedBox(
-                  width: wide,
-                  height: 72,
-                  child: QuickTile(
-                    icon: Icons.bluetooth_rounded,
-                    title: l10n.commonBluetooth,
-                    subtitle: bluetoothSubtitle,
-                    active: bluetooth,
-                    enabled: bluetoothEnabled,
-                    busy: bluetoothBusy,
-                    onTap: onToggleBluetooth,
-                    onDetails: onOpenBluetooth,
-                    wide: true,
-                  ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: QuickTile(
+                  icon: Icons.notifications_off_rounded,
+                  title: l10n.quickSettingsSilent,
+                  subtitle: dndReady
+                      ? (dnd ? l10n.commonOn : l10n.quickSettingsNormal)
+                      : l10n.commonLoading,
+                  active: dnd,
+                  enabled: dndReady,
+                  onTap: onToggleDnd,
                 ),
-              ],
-            ),
-            const SizedBox(height: gap),
-            Row(
-              children: [
-                SizedBox(
-                  width: constraints.maxWidth,
-                  height: 68,
-                  child: QuickTile(
-                    icon: Icons.screen_rotation_rounded,
-                    title: l10n.quickSettingsRotation,
-                    subtitle: rotationLock
-                        ? l10n.quickSettingsLocked
-                        : l10n.quickSettingsAutomatic,
-                    active: !rotationLock,
-                    onTap: onToggleRotation,
-                    wide: true,
-                  ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: QuickTile(
+                  icon: rotationLock
+                      ? Icons.screen_lock_rotation_rounded
+                      : Icons.screen_rotation_rounded,
+                  title: l10n.quickSettingsRotation,
+                  subtitle: rotationLock
+                      ? l10n.quickSettingsLocked
+                      : l10n.quickSettingsAutomatic,
+                  active: !rotationLock,
+                  onTap: onToggleRotation,
                 ),
-              ],
-            ),
-          ],
-        );
-      },
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -209,9 +189,7 @@ class _QuickTileState extends State<QuickTile> {
     final secondary = widget.active
         ? accent.onPrimary.withValues(alpha: 0.78)
         : context.shellColors.textTertiary;
-    final radius = theme.scaledRadius(
-      widget.wide ? ShellRadii.tileWide : ShellRadii.tile,
-    );
+    final radius = theme.scaledRadius(widget.wide ? 26 : 22);
 
     return Semantics(
       button: true,
@@ -249,7 +227,10 @@ class _QuickTileState extends State<QuickTile> {
                 ? Duration.zero
                 : Motion.tile,
             curve: Motion.standard,
-            padding: EdgeInsets.symmetric(horizontal: widget.wide ? 18 : 10),
+            padding: EdgeInsets.symmetric(
+              horizontal: widget.wide ? 14 : 8,
+              vertical: widget.wide ? 10 : 6,
+            ),
             decoration: BoxDecoration(
               color: background,
               borderRadius: BorderRadius.circular(radius),
@@ -272,62 +253,52 @@ class _QuickTileState extends State<QuickTile> {
   }
 
   Widget _buildWide(Color foreground, Color secondary) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _TileIcon(
-          icon: widget.icon,
-          active: widget.active,
-          busy: widget.busy,
-          foreground: foreground,
-          size: 42,
-          iconSize: 24,
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                widget.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
+        Row(
+          children: [
+            Icon(widget.icon, color: foreground, size: 26),
+            const Spacer(),
+            if (widget.busy)
+              SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
                   color: foreground,
-                  fontSize: 15,
-                  height: 1,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0,
-                  decoration: TextDecoration.none,
                 ),
               ),
-              if (widget.subtitle != null) ...[
-                const SizedBox(height: 6),
-                Text(
-                  widget.subtitle!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: secondary,
-                    fontSize: 13,
-                    height: 1,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0,
-                    decoration: TextDecoration.none,
-                  ),
-                ),
-              ],
-            ],
+            if (widget.onDetails != null)
+              _TileDetailsButton(
+                label: context.l10n.quickSettingsOpenDetails(widget.title),
+                foreground: foreground,
+                onPressed: widget.onDetails!,
+              ),
+          ],
+        ),
+        const Spacer(),
+        Text(
+          widget.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: foreground,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            decoration: TextDecoration.none,
           ),
         ),
-        if (widget.onDetails != null) ...[
-          const SizedBox(width: 6),
-          _TileDetailsButton(
-            label: context.l10n.quickSettingsOpenDetails(widget.title),
-            foreground: foreground,
-            onPressed: widget.onDetails!,
+        if (widget.subtitle != null)
+          Text(
+            widget.subtitle!,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: secondary,
+              fontSize: 12,
+              decoration: TextDecoration.none,
+            ),
           ),
-        ],
       ],
     );
   }
@@ -457,7 +428,7 @@ class _TileDetailsButtonState extends State<_TileDetailsButton> {
               border: _focused ? Border.all(color: accent) : null,
             ),
             child: SizedBox.square(
-              dimension: 34,
+              dimension: 40,
               child: Icon(
                 Icons.chevron_right_rounded,
                 size: 21,
@@ -473,14 +444,15 @@ class _TileDetailsButtonState extends State<_TileDetailsButton> {
 
 /// Compact shade actions. Application-count prose belongs in the overview,
 /// not in quick settings.
-class ShadeFooter extends StatelessWidget {
-  const ShadeFooter({super.key, required this.onOpenPower});
+class ShadeActions extends StatelessWidget {
+  const ShadeActions({super.key, required this.onOpenPower});
 
   final VoidCallback onOpenPower;
 
   @override
   Widget build(BuildContext context) {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         _RoundButton(

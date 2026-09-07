@@ -99,6 +99,11 @@ path = "src/bin/deniald.rs"
 required-features = ["kms"]
 
 [[bin]]
+name = "denial-glass-benchmark"
+path = "src/bin/denial_glass_benchmark.rs"
+required-features = ["flutter"]
+
+[[bin]]
 name = "denialctl"
 path = "src/bin/denialctl.rs"
 required-features = ["control"]

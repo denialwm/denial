@@ -119,6 +119,7 @@ class _NotificationTransitionState extends State<_NotificationTransition>
             padding: const EdgeInsets.only(bottom: 10),
             child: RepaintBoundary(
               child: ShellBackdropBlur(
+                separateChild: true,
                 blur: theme.effectivePanelOpacity < 1.0,
                 borderRadius: BorderRadius.circular(theme.panelRadius),
                 child: cardRegion,

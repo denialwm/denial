@@ -1,8 +1,10 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
 import 'backdrop_blur_level.dart';
+import 'glass_configuration.dart';
 import 'shell_color_scheme.dart';
 import 'shell_text_theme.dart';
 import 'tokens.dart';
@@ -101,16 +103,16 @@ class ShellThemeData {
     this.cornerRadiusScale = ShellRoundness.normal,
     this.panelOpacity = ShellOpacity.panel,
     this.cardOpacity = ShellOpacity.card,
-    this.backdropBlurEnabled = true,
+    this.transparencyMode = ShellTransparencyMode.blur,
     this.backdropBlurLevel = ShellBackdropBlurLevel.fast,
     this.backdropBlurOpacityThreshold = 0.2,
+    this.glass = const ShellGlassConfiguration(),
     this.focusedWindowBorderEnabled = true,
     this.focusedWindowOpacity = 1,
     this.unfocusedWindowOpacity = 1,
     this._resolvedTextTheme,
     this._resolvedAccentPalette,
     this._resolvedGeneratedColorScheme,
-    this._resolvedBackdropBlurFilterConfig,
   }) : accentSeed = accent;
 
   final ShellColorScheme colors;
@@ -118,13 +120,13 @@ class ShellThemeData {
   final ShellTextTheme? _resolvedTextTheme;
   final ShellAccentPalette? _resolvedAccentPalette;
   final ColorScheme? _resolvedGeneratedColorScheme;
-  final ImageFilterConfig? _resolvedBackdropBlurFilterConfig;
   final double cornerRadiusScale;
   final double panelOpacity;
   final double cardOpacity;
-  final bool backdropBlurEnabled;
+  final ShellTransparencyMode transparencyMode;
   final ShellBackdropBlurLevel backdropBlurLevel;
   final double backdropBlurOpacityThreshold;
+  final ShellGlassConfiguration glass;
   final bool focusedWindowBorderEnabled;
   final double focusedWindowOpacity;
   final double unfocusedWindowOpacity;
@@ -139,21 +141,21 @@ class ShellThemeData {
 
   double get backdropBlurDownsampleScale => backdropBlurLevel.downsampleScale;
 
-  /// Immutable blur blueprint shared by every surface using this theme.
-  ImageFilterConfig get backdropBlurFilterConfig =>
-      _resolution.backdropBlurFilterConfig;
+  bool get backdropBlurEnabled => transparencyMode != ShellTransparencyMode.off;
 
-  /// Quantized blur used while a panel and its backdrop retire together.
-  ImageFilterConfig backdropBlurFilterConfigAt(double strength) =>
-      _resolution.backdropBlurFilterConfigAt(strength);
-
-  /// Native per-pixel window blur using the configured final-alpha threshold.
-  ImageFilterConfig get windowBackdropBlurFilterConfig =>
-      _resolution.windowBackdropBlurFilterConfig;
-
-  /// One-pass variant for a window proven to contain one external surface.
-  ImageFilterConfig get singleSurfaceWindowBackdropBlurFilterConfig =>
-      _resolution.singleSurfaceWindowBackdropBlurFilterConfig;
+  /// Resolves the selected backdrop material while retaining immutable filter
+  /// configurations across surfaces with identical geometry.
+  ImageFilterConfig backdropFilterConfigAt(
+    double strength, {
+    BorderRadius borderRadius = BorderRadius.zero,
+    bool useWindowAlphaThreshold = false,
+    bool singleWindowSurface = false,
+  }) => _resolution.backdropFilterConfigAt(
+    strength,
+    borderRadius: borderRadius,
+    useWindowAlphaThreshold: useWindowAlphaThreshold,
+    singleWindowSurface: singleWindowSurface,
+  );
 
   Brightness get brightness => colors.brightness;
 
@@ -214,9 +216,10 @@ class ShellThemeData {
     double? cornerRadiusScale,
     double? panelOpacity,
     double? cardOpacity,
-    bool? backdropBlurEnabled,
+    ShellTransparencyMode? transparencyMode,
     ShellBackdropBlurLevel? backdropBlurLevel,
     double? backdropBlurOpacityThreshold,
+    ShellGlassConfiguration? glass,
     bool? focusedWindowBorderEnabled,
     double? focusedWindowOpacity,
     double? unfocusedWindowOpacity,
@@ -227,10 +230,11 @@ class ShellThemeData {
       cornerRadiusScale: cornerRadiusScale ?? this.cornerRadiusScale,
       panelOpacity: panelOpacity ?? this.panelOpacity,
       cardOpacity: cardOpacity ?? this.cardOpacity,
-      backdropBlurEnabled: backdropBlurEnabled ?? this.backdropBlurEnabled,
+      transparencyMode: transparencyMode ?? this.transparencyMode,
       backdropBlurLevel: backdropBlurLevel ?? this.backdropBlurLevel,
       backdropBlurOpacityThreshold:
           backdropBlurOpacityThreshold ?? this.backdropBlurOpacityThreshold,
+      glass: glass ?? this.glass,
       focusedWindowBorderEnabled:
           focusedWindowBorderEnabled ?? this.focusedWindowBorderEnabled,
       focusedWindowOpacity: focusedWindowOpacity ?? this.focusedWindowOpacity,
@@ -278,21 +282,15 @@ class ShellThemeData {
               second._resolution.generatedColorScheme,
               t,
             ),
-      resolvedBackdropBlurFilterConfig:
-          first.backdropBlurLevel == second.backdropBlurLevel
-          ? first.backdropBlurFilterConfig
-          : t < 0.5
-          ? first.backdropBlurFilterConfig
-          : second.backdropBlurFilterConfig,
       cornerRadiusScale: blend(
         first.cornerRadiusScale,
         second.cornerRadiusScale,
       ),
       panelOpacity: blend(first.panelOpacity, second.panelOpacity),
       cardOpacity: blend(first.cardOpacity, second.cardOpacity),
-      backdropBlurEnabled: t < 0.5
-          ? first.backdropBlurEnabled
-          : second.backdropBlurEnabled,
+      transparencyMode: t < 0.5
+          ? first.transparencyMode
+          : second.transparencyMode,
       backdropBlurLevel: t < 0.5
           ? first.backdropBlurLevel
           : second.backdropBlurLevel,
@@ -300,6 +298,7 @@ class ShellThemeData {
         first.backdropBlurOpacityThreshold,
         second.backdropBlurOpacityThreshold,
       ),
+      glass: ShellGlassConfiguration.lerp(first.glass, second.glass, t),
       focusedWindowBorderEnabled: t < 0.5
           ? first.focusedWindowBorderEnabled
           : second.focusedWindowBorderEnabled,
@@ -322,9 +321,10 @@ class ShellThemeData {
         other.cornerRadiusScale == cornerRadiusScale &&
         other.panelOpacity == panelOpacity &&
         other.cardOpacity == cardOpacity &&
-        other.backdropBlurEnabled == backdropBlurEnabled &&
+        other.transparencyMode == transparencyMode &&
         other.backdropBlurLevel == backdropBlurLevel &&
         other.backdropBlurOpacityThreshold == backdropBlurOpacityThreshold &&
+        other.glass == glass &&
         other.focusedWindowBorderEnabled == focusedWindowBorderEnabled &&
         other.focusedWindowOpacity == focusedWindowOpacity &&
         other.unfocusedWindowOpacity == unfocusedWindowOpacity;
@@ -337,9 +337,10 @@ class ShellThemeData {
     cornerRadiusScale,
     panelOpacity,
     cardOpacity,
-    backdropBlurEnabled,
+    transparencyMode,
     backdropBlurLevel,
     backdropBlurOpacityThreshold,
+    glass,
     focusedWindowBorderEnabled,
     focusedWindowOpacity,
     unfocusedWindowOpacity,
@@ -416,57 +417,73 @@ class _ShellThemeResolution {
       theme._resolvedAccentPalette ??
       ShellAccentPalette._fromGenerated(generatedColorScheme, theme.colors);
 
-  late final ImageFilterConfig backdropBlurFilterConfig =
-      theme._resolvedBackdropBlurFilterConfig ??
-      ImageFilterConfig.blur(
-        sigmaX: theme.backdropBlurSigma,
-        sigmaY: theme.backdropBlurSigma,
-        tileMode: ui.TileMode.clamp,
-        downsampleScale: theme.backdropBlurDownsampleScale,
-      );
+  static const int _materialStrengthSteps = 32;
+  final Map<
+    ({
+      int strength,
+      BorderRadius borderRadius,
+      bool windowThreshold,
+      bool singleWindowSurface,
+    }),
+    ImageFilterConfig
+  >
+  _backdropFilters = {};
 
-  static const int _blurStrengthSteps = 32;
-  final List<ImageFilterConfig?> _animatedBackdropBlurFilters =
-      List<ImageFilterConfig?>.filled(_blurStrengthSteps, null);
-
-  ImageFilterConfig backdropBlurFilterConfigAt(double strength) {
-    final step = (strength.clamp(0.0, 1.0) * _blurStrengthSteps)
+  ImageFilterConfig backdropFilterConfigAt(
+    double strength, {
+    required BorderRadius borderRadius,
+    required bool useWindowAlphaThreshold,
+    required bool singleWindowSurface,
+  }) {
+    final step = (strength.clamp(0.0, 1.0) * _materialStrengthSteps)
         .round()
-        .clamp(1, _blurStrengthSteps)
+        .clamp(1, _materialStrengthSteps)
         .toInt();
-    if (step == _blurStrengthSteps) {
-      return backdropBlurFilterConfig;
-    }
-    return _animatedBackdropBlurFilters[step - 1] ??= ImageFilterConfig.blur(
-      sigmaX: theme.backdropBlurSigma * step / _blurStrengthSteps,
-      sigmaY: theme.backdropBlurSigma * step / _blurStrengthSteps,
-      tileMode: ui.TileMode.clamp,
-      downsampleScale: theme.backdropBlurDownsampleScale,
+    final key = (
+      strength: step,
+      borderRadius: borderRadius,
+      windowThreshold: useWindowAlphaThreshold,
+      singleWindowSurface: singleWindowSurface,
     );
+    return _backdropFilters.putIfAbsent(key, () {
+      final materialStrength = step / _materialStrengthSteps;
+      final threshold = useWindowAlphaThreshold
+          ? theme.backdropBlurOpacityThreshold.clamp(0.0, 1.0).toDouble()
+          : null;
+      if (theme.transparencyMode == ShellTransparencyMode.glass) {
+        final glass = theme.glass;
+        return ImageFilterConfig.glass(
+          sigmaX: glass.blurSigma * materialStrength,
+          sigmaY: glass.blurSigma * materialStrength,
+          topLeft: borderRadius.topLeft,
+          topRight: borderRadius.topRight,
+          bottomRight: borderRadius.bottomRight,
+          bottomLeft: borderRadius.bottomLeft,
+          downsampleScale: glass.quality,
+          thickness: glass.thickness,
+          refraction: glass.refraction * materialStrength,
+          dispersion: glass.dispersion,
+          saturation: 1 + (glass.saturation - 1) * materialStrength,
+          tint: accentPalette.primary,
+          tintStrength: glass.tintStrength * materialStrength,
+          brightness: glass.brightness * materialStrength,
+          lightAngle: glass.lightAngle * math.pi / 180,
+          lightIntensity: glass.lightIntensity * materialStrength,
+          edgeStrength: glass.edgeStrength * materialStrength,
+          backdropAlphaThreshold: threshold,
+          backdropAlphaThresholdIsSingleSurface: singleWindowSurface,
+        );
+      }
+      return ImageFilterConfig.blur(
+        sigmaX: theme.backdropBlurSigma * materialStrength,
+        sigmaY: theme.backdropBlurSigma * materialStrength,
+        tileMode: ui.TileMode.clamp,
+        downsampleScale: theme.backdropBlurDownsampleScale,
+        backdropAlphaThreshold: threshold,
+        backdropAlphaThresholdIsSingleSurface: singleWindowSurface,
+      );
+    });
   }
-
-  late final ImageFilterConfig windowBackdropBlurFilterConfig =
-      ImageFilterConfig.blur(
-        sigmaX: theme.backdropBlurSigma,
-        sigmaY: theme.backdropBlurSigma,
-        tileMode: ui.TileMode.clamp,
-        downsampleScale: theme.backdropBlurDownsampleScale,
-        backdropAlphaThreshold: theme.backdropBlurOpacityThreshold
-            .clamp(0.0, 1.0)
-            .toDouble(),
-      );
-
-  late final ImageFilterConfig singleSurfaceWindowBackdropBlurFilterConfig =
-      ImageFilterConfig.blur(
-        sigmaX: theme.backdropBlurSigma,
-        sigmaY: theme.backdropBlurSigma,
-        tileMode: ui.TileMode.clamp,
-        downsampleScale: theme.backdropBlurDownsampleScale,
-        backdropAlphaThreshold: theme.backdropBlurOpacityThreshold
-            .clamp(0.0, 1.0)
-            .toDouble(),
-        backdropAlphaThresholdIsSingleSurface: true,
-      );
 
   late final ThemeData materialTheme = ThemeData(
     brightness: theme.brightness,

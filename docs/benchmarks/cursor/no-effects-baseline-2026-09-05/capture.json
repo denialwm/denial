@@ -1,0 +1,6 @@
+{
+  "host": "logix@192.168.1.188",
+  "runs": 3,
+  "started_utc": "2026-09-04T22:28:30.966742+00:00",
+  "description": "Shell cursor translation only; no application input injection"
+}

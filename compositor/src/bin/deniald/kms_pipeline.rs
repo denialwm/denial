@@ -293,18 +293,6 @@ pub(super) fn apply_hotplug_topology(
         events.output_control_dirty = true;
     }
     let retired = std::mem::replace(swapchain, staged);
-    #[cfg(feature = "flutter")]
-    {
-        let desktop_size = swapchain.desktop_size();
-        events.native_plugin_default_size = (desktop_size.width, desktop_size.height);
-        if let Some(manager) = events.native_app_plugins.as_mut() {
-            manager.set_configure_properties(
-                atlas.engine_scale_120,
-                SCALE_BASE,
-                ticker_refresh_millihz(&snapshot)?,
-            )?;
-        }
-    }
     progress.mark_finalized();
     drop(retired_scanouts);
 
@@ -344,20 +332,6 @@ pub(super) fn apply_hotplug_topology(
         "committed hotplug scanout transaction"
     );
     Ok(())
-}
-
-#[cfg(feature = "flutter")]
-pub(super) fn ticker_refresh_millihz(snapshot: &TopologySnapshot) -> Result<u32, Box<dyn Error>> {
-    let ticker = snapshot
-        .ticker
-        .ok_or("native application timing has no ticker output")?;
-    snapshot
-        .outputs
-        .iter()
-        .find(|output| output.id == ticker)
-        .map(|output| output.refresh_millihz)
-        .filter(|refresh| *refresh > 0 && *refresh <= 1_000_000)
-        .ok_or_else(|| "native application ticker output has an invalid refresh rate".into())
 }
 
 pub(super) fn reconcile_scanouts<'a>(

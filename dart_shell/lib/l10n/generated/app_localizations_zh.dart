@@ -9,6 +9,9 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get homeResizeWidget => '调整小组件大小';
+
+  @override
   String get actionCancel => '取消';
 
   @override
@@ -1527,6 +1530,61 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsBackdropBlurOpacityThreshold => '模糊的最低像素不透明度';
+
+  @override
+  String get settingsTransparencyTitle => '透明材质';
+
+  @override
+  String get settingsTransparencyOff => '关闭';
+
+  @override
+  String get settingsTransparencyBlur => '模糊';
+
+  @override
+  String get settingsTransparencyGlass => '玻璃';
+
+  @override
+  String get settingsTransparencyOffDescription => '透明表面不处理其后的桌面内容。';
+
+  @override
+  String get settingsTransparencyBlurDescription => '使用 Denial 当前的快速高斯背景模糊。';
+
+  @override
+  String get settingsTransparencyGlassDescription =>
+      '通过磨砂、强调色染色的透镜折射清晰桌面，并添加定向边缘光。';
+
+  @override
+  String get settingsGlassFrost => '磨砂';
+
+  @override
+  String get settingsGlassQuality => '渲染质量';
+
+  @override
+  String get settingsGlassThickness => '光学厚度';
+
+  @override
+  String get settingsGlassRefraction => '折射';
+
+  @override
+  String get settingsGlassDispersion => '色散';
+
+  @override
+  String get settingsGlassSaturation => '饱和度';
+
+  @override
+  String get settingsGlassAccentTint => '强调色染色';
+
+  @override
+  String get settingsGlassBrightness => '明度';
+
+  @override
+  String get settingsGlassLightAngle => '光照方向';
+
+  @override
+  String get settingsGlassLightIntensity => '光照强度';
+
+  @override
+  String get settingsGlassEdgeStrength => '边缘高光';
 
   @override
   String get settingsBackdropDimming => '背景变暗';

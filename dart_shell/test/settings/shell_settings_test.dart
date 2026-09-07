@@ -4,6 +4,7 @@ import 'package:denial_dart_shell/src/models/suspend_mode.dart';
 import 'package:denial_dart_shell/src/settings/shell_settings.dart';
 import 'package:denial_dart_shell/src/theme/backdrop_blur_level.dart';
 import 'package:denial_dart_shell/src/theme/cursor_themes.dart';
+import 'package:denial_dart_shell/src/theme/glass_configuration.dart';
 import 'package:denial_dart_shell/src/theme/tokens.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -35,9 +36,22 @@ void main() {
         customAccentColor: Color(0xffc062ff),
         cornerRadiusScale: 1.35,
         panelOpacity: 0.78,
-        backdropBlurEnabled: false,
+        transparencyMode: ShellTransparencyMode.glass,
         backdropBlurLevel: ShellBackdropBlurLevel.best,
         backdropBlurOpacityThreshold: 0.18,
+        glass: ShellGlassConfiguration(
+          blurSigma: 18,
+          quality: 1,
+          thickness: 26,
+          refraction: 0.64,
+          dispersion: 0.2,
+          saturation: 1.3,
+          tintStrength: 0.12,
+          brightness: 0.08,
+          lightAngle: 210,
+          lightIntensity: 0.9,
+          edgeStrength: 0.8,
+        ),
         focusedWindowBorderEnabled: false,
         focusedWindowOpacity: 0.96,
         unfocusedWindowOpacity: 0.72,
@@ -270,5 +284,51 @@ void main() {
     final appearance = settings.toJson()['appearance']! as Map<String, Object>;
     expect(appearance.containsKey('windowRadius'), isFalse);
     expect(appearance.containsKey('panelRadius'), isFalse);
+  });
+
+  test('the legacy backdrop toggle migrates to a transparency mode', () {
+    final disabled = ShellSettings.fromJson(<String, dynamic>{
+      'appearance': <String, dynamic>{'backdropBlurEnabled': false},
+    });
+    final enabled = ShellSettings.fromJson(<String, dynamic>{
+      'appearance': <String, dynamic>{'backdropBlurEnabled': true},
+    });
+
+    expect(disabled.appearance.transparencyMode, ShellTransparencyMode.off);
+    expect(enabled.appearance.transparencyMode, ShellTransparencyMode.blur);
+  });
+
+  test('glass settings reject malformed values and clamp optical limits', () {
+    final settings = ShellSettings.fromJson(<String, dynamic>{
+      'appearance': <String, dynamic>{
+        'transparencyMode': 'glass',
+        'glass': <String, dynamic>{
+          'blurSigma': -10,
+          'quality': 9,
+          'thickness': 200,
+          'refraction': double.nan,
+          'dispersion': -2,
+          'saturation': 12,
+          'tintStrength': 4,
+          'brightness': -3,
+          'lightAngle': 900,
+          'lightIntensity': -1,
+          'edgeStrength': 8,
+        },
+      },
+    });
+
+    expect(settings.appearance.transparencyMode, ShellTransparencyMode.glass);
+    expect(settings.appearance.glass.blurSigma, 0);
+    expect(settings.appearance.glass.quality, 1);
+    expect(settings.appearance.glass.thickness, 48);
+    expect(settings.appearance.glass.refraction, 0.55);
+    expect(settings.appearance.glass.dispersion, 0);
+    expect(settings.appearance.glass.saturation, 2);
+    expect(settings.appearance.glass.tintStrength, 0.4);
+    expect(settings.appearance.glass.brightness, -0.2);
+    expect(settings.appearance.glass.lightAngle, 360);
+    expect(settings.appearance.glass.lightIntensity, 0);
+    expect(settings.appearance.glass.edgeStrength, 1.5);
   });
 }

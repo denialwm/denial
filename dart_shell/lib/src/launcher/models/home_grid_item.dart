@@ -1,7 +1,7 @@
 import '../../local_apps/local_flutter_application.dart';
 import 'desktop_app.dart';
 
-enum HomeGridItemType { clock, batteryDischarge, app }
+enum HomeGridItemType { clock, app }
 
 class HomeLayoutSlot {
   const HomeLayoutSlot({required this.id, this.colSpan, this.rowSpan});
@@ -57,36 +57,12 @@ class HomeGridItem {
     );
   }
 
-  factory HomeGridItem.batteryDischarge({
-    int colSpan = defaultBatteryDischargeColSpan,
-    int rowSpan = defaultBatteryDischargeRowSpan,
-  }) {
-    return HomeGridItem._(
-      type: HomeGridItemType.batteryDischarge,
-      id: 'widget:battery-discharge',
-      colSpan: colSpan
-          .clamp(batteryDischargeMinColSpan, batteryDischargeMaxColSpan)
-          .toInt(),
-      rowSpan: rowSpan
-          .clamp(batteryDischargeMinRowSpan, batteryDischargeMaxRowSpan)
-          .toInt(),
-      app: null,
-      localApp: null,
-    );
-  }
-
   static const int defaultClockColSpan = 2;
   static const int defaultClockRowSpan = 1;
   static const int clockMinColSpan = 2;
   static const int clockMaxColSpan = 4;
   static const int clockMinRowSpan = 1;
   static const int clockMaxRowSpan = 3;
-  static const int defaultBatteryDischargeColSpan = 4;
-  static const int defaultBatteryDischargeRowSpan = 2;
-  static const int batteryDischargeMinColSpan = 2;
-  static const int batteryDischargeMaxColSpan = 4;
-  static const int batteryDischargeMinRowSpan = 1;
-  static const int batteryDischargeMaxRowSpan = 3;
 
   final HomeGridItemType type;
   final String id;
@@ -100,7 +76,6 @@ class HomeGridItem {
   int get minColSpan {
     return switch (type) {
       HomeGridItemType.clock => clockMinColSpan,
-      HomeGridItemType.batteryDischarge => batteryDischargeMinColSpan,
       HomeGridItemType.app => 1,
     };
   }
@@ -108,7 +83,6 @@ class HomeGridItem {
   int get maxColSpan {
     return switch (type) {
       HomeGridItemType.clock => clockMaxColSpan,
-      HomeGridItemType.batteryDischarge => batteryDischargeMaxColSpan,
       HomeGridItemType.app => 1,
     };
   }
@@ -116,7 +90,6 @@ class HomeGridItem {
   int get minRowSpan {
     return switch (type) {
       HomeGridItemType.clock => clockMinRowSpan,
-      HomeGridItemType.batteryDischarge => batteryDischargeMinRowSpan,
       HomeGridItemType.app => 1,
     };
   }
@@ -124,7 +97,6 @@ class HomeGridItem {
   int get maxRowSpan {
     return switch (type) {
       HomeGridItemType.clock => clockMaxRowSpan,
-      HomeGridItemType.batteryDischarge => batteryDischargeMaxRowSpan,
       HomeGridItemType.app => 1,
     };
   }
@@ -135,10 +107,6 @@ class HomeGridItem {
     }
     return switch (type) {
       HomeGridItemType.clock => HomeGridItem.clock(
-        colSpan: colSpan,
-        rowSpan: rowSpan,
-      ),
-      HomeGridItemType.batteryDischarge => HomeGridItem.batteryDischarge(
         colSpan: colSpan,
         rowSpan: rowSpan,
       ),

@@ -237,6 +237,7 @@ impl OpenGlHandler for FlutterGlHandler {
         *pending = Some(PendingOutputPresentation {
             view_id: view.view_id,
             framebuffer: view.backing_store.framebuffer,
+            presentation_time_nanos: view.presentation_time_nanos,
         });
         // The external-view callback identifies the physical backing store.
         // Exact frame and buffer damage arrive immediately afterwards through
@@ -345,6 +346,15 @@ impl OpenGlHandler for FlutterGlHandler {
                     return false;
                 }
             };
+            if let Some(fence) = fence.as_ref()
+                && let Err(error) = self
+                    .gpu_deadline_hints
+                    .set(fence.as_fd(), pending.presentation_time_nanos)
+            {
+                // This is an optional scheduling hint. Its failure never
+                // changes fence ownership or blocks normal presentation.
+                debug!(%error, "GPU presentation deadline hints unavailable");
+            }
             if let Some(audit) = &self.render_audit {
                 lock(audit).record_present(
                     view_id,
@@ -439,6 +449,15 @@ impl OpenGlHandler for FlutterGlHandler {
         !self.prepare_external_texture_without_gl(texture_id)
     }
 
+    fn external_texture_presentation(
+        &self,
+        texture_id: i64,
+    ) -> Option<denial_flutter_engine::ExternalTexturePresentation> {
+        let sources = lock(&self.external_texture_sources);
+        let presentation = sources.get(&texture_id)?.presentation;
+        (presentation.width > 0.0).then_some(presentation)
+    }
+
     fn populate_external_texture(
         &self,
         texture_id: i64,
@@ -499,7 +518,7 @@ impl OpenGlHandler for FlutterGlHandler {
             ExternalTextureSource::Dmabuf {
                 dmabuf,
                 buffer_guard,
-                revision,
+                revision: _,
             } => {
                 let dmabuf_width = dmabuf.width();
                 let dmabuf_height = dmabuf.height();
@@ -604,65 +623,18 @@ impl OpenGlHandler for FlutterGlHandler {
                 if name == 0 {
                     return false;
                 }
-                if buffer_guard
-                    .as_ref()
-                    .is_some_and(ExternalBufferGuard::is_native)
-                {
-                    let (retained, copied) = if let Some(retained) =
-                        self.cached_retained_native_binding(texture_id, revision)
-                    {
-                        (retained, false)
-                    } else {
-                        let retained =
-                            match self.retain_native_texture(name, dmabuf_width, dmabuf_height) {
-                                Ok(retained) => retained,
-                                Err(error) => {
-                                    warn!(
-                                        %error,
-                                        texture_id,
-                                        revision,
-                                        "could not retain native dma-buf for Flutter"
-                                    );
-                                    return false;
-                                }
-                            };
-                        self.cache_retained_native_binding(
-                            texture_id,
-                            revision,
-                            Arc::clone(&retained),
-                        );
-                        self.destroy_retired_external_bindings();
-                        (retained, true)
-                    };
-                    let name = retained.texture();
-                    if name == 0 {
-                        return false;
-                    }
-                    let sampled_buffer = copied.then(|| buffer_guard.clone()).flatten();
-                    (
-                        width,
-                        height,
-                        name,
-                        ExternalTextureLeaseResource::Retained {
-                            _binding: retained,
-                            _resource_permit: lease_permit,
-                        },
-                        sampled_buffer,
-                    )
-                } else {
-                    let sampled_buffer = buffer_guard.clone();
-                    (
-                        width,
-                        height,
-                        name,
-                        ExternalTextureLeaseResource::Dmabuf {
-                            _binding: binding,
-                            _buffer_guard: buffer_guard,
-                            _resource_permit: lease_permit,
-                        },
-                        sampled_buffer,
-                    )
-                }
+                let sampled_buffer = buffer_guard.clone();
+                (
+                    width,
+                    height,
+                    name,
+                    ExternalTextureLeaseResource::Dmabuf {
+                        _binding: binding,
+                        _buffer_guard: buffer_guard,
+                        _resource_permit: lease_permit,
+                    },
+                    sampled_buffer,
+                )
             }
             ExternalTextureSource::Shm(frame) => {
                 let width = usize::try_from(frame.width).unwrap_or_default();

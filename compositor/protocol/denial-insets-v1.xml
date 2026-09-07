@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="denial_insets_v1">
+  <copyright>
+    Copyright 2026 Denial contributors
+    SPDX-License-Identifier: MIT
+  </copyright>
+  <interface name="denial_insets_manager_v1" version="1">
+    <description summary="declare client-owned system insets">
+      Denial's mobile shell reserves space for system bars in ordinary app
+      windows. A client which already supplies those insets to its application
+      may opt out per wl_surface. This does not change the surface's role,
+      buffer coordinates, scale, synchronization, or input semantics.
+      Desktop layout is unaffected. This protocol does not communicate inset
+      dimensions; declaring a surface requires the client to know and apply
+      the appropriate system insets itself.
+    </description>
+    <enum name="error">
+      <entry name="mapped_surface" value="1"
+             summary="the surface already has a committed buffer"/>
+    </enum>
+    <request name="set_self_managed">
+      <description summary="the application already handles system insets">
+        Declare that the client handles system insets for this surface. Send
+        this before the initial buffer commit (normally before the initial
+        xdg_surface configure), or while the surface is unmapped. The request
+        takes effect immediately and is idempotent. The declaration lasts for
+        the wl_surface lifetime, including unmap/remap, and is not undone by
+        destroying this manager. Only application toplevels are affected;
+        popups and subsurfaces inherit their toplevel's coordinate space.
+        A surface with a committed buffer raises mapped_surface unless it
+        has already been declared self-managed.
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+    <request name="destroy" type="destructor">
+      <description summary="release this manager binding">
+        Existing surface declarations remain in effect.
+      </description>
+    </request>
+  </interface>
+</protocol>

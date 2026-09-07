@@ -9,16 +9,15 @@ import '../models/denial_window.dart';
 import '../theme/motion.dart';
 import '../theme/shell_theme.dart';
 import 'app_icon.dart';
+import 'retained_window_motion.dart';
 import 'window_hero.dart';
 
 typedef LaunchTransitionCompleted = void Function(int requestId, int objectId);
 
-/// Immediately grows a black app preview from the centre of the launcher.
+/// Reopens a running app by growing its live preview from the Home icon.
 ///
-/// The requested app's icon remains visible while its process is starting.
-/// Once the matching compositor window exists, its live texture cross-fades
-/// into the exact same moving rect. Completion is reported only after both the
-/// zoom and live-surface reveal have finished.
+/// New processes use an icon placeholder until their window arrives. Completion
+/// is reported only after the zoom and any live-surface reveal have finished.
 class LaunchTransitionLayer extends StatefulWidget {
   const LaunchTransitionLayer({
     super.key,
@@ -90,6 +89,23 @@ class _LaunchTransitionLayerState extends State<LaunchTransitionLayer>
             builder: (context, constraints) {
               if (constraints.maxWidth <= 0.0 || constraints.maxHeight <= 0.0) {
                 return const SizedBox.expand();
+              }
+              final window = widget.window;
+              if (_isExistingWindow(request, window)) {
+                final source = request.sourceRect;
+                final start = source ?? _startRectFor(context, constraints);
+                return RetainedWindowMotion(
+                  progress: _zoomController,
+                  begin: start,
+                  beginIsGlobal: source != null,
+                  end: Offset.zero & constraints.biggest,
+                  beginRadius: math.min(
+                    context.shellTheme.panelRadius,
+                    start.shortestSide / 2,
+                  ),
+                  curve: Motion.md3EmphasizedDecelerate,
+                  child: WindowSurface(window: window!),
+                );
               }
               return AnimatedBuilder(
                 animation: Listenable.merge(<Listenable>[
@@ -198,7 +214,7 @@ class _LaunchTransitionLayerState extends State<LaunchTransitionLayer>
       target: 1.0,
     );
     if (window != null) {
-      _startReveal();
+      _revealWindow(request, window);
     }
   }
 
@@ -206,6 +222,17 @@ class _LaunchTransitionLayerState extends State<LaunchTransitionLayer>
     _revealController.stop();
     _revealController.value = 0.0;
     if (window != null && widget.request != null) {
+      _revealWindow(widget.request!, window);
+    }
+  }
+
+  bool _isExistingWindow(AppLaunchRequest request, DenialWindow? window) =>
+      window != null && request.targetObjectId == window.objectId;
+
+  void _revealWindow(AppLaunchRequest request, DenialWindow window) {
+    if (_isExistingWindow(request, window)) {
+      _revealController.value = 1.0;
+    } else {
       _startReveal();
     }
   }

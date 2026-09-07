@@ -24,15 +24,28 @@ class SystemShadeLayer extends ConsumerStatefulWidget {
 class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  bool _mountedPanel = false;
+  bool _offstage = true;
 
   @override
   void initState() {
     super.initState();
     final state = ref.read(shellControllerProvider);
-    _controller = AnimationController.unbounded(
+    _controller = AnimationController(
       vsync: this,
       value: state.quickSettingsVisible ? 1.0 : state.quickSettingsDragProgress,
-    );
+    )..addListener(_updateVisibility);
+    _mountedPanel = _controller.value > 0;
+    _offstage = !_mountedPanel;
+  }
+
+  void _updateVisibility() {
+    final offstage = _controller.value <= 0;
+    if (offstage == _offstage) return;
+    setState(() {
+      _offstage = offstage;
+      _mountedPanel = true;
+    });
   }
 
   @override
@@ -78,16 +91,19 @@ class _SystemShadeLayerState extends ConsumerState<SystemShadeLayer>
           fit: StackFit.expand,
           children: [
             const ShadeStatusBar(),
-            AnimatedBuilder(
-              animation: _controller,
-              builder: (context, _) {
-                final progress = unit(_controller.value);
-                if (progress <= 0.001) {
-                  return const SizedBox.expand();
-                }
-                return QuickSettingsShade(progress: progress);
-              },
-            ),
+            if (_mountedPanel)
+              Offstage(
+                offstage: _offstage,
+                child: TickerMode(
+                  enabled: !_offstage,
+                  child: RepaintBoundary(
+                    child: QuickSettingsShade(
+                      progress: _controller,
+                      active: !_offstage,
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),

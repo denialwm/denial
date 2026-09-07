@@ -108,7 +108,10 @@ class _BottomGestureHandleState extends ConsumerState<BottomGestureHandle>
             child: SizedBox(
               width: ShellMetrics.gestureHitWidth,
               height: ShellMetrics.gestureHitHeight,
-              child: Center(child: GesturePill(armed: armed)),
+              child: Padding(
+                padding: const EdgeInsets.only(top: 20),
+                child: Center(child: GesturePill(armed: armed)),
+              ),
             ),
           ),
         ),

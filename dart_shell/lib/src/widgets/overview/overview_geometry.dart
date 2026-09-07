@@ -5,14 +5,16 @@ import 'package:flutter/widgets.dart';
 import '../../input/input_layout.dart';
 import '../window_geometry.dart';
 
-const double _overviewLabelExtent = 44.0;
+// Launcher3 Quickstep's overview_max_scale and overview_page_spacing.
+const double overviewMaxScale = 0.7;
+const double overviewPageSpacing = 16.0;
 const double _singlePreviewWidthFraction = 0.66;
 const double _singlePreviewMaxWidth = 840.0;
 
 /// The equal-sized slots used by the landscape recents overview.
 ///
-/// [itemRects] include the title below each preview, while [previewRectAt]
-/// returns the exact live-texture rect used by the foreground hero.
+/// [itemRects] and [previewRectAt] share the exact live-texture bounds used by
+/// the foreground hero.
 class LandscapeOverviewLayout {
   const LandscapeOverviewLayout({
     required this.cardSize,
@@ -57,11 +59,14 @@ Size cardSizeFor({
     constraints.maxWidth - padding.horizontal,
   );
   final availableHeight = math.max(
-    260.0,
-    constraints.maxHeight - padding.vertical - 210.0,
+    0.0,
+    constraints.maxHeight - padding.vertical,
   );
-  final maxWidth = math.min(availableWidth * 0.74, 410.0);
-  final maxHeight = math.min(availableHeight, constraints.maxHeight * 0.66);
+  final maxWidth = availableWidth * overviewMaxScale;
+  final maxHeight = math.min(
+    availableHeight,
+    constraints.maxHeight * overviewMaxScale,
+  );
 
   var width = maxWidth;
   var height = width / aspect;
@@ -73,10 +78,31 @@ Size cardSizeFor({
   return Size(width, height);
 }
 
+/// Keep the page stride tied to the preview, including on tall or inset views.
+/// A fixed viewport fraction changes the visible gap as the card is fitted.
+/// The carousel paints an extra page on each side during dismissal reflow.
+double overviewPageViewportFractionFor(Size viewSize, EdgeInsets padding) {
+  if (viewSize.width <= 0) return 1;
+  final cardSize = cardSizeFor(
+    constraints: BoxConstraints.tight(viewSize),
+    padding: padding,
+    aspect: viewAspectFor(viewSize),
+  );
+  return ((cardSize.width + overviewPageSpacing) /
+          overviewCarouselViewportWidthFor(viewSize, cardSize))
+      .clamp(0.01, 1.0);
+}
+
+/// Slivers only paint children inside their viewport, even if cached. Extend
+/// it by one page on either side, then clip to the actual screen in the widget,
+/// so a translated neighbor can enter the screen before its slot is removed.
+double overviewCarouselViewportWidthFor(Size viewSize, Size cardSize) =>
+    viewSize.width + 2 * (cardSize.width + overviewPageSpacing);
+
 /// The centred rect a preview card occupies when the overview is fully open.
 Rect centerPreviewRectFor(Size viewSize, Size cardSize) {
   final left = (viewSize.width - cardSize.width) / 2.0;
-  final top = (viewSize.height - cardSize.height) / 2.0 - 22.0;
+  final top = (viewSize.height - cardSize.height) / 2.0;
   return Rect.fromLTWH(left, top, cardSize.width, cardSize.height);
 }
 
@@ -127,8 +153,8 @@ LandscapeOverviewLayout landscapeOverviewLayoutFor({
     final rows = (itemCount / columns).ceil();
     final cellWidth =
         (contentRect.width - horizontalGap * (columns - 1)) / columns;
-    final itemHeight = (contentRect.height - verticalGap * (rows - 1)) / rows;
-    final maxPreviewHeight = itemHeight - _overviewLabelExtent;
+    final maxPreviewHeight =
+        (contentRect.height - verticalGap * (rows - 1)) / rows;
     if (cellWidth <= 0.0 || maxPreviewHeight <= 0.0) {
       continue;
     }
@@ -170,7 +196,7 @@ LandscapeOverviewLayout landscapeOverviewLayoutFor({
     bestCardSize = Size(width, width / safeAspect);
   }
 
-  final itemHeight = bestCardSize.height + _overviewLabelExtent;
+  final itemHeight = bestCardSize.height;
   final gridHeight = itemHeight * bestRows + verticalGap * (bestRows - 1);
   final gridTop = contentRect.top + (contentRect.height - gridHeight) / 2.0;
   final itemRects = <Rect>[];

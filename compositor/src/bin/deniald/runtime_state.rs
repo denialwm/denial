@@ -32,22 +32,6 @@ pub(super) struct RuntimeState {
     pub(super) sampled_buffer_releases:
         Vec<(Option<OwnedFd>, flutter_runtime::SampledBufferHoldBatch)>,
     #[cfg(feature = "flutter")]
-    pub(super) native_app_plugins: Option<native_app_plugin::NativeAppPluginManager>,
-    #[cfg(feature = "flutter")]
-    pub(super) native_plugin_actions: VecDeque<native_app_plugin::NativePluginAction>,
-    #[cfg(feature = "flutter")]
-    pub(super) native_release_commands: VecDeque<native_app_plugin::NativeReleaseCommand>,
-    #[cfg(feature = "flutter")]
-    pub(super) native_ready_frames: Vec<native_app_plugin::NativeFrameKey>,
-    #[cfg(feature = "flutter")]
-    pub(super) native_release_sender: Option<
-        smithay::reexports::calloop::channel::Sender<native_app_plugin::NativeReleaseCommand>,
-    >,
-    #[cfg(feature = "flutter")]
-    pub(super) native_plugin_formats: Vec<native_app_plugin::NativeAppFormatV1>,
-    #[cfg(feature = "flutter")]
-    pub(super) native_plugin_default_size: (u32, u32),
-    #[cfg(feature = "flutter")]
     pub(super) ready_fence_signals: Vec<output_scheduler::ReadyFenceSignal>,
     #[cfg(feature = "flutter")]
     pub(super) volition_events: Vec<denial_core::volition::Event>,

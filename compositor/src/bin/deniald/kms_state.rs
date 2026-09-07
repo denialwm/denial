@@ -6,6 +6,9 @@ use super::*;
 use denial_core::topology::{RenderOutputPlan, RenderViewId};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use smithay::reexports::rustix::{io, ioctl};
 
 #[cfg(feature = "flutter")]
 use smithay::backend::egl::EGLContext;
@@ -366,34 +369,18 @@ pub(super) struct RestoreAttempt {
     pub(super) failures: Vec<String>,
 }
 
-enum AtlasFramebuffer {
-    Gbm(GbmFramebuffer),
-    Prime(PrimeFramebuffer),
-}
-
-impl AtlasFramebuffer {
-    fn handle(&self) -> framebuffer::Handle {
-        match self {
-            Self::Gbm(framebuffer) => *framebuffer.as_ref(),
-            Self::Prime(framebuffer) => framebuffer.handle,
-        }
-    }
-}
-
-/// A KMS framebuffer whose GEM handles were imported directly from dma-buf
-/// file descriptors. Display-only DRM nodes do not necessarily have a GBM
-/// backend capable of re-importing every modifier their planes can scan out;
-/// PRIME plus ADDFB2 is the kernel ABI for that split-device case.
-struct PrimeFramebuffer {
+/// Owns the KMS framebuffer independently of the allocation. GBM owns its own
+/// GEM handles; only the split-device PRIME path gives us handles to close.
+struct ScanoutFramebuffer {
     handle: framebuffer::Handle,
     drm: DrmDeviceFd,
     imported_handles: Vec<BufferHandle>,
 }
 
-impl Drop for PrimeFramebuffer {
+impl Drop for ScanoutFramebuffer {
     fn drop(&mut self) {
-        if let Err(error) = self.drm.destroy_framebuffer(self.handle) {
-            warn!(framebuffer = ?self.handle, %error, "failed to destroy PRIME scanout framebuffer");
+        if let Err(error) = close_scanout_framebuffer(&self.drm, self.handle) {
+            warn!(framebuffer = ?self.handle, %error, "failed to close scanout framebuffer");
         }
         for handle in self.imported_handles.drain(..) {
             if let Err(error) = self.drm.close_buffer(handle) {
@@ -401,6 +388,58 @@ impl Drop for PrimeFramebuffer {
             }
         }
     }
+}
+
+#[repr(C)]
+struct DrmModeCloseFb {
+    fb_id: u32,
+    pad: u32,
+}
+
+const _: () = assert!(std::mem::size_of::<DrmModeCloseFb>() == 8);
+
+fn close_scanout_framebuffer(
+    drm: &DrmDeviceFd,
+    handle: framebuffer::Handle,
+) -> std::io::Result<()> {
+    static LEGACY_RMFB_REQUIRED: AtomicBool = AtomicBool::new(false);
+
+    if !LEGACY_RMFB_REQUIRED.load(Ordering::Relaxed) {
+        // RMFB may disable an active plane and synchronously flush the kernel's
+        // removal work, even after DRM master was released. CLOSEFB drops our
+        // ownership without that modeset: an active scanout retains its own
+        // reference until the next compositor replaces or disables it. Inactive
+        // framebuffer storage is still released immediately. Use the same rule
+        // for pool retirement, where a previous scanout can still hold a ref.
+        // drm-rs 0.14 does not yet expose DRM_IOCTL_MODE_CLOSEFB.
+        const REQUEST: ioctl::Opcode = ioctl::opcode::read_write::<DrmModeCloseFb>(b'd', 0xd0);
+        let mut request = DrmModeCloseFb {
+            fb_id: handle.into(),
+            pad: 0,
+        };
+        loop {
+            // SAFETY: the exact C-layout DRM UAPI payload is fully initialized,
+            // and both it and the descriptor outlive this synchronous call.
+            let result =
+                unsafe { ioctl::ioctl(drm, ioctl::Updater::<REQUEST, _>::new(&mut request)) };
+            match result {
+                Ok(()) => return Ok(()),
+                Err(io::Errno::INTR) => continue,
+                // Older DRM dispatch tables return EINVAL for an unknown core
+                // ioctl. The only CLOSEFB-specific EINVAL is nonzero padding,
+                // which this request never supplies. Keep old-kernel support,
+                // but report that it cannot provide the non-disabling handoff.
+                Err(io::Errno::INVAL | io::Errno::NOTTY) => {
+                    if !LEGACY_RMFB_REQUIRED.swap(true, Ordering::Relaxed) {
+                        warn!("kernel lacks DRM CLOSEFB; using legacy framebuffer removal");
+                    }
+                    break;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+    drm.destroy_framebuffer(handle)
 }
 
 pub(super) struct ScanoutAllocator {
@@ -473,8 +512,9 @@ impl LinearRenderBuffer {
 }
 
 pub(super) struct ScanoutBuffer {
-    // The framebuffer must be destroyed before its backing allocation.
-    framebuffer: AtlasFramebuffer,
+    // Release framebuffer ownership before its backing allocation. An active
+    // KMS plane independently pins the storage during a compositor handoff.
+    framebuffer: ScanoutFramebuffer,
     pub(super) dmabuf: Dmabuf,
     format: Format,
     render_target: Option<LinearRenderBuffer>,
@@ -494,9 +534,9 @@ impl ScanoutBuffer {
         let format = smithay::backend::allocator::Buffer::format(&buffer);
         let dmabuf = buffer.export()?;
         let framebuffer = if cross_device {
-            AtlasFramebuffer::Prime(framebuffer_from_prime_dmabuf(drm_fd, &dmabuf)?)
+            framebuffer_from_prime_dmabuf(drm_fd, &dmabuf)?
         } else {
-            AtlasFramebuffer::Gbm(framebuffer_from_bo(drm_fd, &buffer, true)?)
+            framebuffer_from_scanout_bo(drm_fd, &buffer)?
         };
         Ok(Self {
             framebuffer,
@@ -508,7 +548,7 @@ impl ScanoutBuffer {
     }
 
     pub(super) fn framebuffer(&self) -> framebuffer::Handle {
-        self.framebuffer.handle()
+        self.framebuffer.handle
     }
 
     pub(super) fn format(&self) -> Format {
@@ -524,10 +564,46 @@ impl ScanoutBuffer {
     }
 }
 
+fn framebuffer_from_scanout_bo(
+    drm: &DrmDeviceFd,
+    buffer: &GbmBuffer,
+) -> Result<ScanoutFramebuffer, Box<dyn Error>> {
+    // This allocator requests opaque XR24 only. Register the existing GBM
+    // handles directly: PRIME-importing them back onto the same DRM fd could
+    // return GBM's handles and incorrectly make us responsible for closing them.
+    if PlanarBuffer::format(buffer) != Fourcc::Xrgb8888 {
+        return Err("GBM scanout allocation did not preserve the requested XR24 format".into());
+    }
+    let flags = if PlanarBuffer::modifier(buffer).is_some() {
+        FbCmd2Flags::MODIFIERS
+    } else {
+        FbCmd2Flags::empty()
+    };
+    let handle = match drm.add_planar_framebuffer(buffer, flags) {
+        Ok(handle) => handle,
+        Err(error) => {
+            // Preserve Smithay's legacy ADDFB fallback for single-plane GBM
+            // allocations. XR24 has depth 24 and 32 storage bits per pixel.
+            if buffer.plane_count() > 1 {
+                return Err(error.into());
+            }
+            warn!(%error, "ADDFB2 failed for GBM scanout; trying legacy ADDFB");
+            drm.add_framebuffer(buffer, 24, 32)?
+        }
+    };
+    Ok(ScanoutFramebuffer {
+        handle,
+        drm: drm.clone(),
+        imported_handles: Vec::new(),
+    })
+}
+
+/// Display-only DRM nodes may lack GBM import support for a scanout modifier.
+/// Import GEM handles directly through PRIME and register them with ADDFB2.
 fn framebuffer_from_prime_dmabuf(
     drm: &DrmDeviceFd,
     dmabuf: &Dmabuf,
-) -> Result<PrimeFramebuffer, Box<dyn Error>> {
+) -> Result<ScanoutFramebuffer, Box<dyn Error>> {
     let plane_count = dmabuf.num_planes();
     if plane_count == 0 || plane_count > 4 {
         return Err(format!("cannot import a dma-buf with {plane_count} planes to KMS").into());
@@ -584,7 +660,7 @@ fn framebuffer_from_prime_dmabuf(
         }
     };
 
-    Ok(PrimeFramebuffer {
+    Ok(ScanoutFramebuffer {
         handle,
         drm: drm.clone(),
         imported_handles,

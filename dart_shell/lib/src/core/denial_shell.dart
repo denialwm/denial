@@ -94,9 +94,10 @@ class DenialShell extends ConsumerWidget {
       cornerRadiusScale: appearance.cornerRadiusScale,
       panelOpacity: appearance.panelOpacity,
       cardOpacity: appearance.cardOpacity,
-      backdropBlurEnabled: appearance.backdropBlurEnabled,
+      transparencyMode: appearance.transparencyMode,
       backdropBlurLevel: appearance.backdropBlurLevel,
       backdropBlurOpacityThreshold: appearance.backdropBlurOpacityThreshold,
+      glass: appearance.glass,
       focusedWindowBorderEnabled: appearance.focusedWindowBorderEnabled,
       focusedWindowOpacity: appearance.focusedWindowOpacity,
       unfocusedWindowOpacity: appearance.unfocusedWindowOpacity,
@@ -123,6 +124,9 @@ class DenialShell extends ConsumerWidget {
       displayLayout: displayLayout,
       cursorSize: appearance.cursorSize,
       onCursorStatePresented: bridge.acknowledgeCursorPresented,
+      benchmarkSocket: ref.watch(
+        startupEnvironmentProvider,
+      )['DENIAL_CURSOR_BENCHMARK_SOCKET'],
       child: ShellOverlayHost(child: scene),
     );
 

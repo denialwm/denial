@@ -1,5 +1,26 @@
 part of 'desktop_shell.dart';
 
+/// Keeps native glass in one compositing mode across minimized presentations.
+///
+/// Blur and transparency-off retain their existing fade. Glass windows are
+/// already moved offscreen or arranged on the desktop, so changing the whole
+/// subtree opacity only forces the backdrop filter through a different render
+/// plan while the window transitions back into overview.
+double desktopWindowPresentationOpacity({
+  required ShellTransparencyMode transparencyMode,
+  required bool minimized,
+  required bool desktopWidget,
+  required double windowOpacity,
+}) {
+  if (transparencyMode == ShellTransparencyMode.glass) {
+    return windowOpacity;
+  }
+  if (minimized) {
+    return 0.0;
+  }
+  return desktopWidget ? 0.86 * windowOpacity : windowOpacity;
+}
+
 class _ClosingDesktopWindow {
   const _ClosingDesktopWindow({
     required this.id,
@@ -54,6 +75,9 @@ class _DesktopClosingWindowFrame extends StatelessWidget {
                 window: closing.window,
                 smooth: false,
                 active: false,
+                borderRadius: BorderRadius.circular(
+                  math.max(0.0, radius - DesktopMetrics.frameBorder),
+                ),
               ),
             ),
           ),
@@ -252,11 +276,12 @@ class _DesktopWindowFrame extends ConsumerWidget {
                   child: AnimatedOpacity(
                     duration: minimizeEffectDuration,
                     curve: minimizeCurve,
-                    opacity: minimized
-                        ? 0.0
-                        : desktopWidget
-                        ? 0.86 * windowOpacity
-                        : windowOpacity,
+                    opacity: desktopWindowPresentationOpacity(
+                      transparencyMode: theme.transparencyMode,
+                      minimized: minimized,
+                      desktopWidget: desktopWidget,
+                      windowOpacity: windowOpacity,
+                    ),
                     child: DesktopWindowRepaintBoundary(
                       outset: drawsServerFrame
                           ? DesktopWindowFramePainter.shadowOutset
@@ -297,6 +322,13 @@ class _DesktopWindowFrame extends ConsumerWidget {
                                     window: window,
                                     smooth: transformed || resizing,
                                     active: active && !minimized,
+                                    borderRadius: BorderRadius.circular(
+                                      math.max(
+                                        0.0,
+                                        windowRadius -
+                                            DesktopMetrics.frameBorder,
+                                      ),
+                                    ),
                                     localLayoutSize: window.isLocalFlutter
                                         ? placement.contentRect.size
                                         : null,
@@ -585,6 +617,7 @@ class _DesktopWindowContent extends ConsumerWidget {
     required this.window,
     required this.smooth,
     required this.active,
+    required this.borderRadius,
     this.localLayoutSize,
     this.presentationScale,
     this.pixelGridOrigin = Offset.zero,
@@ -593,6 +626,7 @@ class _DesktopWindowContent extends ConsumerWidget {
   final DenialWindow window;
   final bool smooth;
   final bool active;
+  final BorderRadius borderRadius;
   final Size? localLayoutSize;
   final double? presentationScale;
   final Offset pixelGridOrigin;
@@ -617,6 +651,7 @@ class _DesktopWindowContent extends ConsumerWidget {
       ),
       useWindowAlphaThreshold: true,
       singleWindowSurface: singleWindowSurface,
+      borderRadius: borderRadius,
       child: content,
     );
   }

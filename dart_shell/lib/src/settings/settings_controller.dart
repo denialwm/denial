@@ -11,6 +11,7 @@ import '../models/suspend_mode.dart';
 import '../state/desktop_window_close_effect.dart';
 import '../theme/backdrop_blur_level.dart';
 import '../theme/cursor_themes.dart';
+import '../theme/glass_configuration.dart';
 import '../theme/tokens.dart';
 import '../state/shell_controller.dart';
 import '../platform/denial_bridge.dart';
@@ -222,8 +223,8 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     );
   }
 
-  void setBackdropBlurEnabled(bool value) {
-    _updateAppearance(backdropBlurEnabled: value);
+  void setTransparencyMode(ShellTransparencyMode value) {
+    _updateAppearance(transparencyMode: value);
   }
 
   void setBackdropBlurLevel(ShellBackdropBlurLevel value) {
@@ -234,6 +235,10 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     _updateAppearance(
       backdropBlurOpacityThreshold: value.clamp(0, 1).toDouble(),
     );
+  }
+
+  void setGlassConfiguration(ShellGlassConfiguration value) {
+    _updateAppearance(glass: value);
   }
 
   void setFocusedWindowBorderEnabled(bool value) {
@@ -642,9 +647,10 @@ class ShellSettingsController extends Notifier<ShellSettings> {
     double? cornerRadiusScale,
     double? panelOpacity,
     double? cardOpacity,
-    bool? backdropBlurEnabled,
+    ShellTransparencyMode? transparencyMode,
     ShellBackdropBlurLevel? backdropBlurLevel,
     double? backdropBlurOpacityThreshold,
+    ShellGlassConfiguration? glass,
     bool? focusedWindowBorderEnabled,
     double? focusedWindowOpacity,
     double? unfocusedWindowOpacity,
@@ -658,9 +664,10 @@ class ShellSettingsController extends Notifier<ShellSettings> {
           cornerRadiusScale: cornerRadiusScale,
           panelOpacity: panelOpacity,
           cardOpacity: cardOpacity,
-          backdropBlurEnabled: backdropBlurEnabled,
+          transparencyMode: transparencyMode,
           backdropBlurLevel: backdropBlurLevel,
           backdropBlurOpacityThreshold: backdropBlurOpacityThreshold,
+          glass: glass,
           focusedWindowBorderEnabled: focusedWindowBorderEnabled,
           focusedWindowOpacity: focusedWindowOpacity,
           unfocusedWindowOpacity: unfocusedWindowOpacity,

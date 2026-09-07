@@ -134,6 +134,7 @@ class _SystemLevelHudCard extends StatelessWidget {
           value: context.l10n.percentValue(percent),
           child: RepaintBoundary(
             child: ShellBackdropBlur(
+              separateChild: true,
               blur: theme.effectivePanelOpacity < 1.0,
               borderRadius: BorderRadius.circular(theme.panelRadius),
               child: DecoratedBox(

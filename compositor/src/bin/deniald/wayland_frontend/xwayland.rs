@@ -416,6 +416,12 @@ fn map_x11_window(state: &mut RuntimeState, surface: X11Surface, override_redire
             .expect("missing Wayland frontend")
             .reconcile_window_layout(&window);
         #[cfg(feature = "flutter")]
+        state
+            .wayland
+            .as_mut()
+            .expect("missing Wayland frontend")
+            .configure_mobile_window(&window);
+        #[cfg(feature = "flutter")]
         if let Some((_, restored)) = restored_record {
             queue_restored_window_state(state, &window, restored, configured);
         }
@@ -639,6 +645,8 @@ impl XWaylandShellHandler for RuntimeState {
             // ordering, so finish the one-time membership update here.
             frontend.update_window_output_membership(&window);
             frontend.reconcile_window_layout(&window);
+            #[cfg(feature = "flutter")]
+            frontend.configure_mobile_window(&window);
         }
         #[cfg(feature = "flutter")]
         let focused = matches!(

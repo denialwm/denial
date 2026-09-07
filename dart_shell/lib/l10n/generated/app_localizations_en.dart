@@ -9,6 +9,9 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get homeResizeWidget => 'Resize widget';
+
+  @override
   String get actionCancel => 'Cancel';
 
   @override
@@ -1579,6 +1582,63 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get settingsBackdropBlurOpacityThreshold =>
       'Minimum pixel opacity for blur';
+
+  @override
+  String get settingsTransparencyTitle => 'Transparency material';
+
+  @override
+  String get settingsTransparencyOff => 'Off';
+
+  @override
+  String get settingsTransparencyBlur => 'Blur';
+
+  @override
+  String get settingsTransparencyGlass => 'Glass';
+
+  @override
+  String get settingsTransparencyOffDescription =>
+      'Leave translucent surfaces clear without processing the desktop behind them.';
+
+  @override
+  String get settingsTransparencyBlurDescription =>
+      'Use Denial’s current fast Gaussian backdrop blur.';
+
+  @override
+  String get settingsTransparencyGlassDescription =>
+      'Refract the sharp desktop through a frosted, accent-tinted lens with directional edge lighting.';
+
+  @override
+  String get settingsGlassFrost => 'Frost';
+
+  @override
+  String get settingsGlassQuality => 'Render quality';
+
+  @override
+  String get settingsGlassThickness => 'Optical thickness';
+
+  @override
+  String get settingsGlassRefraction => 'Refraction';
+
+  @override
+  String get settingsGlassDispersion => 'Color dispersion';
+
+  @override
+  String get settingsGlassSaturation => 'Saturation';
+
+  @override
+  String get settingsGlassAccentTint => 'Accent tint';
+
+  @override
+  String get settingsGlassBrightness => 'Luminosity';
+
+  @override
+  String get settingsGlassLightAngle => 'Light direction';
+
+  @override
+  String get settingsGlassLightIntensity => 'Light intensity';
+
+  @override
+  String get settingsGlassEdgeStrength => 'Edge shine';
 
   @override
   String get settingsBackdropDimming => 'Backdrop dimming';

@@ -1,4 +1,3 @@
-import '../input/input_layout.dart';
 import '../models/denial_window.dart';
 
 /// Default tablet aspect (width / height) used when neither a window nor the
@@ -20,9 +19,10 @@ double windowAspect(
   if (window.width <= 0 || window.height <= 0) {
     return fallbackAspect;
   }
-  final frameHeight = ShellMetrics.windowFrameTextureHeight(window);
+  final frame = window.presentationCoordinateRect;
+  final frameHeight = frame.height;
   if (frameHeight <= 0.0) {
     return fallbackAspect;
   }
-  return (window.width / frameHeight).clamp(min, max).toDouble();
+  return (frame.width / frameHeight).clamp(min, max).toDouble();
 }

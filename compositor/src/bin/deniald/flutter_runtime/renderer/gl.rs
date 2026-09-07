@@ -375,6 +375,119 @@ fn gl_info_log(length: i32, read: impl FnOnce(i32, *mut i32, *mut c_char)) -> St
         .to_owned()
 }
 
+/// Copy a completed scene into its scanout target with the current GLES context.
+/// The compositor and render-node-only profiler share this exact command stream.
+/// The caller must keep every target/program alive and the owning context current.
+pub(super) fn copy_to_scanout(
+    gl: GlApi,
+    render_texture: u32,
+    scanout_framebuffer: u32,
+    size: PixelSize,
+    shader_blit: ShaderBlit,
+) -> Result<(), u32> {
+    // The raster commands and this draw share one GLES context, so command
+    // ordering makes the completed LINEAR scene texture available without
+    // a CPU wait. Use ordinary texture sampling into the compressed KMS
+    // target instead of glBlitFramebuffer: the latter enters a faulty CP
+    // copy path on this Adreno and eventually faults while reading IOVA 0.
+    let width = size.width as i32;
+    let height = size.height as i32;
+    let mut previous_draw_framebuffer = 0;
+    let mut previous_program = 0;
+    let mut previous_active_texture = 0;
+    let mut previous_texture_2d = 0;
+    let mut previous_viewport = [0; 4];
+    let mut previous_color_mask = [gl::FALSE; 4];
+    let mut previous_capabilities = [false; 5];
+    // SAFETY: the caller keeps this context current and all target objects live.
+    unsafe {
+        for _ in 0..8 {
+            if (gl.get_error)() == gl::NO_ERROR {
+                break;
+            }
+        }
+        (gl.get_integer_v)(gl::DRAW_FRAMEBUFFER_BINDING, &mut previous_draw_framebuffer);
+        (gl.get_integer_v)(gl::CURRENT_PROGRAM, &mut previous_program);
+        (gl.get_integer_v)(gl::ACTIVE_TEXTURE, &mut previous_active_texture);
+        (gl.get_integer_v)(gl::VIEWPORT, previous_viewport.as_mut_ptr());
+        (gl.get_boolean_v)(gl::COLOR_WRITEMASK, previous_color_mask.as_mut_ptr());
+        for (saved, capability) in previous_capabilities.iter_mut().zip([
+            gl::BLEND,
+            gl::CULL_FACE,
+            gl::DEPTH_TEST,
+            gl::SCISSOR_TEST,
+            gl::STENCIL_TEST,
+        ]) {
+            *saved = (gl.is_enabled)(capability) == gl::TRUE;
+        }
+        (gl.active_texture)(gl::TEXTURE0);
+        (gl.get_integer_v)(gl::TEXTURE_BINDING_2D, &mut previous_texture_2d);
+
+        (gl.bind_framebuffer)(gl::DRAW_FRAMEBUFFER, scanout_framebuffer);
+        (gl.viewport)(0, 0, width, height);
+        (gl.disable)(gl::BLEND);
+        (gl.disable)(gl::CULL_FACE);
+        (gl.disable)(gl::DEPTH_TEST);
+        (gl.disable)(gl::SCISSOR_TEST);
+        (gl.disable)(gl::STENCIL_TEST);
+        (gl.color_mask)(gl::TRUE, gl::TRUE, gl::TRUE, gl::TRUE);
+        (gl.use_program)(shader_blit.program);
+        (gl.active_texture)(gl::TEXTURE0);
+        (gl.bind_texture)(gl::TEXTURE_2D, render_texture);
+        (gl.uniform_1i)(shader_blit.source_uniform, 0);
+        (gl.draw_arrays)(gl::TRIANGLES, 0, 3);
+    }
+    // SAFETY: the same render context remains current after the copy.
+    let draw_error = unsafe { (gl.get_error)() };
+    // Skia caches GLES state across frames. Restore every binding and
+    // fixed-function value touched by the copy so the following Flutter
+    // frame cannot inherit a stale program, texture, mask, or capability.
+    // SAFETY: all values were queried from this same current context.
+    unsafe {
+        (gl.use_program)(previous_program as u32);
+        (gl.bind_texture)(gl::TEXTURE_2D, previous_texture_2d as u32);
+        (gl.active_texture)(previous_active_texture as u32);
+        (gl.bind_framebuffer)(gl::DRAW_FRAMEBUFFER, previous_draw_framebuffer as u32);
+        (gl.viewport)(
+            previous_viewport[0],
+            previous_viewport[1],
+            previous_viewport[2],
+            previous_viewport[3],
+        );
+        (gl.color_mask)(
+            previous_color_mask[0],
+            previous_color_mask[1],
+            previous_color_mask[2],
+            previous_color_mask[3],
+        );
+        for (enabled, capability) in previous_capabilities.into_iter().zip([
+            gl::BLEND,
+            gl::CULL_FACE,
+            gl::DEPTH_TEST,
+            gl::SCISSOR_TEST,
+            gl::STENCIL_TEST,
+        ]) {
+            if enabled {
+                (gl.enable)(capability);
+            } else {
+                (gl.disable)(capability);
+            }
+        }
+    }
+    // SAFETY: the same render context remains current after restoration.
+    let restore_error = unsafe { (gl.get_error)() };
+    let error = if draw_error != gl::NO_ERROR {
+        draw_error
+    } else {
+        restore_error
+    };
+    if error == gl::NO_ERROR {
+        Ok(())
+    } else {
+        Err(error)
+    }
+}
+
 pub(super) fn destroy_shader_blit(gl: GlApi, shader_blit: &mut Option<ShaderBlit>) {
     let Some(shader_blit) = shader_blit.take() else {
         return;

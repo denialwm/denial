@@ -100,13 +100,6 @@ pub(in crate::flutter_runtime) enum ExternalTextureLeaseResource {
         _binding: Arc<CachedTextureBinding>,
         _resource_permit: ExternalTextureResourcePermit,
     },
-    Retained {
-        // Native producer buffers are copied once into this private texture.
-        // Later Flutter frames never sample producer-owned storage after its
-        // release fence signals.
-        _binding: Arc<CachedTextureBinding>,
-        _resource_permit: ExternalTextureResourcePermit,
-    },
 }
 
 struct PreparedExternalTexture {
@@ -449,13 +442,6 @@ impl ShmTextureFrame {
 #[derive(Clone)]
 pub(in crate::flutter_runtime) enum ExternalBufferGuard {
     Wayland { _guard: RendererBufferGuard },
-    Native(NativeBufferRelease),
-}
-
-impl ExternalBufferGuard {
-    fn is_native(&self) -> bool {
-        matches!(self, Self::Native(_))
-    }
 }
 
 #[derive(Clone)]
@@ -506,6 +492,10 @@ pub(in crate::flutter_runtime) struct ExternalTextureSlot {
     pub(in crate::flutter_runtime) current: Option<ExternalTextureSource>,
     pub(in crate::flutter_runtime) queued: Option<ExternalTextureSource>,
     pub(in crate::flutter_runtime) lookahead: Option<ExternalTextureSource>,
+    pub(in crate::flutter_runtime) presentation: denial_flutter_engine::ExternalTexturePresentation,
+    desired_presentation: denial_flutter_engine::ExternalTexturePresentation,
+    queued_presentation: denial_flutter_engine::ExternalTexturePresentation,
+    lookahead_presentation: denial_flutter_engine::ExternalTexturePresentation,
     pub(in crate::flutter_runtime) current_sampled: bool,
     pub(in crate::flutter_runtime) expects_sample: bool,
 }
@@ -515,8 +505,13 @@ impl ExternalTextureSlot {
         &mut self,
         source: ExternalTextureSource,
         expects_sample: bool,
+        presentation: Option<denial_flutter_engine::ExternalTexturePresentation>,
     ) -> bool {
         self.expects_sample = expects_sample;
+        let changed = presentation.is_some_and(|next| next != self.desired_presentation);
+        if let Some(next) = presentation {
+            self.desired_presentation = next;
+        }
         let unchanged = self
             .queued
             .as_ref()
@@ -530,14 +525,34 @@ impl ExternalTextureSlot {
                 .as_ref()
                 .is_some_and(|candidate| candidate.same_generation(&source));
         if unchanged {
-            return false;
+            if !changed {
+                return false;
+            }
+            if self
+                .queued
+                .as_ref()
+                .is_some_and(|candidate| candidate.same_generation(&source))
+            {
+                self.queued_presentation = self.desired_presentation;
+                return true;
+            }
+            if self
+                .lookahead
+                .as_ref()
+                .is_some_and(|candidate| candidate.same_generation(&source))
+            {
+                self.lookahead_presentation = self.desired_presentation;
+                return true;
+            }
         }
         // Preserve one generation on either side of a tick boundary. The
         // immediate successor is stable; only excess lookahead is latest-only.
         if self.queued.is_none() {
             self.queued = Some(source);
+            self.queued_presentation = self.desired_presentation;
         } else {
             self.lookahead = Some(source);
+            self.lookahead_presentation = self.desired_presentation;
         }
         true
     }
@@ -549,7 +564,9 @@ impl ExternalTextureSlot {
             return false;
         }
         self.current = self.queued.take();
+        self.presentation = self.queued_presentation;
         self.queued = self.lookahead.take();
+        self.queued_presentation = self.lookahead_presentation;
         self.current_sampled = false;
         true
     }
@@ -562,7 +579,7 @@ impl ExternalTextureSlot {
 struct SampledBufferHold {
     texture_id: i64,
     generation: u64,
-    buffer_guard: ExternalBufferGuard,
+    _buffer_guard: ExternalBufferGuard,
 }
 
 type SampledBufferBatchPool = Mutex<Vec<Vec<SampledBufferHold>>>;
@@ -584,36 +601,6 @@ impl SampledBufferHoldBatch {
             .iter()
             .flatten()
             .map(|hold| (hold.texture_id, hold.generation))
-    }
-
-    pub(crate) fn materialize_native_releases(
-        &self,
-        fence: std::os::fd::BorrowedFd<'_>,
-    ) -> Result<(), Box<dyn Error>> {
-        for hold in self.holds.iter().flatten() {
-            if let ExternalBufferGuard::Native(release) = &hold.buffer_guard {
-                release.materialize(fence)?;
-            }
-        }
-        Ok(())
-    }
-
-    pub(crate) fn complete_native_releases(&self) -> Result<(), Box<dyn Error>> {
-        for hold in self.holds.iter().flatten() {
-            if let ExternalBufferGuard::Native(release) = &hold.buffer_guard {
-                release.complete()?;
-            }
-        }
-        Ok(())
-    }
-
-    pub(crate) fn complete_native_releases_without_fence(&self) -> Result<(), Box<dyn Error>> {
-        for hold in self.holds.iter().flatten() {
-            if let ExternalBufferGuard::Native(release) = &hold.buffer_guard {
-                release.complete_without_fence()?;
-            }
-        }
-        Ok(())
     }
 }
 
@@ -758,8 +745,10 @@ impl ProducerArbiter {
 #[derive(Clone)]
 pub(crate) struct ExternalTextureFrame {
     pub texture_id: i64,
+    /// Full scene updates supply presentation; buffer-only updates retain it.
+    pub presentation: Option<denial_flutter_engine::ExternalTexturePresentation>,
     source: ExternalTextureSource,
-    expects_sample: bool,
+    pub(crate) expects_sample: bool,
 }
 
 impl ExternalTextureFrame {
@@ -772,6 +761,7 @@ impl ExternalTextureFrame {
     ) -> Self {
         Self {
             texture_id,
+            presentation: None,
             source: ExternalTextureSource::Dmabuf {
                 dmabuf,
                 buffer_guard: Some(ExternalBufferGuard::Wayland {
@@ -786,6 +776,7 @@ impl ExternalTextureFrame {
     pub(crate) fn from_owned_dmabuf(texture_id: i64, dmabuf: Dmabuf, revision: u64) -> Self {
         Self {
             texture_id,
+            presentation: None,
             source: ExternalTextureSource::Dmabuf {
                 dmabuf,
                 buffer_guard: None,
@@ -795,27 +786,10 @@ impl ExternalTextureFrame {
         }
     }
 
-    pub(crate) fn from_native_dmabuf(
-        texture_id: i64,
-        dmabuf: Dmabuf,
-        release: NativeBufferRelease,
-        revision: u64,
-        expects_sample: bool,
-    ) -> Self {
-        Self {
-            texture_id,
-            source: ExternalTextureSource::Dmabuf {
-                dmabuf,
-                buffer_guard: Some(ExternalBufferGuard::Native(release)),
-                revision,
-            },
-            expects_sample,
-        }
-    }
-
     pub(crate) fn from_shm(texture_id: i64, frame: ShmTextureFrame, expects_sample: bool) -> Self {
         Self {
             texture_id,
+            presentation: None,
             source: ExternalTextureSource::Shm(frame),
             expects_sample,
         }

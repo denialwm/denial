@@ -138,6 +138,7 @@ class _WifiDetailSurfaceState extends ConsumerState<WifiDetailSurface> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 540, maxHeight: 720),
           child: ShellBackdropBlur(
+            separateChild: true,
             blur: theme.effectivePanelOpacity < 1.0,
             borderRadius: BorderRadius.circular(theme.panelRadius),
             child: DecoratedBox(

@@ -135,7 +135,14 @@ TickerFuture springTo(
   String telemetryLabel = 'spring',
 }) {
   final future = controller.animateWith(
-    SpringSimulation(spring, controller.value, target, velocity),
+    SpringSimulation(
+      spring,
+      controller.value,
+      target,
+      velocity,
+      // Hidden layers must reach zero so their input barriers are released.
+      snapToEnd: true,
+    ),
   );
   return MotionTelemetry.observe(
     controller,

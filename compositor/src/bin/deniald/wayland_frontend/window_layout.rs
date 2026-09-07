@@ -244,6 +244,10 @@ impl WaylandFrontend {
     /// Layout algorithms only ever see regular, resizable toplevels; protocol
     /// policy for dialogs and auxiliary surfaces stays isolated in this adapter.
     pub(super) fn reconcile_window_layout(&mut self, window: &Window) -> bool {
+        #[cfg(feature = "flutter")]
+        if self.mobile_shell {
+            return false;
+        }
         if !self.window_layout.manages_geometry() {
             return false;
         }
@@ -385,6 +389,14 @@ impl WaylandFrontend {
     }
 
     pub(super) fn arrange_layout_windows(&mut self) -> bool {
+        #[cfg(feature = "flutter")]
+        if self.mobile_shell {
+            let windows = self.space.elements().cloned().collect::<Vec<_>>();
+            for window in windows {
+                self.configure_mobile_window(&window);
+            }
+            return false;
+        }
         if !self.window_layout.manages_geometry() {
             return false;
         }

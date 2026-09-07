@@ -1,0 +1,43 @@
+{
+  "frames": 719,
+  "receivers": {
+    "render_pass": 5805,
+    "first_pass": 5805
+  },
+  "calls": {
+    "dispatch": 11610,
+    "text": 375,
+    "image": 2307,
+    "rect": 1438,
+    "uniform": 0,
+    "encode": 743
+  },
+  "frames_without_text": 675,
+  "first_pass_mean_us": 66.24943115438109,
+  "render_pass_mean_us": 267.5846522948539,
+  "command_bytes_histogram": {
+    "2464": 411,
+    "3872": 15,
+    "2992": 107,
+    "3696": 43,
+    "4752": 33,
+    "5104": 27,
+    "12320": 4,
+    "3344": 7,
+    "4928": 4,
+    "7040": 14,
+    "4576": 1,
+    "2112": 11,
+    "4224": 6,
+    "6688": 8,
+    "8096": 4,
+    "11264": 8,
+    "14432": 1,
+    "14608": 1,
+    "13552": 4,
+    "12144": 4,
+    "11616": 4,
+    "11440": 2
+  },
+  "note": "Receiver vtable confirmed against the exact engine disassembly; nested probes inflate outer-pass durations. Command data are retained as bytes until independently verifying Command size."
+}

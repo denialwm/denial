@@ -147,6 +147,9 @@ impl WaylandFrontend {
     }
 
     pub fn update_topology(&mut self, snapshot: &TopologySnapshot) -> Result<(), Box<dyn Error>> {
+        // Geometry, mode, transform, and output membership all invalidate the
+        // meaning of outstanding exact frame opportunities as one operation.
+        self.invalidate_frame_timeline();
         self.ticker_output = snapshot.ticker;
         let desktop_bounds = logical_bounds(snapshot)?;
         let atlas = AtlasPlan::for_snapshot(snapshot).ok_or("Wayland topology has no atlas")?;

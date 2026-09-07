@@ -89,7 +89,7 @@ class _DesktopHomeWidget extends StatelessWidget {
       child: HomeGridItemCard(
         item: item,
         launchEnabled: false,
-        onLaunch: (_) {},
+        onLaunch: (_, _) {},
       ),
     );
     return RepaintBoundary(
@@ -303,7 +303,12 @@ class _DesktopPopupSurfaceLayers extends StatelessWidget {
               curve: minimized
                   ? Motion.md3EmphasizedAccelerate
                   : Motion.md3EmphasizedDecelerate,
-              opacity: minimized ? 0.0 : 1.0,
+              opacity: desktopWindowPresentationOpacity(
+                transparencyMode: ShellTheme.of(context).transparencyMode,
+                minimized: minimized,
+                desktopWidget: false,
+                windowOpacity: 1.0,
+              ),
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [

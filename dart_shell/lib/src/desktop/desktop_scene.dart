@@ -28,7 +28,6 @@ class _DesktopHomeLayoutCache {
     required this.minimizedWindowPlacement,
     required Iterable<DesktopWindowPlacement> placements,
     required List<HomeGridItem?>? homeSlots,
-    required this.hasBatteryData,
     required this.layout,
   }) : minimizedPlacements = <int, _DesktopHomePlacementSignature>{
          for (final placement in placements)
@@ -44,9 +43,7 @@ class _DesktopHomeLayoutCache {
        widgets = <_DesktopHomeWidgetSignature>[
          for (final item
              in homeSlots?.whereType<HomeGridItem>() ?? const <HomeGridItem>[])
-           if (item.type != HomeGridItemType.app &&
-               (item.type != HomeGridItemType.batteryDischarge ||
-                   hasBatteryData))
+           if (item.type != HomeGridItemType.app)
              (
                id: item.id,
                type: item.type,
@@ -58,7 +55,6 @@ class _DesktopHomeLayoutCache {
   final Size viewSize;
   final DisplayLayout? displayLayout;
   final MinimizedWindowPlacement minimizedWindowPlacement;
-  final bool hasBatteryData;
   final Map<int, _DesktopHomePlacementSignature> minimizedPlacements;
   final List<_DesktopHomeWidgetSignature> widgets;
   final _DesktopHomeSceneLayout layout;
@@ -69,12 +65,10 @@ class _DesktopHomeLayoutCache {
     required MinimizedWindowPlacement minimizedWindowPlacement,
     required Iterable<DesktopWindowPlacement> placements,
     required List<HomeGridItem?>? homeSlots,
-    required bool hasBatteryData,
   }) {
     if (this.viewSize != viewSize ||
         !identical(this.displayLayout, displayLayout) ||
-        this.minimizedWindowPlacement != minimizedWindowPlacement ||
-        this.hasBatteryData != hasBatteryData) {
+        this.minimizedWindowPlacement != minimizedWindowPlacement) {
       return false;
     }
 
@@ -101,8 +95,7 @@ class _DesktopHomeLayoutCache {
     var widgetIndex = 0;
     for (final item
         in homeSlots?.whereType<HomeGridItem>() ?? const <HomeGridItem>[]) {
-      if (item.type == HomeGridItemType.app ||
-          (item.type == HomeGridItemType.batteryDischarge && !hasBatteryData)) {
+      if (item.type == HomeGridItemType.app) {
         continue;
       }
       if (widgetIndex >= widgets.length) {
@@ -130,7 +123,6 @@ _DesktopHomeSceneLayout _layoutDesktopHome({
   required MinimizedWindowPlacement minimizedWindowPlacement,
   required Iterable<DesktopWindowPlacement> placements,
   required List<HomeGridItem?>? homeSlots,
-  required bool hasBatteryData,
 }) {
   final canvas = Offset.zero & viewSize;
   if (canvas.isEmpty) {
@@ -145,9 +137,7 @@ _DesktopHomeSceneLayout _layoutDesktopHome({
   final seenWidgetIds = <String>{};
   for (final item
       in homeSlots?.whereType<HomeGridItem>() ?? const <HomeGridItem>[]) {
-    if (item.type != HomeGridItemType.app &&
-        (item.type != HomeGridItemType.batteryDischarge || hasBatteryData) &&
-        seenWidgetIds.add(item.id)) {
+    if (item.type != HomeGridItemType.app && seenWidgetIds.add(item.id)) {
       widgets.add(item);
     }
   }
@@ -723,7 +713,6 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     required MinimizedWindowPlacement minimizedWindowPlacement,
     required Iterable<DesktopWindowPlacement> placements,
     required List<HomeGridItem?>? homeSlots,
-    required bool hasBatteryData,
   }) {
     final cached = _homeLayoutCache;
     if (cached != null &&
@@ -733,7 +722,6 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
           minimizedWindowPlacement: minimizedWindowPlacement,
           placements: placements,
           homeSlots: homeSlots,
-          hasBatteryData: hasBatteryData,
         )) {
       return cached.layout;
     }
@@ -743,7 +731,6 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
       minimizedWindowPlacement: minimizedWindowPlacement,
       placements: placements,
       homeSlots: homeSlots,
-      hasBatteryData: hasBatteryData,
     );
     _homeLayoutCache = _DesktopHomeLayoutCache(
       viewSize: viewSize,
@@ -751,7 +738,6 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
       minimizedWindowPlacement: minimizedWindowPlacement,
       placements: placements,
       homeSlots: homeSlots,
-      hasBatteryData: hasBatteryData,
       layout: layout,
     );
     return layout;
@@ -816,26 +802,12 @@ class _DesktopSceneState extends ConsumerState<_DesktopScene> {
     final homeSlots = ref.watch(
       homeGridControllerProvider.select((state) => state.asData?.value.slots),
     );
-    final hasBatteryData = ref.watch(
-      homeBatteryDischargeProvider.select(
-        (series) =>
-            series.asData?.value.points.any(
-              (point) =>
-                  point.capacity != null ||
-                  point.currentMa != null ||
-                  point.voltageMv != null ||
-                  point.powerMw != null,
-            ) ??
-            false,
-      ),
-    );
     final homeLayout = _cachedDesktopHomeLayout(
       viewSize: viewSize,
       displayLayout: displayLayout,
       minimizedWindowPlacement: minimizedWindowPlacement,
       placements: placements,
       homeSlots: homeSlots,
-      hasBatteryData: hasBatteryData,
     );
     final topZ = placements
         .where(

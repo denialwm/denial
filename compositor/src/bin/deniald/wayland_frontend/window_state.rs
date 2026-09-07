@@ -98,8 +98,10 @@ impl WaylandFrontend {
 
     #[cfg(feature = "flutter")]
     pub(super) fn exact_window_geometry(&self, window: &Window) -> Option<Rectangle<i32, Logical>> {
-        self.window_root_surface(window)
-            .and_then(|surface| self.exact_window_geometries.get(&surface.id()).copied())
+        self.mobile_window_geometry(window).or_else(|| {
+            self.window_root_surface(window)
+                .and_then(|surface| self.exact_window_geometries.get(&surface.id()).copied())
+        })
     }
 
     #[cfg(feature = "flutter")]
@@ -321,6 +323,10 @@ impl WaylandFrontend {
         &mut self,
         window: &Window,
     ) -> Option<(RestoredWindowPlacement, Rectangle<i32, Logical>)> {
+        #[cfg(feature = "flutter")]
+        if self.mobile_shell {
+            return None;
+        }
         if self.window_is_layout_managed(window) {
             return None;
         }
@@ -573,6 +579,26 @@ impl WaylandFrontend {
     pub(super) fn update_window_output_membership(&mut self, window: &Window) {
         let output_index = self.output_index_for_geometry(self.window_geometry_target(window));
         let output = output_index.map(|index| self.outputs[index].id);
+        let toplevel_bounds = output_index.map(|index| {
+            let output = &self.outputs[index];
+            #[cfg(feature = "flutter")]
+            {
+                if let Some(mobile) = self.mobile_window_geometry(window) {
+                    return mobile.size;
+                }
+                let work_area =
+                    self.maximize_work_area(Some(&output.output), output.logical_geometry);
+                super::window_management::shell_content_geometry(
+                    work_area,
+                    super::window_management::shell_draws_server_frame(window),
+                )
+                .size
+            }
+            #[cfg(not(feature = "flutter"))]
+            {
+                output.logical_geometry.size
+            }
+        });
         let output_scale = output_index
             .map(|index| {
                 self.outputs[index]
@@ -587,6 +613,14 @@ impl WaylandFrontend {
                 fractional_scale.set_preferred_scale(preferred_scale);
             });
         });
+        if let Some(toplevel) = window.toplevel() {
+            // XDG deliberately permits a size-less initial configure so a
+            // client can choose its own dimensions. Publish the standard
+            // maximum useful bounds at the same time; this lets clients make
+            // that decision before attaching their first buffer without any
+            // compositor-specific protocol or shell-geometry guesswork.
+            toplevel.with_pending_state(|pending| pending.bounds = toplevel_bounds);
+        }
         #[cfg(feature = "flutter")]
         if let Some(root_surface) = self.window_root_surface(window) {
             if let Some(window_id) = self.surface_id(&root_surface) {

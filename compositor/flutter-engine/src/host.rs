@@ -144,6 +144,14 @@ pub trait OpenGlHandler: Send + Sync + 'static {
     /// that legitimately produced no present callback.
     fn raster_idle(&self) {}
 
+    /// Optional virtual canvas, read with a resolved texture generation.
+    fn external_texture_presentation(
+        &self,
+        _texture_id: i64,
+    ) -> Option<crate::ExternalTexturePresentation> {
+        None
+    }
+
     fn populate_external_texture(
         &self,
         _texture_id: i64,
@@ -641,6 +649,7 @@ impl EngineHost {
         // SAFETY: `state` is retained by EngineHost until after Flutter shuts
         // down, and the trampoline contains panics before returning to C++.
         unsafe {
+            engine.set_texture_presentation_callback(Some(external_texture_presentation), state)?;
             engine.set_external_texture_gl_state_callback(
                 Some(external_texture_callback_may_modify_gl),
                 state,
@@ -1200,6 +1209,28 @@ unsafe extern "C" fn populate_external_texture(
         state
             .handler
             .populate_external_texture(texture_id, width, height, texture)
+    })
+}
+
+unsafe extern "C" fn external_texture_presentation(
+    data: *mut c_void,
+    texture_id: i64,
+    result: *mut crate::ExternalTexturePresentation,
+) -> bool {
+    if result.is_null() {
+        return false;
+    }
+    dispatch(data, false, |state| {
+        // SAFETY: the engine provides a writable result for this synchronous callback.
+        let result = unsafe { &mut *result };
+        if result.struct_size != mem::size_of::<crate::ExternalTexturePresentation>() {
+            return false;
+        }
+        let Some(presentation) = state.handler.external_texture_presentation(texture_id) else {
+            return false;
+        };
+        *result = presentation;
+        true
     })
 }
 

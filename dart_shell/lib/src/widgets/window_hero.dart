@@ -37,6 +37,10 @@ class WindowSurface extends StatelessWidget {
     Widget content = WindowContentRect(
       window: window,
       borderRadius: borderRadius,
+      // A launch/recents hero presents the app's surface. Sampling the shell
+      // behind it adds an invisible glass pass that invalidates on every move.
+      // The primary app stage owns the normal window backdrop separately.
+      applyBackdrop: false,
     );
 
     final border = window.serverSideDecorated ? borderColor : null;

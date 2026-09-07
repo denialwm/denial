@@ -1,0 +1,914 @@
+[
+  {
+    "wall_seconds": 29.999615481,
+    "cpu_seconds": 2.28,
+    "cpu_one_core_percent": 7.600097412728568,
+    "cursor_ticks": 1786,
+    "cursor_ticks_per_second": 59.5328114290198,
+    "timed_frames": 1786,
+    "build_us": {
+      "count": 1786,
+      "mean": 165.1377379619261,
+      "p50": 161,
+      "p95": 216,
+      "p99": 256,
+      "max": 632
+    },
+    "raster_us": {
+      "count": 1786,
+      "mean": 613.1909294512878,
+      "p50": 599,
+      "p95": 742,
+      "p99": 1190,
+      "max": 3159
+    },
+    "total_span_us": {
+      "count": 1786,
+      "mean": 962.7793952967526,
+      "p50": 954,
+      "p95": 1154,
+      "p99": 1668,
+      "max": 3621
+    },
+    "tick_intervals_us": {
+      "count": 1785,
+      "mean": 16797.537815126052,
+      "p50": 16658,
+      "p95": 16669,
+      "p99": 16684,
+      "max": 33343
+    },
+    "threads": [
+      {
+        "tid": "21090",
+        "name": "io.flutter.rast",
+        "cpu_seconds": 1.17,
+        "one_core_percent": 3.9000499881107125
+      },
+      {
+        "tid": "21089",
+        "name": "io.flutter.ui",
+        "cpu_seconds": 0.53,
+        "one_core_percent": 1.7666893108535708
+      },
+      {
+        "tid": "21063",
+        "name": "deniald",
+        "cpu_seconds": 0.4,
+        "one_core_percent": 1.3333504232857138
+      },
+      {
+        "tid": "21110",
+        "name": "volition-kms",
+        "cpu_seconds": 0.16,
+        "one_core_percent": 0.5333401693142855
+      },
+      {
+        "tid": "21109",
+        "name": "denial-orientat",
+        "cpu_seconds": 0.01,
+        "one_core_percent": 0.033333760582142845
+      },
+      {
+        "tid": "21122",
+        "name": "denial-xembed-t",
+        "cpu_seconds": 0.01,
+        "one_core_percent": 0.033333760582142845
+      },
+      {
+        "tid": "21064",
+        "name": "denial-portal-i",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21066",
+        "name": "async-io",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21067",
+        "name": "zbus::Connectio",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21068",
+        "name": "denial-priority",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21076",
+        "name": "deniald:disk$0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21077",
+        "name": "deniald:sh0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21078",
+        "name": "denial:traceq0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21079",
+        "name": "deniald:gdrv0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21080",
+        "name": "denial:traceq0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21081",
+        "name": "deniald:gdrv0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21082",
+        "name": "denial-screenco",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21083",
+        "name": "denial-control",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21084",
+        "name": "denial-authenti",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21085",
+        "name": "denial:traceq0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21086",
+        "name": "deniald:gdrv0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21087",
+        "name": "denial:traceq0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21088",
+        "name": "deniald:gdrv0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21091",
+        "name": "io.flutter.io",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21092",
+        "name": "io.worker.1",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21093",
+        "name": "io.worker.2",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21094",
+        "name": "io.worker.3",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21095",
+        "name": "io.worker.4",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21096",
+        "name": "dart:io EventHa",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21099",
+        "name": "DartWorker",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21103",
+        "name": "denial-audio",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21104",
+        "name": "denial-brightne",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21105",
+        "name": "denial-session-",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21106",
+        "name": "denial-notifica",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21107",
+        "name": "zbus::Connectio",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21108",
+        "name": "zbus::Connectio",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21111",
+        "name": "denial-screensh",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21113",
+        "name": "sleep_watch_thr",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21121",
+        "name": "deniald",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "22566",
+        "name": "denial-child-re",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "22721",
+        "name": "threaded-ml",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "23030",
+        "name": "DartWorker",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      }
+    ],
+    "gpu_engine_busy_percent": {
+      "i915/0000:00:02.0/81": {
+        "drm-engine-render": 4.552954743253498,
+        "drm-engine-copy": 0.0,
+        "drm-engine-video": 0.0,
+        "drm-engine-video-enhance": 0.0
+      }
+    }
+  },
+  {
+    "wall_seconds": 30.000802109,
+    "cpu_seconds": 2.46,
+    "cpu_one_core_percent": 8.199780762735074,
+    "cursor_ticks": 1786,
+    "cursor_ticks_per_second": 59.5328114290198,
+    "timed_frames": 1786,
+    "build_us": {
+      "count": 1786,
+      "mean": 176.71500559910413,
+      "p50": 169,
+      "p95": 252,
+      "p99": 311,
+      "max": 585
+    },
+    "raster_us": {
+      "count": 1786,
+      "mean": 652.3180291153416,
+      "p50": 620,
+      "p95": 905,
+      "p99": 1510,
+      "max": 3897
+    },
+    "total_span_us": {
+      "count": 1786,
+      "mean": 1021.110862262038,
+      "p50": 1001,
+      "p95": 1285,
+      "p99": 2079,
+      "max": 4578
+    },
+    "tick_intervals_us": {
+      "count": 1785,
+      "mean": 16797.537815126052,
+      "p50": 16658,
+      "p95": 16670,
+      "p99": 16685,
+      "max": 33328
+    },
+    "threads": [
+      {
+        "tid": "21090",
+        "name": "io.flutter.rast",
+        "cpu_seconds": 1.26,
+        "one_core_percent": 4.199887707742354
+      },
+      {
+        "tid": "21089",
+        "name": "io.flutter.ui",
+        "cpu_seconds": 0.57,
+        "one_core_percent": 1.899949201121541
+      },
+      {
+        "tid": "21063",
+        "name": "deniald",
+        "cpu_seconds": 0.44,
+        "one_core_percent": 1.4666274534973303
+      },
+      {
+        "tid": "21110",
+        "name": "volition-kms",
+        "cpu_seconds": 0.18,
+        "one_core_percent": 0.5999839582489077
+      },
+      {
+        "tid": "21068",
+        "name": "denial-priority",
+        "cpu_seconds": 0.01,
+        "one_core_percent": 0.03333244212493933
+      },
+      {
+        "tid": "21064",
+        "name": "denial-portal-i",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21066",
+        "name": "async-io",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21067",
+        "name": "zbus::Connectio",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21076",
+        "name": "deniald:disk$0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21077",
+        "name": "deniald:sh0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21078",
+        "name": "denial:traceq0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21079",
+        "name": "deniald:gdrv0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21080",
+        "name": "denial:traceq0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21081",
+        "name": "deniald:gdrv0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21082",
+        "name": "denial-screenco",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21083",
+        "name": "denial-control",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21084",
+        "name": "denial-authenti",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21085",
+        "name": "denial:traceq0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21086",
+        "name": "deniald:gdrv0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21087",
+        "name": "denial:traceq0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21088",
+        "name": "deniald:gdrv0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21091",
+        "name": "io.flutter.io",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21092",
+        "name": "io.worker.1",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21093",
+        "name": "io.worker.2",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21094",
+        "name": "io.worker.3",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21095",
+        "name": "io.worker.4",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21096",
+        "name": "dart:io EventHa",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21099",
+        "name": "DartWorker",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21103",
+        "name": "denial-audio",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21104",
+        "name": "denial-brightne",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21105",
+        "name": "denial-session-",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21106",
+        "name": "denial-notifica",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21107",
+        "name": "zbus::Connectio",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21108",
+        "name": "zbus::Connectio",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21109",
+        "name": "denial-orientat",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21111",
+        "name": "denial-screensh",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21113",
+        "name": "sleep_watch_thr",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21121",
+        "name": "deniald",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21122",
+        "name": "denial-xembed-t",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "22566",
+        "name": "denial-child-re",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "22721",
+        "name": "threaded-ml",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "23444",
+        "name": "DartWorker",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      }
+    ],
+    "gpu_engine_busy_percent": {
+      "i915/0000:00:02.0/81": {
+        "drm-engine-render": 5.062933522515173,
+        "drm-engine-copy": 0.0,
+        "drm-engine-video": 0.0,
+        "drm-engine-video-enhance": 0.0
+      }
+    }
+  },
+  {
+    "wall_seconds": 30.000393143,
+    "cpu_seconds": 2.5,
+    "cpu_one_core_percent": 8.33322412837555,
+    "cursor_ticks": 1789,
+    "cursor_ticks_per_second": 59.63279266267986,
+    "timed_frames": 1789,
+    "build_us": {
+      "count": 1789,
+      "mean": 182.96590273896032,
+      "p50": 175,
+      "p95": 265,
+      "p99": 303,
+      "max": 625
+    },
+    "raster_us": {
+      "count": 1789,
+      "mean": 666.8535494689771,
+      "p50": 643,
+      "p95": 895,
+      "p99": 1222,
+      "max": 3314
+    },
+    "total_span_us": {
+      "count": 1789,
+      "mean": 1049.8624930128562,
+      "p50": 1026,
+      "p95": 1289,
+      "p99": 1597,
+      "max": 4142
+    },
+    "tick_intervals_us": {
+      "count": 1788,
+      "mean": 16769.353467561523,
+      "p50": 16658,
+      "p95": 16671,
+      "p99": 16680,
+      "max": 33327
+    },
+    "threads": [
+      {
+        "tid": "21090",
+        "name": "io.flutter.rast",
+        "cpu_seconds": 1.28,
+        "one_core_percent": 4.266610753728282
+      },
+      {
+        "tid": "21089",
+        "name": "io.flutter.ui",
+        "cpu_seconds": 0.58,
+        "one_core_percent": 1.9333079977831273
+      },
+      {
+        "tid": "21063",
+        "name": "deniald",
+        "cpu_seconds": 0.43,
+        "one_core_percent": 1.4333145500805946
+      },
+      {
+        "tid": "21110",
+        "name": "volition-kms",
+        "cpu_seconds": 0.17,
+        "one_core_percent": 0.5666592407295374
+      },
+      {
+        "tid": "21064",
+        "name": "denial-portal-i",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21066",
+        "name": "async-io",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21067",
+        "name": "zbus::Connectio",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21068",
+        "name": "denial-priority",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21076",
+        "name": "deniald:disk$0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21077",
+        "name": "deniald:sh0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21078",
+        "name": "denial:traceq0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21079",
+        "name": "deniald:gdrv0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21080",
+        "name": "denial:traceq0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21081",
+        "name": "deniald:gdrv0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21082",
+        "name": "denial-screenco",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21083",
+        "name": "denial-control",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21084",
+        "name": "denial-authenti",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21085",
+        "name": "denial:traceq0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21086",
+        "name": "deniald:gdrv0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21087",
+        "name": "denial:traceq0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21088",
+        "name": "deniald:gdrv0",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21091",
+        "name": "io.flutter.io",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21092",
+        "name": "io.worker.1",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21093",
+        "name": "io.worker.2",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21094",
+        "name": "io.worker.3",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21095",
+        "name": "io.worker.4",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21096",
+        "name": "dart:io EventHa",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21099",
+        "name": "DartWorker",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21103",
+        "name": "denial-audio",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21104",
+        "name": "denial-brightne",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21105",
+        "name": "denial-session-",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21106",
+        "name": "denial-notifica",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21107",
+        "name": "zbus::Connectio",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21108",
+        "name": "zbus::Connectio",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21109",
+        "name": "denial-orientat",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21111",
+        "name": "denial-screensh",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21113",
+        "name": "sleep_watch_thr",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21121",
+        "name": "deniald",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "21122",
+        "name": "denial-xembed-t",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "22566",
+        "name": "denial-child-re",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "22721",
+        "name": "threaded-ml",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "23444",
+        "name": "DartWorker",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      },
+      {
+        "tid": "23492",
+        "name": "DartWorker",
+        "cpu_seconds": 0.0,
+        "one_core_percent": 0.0
+      }
+    ],
+    "gpu_engine_busy_percent": {
+      "i915/0000:00:02.0/81": {
+        "drm-engine-render": 4.5742064527584185,
+        "drm-engine-copy": 0.0,
+        "drm-engine-video": 0.0,
+        "drm-engine-video-enhance": 0.0
+      }
+    }
+  }
+]

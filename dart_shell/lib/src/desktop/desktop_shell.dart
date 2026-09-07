@@ -42,6 +42,7 @@ import '../state/display_layout.dart';
 import '../state/quick_settings.dart';
 import '../state/screenshot_selection.dart';
 import '../state/shell_controller.dart';
+import '../theme/glass_configuration.dart';
 import '../theme/motion.dart';
 import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';

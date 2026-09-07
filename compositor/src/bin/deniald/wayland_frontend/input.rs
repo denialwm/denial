@@ -25,7 +25,6 @@ use smithay::reexports::calloop::EventLoop;
 #[cfg(feature = "flutter")]
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::input::event::pointer::PointerEventTrait;
-use smithay::reexports::input::event::touch::TouchEventTrait;
 use smithay::reexports::input::{Device as LibinputDevice, Libinput, TapButtonMap};
 #[cfg(feature = "flutter")]
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
@@ -964,25 +963,6 @@ fn process_keyboard_transition(
     if intercept_native_escape(state, keycode.raw(), key_state) {
         return true;
     }
-    if let Some(evdev_keycode) = keycode.raw().checked_sub(8) {
-        let allow_new = !state.secure_session_locked();
-        let routed = state.native_app_plugins.as_mut().map(|manager| {
-            manager.route_key(
-                evdev_keycode,
-                key_state == KeyState::Pressed,
-                u64::from(time).saturating_mul(1_000_000),
-                allow_new,
-            )
-        });
-        match routed {
-            Some(Ok(true)) => return true,
-            Some(Err(error)) => {
-                warn!(%error, evdev_keycode, "native application key routing failed");
-                return true;
-            }
-            Some(Ok(false)) | None => {}
-        }
-    }
     if state.flutter_active {
         return process_flutter_keyboard_transition(state, keycode, key_state, time);
     }
@@ -1423,13 +1403,6 @@ fn reset_input_devices(state: &mut RuntimeState, reset: InputDeviceReset) {
             .flutter_input
             .cancel_device_lifecycles(reset.pointer, reset.touch);
     }
-    #[cfg(feature = "flutter")]
-    if let Some(manager) = state.native_app_plugins.as_mut()
-        && let Err(error) = manager.reset_input(reset.keyboard, reset.touch)
-    {
-        warn!(%error, "could not reset native application input");
-    }
-
     let Some(frontend) = state.wayland.as_mut() else {
         return;
     };

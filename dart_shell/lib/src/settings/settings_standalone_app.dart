@@ -10,6 +10,7 @@ import '../platform/denial_bridge.dart';
 import '../settings/settings_controller.dart';
 import '../state/shell_controller.dart';
 import '../theme/shell_color_scheme.dart';
+import '../theme/glass_configuration.dart';
 import '../theme/shell_theme.dart';
 import '../theme/tokens.dart';
 import '../wallpaper/state/wallpaper_accent.dart';
@@ -120,7 +121,7 @@ class _DenialSettingsStandaloneContentState
       cornerRadiusScale: appearance.cornerRadiusScale,
       panelOpacity: appearance.panelOpacity,
       cardOpacity: appearance.cardOpacity,
-      backdropBlurEnabled: false,
+      transparencyMode: ShellTransparencyMode.off,
       focusedWindowBorderEnabled: appearance.focusedWindowBorderEnabled,
       focusedWindowOpacity: appearance.focusedWindowOpacity,
       unfocusedWindowOpacity: appearance.unfocusedWindowOpacity,

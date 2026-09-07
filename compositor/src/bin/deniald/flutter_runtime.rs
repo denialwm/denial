@@ -50,7 +50,6 @@ use tracing::{debug, error, info, warn};
 use super::egl_context;
 use super::frame_scheduler::{OutputFrameRequest, PendingFrame};
 use super::idle_policy;
-use super::native_app_plugin::NativeBufferRelease;
 use super::render_audit_enabled;
 use super::wire::{self, WireBridge};
 

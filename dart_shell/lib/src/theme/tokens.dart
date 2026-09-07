@@ -132,7 +132,7 @@ abstract final class ShellText {
 
   static const TextStyle shadeClock = TextStyle(
     fontFamilyFallback: fallbackFontFamilies,
-    fontSize: 42,
+    fontSize: 64,
     height: 1,
     fontWeight: FontWeight.w800,
     letterSpacing: 0,

@@ -6,7 +6,7 @@ class ShellMetrics {
   const ShellMetrics._();
 
   static const double gestureHitWidth = 176.0;
-  static const double gestureHitHeight = 72.0;
+  static const double gestureHitHeight = 60.0;
   static const double gestureBottomInset = -8.0;
   static const double edgePanelGestureWidth = 220.0;
   static const double edgePanelGestureHeight = 18.0;
@@ -26,41 +26,11 @@ class ShellMetrics {
   static const double quickSettingsPanelHeight = 488.0;
   static const double quickSettingsDragDistance = quickSettingsPanelHeight;
 
-  static double appStatusBarTextureHeight(
-    DenialWindow window, {
-    Size? targetSize,
-    double visualHeight = appStatusBarHeight,
-  }) {
-    if (!window.isUserApp || window.width <= 0) {
-      return 0.0;
-    }
+  static double quickSettingsPanelExtent(Size viewSize) =>
+      (viewSize.height - 24).clamp(1.0, 580.0).toDouble();
 
-    if (targetSize != null &&
-        targetSize.width > 0.0 &&
-        targetSize.height > visualHeight &&
-        visualHeight > 0.0 &&
-        window.height > 0) {
-      final textureWidth = window.width.toDouble();
-      final textureHeight = window.height.toDouble();
-      final widthScale = targetSize.width / textureWidth;
-
-      if (widthScale.isFinite && widthScale > 0.0) {
-        if (widthScale * textureHeight + visualHeight >= targetSize.height) {
-          return visualHeight / widthScale;
-        }
-        return visualHeight *
-            textureHeight /
-            (targetSize.height - visualHeight);
-      }
-    }
-
-    final scale = window.scale120 > 0 ? window.scale120 / 120.0 : 1.0;
-    return visualHeight * scale;
-  }
-
-  static double windowFrameTextureHeight(DenialWindow window) {
-    return window.height.toDouble() + appStatusBarTextureHeight(window);
-  }
+  static double quickSettingsDragScale(Size viewSize) =>
+      quickSettingsDragDistance / quickSettingsPanelExtent(viewSize);
 
   static Rect gestureRect(Size viewSize) {
     final width = gestureHitWidth.clamp(0.0, viewSize.width);

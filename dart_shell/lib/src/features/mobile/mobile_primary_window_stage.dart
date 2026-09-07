@@ -1,8 +1,11 @@
 import 'package:denial_dart_shell/denial.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
-/// Renders the focused mobile surface and its horizontal app-switch target.
-class MobilePrimaryWindowStage extends StatelessWidget {
+import '../../widgets/retained_translation.dart';
+
+/// Keeps both app subtrees laid out while the switch gesture moves their layers.
+class MobilePrimaryWindowStage extends StatefulWidget {
   const MobilePrimaryWindowStage({
     super.key,
     required this.currentWindow,
@@ -13,65 +16,90 @@ class MobilePrimaryWindowStage extends StatelessWidget {
 
   final DenialWindow currentWindow;
   final DenialWindow? switchTargetWindow;
-  final double switchDragX;
+  final ValueListenable<double> switchDragX;
   final double opacity;
 
-  static const double _switchGap = ShellMetrics.appSwitchGap;
+  @override
+  State<MobilePrimaryWindowStage> createState() =>
+      _MobilePrimaryWindowStageState();
+}
+
+class _MobilePrimaryWindowStageState extends State<MobilePrimaryWindowStage> {
+  final _currentTranslation = ValueNotifier(Offset.zero);
+  final _targetTranslation = ValueNotifier(Offset.zero);
+  double _width = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.switchDragX.addListener(_updateTranslations);
+  }
+
+  @override
+  void didUpdateWidget(covariant MobilePrimaryWindowStage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.switchDragX != widget.switchDragX) {
+      oldWidget.switchDragX.removeListener(_updateTranslations);
+      widget.switchDragX.addListener(_updateTranslations);
+    }
+    _updateTranslations();
+  }
+
+  @override
+  void dispose() {
+    widget.switchDragX.removeListener(_updateTranslations);
+    _currentTranslation.dispose();
+    _targetTranslation.dispose();
+    super.dispose();
+  }
+
+  void _updateTranslations() {
+    final travel = _width + ShellMetrics.appSwitchGap;
+    final dx = widget.switchDragX.value.clamp(-travel, travel).toDouble();
+    _currentTranslation.value = Offset(dx, 0);
+    _targetTranslation.value = Offset(dx > 0 ? dx - travel : dx + travel, 0);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final switchRadius = context.shellTheme.borderRadius(18);
-    final target = switchTargetWindow;
-    if (target == null || switchDragX.abs() < 0.5) {
-      final texture = WindowContentRect(
-        key: ValueKey<int>(currentWindow.objectId),
-        window: currentWindow,
-        active: true,
-      );
-      return opacity >= 1.0
-          ? texture
-          : Opacity(opacity: opacity, child: texture);
-    }
-
-    final switchStage = LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final travel = width + _switchGap;
-        final dx = switchDragX.clamp(-travel, travel).toDouble();
-        final targetDx = dx > 0.0
-            ? dx - width - _switchGap
-            : dx + width + _switchGap;
-
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            Positioned.fill(
-              child: Transform.translate(
-                offset: Offset(dx, 0.0),
-                child: WindowContentRect(
-                  key: ValueKey<int>(currentWindow.objectId),
-                  window: currentWindow,
-                  active: true,
-                  borderRadius: switchRadius,
-                ),
-              ),
-            ),
-            Positioned.fill(
-              child: Transform.translate(
-                offset: Offset(targetDx, 0.0),
-                child: WindowContentRect(
-                  key: ValueKey<int>(target.objectId),
-                  window: target,
-                  borderRadius: switchRadius,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
+    final target = widget.switchTargetWindow;
+    final radius = target == null
+        ? BorderRadius.zero
+        : context.shellTheme.borderRadius(18);
+    final current = WindowContentRect(
+      key: ValueKey<int>(widget.currentWindow.objectId),
+      window: widget.currentWindow,
+      active: true,
+      borderRadius: radius,
     );
-    return opacity >= 1.0
-        ? switchStage
-        : Opacity(opacity: opacity, child: switchStage);
+    final stage = target == null
+        ? current
+        : LayoutBuilder(
+            builder: (context, constraints) {
+              _width = constraints.maxWidth;
+              _updateTranslations();
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  RetainedTranslation(
+                    translation: _currentTranslation,
+                    child: current,
+                  ),
+                  RetainedTranslation(
+                    translation: _targetTranslation,
+                    child: WindowContentRect(
+                      key: ValueKey<int>(target.objectId),
+                      window: target,
+                      borderRadius: radius,
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+    // Keep the surface and its backdrop mounted while the overview hero owns
+    // presentation. Inserting/removing this wrapper recreates the whole app
+    // subtree on gesture cancellation, including a transparent app's glass.
+    return Opacity(opacity: widget.opacity, child: stage);
   }
 }

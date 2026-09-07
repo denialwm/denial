@@ -329,8 +329,10 @@ pub(super) fn activate_topmost_window(state: &mut RuntimeState) -> bool {
 pub(in super::super) fn apply_window_commands(
     state: &mut RuntimeState,
     commands: impl IntoIterator<Item = WindowCommand>,
-) {
+) -> Result<(), std::io::Error> {
+    let mut had_commands = false;
     for command in commands {
+        had_commands = true;
         let command = match command {
             WindowCommand::CreateLocal {
                 app_id,
@@ -483,6 +485,18 @@ pub(in super::super) fn apply_window_commands(
                         state.scene_sync.mark_dirty();
                         continue;
                     }
+                }
+                if state
+                    .wayland
+                    .as_ref()
+                    .is_some_and(|frontend| frontend.mobile_window_geometry(&window).is_some())
+                {
+                    state
+                        .wayland
+                        .as_mut()
+                        .expect("missing Wayland frontend")
+                        .configure_mobile_window(&window);
+                    continue;
                 }
                 let requested_size = Size::<i32, Logical>::from((
                     geometry.width.round() as i32,
@@ -647,6 +661,13 @@ pub(in super::super) fn apply_window_commands(
             | WindowCommand::MoveToWorkspace { .. } => unreachable!(),
         }
     }
+    // Shell commands arrive independently of client input and presentation.
+    // In particular, a close sent after its preview leaves the screen must
+    // reach the client even when no further client or output frame is due.
+    if had_commands && let Some(frontend) = state.wayland.as_mut() {
+        frontend.display_handle.flush_clients()?;
+    }
+    Ok(())
 }
 
 #[cfg(feature = "flutter")]

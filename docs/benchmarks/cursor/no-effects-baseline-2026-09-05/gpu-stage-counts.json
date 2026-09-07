@@ -1,0 +1,32 @@
+{
+  "windows": 85,
+  "stage_samples": {
+    "root_pass": 5061,
+    "backdrop_layer_color": 0,
+    "blur_downsample": 0,
+    "blur_vertical": 0,
+    "blur_horizontal": 0,
+    "other_pass": 168,
+    "root_scene_texture": 10122,
+    "root_external_texture": 5789,
+    "root_tiled_texture": 0,
+    "root_clip_direct": 0,
+    "root_clip_stencil": 15796,
+    "root_clip_cover": 15796,
+    "root_clip_replay_stencil": 0,
+    "root_clip_replay_cover": 0,
+    "root_solid": 27188,
+    "root_text": 333,
+    "root_atlas": 0,
+    "root_other_draw": 13266,
+    "backdrop_cached_composite": 0,
+    "backdrop_surface_composite": 0,
+    "backdrop_restore": 0,
+    "msaa_backdrop_restore": 0,
+    "layer_resolve": 48
+  },
+  "audit_seconds": 86.275,
+  "total_stage_samples": 93567,
+  "timestamp_markers": 187134,
+  "timestamp_markers_per_second": 2169.0408577223993
+}

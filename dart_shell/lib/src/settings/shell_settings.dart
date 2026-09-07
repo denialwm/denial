@@ -9,6 +9,7 @@ import '../models/suspend_mode.dart';
 import '../state/desktop_window_close_effect.dart';
 import '../theme/backdrop_blur_level.dart';
 import '../theme/cursor_themes.dart';
+import '../theme/glass_configuration.dart';
 import '../theme/tokens.dart';
 
 enum ShellAccentSource { wallpaper, custom }
@@ -88,9 +89,10 @@ class ShellAppearanceSettings {
     this.cornerRadiusScale = ShellRoundness.normal,
     this.panelOpacity = ShellOpacity.panel,
     this.cardOpacity = ShellOpacity.card,
-    this.backdropBlurEnabled = true,
+    this.transparencyMode = ShellTransparencyMode.blur,
     this.backdropBlurLevel = ShellBackdropBlurLevel.fast,
     this.backdropBlurOpacityThreshold = 0.2,
+    this.glass = const ShellGlassConfiguration(),
     this.focusedWindowBorderEnabled = true,
     this.focusedWindowOpacity = 1,
     this.unfocusedWindowOpacity = 1,
@@ -105,9 +107,10 @@ class ShellAppearanceSettings {
   final double cornerRadiusScale;
   final double panelOpacity;
   final double cardOpacity;
-  final bool backdropBlurEnabled;
+  final ShellTransparencyMode transparencyMode;
   final ShellBackdropBlurLevel backdropBlurLevel;
   final double backdropBlurOpacityThreshold;
+  final ShellGlassConfiguration glass;
   final bool focusedWindowBorderEnabled;
   final double focusedWindowOpacity;
   final double unfocusedWindowOpacity;
@@ -122,9 +125,10 @@ class ShellAppearanceSettings {
     double? cornerRadiusScale,
     double? panelOpacity,
     double? cardOpacity,
-    bool? backdropBlurEnabled,
+    ShellTransparencyMode? transparencyMode,
     ShellBackdropBlurLevel? backdropBlurLevel,
     double? backdropBlurOpacityThreshold,
+    ShellGlassConfiguration? glass,
     bool? focusedWindowBorderEnabled,
     double? focusedWindowOpacity,
     double? unfocusedWindowOpacity,
@@ -140,10 +144,11 @@ class ShellAppearanceSettings {
       cornerRadiusScale: cornerRadiusScale ?? this.cornerRadiusScale,
       panelOpacity: panelOpacity ?? this.panelOpacity,
       cardOpacity: cardOpacity ?? this.cardOpacity,
-      backdropBlurEnabled: backdropBlurEnabled ?? this.backdropBlurEnabled,
+      transparencyMode: transparencyMode ?? this.transparencyMode,
       backdropBlurLevel: backdropBlurLevel ?? this.backdropBlurLevel,
       backdropBlurOpacityThreshold:
           backdropBlurOpacityThreshold ?? this.backdropBlurOpacityThreshold,
+      glass: glass ?? this.glass,
       focusedWindowBorderEnabled:
           focusedWindowBorderEnabled ?? this.focusedWindowBorderEnabled,
       focusedWindowOpacity: focusedWindowOpacity ?? this.focusedWindowOpacity,
@@ -165,9 +170,10 @@ class ShellAppearanceSettings {
         other.cornerRadiusScale == cornerRadiusScale &&
         other.panelOpacity == panelOpacity &&
         other.cardOpacity == cardOpacity &&
-        other.backdropBlurEnabled == backdropBlurEnabled &&
+        other.transparencyMode == transparencyMode &&
         other.backdropBlurLevel == backdropBlurLevel &&
         other.backdropBlurOpacityThreshold == backdropBlurOpacityThreshold &&
+        other.glass == glass &&
         other.focusedWindowBorderEnabled == focusedWindowBorderEnabled &&
         other.focusedWindowOpacity == focusedWindowOpacity &&
         other.unfocusedWindowOpacity == unfocusedWindowOpacity &&
@@ -184,9 +190,10 @@ class ShellAppearanceSettings {
     cornerRadiusScale,
     panelOpacity,
     cardOpacity,
-    backdropBlurEnabled,
+    transparencyMode,
     backdropBlurLevel,
     backdropBlurOpacityThreshold,
+    glass,
     focusedWindowBorderEnabled,
     focusedWindowOpacity,
     unfocusedWindowOpacity,
@@ -795,7 +802,7 @@ class ShellSettings {
 
   // Blur levels are additive in schema 9. Keep emitting the derived legacy
   // sigma so older shells can read settings written by this version.
-  static const int schemaVersion = 23;
+  static const int schemaVersion = 24;
 
   final ShellLocalizationSettings localization;
   final ShellAppearanceSettings appearance;
@@ -868,8 +875,8 @@ class ShellSettings {
       if (appearance.cardOpacity != before.cardOpacity) {
         section['cardOpacity'] = appearance.cardOpacity;
       }
-      if (appearance.backdropBlurEnabled != before.backdropBlurEnabled) {
-        section['backdropBlurEnabled'] = appearance.backdropBlurEnabled;
+      if (appearance.transparencyMode != before.transparencyMode) {
+        section['transparencyMode'] = appearance.transparencyMode.name;
       }
       if (appearance.backdropBlurLevel != before.backdropBlurLevel) {
         section['backdropBlurLevel'] = appearance.backdropBlurLevel.name;
@@ -879,6 +886,9 @@ class ShellSettings {
           before.backdropBlurOpacityThreshold) {
         section['backdropBlurPixelOpacityThreshold'] =
             appearance.backdropBlurOpacityThreshold;
+      }
+      if (appearance.glass != before.glass) {
+        section['glass'] = appearance.glass.toJson();
       }
       if (appearance.focusedWindowBorderEnabled !=
           before.focusedWindowBorderEnabled) {
@@ -1049,11 +1059,12 @@ class ShellSettings {
         'cornerRadiusScale': appearance.cornerRadiusScale,
         'panelOpacity': appearance.panelOpacity,
         'cardOpacity': appearance.cardOpacity,
-        'backdropBlurEnabled': appearance.backdropBlurEnabled,
+        'transparencyMode': appearance.transparencyMode.name,
         'backdropBlurLevel': appearance.backdropBlurLevel.name,
         'backdropBlurSigma': appearance.backdropBlurLevel.sigma,
         'backdropBlurPixelOpacityThreshold':
             appearance.backdropBlurOpacityThreshold,
+        'glass': appearance.glass.toJson(),
         'focusedWindowBorderEnabled': appearance.focusedWindowBorderEnabled,
         'focusedWindowOpacity': appearance.focusedWindowOpacity,
         'unfocusedWindowOpacity': appearance.unfocusedWindowOpacity,
@@ -1185,6 +1196,11 @@ class ShellSettings {
               idleSuspendTimeoutMinutes,
             )
             .toInt();
+    final legacyTransparencyMode =
+        appearanceJson['backdropBlurEnabled'] is bool &&
+            !(appearanceJson['backdropBlurEnabled'] as bool)
+        ? ShellTransparencyMode.off
+        : defaults.appearance.transparencyMode;
     return ShellSettings(
       localization: ShellLocalizationSettings(
         locale: _enumValue(
@@ -1226,9 +1242,11 @@ class ShellSettings {
           ShellOpacity.minimumCard,
           1,
         ),
-        backdropBlurEnabled: appearanceJson['backdropBlurEnabled'] is bool
-            ? appearanceJson['backdropBlurEnabled'] as bool
-            : defaults.appearance.backdropBlurEnabled,
+        transparencyMode: _enumValue(
+          ShellTransparencyMode.values,
+          appearanceJson['transparencyMode'],
+          legacyTransparencyMode,
+        ),
         backdropBlurLevel: _enumValue(
           ShellBackdropBlurLevel.values,
           appearanceJson['backdropBlurLevel'],
@@ -1239,6 +1257,10 @@ class ShellSettings {
           defaults.appearance.backdropBlurOpacityThreshold,
           0,
           1,
+        ),
+        glass: ShellGlassConfiguration.fromJson(
+          appearanceJson['glass'],
+          defaults.appearance.glass,
         ),
         focusedWindowBorderEnabled:
             appearanceJson['focusedWindowBorderEnabled'] is bool

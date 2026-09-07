@@ -1,5 +1,9 @@
 {
   "@@locale": "en",
+  "homeResizeWidget": "Resize widget",
+  "@homeResizeWidget": {
+    "description": "Accessible label for a home widget resize handle."
+  },
   "actionCancel": "Cancel",
   "@actionCancel": {
     "description": "English UI text for actionCancel."
@@ -2248,6 +2252,78 @@
   "settingsBackdropBlurOpacityThreshold": "Minimum pixel opacity for blur",
   "@settingsBackdropBlurOpacityThreshold": {
     "description": "Slider label for the strict final-composition pixel alpha threshold above which backdrop blur is rendered."
+  },
+  "settingsTransparencyTitle": "Transparency material",
+  "@settingsTransparencyTitle": {
+    "description": "Title for choosing the visual material behind translucent shell surfaces."
+  },
+  "settingsTransparencyOff": "Off",
+  "@settingsTransparencyOff": {
+    "description": "Transparency material choice that disables backdrop processing."
+  },
+  "settingsTransparencyBlur": "Blur",
+  "@settingsTransparencyBlur": {
+    "description": "Transparency material choice for the existing backdrop blur."
+  },
+  "settingsTransparencyGlass": "Glass",
+  "@settingsTransparencyGlass": {
+    "description": "Transparency material choice for Denial's native glass effect."
+  },
+  "settingsTransparencyOffDescription": "Leave translucent surfaces clear without processing the desktop behind them.",
+  "@settingsTransparencyOffDescription": {
+    "description": "Description of the disabled transparency material."
+  },
+  "settingsTransparencyBlurDescription": "Use Denial’s current fast Gaussian backdrop blur.",
+  "@settingsTransparencyBlurDescription": {
+    "description": "Description of the existing blur material."
+  },
+  "settingsTransparencyGlassDescription": "Refract the sharp desktop through a frosted, accent-tinted lens with directional edge lighting.",
+  "@settingsTransparencyGlassDescription": {
+    "description": "Description of the native glass material."
+  },
+  "settingsGlassFrost": "Frost",
+  "@settingsGlassFrost": {
+    "description": "Glass setting controlling the backdrop blur radius."
+  },
+  "settingsGlassQuality": "Render quality",
+  "@settingsGlassQuality": {
+    "description": "Glass setting controlling intermediate texture resolution."
+  },
+  "settingsGlassThickness": "Optical thickness",
+  "@settingsGlassThickness": {
+    "description": "Glass setting controlling the width of the refractive edge."
+  },
+  "settingsGlassRefraction": "Refraction",
+  "@settingsGlassRefraction": {
+    "description": "Glass setting controlling background displacement."
+  },
+  "settingsGlassDispersion": "Color dispersion",
+  "@settingsGlassDispersion": {
+    "description": "Glass setting controlling chromatic separation."
+  },
+  "settingsGlassSaturation": "Saturation",
+  "@settingsGlassSaturation": {
+    "description": "Glass setting controlling backdrop color saturation."
+  },
+  "settingsGlassAccentTint": "Accent tint",
+  "@settingsGlassAccentTint": {
+    "description": "Glass setting controlling how much of the shell accent is mixed into the material."
+  },
+  "settingsGlassBrightness": "Luminosity",
+  "@settingsGlassBrightness": {
+    "description": "Glass setting controlling adaptive brightening or darkening."
+  },
+  "settingsGlassLightAngle": "Light direction",
+  "@settingsGlassLightAngle": {
+    "description": "Glass setting controlling the angle of the simulated key light."
+  },
+  "settingsGlassLightIntensity": "Light intensity",
+  "@settingsGlassLightIntensity": {
+    "description": "Glass setting controlling directional lighting strength."
+  },
+  "settingsGlassEdgeStrength": "Edge shine",
+  "@settingsGlassEdgeStrength": {
+    "description": "Glass setting controlling rim and caustic highlights."
   },
   "settingsBackdropDimming": "Backdrop dimming",
   "@settingsBackdropDimming": {

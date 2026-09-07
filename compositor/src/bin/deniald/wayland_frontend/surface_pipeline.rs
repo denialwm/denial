@@ -453,6 +453,12 @@ impl WaylandFrontend {
                 } else {
                     (0, 0, 0)
                 };
+                if let Some(frame) = textures
+                    .last_mut()
+                    .filter(|frame| frame.texture_id == surface_id as i64)
+                {
+                    frame.presentation = Some(Default::default());
+                }
                 let role = if surface == root {
                     root_role
                 } else {
@@ -799,6 +805,8 @@ impl WaylandFrontend {
                 );
             }
 
+            let frame = self.project_mobile_inset(window, content, &mut layers, &mut textures);
+
             for layer in &layers {
                 if layer.texture_id > 0 {
                     surface_windows.insert(layer.surface_id, stable_id);
@@ -906,10 +914,10 @@ impl WaylandFrontend {
                 app_id,
                 width,
                 height,
-                surface_x: f64::from(content.loc.x),
-                surface_y: f64::from(content.loc.y),
-                surface_width: f64::from(content.size.w),
-                surface_height: f64::from(content.size.h),
+                surface_x: f64::from(frame.loc.x),
+                surface_y: f64::from(frame.loc.y),
+                surface_width: f64::from(frame.size.w),
+                surface_height: f64::from(frame.size.h),
                 texture_source_x,
                 texture_source_y,
                 texture_source_width,

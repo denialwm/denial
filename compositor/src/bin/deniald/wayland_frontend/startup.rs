@@ -35,6 +35,10 @@ impl WaylandFrontend {
         let tablet_manager_state = TabletManagerState::new::<RuntimeState>(&display_handle);
         let presentation = presentation::PresentationTracker::new(&display_handle);
         #[cfg(feature = "flutter")]
+        let frame_timeline = frame_timeline::FrameTimelineManager::new(&display_handle);
+        #[cfg(feature = "flutter")]
+        insets::init(&display_handle);
+        #[cfg(feature = "flutter")]
         let idle_inhibitors = IdleInhibitors::new(&display_handle);
         let output_power = OutputPowerManager::new(&display_handle);
         let screencopy = screencopy::ScreencopyManager::new(&display_handle);
@@ -540,6 +544,10 @@ impl WaylandFrontend {
             active_keyboard_layout: 0,
             keyboard_configuration_changed: false,
             presentation,
+            #[cfg(feature = "flutter")]
+            frame_timeline,
+            #[cfg(feature = "flutter")]
+            mobile_shell: std::env::var("DENIA_SHELL_PROFILE").as_deref() == Ok("mobile"),
             #[cfg(feature = "flutter")]
             idle_inhibitors,
             #[cfg(feature = "flutter")]

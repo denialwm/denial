@@ -1,17 +1,21 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/widgets.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart' show Drag;
 
 import '../../models/denial_window.dart';
-import '../../localization/denial_localizations.dart';
 import '../../theme/motion.dart';
 import '../../theme/shell_theme.dart';
-import '../../theme/tokens.dart';
 import '../window_hero.dart';
+import '../retained_window_motion.dart';
+import '../retained_translation.dart';
 import 'overview_carousel.dart';
 import 'overview_geometry.dart';
+import 'overview_page_controller.dart';
 import 'overview_grid.dart';
+import 'overview_chrome.dart';
+import 'overview_focus_overlay.dart';
 
 /// The recents / overview layer.
 ///
@@ -19,11 +23,10 @@ import 'overview_grid.dart';
 /// edge tracks the touch point and it shrinks toward its overview card. The
 /// release outcome (home / recents / cancel) is decided by the gesture handle;
 /// this layer just plays the resulting transition:
-///  * recents  -> the controller springs to 1, the app settles into its card,
-///                then the portrait carousel or landscape grid arrives;
-///  * home     -> the thumbnail flies up off-screen and fades, then
+///  * recents  -> the app settles into its card as the other previews arrive;
+///  * home     -> the thumbnail flies up off-screen, then
 ///                [onHomeSettled] hands control back to reveal home;
-///  * cancel   -> the controller springs back to 0 and the app fills the screen.
+///  * cancel   -> the controller returns to 0 and the app fills the screen.
 class OverviewLayer extends StatefulWidget {
   const OverviewLayer({
     super.key,
@@ -37,6 +40,7 @@ class OverviewLayer extends StatefulWidget {
     required this.onDismissWindow,
     required this.onFocusWindow,
     required this.onHomeSettled,
+    this.onPresentationChanged,
   });
 
   final List<DenialWindow> windows;
@@ -45,12 +49,13 @@ class OverviewLayer extends StatefulWidget {
   final bool visible;
 
   /// Live vertical travel of the swipe (<= 0 while pulling up).
-  final double swipeDy;
+  final ValueListenable<double> swipeDy;
   final bool homeTransitionActive;
   final VoidCallback onDismissOverview;
   final ValueChanged<DenialWindow> onDismissWindow;
   final ValueChanged<DenialWindow> onFocusWindow;
   final VoidCallback onHomeSettled;
+  final ValueChanged<bool>? onPresentationChanged;
 
   @override
   State<OverviewLayer> createState() => _OverviewLayerState();
@@ -58,25 +63,35 @@ class OverviewLayer extends StatefulWidget {
 
 class _OverviewLayerState extends State<OverviewLayer>
     with TickerProviderStateMixin {
-  static const double _pageViewportFraction = 0.72;
-
   late final AnimationController _controller;
   late final AnimationController _focusController;
   late final AnimationController _homeController;
-  late final PageController _pageController;
+  late PageController _pageController;
+  double? _pageViewportFraction;
   DenialWindow? _focusWindow;
   Rect? _focusStartRect;
   Rect? _lastHeroRect;
+  double _lastSwipeDy = 0;
+  bool _shown = false;
+  bool _heroVisible = false;
   DenialWindow? _lastHeroWindow;
-  bool? _wasLandscape;
+  late List<DenialWindow> _windows;
+  double _dragOrigin = 0;
+  bool _heroPressed = false;
+  final _heroKey = GlobalKey();
+  final _heroPageOffset = ValueNotifier(Offset.zero);
+  Drag? _pageDrag;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController.unbounded(
+    _controller = AnimationController(
       vsync: this,
       value: widget.visible ? 1.0 : 0.0,
-    );
+    )..addListener(_updatePhase);
+    _shown = widget.visible;
+    _syncWindows(resetOrder: true);
+    widget.swipeDy.addListener(_handleDrag);
     _focusController = AnimationController(
       vsync: this,
       duration: Motion.focusZoom,
@@ -85,29 +100,66 @@ class _OverviewLayerState extends State<OverviewLayer>
       vsync: this,
       duration: Motion.homeFlyAway,
     )..addStatusListener(_handleHomeStatus);
-    _pageController = PageController(viewportFraction: _pageViewportFraction);
-    if (widget.visible) {
-      _scheduleForegroundPageJump();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final fraction = overviewPageViewportFractionFor(
+      MediaQuery.sizeOf(context),
+      MediaQuery.paddingOf(context),
+    );
+    if (_pageViewportFraction == fraction) return;
+    final previous = _pageViewportFraction == null ? null : _pageController;
+    final page = previous?.hasClients == true
+        ? (previous!.page ?? previous.initialPage.toDouble()).round()
+        : previous?.initialPage ?? 0;
+    _cancelPageDrag();
+    previous?.removeListener(_syncHeroPageOffset);
+    _pageViewportFraction = fraction;
+    _pageController = OverviewPageController(
+      initialPage: page,
+      viewportFraction: fraction,
+      keepPage: false,
+    )..addListener(_syncHeroPageOffset);
+    // PageView detaches the previous position during this frame's build.
+    if (previous != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => previous.dispose());
     }
   }
 
   @override
   void didUpdateWidget(covariant OverviewLayer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.swipeDy != oldWidget.swipeDy) {
+      oldWidget.swipeDy.removeListener(_handleDrag);
+      widget.swipeDy.addListener(_handleDrag);
+    }
+    _syncWindows(resetOrder: !_shown && !widget.homeTransitionActive);
+    if (_focusWindow != null &&
+        (!widget.visible ||
+            !_windows.any(
+              (window) => window.objectId == _focusWindow!.objectId,
+            ))) {
+      _cancelFocus();
+    }
 
     if (widget.homeTransitionActive && !oldWidget.homeTransitionActive) {
+      final viewSize = MediaQuery.sizeOf(context);
+      _lastHeroRect = Rect.lerp(
+        Offset.zero & viewSize,
+        _cardRectFor(viewSize),
+        _controller.value,
+      );
+      _lastHeroWindow = oldWidget.foregroundWindow ?? _lastHeroWindow;
+      _cancelFocus();
       MotionTelemetry.observe(
         _homeController,
         _homeController.forward(from: 0.0),
         'overview_home',
         target: 1.0,
       );
-      springTo(
-        _controller,
-        0.0,
-        spring: Motion.gentle,
-        telemetryLabel: 'overview_home_settle',
-      );
+      _settleTo(0);
       return;
     }
     if (!widget.homeTransitionActive && oldWidget.homeTransitionActive) {
@@ -116,62 +168,69 @@ class _OverviewLayerState extends State<OverviewLayer>
     }
 
     if (widget.visible != oldWidget.visible) {
-      if (widget.visible) {
-        _scheduleForegroundPageJump();
-      }
-      springTo(
-        _controller,
-        widget.visible ? 1.0 : 0.0,
-        spring: Motion.gentle,
-        telemetryLabel: widget.visible ? 'overview_open' : 'overview_close',
-      );
+      if (!widget.visible) _cancelPageDrag();
+      _settleTo(widget.visible ? 1 : 0);
       return;
     }
 
-    final isDragging = widget.swipeDy < 0.0;
-    final wasDragging = oldWidget.swipeDy < 0.0;
-    if (isDragging && !wasDragging) {
-      _scheduleForegroundPageJump();
-    }
+    _handleDrag();
+  }
 
-    if (widget.visible) {
+  void _handleDrag() {
+    final dy = widget.swipeDy.value;
+    final wasDragging = _lastSwipeDy < 0;
+    _lastSwipeDy = dy;
+    if (widget.visible || widget.homeTransitionActive || _focusWindow != null) {
       return;
     }
-
-    final t = _dragProgressFor(widget.swipeDy);
-    if (t > 0.0) {
+    if (dy < 0 && !wasDragging) {
+      _dragOrigin = _controller.value;
+      _lastHeroWindow = widget.foregroundWindow;
+      if (!_shown) _syncWindows(resetOrder: true);
+    }
+    final t = _dragProgressFor(dy);
+    if (t > 0) {
       _controller.stop();
-      _controller.value = t;
-    } else if (wasDragging && _controller.value > 0.0) {
-      springTo(
-        _controller,
-        0.0,
-        spring: Motion.gentle,
-        telemetryLabel: 'overview_drag_cancel',
-      );
-    } else if (!_controller.isAnimating && _controller.value != 0.0) {
-      _controller.value = 0.0;
+      _controller.value = (_dragOrigin + t).clamp(0.0, 1.0);
+    } else if (wasDragging && _controller.value > 0) {
+      _settleTo(0);
     }
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final size = MediaQuery.sizeOf(context);
-    final isLandscape = size.width > size.height;
-    if (_wasLandscape == true &&
-        !isLandscape &&
-        (widget.visible || widget.swipeDy < 0.0)) {
-      // The PageView is absent in landscape. Wait until its first portrait
-      // frame is attached before restoring the foreground page.
-      _scheduleForegroundPageJump();
-    }
-    _wasLandscape = isLandscape;
+  void _settleTo(double target) {
+    final duration = target == 1 ? Motion.overviewOpen : Motion.overviewClose;
+    final travel = (target - _controller.value).abs();
+    _controller.animateTo(
+      target,
+      duration: Duration(
+        milliseconds: (duration.inMilliseconds * travel).round().clamp(
+          90,
+          duration.inMilliseconds,
+        ),
+      ),
+      curve: Motion.standard,
+    );
+  }
+
+  void _updatePhase() {
+    // Keep the final frame mounted until the entire carousel is off-screen.
+    final shown = _controller.value > 0;
+    final hero = shown && (_controller.value < 1 || _heroPressed);
+    if (shown == _shown && hero == _heroVisible) return;
+    if (shown != _shown) widget.onPresentationChanged?.call(shown);
+    if (!shown) _heroPageOffset.value = Offset.zero;
+    setState(() {
+      _shown = shown;
+      _heroVisible = hero;
+    });
   }
 
   @override
   void dispose() {
+    widget.swipeDy.removeListener(_handleDrag);
+    _pageDrag?.cancel();
     _pageController.dispose();
+    _heroPageOffset.dispose();
     _homeController.dispose();
     _focusController.dispose();
     _controller.dispose();
@@ -180,145 +239,134 @@ class _OverviewLayerState extends State<OverviewLayer>
 
   @override
   Widget build(BuildContext context) {
+    final viewSize = MediaQuery.sizeOf(context);
+    final homeActive = widget.homeTransitionActive;
+    if (!_shown && !widget.visible && !homeActive) {
+      return const SizedBox.shrink();
+    }
+    final heroWindow = homeActive || _focusWindow != null
+        ? null
+        : _foregroundHeroWindow(_controller.value);
+    final overviewContent = _windows.isEmpty
+        ? AnimatedBuilder(
+            animation: _controller,
+            builder: (context, _) =>
+                EmptyOverviewState(progress: unit(_controller.value)),
+          )
+        : viewSize.width > viewSize.height
+        ? OverviewGrid(
+            windows: _windows,
+            progress: _controller,
+            foregroundObjectId: widget.foregroundObjectId,
+            foregroundInHero: heroWindow != null,
+            focusingObjectId: _focusWindow?.objectId,
+            onDismissWindow: widget.onDismissWindow,
+            onFocusWindow: _startFocusTransition,
+          )
+        : OverviewCarousel(
+            windows: _windows,
+            progress: _controller,
+            focusProgress: _focusController,
+            pageController: _pageController,
+            foregroundObjectId: widget.foregroundObjectId,
+            foregroundInHero: heroWindow != null,
+            focusingObjectId: _focusWindow?.objectId,
+            onDismissWindow: widget.onDismissWindow,
+            onFocusWindow: _startFocusTransition,
+          );
+
+    final fullRect = Offset.zero & viewSize;
+    final cardRect = _cardRectFor(viewSize);
+    if (heroWindow != null) _lastHeroWindow = heroWindow;
     return Positioned.fill(
-      child: AnimatedBuilder(
-        animation: Listenable.merge([
-          _controller,
-          _focusController,
-          _homeController,
-        ]),
-        builder: (context, child) {
-          final progress = unit(_controller.value);
-          final homeActive = widget.homeTransitionActive;
-          if (progress <= 0.001 && !widget.visible && !homeActive) {
-            return const SizedBox.expand();
-          }
-
-          final viewSize = MediaQuery.sizeOf(context);
-          final heroWindow = homeActive
-              ? null
-              : _foregroundHeroWindow(progress);
-
-          final overviewContent = widget.windows.isEmpty
-              ? _EmptyOverviewState(progress: progress)
-              : viewSize.width > viewSize.height
-              ? OverviewGrid(
-                  windows: widget.windows,
-                  progress: progress,
-                  foregroundObjectId: widget.foregroundObjectId,
-                  onDismissWindow: widget.onDismissWindow,
-                  onFocusWindow: _startFocusTransition,
-                )
-              : OverviewCarousel(
-                  windows: widget.windows,
-                  progress: progress,
-                  pageController: _pageController,
-                  foregroundObjectId: widget.foregroundObjectId,
-                  onDismissWindow: widget.onDismissWindow,
-                  onFocusWindow: _startFocusTransition,
-                );
-
-          return Stack(
-            fit: StackFit.expand,
-            children: [
+      child: GestureDetector(
+        // PageView handles ordinary paging. This ancestor also accepts a swipe
+        // that begins on the moving foreground app during overview entry.
+        onHorizontalDragStart:
+            widget.visible &&
+                _heroVisible &&
+                _focusWindow == null &&
+                viewSize.width <= viewSize.height
+            ? _startPageDrag
+            : null,
+        onHorizontalDragUpdate: (details) => _pageDrag?.update(details),
+        onHorizontalDragEnd: _endPageDrag,
+        onHorizontalDragCancel: _cancelPageDrag,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            IgnorePointer(
+              ignoring: !widget.visible || _focusWindow != null,
+              child: OverviewScrim(
+                progress: _controller,
+                fadingOut: _focusWindow != null,
+                onTap: widget.onDismissOverview,
+              ),
+            ),
+            if (!homeActive)
               IgnorePointer(
-                ignoring: progress < 0.96 || _focusWindow != null,
-                child: _OverviewScrim(
-                  progress: progress,
-                  onTap: widget.onDismissOverview,
+                ignoring: !widget.visible || _focusWindow != null,
+                child: overviewContent,
+              ),
+            if (heroWindow != null)
+              RetainedTranslation(
+                translation: _heroPageOffset,
+                child: IgnorePointer(
+                  ignoring: !widget.visible,
+                  child: RetainedWindowMotion(
+                    progress: _controller,
+                    begin: fullRect,
+                    end: cardRect,
+                    endRadius: context.shellTheme.windowRadius,
+                    child: Listener(
+                      onPointerDown: (_) => _heroPressed = true,
+                      onPointerCancel: (_) => _releaseHero(),
+                      child: GestureDetector(
+                        key: _heroKey,
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => _selectHero(heroWindow),
+                        onTapCancel: _releaseHero,
+                        child: WindowSurface(window: heroWindow),
+                      ),
+                    ),
+                  ),
                 ),
               ),
-              if (_focusWindow == null && !homeActive)
-                IgnorePointer(
-                  ignoring: progress < 0.96,
-                  child: overviewContent,
+            if (homeActive && _lastHeroWindow != null)
+              IgnorePointer(
+                child: RetainedWindowMotion(
+                  progress: _homeController,
+                  begin: _lastHeroRect ?? fullRect,
+                  end: (_lastHeroRect ?? fullRect).shift(
+                    Offset(0, -(_lastHeroRect ?? fullRect).bottom - 32),
+                  ),
+                  beginRadius: context.shellTheme.windowRadius,
+                  endRadius: context.shellTheme.windowRadius,
+                  curve: Motion.standard,
+                  child: WindowSurface(window: _lastHeroWindow!),
                 ),
-              if (heroWindow != null)
-                _buildForegroundHero(heroWindow, progress, viewSize),
-              if (homeActive && _lastHeroWindow != null)
-                _buildHomeFlyAway(_lastHeroWindow!, viewSize),
-              if (_focusWindow != null && _focusStartRect != null)
-                _FocusZoomOverlay(
-                  controller: _focusController,
-                  window: _focusWindow!,
-                  startRect: _focusStartRect!,
-                ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  /// The finger-following foreground hero. Interpolating the rect *linearly*
-  /// keeps the bottom edge locked to the finger (progress is fed as travel /
-  /// reference distance, so `bottom = screenHeight - travel`).
-  Widget _buildForegroundHero(
-    DenialWindow window,
-    double progress,
-    Size viewSize,
-  ) {
-    final cardRect = _cardRectFor(viewSize);
-    final rect = Rect.lerp(Offset.zero & viewSize, cardRect, progress)!;
-    _lastHeroRect = rect;
-    _lastHeroWindow = window;
-    final radius = lerpDouble(
-      0.0,
-      ShellTheme.of(context).windowRadius,
-      progress,
-    )!;
-    final border = Color.lerp(
-      ShellMediaColors.transparentLight,
-      context.shellColors.hairlineWindow,
-      progress,
-    );
-
-    return Positioned.fromRect(
-      rect: rect,
-      child: IgnorePointer(
-        child: WindowSurface(
-          window: window,
-          radius: radius,
-          borderColor: border,
-        ),
-      ),
-    );
-  }
-
-  /// The app flying up and fading away as home is revealed beneath it.
-  Widget _buildHomeFlyAway(DenialWindow window, Size viewSize) {
-    final start = _lastHeroRect ?? (Offset.zero & viewSize);
-    final t = Motion.standard.transform(unit(_homeController.value));
-    final exit = Rect.fromCenter(
-      center: start.center.translate(0.0, -viewSize.height * 0.55),
-      width: start.width * 0.85,
-      height: start.height * 0.85,
-    );
-    final rect = Rect.lerp(start, exit, t)!;
-
-    return Positioned.fromRect(
-      rect: rect,
-      child: IgnorePointer(
-        child: Opacity(
-          opacity: 1.0 - t,
-          child: WindowSurface(
-            window: window,
-            radius: ShellTheme.of(context).windowRadius,
-          ),
+              ),
+            if (_focusWindow != null && _focusStartRect != null)
+              OverviewFocusOverlay(
+                controller: _focusController,
+                window: _focusWindow!,
+                startRect: _focusStartRect!,
+              ),
+          ],
         ),
       ),
     );
   }
 
   Rect _cardRectFor(Size viewSize) {
-    if (viewSize.width > viewSize.height && widget.windows.isNotEmpty) {
+    if (viewSize.width > viewSize.height && _windows.isNotEmpty) {
       final layout = landscapeOverviewLayoutFor(
         viewSize: viewSize,
         padding: MediaQuery.paddingOf(context),
-        itemCount: widget.windows.length,
+        itemCount: _windows.length,
         aspect: viewAspectFor(viewSize),
       );
-      final foregroundIndex = widget.windows.indexWhere(
+      final foregroundIndex = _windows.indexWhere(
         (window) => window.objectId == widget.foregroundObjectId,
       );
       if (foregroundIndex >= 0) {
@@ -357,15 +405,14 @@ class _OverviewLayerState extends State<OverviewLayer>
 
   DenialWindow? _foregroundHeroWindow(double progress) {
     final window = widget.foregroundWindow;
-    if ((!widget.visible && widget.swipeDy >= 0.0) ||
-        window == null ||
+    if (window == null ||
         !window.isUserApp ||
-        progress <= 0.001 ||
-        progress >= 0.995) {
+        progress <= 0 ||
+        (progress >= 1 && !_heroPressed)) {
       return null;
     }
 
-    for (final candidate in widget.windows) {
+    for (final candidate in _windows) {
       if (candidate.objectId == window.objectId) {
         return candidate;
       }
@@ -399,9 +446,13 @@ class _OverviewLayerState extends State<OverviewLayer>
   }
 
   void _startFocusTransition(DenialWindow window, Rect startRect) {
-    if (_focusWindow != null) {
-      return;
+    if (_focusWindow != null || !widget.visible) return;
+    _cancelPageDrag();
+    if (_pageController.hasClients) {
+      _pageController.jumpTo(_pageController.offset);
     }
+    _controller.stop();
+    _heroPressed = false;
     setState(() {
       _focusWindow = window;
       _focusStartRect = startRect;
@@ -414,113 +465,65 @@ class _OverviewLayerState extends State<OverviewLayer>
     );
   }
 
-  void _scheduleForegroundPageJump() {
-    final objectId = widget.foregroundObjectId;
-    if (objectId == null) {
-      return;
+  void _releaseHero() {
+    _heroPressed = false;
+    _updatePhase();
+  }
+
+  void _selectHero(DenialWindow window) {
+    final render = _heroKey.currentContext?.findRenderObject();
+    if (render is RenderBox) {
+      final rect = MatrixUtils.transformRect(
+        render.getTransformTo(null),
+        Offset.zero & render.size,
+      );
+      _startFocusTransition(window, rect);
     }
-    final index = widget.windows.indexWhere(
-      (window) => window.objectId == objectId,
-    );
-    if (index < 0) {
-      return;
+    _releaseHero();
+  }
+
+  void _cancelFocus() {
+    _cancelPageDrag();
+    _focusController.stop();
+    _focusWindow = null;
+    _focusStartRect = null;
+    _heroPressed = false;
+  }
+
+  void _syncHeroPageOffset() {
+    _heroPageOffset.value = _pageController.hasClients
+        ? Offset(_pageController.offset, 0)
+        : Offset.zero;
+  }
+
+  void _startPageDrag(DragStartDetails details) {
+    if (!_pageController.hasClients) return;
+    _cancelPageDrag();
+    _pageDrag = _pageController.position.drag(details, () => _pageDrag = null);
+  }
+
+  void _endPageDrag(DragEndDetails details) {
+    final drag = _pageDrag;
+    _pageDrag = null;
+    drag?.end(details);
+  }
+
+  void _cancelPageDrag() {
+    final drag = _pageDrag;
+    _pageDrag = null;
+    drag?.cancel();
+  }
+
+  void _syncWindows({required bool resetOrder}) {
+    final byId = {for (final window in widget.windows) window.objectId: window};
+    if (resetOrder) {
+      final foreground = byId.remove(widget.foregroundObjectId);
+      _windows = [?foreground, ...byId.values.toList().reversed];
+    } else {
+      _windows = [
+        for (final previous in _windows) ?byId.remove(previous.objectId),
+        ...byId.values.toList().reversed,
+      ];
     }
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_pageController.hasClients) {
-        return;
-      }
-      _pageController.jumpToPage(index);
-    });
-  }
-}
-
-class _OverviewScrim extends StatelessWidget {
-  const _OverviewScrim({required this.progress, required this.onTap});
-
-  final double progress;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: ColoredBox(
-        color: Color.lerp(
-          ShellMediaColors.transparentDark,
-          context.shellColors.overviewScrim,
-          progress,
-        )!,
-      ),
-    );
-  }
-}
-
-class _EmptyOverviewState extends StatelessWidget {
-  const _EmptyOverviewState({required this.progress});
-
-  final double progress;
-
-  @override
-  Widget build(BuildContext context) {
-    final intro = Motion.standard.transform(progress);
-    return Center(
-      child: Transform.translate(
-        offset: Offset(0, lerpDouble(28.0, 0.0, intro)!),
-        child: Opacity(
-          opacity: unit(progress * 1.3),
-          child: Text(
-            context.l10n.overviewNoWindows,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: context.shellColors.textPrimary,
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              decoration: TextDecoration.none,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Morphs a tapped overview card back to full screen before focusing it.
-class _FocusZoomOverlay extends StatelessWidget {
-  const _FocusZoomOverlay({
-    required this.controller,
-    required this.window,
-    required this.startRect,
-  });
-
-  final AnimationController controller;
-  final DenialWindow window;
-  final Rect startRect;
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: AnimatedBuilder(
-          animation: controller,
-          builder: (context, child) {
-            final viewSize = MediaQuery.sizeOf(context);
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                WindowHero(
-                  window: window,
-                  beginRect: startRect,
-                  endRect: Offset.zero & viewSize,
-                  progress: controller.value,
-                  beginRadius: ShellTheme.of(context).windowRadius,
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
   }
 }

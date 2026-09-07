@@ -280,8 +280,7 @@ impl TouchGestureState {
             return self.begin_pinch_candidate(slots, target.geometry);
         }
 
-        if target.in_move_corner {
-            let captured_slots = self.capture_slots(&[slot]);
+        if target.in_move_corner && !target.geometry_locked {
             self.gesture = Some(Gesture::Move {
                 slot,
                 window_id: target.window_id,
@@ -291,11 +290,7 @@ impl TouchGestureState {
                 started: false,
                 geometry_locked: target.geometry_locked,
             });
-            return TouchGestureUpdate {
-                consume: true,
-                captured_slots,
-                actions: Vec::new(),
-            };
+            return TouchGestureUpdate::default();
         }
 
         TouchGestureUpdate::default()
@@ -383,7 +378,58 @@ impl TouchGestureState {
         }
 
         if !captured {
-            return TouchGestureUpdate::default();
+            let Some(Gesture::Move {
+                slot: gesture_slot,
+                window_id,
+                origin,
+                initial_geometry,
+                last_geometry: _,
+                started: false,
+                geometry_locked: false,
+            }) = self.gesture
+            else {
+                return TouchGestureUpdate::default();
+            };
+            if gesture_slot != slot {
+                return TouchGestureUpdate::default();
+            }
+            let delta = position - origin;
+            if delta.x * delta.x + delta.y * delta.y < MOVE_SLOP * MOVE_SLOP {
+                return TouchGestureUpdate::default();
+            }
+            let last_geometry = WindowGeometry {
+                x: initial_geometry.x + delta.x,
+                y: initial_geometry.y + delta.y,
+                ..initial_geometry
+            };
+            let captured_slots = self.capture_slots(&[slot]);
+            self.gesture = Some(Gesture::Move {
+                slot,
+                window_id,
+                origin,
+                initial_geometry,
+                last_geometry,
+                started: true,
+                geometry_locked: false,
+            });
+            return TouchGestureUpdate {
+                consume: true,
+                captured_slots,
+                actions: vec![
+                    TouchWindowAction::Placement {
+                        window_id,
+                        phase: WindowPlacementPhase::Begin,
+                        change: WindowPlacementChange::Move,
+                        geometry: initial_geometry,
+                    },
+                    TouchWindowAction::Placement {
+                        window_id,
+                        phase: WindowPlacementPhase::Update,
+                        change: WindowPlacementChange::Move,
+                        geometry: last_geometry,
+                    },
+                ],
+            };
         }
 
         let mut update = TouchGestureUpdate {
@@ -1066,5 +1112,85 @@ fn rounded_i32(value: f64) -> i32 {
         value
             .round()
             .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn target(in_move_corner: bool, geometry_locked: bool) -> TouchWindowTarget {
+        TouchWindowTarget {
+            window_id: 7,
+            geometry: WindowGeometry {
+                x: 100.0,
+                y: 200.0,
+                width: 300.0,
+                height: 400.0,
+            },
+            in_gesture_strip: false,
+            in_move_corner,
+            geometry_locked,
+        }
+    }
+
+    #[test]
+    fn stationary_corner_contact_remains_a_client_tap() {
+        let mut gestures = TouchGestureState::default();
+        let down = gestures.down(1, Point::from((110.0, 210.0)), Some(target(true, false)));
+        assert_eq!(down, TouchGestureUpdate::default());
+
+        let up = gestures.up(1);
+        assert_eq!(up, TouchGestureUpdate::default());
+    }
+
+    #[test]
+    fn corner_move_captures_only_after_crossing_slop() {
+        let mut gestures = TouchGestureState::default();
+        let origin = Point::from((110.0, 210.0));
+        assert_eq!(
+            gestures.down(3, origin, Some(target(true, false))),
+            TouchGestureUpdate::default()
+        );
+        assert_eq!(
+            gestures.motion(3, Point::from((112.0, 210.0))),
+            TouchGestureUpdate::default()
+        );
+
+        let captured = gestures.motion(3, Point::from((115.0, 210.0)));
+        assert!(captured.consume);
+        assert_eq!(captured.captured_slots, vec![3]);
+        assert_eq!(captured.actions.len(), 2);
+        assert!(matches!(
+            captured.actions[0],
+            TouchWindowAction::Placement {
+                phase: WindowPlacementPhase::Begin,
+                change: WindowPlacementChange::Move,
+                ..
+            }
+        ));
+        assert!(matches!(
+            captured.actions[1],
+            TouchWindowAction::Placement {
+                phase: WindowPlacementPhase::Update,
+                change: WindowPlacementChange::Move,
+                geometry: WindowGeometry { x: 105.0, .. },
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn geometry_locked_corner_never_becomes_a_move_candidate() {
+        let mut gestures = TouchGestureState::default();
+        assert_eq!(
+            gestures.down(5, Point::from((110.0, 210.0)), Some(target(true, true)),),
+            TouchGestureUpdate::default()
+        );
+        assert_eq!(
+            gestures.motion(5, Point::from((150.0, 250.0))),
+            TouchGestureUpdate::default()
+        );
+        assert_eq!(gestures.up(5), TouchGestureUpdate::default());
     }
 }

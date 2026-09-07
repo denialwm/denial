@@ -54,9 +54,6 @@ mod lifecycle;
 #[cfg(feature = "flutter")]
 #[path = "deniald/local_windows.rs"]
 mod local_windows;
-#[cfg(feature = "flutter")]
-#[path = "deniald/native_app_plugin.rs"]
-mod native_app_plugin;
 #[path = "deniald/native_shortcut.rs"]
 mod native_shortcut;
 #[cfg(feature = "flutter")]
@@ -124,7 +121,7 @@ use std::ffi::OsStr;
 #[cfg(feature = "flutter")]
 use std::ffi::OsString;
 use std::fs::OpenOptions;
-use std::os::fd::{AsFd, OwnedFd};
+use std::os::fd::OwnedFd;
 use std::os::fd::{AsRawFd, BorrowedFd};
 use std::os::unix::fs::MetadataExt;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
@@ -146,14 +143,13 @@ use smithay::backend::allocator::dmabuf::{AsDmabuf, Dmabuf};
 use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBuffer, GbmBufferFlags, GbmDevice};
 use smithay::backend::allocator::{Allocator, Buffer as AllocatorBuffer, Format, Fourcc, Modifier};
-use smithay::backend::drm::gbm::{GbmFramebuffer, framebuffer_from_bo};
 use smithay::backend::drm::{
     DrmDevice, DrmDeviceFd, DrmEvent, DrmEventTime, DrmSurface, PlaneConfig, PlaneState, VrrSupport,
 };
 use smithay::backend::egl::EGLDisplay;
 use smithay::backend::input::AxisSource;
 use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::backend::renderer::{Bind, Color32F, Frame, ImportDma, Renderer};
+use smithay::backend::renderer::{Bind, Color32F, Frame, Renderer};
 use smithay::backend::session::libseat::LibSeatSession;
 use smithay::backend::session::{Event as SessionEvent, Session};
 use smithay::backend::udev::{UdevBackend, UdevEvent};
@@ -201,13 +197,14 @@ use flutter_session::{
     ActiveOutputConfirmation, begin_output_confirmation, cancel_active_screenshot,
     install_ready_fence_watch, install_sampled_buffer_releases, quiesce_flutter_page_flips,
     reload_flutter_runtime, screenshot_buffer_modifier, screenshot_composite_sources,
-    service_native_app_plugins, submit_ready_frames,
+    submit_ready_frames,
 };
 #[cfg(feature = "flutter")]
 use flutter_settings_sync::{
     apply_automatic_orientation, apply_resident_output_geometry, send_flutter_window_event,
-    synchronize_flutter_window_management, synchronize_resident_flutter_geometry_state,
-    synchronize_settings, synchronize_system_bar_configuration,
+    synchronize_flutter_window_commands, synchronize_flutter_window_management,
+    synchronize_resident_flutter_geometry_state, synchronize_settings,
+    synchronize_system_bar_configuration,
 };
 use frame_loop::{FrameLoopContext, run_frame_loop};
 use hotplug_transaction::{

@@ -48,7 +48,15 @@ class ShadeStatusBar extends ConsumerWidget {
         behavior: HitTestBehavior.opaque,
         onVerticalDragStart: (_) => controller.startQuickSettingsDrag(),
         onVerticalDragUpdate: (details) {
-          controller.updateQuickSettingsDrag(Offset(0.0, details.delta.dy));
+          controller.updateQuickSettingsDrag(
+            Offset(
+              0.0,
+              details.delta.dy *
+                  ShellMetrics.quickSettingsDragScale(
+                    MediaQuery.sizeOf(context),
+                  ),
+            ),
+          );
         },
         onVerticalDragEnd: (details) {
           controller.endQuickSettingsDrag(details.primaryVelocity ?? 0.0);

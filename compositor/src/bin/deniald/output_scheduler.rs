@@ -1455,6 +1455,7 @@ impl OutputScheduler {
 
             let presentation = PresentedOutput {
                 id: scanouts[pipeline.scanout_index].output.id,
+                logical_sequence: presented.request.tick.sequence,
                 observed_at: completion.observed_at,
                 presented_at: completion.presented_at,
                 sequence: completion.sequence,

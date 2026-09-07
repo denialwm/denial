@@ -3,6 +3,19 @@
 use super::*;
 use serde_json::json;
 
+pub(super) fn synchronize_flutter_window_commands(
+    runtime: &mut flutter_runtime::FlutterRuntime,
+    events: &mut RuntimeState,
+) -> Result<(), Box<dyn Error>> {
+    if events.secure_session_locked() {
+        runtime.drain_window_commands().for_each(drop);
+    } else {
+        let commands = runtime.drain_window_commands().collect::<Vec<_>>();
+        wayland_frontend::apply_window_commands(events, commands)?;
+    }
+    Ok(())
+}
+
 pub(super) fn synchronize_flutter_window_management(
     runtime: &mut flutter_runtime::FlutterRuntime,
     events: &mut RuntimeState,
@@ -11,7 +24,6 @@ pub(super) fn synchronize_flutter_window_management(
         events.pending_shell_actions.clear();
         events.pending_shortcut_launches.clear();
         while runtime.take_application_launch().is_some() {}
-        runtime.drain_window_commands().for_each(drop);
     } else {
         while let Some(target) = events.pending_shortcut_launches.pop_front() {
             let activation_token = events
@@ -53,40 +65,16 @@ pub(super) fn synchronize_flutter_window_management(
         while let Some(action) = events.pending_shell_actions.pop_front() {
             runtime.send_shell_action(action.action, action.monitor_id, action.workspace_id)?;
         }
-        let commands = runtime.drain_window_commands().collect::<Vec<_>>();
-        let mut wayland_commands = Vec::with_capacity(commands.len());
-        for command in commands {
-            let native_owned = command.window_id().is_some_and(|window_id| {
-                events
-                    .native_app_plugins
-                    .as_ref()
-                    .is_some_and(|manager| manager.owns_window(window_id))
-            });
-            if native_owned {
-                if let Some(manager) = events.native_app_plugins.as_mut()
-                    && let Err(error) = manager.apply_window_command(&command)
-                {
-                    warn!(%error, "native application plugin window command failed");
-                }
-            } else {
-                if matches!(command, wire::WindowCommand::Focus { .. })
-                    && let Some(manager) = events.native_app_plugins.as_mut()
-                    && let Err(error) = manager.clear_focus()
-                {
-                    warn!(%error, "could not clear native application focus");
-                }
-                wayland_commands.push(command);
-            }
-        }
-        wayland_frontend::apply_window_commands(events, wayland_commands);
     }
+    // Also drain here when handing off or replacing the Flutter runtime.
+    synchronize_flutter_window_commands(runtime, events)?;
     if events.pending_window_events.is_empty() {
         return Ok(());
     }
     let mut pending = events.pending_window_events.drain_events();
     for event in pending.drain(..) {
         if event.is_activation() {
-            // Native focus is last-writer-wins. An activation waiting for an
+            // Window focus is last-writer-wins. An activation waiting for an
             // older, bufferless window must not fire after focus moved away.
             events
                 .pending_unpublished_window_events
@@ -1377,7 +1365,6 @@ pub(super) fn synchronize_resident_flutter_geometry_state(
     events
         .flutter_input
         .resize_preserving_state(atlas.pixel_size);
-    events.native_plugin_default_size = (atlas.pixel_size.width, atlas.pixel_size.height);
     events.synchronize_flutter_pointer_position();
     events.scene_sync.mark_dirty();
 }
