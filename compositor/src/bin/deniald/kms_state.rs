@@ -992,6 +992,22 @@ impl FlutterLauncher {
         self.offscreen_blit
     }
 
+    pub(super) fn validate_output_targets(
+        &self,
+        renderer: &GlesRenderer,
+        swapchains: &OutputSwapchains,
+        desktop_size: PixelSize,
+    ) -> Result<(), Box<dyn Error>> {
+        flutter_runtime::FlutterRuntime::validate_output_targets(
+            renderer.egl_context(),
+            flutter_render_target_pools(swapchains),
+            desktop_size,
+            self.renderer_backend,
+            self.offscreen_blit,
+            self.events.clone(),
+        )
+    }
+
     pub(super) fn start(
         &mut self,
         renderer: &GlesRenderer,

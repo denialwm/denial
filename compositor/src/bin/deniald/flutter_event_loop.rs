@@ -265,8 +265,22 @@ pub(super) fn run_flutter_event_loop(
         if events
             .lifecycle
             .requires_kms_service(drm.is_active(), events.device_removed)
+            && let Err(error) = service_session_lifecycle(
+                drm,
+                scanouts,
+                swapchain,
+                event_loop,
+                &mut events,
+                deadline,
+            )
         {
-            service_session_lifecycle(drm, scanouts, swapchain, event_loop, &mut events, deadline)?;
+            if !error.is::<kms_session::KmsResumeError>() {
+                return Err(error);
+            }
+            // Another VT may have changed connector/CRTC assignments. A
+            // rejected pre-pause state needs a fresh topology, not an exit.
+            warn!(%error, "scheduling KMS recovery after session resume failed");
+            events.kms_presentation_recovery_requested = true;
         }
         if events.kms_presentation_recovery_requested {
             events.kms_presentation_recovery_requested = false;
@@ -1076,6 +1090,22 @@ pub(super) fn run_flutter_event_loop(
                     )
                     .into());
                 }
+                // Rollback can restart Flutter on the retained old pools. Its
+                // broker and fences belong to a new generation, so the old
+                // scheduler must not feed it completion events.
+                retired_output_flips =
+                    retired_output_flips.saturating_add(scheduler.presented_frames());
+                scheduler = output_scheduler::OutputScheduler::new(
+                    drm,
+                    volition_event_sender.clone(),
+                    scanouts,
+                    swapchain
+                        .outputs()
+                        .ok_or("rollback lost its physical output pools")?,
+                    flutter.as_mut().unwrap(),
+                    &mut events,
+                )?;
+                frame_scheduler = frame_scheduler::FrameScheduler::new(scanouts, Instant::now());
                 warn!(%message, "rejected output-control transaction");
                 continue;
             }

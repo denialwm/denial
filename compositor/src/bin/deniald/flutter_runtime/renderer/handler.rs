@@ -147,9 +147,13 @@ impl FlutterGlHandler {
                     render_texture: 0,
                     render_framebuffer: 0,
                 };
+                let import_error;
                 // SAFETY: a compatible GLES context is current and all output
                 // pointers reference live local integers.
                 unsafe {
+                    // Attribute a driver error to this import, not to a prior
+                    // output or depth/stencil allocation.
+                    let _ = (gl.get_error)();
                     (gl.gen_textures)(1, &mut target.scanout_texture);
                     (gl.bind_texture)(gl::TEXTURE_2D, target.scanout_texture);
                     (gl.tex_parameter_i)(
@@ -173,6 +177,7 @@ impl FlutterGlHandler {
                         gl::CLAMP_TO_EDGE as i32,
                     );
                     (gl.image_target_texture)(gl::TEXTURE_2D, image.cast());
+                    import_error = (gl.get_error)();
                     (gl.gen_framebuffers)(1, &mut target.scanout_framebuffer);
                     (gl.bind_framebuffer)(gl::FRAMEBUFFER, target.scanout_framebuffer);
                     (gl.framebuffer_texture_2d)(
@@ -199,21 +204,31 @@ impl FlutterGlHandler {
                 // SAFETY: the same compatible GLES context remains current, the
                 // newly created framebuffer is still bound, and the output
                 // pointer references a live local integer.
-                let framebuffer_status = unsafe {
+                let (framebuffer_status, attachment_error) = unsafe {
+                    let attachment_error = (gl.get_error)();
                     let status = (gl.check_framebuffer_status)(gl::FRAMEBUFFER);
                     (gl.get_integer_v)(gl::SAMPLES, &mut actual_samples);
                     if needs_depth_stencil {
                         (gl.get_integer_v)(gl::STENCIL_BITS, &mut actual_stencil_bits);
                     }
-                    status
+                    (status, attachment_error)
                 };
                 if target.scanout_texture == 0
                     || target.scanout_framebuffer == 0
+                    || import_error != gl::NO_ERROR
+                    || attachment_error != gl::NO_ERROR
                     || framebuffer_status != gl::FRAMEBUFFER_COMPLETE
                     || (!offscreen_blit && actual_samples > 1)
                     || (!offscreen_blit && needs_depth_stencil && actual_stencil_bits < 8)
                 {
                     warn!(
+                        output = ?pool.output_id,
+                        buffer_index,
+                        width,
+                        height,
+                        format = ?scanout_dmabuf.format(),
+                        import_error = format_args!("{import_error:#x}"),
+                        attachment_error = format_args!("{attachment_error:#x}"),
                         texture = target.scanout_texture,
                         framebuffer = target.scanout_framebuffer,
                         status = framebuffer_status,
@@ -226,7 +241,10 @@ impl FlutterGlHandler {
                     destroy_targets(gl, &display, &mut targets);
                     destroy_depth_stencils(gl, &mut depth_stencils);
                     render_context.unbind()?;
-                    return Err("a Flutter output scanout framebuffer is incomplete".into());
+                    return Err(format!(
+                        "Flutter output {:?} buffer {buffer_index} ({width}x{height}, {:?}) scanout framebuffer failed: status={framebuffer_status:#x}, import_error={import_error:#x}, attachment_error={attachment_error:#x}",
+                        pool.output_id, scanout_dmabuf.format(),
+                    ).into());
                 }
 
                 if offscreen_blit {

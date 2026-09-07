@@ -3,6 +3,35 @@
 use super::*;
 
 impl FlutterRuntime {
+    /// Exercise the same EGLImage/FBO import as startup without starting an
+    /// engine or retiring the running generation. KMS TEST_ONLY alone cannot
+    /// establish that Flutter can render into a new scanout allocation.
+    pub(crate) fn validate_output_targets<'a>(
+        shared_context: &EGLContext,
+        output_pools: impl IntoIterator<Item = OutputRenderTargetPool<'a>>,
+        desktop_size: PixelSize,
+        renderer_backend: RendererBackend,
+        offscreen_blit: bool,
+        events: Sender<RuntimeEvent>,
+    ) -> Result<(), Box<dyn Error>> {
+        let render_context =
+            egl_context::create_shared_context("Flutter target validation", shared_context)?;
+        let resource_context =
+            egl_context::create_shared_context("Flutter validation resource", shared_context)?;
+        let handler = FlutterGlHandler::new(
+            render_context,
+            resource_context,
+            output_pools,
+            desktop_size,
+            renderer_backend,
+            offscreen_blit,
+            events,
+            0,
+        )?;
+        handler.destroy_targets();
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn start<'a>(
         shared_context: &EGLContext,
