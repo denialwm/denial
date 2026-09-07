@@ -3,8 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../l10n/generated/app_localizations_en.dart';
-import '../local_apps/local_flutter_application.dart';
 import '../launcher/controllers/home_grid_controller.dart';
 import '../launcher/models/desktop_app.dart';
 import '../localization/denial_localizations.dart';
@@ -40,7 +38,6 @@ import 'widgets/settings_shortcuts_page.dart';
 import 'widgets/settings_system_pages.dart';
 import 'widgets/settings_touchpad_page.dart';
 
-final _englishSettings = AppLocalizationsEn();
 final settingsDesktopApplicationsProvider = FutureProvider<List<DesktopApp>>(
   (ref) => ref.watch(desktopAppsRepositoryProvider).loadApplications(),
   isAutoDispose: true,
@@ -83,45 +80,6 @@ class SettingsPageOpenRequestController
       state = null;
     }
   }
-}
-
-final denialSettingsApplication = LocalFlutterApplication(
-  id: denialSettingsApplicationId,
-  title: _englishSettings.settingsApplicationTitle,
-  defaultSize: const Size(900, 620),
-  minimumSize: const Size(520, 400),
-  translucent: true,
-  icon: Icons.settings_rounded,
-  categories: <String>[
-    _englishSettings.settingsApplicationTitle,
-    _englishSettings.settingsApplicationCategorySystem,
-    _englishSettings.settingsApplicationCategoryAppearance,
-    _englishSettings.settingsApplicationCategoryPreferences,
-  ],
-  localizedTitle: _localizedSettingsTitle,
-  localizedCategories: _localizedSettingsCategories,
-  builder: _buildSettingsApplication,
-);
-
-String _localizedSettingsTitle(BuildContext context) {
-  return context.l10n.settingsApplicationTitle;
-}
-
-List<String> _localizedSettingsCategories(BuildContext context) {
-  final l10n = context.l10n;
-  return <String>[
-    l10n.settingsApplicationTitle,
-    l10n.settingsApplicationCategorySystem,
-    l10n.settingsApplicationCategoryAppearance,
-    l10n.settingsApplicationCategoryPreferences,
-  ];
-}
-
-Widget _buildSettingsApplication(
-  BuildContext context,
-  LocalFlutterWindowHandle window,
-) {
-  return const DenialSettingsApplication();
 }
 
 class DenialSettingsApplication extends ConsumerStatefulWidget {

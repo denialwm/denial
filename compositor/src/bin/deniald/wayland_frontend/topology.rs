@@ -261,10 +261,6 @@ impl WaylandFrontend {
                 capture_source,
                 capture_size,
                 powered: true,
-                #[cfg(feature = "flutter")]
-                presentation_batch: super::presentation::OutputPresentationBatch::new(),
-                #[cfg(feature = "flutter")]
-                submitted_this_batch: false,
             });
         }
         self.outputs.sort_by_key(|entry| entry.id);

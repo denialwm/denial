@@ -229,26 +229,22 @@ impl WaylandFrontend {
     }
 
     #[cfg(feature = "flutter")]
-    pub fn outputs_submitted(&mut self, output_ids: &[OutputId]) -> Result<(), Box<dyn Error>> {
-        if output_ids.is_empty() {
-            return Ok(());
-        }
-
-        self.presentation.begin_output_batch();
-        for entry in &mut self.outputs {
-            entry.submitted_this_batch = output_ids.contains(&entry.id);
-            if entry.submitted_this_batch {
-                entry.presentation_batch.begin(&entry.output);
-                for window in self.output_window_membership.windows(entry.id) {
-                    entry
-                        .presentation_batch
-                        .submit_window(&entry.output, window);
-                }
+    pub fn sampled_frame_presented(
+        &mut self,
+        presented: crate::PresentedOutput,
+        sampled: &[crate::surface_feedback::SurfaceFeedback],
+    ) -> Result<(), Box<dyn Error>> {
+        if let Some(entry) = self.outputs.iter().find(|entry| entry.id == presented.id) {
+            if self.presentation.presented_sampled(
+                &entry.output,
+                sampled,
+                presented.presented_at,
+                Instant::now().saturating_duration_since(presented.observed_at),
+                presented.sequence,
+            ) {
+                self.display_handle.flush_clients()?;
             }
         }
-        // Submission only captures presentation-feedback objects. Protocol
-        // events are emitted by the matching page flip, so there is nothing
-        // to flush on this boundary.
         Ok(())
     }
 
@@ -260,26 +256,9 @@ impl WaylandFrontend {
         if outputs.is_empty() {
             return Ok(());
         }
-        let mut feedback_delivered = false;
-        let observed_now = Instant::now();
         for presented_output in outputs.iter().copied() {
             self.frame_timeline
                 .presented(presented_output.id, presented_output.logical_sequence);
-            if let Some(entry) = self
-                .outputs
-                .iter_mut()
-                .find(|entry| entry.id == presented_output.id)
-            {
-                feedback_delivered |= self.presentation.presented_output(
-                    &mut entry.presentation_batch,
-                    presented_output.presented_at,
-                    observed_now.saturating_duration_since(presented_output.observed_at),
-                    presented_output.sequence,
-                );
-            }
-        }
-        if feedback_delivered {
-            self.display_handle.flush_clients()?;
         }
         Ok(())
     }

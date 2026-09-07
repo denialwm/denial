@@ -251,6 +251,34 @@ fn decode_timeout(
     Ok(timeout)
 }
 
+/// Physical power keys are consumed before ordinary input-to-wake handling.
+/// Releases and duplicate presses must never reverse the requested transition.
+#[derive(Default)]
+pub(super) struct PowerButton {
+    held_devices: BTreeSet<String>,
+    toggle_pending: bool,
+}
+
+impl PowerButton {
+    pub(super) fn note_key(&mut self, device: &str, pressed: bool) {
+        if pressed {
+            if self.held_devices.insert(device.to_owned()) {
+                self.toggle_pending = !self.toggle_pending;
+            }
+        } else {
+            self.held_devices.remove(device);
+        }
+    }
+
+    pub(super) fn remove_device(&mut self, device: &str) {
+        self.held_devices.remove(device);
+    }
+
+    pub(super) fn take_toggle(&mut self) -> bool {
+        std::mem::take(&mut self.toggle_pending)
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct IdlePolicy {
     configuration: IdlePolicyConfiguration,
@@ -260,6 +288,7 @@ pub(super) struct IdlePolicy {
     dpms_triggered: bool,
     suspend_triggered: bool,
     blanked_outputs: BTreeSet<OutputId>,
+    manually_blanked: bool,
 }
 
 impl Default for IdlePolicy {
@@ -275,11 +304,43 @@ impl Default for IdlePolicy {
             dpms_triggered: false,
             suspend_triggered: false,
             blanked_outputs: BTreeSet::new(),
+            manually_blanked: false,
         }
     }
 }
 
 impl IdlePolicy {
+    /// A physical power press overrides the current output power state, even
+    /// when an external power client originally switched the displays off.
+    pub(super) fn toggle_now(
+        &mut self,
+        outputs: impl IntoIterator<Item = (OutputId, bool)>,
+        now: Instant,
+    ) -> IdlePolicyActions {
+        self.reset_idle_interval(now);
+        let outputs = outputs.into_iter().collect::<Vec<_>>();
+        if outputs.iter().any(|(_, powered)| *powered) {
+            IdlePolicyActions {
+                power_requests: self.blank_now(outputs),
+                lock: true,
+                ..IdlePolicyActions::default()
+            }
+        } else {
+            self.blanked_outputs.clear();
+            self.manually_blanked = false;
+            IdlePolicyActions {
+                power_requests: outputs
+                    .into_iter()
+                    .map(|(output, _)| IdlePowerRequest {
+                        output,
+                        powered: true,
+                    })
+                    .collect(),
+                ..IdlePolicyActions::default()
+            }
+        }
+    }
+
     /// Blanks every powered output explicitly while retaining native
     /// input-to-wake semantics independently of the configured idle timeout.
     pub(super) fn blank_now(
@@ -295,6 +356,7 @@ impl IdlePolicy {
                 });
             }
         }
+        self.manually_blanked |= !requests.is_empty();
         requests
     }
 
@@ -333,7 +395,13 @@ impl IdlePolicy {
             // KMS transition, honor it immediately rather than requiring a
             // separate physical input event.
             return IdlePolicyActions {
-                power_requests: self.wake_blanked_outputs(),
+                // Inhibitors prevent automatic sleep; they cannot undo the
+                // user's power button or explicit screen-off request.
+                power_requests: if self.manually_blanked {
+                    Vec::new()
+                } else {
+                    self.wake_blanked_outputs()
+                },
                 ..IdlePolicyActions::default()
             };
         }
@@ -442,6 +510,7 @@ impl IdlePolicy {
     }
 
     fn wake_blanked_outputs(&mut self) -> Vec<IdlePowerRequest> {
+        self.manually_blanked = false;
         std::mem::take(&mut self.blanked_outputs)
             .into_iter()
             .map(|output| IdlePowerRequest {

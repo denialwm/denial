@@ -103,6 +103,8 @@ pub(super) struct RuntimeState {
     pub(super) pending_ui_development: VecDeque<PendingUiDevelopment>,
     #[cfg(feature = "flutter")]
     pub(super) idle_policy: idle_policy::IdlePolicy,
+    #[cfg(feature = "flutter")]
+    pub(super) power_button: idle_policy::PowerButton,
 }
 
 #[cfg(feature = "flutter")]

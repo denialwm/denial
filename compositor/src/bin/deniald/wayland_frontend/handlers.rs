@@ -1003,7 +1003,11 @@ impl CompositorHandler for RuntimeState {
                 #[cfg(feature = "flutter")]
                 {
                     let current_target_geometry = frontend.window_geometry_target(&window);
-                    if previous_target_geometry != current_target_geometry {
+                    if previous_target_geometry != current_target_geometry
+                        || previous_content_geometry != window.geometry()
+                        || first_buffer
+                        || buffer_removed
+                    {
                         frontend.update_window_output_membership(&window);
                     }
                     committed_window_metadata_changed |= previous_content_geometry

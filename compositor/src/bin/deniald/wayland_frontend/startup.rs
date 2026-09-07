@@ -166,10 +166,6 @@ impl WaylandFrontend {
                 )
                     .into(),
                 powered: true,
-                #[cfg(feature = "flutter")]
-                presentation_batch: presentation::OutputPresentationBatch::new(),
-                #[cfg(feature = "flutter")]
-                submitted_this_batch: false,
             });
         }
         let pointer_location = super::scene_input::constrain_pointer_to_outputs(

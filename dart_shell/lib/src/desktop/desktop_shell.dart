@@ -675,13 +675,6 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
 
   void _openSettingsPage(SettingsPageId? page) {
     final environment = ref.read(startupEnvironmentProvider);
-    if (environment.flag('DENIA_EMBED_SETTINGS')) {
-      if (page != null) {
-        ref.read(settingsPageOpenRequestProvider.notifier).request(page);
-      }
-      _launchLocalApp(denialSettingsApplication);
-      return;
-    }
     _closePanels();
     for (final window in ref.read(shellControllerProvider).openAppWindows) {
       if (isDenialSettingsApplicationId(window.appId)) {

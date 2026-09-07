@@ -49,6 +49,7 @@ struct OutputFrame {
     screenshot_request_id: Option<u64>,
     request: OutputFrameRequest,
     submitted_at: Instant,
+    feedback: Vec<crate::surface_feedback::SurfaceFeedback>,
 }
 
 fn ready_target_elapsed(frame: &OutputFrame, presented_at: Instant) -> bool {
@@ -873,7 +874,6 @@ pub(super) struct OutputScheduler {
     /// Outputs whose KMS commit succeeded in the current submit pass. Keeping
     /// this allocation lets the Wayland frontend route every window once and
     /// flush clients once, even when one raster batch touches several CRTCs.
-    submitted_outputs: Vec<OutputId>,
     /// Page flips retired by one calloop dispatch, published to Wayland as one
     /// batch so Space refresh and socket flushing do not scale with outputs.
     presented_outputs: Vec<PresentedOutput>,
@@ -985,7 +985,6 @@ impl OutputScheduler {
         Ok(Self {
             volition: presentation,
             pipelines,
-            submitted_outputs: Vec::with_capacity(scanouts.len()),
             presented_outputs: Vec::with_capacity(scanouts.len()),
             ready_fences,
             audit_stride,
@@ -1061,6 +1060,7 @@ impl OutputScheduler {
             screenshot_request_id,
             rendered_at,
             request,
+            feedback,
         } = output;
         if let Some(audit) = self.audit.as_mut() {
             let audit_index = fence_pool_index * self.audit_stride + index;
@@ -1085,6 +1085,7 @@ impl OutputScheduler {
                     screenshot_request_id,
                     request,
                     submitted_at: Instant::now(),
+                    feedback,
                 })
                 .expect("prevalidated output Ready slot changed during publication");
         } else if slot.signaled {
@@ -1134,7 +1135,6 @@ impl OutputScheduler {
         scanouts: &[Scanout],
         events: &mut RuntimeState,
     ) -> Result<Option<volition::Failure>, Box<dyn Error>> {
-        self.submitted_outputs.clear();
         let mut stalled = None;
         for event in volition_events {
             if !self.volition.owns(&event) {
@@ -1171,7 +1171,6 @@ impl OutputScheduler {
                             submitted_at,
                         );
                     }
-                    self.submitted_outputs.push(scanout.output.id);
                 }
                 volition::Event::Stalled(failure) => {
                     // Keep the pending frame and its Flutter ownership intact.
@@ -1183,9 +1182,6 @@ impl OutputScheduler {
                 }
                 volition::Event::Failed(failure) => return Err(Box::new(failure)),
             }
-        }
-        if let Some(frontend) = events.wayland.as_mut() {
-            frontend.outputs_submitted(&self.submitted_outputs)?;
         }
         Ok(stalled)
     }
@@ -1330,7 +1326,6 @@ impl OutputScheduler {
         if let Some(frontend) = events.wayland.as_mut()
             && !directly_submitted.is_empty()
         {
-            frontend.outputs_submitted(&directly_submitted)?;
             for output in directly_submitted {
                 frontend.output_power_applied(output, true);
             }
@@ -1469,6 +1464,9 @@ impl OutputScheduler {
                     presented.request.tick.presentation_target,
                     completion.sequence,
                 );
+            }
+            if let Some(frontend) = events.wayland.as_mut() {
+                frontend.sampled_frame_presented(presentation, &presented.feedback)?;
             }
             self.presented_outputs.push(presentation);
             self.presented_frames = self.presented_frames.saturating_add(1);

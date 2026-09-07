@@ -636,6 +636,7 @@ pub(super) fn run_flutter_event_loop(
         if background_maintenance_due {
             synchronize_idle_dpms(scanouts, &mut events, background_started);
         }
+        synchronize_power_button(scanouts, &mut events);
         // The synchronous VT-resume commit invalidated the old scheduler's
         // per-output buffer ownership. Preserve requests until the topology
         // path below recreates that scheduler.

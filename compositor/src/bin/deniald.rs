@@ -4,6 +4,9 @@
 #[cfg(feature = "flutter")]
 #[path = "deniald/authentication.rs"]
 mod authentication;
+#[cfg(feature = "flutter")]
+#[path = "deniald/surface_feedback.rs"]
+mod surface_feedback;
 #[path = "deniald/clipboard.rs"]
 mod clipboard;
 #[path = "deniald/cpu_scheduling.rs"]
@@ -177,7 +180,7 @@ const DEFAULT_QT_QPA_PLATFORMTHEME: &str = "xdgdesktopportal";
 #[cfg(feature = "flutter")]
 use dpms::{
     apply_output_power_requests, collect_output_power_requests, synchronize_idle_dpms,
-    synchronize_idle_dpms_configuration, synchronize_requested_dpms_off,
+    synchronize_idle_dpms_configuration, synchronize_power_button, synchronize_requested_dpms_off,
 };
 #[cfg(feature = "flutter")]
 use flutter_event_loop::{FlutterEventLoopContext, run_flutter_event_loop};

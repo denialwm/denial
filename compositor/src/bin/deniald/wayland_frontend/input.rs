@@ -1233,6 +1233,8 @@ fn process_input_event(
     }
 
     if let InputEvent::DeviceRemoved { device } = &event {
+        #[cfg(feature = "flutter")]
+        state.power_button.remove_device(device.sysname());
         tablet_clients_changed = tablet::unregister_device(state, device);
         if Device::has_capability(device, DeviceCapability::Keyboard) {
             state.keyboard_devices.remove(device.sysname());
@@ -1264,6 +1266,16 @@ fn process_input_event(
         event: key_event, ..
     } = &event
     {
+        // KEY_POWER (116) plus the XKB offset. Handle the entire physical key
+        // sequence before note_user_activity: waking first would invert an
+        // off-to-on toggle, and routing the release would undo on-to-off.
+        if key_event.key_code().raw() == 116 + 8 {
+            state.power_button.note_key(
+                key_event.device().sysname(),
+                key_event.state() == KeyState::Pressed,
+            );
+            return false;
+        }
         return process_keyboard_transition(
             state,
             key_event.key_code(),
@@ -1319,6 +1331,10 @@ fn process_input_event(
 }
 
 pub(in super::super) fn reset_all_input_devices(state: &mut RuntimeState) {
+    #[cfg(feature = "flutter")]
+    {
+        state.power_button = Default::default();
+    }
     reset_input_devices(state, InputDeviceReset::ALL);
 }
 

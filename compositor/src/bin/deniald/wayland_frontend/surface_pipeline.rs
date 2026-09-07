@@ -174,6 +174,7 @@ impl WaylandFrontend {
             let Some(kind) = self.pending_surface_commits.remove(&surface.id()) else {
                 continue;
             };
+            super::presentation::capture_surface_feedback(&surface);
             let current_buffer = with_renderer_surface_state(&surface, |state| {
                 state.buffer().map(|buffer| (**buffer).clone())
             })
@@ -457,6 +458,7 @@ impl WaylandFrontend {
                     .last_mut()
                     .filter(|frame| frame.texture_id == surface_id as i64)
                 {
+                    frame.set_feedback(super::presentation::surface_feedback(surface));
                     frame.presentation = Some(Default::default());
                 }
                 let role = if surface == root {
@@ -520,18 +522,24 @@ impl WaylandFrontend {
                 .get(&surface.id())
                 .copied()
                 .unwrap_or_default();
-            return Some(ExternalTextureFrame::from_dmabuf(
-                texture_id,
-                dmabuf,
-                buffer_guard,
-                revision,
-                expects_sample,
-            ));
+            return Some(
+                ExternalTextureFrame::from_dmabuf(
+                    texture_id,
+                    dmabuf,
+                    buffer_guard,
+                    revision,
+                    expects_sample,
+                )
+                .with_feedback(super::presentation::surface_feedback(surface)),
+            );
         }
         self.surface_shm_frames
             .get(&surface.id())
             .cloned()
-            .map(|frame| ExternalTextureFrame::from_shm(texture_id, frame, expects_sample))
+            .map(|frame| {
+                ExternalTextureFrame::from_shm(texture_id, frame, expects_sample)
+                    .with_feedback(super::presentation::surface_feedback(surface))
+            })
     }
 
     /// Build source updates only for surfaces whose already-published layout

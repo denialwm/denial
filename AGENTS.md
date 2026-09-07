@@ -53,6 +53,13 @@ for restarting its Denial session and confirming that a new `deniald` process
 is running; no additional authorization is required. Treat all three machines
 as agent-managed test hosts, not as the user's local graphical session.
 
+The Moto Edge 70 (`roadstr`, serial `ZY22MMG59D`, USB SSH `10.77.71.2`) also
+has the user's standing authorization for session restarts and device reboots
+needed to activate authorized device work. Announce the transition and verify
+the resulting process and service health without asking for separate permission.
+Prefer reboot over live compositor restart on this phone because display-driver
+teardown has previously hung. This does not extend to the development workstation.
+
 ## User-owned visual validation and test triggers
 
 The user performs all visual validation. Never capture or inspect screenshots,

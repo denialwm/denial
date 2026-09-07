@@ -130,6 +130,42 @@ impl DpmsTopologyGuard {
 }
 
 #[cfg(feature = "flutter")]
+pub(super) fn synchronize_power_button(scanouts: &[Scanout], events: &mut RuntimeState) {
+    if !events.power_button.take_toggle() {
+        return;
+    }
+    // Queued requests are the effective state until the atomic KMS gate runs.
+    let outputs = scanouts
+        .iter()
+        .map(|scanout| {
+            let output = scanout.output.id;
+            (
+                output,
+                events
+                    .output_power_requests
+                    .get(&output)
+                    .copied()
+                    .unwrap_or(scanout.powered),
+            )
+        })
+        .collect::<Vec<_>>();
+    let actions = events.idle_policy.toggle_now(outputs, Instant::now());
+    if actions.lock {
+        if let Some(authentication) = events.authentication.as_ref() {
+            // Close the security gate before queuing DPMS off. Waking only
+            // restores display power; authentication remains locked.
+            authentication.lock();
+            synchronize_authentication_boundary(events);
+            info!("locked the session before power-button display off");
+        } else {
+            warn!("could not lock on power button: authentication is unavailable");
+        }
+    }
+    events.queue_idle_power_requests(actions.power_requests);
+    info!("power button requested compositor-owned display power toggle");
+}
+
+#[cfg(feature = "flutter")]
 pub(super) fn synchronize_idle_dpms(scanouts: &[Scanout], events: &mut RuntimeState, now: Instant) {
     let inhibited = events
         .wayland
