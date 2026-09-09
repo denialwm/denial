@@ -70,6 +70,7 @@ mod cursor_bridge;
 mod damage;
 #[path = "flutter_runtime/engine_session.rs"]
 mod engine_session;
+pub(crate) use engine_session::PreparedFlutterRenderer;
 #[path = "flutter_runtime/event_pipeline.rs"]
 mod event_pipeline;
 #[path = "flutter_runtime/input.rs"]

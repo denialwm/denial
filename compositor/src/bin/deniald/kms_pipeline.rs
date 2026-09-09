@@ -113,28 +113,46 @@ pub(super) fn apply_hotplug_topology(
         }
     };
 
-    // Validate every buffer, including those not used for the first KMS
-    // frame, while the old engine, pools and scanout journal are still live.
-    if flutter.is_some() {
-        let validation = flutter_launcher
-            .as_deref()
-            .unwrap()
-            .validate_output_targets(
+    // Prepare every buffer while the old engine and both pools are live.
+    // Keep the actual EGL contexts/FBOs: recreating a validated target after
+    // shutdown can fail. Rollback needs its own unstarted renderer as well.
+    let (mut prepared, mut rollback_prepared) = if flutter.is_some() {
+        let preparation = (|| -> Result<_, Box<dyn Error>> {
+            let launcher = flutter_launcher.as_deref().unwrap();
+            let prepared = launcher.prepare_output_targets(
                 renderer,
                 staged
                     .outputs()
                     .ok_or("hotplug staging lost its physical output pools")?,
                 atlas.pixel_size,
-            );
-        if let Err(error) = validation {
-            let failures =
-                rollback_hotplug_scanouts(reconciliation, &old_framebuffers, &mut progress, events);
-            return Err(hotplug_transaction_error(
-                format!("Flutter output target validation failed: {error}"),
-                failures,
-            ));
+            )?;
+            let rollback = launcher.prepare_output_targets(
+                renderer,
+                swapchain
+                    .outputs()
+                    .ok_or("previous Flutter topology has no output pools")?,
+                swapchain.desktop_size(),
+            )?;
+            Ok((Some(prepared), Some(rollback)))
+        })();
+        match preparation {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                let failures = rollback_hotplug_scanouts(
+                    reconciliation,
+                    &old_framebuffers,
+                    &mut progress,
+                    events,
+                );
+                return Err(hotplug_transaction_error(
+                    format!("Flutter output target preparation failed: {error}"),
+                    failures,
+                ));
+            }
         }
-    }
+    } else {
+        (None, None)
+    };
 
     #[cfg(feature = "flutter")]
     let render_result = if flutter.is_some() {
@@ -285,7 +303,7 @@ pub(super) fn apply_hotplug_topology(
     };
 
     // Keep the journal and both buffer pools until the replacement engine is
-    // usable. A successful KMS commit does not guarantee a successful EGL import.
+    // usable. Its prepared renderer already owns the validated EGL imports.
     let replacement = (|| -> Result<Option<flutter_runtime::FlutterRuntime>, Box<dyn Error>> {
         let failures = reconciliation.clear_retired();
         if !failures.is_empty() {
@@ -298,7 +316,7 @@ pub(super) fn apply_hotplug_topology(
         }
         if restart_flutter {
             let launcher = flutter_launcher.as_deref_mut().unwrap();
-            let runtime = launcher.start(
+            let runtime = launcher.start_with_targets(
                 renderer,
                 staged
                     .outputs()
@@ -306,6 +324,11 @@ pub(super) fn apply_hotplug_topology(
                 reconciliation.scanouts(),
                 &snapshot,
                 &atlas,
+                Some(
+                    prepared
+                        .take()
+                        .ok_or("replacement Flutter renderer was not prepared")?,
+                ),
             )?;
             Ok(Some(runtime))
         } else {
@@ -326,7 +349,7 @@ pub(super) fn apply_hotplug_topology(
                 let restore = (|| -> Result<flutter_runtime::FlutterRuntime, Box<dyn Error>> {
                     let old_atlas = AtlasPlan::for_snapshot(&old_snapshot)
                         .ok_or("previous Flutter topology has no atlas")?;
-                    flutter_launcher.as_deref_mut().unwrap().start(
+                    flutter_launcher.as_deref_mut().unwrap().start_with_targets(
                         renderer,
                         swapchain
                             .outputs()
@@ -334,6 +357,11 @@ pub(super) fn apply_hotplug_topology(
                         scanouts,
                         &old_snapshot,
                         &old_atlas,
+                        Some(
+                            rollback_prepared
+                                .take()
+                                .ok_or("rollback Flutter renderer was not prepared")?,
+                        ),
                     )
                 })();
                 match restore {
@@ -366,6 +394,8 @@ pub(super) fn apply_hotplug_topology(
         );
     }
     progress.mark_finalized();
+    // Release the unused rollback FBOs before retiring their native pool.
+    drop(rollback_prepared);
     drop(retired_scanouts);
     drop(retired);
 

@@ -52,6 +52,10 @@ pub(in crate::flutter_runtime) struct FlutterGlHandler {
 }
 
 impl FlutterGlHandler {
+    pub(in crate::flutter_runtime) fn assign_generation(&mut self, generation: u64) {
+        self.generation = generation;
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(in crate::flutter_runtime) fn new<'a>(
         render_context: egl_context::SharedEglContext,
@@ -971,8 +975,9 @@ impl FlutterGlHandler {
             return;
         }
         let mut context = lock(&self.render_context);
-        // SAFETY: EngineHost has already shut down and joined its raster
-        // thread, so this context is no longer current anywhere else.
+        // SAFETY: either no engine has received this handler, or EngineHost
+        // has shut down and joined its workers. A failed shutdown leaks its
+        // callback-state Arc, preventing the final handler drop and cleanup.
         if let Err(error) = unsafe { context.context.make_current() } {
             error!(%error, "could not bind Flutter context for output-target cleanup");
             return;
@@ -1130,6 +1135,14 @@ impl FlutterGlHandler {
             first.get_or_insert(error);
         }
         first
+    }
+}
+
+impl Drop for FlutterGlHandler {
+    fn drop(&mut self) {
+        // Also covers abandoned preparations and startup failures. Successful
+        // runtime shutdown already drains the targets; cleanup is idempotent.
+        self.destroy_targets();
     }
 }
 

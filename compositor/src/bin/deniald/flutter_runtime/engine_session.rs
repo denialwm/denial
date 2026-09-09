@@ -2,22 +2,94 @@
 
 use super::*;
 
-impl FlutterRuntime {
-    /// Exercise the same EGLImage/FBO import as startup without starting an
-    /// engine or retiring the running generation. KMS TEST_ONLY alone cannot
-    /// establish that Flutter can render into a new scanout allocation.
-    pub(crate) fn validate_output_targets<'a>(
+#[cfg(test)]
+#[path = "engine_session/tests.rs"]
+mod tests;
+
+/// Unstarted renderer, including the actual contexts and complete FBO table.
+/// Consuming this transfers those resources to an engine without another import.
+/// Dropping an unused preparation releases them through FlutterGlHandler::drop.
+pub(crate) struct PreparedFlutterRenderer {
+    handler: Arc<FlutterGlHandler>,
+    configuration: PreparedRendererConfiguration,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct PreparedOutputPool {
+    output_id: OutputId,
+    render_view_id: RenderViewId,
+    configuration_generation: u64,
+    size: PixelSize,
+    initial_scanout: usize,
+    // Keep the native allocations alive and compare their identity, not just
+    // dimensions/format: a newly allocated pool requires newly imported FBOs.
+    dmabufs: Vec<(Dmabuf, Option<Dmabuf>)>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct PreparedRendererConfiguration {
+    pools: Vec<PreparedOutputPool>,
+    desktop_size: PixelSize,
+    renderer_backend: RendererBackend,
+    offscreen_blit: bool,
+}
+
+impl PreparedRendererConfiguration {
+    fn new(
+        pools: &[OutputRenderTargetPool<'_>],
+        desktop_size: PixelSize,
+        renderer_backend: RendererBackend,
+        offscreen_blit: bool,
+    ) -> Self {
+        Self {
+            pools: pools
+                .iter()
+                .map(|pool| PreparedOutputPool {
+                    output_id: pool.output_id,
+                    render_view_id: pool.render_view_id,
+                    configuration_generation: pool.configuration_generation,
+                    size: pool.size,
+                    initial_scanout: pool.initial_scanout,
+                    dmabufs: pool
+                        .dmabufs
+                        .iter()
+                        .map(|(scanout, render)| ((*scanout).clone(), render.map(Clone::clone)))
+                        .collect(),
+                })
+                .collect(),
+            desktop_size,
+            renderer_backend,
+            offscreen_blit,
+        }
+    }
+
+    fn validate(&self, expected: &Self) -> Result<(), Box<dyn Error>> {
+        if self != expected {
+            return Err("prepared Flutter renderer does not match the runtime output pools or configuration".into());
+        }
+        Ok(())
+    }
+}
+
+impl PreparedFlutterRenderer {
+    pub(crate) fn new<'a>(
         shared_context: &EGLContext,
         output_pools: impl IntoIterator<Item = OutputRenderTargetPool<'a>>,
         desktop_size: PixelSize,
         renderer_backend: RendererBackend,
         offscreen_blit: bool,
         events: Sender<RuntimeEvent>,
-    ) -> Result<(), Box<dyn Error>> {
-        let render_context =
-            egl_context::create_shared_context("Flutter target validation", shared_context)?;
+    ) -> Result<Self, Box<dyn Error>> {
+        let output_pools = output_pools.into_iter().collect::<Vec<_>>();
+        let configuration = PreparedRendererConfiguration::new(
+            &output_pools,
+            desktop_size,
+            renderer_backend,
+            offscreen_blit,
+        );
+        let render_context = egl_context::create_shared_context("Flutter raster", shared_context)?;
         let resource_context =
-            egl_context::create_shared_context("Flutter validation resource", shared_context)?;
+            egl_context::create_shared_context("Flutter resource", shared_context)?;
         let handler = FlutterGlHandler::new(
             render_context,
             resource_context,
@@ -28,10 +100,32 @@ impl FlutterRuntime {
             events,
             0,
         )?;
-        handler.destroy_targets();
-        Ok(())
+        Ok(Self {
+            handler,
+            configuration,
+        })
     }
 
+    fn into_handler(
+        mut self,
+        expected: &PreparedRendererConfiguration,
+        generation: u64,
+    ) -> Result<Arc<FlutterGlHandler>, Box<dyn Error>> {
+        self.configuration.validate(expected)?;
+        // No engine or callback can own this handler yet. Assign the generation
+        // only at handoff, before it becomes visible to Flutter's threads.
+        Arc::get_mut(&mut self.handler)
+            .ok_or("prepared Flutter renderer is already shared")?
+            .assign_generation(generation);
+        info!(
+            generation,
+            "starting Flutter with retained prepared output targets"
+        );
+        Ok(self.handler)
+    }
+}
+
+impl FlutterRuntime {
     #[allow(clippy::too_many_arguments)]
     pub fn start<'a>(
         shared_context: &EGLContext,
@@ -49,6 +143,7 @@ impl FlutterRuntime {
         wayland_display: Option<OsString>,
         x11_display: Option<OsString>,
         output_control_socket: Option<OsString>,
+        prepared: Option<PreparedFlutterRenderer>,
     ) -> Result<Self, Box<dyn Error>> {
         let wire = WireBridge::new(snapshot, atlas, work_area)?;
         let render_outputs = atlas
@@ -80,19 +175,25 @@ impl FlutterRuntime {
                 }
             })
             .collect::<Vec<_>>();
-        let render_context = egl_context::create_shared_context("Flutter raster", shared_context)?;
-        let resource_context =
-            egl_context::create_shared_context("Flutter resource", shared_context)?;
-        let handler = FlutterGlHandler::new(
-            render_context,
-            resource_context,
-            output_pools,
+        let output_pools = output_pools.into_iter().collect::<Vec<_>>();
+        let expected = PreparedRendererConfiguration::new(
+            &output_pools,
             atlas.pixel_size,
             factory.project.renderer_backend,
             offscreen_blit,
-            events,
-            generation,
-        )?;
+        );
+        let prepared = match prepared {
+            Some(prepared) => prepared,
+            None => PreparedFlutterRenderer::new(
+                shared_context,
+                output_pools,
+                atlas.pixel_size,
+                factory.project.renderer_backend,
+                offscreen_blit,
+                events,
+            )?,
+        };
+        let handler = prepared.into_handler(&expected, generation)?;
         let host = EngineHost::start_with_library_and_priority_setter(
             &factory.project,
             handler.clone(),

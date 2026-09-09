@@ -992,13 +992,13 @@ impl FlutterLauncher {
         self.offscreen_blit
     }
 
-    pub(super) fn validate_output_targets(
+    pub(super) fn prepare_output_targets(
         &self,
         renderer: &GlesRenderer,
         swapchains: &OutputSwapchains,
         desktop_size: PixelSize,
-    ) -> Result<(), Box<dyn Error>> {
-        flutter_runtime::FlutterRuntime::validate_output_targets(
+    ) -> Result<flutter_runtime::PreparedFlutterRenderer, Box<dyn Error>> {
+        flutter_runtime::PreparedFlutterRenderer::new(
             renderer.egl_context(),
             flutter_render_target_pools(swapchains),
             desktop_size,
@@ -1015,6 +1015,19 @@ impl FlutterLauncher {
         scanouts: &[Scanout],
         snapshot: &TopologySnapshot,
         atlas: &AtlasPlan,
+    ) -> Result<flutter_runtime::FlutterRuntime, Box<dyn Error>> {
+        self.start_with_targets(renderer, output_swapchains, scanouts, snapshot, atlas, None)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn start_with_targets(
+        &mut self,
+        renderer: &GlesRenderer,
+        output_swapchains: &OutputSwapchains,
+        scanouts: &[Scanout],
+        snapshot: &TopologySnapshot,
+        atlas: &AtlasPlan,
+        prepared: Option<flutter_runtime::PreparedFlutterRenderer>,
     ) -> Result<flutter_runtime::FlutterRuntime, Box<dyn Error>> {
         self.generation = self.generation.wrapping_add(1).max(1);
         if let Err(error) = self.activate_requested_factory() {
@@ -1036,6 +1049,7 @@ impl FlutterLauncher {
             .map(|scanout| OutputMode::from(scanout.output.mode).refresh)
             .max()
             .ok_or("Flutter runtime has no output refresh")?;
+        let using_prepared = prepared.is_some();
         let runtime = self.start_with_current_factory(
             renderer.egl_context(),
             flutter_render_target_pools(output_swapchains),
@@ -1043,6 +1057,7 @@ impl FlutterLauncher {
             atlas,
             scanouts,
             u32::try_from(refresh_millihz)?,
+            prepared,
         );
         let mut runtime = match runtime {
             Ok(runtime) => runtime,
@@ -1053,9 +1068,15 @@ impl FlutterLauncher {
                 warn!(
                     %error,
                     ?failed_mode,
-                    "custom Flutter runtime failed; restoring the packaged shell"
+                    "custom Flutter runtime failed; selecting the packaged shell"
                 );
                 self.replace_factory(ui_development::UiRuntimeMode::OfficialOptimized)?;
+                if using_prepared {
+                    // The failed engine consumed this preparation. Let the
+                    // topology transaction restore its prepared rollback
+                    // renderer; never reimport targets after old-engine teardown.
+                    return Err(error);
+                }
                 self.start_with_current_factory(
                     renderer.egl_context(),
                     flutter_render_target_pools(output_swapchains),
@@ -1063,6 +1084,7 @@ impl FlutterLauncher {
                     atlas,
                     scanouts,
                     u32::try_from(refresh_millihz)?,
+                    None,
                 )?
             }
             Err(error) => return Err(error),
@@ -1082,6 +1104,7 @@ impl FlutterLauncher {
         atlas: &AtlasPlan,
         scanouts: &[Scanout],
         refresh_millihz: u32,
+        prepared: Option<flutter_runtime::PreparedFlutterRenderer>,
     ) -> Result<flutter_runtime::FlutterRuntime, Box<dyn Error>> {
         if let Some(scanout) = scanouts
             .iter()
@@ -1111,6 +1134,7 @@ impl FlutterLauncher {
             self.wayland_display.clone(),
             self.x11_display.clone(),
             self.output_control_socket.clone(),
+            prepared,
         )
     }
 
